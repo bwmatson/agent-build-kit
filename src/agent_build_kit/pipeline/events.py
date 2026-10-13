@@ -33,6 +33,7 @@ overwritten by the state the build records when it ends.
 from __future__ import annotations
 
 import json
+import threading
 from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
 from functools import partial
@@ -258,6 +259,7 @@ def on_merged(
                 retarget=retarget or (lambda unit, base: None),
                 rebase_cap=rebase_cap,
                 resume=resume,
+                lane=lane,
                 log=log,
             )
     except BranchBusy as error:
@@ -277,6 +279,7 @@ def release_children(
     rebase_cap: int | None = None,
     resume: Resume = _no_thread,
     settled: Callable[[StoredUnit, str], bool] = lambda child, base: False,
+    lane: RestackLane | None = None,
     log: Log = print,
 ) -> list[str]:
     """Move what is stacked on a unit that has left the stack — merged or
@@ -286,6 +289,10 @@ def release_children(
 
     `settled` says a child is already where this would put it, so a second
     release of the same unit moves and tells nothing.
+
+    With a `lane`, a child is handed to it in place of the inline restack: the lane takes
+    the child's claim on a worker of its own, and the leaving unit's worktree and branch
+    are removed when the lane has finished the last child handed over.
 
     Returns what it could not move, one line each — the child, the branch it is
     still on and why — for the caller to record on the unit that left.
@@ -299,6 +306,9 @@ def release_children(
     held_for_depth: list[str] = []
     not_moved: list[str] = []
     failures: list[str] = []
+    handed: list[str] = []
+    moved: set[str] = set()
+    finishing = threading.Lock()
 
     def unmoved(child: StoredUnit, why: object) -> None:
         if child.id not in not_moved:
@@ -313,6 +323,44 @@ def release_children(
             unmoved(child, error)
             return False
         return True
+
+    def moved_off(child: StoredUnit, new_base: str) -> None:
+        """What the lane runs, under the child's claim: the restack itself."""
+        restack(
+            branch=branch_name(child),
+            old_base=old_base,
+            new_base=new_base,
+            child=child,
+            parent=leaving,
+        )
+        moved.add(child.id)
+        log(f"{child.id}: restacked onto {new_base}")
+
+    def remove_leaving() -> None:
+        if not (remove_worktree and delete_branch):
+            return
+        _remove_leaving(
+            leaving,
+            graph=store.all(),
+            claim=claim,
+            remove_worktree=remove_worktree,
+            delete_branch=delete_branch,
+            building_on_it=building_on_it,
+            held_for_depth=held_for_depth,
+            not_moved=[*not_moved, *(child for child in handed if child not in moved)],
+            log=log,
+        )
+
+    def finished(child_id: str) -> None:
+        """The lane is done with a child; with the last one, the branch it left goes."""
+        with finishing:
+            handed_over.discard(child_id)
+            last = not handed_over and handing_done.is_set()
+        if last:
+            remove_leaving()
+
+    handed_over: set[str] = set()
+    handing_done = threading.Event()
 
     for child in _children_of(leaving, graph):
         new_base = base_of(child, graph)
@@ -346,7 +394,19 @@ def release_children(
                     # At once, as every other path here: a PR left on a branch merged
                     # away may be closed, and the thread only retargets when it runs.
                     retargeted(child, new_base)
+                    if lane is not None:
+                        lane.hand_over(child)
                     continue
+            if lane is not None and (rebase_cap is None or depth <= rebase_cap):
+                with finishing:
+                    handed.append(child.id)
+                    handed_over.add(child.id)
+                lane.hand_over(
+                    child,
+                    partial(moved_off, child, new_base),
+                    done=partial(finished, child.id),
+                )
+                continue
             with claim(child):
                 if rebase_cap is not None and depth > rebase_cap:
                     _hold_for_depth(
@@ -382,22 +442,21 @@ def release_children(
 
     if rebase_cap is not None:
         still_held = _reconsider_held(
-            leaving, store=store, restack=restack, claim=claim, rebase_cap=rebase_cap, log=log
+            leaving,
+            store=store,
+            restack=restack,
+            claim=claim,
+            rebase_cap=rebase_cap,
+            lane=lane,
+            log=log,
         )
         held_for_depth += [held for held in still_held if held not in held_for_depth]
 
-    if remove_worktree and delete_branch:
-        _remove_leaving(
-            leaving,
-            graph=graph,
-            claim=claim,
-            remove_worktree=remove_worktree,
-            delete_branch=delete_branch,
-            building_on_it=building_on_it,
-            held_for_depth=held_for_depth,
-            not_moved=not_moved,
-            log=log,
-        )
+    with finishing:
+        handing_done.set()
+        waiting_for_lane = bool(handed_over)
+    if not waiting_for_lane:
+        remove_leaving()
     return failures
 
 
@@ -527,6 +586,7 @@ def _record_merge(
     retarget: Callable[[StoredUnit, str], None],
     rebase_cap: int | None,
     resume: Resume,
+    lane: RestackLane | None,
     log: Log,
 ) -> None:
     store.set_state(merged.id, MERGED, cause=Cause.MERGED)
@@ -542,6 +602,7 @@ def _record_merge(
         retarget=retarget,
         rebase_cap=rebase_cap,
         resume=resume,
+        lane=lane,
         log=log,
     )
 
@@ -579,6 +640,7 @@ def _reconsider_held(
     restack: Restack,
     claim: Claim,
     rebase_cap: int,
+    lane: RestackLane | None = None,
     log: Log,
 ) -> list[str]:
     """Restack what an earlier merge held for depth and this one brought within
@@ -610,6 +672,7 @@ def _reconsider_held(
             restack=restack,
             claim=claim,
             rebase_cap=rebase_cap,
+            lane=lane,
             log=log,
         ) and old_base == branch_name(merged):
             still_held.append(unit.id)
@@ -625,10 +688,12 @@ def reconsider_depth_hold(
     restack: Restack,
     claim: Claim,
     rebase_cap: int,
+    lane: RestackLane | None = None,
     log: Log,
 ) -> bool:
     """Restack a unit held for depth if its depth is now within the cap, from the
-    branch it is still on. True when it is still held, on that branch."""
+    branch it is still on, in the lane when there is one. True when it is still held,
+    on that branch."""
     depth = depth_of(unit, graph)
     new_base = base_of(unit, graph)
     parent = next((u for u in graph if branch_name(u) == old_base), None)
@@ -639,13 +704,18 @@ def reconsider_depth_hold(
             store.set_state(
                 unit.id, IN_REVIEW, note=f"depth {depth} is within the cap", cause=Cause.RELEASED
             )
-            restack(
+            move = partial(
+                restack,
                 branch=branch_name(unit),
                 old_base=old_base,
                 new_base=new_base,
                 child=unit,
                 parent=parent,
             )
+            if lane is None:
+                move()
+        if lane is not None:
+            lane.hand_over(unit, move)
     except BranchBusy:
         # The claim failed before anything was written: it is still held,
         # its record as it was, and the next merge tries again.
@@ -1035,6 +1105,7 @@ def on_release(
     restack: Restack | None = None,
     rebase_cap: int | None = None,
     resume: Resume = _no_thread,
+    lane: RestackLane | None = None,
     log: Log = print,
 ) -> bool:
     """The hold label has come off: a unit it held goes back to waiting for review.
@@ -1081,6 +1152,7 @@ def on_release(
                     restack=restack,
                     claim=claim,
                     rebase_cap=rebase_cap,
+                    lane=lane,
                     log=log,
                 )
             ):
@@ -1767,6 +1839,7 @@ def build_dispatch(
     rebase_cap: int | None = None,
     waiting_path: Path | None = None,
     resume: Resume = _no_thread,
+    lane: RestackLane | None = None,
     log: Log = print,
 ) -> Callable[..., bool]:
     """The callable `pr_poller` hands each event to.
@@ -1802,6 +1875,7 @@ def build_dispatch(
                 retarget=retarget,
                 rebase_cap=rebase_cap,
                 resume=resume,
+                lane=lane,
                 log=log,
             )
         if event == "closed":
@@ -1817,6 +1891,7 @@ def build_dispatch(
                 restack=restack,
                 rebase_cap=rebase_cap,
                 resume=resume,
+                lane=lane,
                 log=log,
             )
         if event == "rework":

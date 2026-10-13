@@ -2455,7 +2455,9 @@ def _stack_versions(command: list[str] | None, *, run: Run | None = None) -> dic
     return versions
 
 
-def own_work_starts_after(tree: Path, base: str, unit: Unit, store: UnitStore) -> str:
+def own_work_starts_after(
+    tree: Path, base: str, unit: Unit, store: UnitStore, *, head: str = "HEAD"
+) -> str:
     """The commit this unit's own work begins after: what a replay starts from.
 
     Usually where it and its base last shared history. But a parent that was
@@ -2467,8 +2469,10 @@ def own_work_starts_after(tree: Path, base: str, unit: Unit, store: UnitStore) -
     branch is later than that, and is where its own work really starts — found
     from the parent's branch, or the last commit it pushed or had approved,
     since a merged parent's branch may already be deleted.
+
+    `head` names the branch when `tree` is not checked out on it.
     """
-    start = git(tree, "merge-base", base, "HEAD", check=False).stdout.strip()
+    start = git(tree, "merge-base", base, head, check=False).stdout.strip()
     known = list(store.all())
     index = {u.id: u for u in known}
     for dep in through_satisfied(unit, known):
@@ -2478,7 +2482,7 @@ def own_work_starts_after(tree: Path, base: str, unit: Unit, store: UnitStore) -
         for ref in (parent.branch, parent.pushed, parent.approved):
             if not ref:
                 continue
-            fork = git(tree, "merge-base", ref, "HEAD", check=False).stdout.strip()
+            fork = git(tree, "merge-base", ref, head, check=False).stdout.strip()
             # Later than what we have, and on this branch's own line.
             if fork and (not start or _is_ancestor(tree, start, fork)):
                 start = fork

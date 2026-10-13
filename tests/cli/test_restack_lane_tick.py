@@ -28,7 +28,7 @@ from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING
 from agent_build_kit.pipeline.usage_guard import Decision
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from tests.conftest import make_installation
-from tests.factories import new_unit
+from tests.factories import init_repo, new_unit
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -180,6 +180,7 @@ def test_a_build_that_stops_for_a_moved_base_is_followed_at_once_by_a_restack_of
     scene: Scene, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     scene.hands_over = False
+    init_repo(scene.inst.checkouts["app"])
     restacked: list[str] = []
     stopped: list[str] = []
 

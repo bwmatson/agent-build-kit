@@ -26,6 +26,11 @@
   be listed, no base) the whole marker runs and the log says why. The new
   `limits.tier2_unit_scope` (`own`, the default, or `full`), overridable per repo as
   `tests.tier2_unit_scope`, restores the whole marker.
+- A unit whose base moved is now restacked in a lane of its own, at once, instead of
+  waiting for a build slot or for the next tick. The restacks run beside the builds, in the
+  order they were seen, at most `limits.max_concurrent_restacks` at a time (default 2), and
+  take no build slot and no place under the limit on units in progress. A tick waits for
+  the lane as it waits for builds, and a unit owed a restack is not started in a worker for it.
 
 - A clean move of a unit's branch onto a moved base, before a push or when a merge releases
   a dependent, now tells tier 1 which base it left. Tier 1 classifies the move as scoped (no

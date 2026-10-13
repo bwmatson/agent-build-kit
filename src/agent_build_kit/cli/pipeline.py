@@ -116,6 +116,7 @@ from agent_build_kit.pipeline.restack import (
     push_with_lease,
     resolved_move,
 )
+from agent_build_kit.pipeline.restack_lane import RestackLane, owed_units
 from agent_build_kit.pipeline.run_log import (
     RunLog,
     remove_change_logs,
@@ -249,6 +250,8 @@ from agent_build_kit.pipeline.wiring import (
     build_runner,
     build_tier1,
     follow_predecessors,
+    own_work_starts_after,
+    predecessor,
 )
 from agent_build_kit.pipeline.work_graph import (
     Need,
@@ -263,6 +266,7 @@ from agent_build_kit.pipeline.work_graph import (
 )
 from agent_build_kit.pipeline.workspaces import (
     BranchBusy,
+    branch_held,
     branch_lock,
     lock_holder_gone,
     worktree_path,
@@ -933,6 +937,19 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
     only = frozenset(getattr(args, "only", None) or ())
     if only:
         log(f"--only: building nothing but {', '.join(sorted(only))}")
+    # One lane for the tick, apart from the build workers: leaving the block waits for it.
+    with build_restack_lane(inst, store) as lane:
+        return _tick_with(args, inst, tick, store, lane, only)
+
+
+def _tick_with(
+    args: argparse.Namespace,
+    inst: Installation,
+    tick: _Tick,
+    store: UnitStore,
+    lane: RestackLane,
+    only: frozenset[str],
+) -> int:
     readmission = _Readmission()
     ready = run_round(
         inst,
@@ -942,6 +959,7 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
         only=only,
         submit=True,
         refused_needs=readmission.refused,
+        lane=lane,
     )
     if not ready:
         held = is_paused(_paused_marker(inst))
@@ -965,7 +983,7 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
         tick.outcome = "refused"
         return 1
 
-    return _schedule(inst, ready, store=store, only=only, readmission=readmission)
+    return _schedule(inst, ready, store=store, only=only, readmission=readmission, lane=lane)
 
 
 def _preview_fixes(inst: Installation) -> None:
@@ -1236,6 +1254,7 @@ def run_round(
     readmit: _Readmission | None = None,
     quiet: bool = False,
     refused_needs: set[tuple[str, str]] | None = None,
+    lane: RestackLane | None = None,
 ) -> list[Unit]:
     """One round: everything a tick does before it starts builds, safe to repeat
     beside builds in flight. Returns the units to start when `submit`.
@@ -1285,7 +1304,7 @@ def run_round(
     # planning against the pre-poll graph builds against a stale picture.
     # Before polling: a merge the poll finds restacks the units above it
     # straight away, and they must land on the trunk as it now is.
-    _refresh(inst, store=store)
+    _refresh(inst, store=store, lane=lane)
     _step("finishing chat commits", deliver_committed, inst, store)
     _step("creating the thread store", _create_thread_store, inst)
     if admitted:
@@ -1589,10 +1608,13 @@ def resumable_units(
     waiting for review or a person is not here, and holds none. `spared` names
     the units a run is in flight on. A unit whose lease is held waits for its release."""
     leases = Leases(lease_dir(inst.state_dir))
+    # A unit owed a restack is moved by the lane first; a worker would only wait for it.
+    owed = owed_units(inst, units)
     return [
         unit
         for unit in units
         if unit.state == RUNNING
+        and unit.id not in owed
         and (not only or unit.id in only)
         and unit.id not in spared
         and leases.holder(unit.id) is None
@@ -1657,6 +1679,7 @@ def _evaluate_round(
     excluded: set[str] = set()
     now = spans.clock.now()
     leases = Leases(lease_dir(inst.state_dir))
+    owed = owed_units(inst, units)
     for unit in units:
         if unit.id in building:
             unit = unit.model_copy(update={"state": RUNNING})
@@ -1667,6 +1690,8 @@ def _evaluate_round(
             or (only and unit.id not in only)
             # Someone is chatting with it: it goes back to the tick when the lease is released.
             or leases.holder(unit.id) is not None
+            # The restack lane moves it onto its base first; a worker would only wait for it.
+            or unit.id in owed
             # A requeue is still to be delivered to its thread: starting the
             # unit as a planned build would drop the mode it was requeued with.
             or (unit.cause is Cause.GATED and unit.gated_requeue is not None)
@@ -1975,6 +2000,7 @@ def _schedule(
     store: UnitStore,
     only: frozenset[str],
     readmission: _Readmission,
+    lane: RestackLane,
 ) -> int:
     """Keep the build slots full until nothing more is ready.
 
@@ -2079,12 +2105,18 @@ def _schedule(
         # Each round waits for a build to finish or for REFRESH_SECONDS,
         # whichever is first, then refreshes and fills free slots. The pass
         # ends once none is in flight.
-        while building:
-            done, _ = wait(building, timeout=REFRESH_SECONDS, return_when=FIRST_COMPLETED)
+        # A restack in the lane is waited for as a build is, and ends a pass only when it has.
+        while building or lane.running or lane.waiting:
+            done, _ = wait(
+                [*building, lane.finished()], timeout=REFRESH_SECONDS, return_when=FIRST_COMPLETED
+            )
             for future in done:
+                if future not in building:
+                    continue
                 building.pop(future)
                 if not future.result():
                     failed = True
+            lane.scan(store.all())
             # A build still in flight — or another tick — may already have
             # recorded the model's refusal; its report is not needed to stop
             # here. A usage pause is not one: the round asks the guard again.
@@ -2104,6 +2136,7 @@ def _schedule(
                 readmit=readmission,
                 quiet=True,
                 refused_needs=readmission.refused,
+                lane=lane,
             )
             units = store.all()
             note_queued(units, ready, in_flight)
@@ -2118,7 +2151,7 @@ def _schedule(
     return 1 if refused else 0
 
 
-def _refresh(inst: Installation, *, store: UnitStore) -> None:
+def _refresh(inst: Installation, *, store: UnitStore, lane: RestackLane | None = None) -> None:
     """Fetch and poll, as the top of the tick does: a merge only a poll
     reveals may release a dependent, and review feedback should not wait for
     a pass that now lasts as long as its longest build.
@@ -2131,11 +2164,14 @@ def _refresh(inst: Installation, *, store: UnitStore) -> None:
     except Exception as error:  # noqa: BLE001
         log(f"fetch skipped — {type(error).__name__}: {error}")
     try:
-        poll_all(inst, store=store)
+        poll_all(inst, store=store, lane=lane)
     except Exception as error:  # noqa: BLE001
         # GitHub being unreachable is a reason to skip the update, not to stop
         # building units whose work doesn't depend on it.
         log(f"poll skipped — {type(error).__name__}: {error}")
+    # What the poll found, and what it left owed, whether or not the host answered.
+    if lane is not None:
+        lane.scan(store.all())
 
 
 def park_dependents(inst: Installation, store: UnitStore) -> None:
@@ -2186,11 +2222,7 @@ def branch_is_held(inst: Installation, branch: str) -> bool:
     `branch_lock` already distinguishes a crashed holder from a live one by
     its pid; acquiring and releasing is the cheapest way to ask.
     """
-    try:
-        with branch_lock(branch, root=inst.state_dir / "locks"):
-            return False
-    except BranchBusy:
-        return True
+    return branch_held(branch, root=inst.state_dir / "locks")
 
 
 def thread_of(inst: Installation, unit_id: str) -> Position:
@@ -2941,9 +2973,87 @@ class StackMoves(TypedDict):
     retarget: Callable[[StoredUnit, str], None]
     rebase_cap: int | None
     resume: Callable[..., bool]
+    lane: RestackLane | None
 
 
-def build_stack_moves(store: UnitStore, installation: Installation) -> StackMoves:
+def build_turned_move(installation: Installation) -> Callable[..., Moved]:
+    """The move of a branch onto a base, told which repo's settings apply and holding that
+    repo's turn only for the phases that write what its worktrees share."""
+    names = {path: repo for repo, path in installation.checkouts.items()}
+
+    def move(path: Path, *args, **kwargs) -> Moved:
+        name = names[path]
+        return resolved_move(
+            path,
+            *args,
+            repo_config=installation.repo(name),
+            turn=partial(repo_turn, installation, name),
+            **kwargs,
+        )
+
+    return move
+
+
+def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLane:
+    """The tick's lane: `limits.max_concurrent_restacks` workers apart from the build
+    workers, moving a unit onto the base it has when its move starts."""
+    moves = build_stack_moves(store, inst)
+    move = build_turned_move(inst)
+
+    def move_unit(owed: StoredUnit) -> None:
+        unit = store.get(owed.id)
+        graph = store.all()
+        repo = inst.checkouts[unit.repo]
+        branch = unit.branch or branch_name(unit)
+        new_base = base_of(unit, graph)
+        old_base = own_work_starts_after(
+            repo, local_ref(new_base, repo=unit.repo), unit, store, head=branch
+        )
+        parent = predecessor(unit, new_base, store) or unit
+        if unit.state != RUNNING:
+            moves["restack"](
+                branch=branch, old_base=old_base, new_base=new_base, child=unit, parent=parent
+            )
+            return
+        # A thread parked at `prepare`: the branch is moved and the thread finds its base held.
+        # A move that cannot be made leaves the unit for its own run to resolve.
+        where: dict[str, Path] = {}
+        if not worktree_path(repo, branch, inst.worktree_root).exists():
+            where["temporary_root"] = inst.worktree_root
+        try:
+            move(
+                repo,
+                branch,
+                new_base=local_ref(new_base, repo=unit.repo),
+                old_base=old_base,
+                moving_unit=unit.id,
+                moving_change=unit.change,
+                moving_repo=unit.repo,
+                moving_intent=unit.title,
+                onto_unit=parent.id,
+                onto_intent=parent.title,
+                **where,
+            )
+        except Exception as error:  # noqa: BLE001
+            store.set_state(
+                unit.id,
+                RUNNING,
+                note=f"restack onto {new_base} left for its run: {str(error)[:300]}",
+                cause=Cause.RESTACK_CONFLICT,
+            )
+
+    return RestackLane(
+        inst.max_concurrent_restacks,
+        move=move_unit,
+        claim=moves["claim"],
+        owed=lambda units: owed_units(inst, units),
+        log=log,
+    )
+
+
+def build_stack_moves(
+    store: UnitStore, installation: Installation, *, lane: RestackLane | None = None
+) -> StackMoves:
     """The one place the merge handler and the satisfied path get what they
     move a stack with, every write to a repo's `.git` in that repo's turn, so
     the two cannot drift."""
@@ -2964,17 +3074,7 @@ def build_stack_moves(store: UnitStore, installation: Installation) -> StackMove
 
         return in_turn
 
-    def move(path: Path, *args, **kwargs) -> Moved:
-        """The move, told which repo's settings apply and holding that repo's turn
-        only for the phases that write what its worktrees share."""
-        name = names[path]
-        return resolved_move(
-            path,
-            *args,
-            repo_config=installation.repo(name),
-            turn=partial(repo_turn, installation, name),
-            **kwargs,
-        )
+    move = build_turned_move(installation)
 
     def checkout(path: Path, branch: str, **kwargs):
         """A checkout of the branch at a given head, made and removed in the repo's turn."""
@@ -3013,6 +3113,7 @@ def build_stack_moves(store: UnitStore, installation: Installation) -> StackMove
         "claim": build_claim(installation.state_dir / "locks"),
         "retarget": build_retarget(),
         "rebase_cap": installation.stack_depth_rebase_cap,
+        "lane": lane,
         "resume": lambda unit, kind, reason, feedback, from_person=False, rework=None: (
             resume_thread(
                 installation,
@@ -3030,13 +3131,17 @@ def build_stack_moves(store: UnitStore, installation: Installation) -> StackMove
 
 
 def _dispatch(
-    inst: Installation, store: UnitStore, say: Callable[[str], None] = log
+    inst: Installation,
+    store: UnitStore,
+    say: Callable[[str], None] = log,
+    *,
+    lane: RestackLane | None = None,
 ) -> Callable[..., bool]:
     """What each poller event is handed to, every write to a repo's `.git` in
     that repo's turn. Also how a merge the poll has not reported yet is recorded."""
     return build_dispatch(
         store,
-        **build_stack_moves(store, inst),
+        **build_stack_moves(store, inst, lane=lane),
         fetch_review=build_fetch_review(
             extra_notes=ui_notes_of(inst, store), patch_of=unit_patch_of(inst, store)
         ),
@@ -3080,7 +3185,7 @@ def _ui_review_of(
     return ReviewStore(inst.state_dir / "reviews").read(unit.id) if unit else None
 
 
-def poll_all(inst: Installation, *, store: UnitStore) -> None:
+def poll_all(inst: Installation, *, store: UnitStore, lane: RestackLane | None = None) -> None:
     """Ask GitHub what changed in each repo, and act on it.
 
     One poller per repo, each with its own recorded state, so a failure in one
@@ -3102,7 +3207,7 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
     """
     checkouts = inst.checkouts
 
-    dispatch = _dispatch(inst, store)
+    dispatch = _dispatch(inst, store, lane=lane)
 
     labels = StateLabels(inst.forge_of, log=log)
     for repo in checkouts:
@@ -4279,7 +4384,8 @@ def wait_reasons(
         inst,
         units,
         view,
-        startable={unit.id for unit in ready},
+        # A unit owed a restack is ready but for the lane's move, and waits for nothing else.
+        startable={unit.id for unit in ready} | owed_units(inst, units),
         skipped=_parked_starts(units, started) | building,
         only=only,
         usage_paused=usage_paused,

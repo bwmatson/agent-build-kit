@@ -39,7 +39,9 @@ def test_two_of_five_restacks_start_before_the_hand_over_returns(
     for unit in units(5):
         lane.hand_over(unit)
 
-    assert restacks.started == ["feature/1", "feature/2"]
+    assert restacks.begun["feature/1"].wait(WAIT)
+    assert restacks.begun["feature/2"].wait(WAIT)
+    assert sorted(restacks.started) == ["feature/1", "feature/2"]
     assert lane.running == ["feature/1", "feature/2"]
     assert lane.waiting == ["feature/3", "feature/4", "feature/5"]
 
@@ -50,6 +52,8 @@ def test_each_waiting_restack_starts_in_the_order_seen_as_one_finishes(
     for unit in units(5):
         lane.hand_over(unit)
 
+    assert restacks.begun["feature/1"].wait(WAIT)
+    assert restacks.begun["feature/2"].wait(WAIT)
     restacks.release("feature/2")
     assert restacks.begun["feature/3"].wait(WAIT)
     restacks.release("feature/1")
@@ -57,7 +61,8 @@ def test_each_waiting_restack_starts_in_the_order_seen_as_one_finishes(
     restacks.release("feature/3")
     assert restacks.begun["feature/5"].wait(WAIT)
 
-    assert restacks.started == [f"feature/{number}" for number in range(1, 6)]
+    assert sorted(restacks.started[:2]) == ["feature/1", "feature/2"]
+    assert restacks.started[2:] == ["feature/3", "feature/4", "feature/5"]
     assert restacks.most_at_once == 2
 
 
