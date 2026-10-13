@@ -6,6 +6,7 @@
   merges, and since when it has conflicted. A conflict still standing after a unit's own
   push is offered to the pipeline on every poll, not only when it begins; nothing acts on
   it yet.
+
 - A tier 2 unit now runs only the tier 2 tests its branch added or changed, instead of the
   whole marker, and runs nothing, without taking the stack lock, when it has none; the log
   and the posted status then say that no tier 2 test ran. Where the run cannot be narrowed
