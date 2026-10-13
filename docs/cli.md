@@ -299,8 +299,11 @@ every active change's with `--all`: tags present and known, groups numbered
 from 1, every group has tasks, `[contract]` paired with a last `[narrow]`,
 `[acceptance]` present (as `tier2`, after everything it exercises) or opted
 out with a reasoned `Acceptance: none — ...` line. Prints each problem with
-its line, then the groups when clean. Exit 1 if any change has a problem or
-no `tasks.md`.
+its line, then the groups when clean. Also warns, once per group and
+without failing, when a group can give its unit unrelated open parents: an `[acceptance]` or
+`[narrow]` group after an `Independent:` group, an `Independent:` group followed by a later
+group of its repo, or a `Needs:` to another change's same-repo group beside a same-repo
+predecessor. Exit 1 if any change has a problem or no `tasks.md`.
 
 ### `abk check`
 

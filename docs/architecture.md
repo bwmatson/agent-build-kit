@@ -214,7 +214,10 @@ those waiting on it.
 
 `ready_units` picks planned units whose dependencies allow: a same-repo
 dependency may be `in_review` (the unit stacks on its branch), a cross-repo one
-must be `merged` (stacks cannot span repos). A `satisfied` dependency is
+must be `merged` (stacks cannot span repos). A unit that has never started and has two
+or more unrelated open same-repo parents (neither built on the other) waits for all but
+one of them: it builds on the deepest and waits for the rest (see "Open parents" in
+`docs/unit-graph.md`). A `satisfied` dependency is
 looked through to what it was built on: same-repo, the dependent waits on and
 stacks on that predecessor; cross-repo, it counts once that predecessor has
 merged. `limits.stack_depth_build_cap` holds

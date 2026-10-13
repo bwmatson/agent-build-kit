@@ -661,6 +661,21 @@ no deprecation window. The callables in `wiring.py` and everything they reach st
   the node names from `graph.state.Node`, and a failing tier 2 leaves the tail
   of its output there, under the `tier2` prefix.
 
+## Open parents
+
+A unit's open parents are its same-repo dependencies that are in review, looking through
+satisfied ones. One is related to another when it is built on it, directly or through units
+between; the unrelated open parents are those no other open parent builds on. A chain has one,
+a diamond or siblings have several. A unit cannot run on two branches, so a planned unit that
+has never started and has two or more of them is blocked: it builds on the one with the
+greatest stack depth (a tie goes to the later in plan order, and a chain's newest whatever order
+`depends_on` lists it in) and waits for the rest to merge, close or land. `abk status` says
+`waiting for <parent> to merge (second open parent)` and the graph draws it blocked. A started
+unit keeps its branch and is never held by this rule. Cross-repo parents are not open parents
+and still wait for a merge. No branch is made by merging parents' branches.
+
+`abk tags` and `abk check` warn, without failing, for the groups that can produce such a unit.
+
 ## Dependencies
 
 `langgraph` and `langgraph-checkpoint-sqlite` become core dependencies, pinned

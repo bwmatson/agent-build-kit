@@ -558,6 +558,88 @@ def merged_needs_warnings(path: Path) -> list[str]:
     ]
 
 
+def _group_parents(groups: list[TaskGroup]) -> dict[int, list[int]]:
+    """The groups each group of one change depends on, as the planner chains them: the one
+    before, and past an `Independent:` group the one before that, up to one that is not; an
+    `[acceptance]` or `[narrow]` group depends on every earlier group."""
+    parents: dict[int, list[int]] = {}
+    for position, group in enumerate(groups):
+        earlier = groups[:position]
+        if group.flag in ("acceptance", "narrow"):
+            chosen = [g.number for g in earlier]
+        elif group.independent:
+            chosen = []
+        else:
+            chosen = []
+            for before in reversed(earlier):
+                chosen.append(before.number)
+                if not before.independent:
+                    break
+        parents[group.number] = chosen
+    return parents
+
+
+def _reaches(parents: dict[int, list[int]], start: int) -> set[int]:
+    seen: set[int] = set()
+    pending = list(parents.get(start, []))
+    while pending:
+        number = pending.pop()
+        if number not in seen:
+            seen.add(number)
+            pending.extend(parents.get(number, []))
+    return seen
+
+
+def unrelated_parent_warnings(
+    path: Path, changes_dir: Path, *, repos: tuple[str, ...]
+) -> list[str]:
+    """One warning per group of a tasks file that can give a unit unrelated parents: two or
+    more same-repo parents, none built on another, as `abk tags` and `abk check` print it."""
+    groups, _ = validate_tasks(path, repos=repos)
+    parents = _group_parents(groups)
+    by_number = {g.number: g for g in groups}
+    needs = group_needs(path)
+    warnings = []
+    for group in groups:
+        same = [n for n in parents[group.number] if by_number[n].repo == group.repo]
+        built_on = set().union(*(_reaches(parents, n) for n in same)) if same else set()
+        open_ones = [n for n in same if n not in built_on]
+        independent_before = any(by_number[n].independent for n in open_ones)
+        outside = [need for need in needs.get(group.number, []) if not names_own_change(need, path)]
+        outside = [need for need in outside if _needed_repo(need, changes_dir, repos) == group.repo]
+        if len(open_ones) >= 2 and group.flag in ("acceptance", "narrow") and independent_before:
+            shape = (
+                f"an [{group.flag}] group after an `Independent:` group of its repo depends on "
+                "groups neither of which builds on the other"
+            )
+        elif len(open_ones) >= 2 and independent_before:
+            shape = (
+                "an `Independent:` group followed by a later group of its repo leaves "
+                "parents neither of which builds on the other"
+            )
+        elif open_ones and outside:
+            shape = (
+                "a `Needs:` line to another change's group of its repo beside a predecessor "
+                "in the same repo leaves parents neither of which builds on the other"
+            )
+        else:
+            continue
+        warnings.append(
+            f"{path}:line {group.line}: warning: group {group.number}: {shape}; its unit "
+            "can wait for a second open parent"
+        )
+    return warnings
+
+
+def _needed_repo(need: Need, changes_dir: Path, repos: tuple[str, ...]) -> str:
+    """The repo of the group a `Needs:` line names, "" when its tasks file does not say."""
+    other = tasks_path(need.change, changes_dir)
+    if not other.is_file():
+        return ""
+    groups, _ = validate_tasks(other, repos=repos)
+    return next((g.repo for g in groups if g.number == need.group), "")
+
+
 def tasks_path(change: str, changes_dir: Path) -> Path:
     return changes_dir / change / "tasks.md"
 
