@@ -767,6 +767,30 @@ none gets no list: init says so, leaves the roles empty (the agent's own
 default) and accepts a typed name it cannot check; a wrong name is reported
 later by the run's "agent does not offer model X" notice.
 
+### Applying the recommended policy
+
+A row may carry an `apply` descriptor (`ApplyPolicy`): the variable the agent reads for its
+home and the default directory under the person's home, the configuration file, its format,
+the key path of its list of refused commands, how bare scalars are read (`yaml_version`), an
+optional recommended toolset and how the row was verified. A row without one has no applier
+and nothing guesses a path for it; only a row someone verified against the agent's own
+configuration gets one. `runtimes/policy_apply.py` is the engine and names no product.
+
+The merge adds the recommended patterns the list lacks, in table order after the operator's
+entries (exact string comparison), then the installation's extras once. It never removes,
+reorders or edits an entry and never touches another key; a missing section or list is
+created and a single string becomes the list's first item. The toolset is replaced only when
+asked, and shown from and to. Before the first write the original is copied to
+`<file>.abk-backup`, which is never overwritten; the write goes through a temporary file in
+the same directory with the file's mode, so a failure leaves the original. A file that does
+not parse, or a section or list of the wrong shape, is refused naming the file and key path
+with nothing written; an absent file is reported, naming the home variable, and never
+created. A second run changes nothing. Comments are kept by `ruamel.yaml`.
+
+To add an agent's applier, fill its row's `apply` after checking its file and key, and add a
+writer to `WRITERS` if its format has none (YAML only today); the structural test fails a row
+whose format has no writer.
+
 ## Per-runtime status
 
 | Runtime | Invocation model | Policy coverage | Model naming | Streaming | Usage window | Status |

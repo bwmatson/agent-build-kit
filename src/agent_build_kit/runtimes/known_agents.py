@@ -84,6 +84,16 @@ KNOWN_AGENTS: tuple[KnownAgent, ...] = (
         needs="its own configuration and credentials",
         verified="run where it was installed: session/new returned a session id and modes only",
         source="run on a machine where the agent was installed",
+        apply=ApplyPolicy(
+            home_env="HERMES_HOME",
+            home_default=".hermes",
+            file="config.yaml",
+            format=ApplyFormat.YAML,
+            deny_path=("approvals", "deny"),
+            yaml_version="1.1",
+            toolset=Toolset(path=("platform_toolsets", "acp"), names=("file", "terminal", "todo")),
+            verified="its own merge script, tests and documentation; not a run of this engine",
+        ),
     ),
     KnownAgent(
         name="OpenClaw",
