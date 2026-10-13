@@ -1403,7 +1403,9 @@ def run_round(
     # One this pass built that an event resumed is started again, within the
     # same budget as a readmission.
     free = max(0, inst.max_concurrent_stacks - len(in_flight | held))
-    owed = owed_units(inst, units)
+    # Owed a restack, or in the lane for one: a unit whose branch the lane holds is no longer
+    # owed by the branch lock's reading, and a worker started for it would find it claimed.
+    owed = owed_units(inst, units) | ({*lane.running, *lane.waiting} if lane else set())
     resumable = [
         unit
         for unit in resumable_units(inst, units, only=only, spared=in_flight, owed=owed)
