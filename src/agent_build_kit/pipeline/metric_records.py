@@ -56,6 +56,22 @@ def record_metric(
     record_line(record, say)
 
 
+def emit_metric(
+    instrument: str,
+    name: str,
+    value: float,
+    say: Callable[[str], None],
+    /,
+    *,
+    unit: str = "",
+    change: str = "",
+    **attributes: str | int,
+) -> None:
+    """Send `value` to telemetry as the `instrument` (`count`, `duration`,
+    `observe` or `level`) `name`, and append the same figure as a local record."""
+    raise NotImplementedError
+
+
 def read_metrics(ledger: Path) -> list[MetricRecord]:
     """The metric records of the ledger; a line that is not one is skipped."""
     found = []
