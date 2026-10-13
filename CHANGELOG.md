@@ -124,7 +124,11 @@
   type check, run in its directory, a failure is classified by that project's profile, and a
   build run may use the tools of every project's profile. Checks about the whole checkout,
   such as the changelog, still run once at its root. The node-npm profile lints and checks the
-  format of the changed files and type-checks the project as its own check.
+  format of the changed files and type-checks the project as its own check, runs the project's
+  Vitest tests, reading the results from a JUnit report rather than console text (a project
+  with no test files passes), and recognises `.test` and `.spec` files across `ts`, `tsx`,
+  `js`, `jsx` and `mts`. Recorded Vitest reports are test fixtures, with a recording script and
+  a guard that fails when the installed Vitest major is ahead of the recorded one.
 
 - The kit now carries a recommended command policy for build agents: deny globs for each
   forbidden class (merging a pull request by the CLI, the raw API or GraphQL, amending a

@@ -14,7 +14,7 @@ from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import (
     UnitState,
 )
-from agent_build_kit.profiles import base, node_npm
+from agent_build_kit.profiles import base, python_uv
 from tests.factories import unit
 from tests.graph_driver import fresh, tick
 
@@ -98,5 +98,9 @@ def test_every_node_span_records_an_outcome_from_the_enum(
 
 
 def test_a_profile_the_framework_does_not_implement_raises_it() -> None:
+    class Unbuilt(python_uv.PythonUvProfile):
+        def clean_command(self) -> str:
+            raise base.ProfileUnsupported("not implemented")
+
     with pytest.raises(base.ProfileUnsupported):
-        node_npm.NodeNpmProfile().clean_command()
+        Unbuilt().clean_command()

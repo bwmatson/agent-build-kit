@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit import profiles
 from agent_build_kit.config import ProjectConfig, models
 from agent_build_kit.pipeline.pr_replies import MARKER
 from agent_build_kit.pipeline.restack import HostMoved
@@ -41,6 +42,8 @@ from agent_build_kit.pipeline.wiring import (
     is_linear,
     tip,
 )
+from agent_build_kit.profiles.base import ProfileUnsupported
+from agent_build_kit.profiles.python_uv import PythonUvProfile
 from tests.conftest import make_installation
 from tests.factories import git, init_repo, unit
 from tests.forges.stand_in import StandInForge, lookup
@@ -1575,18 +1578,25 @@ def test_each_project_is_checked_where_it_lives(tmp_path: Path) -> None:
 
 
 def test_a_project_whose_toolchain_is_unimplemented_holds_the_unit(tmp_path: Path) -> None:
-    """`node-npm` is declared and not implemented. Tier 1 cannot judge such a
-    project, so the profile raises and `cli/pipeline.build_unit` turns that into a
-    held unit — which is the honest answer, where passing it unchecked is not."""
+    """A toolchain declared and not built cannot judge its project, so its profile
+    raises and `cli/pipeline.build_unit` turns that into a held unit — which is the
+    honest answer, where passing it unchecked is not."""
+
+    class Unbuilt(PythonUvProfile):
+        name = "unbuilt"
+
+        def test_commands(self, repo, changed, *, root_extras):
+            raise ProfileUnsupported("the unbuilt toolchain profile is not implemented")
+
     (tmp_path / "web").mkdir()
     run, _ = recorder()
     tier1 = build_tier1(
         run=run,
         changed=lambda cwd, base: ["web/src/b.ts"],
-        projects=[ProjectConfig(path="web", languages=["typescript"], profile="node-npm")],
+        projects=[ProjectConfig(path="web", languages=["typescript"], profile="unbuilt")],
     )
 
-    with pytest.raises(NotImplementedError):
+    with profiles.registered(Unbuilt()), pytest.raises(NotImplementedError):
         tier1(cwd=tmp_path, base="origin/dev")
 
 
