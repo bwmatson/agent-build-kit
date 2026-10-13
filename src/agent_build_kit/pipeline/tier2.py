@@ -341,6 +341,12 @@ def build_snapshot(result: Tier2Result) -> str:
         kept = f"- **Full output:** `{result.output_file}`{withheld}\n"
 
     slowest, table = _durations_listing(result.durations)
+    counts = (
+        "no tier 2 test ran: the unit added or changed none the marker selects"
+        if result.ran_no_tests
+        else f"{result.passed} passed, {result.failed} failed, "
+        f"{result.skipped} skipped in {result.duration_seconds}s"
+    )
 
     return f"""## Tier 2 results
 
@@ -349,8 +355,7 @@ on the developer host.
 
 - **Commit tested:** `{result.sha[:7]}`
 - **Command:** `{result.command}`
-- **Result:** {result.passed} passed, {result.failed} failed, \
-{result.skipped} skipped in {result.duration_seconds}s
+- **Result:** {counts}
 {failed}{kept}{slowest}- **Ran against:**
 {versions}
 {table}
@@ -373,13 +378,16 @@ def post_status(forge: Forge, repo: RepoId, result: Tier2Result, head: str = "")
     moment a restack happens, and a status on the wrong commit is worse than
     none.
     """
+    description = (
+        "no tier 2 test ran"
+        if result.ran_no_tests
+        else f"{result.passed} passed, {result.failed} failed in {result.duration_seconds:.0f}s"
+    )
     forge.post_status(
         repo,
         sha=result.sha,
         ok=result.ok,
         context=STATUS_CONTEXT,
-        description=(
-            f"{result.passed} passed, {result.failed} failed in {result.duration_seconds:.0f}s"
-        ),
+        description=description,
         head=head,
     )

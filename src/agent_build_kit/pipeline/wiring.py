@@ -44,6 +44,7 @@ from agent_build_kit.config import (
     models,
     owning_project,
     stack_versions_for,
+    tier2_unit_scope,
 )
 from agent_build_kit.forges import FileChange, Forge, RegistersStacks, RepoId, StackRefused
 from agent_build_kit.installation import Installation
@@ -1909,8 +1910,42 @@ def tier2_scope(
     projects: list[ProjectConfig],
     dev_stack: str | None,
 ) -> Tier2Scope:
-    """The one decision of how much of tier 2 a unit runs, taken before the stack lock."""
-    raise NotImplementedError
+    """The one decision of how much of tier 2 a unit runs, taken before the stack lock.
+
+    The whole marker runs (`full`, the reason being the line to log) under the `full`
+    setting and wherever the run cannot be narrowed safely; otherwise the ids are the tests
+    the unit added or changed, and none means there is nothing to run."""
+
+    def whole(why: str) -> Tier2Scope:
+        return Tier2Scope(mode=Tier2UnitScope.FULL, reason=f"tier 2 runs whole: {why}")
+
+    if setting is Tier2UnitScope.FULL:
+        return whole("tier2_unit_scope is full")
+    if dev_stack and (cwd / dev_stack).is_file():
+        return whole("the repo's dev stack script runs it")
+    work = _work(cwd, "", True, projects, profile, lambda *_: [])
+    for _, toolchain, _ in work:
+        if not isinstance(toolchain, RepeatsTests):
+            return whole(f"the {toolchain.name} profile cannot select tests by identifier")
+    if base is None:
+        return whole("there is no base to list the unit's tests against")
+    try:
+        touched = touched_tests(cwd, base)
+    except (subprocess.CalledProcessError, OSError) as error:
+        return whole(f"the unit's tests could not be listed ({error})")
+    ids = [
+        f"{path}::{name}"
+        for path, name in touched
+        if any(
+            toolchain.is_test_path(path) and _under(cwd / path, where) is not None
+            for where, toolchain, _ in work
+        )
+    ]
+    return Tier2Scope(
+        mode=Tier2UnitScope.OWN,
+        ids=ids,
+        reason="" if ids else "tier 2 skipped: no tier 2 test added or changed",
+    )
 
 
 class Tier2Session:
@@ -2035,19 +2070,56 @@ class Tier2Session:
         self._started = None
         self._output_file = None
         self._withheld = False
+        scope = tier2_scope(
+            cwd,
+            base,
+            setting=self._scope,
+            profile=self._profile,
+            projects=self._projects,
+            dev_stack=str(self._dev_stack) if self._dev_stack else None,
+        )
+        if scope.mode is Tier2UnitScope.FULL:
+            self._log(scope.reason)
         if self._dev_stack is not None and (cwd / self._dev_stack).is_file():
             return self._run_on_dev_stack(cwd, self._dev_stack)
+        if scope.mode is Tier2UnitScope.OWN and not scope.ids:
+            self._log(scope.reason)
+            self.result = Tier2Result(
+                sha=self._sha(cwd),
+                passed=0,
+                failed=0,
+                skipped=0,
+                duration_seconds=0.0,
+                command="",
+                output="",
+                ran_no_tests=True,
+            )
+            return True, build_snapshot(self.result)
         # The same entries tier 1 resolves, over the whole repo: tier 2 has no
         # changed files to narrow to, and a project's `testpaths` decide what
         # pytest collects only when it runs from that project's directory.
         for project in pending_projects(cwd, self._projects):
             self._log(describe(project))
-        entries = [
-            (where, toolchain, toolchain.tier2_commands(where, marker=self._marker))
-            for where, toolchain, _ in _work(
-                cwd, "", True, self._projects, self._profile, lambda *_: []
-            )
-        ]
+        entries = []
+        for where, toolchain, _ in _work(
+            cwd, "", True, self._projects, self._profile, lambda *_: []
+        ):
+            commands = toolchain.tier2_commands(where, marker=self._marker)
+            if scope.mode is Tier2UnitScope.OWN:
+                # The ids as this project's commands select by them, from its directory.
+                here = [
+                    f"{relative}::{test}"
+                    for path, _, test in (id_.partition("::") for id_ in scope.ids)
+                    if (relative := _under(cwd / path, where)) is not None
+                ]
+                narrowed = (
+                    [toolchain.repeat_command(command, here) for command in commands]
+                    if isinstance(toolchain, RepeatsTests)
+                    else []
+                )
+                commands = [command for command in narrowed if command is not None]
+            if commands:
+                entries.append((where, toolchain, commands))
         sha = self._sha(cwd)
         passed = failed = skipped = 0
         duration = 0.0
@@ -2142,6 +2214,8 @@ class Tier2Session:
                 stack_versions=_stack_versions(self._stack_versions_command, run=self._run),
                 failures=failures,
                 durations=sorted(timed, key=lambda e: e.seconds, reverse=True),
+                # An own run whose selected tests the marker leaves out collected nothing.
+                ran_no_tests=scope.mode is Tier2UnitScope.OWN and not (passed or failed or skipped),
                 **self._kept(),
             )
             record_test_times(
@@ -2821,6 +2895,7 @@ def build_runner(
         under=dev_stack_underneath(unit, installation),
         profile=profile,
         marker=repo.tests.tier2_marker,
+        scope=tier2_unit_scope(repo, installation.config.limits),
         dev_stack=repo.dev_stack.script if repo.dev_stack else None,
         stack_versions_command=stack_versions_for(
             installation.config.verify, infra.get(repo.infra)
