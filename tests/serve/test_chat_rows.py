@@ -11,10 +11,8 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from agent_build_kit import runtimes
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from tests.call_rows import agent_rows
 from tests.chat_serving import record_session, turn, unit_worktree, use_claude
 from tests.runtimes.claude_cli import SESSION, FakeClaude, finished_build
@@ -71,11 +69,10 @@ def test_a_turn_on_a_units_session_writes_one_chat_row_naming_the_unit(
 
 
 def test_a_second_turn_s_row_holds_the_turn_s_own_incremental_cost(
-    pipeline: Installation, api: httpx.Client
+    pipeline: Installation, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    fake = Growing(finished_build(unit_worktree(pipeline, "feature/2"), "Hello."))
-    runtimes.names()
-    runtimes._REGISTRY["claude_code"] = ClaudeCodeRuntime(execute=fake)
+    stdout = finished_build(unit_worktree(pipeline, "feature/2"), "Hello.")
+    use_claude(monkeypatch, stdout, Growing(stdout))
 
     turn(api, f"{REVIEW}/chat", {"tab": "t1", "prompt": "First."})
     turn(api, f"{REVIEW}/chat", {"tab": "t1", "prompt": "Second."})

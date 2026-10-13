@@ -21,7 +21,9 @@
   calibration. A guard test now fails on a new agent call
   that records nothing. Planning, track runs, init, the policy probe, the login refresh and
   chat are recorded too, and `abk report` and the usage page show them as pipeline overhead,
-  one line per node.
+  one line per node. A recorded call streams its events, so a track phase's raw output
+  file under `.last-runs/` now holds the run's events, one JSON object per line, instead of
+  one JSON record.
 
 - A restack no longer keeps the whole repository waiting while an agent resolves a conflict:
   the repository's turn is held only for the git commands that write shared state, so other

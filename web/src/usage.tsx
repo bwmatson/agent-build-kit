@@ -41,6 +41,16 @@ function ReportTable({ report }: { report: UsageReport }) {
           <Row key={row.key} row={row} linked={report.group_by === "unit"} />
         ))}
       </tbody>
+      {report.overhead.length > 0 && (
+        <tbody>
+          <tr>
+            <th colSpan={5}>pipeline overhead</th>
+          </tr>
+          {report.overhead.map((row) => (
+            <Row key={row.key} row={row} linked={false} />
+          ))}
+        </tbody>
+      )}
       <tfoot>
         <Row row={{ ...report.total, key: "Total" }} linked={false} />
       </tfoot>

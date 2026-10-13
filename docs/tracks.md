@@ -64,10 +64,10 @@ the working directory:
 claude -p --add-dir <planning root>
   --permission-mode acceptEdits
   --allowedTools "<tracks.allowed_tools>" --disallowedTools "<tracks.disallowed_tools>"
-  --model <tracks.model> --output-format json <prompt>
+  --model <tracks.model> --output-format stream-json --verbose <prompt>
 ```
 
-The raw JSON goes to `<planning root>/<tracks.raw_output_dir>/<run id>-<repo>-<phase>.json`
+The run's stream-json events, one JSON object per line, go to `<planning root>/<tracks.raw_output_dir>/<run id>-<repo>-<phase>.json`
 (`.last-runs/`, gitignored). `propose` is the same call turned around: the
 planning root is the working directory and the repo's checkout is the added
 directory.

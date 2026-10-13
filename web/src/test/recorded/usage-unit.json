@@ -86,6 +86,64 @@
       "difference": null
     }
   ],
+  "overhead": [
+    {
+      "key": "plan",
+      "measured": {
+        "calls": 1,
+        "input_tokens": 100,
+        "output_tokens": 50,
+        "cache_read_input_tokens": null,
+        "cache_creation_input_tokens": null,
+        "cost_usd": 0.25
+      },
+      "estimated": {
+        "calls": 0,
+        "input_tokens": null,
+        "output_tokens": null,
+        "cache_read_input_tokens": null,
+        "cache_creation_input_tokens": null,
+        "cost_usd": null
+      },
+      "agent_ms": 30000,
+      "checks_ms": null,
+      "slot_wait_ms": null,
+      "pause_wait_ms": null,
+      "review_wait_ms": null,
+      "sources": [
+        "reported"
+      ],
+      "difference": null
+    },
+    {
+      "key": "track_health",
+      "measured": {
+        "calls": 1,
+        "input_tokens": 100,
+        "output_tokens": 50,
+        "cache_read_input_tokens": null,
+        "cache_creation_input_tokens": null,
+        "cost_usd": 0.125
+      },
+      "estimated": {
+        "calls": 0,
+        "input_tokens": null,
+        "output_tokens": null,
+        "cache_read_input_tokens": null,
+        "cache_creation_input_tokens": null,
+        "cost_usd": null
+      },
+      "agent_ms": 30000,
+      "checks_ms": null,
+      "slot_wait_ms": null,
+      "pause_wait_ms": null,
+      "review_wait_ms": null,
+      "sources": [
+        "reported"
+      ],
+      "difference": null
+    }
+  ],
   "total": {
     "key": "total",
     "measured": {

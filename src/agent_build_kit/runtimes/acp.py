@@ -1748,8 +1748,8 @@ class AcpRuntime:
             )
             result = await self._drive(command, request, session)
         # `_drive` never reaches the request's `on_result`, so the probe's call is recorded here.
-        assert request.on_result is not None
-        request.on_result(result)
+        if request.on_result is not None:
+            request.on_result(result)
         if not result.ok and session.refused_cancel is None:
             # The probe itself did not run to its end — the agent did not
             # start, or broke — so nothing is known about its classes.

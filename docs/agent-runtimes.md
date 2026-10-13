@@ -81,10 +81,10 @@ Before the seam, each of these built its own `claude` argv:
 | Site | What it ran | What was Claude-Code-specific about it |
 |---|---|---|
 | `pipeline/wiring.py` `build_run`/`build_run_review` | build, review, rework-review | `--add-dir`, `--settings` (hook), `--allowedTools`/`--disallowedTools`, `--permission-mode acceptEdits`, `--model`, streamed via `--output-format stream-json` |
-| `pipeline/planner.py` | the planning graph call | plain `claude -p ... --output-format text`; no `--permission-mode`, no cwd, no tool policy, no injected executor shared with anything else |
+| `pipeline/planner.py` | the planning graph call | plain `claude -p ... --output-format stream-json --verbose` (a recorded call streams, for its usage); no `--permission-mode`, no cwd, no tool policy, no injected executor shared with anything else |
 | `pipeline/restack.py` `claude_resolver` | conflict resolution edit | `--allowedTools` only — no `--permission-mode` (it edits because its tool list says so), no model, no commit — a narrower Claude Code call than the others, built independently |
-| `tracks/runner.py` | health/improve/recommend/implement tracks | `--worktree`, `--add-dir`, `--permission-mode acceptEdits`, `--allowedTools`/`--disallowedTools`, `--model`, `--output-format json` |
-| `init/research.py` `research` | writes the toolchain recommendations doc | `--allowedTools` (web access), `--output-format text`; no `--permission-mode` |
+| `tracks/runner.py` | health/improve/recommend/implement tracks | `--worktree`, `--add-dir`, `--permission-mode acceptEdits`, `--allowedTools`/`--disallowedTools`, `--model`, `--output-format stream-json --verbose` |
+| `init/research.py` `research` | writes the toolchain recommendations doc | `--allowedTools` (web access), `--output-format stream-json --verbose`; no `--permission-mode` |
 | `init/propose.py` `propose` | writes an OpenSpec change | `--add-dir`, `--settings` (hook), `--allowedTools`, `--permission-mode acceptEdits` |
 | `init/claude_call.py` | the shared low-level executor | `subprocess.run` + `check_refusal`; `research.py` and `propose.py` built their own argv and passed it through this |
 
