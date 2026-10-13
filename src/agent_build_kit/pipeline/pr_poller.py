@@ -26,8 +26,9 @@ from pydantic import BaseModel, ConfigDict
 from agent_build_kit.config import active
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.forges.base import Check, CheckStatus
+from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.unit_store import ReworkKind, StoredUnit
-from agent_build_kit.pipeline.units import CLOSED, MERGED
+from agent_build_kit.pipeline.units import CLOSED, IN_REVIEW, MERGED
 from agent_build_kit.pipeline.vocabulary import ChecksOf
 
 # Raises on failure, which is what drives the backoff below.
@@ -165,6 +166,29 @@ def _new_comment_ids(before: dict, after: dict) -> set:
     return set(after["comment_ids"]) - set(before["comment_ids"])
 
 
+def _record_answer_time(current: dict, before: dict | None, now: datetime) -> None:
+    """Add when the mergeability answer was read, and since when it conflicts.
+
+    The host resets its answer to undetermined whenever the base moves and works
+    it out lazily. Recorded, it would make the conflict it resolves back into look
+    new, and rework a conflicted unit once per trunk merge. So the last definite
+    answer stands, with its time and the conflict's start.
+    """
+    before = before or {}
+    if current["mergeable"] is None:
+        current["mergeable"] = before.get("mergeable")
+        current["mergeable_at"] = before.get("mergeable_at")
+        current["conflict_since"] = before.get("conflict_since")
+        return
+    current["mergeable_at"] = now.isoformat()
+    if current["mergeable"] is False:
+        current["conflict_since"] = (
+            before.get("conflict_since") if before.get("mergeable") is False else None
+        ) or now.isoformat()
+    else:
+        current["conflict_since"] = None
+
+
 class Poller(BaseModel):
     """One repo's worth of watching.
 
@@ -188,6 +212,9 @@ class Poller(BaseModel):
     # default removes nothing: the label then stays as seen, and is acted on
     # once until a person takes it off and adds it again.
     consume: Callable[[int, str], bool] = lambda number, name: False
+    # The unit a pull request of this repo belongs to, if any: its state and push
+    # time say whether a conflict read by a poll is fresh.
+    unit_of: Callable[[int], StoredUnit | None] = lambda number: None
     # Where a failed poll is reported. Silent by default so a caller that does
     # not care is unchanged; the pipeline passes its own log.
     log: Callable[[str], None] = lambda message: None
@@ -232,13 +259,7 @@ class Poller(BaseModel):
 
             number = str(pull.number)
             current = snapshot(pull, self.ignore(int(number)))
-            if current["mergeable"] is None and number in known:
-                # The host resets its answer to undetermined whenever the base
-                # moves and works it out lazily. Recorded, it would make the
-                # conflict it resolves back into look new, and rework a
-                # conflicted unit once per trunk merge. So the last definite
-                # answer stands.
-                current["mergeable"] = known[number].get("mergeable")
+            _record_answer_time(current, known.get(number), spans.clock.now())
             updated[number] = current
 
             if not first_run and self._person_answered(known.get(number), current):
@@ -259,13 +280,32 @@ class Poller(BaseModel):
                     del updated[number]
                 continue
 
-            if self._dispatch_changes(int(number), known[number], current, pull) is False:
+            before = known[number]
+            fresh = self._fresh_conflict(int(number), current)
+            if self._dispatch_changes(int(number), before, current, pull) is False:
                 # Deferred: its unit is being built (see `events`). Recording
                 # the new snapshot would make this the last time the change is
                 # seen, so the old one stays and the next poll reports it again.
-                updated[number] = known[number]
+                updated[number] = before
+            elif fresh and before.get("mergeable") is False:
+                # A conflict that stands is a state: the transition was reported
+                # when it began, and the handler decides whether it is news.
+                self.dispatch("conflict", int(number), pull=pull)
 
         PrState.save(self.state_path, updated)
+
+    def _fresh_conflict(self, number: int, current: dict) -> bool:
+        """Whether this poll read a definite conflict after its unit's own push,
+        the unit being in review. A snapshot with no answer time is never fresh."""
+        unit = self.unit_of(number)
+        read = current.get("mergeable_at")
+        if current["mergeable"] is not False or not read or unit is None:
+            return False
+        return (
+            unit.state == IN_REVIEW
+            and unit.pushed_at is not None
+            and datetime.fromisoformat(read) > unit.pushed_at
+        )
 
     @staticmethod
     def _person_answered(before: dict | None, current: dict) -> bool:

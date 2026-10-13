@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The poll now records when it last read a definite answer on whether a pull request
+  merges, and since when it has conflicted. A conflict still standing after a unit's own
+  push is offered to the pipeline on every poll, not only when it begins; nothing acts on
+  it yet.
+
 - A clean move of a unit's branch onto a moved base, before a push or when a merge releases
   a dependent, now tells tier 1 which base it left. Tier 1 classifies the move as scoped (no
   file the move brought in is one the unit changes) or full (one is, the unit produced
