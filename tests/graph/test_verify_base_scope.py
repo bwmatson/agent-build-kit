@@ -16,8 +16,7 @@ from tests.conftest import make_installation
 from tests.graph.test_build_path import build, restacked
 from tests.graph.test_fresh_base_builds import RESOLVED, Moving
 from tests.graph.test_remaining_paths import fresh
-from tests.moved_base_fakes import Profile, passing
-from tests.pipeline.test_moved_base_scope import moved
+from tests.moved_base_fakes import Profile, moved, passing
 
 OLD_BASE = "old-base-sha"
 LINE = "moved base:"

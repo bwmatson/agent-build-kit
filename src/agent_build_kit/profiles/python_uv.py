@@ -26,7 +26,7 @@ from agent_build_kit.config import (
 from agent_build_kit.pipeline.commit_order import stub_violations as _stub_violations
 from agent_build_kit.pipeline.red_check import REPORT_MARK, judge_red, split_report
 from agent_build_kit.pipeline.tier2 import TestFailure, TestTime, parse_pytest_summary
-from agent_build_kit.profiles.base import PromptWords
+from agent_build_kit.profiles.base import PromptWords, is_doc_path
 
 # pytest's exit status when every test was deselected: "nothing to run here",
 # not a failure — most members carry no tier-2 tests.
@@ -440,9 +440,24 @@ class PythonUvProfile:
         and None when none is named, so that the full suite stands in."""
         commands = self.test_commands(repo, changed_files, root_extras=root_extras)
         if seed.is_file():
+            if not all(self._places(path) for path in changed_files):
+                return None
             return [self.seeding_command(command, seed, select=True) for command in commands]
         alone = [self.repeat_command(command, failed_ids) for command in commands]
         return [command for command in alone if command is not None] or None
+
+    def _places(self, path: str) -> bool:
+        """Whether the coverage data can say which tests a change to `path` affects: a
+        document touches none; a source or test module is what the data records; a lock or
+        configuration file, a conftest or a shared test helper reaches tests it cannot name."""
+        if is_doc_path(path):
+            return True
+        if not path.endswith(".py"):
+            return False
+        name = path.rsplit("/", 1)[-1]
+        if name == "conftest.py":
+            return False
+        return not self.is_test_path(path) or bool(_TEST_FILE.match(name))
 
     def is_seeded(self, command: list[str]) -> bool:
         return TESTMON in command

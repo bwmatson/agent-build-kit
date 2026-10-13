@@ -11,10 +11,12 @@ from agent_build_kit.pipeline.shell import git
 
 
 class MoveScope(Frozen):
-    """How a moved base is checked: `scoped`, or in full for `reason`."""
+    """How a moved base is checked: `scoped` over the files the move brought in, or in full
+    for `reason`."""
 
     scoped: bool
     reason: str = ""
+    incoming: list[str] = []
 
 
 def scope_of(own: Sequence[str], incoming: Sequence[str], setting: RestackCheck) -> MoveScope:
@@ -32,7 +34,7 @@ def scope_of(own: Sequence[str], incoming: Sequence[str], setting: RestackCheck)
             scoped=False,
             reason=f"a file the unit changes was brought in: {', '.join(shared)}",
         )
-    return MoveScope(scoped=True)
+    return MoveScope(scoped=True, incoming=list(incoming))
 
 
 def moved_base_scope(

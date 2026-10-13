@@ -84,9 +84,10 @@ class Sample(Frozen):
 
 
 class AffectedRun(Frozen):
-    """An `affected` line of the ledger: a fix round's selected run. `outcome` is whether the
-    full run that confirmed it `agreed`, `disagreed`, or was `not_run` because the selected
-    run failed; `saved_seconds` is absent when the unit had no full run to compare with."""
+    """An `affected` line of the ledger: a fix round's selected run, or a scoped moved base's.
+    `outcome` is whether the full run that confirmed a fix round's `agreed`, `disagreed`, or
+    was `not_run` because the selected run failed; a moved base's is `moved`, which no full
+    run confirms. `saved_seconds` is absent when the unit had no full run to compare with."""
 
     kind: str = "affected"
     at: str
