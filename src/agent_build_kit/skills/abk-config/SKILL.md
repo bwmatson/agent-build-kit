@@ -69,13 +69,21 @@ runtimes:                     # only for a runtime needing a fact abk cannot
                                        # usage_pause_pct, which means no ramp
         usage_relief_fraction: 0.25    # trailing part of the window a ramp spans
         usage_resume_buffer_pct: 5     # room above usage a resume waits for
-        usage_unit_allowance_pct: 10   # points one unit may spend, for an estimate
+        usage_unit_allowance_pct: auto # points one unit may spend, for an estimate: `auto`
+                                       # calibrates it from history (fallback 10, ceiling 20);
+                                       # a number is the fallback and the cap
+        usage_allowance_floor_pct: 1   # least a calibrated allowance may be
       weekly:                 # the 7-day window: the same five
         usage_pause_pct: 70
         usage_pause_ceiling_pct:
         usage_relief_fraction: 0.25
         usage_resume_buffer_pct: 5
-        usage_unit_allowance_pct: 2
+        usage_unit_allowance_pct: auto # fallback 2, ceiling 4
+        usage_allowance_floor_pct: 1
+      calibrate_usage_allowances: true # false: use the configured allowances only
+      usage_allowance_quantile: 0.9    # of points gained per unit; window 30 pairs, minimum 8
+      usage_allowance_window: 30
+      usage_allowance_min_pairs: 8
       usage_stale_retry_minutes: 5     # refusal length when the reading is too old
       usage_cache_minutes: 15          # how long a good usage reading is reused (the shortest)
       usage_claude_cache_minutes: 15   # freshness of Claude Code's own usage block that decides

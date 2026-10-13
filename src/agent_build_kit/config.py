@@ -171,6 +171,10 @@ class RuntimeModelsConfig(Frozen):
     rework_review: str | None = None
 
 
+# Points a unit is assumed to spend of each window before the history says otherwise.
+BUILTIN_UNIT_ALLOWANCES = {"session": 10, "weekly": 2}
+
+
 class UsageWindowConfig(Frozen):
     """How full one usage window may get before the pipeline stops starting
     units. The session and the week are both this, with the same names."""
@@ -193,9 +197,11 @@ class UsageWindowConfig(Frozen):
     # rather than being admitted exactly at the margin.
     usage_resume_buffer_pct: Annotated[int, Field(ge=0)] = 5
     # Points of this window one unit may spend, counted for each unit that has spent since
-    # the last reading or started on an estimate. Unset, the session takes 10 and the
-    # weekly 2: a unit costs a larger share of the five-hour window than of the week.
-    usage_unit_allowance_pct: Annotated[int, Field(ge=0)] = 10
+    # the last reading or started on an estimate. `auto` (the default) calibrates it from the
+    # recorded history and falls back to 10 for the session and 2 for the weekly: a unit costs
+    # a larger share of the five-hour window than of the week. A number is the fallback and the
+    # cap on the calibrated figure.
+    usage_unit_allowance_pct: Annotated[int, Field(ge=0)] | Literal["auto"] = "auto"
     # The least a calibrated allowance of this window may be, in points per unit.
     usage_allowance_floor_pct: Annotated[int, Field(ge=0)] = 1
 
@@ -204,6 +210,21 @@ class UsageWindowConfig(Frozen):
         """The ceiling as it applies: the pause percent when unset."""
         ceiling = self.usage_pause_ceiling_pct
         return self.usage_pause_pct if ceiling is None else ceiling
+
+    @model_validator(mode="after")
+    def _floor_not_above_cap(self) -> UsageWindowConfig:
+        """A floor set above the number set as the allowance would never be reachable."""
+        cap = self.usage_unit_allowance_pct
+        if (
+            "usage_allowance_floor_pct" in self.model_fields_set
+            and cap != "auto"
+            and self.usage_allowance_floor_pct > cap
+        ):
+            raise ValueError(
+                f"usage_allowance_floor_pct ({self.usage_allowance_floor_pct}) is above "
+                f"usage_unit_allowance_pct ({cap})"
+            )
+        return self
 
     @model_validator(mode="after")
     def _ceiling_not_below_pause(self) -> UsageWindowConfig:
@@ -247,9 +268,28 @@ class ClaudeLimitsConfig(Frozen):
     calibrate_usage_allowances: bool = True
     # The quantile of points gained per unit the calibrated allowance is, over the newest
     # `usage_allowance_window` pairs, needing at least `usage_allowance_min_pairs`.
-    usage_allowance_quantile: float = 0.9
-    usage_allowance_window: int = 30
-    usage_allowance_min_pairs: int = 8
+    usage_allowance_quantile: Annotated[float, Field(gt=0, le=1)] = 0.9
+    usage_allowance_window: Annotated[int, Field(ge=1)] = 30
+    usage_allowance_min_pairs: Annotated[int, Field(ge=1)] = 8
+
+    def configured_allowance(self, window: Literal["session", "weekly"]) -> int:
+        """The allowance a window has without calibration: its number, else the built-in one."""
+        set_to = getattr(self, window).usage_unit_allowance_pct
+        return BUILTIN_UNIT_ALLOWANCES[window] if set_to == "auto" else set_to
+
+    def allowance_ceiling(self, window: Literal["session", "weekly"]) -> int:
+        """The most a calibrated allowance may be: the number set, else twice the built-in one."""
+        set_to = getattr(self, window).usage_unit_allowance_pct
+        return 2 * BUILTIN_UNIT_ALLOWANCES[window] if set_to == "auto" else set_to
+
+    @model_validator(mode="after")
+    def _minimum_pairs_within_window(self) -> ClaudeLimitsConfig:
+        if self.usage_allowance_min_pairs > self.usage_allowance_window:
+            raise ValueError(
+                f"usage_allowance_min_pairs ({self.usage_allowance_min_pairs}) is above "
+                f"usage_allowance_window ({self.usage_allowance_window})"
+            )
+        return self
 
     @model_validator(mode="before")
     @classmethod
@@ -259,23 +299,6 @@ class ClaudeLimitsConfig(Frozen):
             return data
         default = cls.model_fields["usage_cache_minutes"].default
         return {**data, "usage_claude_cache_minutes": data.get("usage_cache_minutes", default)}
-
-    @model_validator(mode="before")
-    @classmethod
-    def _window_allowances(cls, data: object) -> object:
-        """The weekly window's own default allowance, where a window's settings leave it out.
-        It applies to mapping input (what `abk.yaml` always is); a `UsageWindowConfig` built
-        in code keeps the class default of 10."""
-        if not isinstance(data, dict):
-            return data
-        filled = dict(data)
-        for name, allowance in (("session", 10), ("weekly", 2)):
-            window = filled.get(name)
-            if window is None:
-                filled[name] = {"usage_unit_allowance_pct": allowance}
-            elif isinstance(window, dict):
-                filled[name] = {"usage_unit_allowance_pct": allowance, **window}
-        return filled
 
 
 class PolicyMarker(StrEnum):

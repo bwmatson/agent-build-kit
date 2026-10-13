@@ -920,10 +920,17 @@ once, and a failed call uses the last good live reading younger than `usage_fall
 **A refused or unreadable read does not pause while the reading kept leaves ample room.** When
 the endpoint cannot be asked (a refusal, a cool-down, an error, or the minimum interval) and the
 guard's own cache holds a last good reading of any age, each window is estimated as the figure
-read plus `usage_unit_allowance_pct` (ten points for the session, two for the week) for each unit
+read plus an allowance for each unit
 that has spent since the reading (a record in the usage ledger at or after it) or been allowed on
 an estimate since (`estimate_units` in the cache file, kept under the refresh lock), counted once
-by unit id. A window that has reset since starts from zero at its reset plus the most it could
+by unit id. The allowance is calibrated: each tick derives it from pairs of consecutive good
+readings in `usage-calls.jsonl` and the units that spent between them (the ledger) as the 90th
+percentile of points gained per unit over the newest thirty pairs, rounded up, between a floor
+(one) and a ceiling (the number set as `usage_unit_allowance_pct`, else twice the built-in ten
+or two), and only from eight pairs; the result is kept in `usage-allowances.json` beside the
+cache file, and `abk status` prints it. Until then, or with `calibrate_usage_allowances: false`,
+the configured allowance (ten points for the session, two for the week by default) stands. A
+window that has reset since starts from zero at its reset plus the most it could
 have climbed since (the climb floor and margin), so a long outage stops being covered. A start
 is allowed while, in both windows judged apart, the estimate plus `usage_headroom_margin_pct`
 (five) is under that window's threshold; otherwise it pauses as before, and the reason names the

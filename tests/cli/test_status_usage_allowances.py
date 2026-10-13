@@ -47,7 +47,8 @@ def status_lines(
 
 
 def allowance_lines(lines: list[str]) -> list[str]:
-    return [line for line in lines if "usage allowances:" in line]
+    """The allowance lines, without the `[HH:MM:SS] ` the log puts before each."""
+    return [line.split("] ", 1)[-1] for line in lines if "usage allowances:" in line]
 
 
 def test_the_allowances_in_force_and_the_pairs_behind_them_are_printed(

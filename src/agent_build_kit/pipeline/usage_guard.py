@@ -72,6 +72,12 @@ from agent_build_kit.config import (
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import file_lock, try_file_lock
 from agent_build_kit.pipeline.pause import UNKNOWN_RETRY
+from agent_build_kit.pipeline.usage_allowances import (
+    ALLOWANCES_NAME,
+    WINDOWS,
+    allowance_for,
+    read_allowances,
+)
 from agent_build_kit.pipeline.usage_calls import (
     CACHE,
     CALLS_NAME,
@@ -1107,6 +1113,7 @@ def _estimates(
     and the units admitted on an estimate since."""
     limits = _limits()
     calls = read_calls(cache_path.parent / CALLS_NAME)
+    kept = read_allowances(cache_path.parent / ALLOWANCES_NAME)
     admitted = set(_admitted(cached))
     spent: list[tuple[datetime, str]] = []
     for record in read_ledger(cache_path.parent / LEDGER_NAME):
@@ -1133,10 +1140,7 @@ def _estimates(
         now=now,
         limits=Limits.configured(),
         margin=limits.usage_headroom_margin_pct,
-        allowances={
-            "session": limits.session.usage_unit_allowance_pct,
-            "weekly": limits.weekly.usage_unit_allowance_pct,
-        },
+        allowances={window: allowance_for(window, kept.get(window), limits) for window in WINDOWS},
         units_since=units_since,
         climb=climb,
     )
