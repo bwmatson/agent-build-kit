@@ -110,7 +110,12 @@ from agent_build_kit.pipeline.pr_poller import (
     unmergeable,
 )
 from agent_build_kit.pipeline.pr_replies import build_post_replies, ignored, parse_answer
-from agent_build_kit.pipeline.restack import Moved, push_with_lease, resolved_move
+from agent_build_kit.pipeline.restack import (
+    Moved,
+    checked_out_at,
+    push_with_lease,
+    resolved_move,
+)
 from agent_build_kit.pipeline.run_log import (
     RunLog,
     remove_change_logs,
@@ -2954,6 +2959,12 @@ def build_stack_moves(store: UnitStore, installation: Installation) -> StackMove
             **kwargs,
         )
 
+    def checkout(path: Path, branch: str, **kwargs):
+        """A checkout of the branch at a given head, made and removed in the repo's turn."""
+        return checked_out_at(
+            path, branch, turn=partial(repo_turn, installation, names[path]), **kwargs
+        )
+
     def tier1_of(*, cwd: Path, base: str) -> tuple[bool, str]:
         """Tier 1 as the repo whose checkout, or worktree of it, `cwd` is builds it."""
         for name, path in checkouts.items():
@@ -2974,6 +2985,7 @@ def build_stack_moves(store: UnitStore, installation: Installation) -> StackMove
             root=installation.worktree_root,
             posts_root=installation.state_dir,
             move=move,
+            checkout=checkout,
             tier1=tier1_of,
             on_flake=build_on_flake(store, installation, log=log),
             push=at_path(push_with_lease),

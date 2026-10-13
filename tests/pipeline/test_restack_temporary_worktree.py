@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.pipeline import restack
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import PLANNED
 from tests.restack_turn_fakes import (
@@ -20,6 +23,7 @@ from tests.restack_turn_fakes import (
     OLD_BASE,
     Rig,
     around_the_resolver,
+    extra_commit,
     keeps_both,
     mark_resolver,
     rebase_in_progress,
@@ -143,3 +147,60 @@ def test_a_temporary_worktree_left_by_a_stopped_restack_is_cleared_under_the_tur
     assert cleared and all(c.held for c in cleared)
     assert trees == [2], "the repository's checkout and one temporary tree, not two"
     assert not left.exists()
+
+
+def test_the_checks_of_a_branch_with_no_worktree_run_on_a_checkout_at_the_moved_head(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = Rig(tmp_path, monkeypatch)
+    rig.use_clean_approved_branch()
+    (rig.repo / "notes.md").write_text("the operator's edit\n")
+    seen: list[tuple[Path, str]] = []
+    pushed: list[str] = []
+
+    def tier1(**kwargs: Any):
+        def run(*, cwd: Path, base: str) -> tuple[bool, str]:
+            seen.append((cwd, sh(cwd, "rev-parse", "HEAD")))
+            return True, ""
+
+        return run
+
+    monkeypatch.setattr(cli, "build_tier1", tier1)
+    monkeypatch.setattr(
+        cli,
+        "push_with_lease",
+        lambda repo, branch, *, last_pushed: pushed.append(branch) or sh(repo, "rev-parse", branch),
+    )
+
+    run_bounded(rig.restack)
+
+    ((cwd, head),) = seen
+    assert cwd != rig.repo
+    assert head == sh(rig.repo, "rev-parse", rig.branch), "the checks ran on the moved head"
+    assert sh(rig.repo, "merge-base", "main", rig.branch) == sh(rig.repo, "rev-parse", "main")
+    assert not cwd.exists() and not rig.temporary_tree().exists()
+    assert pushed == [rig.branch]
+
+
+def test_a_branch_moved_between_making_the_tree_and_the_rebase_is_not_overwritten(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = Rig(tmp_path, monkeypatch)
+    moved_to = extra_commit(rig.repo, BRANCH, "other.py", tmp_path / "scratch")
+    made = []
+    real = restack.prepare_detached
+
+    def moves_the_branch_once_the_tree_exists(*args: Any, **kwargs: Any) -> Path:
+        path = real(*args, **kwargs)
+        if not made:
+            sh(rig.repo, "update-ref", f"refs/heads/{BRANCH}", moved_to)
+        made.append(path)
+        return path
+
+    monkeypatch.setattr(restack, "prepare_detached", moves_the_branch_once_the_tree_exists)
+
+    run_bounded(rig.restack)
+
+    assert len(made) == 2, "started again for the moved branch"
+    assert sh(rig.repo, "show", f"{BRANCH}:other.py") == "other.py", "the other writer's commit"
+    sh(rig.repo, "merge-base", "--is-ancestor", "main", BRANCH)

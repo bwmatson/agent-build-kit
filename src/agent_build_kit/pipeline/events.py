@@ -1376,6 +1376,7 @@ def build_restack(
     adopt: Callable[..., str] | None = None,
     posts_root: Path | None = None,
     on_flake: Callable[..., str | None] | None = None,
+    checkout: Callable[..., AbstractContextManager[Path]] | None = None,
 ) -> Restack:
     """Move one child branch onto its new base, for real.
 
@@ -1601,7 +1602,15 @@ def build_restack(
 
         context = spans.current_unit.set((child.id, child.change, "restack", 0))
         try:
-            passed, output = tier1(cwd=cwd, base=local_ref(new_base, repo=child.repo))
+            # A unit with no worktree has its checks run on a checkout at the moved head, as
+            # the repository's own checkout is not on the branch.
+            checks_in = (
+                checkout(repo, branch, root=root, ref=head_of(repo, branch))
+                if checkout and not worktree.exists()
+                else nullcontext(cwd)
+            )
+            with checks_in as checks_cwd:
+                passed, output = tier1(cwd=checks_cwd, base=local_ref(new_base, repo=child.repo))
         except FlakeFound as found:
             # Not this branch's fault: it waits, gated, for the test's fix, as a unit
             # that met the flake building does, and is moved when it resumes.

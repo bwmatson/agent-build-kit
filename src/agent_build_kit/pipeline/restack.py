@@ -26,8 +26,8 @@ from __future__ import annotations
 
 import re
 import subprocess
-from collections.abc import Callable
-from contextlib import AbstractContextManager, nullcontext
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from pathlib import Path
 
 from agent_build_kit import runtimes
@@ -41,7 +41,7 @@ from agent_build_kit.pipeline.git_output import (
     untranslated_env,
 )
 from agent_build_kit.pipeline.scratch import output_convention, run_folder
-from agent_build_kit.pipeline.workspaces import prepare_detached
+from agent_build_kit.pipeline.workspaces import prepare_detached, worktree_path
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.base import (
     AgentInterrupted,
@@ -304,6 +304,9 @@ def _checked_out_in(repo: Path, branch: str) -> str | None:
 def _land_detached(repo: Path, branch: str, *, started: str) -> Moved:
     """Move `branch` to the detached head the rebase ended on, by compare-and-swap
     against `started`. Inside the turn, with the rebase finished."""
+    found = _branch_head(repo, branch)
+    if found != started:
+        raise BranchMoved(branch, expected=started, found=found)
     elsewhere = _checked_out_in(repo, branch)
     if elsewhere is not None:
         raise BranchCheckedOut(branch, path=elsewhere)
@@ -348,7 +351,13 @@ def move_branch_onto(
     (`BranchCheckedOut`).
     """
     with turn():
-        started = _branch_head(repo, branch)
+        # The head that is rebased: a detached tree's own, which was made at the branch
+        # head and may since have been left behind by another writer, else the branch's.
+        started = (
+            git(repo, "rev-parse", "HEAD").stdout.strip()
+            if detached
+            else _branch_head(repo, branch)
+        )
         result = git(
             repo,
             "rebase",
@@ -473,9 +482,32 @@ def move_branch_onto(
 
 
 def temporary_tree(repo: Path, branch: str, *, root: Path) -> Path:
-    """Where a branch with no worktree of its own is moved: not `worktree_path`, so
-    the test for a unit's own worktree never mistakes it for one."""
-    return root / repo.name / f"restack-{re.sub(r'[^A-Za-z0-9]', '_', branch)}"
+    """Where a branch with no worktree of its own is moved: beside where its own would
+    be, under another name, so the test for a unit's own worktree never mistakes it."""
+    own = worktree_path(repo, branch, root)
+    return own.parent / f"restack-{own.name}"
+
+
+@contextmanager
+def checked_out_at(
+    repo: Path, branch: str, *, root: Path, ref: str | None = None, turn: Turn = nullcontext
+) -> Iterator[Path]:
+    """A worktree on no branch, at `ref` (the branch's head by default), for a branch
+    with no worktree of its own. Made and removed inside the turn; one left by a
+    restack that stopped is cleared there first."""
+    path = temporary_tree(repo, branch, root=root)
+    with turn():
+        if path.exists():
+            git(path, "rebase", "--abort", check=False)
+            git(repo, "worktree", "remove", "--force", str(path), check=False)
+        git(repo, "worktree", "prune", check=False)
+        prepare_detached(repo, path.name, ref=ref or _branch_head(repo, branch), root=root)
+    try:
+        yield path
+    finally:
+        with turn():
+            git(repo, "worktree", "remove", "--force", str(path), check=False)
+            git(repo, "worktree", "prune", check=False)
 
 
 def move_in_temporary_worktree(
@@ -488,24 +520,9 @@ def move_in_temporary_worktree(
     **kwargs,
 ) -> Moved:
     """Move `branch` in a temporary worktree on no branch, so the checkout of `repo`
-    is never switched and a branch checked out elsewhere does not make git refuse.
-
-    The tree is made at the branch's head, and removed, inside the turn; one left by
-    a restack that stopped is cleared there first.
-    """
-    path = temporary_tree(repo, branch, root=root)
-    with turn():
-        if path.exists():
-            git(path, "rebase", "--abort", check=False)
-            git(repo, "worktree", "remove", "--force", str(path), check=False)
-        git(repo, "worktree", "prune", check=False)
-        prepare_detached(repo, path.name, ref=_branch_head(repo, branch), root=root)
-    try:
+    is never switched and a branch checked out elsewhere does not make git refuse."""
+    with checked_out_at(repo, branch, root=root, turn=turn) as path:
         return (move or move_branch_onto)(path, branch, turn=turn, detached=True, **kwargs)
-    finally:
-        with turn():
-            git(repo, "worktree", "remove", "--force", str(path), check=False)
-            git(repo, "worktree", "prune", check=False)
 
 
 # `git@host:owner/name.git`, or the ssh:// form of the same. Only these can be

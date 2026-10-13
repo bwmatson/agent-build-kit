@@ -11,13 +11,17 @@ from __future__ import annotations
 import threading
 from functools import partial
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.pipeline import restack
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.restack import (
     ConflictContext,
     RestackConflict,
+    StaleRemote,
     move_branch_onto,
     resolved_move,
 )
@@ -84,7 +88,8 @@ def test_another_units_worktree_add_and_push_complete_while_the_resolver_is_bloc
         assert release.wait(60)
         keeps_both(cwd)
 
-    mover = threading.Thread(target=lambda: move(repo, blocked, turn), daemon=True)
+    outcome: list[object] = []
+    mover = threading.Thread(target=lambda: outcome.append(move(repo, blocked, turn)), daemon=True)
     mover.start()
     assert at_resolver.wait(60)
 
@@ -108,10 +113,12 @@ def test_another_units_worktree_add_and_push_complete_while_the_resolver_is_bloc
     neighbour.join(30)
     finished = not neighbour.is_alive()
     release.set()
-    mover.join(60)
+    mover.join(timeout=60)
 
     assert finished, "another unit waited for the agent"
     assert not failures
+    assert not mover.is_alive()
+    assert [m.resolved for m in outcome] == [("markers.py",)]  # type: ignore[attr-defined]
     assert sh(remote, "rev-parse", "spec/d/1")
     assert turn.taken >= 2, "the rebase's start and its continuation each take the turn"
 
@@ -307,3 +314,35 @@ def test_a_branch_that_moved_again_is_held_with_both_heads_and_nothing_is_pushed
     assert first[:7] in stored.note and second[:7] in stored.note
     assert sh(rig.repo, "rev-parse", BRANCH) == second, "the branch is left as it was moved"
     assert not rig.temporary_tree().exists()
+
+
+def test_a_remote_that_moved_is_refused_by_the_lease_and_the_move_is_not_retried(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = Rig(tmp_path, monkeypatch)
+    rig.use_clean_approved_branch()
+    moves: list[str] = []
+    pushes: list[str] = []
+
+    def tier1(**kwargs: Any):
+        return lambda *, cwd, base: (True, "")
+
+    def refused(repo: Path, branch: str, *, last_pushed: str | None) -> str:
+        pushes.append(branch)
+        raise StaleRemote("the remote branch moved since the last push")
+
+    real_move = restack.move_branch_onto
+
+    def counting_move(*args: Any, **kwargs: Any):
+        moves.append("move")
+        return real_move(*args, **kwargs)
+
+    monkeypatch.setattr(cli, "build_tier1", tier1)
+    monkeypatch.setattr(cli, "push_with_lease", refused)
+    monkeypatch.setattr(restack, "move_branch_onto", counting_move)
+
+    with pytest.raises(StaleRemote):
+        run_bounded(rig.restack)
+
+    assert moves == ["move"], "moved once, and not again for the remote"
+    assert pushes == [rig.branch], "pushed once"

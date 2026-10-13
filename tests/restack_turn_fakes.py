@@ -197,6 +197,7 @@ class Rig:
             "c/1", change="c", title="Register the integration marker", branch=OLD_BASE
         )
         self.store.upsert([self.child, self.parent])
+        self.branch = BRANCH
         self.requests: list[AgentRequest] = []
         self.act: Callable[[AgentRequest], None] = lambda request: keeps_both(
             request.cwd or self.repo
@@ -211,12 +212,22 @@ class Rig:
         self.monkeypatch.setattr(runtimes, "active", lambda: runtime)
         moves = cli.build_stack_moves(self.store, self.installation)
         moves["restack"](
-            branch=BRANCH,
+            branch=self.branch,
             old_base=OLD_BASE,
             new_base="main",
             child=self.child,
             parent=self.parent,
         )
 
+    def use_clean_approved_branch(self) -> str:
+        """Moves `spec/c/3` instead: it applies cleanly onto `main`, and its head is approved."""
+        git(self.repo, "checkout", "-q", "-b", "spec/c/3", OLD_BASE)
+        commit_file(self.repo, "extra.py", "EXTRA = 1\n")
+        head = git(self.repo, "rev-parse", "HEAD")
+        git(self.repo, "checkout", "-q", "main")
+        self.branch = "spec/c/3"
+        self.child = self.child.model_copy(update={"branch": self.branch, "approved": head})
+        return head
+
     def temporary_tree(self) -> Path:
-        return self.installation.worktree_root / "app" / "restack-spec_c_2"
+        return self.installation.worktree_root / "app" / f"restack-{self.branch.replace('/', '_')}"

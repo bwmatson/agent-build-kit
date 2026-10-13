@@ -2782,9 +2782,11 @@ def build_runner(
     )
     planning_repo = installation.root
     # Units build in parallel, and two in one repo share its `.git`. Adding a
-    # worktree and pushing both take git's own locks there, which fail rather
-    # than wait — so those two steps take turns per repo. Everything else
-    # happens inside the unit's own worktree and needs no turn-taking.
+    # worktree, pushing, and the restack's git phases (the rebase up to its stop;
+    # its continue or abort, the branch update and the rerere writes) all take
+    # git's own locks there, which fail rather than wait — so those steps take
+    # turns per repo. The resolver's edits do not: they, and everything else,
+    # happen inside the unit's own worktree and need no turn-taking.
     unit_repo_turn = partial(file_lock, root / "locks" / f"repo-{unit.repo}.lock")
 
     def repo_turn_of(name: str) -> AbstractContextManager[object]:
