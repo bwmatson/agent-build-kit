@@ -16,6 +16,7 @@
   dependencies are listed in), the status says `waiting for <parent> to merge (second open
   parent)` and the graph draws it blocked. Started units are untouched. `abk tags` and `abk
   check` warn about the task-group shapes that produce such a unit.
+
 - The usage allowance of each window, the points a unit is assumed to spend when a start is
   allowed on an estimate, is now calibrated from the readings and ledger the installation has
   recorded, instead of a flat 10 (session) and 2 (week). Each tick takes a high quantile of
