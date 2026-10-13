@@ -136,6 +136,12 @@ joined into a neighbouring unit. The reason is required, the first group cannot
 carry the line, and neither can an `[acceptance]`, `[contract]` or `[narrow]`
 group (a flagged group keeps the ordering rules its flag gives it); `abk tags` rejects each.
 
+`abk tags` and `abk check` warn when an `[acceptance]` or `[narrow]` group follows an
+`Independent:` group, when a later group follows an `Independent:` group of its repo, or when a
+`Needs:` to another change's same-repo group sits beside a same-repo predecessor: the unit can
+have two parents neither of which builds on the other, and it then waits for all but one of them
+to merge. Order the groups as a chain, or put the independent group in another change, to avoid it.
+
 ## `Priority:` lines
 
 A group says how urgent it is on a line inside it, and a line above the first

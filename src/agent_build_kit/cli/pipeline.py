@@ -183,6 +183,7 @@ from agent_build_kit.pipeline.units import (
     in_progress_label,
     local_ref,
     ready_units,
+    second_parent_wait,
     stack_age_source,
     start_room,
     trunk_of,
@@ -240,6 +241,7 @@ from agent_build_kit.pipeline.work_graph import (
     merged_needs_warnings,
     specification_text,
     tasks_path,
+    unrelated_parent_warnings,
     validate_tasks,
 )
 from agent_build_kit.pipeline.workspaces import (
@@ -531,7 +533,11 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     full = _queue_full_line(inst, units)
     if full:
         log(full)
-    for line in [*_blocked_lines(units), *_failed_waiting_lines(units)]:
+    for line in [
+        *_blocked_lines(units),
+        *_failed_waiting_lines(units),
+        *_second_parent_lines(units),
+    ]:
         log(line)
 
     urgency = [
@@ -1727,6 +1733,15 @@ def _blocked_lines(units: list[StoredUnit]) -> list[str]:
         waits = [parent.id for parent in waiting_on(unit, units)]
         lines.append(f"  blocked: {unit.id} ({unit.repo}) waits on {', '.join(waits)}")
     return lines
+
+
+def _second_parent_lines(units: list[StoredUnit]) -> list[str]:
+    """One line for each unit that has never started and waits for a second open parent."""
+    return [
+        f"  {unit.id} ({unit.repo}) {wait}"
+        for unit in units
+        if (wait := second_parent_wait(unit, units))
+    ]
 
 
 def _failed_waiting_lines(units: list[StoredUnit]) -> list[str]:
@@ -3613,6 +3628,14 @@ def _needs_cycle_problems(inst: Installation) -> dict[str, str]:
     return {change: f"{change}: Needs: cycle {chain}" for change in crossing}
 
 
+def _tag_warnings(inst: Installation, path: Path) -> list[str]:
+    """What `abk tags` and `abk check` warn of in a tasks file, none of it a problem."""
+    return [
+        *merged_needs_warnings(path),
+        *unrelated_parent_warnings(path, inst.changes_dir, repos=tuple(inst.repos)),
+    ]
+
+
 def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
     """Validate a change's task-group tags (or every change's)."""
     changes = [t.parent.name for t in inst.tasks_files()] if args.all else [args.change]
@@ -3627,7 +3650,7 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
         if change.lower() in cycles:
             errors.append(cycles[change.lower()])
         path = tasks_path(change, inst.changes_dir)
-        for warning in merged_needs_warnings(path) if path.is_file() else []:
+        for warning in _tag_warnings(inst, path) if path.is_file() else []:
             print(warning)
         for error in errors:
             print(error)
@@ -3649,7 +3672,7 @@ def cmd_check(args: argparse.Namespace, inst: Installation) -> int:
     ok, output = openspec.check(inst.root)
     print(output, end="")
     for tasks in inst.tasks_files():
-        for warning in merged_needs_warnings(tasks):
+        for warning in _tag_warnings(inst, tasks):
             print(warning)
     problems = _needs_cycle_problems(inst)
     for message in problems.values():

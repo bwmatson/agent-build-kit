@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A unit that has never started and has two or more open same-repo parents, neither built on
+  the other, now waits for all but one of them instead of starting on one branch and missing the
+  other's work. It builds on the deepest parent (the newest of a chain, whatever order its
+  dependencies are listed in), the status says `waiting for <parent> to merge (second open
+  parent)` and the graph draws it blocked. Started units are untouched. `abk tags` and `abk
+  check` warn about the task-group shapes that produce such a unit.
+
 - A failed unit that waits on another unit (a prerequisite not yet reviewed or merged, or a
   predecessor being reworked, failed or held) no longer holds a place under
   `limits.max_units_in_progress`, so units like it cannot fill the queue and keep the work they

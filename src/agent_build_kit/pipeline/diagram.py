@@ -37,6 +37,7 @@ from agent_build_kit.pipeline.units import (
     SATISFIED,
     Priority,
     failed_waiting,
+    second_parent_wait,
     waiting_on,
 )
 from agent_build_kit.pipeline.vocabulary import STATES, ChecksOf, effective_state
@@ -120,6 +121,8 @@ def render_mermaid(
             if failed_waiting(unit, graph):
                 waits = ", ".join(parent.id for parent in waiting_on(unit, graph))
                 name = f"{name}, waiting on {waits}"
+            if wait := second_parent_wait(unit, graph):
+                name = f"{name}, {wait}"
             head = f"{unit.id}<br/>{unit.title}<br/>{_carried(unit)}"
             urgency = f" · priority {unit.priority}" if unit.priority != Priority.NORMAL else ""
             waiting = _waiting(unit)
