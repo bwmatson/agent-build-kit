@@ -36,6 +36,13 @@ class ApplyFormat(StrEnum):
     YAML = "yaml"
 
 
+class YamlVersion(StrEnum):
+    """How bare scalars such as `off` are read: as booleans under 1.1, as strings under 1.2."""
+
+    V1_1 = "1.1"
+    V1_2 = "1.2"
+
+
 class Toolset(Frozen):
     """A recommended toolset: the list at `path` the build run is meant to call, never merged."""
 
@@ -53,7 +60,7 @@ class ApplyPolicy(Frozen):
     file: str
     format: ApplyFormat
     deny_path: tuple[str, ...]
-    yaml_version: str  # "1.2" or "1.1": how bare scalars such as `off` are read and quoted
+    yaml_version: YamlVersion
     toolset: Toolset | None = None
     verified: str  # how it was checked, or that it was documented only
 
@@ -90,7 +97,7 @@ KNOWN_AGENTS: tuple[KnownAgent, ...] = (
             file="config.yaml",
             format=ApplyFormat.YAML,
             deny_path=("approvals", "deny"),
-            yaml_version="1.1",
+            yaml_version=YamlVersion.V1_1,
             toolset=Toolset(path=("platform_toolsets", "acp"), names=("file", "terminal", "todo")),
             verified="its own merge script, tests and documentation; not a run of this engine",
         ),

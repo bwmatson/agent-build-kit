@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import difflib
 import os
+import re
 import shutil
 import tempfile
 from collections.abc import Callable, Iterable
@@ -20,13 +21,16 @@ from pathlib import Path
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from ruamel.yaml.error import YAMLError
+from ruamel.yaml.nodes import ScalarNode
+from ruamel.yaml.scalarstring import DoubleQuotedScalarString
 
 from agent_build_kit.model import Frozen
-from agent_build_kit.runtimes.known_agents import ApplyFormat, ApplyPolicy
+from agent_build_kit.runtimes.known_agents import ApplyFormat, ApplyPolicy, YamlVersion
 from agent_build_kit.runtimes.recommended_policy import patterns
 from agent_build_kit.settings import named_value
 
 BACKUP_SUFFIX = ".abk-backup"
+STR_TAG = "tag:yaml.org,2002:str"
 
 
 class ApplyRefused(Exception):
@@ -66,22 +70,65 @@ def _dotted(path: tuple[str, ...]) -> str:
     return ".".join(path)
 
 
-def _yaml(descriptor: ApplyPolicy) -> YAML:
+def _indents(body: str) -> tuple[int, int]:
+    """How the file indents: its mapping step and how far a list's dash sits under its key,
+    so the writer reproduces them and an existing list is not re-indented."""
+    mapping, offset = 2, 2
+    lines = [
+        line for line in body.splitlines() if line.strip() and not line.lstrip().startswith("#")
+    ]
+    for here, after in zip(lines, lines[1:], strict=False):
+        if not here.rstrip().endswith(":") and not re.search(r":\s+#", here):
+            continue
+        key = len(here) - len(here.lstrip())
+        nxt = len(after) - len(after.lstrip())
+        if after.lstrip().startswith("- "):
+            return mapping, nxt - key
+        if nxt > key and not here.lstrip().startswith("- "):
+            mapping = nxt - key
+    return mapping, offset
+
+
+def _yaml(body: str = "") -> YAML:
+    """The round-trip reader and writer. It reads under the 1.2 rules, where `off` and `yes` are
+    plain strings that keep their spelling; the descriptor's version only decides which new
+    strings are quoted (`_scalar`). Setting a version here would also write a directive."""
     yaml = YAML(typ="rt")
-    yaml.version = (1, 1) if descriptor.yaml_version == "1.1" else (1, 2)
     yaml.preserve_quotes = True
     yaml.width = 1_000_000
     yaml.allow_unicode = True
     yaml.default_flow_style = False
-    yaml.indent(mapping=2, sequence=4, offset=2)
+    mapping, offset = _indents(body)
+    yaml.indent(mapping=mapping, sequence=offset + 2, offset=offset)
     return yaml
+
+
+def _scalar(descriptor: ApplyPolicy, value: str) -> str:
+    """`value` as a new scalar: double-quoted where the descriptor's resolver would read it as
+    something other than a string (`off` under 1.1), so the agent reads it back as written."""
+    resolver = YAML(typ="rt")
+    resolver.version = (1, 1) if descriptor.yaml_version == YamlVersion.V1_1 else (1, 2)
+    if resolver.resolver.resolve(ScalarNode, value, (True, False)) != STR_TAG:
+        return DoubleQuotedScalarString(value)
+    return value
+
+
+def _split_directive(text: str) -> tuple[str, str]:
+    """A leading `%` directive block through its `---` line, and the rest."""
+    if not text.startswith("%"):
+        return "", text
+    lines = text.splitlines(keepends=True)
+    for number, line in enumerate(lines):
+        if line.startswith("---"):
+            return "".join(lines[: number + 1]), "".join(lines[number + 1 :])
+    return "", text
 
 
 def _list_at(root: CommentedMap, path: tuple[str, ...], label: str) -> CommentedSeq:
     """The list at `path`, creating missing sections and the list; a string is its first item."""
     node = root
     for depth, key in enumerate(path[:-1], start=1):
-        if key not in node:
+        if node.get(key) is None:
             node[key] = CommentedMap()
         node = node[key]
         if not isinstance(node, CommentedMap):
@@ -109,9 +156,10 @@ def _merge_yaml(
     toolset: tuple[str, ...] | None,
     label: str,
 ) -> Merged:
-    yaml = _yaml(descriptor)
+    directive, body = _split_directive(text)
+    yaml = _yaml(body)
     try:
-        root = yaml.load(text)
+        root = yaml.load(body)
     except YAMLError as exc:
         raise ApplyRefused(f"{label} does not parse as YAML: {exc}") from exc
     if root is None:
@@ -120,19 +168,21 @@ def _merge_yaml(
         raise ApplyRefused(f"{label}: the top level is not a mapping")
     deny = _list_at(root, descriptor.deny_path, label)
     added = tuple(p for p in dict.fromkeys(wanted) if p not in deny)
-    deny.extend(added)
+    if added:
+        deny.fa.set_block_style()
+        deny.extend(_scalar(descriptor, p) for p in added)
     change = None
     if toolset is not None and descriptor.toolset is not None:
         current = _list_at(root, descriptor.toolset.path, label)
         before = tuple(str(item) for item in current)
         if before != toolset:
-            current[:] = list(toolset)
+            current[:] = [_scalar(descriptor, name) for name in toolset]
             change = (before, toolset)
     if not added and change is None:
         return Merged(text=text, added=(), toolset_change=None)
     out = StringIO()
     yaml.dump(root, out)
-    return Merged(text=out.getvalue(), added=added, toolset_change=change)
+    return Merged(text=directive + out.getvalue(), added=added, toolset_change=change)
 
 
 # A writer per format; the table's structural test fails a row naming one without.

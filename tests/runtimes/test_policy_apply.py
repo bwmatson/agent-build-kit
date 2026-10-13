@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from agent_build_kit.runtimes.known_agents import ApplyFormat, ApplyPolicy, Toolset
+from agent_build_kit.runtimes.known_agents import ApplyFormat, ApplyPolicy, Toolset, YamlVersion
 from agent_build_kit.runtimes.policy_apply import (
     BACKUP_SUFFIX,
     ApplyRefused,
@@ -30,7 +30,7 @@ FIRST = ApplyPolicy(
     file="config.yaml",
     format=ApplyFormat.YAML,
     deny_path=("approvals", "deny"),
-    yaml_version="1.1",
+    yaml_version=YamlVersion.V1_1,
     toolset=Toolset(path=("platform", "tools"), names=("file", "terminal")),
     verified="fixture",
 )
@@ -40,7 +40,7 @@ SECOND = ApplyPolicy(
     file="settings.yml",
     format=ApplyFormat.YAML,
     deny_path=("tools", "deny"),
-    yaml_version="1.2",
+    yaml_version=YamlVersion.V1_2,
     verified="fixture",
 )
 
@@ -137,7 +137,16 @@ def test_only_added_lines_differ_and_comments_and_other_keys_stay(tmp_path: Path
     apply(FIRST, tmp_path / "home")
 
     after = path.read_text()
-    assert _added_lines(COMMENTED, after)
+    added = _added_lines(COMMENTED, after)
+    assert added
+    items = {*patterns(), *(json.dumps(p) for p in patterns()), '"mine one *"'}
+    stray = [
+        line
+        for line in added
+        if "deny" not in line and line.strip().removeprefix("- ") not in items
+    ]
+    assert stray == []
+    assert after.split("approvals:")[0] == COMMENTED.split("approvals:")[0]
     for kept in (
         "# the operator's notes",
         "# quoted on purpose",
@@ -405,3 +414,86 @@ def test_a_row_without_a_toolset_refuses_the_request(tmp_path: Path) -> None:
         apply(SECOND, home, toolset=True)
 
     assert path.read_text() == "tools:\n  deny: []\n"
+
+
+@pytest.mark.parametrize("descriptor", [FIRST, SECOND], ids=["yaml-1.1", "yaml-1.2"])
+def test_no_directive_or_document_start_is_written_that_the_file_lacked(
+    tmp_path: Path, descriptor: ApplyPolicy
+) -> None:
+    keys = descriptor.deny_path
+    before = f"# mine\n{keys[0]}:\n  {keys[1]}: []\n"
+    path = _config(tmp_path / "home", before, descriptor)
+
+    apply(descriptor, tmp_path / "home")
+
+    after = path.read_text()
+    assert "%YAML" not in after
+    assert after.splitlines()[0] == "# mine"
+    assert "---" not in after
+    for line in _added_lines(before, after):
+        assert line.strip().startswith("- ") or keys[1] in line
+    assert all(keys[1] in line for line in _removed_lines(before, after))
+
+
+def test_a_directive_the_file_had_is_kept_and_its_values_keep_their_spelling(
+    tmp_path: Path,
+) -> None:
+    before = "%YAML 1.1\n---\napprovals:\n  mode: off\n  deny: []\n"
+    path = _config(tmp_path / "home", before)
+
+    apply(FIRST, tmp_path / "home")
+
+    assert path.read_text().startswith("%YAML 1.1\n---\napprovals:\n  mode: off\n")
+
+
+def test_bare_boolean_spellings_in_untouched_keys_and_entries_stay_as_written(
+    tmp_path: Path,
+) -> None:
+    before = "approvals:\n  mode: off\n  deny:\n  - 'mine *'\nflag: on\nother: yes\n"
+    path = _config(tmp_path / "home", before)
+
+    apply(FIRST, tmp_path / "home")
+
+    after = path.read_text()
+    for kept in ("mode: off", "flag: on", "other: yes"):
+        assert kept in (line.strip() for line in after.splitlines())
+    assert _removed_lines(before, after) == []
+
+
+def test_a_bare_boolean_entry_the_operator_wrote_stays_bare(tmp_path: Path) -> None:
+    before = "approvals:\n  deny:\n  - yes\n"
+    path = _config(tmp_path / "home", before)
+
+    apply(FIRST, tmp_path / "home")
+
+    assert "- yes" in (line.strip() for line in path.read_text().splitlines())
+    assert _removed_lines(before, path.read_text()) == []
+
+
+def test_a_section_present_but_empty_is_filled_like_a_missing_one(tmp_path: Path) -> None:
+    path = _config(tmp_path / "home", "approvals:\nmodel: x\n")
+
+    apply(FIRST, tmp_path / "home")
+
+    loaded = yaml.safe_load(path.read_text())
+    assert loaded["model"] == "x"
+    assert loaded["approvals"]["deny"] == patterns()
+
+
+def test_an_inline_deny_list_becomes_a_block_list_when_entries_are_added(
+    tmp_path: Path,
+) -> None:
+    path = _config(tmp_path / "home", 'approvals:\n  deny: ["mine *"]\n')
+
+    apply(FIRST, tmp_path / "home")
+
+    assert _deny(path) == ["mine *", *patterns()]
+    assert max(len(line) for line in path.read_text().splitlines()) < 200
+
+
+def test_a_new_scalar_a_one_point_one_reader_would_misread_is_quoted(tmp_path: Path) -> None:
+    path = _config(tmp_path / "home", "platform:\n  tools: [web]\n")
+
+    apply(FIRST, tmp_path / "home", extra=["off"])
+
+    assert '- "off"' in path.read_text()

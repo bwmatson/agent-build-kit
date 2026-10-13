@@ -20,7 +20,7 @@ def _problems(agent: KnownAgent) -> list[str]:
     descriptor = agent.apply
     assert descriptor is not None
     found = []
-    for field in ("home_env", "home_default", "file", "yaml_version", "verified"):
+    for field in ("home_env", "home_default", "file", "verified"):
         if not getattr(descriptor, field).strip():
             found.append(f"{agent.name}: {field} is empty")
     if not descriptor.deny_path or not all(descriptor.deny_path):
