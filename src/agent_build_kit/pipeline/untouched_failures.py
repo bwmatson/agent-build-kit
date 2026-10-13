@@ -18,6 +18,7 @@ from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.flakes import add_needs_to_unit, next_fix_name, open_fix_change
 from agent_build_kit.pipeline.tier2 import Tier2Verdict
 from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.work_graph import group_needs
 
 PREFIX = "fix-failing"
 CAPABILITY = "failing-tests"
@@ -115,7 +116,28 @@ def holding_fixes(
     """The recorded entries whose fix change is open, was recorded for `unit`'s repo
     (by the repo of the unit named in `units`), is not `unit`'s own change and has no
     `Needs:` line from `unit`: each holds `unit` before a full tier 2 run."""
-    raise NotImplementedError
+    latest: dict[str, PreExisting] = {}
+    for entry in preexisting_record(inst).entries():
+        if entry.change:
+            latest[entry.test] = entry
+    repo_of = {other.id: other.repo for other in units}
+    waits_on = {
+        need.change
+        for member in unit.members()
+        if (tasks := inst.changes_dir / member.change / "tasks.md").is_file()
+        for needs in group_needs(tasks).values()
+        for need in needs
+    }
+    holding: dict[str, PreExisting] = {}
+    for entry in latest.values():
+        if (
+            repo_of.get(entry.unit) == unit.repo
+            and entry.change != unit.change
+            and entry.change not in waits_on
+            and (inst.changes_dir / entry.change).is_dir()
+        ):
+            holding.setdefault(entry.change, entry)
+    return list(holding.values())
 
 
 def wait_on_preexisting(

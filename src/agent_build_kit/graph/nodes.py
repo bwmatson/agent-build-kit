@@ -1698,7 +1698,12 @@ class BuildPath:
         r, unit = self.runner, self.unit
         base = state.base or self.base
         self.say("tier 2 again on the moved commit" if state.moved else "tier 2")
-        ok, snapshot = r.run_tier2(cwd=self.tree(), base=base)
+        tree = self.tree()
+        if r.tier2_runs_whole(cwd=tree, base=base) and (held := r.on_tier2_gate(unit)):
+            return self.park_for_fix(
+                f"waiting for the fix change {', '.join(held)} of a failing test on the base"
+            )
+        ok, snapshot = r.run_tier2(cwd=tree, base=base)
         ran_none = ok and r.tier2_ran_no_tests()
         self.say("tier 2 ran no test" if ran_none else f"tier 2 {'passed' if ok else 'failed'}")
         if ok:

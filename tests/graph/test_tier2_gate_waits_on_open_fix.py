@@ -70,7 +70,11 @@ def test_a_unit_run_again_after_a_restack_is_held_by_a_fix_it_does_not_wait_on(
     outcome = planning.tick(restack_onto=restacked)
 
     assert outcome.status == RunStatus.HELD
-    assert planning.needs() == {1: [first, second], 2: [first, second]}
+    wanted = sorted([first, second])
+    assert {group: sorted(fixes) for group, fixes in planning.needs().items()} == {
+        1: wanted,
+        2: wanted,
+    }, "each line is added once; their order in the file is not the point"
     assert not planning.ran_tier2
 
 

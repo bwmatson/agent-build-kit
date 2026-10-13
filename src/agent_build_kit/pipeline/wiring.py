@@ -133,6 +133,7 @@ from agent_build_kit.pipeline.units import (
 )
 from agent_build_kit.pipeline.untouched_failures import (
     PreExisting,
+    holding_fixes,
     preexisting_record,
     wait_on_preexisting,
 )
@@ -1466,7 +1467,19 @@ def build_on_tier2_gate(
     """Give a unit about to run a full tier 2 run a `Needs:` line on each open fix change
     of a recorded base failure that holds it, and answer those changes (none: nothing
     holds it). Writes no change."""
-    raise NotImplementedError
+
+    def on_tier2_gate(unit: Unit) -> list[str]:
+        stored = store.get(unit.id)
+        held = [
+            wait_on_preexisting(installation, entry, stored, wait=True, say=log)
+            for entry in holding_fixes(installation, stored, store.all())
+        ]
+        fixes = [fix for fix in held if fix]
+        for fix in fixes:
+            log(f"{unit.id}: open fix {fix} of a failing test on the base — waits")
+        return fixes
+
+    return on_tier2_gate
 
 
 def _under(path: Path, where: Path) -> str | None:
@@ -3299,6 +3312,10 @@ def build_runner(
         tier2_verdict=lambda: tier2.verdict,
         tier2_ran_no_tests=lambda: bool(tier2.result and tier2.result.ran_no_tests),
         on_preexisting=build_on_preexisting(store, installation, log=log),
+        # Every tier 2 run executes the whole marker until a scope function narrows it;
+        # that function replaces this answer.
+        tier2_runs_whole=lambda *, cwd, base: True,
+        on_tier2_gate=build_on_tier2_gate(store, installation, log=log),
         push=push_in_turn,
         open_pr=build_open_pr(store=store, log=log),
         linear=is_linear,

@@ -198,7 +198,10 @@ written at `Priority: 1`. `abk tick --dry-run` prints `exists: <change>` or
 `would write: <change>` for each recorded one and writes nothing. A unit whose tier 2
 failures are all pre-existing is parked `gated` on those fix changes (a `Needs:` line on each
 group) and runs tier 2 again, restacked, once they merge; a unit with a failure of its own
-fails as before and is shown only its own failures.
+fails as before and is shown only its own failures. A unit about to run a full tier 2 run is
+parked the same way, before the lock and any test, while a recorded fix change in its repo is
+open (the fix's own units and units already waiting on it run); it resumes once the fix is
+in review. `abk status` ends each `pre-existing:` line with how many units wait on its fix.
 
 ### What an agent may run on the code host
 
