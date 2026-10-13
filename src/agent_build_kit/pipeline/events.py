@@ -37,7 +37,7 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agent_build_kit import forges, profiles
 from agent_build_kit.forges import Forge, PullRequest, RepoId, ReviewNote
@@ -96,6 +96,9 @@ from agent_build_kit.runtimes.base import (
     NetworkUnavailable,
     ServiceUnavailable,
 )
+
+if TYPE_CHECKING:
+    from agent_build_kit.pipeline.restack_lane import RestackLane
 
 Log = Callable[[str], None]
 Restack = Callable[..., None]
@@ -225,6 +228,7 @@ def on_merged(
     retarget: Callable[[StoredUnit, str], None] | None = None,
     rebase_cap: int | None = None,
     resume: Resume = _no_thread,
+    lane: RestackLane | None = None,
     log: Log = print,
 ) -> bool:
     """Record the merge, move what was stacked on it, then clean up after it.
