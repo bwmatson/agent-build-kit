@@ -22,10 +22,12 @@ def commit(repo: Path, files: dict[str, str], message: str) -> None:
     git(repo, "commit", "-qm", message, "--allow-empty")
 
 
-def moved(tmp_path: Path, *, own: dict[str, str], incoming: dict[str, str]) -> tuple[Path, str]:
+def moved(
+    tmp_path: Path, *, own: dict[str, str], incoming: dict[str, str], at: Path | None = None
+) -> tuple[Path, str]:
     """A repo whose branch changes `own` and whose `main` moved on by `incoming`, the
     branch replayed onto it. Returns the repo, on the branch, and the old base."""
-    repo = init_repo(tmp_path / "repo")
+    repo = init_repo(at or tmp_path / "repo")
     commit(repo, {"a.py": "a = 1\n", "b.py": "b = 1\n", "c.py": "c = 1\n"}, "base")
     old_base = git(repo, "rev-parse", "HEAD").strip()
     git(repo, "checkout", "-q", "-b", "spec/feature/1")
@@ -40,7 +42,8 @@ def moved(tmp_path: Path, *, own: dict[str, str], incoming: dict[str, str]) -> t
 def scope(
     repo: Path, old_base: str, setting: RestackCheck = RestackCheck.AFFECTED, base: str = "main"
 ) -> MoveScope:
-    return moved_base_scope(repo, base=base, moved_from=old_base, setting=setting)
+    own = git(repo, "diff", "--name-only", f"{base}...HEAD").split()
+    return moved_base_scope(repo, own=own, base=base, moved_from=old_base, setting=setting)
 
 
 def test_a_move_over_files_the_unit_does_not_change_is_scoped(tmp_path: Path) -> None:
@@ -109,3 +112,12 @@ def test_the_rule_over_the_files_alone() -> None:
     assert not scope_of(["a.py", "b.py"], ["b.py"], RestackCheck.AFFECTED).scoped
     assert not scope_of([], ["b.py"], RestackCheck.AFFECTED).scoped
     assert not scope_of(["a.py"], ["b.py"], RestackCheck.FULL).scoped
+
+
+def test_a_base_that_cannot_be_listed_is_full_and_says_so(tmp_path: Path) -> None:
+    repo, _ = moved(tmp_path, own={"a.py": "a = 2\n"}, incoming={"b.py": "b = 2\n"})
+
+    result = scope(repo, "no-such-ref")
+
+    assert not result.scoped
+    assert "could not be listed" in result.reason

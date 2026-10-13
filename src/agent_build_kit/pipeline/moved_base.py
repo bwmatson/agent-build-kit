@@ -35,17 +35,22 @@ def scope_of(own: Sequence[str], incoming: Sequence[str], setting: RestackCheck)
     return MoveScope(scoped=True)
 
 
-def moved_base_scope(tree: Path, *, base: str, moved_from: str, setting: RestackCheck) -> MoveScope:
-    """`scope_of` over the unit's files against `base` and the files that differ between
-    `moved_from`, the base the restack computed, and `base`."""
+def moved_base_scope(
+    tree: Path, *, own: Sequence[str], base: str, moved_from: str, setting: RestackCheck
+) -> MoveScope:
+    """`scope_of` over `own`, the files the unit changes, and the files that differ between
+    `moved_from`, the base the restack computed, and `base`.
+
+    A base that cannot be diffed is not an empty move: it is full, with the failure as the
+    reason."""
     if setting is RestackCheck.FULL:
-        return scope_of([], [], setting)
+        return scope_of(own, [], setting)
     if not moved_from:
         return MoveScope(scoped=False, reason="the move has no old base")
-    own = _names(git(tree, "diff", "--name-only", f"{base}...HEAD", check=False).stdout)
-    incoming = _names(git(tree, "diff", "--name-only", moved_from, base, check=False).stdout)
-    return scope_of(own, incoming, setting)
-
-
-def _names(output: str) -> list[str]:
-    return [line for line in output.splitlines() if line.strip()]
+    listed = git(tree, "diff", "--name-only", moved_from, base, check=False)
+    if listed.returncode != 0:
+        why = next((line for line in listed.stderr.splitlines() if line.strip()), "git failed")
+        return MoveScope(
+            scoped=False, reason=f"the files the move brought in could not be listed: {why}"
+        )
+    return scope_of(own, [line for line in listed.stdout.splitlines() if line.strip()], setting)

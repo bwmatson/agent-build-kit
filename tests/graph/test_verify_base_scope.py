@@ -30,7 +30,7 @@ def test_a_clean_move_passes_the_base_it_left_to_tier_1(tmp_path: Path) -> None:
     outcome = build(tmp_path, recorder, **moving.overrides())
 
     assert outcome.status == "open"
-    assert recorder.tier1_moved_from == ["", OLD_BASE], "the first check is not a moved base"
+    assert recorder.tier1_moved_from == [None, OLD_BASE], "the first check is not a moved base"
 
 
 def test_a_resolved_move_goes_to_rebase_and_its_tier_1_is_not_a_moved_base_check(
@@ -43,7 +43,7 @@ def test_a_resolved_move_goes_to_rebase_and_its_tier_1_is_not_a_moved_base_check
 
     build(tmp_path, recorder, **moving.overrides())
 
-    assert recorder.tier1_moved_from == ["", OLD_BASE]
+    assert recorder.tier1_moved_from == [None, OLD_BASE]
 
 
 def test_a_conflicting_move_goes_to_rebase_and_its_old_base_never_reaches_tier_1(
@@ -55,7 +55,7 @@ def test_a_conflicting_move_goes_to_rebase_and_its_old_base_never_reaches_tier_1
 
     build(tmp_path, recorder, **moving.overrides())
 
-    assert recorder.tier1_moved_from == ["", OLD_BASE]
+    assert recorder.tier1_moved_from == [None, OLD_BASE]
 
 
 def test_a_tier_two_unit_still_runs_tier_2_after_its_scoped_tier_1(tmp_path: Path) -> None:
@@ -95,7 +95,7 @@ def test_a_move_over_disjoint_files_logs_one_moved_base_line(tmp_path: Path) -> 
     found = lines_logged(tmp_path, own={"a.py": "a = 2\n"}, incoming={"b.py": "b = 2\n"})
 
     assert len(found) == 1
-    assert "full suite" not in found[0]
+    assert "ran the full suite" not in found[0], "a scoped move is not logged as a fallback"
 
 
 def test_a_file_the_unit_changes_is_logged_as_the_reason_for_the_full_suite(

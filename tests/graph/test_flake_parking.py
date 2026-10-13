@@ -47,7 +47,7 @@ class Flaking:
         base: str = "main",
         whole_repo: bool = False,
         failed_output: str = "",
-        moved_from: str = "",
+        moved_from: str | None = None,
     ):
         self.runs += 1
         if self.runs == self.nth:

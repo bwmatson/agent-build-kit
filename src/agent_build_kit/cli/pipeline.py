@@ -2986,6 +2986,7 @@ def build_stack_moves(store: UnitStore, installation: Installation) -> StackMove
                     root_extras=repo.tests.root_extras,
                     projects=repo.projects,
                     repo=repo,
+                    log=log,
                 )(cwd=cwd, base=base, moved_from=moved_from)
         raise ValueError(f"{cwd} is not a checkout of any repo or a worktree of one")
 

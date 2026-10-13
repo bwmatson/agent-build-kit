@@ -488,10 +488,10 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    differ between the old base and the new one) is also a file the unit changes, and
    full when one is, when the unit produced nothing of its own, when the move has no old
    base, or when `limits.restack_check` is `full`. It logs `moved base:` with which it
-   was and why; the run itself is still the whole suite, and the merge handler's tier 1
-   after a release is told its old base the same way; a conflict, or a tier 1 or tier 2 failure on the new base,
-   pushes nothing and resumes the unit at its restack in the same run (a
-   check's failure leaves its output as feedback). That restack is what
+   was and why; the run itself is still the whole suite. The merge handler's tier 1 after
+   a release is told its old base and logs the same way. In a run, a conflict, or a
+   tier 1 or tier 2 failure on the new base, pushes nothing and resumes the unit at its
+   restack in the same run (a check's failure leaves its output as feedback). That restack is what
    resolves, under the usage gate, and review is told of it. It happens once:
    a second hold in the run leaves the unit `planned` to resume at its restack
    on a later tick, so a base that keeps moving cannot loop. A pull request

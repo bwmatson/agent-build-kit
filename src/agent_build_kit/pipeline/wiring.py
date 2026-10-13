@@ -856,11 +856,15 @@ def build_tier1(
 
     def _say_scope(cwd: Path, base: str, moved_from: str) -> None:
         scope = moved_base_scope(
-            cwd, base=base, moved_from=moved_from, setting=active().limits.restack_check
+            cwd,
+            own=changed(cwd, base),
+            base=base,
+            moved_from=moved_from,
+            setting=active().limits.restack_check,
         )
         if log is not None:
             log(
-                "moved base: no file the unit changes was brought in"
+                "moved base: no file the unit changes was brought in (the full suite still runs)"
                 if scope.scoped
                 else f"moved base: ran the full suite ({scope.reason})"
             )

@@ -21,6 +21,7 @@ from agent_build_kit.pipeline.restack import ConflictContext, Moved
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.wiring import build_tier1
 from tests.conftest import make_installation
+from tests.pipeline.test_moved_base_scope import moved
 
 
 def workspace(tmp_path: Path, *, app_changelog: str | None) -> Installation:
@@ -136,3 +137,23 @@ def test_the_resolver_is_told_the_settings_of_the_repo_it_moves_in(
     assert contexts[0].repo is not None
     assert contexts[0].repo.slug == "example/app"
     assert contexts[0].repo.changelog == changelog
+
+
+def test_the_restacks_tier_one_logs_what_a_move_after_a_release_was_checked_by(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    installation = workspace(tmp_path, app_changelog=None)
+    repo, old_base = moved(
+        tmp_path,
+        own={"a.py": "a = 2\n"},
+        incoming={"b.py": "b = 2\n"},
+        at=installation.checkouts["app"],
+    )
+    logged: list[str] = []
+    monkeypatch.setattr(cli, "log", lambda message, **kwargs: logged.append(message))
+    given, _ = restack_wiring(tmp_path, monkeypatch, installation)
+
+    passed, _ = given["tier1"](cwd=repo, base="main", moved_from=old_base)
+
+    assert passed
+    assert len([line for line in logged if "moved base:" in line]) == 1
