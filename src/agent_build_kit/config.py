@@ -196,6 +196,8 @@ class UsageWindowConfig(Frozen):
     # the last reading or started on an estimate. Unset, the session takes 10 and the
     # weekly 2: a unit costs a larger share of the five-hour window than of the week.
     usage_unit_allowance_pct: Annotated[int, Field(ge=0)] = 10
+    # The least a calibrated allowance of this window may be, in points per unit.
+    usage_allowance_floor_pct: Annotated[int, Field(ge=0)] = 1
 
     @property
     def usage_ceiling_pct(self) -> int:
@@ -241,6 +243,13 @@ class ClaudeLimitsConfig(Frozen):
     usage_headroom_margin_pct: Annotated[int, Field(ge=0)] = 5
     # How many units may start on an estimate for one reading; 0 never allows one.
     usage_estimate_max_starts: Annotated[int, Field(ge=0)] = 3
+    # Whether each window's allowance is derived from the recorded readings and ledger.
+    calibrate_usage_allowances: bool = True
+    # The quantile of points gained per unit the calibrated allowance is, over the newest
+    # `usage_allowance_window` pairs, needing at least `usage_allowance_min_pairs`.
+    usage_allowance_quantile: float = 0.9
+    usage_allowance_window: int = 30
+    usage_allowance_min_pairs: int = 8
 
     @model_validator(mode="before")
     @classmethod
