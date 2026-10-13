@@ -49,6 +49,20 @@ def segments(
     return calls, ledger
 
 
+def gaps(
+    window: str, spent: list[tuple[int, int, int]], *, start: datetime = START
+) -> tuple[list[UsageCall], list[UsageRecord]]:
+    """A (figure before, figure after, units that spent) gap for each entry, oldest first,
+    laid out as `segments` lays out its own."""
+    calls: list[UsageCall] = []
+    ledger: list[UsageRecord] = []
+    for index, (before, after, units) in enumerate(spent):
+        first = start + index * STEP
+        calls += [reading(window, first, before), reading(window, first + GAP, after)]
+        ledger += [spend(f"g{index}-{n}", first + GAP / 2) for n in range(units)]
+    return calls, ledger
+
+
 def per_unit(
     window: str, gains: Sequence[float], *, units: int = 2
 ) -> tuple[list[UsageCall], list[UsageRecord]]:

@@ -264,6 +264,10 @@ def cmd_backfill_costs(args: argparse.Namespace, inst: Installation) -> int:
     return 0
 
 
+def cmd_usage_replay(args: argparse.Namespace, inst: Installation) -> int:
+    raise NotImplementedError
+
+
 def register(sub: argparse._SubParsersAction) -> None:
     parser = sub.add_parser("usage", help="repairs of the usage ledger")
     commands = parser.add_subparsers(dest="usage_command", required=True)
@@ -272,3 +276,10 @@ def register(sub: argparse._SubParsersAction) -> None:
         "--apply", action="store_true", help="write the ledger (default: dry run)"
     )
     backfill.set_defaults(func=cmd_backfill_costs)
+
+    replay = commands.add_parser("replay", help="re-run the usage estimate over the history")
+    replay.add_argument("--since", default=None, help="only gaps whose first reading is this late")
+    replay.add_argument("--session-allowance", type=int, default=None)
+    replay.add_argument("--weekly-allowance", type=int, default=None)
+    replay.add_argument("--margin", type=int, default=None)
+    replay.set_defaults(func=cmd_usage_replay)
