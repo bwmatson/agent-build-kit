@@ -8,7 +8,7 @@ change exists or would be written.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 
 from agent_build_kit.installation import Installation
@@ -107,6 +107,15 @@ def feedback_snapshot(snapshot: str, verdict: Tier2Verdict | None) -> str:
     ]
     text = re.sub(r"<details>.*?</details>\n?", "", "\n".join(lines), flags=re.DOTALL)
     return f"{text.rstrip()}\n\nalso failing on the base, recorded: {', '.join(old)}\n"
+
+
+def holding_fixes(
+    inst: Installation, unit: StoredUnit, units: Sequence[StoredUnit]
+) -> list[PreExisting]:
+    """The recorded entries whose fix change is open, was recorded for `unit`'s repo
+    (by the repo of the unit named in `units`), is not `unit`'s own change and has no
+    `Needs:` line from `unit`: each holds `unit` before a full tier 2 run."""
+    raise NotImplementedError
 
 
 def wait_on_preexisting(

@@ -1460,6 +1460,15 @@ def _ids_for(
     ]
 
 
+def build_on_tier2_gate(
+    store: UnitStore, installation: Installation, *, log: Callable[[str], None] = print
+) -> Callable[..., list[str]]:
+    """Give a unit about to run a full tier 2 run a `Needs:` line on each open fix change
+    of a recorded base failure that holds it, and answer those changes (none: nothing
+    holds it). Writes no change."""
+    raise NotImplementedError
+
+
 def _under(path: Path, where: Path) -> str | None:
     """`path` as seen from the directory `where`, or None when it is not inside it."""
     try:
