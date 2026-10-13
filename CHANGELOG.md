@@ -49,7 +49,11 @@
   unit's projects, the full suite runs and the line gives the reason. The Python profile
   selects only from data a full run records, which needs `checks.affected` on (with it off,
   every moved base runs the full suite and the line says so), and now answers nothing for a
-  lock or configuration file, a conftest or a shared test helper.
+  lock or configuration file, a conftest or a shared test helper. A test that fails in a
+  scoped run is run again alone first: one that passes alone is recorded as a flake with its
+  one fix change but the unit is not held or made to wait for it, while a test that fails
+  again, or one the unit added or changed, holds the unit as before. Full runs keep their
+  flake rule.
 
 - A metric that is also kept as a local record is now sent and recorded by one function, so the
   two can no longer drift apart, and a tier 1 failure is classified once, so the exported check
