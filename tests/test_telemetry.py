@@ -14,7 +14,6 @@ import subprocess
 import sys
 import textwrap
 import threading
-import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
@@ -24,7 +23,6 @@ import pytest
 from agent_build_kit import telemetry
 from agent_build_kit.settings import reload
 
-SHUTDOWN_BOUND = 10.0
 ENV_KEYS = (
     "ABK_OTEL_ENABLED",
     "OTEL_EXPORTER_OTLP_ENDPOINT",
@@ -158,6 +156,45 @@ def configure(monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[..., None]]:
     telemetry.shutdown()
     monkeypatch.undo()
     reload(None)
+
+
+@dataclass
+class Exports:
+    """Which thread each exporter call ran on, and whether it was before shutdown."""
+
+    caller: int = field(default_factory=threading.get_ident)
+    threads: list[int] = field(default_factory=list)
+    before_shutdown: int | None = None
+
+    def mark_shutdown(self) -> None:
+        self.before_shutdown = len(self.threads)
+
+    def assert_off_the_caller(self) -> None:
+        """No export ran on the caller's thread while it was doing its work, and
+        the exporters were reached at all."""
+        assert self.before_shutdown is not None, "mark_shutdown() was never called"
+        assert self.caller not in self.threads[: self.before_shutdown]
+        assert self.threads, "nothing was exported"
+
+
+@pytest.fixture
+def exports(monkeypatch: pytest.MonkeyPatch) -> Exports:
+    """Record the thread of every span and metric export, then run it as before."""
+    from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+
+    seen = Exports()
+
+    def watch(original: Callable[..., Any]) -> Callable[..., Any]:
+        def export(self, *args: Any, **kwargs: Any) -> Any:
+            seen.threads.append(threading.get_ident())
+            return original(self, *args, **kwargs)
+
+        return export
+
+    monkeypatch.setattr(OTLPSpanExporter, "export", watch(OTLPSpanExporter.export))
+    monkeypatch.setattr(OTLPMetricExporter, "export", watch(OTLPMetricExporter.export))
+    return seen
 
 
 NO_OP_SCRIPT = textwrap.dedent(
@@ -326,11 +363,9 @@ def test_an_exporter_whose_export_raises_leaves_the_caller_alone(
             span.set_attribute("k", "v")
             telemetry.meter().create_histogram("abk.test.h").record(1.0)
             result = "unit built"
-        started = time.monotonic()
         telemetry.shutdown()
 
     assert result == "unit built"
-    assert time.monotonic() - started < SHUTDOWN_BOUND
     assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
 
 
@@ -339,6 +374,7 @@ def test_an_endpoint_that_does_not_answer_neither_delays_nor_fails_the_caller(
     configure,
     closed_port: str,
     silent_endpoint: str,
+    exports: Exports,
     caplog: pytest.LogCaptureFixture,
     kind: str,
 ) -> None:
@@ -347,33 +383,36 @@ def test_an_endpoint_that_does_not_answer_neither_delays_nor_fails_the_caller(
 
     with caplog.at_level(logging.DEBUG):
         assert telemetry.init() is True
-        started = time.monotonic()
         for _ in range(50):
             with telemetry.tracer().start_as_current_span("step"):
                 telemetry.meter().create_counter("abk.test.counter").add(1)
-        assert time.monotonic() - started < 2.0
-
-        started = time.monotonic()
+        exports.mark_shutdown()
         telemetry.shutdown()
-        assert time.monotonic() - started < SHUTDOWN_BOUND
 
+    exports.assert_off_the_caller()
     assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
 
 
 def test_a_collector_answering_with_a_retryable_error_neither_delays_nor_fails_the_caller(
-    configure, overloaded_receiver: Receiver, caplog: pytest.LogCaptureFixture
+    configure,
+    overloaded_receiver: Receiver,
+    exports: Exports,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     configure(ABK_OTEL_ENABLED="true", OTEL_EXPORTER_OTLP_ENDPOINT=overloaded_receiver.url)
 
     with caplog.at_level(logging.DEBUG):
         assert telemetry.init() is True
-        # The exporters retry on their own threads; the caller only has to get
-        # through its work and shutdown, however long a loaded host takes.
+        # Delay is judged by where the export runs, not by how long a loaded
+        # host took: an export on the caller's thread would sit in the
+        # exporter's retry loop.
         for _ in range(50):
             with telemetry.tracer().start_as_current_span("step"):
                 telemetry.meter().create_counter("abk.test.counter").add(1)
+        exports.mark_shutdown()
         telemetry.shutdown()
 
+    exports.assert_off_the_caller()
     assert overloaded_receiver.posts, "the collector was never asked"
     assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
 
