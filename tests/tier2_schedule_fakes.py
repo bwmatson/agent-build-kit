@@ -1,0 +1,79 @@
+"""A planning directory, a unit store and repos with schedules, for the scheduled tier 2 tests."""
+
+from __future__ import annotations
+
+from datetime import date, timedelta
+from pathlib import Path
+from typing import Any
+
+from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.units import Unit
+from tests.conftest import make_installation
+from tests.factories import stored_unit
+
+TODAY = date(2026, 3, 10)
+
+
+def ago(days: int) -> date:
+    return TODAY - timedelta(days=days)
+
+
+def planning(
+    root: Path, schedules: dict[str, str | bool | None] | None = None, **limits: Any
+) -> Installation:
+    """A planning directory with one repo per key of `schedules`, each with that value as its
+    own `tests.tier2_schedule` (None: unset); `app` alone when it is not given."""
+    schedules = {"app": None} if schedules is None else schedules
+    repos = {
+        name: {
+            "path": str(root / "checkouts" / name),
+            "slug": f"example/{name}",
+            "tests": {} if value is None else {"tier2_schedule": value},
+        }
+        for name, value in schedules.items()
+    }
+    return make_installation(root, repos=repos, limits=limits)
+
+
+def store_of(inst: Installation, *tier2_repos: str, **others: str) -> UnitStore:
+    """A store holding one tier 2 unit for each of `tier2_repos` and one tier 1 unit for each
+    of `others` (unit name = repo)."""
+    store = UnitStore(inst.state_dir / "units.json")
+    units: list[Unit] = [
+        stored_unit(f"{repo}-work/1", change=f"{repo}-work", repo=repo, tier="tier2")
+        for repo in tier2_repos
+    ]
+    units += [
+        stored_unit(f"{repo}-work/1", change=f"{repo}-work", repo=repo, tier="tier1")
+        for repo in others
+    ]
+    store.upsert(units)
+    return store
+
+
+def name_of(repo: str, day: date) -> str:
+    return f"scheduled-tier2-{repo}-{day.isoformat()}"
+
+
+def archived(inst: Installation, repo: str, written: date, *, on: date | None = None) -> str:
+    """An archived scheduled change written on `written`, archived `on` (default: the same
+    day); returns its name."""
+    name = name_of(repo, written)
+    (inst.changes_dir / "archive" / f"{(on or written).isoformat()}-{name}").mkdir(parents=True)
+    return name
+
+
+def open_change(inst: Installation, repo: str, written: date) -> str:
+    name = name_of(repo, written)
+    (inst.changes_dir / name).mkdir(parents=True)
+    return name
+
+
+def scheduled_changes(inst: Installation) -> list[str]:
+    """The open scheduled changes, by name."""
+    if not inst.changes_dir.is_dir():
+        return []
+    return sorted(
+        p.name for p in inst.changes_dir.iterdir() if p.name.startswith("scheduled-tier2-")
+    )

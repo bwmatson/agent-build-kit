@@ -323,6 +323,21 @@ def tier2_unit_scope(repo: RepoConfig, limits: LimitsConfig) -> Tier2UnitScope:
     return repo.tests.tier2_unit_scope or limits.tier2_unit_scope
 
 
+class Tier2Schedule(StrEnum):
+    """How often a repo's whole tier 2 suite is due to run on its own."""
+
+    DAILY = "daily"
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
+    OFF = "off"
+
+
+def tier2_schedule(repo: RepoConfig, limits: LimitsConfig) -> Tier2Schedule:
+    """The schedule in effect for `repo`: its own `tests.tier2_schedule` when set, else the
+    `limits` one."""
+    raise NotImplementedError
+
+
 class PolicyMarker(StrEnum):
     """What the person said about the runtime's policy check (`runtimes.<name>.policy`)."""
 

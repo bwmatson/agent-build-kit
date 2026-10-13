@@ -1,0 +1,27 @@
+"""The change written for a due repo passes `abk check` (`openspec validate --strict`) and
+`abk tags` (spec: tier2-schedule). Needs node (npx) and, on the first run, the network."""
+
+from __future__ import annotations
+
+import argparse
+import shutil
+
+import pytest
+
+from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.pipeline.tier2_schedule import write_due
+from tests.tier2_schedule_fakes import TODAY, planning, store_of
+
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(shutil.which("npx") is None, reason="npx is not on PATH"),
+]
+
+
+def test_the_written_change_passes_abk_check_and_abk_tags(tmp_path) -> None:
+    inst = planning(tmp_path)
+    (inst.specs_dir / "specs").mkdir(parents=True, exist_ok=True)
+    [name] = write_due(inst, store_of(inst, "app"), today=TODAY, say=lambda line: None)
+
+    assert cli.cmd_check(argparse.Namespace(), inst) == 0
+    assert cli.cmd_tags(argparse.Namespace(all=False, change=name), inst) == 0
