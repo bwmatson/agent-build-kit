@@ -60,11 +60,14 @@ from agent_build_kit.pipeline.cycles import (
 )
 from agent_build_kit.pipeline.drafts import StateDrafts
 from agent_build_kit.pipeline.events import (
+    Restack,
+    build_base_tip,
     build_claim,
     build_delete_branch,
     build_dispatch,
     build_fetch_check_logs,
     build_fetch_review,
+    build_fork_point,
     build_remove_worktree,
     build_rerun_checks,
     build_restack,
@@ -2992,7 +2995,7 @@ class StackMoves(TypedDict):
     satisfied, by the names `build_dispatch` and `release_children`
     both take."""
 
-    restack: Callable[..., None]
+    restack: Restack
     remove_worktree: Callable[..., None]
     delete_branch: Callable[..., None]
     claim: Callable[[StoredUnit], AbstractContextManager[object]]
@@ -3191,6 +3194,9 @@ def _dispatch(
     return build_dispatch(
         store,
         **build_stack_moves(store, inst, lane=lane),
+        base_tip=build_base_tip(store, inst.checkouts),
+        fork_point=build_fork_point(inst.checkouts),
+        paused=lambda: pause_in_force(inst.state_dir),
         fetch_review=build_fetch_review(
             extra_notes=ui_notes_of(inst, store), patch_of=unit_patch_of(inst, store)
         ),

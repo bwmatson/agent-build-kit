@@ -33,6 +33,14 @@
   take no build slot and no place under the limit on units in progress. A tick waits for
   the lane as it waits for builds, and a unit owed a restack is not started in a worker for it.
 
+- The poll now records when it last read a definite answer on whether a pull request
+  merges, and since when it has conflicted. A pull request that stays conflicting after a
+  unit's own push is offered to the pipeline on every poll, not only when it begins, and is
+  moved again: the first attempt of a unit built on the trunk replays its branch from the
+  commit it sits on onto the trunk's tip, any other attempt (or one the replay cannot settle)
+  is the conflict rework, and no pushed head at one base tip is attempted twice. A new tip of
+  the unit's own base, the trunk or its parent's branch, starts the count again.
+
 - A clean move of a unit's branch onto a moved base, before a push or when a merge releases
   a dependent, now tells tier 1 which base it left. Tier 1 classifies the move as scoped (no
   file the move brought in is one the unit changes) or full (one is, the unit produced

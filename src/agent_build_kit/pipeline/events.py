@@ -36,6 +36,8 @@ import json
 import threading
 from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
+from datetime import datetime
+from enum import StrEnum
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -46,7 +48,10 @@ from agent_build_kit.forges.base import cancelled_names, failing_names
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.flakes import FlakeFound, waiting_note
-from agent_build_kit.pipeline.pr_poller import FAILING_CHECKS_REASON  # noqa: F401 — re-exported
+from agent_build_kit.pipeline.pr_poller import (  # noqa: F401 — FAILING_CHECKS_REASON re-exported
+    CONFLICT_REASON,
+    FAILING_CHECKS_REASON,
+)
 from agent_build_kit.pipeline.pr_replies import MARKER, record_posts
 from agent_build_kit.pipeline.restack import (
     BranchCheckedOut,
@@ -87,6 +92,7 @@ from agent_build_kit.pipeline.units import (
     depth_of,
     local_ref,
     through_satisfied,
+    trunk_of,
 )
 from agent_build_kit.pipeline.wiring import build_tier1
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock, worktree_path
@@ -102,7 +108,20 @@ if TYPE_CHECKING:
     from agent_build_kit.pipeline.restack_lane import RestackLane
 
 Log = Callable[[str], None]
-Restack = Callable[..., None]
+
+
+class RestackOutcome(StrEnum):
+    """What a stack move came to, for a caller that decides from it."""
+
+    PUSHED = "pushed"
+    UNMOVED = "unmoved"  # the branch already held its base: nothing to move
+    PLANNED = "planned"  # moved or not, left planned for review, a fix or the runner
+    CONFLICT = "conflict"  # the move could not be merged; the unit's own run settles it
+    DEFERRED = "deferred"  # the move could not run now (a pause, a busy checkout): retry later
+
+
+Restack = Callable[..., RestackOutcome | None]
+CONFLICT_MOVE_REASON = "the trunk moved under a conflicting pull request"
 # Holds a unit's branch for the length of a handler, or raises `BranchBusy`
 # because a build holds it. See the module docstring.
 Claim = Callable[[StoredUnit], AbstractContextManager[object]]
@@ -1204,6 +1223,31 @@ def _release_refused(unit: StoredUnit, pr: int, *, under_claim: bool = False) ->
     )
 
 
+def _requeue_with(
+    unit: StoredUnit,
+    *,
+    pr: int,
+    reason: str,
+    rework: ReworkKind | None,
+    store: UnitStore,
+    feedback: Callable[[], tuple[str, bool, tuple[str, ...]]],
+    log: Log,
+) -> bool:
+    """Requeue `unit` for a rework with the words `feedback` gives, the one place a rework
+    is handed over for a review, a check or a conflict."""
+    words, from_person, _ = feedback()
+    return _requeue(
+        unit,
+        pr=pr,
+        reason=reason,
+        rework=rework,
+        store=store,
+        feedback=words,
+        from_person=from_person,
+        log=log,
+    )
+
+
 def on_rework(
     pr: int,
     *,
@@ -1263,20 +1307,184 @@ def on_rework(
             ) is not None:
                 return taken
             # Only now, with the unit taking it: a deferred rework asks for nothing.
-            words, from_person, _ = feedback()
-            taken = _requeue(
+            taken = _requeue_with(
                 current,
                 pr=pr,
                 reason=reason,
                 rework=rework,
                 store=store,
-                feedback=words,
-                from_person=from_person,
+                feedback=feedback,
                 log=log,
             )
     except BranchBusy as error:
         return _deferred(f"rework #{pr}", unit, error, log)
     return taken
+
+
+def on_conflict(
+    pr: int,
+    *,
+    repo: str,
+    since: datetime,
+    read_at: datetime,
+    store: UnitStore,
+    restack: Restack,
+    base_tip: Callable[[StoredUnit], str] | None,
+    fork_point: Callable[[StoredUnit], str] | None,
+    paused: Callable[[], bool] = lambda: False,
+    claim: Claim = _unclaimed,
+    resume: Resume = _no_thread,
+    log: Log = print,
+) -> bool:
+    """A conflict that stands after a unit's own push: make the next attempt, if there is one.
+
+    An attempt is recorded against the unit's pushed head and the base's tip: the same head at
+    the same tip is never attempted twice, and a new tip starts the count at zero, as does a
+    definite answer that the pull request merges (`since` later than the last attempt). The
+    first attempt of a unit built on the trunk is the stack move; any other, and any the stack
+    move cannot settle, is the conflict rework. Under a usage pause (`paused()`) the move is
+    made with a resolver that refuses before any agent run, so a clean move still goes through
+    and one that needs the resolver waits, in review, uncounted. False when the unit's branch is
+    busy, so the poller offers the event again.
+    """
+    from agent_build_kit.config import active
+
+    unit = _find(store, repo, pr)
+    if unit is None or unit.state != IN_REVIEW or base_tip is None or fork_point is None:
+        return True
+    tip = _read_base_tip(base_tip, unit, log)
+    if tip is None:
+        return True
+    done = _attempts_at(unit, tip, since=since, read_at=read_at)
+    if done is None or done >= active().limits.max_review_rounds:
+        return True
+    if unit.conflict_at is not None and since > unit.conflict_at:
+        # A new conflict: the last one's count and tip are not this one's.
+        store.clear_conflict_attempts(unit.id)
+    head = unit.pushed or ""
+
+    def feedback() -> tuple[str, bool, tuple[str, ...]]:
+        return _feedback(
+            pr=pr,
+            reason=CONFLICT_REASON,
+            rework=ReworkKind.CONFLICT,
+            pull=None,
+            fetch_review=None,
+            fetch_checks=None,
+        )
+
+    def counted() -> None:
+        store.record_conflict_attempt(unit.id, tip=tip, head=head, attempts=done + 1, at=read_at)
+
+    def reworked(current: StoredUnit) -> None:
+        _requeue_with(
+            current,
+            pr=pr,
+            reason=CONFLICT_REASON,
+            rework=ReworkKind.CONFLICT,
+            store=store,
+            feedback=feedback,
+            log=log,
+        )
+        counted()
+
+    try:
+        if resume(unit, "rework", CONFLICT_REASON, feedback, rework=ReworkKind.CONFLICT):
+            log(f"conflict #{pr}: {unit.id} resumed — {CONFLICT_REASON}")
+            counted()
+            return True
+        with claim(unit):
+            current = store.get(unit.id)
+            if current.state != IN_REVIEW or current.pushed != unit.pushed:
+                return True
+            trunk = trunk_of(unit.repo)
+            if done > 0 or base_of(current, store.all()) != trunk:
+                reworked(current)
+                return True
+            try:
+                # The commit the branch sits on, so the move replays what is the unit's and
+                # tier 1 and the comment can say what the move brought in.
+                outcome = restack(
+                    branch=branch_name(current),
+                    old_base=fork_point(current),
+                    new_base=trunk,
+                    child=current,
+                    parent=current,
+                    reason=CONFLICT_MOVE_REASON,
+                    **({"resolve": _paused_resolver} if paused() else {}),
+                )
+            except BranchBusy:
+                raise
+            except Exception as error:  # noqa: BLE001
+                # The move failed (its checks, a flake, git): that is the attempt, so the same
+                # head at the same tip is not moved again every poll.
+                log(f"conflict #{pr}: {unit.id} move failed — {type(error).__name__}: {error}")
+                counted()
+                return True
+            if outcome == RestackOutcome.CONFLICT:
+                reworked(store.get(unit.id))
+            elif outcome == RestackOutcome.DEFERRED:
+                # The move could not run now (a usage pause, a busy checkout): not an attempt,
+                # and still in review for the next poll to offer it again.
+                store.set_state(
+                    unit.id, IN_REVIEW, note="conflict move deferred: could not run now"
+                )
+                log(f"conflict #{pr}: {unit.id} left for a later poll — the move could not run now")
+            else:
+                counted()
+    except BranchBusy as error:
+        return _deferred(f"conflict #{pr}", unit, error, log)
+    return True
+
+
+def _paused_resolver(*args: object, **kwargs: object) -> object:
+    """The resolver of a move made under a usage pause: it refuses before any agent run."""
+    raise AgentRateLimited("a usage pause is in force")
+
+
+def _read_base_tip(base_tip: Callable[[StoredUnit], str], unit: StoredUnit, log: Log) -> str | None:
+    """The tip of the unit's base, None (logged) when it cannot be read: a conflict event
+    that cannot say which tip it is for is consumed, never allowed to end the poll."""
+    try:
+        return base_tip(unit)
+    except Exception as error:  # noqa: BLE001
+        log(f"conflict: {unit.id} base tip unread — {type(error).__name__}: {error}")
+        return None
+
+
+def build_base_tip(store: UnitStore, checkouts: dict[str, Path]) -> Callable[[StoredUnit], str]:
+    """What `on_conflict` reads as a unit's base tip: the commit of the unit's own base, the
+    trunk's remote ref for a unit built on it and its parent's branch for a stacked one, in
+    the unit's repo checkout."""
+
+    def base_tip(unit: StoredUnit) -> str:
+        base = local_ref(base_of(unit, store.all()), repo=unit.repo)
+        return git(checkouts[unit.repo], "rev-parse", base).stdout.strip()
+
+    return base_tip
+
+
+def build_fork_point(checkouts: dict[str, Path]) -> Callable[[StoredUnit], str]:
+    """The commit a unit's branch sits on within its trunk: where it forked from the trunk's
+    remote ref, the base a stack move replays from."""
+
+    def fork_point(unit: StoredUnit) -> str:
+        trunk = local_ref(trunk_of(unit.repo), repo=unit.repo)
+        return git(checkouts[unit.repo], "merge-base", trunk, branch_name(unit)).stdout.strip()
+
+    return fork_point
+
+
+def _attempts_at(unit: StoredUnit, tip: str, *, since: datetime, read_at: datetime) -> int | None:
+    """How many attempts the conflict has had at `tip`, None when this head has had its attempt.
+
+    The answer is for the same conflict only if it is not older than the last attempt's start,
+    and the run of conflicting answers began before it."""
+    if unit.conflict_at is None or since > unit.conflict_at or tip != unit.conflict_tip:
+        return 0
+    if (unit.pushed or "") != unit.conflict_head and read_at > unit.conflict_at:
+        return unit.conflict_attempts
+    return None
 
 
 def on_rerun_checks(
@@ -1501,9 +1709,17 @@ def build_restack(
     adopt = adopt or adopt_host_head
 
     def restack(
-        *, branch: str, old_base: str, new_base: str, child: StoredUnit, parent: StoredUnit
-    ) -> None:
+        *,
+        branch: str,
+        old_base: str,
+        new_base: str,
+        child: StoredUnit,
+        parent: StoredUnit,
+        reason: str | None = None,
+        resolve: Callable[..., object] | None = None,
+    ) -> RestackOutcome:
         repo = repos[child.repo]
+        reason = reason or f"{parent.id} merged"
         # Prefer the unit's own worktree if it still exists: the checks then
         # run where the branch is checked out, rather than on whatever the
         # main clone happens to have in its working tree. `root` is
@@ -1530,7 +1746,7 @@ def build_restack(
         ):
             if child.pr and not pr_based_on(child, new_base):
                 retarget(child.pr, new_base, repo=child.repo)
-            return
+            return RestackOutcome.UNMOVED
 
         # Retargeted before anything else, and whatever the adopt or the move
         # does: with its base branch merged away, a PR left pointing at it
@@ -1581,7 +1797,7 @@ def build_restack(
                     "the host moved its branch off the approved commit",
                     cause=Cause.RESTACK_DEFERRED,
                 )
-                return
+                return RestackOutcome.PLANNED
 
         was_approved = bool(child.approved) and head_of(repo, branch) == child.approved
         diff_before = diff_id(repo, old_base, branch)
@@ -1592,6 +1808,8 @@ def build_restack(
         # No worktree of its own: the branch is moved in a temporary one, so the
         # repository's checkout is never switched.
         where: dict[str, Any] = {} if worktree.exists() else {"temporary_root": root}
+        if resolve:
+            where["resolve"] = resolve
         try:
             moved = retried_once(
                 lambda: move(
@@ -1617,7 +1835,7 @@ def build_restack(
                 "resolved, twice; the runner retries it",
                 cause=Cause.RESTACK_DEFERRED,
             )
-            return
+            return RestackOutcome.DEFERRED
         except BranchCheckedOut as error:
             store.set_state(
                 child.id,
@@ -1626,7 +1844,7 @@ def build_restack(
                 f"{error.path}; the runner retries it",
                 cause=Cause.RESTACK_DEFERRED,
             )
-            return
+            return RestackOutcome.DEFERRED
         except RestackConflict as error:
             # Left unmoved for the runner, whose own restack meets the same conflict and
             # settles it in the unit's build session: the order from its first step, and a
@@ -1638,7 +1856,7 @@ def build_restack(
                 f"resolves it in its build session: {str(error)[:300]}",
                 cause=Cause.RESTACK_CONFLICT,
             )
-            return
+            return RestackOutcome.CONFLICT
         except (
             AgentRateLimited,
             AgentInterrupted,
@@ -1668,7 +1886,7 @@ def build_restack(
                 f"{str(error)[:300]}",
                 cause=Cause.RESTACK_DEFERRED,
             )
-            return
+            return RestackOutcome.DEFERRED
 
         unchanged = (
             was_approved
@@ -1680,14 +1898,15 @@ def build_restack(
             if moved.resolved:
                 files = ", ".join(moved.resolved)
                 why = f"resolving {files} changed its diff"
-                store.set_predecessor_note(
-                    child.id,
-                    PREDECESSOR_NOTE.format(
-                        onto_unit=parent.id,
-                        how=f"moving onto it needed conflict resolution in {files}",
-                        decisions="",
-                    ),
-                )
+                if parent.id != child.id:
+                    store.set_predecessor_note(
+                        child.id,
+                        PREDECESSOR_NOTE.format(
+                            onto_unit=parent.id,
+                            how=f"moving onto it needed conflict resolution in {files}",
+                            decisions="",
+                        ),
+                    )
             elif was_approved:
                 why = "the restack changed its diff"
             else:
@@ -1698,7 +1917,7 @@ def build_restack(
                 note=f"restacked onto {new_base}, not pushed: {why}",
                 cause=Cause.RESTACK_DEFERRED,
             )
-            return
+            return RestackOutcome.PLANNED
 
         context = spans.current_unit.set((child.id, child.change, "restack", 0))
         try:
@@ -1732,7 +1951,7 @@ def build_restack(
                 cause=Cause.GATED,
             )
             store.set_gated_requeue(child.id, RequeueReason.RESUME)
-            return
+            return RestackOutcome.PLANNED
         finally:
             spans.current_unit.reset(context)
         if not passed:
@@ -1752,10 +1971,11 @@ def build_restack(
                     branch=branch,
                     old_base=old_base,
                     new_base=new_base,
-                    reason=f"{parent.id} merged",
+                    reason=reason,
                 ),
                 repo=child.repo,
             )
+        return RestackOutcome.PUSHED
 
     return restack
 
@@ -1847,6 +2067,25 @@ def _save_waiting(path: Path, store: UnitStore, waiting: set[tuple[str, str]]) -
     path.write_text(json.dumps(kept))
 
 
+def _record_first_attempt(
+    store: UnitStore, repo: str, pr: int, base_tip: Callable[[StoredUnit], str], log: Log
+) -> None:
+    """The conflict rework the poller sent for a conflict that began, or met on first sight,
+    is the first attempt at the base's tip."""
+    unit = _find(store, repo, pr)
+    if unit is None or unit.state == SATISFIED:
+        return
+    tip = _read_base_tip(base_tip, unit, log)
+    if tip is not None:
+        store.record_conflict_attempt(
+            unit.id,
+            tip=tip,
+            head=unit.pushed or "",
+            attempts=1,
+            at=spans.clock.now(),
+        )
+
+
 def build_dispatch(
     store: UnitStore,
     *,
@@ -1862,6 +2101,9 @@ def build_dispatch(
     waiting_path: Path | None = None,
     resume: Resume = _no_thread,
     lane: RestackLane | None = None,
+    base_tip: Callable[[StoredUnit], str] | None = None,
+    fork_point: Callable[[StoredUnit], str] | None = None,
+    paused: Callable[[], bool] = lambda: False,
     log: Log = print,
 ) -> Callable[..., bool]:
     """The callable `pr_poller` hands each event to.
@@ -1934,6 +2176,8 @@ def build_dispatch(
             )
             if waiting_path:
                 _save_waiting(waiting_path, store, known)
+            if taken and kwargs.get("rework") is ReworkKind.CONFLICT and base_tip is not None:
+                _record_first_attempt(store, repo, number, base_tip, log)
             return taken
         if event == "rerun_checks":
             if rerun_checks is None or kwargs.get("pull") is None:
@@ -1948,9 +2192,20 @@ def build_dispatch(
                 log=log,
             )
         if event == "conflict":
-            # A conflict that stands after the unit's push. Nothing takes it yet,
-            # so it is not taken and the next poll offers it again.
-            return False
+            return on_conflict(
+                number,
+                repo=repo,
+                since=kwargs["since"],
+                read_at=kwargs["read_at"],
+                store=store,
+                restack=restack,
+                base_tip=base_tip,
+                fork_point=fork_point,
+                paused=paused,
+                claim=claim,
+                resume=resume,
+                log=log,
+            )
         log(f"unhandled poller event {event!r} for #{number} in {repo}")
         return True
 

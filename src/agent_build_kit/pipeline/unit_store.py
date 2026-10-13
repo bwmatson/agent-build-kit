@@ -184,6 +184,12 @@ class StoredUnit(Unit):
     # checks have been re-run. Here because each poll is a new process.
     check_rerun_head: str = ""
     check_reruns: int = 0
+    # The base tip a conflict attempt was made at, the head the unit had pushed when it
+    # started, how many attempts there have been at that tip, and when the last started.
+    conflict_tip: str = ""
+    conflict_head: str = ""
+    conflict_attempts: int = 0
+    conflict_at: datetime | None = None
     # What review asked for, waiting to be addressed. Cleared once a run has
     # acted on it, so a unit is never reworked twice for the same comment.
     feedback: str = ""
@@ -487,6 +493,10 @@ class UnitStore:
                 calibrated_lines=existing.calibrated_lines if existing else None,
                 check_rerun_head=existing.check_rerun_head if existing else "",
                 check_reruns=existing.check_reruns if existing else 0,
+                conflict_tip=existing.conflict_tip if existing else "",
+                conflict_head=existing.conflict_head if existing else "",
+                conflict_attempts=existing.conflict_attempts if existing else 0,
+                conflict_at=existing.conflict_at if existing else None,
                 # Work in progress, not shape: a re-plan must not drop what
                 # review asked for, or where a paused unit should pick up.
                 feedback=existing.feedback if existing else "",
@@ -818,6 +828,25 @@ class UnitStore:
     def record_check_rerun(self, unit_id: str, head: str, count: int) -> None:
         """That the cancelled checks of commit `head` have been re-run `count` times."""
         self._update(unit_id, check_rerun_head=head, check_reruns=count)
+
+    def record_conflict_attempt(
+        self, unit_id: str, *, tip: str, head: str, attempts: int, at: datetime
+    ) -> None:
+        """That a conflict attempt began at base tip `tip` with the unit pushed at `head`,
+        the `attempts`-th at that tip."""
+        self._update(
+            unit_id,
+            conflict_tip=tip,
+            conflict_head=head,
+            conflict_attempts=attempts,
+            conflict_at=at,
+        )
+
+    def clear_conflict_attempts(self, unit_id: str) -> None:
+        """That the unit's conflict attempts are none: a new conflict starts from zero."""
+        self._update(
+            unit_id, conflict_tip="", conflict_head="", conflict_attempts=0, conflict_at=None
+        )
 
     def record_push(self, unit_id: str, sha: str) -> None:
         """Remember what we published, so the next push can lease against it.
