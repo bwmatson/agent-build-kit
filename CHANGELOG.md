@@ -40,6 +40,11 @@
   new `limits.restack_check` (`affected`, the default, or `full`) selects between them; the
   run itself is still the whole suite for now.
 
+- A metric that is also kept as a local record is now sent and recorded by one function, so the
+  two can no longer drift apart, and a tier 1 failure is classified once, so the exported check
+  and the recorded one always agree (a failed classification reads "unknown" in both). The
+  metrics page lists the same instruments as before.
+
 - The conflict resolver's cost is now in the usage ledger under the node `restack`, one row
   per resolver call with the unit being moved and its change and repository, so what a
   conflict costs shows in the report. The ledger's reader keeps each such row as its own

@@ -12,11 +12,15 @@ import json
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 from pydantic import ValidationError
 
+from agent_build_kit import telemetry
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.usage_ledger import read_lines, record_line
+
+InstrumentKind = Literal["count", "duration", "observe", "level"]
 
 
 class MetricRecord(Frozen):
@@ -54,6 +58,23 @@ def record_metric(
         say(f"a metric record could not be made ({error})")
         return
     record_line(record, say)
+
+
+def emit_metric(
+    instrument: InstrumentKind,
+    name: str,
+    value: float,
+    say: Callable[[str], None],
+    /,
+    *,
+    unit: str = "",
+    change: str = "",
+    **attributes: str | int,
+) -> None:
+    """Send `value` to telemetry as the `instrument` (`count`, `duration`,
+    `observe` or `level`) `name`, and append the same figure as a local record."""
+    getattr(telemetry, instrument)(name, value, **attributes)
+    record_metric(name, value, say, unit=unit, change=change, **attributes)
 
 
 def read_metrics(ledger: Path) -> list[MetricRecord]:

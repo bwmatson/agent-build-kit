@@ -15,14 +15,13 @@ from langgraph.constants import START
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, StateSnapshot
 
-from agent_build_kit import telemetry
 from agent_build_kit.graph.build import BUILD_NODES, compile_build_path
 from agent_build_kit.graph.nodes import WAITS, BuildPath
 from agent_build_kit.graph.run import run_thread
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
-from agent_build_kit.pipeline.metric_records import record_metric
+from agent_build_kit.pipeline.metric_records import emit_metric
 from agent_build_kit.pipeline.run_log import RunLog
 from agent_build_kit.pipeline.stack_runner import PauseInfo, RunOutcome, RunStatus, UnitRunner
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, feedback_source_of
@@ -321,13 +320,8 @@ async def run_unit(
     if outcome.status != RunStatus.PAUSED:
         # A paused run has more rounds to come; this is the count of one that ended.
         ended = _position(await compiled.aget_state(_config(unit.id))).state
-        telemetry.observe(
-            "abk.review.rounds",
-            ended.review_round if ended else 0,
-            repo=unit.repo,
-            outcome=str(outcome.status),
-        )
-        record_metric(
+        emit_metric(
+            "observe",
             "abk.review.rounds",
             ended.review_round if ended else 0,
             runner.log,
