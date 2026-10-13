@@ -14,7 +14,7 @@ from tests.usage_host import Host
 
 
 @pytest.fixture(autouse=True)
-def ninety_two() -> None:
+def ninety_two(host: Host) -> None:
     thresholds()
 
 

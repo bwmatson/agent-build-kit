@@ -11,7 +11,6 @@ import asyncio
 import time
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager, nullcontext
-from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -34,6 +33,7 @@ from agent_build_kit.graph.state import (
 )
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import environment, spans, spec_snapshot
+from agent_build_kit.pipeline.call_record import call_recorder
 from agent_build_kit.pipeline.changelog_convention import changelog_note
 from agent_build_kit.pipeline.check_failures import failed_check
 from agent_build_kit.pipeline.events import (
@@ -43,7 +43,7 @@ from agent_build_kit.pipeline.events import (
     takeover_note,
 )
 from agent_build_kit.pipeline.flakes import FlakeFound, waiting_note
-from agent_build_kit.pipeline.gateway_usage import Spend, attribution
+from agent_build_kit.pipeline.gateway_usage import attribution
 from agent_build_kit.pipeline.metric_records import record_metric
 from agent_build_kit.pipeline.outside_commits import outside_commits_note
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
@@ -106,12 +106,7 @@ from agent_build_kit.pipeline.untouched_failures import feedback_snapshot
 from agent_build_kit.pipeline.untouched_failures import waiting_note as preexisting_waiting_note
 from agent_build_kit.pipeline.usage_guard import starting
 from agent_build_kit.pipeline.usage_ledger import (
-    Cost,
-    CostBasis,
-    UsageRecord,
-    record_call,
     session_cumulative,
-    session_spend,
 )
 from agent_build_kit.pipeline.workspaces import DirtyWorktree
 from agent_build_kit.redaction import redact_text
@@ -123,7 +118,6 @@ from agent_build_kit.runtimes.base import (
     ServiceUnavailable,
     SessionUnavailable,
 )
-from agent_build_kit.usage import Context, Usage
 
 Update = dict[str, Any]
 
@@ -757,52 +751,28 @@ class BuildPath:
 
     def _recorder(self, state: UnitRun, *, resumed: bool) -> Callable[..., None]:
         """What an agent call tells when it finishes: one line for the usage ledger."""
-        unit, node = self.unit, self._node
-        round_number = _round(Node(node), state)
+        unit = self.unit
 
-        def record(
-            result: AgentResult,
-            *,
-            role: str,
-            model: str | None,
-            runtime: str,
-            gateway: Callable[[], Spend] | None = None,
+        def ended(
+            result: AgentResult, runtime: str, model: str | None, cumulative: float | None
         ) -> None:
-            # What the gateway logged for the call's own key is exact; what the
-            # agent said is kept beside it, for the report to compare.
-            spent = gateway() if gateway else Spend()
-            exact = spent.usage is not None
-            usage = (spent.usage if exact else result.usage) or Usage()
-            cost, cumulative = self._cost(state, result, spent, exact, resumed)
             if result.session_id:
                 self._ended = (result.session_id, runtime, model or "", cumulative)
                 if cumulative is not None:
                     self._totals[result.session_id] = cumulative
-            line = UsageRecord(
-                at=datetime.now(UTC).isoformat(),
-                unit=unit.id,
-                node=node,
-                round=round_number,
-                change=unit.change,
-                repo=unit.repo,
-                tier=unit.tier,
-                role=role,
-                model=model,
-                runtime=runtime,
-                session_id=result.session_id,
-                resumed=resumed,
-                **usage.model_dump(),
-                cost=cost,
-                context=result.context or Context(),
-                turns=result.turns,
-                duration_ms=result.duration_ms,
-                usage_source="gateway" if exact else result.usage_source,
-                reported=result.usage if exact else None,
-                outcome="ok" if result.succeeded else "failed",
-            )
-            record_call(line, self.say)
 
-        return record
+        return call_recorder(
+            self._node,
+            unit=unit.id,
+            change=unit.change,
+            repo=unit.repo,
+            tier=unit.tier,
+            round=_round(Node(self._node), state),
+            resumed=resumed,
+            say=self.say,
+            baseline=lambda session_id: self._baseline(state, session_id),
+            after=ended,
+        )
 
     def _baseline(self, state: UnitRun, session_id: str | None) -> float | None:
         """The session's cumulative cost before the call: from an earlier call of this node,
@@ -820,54 +790,6 @@ class BuildPath:
             if held.session_id == session_id and held.cumulative_usd is not None:
                 return held.cumulative_usd
         return session_cumulative(session_id)
-
-    def _cost(
-        self, state: UnitRun, result: AgentResult, spent: Spend, exact: bool, resumed: bool
-    ) -> tuple[Cost | None, float | None]:
-        """The call's cost object and the session's cumulative figure after it, for the
-        next call's baseline: the runtime's own, whatever the record says."""
-        baseline = self._baseline(state, result.session_id)
-        reported: float | None = None
-        runtime_total = result.cumulative_cost_usd
-        basis = CostBasis.UNKNOWN
-        if runtime_total is not None:
-            if baseline is not None and runtime_total >= baseline:
-                reported, basis = runtime_total - baseline, CostBasis.DERIVED
-            elif baseline is not None:
-                self.say(
-                    f"the session's cost fell from {baseline} to {runtime_total}: "
-                    "the baseline is reset"
-                )
-                reported, basis = runtime_total, CostBasis.FIRST
-            elif not resumed:
-                reported, basis = runtime_total, CostBasis.FIRST
-            elif result.cost_usd is not None:
-                # No baseline here, but the runtime worked out the call's own spend against
-                # the total its agent replayed when the session was loaded.
-                reported, basis = result.cost_usd, CostBasis.DERIVED
-            cumulative: float | None = runtime_total
-        elif result.cost_usd is not None:
-            reported, basis = result.cost_usd, CostBasis.REPORTED
-            cumulative = (baseline or 0.0) + result.cost_usd
-        else:
-            cumulative = None
-        if exact and spent.cost_usd is not None:
-            earlier = session_spend(result.session_id) if result.session_id else None
-            cost = Cost(
-                incremental_usd=spent.cost_usd,
-                cumulative_usd=(earlier or 0.0) + spent.cost_usd,
-                basis=CostBasis.REPORTED,
-                reported_usd=reported,
-            )
-        elif reported is None and cumulative is None:
-            return None, None
-        else:
-            cost = Cost(
-                incremental_usd=reported,
-                cumulative_usd=cumulative,
-                basis=basis,
-            )
-        return cost, runtime_total if runtime_total is not None else cumulative
 
     def record_check_failure(self, output: str, round: int) -> None:
         """Keep a failed tier 1 run of this unit as a local metric record."""

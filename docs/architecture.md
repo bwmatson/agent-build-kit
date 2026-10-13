@@ -1326,6 +1326,16 @@ another and stays a record of its own. A resumed call keeps its session id and
 its record holds that call's figures, not a running total, so a `resumed` line adds to the call of
 the same node and round it resumed instead of replacing it, adding only `incremental_usd`.
 
+A call made outside the unit graph is recorded too, through the same helper
+(`pipeline/call_record.py`) the unit's steps use. Its `node` is one of `OverheadNode`
+(`pipeline/vocabulary.py`); today the conflict resolver writes `restack`, with the unit being
+moved as `unit`, and the rest follow. The reader keeps every row of a node outside the unit graph's
+call nodes (`tests`, `implement`, `review`, `rework`, `fix_checks`, `adapt`) as a call of its own,
+whatever its session, so two resolver calls for a unit both count. A blank `unit` means the call
+belongs to no unit; it is spend, and the usage estimate and its calibration never count it as a
+unit. `tests/test_agent_call_guard.py` fails on an agent call that records no row unless its site is
+on the allowlist.
+
 The `cost` object holds the call's own spend (`incremental_usd`), the session's running total as
 the runtime reported it (`cumulative_usd`), `basis` and, where a gateway's figure is recorded
 instead, the runtime's own incremental figure (`reported_usd`). `basis` is one of `reported` (the

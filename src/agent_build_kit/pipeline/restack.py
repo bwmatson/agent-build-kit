@@ -28,12 +28,14 @@ import re
 import subprocess
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
+from contextvars import ContextVar
 from pathlib import Path
 
 from agent_build_kit import runtimes
 from agent_build_kit.config import RepoConfig, active
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import shell
+from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.changelog_convention import changelog_note, resolver_changelog_rule
 from agent_build_kit.pipeline.git_output import (
     git_push_outcome,
@@ -41,6 +43,7 @@ from agent_build_kit.pipeline.git_output import (
     untranslated_env,
 )
 from agent_build_kit.pipeline.scratch import output_convention, run_folder
+from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.workspaces import prepare_detached, worktree_path
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.base import (
@@ -55,6 +58,10 @@ Runner = Callable[[list[str]], str]
 
 # Takes the prompt and the worktree, and edits the conflicted files in place.
 Resolver = Callable[..., None]
+
+# The unit being moved while its conflict is resolved, which a resolver records its call under
+# without every resolver taking it as an argument.
+MOVING_UNIT: ContextVar[str] = ContextVar("moving_unit", default="")
 
 # Makes the repository's turn: a context manager held around the git commands that
 # write state its worktrees share. The default holds nothing.
@@ -404,7 +411,11 @@ def move_branch_onto(
     try:
         # One attempt only. An unattended run that loops on a failing resolver
         # burns the usage window with nothing to show for it.
-        resolve(prompt, cwd=repo)
+        token = MOVING_UNIT.set(context.moving_unit)
+        try:
+            resolve(prompt, cwd=repo)
+        finally:
+            MOVING_UNIT.reset(token)
     except (AgentRateLimited, AgentInterrupted, NetworkUnavailable, ServiceUnavailable):
         # Not a conflict nobody could resolve: the account is out of room, the
         # network is down, or the run was killed. The branch goes back where it was, to be moved
@@ -814,9 +825,11 @@ def claude_resolver(prompt: str, *, cwd: Path, runtime: AgentRuntime | None = No
         permission_mode="allowed_tools_only",
     )
     # Its own folder for long command output, gone when the run ends.
+    agent = runtime or runtimes.active()
+    request = recorded(request, agent, node=OverheadNode.RESTACK, unit=MOVING_UNIT.get(), say=print)
     with run_folder(cwd) as out:
         if out is not None:
             request = request.model_copy(update={"env": {**request.env, "ABK_OUT": str(out)}})
-        result = (runtime or runtimes.active()).run(request)
+        result = agent.run(request)
     if not result.ok:
         raise RuntimeError(result.error)
