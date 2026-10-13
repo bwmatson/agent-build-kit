@@ -19,8 +19,9 @@
   conflict costs shows in the report. The ledger's reader keeps each such row as its own
   call, and a row with no unit never counts as a unit in the usage estimate or its
   calibration. A guard test now fails on a new agent call
-  that records nothing; the planner, track runs, init, the policy probe, the login refresh and
-  chat are still to be recorded.
+  that records nothing. Planning, track runs, init, the policy probe, the login refresh and
+  chat are recorded too, and `abk report` and the usage page show them as pipeline overhead,
+  one line per node.
 
 - A restack no longer keeps the whole repository waiting while an agent resolves a conflict:
   the repository's turn is held only for the git commands that write shared state, so other

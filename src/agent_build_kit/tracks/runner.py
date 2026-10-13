@@ -59,6 +59,7 @@ from agent_build_kit.init.propose import validation_errors
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import shell
+from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.planning_repo import default_branch_of, is_repo
 from agent_build_kit.pipeline.planning_repo import restore_default_branch as _restore
 from agent_build_kit.pipeline.usage_guard import (
@@ -68,6 +69,7 @@ from agent_build_kit.pipeline.usage_guard import (
     reading_as,
     starting,
 )
+from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.runtimes import (
     AgentInterrupted,
     AgentRateLimited,
@@ -381,43 +383,6 @@ def render_prompt(
 # --- running a phase -------------------------------------------------------------
 
 
-def phase_request(
-    inst: Installation,
-    project: Project,
-    *,
-    prompt: str,
-    at: Path | None = None,
-    change_dir: Path | None = None,
-) -> AgentRequest:
-    """One phase's run, with its model and tool lists from `tracks`.
-
-    A discovery phase runs in the project's checkout with the planning repo
-    readable for its run log. `at` turns that around for the propose phase,
-    which runs in the planning repo — what it writes is a change — with the
-    project readable beside it. Whichever is not the working directory is the
-    one added, so neither phase can write where it is only meant to read by
-    habit rather than by grant.
-    """
-    tracks = inst.config.tracks
-    cwd = at or project.path
-    return AgentRequest(
-        prompt=prompt,
-        cwd=cwd,
-        add_dirs=tuple(path for path in (inst.root, project.path) if path != cwd),
-        model=tracks.model,
-        allowed_tools=allowed_tools_value(tracks.allowed_tools),
-        denied_tools=denied_tools_value(tracks.disallowed_tools),
-        permission_mode="edit",
-        planning_repo=inst.root,
-        planning_state_dir=inst.state_dir,
-        planning_change_dir=change_dir,
-        # No track runs in a worktree: discovery reads the checkout, and
-        # propose writes a change in the planning repo. The implement flow was
-        # the only phase that needed a branch of its own, and it is gone.
-        keep_record=True,
-    )
-
-
 # --- the planning repo --------------------------------------------------------------
 
 
@@ -622,12 +587,36 @@ def claude_phase(
     bounding one. A dry run prints the rendered prompt and the command
     instead of running it."""
     agent = runtime or runtimes.active()
-    request = phase_request(
-        inst,
-        project,
-        prompt=render_prompt(inst, project, name, focus),
-        at=at,
-        change_dir=change_dir,
+    # One phase's run, with its model and tool lists from `tracks`, recorded in the ledger under
+    # the phase's node, `track_<name>`, with the change a propose phase writes. A discovery phase
+    # runs in the project's checkout with the planning repo readable for its run log; `at` turns
+    # that around for the propose phase, which runs in the planning repo — what it writes is a
+    # change — with the project readable beside it. Whichever is not the working directory is
+    # the one added, so neither phase can write where it is only meant to read by habit rather
+    # than by grant.
+    tracks = inst.config.tracks
+    cwd = at or project.path
+    request = recorded(
+        AgentRequest(
+            prompt=render_prompt(inst, project, name, focus),
+            cwd=cwd,
+            add_dirs=tuple(path for path in (inst.root, project.path) if path != cwd),
+            model=tracks.model,
+            allowed_tools=allowed_tools_value(tracks.allowed_tools),
+            denied_tools=denied_tools_value(tracks.disallowed_tools),
+            permission_mode="edit",
+            planning_repo=inst.root,
+            planning_state_dir=inst.state_dir,
+            planning_change_dir=change_dir,
+            # No track runs in a worktree: discovery reads the checkout, and propose writes a
+            # change in the planning repo.
+            keep_record=True,
+        ),
+        agent,
+        node=OverheadNode(f"track_{name}"),
+        change=change_dir.name if change_dir else "",
+        repo=project.name,
+        say=log,
     )
     if dry_run:
         _print_dry_run(project, name, request, agent)

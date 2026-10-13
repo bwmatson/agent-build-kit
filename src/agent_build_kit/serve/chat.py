@@ -29,6 +29,7 @@ from agent_build_kit.graph.state import AgentSession
 from agent_build_kit.graph.unit import clear_running_node
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import attach
+from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.environment import repo_artifacts
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.shell import git_out
@@ -42,6 +43,7 @@ from agent_build_kit.pipeline.transcript import (
 )
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit
 from agent_build_kit.pipeline.units import RUNNING
+from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.wiring import CommitRejected
 from agent_build_kit.pipeline.workspaces import changed_paths
 from agent_build_kit.runtimes.base import (
@@ -440,7 +442,17 @@ class Chat:
         }
 
         def call(make: Callable[[dict[str, Any]], AgentRequest]) -> AgentResult:
-            return runtime.run(make(callbacks))
+            request = recorded(
+                make(callbacks),
+                runtime,
+                node=OverheadNode.CHAT,
+                unit=unit.id if unit else "",
+                change=unit.change if unit else "",
+                repo=unit.repo if unit else "",
+                tier=unit.tier if unit else "",
+                say=print,
+            )
+            return runtime.run(request)
 
         def work() -> None:
             for made in encoder.start():
@@ -504,10 +516,11 @@ class Chat:
         resume: str = "",
         fork: bool = False,
         builder: StoredUnit | None = None,
+        on_result: Callable[[AgentResult], None] | None = None,
     ) -> AgentRequest:
         """A turn's call. The unit's builder, resumed, is held to the pipeline's rules and is
         given its unit's change; any other session is the person's own. Neither commits nor
-        pushes."""
+        pushes. `on_result` is told the finished result, before the ledger row is written."""
         if builder is not None:
             prompt = change_context(self.installation.changes_dir, builder.members()) + prompt
         return AgentRequest(
@@ -520,6 +533,7 @@ class Chat:
             policy=ToolPolicy(specs_dir=self.installation.specs_dir, no_commit=True)
             if builder is not None
             else ToolPolicy(scoped=False, no_commit=True),
+            on_result=on_result,
             **callbacks,
         )
 
@@ -802,10 +816,10 @@ def register(
             if body.commit and body.commit != held.committed:
                 raise _conflict(f"{held.committed} is the commit waiting to be delivered")
             return attach.finish(installation, unit, held.committed).model_dump()
-        recorded = recorded_session(unit.id)
-        session = held.session or (recorded.session_id if recorded else "")
-        runtime_name = held.runtime or (recorded.runtime if recorded else "")
-        builder = recorded is not None and session == recorded.session_id
+        builder_session = recorded_session(unit.id)
+        session = held.session or (builder_session.session_id if builder_session else "")
+        runtime_name = held.runtime or (builder_session.runtime if builder_session else "")
+        builder = builder_session is not None and session == builder_session.session_id
 
         def fix(prompt: str, *, cwd: Path, model: str = "") -> str:
             """The attached session fixes what the hooks reject; its turn is kept in the
@@ -818,16 +832,25 @@ def register(
                     asked.append(True)
                     record.record(TranscriptEvent(kind="user", session=session_id, text=prompt))
 
-            runtimes.get(runtime_name).run(
+            agent = runtimes.get(runtime_name)
+            request = recorded(
                 chat.request(
                     {"on_record": record.record, "on_session": on_session},
                     prompt,
                     cwd,
-                    model=recorded.model if recorded and builder else None,
+                    model=builder_session.model if builder_session and builder else None,
                     resume=session,
                     builder=unit if builder else None,
-                )
+                ),
+                agent,
+                node=OverheadNode.CHAT_COMMIT,
+                unit=unit.id,
+                change=unit.change,
+                repo=unit.repo,
+                tier=unit.tier,
+                say=print,
             )
+            agent.run(request)
             return ""
 
         try:

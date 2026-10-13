@@ -27,6 +27,7 @@ from collections.abc import Callable, Mapping, Sequence
 from agent_build_kit import runtimes
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
 from agent_build_kit.pipeline.unit_size import (
     Calibration,
@@ -37,6 +38,7 @@ from agent_build_kit.pipeline.unit_size import (
 )
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import Join, Priority, Unit
+from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.work_graph import GROUP_NUMBER, TIERS, TaskGroup, known_repos
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.base import AgentRuntime
@@ -751,13 +753,19 @@ def build_prompt(
     )
 
 
-def _ask(prompt: str, runtime: AgentRuntime | None) -> str:
+def _ask(prompt: str, runtime: AgentRuntime | None, change: str = "") -> str:
     """The graph call: no worktree and no tools, answered from the prompt
     alone. A refusal raises as it does for any run; any other failed run
     fails the attempt on what the runtime said, never read as a plan."""
-    result = (runtime or runtimes.active()).run(
-        AgentRequest(prompt=prompt, permission_mode="allowed_tools_only")
+    agent = runtime or runtimes.active()
+    request = recorded(
+        AgentRequest(prompt=prompt, permission_mode="allowed_tools_only"),
+        agent,
+        node=OverheadNode.PLAN,
+        change=change,
+        say=print,
     )
+    result = agent.run(request)
     if not result.ok:
         raise PlannerError(f"the graph call failed: {result.error}")
     return result.text
@@ -783,7 +791,9 @@ def plan_round(
     the units; a caller that passes no `context` accepts none.
     """
     prompt = build_prompt(changes, in_flight, calibrations, examples)
-    answer = run_claude(prompt) if run_claude else _ask(prompt, runtime)
+    answer = (
+        run_claude(prompt) if run_claude else _ask(prompt, runtime, change=next(iter(changes), ""))
+    )
     return parse_plan(
         answer,
         groups=groups,

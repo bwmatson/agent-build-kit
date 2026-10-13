@@ -88,7 +88,8 @@ def test_under_claude_code_research_sends_the_command_it_sent_before(tmp_path: P
     assert flags(fake.argv, prompt) == {
         "-p": None,
         "--allowedTools": RESEARCH_TOOLS,
-        "--output-format": "text",
+        "--output-format": "stream-json",
+        "--verbose": None,
         "--settings": json.dumps(
             {"attribution": {"commit": "", "pr": ""}, "includeCoAuthoredBy": False}
         ),
@@ -192,7 +193,8 @@ def test_under_claude_code_propose_sends_the_command_it_sent_before(
         "--allowedTools": PROPOSE_TOOLS,
         "--disallowedTools": DENIED,
         "--permission-mode": "acceptEdits",
-        "--output-format": "text",
+        "--output-format": "stream-json",
+        "--verbose": None,
     }
     assert fake.calls[0][1] == planning
 

@@ -85,7 +85,8 @@ def test_under_claude_code_a_phase_sends_the_command_it_sent_before(inst: Instal
         "--allowedTools": "Read Grep",
         "--disallowedTools": runner.denied_tools_value("Bash(rm *)"),
         "--model": "haiku",
-        "--output-format": "json",
+        "--output-format": "stream-json",
+        "--verbose": None,
         "--settings": json.dumps(
             {
                 **hook_settings(

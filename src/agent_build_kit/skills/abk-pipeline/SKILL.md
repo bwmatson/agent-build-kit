@@ -42,8 +42,10 @@ what the pipeline is doing, watch the pass, not a single unit.
 ## Where the state is
 
 - `usage-ledger.jsonl` (the state directory) — one row per agent call. Besides the unit
-  graph's nodes it holds `restack`, the conflict resolver's call with the unit being moved. A
-  row with a blank `unit` belongs to no unit: it is spend, and is never counted as a unit.
+  graph's nodes it holds `restack`, the conflict resolver's call with the unit being moved,
+  and the calls made outside any unit: `plan`, `track_<phase>`, `init_research`,
+  `init_propose`, `policy_probe`, `login_refresh`, `chat`, `chat_commit`. A row with a blank
+  `unit` belongs to no unit: it is spend, shown as pipeline overhead, and never counted as a unit.
 - `runs/units.json` — every unit the planner has produced, with its state,
   branch, PR number, review rounds and history. The file is the truth; the
   graph page is a view of it. Read it; only edit it as described under

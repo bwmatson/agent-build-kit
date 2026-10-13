@@ -25,22 +25,9 @@ from agent_build_kit.pipeline.vocabulary import OverheadNode
 
 SRC_ROOT = Path(__file__).parent.parent / "src" / "agent_build_kit"
 
-# Sites not yet converted. It may only shrink: group 2 of the change that added this guard
-# converts each and empties it.
-ALLOWLIST: Mapping[tuple[str, str], str] = {
-    ("pipeline/planner.py", "_ask"): "converted by group 2 of this change: the planner",
-    ("tracks/runner.py", "phase_request"): "converted by group 2 of this change: track phases",
-    ("tracks/runner.py", "claude_phase"): "converted by group 2 of this change: track phases",
-    ("init/research.py", "research"): "converted by group 2 of this change: init research",
-    ("init/propose.py", "attempt"): "converted by group 2 of this change: init proposal",
-    ("runtimes/acp.py", "_probe"): "converted by group 2 of this change: the policy probe",
-    ("runtimes/claude_code.py", "refresh_login"): (
-        "converted by group 2 of this change: the login refresh"
-    ),
-    ("serve/chat.py", "call"): "converted by group 2 of this change: chat",
-    ("serve/chat.py", "request"): "converted by group 2 of this change: chat",
-    ("serve/chat.py", "fix"): "converted by group 2 of this change: the attach flow",
-}
+# Sites that are allowed to record nothing, each with its reason. Every site records now, so
+# it is empty; an entry would need a reason of its own, and may only be removed.
+ALLOWLIST: Mapping[tuple[str, str], str] = {}
 
 RECORDERS = frozenset(["recorded", "call_recorder"])
 RUNTIME_NAMES = frozenset(["runtime", "agent"])

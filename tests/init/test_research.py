@@ -31,7 +31,7 @@ def test_the_call_is_read_only_with_web_access(tmp_path: Path) -> None:
     [argv] = calls
     assert argv[:2] == ["claude", "-p"]
     assert argv[argv.index("--allowedTools") + 1] == ALLOWED_TOOLS
-    assert argv[argv.index("--output-format") + 1] == "text"
+    assert argv[argv.index("--output-format") + 1] == "stream-json"
     assert "Write" not in ALLOWED_TOOLS.split()
 
 

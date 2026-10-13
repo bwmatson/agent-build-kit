@@ -90,6 +90,7 @@ from acp.schema import (
 from agent_build_kit import __version__, config
 from agent_build_kit.config import ModelsConfig
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.command_policy import (
     Verdict,
     check_command,
@@ -100,6 +101,7 @@ from agent_build_kit.pipeline.command_spellings import SPELLINGS, SpellingName, 
 from agent_build_kit.pipeline.scratch import carries_scratch
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.transcript import TranscriptEvent
+from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.runtimes import known_agents
 from agent_build_kit.runtimes.acp_output import denied_call, output_of, refusal_line, text_of
 from agent_build_kit.runtimes.base import (
@@ -1733,13 +1735,21 @@ class AcpRuntime:
             session = _Session(
                 None, worktree=worktree, policy=ToolPolicy(specs_dir=None), probe=tracking
             )
-            request = AgentRequest(
-                prompt=_probe_prompt(PROBE_CLASSES),
-                role="generic",
-                cwd=worktree,
-                policy=ToolPolicy(specs_dir=None),
+            request = recorded(
+                AgentRequest(
+                    prompt=_probe_prompt(PROBE_CLASSES),
+                    role="generic",
+                    cwd=worktree,
+                    policy=ToolPolicy(specs_dir=None),
+                ),
+                self,
+                node=OverheadNode.POLICY_PROBE,
+                say=print,
             )
             result = await self._drive(command, request, session)
+        # `_drive` never reaches the request's `on_result`, so the probe's call is recorded here.
+        assert request.on_result is not None
+        request.on_result(result)
         if not result.ok and session.refused_cancel is None:
             # The probe itself did not run to its end — the agent did not
             # start, or broke — so nothing is known about its classes.
