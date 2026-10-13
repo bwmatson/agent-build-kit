@@ -65,7 +65,12 @@
   prints the globs (one per line, as JSON or as a YAML list, for all classes or those named,
   with `--extra` adding `runtimes.<name>.policy_extra`, which needs an installation; nothing
   else does), and `abk policy show` prints the recommendation, its gaps, false positives and
-  dialect.
+  dialect. The kit can also merge that list into a known agent's own configuration (add
+  only, by inserting lines into the original text so every other byte of the file stays as it
+  was; the original is backed up once beside it, the write is atomic, and a file it cannot
+  change that way, such as an inline or single-string list, is refused with the reason and left
+  alone; the agent's recommended toolset is replaced only when asked); only the first known
+  agent has the recipe so far, and no command runs it yet.
 
 - A requeued unit now builds on the base the store names, not one its thread remembers, so a
   failed unit whose predecessor has since merged is no longer failed again counting commits

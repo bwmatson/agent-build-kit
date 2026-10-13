@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import subprocess
+from enum import StrEnum
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.runtimes.base import DOCUMENTED_ONLY, Candidate, Run, Which
@@ -29,6 +30,41 @@ class StartVariant(Frozen):
     marker: str = ""
 
 
+class ApplyFormat(StrEnum):
+    """The configuration formats an applier can write; each has a writer in `policy_apply`."""
+
+    YAML = "yaml"
+
+
+class YamlVersion(StrEnum):
+    """How bare scalars such as `off` are read: as booleans under 1.1, as strings under 1.2."""
+
+    V1_1 = "1.1"
+    V1_2 = "1.2"
+
+
+class Toolset(Frozen):
+    """A recommended toolset: the list at `path` the build run is meant to call, never merged."""
+
+    path: tuple[str, ...]
+    names: tuple[str, ...]
+
+
+class ApplyPolicy(Frozen):
+    """Where an agent keeps its list of refused commands, so the recommended policy can be
+    merged into it: `<home>/<file>`, the home being `$home_env` when set, else `home_default`
+    (a directory name under the person's home)."""
+
+    home_env: str
+    home_default: str
+    file: str
+    format: ApplyFormat
+    deny_path: tuple[str, ...]
+    yaml_version: YamlVersion
+    toolset: Toolset | None = None
+    verified: str  # how it was checked, or that it was documented only
+
+
 class KnownAgent(Frozen):
     name: str
     program: str
@@ -39,6 +75,8 @@ class KnownAgent(Frozen):
     # Which forbidden-command spellings it refuses: said covered only where a live check
     # showed it, and UNVERIFIED until then.
     spellings: str = "UNVERIFIED: no live check has shown which spellings it refuses"
+    # Set only for an agent whose configuration file and key were verified.
+    apply: ApplyPolicy | None = None
 
 
 _DOCS = "the agent's own documentation"
@@ -53,6 +91,16 @@ KNOWN_AGENTS: tuple[KnownAgent, ...] = (
         needs="its own configuration and credentials",
         verified="run where it was installed: session/new returned a session id and modes only",
         source="run on a machine where the agent was installed",
+        apply=ApplyPolicy(
+            home_env="HERMES_HOME",
+            home_default=".hermes",
+            file="config.yaml",
+            format=ApplyFormat.YAML,
+            deny_path=("approvals", "deny"),
+            yaml_version=YamlVersion.V1_1,
+            toolset=Toolset(path=("platform_toolsets", "acp"), names=("file", "terminal", "todo")),
+            verified="its own merge script, tests and documentation; not a run of this engine",
+        ),
     ),
     KnownAgent(
         name="OpenClaw",
