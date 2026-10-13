@@ -152,6 +152,12 @@ Run = Callable[..., subprocess.CompletedProcess]
 # How many times the failed tests are run again, alone, before they count as a flake.
 FLAKE_RERUNS = 2
 
+# More failed tests than this passing both reruns is not that many flaky tests: it is a
+# disturbed run (a loaded host, a file changing under the suite) that failed much of its first
+# pass. One run once failed 97 tests that all passed alone and wrote 97 fix changes; such a run is
+# logged and its failure dropped, with no change written and no unit made to wait.
+MAX_FLAKES_PER_RUN = 5
+
 # Told a finished agent call: `(result, *, role, model, runtime)`, and `gateway`
 # (a function giving the run's `Spend`) when a gateway key was minted for it.
 AgentCallback = Callable[..., None]
@@ -967,7 +973,8 @@ def build_tier1(
                 if is_test:
                     figures.append((spans.clock.monotonic() - started, _counted(toolchain, result)))
                 if not toolchain.tolerates_exit(command, result.returncode):
-                    isolate(command, result, where, toolchain)
+                    if isolate(command, result, where, toolchain, log=log):
+                        continue
                     return False, _failure(command, result, where)
             ran_tests.append((where, toolchain, test_commands))
         passed, output = root_checks(cwd, ran_tests)
@@ -1103,8 +1110,8 @@ def build_tier1(
                 # The first command is lint; a selector that picks nothing is a pass.
                 nothing = index > 0 and result.returncode == toolchain.no_tests_collected_exit
                 if not nothing and not toolchain.tolerates_exit(command, result.returncode):
-                    if index > 0:
-                        isolate(command, result, where, toolchain)
+                    if index > 0 and isolate(command, result, where, toolchain, log=log):
+                        continue
                     return False, _failure(command, result, where)
         return True, ""
 
@@ -1113,23 +1120,34 @@ def build_tier1(
         result: subprocess.CompletedProcess,
         where: Path,
         toolchain: ToolchainProfile,
-    ) -> None:
+        log: Callable[[str], None] | None = None,
+    ) -> bool:
         """Run the failed tests again, alone and serially, twice. Raises `FlakeFound` when
-        they pass both times; returns when any fails again, or the profile cannot say
-        which tests failed, so the failure stands."""
+        they pass both times; returns False when any fails again, or the profile cannot say
+        which tests failed, so the failure stands. Returns True when more than
+        `MAX_FLAKES_PER_RUN` tests failed and passed both reruns: a disturbed run, not that
+        many flaky tests, so the failure is dropped and nothing is recorded for them."""
         rerun_command = getattr(toolchain, "serial_rerun_command", None)
         if rerun_command is None:
-            return
+            return False
         output = f"{result.stdout}\n{result.stderr}".strip()
         stored = redact_text(output, where="tier-1 output")
         tests = _failed_ids(toolchain, output)
         if not tests:
-            return
+            return False
         rerun = rerun_command(command, tests)
         for _ in range(FLAKE_RERUNS):
             again = ran(rerun, where, toolchain)
             if not toolchain.tolerates_exit(rerun, again.returncode):
-                return
+                return False
+        if len(tests) > MAX_FLAKES_PER_RUN:
+            _say(
+                log,
+                f"{len(tests)} tests failed the first pass and passed both reruns, more than "
+                f"{MAX_FLAKES_PER_RUN}: a disturbed run, not that many flaky tests; no fix "
+                f"changes written. First: {', '.join(tests[:5])}",
+            )
+            return True
         at = datetime.now(UTC)
         raise FlakeFound(
             tuple(
