@@ -6,8 +6,8 @@ are language-agnostic); `abk tick` holds a unit that reaches a method that still
 raises, with a log line saying so. Implemented, by method of
 `profiles.base.ToolchainProfile`: `npx oxlint` and `npx oxfmt --check` as the lint,
 `npx tsc --noEmit` as the project check, `npx vitest run` with a JUnit report for the
-tests, and `.test`/`.spec` files and `__tests__/` as test paths. Still to come: the
-clean, red, tier 2 and acceptance commands, workspace members, and
+tests, the clean and red commands, and `.test`/`.spec` files and `__tests__/` as test paths.
+Still to come: judging a red run, the tier 2 and acceptance commands, workspace members, and
 `throw new Error("not implemented")` as the permitted stub body.
 """
 
@@ -45,6 +45,7 @@ _TESTS = wrap_report_command(
     f"npx {_TEST_RUNNER} run --passWithNoTests --reporter=junit", "--outputFile"
 )
 _TEST_COMMAND = ["sh", "-c", _TESTS]
+_LINT_ALL = "npx oxlint . && npx oxfmt --check ."
 _TEST_FILE = re.compile(rf"\.(test|spec)\.({'|'.join(_SOURCE)})$")
 
 
@@ -86,7 +87,7 @@ class NodeNpmProfile:
         return ["sh", "-c", _DIFF_LINT, "sh", base]
 
     def lint_command_all_files(self) -> list[str]:
-        return ["sh", "-c", "npx oxlint . && npx oxfmt --check ."]
+        return ["sh", "-c", _LINT_ALL]
 
     def test_commands(
         self, repo: Path, changed: list[str], *, root_extras: list[str]
@@ -137,10 +138,15 @@ class NodeNpmProfile:
         return self._todo("acceptance_commands")
 
     def clean_command(self) -> str:
-        return self._todo("clean_command")
+        """Lint and the format check over the project; no type check, since a test importing
+        what does not exist yet is the expected state at the tests commit."""
+        return _LINT_ALL
 
     def red_command(self, files: list[str]) -> str:
-        return self._todo("red_command")
+        """Vitest on exactly `files`, its JUnit report printed after the marker so it
+        outlives the worktree; the exit status is Vitest's own."""
+        run = f"npx {_TEST_RUNNER} run {shlex.join(files)} --reporter=junit"
+        return wrap_report_command(run, "--outputFile")
 
     def interpret_red(self, output: str, exit_code: int) -> tuple[bool, list[str]]:
         return self._todo("interpret_red")

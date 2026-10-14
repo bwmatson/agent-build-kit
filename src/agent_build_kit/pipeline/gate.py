@@ -25,10 +25,11 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from agent_build_kit import profiles
-from agent_build_kit.config import ProjectConfig
+from agent_build_kit.config import ProjectConfig, owning_project
 from agent_build_kit.pipeline.check_runner import CheckCache, run_at_commit
 from agent_build_kit.pipeline.commit_order import check_structure, classify_paths
 from agent_build_kit.pipeline.shell import git
@@ -39,22 +40,20 @@ def _files_of(repo: Path, sha: str) -> list[str]:
     return git(repo, "show", "--name-only", "--pretty=format:", sha).stdout.split()
 
 
-def _tests_commits(repo: Path, base: str) -> list[str]:
+def _tests_commits(repo: Path, base: str, is_test: Callable[[str], bool]) -> list[str]:
     """The commits on this branch that are tests-only (plus stubs)."""
     out = git(repo, "rev-list", "--reverse", f"{base}..HEAD").stdout.split()
 
     tests_commits = []
     for sha in out:
-        files = _files_of(repo, sha)
-        labels = classify_paths(files)
-        if any(kind == "test" for kind in labels.values()):
+        if _test_files_in(repo, sha, is_test):
             tests_commits.append(sha)
     return tests_commits
 
 
-def _test_files_in(repo: Path, sha: str) -> list[str]:
+def _test_files_in(repo: Path, sha: str, is_test: Callable[[str], bool]) -> list[str]:
     files = _files_of(repo, sha)
-    return [path for path, kind in classify_paths(files).items() if kind == "test"]
+    return [path for path, kind in classify_paths(files, is_test).items() if kind == "test"]
 
 
 def check_branch(
@@ -68,18 +67,31 @@ def check_branch(
     """Every reason this branch may not be pushed, or an empty list.
 
     The clean and red commands, and how the red run's output is read, are the
-    toolchain's (`profile`): the lint and format at the tests commit with type
+    toolchain's: the lint and format at the tests commit with type
     checking skipped, since a test importing what does not exist yet is the
     expected state there, and only the test files the commit touched run red.
+    Each test file is the toolchain's of the project it belongs to (`projects`),
+    and each project's commands run in its directory; `profile` is the repo's own,
+    for a file no project holds. A commit touching several projects passes when
+    every project's checks do.
     """
     profile = profile or profiles.get("python-uv")
-    problems = check_structure(repo, base)
+    projects = projects or []
+
+    def toolchain_of(path: str) -> ToolchainProfile:
+        owner = owning_project(projects, path)
+        return profiles.get(owner.profile) if owner else profile
+
+    def is_test(path: str) -> bool:
+        return toolchain_of(path).is_test_path(path)
+
+    problems = check_structure(repo, base, is_test)
     if problems:
         # No point running anything: the shape is wrong, so "which commit is
         # the tests commit" isn't yet a meaningful question.
         return problems
 
-    for sha in _tests_commits(repo, base):
+    for sha in _tests_commits(repo, base, is_test):
         if cache is not None:
             cached = cache.lookup(repo, sha)
             if cached is True:
@@ -88,25 +100,37 @@ def check_branch(
                 problems.append(f"{sha[:8]}: previously failed the clean/red checks")
                 continue
 
-        files = _test_files_in(repo, sha)
+        files = _test_files_in(repo, sha, is_test)
         if not files:
             continue
 
-        clean, red = run_at_commit(
-            repo,
-            sha,
-            [profile.clean_command(), profile.red_command(files)],
-        )
+        by_project: dict[str | None, list[str]] = {}
+        for path in files:
+            owner = owning_project(projects, path)
+            by_project.setdefault(owner.path if owner else None, []).append(path)
 
         commit_problems: list[str] = []
-        if not clean.ok:
-            commit_problems.append(
-                f"{sha[:8]}: lint/format did not pass at the tests commit\n{clean.stdout[-2000:]}"
+        for owner_path, owned in by_project.items():
+            owner = next((p for p in projects if p.path == owner_path), None)
+            toolchain = profiles.get(owner.profile) if owner else profile
+            prefix = owner.prefix if owner else ""
+            where = f"{sha[:8]}: " + (f"{owner.path}: " if prefix and owner else "")
+            clean, red = run_at_commit(
+                repo,
+                sha,
+                [
+                    toolchain.clean_command(),
+                    toolchain.red_command([p[len(prefix) :] for p in owned]),
+                ],
+                subdir=prefix or ".",
             )
-
-        ok, red_problems = profile.interpret_red(red.stdout + red.stderr, red.exit_code)
-        if not ok:
-            commit_problems.extend(f"{sha[:8]}: {problem}" for problem in red_problems)
+            if not clean.ok:
+                commit_problems.append(
+                    f"{where}lint/format did not pass at the tests commit\n{clean.stdout[-2000:]}"
+                )
+            ok, red_problems = toolchain.interpret_red(red.stdout + red.stderr, red.exit_code)
+            if not ok:
+                commit_problems.extend(f"{where}{problem}" for problem in red_problems)
 
         if cache is not None:
             cache.record(repo, sha, ok=not commit_problems)

@@ -56,7 +56,7 @@ def toolchains(monkeypatch: pytest.MonkeyPatch):
 
     def install(*, python_ok: bool = True, node_ok: bool = True) -> dict[str, Toolchain]:
         made = {
-            "python-uv": Toolchain("python-uv", "repo", red_ok=python_ok),
+            "python-uv": Toolchain("python-uv", "tree", red_ok=python_ok),
             "node-npm": Toolchain("node-npm", "web", red_ok=node_ok),
         }
         monkeypatch.setattr(profiles, "get", lambda name: made.get(name) or real(name))
@@ -122,7 +122,7 @@ def test_a_repo_without_projects_takes_every_command_and_the_test_paths_from_its
     the commit's files are tests."""
     made = toolchains()
     node = made["node-npm"]
-    node.home = "repo"
+    node.home = "tree"
     commit(repo, "test: covers it", {"src/widget.test.tsx": "// a test\n"})
     commit(repo, "feat: implements it", {"src/widget.ts": "export const x = 1\n"})
 
