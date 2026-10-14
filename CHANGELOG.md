@@ -12,6 +12,9 @@
   notification and review stores and the like) now goes through one atomic write, so a crash
   or two writers at once never leave a half-written file or a stray temporary behind. A log
   trimmed to its size limit now has any byte that is not valid text replaced rather than kept.
+- The tier 2 lock test and the killed-process resume test no longer sleep to order or wait
+  for their actors: they wait on signals and on the shared wait helper, and both files
+  leave the timing-hazard allowlist, so a busy machine cannot start a flake there.
 
 - A task group heading can name a project of its repo, `## 2. [app/web] [tier1] Title`, and a
   plain `[app]` stays the repo's root project. A project the repo does not declare is refused
