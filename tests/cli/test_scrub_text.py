@@ -33,6 +33,12 @@ def test_scrubbing_its_own_output_changes_nothing() -> None:
     assert scrub_text(once, terms) == once
 
 
+def test_a_term_inside_the_replacement_does_not_break_idempotence() -> None:
+    once = scrub_text("an act of act", ["act"])
+
+    assert scrub_text(once, ["act"]) == once
+
+
 def test_show_terms_prints_what_terms_for_returns(tmp_path: Path, capsys) -> None:
     inst = make_installation(tmp_path / "planning")
     target = tmp_path / "checkout"

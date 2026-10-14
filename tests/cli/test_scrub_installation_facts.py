@@ -98,3 +98,56 @@ def test_a_literal_only_the_overlay_holds_is_still_a_term(tmp_path: Path, home: 
     )
 
     assert "only-in-overlay" in terms_for(merged, target=_target(tmp_path))
+
+
+def test_a_provider_file_in_the_planning_root_does_not_name_the_root(
+    tmp_path: Path, home: Path
+) -> None:
+    root = home / "plan"
+    inst = make_installation(
+        root,
+        repos={"app": {"path": str(root), "slug": "example/app"}},
+        verify={"env": {"TOKEN": {"from": "env-file", "file": str(root / ".env"), "key": "TOKEN"}}},
+    )
+
+    assert "plan" not in terms_for(inst, target=root)
+
+
+def test_a_provider_file_in_a_tool_directory_gives_no_directory(tmp_path: Path, home: Path) -> None:
+    inst = _inst(
+        tmp_path,
+        verify={
+            "env": {
+                "TOKEN": {
+                    "from": "env-file",
+                    "file": str(home / ".config" / "x" / "creds.env"),
+                    "key": "TOKEN",
+                }
+            }
+        },
+    )
+
+    terms = terms_for(inst, target=_target(tmp_path))
+
+    assert ".config" not in terms
+    assert "creds.env" in terms
+
+
+def test_a_bare_dotfile_name_is_not_a_term(tmp_path: Path, home: Path) -> None:
+    inst = _inst(
+        tmp_path,
+        verify={
+            "env": {
+                "TOKEN": {
+                    "from": "env-file",
+                    "file": str(home / ".secretdir" / ".env"),
+                    "key": "TOKEN",
+                }
+            }
+        },
+    )
+
+    terms = terms_for(inst, target=_target(tmp_path))
+
+    assert ".secretdir" in terms
+    assert ".env" not in terms

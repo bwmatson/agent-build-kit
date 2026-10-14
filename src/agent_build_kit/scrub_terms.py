@@ -34,6 +34,13 @@ def _first_below_home(path: Path) -> str | None:
     return parts[0] if parts else None
 
 
+def _add_file_name(found: set[str], path: Path) -> None:
+    """A file's name, unless it is a bare dotfile like `.env`: a convention, not an identity."""
+    name = path.name
+    if not (name.startswith(".") and "." not in name[1:]):
+        found.add(name)
+
+
 def _local_list(installation: Installation) -> tuple[set[str], set[str]]:
     """The terms `scrub.local` adds and the (lower-case) ones its `!` lines remove."""
     added: set[str] = set()
@@ -88,9 +95,9 @@ def terms_for(installation: Installation, *, target: Path | None = None) -> list
         _, repo_id = installation.forge_of(name)
         found.update({repo_id.account, repo_id.project, repo_id.name, repo.path.expanduser().name})
         for path in repo.deploy.live_written:
-            found.add(Path(path).name)
+            _add_file_name(found, Path(path))
         if repo.deploy.ssh_key is not None:
-            found.add(repo.deploy.ssh_key.name)
+            _add_file_name(found, repo.deploy.ssh_key)
         for rule in repo.deploy.rules:
             head = rule.prefix.split("/", 1)[0]
             if "." not in head:
@@ -103,10 +110,7 @@ def terms_for(installation: Installation, *, target: Path | None = None) -> list
     found.update(config.verify.env)
     for provider in config.verify.env.values():
         if isinstance(provider, EnvFileProvider | YamlProvider):
-            found.add(provider.file.name)
-            first = _first_below_home(provider.file)
-            if first is not None:
-                found.add(first)
+            _add_file_name(found, provider.file)
         elif provider.from_ == "literal":
             if len(provider.value) >= MIN_LITERAL_LENGTH and not provider.value.isdigit():
                 found.add(provider.value)
@@ -126,6 +130,11 @@ def scrub_text(text: str, terms: list[str], *, replacement: str = "<redacted>") 
     """`text` with every term replaced, case-insensitively and longest first."""
     if not terms:
         return text
-    ordered = sorted(set(terms), key=lambda t: (-len(t), t))
+    # A term inside the replacement would match its own output, and a second pass would corrupt it.
+    ordered = sorted(
+        {t for t in terms if t.lower() not in replacement.lower()}, key=lambda t: (-len(t), t)
+    )
+    if not ordered:
+        return text
     pattern = re.compile("|".join(re.escape(t) for t in ordered), re.IGNORECASE)
     return pattern.sub(lambda _: replacement, text)
