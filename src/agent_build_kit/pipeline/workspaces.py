@@ -32,7 +32,7 @@ from pathlib import Path
 
 from agent_build_kit.path_patterns import matches_any
 from agent_build_kit.pipeline.scratch import ensure_scratch
-from agent_build_kit.pipeline.shell import git, git_out
+from agent_build_kit.pipeline.shell import git, git_out, porcelain
 
 
 class BranchBusy(RuntimeError):
@@ -137,21 +137,6 @@ def worktree_path(repo: Path, branch: str, root: Path) -> Path:
     return root / repo.name / re.sub(r"[^A-Za-z0-9]", "_", branch)
 
 
-def _porcelain(path: Path) -> list[tuple[str, str]]:
-    """The worktree's changes as (status code, exact path), every untracked file named."""
-    fields = git(path, "status", "--porcelain", "-z", "--untracked-files=all").stdout.split("\0")
-    entries: list[tuple[str, str]] = []
-    pending = iter(fields)
-    for field in pending:
-        if not field:
-            continue
-        code, name = field[:2], field[3:]
-        if "R" in code or "C" in code:
-            next(pending, None)  # the source of a rename or copy follows as its own field
-        entries.append((code, name))
-    return entries
-
-
 def _uncommitted(
     path: Path, locks: Sequence[str] = (), artifacts: Sequence[str] = ()
 ) -> list[tuple[str, str]]:
@@ -159,7 +144,7 @@ def _uncommitted(
     path an `artifacts` pattern matches."""
     return [
         (code, name)
-        for code, name in _porcelain(path)
+        for code, name in porcelain(path)
         if not matches_any(locks, name) and not (code == "??" and matches_any(artifacts, name))
     ]
 

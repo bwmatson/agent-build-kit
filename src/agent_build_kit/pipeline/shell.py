@@ -45,6 +45,23 @@ def git_out(repo: Path, *args: str) -> str:
     return git(repo, *args).stdout.strip()
 
 
+def porcelain(path: Path, *pathspec: str) -> list[tuple[str, str]]:
+    """The checkout's changes as (status code, exact path), every untracked file named, limited
+    to `pathspec` when given. Raises `CalledProcessError` where `path` is not under git."""
+    args = ["status", "--porcelain", "-z", "--untracked-files=all"]
+    fields = git(path, *args, *(("--", *pathspec) if pathspec else ())).stdout.split("\0")
+    entries: list[tuple[str, str]] = []
+    pending = iter(fields)
+    for field in pending:
+        if not field:
+            continue
+        code, name = field[:2], field[3:]
+        if "R" in code or "C" in code:
+            next(pending, None)  # the source of a rename or copy follows as its own field
+        entries.append((code, name))
+    return entries
+
+
 def has_origin(repo: Path) -> bool:
     """Does the checkout have an `origin`? Only a repo git itself says has none is
     without one: a path git cannot read is left to fail where it is used."""

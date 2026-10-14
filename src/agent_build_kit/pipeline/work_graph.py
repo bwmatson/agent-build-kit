@@ -51,7 +51,7 @@ def known_repos() -> tuple[str, ...]:
 
 def project_tags(projects: Iterable[HasPath]) -> tuple[str, ...]:
     """The projects of a repo (declared or detected) beside its root, as a heading writes them."""
-    return tuple(path for p in projects if (path := _tag_path(p.path)) != ".")
+    return tuple(path for p in projects if (path := tag_path(p.path)) != ".")
 
 
 def declared_projects(repos: Mapping[str, RepoConfig]) -> dict[str, tuple[str, ...]]:
@@ -59,7 +59,7 @@ def declared_projects(repos: Mapping[str, RepoConfig]) -> dict[str, tuple[str, .
     return {name: project_tags(repo.projects) for name, repo in repos.items()}
 
 
-def _tag_path(path: str) -> str:
+def tag_path(path: str) -> str:
     """A declared project path as a heading writes it: no leading `./`, no trailing `/`."""
     return path.removeprefix("./").rstrip("/") or "."
 
@@ -67,7 +67,7 @@ def _tag_path(path: str) -> str:
 def repo_tag(repo: str, project_path: str) -> str:
     """The first tag of a group heading for `project_path` of `repo`: `[app]` for the root
     project, `[app/web]` for another."""
-    path = _tag_path(project_path)
+    path = tag_path(project_path)
     return f"[{repo}]" if path == "." else f"[{repo}/{path}]"
 
 
