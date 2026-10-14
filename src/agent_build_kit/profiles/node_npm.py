@@ -6,8 +6,9 @@ are language-agnostic); `abk tick` holds a unit that reaches a method that still
 raises, with a log line saying so. Implemented, by method of
 `profiles.base.ToolchainProfile`: `npx oxlint` and `npx oxfmt --check` as the lint,
 `npx tsc --noEmit` as the project check, `npx vitest run` with a JUnit report for the
-tests, the clean and red commands, and `.test`/`.spec` files and `__tests__/` as test paths.
-Still to come: judging a red run, the tier 2 and acceptance commands, workspace members, and
+tests, the clean and red commands, judging a red run, and `.test`/`.spec` files and
+`__tests__/` as test paths.
+Still to come: the tier 2 and acceptance commands, workspace members, and
 `throw new Error("not implemented")` as the permitted stub body.
 """
 
@@ -46,6 +47,10 @@ _TESTS = wrap_report_command(
 )
 _TEST_COMMAND = ["sh", "-c", _TESTS]
 _LINT_ALL = "npx oxlint . && npx oxfmt --check ."
+# The red command lists the files it was given, one per line before the report, so the judge
+# can tell their suites from any other the runner's substring filters selected.
+_RED_FILE = "abk red file: "
+_NOT_IMPLEMENTED = "not implemented"
 _TEST_FILE = re.compile(rf"\.(test|spec)\.({'|'.join(_SOURCE)})$")
 
 
@@ -150,10 +155,56 @@ class NodeNpmProfile:
         argument selects one file exactly: the report names each test suite by its file, which
         is how a reader keeps only the files it was given."""
         run = f"npx {_TEST_RUNNER} run {shlex.join(files)} --reporter=junit"
-        return wrap_report_command(run, "--outputFile")
+        listed = "printf '%s\\n' " + shlex.join(_RED_FILE + file for file in files) + "; "
+        return listed + wrap_report_command(run, "--outputFile")
 
     def interpret_red(self, output: str, exit_code: int) -> tuple[bool, list[str]]:
-        return self._todo("interpret_red")
+        """Red for the right reason, judged on the suites of the files the red command was
+        given (it lists them before the report): every test that ran failed by an assertion
+        or by an error saying `not implemented`. A file that failed to load (an unresolved
+        import, a syntax error), a passing test and a run with no suite of those files are
+        rejected, each with its reason."""
+        _, console = split_report(output)
+        given = {
+            line.removeprefix(_RED_FILE).removeprefix("./")
+            for line in console.splitlines()
+            if line.startswith(_RED_FILE)
+        }
+        root = _report(output)
+        if root is None:
+            return False, ["no test report was written, so the run cannot be judged"]
+        suites = [s for s in root.iter("testsuite") if (s.get("name") or "") in given]
+        problems: list[str] = []
+        failing = passed = 0
+        for case in (case for suite in suites for case in suite.iter("testcase")):
+            name = " > ".join(p for p in (case.get("classname"), case.get("name")) if p)
+            bad = case.find("failure")
+            if bad is None:
+                bad = case.find("error")
+            if bad is None:
+                passed += case.find("skipped") is None
+                continue
+            failing += 1
+            message = bad.get("message") or ""
+            if case.get("name") == case.get("classname"):
+                first = message.strip().split("\n", 1)[0]
+                problems.append(
+                    f"{name}: the test file could not be loaded, so no test failed for "
+                    f"the missing behaviour ({first})"
+                )
+            elif bad.get("type") != "AssertionError" and _NOT_IMPLEMENTED not in message:
+                problems.append(
+                    f"{name}: the failure is not one we recognise as "
+                    "'the behaviour isn't there yet'"
+                )
+        if passed:
+            problems.append(
+                f"{passed} test(s) passed at the tests commit — a test that passes "
+                "before its implementation exists is not testing that implementation"
+            )
+        if not failing:
+            problems.append("nothing failed at the tests commit in the given test files")
+        return not problems, problems
 
     def parse_test_summary(self, output: str) -> tuple[int, int, int, float]:
         """(passed, failed, skipped, seconds) from the JUnit report after the marker."""

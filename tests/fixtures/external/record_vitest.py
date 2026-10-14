@@ -53,6 +53,10 @@ CASES = {
         HEADER
         + "const n: number = 'text';\ntest('types', () => {\n  expect(n).toBe('text');\n});\n",
     ),
+    "assertion_only": (
+        "a.test.ts",
+        HEADER + "test('adds', () => {\n  expect(1).toBe(2);\n});\n",
+    ),
     "syntax_error": (
         "f.test.ts",
         HEADER + "test('parses', () => {\n  expect(1 +).toBe(1);\n});\n",

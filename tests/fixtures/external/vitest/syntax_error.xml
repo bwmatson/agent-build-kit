@@ -10,8 +10,8 @@
    ╭─[ f.test.ts:3:13 ]
    │
  3 │   expect(1 +).toBe(1);
-   │             ┬  
-   │             ╰── 
+   │             ┬
+   │             ╰──
 ───╯
 " type="Error">
 Error: Transform failed with 1 error:
@@ -20,8 +20,8 @@ Error: Transform failed with 1 error:
    ╭─[ f.test.ts:3:13 ]
    │
  3 │   expect(1 +).toBe(1);
-   │             ┬  
-   │             ╰── 
+   │             ┬
+   │             ╰──
 ───╯
 
   Plugin: vite:oxc

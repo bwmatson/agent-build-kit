@@ -32,7 +32,7 @@ def judge(profile, project: Project, recording: str, files: list[str]) -> tuple[
 
 @pytest.mark.parametrize(
     ("recording", "file"),
-    [("assertion", "a.test.ts"), ("not_implemented", "b.test.ts")],
+    [("assertion_only", "a.test.ts"), ("not_implemented", "b.test.ts")],
     ids=["an assertion failure", "calling a stub"],
 )
 def test_a_test_failing_by_assertion_or_by_not_implemented_is_red(
