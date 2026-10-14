@@ -222,13 +222,13 @@ for node a `package.json`,
 its lock file and `workspaces`, with the dependency directory as an artifact).
 The first profile to propose a section wins, and it writes a `sync` command,
 a `check`, and the manifests and lock files found. The lock files
-are also written into `limits.generated_files`. Where it recognises nothing
+are also written into `global_limits.generated_files`. Where it recognises nothing
 it writes the planning section with empty commands and says to set them by
 hand; configuration refuses empty commands until then. A code repo it does
 not recognise gets no section, and `abk doctor` warns.
 
 Over an existing `abk.yaml` init fills what is missing and nothing else: the
-planning section, each listed repo's section and `limits.generated_files`.
+planning section, each listed repo's section and `global_limits.generated_files`.
 Every existing line stays as it is, comments included: the missing parts are
 added as text. A section already present is never changed. The dry run over
 an existing file lists each part it would fill, with its YAML, instead of a

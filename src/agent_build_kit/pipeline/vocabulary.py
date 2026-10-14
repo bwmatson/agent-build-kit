@@ -196,7 +196,7 @@ def _checking(unit: StoredUnit, checks_of: ChecksOf) -> bool:
         return result == "pending"
     if unit.pushed_at is None:
         return False
-    window = timedelta(seconds=active().limits.checks_register_seconds)
+    window = timedelta(seconds=active().global_limits.checks_register_seconds)
     return spans.clock.now() - unit.pushed_at < window
 
 

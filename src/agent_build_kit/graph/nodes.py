@@ -1050,7 +1050,7 @@ class BuildPath:
         decisions = parse_test_decisions(answer)
         problems = check_test_decisions(required, decisions, present, changed)
         # Put back to the agent, bounded: the code already landed with the commit above.
-        for _ in range(active().limits.max_adapt_rounds - 1):
+        for _ in range(active().global_limits.max_adapt_rounds - 1):
             if not problems:
                 break
             listed = "\n".join(f"- {p}" for p in problems)
@@ -1273,7 +1273,7 @@ class BuildPath:
         r.store.set_feedback(
             unit.id, f"{TIER1_FAILED}\n{output}".strip(), source=FeedbackSource.TIER1
         )
-        budget = active().limits.max_check_rounds
+        budget = active().global_limits.max_check_rounds
         if budget is not None and state.fix_rounds >= budget:
             return {
                 **self.stop(f"checks still failing after {budget} fix round(s), before review"),
@@ -1353,7 +1353,7 @@ class BuildPath:
         r, unit = self.runner, self.unit
         tree = self.tree()
         _, review_boundary = r.boundary_notes(unit, self.graph)
-        total = active().limits.max_review_rounds
+        total = active().global_limits.max_review_rounds
         round_number = state.review_round
         zero = state.adopted  # a chat's commit: reviewed, but no place in the round limit
         reworking = zero or state.had_feedback or bool(r.store.get(unit.id).predecessor_note)
@@ -2063,7 +2063,7 @@ class BuildPath:
                 self.say("not held by the label, nothing to release")
                 return {"event": None}
             if restore_depth_hold(r.store, current):
-                limits = active().limits
+                limits = active().global_limits
                 cap = limits.stack_depth_rebase_cap
                 cap = limits.stack_depth_build_cap if cap is None else cap
                 depth = depth_of(current, r.store.all())

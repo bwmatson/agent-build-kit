@@ -1,5 +1,5 @@
 """The "Tier 2 results" section lists the time of each test: the three slowest entries
-lead, the listing is cut to `limits.tier2_durations_shown` with every entry kept, and an
+lead, the listing is cut to `global_limits.tier2_durations_shown` with every entry kept, and an
 entry with no split shows a dash (spec: tier2-time-is-recorded-per-test)."""
 
 from pathlib import Path

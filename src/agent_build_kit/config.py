@@ -319,7 +319,7 @@ class Tier2UnitScope(StrEnum):
 
 def tier2_unit_scope(repo: RepoConfig, limits: LimitsConfig) -> Tier2UnitScope:
     """The scope in effect for `repo`: its own `tests.tier2_unit_scope` when set, else the
-    `limits` one."""
+    `global_limits` one."""
     return repo.tests.tier2_unit_scope or limits.tier2_unit_scope
 
 
@@ -581,7 +581,7 @@ class TestsConfig(Frozen):
     root_extras: list[str] = []
     # The pytest marker on tests that need the real local stack (tier 2).
     tier2_marker: str = "local_stack"
-    # This repo's tier 2 scope; None follows `limits.tier2_unit_scope`.
+    # This repo's tier 2 scope; None follows `global_limits.tier2_unit_scope`.
     tier2_unit_scope: Tier2UnitScope | None = None
     # This repo's schedule; None follows `limits.tier2_schedule`.
     tier2_schedule: Tier2Schedule | None = None
@@ -850,6 +850,18 @@ CLAUDE_CODE = "claude_code"
 SESSION_REUSE_ROLES = ("build", "review")
 
 
+# The root key `global_limits` was called `limits` before; the old name still loads.
+DEPRECATED_ROOT_KEY = "limits"
+
+
+def deprecation_notice(key: str) -> str:
+    """What `abk config` and `abk doctor` say of a deprecated root key."""
+    return (
+        f"`{key}` is deprecated for `global_limits`; "
+        "`abk config --migrate` moves it to the new names"
+    )
+
+
 class WorkspaceConfig(Frozen):
     version: int = 1
     planning: PlanningConfig = PlanningConfig()
@@ -861,7 +873,8 @@ class WorkspaceConfig(Frozen):
     # Per-runtime facts, only the selected runtime's demanded.
     runtimes: dict[str, RuntimeConfig] = {}
     models: ModelsConfig = ModelsConfig()
-    limits: LimitsConfig = LimitsConfig()
+    # The workspace-wide limits; a root `limits` key is read as this one (see _limits_alias).
+    global_limits: LimitsConfig = LimitsConfig()
     context: ContextConfig = ContextConfig()
     tracks: TracksConfig = TracksConfig()
     # Ordered: a task group's `[repo]` tag must be one of these keys.
@@ -878,6 +891,21 @@ class WorkspaceConfig(Frozen):
     # latest session. A role the mapping does not name is off.
     session_reuse: dict[str, bool] = {"build": True, "review": False}
 
+    @model_validator(mode="before")
+    @classmethod
+    def _limits_alias(cls, data: object) -> object:
+        """`limits` at the root is the deprecated spelling of `global_limits`."""
+        if not isinstance(data, dict) or DEPRECATED_ROOT_KEY not in data:
+            return data
+        if "global_limits" in data:
+            raise ValueError(
+                f"`{DEPRECATED_ROOT_KEY}` and `global_limits` are both set; "
+                f"`{DEPRECATED_ROOT_KEY}` is the deprecated name of `global_limits`, keep one"
+            )
+        renamed = dict(data)
+        renamed["global_limits"] = renamed.pop(DEPRECATED_ROOT_KEY)
+        return renamed
+
     def generated_file_patterns(self) -> tuple[str, ...]:
         """The patterns left out of a unit's size: the configured ones and the
         lock files the planning and repository environments name. A lock file
@@ -885,7 +913,7 @@ class WorkspaceConfig(Frozen):
         the environment's own root, which a diff path is not."""
         environments = [self.environment] + [repo.environment for repo in self.repos.values()]
         return (
-            *self.limits.generated_files,
+            *self.global_limits.generated_files,
             *(PurePosixPath(path).name for env in environments if env for path in env.inputs.lock),
         )
 
@@ -956,11 +984,24 @@ def load(path: Path) -> WorkspaceConfig:
     try:
         loaded = WorkspaceConfig.model_validate(raw)
     except ValidationError as error:
-        raise ConfigError(f"{path} does not match the schema:\n{error}") from error
+        message = str(error)
+        if DEPRECATED_ROOT_KEY in raw and "global_limits" not in raw:
+            # Name a setting as the file spells it.
+            message = re.sub(r"(?m)^global_limits\b", DEPRECATED_ROOT_KEY, message)
+        raise ConfigError(f"{path} does not match the schema:\n{message}") from error
     _check_runtime(loaded, path)
     _check_forges(loaded, path)
     _check_infra(loaded, path)
     return loaded
+
+
+def deprecations(path: Path) -> list[str]:
+    """The root keys of the file at `path` that are deprecated spellings."""
+    try:
+        raw = yaml.safe_load(path.read_text())
+    except (OSError, yaml.YAMLError):
+        return []
+    return [DEPRECATED_ROOT_KEY] if isinstance(raw, dict) and DEPRECATED_ROOT_KEY in raw else []
 
 
 def _check_infra(config: WorkspaceConfig, path: Path) -> None:

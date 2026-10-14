@@ -225,7 +225,7 @@ are the reference for each condition. The nodes:
 | `tests` | The tests-first commit | `run`, `commit` |
 | `implement` | The implementation commit; a step that adds nothing is judged as any other, not against the usage window | `run`, `commit`, `may_start` |
 | `checks` | Tier 1 on the branch **before a reviewer is asked**, on the committed tree. Passing records the commit, so `tier1` after approval is not repeated on it | `tier1`, `commit` |
-| `fix_checks` | Hands the failed checks' output to the builder, bounded by `limits.max_check_rounds`, then back to `checks`. Records no reply, as there is no reviewer to answer | `run`, `commit`, `may_start` |
+| `fix_checks` | Hands the failed checks' output to the builder, bounded by `global_limits.max_check_rounds`, then back to `checks`. Records no reply, as there is no reviewer to answer | `run`, `commit`, `may_start` |
 | `review` | One review round; records the verdict, findings, follow-ups and the approved commit. After a person's rework it is also given their comments, quoted, each with the builder's reply or `(no reply)` | `run_review` / `run_rework_review` |
 | `rework` | Addresses review or forge feedback and records the builder's replies | `run`, `commit` |
 | `adapt` | The last step of a conflict, after the restack's two resolver steps failed their checks: ports the old work onto the new base in the same session, told what was tried, and accounts for each test | the adapt agent, `check_test_decisions` |
@@ -297,7 +297,7 @@ builder's fix for a reviewer's point can break the build as easily as the first
 draft could.
 
 A failure is saved on the unit as feedback (`tier 1 failed:` and the output) and
-goes to `fix_checks`, up to `limits.max_check_rounds` times (3 by default;
+goes to `fix_checks`, up to `global_limits.max_check_rounds` times (3 by default;
 `null` is no limit; 0 means no fix attempt, not no check: it is the only gate
 before a review and a push). The count is per round of review: `checks` runs at
 the top of each round and the budget starts again, so a rework that breaks the
@@ -503,14 +503,14 @@ backoff table. The runtime raises `NetworkUnavailable`. A strong sign (a name th
 be resolved, a network that is unreachable) parks it as `network_unavailable` on that
 evidence. A weak sign (a refused or timed-out connection, "Can't reach the API server")
 parks it by a connectivity probe, which makes no model call: the host the run called and a
-control group (the code hosts and `limits.network_control_hosts`) are each looked up and
+control group (the code hosts and `global_limits.network_control_hosts`) are each looked up and
 connected to. Both failing is `network_unavailable`; only the called host failing is
 `service_unavailable`; the called host connecting, or a probe that errors, fails the unit.
 No review, rework or check round is charged, a session the step was continuing is continued
 on resume, and the unit keeps its place in `in_progress`. A run that ends on an HTTP status
 of 500 to 599 raises `ServiceUnavailable` and parks the unit as `service_unavailable` on that
 evidence, without the probe. Such parkings are counted in a row (`service_attempts`) and at
-`limits.service_unavailable_attempts` (default 5) the next one fails the unit with its error
+`global_limits.service_unavailable_attempts` (default 5) the next one fails the unit with its error
 text and step; a completed step or a move to review starts the count again. Parkings the probe
 sorted are neither counted nor capped. The status says `waiting for the
 network` or `waiting for the model service`, beside `waiting for the code host`, and the
@@ -725,7 +725,7 @@ released and restacks onto its new head; an unchanged head restacks nothing.
 ## The checking status
 
 A unit stored as `in_review` reads `checking` while any check on its pull request is pending, or
-while the pull request has none within `limits.checks_register_seconds` of the unit's last push
+while the pull request has none within `global_limits.checks_register_seconds` of the unit's last push
 (`pushed_at`, written with `pushed`). It reads `in_review` once its checks have passed, or the window
 has ended with none. The status is derived from the poller's snapshot (`prs-<repo>.json`), never
 stored, and counts as in review for scheduling, queue places and dependents. `abk status`, the graph

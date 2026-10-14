@@ -34,7 +34,7 @@ def planning(
         }
         for name, value in schedules.items()
     }
-    return make_installation(root, repos=repos, limits=limits)
+    return make_installation(root, repos=repos, global_limits=limits)
 
 
 def store_of(inst: Installation, *tier2_repos: str, **others: str) -> UnitStore:

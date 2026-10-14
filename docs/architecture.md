@@ -129,16 +129,16 @@ minutes by consecutive waits). A wait is skipped, and not counted as work to pla
 `until` passes; a network wait is due at once on the tick whose control probe clears the
 `network` pause, which a network wait also writes and a tick under it plans nothing for.
 Waits by HTTP status are counted apart (`service_waits`) and capped by
-`limits.service_unavailable_attempts`; waits the probe found are not capped and not counted; an ordinary failure, a
+`global_limits.service_unavailable_attempts`; waits the probe found are not capped and not counted; an ordinary failure, a
 success, an edit of `tasks.md` and `abk replan --forget` end a wait.
 
 A model is used because the parts that matter are judgements — which groups
 touch the same files, what depends on what across changes, how many small
-groups make one PR (`limits.min_unit_lines`). Its output schedules real work,
+groups make one PR (`global_limits.min_unit_lines`). Its output schedules real work,
 so validation **refuses rather than repairs**: every group claimed exactly once
 by a unit in its own repo, no group already built by a merged unit, no unknown
 dependency, no cycle, the acceptance group alone in its unit and downstream of
-everything it exercises. A bad plan costs one round; `limits.max_plan_attempts`
+everything it exercises. A bad plan costs one round; `global_limits.max_plan_attempts`
 bounds the retries per version of the file.
 
 The plan's dependencies are also checked against every unit not finished: a planner
@@ -146,12 +146,12 @@ dependency that would close a cycle with stored work is dropped and logged, and 
 `Needs:` dependency is checked as it is linked and refused if it would close one.
 
 Unit size is bounded from both sides. Groups are combined until the estimate
-reaches `limits.min_unit_lines`, and never past `limits.max_unit_lines`: the
+reaches `global_limits.min_unit_lines`, and never past `global_limits.max_unit_lines`: the
 planner's prompt states the ceiling, and a plan with a unit estimated over it
 is rejected and re-asked.
 The estimate is checked after being multiplied by a calibration ratio for the unit's kind
 (repo, tier and the flag of its first flagged group): the median of what the last
-`limits.calibration_window` merged units of that kind landed at over their estimates, each
+`global_limits.calibration_window` merged units of that kind landed at over their estimates, each
 sample clamped, moved toward 1 when there are few, 1 under `calibration_min` samples, and
 never below 1 or above `calibration_max`. The planner's prompt lists the ratios above 1,
 each with the largest raw estimate the ceiling allows for the kind and its newest merged
@@ -160,7 +160,7 @@ and at most 2000 characters). A combined unit rejected for size is told that fig
 its group count, a join is held to the same figure, and a unit records both its own
 estimate and the calibrated figure when it is planned, which `abk status` lists; a sample
 always uses the raw estimate, so the
-correction does not compound. `limits.calibrate_estimates: false` turns it off.
+correction does not compound. `global_limits.calibrate_estimates: false` turns it off.
 A single group estimated over the ceiling cannot be fixed by grouping, so the
 change is left unplanned with a message naming the group and saying its tasks
 must be split, and no further attempts are spent on that version of the file.
@@ -184,7 +184,7 @@ does, the later waits on nothing else unfinished); both unstarted; no
 `[acceptance]`, `[contract]` or `[narrow]` group; no group marked `Separate:` or
 `Independent:` (an `Independent: <reason>` group depends on no earlier unit of its
 change, and is never joined into a neighbour's unit); the estimates together at
-or under `limits.max_unit_lines`. Joins are checked in order against a copy of
+or under `global_limits.max_unit_lines`. Joins are checked in order against a copy of
 the store, so three units in a line can become one in a round. On the write each join is applied under both units' branch locks with
 "unstarted" read again; a unit that has started since drops that join alone, the
 rest of the plan is written, and the change is planned again next round. A group
@@ -220,9 +220,9 @@ one of them: it builds on the deepest and waits for the rest (see "Open parents"
 `docs/unit-graph.md`). A `satisfied` dependency is
 looked through to what it was built on: same-repo, the dependent waits on and
 stacks on that predecessor; cross-repo, it counts once that predecessor has
-merged. `limits.stack_depth_build_cap` holds
-back chains of open PRs; `limits.max_concurrent_stacks` bounds units being
-built. `limits.max_units_in_progress` bounds the units started and not finished
+merged. `global_limits.stack_depth_build_cap` holds
+back chains of open PRs; `global_limits.max_concurrent_stacks` bounds units being
+built. `global_limits.max_units_in_progress` bounds the units started and not finished
 across repos: running, in review or failed, and any planned or unplanned unit
 that a run has started: one with a recorded branch, a pushed or approved commit or a pull request. Merged, closed and satisfied
 units, held units (set aside until a person releases them), and units that
@@ -242,7 +242,7 @@ pass it. A blocked unit that had work gives its place to a ready, never-run prer
 it waits on: before the classes below, one prerequisite starts for each blocked unit's
 place (one unit for each place; several by effective priority, then effective age),
 within the limit and `max_concurrent_stacks`. A restack takes none of these: the merge, release
-and depth handlers hand each moved child to the restack lane (`limits.max_concurrent_restacks`
+and depth handlers hand each moved child to the restack lane (`global_limits.max_concurrent_restacks`
 workers apart from the build workers) instead of restacking inline, and the lane asks the usage
 guard before its conflict resolver. Free slots then go to
 units with an open pull request, then to those resuming a build, then to new
@@ -357,7 +357,7 @@ release could move. The steps:
    pass tier 1 (lint, formatting, types and the tests; see step 6): a reviewer's
    time goes on a branch that already builds. A failure is saved as feedback and
    handed to the builder with the check prompt, then tier 1 runs again, up to
-   `limits.max_check_rounds` times (3; `null` is no limit; 0 means no fix
+   `global_limits.max_check_rounds` times (3; `null` is no limit; 0 means no fix
    attempt, not no check), before the unit is `failed` with the output kept. A
    fix that changes nothing ends it too, whatever the limit. It runs again
    before every later review round with the budget started over, since a
@@ -412,7 +412,7 @@ release could move. The steps:
    enumerate, or that still disagrees after the builder declined a point once,
    sets `escalate` (`class` or `disagreement`) with its `reasoning`, and the
    unit is `held` for a person instead of spending another round. Up to
-   `limits.max_review_rounds`; when the budget is spent with blocking work
+   `global_limits.max_review_rounds`; when the budget is spent with blocking work
    still outstanding, the branch is pushed, its PR carries the open points, and
    the unit is `held` rather than failed. A rework may mark a point `BLOCKED:`
    when its environment refuses the edit (a protected file, a permission); if
@@ -495,7 +495,7 @@ release could move. The steps:
    classifies the move: it is scoped when no file the move brought in (the files that
    differ between the old base and the new one) is also a file the unit changes, and
    full when one is, when the unit produced nothing of its own, when the move has no old
-   base, or when `limits.restack_check` is `full`. It logs `moved base:` with which it
+   base, or when `global_limits.restack_check` is `full`. It logs `moved base:` with which it
    was and why. A scoped move runs lint, then the tests the unit added or changed (the
    profile's `repeat_command` over their identifiers), then the commands the profile's
    `affected_test_commands` names for the unit's files together with the files the move
@@ -677,12 +677,12 @@ checkout is never switched. Its tier 1 run happens outside the turn.
 
 | Change seen | Event | Effect (`events.py`) |
 |---|---|---|
-| `mergedAt` set | `merged` | unit `merged`; children in the same repo restacked onto their next open parent (or `main`) — a child being built only has its PR retargeted, and its build holds at the next step and restacks itself when it resumes; a merge only cascades within `limits.stack_depth_rebase_cap`: a child deeper than it is `held` with its depth and the cap on its record and the merged branch is kept, and a later merge in the same repo restacks it once its depth falls within the cap (the branch kept for it is left behind afterwards, like any other leftover local branch); a child being built is not held: it is retargeted as above; the merged unit's worktree removed (refused if dirty) and its local branch force-deleted — GitHub squash-merges, so `-d` would refuse — unless a same-repo dependent holds its lock, when the branch is kept. Deferred while the merged unit itself is being built. |
+| `mergedAt` set | `merged` | unit `merged`; children in the same repo restacked onto their next open parent (or `main`) — a child being built only has its PR retargeted, and its build holds at the next step and restacks itself when it resumes; a merge only cascades within `global_limits.stack_depth_rebase_cap`: a child deeper than it is `held` with its depth and the cap on its record and the merged branch is kept, and a later merge in the same repo restacks it once its depth falls within the cap (the branch kept for it is left behind afterwards, like any other leftover local branch); a child being built is not held: it is retargeted as above; the merged unit's worktree removed (refused if dirty) and its local branch force-deleted — GitHub squash-merges, so `-d` would refuse — unless a same-repo dependent holds its lock, when the branch is kept. Deferred while the merged unit itself is being built. |
 | closed without merging | `closed` | unit `closed`; nothing cascades to what was stacked on it. Deferred while the unit is being built. |
 | label `agent-hold` added | `hold` | unit `held` (`held_by` `reviewer`), taking over a hold for depth, which a merge would otherwise free, and keeping that hold's note so it can be found again; a hold the review loop or the toolchain made keeps its cause. Nothing automatic touches it again, and the label stays until a person removes it. Deferred while the unit is being built. |
-| label `agent-hold` removed | `release` | a unit the label held returns to `in_review` and its thread resumes with a release; a depth hold the label took over goes back to being one (`held_by` `depth`, with the `held_base` it kept) while its depth is beyond `limits.stack_depth_rebase_cap`, or, when a merge during the label brought it within, is restacked from the branch it was still on (a thread is resumed at `prepare`); a hold the review loop, a depth cap or the toolchain made (`held_by`; a record without one is not read from its note) stays held and the log says so. A comment or failing check that arrived during the hold is not recorded as seen with the release, so the next poll delivers it. Deferred while the unit is being built. |
-| a check the host cancelled (GitHub `CANCELLED`; on Azure DevOps a build policy whose build ended `canceled`) that was not cancelled at the last poll, or one first seen already cancelled | `rerun_checks` | the forge is asked to run the cancelled checks again, with no agent: a cancelled check says nothing about the commit, so it is not a failing check and raises no rework. The count is on the stored unit against its last pushed commit and starts again when the head moves; past `limits.max_check_reruns` (default 2) nothing is asked for and the log says the host keeps cancelling the checks. A re-run check that then fails is reworked as any failing check is; a poll that finds both cancelled and failing checks dispatches both events. |
-| label `agent-rework` added, `reviewDecision` becomes `CHANGES_REQUESTED`, a new comment or submitted review id, a newly failing check, or a pull request that becomes unmergeable (on Azure DevOps, `mergeStatus: conflicts`; an undetermined answer, which the host gives for a while after every push and whenever the base moves, is not a conflict and dispatches nothing; the snapshot keeps the last definite answer through it, so the conflict it resolves back into is not new; a conflict that stands after the unit's own push is offered again each poll as a `conflict` event, and the handler holds the unit, `held_by` the review loop, once `limits.max_review_rounds` attempts at one base tip have not cleared it or an attempt left the head unchanged). A PR first seen already red or already unmergeable is dispatched too. | `rework`, carrying the kind that sent the unit back (`failing_checks`, `conflict`, `label`, `changes_requested`, `comment`) | what the unit is handed is chosen by that kind and never by the reason's text, and the feedback is saved with its source (`review`, `ci`, `conflict`, `tier1`, `tier2`), which picks the fix-the-checks prompt. The reviewer's words (review bodies, inline comments still attached to a line, the latest comment) become the unit's feedback and it returns to `planned`; for failing checks the feedback is the failed jobs' logs (from the run's jobs, the tail up to the last error); for a conflict it is the conflict alone, and the restack at the start of the run does the rebase. A held unit does not take it: the comment stays new, is delivered as a rework once the unit is released, and the wait is logged once. A comment on a satisfied unit, or on a pull request with no unit, is consumed. Deferred while the unit is being built. A rework asked for by the `agent-rework` label also takes that label off once acted on, so it can be given again; a label that will not come off is left and acted on once. |
+| label `agent-hold` removed | `release` | a unit the label held returns to `in_review` and its thread resumes with a release; a depth hold the label took over goes back to being one (`held_by` `depth`, with the `held_base` it kept) while its depth is beyond `global_limits.stack_depth_rebase_cap`, or, when a merge during the label brought it within, is restacked from the branch it was still on (a thread is resumed at `prepare`); a hold the review loop, a depth cap or the toolchain made (`held_by`; a record without one is not read from its note) stays held and the log says so. A comment or failing check that arrived during the hold is not recorded as seen with the release, so the next poll delivers it. Deferred while the unit is being built. |
+| a check the host cancelled (GitHub `CANCELLED`; on Azure DevOps a build policy whose build ended `canceled`) that was not cancelled at the last poll, or one first seen already cancelled | `rerun_checks` | the forge is asked to run the cancelled checks again, with no agent: a cancelled check says nothing about the commit, so it is not a failing check and raises no rework. The count is on the stored unit against its last pushed commit and starts again when the head moves; past `global_limits.max_check_reruns` (default 2) nothing is asked for and the log says the host keeps cancelling the checks. A re-run check that then fails is reworked as any failing check is; a poll that finds both cancelled and failing checks dispatches both events. |
+| label `agent-rework` added, `reviewDecision` becomes `CHANGES_REQUESTED`, a new comment or submitted review id, a newly failing check, or a pull request that becomes unmergeable (on Azure DevOps, `mergeStatus: conflicts`; an undetermined answer, which the host gives for a while after every push and whenever the base moves, is not a conflict and dispatches nothing; the snapshot keeps the last definite answer through it, so the conflict it resolves back into is not new; a conflict that stands after the unit's own push is offered again each poll as a `conflict` event, and the handler holds the unit, `held_by` the review loop, once `global_limits.max_review_rounds` attempts at one base tip have not cleared it or an attempt left the head unchanged). A PR first seen already red or already unmergeable is dispatched too. | `rework`, carrying the kind that sent the unit back (`failing_checks`, `conflict`, `label`, `changes_requested`, `comment`) | what the unit is handed is chosen by that kind and never by the reason's text, and the feedback is saved with its source (`review`, `ci`, `conflict`, `tier1`, `tier2`), which picks the fix-the-checks prompt. The reviewer's words (review bodies, inline comments still attached to a line, the latest comment) become the unit's feedback and it returns to `planned`; for failing checks the feedback is the failed jobs' logs (from the run's jobs, the tail up to the last error); for a conflict it is the conflict alone, and the restack at the start of the run does the rebase. A held unit does not take it: the comment stays new, is delivered as a rework once the unit is released, and the wait is logged once. A comment on a satisfied unit, or on a pull request with no unit, is consumed. Deferred while the unit is being built. A rework asked for by the `agent-rework` label also takes that label off once acted on, so it can be given again; a label that will not come off is left and acted on once. |
 
 **Labels on a pull request** are two families. The `agent-` labels are
 instructions a person sets (`agent-hold`, `agent-rework`); the pipeline reads
@@ -704,7 +704,7 @@ unit reaches one of them and has a pull request, every state label comes off it
 found are removed; change labels and a person's labels stay), so a merged pull
 request does not keep saying `in-review`. Pull requests that were already stale are cleaned
 by a step of each round, after the poll and the replies (`pipeline/label_sweep.py`): at most
-`limits.label_sweep_per_tick` finished units' pull requests per round, lowest number first within
+`global_limits.label_sweep_per_tick` finished units' pull requests per round, lowest number first within
 each repo, each recorded in `labels-swept.json` in the state directory (under a lock, replaced
 atomically; losing it costs one more pass) so it is not visited again. A failed clear is not
 recorded and is retried. The sweep is a step of a round, and a tick that finds no work
@@ -1077,7 +1077,7 @@ was in.
 A third kind, `network`, is written when a unit parks as `network_unavailable` (never for
 `service_unavailable`), with the reason `network unreachable during <unit>`; a later parking
 while it stands does not move its time. It is the probe's to end: each tick asks the control
-group (the code hosts and `limits.network_control_hosts`) first, and the first tick in which
+group (the code hosts and `global_limits.network_control_hosts`) first, and the first tick in which
 a host connects clears the marker, whatever its deadline, while a probe that cannot run counts
 as reachable so a broken probe never holds it. While it stands the tick stops what a usage
 pause stops (starting units and planning) and still polls and records; it logs and `abk
@@ -1133,10 +1133,10 @@ approved.
 ### Tests that cannot hang or race
 
 - **A command limit.** Every command tier 1 runs has a time limit,
-  `limits.tier1_command_seconds` (an hour by default), far over what a suite takes. A
+  `global_limits.tier1_command_seconds` (an hour by default), far over what a suite takes. A
   command past it is sent SIGABRT in its process group, so a runtime that can dump the
   stacks of its threads does; one that ignores that is killed after
-  `limits.tier1_abort_grace_seconds`. Tier 1 fails with the command, the time
+  `global_limits.tier1_abort_grace_seconds`. Tier 1 fails with the command, the time
   ("timed out after N seconds") and the end of its output, dump included. This catches a
   run whose tests all pass and whose process then does not exit.
 - **A test time limit.** `tests/time_limit.py` fails a test that runs past
@@ -1207,7 +1207,7 @@ approved.
   A closed fix change keeps the unit waiting until a person clears it. `abk status` ends each
   `pre-existing:` line with the number of units waiting on its fix.
 - **New tests are repeated under load.** After tier 1 passes, the tests the unit added or
-  changed (`tests_changed`) are run `limits.tier1_repeat_runs` times (three by default, 0
+  changed (`tests_changed`) are run `global_limits.tier1_repeat_runs` times (three by default, 0
   turns it off) with each test command's own workers, narrowed to exactly those tests (`path::Class::name`) by the
   profile's optional `repeat_command` hook (the `RepeatsTests` protocol); any failure fails tier 1 with that run's output. A new test is not
   classified as a flake. The test-writing prompt and the reviewer's checklist carry the same
@@ -1226,7 +1226,7 @@ approved.
   cannot be added, a command cannot start) is logged and proves nothing: the tests it
   has not named are the unit's, and the unit fails as it would without it. Each failed
   command is repeated on the base with only its own tests. The node passes the base each
-  run is against, so a restack that moves it is followed. `limits.tier2_base_runs: 0`
+  run is against, so a restack that moves it is followed. `global_limits.tier2_base_runs: 0`
   turns it off. Tier 2 tests are never repeated or isolated by tier 1's machinery.
   Known limits: ids are read as relative to the repo root (or the configured project), so
   a workspace member run with `--directory` prints ids relative to the member and a
@@ -1327,7 +1327,7 @@ The planning repo's state directory (`planning.state_dir`, default `runs/`):
 | `tier2.lock`, `locks/` | the tier-2 queue lock; branch, repo and store locks. | nothing; kernel-released. |
 | `unit-logs/<change>-<nn>-<YYYYMMDD-HHMMSS>-<step>.log` | one file per unit run: a header (unit, change, step, model, base, start), that unit's lines, then the outcome. `<nn>` is the unit's number padded to two digits, so a change's units sort in order and a unit's runs sort by time. The last three runs of a unit are kept; a log older than `retention.unit_log_days` is removed once the unit has a summary in the usage ledger (a unit without one keeps it); archiving a change removes its files. The file name and `started:` are UTC; each entry starts with the tick's own local-time `[HH:MM:SS]`, the same stamp it prints (the closing `outcome:` line has none: the line above it, the run's last, does). Agent replies and tool-call commands are written whole, line breaks kept; each further line of an entry starts with four spaces (`run_log.CONTINUATION`) and has no stamp, so every line that starts at the margin is a new entry. The journal keeps its one clipped line per step. The unit's `run_log` names its latest. Gitignored. | a unit's transcript; the tick's own output is unchanged. |
 | `tier2-output/<change>-<nn>-<YYYYMMDD-HHMMSS>-tier2.log` | the whole output of each command of a unit's tier 2 run, passing ones too, appended after each command so a run that dies keeps what it had, and redacted as a whole before it is written (a failing redaction leaves the withheld notice). The result's `output_file` and its `Full output:` line name it, the unit's run log carries the same line and `abk status` shows it for a failed unit whose last result was a tier 2 failure. The last three files of a unit are kept (`run_log.RUNS_KEPT`); archiving a change removes its files. Local only. | the posted result keeps only the last 4000 characters of the output. |
-| `transcripts/<change>-<nn>-<YYYYMMDD-HHMMSS>-<node>-<round>.jsonl` | one file per agent run of a unit (implement, rework, review, checks fixes) or chat turn, named like a run log plus the node and review round that made the call (round 0 outside a round). One JSON event per line, appended as the agent streams, the same shape for Claude Code and ACP: `kind` (`text`, `reasoning`, `tool_call`, `tool_result`, `plan`, `usage`, `permission`, `stop`), `at`, `unit`, `node`, `round`, `session`, `source` (`build` or `chat`), `text`, `tool`, `call` (a tool call's id, repeated by its result), `input`, `usage` and `truncated`. A tool result longer than `limits.transcript_result_chars` is cut there, ends with `… [cut: the result was N characters long]`, and carries the original length in `truncated`. A text or reasoning event is a whole message or thought, not a streamed fragment, and a user-side event of the Claude stream contributes only tool results. The calls of one run (a unit thread's pass, or one chat turn) share the run's stamp, and the last `limits.transcript_runs_kept` such runs of a unit are kept, whole; archiving a change removes its files. Local only, never committed or sent anywhere. | the agent tab's replay of a unit; the run log is unchanged. |
+| `transcripts/<change>-<nn>-<YYYYMMDD-HHMMSS>-<node>-<round>.jsonl` | one file per agent run of a unit (implement, rework, review, checks fixes) or chat turn, named like a run log plus the node and review round that made the call (round 0 outside a round). One JSON event per line, appended as the agent streams, the same shape for Claude Code and ACP: `kind` (`text`, `reasoning`, `tool_call`, `tool_result`, `plan`, `usage`, `permission`, `stop`), `at`, `unit`, `node`, `round`, `session`, `source` (`build` or `chat`), `text`, `tool`, `call` (a tool call's id, repeated by its result), `input`, `usage` and `truncated`. A tool result longer than `global_limits.transcript_result_chars` is cut there, ends with `… [cut: the result was N characters long]`, and carries the original length in `truncated`. A text or reasoning event is a whole message or thought, not a streamed fragment, and a user-side event of the Claude stream contributes only tool results. The calls of one run (a unit thread's pass, or one chat turn) share the run's stamp, and the last `global_limits.transcript_runs_kept` such runs of a unit are kept, whole; archiving a change removes its files. Local only, never committed or sent anywhere. | the agent tab's replay of a unit; the run log is unchanged. |
 | `<run id>-<repo>-<track>.md`, `tracked-issues.md` | the tracks' run logs and issue tracker. | history the tracks read. |
 
 The tick commits nothing. The template `.gitignore` excludes only the locks,
@@ -1355,7 +1355,7 @@ for the durations (`parse_test_durations`; none for a toolchain that prints none
 of the form `ABK-TIME {json}` with `test`, `phase`, `agent` (milliseconds by role), `calls`,
 `checks_ms` and `other_ms` is merged onto the entry of its test and phase. `Tier2Result.durations`
 holds the entries slowest first; the posted result opens with the three slowest and lists the
-first `limits.tier2_durations_shown` of them (0 lists all) above the output, so cutting the
+first `global_limits.tier2_durations_shown` of them (0 lists all) above the output, so cutting the
 output never drops the listing.
 
 `<state_dir>/usage-ledger.jsonl` gets one line for each agent call a unit's graph makes, when the

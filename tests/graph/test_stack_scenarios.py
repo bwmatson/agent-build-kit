@@ -213,7 +213,7 @@ def test_a_tier_one_unit_does_not_touch_the_local_stack(tmp_path: Path) -> None:
 def test_a_finished_unit_opens_its_pull_request_at_the_limit(tmp_path: Path) -> None:
     """The limit gates starting, never finishing: reviewed work is pushed and
     its pull request opened even when the units in progress are at the limit."""
-    activate_with(limits=dict(max_units_in_progress=1))
+    activate_with(global_limits=dict(max_units_in_progress=1))
     recorder = fresh(tmp_path)
     others = [
         stored_unit(f"other-{n}/1", change=f"other-{n}", state=IN_REVIEW, pr=20 + n)

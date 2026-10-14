@@ -119,7 +119,7 @@ The decisions worth knowing you can make:
 | `repos.<name>.profile` | Which toolchain runs the checks — see [docs/toolchain-profiles.md](docs/toolchain-profiles.md). |
 | `models.*` | Which model does which part of a unit: `implement`, `rework`, `review`, `rework_review`. |
 | `runtimes.claude_code.limits.session.usage_pause_pct`, `…weekly.usage_pause_pct` | How much of each usage window the pipeline may spend before it stops starting work. Add the matching `usage_pause_ceiling_pct` to let the limit rise as that window's reset nears. |
-| `limits.max_unit_lines` | How large a unit the planner may produce. |
+| `global_limits.max_unit_lines` | How large a unit the planner may produce. |
 | `runtime`, `runtimes.*` | Which agent runs the work — see [docs/agent-runtimes.md](docs/agent-runtimes.md). |
 | `tracks.*` | The scheduled health, improve and recommend passes — see [docs/tracks.md](docs/tracks.md). |
 | `verify.*`, `repos.<name>.deploy` | What a merged change is deployed and proved with. |

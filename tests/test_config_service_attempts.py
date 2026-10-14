@@ -1,4 +1,4 @@
-"""`limits.service_unavailable_attempts`.
+"""`global_limits.service_unavailable_attempts`.
 
 How many times in a row a unit may be parked because the model service answered 5xx or 529
 before the next such failure fails it: a persistent 5xx can be a real fault.
@@ -47,4 +47,7 @@ def test_config_show_lists_it(tmp_path: Path, capsys: pytest.CaptureFixture[str]
 
     assert main(["--config", str(path), "config", "--show"]) == 0
 
-    assert yaml.safe_load(capsys.readouterr().out)["limits"]["service_unavailable_attempts"] == 5
+    assert (
+        yaml.safe_load(capsys.readouterr().out)["global_limits"]["service_unavailable_attempts"]
+        == 5
+    )

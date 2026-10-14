@@ -1,4 +1,4 @@
-"""`limits.restack_check` selects how much of tier 1 a clean move runs (spec:
+"""`global_limits.restack_check` selects how much of tier 1 a clean move runs (spec:
 a-moved-base-is-checked-by-what-it-can-affect): `affected` by default, or `full`."""
 
 from __future__ import annotations

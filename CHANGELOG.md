@@ -26,6 +26,13 @@
   commands create (type-check build info, Vite and Vitest caches) belong to the pipeline.
   This adds `tree-sitter` and `tree-sitter-typescript` as dependencies.
 
+- The workspace-wide `limits` block in `abk.yaml` is now `global_limits`, and `abk config`
+  prints it under that name. A file that still says `limits` loads as before, but `abk config`
+  and `abk doctor` warn that it is deprecated and point to `abk config --migrate`; a file with
+  both keys is an error. `abk init` writes the generated-file patterns under `global_limits`
+  and extends an existing `limits` block in place when there is no `global_limits`.
+  `runtimes.<name>.limits` is unchanged.
+
 - A `Needs:` line whose target the unit already reaches through its dependencies is no longer
   linked again on every tick; the unit's `needs` names every declared target, linked or not,
   and changes only when the lines do. A target that reaches a dependency the unit listed

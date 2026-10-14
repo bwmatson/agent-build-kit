@@ -55,7 +55,7 @@ def write_due(
     written: list[str] = []
     with file_lock(inst.state_dir / "scheduled-tier2.lock"):
         for repo, config in inst.repos.items():
-            schedule = tier2_schedule(config, inst.config.limits)
+            schedule = tier2_schedule(config, inst.config.global_limits)
             if repo not in tier2_repos or schedule is Tier2Schedule.OFF:
                 continue
             opened = _open_changes(inst, repo)

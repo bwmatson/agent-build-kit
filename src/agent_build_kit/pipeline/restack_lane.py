@@ -2,7 +2,7 @@
 
 A restack is the part of a unit's flow whose only cause is that its base moved.
 It takes no build slot, starts when it is seen, and runs in the order it was
-seen, at most `limits.max_concurrent_restacks` at once. The lane holds no turn
+seen, at most `global_limits.max_concurrent_restacks` at once. The lane holds no turn
 of its own: the move takes the repository's turn for the phases that write shared
 git state.
 """

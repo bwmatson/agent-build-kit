@@ -62,7 +62,7 @@ def test_every_round_is_told_its_number_what_is_left_and_what_running_out_costs(
 ) -> None:
     """A reviewer that knows the cost can weigh a residual nit against losing a
     correct implementation."""
-    total = active().limits.max_review_rounds
+    total = active().global_limits.max_review_rounds
     recorder = fresh(tmp_path)
     recorder.verdicts = [verdict(feedback="the lock is not released on error")] * total
 
@@ -78,7 +78,7 @@ def test_every_round_is_told_its_number_what_is_left_and_what_running_out_costs(
 
 
 def test_the_final_round_says_it_is_final(tmp_path: Path) -> None:
-    total = active().limits.max_review_rounds
+    total = active().global_limits.max_review_rounds
     recorder = fresh(tmp_path)
     recorder.verdicts = [verdict(feedback="still no")] * total
 
@@ -252,7 +252,7 @@ def test_a_follow_up_that_may_not_wait_blocks_the_approval(
 def test_a_follow_up_that_may_not_wait_is_never_approved_on_the_last_round(
     tmp_path: Path,
 ) -> None:
-    total = active().limits.max_review_rounds
+    total = active().global_limits.max_review_rounds
     recorder = fresh(tmp_path)
     recorder.verdicts = [
         approval_with({"kind": "correctness", "point": "the cache is never invalidated"})
@@ -268,7 +268,7 @@ def test_a_follow_up_that_may_not_wait_is_never_approved_on_the_last_round(
 
 
 def test_spent_rounds_keep_the_units_recorded_follow_ups_in_the_pr_body(tmp_path: Path) -> None:
-    total = active().limits.max_review_rounds
+    total = active().global_limits.max_review_rounds
     recorder = fresh(tmp_path)
     recorder.verdicts = [approval_with(optional(LOCK))]
     build(tmp_path, recorder)
@@ -357,7 +357,7 @@ def test_an_escalation_with_no_earlier_round_is_an_ordinary_rejection(tmp_path: 
 def test_spending_the_rounds_still_checks_the_last_gate_before_a_push(tmp_path: Path) -> None:
     """A base that moved underneath the build would put the parent's old commits
     in this unit's diff; running out of rounds must not skip the gate before the push."""
-    total = active().limits.max_review_rounds
+    total = active().global_limits.max_review_rounds
     recorder = fresh(tmp_path)
     recorder.verdicts = [verdict(feedback="still no")] * total
 

@@ -27,7 +27,7 @@ def test_show_fills_in_the_defaults(tmp_path: Path, capsys) -> None:
     shown = yaml.safe_load(capsys.readouterr().out)
     assert shown["repos"]["app"]["slug"] == "example/app"
     assert shown["repos"]["app"]["profile"] == "python-uv"
-    assert shown["limits"]["max_concurrent_stacks"] == 4
+    assert shown["global_limits"]["max_concurrent_stacks"] == 4
     assert shown["git"]["branch_prefix"] == "spec/"
 
 

@@ -31,9 +31,9 @@ to it now (`usage_pause_pct` in the `session` / `weekly` section of
 window's reset nears, when one is set) or unknown; `git fetch --prune origin` in every repo; poll each repo's host; plan changes whose `tasks.md` changed; apply
 `Needs:` lines; verify and archive fully merged changes; then resume the units a killed
 run or a usage pause left `running` from their threads and build the ready
-units, up to `limits.max_concurrent_stacks` at once. No unit that has never
+units, up to `global_limits.max_concurrent_stacks` at once. No unit that has never
 started does while the units in progress across all repos are at
-`limits.max_units_in_progress`, and a pass starts no more than fit under it;
+`global_limits.max_units_in_progress`, and a pass starts no more than fit under it;
 the tick log and `abk status` then say "queue is full: N units in progress,
 limit M" followed by the count in each state. Free slots
 go to open-PR work first (reworks, restacks), then resuming builds, then new
@@ -88,7 +88,7 @@ fresh one, no more often than the cache time allows), the count of units by stat
 `in_review` unit with its PR. A unit whose pull request conflicts reads `conflicts with <base> since <time>; moved N times` and what it waits for (the next poll, the end of a build of its branch, or the end of a usage pause); a held one adds the hold's reason and that a person is needed. A `no recorded cause:` line lists the units that are `held`
 or `planned` with work on them and no cause on their last history entry. A repository with a
 `tests.replay` section adds a `cassettes:` line with the count of recordings waiting for review.
-A `flake storm:` line shows each run that failed more than `limits.max_flakes_per_run` tests on its
+A `flake storm:` line shows each run that failed more than `global_limits.max_flakes_per_run` tests on its
 first pass that all passed alone, as one line with its count and no per-test entries; its record
 keeps the first three failures' own sections of the run's output (up to 3000 characters each, from
 the end), and so does the log. Each flaky test's record keeps, next to `output`, `failure`: its

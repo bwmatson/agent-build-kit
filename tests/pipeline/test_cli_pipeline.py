@@ -803,10 +803,10 @@ def test_a_change_that_keeps_failing_is_given_up_on(tmp_path: Path, monkeypatch)
         raise RuntimeError("cannot satisfy the constraints")
 
     monkeypatch.setattr(cli, "plan_round", explode)
-    for _ in range(inst.config.limits.max_plan_attempts + 3):
+    for _ in range(inst.config.global_limits.max_plan_attempts + 3):
         real_plan_all(inst, store=store)
 
-    assert len(calls) == inst.config.limits.max_plan_attempts
+    assert len(calls) == inst.config.global_limits.max_plan_attempts
 
 
 def test_editing_the_change_starts_the_attempts_over(tmp_path: Path, monkeypatch) -> None:
@@ -821,7 +821,7 @@ def test_editing_the_change_starts_the_attempts_over(tmp_path: Path, monkeypatch
         raise RuntimeError("cannot satisfy the constraints")
 
     monkeypatch.setattr(cli, "plan_round", explode)
-    for _ in range(inst.config.limits.max_plan_attempts + 2):
+    for _ in range(inst.config.global_limits.max_plan_attempts + 2):
         real_plan_all(inst, store=store)
     before = len(calls)
 
@@ -905,10 +905,10 @@ def test_a_plan_that_keeps_ignoring_the_ceiling_uses_up_the_attempts(
         plan_output({"id": "add-marker/1", "groups": [1, 2], "estimated_lines": 1400}),
     )
 
-    for _ in range(inst.config.limits.max_plan_attempts + 2):
+    for _ in range(inst.config.global_limits.max_plan_attempts + 2):
         real_plan_all(inst, store=store)
 
-    assert len(runtime.requests) == inst.config.limits.max_plan_attempts
+    assert len(runtime.requests) == inst.config.global_limits.max_plan_attempts
     assert store.all() == []
 
 
@@ -924,7 +924,7 @@ def test_a_group_too_large_to_plan_is_reported_not_retried(
         monkeypatch, plan_output({"id": "add-marker/1", "groups": [1], "estimated_lines": 1500})
     )
 
-    for _ in range(inst.config.limits.max_plan_attempts + 2):
+    for _ in range(inst.config.global_limits.max_plan_attempts + 2):
         real_plan_all(inst, store=store)
 
     assert len(runtime.requests) == 1
@@ -1841,7 +1841,7 @@ def test_status_says_when_the_queue_is_full(
     workspace_inst = make_installation(
         tmp_path,
         planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
-        limits=dict(max_units_in_progress=2),
+        global_limits=dict(max_units_in_progress=2),
     )
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored(f"c{n}/1", change=f"c{n}") for n in (1, 2, 3)])
@@ -1862,7 +1862,7 @@ def test_status_names_a_failed_unit_holding_a_place(
     workspace_inst = make_installation(
         tmp_path,
         planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
-        limits=dict(max_units_in_progress=2),
+        global_limits=dict(max_units_in_progress=2),
     )
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored("one/1", change="one"), stored("two/1", change="two")])
@@ -1883,7 +1883,7 @@ def test_status_names_reworks_and_resumes_by_why_they_count(
     workspace_inst = make_installation(
         tmp_path,
         planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
-        limits=dict(max_units_in_progress=2),
+        global_limits=dict(max_units_in_progress=2),
     )
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored("one/1", change="one"), stored("two/1", change="two")])
@@ -1904,7 +1904,7 @@ def test_status_is_silent_about_the_queue_below_the_limit(
     workspace_inst = make_installation(
         tmp_path,
         planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
-        limits=dict(max_units_in_progress=2),
+        global_limits=dict(max_units_in_progress=2),
     )
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored("one/1", change="one")])

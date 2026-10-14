@@ -143,28 +143,28 @@ class Installation:
 
     @property
     def max_concurrent_stacks(self) -> int:
-        return self.config.limits.max_concurrent_stacks
+        return self.config.global_limits.max_concurrent_stacks
 
     @property
     def max_concurrent_restacks(self) -> int:
-        return self.config.limits.max_concurrent_restacks
+        return self.config.global_limits.max_concurrent_restacks
 
     @property
     def max_units_in_progress(self) -> int:
-        return self.config.limits.max_units_in_progress
+        return self.config.global_limits.max_units_in_progress
 
     @property
     def stack_depth_build_cap(self) -> int:
-        return self.config.limits.stack_depth_build_cap
+        return self.config.global_limits.stack_depth_build_cap
 
     @property
     def stack_depth_rebase_cap(self) -> int:
-        rebase = self.config.limits.stack_depth_rebase_cap
+        rebase = self.config.global_limits.stack_depth_rebase_cap
         return self.stack_depth_build_cap if rebase is None else rebase
 
     @property
     def max_plan_attempts(self) -> int:
-        return self.config.limits.max_plan_attempts
+        return self.config.global_limits.max_plan_attempts
 
     # --- verify env ---------------------------------------------------------------
 

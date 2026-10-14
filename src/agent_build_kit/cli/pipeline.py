@@ -472,7 +472,7 @@ def _sweep_labels(inst: Installation, store: UnitStore) -> None:
         store.all(),
         labels=StateLabels(inst.forge_of, log=log),
         state_dir=inst.state_dir,
-        limit=inst.config.limits.label_sweep_per_tick,
+        limit=inst.config.global_limits.label_sweep_per_tick,
         repo_order=list(inst.repos),
         log=log,
     )
@@ -736,7 +736,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
                 elif is_paused(_paused_marker(inst)):
                     waits = "waiting for the usage pause to end"
                 elif not unit.is_new_conflict(since) and unit.attempts_spent(
-                    config.active().limits.max_review_rounds
+                    config.active().global_limits.max_review_rounds
                 ):
                     # Unless its base has moved: a new tip starts the count again.
                     waits = "the next poll holds it for a person unless its base has moved"
@@ -801,10 +801,10 @@ def verify_one(
 ) -> Verification:
     """Deploy one merged change and run its live tests — under the stack
     lock, since both touch the one live stack tier 2 also uses. Waits
-    `limits.tier2_lock_wait_seconds` for the lock, or `wait` seconds when given,
+    `global_limits.tier2_lock_wait_seconds` for the lock, or `wait` seconds when given,
     then raises `StackBusy`."""
     # A wait the caller chose is its own; only the configured one names the setting.
-    timeout = inst.config.limits.tier2_lock_wait_seconds if wait is None else wait
+    timeout = inst.config.global_limits.tier2_lock_wait_seconds if wait is None else wait
     setting = LOCK_WAIT_SETTING if wait is None else None
     with ExitStack() as held:
         try:
@@ -2607,13 +2607,14 @@ PLAN_WAITS = {"network": "the network", "service": "the model service"}
 def _plan_wait(inst: Installation, error: Exception, previous: Mapping) -> tuple[str, dict] | None:
     """The kind of wait an outage error makes of a plan, and the fields of the record
     that says so, or None when the failure counts as an attempt: a weak sign the probe
-    does not confirm, or a run of statuses longer than `limits.service_unavailable_attempts`."""
+    does not confirm, or a run of statuses longer than
+    `global_limits.service_unavailable_attempts`."""
     waiting = bool(previous.get("waiting"))
     waited = previous.get("waits", 0) if waiting else 0
     # Only statuses are capped: waits the probe found are not, and do not count.
     statuses = previous.get("service_waits", 0) if waiting else 0
     if isinstance(error, ServiceUnavailable):
-        if statuses >= inst.config.limits.service_unavailable_attempts:
+        if statuses >= inst.config.global_limits.service_unavailable_attempts:
             return None
         statuses += 1
         kind = "service"
@@ -2756,7 +2757,9 @@ def plan_all(
             plan = plan_round(
                 calibrations=ratios,
                 examples={
-                    kind: recent_examples(units, kind, config.active().limits.calibration_examples)
+                    kind: recent_examples(
+                        units, kind, config.active().global_limits.calibration_examples
+                    )
                     for kind in ratios
                 },
                 changes={change: tasks.read_text()},
@@ -2918,7 +2921,7 @@ def _record_calibration(
     estimate and its kind's ratio; with calibration off there is no figure."""
     unit = store.get(unit_id)
     kind = plan_kind(unit, catalog.get(unit.change))
-    on = config.active().limits.calibrate_estimates
+    on = config.active().global_limits.calibrate_estimates
     figure = calibrated(unit.estimated_lines, applied(ratios, kind).ratio) if on else None
     store.set_calibration(unit_id, kind.flag, figure or None)
 
@@ -3160,7 +3163,7 @@ def build_turned_move(
 
 
 def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLane:
-    """The tick's lane: `limits.max_concurrent_restacks` workers apart from the build
+    """The tick's lane: `global_limits.max_concurrent_restacks` workers apart from the build
     workers, moving a unit onto the base it has when its move starts."""
 
     def refused(unit_id: str, resume_at: datetime | None) -> None:
@@ -3521,7 +3524,7 @@ def _outage_cause(inst: Installation, error: NetworkUnavailable) -> Cause | None
     reason. A strong sign is evidence enough; a weak one parks as the probe sorts it."""
     if error.strength == "strong":
         return Cause.NETWORK_UNAVAILABLE
-    limits = inst.config.limits
+    limits = inst.config.global_limits
     return network_probe.classify_reachability(
         error.host,
         network_probe.control_group(inst),
@@ -3771,7 +3774,7 @@ def _build_unit(
             # A status is evidence on its own, so the probe is not asked; a row of them
             # longer than the limit is a fault of the request, not an outage.
             row = store.count_service_attempt(unit.id)
-            if row > inst.config.limits.service_unavailable_attempts:
+            if row > inst.config.global_limits.service_unavailable_attempts:
                 fail(error)
             else:
                 park(error, Cause.SERVICE_UNAVAILABLE)

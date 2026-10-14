@@ -1,4 +1,4 @@
-"""`limits.network_probe_timeout_seconds` and `limits.network_control_hosts`.
+"""`global_limits.network_probe_timeout_seconds` and `global_limits.network_control_hosts`.
 
 The probe that tells a network outage from a provider outage looks at each host for at
 most the timeout, and at the control group: the forge hosts and the hosts named here.
@@ -68,6 +68,6 @@ def test_config_show_lists_both(tmp_path: Path, capsys: pytest.CaptureFixture[st
 
     assert main(["--config", str(path), "config", "--show"]) == 0
 
-    shown = yaml.safe_load(capsys.readouterr().out)["limits"]
+    shown = yaml.safe_load(capsys.readouterr().out)["global_limits"]
     assert shown["network_probe_timeout_seconds"] == 5
     assert shown["network_control_hosts"] == ["one.one.one.one", "dns.google"]

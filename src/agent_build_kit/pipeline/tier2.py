@@ -43,7 +43,7 @@ from agent_build_kit.pipeline.workspaces import process_alive
 STATUS_CONTEXT = "local/tier2"
 
 # The config key the tier 2 lock wait is read from; the busy message names it.
-LOCK_WAIT_SETTING = "limits.tier2_lock_wait_seconds"
+LOCK_WAIT_SETTING = "global_limits.tier2_lock_wait_seconds"
 
 Runner = Callable[[list[str]], str]
 
@@ -317,7 +317,7 @@ def _durations_listing(durations: list[TestTime]) -> tuple[str, str]:
     if not durations:
         return "", ""
     ranked = sorted(durations, key=lambda e: e.seconds, reverse=True)
-    limit = active().limits.tier2_durations_shown
+    limit = active().global_limits.tier2_durations_shown
     shown = ranked[:limit] if limit else ranked
     head = "; ".join(f"`{e.test}` {e.phase} {_age(e.seconds)}" for e in ranked[:3])
     rows = "\n".join(

@@ -1363,7 +1363,7 @@ def on_conflict(
     done = _attempts_at(unit, tip, since=since, read_at=read_at)
     if done is None:
         return True
-    if done != 0 and unit.attempts_spent(active().limits.max_review_rounds):
+    if done != 0 and unit.attempts_spent(active().global_limits.max_review_rounds):
         try:
             with claim(unit):
                 # Re-read under the claim: a build that has just ended moved it.
@@ -1570,7 +1570,7 @@ def on_rerun_checks(
     log: Log = print,
 ) -> bool:
     """Ask the host to run a unit's cancelled checks again, without an agent,
-    up to `limits.max_check_reruns` times per head commit.
+    up to `global_limits.max_check_reruns` times per head commit.
 
     The count is on the stored unit, against the commit last pushed: it starts
     again when the head moves. Past the bound nothing is asked for and the unit
@@ -1590,7 +1590,7 @@ def on_rerun_checks(
 
     head = unit.pushed or ""
     done = unit.check_reruns if unit.check_rerun_head == head else 0
-    limit = active().limits.max_check_reruns
+    limit = active().global_limits.max_check_reruns
     names = ", ".join(cancelled_names(pull.checks))
     if done >= limit:
         log(

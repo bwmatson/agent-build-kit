@@ -494,7 +494,7 @@ class Chat:
 
     def transcript(self, unit: StoredUnit, node: str) -> Transcript:
         """A chat-sourced transcript file on the unit, for a turn the person's page made."""
-        limits = self.installation.config.limits
+        limits = self.installation.config.global_limits
         return Transcript(
             self.transcripts,
             unit,

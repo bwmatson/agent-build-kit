@@ -168,7 +168,7 @@ def draft_config(
     return WorkspaceConfig(
         environment=planning_environment,
         repos=repos,
-        limits=LimitsConfig(generated_files=tuple(patterns)),
+        global_limits=LimitsConfig(generated_files=tuple(patterns)),
     )
 
 
@@ -375,18 +375,20 @@ def fill_missing_environment(
         lines[at + 1 : at + 1] = _block("environment", wanted, indent, note)
         filled[f"repos.{name}.environment"] = "".join(_block("environment", wanted, "", note))
 
-    patterns = drafted_raw.get("limits", {}).get("generated_files")
-    limits = raw.get("limits")
+    patterns = drafted_raw.get("global_limits", {}).get("generated_files")
+    # An existing `limits` block is the old spelling of `global_limits`: extended as it is.
+    key = "limits" if "global_limits" not in raw and "limits" in raw else "global_limits"
+    limits = raw.get(key)
     if patterns and "generated_files" not in (limits or {}):
-        at = _key_line(lines, "limits", top=True)
+        at = _key_line(lines, key, top=True)
         if at is not None:
             lines[at + 1 : at + 1] = _block(
                 "generated_files", patterns, _child_indent(lines, at, 0)
             )
-        elif "limits" not in raw:
-            lines += _block("limits", {"generated_files": patterns}, "")
-        if at is not None or "limits" not in raw:
-            filled["limits.generated_files"] = "".join(_block("generated_files", patterns, ""))
+        elif key not in raw:
+            lines += _block(key, {"generated_files": patterns}, "")
+        if at is not None or key not in raw:
+            filled[f"{key}.generated_files"] = "".join(_block("generated_files", patterns, ""))
 
     if filled and not dry_run:
         path.write_text("".join(lines))

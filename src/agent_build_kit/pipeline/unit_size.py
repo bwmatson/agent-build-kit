@@ -34,7 +34,7 @@ def actual_lines(changes: Iterable[FileChange]) -> int:
 
 
 def over_ceiling(lines: int | None) -> bool:
-    return lines is not None and lines > active().limits.max_unit_lines
+    return lines is not None and lines > active().global_limits.max_unit_lines
 
 
 class Kind(Frozen):
@@ -89,7 +89,7 @@ def _newest(units: Sequence[StoredUnit], kind: Kind) -> list[StoredUnit]:
 def _samples(units: Sequence[StoredUnit], kind: Kind) -> list[float]:
     """Actual over the planner's own estimate for the newest merged units of `kind`,
     each clamped to the configured range."""
-    limits = active().limits
+    limits = active().global_limits
     low, high = limits.calibration_sample_clamp
     newest = _newest(units, kind)[: limits.calibration_window]
     return [min(max((unit.actual_lines or 0) / unit.estimated_lines, low), high) for unit in newest]
@@ -103,7 +103,7 @@ def calibration(units: Sequence[StoredUnit], kind: Kind) -> float:
     """What units of `kind` land at, over what the planner estimated: the median of the
     clamped samples, moved toward 1 by how few there are, and kept within 1 and the
     maximum. 1.0 with calibration off or too few samples."""
-    limits = active().limits
+    limits = active().global_limits
     samples = _samples(units, kind)
     if not limits.calibrate_estimates or len(samples) < limits.calibration_min:
         return 1.0
@@ -125,7 +125,7 @@ def calibrations(units: Sequence[StoredUnit]) -> dict[Kind, Calibration]:
 def applied(found: Mapping[Kind, Calibration] | None, kind: Kind) -> Calibration:
     """The calibration to check a unit of `kind` by: none (ratio 1) when calibration
     is off or the kind has no ratio."""
-    if not active().limits.calibrate_estimates or not found or kind not in found:
+    if not active().global_limits.calibrate_estimates or not found or kind not in found:
         return Calibration(ratio=1.0, samples=0)
     return found[kind]
 

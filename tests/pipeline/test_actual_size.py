@@ -58,7 +58,7 @@ def change(path: str, additions: int, deletions: int = 0) -> FileChange:
 
 @pytest.fixture(autouse=True)
 def ceiling() -> None:
-    activate_with(limits={"min_unit_lines": 400, "max_unit_lines": 750})
+    activate_with(global_limits={"min_unit_lines": 400, "max_unit_lines": 750})
 
 
 @pytest.fixture
@@ -117,7 +117,7 @@ def test_planning_again_keeps_the_recorded_size(store: UnitStore, tmp_path: Path
 
 def test_lockfiles_are_not_counted(store: UnitStore, tmp_path: Path) -> None:
     activate_with(
-        limits={
+        global_limits={
             "min_unit_lines": 400,
             "max_unit_lines": 750,
             "generated_files": ["uv.lock", "package-lock.json"],
@@ -138,7 +138,7 @@ def test_lockfiles_are_not_counted(store: UnitStore, tmp_path: Path) -> None:
 
 def test_the_generated_files_are_the_configured_patterns(store: UnitStore, tmp_path: Path) -> None:
     activate_with(
-        limits={"min_unit_lines": 400, "max_unit_lines": 750, "generated_files": ["*.snap"]}
+        global_limits={"min_unit_lines": 400, "max_unit_lines": 750, "generated_files": ["*.snap"]}
     )
     forge = SizedForge([change("src/app.py", 50), change("out.snap", 400, 100)])
 
