@@ -1001,7 +1001,7 @@ def limit_workspace(tmp_path: Path, limit: int) -> Installation:
     return make_installation(
         tmp_path,
         planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
-        limits=dict(max_units_in_progress=limit),
+        global_limits=dict(max_units_in_progress=limit),
     )
 
 

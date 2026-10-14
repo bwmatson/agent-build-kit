@@ -319,7 +319,7 @@ class Tier2UnitScope(StrEnum):
 
 def tier2_unit_scope(repo: RepoConfig, limits: LimitsConfig) -> Tier2UnitScope:
     """The scope in effect for `repo`: its own `tests.tier2_unit_scope` when set, else the
-    `limits` one."""
+    `global_limits` one."""
     return repo.tests.tier2_unit_scope or limits.tier2_unit_scope
 
 

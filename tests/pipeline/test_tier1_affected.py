@@ -184,7 +184,7 @@ def test_the_template_expands_each_placeholder_to_separate_arguments_in_the_proj
 
 
 def test_a_template_command_runs_under_the_tier_1_command_time_limit(tmp_path: Path) -> None:
-    make_installation(tmp_path / "planning", limits=dict(tier1_command_seconds=2))
+    make_installation(tmp_path / "planning", global_limits=dict(tier1_command_seconds=2))
     hangs = "import time; print('selecting', flush=True); time.sleep(30)"
     template = shlex.join([sys.executable, "-c", hangs])
     tier1 = build_tier1(

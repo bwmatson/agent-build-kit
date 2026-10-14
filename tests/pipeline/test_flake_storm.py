@@ -47,7 +47,7 @@ def tier1(profile: object, runs: Runs, tmp_path: Path) -> tuple[bool, str]:
 
 
 def test_flakes_over_the_limit_are_one_storm_and_tier_1_goes_on(tmp_path: Path) -> None:
-    installation = make_installation(tmp_path, limits=dict(max_flakes_per_run=2))
+    installation = make_installation(tmp_path, global_limits=dict(max_flakes_per_run=2))
 
     passed, output = tier1(HookedProfile(), Runs(reruns=[0, 0]), tmp_path)
 
@@ -60,7 +60,7 @@ def test_flakes_over_the_limit_are_one_storm_and_tier_1_goes_on(tmp_path: Path) 
 
 
 def test_a_storm_does_not_cut_tier_1_short(tmp_path: Path) -> None:
-    installation = make_installation(tmp_path, limits=dict(max_flakes_per_run=2))
+    installation = make_installation(tmp_path, global_limits=dict(max_flakes_per_run=2))
     runs = AfterTheStorm(reruns=[0, 0])
 
     passed, output = tier1(ThenFailing(), runs, tmp_path)
@@ -85,7 +85,7 @@ def test_ninety_seven_flakes_are_one_storm_naming_the_first_ten(tmp_path: Path) 
 def test_flakes_at_the_limit_are_handled_one_by_one_and_no_storm_is_recorded(
     tmp_path: Path,
 ) -> None:
-    installation = make_installation(tmp_path, limits=dict(max_flakes_per_run=len(FAILED)))
+    installation = make_installation(tmp_path, global_limits=dict(max_flakes_per_run=len(FAILED)))
 
     with pytest.raises(FlakeFound) as found:
         tier1(HookedProfile(), Runs(reruns=[0, 0]), tmp_path)

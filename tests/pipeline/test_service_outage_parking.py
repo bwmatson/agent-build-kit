@@ -34,7 +34,7 @@ from tests.runner_fakes import Recorder, rejecting
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
 WORDS = "API Error: 529 overloaded_error"
-CAP = {"limits": {"service_unavailable_attempts": 3}}
+CAP = {"global_limits": {"service_unavailable_attempts": 3}}
 
 
 @pytest.fixture
