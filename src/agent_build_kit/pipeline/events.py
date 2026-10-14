@@ -36,7 +36,7 @@ import json
 import threading
 from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from functools import partial
 from pathlib import Path
@@ -1358,7 +1358,10 @@ def on_conflict(
     if tip is None:
         return True
     done = _attempts_at(unit, tip, since=since, read_at=read_at)
-    if done is None or done >= active().limits.max_review_rounds:
+    if done is None:
+        return True
+    if done == UNCHANGED or done >= active().limits.max_review_rounds:
+        _hold_conflict(unit, store, tip=tip, since=since, unchanged=done == UNCHANGED, log=log)
         return True
     if unit.conflict_at is not None and since > unit.conflict_at:
         # A new conflict: the last one's count and tip are not this one's.
@@ -1499,16 +1502,46 @@ def build_fork_point(store: UnitStore, checkouts: dict[str, Path]) -> Callable[[
     return fork_point
 
 
+# What `_attempts_at` answers when the last attempt left the head as it was.
+UNCHANGED = -1
+
+
 def _attempts_at(unit: StoredUnit, tip: str, *, since: datetime, read_at: datetime) -> int | None:
-    """How many attempts the conflict has had at `tip`, None when this head has had its attempt.
+    """How many attempts the conflict has had at `tip`; `UNCHANGED` when the last attempt left
+    the head as it was and the host still reports a conflict read after it; None when that
+    attempt may still be running.
 
     The answer is for the same conflict only if it is not older than the last attempt's start,
     and the run of conflicting answers began before it."""
     if unit.conflict_at is None or since > unit.conflict_at or tip != unit.conflict_tip:
         return 0
-    if (unit.pushed or "") != unit.conflict_head and read_at > unit.conflict_at:
+    if read_at <= unit.conflict_at:
+        return None
+    if (unit.pushed or "") != unit.conflict_head:
         return unit.conflict_attempts
-    return None
+    return UNCHANGED
+
+
+def _hold_conflict(
+    unit: StoredUnit, store: UnitStore, *, tip: str, since: datetime, unchanged: bool, log: Log
+) -> None:
+    """Hold a unit whose conflict its attempts did not settle, for a person, with the reason."""
+    base = base_of(unit, store.all())
+    why = "the last move changed nothing" if unchanged else "the host still reports a conflict"
+    note = (
+        f"conflicts with {base} since {since.astimezone(UTC):%H:%M} UTC: "
+        f"moved {unit.conflict_attempts} times at {tip}, {why}"
+    )
+    store.set_state(
+        unit.id,
+        HELD,
+        note=note,
+        held_by=HeldBy.REVIEW,
+        cause=Cause.NEEDS_HUMAN,
+        pr=unit.pr,
+        branch=unit.branch,
+    )
+    log(f"conflict #{unit.pr}: {unit.id} held — {note}")
 
 
 def on_rerun_checks(

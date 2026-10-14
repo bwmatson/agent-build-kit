@@ -19,14 +19,20 @@ def rig(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ConflictRig:
     return ConflictRig(tmp_path, monkeypatch)
 
 
+def attempt(rig: ConflictRig, number: int) -> None:
+    """One attempt, and the unit back in review at a new head when a rework run ended it."""
+    rig.conflict()
+    if rig.stored().state != IN_REVIEW:
+        rig.back_in_review(f"reworked-{number}")
+
+
 def test_the_last_attempt_that_leaves_the_conflict_standing_holds_the_unit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rig = ConflictRig(tmp_path, monkeypatch, pushes=True)
     rounds = active().limits.max_review_rounds
-    for _ in range(rounds):
-        rig.conflict()
-        assert rig.stored().state == IN_REVIEW
+    for number in range(rounds):
+        attempt(rig, number)
     assert rig.stored().conflict_attempts == rounds
 
     rig.conflict()
@@ -41,8 +47,8 @@ def test_a_held_unit_is_not_attempted_again_at_the_same_tip(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rig = ConflictRig(tmp_path, monkeypatch, pushes=True)
-    for _ in range(active().limits.max_review_rounds + 1):
-        rig.conflict()
+    for number in range(active().limits.max_review_rounds + 1):
+        attempt(rig, number)
     attempts = rig.stored().conflict_attempts
     moves = len(rig.restacked)
 

@@ -61,6 +61,16 @@ def unmergeable(path: Path) -> set[int]:
     }
 
 
+def conflicts(path: Path) -> dict[int, datetime]:
+    """The PRs whose last definite answer was a conflict, by when the run of conflicting
+    answers began; a snapshot from before that was kept has no entry."""
+    return {
+        int(number): datetime.fromisoformat(seen["conflict_since"])
+        for number, seen in PrState.load(path).items()
+        if seen.get("mergeable") is False and seen.get("conflict_since")
+    }
+
+
 class PrState:
     """The snapshot a poll compares against."""
 

@@ -9,7 +9,7 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.pause import PAUSE_MARKER, pause_until
 from agent_build_kit.pipeline.pr_poller import PrState, state_path
-from agent_build_kit.pipeline.unit_store import HeldBy, UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, HeldBy, UnitStore
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW
 from tests.conftest import make_installation
 from tests.factories import stored_unit
@@ -40,7 +40,9 @@ def status(
             "add-marker/1", tip="tip1", head="h1", attempts=attempts, at=SINCE
         )
     if held:
-        store.set_state("add-marker/1", HELD, note=held, held_by=HeldBy.REVIEW, pr=4)
+        store.set_state(
+            "add-marker/1", HELD, note=held, held_by=HeldBy.REVIEW, cause=Cause.NEEDS_HUMAN, pr=4
+        )
     monkeypatch.setattr(cli, "current_usage", lambda: None)
     assert cli.cmd_status(argparse.Namespace(), inst) == 0
     return next(line for line in capsys.readouterr().out.splitlines() if "add-marker/1" in line)

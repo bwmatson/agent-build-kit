@@ -54,7 +54,10 @@
   commit it sits on onto the trunk's tip, any other attempt (or one the replay cannot settle)
   is the conflict rework, and no pushed head at one base tip is attempted twice. The move runs
   in the restack lane, not in the poll. A new tip of
-  the unit's own base, the trunk or its parent's branch, starts the count again.
+  the unit's own base, the trunk or its parent's branch, starts the count again. A conflict
+  that survives as many attempts at one tip as `limits.max_review_rounds` allows, or an
+  attempt that changed nothing, holds the unit with the reason instead of trying again, and
+  `abk status` says how often a conflicting unit has been moved and what it waits for.
 
 - A clean move of a unit's branch onto a moved base, before a push or when a merge releases
   a dependent, now tells tier 1 which base it left. Tier 1 classifies the move as scoped (no
