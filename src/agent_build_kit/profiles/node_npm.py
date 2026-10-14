@@ -143,7 +143,7 @@ class NodeNpmProfile:
         return _LINT_ALL
 
     def red_command(self, files: list[str]) -> str:
-        """Vitest on exactly `files`, its JUnit report printed after the marker so it
+        """Vitest with `files` as its filters, its JUnit report printed after the marker so it
         outlives the worktree; the exit status is Vitest's own. Vitest takes each file as a
         filter that matches by substring (an absolute path is turned back into the relative
         one), so `src/index.test.ts` also selects `packages/ui/src/index.test.ts` and no
