@@ -34,6 +34,12 @@ def tasks_md(groups: int = 2, *, needs: dict[int, str] | None = None) -> str:
     return text
 
 
+def needs_md(*lines: str) -> str:
+    text = f"# Tasks\n\n{OPT_OUT}\n## 1. [app] [tier1] The work\n\n"
+    text += "".join(f"Needs: {line} — a reason\n" for line in lines)
+    return text + "\n- [ ] 1.1 Test: it.\n- [ ] 1.2 Do it.\n"
+
+
 def planned(
     uid: str, groups: tuple[int, ...], *, depends_on: tuple[str, ...] = (), lines: int = 80
 ) -> dict:

@@ -18,6 +18,11 @@
   commands create (type-check build info, Vite and Vitest caches) belong to the pipeline.
   This adds `tree-sitter` and `tree-sitter-typescript` as dependencies.
 
+- A `Needs:` line whose target the unit already reaches through its dependencies is no longer
+  linked again on every tick; the unit's `needs` names every declared target, linked or not,
+  and changes only when the lines do. A target that reaches a dependency the unit listed
+  replaces it.
+
 - A tier 2 fix prompt now names the file holding the failed run's full output and tells the
   agent to read it with `grep` or `sed`, instead of telling it to rerun live tests it cannot
   run. When the output was withheld or never written, the prompt says so and names no file.

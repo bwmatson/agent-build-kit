@@ -118,7 +118,8 @@ class Unit(Frozen):
     tier: str
     project: str = "."
     depends_on: tuple[str, ...] = ()
-    # The subset of `depends_on` a `Needs:` line asked for; only the graph reads it.
+    # Every target a `Needs:` line names, whether linked as a dependency or already reached
+    # through one; only the graph reads it, and draws an edge only for those also in `depends_on`.
     needs: tuple[str, ...] = ()
     estimated_lines: int = 0
     state: UnitState = PLANNED
