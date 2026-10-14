@@ -22,7 +22,7 @@ is no diff.
 from __future__ import annotations
 
 import re
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -100,9 +100,11 @@ def render_mermaid(
     graph: list[StoredUnit] | None = None,
     checks_of: ChecksOf | None = None,
     paused: Collection[str] = (),
+    restacking: Mapping[str, str] | None = None,
 ) -> str:
     """Draw `units`. `graph` is the whole store when `units` is a subset of it:
-    whether a unit is blocked depends on parents that may not be drawn."""
+    whether a unit is blocked depends on parents that may not be drawn. `restacking` names
+    the base of each unit the restack lane holds."""
     graph = graph if graph is not None else units
     index = {unit.id: unit for unit in units}
     ordered = sorted(units, key=lambda unit: (unit.repo, unit.id))
@@ -118,6 +120,8 @@ def render_mermaid(
             state = effective_state(unit, graph, checks_of=checks_of, paused=paused)
             pr = f" · PR #{unit.pr}" if unit.pr else ""
             name = STATES[state].name
+            if restacking and unit.id in restacking:
+                name = f"restacking onto {restacking[unit.id]}"
             if failed_waiting(unit, graph):
                 waits = ", ".join(parent.id for parent in waiting_on(unit, graph))
                 name = f"{name}, waiting on {waits}"
@@ -164,7 +168,11 @@ def _pr_url(unit: StoredUnit) -> str:
 
 
 def render_markdown(
-    units: list[StoredUnit], *, checks_of: ChecksOf | None = None, paused: Collection[str] = ()
+    units: list[StoredUnit],
+    *,
+    checks_of: ChecksOf | None = None,
+    paused: Collection[str] = (),
+    restacking: Mapping[str, str] | None = None,
 ) -> str:
     """The committed page: the diagram, a legend, and what awaits review."""
     shown = in_view(units)
@@ -190,7 +198,7 @@ units it builds on directly. Rewritten whenever a unit changes state; do not
 edit by hand.
 
 ```mermaid
-{render_mermaid(shown, graph=units, checks_of=checks_of, paused=paused)}
+{render_mermaid(shown, graph=units, checks_of=checks_of, paused=paused, restacking=restacking)}
 ```
 
 ## Legend
@@ -243,13 +251,14 @@ def write_page(
     *,
     checks_of: ChecksOf | None = None,
     paused: Collection[str] = (),
+    restacking: Mapping[str, str] | None = None,
 ) -> None:
     """Rewrite the page, keeping the old timestamp when nothing else changed.
 
     Called on every store write, so without this each tick would leave a
     one-line diff in a committed file for no change at all.
     """
-    page = render_markdown(units, checks_of=checks_of, paused=paused)
+    page = render_markdown(units, checks_of=checks_of, paused=paused, restacking=restacking)
     if out.exists() and _body(out.read_text()) == _body(page):
         return
     out.parent.mkdir(parents=True, exist_ok=True)

@@ -124,6 +124,11 @@ child, a review comment, a requeue: each is a `Command(resume=...)` on the
 unit's thread, which the graph routes like any other input. Nothing writes
 into a waiting unit's state from the side.
 
+The one thing that does run a thread outside a build slot is the restack lane: a unit told its
+base moved is `running` with its thread parked at `prepare`, and the lane drives the thread
+through `prepare` only, then leaves it positioned at the next node for a worker. A conflict the
+move cannot settle leaves the unit `planned` with `restack_conflict`, for its own run to port.
+
 ## Priority
 
 A unit carries a priority from 1 (most urgent) to 5, 3 unless a `Priority:` line
@@ -216,7 +221,7 @@ are the reference for each condition. The nodes:
 
 | Node | Does | Wraps (from `wiring.build_runner`) |
 |---|---|---|
-| `prepare` | Worktree, fetch, move the branch onto its base, settling a conflict with the restack's two resolver steps in the build session (hunks, then dependent files) and handing what they cannot settle to `adapt`; picks the next node from what is on the branch and in state | worktree setup, `restack_onto`, `branch_commits` |
+| `prepare` | Worktree, fetch, move the branch onto its base, settling a conflict with the restack's two resolver steps in the build session (hunks, then dependent files) and handing what they cannot settle to `adapt` (for a unit told its base moved, the restack lane runs this node, and stops after it); picks the next node from what is on the branch and in state | worktree setup, `restack_onto`, `branch_commits` |
 | `tests` | The tests-first commit | `run`, `commit` |
 | `implement` | The implementation commit; a step that adds nothing is judged as any other, not against the usage window | `run`, `commit`, `may_start` |
 | `checks` | Tier 1 on the branch **before a reviewer is asked**, on the committed tree. Passing records the commit, so `tier1` after approval is not repeated on it | `tier1`, `commit` |
@@ -357,10 +362,10 @@ unit's thread with a command:
 | Event | Command | Routed by |
 |---|---|---|
 | A review asking for changes, a new comment, `agent-rework`, newly failing checks, a merge conflict | `rework{reason, kind, feedback, source}` | `await_review` → `rework` |
-| The parent merged, or the base was rewritten | `base_moved{new_base}` | `await_review` → `prepare` (a running unit sees it at its next node) |
+| The parent merged, or the base was rewritten | `base_moved{new_base}` | `await_review` → `prepare` (a running unit sees it at its next node); the restack lane then runs `prepare` for a unit left parked there, outside the build slots |
 | `agent-hold` | `hold` | → `held` |
 | `agent-hold` removed | `release` | `held` → `await_review`, for a hold the label made |
-| Merged | `merged` | → end; `units.json` records the merge, and a child waiting in review (stored `in_review`, within the rebase cap) is sent `base_moved{new_base}` and its PR is retargeted at once, instead of being restacked by the handler; every other child, with a thread or without, is handled by the handler itself (restacked, held for depth, or left alone) |
+| Merged | `merged` | → end; `units.json` records the merge, and a child waiting in review (stored `in_review`, within the rebase cap) is sent `base_moved{new_base}` and its PR is retargeted at once, instead of being restacked by the handler; every other child, with a thread or without, is handed to the restack lane to be restacked, or held for depth, or left alone |
 | Closed unmerged | `closed` | → end |
 | `abk requeue` | `requeue{mode}` | `held` / `failed` → `prepare`. `resume` (the default) goes back where it stopped; `restart` drops the saved failure and rounds but keeps the branch's commits (it does not start a fresh thread); `rework` keeps the work and the saved failure, and so enters at the agent with the failure in hand (`fix_checks` for a failed check) |
 
@@ -369,8 +374,11 @@ the state, and stops there (`interrupt_after` on the waits): it never runs the
 next node. The unit is left `running` with its thread positioned at the routed
 node (`rework` for a rework, `prepare` for a moved base or a requeue), so
 `resumable_units` offers it to the scheduler and the tick runs it in a slot like
-any thread with work to do. No event handler, poll or `abk requeue` runs an
-agent, a check or a push outside a slot, so `max_concurrent_stacks` holds.
+any thread with work to do. The one exception is a moved base: a thread left at
+`prepare` for it is run through `prepare` by the restack lane, outside the build
+slots, with its resolver asked of the usage guard, and is then left at the next
+node for a slot. No other event handler, poll or `abk requeue` runs an agent, a
+check or a push outside a slot, so `max_concurrent_stacks` holds for them.
 
 An event for a unit whose thread is mid-node is kept and delivered once the
 thread waits. A run holds the unit's branch lock from reading the thread's

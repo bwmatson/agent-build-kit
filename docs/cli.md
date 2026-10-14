@@ -93,6 +93,9 @@ line each test that failed tier 2 on the base too, with how many times and its f
 A `tier 2:` line names the unit holding the tier 2 lock and for how long; a record left by a
 process that is gone, on a free lock, is shown as stale, a held lock whose recorded process is gone
 says so, and a free lock with no record prints nothing.
+A `restacks: N running, M waiting` line, printed only while the restack lane has work or a unit
+is owed a restack, is followed by each unit as `restacking onto <base>`; a restack waiting for a
+usage pause is listed with the pause. A record left by a tick that has gone is ignored.
 Changes nothing. Exit 0.
 
 ### `abk replay review [--keep NAME ...] [--delete NAME ...]`

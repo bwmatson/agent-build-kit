@@ -257,6 +257,14 @@ If an archive fails (a conflict between changes), the tick logs it and carries o
 tries it again next tick; fix the conflict by editing the change. A finished change whose
 directory is gone is logged as withdrawn and skipped.
 
+## Restacks
+
+A unit whose base moved is moved by the restack lane, beside the build workers and outside
+`max_concurrent_stacks`. `abk status` prints `restacks: N running, M waiting` with each unit as
+`restacking onto <base>`; a restack whose conflict needs the agent while a usage pause stands is
+listed as `restack waiting: <unit> — usage pause until <time>` and is moved when the pause ends.
+A clean move needs no agent and proceeds during a pause.
+
 ## When the pipeline is paused
 
 `abk status` prints `paused until … — <reason>`. The usual reason is the

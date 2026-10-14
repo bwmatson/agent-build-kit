@@ -1850,7 +1850,8 @@ def build_release_dependents(
     from agent_build_kit.cli.pipeline import build_stack_moves
     from agent_build_kit.pipeline import events
 
-    moves = build_stack_moves(store, installation)
+    # A resolver here is an agent call like the lane's: asked of the guard first.
+    moves = build_stack_moves(store, installation, gated=True)
 
     def release(unit: Unit) -> list[str]:
         return events.release_children(

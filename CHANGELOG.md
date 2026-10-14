@@ -27,6 +27,12 @@
   order they were seen, at most `limits.max_concurrent_restacks` at a time (default 2), and
   take no build slot and no place under the limit on units in progress. A tick waits for
   the lane as it waits for builds, and a unit owed a restack is not started in a worker for it.
+  The lane asks the usage guard before each conflict-resolving agent call, as a unit's own
+  agent steps do, while a clean move proceeds during a pause; a conflicting restack waits
+  for the pause to end and is moved then. An in-review unit told its base moved is moved by
+  the lane through its `prepare` step. `abk status` prints `restacks: N running, M waiting`,
+  and it and the graph page show each unit restacking onto its base. Two gauges,
+  `abk.restacks.running` and `abk.restacks.waiting`, report the lane.
 
 - The poll now records when it last read a definite answer on whether a pull request
   merges, and since when it has conflicted. A pull request that stays conflicting after a

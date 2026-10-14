@@ -10,13 +10,18 @@ git state.
 from __future__ import annotations
 
 import contextvars
+import json
+import os
 import threading
 from collections.abc import Callable, Collection
 from concurrent.futures import Future
+from datetime import datetime
+from pathlib import Path
 from types import TracebackType
 from typing import Any
 
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.events import Claim
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.shell import git
@@ -31,12 +36,16 @@ from agent_build_kit.pipeline.units import (
     waiting_on,
 )
 from agent_build_kit.pipeline.wiring import is_ancestor
-from agent_build_kit.pipeline.workspaces import BranchBusy, branch_held
+from agent_build_kit.pipeline.workspaces import BranchBusy, branch_held, process_alive
 
 Move = Callable[[StoredUnit], None]
 Work = Callable[[], None]
 Owed = Callable[[list[StoredUnit]], Collection[str]]
 Stamp = Callable[[StoredUnit], object]
+
+# The lane's record in the state directory, for `abk status` and the graph page, which are
+# not the process that runs the tick.
+RECORD_NAME = "restacks.json"
 
 OWED_STATES = (PLANNED, RUNNING, IN_REVIEW)
 OWED_CAUSES = (Cause.BASE_CHANGED, Cause.RESTACK_DEFERRED)
@@ -95,9 +104,23 @@ def owed_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
     }
 
 
+def lane_record(state_dir: Path) -> list[dict[str, str]]:
+    """What the lane of a live tick holds: each unit's `unit`, `base`, `status` (running or
+    waiting) and `since`. A record whose process has gone is not trusted: nothing is held."""
+    try:
+        record = json.loads((state_dir / RECORD_NAME).read_text())
+        pid, units = record["pid"], record["units"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return []
+    if not isinstance(pid, int) or not process_alive(pid):
+        return []
+    return [entry for entry in units if isinstance(entry, dict)]
+
+
 class _Entry:
     def __init__(self, unit: StoredUnit, work: Work, done: list[Callable[[bool], None]]) -> None:
         self.unit, self.work, self.done = unit, work, done
+        self.since = spans.clock.now().isoformat()
 
 
 class RestackLane:
@@ -111,13 +134,20 @@ class RestackLane:
         claim: Claim,
         owed: Owed = lambda units: (),
         stamp: Stamp | None = None,
+        paused: Callable[[], bool] = lambda: False,
+        record: Path | None = None,
+        base: Callable[[StoredUnit], str] = lambda unit: "",
         log: Callable[[str], None] = print,
     ) -> None:
         """`stamp` reads what a restack of the unit depends on (its branch head and base).
         A unit whose attempt left it as it was is not handed over again by `scan` until
-        the stamp changes: a deferred move is not retried on a loop of its own."""
+        the stamp changes: a deferred move is not retried on a loop of its own, only when a
+        usage pause that stood has ended. `record` is where the lane says what it holds, each
+        unit with the `base` it moves onto."""
         self._cap, self._move, self._claim, self._owed, self._log = cap, move, claim, owed, log
-        self._stamp = stamp
+        self._stamp, self._paused, self._record, self._base = stamp, paused, record, base
+        self._was_paused = False
+        self._until: dict[str, datetime] = {}
         self._tried: dict[str, object] = {}
         self._changed = threading.Condition()
         self._queue: list[_Entry] = []
@@ -148,17 +178,39 @@ class RestackLane:
                 _Entry(unit, work or (lambda: self._move(unit)), [done] if done else [])
             )
             self._start()
+            self._write()
 
     def scan(self, units: list[StoredUnit]) -> None:
         """Hand over every unit the lane's `owed` names that is not already queued."""
+        if self._paused():
+            self._was_paused = True
+        elif self._was_paused:
+            # The pause ended: what it left deferred is moved again, asking the guard again.
+            self._was_paused = False
+            with self._changed:
+                self._tried.clear()
+                self._until.clear()
         owed = set(self._owed(units))
         for unit in units:
             if unit.id in owed and not self._unchanged_since_tried(unit):
                 self.hand_over(unit)
 
+    def defer_until(self, unit_id: str, resume_at: datetime | None) -> None:
+        """The usage guard refused the unit's resolver and expects to allow it from `resume_at`:
+        `scan` does not hand the unit over again before then, and does once it has passed."""
+        if resume_at is not None:
+            with self._changed:
+                self._until[unit_id] = resume_at
+
     def _unchanged_since_tried(self, unit: StoredUnit) -> bool:
         with self._changed:
             tried = self._tried.get(unit.id)
+            until = self._until.get(unit.id)
+            if until is not None and spans.clock.now() >= until:
+                # The refusal's time has come: the same branch and base are tried again.
+                del self._until[unit.id]
+                self._tried.pop(unit.id, None)
+                return False
         return self._stamp is not None and tried is not None and tried == self._stamp(unit)
 
     def drain(self) -> None:
@@ -213,6 +265,33 @@ class RestackLane:
             self._threads.append(thread)
             thread.start()
 
+    def _write(self) -> None:
+        """Say what the lane holds; the caller holds the lock. A view: it never stops a restack."""
+        if self._record is None:
+            return
+        held = [
+            *(("running", entry) for entry in self._running.values()),
+            *(("waiting", entry) for entry in self._queue),
+        ]
+        try:
+            if not held:
+                self._record.unlink(missing_ok=True)
+                return
+            units = [
+                {
+                    "unit": entry.unit.id,
+                    "base": self._base(entry.unit),
+                    "status": status,
+                    "since": entry.since,
+                }
+                for status, entry in held
+            ]
+            partial = self._record.with_name(f"{self._record.name}.{os.getpid()}.tmp")
+            partial.write_text(json.dumps({"pid": os.getpid(), "units": units}))
+            os.replace(partial, self._record)
+        except Exception as error:  # noqa: BLE001
+            self._log(f"restack record not written — {type(error).__name__}: {error}")
+
     def _note_attempt(self, unit: StoredUnit) -> None:
         """Remember what the unit's restack met, so a scan leaves it until that changes."""
         if self._stamp is None:
@@ -248,6 +327,7 @@ class RestackLane:
             with self._changed:
                 del self._running[unit.id]
                 self._start()
+                self._write()
                 self._changed.notify_all()
                 ended, self._finished = self._finished, Future()
             ended.set_result(None)
