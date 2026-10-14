@@ -9,16 +9,10 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.cycles import CycleEdge
-from tests.cli.replan_driver import OPT_OUT, Replan, tasks_md
+from tests.cli.replan_driver import Replan, needs_md, tasks_md
 from tests.factories import unit
 
 CYCLE = ("zbase/1", "c-top/1", "a-left/1", "zbase/1")
-
-
-def needs_md(*lines: str) -> str:
-    text = f"# Tasks\n\n{OPT_OUT}\n## 1. [app] [tier1] The work\n\n"
-    text += "".join(f"Needs: {line} — a reason\n" for line in lines)
-    return text + "\n- [ ] 1.1 Test: it.\n- [ ] 1.2 Do it.\n"
 
 
 def diamond_closed_by_its_base(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Replan:
