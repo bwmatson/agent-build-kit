@@ -22,10 +22,10 @@ from __future__ import annotations
 import argparse
 import re
 import sys
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
-from agent_build_kit.config import active
+from agent_build_kit.config import RepoConfig, active
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.units import Priority, reachable
 
@@ -39,6 +39,14 @@ def known_repos() -> tuple[str, ...]:
     the check off rather than failing every heading.
     """
     return tuple(active().repos)
+
+
+def declared_projects(repos: Mapping[str, RepoConfig]) -> dict[str, tuple[str, ...]]:
+    """The projects each repo declares beside its root, by the `path` a heading writes."""
+    return {
+        name: tuple(p.path for p in repo.projects if p.path not in (".", ""))
+        for name, repo in repos.items()
+    }
 
 
 # tier1 runs on GitHub Actions; tier2 needs the live local stack on this host
@@ -187,8 +195,36 @@ class ValidationError(Frozen):
         return f"line {self.line}: {self.message}"
 
 
+def _split_repo_tag(tag: str, repos: tuple[str, ...]) -> tuple[str, str | None]:
+    """The repo and project a heading's first tag names: a tag that is a declared repo is that
+    repo whole, otherwise the longest declared repo before a `/` takes the rest as its
+    project. A tag naming no repo comes back whole when no repos are known, else as its first
+    segment, for the unknown-repo message."""
+    if tag in repos or not repos:
+        return tag, None
+    for name in sorted(repos, key=len, reverse=True):
+        if tag.startswith(f"{name}/"):
+            return name, tag[len(name) + 1 :]
+    return tag.split("/", 1)[0], None
+
+
+def _project_problem(number: int, repo: str, project: str, declared: tuple[str, ...]) -> str:
+    if project == ".":
+        return (
+            f'group {number} tags the root project of repo "{repo}" as `{repo}/.` — the '
+            f"root project is the untagged one, tagged [{repo}]"
+        )
+    head = f'group {number} has unknown project "{project}" for repo "{repo}" — '
+    if not declared:
+        return head + f"{repo} declares only its root project, tagged [{repo}]"
+    return head + f"{repo} declares {', '.join(declared)} (its root project is tagged [{repo}])"
+
+
 def validate_tasks(
-    path: Path, *, repos: tuple[str, ...] | None = None
+    path: Path,
+    *,
+    repos: tuple[str, ...] | None = None,
+    projects: Mapping[str, tuple[str, ...]] | None = None,
 ) -> tuple[list[TaskGroup], list[ValidationError]]:
     """Parse a change's tasks.md and report everything wrong with its groups.
 
@@ -197,6 +233,7 @@ def validate_tasks(
     list instead of one problem per push.
     """
     repos = known_repos() if repos is None else repos
+    projects = declared_projects(active().repos) if projects is None else projects
     lines = path.read_text().splitlines()
 
     groups: list[TaskGroup] = []
@@ -291,8 +328,9 @@ def validate_tasks(
             )
             continue
 
-        repo, tier = tagged.group("repo"), tagged.group("tier")
+        tier = tagged.group("tier")
         number = int(tagged.group("number"))
+        repo, project = _split_repo_tag(tagged.group("repo"), repos)
 
         if repos and repo not in repos:
             errors.append(
@@ -300,6 +338,15 @@ def validate_tasks(
                     line=index,
                     message=f'group {number} has unknown repo "{repo}" — '
                     f"expected one of {', '.join(repos)}",
+                )
+            )
+            continue
+
+        declared = projects.get(repo, ())
+        if project is not None and (project == "." or (projects and project not in declared)):
+            errors.append(
+                ValidationError(
+                    line=index, message=_project_problem(number, repo, project, declared)
                 )
             )
             continue
@@ -329,6 +376,7 @@ def validate_tasks(
             TaskGroup(
                 number=number,
                 repo=repo,
+                project=project or ".",
                 tier=tier,
                 title=tagged.group("title"),
                 line=index,
@@ -344,6 +392,7 @@ def validate_tasks(
         TaskGroup(
             number=g.number,
             repo=g.repo,
+            project=g.project,
             tier=g.tier,
             title=g.title,
             line=g.line,
@@ -636,14 +685,18 @@ def tasks_path(change: str, changes_dir: Path) -> Path:
 
 
 def check_tags(
-    change: str, changes_dir: Path, *, repos: tuple[str, ...]
+    change: str,
+    changes_dir: Path,
+    *,
+    repos: tuple[str, ...],
+    projects: Mapping[str, tuple[str, ...]] | None = None,
 ) -> tuple[list[TaskGroup], list[str]]:
     """What `abk tags <change>` runs: the change's groups and every problem found, each
     printed as the command prints it; a change with no tasks file has one problem."""
     path = tasks_path(change, changes_dir)
     if not path.exists():
         return [], [f"no tasks.md for change {change!r} at {path}"]
-    groups, errors = validate_tasks(path, repos=repos)
+    groups, errors = validate_tasks(path, repos=repos, projects=projects)
     return groups, [f"{path}:{error}" for error in errors]
 
 

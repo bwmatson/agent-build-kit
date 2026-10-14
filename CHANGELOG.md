@@ -12,6 +12,10 @@
   notification and review stores and the like) now goes through one atomic write, so a crash
   or two writers at once never leave a half-written file or a stray temporary behind. A log
   trimmed to its size limit now has any byte that is not valid text replaced rather than kept.
+- A task group heading can name a project of its repo, `## 2. [app/web] [tier1] Title`, and a
+  plain `[app]` stays the repo's root project. A project the repo does not declare is refused
+  by `abk tags` and by planning, with the projects it does declare listed, and `abk tags`
+  prints the project in its listing.
 
 - The policy check no longer starts the agent or spends tokens: for an agent abk knows, it reads
   the deny list from the agent's own configuration and judges every probe command with abk's
