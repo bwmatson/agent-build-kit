@@ -6,6 +6,7 @@
   captured text, up to 6000 characters from the end, instead of only the summary at the tail
   of the whole run. A storm of flaky tests logs and records the first three such sections, up
   to 3000 characters each, so the error they share can be found.
+
 - `abk install-timers` now checks that systemd lingering is on for the user, since timers only
   run while the user manager does and without lingering that is only during a login session.
   It tries to turn lingering on without `sudo` or a prompt, and otherwise prints
