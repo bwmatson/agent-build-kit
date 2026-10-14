@@ -275,3 +275,16 @@ def test_ninety_seven_flakes_record_and_log_three_sections_cut_to_3000(tmp_path:
         assert failure in text
     assert storm_lines(3)[-1] not in text, "only the first three"
     assert flake_record(installation).entries() == [], "no per-test record"
+
+
+def test_a_failed_command_whose_output_is_one_long_line_keeps_the_end_of_it(
+    tmp_path: Path,
+) -> None:
+    line = "".join(f"{n:04d}" for n in range(1250))
+
+    passed, text = tier1(HookedProfile(), FirstRun(line, reruns=[0, 1]), tmp_path)
+
+    assert not passed
+    header, _, kept = text.rpartition("\n")
+    assert header.startswith("$ ")
+    assert kept == line[-4000:]

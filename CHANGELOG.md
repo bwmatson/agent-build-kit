@@ -836,7 +836,8 @@
   the same cuts: the tails of command and CI output (tier 1 and tier 2, flakes, the push
   gate, live verification and a failed CI job's log), the resolver's diff, and the notes and
   error excerpts the history, the logs and the code hosts' errors quote. A tail now starts
-  on a whole line, and a code fence the cut leaves open is balanced.
+  on a whole line, a line longer than the size is cut by characters instead of dropped, and
+  a code fence the cut leaves open is balanced.
 
 - The agents that write tests, implement, fix checks and rework are now told to look for
   existing code before adding any: search by behaviour as well as name, use or extend a

@@ -21,6 +21,7 @@ from agent_build_kit.model import Frozen
 Boundary = Literal["char", "line", "paragraph"]
 
 _JOINERS: dict[str, str] = {"char": "", "line": "\n", "paragraph": "\n\n"}
+_FINER: dict[str, Boundary] = {"paragraph": "line", "line": "char"}
 _RETRIES = 3
 
 
@@ -77,11 +78,17 @@ def _cut_side(text: str, size: int, boundary: Boundary, marker: str, head: bool)
             low = middle
         else:
             high = middle - 1
+    if low == 0 and boundary != "char":
+        # No whole piece fits: keep whole pieces of a finer kind, and characters last.
+        return _cut_side(text, size, _FINER[boundary], marker, head)
     return build(low)
 
 
 def cut_head(text: str, size: int, boundary: Boundary = "line", marker: str = "") -> str:
     """The head of `text`, at most `size` characters, open fence and block closed.
+
+    It keeps whole pieces of the boundary when one fits, and whole pieces of the next finer
+    boundary (paragraph, line, character) when none does, so a text is never cut to nothing.
 
     On the `char` boundary the cut is not guaranteed to be the longest that fits,
     because completing a closing fence can shorten what must be appended."""
@@ -90,6 +97,9 @@ def cut_head(text: str, size: int, boundary: Boundary = "line", marker: str = ""
 
 def cut_tail(text: str, size: int, boundary: Boundary = "line", marker: str = "") -> str:
     """The tail of `text`, at most `size` characters.
+
+    It keeps whole pieces of the boundary when one fits, and whole pieces of the next finer
+    boundary (paragraph, line, character) when none does, so a text is never cut to nothing.
 
     A fence or details block the dropped head left open is opened again before the
     tail, so the tail's own closing lines close it. On the `char` boundary the cut is

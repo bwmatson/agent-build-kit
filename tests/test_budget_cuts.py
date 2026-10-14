@@ -154,3 +154,30 @@ def test_a_fence_inside_a_details_block_are_both_closed() -> None:
     assert got.count("```") % 2 == 0
     assert got.count("<details") == got.count("</details>")
     assert got.rstrip().endswith("</details>")
+
+
+def test_a_tail_of_one_long_line_keeps_its_last_characters() -> None:
+    assert cut_tail("x" * 5000, 4000) == "x" * 4000
+
+
+def test_a_head_whose_first_line_is_too_long_keeps_its_first_characters() -> None:
+    assert cut_head("a" * 9000 + "\nb", 8000) == "a" * 8000
+
+
+def test_a_paragraph_too_long_to_fit_keeps_whole_lines_of_it() -> None:
+    text = lined(200)
+
+    head = cut_head(text, 500, "paragraph")
+    tail = cut_tail(text, 500, "paragraph")
+
+    assert 400 < len(head) <= 500 and head.splitlines()[0] == text.splitlines()[0]
+    assert set(head.splitlines()) <= set(text.splitlines())
+    assert 400 < len(tail) <= 500 and tail.splitlines()[-1] == text.splitlines()[-1]
+    assert set(tail.splitlines()) <= set(text.splitlines())
+
+
+def test_a_marker_does_not_stop_a_long_line_from_keeping_characters() -> None:
+    got = cut_tail("x" * 5000, 100, "line", marker="[cut]")
+
+    assert got.startswith("[cut]") and got.endswith("x" * 50)
+    assert len(got) <= 100
