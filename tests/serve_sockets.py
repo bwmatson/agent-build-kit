@@ -2,7 +2,8 @@
 
 A module that is not marked `integration` (a module-level `pytestmark` naming
 `pytest.mark.integration`) must not, found by parsing it (strings and comments never count):
-  - import or name `uvicorn`, `socket`, `http.client` or `ThreadingHTTPServer`;
+  - import or name `uvicorn`, `socket`, `http.client` or `ThreadingHTTPServer`, or import the
+    `tests.serve.socket_api` fixture, which serves over a socket for its importer;
   - call `start_server`, which serves the application over a socket;
   - build an `httpx.Client` (or a `Client` imported from `httpx`) whose `base_url` is
     anything but `http://testserver`.
@@ -26,6 +27,9 @@ IN_PROCESS_URL = "http://testserver"
 
 SOCKET_MODULES: frozenset[str] = frozenset({"uvicorn", "socket"})
 SOCKET_NAMES: frozenset[str] = frozenset({"ThreadingHTTPServer", "start_server"})
+# Modules that open a socket for their importer: `http.client` itself, and the shared `api`
+# fixture over a real socket, whose importers would otherwise serve over one unseen.
+SOCKET_PROVIDERS: frozenset[str] = frozenset({"http.client", "tests.serve.socket_api"})
 
 # Modules under `tests/serve` that open a socket today, as paths under it. It may only
 # shrink: a module leaves it when it moves to the in-process client (or is marked
@@ -38,6 +42,7 @@ ALLOWLIST: frozenset[str] = frozenset(
         "test_chat_guards.py",
         "test_chat_permissions.py",
         "test_chat_turns.py",
+        "test_serve_actions.py",
         "test_serve_approve.py",
         "test_serve_binding.py",
         "test_serve_metrics.py",
@@ -93,14 +98,14 @@ def _builds_client(call: ast.Call, clients: frozenset[str]) -> bool:
 def _hazard(node: ast.AST, clients: frozenset[str]) -> str | None:
     if isinstance(node, ast.Import):
         for alias in node.names:
-            if alias.name.split(".")[0] in SOCKET_MODULES or alias.name == "http.client":
+            if alias.name.split(".")[0] in SOCKET_MODULES or alias.name in SOCKET_PROVIDERS:
                 return f"imports {alias.name}"
     elif isinstance(node, ast.ImportFrom):
         module = node.module or ""
-        if module.split(".")[0] in SOCKET_MODULES or module == "http.client":
+        if module.split(".")[0] in SOCKET_MODULES or module in SOCKET_PROVIDERS:
             return f"imports from {module}"
         for alias in node.names:
-            if (module, alias.name) == ("http", "client") or alias.name in SOCKET_NAMES:
+            if f"{module}.{alias.name}" in SOCKET_PROVIDERS or alias.name in SOCKET_NAMES:
                 return f"imports {alias.name}"
     elif isinstance(node, ast.Name) and node.id in SOCKET_NAMES:
         return f"uses {node.id}"

@@ -160,6 +160,26 @@ def test_an_allowlisted_module_with_no_socket_left_is_reported_as_stale(tmp_path
     assert "allowlist" in problems[0]
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from tests.serve.socket_api import socket_api\n",
+        "from tests.serve import socket_api\n",
+        "import tests.serve.socket_api\n",
+    ],
+)
+def test_importing_the_socket_api_fixture_is_a_socket_in_the_importer(
+    tmp_path: Path, source: str
+) -> None:
+    root = tree(tmp_path, {"test_x.py": source})
+
+    problems = check_serve_tests(root)
+
+    assert len(problems) == 1
+    assert "test_x.py:1" in problems[0]
+    assert check_serve_tests(root, allowlist={"test_x.py"}) == []
+
+
 def test_the_conftest_is_scanned_like_a_test_module(tmp_path: Path) -> None:
     root = tree(tmp_path, {"conftest.py": "from x import start_server\n"})
 
@@ -176,6 +196,7 @@ ALLOWLIST_CEILING = frozenset(
         "test_chat_guards.py",
         "test_chat_permissions.py",
         "test_chat_turns.py",
+        "test_serve_actions.py",
         "test_serve_approve.py",
         "test_serve_binding.py",
         "test_serve_metrics.py",

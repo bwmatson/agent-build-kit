@@ -16,10 +16,6 @@ from tests.chat_serving import turn, unit_worktree
 from tests.runtimes.acp_agent import STDERR_LINE, use_agent
 from tests.serving import seed_pipeline
 
-# A fake agent's arguments name the session ids it holds, which every server on the machine
-# sees, so these cannot run beside each other.
-pytestmark = pytest.mark.serial
-
 
 @pytest.fixture
 def pipeline(inst: Installation) -> Installation:
