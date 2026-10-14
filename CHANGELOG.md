@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `abk tags` with no change and no `--all`, or with both, now prints one line saying what to
+  pass and exits 2, instead of failing with a traceback. Its help names `--all`.
+
 - A tier 2 fix prompt now names the file holding the failed run's full output and tells the
   agent to read it with `grep` or `sed`, instead of telling it to rerun live tests it cannot
   run. When the output was withheld or never written, the prompt says so and names no file.
