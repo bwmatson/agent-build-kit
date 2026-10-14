@@ -54,6 +54,7 @@ def atomic_write_text(path: Path, text: str) -> None:
 
     Written aside under a name of this process's own, so two writers do not share it, and
     renamed into place last; whatever is raised, the temporary is removed and the old file stays.
+    Writers on two threads of one process share the name, so they hold the file lock around it.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     partial = path.with_name(f"{path.name}.{os.getpid()}.tmp")

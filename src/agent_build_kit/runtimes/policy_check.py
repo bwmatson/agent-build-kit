@@ -62,7 +62,7 @@ def checked(
 
     report = runtime.check_policy(cwd)
     kept[runtime.name] = {"checked_at": now.isoformat(), "report": report.model_dump(mode="json")}
-    # So a doctor and an init running at once never read half a file.
+    # Written whole, so a doctor and an init running at once never read half a file.
     atomic_write_text(cache, json.dumps(kept, indent=2))
     return report
 

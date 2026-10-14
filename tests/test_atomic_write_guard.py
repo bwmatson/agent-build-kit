@@ -1,7 +1,8 @@
 """The guard against a state file being replaced without the shared write (spec: dry-cleanup).
 
 A file is written through `atomic_write_text`; no source module outside the one that defines it
-calls `os.replace` or replaces over a path from a temporary, scratch or partial name.
+calls `os.replace` or `os.rename`, or replaces or renames over a path from a
+temporary, scratch or partial name.
 """
 
 from __future__ import annotations
@@ -25,15 +26,17 @@ def receiver(node: ast.expr) -> str:
 
 
 def replacements(tree: ast.AST) -> list[int]:
-    """Lines that call `os.replace`, or `.replace(target)` on a temporary-named path."""
+    """Lines that call `os.replace` or `os.rename`, or `.replace(target)` or
+    `.rename(target)` on a temporary-named path."""
     lines = []
     for node in ast.walk(tree):
         if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
             continue
-        if node.func.attr != "replace":
-            continue
+        attr = node.func.attr
         owner = receiver(node.func.value)
-        # `str.replace` takes two arguments; `Path.replace` takes the one target.
+        if attr not in ("replace", "rename"):
+            continue
+        # `str.replace` takes two arguments; `Path.replace` and `Path.rename` take the one target.
         if owner == "os" or (len(node.args) == 1 and SIDE_NAME.search(owner)):
             lines.append(node.lineno)
     return lines
@@ -47,4 +50,6 @@ def test_no_module_but_the_shared_one_replaces_a_file_from_a_temporary() -> None
             continue
         problems += [f"{name}:{line}" for line in replacements(ast.parse(path.read_text()))]
 
-    assert not problems, "write through atomic_write_text instead:\n" + "\n".join(problems)
+    assert not problems, (
+        "write through atomic_write_text instead of renaming a temporary:\n" + "\n".join(problems)
+    )

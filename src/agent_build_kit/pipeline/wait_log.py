@@ -135,5 +135,5 @@ def trim_decision_log(path: Path, *, limit_mb: float) -> None:
         size += len(line)
     try:
         atomic_write_text(path, b"".join(reversed(kept)).decode(errors="replace"))
-    except OSError:
+    except (OSError, UnicodeError):
         pass
