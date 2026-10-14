@@ -116,6 +116,7 @@ class Unit(Frozen):
     title: str
     repo: str
     tier: str
+    project: str = "."
     depends_on: tuple[str, ...] = ()
     # The subset of `depends_on` a `Needs:` line asked for; only the graph reads it.
     needs: tuple[str, ...] = ()
