@@ -17,13 +17,6 @@
   `throw new Error("not implemented")`, checked with a TypeScript parser. The files its
   commands create (type-check build info, Vite and Vitest caches) belong to the pipeline.
   This adds `tree-sitter` and `tree-sitter-typescript` as dependencies.
-- A unit's saved tier 2 output now keeps what a failure needs: for each failed test its
-  identifier and the end of its own section, ahead of passing output and the rest of the log,
-  so a long run no longer loses which tests failed and why. The earlier review rounds shown to
-  a reviewer and the commit status description share the same fitting: open findings stay
-  whole and a note counts those left out, and a status description is fitted once to the
-  lowest limit any code host allows, so no host cuts it. Each host declares `status_limit`
-  beside `description_limit`.
 
 - A tier 2 fix prompt now names the file holding the failed run's full output and tells the
   agent to read it with `grep` or `sed`, instead of telling it to rerun live tests it cannot
