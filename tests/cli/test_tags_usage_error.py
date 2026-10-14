@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-import argparse
-
 import pytest
 
 from agent_build_kit.cli import build_parser
@@ -27,7 +25,7 @@ def test_neither_a_change_nor_all_prints_the_usage_line_and_exits_2(
 ) -> None:
     tagged_change(installation)
 
-    status = cli.cmd_tags(argparse.Namespace(change=None, all=False), installation)
+    status = cli.cmd_tags(build_parser().parse_args(["tags"]), installation)
 
     captured = capsys.readouterr()
     assert status == 2
@@ -42,7 +40,7 @@ def test_a_change_and_all_together_are_refused_and_nothing_is_checked(
 ) -> None:
     tagged_change(installation)
 
-    status = cli.cmd_tags(argparse.Namespace(change="feature", all=True), installation)
+    status = cli.cmd_tags(build_parser().parse_args(["tags", "feature", "--all"]), installation)
 
     captured = capsys.readouterr()
     assert status == 2
@@ -59,3 +57,31 @@ def test_the_tags_help_says_to_name_a_change_or_pass_all(
 
     out = " ".join(capsys.readouterr().out.split())
     assert "name a change, or --all for every change" in out
+
+
+def test_a_change_with_no_tasks_file_still_reports_it_missing(
+    installation: Installation, capsys: pytest.CaptureFixture[str]
+) -> None:
+    tagged_change(installation)
+
+    status = cli.cmd_tags(build_parser().parse_args(["tags", "absent"]), installation)
+
+    captured = capsys.readouterr()
+    assert status == 1
+    assert "no tasks.md for change 'absent'" in captured.out
+    assert "1 problem(s) in absent" in captured.out
+    assert captured.err == ""
+
+
+@pytest.mark.parametrize("argv", [["tags", "--all"], ["tags", "feature"]])
+def test_all_alone_and_a_change_alone_check_as_before(
+    installation: Installation, capsys: pytest.CaptureFixture[str], argv: list[str]
+) -> None:
+    tagged_change(installation)
+
+    status = cli.cmd_tags(build_parser().parse_args(argv), installation)
+
+    captured = capsys.readouterr()
+    assert status == 0
+    assert "feature: 1 task group(s), all tagged" in captured.out
+    assert captured.err == ""
