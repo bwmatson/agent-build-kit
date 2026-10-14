@@ -24,6 +24,10 @@ if TYPE_CHECKING:
 
 LABEL = "what the configuration says, in abk's dialect; not observed from the agent"
 NO_POLICY = "cannot check: abk has no policy for this agent"
+NO_POLICY_FIX = (
+    "`abk policy patterns` prints the globs to add to its configuration yourself; "
+    "`abk policy check --agent NAME` checks a wrapper's agent"
+)
 UNCOVERED_LABELS = frozenset(u.label for u in UNCOVERED)
 
 
@@ -97,6 +101,16 @@ def render(report: PolicyReport) -> list[str]:
     if report.source:
         lines.append(f"({report.source})")
     return lines
+
+
+def summary(report: PolicyReport) -> str:
+    """How many of the commands that must be refused were, and where the answer came from;
+    empty for a report that did not read a configuration."""
+    if not report.source:
+        return ""
+    covered = [r for r in report.results if not r.by_design]
+    refused = sum(r.refused for r in covered)
+    return f"{refused} of {len(covered)} commands refused ({report.source})"
 
 
 def describe(report: PolicyReport, *, also: Collection[str] = ()) -> str:

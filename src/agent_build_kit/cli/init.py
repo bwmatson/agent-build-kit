@@ -260,14 +260,11 @@ def _conventions_config(
 
 
 def _policy(
-    runtime: AgentRuntime, planning: Path, installation: Installation
+    runtime: AgentRuntime, entry: RuntimeConfig, installation: Installation
 ) -> PolicyReport | None:
     """The policy answer, read from the agent's configuration as it is now, or None when it
     could not be had: said, never kept, and init carries on without it."""
     try:
-        entry = config_module.runtime_entry(
-            load_config(planning / CONFIG_FILENAME), name=runtime.name
-        )
         return policy_check.check_policy(runtime, entry, installation)
     except Exception as error:  # noqa: BLE001 - whatever the runtime raised is the finding
         print(
@@ -299,12 +296,12 @@ def _run_fix(
     result = (run_fix or subprocess.run)(argv, cwd=planning, check=False)
     if result.returncode:
         print(f"abk init: `{fix}` exited {result.returncode}", file=sys.stderr)
-    return _report_again(runtime, planning, before, installation, failed=bool(result.returncode))
+    return _report_again(runtime, entry, before, installation, failed=bool(result.returncode))
 
 
 def _report_again(
     runtime: AgentRuntime,
-    planning: Path,
+    entry: RuntimeConfig,
     before: PolicyReport,
     installation: Installation,
     *,
@@ -312,7 +309,7 @@ def _report_again(
 ) -> PolicyReport | None:
     """Check again after a fix and say, per class and spelling, what is refused now. The
     report it read is returned."""
-    after = _policy(runtime, planning, installation)
+    after = _policy(runtime, entry, installation)
     if after is None:
         return None
     print(policy_check.describe(after, also=policy_check.classes_of(before)))
@@ -331,24 +328,20 @@ def _report_again(
 
 def _unknown_agent_choice(planning: Path, name: str) -> bool:
     """No fix is known for this agent, and nothing is guessed: the person chooses to rely on
-    abk's own layer, to supply a fix command, or to continue without. True when a fix
+    abk's own layer or to supply a fix command. True when a fix
     was recorded and is now to be run."""
     menu = (
         "no fix is known for this agent; choose:\n"
         "  1. rely on abk's own protocol layer, which sees the agent's permission requests"
         " and not what the agent never asks about\n"
         f"  2. supply a fix command (recorded as runtimes.{name}.policy_fix)\n"
-        "  3. continue without checking (recorded as unchecked; `abk doctor` warns each run)\n"
         "to place the kit's recommended patterns in the agent's own configuration yourself,\n"
         "run `abk policy patterns` to print them\n"
-        "choice [1-3]: "
+        "choice [1-2]: "
     )
-    while (reply := ask(menu).strip()) not in ("1", "2", "3"):
-        print("nothing is chosen until you answer 1, 2 or 3")
-    if reply == "3":
-        _record_runtime(planning, name, {"policy": PolicyMarker.UNCHECKED.value})
-        print(f"recorded runtime {name} as unchecked")
-    elif reply == "2":
+    while (reply := ask(menu).strip()) not in ("1", "2"):
+        print("nothing is chosen until you answer 1 or 2")
+    if reply == "2":
         while True:
             answer = ask("fix command (an existing executable and its arguments): ").strip()
             problem = validate_argv(answer, shutil.which)
@@ -404,7 +397,7 @@ def _apply_builtin(
         return False
     if write_recommended(descriptor, home, extra, False) is None:
         return False
-    final = _report_again(runtime, planning, report, installation, failed=False)
+    final = _report_again(runtime, entry, report, installation, failed=False)
     print("the build-run toolset is unchanged; `abk policy apply --toolset` replaces it")
     if final is not None and not final.ok:
         print("the agent's own matcher, not the list, may be what lets a spelling through")
@@ -441,15 +434,19 @@ def _policy_step(
     if entry.policy == PolicyMarker.UNCHECKED and not only:
         print(f"runtime {name} is recorded as unchecked; `abk doctor` warns about it")
         return False
-    report = _policy(runtime, planning, installation)
+    report = _policy(runtime, entry, installation)
     if report is None:
         return False
     if report.cannot_check:
         print(f"runtime {name}: {report.cannot_check}")
+        if report.cannot_check == policy_check.NO_POLICY:
+            print(f"  {policy_check.NO_POLICY_FIX}")
         return False
     if report.ok:
         print("\n".join(policy_check.render(report)))
         return True
+    if report.source:
+        print("\n".join(policy_check.render(report)))
     print(f"runtime {name} does not refuse: {policy_check.describe(report)}")
     entry = config_module.runtime_entry(load_config(planning / CONFIG_FILENAME), name=name)
     if not entry.policy_fix and not declined:

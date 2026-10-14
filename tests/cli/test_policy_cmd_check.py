@@ -6,9 +6,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 from agent_build_kit.cli import main
 from agent_build_kit.runtimes.acp import PROBE_CLASSES
+from agent_build_kit.runtimes.claude_code import NAME as CLAUDE_CODE
 from agent_build_kit.runtimes.known_agents import KNOWN_AGENTS
 from agent_build_kit.runtimes.recommended_policy import matches, patterns
 from tests.cli.policy_static_cli import UNKNOWN_PROGRAM, abk_yaml, agent_command, snapshot
@@ -16,9 +18,11 @@ from tests.runtimes.policy_static_support import (
     LABEL,
     UNCOVERED_LABELS,
     agent_home,
+    commands_of,
     recording_program,
     write_config,
 )
+from tests.spelling_rows import AMEND
 
 CANNOT = "cannot check: abk has no policy for this agent"
 
@@ -112,3 +116,18 @@ def test_an_unknown_agent_exits_two_naming_the_known_agents(
     assert code == 2
     text = "\n".join(lines)
     assert all(agent.name in text for agent in KNOWN_AGENTS)
+
+
+def test_agent_is_judged_whatever_runtime_is_selected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    write_config(agent_home(tmp_path, monkeypatch), [p for p in patterns() if "amend" not in p])
+    config = tmp_path / "planning" / "abk.yaml"
+    config.parent.mkdir()
+    config.write_text(yaml.safe_dump({"runtime": CLAUDE_CODE}))
+
+    code, lines = run_check(config, capsys, "--agent", KNOWN_AGENTS[0].name)
+
+    assert code == 1
+    assert LABEL in "\n".join(lines)
+    assert any(c in line and "not refused" in line for c in commands_of(AMEND) for line in lines)

@@ -85,6 +85,16 @@ def _named(name: str) -> KnownAgent:
     return named
 
 
+def _entry_for(installation: Installation, runtime: str | None) -> RuntimeConfig:
+    """The entry of the runtime called `runtime`, or of the selected one when None; a usage
+    problem naming the runtimes there are when it is not one."""
+    configured = installation.config.runtimes
+    if runtime and runtime not in (*runtimes.names(), *configured):
+        known = ", ".join(sorted({*runtimes.names(), *configured}))
+        raise _Usage(f"unknown runtime {runtime!r}; the runtimes are: {known}")
+    return config_module.runtime_entry(installation.config, name=runtime)
+
+
 def _agent_for(
     args: argparse.Namespace, installation: Installation | None
 ) -> tuple[KnownAgent, RuntimeConfig]:
@@ -97,11 +107,7 @@ def _agent_for(
                 "no installation to read the runtime's command from; give --agent NAME"
             )
     else:
-        configured = installation.config.runtimes
-        if args.runtime and args.runtime not in (*runtimes.names(), *configured):
-            known = ", ".join(sorted({*runtimes.names(), *configured}))
-            raise _Usage(f"unknown runtime {args.runtime!r}; the runtimes are: {known}")
-        entry = config_module.runtime_entry(installation.config, name=args.runtime)
+        entry = _entry_for(installation, args.runtime)
     if args.agent:
         return _named(args.agent), entry
     if not entry.command:
@@ -294,19 +300,17 @@ def cmd_policy_check(args: argparse.Namespace, installation: Installation | None
     assert installation is not None  # the command needs one
     config = installation.config
     name = args.runtime or config_module.runtime_name(config)
-    if name not in (*runtimes.names(), *config.runtimes):
-        known = ", ".join(sorted({*runtimes.names(), *config.runtimes}))
-        print(f"abk: unknown runtime {name!r}; the runtimes are: {known}", file=sys.stderr)
+    try:
+        entry = _entry_for(installation, args.runtime)
+        runtime = runtimes.get(name)
+        if args.agent:
+            # The named agent's configuration is judged whatever runtime is selected.
+            entry = entry.model_copy(update={"command": [_named(args.agent).program]})
+            runtime = runtimes.get(known_agents.RUNTIME_NAME)
+    except _Usage as error:
+        print(f"abk: {error}", file=sys.stderr)
         return 2
-    entry = config_module.runtime_entry(config, name=name)
-    if args.agent:
-        try:
-            agent = _named(args.agent)
-        except _Usage as error:
-            print(f"abk: {error}", file=sys.stderr)
-            return 2
-        entry = entry.model_copy(update={"command": [agent.program]})
-    report = policy_check.check_policy(runtimes.get(name), entry, installation)
+    report = policy_check.check_policy(runtime, entry, installation)
     if report.cannot_check:
         print(report.cannot_check)
         return 1

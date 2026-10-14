@@ -953,7 +953,8 @@ def _runtime(inst: Installation, which: Which, run: Run) -> list[Check]:
         )
 
     if not startable:
-        # A probe would spawn the very command that does not resolve.
+        # The agent cannot start, so what it would run under is not judged either; the
+        # runtime check above says what to fix.
         checks.append(
             _warn(
                 "runtime policy",
@@ -989,8 +990,7 @@ def _runtime(inst: Installation, which: Which, run: Run) -> list[Check]:
             _warn(
                 "runtime policy",
                 report.cannot_check,
-                "name the agent with `abk policy check --agent NAME`, or add its policy to "
-                "the agent's configuration yourself (`abk policy patterns` prints it)",
+                policy_check.NO_POLICY_FIX,
             )
         )
     elif report.cannot_check:
@@ -1002,13 +1002,15 @@ def _runtime(inst: Installation, which: Which, run: Run) -> list[Check]:
             )
         )
     elif report.ok:
-        said = f"every forbidden class is refused ({report.source})" if report.source else ""
-        checks.append(_ok("runtime policy", said or "every forbidden class is refused"))
+        said = policy_check.summary(report)
+        refused = "every forbidden class is refused"
+        checks.append(_ok("runtime policy", f"{refused}: {said}" if said else refused))
     else:
         checks.append(
             _fail(
                 "runtime policy",
-                f"not refused: {policy_check.describe(report)}",
+                f"not refused: {policy_check.describe(report)}"
+                + (f" | {policy_check.summary(report)}" if report.source else ""),
                 policy_check.fix_for(name, entry, report),
             )
         )

@@ -86,7 +86,7 @@ def test_a_fix_that_leaves_a_spelling_open_is_reported_as_still_unenforced(
     assert command_of(AMEND, AMEND_ROW[1]) in after
 
 
-def test_an_unknown_agent_is_offered_three_choices_and_none_is_guessed(
+def test_an_unknown_agent_is_offered_two_choices_and_none_is_guessed(
     tmp_path: Path,
     app: Path,  # noqa: F811 — fixture
     events: list[str],
@@ -106,7 +106,8 @@ def test_an_unknown_agent_is_offered_three_choices_and_none_is_guessed(
 
     menu = operator.screens[0].lower()
     assert "rely" in menu
-    assert "continue without" in menu
+    assert "continue without" not in menu
+    assert "unchecked" not in menu
     assert "fix command" in menu
     # Relying on abk's own layer runs nothing and records nothing.
     assert events == ["check", "ask"]
@@ -140,7 +141,7 @@ def test_an_unknown_agent_s_fix_is_validated_recorded_run_and_checked_again(
     assert events.count("check") == 2
 
 
-def test_continuing_without_a_fix_records_the_entry_as_unchecked(
+def test_an_answer_of_three_is_not_a_choice_and_records_no_marker(
     tmp_path: Path,
     app: Path,  # noqa: F811 — fixture
     events: list[str],
@@ -151,11 +152,11 @@ def test_continuing_without_a_fix_records_the_entry_as_unchecked(
         "unknown", policy_file(tmp_path / "policy.txt", AMEND_ROW), log=events
     )
     planning = configured(tmp_path, app, monkeypatch, runtime)
-    monkeypatch.setattr(init_cmd, "ask", Operator(capfd, "3"))
+    monkeypatch.setattr(init_cmd, "ask", Operator(capfd, "3", otherwise="1"))
 
     main(init_args(planning, app))
 
-    assert recorded(planning, "unknown")["policy"] == "unchecked"
+    assert "policy" not in recorded(planning, "unknown")
     assert "policy_fix" not in recorded(planning, "unknown")
 
 

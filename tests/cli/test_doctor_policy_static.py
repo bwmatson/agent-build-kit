@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli.doctor import Check, run_doctor
+from agent_build_kit.runtimes.acp import PROBE_CLASSES
 from agent_build_kit.runtimes.recommended_policy import patterns
 from tests.cli.policy_static_cli import UNKNOWN_PROGRAM, agent_command
 from tests.cli.test_doctor import (  # noqa: F401 — fixture
@@ -19,6 +20,7 @@ from tests.cli.test_doctor import (  # noqa: F401 — fixture
 )
 from tests.runtimes.policy_static_support import (
     LABEL,
+    UNCOVERED_LABELS,
     agent_home,
     commands_of,
     config_file,
@@ -27,6 +29,7 @@ from tests.runtimes.policy_static_support import (
 from tests.spelling_rows import AMEND
 
 CANNOT = "cannot check: abk has no policy for this agent"
+COVERED = len([c for c, label in PROBE_CLASSES if label not in UNCOVERED_LABELS])
 
 
 def policy_check(workspace: Path, command: list[str]) -> Check:  # noqa: F811 — fixture
@@ -46,6 +49,7 @@ def test_a_configuration_holding_the_recommendation_passes_and_says_what_it_read
 
     assert check.status == "ok"
     assert LABEL in check.detail
+    assert f"{COVERED} of {COVERED} commands refused" in check.detail
     assert not list(workspace.rglob("policy-check*"))
 
 
@@ -61,6 +65,8 @@ def test_an_unrefused_class_fails_naming_it_and_the_spelling_with_the_fix(
     assert check.status == "FAIL"
     assert AMEND in check.detail
     assert all(command in check.detail for command in commands_of(AMEND))
+    assert LABEL in check.detail
+    assert f"{COVERED - len(commands_of(AMEND))} of {COVERED} commands refused" in check.detail
     assert "run `abk policy apply`" in check.fix
 
 
