@@ -18,6 +18,7 @@ import re
 from pathlib import Path
 
 from agent_build_kit.installation import Installation
+from agent_build_kit.scrub_terms import scrub_text, terms_for
 
 TEXT_SUFFIXES = {
     ".py", ".md", ".yaml", ".yml", ".toml", ".json", ".txt",
@@ -25,52 +26,7 @@ TEXT_SUFFIXES = {
 }  # fmt: skip
 SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".pytest_cache", "dist", "build"}
 
-# Words a deploy rule is made of that describe no installation.
-GENERIC = {
-    "docker", "compose", "up", "restart", "start", "stop", "down", "build", "pull",
-    "gateway", "deploy", "scripts", "main", "master", "service", "services", "test", "tests",
-    "config", "reload", "systemctl", "sudo", "true", "false", "none", "null",
-}  # fmt: skip
-MIN_LENGTH = 3
-
-
-def terms_for(installation: Installation, *, target: Path | None = None) -> list[str]:
-    """The installation-identifying words, longest first.
-
-    A repo whose checkout *is* the target is left out: the framework may name
-    itself. Credential array names are conventions, not identities, and are
-    left out too; the env variable names the live tests get are kept.
-    """
-    found: set[str] = set()
-    config = installation.config
-    found.add(installation.root.name)
-    for name, repo in config.repos.items():
-        if target is not None and repo.path.expanduser().resolve() == target.resolve():
-            continue
-        found.add(name)
-        # Every segment of the identity, whatever the host calls them: an
-        # owner and a name on GitHub, an organisation, project and repo on
-        # Azure DevOps.
-        _, repo_id = installation.forge_of(name)
-        found.update({repo_id.account, repo_id.project, repo_id.name, repo.path.expanduser().name})
-        for path in repo.deploy.live_written:
-            found.add(Path(path).name)
-        if repo.deploy.ssh_key is not None:
-            found.add(repo.deploy.ssh_key.name)
-        for rule in repo.deploy.rules:
-            head = rule.prefix.split("/", 1)[0]
-            if "." not in head:
-                found.add(head)
-            for command in rule.run:
-                for word in command:
-                    if word.startswith("-") or "/" in word or "." in word:
-                        continue
-                    found.add(word)
-    found.update(config.verify.env)
-    return sorted(
-        {t for t in found if len(t) >= MIN_LENGTH and t.lower() not in GENERIC},
-        key=lambda t: (-len(t), t),
-    )
+__all__ = ["register", "scan", "scrub_text", "terms_for"]
 
 
 def scan(target: Path, terms: list[str]) -> list[str]:
