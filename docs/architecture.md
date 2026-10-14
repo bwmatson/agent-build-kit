@@ -1377,7 +1377,7 @@ A call made outside the unit graph is recorded too, through the same helper
 (`pipeline/call_record.py`) the unit's steps use. Its `node` is one of `OverheadNode`
 (`pipeline/vocabulary.py`): the conflict resolver writes `restack`, with the unit being
 moved as `unit`; the planner `plan`; a track phase `track_<phase>`; init `init_research` and
-`init_propose`; the policy probe `policy_probe`; the login refresh `login_refresh` (no figures,
+`init_propose`; the login refresh `login_refresh` (no figures,
 its output is discarded); a chat turn `chat` and the attach flow's fix turn `chat_commit`, with the
 unit the session is attached to. The reader keeps every row of a node outside the unit graph's
 call nodes (`tests`, `implement`, `review`, `rework`, `fix_checks`, `adapt`) as a call of its own,

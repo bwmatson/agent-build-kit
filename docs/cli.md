@@ -130,7 +130,7 @@ stay out of the totals unless `--include-estimates`; a figure never recorded pri
 `-`, never `0`. The source column says whether figures were `reported`, from the
 `gateway`, `estimated` or `none`, and flags a row whose gateway and agent-reported
 figures differ by more than 10%. `--json` prints the same rows, with the difference.
-Calls made with no unit (planning, track runs, init, the policy probe, the login refresh, and
+Calls made with no unit (planning, track runs, init, the login refresh, and
 chat on a session attached to no unit) are listed by node under `pipeline overhead` in the
 by-unit view, and in the JSON as `overhead`. A chat turn on a unit's session is shown on its
 unit.
@@ -500,12 +500,11 @@ an installation rather than reading one. Step by step in [init.md](init.md).
   planning repo.
 - The guided policy step runs once `abk.yaml` is written, before research,
   propose and the commit, so whatever it records is part of init's commit. It
-  asks the selected runtime (`runtime`, or `ABK_RUNTIME`) whether it refuses
-  every command class abk forbids. A check that prompts the agent (the
-  protocol runtime's) spends tokens, so it says so and asks first (`--yes`
-  skips the question); declining records `policy: unchecked` on the entry,
-  and `abk doctor` then warns on every run without sending a prompt. A class
-  not refused is printed by class and spelling. The fix is, in order: the
+  checks the selected runtime (`runtime`, or `ABK_RUNTIME`) the way
+  `abk policy check` does: it reads the agent's own configuration, starts no
+  agent, spends no tokens and asks no question, with or without `--yes`. Each
+  class is printed with the pattern that refused it, and a class not refused
+  by class and spelling. The fix is, in order: the
   installation's `runtimes.<name>.policy_fix`; else, for an agent the kit can
   write to (a known agent whose row has an applier), the kit's recommended
   policy; else the choices below. For a configured fix, the command and the
@@ -524,22 +523,20 @@ an installation rather than reading one. Step by step in [init.md](init.md).
   A fix that exits non-zero is reported with its status and the check still
   runs again; one that exits 0 and changes nothing prints `the fix made no
   change; still not refused: <spellings>`; a pass is only reported when the
-  second check showed it. An agent with neither a fix nor an applier offers three
+  second check showed it. An agent with neither a fix nor an applier offers two
   choices, none guessed (and the menu says `abk policy patterns` prints the
   recommended patterns to place in its configuration yourself): rely on abk's own protocol layer (it sees what the agent asks
-  about, not what it never asks about), supply a fix command (an existing
-  executable, recorded as `policy_fix`), or continue without
-  (`policy: unchecked`). With `--yes` a configured fix, or the kit's recommended policy, is only
-  named, never run, unless `--policy-fix` or `--run-policy-fix` is also given. The answer is
-  reused for 15 minutes (`<state_dir>/policy-check.json`). When the runtime
-  raises instead of answering, init prints the error, caches nothing and
-  carries on; `abk doctor` asks again.
+  about, not what it never asks about), or supply a fix command (an existing
+  executable, recorded as `policy_fix`). With `--yes` a configured fix, or the kit's recommended policy, is only
+  named, never run, unless `--policy-fix` or `--run-policy-fix` is also given. No answer is
+  kept between runs; each check reads the file again.
 - `--policy-only` runs just that step on an existing installation: it reads
   `abk.yaml`, detects no repo, runs no research or propose and makes no
   commit; `--runtime NAME` names another entry already in the file. It writes
-  `runtimes.<name>.policy_fix` or `policy: unchecked` only when you chose to
+  `runtimes.<name>.policy_fix` only when you chose to
   record it in this run. Exit 0 when the check passes after the step, 1 when a
-  class is still not refused or a token-spending check was declined, 2 with no
+  class is still not refused, the configuration is absent or unreadable, or the
+  agent cannot be checked (`cannot check: abk has no policy for this agent`), 2 with no
   `abk.yaml`, an unknown runtime or a flag that cannot combine with it
   (`--repo`, `--consumes`, `--update-rules`, `--force`, `--dry-run`, the
   runtime-answer flags), writing nothing. When it passes on an entry marked
@@ -640,7 +637,7 @@ Is this installation in a state the pipeline can run in? Each check prints
 | node, openspec | `node`/`npx` are not on PATH, or the OpenSpec CLI does not run | |
 | runtime | the selected runtime is not implemented, or its agent command (`runtimes.<name>.command`, else the adapter's own, `claude` for `claude_code`; the one every run spawns) is not on PATH | |
 | runtime coverage | | the runtime's `policy_coverage` is short of `all_calls` |
-| runtime policy | the runtime does not refuse a forbidden command class or one spelling of it (each class is named, with the spelling it let through and the spellings it refused; the fix printed is `runtimes.<name>.policy_fix`, else the runtime's own advice). Reused for 15 minutes from `<state_dir>/policy-check.json`. Also when the check itself could not run: the runtime raised (e.g. its usage window is spent). Nothing is cached, so the next run asks again | not checked, because the agent command does not resolve (see the `runtime` check) |
+| runtime policy | the runtime does not refuse a forbidden command class or one spelling of it (each class is named, with the spelling it let through and the spellings it refused; the fix printed is `runtimes.<name>.policy_fix`, else the runtime's own advice). It reads the agent's configuration, starts no agent and keeps no answer; the line says the answer is what the configuration says, not observed from the agent. Also when the configuration is absent or unreadable (the path or reason is named) | `cannot check: abk has no policy for this agent`; not checked, because the agent command does not resolve (see the `runtime` check) |
 | ssh key `<name>` | `deploy.ssh_key` does not exist | |
 | verify.env `<VAR>` | the provider cannot resolve (names only; never values) | |
 | rules | | The `# abk-rules: vN` stamp in `openspec/config.yaml` against the framework's rules version: a note when it is unstamped, a warning when the framework has added rules since (they are listed) or the stamp is newer. Wording is never compared. |
@@ -685,7 +682,7 @@ for `--extra` with no installation or one that does not load.
 
 Prints the recommendation per class with its globs, the classes it has no glob for and why,
 its known false positives and its glob dialect. It needs no installation, changes nothing and
-does not run the policy check, which costs agent calls; `abk doctor` runs it. With an
+does not run the policy check; `abk policy check` and `abk doctor` do. With an
 installation (or `--runtime NAME` / `--agent NAME`) and an agent whose configuration the kit can
 read, it then compares that configuration with the recommendation: the missing globs by class
 (and the installation's `policy_extra` that are missing), a count of the entries that are not the
@@ -699,8 +696,22 @@ Exit 0; 2 for an `--agent` or `--runtime` that names nothing.
 Merges the recommended globs (then the runtime's `policy_extra`) into a known agent's own
 configuration. It prints the diff, asks `apply to <path>? [y/N]`, then writes: the original is
 copied once to `<file>.abk-backup` (the path is printed), the write is atomic, and only lines
-are added, so the rest of the file stays byte for byte. It does not run the live check, which
-spends model tokens: it names `abk doctor` (or `abk init --policy-only`) as the command that does.
+are added, so the rest of the file stays byte for byte. It starts no agent: its closing line
+names `abk policy check` as the way to confirm, which reads the configuration and spends no
+tokens.
+
+### `abk policy check [--runtime NAME] [--agent NAME]`
+
+Judges every probe command against the deny list in a known agent's own configuration, with
+abk's matcher, and prints each class and spelling with the pattern that refused it or `not
+refused`. The classes the recommendation leaves to the person are marked `not covered by
+design` and never fail it. It ends with the label, `what the configuration says, in abk's
+dialect; not observed from the agent`. It starts no agent, spends no tokens, changes nothing
+and keeps no answer. `--agent NAME` checks that known agent's configuration for a wrapper
+command. Exit 0 when every covered class is refused; 1 when one is not, the configuration is
+absent or unreadable, or the agent cannot be checked (`cannot check: abk has no policy for
+this agent`); 2 for a usage problem, such as an unknown `--agent` (the known agents are
+named).
 
 The agent is the known agent the runtime's command starts; `--agent NAME` names the row when the
 command is a wrapper the table does not recognise, and `--runtime NAME` reads another runtime's

@@ -237,7 +237,10 @@ whole file.
 ## The policy step
 
 After `abk.yaml` is written, init checks that the selected runtime refuses the
-command classes abk forbids and, for a class it does not, offers a fix in this
+command classes abk forbids, the way `abk policy check` does: it reads the
+agent's own configuration, starts no agent and asks no question about tokens.
+The answer is labelled "what the configuration says, in abk's dialect; not
+observed from the agent". For a class it does not refuse, init offers a fix in this
 order: the installation's `runtimes.<name>.policy_fix`; else, for a known agent
 the kit can write to, the kit's recommended policy (the configuration path and
 the diff are shown, init asks, applies the deny list only and checks again);

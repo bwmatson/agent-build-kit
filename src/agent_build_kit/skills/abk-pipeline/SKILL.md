@@ -13,7 +13,7 @@ pipeline's environment current: it runs `environment.sync` when the listed
 inputs changed, then `environment.check`, and syncs once more if the check
 fails. If the check still fails the tick starts nothing and exits 1 with the
 check's output, with no unit failed; fix the environment (`abk doctor` runs the
-check) and the next tick resumes the units waiting for it. A tick is one pass —
+check) and the next tick resumes the units waiting for it. `abk policy check` says whether the agent's own configuration refuses what abk forbids; it reads the configuration and starts no agent. A tick is one pass —
 check the usage window, poll GitHub,
 plan what is new, verify and archive what has merged, build what is ready —
 and every step is idempotent, so running one by hand changes nothing a timer
