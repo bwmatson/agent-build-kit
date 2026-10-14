@@ -7,29 +7,13 @@ report with `--outputFile`, writes a recorded Vitest report there and exits as a
 
 from __future__ import annotations
 
-import os
-import stat
-import subprocess
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit import profiles
 from agent_build_kit.pipeline.red_check import parse_report, split_report
-
-VITEST = Path(__file__).resolve().parents[1] / "fixtures" / "external" / "vitest"
-
-FAKE_NPX = """\
-#!/bin/sh
-# Stands in for npx: keeps the call, writes the recorded report where it is told to.
-{ echo "--- call"; printf '%s\\n' "$@"; } >> "$CALLS"
-for arg in "$@"; do
-  case "$arg" in
-    --outputFile=*) cp "$RECORDING" "${arg#*=}"; exit 1 ;;
-  esac
-done
-exit "${FAIL_TOOL_EXIT:-0}"
-"""
+from tests.node_npx_fake import Project, make_project
 
 FILES = ["src/a.test.ts", "packages/ui/b.spec.tsx"]
 
@@ -39,47 +23,9 @@ def profile():
     return profiles.get("node-npm")
 
 
-class Project:
-    def __init__(self, root: Path) -> None:
-        self.root = root
-        self.calls = root / "calls.log"
-        self.scratch = root / "scratch"
-
-    def run(self, command: str, **env: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            command,
-            shell=True,
-            cwd=self.root / "project",
-            capture_output=True,
-            text=True,
-            check=False,
-            env={
-                **os.environ,
-                "PATH": f"{self.root / 'bin'}{os.pathsep}{os.environ['PATH']}",
-                "TMPDIR": str(self.scratch),
-                "CALLS": str(self.calls),
-                "RECORDING": str(VITEST / "assertion.xml"),
-                **env,
-            },
-        )
-
-    def calls_made(self) -> list[list[str]]:
-        """The argument lists `npx` was called with, in order."""
-        if not self.calls.exists():
-            return []
-        chunks = self.calls.read_text().split("--- call\n")[1:]
-        return [chunk.splitlines() for chunk in chunks]
-
-
 @pytest.fixture
 def project(tmp_path: Path) -> Project:
-    (tmp_path / "bin").mkdir()
-    npx = tmp_path / "bin" / "npx"
-    npx.write_text(FAKE_NPX)
-    npx.chmod(npx.stat().st_mode | stat.S_IEXEC)
-    (tmp_path / "project").mkdir()
-    (tmp_path / "scratch").mkdir()
-    return Project(tmp_path)
+    return make_project(tmp_path)
 
 
 def test_the_clean_command_lints_and_checks_the_format_and_does_not_type_check(
