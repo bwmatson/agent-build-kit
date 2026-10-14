@@ -64,6 +64,13 @@ def _tag_path(path: str) -> str:
     return path.removeprefix("./").rstrip("/") or "."
 
 
+def repo_tag(repo: str, project_path: str) -> str:
+    """The first tag of a group heading for `project_path` of `repo`: `[app]` for the root
+    project, `[app/web]` for another."""
+    path = _tag_path(project_path)
+    return f"[{repo}]" if path == "." else f"[{repo}/{path}]"
+
+
 # tier1 runs on GitHub Actions; tier2 needs the live local stack on this host
 # and is serialized behind one lock (docs/architecture.md).
 TIERS = ("tier1", "tier2")

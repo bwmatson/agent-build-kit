@@ -41,4 +41,5 @@ def test_a_workspace_with_one_project_per_repo_adds_only_the_sentence(tmp_path: 
     prompt = prompt_for(tmp_path, heading="[app] [tier1] Build the page")
 
     assert "one repo and one project" in flat(prompt).lower()
-    assert not SHOWN.search(changes_of(prompt))
+    assert "## 1. [app] [tier1] Build the page\n" in changes_of(prompt)
+    assert "(project" not in changes_of(prompt)

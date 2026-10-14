@@ -22,3 +22,14 @@ def test_a_registration_says_how_its_groups_are_tagged_and_a_refusal_says_nothin
     assert "[app/web]" not in refusal.out + refusal.err
     assert "[app/web]" in said
     assert "apart" in said
+
+
+def test_the_root_project_is_tagged_as_the_repo_alone(tmp_path: Path, capsys) -> None:
+    config = write_commented(tmp_path)
+
+    code = project_init(config, ".", "--profile", "python-uv", "--repo", "app")
+    said = flat(capsys.readouterr().out)
+
+    assert code == 0
+    assert "tagged [app]," in said
+    assert "[app/.]" not in said

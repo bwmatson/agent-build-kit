@@ -179,7 +179,7 @@ change's groups onto an unstarted unit, or one unstarted unit onto another.
 The earlier unit stays, carrying the later's groups (`Unit.joined`); the later is
 removed and what depended on it depends on the earlier. A join is accepted only
 when `pipeline/joins.py` finds every rule held, else the round is refused: same
-repo and tier; a straight line (the later depends on the earlier, nothing else
+repo, project and tier; a straight line (the later depends on the earlier, nothing else
 does, the later waits on nothing else unfinished); both unstarted; no
 `[acceptance]`, `[contract]` or `[narrow]` group; no group marked `Separate:` or
 `Independent:` (an `Independent: <reason>` group depends on no earlier unit of its

@@ -16,6 +16,7 @@ from agent_build_kit import settings as settings_module
 from agent_build_kit.config import locate
 from agent_build_kit.init.scaffold import ScaffoldError, add_project
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.work_graph import repo_tag
 
 
 class ProjectInitError(Exception):
@@ -66,7 +67,7 @@ def cmd_project_init(args: argparse.Namespace, inst: Installation) -> int:
         return 1
     print(f"registered {path} ({args.profile}) in {args.repo}")
     print(
-        f"groups for it are tagged [{args.repo}/{path}], and its units are counted apart "
+        f"groups for it are tagged {repo_tag(args.repo, path)}, and its units are counted apart "
         "from the repo's other projects"
     )
     if args.scaffold:
