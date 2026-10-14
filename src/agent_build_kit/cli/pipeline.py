@@ -1300,7 +1300,9 @@ class _Readmission:
     """What a pass has started, and how often it let a unit back in."""
 
     def __init__(self) -> None:
-        self.started: dict[str, datetime] = {}
+        # Each unit this pass started, with how long its history was then: what the unit
+        # records after that is later, whatever the clock says.
+        self.started: dict[str, int] = {}
         self.rebuilt: dict[str, int] = {}
         self.readmitted: set[str] = set()
         self.skipped: set[tuple[str, str]] = set()
@@ -2057,7 +2059,7 @@ READMITTED_CAUSES = frozenset({Cause.REWORK, Cause.BASE_CHANGED})
 
 def _sent_back(
     units: list[StoredUnit],
-    started: dict[str, datetime],
+    started: dict[str, int],
     building: set[str],
     skipped: set[tuple[str, str]] | None = None,
 ) -> set[str]:
@@ -2066,7 +2068,9 @@ def _sent_back(
     has elapsed. A unit put back for any other cause, or for none
     (a record from before causes were kept), waits for the next pass, and a unit that
     ended held is never let back in; each such skip is logged once, with its cause,
-    in `skipped`."""
+    in `skipped`. "Since" is the unit's history having grown past its length when the
+    pass started it, never a comparison of timestamps: a clock that steps back or
+    stands still must not decide it."""
     out: set[str] = set()
     for unit in units:
         at = started.get(unit.id)
@@ -2077,14 +2081,9 @@ def _sent_back(
             or not unit.history
         ):
             continue
+        if len(unit.history) <= at:
+            continue
         last = unit.history[-1]
-        try:
-            when = datetime.fromisoformat(str(last.get("at", "")))
-        except ValueError:
-            continue
-        # Equal stamps are a clock that did not move between the start and the record.
-        if when < at:
-            continue
         if unit.state == PLANNED and unit.cause in READMITTED_CAUSES:
             out.add(unit.id)
         elif (
@@ -2201,8 +2200,7 @@ def _schedule(
 
         def submit(units: list[Unit]) -> None:
             for unit in units:
-                # On the clock the store stamps history with: readmission compares the two.
-                started[unit.id] = spans.clock.now()
+                started[unit.id] = len(store.get(unit.id).history)
                 # The tick's span goes into the worker by its context: a
                 # pool's threads do not inherit it.
                 work = contextvars.copy_context()
