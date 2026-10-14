@@ -68,6 +68,7 @@ from agent_build_kit.pipeline.flakes import (
     FlakeFound,
     OnFlake,
     flake_record,
+    record_storm,
     wait_on_fix,
 )
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution, configured_source
@@ -161,12 +162,6 @@ Run = Callable[..., subprocess.CompletedProcess]
 
 # How many times the failed tests are run again, alone, before they count as a flake.
 FLAKE_RERUNS = 2
-
-# More failed tests than this passing both reruns is not that many flaky tests: it is a
-# disturbed run (a loaded host, a file changing under the suite) that failed much of its first
-# pass. One run once failed 97 tests that all passed alone and wrote 97 fix changes; such a run is
-# logged and its failure dropped, with no change written and no unit made to wait.
-MAX_FLAKES_PER_RUN = 5
 
 # Told a finished agent call: `(result, *, role, model, runtime)`, and `gateway`
 # (a function giving the run's `Spend`) when a gateway key was minted for it.
@@ -1258,8 +1253,9 @@ def build_tier1(
         given by a moved base's run) is given, unless one of them is the unit's own, which
         is never excused: that is a failure. Returns False when any fails again, or the
         profile cannot say which tests failed, so the failure stands. Returns True when more than
-        `MAX_FLAKES_PER_RUN` tests failed and passed both reruns: a disturbed run, not that
-        many flaky tests, so the failure is dropped and nothing is recorded for them."""
+        `limits.max_flakes_per_run` tests failed and passed both reruns: a disturbed run, not
+        that many flaky tests, so it is recorded as one storm, no fix change is written, and the
+        caller goes on to the checks that remain."""
         rerun_command = getattr(toolchain, "serial_rerun_command", None)
         if rerun_command is None:
             return False
@@ -1275,12 +1271,12 @@ def build_tier1(
                 return False
         if own is not None and any(test in own for test in tests):
             return False
-        if len(tests) > MAX_FLAKES_PER_RUN:
+        if len(tests) > active().limits.max_flakes_per_run:
+            record_storm(spans.current_unit.get()[0], tests, shlex.join(command))
             _say(
                 log,
-                f"{len(tests)} tests failed the first pass and passed both reruns, more than "
-                f"{MAX_FLAKES_PER_RUN}: a disturbed run, not that many flaky tests; no fix "
-                f"changes written. First: {', '.join(tests[:5])}",
+                f"{len(tests)} tests failed the first pass and passed on the rerun; recorded "
+                "as one storm, no fix changes",
             )
             return True
         at = datetime.now(UTC)

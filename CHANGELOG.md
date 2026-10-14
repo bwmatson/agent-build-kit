@@ -21,12 +21,16 @@
   answer is kept between runs. The live probe is gone; `abk doctor` and `abk init` are moved
   onto the new check in a following change.
 
-- A tier 1 run that fails more than five tests on its first pass and sees them all pass on both
-  serial reruns is now treated as a disturbed run, not that many flaky tests: tier 1 passes, the
-  tests and the first five names are logged, and no fix change is written and no unit made to
-  wait. One run once failed 97 such tests and wrote 97 fix changes (28 units, 388 `Needs:` lines
-  on one unit); at five or fewer the handling is unchanged. The limit is `MAX_FLAKES_PER_RUN` in
-  `pipeline/wiring.py` for now.
+- A tier 1 run whose first pass fails more tests than `limits.max_flakes_per_run` (default 5),
+  all of which pass both serial reruns, is now one flake storm, not that many flaky tests: one
+  row in the flake record names the count, the first ten tests and the command, no fix change is
+  written, no `Needs:` line added and no unit made to wait, and the rest of tier 1 (other
+  commands and projects, extra checks, the repeat of new tests) still runs and decides its
+  result. `abk status` shows a storm as one line. At or under the limit each flaky test is handled as before.
+
+- A planned unit that never started, whose change no longer exists in the planning repo, is now
+  marked `unplanned` at each planning pass, and a unit waiting on an `unplanned` unit no longer
+  waits. Putting the change back and planning it makes its units `planned` again.
 
 - `abk project init PATH --profile NAME --repo REPO` registers a project in a repo's
   `abk.yaml` before it exists, keeping the file's comments and key order, and refuses a

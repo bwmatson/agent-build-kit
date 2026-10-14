@@ -133,6 +133,7 @@ limits:
   stack_depth_rebase_cap:     # deepest a merge restacks a dependent; unset = the build cap
   max_concurrent_stacks: 4    # units implemented at once, across repos
   max_concurrent_restacks: 2  # branches moved onto a changed base at once; no build slot taken
+  max_flakes_per_run: 5       # more flaky tests than this in one run are one recorded storm, no fix change each
   checks_register_seconds: 120  # secs after a push a PR with no checks yet reads `checking`
   max_units_in_progress: 5    # started, unfinished units (>= 1), not counting blocked or failed-waiting ones; at it no never-started unit starts
   label_sweep_per_tick: 20    # finished units' PRs a round takes a stale state label off (>= 1)

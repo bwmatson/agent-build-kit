@@ -584,7 +584,8 @@ def waiting_on(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
 
     for dep in through_satisfied(unit, graph):
         parent = index.get(dep)
-        if parent is None:
+        # A unit the plan dropped builds nothing, so nothing waits on it.
+        if parent is None or parent.state == UnitState.UNPLANNED:
             continue
         if parent.repo == unit.repo:
             if parent.state not in REVIEWED:

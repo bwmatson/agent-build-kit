@@ -88,7 +88,11 @@ fresh one, no more often than the cache time allows), the count of units by stat
 `in_review` unit with its PR. A unit whose pull request conflicts reads `conflicts with <base> since <time>; moved N times` and what it waits for (the next poll, the end of a build of its branch, or the end of a usage pause); a held one adds the hold's reason and that a person is needed. A `no recorded cause:` line lists the units that are `held`
 or `planned` with work on them and no cause on their last history entry. A repository with a
 `tests.replay` section adds a `cassettes:` line with the count of recordings waiting for review.
-A `flaky:` line lists each flaky test with its count and fix change, and a `pre-existing:`
+A `flake storm:` line shows each run that failed more than `limits.max_flakes_per_run` tests on its
+first pass that all passed alone, as one line with its count and no per-test entries. At each
+planning pass a planned unit that never started, whose change directory no longer exists, becomes
+`unplanned`, and a unit waiting on it stops waiting. A `flaky:` line lists each flaky test with
+its count and fix change, and a `pre-existing:`
 line each test that failed tier 2 on the base too, with how many times and its fix change.
 A `tier 2:` line names the unit holding the tier 2 lock and for how long; a record left by a
 process that is gone, on a free lock, is shown as stale, a held lock whose recorded process is gone

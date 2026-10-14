@@ -182,7 +182,13 @@ parked the same way (`gated`, its note names the test) with a `Needs:` line on t
 change the pipeline wrote to fix that test. `abk status` lists each flaky test as `flaky:`
 with its count and fix change; the unit resumes at tier 1 once that change merges. The one
 exception is the scoped run after a clean move of the base: a flake there is recorded and
-its fix change written, but the unit is not parked and gains no `Needs:` line.
+its fix change written, but the unit is not parked and gains no `Needs:` line. More than
+`limits.max_flakes_per_run` (default 5) such tests in one run is a disturbed run, not that many
+flakes: tier 1 records one `storm` row (`abk status` shows it as `flake storm:`), writes no change,
+and goes on with the checks that remain.
+
+At each planning pass a planned unit that never started, whose change no longer exists, becomes
+`unplanned`, and a unit waiting on it stops waiting; a started unit is left as it is.
 
 A test that fails tier 2 on the base as well is pre-existing: it is recorded in
 `preexisting-failures.jsonl` and gets one `fix-failing-<test>` change, written without a

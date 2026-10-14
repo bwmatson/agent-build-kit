@@ -21,6 +21,7 @@ from agent_build_kit.pipeline.planner import Plan
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import PLANNED
 from agent_build_kit.pipeline.wiring import build_usage_gate
+from tests.cli.vanished_fakes import keep_changes_of_unstarted_units
 from tests.conftest import make_installation
 from tests.factories import stored_unit
 from tests.otlp import enabled
@@ -37,6 +38,7 @@ def inst(tmp_path: Path, host: Host) -> Installation:
 
 @pytest.fixture(autouse=True)
 def offline(monkeypatch: pytest.MonkeyPatch) -> None:
+    keep_changes_of_unstarted_units(monkeypatch)
     monkeypatch.setattr(cli, "poll_all", lambda inst, **kwargs: None)
     monkeypatch.setattr(cli, "fetch_all", lambda inst: None)
     monkeypatch.setattr(cli, "has_identity", lambda inst, repo: True)

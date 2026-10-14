@@ -22,7 +22,7 @@ from __future__ import annotations
 import functools
 import json
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from contextlib import AbstractContextManager
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -565,6 +565,22 @@ class UnitStore:
                     stored[unit_id] = _with_state(unit, UNPLANNED)
 
         self._write(stored)
+
+    @_exclusive
+    def unplan_vanished(self, changes: Collection[str]) -> list[str]:
+        """Mark `unplanned` each unit that never started whose change is not among `changes`
+        (the changes that exist), and return their ids. A started unit is left as it is."""
+        stored = self._read()
+        dropped = [
+            unit_id
+            for unit_id, unit in stored.items()
+            if unit.state == PLANNED and unit.unstarted and unit.change not in changes
+        ]
+        for unit_id in dropped:
+            stored[unit_id] = _with_state(stored[unit_id], UNPLANNED)
+        if dropped:
+            self._write(stored)
+        return dropped
 
     @_exclusive
     def join(self, join: Join) -> tuple[int, int] | None:
