@@ -65,6 +65,10 @@ def cmd_project_init(args: argparse.Namespace, inst: Installation) -> int:
         print(f"abk: {error}", file=sys.stderr)
         return 1
     print(f"registered {path} ({args.profile}) in {args.repo}")
+    print(
+        f"groups for it are tagged [{args.repo}/{path}], and its units are counted apart "
+        "from the repo's other projects"
+    )
     if args.scaffold:
         directory = root / path
         _scaffold(directory, args.profile, directory.resolve().name)

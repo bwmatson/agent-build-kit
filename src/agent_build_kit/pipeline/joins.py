@@ -95,6 +95,8 @@ def check_joins(
                 raise refuse(f"{taken.id} has started, and only a unit that has not is joined")
             if (taken.repo, taken.tier) != (onto.repo, onto.tier):
                 raise refuse(f"{taken.id} is in another repo or tier")
+            if taken.project != onto.project:
+                raise refuse(f"{taken.id} is in another project")
             if onto.id not in taken.depends_on:
                 raise refuse(f"{taken.id} does not depend on {onto.id}, so they are not in a line")
             for dependency in taken.depends_on:
@@ -120,6 +122,10 @@ def check_joins(
                     raise refuse(f"group {number} is already built or claimed by a unit")
                 if (group.repo, group.tier) != (onto.repo, onto.tier):
                     raise refuse(f"group {number} is tagged [{group.repo}] [{group.tier}]")
+                if group.project != onto.project:
+                    raise refuse(
+                        f"group {number} is in project {group.project!r}, not in {onto.id}'s"
+                    )
                 for need in context.needs.get(number, ()):
                     holder = next((u for u in state.values() if _holds(u, need)), None)
                     if holder is None or (holder.id != onto.id and holder.state not in FINISHED):

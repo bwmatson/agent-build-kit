@@ -215,7 +215,7 @@ class ValidationError(Frozen):
         return f"line {self.line}: {self.message}"
 
 
-def _split_repo_tag(tag: str, repos: tuple[str, ...]) -> tuple[str, str | None]:
+def split_repo_tag(tag: str, repos: tuple[str, ...]) -> tuple[str, str | None]:
     """The repo and project a heading's first tag names: a tag that is a declared repo is that
     repo whole, otherwise the longest declared repo before a `/` takes the rest as its
     project. A tag naming no repo comes back whole when no repos are known, else as its first
@@ -351,7 +351,7 @@ def validate_tasks(
 
         tier = tagged.group("tier")
         number = int(tagged.group("number"))
-        repo, project = _split_repo_tag(tagged.group("repo"), repos)
+        repo, project = split_repo_tag(tagged.group("repo"), repos)
 
         if repos and repo not in repos:
             errors.append(
