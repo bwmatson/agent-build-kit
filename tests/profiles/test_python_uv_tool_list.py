@@ -3,21 +3,10 @@ of its project, and nothing that installs outside the project."""
 
 from __future__ import annotations
 
-import re
-
 import pytest
 
 from agent_build_kit.profiles.python_uv import PythonUvProfile
-
-
-def allows(tool_list: str, command: str) -> bool:
-    """Claude Code's `Bash(...)` matching: `*` stands for anything and the pattern
-    covers the whole command."""
-    patterns = re.findall(r"Bash\(([^)]*)\)", tool_list)
-    return any(
-        re.fullmatch(".*".join(re.escape(part) for part in pattern.split("*")), command)
-        for pattern in patterns
-    )
+from agent_build_kit.runtimes.acp import allows
 
 
 @pytest.mark.parametrize(
@@ -41,6 +30,7 @@ def test_a_builder_may_run(command: str) -> None:
         "uv tool install ruff",
         "uv python install 3.13",
         "uv pip install requests",
+        "uv lock && uv publish",
     ],
 )
 def test_a_builder_that_can_lock_still_may_not_leave_the_project(command: str) -> None:

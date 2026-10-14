@@ -86,10 +86,11 @@ And what it knows:
 - `allowed_tools` is `Bash(uv run *) Bash(uv lock*) Bash(uv sync*) Bash(uv add *)
   Bash(uv remove *) Bash(pre-commit *)`. A builder that changes dependencies
   needs `uv lock`, `uv sync`, `uv add` and `uv remove`, and a headless run
-  denies any command not listed; all four act inside the unit's worktree, where
-  the policy hook already confines writes. Commands that install outside the
-  project (`uv publish`, `uv tool install`, `uv python install`,
-  `uv pip install`) are not listed. The prompts say
+  denies any command not listed; all four act on the project in the current
+  directory (the unit's worktree). The policy hook does not inspect uv's
+  `--project` or `--directory` flags, which `uv run` already allowed. Commands
+  that install outside the project (`uv publish`, `uv tool install`,
+  `uv python install`, `uv pip install`) are not listed. The prompts say
   "linting, formatting and type checks (pre-commit)" and "a signature whose
   body is only `raise NotImplementedError`, or a model field".
 - `is_test_path`: a `tests` directory anywhere above the file, or a file named
