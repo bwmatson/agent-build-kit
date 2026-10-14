@@ -45,6 +45,15 @@ LOCK_WAIT_SETTING = "limits.tier2_lock_wait_seconds"
 
 Runner = Callable[[list[str]], str]
 
+FAILURE_LINE_LIMIT = 500
+
+
+def clip_failure_line(line: str) -> str:
+    """`line` cut with an ellipsis when it is over `FAILURE_LINE_LIMIT`."""
+    if len(line) > FAILURE_LINE_LIMIT:
+        return line[: FAILURE_LINE_LIMIT - 1] + "…"
+    return line
+
 
 class TestFailure(Frozen):
     """One failed or errored test and the first failure line the runner gave it."""

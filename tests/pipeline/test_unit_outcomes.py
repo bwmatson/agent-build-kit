@@ -14,7 +14,6 @@ from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import (
     UnitState,
 )
-from agent_build_kit.profiles import base, node_npm
 from tests.factories import unit
 from tests.graph_driver import fresh, tick
 
@@ -95,8 +94,3 @@ def test_every_node_span_records_an_outcome_from_the_enum(
 
     assert recorded
     assert all(isinstance(outcome, UnitOutcome) for outcome in recorded)
-
-
-def test_a_profile_the_framework_does_not_implement_raises_it() -> None:
-    with pytest.raises(base.ProfileUnsupported):
-        node_npm.NodeNpmProfile().clean_command()

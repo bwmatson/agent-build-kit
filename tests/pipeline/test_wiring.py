@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit import profiles
 from agent_build_kit.config import ProjectConfig, models
 from agent_build_kit.pipeline.pr_replies import MARKER
 from agent_build_kit.pipeline.restack import HostMoved
@@ -41,6 +42,8 @@ from agent_build_kit.pipeline.wiring import (
     is_linear,
     tip,
 )
+from agent_build_kit.profiles.base import ProfileUnsupported
+from agent_build_kit.profiles.python_uv import PythonUvProfile
 from tests.conftest import make_installation
 from tests.factories import git, init_repo, unit
 from tests.forges.stand_in import StandInForge, lookup
@@ -1574,19 +1577,28 @@ def test_each_project_is_checked_where_it_lives(tmp_path: Path) -> None:
     assert tmp_path / "poc" / "tools" in where
 
 
-def test_a_project_whose_toolchain_is_unimplemented_holds_the_unit(tmp_path: Path) -> None:
-    """`node-npm` is declared and not implemented. Tier 1 cannot judge such a
-    project, so the profile raises and `cli/pipeline.build_unit` turns that into a
-    held unit — which is the honest answer, where passing it unchecked is not."""
+def test_a_project_whose_toolchain_is_unimplemented_holds_the_unit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A toolchain declared and not built cannot judge its project, so its profile
+    raises and `cli/pipeline.build_unit` turns that into a held unit — which is the
+    honest answer, where passing it unchecked is not."""
+
+    def unbuilt(*args, **kwargs):
+        raise ProfileUnsupported("the unbuilt toolchain profile is not implemented")
+
+    toolchain = PythonUvProfile()
+    monkeypatch.setattr(toolchain, "name", "unbuilt")
+    monkeypatch.setattr(toolchain, "test_commands", unbuilt)
     (tmp_path / "web").mkdir()
     run, _ = recorder()
     tier1 = build_tier1(
         run=run,
         changed=lambda cwd, base: ["web/src/b.ts"],
-        projects=[ProjectConfig(path="web", languages=["typescript"], profile="node-npm")],
+        projects=[ProjectConfig(path="web", languages=["typescript"], profile="unbuilt")],
     )
 
-    with pytest.raises(NotImplementedError):
+    with profiles.registered(toolchain), pytest.raises(NotImplementedError):
         tier1(cwd=tmp_path, base="origin/dev")
 
 

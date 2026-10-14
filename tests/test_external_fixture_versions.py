@@ -16,6 +16,7 @@ import pytest
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "external"
 
 PYTEST_HEADER = re.compile(r"<!-- tool: pytest (\d+)\.")
+VITEST_HEADER = re.compile(r"<!-- tool: vitest (\d+)\.")
 CLAUDE_HEADER = re.compile(r"# tool: claude_code_version (\d+)\.")
 GIT_HEADER = re.compile(r"# tool: git version (\d+)\.")
 ACP_README = re.compile(r"ACP protocol version (\d+)")
@@ -48,6 +49,16 @@ def assert_not_behind(folder: str, recorded: dict[str, int], installed: int, rer
     )
 
 
+def assert_vitest_recordings_current(installed: int) -> None:
+    """Fail naming vitest and both majors when a recording under `vitest/` is behind `installed`."""
+    assert_not_behind(
+        "vitest",
+        recorded_majors("vitest", VITEST_HEADER, ".xml"),
+        installed,
+        "uv run python tests/fixtures/external/record_vitest.py",
+    )
+
+
 def test_the_pytest_recordings_are_not_a_major_version_behind() -> None:
     recorded = recorded_majors("pytest", PYTEST_HEADER, ".xml")
 
@@ -57,6 +68,14 @@ def test_the_pytest_recordings_are_not_a_major_version_behind() -> None:
         int(pytest.__version__.split(".")[0]),
         "uv run python tests/fixtures/external/record_pytest.py",
     )
+
+
+def test_the_vitest_recordings_are_not_a_major_version_behind() -> None:
+    installed = installed_major(["vitest", "--version"], r"vitest/(\d+)\.")
+    if installed is None:
+        pytest.skip("vitest is not installed here")
+
+    assert_vitest_recordings_current(installed)
 
 
 def test_every_claude_recording_names_the_cli_version_it_came_from() -> None:

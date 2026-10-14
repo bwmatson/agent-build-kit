@@ -1,0 +1,14 @@
+<!-- tool: vitest 5.0.4 linux-x64 node-v22.23.2
+     command: vitest run --reporter=junit --passWithNoTests --outputFile=<path> -->
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="1" failures="1" errors="0" time="0">
+    <testsuite name="b.test.ts" timestamp="0" hostname="0" tests="1" failures="1" errors="0" skipped="0" time="0">
+        <testcase classname="b.test.ts" name="creates" time="0">
+            <failure message="not implemented" type="Error">
+Error: not implemented
+ ❯ create b.ts:2:9
+ ❯ b.test.ts:4:10
+            </failure>
+        </testcase>
+    </testsuite>
+</testsuites>

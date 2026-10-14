@@ -188,6 +188,12 @@ def test_a_base_ref_naming_the_type_checker_does_not_make_a_lint_failure_types(p
     assert profile.failure_kind(failure(command, OXLINT_ERROR)) == "lint"
 
 
+def test_a_base_ref_naming_the_test_runner_does_not_make_a_lint_failure_a_test(profile) -> None:
+    command = profile.lint_command("origin/spec/move-to-vitest/1")
+
+    assert profile.failure_kind(failure(command, OXLINT_ERROR)) == "lint"
+
+
 def test_recorded_format_output_with_an_error_is_classified_as_lint(profile) -> None:
     command = profile.lint_command("main")
 

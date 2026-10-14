@@ -72,7 +72,7 @@ def test_an_output_with_no_failure_summary_gives_no_entries() -> None:
     assert PYTHON.parse_test_failures(NO_SUMMARY) == []
 
 
-def test_a_node_profile_output_gives_no_entries() -> None:
+def test_a_node_console_output_without_a_report_gives_no_entries() -> None:
     assert NODE.parse_test_failures(NODE_OUTPUT) == []
 
 

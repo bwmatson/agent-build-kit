@@ -1,23 +1,27 @@
-"""The profile for a JavaScript/TypeScript repo managed by npm — declared, not
-yet implemented.
+"""The profile for a JavaScript/TypeScript repo managed by npm — lint, type check and
+tests of a single package are implemented; the rest is declared.
 
 `abk init` detects such repos and writes their specs (research and proposal
-are language-agnostic); `abk tick` refuses to build a unit in one until this
-profile exists, with a log line saying so. What it will need, by method of
-`profiles.base.ToolchainProfile`: `npm test --workspace <member>` with a
-summary parser for the chosen runner, `npx oxlint` and `npx tsc --noEmit` as
-the lint and clean commands, `.test.ts`/`.spec.ts` and `__tests__/` as test
-paths, and `throw new Error("not implemented")` as the permitted stub body.
+are language-agnostic); `abk tick` holds a unit that reaches a method that still
+raises, with a log line saying so. Implemented, by method of
+`profiles.base.ToolchainProfile`: `npx oxlint` and `npx oxfmt --check` as the lint,
+`npx tsc --noEmit` as the project check, `npx vitest run` with a JUnit report for the
+tests, and `.test`/`.spec` files and `__tests__/` as test paths. Still to come: the
+clean, red, tier 2 and acceptance commands, workspace members, and
+`throw new Error("not implemented")` as the permitted stub body.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import shlex
 from pathlib import Path
+from xml.etree import ElementTree
 
 from agent_build_kit.config import EnvironmentConfig, RepoConfig
-from agent_build_kit.pipeline.tier2 import TestFailure, TestTime
+from agent_build_kit.pipeline.red_check import parse_report, split_report, wrap_report_command
+from agent_build_kit.pipeline.tier2 import TestFailure, TestTime, clip_failure_line
 from agent_build_kit.profiles import node_environment
 from agent_build_kit.profiles.base import ProfileUnsupported, PromptWords
 
@@ -35,6 +39,24 @@ _DIFF_LINT = (
     f"{_DIFF.format(z=' -z')} | xargs -0 npx oxfmt --check"
 )
 _TYPE_CHECK = "tsc"
+_TEST_RUNNER = "vitest"
+# No test files is a pass; the report is printed after the marker.
+_TESTS = wrap_report_command(
+    f"npx {_TEST_RUNNER} run --passWithNoTests --reporter=junit", "--outputFile"
+)
+_TEST_COMMAND = ["sh", "-c", _TESTS]
+_TEST_FILE = re.compile(rf"\.(test|spec)\.({'|'.join(_SOURCE)})$")
+
+
+def _report(output: str) -> ElementTree.Element | None:
+    """The JUnit report a test command printed, or None when it printed none."""
+    report, _ = split_report(output)
+    if report is None:
+        return None
+    try:
+        return parse_report(report)
+    except ValueError:
+        return None
 
 
 class NodeNpmProfile:
@@ -69,17 +91,18 @@ class NodeNpmProfile:
     def test_commands(
         self, repo: Path, changed: list[str], *, root_extras: list[str]
     ) -> list[list[str]]:
-        return self._todo("test_commands")
+        """The project's Vitest run, whatever changed: it reads its own configuration."""
+        return [list(_TEST_COMMAND)]
 
     def test_commands_all(self, repo: Path, *, root_extras: list[str]) -> list[list[str]]:
-        return self._todo("test_commands_all")
+        return [list(_TEST_COMMAND)]
 
     def tolerates_exit(self, command: list[str], returncode: int) -> bool:
         return returncode == 0
 
     def failure_kind(self, output: str) -> str:
-        """`types` when the failed command, named in the `$` header, is the type checker;
-        the linter and the format check are `lint`."""
+        """`types` when the failed command, named in the `$` header, is the type checker,
+        `test` when it is the test runner; the linter and the format check are `lint`."""
         header = output.lstrip().split("\n", 1)[0]
         if not header.startswith("$ "):
             return "lint"
@@ -88,7 +111,9 @@ class NodeNpmProfile:
             words = shlex.split(command or header.removeprefix("$ "))
         except ValueError:
             return "lint"
-        return "types" if _TYPE_CHECK in words else "lint"
+        if words[:2] == ["npx", _TYPE_CHECK]:
+            return "types"
+        return "test" if words == _TEST_COMMAND else "lint"
 
     def extra_checks(self, repo: RepoConfig) -> list[list[str]]:
         return []
@@ -121,10 +146,37 @@ class NodeNpmProfile:
         return self._todo("interpret_red")
 
     def parse_test_summary(self, output: str) -> tuple[int, int, int, float]:
-        return self._todo("parse_test_summary")
+        """(passed, failed, skipped, seconds) from the JUnit report after the marker."""
+        root = _report(output)
+        if root is None:
+            return 0, 0, 0, 0.0
+        passed = failed = skipped = 0
+        for case in root.iter("testcase"):
+            if case.find("failure") is not None or case.find("error") is not None:
+                failed += 1
+            elif case.find("skipped") is not None:
+                skipped += 1
+            else:
+                passed += 1
+        return passed, failed, skipped, float(root.get("time") or 0)
 
     def parse_test_failures(self, output: str) -> list[TestFailure]:
-        return []
+        """One entry per failing test of the report, named `file > test`, with the first
+        line of its message."""
+        root = _report(output)
+        if root is None:
+            return []
+        failures = []
+        for case in root.iter("testcase"):
+            bad = case.find("failure")
+            if bad is None:
+                bad = case.find("error")
+            if bad is None:
+                continue
+            name = " > ".join(p for p in (case.get("classname"), case.get("name")) if p)
+            first = (bad.get("message") or "").strip().split("\n", 1)[0]
+            failures.append(TestFailure(test=name, line=clip_failure_line(first)))
+        return failures
 
     def parse_test_durations(self, output: str) -> list[TestTime]:
         return []
@@ -134,7 +186,7 @@ class NodeNpmProfile:
 
     def is_test_path(self, path: str) -> bool:
         parts = path.split("/")
-        return "__tests__" in parts[:-1] or parts[-1].endswith((".test.ts", ".spec.ts", ".test.js"))
+        return "__tests__" in parts[:-1] or bool(_TEST_FILE.search(parts[-1]))
 
     def detect_environment(self, root: Path, *, framework: bool) -> EnvironmentConfig | None:
         return node_environment.detect_environment(root)
