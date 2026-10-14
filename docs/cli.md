@@ -492,6 +492,8 @@ Creates a planning repo for a set of checkouts; the one command that creates
 an installation rather than reading one. Step by step in [init.md](init.md).
 
 - `PLANNING_DIR` defaults to `.`.
+- The next steps end with the lingering advice (`sudo loginctl enable-linger <user>`)
+  when lingering is off, since timers only run while the user manager does.
 - `--repo PATH` (repeatable) names a checkout; with none and without `--yes`,
   paths are prompted for one per line.
 - `--consumes app:platform` overrides what a repo consumes (detected from its
@@ -621,6 +623,14 @@ and everyone who cloned it afterwards got units aimed at someone else's home.
   happened in a week. Only the timers are enabled, never the services beside
   them, which would run at boot outside the schedule. `--no-enable` writes the
   files and leaves scheduling to you.
+- **Needs lingering.** Timers only run while the user's systemd manager does, and
+  without lingering that is only while a login session is open (on WSL and on a
+  server, none stays open). After enabling, the command checks
+  `loginctl show-user <user> --property=Linger`; when it is off it tries
+  `loginctl enable-linger <user>` without `sudo` or a prompt, and if that fails
+  prints `sudo loginctl enable-linger <user>` with the reason. It never runs
+  `sudo`, says nothing when lingering is on or `loginctl` is missing, and skips
+  the check with `--no-enable`, `--dry-run` and `--remove`.
 - **Repeatable.** A unit that already holds the right content is left alone,
   down to its modification time, and systemd is told nothing when nothing
   changed. Safe in a setup script that runs on every boot.
@@ -648,6 +658,7 @@ Is this installation in a state the pipeline can run in? Each check prints
 | repo `<name>` | the path is missing, not a git checkout, or git has no `user.email`/`user.name` for it (repo-local or global — the line says which scope signs, so a workspace whose repos belong to different accounts can see one identity covering them all) | |
 | forge `<name>` | the repo's host will not answer for it: the forge's `check_access` fails (GitHub: `gh` holds no token for the owner; Azure DevOps: the repo cannot be read with the PAT or `az` session) | |
 | merge guard `<name>` | | *note, not a warning:* nothing server-side refuses a merge on the default branch (no branch protection or policy), so the command policy hook is the only guard. A free private repo cannot have one, and a warning there would be permanent and unfixable |
+| linger | the timers are installed and enabled but lingering is off, so they stop with the last login session; the fix is `sudo loginctl enable-linger <user>`. Nothing when it is on, no timers are installed, or `loginctl` is missing |
 | timers | | the units are installed but a timer is not enabled, or one is missing, out of date, or left over from an earlier version (each named). A note when none are installed — something else may run `abk tick` — or when `systemctl` cannot be asked |
 | stale timer units | | a unit this framework wrote, for any installation, points at a directory that no longer exists. Nobody is left to remove it, and `systemctl enable` accepted it without complaint |
 | node, openspec | `node`/`npx` are not on PATH, or the OpenSpec CLI does not run | |

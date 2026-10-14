@@ -64,6 +64,11 @@ uv run abk tick --dry-run                # what would build now
 abk install-timers
 ```
 
+Lingering must be on for the timers to keep running: a user's timers only fire while
+their systemd user manager does, and without lingering that is only while a login
+session is open. `abk install-timers` tries to turn it on and otherwise prints
+`sudo loginctl enable-linger <user>`.
+
 Requirements: Python 3.12+, `uv`, `git`, and a client for each host a repo
 lives on: `gh` (logged in for every GitHub
 owner in `abk.yaml`), `claude` (Claude Code), and `node` on the PATH — the

@@ -104,7 +104,7 @@ def test_the_exit_status_is_what_it_was_without_the_advice(
 ) -> None:
     runner = Loginctl("no")
     use(monkeypatch, runner)
-    units = machine.parent / "units"
+    units = machine / "units"
     units.mkdir()
     (units / timers.unit_names(machine)[1]).write_text("[Unit]\nDescription=mine\n")
 
@@ -138,7 +138,9 @@ def test_lingering_already_on_says_nothing(
 
     assert runner.asked
     assert not runner.tried_enable
-    assert "linger" not in capsys.readouterr().out.lower()
+    # Unit names and paths in the output carry this test's name, which says "linger".
+    out = capsys.readouterr().out.replace(str(machine), "").replace(machine.name, "")
+    assert "linger" not in out.lower()
 
 
 def test_no_loginctl_skips_the_check_silently(
