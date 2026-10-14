@@ -4,6 +4,7 @@
 
 - `abk tags` with no change and no `--all`, or with both, now prints one line saying what to
   pass and exits 2, instead of failing with a traceback. Its help names `--all`.
+
 - The temporary `abk usage backfill-costs` command is removed; it has repaired the ledgers
   that needed it. `abk usage replay` stays, and ledgers still read the rows it wrote (basis
   `backfilled`), summaries it marked `cumulative_summed`, and old rows with no `cost` object
