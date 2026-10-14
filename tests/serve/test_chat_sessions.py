@@ -9,11 +9,13 @@ files and the process holding one as they are on a machine; ACP is a real agent 
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
+from fastapi.testclient import TestClient
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.lease import Leases, lease_dir
@@ -21,6 +23,7 @@ from agent_build_kit.settings import settings
 from tests.chat_serving import (
     claude_session_file,
     holding_process,
+    in_process_client,
     prompt_of,
     record_session,
     recorded_acp_session,
@@ -49,6 +52,13 @@ pytestmark = pytest.mark.serial
 EDITOR_SESSION = str(uuid.uuid4())
 IDLE_SESSION = str(uuid.uuid4())
 OLD_ACP = f"sess_{uuid.uuid4().hex[:16]}"
+
+
+@pytest.fixture
+def api(inst: Installation) -> Iterator[TestClient]:
+    """The application called in-process: these tests wait on no socket."""
+    with in_process_client(inst) as client:
+        yield client
 
 
 @pytest.fixture

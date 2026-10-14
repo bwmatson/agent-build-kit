@@ -50,6 +50,7 @@ from typing import Any
 
 import httpx
 import pytest
+from fastapi.testclient import TestClient
 
 from agent_build_kit import runtimes
 from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
@@ -60,6 +61,7 @@ from agent_build_kit.pipeline.transcript import Transcript, TranscriptEvent, tra
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.workspaces import worktree_path
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
+from agent_build_kit.serve.server import create_app
 from tests.factories import unit
 from tests.runtimes.acp_agent import EARLIER_TURN
 from tests.runtimes.claude_cli import FakeClaude
@@ -208,6 +210,14 @@ def events_of(response: httpx.Response) -> Iterator[dict[str, Any]]:
     for line in response.iter_lines():
         if line.startswith("data:"):
             yield json.loads(line.removeprefix("data:").strip())
+
+
+@contextmanager
+def in_process_client(installation: Installation) -> Iterator[TestClient]:
+    """A client calling the application over `installation` as a function call: no server,
+    no thread serving, no socket."""
+    with TestClient(create_app(installation)) as client:
+        yield client
 
 
 def turn(api: httpx.Client, url: str, body: dict[str, Any]) -> list[dict[str, Any]]:

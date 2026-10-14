@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.serve_sockets import SERVE_TESTS, check_serve_tests
+from tests.serve_sockets import TESTS_ROOT, check_serve_tests
 
 
 def tree(root: Path, files: dict[str, str]) -> Path:
@@ -26,7 +26,7 @@ def tree(root: Path, files: dict[str, str]) -> Path:
         "import http.client\n",
         "from http.client import HTTPConnection\n",
         "from http.server import ThreadingHTTPServer\n",
-        "import http.server\n\nSERVER = http.server.ThreadingHTTPServer\n",
+        "SERVER = http.server.ThreadingHTTPServer\n",
         "from agent_build_kit.serve.server import start_server\n\nstart_server(None)\n",
     ],
 )
@@ -108,5 +108,7 @@ def test_only_the_listed_files_are_scanned(tmp_path: Path) -> None:
 
 
 def test_the_chat_sessions_module_and_the_fixtures_it_draws_on_open_no_socket() -> None:
-    # The module takes its `api` from the folder's conftest: both are in the guard's reach.
-    assert check_serve_tests(SERVE_TESTS, only={"conftest.py", "test_chat_sessions.py"}) == []
+    # The module calls the application through the client `chat_serving` gives it.
+    assert (
+        check_serve_tests(TESTS_ROOT, only={"serve/test_chat_sessions.py", "chat_serving.py"}) == []
+    )
