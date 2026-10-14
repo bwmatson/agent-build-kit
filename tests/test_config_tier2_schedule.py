@@ -47,10 +47,12 @@ def test_a_repo_has_no_value_of_its_own_by_default() -> None:
 
 
 def test_an_unquoted_off_read_as_false_means_off() -> None:
-    config = yaml.safe_load("limits:\n  tier2_schedule: off\ntests:\n  tier2_schedule: off\n")
-    assert config["limits"]["tier2_schedule"] is False
+    config = yaml.safe_load(
+        "global_limits:\n  tier2_schedule: off\ntests:\n  tier2_schedule: off\n"
+    )
+    assert config["global_limits"]["tier2_schedule"] is False
 
-    assert limits(**config["limits"]).tier2_schedule == "off"
+    assert limits(**config["global_limits"]).tier2_schedule == "off"
     assert repo(**config["tests"]).tests.tier2_schedule == "off"
     assert tier2_schedule(repo(tier2_schedule=False), limits()) is Tier2Schedule.OFF
 
@@ -96,7 +98,7 @@ def test_any_other_value_on_a_repo_is_refused_naming_the_setting_and_the_four(
 def test_config_show_prints_the_values_set(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     config = WorkspaceConfig.model_validate(
         {
-            "limits": {"tier2_schedule": "monthly"},
+            "global_limits": {"tier2_schedule": "monthly"},
             "repos": {
                 "app": {
                     "path": str(tmp_path / "app"),
@@ -112,7 +114,7 @@ def test_config_show_prints_the_values_set(tmp_path: Path, capsys: pytest.Captur
     assert main(["--config", str(path), "config", "--show"]) == 0
 
     shown = yaml.safe_load(capsys.readouterr().out)
-    assert shown["limits"]["tier2_schedule"] == "monthly"
+    assert shown["global_limits"]["tier2_schedule"] == "monthly"
     assert shown["repos"]["app"]["tests"]["tier2_schedule"] == "daily"
 
 
@@ -130,4 +132,4 @@ def test_config_show_prints_the_default_when_nothing_is_set(
 
     assert main(["--config", str(path), "config", "--show"]) == 0
 
-    assert yaml.safe_load(capsys.readouterr().out)["limits"]["tier2_schedule"] == "weekly"
+    assert yaml.safe_load(capsys.readouterr().out)["global_limits"]["tier2_schedule"] == "weekly"
