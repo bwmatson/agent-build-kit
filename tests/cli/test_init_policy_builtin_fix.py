@@ -34,13 +34,10 @@ class ConfigRuntime(SelectableRuntime):
     configuration holds every recommended pattern, then only the `stubborn` rows: what an
     agent's own matcher lets through whatever its list says."""
 
-    def __init__(
-        self, home: Home, *, stubborn: tuple = (), log: list[str], prompts: bool = False
-    ) -> None:
+    def __init__(self, home: Home, *, stubborn: tuple = (), log: list[str]) -> None:
         super().__init__("builtin", log=log)
         self.home = home
         self.stubborn = set(stubborn)
-        self.policy_check_prompts_agent = prompts
 
     def check_policy(self, cwd: Path) -> PolicyReport:
         self.checked.append(cwd)
@@ -276,27 +273,6 @@ def test_yes_with_the_authorising_flag_applies_without_asking(
     assert main(policy_only(planning, "--yes", "--run-policy-fix")) == 0
 
     assert home.deny() == [*OWN, *patterns()]
-
-
-def test_a_token_spending_check_is_asked_about_before_the_kit_s_fix(
-    tmp_path: Path,
-    app: Path,  # noqa: F811 — fixture
-    home: Home,
-    events: list[str],
-    monkeypatch: pytest.MonkeyPatch,
-    capfd: pytest.CaptureFixture[str],
-) -> None:
-    runtime = ConfigRuntime(home, log=events, prompts=True)
-    planning = installed(tmp_path, app, monkeypatch, runtime)
-    events.clear()
-    operator = Operator(capfd, "y", "y", log=events)
-    monkeypatch.setattr(init_cmd, "ask", operator)
-
-    assert main(policy_only(planning)) == 0
-
-    assert events == ["ask", "check", "ask", "check"]
-    assert "token" in operator.screens[0].lower()
-    assert str(home.config) in operator.screens[1]
 
 
 def test_an_absent_configuration_is_said_to_be_not_found_and_nothing_is_offered(

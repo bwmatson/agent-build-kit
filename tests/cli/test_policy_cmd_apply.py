@@ -214,7 +214,7 @@ def test_a_runtime_that_enforces_in_itself_has_nothing_to_apply(
     assert home.files() == [home.config.name]
 
 
-def test_after_a_write_the_live_check_is_named_with_its_cost_and_no_agent_is_started(
+def test_after_a_write_the_check_is_named_and_no_agent_is_started(
     home: Home, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     path, runtime = installation(tmp_path, monkeypatch, command=list(AGENT.variants[0].argv))
@@ -224,8 +224,8 @@ def test_after_a_write_the_live_check_is_named_with_its_cost_and_no_agent_is_sta
     code, terminal = run_apply(capsys, monkeypatch, path, home, "--yes")
 
     assert code == 0
-    assert "abk doctor" in terminal.out
-    assert "tokens" in terminal.out.lower()
+    assert "abk policy check" in terminal.out
+    assert "spends no" in terminal.out
     assert runtime.checked == []
 
 

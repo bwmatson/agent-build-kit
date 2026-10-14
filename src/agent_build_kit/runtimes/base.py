@@ -273,10 +273,6 @@ class AgentRuntime(Protocol):
     name: str
     implemented: bool
     policy_coverage: PolicyCoverage
-    # Whether `check_policy` sends the agent a prompt, which spends tokens: `abk init`
-    # asks before running such a check, and `abk doctor` does not run one for an entry
-    # recorded as unchecked.
-    policy_check_prompts_agent: bool
     supports_usage_tracking: bool
     supports_streaming: bool
     # Whether `AgentRequest.resume_session` continues an earlier session; one

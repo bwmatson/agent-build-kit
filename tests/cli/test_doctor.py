@@ -470,11 +470,11 @@ def test_the_acp_runtime_is_checked_rather_than_called_not_implemented(
 
     probed: list[object] = []
 
-    def checked(runtime, root, *, cache):
+    def checked(runtime, entry, inst):
         probed.append(runtime)
         return PolicyReport(ok=True)
 
-    monkeypatch.setattr(doctor.policy_check, "checked", checked)
+    monkeypatch.setattr(doctor.policy_check, "check_policy", checked)
     select_runtime(workspace, "acp", "    command: [some-agent, acp]\n")
 
     checks = by_name(run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all))
@@ -512,7 +512,7 @@ def test_an_unenforced_class_fails_naming_it_and_printing_the_installation_s_fix
     assert "scripts/constrain-agent.sh --strict" in policy.fix
 
 
-def test_the_policy_check_is_not_rerun_within_its_window(
+def test_the_policy_check_reads_again_on_every_run(
     workspace: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runtime = select(monkeypatch, SelectableRuntime("probed", reports=(UNENFORCED,)))
@@ -521,7 +521,7 @@ def test_the_policy_check_is_not_rerun_within_its_window(
     run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all)
     checks = by_name(run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all))
 
-    assert len(runtime.checked) == 1
+    assert len(runtime.checked) == 2
     assert checks["runtime policy"].status == "FAIL"
 
 

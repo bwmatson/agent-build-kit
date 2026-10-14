@@ -24,8 +24,10 @@
   matcher, naming the pattern that refused each one. The six classes the recommendation leaves
   to the person never fail it, a missing or unreadable configuration fails it naming the path or
   the reason, an agent abk has no policy for is reported as one that cannot be checked, and no
-  answer is kept between runs. The live probe is gone; `abk doctor` and `abk init` are moved
-  onto the new check in a following change.
+  answer is kept between runs. `abk doctor` and `abk init` use it and no longer ask whether to
+  spend tokens, with or without `--yes`; `abk policy check` runs it on demand and prints every
+  class with the pattern that refused it, and `abk policy apply` points to it for confirming.
+  A runtime recorded as unchecked is still warned about, but `abk init` no longer records that.
 
 - A tier 1 run whose first pass fails more tests than `limits.max_flakes_per_run` (default 5),
   all of which pass both serial reruns, is now one flake storm, not that many flaky tests: one

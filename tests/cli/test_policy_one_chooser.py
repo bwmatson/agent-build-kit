@@ -55,6 +55,7 @@ def test_init_calls_the_one_function(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     planning = planning_for(tmp_path, app, monkeypatch, agent_command())
+    asked.clear()
 
     assert main(["init", str(planning), "--policy-only"]) == 0
 

@@ -12,7 +12,7 @@ from agent_build_kit import runtimes
 from agent_build_kit.config import ConfigError, RuntimeConfig
 from agent_build_kit.init.runtime_choice import yes
 from agent_build_kit.installation import Installation, load_installation
-from agent_build_kit.runtimes import known_agents, policy_apply
+from agent_build_kit.runtimes import known_agents, policy_apply, policy_check
 from agent_build_kit.runtimes.known_agents import ApplyPolicy, KnownAgent, agent_for_command
 from agent_build_kit.runtimes.policy_apply import ApplyRefused, ApplyResult, Status
 from agent_build_kit.runtimes.recommended_policy import (
@@ -75,6 +75,16 @@ class _Nothing(Exception):
     """The runtime starts no agent of the table whose configuration the kit would change."""
 
 
+def _named(name: str) -> KnownAgent:
+    """The known agent called `name`, or a usage problem naming the ones there are."""
+    table = known_agents.KNOWN_AGENTS
+    named = next((a for a in table if a.name.lower() == name.lower()), None)
+    if named is None:
+        known = ", ".join(agent.name for agent in table)
+        raise _Usage(f"unknown agent {name!r}; the known agents are: {known}")
+    return named
+
+
 def _agent_for(
     args: argparse.Namespace, installation: Installation | None
 ) -> tuple[KnownAgent, RuntimeConfig]:
@@ -93,12 +103,7 @@ def _agent_for(
             raise _Usage(f"unknown runtime {args.runtime!r}; the runtimes are: {known}")
         entry = config_module.runtime_entry(installation.config, name=args.runtime)
     if args.agent:
-        table = known_agents.KNOWN_AGENTS
-        named = next((a for a in table if a.name.lower() == args.agent.lower()), None)
-        if named is None:
-            known = ", ".join(agent.name for agent in table)
-            raise _Usage(f"unknown agent {args.agent!r}; the known agents are: {known}")
-        return named, entry
+        return _named(args.agent), entry
     if not entry.command:
         raise _Nothing("its enforcement is built in or it starts no known agent")
     found = agent_for_command(entry.command)
@@ -169,7 +174,7 @@ def cmd_policy_show(args: argparse.Namespace, installation: Installation | None)
     for command in KNOWN_FALSE_POSITIVES:
         print(f"  {command}")
     print(f"\nDialect: {DIALECT}")
-    print("\nThe policy check is not run here; `abk doctor` runs it.")
+    print("\nThe policy check is not run here; `abk policy check` or `abk doctor` runs it.")
     if installation is not None or args.runtime or args.agent:
         try:
             agent, entry = _agent_for(args, installation)
@@ -277,11 +282,41 @@ def cmd_policy_apply(args: argparse.Namespace, installation: Installation | None
     if write_recommended(descriptor, home, extra, args.toolset) is None:
         return 2
     print(
-        "Whether the agent now refuses them is not checked here: `abk doctor` runs the live "
-        "check (or `abk init --policy-only`), which asks the agent to try each forbidden "
-        "command and spends model tokens."
+        "Whether the agent now refuses them is not checked here: `abk policy check` reads the "
+        "configuration and spends no model tokens."
     )
     return 0
+
+
+def cmd_policy_check(args: argparse.Namespace, installation: Installation | None) -> int:
+    """Judge every probe command against the agent's configuration and print the verdicts:
+    exit 0 when every covered class is refused, 1 when not or when it could not be checked."""
+    assert installation is not None  # the command needs one
+    config = installation.config
+    name = args.runtime or config_module.runtime_name(config)
+    if name not in (*runtimes.names(), *config.runtimes):
+        known = ", ".join(sorted({*runtimes.names(), *config.runtimes}))
+        print(f"abk: unknown runtime {name!r}; the runtimes are: {known}", file=sys.stderr)
+        return 2
+    entry = config_module.runtime_entry(config, name=name)
+    if args.agent:
+        try:
+            agent = _named(args.agent)
+        except _Usage as error:
+            print(f"abk: {error}", file=sys.stderr)
+            return 2
+        entry = entry.model_copy(update={"command": [agent.program]})
+    report = policy_check.check_policy(runtimes.get(name), entry, installation)
+    if report.cannot_check:
+        print(report.cannot_check)
+        return 1
+    print("\n".join(policy_check.render(report)))
+    if report.ok:
+        print("every covered class is refused")
+        return 0
+    print(f"not refused: {policy_check.describe(report)}")
+    print(f"fix: {policy_check.fix_for(name, entry, report)}")
+    return 1
 
 
 def _agent_flags(parser: argparse.ArgumentParser) -> None:
@@ -330,3 +365,8 @@ def register(sub: argparse._SubParsersAction) -> None:
         help="also replace the agent's toolset with the recommended one (never done by default)",
     )
     apply.set_defaults(func=cmd_policy_apply, needs_installation="optional")
+    check = commands.add_parser(
+        "check", help="read the agent's configuration and say what it refuses; starts nothing"
+    )
+    _agent_flags(check)
+    check.set_defaults(func=cmd_policy_check)

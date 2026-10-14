@@ -10,7 +10,6 @@ import yaml
 
 from agent_build_kit.cli import init as init_cmd
 from agent_build_kit.cli import main
-from agent_build_kit.runtimes import policy_check
 from tests.cli.policy_step_fakes import (
     AMEND_ROW,
     Operator,
@@ -33,12 +32,8 @@ def events() -> list[str]:
 
 
 def tree(root: Path) -> dict[str, bytes]:
-    """Every file under `root` but the policy check's own cache, with its bytes."""
-    return {
-        str(p): p.read_bytes()
-        for p in sorted(root.rglob("*"))
-        if p.is_file() and p.name != policy_check.CACHE_NAME
-    }
+    """Every file under `root` with its bytes."""
+    return {str(p): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
 
 
 def forbid_the_other_steps(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -110,45 +105,6 @@ def test_a_class_still_open_after_the_step_exits_one_naming_the_spelling(
     said = shown.out + shown.err
     assert AMEND in said
     assert command_of(AMEND, AMEND_ROW[1]) in said
-
-
-def test_a_declined_token_spending_check_exits_one_and_records_nothing(
-    tmp_path: Path,
-    app: Path,  # noqa: F811 — fixture
-    events: list[str],
-    monkeypatch: pytest.MonkeyPatch,
-    capfd: pytest.CaptureFixture[str],
-) -> None:
-    runtime = PolicyFileRuntime(
-        "costly", policy_file(tmp_path / "policy.txt"), prompts_agent=True, log=events
-    )
-    planning = configured(tmp_path, app, monkeypatch, runtime)
-    before = tree(planning)
-    operator = Operator(capfd, "n", log=events)
-    monkeypatch.setattr(init_cmd, "ask", operator)
-
-    assert main(["init", str(planning), "--policy-only"]) == 1
-
-    assert "token" in operator.screens[0].lower()
-    assert runtime.checked == []
-    assert tree(planning) == before
-
-
-def test_yes_runs_a_token_spending_check_without_asking(
-    tmp_path: Path,
-    app: Path,  # noqa: F811 — fixture
-    events: list[str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    runtime = PolicyFileRuntime(
-        "costly", policy_file(tmp_path / "policy.txt"), prompts_agent=True, log=events
-    )
-    planning = configured(tmp_path, app, monkeypatch, runtime)
-    events.clear()
-
-    assert main(["init", str(planning), "--policy-only", "--yes"]) == 0
-
-    assert events == ["check"]
 
 
 def test_a_missing_abk_yaml_is_a_usage_error_that_writes_nothing(tmp_path: Path) -> None:

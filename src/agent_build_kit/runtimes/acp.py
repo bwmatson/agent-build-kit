@@ -1281,8 +1281,6 @@ class AcpRuntime:
     name: str = NAME
     implemented: bool = True
     policy_coverage: PolicyCoverage = "agent_flagged"
-    # `check_policy` asks the agent to attempt each forbidden class.
-    policy_check_prompts_agent: bool = True
     supports_usage_tracking: bool = False
     supports_streaming: bool = True
     supports_session_resume: bool = True

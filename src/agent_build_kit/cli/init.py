@@ -260,12 +260,15 @@ def _conventions_config(
 
 
 def _policy(
-    runtime: AgentRuntime, planning: Path, *, cache: Path, fresh: bool = False
+    runtime: AgentRuntime, planning: Path, installation: Installation
 ) -> PolicyReport | None:
-    """The runtime's policy answer, or None when it could not be had: said,
-    never kept, and init carries on without it."""
+    """The policy answer, read from the agent's configuration as it is now, or None when it
+    could not be had: said, never kept, and init carries on without it."""
     try:
-        return policy_check.checked(runtime, planning, cache=cache, fresh=fresh)
+        entry = config_module.runtime_entry(
+            load_config(planning / CONFIG_FILENAME), name=runtime.name
+        )
+        return policy_check.check_policy(runtime, entry, installation)
     except Exception as error:  # noqa: BLE001 - whatever the runtime raised is the finding
         print(
             f"abk init: runtime {runtime.name} policy not checked: "
@@ -285,31 +288,37 @@ def _run_fix(
     runtime: AgentRuntime,
     entry: RuntimeConfig,
     before: PolicyReport,
-    *,
-    cache: Path,
-) -> None:
+    installation: Installation,
+) -> PolicyReport | None:
     """Run the installation's fix with its output on the terminal, then check again and
-    say, per class and spelling, what is refused now. A pass is never claimed unobserved."""
+    say, per class and spelling, what is refused now. A pass is never claimed unobserved.
+    The report it read is returned."""
     argv = entry.policy_fix or []
     fix = shlex.join(argv)
     print(f"running `{fix}` from {planning}", flush=True)
     result = (run_fix or subprocess.run)(argv, cwd=planning, check=False)
     if result.returncode:
         print(f"abk init: `{fix}` exited {result.returncode}", file=sys.stderr)
-    _report_again(runtime, planning, before, cache=cache, failed=bool(result.returncode))
+    return _report_again(runtime, planning, before, installation, failed=bool(result.returncode))
 
 
 def _report_again(
-    runtime: AgentRuntime, planning: Path, before: PolicyReport, *, cache: Path, failed: bool
-) -> None:
-    """Check again after a fix and say, per class and spelling, what is refused now."""
-    after = _policy(runtime, planning, cache=cache, fresh=True)
+    runtime: AgentRuntime,
+    planning: Path,
+    before: PolicyReport,
+    installation: Installation,
+    *,
+    failed: bool,
+) -> PolicyReport | None:
+    """Check again after a fix and say, per class and spelling, what is refused now. The
+    report it read is returned."""
+    after = _policy(runtime, planning, installation)
     if after is None:
-        return
+        return None
     print(policy_check.describe(after, also=policy_check.classes_of(before)))
     if after.ok:
         print(f"runtime {runtime.name} now refuses every forbidden class")
-        return
+        return after
     open_before = {(r.label, r.spelling) for r in policy_check.unrefused(before)}
     open_after = policy_check.unrefused(after)
     if not failed and open_before <= {(r.label, r.spelling) for r in open_after}:
@@ -317,6 +326,7 @@ def _report_again(
         print(f"the fix made no change; still not refused: {commands}")
     else:
         print(f"still unenforced: {', '.join(sorted(policy_check.classes_of(after)))}")
+    return after
 
 
 def _unknown_agent_choice(planning: Path, name: str) -> bool:
@@ -361,7 +371,6 @@ def _apply_builtin(
     report: PolicyReport,
     *,
     installation: Installation,
-    cache: Path,
 ) -> bool | None:
     """Offer the kit's recommended policy as the fix, when the agent has an applier: None
     when it has none, else whether the check passes after the step. Only the deny list is
@@ -395,9 +404,8 @@ def _apply_builtin(
         return False
     if write_recommended(descriptor, home, extra, False) is None:
         return False
-    _report_again(runtime, planning, report, cache=cache, failed=False)
+    final = _report_again(runtime, planning, report, installation, failed=False)
     print("the build-run toolset is unchanged; `abk policy apply --toolset` replaces it")
-    final = _policy(runtime, planning, cache=cache)
     if final is not None and not final.ok:
         print("the agent's own matcher, not the list, may be what lets a spelling through")
     return final is not None and final.ok
@@ -412,7 +420,6 @@ def _policy_step(
     try:
         loaded = load_config(planning / CONFIG_FILENAME)
         installation = Installation(loaded, planning)
-        cache = policy_check.cache_path(installation)
     except ConfigError as error:
         print(f"abk init: runtime not checked: {error}", file=sys.stderr)
         return False
@@ -434,26 +441,19 @@ def _policy_step(
     if entry.policy == PolicyMarker.UNCHECKED and not only:
         print(f"runtime {name} is recorded as unchecked; `abk doctor` warns about it")
         return False
-    if runtime.policy_check_prompts_agent and not args.yes:
-        reply = ask(
-            f"checking runtime {name} sends the agent a prompt and spends tokens; run it? [y/N] "
-        )
-        if not yes(reply):
-            if not only:
-                _record_runtime(planning, name, {"policy": PolicyMarker.UNCHECKED.value})
-                print(f"recorded runtime {name} as unchecked")
-            return False
-    report = _policy(runtime, planning, cache=cache)
+    report = _policy(runtime, planning, installation)
     if report is None:
         return False
+    if report.cannot_check:
+        print(f"runtime {name}: {report.cannot_check}")
+        return False
     if report.ok:
+        print("\n".join(policy_check.render(report)))
         return True
     print(f"runtime {name} does not refuse: {policy_check.describe(report)}")
     entry = config_module.runtime_entry(load_config(planning / CONFIG_FILENAME), name=name)
     if not entry.policy_fix and not declined:
-        built = _apply_builtin(
-            planning, args, runtime, entry, report, installation=installation, cache=cache
-        )
+        built = _apply_builtin(planning, args, runtime, entry, report, installation=installation)
         if built is not None:
             return built
     if not entry.policy_fix:
@@ -471,8 +471,7 @@ def _policy_step(
     elif not yes(ask(f"run `{fix}` to enforce them? [y/N] ")):
         print(f"not run; still unenforced: {policy_check.describe(report)}")
         return False
-    _run_fix(planning, runtime, entry, report, cache=cache)
-    final = _policy(runtime, planning, cache=cache)
+    final = _run_fix(planning, runtime, entry, report, installation)
     return final is not None and final.ok
 
 
