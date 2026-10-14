@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import os
-import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -44,6 +43,7 @@ from tests.serve.socket_api import (
     socket_api,  # noqa: F401 — a page closing is the subject: a socket
 )
 from tests.serving import seed_pipeline
+from tests.waiting import wait_for
 
 # A session id on a command line (an editor holding it, a fake agent listing it) is seen by
 # every server on the machine, so these cannot run beside each other.
@@ -86,7 +86,10 @@ def test_the_lease_stays_while_a_turn_the_closed_page_started_is_still_running(
             assert fake.started.wait(WAIT)
 
             page.close()
-            time.sleep(0.6)  # long enough for the server to see the page go
+            wait_for(
+                lambda: holder(pipeline) == "tab:t1",
+                what="the lock holder to be the tab whose turn is still running",
+            )
 
             assert holder(pipeline) == "tab:t1", "the agent is still editing the worktree"
 

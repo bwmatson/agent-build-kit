@@ -6,7 +6,6 @@ how long remains."""
 from __future__ import annotations
 
 import argparse
-import time
 
 import pytest
 
@@ -14,9 +13,10 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import FAILED, IN_REVIEW, PLANNED
 from tests.cli.test_tick_scheduling import (  # noqa: F401
+    SEVERAL_REFRESHES,
+    WAIT,
     Builder,
     builder,
-    eventually,
     isolated,
     stored,
     tick,
@@ -24,6 +24,8 @@ from tests.cli.test_tick_scheduling import (  # noqa: F401
     workspace,
 )
 from tests.fake_clock import FakeClock, install
+from tests.tick_driver import count_refreshes
+from tests.waiting import wait_for
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -100,6 +102,7 @@ def test_the_running_pass_readmits_a_unit_it_parked_only_after_its_backoff(
     builder.store.upsert([stored("sent/1"), stored("slow/1", repo="platform")])
     monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
     runs: list[int] = []
+    refreshes = count_refreshes(monkeypatch)
 
     def parks_once() -> str | None:
         runs.append(1)
@@ -109,12 +112,17 @@ def test_the_running_pass_readmits_a_unit_it_parked_only_after_its_backoff(
     builder.ends["sent/1"] = (PLANNED, Cause.HOST_UNAVAILABLE, "create_pr: host unavailable")
 
     def slow() -> str | None:
-        assert eventually(lambda: "sent/1" in builder.finished)
+        wait_for(lambda: "sent/1" in builder.finished, what="sent/1 to finish", timeout=WAIT)
         if not backoff_over:
-            time.sleep(0.4)  # several refreshes, in which a readmission would show
+            # Several refreshes, in which a readmission would show.
+            refreshes.wait_for(refreshes.count + SEVERAL_REFRESHES, timeout=WAIT)
             return None
         clock.advance(MINUTE + 1)
-        return None if eventually(lambda: builder.started.count("sent/1") == 2) else "failed"
+        return wait_for(
+            lambda: builder.started.count("sent/1") == 2,
+            what="sent/1 to be started a second time",
+            timeout=WAIT,
+        )
 
     builder.scripts["slow/1"] = slow
 

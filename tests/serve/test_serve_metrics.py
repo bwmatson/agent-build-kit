@@ -6,7 +6,6 @@ import http.server
 import json
 import re
 import socket
-import threading
 from collections.abc import Iterator
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -20,6 +19,7 @@ from agent_build_kit.pipeline.units import RUNNING
 from agent_build_kit.serve.metrics import catalogue
 from agent_build_kit.serve.server import create_app
 from agent_build_kit.settings import reload
+from tests.http_thread import serving
 from tests.ledger_lines import agent_line, span_line, write_ledger
 from tests.metric_names import emitted_names
 from tests.serving import seed_pipeline
@@ -60,13 +60,8 @@ class FakePrometheus:
             def log_message(self, format: str, *args: object) -> None:
                 pass
 
-        self._server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self.url = f"http://127.0.0.1:{self._server.server_address[1]}"
-        threading.Thread(target=self._server.serve_forever, daemon=True).start()
-
-    def close(self) -> None:
-        self._server.shutdown()
-        self._server.server_close()
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
 
 
 class FakeTempo:
@@ -103,20 +98,15 @@ class FakeTempo:
             def log_message(self, format: str, *args: object) -> None:
                 pass
 
-        self._server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self.url = f"http://127.0.0.1:{self._server.server_address[1]}"
-        threading.Thread(target=self._server.serve_forever, daemon=True).start()
-
-    def close(self) -> None:
-        self._server.shutdown()
-        self._server.server_close()
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
 
 
 @pytest.fixture
 def tempo() -> Iterator[FakeTempo]:
     fake = FakeTempo()
-    yield fake
-    fake.close()
+    with serving(fake.server):
+        yield fake
 
 
 def dead_url() -> str:
@@ -128,8 +118,8 @@ def dead_url() -> str:
 @pytest.fixture
 def prometheus() -> Iterator[FakePrometheus]:
     fake = FakePrometheus()
-    yield fake
-    fake.close()
+    with serving(fake.server):
+        yield fake
 
 
 def point_at(monkeypatch: pytest.MonkeyPatch, url: str) -> None:
@@ -354,13 +344,9 @@ def test_a_query_prometheus_refuses_leaves_one_chart_empty_not_the_page_local(
             pass
 
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Refusing)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    try:
+    with serving(server):
         point_at(monkeypatch, f"http://127.0.0.1:{server.server_address[1]}")
         answer = page.get("/api/metrics").json()
-    finally:
-        server.shutdown()
-        server.server_close()
 
     assert answer["source"] == "prometheus"
     assert metric(answer, "abk.agent.cost")["series"] == []

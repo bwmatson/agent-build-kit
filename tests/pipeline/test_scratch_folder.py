@@ -9,7 +9,6 @@ agent or stands in for tier 1's own run (spec: command-output-to-files).
 from __future__ import annotations
 
 import subprocess
-import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -30,6 +29,7 @@ from agent_build_kit.pipeline.workspaces import prepare_worktree
 from agent_build_kit.runtimes import AgentInterrupted, AgentRateLimited, AgentRequest
 from tests.factories import git, init_repo, stored_unit
 from tests.runtimes.stand_in import StandInRuntime
+from tests.waiting import wait_for
 
 MODEL = "m"
 
@@ -260,15 +260,6 @@ def test_a_file_past_the_cap_is_cut_to_its_tail_with_a_marker(tmp_path: Path) ->
     assert (folder / "small.log").read_text() == "short\n"
 
 
-def wait_until(condition: Callable[[], bool], seconds: float = 10.0) -> bool:
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        if condition():
-            return True
-        time.sleep(0.02)
-    return condition()
-
-
 def test_a_run_through_the_build_step_has_its_files_capped_while_it_goes(
     tree: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -279,7 +270,7 @@ def test_a_run_through_the_build_step_has_its_files_capped_while_it_goes(
     def act(request: AgentRequest) -> None:
         big = out_of(request) / "big.log"
         big.write_text("".join(f"line {number:05d}\n" for number in range(2000)))
-        wait_until(lambda: big.stat().st_size <= 2500)
+        wait_for(lambda: big.stat().st_size <= 2500, what="the file to be capped")
         sizes.append(big.stat().st_size)
 
     build_run(runtime=StandInRuntime(act=act))("Implement it.", cwd=tree, model=MODEL)

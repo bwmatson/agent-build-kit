@@ -3,6 +3,7 @@ needs for a pull request that is finished."""
 
 from __future__ import annotations
 
+import threading
 from copy import deepcopy
 
 import pytest
@@ -94,9 +95,9 @@ def test_changes_paged_by_skip_are_all_read() -> None:
 
 
 def test_the_reads_for_open_pull_requests_overlap() -> None:
-    host = RestHost(*pulls(5), delay=0.05)
+    host = RestHost(*pulls(5), gate=threading.Event(), hold_after=1)
 
-    AzureDevOpsForge(http=host).list_prs(REPO)
+    host.held_until(lambda: AzureDevOpsForge(http=host).list_prs(REPO), lambda: host.peak > 1)
 
     assert host.peak > 1, "the reads ran one after another"
 
@@ -106,10 +107,13 @@ def test_twenty_open_pull_requests_never_exceed_the_bound() -> None:
     host = RestHost(
         *listing,
         threads={p["pullRequestId"]: [thread_of(p["pullRequestId"])] for p in listing},
-        delay=0.02,
+        gate=threading.Event(),
+        hold_after=1,
     )
 
-    found = AzureDevOpsForge(http=host).list_prs(REPO)
+    found = host.held_until(
+        lambda: AzureDevOpsForge(http=host).list_prs(REPO), lambda: host.peak >= READ_POOL
+    )
 
     assert len(found) == 20
     assert 1 < host.peak <= READ_POOL
@@ -120,10 +124,13 @@ def test_each_pull_request_keeps_its_own_conversation_in_listing_order() -> None
     host = RestHost(
         *listing,
         threads={p["pullRequestId"]: [thread_of(p["pullRequestId"])] for p in listing},
-        delay=0.01,
+        gate=threading.Event(),
+        hold_after=1,
     )
 
-    found = AzureDevOpsForge(http=host).list_prs(REPO)
+    found = host.held_until(
+        lambda: AzureDevOpsForge(http=host).list_prs(REPO), lambda: host.peak > 1
+    )
 
     assert [p.number for p in found] == [p["pullRequestId"] for p in listing]
     for pull in found:
@@ -133,11 +140,11 @@ def test_each_pull_request_keeps_its_own_conversation_in_listing_order() -> None
 
 def test_one_failed_read_fails_the_poll_with_no_partial_list() -> None:
     listing = pulls(6)
-    host = RestHost(*listing, delay=0.01)
+    host = RestHost(*listing, gate=threading.Event(), hold_after=1)
     host.refuse[("GET", "pullrequests/103/threads")] = refusal(400, "TF400898: boom")
 
     with pytest.raises(TransportError):
-        AzureDevOpsForge(http=host).list_prs(REPO)
+        host.held_until(lambda: AzureDevOpsForge(http=host).list_prs(REPO), lambda: host.peak > 1)
 
 
 # --- what a finished pull request costs -------------------------------------------

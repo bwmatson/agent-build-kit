@@ -12,7 +12,6 @@ from __future__ import annotations
 import argparse
 import sqlite3
 import threading
-import time
 from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
@@ -36,6 +35,7 @@ from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.cli.vanished_fakes import keep_changes_of_unstarted_units
 from tests.conftest import make_installation
 from tests.factories import stored_unit
+from tests.waiting import wait_for
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -51,15 +51,6 @@ Acceptance: none — a fixture about rounds, not about the acceptance group
 - [ ] 1.1 Test: it selects only marked tests.
 - [ ] 1.2 Register it.
 """
-
-
-def eventually(condition: Callable[[], bool]) -> bool:
-    deadline = time.monotonic() + WAIT
-    while not condition():
-        if time.monotonic() > deadline:
-            return False
-        time.sleep(0.01)
-    return True
 
 
 @pytest.fixture
@@ -306,7 +297,7 @@ def in_a_thread(work: Callable[[], object]) -> None:
 
     thread = threading.Thread(target=guarded, daemon=True)
     thread.start()
-    thread.join(WAIT)
+    thread.join(timeout=WAIT)
     assert not thread.is_alive(), "the round waited for the live-stack lock"
     if raised:
         raise raised[0]
@@ -565,20 +556,23 @@ def test_a_unit_the_pass_built_and_a_comment_resumed_is_started_again_in_the_pas
 
     def slow() -> str | None:
         # Only once x's worker has returned and let go of x's branch lock.
-        returned = eventually(
+        wait_for(
             lambda: (
                 builder.store.get("x/1").state == IN_REVIEW
                 and "x/1" in builder.finished
                 and not cli.branch_is_held(inst, "spec/x/1")
             ),
+            what="x's worker to return and release its branch lock",
+            timeout=WAIT,
         )
-        if not returned:
-            return "failed"
         # A reviewer comments: the event resumes x's thread.
         commented.append(1)
         builder.store.set_state("x/1", RUNNING, branch="spec/x/1")
-        again = eventually(lambda: builder.started.count("x/1") == 2)
-        return None if again else "failed"
+        return wait_for(
+            lambda: builder.started.count("x/1") == 2,
+            what="x/1 to be started a second time",
+            timeout=WAIT,
+        )
 
     builder.scripts["slow/1"] = slow
 
@@ -691,8 +685,11 @@ def test_a_guard_that_refuses_mid_pass_starts_nothing_and_lets_the_builds_in_fli
     def slow() -> str | None:
         # Something new turns up while slow/1 builds.
         builder.store.upsert([unit_of("late/1")])
-        paused = eventually(lambda: is_paused(tmp_path / "paused.json") is not None)
-        return None if paused else "failed"
+        return wait_for(
+            lambda: is_paused(tmp_path / "paused.json") is not None,
+            what="the pass to pause",
+            timeout=WAIT,
+        )
 
     builder.scripts["slow/1"] = slow
 
@@ -760,8 +757,10 @@ def test_the_tick_and_every_refresh_of_the_pass_run_the_same_round(
 ) -> None:
     builder.store.upsert([unit_of("slow/1", repo="platform")])
     monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
-    builder.scripts["slow/1"] = lambda: (
-        None if eventually(lambda: sum(1 for r in rounds if r["building"]) >= 2) else "failed"
+    builder.scripts["slow/1"] = lambda: wait_for(
+        lambda: sum(1 for r in rounds if r["building"]) >= 2,
+        what="two rounds with a build",
+        timeout=WAIT,
     )
 
     assert tick(inst) == 0
@@ -816,8 +815,10 @@ def test_a_unit_a_poll_sends_back_is_readmitted_by_the_round_and_rebuilt(
             )
 
     monkeypatch.setattr(cli, "poll_all", poll)
-    builder.scripts["slow/1"] = lambda: (
-        None if eventually(lambda: builder.finished.count("conflicted/1") == 2) else "failed"
+    builder.scripts["slow/1"] = lambda: wait_for(
+        lambda: builder.finished.count("conflicted/1") == 2,
+        what="conflicted/1 to finish twice",
+        timeout=WAIT,
     )
 
     assert tick(inst) == 0

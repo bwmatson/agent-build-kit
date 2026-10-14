@@ -41,15 +41,11 @@ SHARED_HELPERS: frozenset[str] = frozenset(
 # leaves it when its uses are removed, and nothing is added.
 ALLOWLIST: frozenset[str] = frozenset(
     {
-        "cli/test_round.py",
-        "cli/test_tick_host_outage_backoff.py",
-        "cli/test_tick_scheduling.py",
+        # Polls a real stack, which only a local run reaches; it has never flaked.
         "integration/test_telemetry_stack.py",
-        "pipeline/test_scratch_folder.py",
-        "serve/test_chat_guards.py",
+        # A UDP `connect` to a documentation address to learn the local address: no
+        # server is started, and the guard reads the call as a fixed port.
         "serve/test_serve_binding.py",
-        "serve/test_serve_metrics.py",
-        "test_telemetry.py",
     }
 )
 

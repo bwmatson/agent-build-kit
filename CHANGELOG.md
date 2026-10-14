@@ -38,7 +38,11 @@
 
 - The tier 2 lock test and the killed-process resume test no longer sleep to order or wait
   for their actors: they wait on signals and on the shared wait helper, and both files
-  leave the timing-hazard allowlist, so a busy machine cannot start a flake there.
+  leave the timing-hazard allowlist, so a busy machine cannot start a flake there. The round,
+  tick, scratch-folder, chat-guard, metrics and telemetry tests follow: they wait through the
+  shared wait helper or on a count of refreshes, their fake servers are shut down and joined, and
+  the fake Azure host holds requests at a gate a test releases instead of sleeping. Only two files
+  stay on the allowlist, each with its reason written beside it.
 
 - A task group heading can name a project of its repo, `## 2. [app/web] [tier1] Title`, and a
   plain `[app]` stays the repo's root project. A project the repo does not declare is refused
