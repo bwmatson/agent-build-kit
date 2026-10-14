@@ -1,0 +1,687 @@
+{
+  "units": [
+    {
+      "id": "feature/1",
+      "change": "feature",
+      "title": "Register the marker",
+      "repo": "app",
+      "tier": "tier1",
+      "depends_on": [],
+      "needs": [],
+      "estimated_lines": 140,
+      "state": "merged",
+      "issue": null,
+      "groups": [
+        1
+      ],
+      "joined": [],
+      "branch": "",
+      "pr": null,
+      "actual_lines": null,
+      "flag": "",
+      "calibrated_lines": null,
+      "pushed": null,
+      "pushed_at": null,
+      "check_rerun_head": "",
+      "check_reruns": 0,
+      "conflict_tip": "",
+      "conflict_head": "",
+      "conflict_attempts": 0,
+      "conflict_at": null,
+      "feedback": "",
+      "guidance": "",
+      "approved": "",
+      "feedback_from_person": false,
+      "feedback_source": "",
+      "predecessor_note": "",
+      "run_log": "",
+      "trace": "",
+      "stack_refusal": "",
+      "held_by": "",
+      "held_base": "",
+      "gated_requeue": null,
+      "close_pending": null,
+      "step": "",
+      "parked_attempts": 0,
+      "service_attempts": 0,
+      "history": [
+        {
+          "state": "planned",
+          "at": "2026-10-14T05:10:50.642934+00:00"
+        },
+        {
+          "state": "merged",
+          "at": "2026-10-14T05:10:50.646198+00:00"
+        }
+      ]
+    },
+    {
+      "id": "feature/2",
+      "change": "feature",
+      "title": "Register the marker",
+      "repo": "app",
+      "tier": "tier1",
+      "depends_on": [
+        "feature/1"
+      ],
+      "needs": [],
+      "estimated_lines": 140,
+      "state": "in_review",
+      "issue": null,
+      "groups": [
+        1
+      ],
+      "joined": [],
+      "branch": "",
+      "pr": null,
+      "actual_lines": null,
+      "flag": "",
+      "calibrated_lines": null,
+      "pushed": null,
+      "pushed_at": null,
+      "check_rerun_head": "",
+      "check_reruns": 0,
+      "conflict_tip": "",
+      "conflict_head": "",
+      "conflict_attempts": 0,
+      "conflict_at": null,
+      "feedback": "",
+      "guidance": "",
+      "approved": "",
+      "feedback_from_person": false,
+      "feedback_source": "",
+      "predecessor_note": "",
+      "run_log": "",
+      "trace": "",
+      "stack_refusal": "",
+      "held_by": "",
+      "held_base": "",
+      "gated_requeue": null,
+      "close_pending": null,
+      "step": "",
+      "parked_attempts": 0,
+      "service_attempts": 0,
+      "history": [
+        {
+          "state": "planned",
+          "at": "2026-10-14T05:10:50.643009+00:00"
+        },
+        {
+          "state": "in_review",
+          "at": "2026-10-14T05:10:50.646806+00:00"
+        }
+      ]
+    },
+    {
+      "id": "feature/3",
+      "change": "feature",
+      "title": "Register the marker",
+      "repo": "app",
+      "tier": "tier1",
+      "depends_on": [
+        "feature/1",
+        "feature/2"
+      ],
+      "needs": [],
+      "estimated_lines": 140,
+      "state": "in_review",
+      "issue": null,
+      "groups": [
+        1
+      ],
+      "joined": [],
+      "branch": "",
+      "pr": null,
+      "actual_lines": null,
+      "flag": "",
+      "calibrated_lines": null,
+      "pushed": null,
+      "pushed_at": null,
+      "check_rerun_head": "",
+      "check_reruns": 0,
+      "conflict_tip": "",
+      "conflict_head": "",
+      "conflict_attempts": 0,
+      "conflict_at": null,
+      "feedback": "",
+      "guidance": "",
+      "approved": "",
+      "feedback_from_person": false,
+      "feedback_source": "",
+      "predecessor_note": "",
+      "run_log": "",
+      "trace": "",
+      "stack_refusal": "",
+      "held_by": "",
+      "held_base": "",
+      "gated_requeue": null,
+      "close_pending": null,
+      "step": "",
+      "parked_attempts": 0,
+      "service_attempts": 0,
+      "history": [
+        {
+          "state": "planned",
+          "at": "2026-10-14T05:10:50.643038+00:00"
+        },
+        {
+          "state": "in_review",
+          "at": "2026-10-14T05:10:50.647394+00:00"
+        }
+      ]
+    },
+    {
+      "id": "feature/4",
+      "change": "feature",
+      "title": "Register the marker",
+      "repo": "app",
+      "tier": "tier1",
+      "depends_on": [
+        "feature/1",
+        "feature/2",
+        "feature/3"
+      ],
+      "needs": [],
+      "estimated_lines": 140,
+      "state": "in_review",
+      "issue": null,
+      "groups": [
+        1
+      ],
+      "joined": [],
+      "branch": "",
+      "pr": null,
+      "actual_lines": null,
+      "flag": "",
+      "calibrated_lines": null,
+      "pushed": null,
+      "pushed_at": null,
+      "check_rerun_head": "",
+      "check_reruns": 0,
+      "conflict_tip": "",
+      "conflict_head": "",
+      "conflict_attempts": 0,
+      "conflict_at": null,
+      "feedback": "",
+      "guidance": "",
+      "approved": "",
+      "feedback_from_person": false,
+      "feedback_source": "",
+      "predecessor_note": "",
+      "run_log": "",
+      "trace": "",
+      "stack_refusal": "",
+      "held_by": "",
+      "held_base": "",
+      "gated_requeue": null,
+      "close_pending": null,
+      "step": "",
+      "parked_attempts": 0,
+      "service_attempts": 0,
+      "history": [
+        {
+          "state": "planned",
+          "at": "2026-10-14T05:10:50.643060+00:00"
+        },
+        {
+          "state": "in_review",
+          "at": "2026-10-14T05:10:50.648076+00:00"
+        }
+      ]
+    },
+    {
+      "id": "feature/5",
+      "change": "feature",
+      "title": "Register the marker",
+      "repo": "app",
+      "tier": "tier1",
+      "depends_on": [],
+      "needs": [],
+      "estimated_lines": 140,
+      "state": "in_review",
+      "issue": null,
+      "groups": [
+        1
+      ],
+      "joined": [],
+      "branch": "",
+      "pr": null,
+      "actual_lines": null,
+      "flag": "",
+      "calibrated_lines": null,
+      "pushed": null,
+      "pushed_at": null,
+      "check_rerun_head": "",
+      "check_reruns": 0,
+      "conflict_tip": "",
+      "conflict_head": "",
+      "conflict_attempts": 0,
+      "conflict_at": null,
+      "feedback": "",
+      "guidance": "",
+      "approved": "",
+      "feedback_from_person": false,
+      "feedback_source": "",
+      "predecessor_note": "",
+      "run_log": "",
+      "trace": "",
+      "stack_refusal": "",
+      "held_by": "",
+      "held_base": "",
+      "gated_requeue": null,
+      "close_pending": null,
+      "step": "",
+      "parked_attempts": 0,
+      "service_attempts": 0,
+      "history": [
+        {
+          "state": "planned",
+          "at": "2026-10-14T05:10:50.643081+00:00"
+        },
+        {
+          "state": "in_review",
+          "at": "2026-10-14T05:10:50.648609+00:00"
+        }
+      ]
+    },
+    {
+      "id": "feature/6",
+      "change": "feature",
+      "title": "Register the marker",
+      "repo": "platform",
+      "tier": "tier1",
+      "depends_on": [
+        "feature/1"
+      ],
+      "needs": [],
+      "estimated_lines": 140,
+      "state": "merged",
+      "issue": null,
+      "groups": [
+        1
+      ],
+      "joined": [],
+      "branch": "",
+      "pr": null,
+      "actual_lines": null,
+      "flag": "",
+      "calibrated_lines": null,
+      "pushed": null,
+      "pushed_at": null,
+      "check_rerun_head": "",
+      "check_reruns": 0,
+      "conflict_tip": "",
+      "conflict_head": "",
+      "conflict_attempts": 0,
+      "conflict_at": null,
+      "feedback": "",
+      "guidance": "",
+      "approved": "",
+      "feedback_from_person": false,
+      "feedback_source": "",
+      "predecessor_note": "",
+      "run_log": "",
+      "trace": "",
+      "stack_refusal": "",
+      "held_by": "",
+      "held_base": "",
+      "gated_requeue": null,
+      "close_pending": null,
+      "step": "",
+      "parked_attempts": 0,
+      "service_attempts": 0,
+      "history": [
+        {
+          "state": "planned",
+          "at": "2026-10-14T05:10:50.643102+00:00"
+        },
+        {
+          "state": "merged",
+          "at": "2026-10-14T05:10:50.649164+00:00"
+        }
+      ]
+    },
+    {
+      "id": "feature/7",
+      "change": "feature",
+      "title": "Register the marker",
+      "repo": "app",
+      "tier": "tier1",
+      "depends_on": [
+        "feature/1",
+        "feature/2",
+        "feature/3",
+        "feature/4",
+        "feature/5",
+        "feature/6"
+      ],
+      "needs": [],
+      "estimated_lines": 140,
+      "state": "planned",
+      "issue": null,
+      "groups": [
+        1
+      ],
+      "joined": [],
+      "branch": "",
+      "pr": null,
+      "actual_lines": null,
+      "flag": "acceptance",
+      "calibrated_lines": null,
+      "pushed": null,
+      "pushed_at": null,
+      "check_rerun_head": "",
+      "check_reruns": 0,
+      "conflict_tip": "",
+      "conflict_head": "",
+      "conflict_attempts": 0,
+      "conflict_at": null,
+      "feedback": "",
+      "guidance": "",
+      "approved": "",
+      "feedback_from_person": false,
+      "feedback_source": "",
+      "predecessor_note": "",
+      "run_log": "",
+      "trace": "",
+      "stack_refusal": "",
+      "held_by": "",
+      "held_base": "",
+      "gated_requeue": null,
+      "close_pending": null,
+      "step": "",
+      "parked_attempts": 0,
+      "service_attempts": 0,
+      "history": [
+        {
+          "state": "planned",
+          "at": "2026-10-14T05:10:50.643121+00:00"
+        }
+      ]
+    },
+    {
+      "id": "feature/8",
+      "change": "feature",
+      "title": "Register the marker",
+      "repo": "app",
+      "tier": "tier1",
+      "depends_on": [
+        "feature/1",
+        "feature/2",
+        "feature/3",
+        "feature/4",
+        "feature/5",
+        "feature/6",
+        "feature/7"
+      ],
+      "needs": [],
+      "estimated_lines": 140,
+      "state": "planned",
+      "issue": null,
+      "groups": [
+        1
+      ],
+      "joined": [],
+      "branch": "",
+      "pr": null,
+      "actual_lines": null,
+      "flag": "narrow",
+      "calibrated_lines": null,
+      "pushed": null,
+      "pushed_at": null,
+      "check_rerun_head": "",
+      "check_reruns": 0,
+      "conflict_tip": "",
+      "conflict_head": "",
+      "conflict_attempts": 0,
+      "conflict_at": null,
+      "feedback": "",
+      "guidance": "",
+      "approved": "",
+      "feedback_from_person": false,
+      "feedback_source": "",
+      "predecessor_note": "",
+      "run_log": "",
+      "trace": "",
+      "stack_refusal": "",
+      "held_by": "",
+      "held_base": "",
+      "gated_requeue": null,
+      "close_pending": null,
+      "step": "",
+      "parked_attempts": 0,
+      "service_attempts": 0,
+      "history": [
+        {
+          "state": "planned",
+          "at": "2026-10-14T05:10:50.643140+00:00"
+        }
+      ]
+    },
+    {
+      "id": "add-marker/1",
+      "change": "add-marker",
+      "title": "Register the marker",
+      "repo": "app",
+      "tier": "tier1",
+      "depends_on": [],
+      "needs": [],
+      "estimated_lines": 140,
+      "state": "merged",
+      "issue": null,
+      "groups": [
+        1
+      ],
+      "joined": [],
+      "branch": "",
+      "pr": null,
+      "actual_lines": null,
+      "flag": "",
+      "calibrated_lines": null,
+      "pushed": null,
+      "pushed_at": null,
+      "check_rerun_head": "",
+      "check_reruns": 0,
+      "conflict_tip": "",
+      "conflict_head": "",
+      "conflict_attempts": 0,
+      "conflict_at": null,
+      "feedback": "",
+      "guidance": "",
+      "approved": "",
+      "feedback_from_person": false,
+      "feedback_source": "",
+      "predecessor_note": "",
+      "run_log": "",
+      "trace": "",
+      "stack_refusal": "",
+      "held_by": "",
+      "held_base": "",
+      "gated_requeue": null,
+      "close_pending": null,
+      "step": "",
+      "parked_attempts": 0,
+      "service_attempts": 0,
+      "history": [
+        {
+          "state": "planned",
+          "at": "2026-10-14T05:10:50.643158+00:00"
+        },
+        {
+          "state": "merged",
+          "at": "2026-10-14T05:10:50.649822+00:00"
+        }
+      ]
+    },
+    {
+      "id": "add-marker/2",
+      "change": "add-marker",
+      "title": "Register the marker",
+      "repo": "app",
+      "tier": "tier1",
+      "depends_on": [
+        "add-marker/1"
+      ],
+      "needs": [],
+      "estimated_lines": 140,
+      "state": "failed",
+      "issue": null,
+      "groups": [
+        1
+      ],
+      "joined": [],
+      "branch": "",
+      "pr": null,
+      "actual_lines": null,
+      "flag": "",
+      "calibrated_lines": null,
+      "pushed": null,
+      "pushed_at": null,
+      "check_rerun_head": "",
+      "check_reruns": 0,
+      "conflict_tip": "",
+      "conflict_head": "",
+      "conflict_attempts": 0,
+      "conflict_at": null,
+      "feedback": "",
+      "guidance": "",
+      "approved": "",
+      "feedback_from_person": false,
+      "feedback_source": "",
+      "predecessor_note": "",
+      "run_log": "",
+      "trace": "",
+      "stack_refusal": "",
+      "held_by": "",
+      "held_base": "",
+      "gated_requeue": null,
+      "close_pending": null,
+      "step": "",
+      "parked_attempts": 0,
+      "service_attempts": 0,
+      "history": [
+        {
+          "state": "planned",
+          "at": "2026-10-14T05:10:50.643177+00:00"
+        },
+        {
+          "state": "failed",
+          "at": "2026-10-14T05:10:50.650385+00:00"
+        }
+      ]
+    },
+    {
+      "id": "add-marker/3",
+      "change": "add-marker",
+      "title": "Register the marker",
+      "repo": "app",
+      "tier": "tier1",
+      "depends_on": [
+        "add-marker/1",
+        "add-marker/2"
+      ],
+      "needs": [],
+      "estimated_lines": 140,
+      "state": "in_review",
+      "issue": null,
+      "groups": [
+        1
+      ],
+      "joined": [],
+      "branch": "",
+      "pr": null,
+      "actual_lines": null,
+      "flag": "",
+      "calibrated_lines": null,
+      "pushed": null,
+      "pushed_at": null,
+      "check_rerun_head": "",
+      "check_reruns": 0,
+      "conflict_tip": "",
+      "conflict_head": "",
+      "conflict_attempts": 0,
+      "conflict_at": null,
+      "feedback": "",
+      "guidance": "",
+      "approved": "",
+      "feedback_from_person": false,
+      "feedback_source": "",
+      "predecessor_note": "",
+      "run_log": "",
+      "trace": "",
+      "stack_refusal": "",
+      "held_by": "",
+      "held_base": "",
+      "gated_requeue": null,
+      "close_pending": null,
+      "step": "",
+      "parked_attempts": 0,
+      "service_attempts": 0,
+      "history": [
+        {
+          "state": "planned",
+          "at": "2026-10-14T05:10:50.643196+00:00"
+        },
+        {
+          "state": "in_review",
+          "at": "2026-10-14T05:10:50.652121+00:00"
+        }
+      ]
+    },
+    {
+      "id": "add-marker/4",
+      "change": "add-marker",
+      "title": "Register the marker",
+      "repo": "app",
+      "tier": "tier1",
+      "depends_on": [
+        "add-marker/1",
+        "add-marker/2",
+        "add-marker/3"
+      ],
+      "needs": [],
+      "estimated_lines": 140,
+      "state": "planned",
+      "issue": null,
+      "groups": [
+        1
+      ],
+      "joined": [],
+      "branch": "",
+      "pr": null,
+      "actual_lines": null,
+      "flag": "acceptance",
+      "calibrated_lines": null,
+      "pushed": null,
+      "pushed_at": null,
+      "check_rerun_head": "",
+      "check_reruns": 0,
+      "conflict_tip": "",
+      "conflict_head": "",
+      "conflict_attempts": 0,
+      "conflict_at": null,
+      "feedback": "",
+      "guidance": "",
+      "approved": "",
+      "feedback_from_person": false,
+      "feedback_source": "",
+      "predecessor_note": "",
+      "run_log": "",
+      "trace": "",
+      "stack_refusal": "",
+      "held_by": "",
+      "held_base": "",
+      "gated_requeue": null,
+      "close_pending": null,
+      "step": "",
+      "parked_attempts": 0,
+      "service_attempts": 0,
+      "history": [
+        {
+          "state": "planned",
+          "at": "2026-10-14T05:10:50.643215+00:00"
+        }
+      ]
+    }
+  ]
+}
