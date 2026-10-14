@@ -65,8 +65,9 @@ def transcript_dir(state_dir: Path) -> Path:
 
 
 def _prefix(unit: Unit) -> str:
-    number = int(unit.id.rsplit("/", 1)[1])
-    return f"{unit.change}-{number:02d}-"
+    from agent_build_kit.pipeline.units import unit_number  # a module-level import would cycle
+
+    return f"{unit.change}-{unit_number(unit):02d}-"
 
 
 def _unit_files(directory: Path, prefix: str) -> list[Path]:

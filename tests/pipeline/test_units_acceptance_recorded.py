@@ -23,6 +23,7 @@ from agent_build_kit.pipeline.units import (
     RUNNING,
     UnitState,
     ready_units,
+    unit_number,
     waiting_on,
 )
 
@@ -69,11 +70,10 @@ def flagged(graph: list[StoredUnit]) -> list[StoredUnit]:
 
 
 def earlier(unit: StoredUnit, graph: list[StoredUnit]) -> list[StoredUnit]:
-    number = int(unit.id.rsplit("/", 1)[1])
     return [
         u
         for u in graph
-        if u.change == unit.change and u.id != unit.id and int(u.id.rsplit("/", 1)[1]) < number
+        if u.change == unit.change and u.id != unit.id and unit_number(u) < unit_number(unit)
     ]
 
 
