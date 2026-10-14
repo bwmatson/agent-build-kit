@@ -28,13 +28,7 @@ from agent_build_kit.pipeline.restack import (
     move_branch_onto,
     push_with_lease,
 )
-from tests.factories import activate_with, git, init_repo
-
-
-def commit(repo: Path, name: str, content: str = "x") -> None:
-    (repo / name).write_text(content)
-    git(repo, "add", "-A")
-    git(repo, "commit", "-qm", f"add {name}")
+from tests.factories import activate_with, commit, git, init_repo
 
 
 @pytest.fixture

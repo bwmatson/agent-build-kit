@@ -11,14 +11,12 @@ import pytest
 from agent_build_kit.installation import Installation
 from agent_build_kit.tracks import runner
 from tests.call_rows import Spending, agent_rows
-from tests.tracks.test_runner import make_installation, project
+from tests.tracks.test_runner import described_installation, project
 
 
 @pytest.fixture
 def inst(tmp_path: Path) -> Installation:
-    installation = make_installation(tmp_path / "planning", tracks={"model": "haiku"})
-    installation.activate()
-    return installation
+    return described_installation(tmp_path / "planning", tracks={"model": "haiku"})
 
 
 def test_a_health_phase_writes_one_track_health_row_for_the_project(inst: Installation) -> None:

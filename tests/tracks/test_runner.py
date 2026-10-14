@@ -25,12 +25,12 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import tracks as tracks_cli
-from agent_build_kit.config import WorkspaceConfig
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.usage_guard import Decision, UsageReading
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from agent_build_kit.tracks import runner
+from tests.conftest import make_installation, workspace_config
 from tests.factories import git, init_repo
 from tests.runtimes.claude_cli import FakeClaude, no_agent
 from tests.runtimes.stand_in import StandInRuntime
@@ -52,30 +52,27 @@ def reading(**overrides) -> UsageReading:
     return UsageReading(**{**defaults, **overrides})
 
 
-def make_installation(root: Path, **overrides) -> Installation:
-    """`app` (which consumes `platform`) and `platform`, checked out under
-    `root/checkouts`, with the descriptions the prompts render."""
-    config = WorkspaceConfig.model_validate(
-        {
-            "repos": {
-                "platform": {
-                    "path": str(root / "checkouts" / "platform"),
-                    "slug": "example/platform",
-                    "description": "The platform every other repo builds on.",
-                },
-                "app": {
-                    "path": str(root / "checkouts" / "app"),
-                    "slug": "example/app",
-                    "description": "The application.",
-                    "consumes": ["platform"],
-                    "default_branch": "trunk",
-                },
-            },
-            **overrides,
+def described_repos(root: Path) -> dict[str, dict]:
+    """The shared installation's two repos with the descriptions the prompts render and
+    `app` on `trunk`."""
+    repos = workspace_config(root).repos
+    described = {
+        "platform": "The platform every other repo builds on.",
+        "app": "The application.",
+    }
+    return {
+        name: {
+            **repos[name].model_dump(mode="json"),
+            "description": described[name],
+            **({"default_branch": "trunk"} if name == "app" else {}),
         }
-    )
-    root.mkdir(parents=True, exist_ok=True)
-    return Installation(config, root)
+        for name in described
+    }
+
+
+def described_installation(root: Path, **overrides) -> Installation:
+    """The shared installation, over the repos `described_repos` gives."""
+    return make_installation(root, repos=described_repos(root), **overrides)
 
 
 def github_checkout(path: Path, slug: str) -> Path:
@@ -98,7 +95,7 @@ def project(inst: Installation, name: str = "app") -> runner.Project:
 
 @pytest.fixture
 def inst(tmp_path: Path) -> Installation:
-    return make_installation(tmp_path / "planning")
+    return described_installation(tmp_path / "planning")
 
 
 @pytest.fixture
@@ -152,7 +149,7 @@ def test_room_in_the_window_lets_it_run(monkeypatch) -> None:
 
 
 def test_the_command_comes_from_the_tracks_config(tmp_path, recorder) -> None:
-    inst = make_installation(
+    inst = described_installation(
         tmp_path,
         tracks={"model": "haiku", "allowed_tools": "Read", "disallowed_tools": "Bash(rm *)"},
     )
@@ -187,7 +184,7 @@ def test_propose_runs_in_the_planning_repo_with_the_project_readable(tmp_path, r
     """It writes a change, not code. Running it in the project's checkout would
     put it where the thing it must not edit is the working directory, and a
     worktree of that checkout would be a branch nobody asked for."""
-    inst = make_installation(tmp_path)
+    inst = described_installation(tmp_path)
     found = project(inst)
 
     runner.propose(inst, found, runtime=on(recorder))
@@ -199,7 +196,7 @@ def test_propose_runs_in_the_planning_repo_with_the_project_readable(tmp_path, r
 
 
 def test_raw_output_lands_under_the_planning_root(tmp_path, recorder) -> None:
-    inst = make_installation(tmp_path, tracks={"raw_output_dir": "raw"})
+    inst = described_installation(tmp_path, tracks={"raw_output_dir": "raw"})
 
     runner.propose(inst, project(inst), runtime=on(recorder))
 
@@ -217,7 +214,7 @@ def test_a_failed_phase_reports_and_continues(inst, capsys) -> None:
 
 
 def test_run_log_lives_in_the_state_dir(tmp_path) -> None:
-    inst = make_installation(tmp_path, planning={"state_dir": "logs/runs"})
+    inst = described_installation(tmp_path, planning={"state_dir": "logs/runs"})
 
     path = runner.run_log(inst, project(inst), "health")
 
@@ -321,14 +318,14 @@ def test_prompts_dir_overrides_the_shipped_prompts(tmp_path) -> None:
     custom = tmp_path / "my-prompts"
     custom.mkdir()
     (custom / "health.md").write_text("custom for __PROJECT__ in __PROMPTS_DIR__\n")
-    inst = make_installation(tmp_path / "planning", tracks={"prompts_dir": str(custom)})
+    inst = described_installation(tmp_path / "planning", tracks={"prompts_dir": str(custom)})
 
     assert runner.prompts_dir(inst) == custom
     assert runner.render_prompt(inst, project(inst), "health") == f"custom for app in {custom}\n"
 
 
 def test_a_relative_prompts_dir_is_under_the_planning_root(tmp_path) -> None:
-    inst = make_installation(tmp_path, tracks={"prompts_dir": "prompts"})
+    inst = described_installation(tmp_path, tracks={"prompts_dir": "prompts"})
 
     assert runner.prompts_dir(inst) == inst.root / "prompts"
 
@@ -337,7 +334,7 @@ def test_an_unknown_placeholder_is_an_error(tmp_path) -> None:
     custom = tmp_path / "my-prompts"
     custom.mkdir()
     (custom / "health.md").write_text("__NOT_A_THING__\n")
-    inst = make_installation(tmp_path / "planning", tracks={"prompts_dir": str(custom)})
+    inst = described_installation(tmp_path / "planning", tracks={"prompts_dir": str(custom)})
 
     with pytest.raises(ValueError, match="__NOT_A_THING__"):
         runner.render_prompt(inst, project(inst), "health")
@@ -442,7 +439,7 @@ def test_only_filters_by_config_key(inst, monkeypatch) -> None:
 
 
 def test_self_pull_off_skips_the_planning_pull(tmp_path, monkeypatch) -> None:
-    inst = make_installation(tmp_path, planning={"self_pull": False})
+    inst = described_installation(tmp_path, planning={"self_pull": False})
     monkeypatch.setattr(runner, "pull", lambda *a: pytest.fail("pulled the planning repo"))
 
     assert runner.pull_planning(inst) is True

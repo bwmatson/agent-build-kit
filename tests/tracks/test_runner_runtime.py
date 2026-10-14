@@ -22,14 +22,14 @@ from agent_build_kit.tracks import runner
 from tests.runtimes.claude_cli import FakeClaude, record, refused_record
 from tests.runtimes.stand_in import StandInRuntime
 from tests.runtimes.test_claude_code_argv import flags
-from tests.tracks.test_runner import make_installation, project
+from tests.tracks.test_runner import described_installation, project
 
 TRACKS = {"model": "haiku", "allowed_tools": "Read Grep", "disallowed_tools": "Bash(rm *)"}
 
 
 @pytest.fixture
 def inst(tmp_path: Path) -> Installation:
-    return make_installation(tmp_path / "planning", tracks=TRACKS)
+    return described_installation(tmp_path / "planning", tracks=TRACKS)
 
 
 def test_a_phase_runs_through_the_runtime_it_is_given(inst: Installation) -> None:
@@ -91,6 +91,8 @@ def test_under_claude_code_a_phase_sends_the_command_it_sent_before(inst: Instal
             {
                 **hook_settings(
                     None,
+                    # The shared installation is the active one, and `app` integrates on trunk.
+                    protected_branches=("trunk",),
                     planning_repo=inst.root,
                     planning_state_dir=inst.state_dir,
                     # A propose run is granted the one change it writes, and only that.

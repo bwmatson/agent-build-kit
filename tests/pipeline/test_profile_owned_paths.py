@@ -15,7 +15,7 @@ import pytest
 from agent_build_kit.config import ProjectConfig, RepoConfig
 from agent_build_kit.pipeline.environment import Ownership, owned_paths
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.wiring import build_commit, build_restack_onto, build_worktree
+from agent_build_kit.pipeline.wiring import build_restack_onto, build_worktree
 from agent_build_kit.pipeline.workspaces import DirtyWorktree
 from tests.created_files_fakes import (
     LOCK,
@@ -29,6 +29,7 @@ from tests.created_files_fakes import (
     registered,
 )
 from tests.environment_fakes import FakeEnvironment
+from tests.factories import commit_unit_work as commit
 from tests.factories import git, init_repo, unit
 
 MANIFEST = "manifest.toml"
@@ -96,11 +97,6 @@ def held_by(
 
 def committed_files(tree: Path) -> list[str]:
     return git(tree, "show", "--name-only", "--format=", "HEAD").split()
-
-
-def commit(tree: Path, config: RepoConfig) -> None:
-    made = build_commit(unit_id=unit().id, repo=config, base="main")("feat: the work", cwd=tree)
-    assert made == 1
 
 
 # --- the worktree check -------------------------------------------------------------------

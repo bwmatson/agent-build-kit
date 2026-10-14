@@ -12,9 +12,10 @@ import pytest
 from agent_build_kit.config import RepoConfig
 from agent_build_kit.pipeline import environment as environment_module
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.wiring import build_commit, build_restack_onto, build_worktree
+from agent_build_kit.pipeline.wiring import build_restack_onto, build_worktree
 from agent_build_kit.pipeline.workspaces import DirtyWorktree, changed_paths, discard_changes
 from tests.environment_fakes import FakeEnvironment, repo_config
+from tests.factories import commit_unit_work as commit
 from tests.factories import git, init_repo, unit
 
 MANIFEST = "manifest.toml"
@@ -121,11 +122,6 @@ def test_an_artifact_pattern_does_not_hide_a_sibling_that_only_shares_its_prefix
 
 def committed_files(tree: Path) -> list[str]:
     return git(tree, "show", "--name-only", "--format=", "HEAD").split()
-
-
-def commit(tree: Path, config: RepoConfig) -> None:
-    made = build_commit(unit_id=unit().id, repo=config, base="main")("feat: the work", cwd=tree)
-    assert made == 1
 
 
 @pytest.mark.parametrize("artifact", SHAPES)

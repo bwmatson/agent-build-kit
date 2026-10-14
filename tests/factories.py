@@ -8,16 +8,25 @@ imports these, rather than in a tenth near-copy.
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from typing import Any
 
+from agent_build_kit import openspec
+from agent_build_kit.config import RepoConfig
 from agent_build_kit.pipeline.shell import git_out as git
 from agent_build_kit.pipeline.tier2 import TestFailure, Tier2Result, build_snapshot
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import Unit, ready_units
+from agent_build_kit.pipeline.wiring import build_commit
 
 __all__ = [
+    "STOCK_CONFIG",
+    "commit",
+    "commit_files",
+    "commit_unit_work",
+    "fake_openspec",
     "follow_ups",
     "git",
     "init_repo",
@@ -168,3 +177,49 @@ def snapshot(output: str, *, failures: list[TestFailure] | None = None) -> str:
 
 def follow_ups(count: int) -> list[str]:
     return [f"follow-up {number:02d}: " + "f" * 60 for number in range(count)]
+
+
+def commit(repo: Path, name: str, content: str = "x") -> str:
+    """Write one file and commit everything, with the file's name in the message; the
+    new commit's sha."""
+    (repo / name).write_text(content)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", f"write {name}")
+    return git(repo, "rev-parse", "HEAD")
+
+
+def commit_files(repo: Path, message: str, files: dict[str, str]) -> None:
+    """Write each file (making its folders) and commit everything with this message."""
+    for name, content in files.items():
+        path = repo / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", message)
+
+
+def commit_unit_work(tree: Path, config: RepoConfig) -> None:
+    """Commit the tree's work through the pipeline's own commit step, which makes one commit."""
+    made = build_commit(unit_id=unit().id, repo=config, base="main")("feat: the work", cwd=tree)
+    assert made == 1
+
+
+STOCK_CONFIG = (
+    "schema: spec-driven\n\n# context: |\n#   ...\n# rules:\n#   proposal:\n#     - ...\n"
+)
+
+
+def fake_openspec(argv, *, cwd, **kwargs):
+    """A stand-in for the OpenSpec CLI: `init` writes the stock layout, `validate` passes
+    every change on disk, and anything else succeeds."""
+    args = argv[len(openspec.command()) :]
+    if args[0] == "init":
+        (cwd / "openspec" / "changes" / "archive").mkdir(parents=True)
+        (cwd / "openspec" / "specs").mkdir()
+        (cwd / "openspec" / "config.yaml").write_text(STOCK_CONFIG)
+        return subprocess.CompletedProcess(argv, 0, "ok", "")
+    if args[0] == "validate":
+        changes = sorted(p.name for p in (cwd / "openspec" / "changes").iterdir() if p.is_dir())
+        items = [{"id": n, "type": "change", "valid": True, "issues": []} for n in changes]
+        return subprocess.CompletedProcess(argv, 0, json.dumps({"items": items}), "")
+    return subprocess.CompletedProcess(argv, 0, f"ran {' '.join(args)}", "")

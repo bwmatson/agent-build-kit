@@ -3,32 +3,13 @@ with code: for tests of one step of the command."""
 
 from __future__ import annotations
 
-import json
-import subprocess
 from pathlib import Path
 
 import pytest
 
-from agent_build_kit import openspec
 from agent_build_kit.cli import init as init_cmd
 from agent_build_kit.init.detect import Host
-from tests.factories import git, init_repo
-
-STOCK_CONFIG = "schema: spec-driven\n"
-
-
-def fake_openspec(argv, *, cwd, **kwargs):
-    args = argv[len(openspec.command()) :]
-    if args[0] == "init":
-        (cwd / "openspec" / "changes" / "archive").mkdir(parents=True)
-        (cwd / "openspec" / "specs").mkdir()
-        (cwd / "openspec" / "config.yaml").write_text(STOCK_CONFIG)
-        return subprocess.CompletedProcess(argv, 0, "", "")
-    if args[0] == "validate":
-        changes = sorted(p.name for p in (cwd / "openspec" / "changes").iterdir() if p.is_dir())
-        items = [{"id": n, "type": "change", "valid": True, "issues": []} for n in changes]
-        return subprocess.CompletedProcess(argv, 0, json.dumps({"items": items}), "")
-    return subprocess.CompletedProcess(argv, 0, f"ran {' '.join(args)}", "")
+from tests.factories import fake_openspec, git, init_repo
 
 
 def claude_only(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -18,18 +18,11 @@ from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import branch_name, local_ref
 from agent_build_kit.pipeline.wiring import build_fetch, build_push, dev_stack_underneath
 from tests.conftest import make_installation
-from tests.factories import git, init_repo
+from tests.factories import commit, git, init_repo
 from tests.factories import unit as make_unit
 
 UNIT = make_unit("feature/2", repo="app")
 BRANCH = branch_name(UNIT)
-
-
-def commit(repo: Path, name: str) -> str:
-    (repo / name).write_text(f"{name}\n")
-    git(repo, "add", name)
-    git(repo, "commit", "-q", "-m", f"add {name}")
-    return git(repo, "rev-parse", "HEAD")
 
 
 def local_repo(path: Path) -> Path:

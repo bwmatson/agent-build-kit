@@ -10,18 +10,11 @@ from pathlib import Path
 from agent_build_kit.pipeline.events import build_base_tip, build_fork_point
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, UnitState, branch_name
-from tests.factories import git, init_repo, new_unit
+from tests.factories import commit, git, init_repo, new_unit
 
 PARENT = new_unit("parent/1", repo="app")
 CHILD = new_unit("child/1", repo="app", depends_on=("parent/1",))
 TRUNK_BASED = new_unit("solo/1", repo="app")
-
-
-def commit(repo: Path, name: str) -> str:
-    (repo / name).write_text(f"{name}\n")
-    git(repo, "add", name)
-    git(repo, "commit", "-q", "-m", f"add {name}")
-    return git(repo, "rev-parse", "HEAD")
 
 
 def repository(tmp_path: Path) -> Path:
