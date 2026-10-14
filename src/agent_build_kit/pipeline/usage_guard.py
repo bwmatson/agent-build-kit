@@ -28,7 +28,8 @@ where credits start paying.
    answers with both windows' utilization, their reset times, and the credits
    state. Undocumented, so it can change or disappear — which is why there is
    a fallback, and why anything unrecognised reads as unknown.
-2. **`~/.claude.json`'s `cachedUsageUtilization`**, the same numbers cached
+2. **Claude Code's state file** (`<account dir>/.claude.json` with an account
+   set, else `~/.claude.json`) and its `cachedUsageUtilization`, the same numbers cached
    locally. Only refreshed when an *interactive* session talks to the API — a
    headless run does not refresh it (verified) — so it is stale exactly when
    the runner is working alone, and readings past `MAX_ANCHOR_AGE` are
@@ -60,7 +61,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
-from agent_build_kit import telemetry
+from agent_build_kit import claude_account, telemetry
 from agent_build_kit.config import (
     CLAUDE_CODE,
     ClaudeLimitsConfig,
@@ -258,6 +259,16 @@ def _http_get_json(url: str, headers: dict[str, str]) -> object:
         return json.load(response)
 
 
+def _credentials_path() -> Path:
+    """The credentials file read by default: the account's when one is set, else the constant."""
+    return CREDENTIALS_PATH if claude_account.is_default() else claude_account.credentials_path()
+
+
+def _state_file() -> Path:
+    """Claude Code's own state file read by default: the account's when one is set."""
+    return DEFAULT_ANCHOR_PATH if claude_account.is_default() else claude_account.state_file()
+
+
 def read_oauth_token(path: Path | None = None) -> str | None:
     """Find Claude Code's stored OAuth token.
 
@@ -269,7 +280,7 @@ def read_oauth_token(path: Path | None = None) -> str | None:
         return from_env
 
     try:
-        raw = json.loads((path or CREDENTIALS_PATH).read_text())
+        raw = json.loads((path or _credentials_path()).read_text())
     except (OSError, ValueError):
         return None
 
@@ -438,7 +449,7 @@ def token_expired(path: Path | None = None, *, now: datetime | None = None) -> b
     False when that cannot be read: the refresh below is only for the state it
     is known to fix, not a general retry.
     """
-    path = path or CREDENTIALS_PATH
+    path = path or _credentials_path()
     try:
         raw = json.loads(path.read_text())
     except (OSError, ValueError):
@@ -728,8 +739,8 @@ def read_live_usage(
 
 
 def read_cached_usage(path: Path | None = None) -> UsageReading | None:
-    """Read Claude Code's own cache in ~/.claude.json, the fallback source."""
-    path = path or DEFAULT_ANCHOR_PATH
+    """Read Claude Code's own cache in its state file (the account's, else ~/.claude.json)."""
+    path = path or _state_file()
 
     try:
         raw = json.loads(path.read_text())
@@ -943,7 +954,7 @@ def may_start_unit(reading: UsageReading | None, *, trust_age: bool = False) -> 
         note = rate_limit_note()
         return Decision(
             may_start=False,
-            reason="usage is unknown: neither the usage endpoint nor ~/.claude.json could be read"
+            reason=f"usage is unknown: neither the usage endpoint nor {_state_file()} could be read"
             + (f" (the usage endpoint is {note})" if note else ""),
             resume_at=now + UNKNOWN_RETRY,
         )
