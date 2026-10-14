@@ -79,6 +79,15 @@ def server_error() -> urllib.error.HTTPError:
     )
 
 
+def faked_paths(home: Path) -> dict[str, Path]:
+    """The guard's credential and anchor paths, moved under `home` so no test reads the
+    developer's own files; the parent and a spawned asker both apply these."""
+    return {
+        "CREDENTIALS_PATH": home / "no-credentials.json",
+        "DEFAULT_ANCHOR_PATH": home / ".claude.json",
+    }
+
+
 class Host:
     def __init__(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         self.answers: list[object] = []
@@ -88,8 +97,8 @@ class Host:
         self.keep_in(self.home / ".cache" / "agent-build-kit")
         monkeypatch.setenv("HOME", str(self.home))
         monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", SECRET)
-        monkeypatch.setattr(usage_guard, "CREDENTIALS_PATH", self.home / "no-credentials.json")
-        monkeypatch.setattr(usage_guard, "DEFAULT_ANCHOR_PATH", self.home / ".claude.json")
+        for name, value in faked_paths(self.home).items():
+            monkeypatch.setattr(usage_guard, name, value)
         monkeypatch.setattr("urllib.request.urlopen", self.urlopen)
         monkeypatch.setattr("time.sleep", lambda _: None)
         config_module.activate(WorkspaceConfig(), None)

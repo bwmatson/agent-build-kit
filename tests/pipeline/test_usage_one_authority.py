@@ -21,24 +21,21 @@ from agent_build_kit.pipeline.file_lock import try_file_lock
 from agent_build_kit.pipeline.usage_guard import current_usage, held_usage, read_live_usage
 from agent_build_kit.pipeline.wiring import build_usage_gate
 from tests.otlp import Collector, enabled
-from tests.usage_host import Host, Response, configure, pause_at, payload
+from tests.usage_asker import asking_in_a_process, slow_urlopen
+from tests.usage_host import Host, configure, pause_at, payload
 
 # Long enough for every asker to arrive while the one that refreshes is still calling.
 CALL_SECONDS = 0.4
 ASKERS = 4
+# What the endpoint answers the one asker that calls it.
+ANSWER = {"session": 33.0}
 
 
-def slow_endpoint(monkeypatch: pytest.MonkeyPatch, calls: Path, **answer: object) -> None:
+def slow_endpoint(monkeypatch: pytest.MonkeyPatch, calls: Path, **answer: float) -> None:
     """The endpoint answers after a while, and every call made to it, in any process, is
     written to `calls`."""
 
-    def urlopen(request: object, timeout: float | None = None) -> Response:
-        with calls.open("a") as record:
-            record.write("call\n")
-        threading.Event().wait(CALL_SECONDS)
-        return Response(payload(**answer))  # type: ignore[arg-type]
-
-    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    monkeypatch.setattr("urllib.request.urlopen", slow_urlopen(calls, answer, CALL_SECONDS))
 
 
 def calls_made(calls: Path) -> int:
@@ -53,7 +50,7 @@ def test_several_threads_at_expiry_make_one_call_and_the_rest_are_served_the_las
 ) -> None:
     calls = tmp_path / "calls"
     host.keep_reading(timedelta(minutes=20), payload(session=14.0))
-    slow_endpoint(monkeypatch, calls, session=33.0)
+    slow_endpoint(monkeypatch, calls, **ANSWER)
     arrived = threading.Barrier(ASKERS)
     answers: list = []
 
@@ -76,12 +73,6 @@ def test_several_threads_at_expiry_make_one_call_and_the_rest_are_served_the_las
     assert {session for _, session in served} <= {14, 33}
 
 
-def asking_in_a_process(asks: int, results: "multiprocessing.Queue") -> None:
-    for _ in range(asks):
-        reading = read_live_usage()
-        results.put(None if reading is None else (reading.source, reading.session_pct))
-
-
 def test_an_asker_that_finds_the_lock_held_is_served_a_kept_reading_older_than_the_fallback_age(
     host: Host, exported: Collector
 ) -> None:
@@ -100,23 +91,33 @@ def test_an_asker_that_finds_the_lock_held_is_served_a_kept_reading_older_than_t
     assert cache_events(exported).get("wait") == 1
 
 
-def test_twenty_asks_from_several_processes_make_one_call(
-    host: Host, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_twenty_asks_from_several_processes_make_one_call(host: Host, tmp_path: Path) -> None:
     calls = tmp_path / "calls"
     host.keep_reading(timedelta(minutes=20), payload(session=14.0))
-    slow_endpoint(monkeypatch, calls, session=33.0)
-    context = multiprocessing.get_context("fork")
+    parked = threading.Event()
+    keeper = threading.Thread(target=parked.wait, daemon=True)
+    keeper.start()  # a thread alive, as the runner's are: a fork now warns on any machine
+    context = multiprocessing.get_context("spawn")
     results = context.Queue()
     processes = [
-        context.Process(target=asking_in_a_process, args=(5, results)) for _ in range(ASKERS)
+        context.Process(
+            target=asking_in_a_process,
+            args=(5, results, host.home, calls, ANSWER, CALL_SECONDS),
+        )
+        for _ in range(ASKERS)
     ]
-
-    for process in processes:
-        process.start()
-    answers = [results.get(timeout=30) for _ in range(20)]
-    for process in processes:
-        process.join(timeout=30)
+    try:
+        for process in processes:
+            process.start()
+        answers = [results.get(timeout=30) for _ in range(20)]
+    finally:
+        for process in processes:
+            process.join(timeout=30)
+            if process.is_alive():
+                process.terminate()
+                process.join()
+        parked.set()
+        keeper.join()
 
     assert calls_made(calls) == 1
     assert None not in answers
