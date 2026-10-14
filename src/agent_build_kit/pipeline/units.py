@@ -562,6 +562,28 @@ def satisfied_landed(unit: Unit, graph: Sequence[Unit]) -> bool:
     return landed(unit, frozenset())
 
 
+def earlier_units(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
+    """The units an acceptance or narrow `unit` follows beyond its stored dependencies: every
+    unit of its own change numbered before it that the plan has not dropped. Computed from the
+    change's units each time, so it needs no stored edge; a unit with no flag follows only the
+    chain and has none."""
+    if getattr(unit, "flag", "") not in ("acceptance", "narrow"):
+        return []
+    number = _number(unit)
+    return [
+        other
+        for other in graph
+        if other.change == unit.change
+        and other.id != unit.id
+        and other.state != UnitState.UNPLANNED
+        and _number(other) < number
+    ]
+
+
+def _number(unit: Unit) -> int:
+    return int(unit.id.rsplit("/", 1)[1])
+
+
 def waiting_on(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
     """The dependencies that stop `unit` starting now.
 
@@ -580,6 +602,10 @@ def waiting_on(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
     A planned unit that has never started also waits for all but one of its
     unrelated open parents (`second_open_parents`): it cannot build on two
     branches, so it builds on one and waits for the others.
+
+    An acceptance or narrow unit also waits for every earlier unit of its change
+    (`earlier_units`), by the rule a dependency on it would have; that adds waits
+    only, and leaves its base, depth and open parents to its stored dependencies.
     """
     index = _by_id(graph)
     waiting: list[Unit] = []
@@ -589,7 +615,9 @@ def waiting_on(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
             parent.state == SATISFIED and satisfied_landed(parent, graph)
         )
 
-    for dep in through_satisfied(unit, graph):
+    stored = through_satisfied(unit, graph)
+    followed = [other.id for other in earlier_units(unit, graph) if other.id not in stored]
+    for dep in (*stored, *followed):
         parent = index.get(dep)
         # A unit the plan dropped builds nothing, so nothing waits on it.
         if parent is None or parent.state == UnitState.UNPLANNED:

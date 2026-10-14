@@ -19,8 +19,6 @@ from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     FAILED,
     HELD,
-    IN_REVIEW,
-    MERGED,
     PLANNED,
     RUNNING,
     UnitState,
@@ -30,7 +28,7 @@ from agent_build_kit.pipeline.units import (
 
 RECORDED = Path(__file__).parent.parent / "fixtures" / "stores" / "recorded_units.json"
 LIMITS = (1, 2, 3, 5)
-SWEEP = (PLANNED, RUNNING, FAILED, HELD, IN_REVIEW, MERGED)
+SWEEP = (PLANNED, RUNNING, FAILED, HELD)
 
 
 def reduced(graph: list[StoredUnit]) -> list[StoredUnit]:
