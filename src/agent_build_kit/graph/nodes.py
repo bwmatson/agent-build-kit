@@ -82,6 +82,7 @@ from agent_build_kit.pipeline.stack_runner import (
     with_response,
 )
 from agent_build_kit.pipeline.tier2 import NO_TEST_RAN, Tier2Verdict
+from agent_build_kit.pipeline.tier2_schedule import is_scheduled
 from agent_build_kit.pipeline.unit_store import (
     Cause,
     ClosePending,
@@ -902,6 +903,16 @@ class BuildPath:
             state = state.model_copy(update=remembered)
             ref = self.ref(state)
             start = r.base_tip(tree, ref)
+        if is_scheduled(unit.change):
+            # No commits and no feedback to act on: the suite is its work, run on the
+            # default branch as it is now, or on the fix it was released onto. The branch
+            # never carries a commit of its own, so it is put on the base outright: a reused
+            # worktree would otherwise run the commit of the last run again.
+            r.fetch_quietly(unit)
+            r.reset_to(tree, ref, f"refs/spec-driven/pre-scheduled/{unit.id}")
+            start = r.base_tip(tree, ref)
+            self.say(f"scheduled run on {base}: straight to tier 2")
+            return {**FRESH, **remembered, "start": start, "tier2": True, "scheduled": True}
         existing = r.branch_commits(tree, ref)
         self.say(
             f"on {base}, {existing} commit(s) on the branch"
@@ -1707,7 +1718,9 @@ class BuildPath:
         ran_none = ok and r.tier2_ran_no_tests()
         self.say("tier 2 ran no test" if ran_none else f"tier 2 {'passed' if ok else 'failed'}")
         if ok:
-            return {"snapshot": snapshot, "tier2_ran_none": ran_none}
+            # Said while the run's result is at hand: `satisfied` may be resumed by a new runner.
+            note = r.tier2_passed_note() if state.scheduled else ""
+            return {"snapshot": snapshot, "tier2_ran_none": ran_none, "scheduled_note": note}
         for line in snapshot.splitlines():
             if "**Full output:**" in line:
                 self.say(line.strip("- ").replace("**", ""))
@@ -1759,8 +1772,9 @@ class BuildPath:
         the work its groups called for arrived another way. Judged on the branch
         and the checks, never on a step's report of itself."""
         r, unit = self.runner, self.unit
-        self.say("nothing to add and tier 1 passes — satisfied")
-        r.store.set_state(unit.id, SATISFIED, note="already implemented; tier 1 passed")
+        why = state.scheduled_note or "already implemented; tier 1 passed"
+        self.say(why if state.scheduled_note else "nothing to add and tier 1 passes — satisfied")
+        r.store.set_state(unit.id, SATISFIED, note=why)
         # A satisfied unit is done: nothing here should look like a build in progress.
         if r.store.get(unit.id).predecessor_note:
             r.store.set_predecessor_note(unit.id, "")
@@ -1771,7 +1785,7 @@ class BuildPath:
         # First: a dependent left on this unit's branch would be pointing at a
         # closed pull request. One that cannot be moved is logged, not raised,
         # and recorded on the unit, or it looks like a clean release.
-        note = "; ".join(["already implemented; tier 1 passed", *r.release_dependents(stored)])
+        note = "; ".join([why, *r.release_dependents(stored)])
         if note != stored.note:
             r.store.set_state(unit.id, SATISFIED, note=note)
         if stored.pr:
@@ -1792,7 +1806,7 @@ class BuildPath:
         self._forget_spec()
         return {
             "status": RunStatus.SATISFIED,
-            "detail": "already implemented; tier 1 passed",
+            "detail": why,
             "review_rounds": (),
             "pending_replies": (),
             "person_comments": "",
@@ -2216,6 +2230,8 @@ def halted(state: UnitRun) -> Node | None:
 def after_prepare(state: UnitRun) -> Node:
     if stop := halted(state):
         return stop
+    if state.scheduled:
+        return Node.TIER2
     if state.conflict:
         return Node.ADAPT
     if state.pushed_head and (
@@ -2282,6 +2298,8 @@ def after_tier2(state: UnitRun) -> Node:
         return stop
     if state.restack:
         return Node.PREPARE
+    if state.scheduled:
+        return Node.SATISFIED
     return Node.NEW_COMMENTS if state.moved else Node.VERIFY_BASE
 
 
@@ -2389,7 +2407,14 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
     ),
     Node.TIER2: (
         after_tier2,
-        (Node.HELD, Node.FAILED, Node.PREPARE, Node.VERIFY_BASE, Node.NEW_COMMENTS),
+        (
+            Node.HELD,
+            Node.FAILED,
+            Node.PREPARE,
+            Node.SATISFIED,
+            Node.VERIFY_BASE,
+            Node.NEW_COMMENTS,
+        ),
     ),
     Node.VERIFY_BASE: (
         after_verify_base,

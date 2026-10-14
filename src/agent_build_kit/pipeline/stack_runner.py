@@ -1382,6 +1382,8 @@ class UnitRunner(BaseModel):
     tier2_verdict: Callable[[], Tier2Verdict | None] = lambda: None
     # Whether the last tier 2 run ran no test, the unit having added or changed none.
     tier2_ran_no_tests: Callable[[], bool] = lambda: False
+    # What a scheduled unit's passing run says of itself, for its note.
+    tier2_passed_note: Callable[[], str] = lambda: "scheduled tier 2 passed"
     on_preexisting: Callable[..., str | None] = lambda unit, verdict, failure, *, wait: None
     # Whether the tier 2 run about to be made executes the whole marker (the one scope
     # function `Tier2Session.run` decides by), given the worktree and the base; only such a

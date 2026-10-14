@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_build_kit.config import ProjectConfig, Tier2UnitScope
+from agent_build_kit.pipeline.units import Unit
 from agent_build_kit.pipeline.wiring import Tier2Session
 from agent_build_kit.profiles.python_uv import PROFILE
 from tests.factories import git, init_repo, unit
@@ -23,11 +24,16 @@ WHOLE = PROFILE.tier2_commands(Path("."), marker="local_stack")[0]
 
 
 def branch(
-    tmp_path: Path, changed: dict[str, str], *, base_files: dict[str, str] | None = None
+    tmp_path: Path,
+    changed: dict[str, str] | None,
+    *,
+    base_files: dict[str, str] | None = None,
+    repo: Path | None = None,
 ) -> tuple[Path, str]:
-    """A repo whose base commit holds `base_files` and whose one further commit writes
-    `changed` over it. Returns the repo, left on that commit, and the base's sha."""
-    repo = init_repo(tmp_path / "repo")
+    """A repo (`repo`, or `repo` under `tmp_path`) whose base commit holds `base_files` and
+    whose one further commit writes `changed` over it; no `changed` stops at the base commit.
+    Returns the repo, left on its last commit, and the base's sha."""
+    repo = init_repo(repo or tmp_path / "repo")
     (repo / "pyproject.toml").write_text("[project]\nname = 'app'\n")
     for name, text in (base_files or {}).items():
         (repo / name).parent.mkdir(parents=True, exist_ok=True)
@@ -35,6 +41,8 @@ def branch(
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "base", "--allow-empty")
     base = git(repo, "rev-parse", "HEAD").strip()
+    if changed is None:
+        return repo, base
     for name, text in changed.items():
         (repo / name).parent.mkdir(parents=True, exist_ok=True)
         (repo / name).write_text(text)
@@ -70,10 +78,11 @@ def session(
     dev_stack: str | None = None,
     timeout: float = 5,
     profile: Any = None,
+    subject: Unit | None = None,
 ) -> Tier2Session:
     lines = log if log is not None else []
     return Tier2Session(
-        unit(tier="tier2"),
+        subject or unit(tier="tier2"),
         lock=tmp_path / "t2.lock",
         timeout=timeout,
         run=run,

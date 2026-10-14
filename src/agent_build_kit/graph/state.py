@@ -135,6 +135,8 @@ class UnitRun(Frozen):
         ""  # the base's tip when `prepare` began, which a held unit checks the base against
     )
     tier2: bool = False  # the unit is a tier 2 unit
+    scheduled: bool = False  # the unit is a scheduled run of the whole suite
+    scheduled_note: str = ""  # what its passing run says of itself, once tier 2 has passed
     conflict: Restacked | None = None  # a restack that could not be merged, for `adapt` to port
     spent: bool = False  # the review rounds ran out with points outstanding
     adopted: bool = False  # the next review follows a chat's commit and is round zero
