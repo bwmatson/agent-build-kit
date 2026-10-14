@@ -21,7 +21,13 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 from agent_build_kit.config import EnvironmentConfig, RepoConfig
-from agent_build_kit.pipeline.red_check import parse_report, split_report, wrap_report_command
+from agent_build_kit.pipeline.red_check import (
+    UNRECOGNISED_FAILURE,
+    parse_report,
+    passed_problem,
+    split_report,
+    wrap_report_command,
+)
 from agent_build_kit.pipeline.tier2 import TestFailure, TestTime, clip_failure_line
 from agent_build_kit.profiles import node_environment
 from agent_build_kit.profiles.base import ProfileUnsupported, PromptWords
@@ -63,6 +69,14 @@ def _report(output: str) -> ElementTree.Element | None:
         return parse_report(report)
     except ValueError:
         return None
+
+
+def _failure(case: ElementTree.Element) -> tuple[str, ElementTree.Element | None]:
+    """The `file > test` name of a `testcase` and its `failure` (or else `error`) element,
+    None when the test did not fail."""
+    name = " > ".join(p for p in (case.get("classname"), case.get("name")) if p)
+    bad = case.find("failure")
+    return name, bad if bad is not None else case.find("error")
 
 
 class NodeNpmProfile:
@@ -175,35 +189,29 @@ class NodeNpmProfile:
             return False, ["no test report was written, so the run cannot be judged"]
         suites = [s for s in root.iter("testsuite") if (s.get("name") or "") in given]
         problems: list[str] = []
-        failing = passed = 0
-        for case in (case for suite in suites for case in suite.iter("testcase")):
-            name = " > ".join(p for p in (case.get("classname"), case.get("name")) if p)
-            bad = case.find("failure")
-            if bad is None:
-                bad = case.find("error")
-            if bad is None:
-                passed += case.find("skipped") is None
-                continue
-            failing += 1
-            message = bad.get("message") or ""
-            if case.get("name") == case.get("classname"):
-                first = message.strip().split("\n", 1)[0]
-                problems.append(
-                    f"{name}: the test file could not be loaded, so no test failed for "
-                    f"the missing behaviour ({first})"
-                )
-            elif bad.get("type") != "AssertionError" and _NOT_IMPLEMENTED not in message:
-                problems.append(
-                    f"{name}: the failure is not one we recognise as "
-                    "'the behaviour isn't there yet'"
-                )
+        passed = 0
+        failed_in: set[str] = set()
+        for suite in suites:
+            for case in suite.iter("testcase"):
+                name, bad = _failure(case)
+                if bad is None:
+                    passed += case.find("skipped") is None
+                    continue
+                failed_in.add(suite.get("name") or "")
+                message = (bad.get("message") or "").strip()
+                if case.get("name") == case.get("classname"):
+                    first = message.split("\n", 1)[0]
+                    problems.append(
+                        f"{name}: the test file could not be loaded, so no test failed for "
+                        f"the missing behaviour ({first})"
+                    )
+                elif bad.get("type") != "AssertionError" and message != _NOT_IMPLEMENTED:
+                    problems.append(f"{name}: {UNRECOGNISED_FAILURE}")
         if passed:
-            problems.append(
-                f"{passed} test(s) passed at the tests commit — a test that passes "
-                "before its implementation exists is not testing that implementation"
-            )
-        if not failing:
-            problems.append("nothing failed at the tests commit in the given test files")
+            problems.append(passed_problem(passed))
+        problems += [
+            f"{file}: nothing failed at the tests commit" for file in sorted(given - failed_in)
+        ]
         return not problems, problems
 
     def parse_test_summary(self, output: str) -> tuple[int, int, int, float]:
@@ -229,12 +237,9 @@ class NodeNpmProfile:
             return []
         failures = []
         for case in root.iter("testcase"):
-            bad = case.find("failure")
-            if bad is None:
-                bad = case.find("error")
+            name, bad = _failure(case)
             if bad is None:
                 continue
-            name = " > ".join(p for p in (case.get("classname"), case.get("name")) if p)
             first = (bad.get("message") or "").strip().split("\n", 1)[0]
             failures.append(TestFailure(test=name, line=clip_failure_line(first)))
         return failures

@@ -57,6 +57,12 @@ CASES = {
         "a.test.ts",
         HEADER + "test('adds', () => {\n  expect(1).toBe(2);\n});\n",
     ),
+    "other_not_implemented": (
+        "i.test.ts",
+        HEADER
+        + "test('reads', () => {\n"
+        + "  throw new Error('the _read() method is not implemented');\n});\n",
+    ),
     "syntax_error": (
         "f.test.ts",
         HEADER + "test('parses', () => {\n  expect(1 +).toBe(1);\n});\n",

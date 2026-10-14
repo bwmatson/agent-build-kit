@@ -45,22 +45,39 @@ def test_a_test_failing_by_assertion_or_by_not_implemented_is_red(
 
 
 @pytest.mark.parametrize(
-    ("recording", "file"),
+    ("recording", "file", "reason"),
     [
-        ("missing_import", "c.test.ts"),
-        ("syntax_error", "f.test.ts"),
-        ("passing", "d.test.ts"),
-        ("empty", "a.test.ts"),
+        ("missing_import", "c.test.ts", "could not be loaded"),
+        ("syntax_error", "f.test.ts", "could not be loaded"),
+        ("passing", "d.test.ts", "passed"),
+        ("empty", "a.test.ts", "nothing failed"),
+        ("other_not_implemented", "i.test.ts", "not one we recognise"),
     ],
-    ids=["an unresolved import", "a syntax error", "a passing test", "an empty run"],
+    ids=[
+        "an unresolved import",
+        "a syntax error",
+        "a passing test",
+        "an empty run",
+        "an error that only mentions not implemented",
+    ],
 )
 def test_a_file_that_did_not_load_a_passing_test_or_an_empty_run_is_rejected_with_a_reason(
-    profile, project: Project, recording: str, file: str
+    profile, project: Project, recording: str, file: str, reason: str
 ) -> None:
     ok, problems = judge(profile, project, recording, [file])
 
     assert not ok
-    assert problems and all(problem.strip() for problem in problems)
+    assert any(reason in problem for problem in problems), problems
+
+
+def test_a_given_file_with_no_failing_test_is_named_when_another_given_file_is_red(
+    profile, project: Project
+) -> None:
+    """Every given file has to be red, not only one of them."""
+    ok, problems = judge(profile, project, "assertion_only", ["a.test.ts", "z.test.ts"])
+
+    assert not ok
+    assert any("z.test.ts" in problem and "nothing failed" in problem for problem in problems)
 
 
 def test_a_suite_from_a_file_that_was_not_given_is_ignored(profile, project: Project) -> None:

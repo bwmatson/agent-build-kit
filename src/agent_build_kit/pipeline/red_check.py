@@ -41,6 +41,17 @@ from agent_build_kit.model import Frozen
 COUNT = re.compile(r"(\d+) (passed|failed|error|errors|skipped)")
 NO_TESTS = re.compile(r"no tests ran|collected 0 items", re.IGNORECASE)
 
+UNRECOGNISED_FAILURE = "the failure is not one we recognise as 'the behaviour isn't there yet'"
+
+
+def passed_problem(count: int) -> str:
+    """The problem a red verdict names when `count` tests passed at the tests commit."""
+    return (
+        f"{count} test(s) passed at the tests commit — a test that passes "
+        "before its implementation exists is not testing that implementation"
+    )
+
+
 # Failures that mean "the behaviour isn't there yet", which is the point.
 ACCEPTED = (
     "AssertionError",
@@ -111,10 +122,7 @@ def interpret_pytest(output: str, *, exit_code: int) -> tuple[bool, list[str]]:
         ]
 
     if counts.get("passed"):
-        problems.append(
-            f"{counts['passed']} test(s) passed at the tests commit — a test that passes "
-            "before its implementation exists is not testing that implementation"
-        )
+        problems.append(passed_problem(counts["passed"]))
 
     failures = counts.get("failed", 0) + counts.get("error", 0)
     if not failures:
@@ -127,7 +135,7 @@ def interpret_pytest(output: str, *, exit_code: int) -> tuple[bool, list[str]]:
 
     if not any(marker in output for marker in ACCEPTED):
         problems.append(
-            "the failure is not one we recognise as 'the behaviour isn't there yet' "
+            f"{UNRECOGNISED_FAILURE} "
             "(expected an assertion failure, NotImplementedError, or a missing "
             "module/attribute)"
         )
@@ -217,16 +225,10 @@ def red_check(report: str) -> RedResult:
             if kind in ("SyntaxError", "IndentationError"):
                 problems.append(f"{name}: {REJECTED[kind]}")
             elif kind not in ACCEPTED_TYPES:
-                problems.append(
-                    f"{name}: the failure is not one we recognise as "
-                    "'the behaviour isn't there yet'"
-                )
+                problems.append(f"{name}: {UNRECOGNISED_FAILURE}")
 
     if passed:
-        problems.append(
-            f"{passed} test(s) passed at the tests commit — a test that passes "
-            "before its implementation exists is not testing that implementation"
-        )
+        problems.append(passed_problem(passed))
     if not failing:
         problems.append("nothing failed at the tests commit")
     return RedResult(
