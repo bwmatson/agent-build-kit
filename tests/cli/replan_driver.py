@@ -70,12 +70,14 @@ class Replan:
         monkeypatch: pytest.MonkeyPatch,
         *,
         limits: dict | None = None,
+        repos: dict | None = None,
         **changes: str,
     ) -> None:
         self.inst = make_installation(
             tmp_path / "planning",
             planning={"state_dir": ".", "worktree_root": str(tmp_path / "trees")},
             **({"limits": limits} if limits else {}),
+            **({"repos": repos} if repos else {}),
         )
         (self.inst.root / "abk.yaml").write_text(dump(self.inst.config))
         monkeypatch.chdir(self.inst.root)

@@ -161,6 +161,8 @@ class TaskGroup(Frozen):
     title: str
     line: int
     task_count: int
+    # The project of the repo the group's work belongs to, `.` for the root project.
+    project: str = "."
     # "contract", "narrow", "acceptance", or "" — see FLAGS.
     flag: str = ""
     # A `Separate: <reason>` line in the group: never carried by another
