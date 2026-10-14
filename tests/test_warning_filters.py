@@ -1,7 +1,9 @@
 """The pytest options make forking a multi-threaded process fail the test that does it
 (spec: test-determinism), and leave every other warning as it was."""
 
+import functools
 import re
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -91,7 +93,27 @@ def filtered(pytester: pytest.Pytester) -> pytest.Pytester:
     return pytester
 
 
-@pytest.mark.skipif(sys.version_info < (3, 12), reason="Python warns about this from 3.12")
+@functools.cache
+def interpreter_warns_on_threaded_fork() -> bool:
+    """Whether this interpreter raises the warning at all: 3.12 does, and not every later
+    release does under every start."""
+    probe = subprocess.run(
+        [
+            sys.executable,
+            "-W",
+            "error::DeprecationWarning",
+            "-c",
+            FORKS_WHILE_THREADED + "\ntest_forks()",
+        ],
+        capture_output=True,
+    )
+    return probe.returncode != 0
+
+
+@pytest.mark.skipif(
+    not interpreter_warns_on_threaded_fork(),
+    reason="this interpreter does not warn when a multi-threaded process forks",
+)
 def test_a_test_that_forks_while_another_thread_is_alive_fails_with_the_warning(
     filtered: pytest.Pytester,
 ) -> None:

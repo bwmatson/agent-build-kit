@@ -21,25 +21,19 @@ from agent_build_kit.pipeline.file_lock import try_file_lock
 from agent_build_kit.pipeline.usage_guard import current_usage, held_usage, read_live_usage
 from agent_build_kit.pipeline.wiring import build_usage_gate
 from tests.otlp import Collector, enabled
-from tests.usage_asker import asking_in_a_process
-from tests.usage_host import Host, Response, configure, pause_at, payload
+from tests.usage_asker import asking_in_a_process, slow_urlopen
+from tests.usage_host import Host, configure, pause_at, payload
 
 # Long enough for every asker to arrive while the one that refreshes is still calling.
 CALL_SECONDS = 0.4
 ASKERS = 4
 
 
-def slow_endpoint(monkeypatch: pytest.MonkeyPatch, calls: Path, **answer: object) -> None:
+def slow_endpoint(monkeypatch: pytest.MonkeyPatch, calls: Path, **answer: float) -> None:
     """The endpoint answers after a while, and every call made to it, in any process, is
     written to `calls`."""
 
-    def urlopen(request: object, timeout: float | None = None) -> Response:
-        with calls.open("a") as record:
-            record.write("call\n")
-        threading.Event().wait(CALL_SECONDS)
-        return Response(payload(**answer))  # type: ignore[arg-type]
-
-    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    monkeypatch.setattr("urllib.request.urlopen", slow_urlopen(calls, answer, CALL_SECONDS))
 
 
 def calls_made(calls: Path) -> int:
