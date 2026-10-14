@@ -27,6 +27,9 @@ from tests.chat_serving import (
 )
 from tests.factories import unit
 from tests.runtimes.claude_cli import SESSION, finished_build
+from tests.serve.socket_api import (
+    socket_api,  # noqa: F401 — a page closing is the subject: a socket
+)
 from tests.serving import seed_pipeline
 
 BUILD_SESSION = "0b7e1d52-9c3a-4f8e-b1d6-2a5c7e9f0d31"

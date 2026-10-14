@@ -6,12 +6,12 @@ import time
 from collections.abc import Iterator
 from pathlib import Path
 
-import httpx
 import pytest
+from fastapi.testclient import TestClient
 
 from agent_build_kit.config import dump
 from agent_build_kit.installation import Installation
-from agent_build_kit.serve.server import start_server
+from tests.chat_serving import in_process_client
 from tests.conftest import make_installation
 
 
@@ -29,9 +29,9 @@ def inst(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Installation:
 
 
 @pytest.fixture
-def api(inst: Installation) -> Iterator[httpx.Client]:
-    """A client of a server running over `inst`."""
-    with start_server(inst) as server, httpx.Client(base_url=server.url) as client:
+def api(inst: Installation) -> Iterator[TestClient]:
+    """A client calling the application over `inst` in-process: no server, no socket."""
+    with in_process_client(inst) as client:
         yield client
 
 

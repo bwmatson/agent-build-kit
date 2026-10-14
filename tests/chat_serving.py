@@ -45,10 +45,11 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import httpx
 import pytest
+from fastapi.testclient import TestClient
 
 from agent_build_kit import runtimes
 from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
@@ -59,6 +60,7 @@ from agent_build_kit.pipeline.transcript import Transcript, TranscriptEvent, tra
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.workspaces import worktree_path
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
+from agent_build_kit.serve.server import create_app
 from tests.factories import unit
 from tests.runtimes.acp_agent import EARLIER_TURN
 from tests.runtimes.claude_cli import FakeClaude
@@ -203,14 +205,29 @@ def holding_process(session: str) -> Iterator[int]:
         yield pid
 
 
-def events_of(response: httpx.Response) -> Iterator[dict[str, Any]]:
+class Streamed(Protocol):
+    """A streamed response, from the socket client or the in-process one."""
+
+    def iter_lines(self) -> Iterator[str]: ...
+
+
+def events_of(response: Streamed) -> Iterator[dict[str, Any]]:
     """The AG-UI events of a streamed response, as they arrive."""
     for line in response.iter_lines():
         if line.startswith("data:"):
             yield json.loads(line.removeprefix("data:").strip())
 
 
-def turn(api: httpx.Client, url: str, body: dict[str, Any]) -> list[dict[str, Any]]:
+@contextmanager
+def in_process_client(installation: Installation) -> Iterator[TestClient]:
+    """A client calling the application over `installation` as a function call: no server,
+    no thread serving, no socket."""
+    # A failing handler answers 500, as it does to a client of a server, not an exception.
+    with TestClient(create_app(installation), raise_server_exceptions=False) as client:
+        yield client
+
+
+def turn(api: httpx.Client | TestClient, url: str, body: dict[str, Any]) -> list[dict[str, Any]]:
     """Send a turn and read its whole reply."""
     with api.stream("POST", url, json=body, timeout=WAIT) as response:
         assert response.status_code == 200, response.read()

@@ -2,12 +2,16 @@
 a unit's worktree, and a session started elsewhere is listed and continued.
 
 Claude is the `claude` binary faked at its stream-json boundary, with the editor's session
-files and the process holding one as they are on a machine; ACP is a real agent process
-(`tests/runtimes/acp_agent.py`). See `tests/chat_serving.py` for the endpoints.
+files and the process holding one as they are on a machine; ACP is an in-process fake
+agent (`tests/runtimes/in_process_acp.py`), except where the agent process is the point, which
+the stub agent (`tests/runtimes/acp_agent.py`) serves. See `tests/chat_serving.py` for the
+endpoints.
 """
 
 from __future__ import annotations
 
+import asyncio
+import subprocess
 import uuid
 from pathlib import Path
 from typing import Any
@@ -38,6 +42,7 @@ from tests.runtimes.acp_agent import (
 )
 from tests.runtimes.claude_cli import SESSION as FAKE_CLAUDE_SESSION
 from tests.runtimes.claude_cli import finished_build
+from tests.runtimes.in_process_acp import use_in_process_agent
 from tests.serving import seed_pipeline
 
 # A session id on a command line (an editor holding it, a fake agent listing it) is seen by
@@ -174,11 +179,11 @@ def test_a_new_claude_session_for_a_unit_starts_in_its_worktree_on_the_chosen_mo
 
 
 def test_a_new_acp_session_for_a_unit_starts_in_its_worktree_on_the_chosen_model(
-    pipeline: Installation, tmp_path: Path, api: httpx.Client
+    pipeline: Installation, tmp_path: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     tree = unit_worktree(pipeline, "feature/2")
     record = tmp_path / "agent.jsonl"
-    use_agent(record)
+    use_in_process_agent(monkeypatch, record)
     assert DEFAULT_MODEL != "deep-2"
 
     turn(
@@ -283,11 +288,11 @@ def test_an_acp_session_the_agent_lists_is_resumed_in_place(
 
 
 def test_an_acp_session_the_agent_cannot_load_is_read_only_and_says_how_to_go_on(
-    pipeline: Installation, tmp_path: Path, api: httpx.Client
+    pipeline: Installation, tmp_path: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     unit_worktree(pipeline, "feature/2")
     recorded_acp_session(pipeline, OLD_ACP)
-    use_agent(tmp_path / "agent.jsonl")
+    use_in_process_agent(monkeypatch, tmp_path / "agent.jsonl")
 
     opened = api.get(f"/api/sessions/acp/{OLD_ACP}").json()
 
@@ -298,12 +303,12 @@ def test_an_acp_session_the_agent_cannot_load_is_read_only_and_says_how_to_go_on
 
 
 def test_continuing_it_starts_a_new_session_seeded_with_the_history(
-    pipeline: Installation, tmp_path: Path, api: httpx.Client
+    pipeline: Installation, tmp_path: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     unit_worktree(pipeline, "feature/2")
     recorded_acp_session(pipeline, OLD_ACP)
     record = tmp_path / "agent.jsonl"
-    use_agent(record)
+    use_in_process_agent(monkeypatch, record)
 
     turn(api, f"/api/sessions/acp/{OLD_ACP}/continue", {"tab": "t1", "prompt": "Carry on."})
 
@@ -317,11 +322,13 @@ def test_continuing_it_starts_a_new_session_seeded_with_the_history(
 
 
 def test_an_acp_session_the_agent_does_not_list_is_read_only_though_it_can_resume(
-    pipeline: Installation, tmp_path: Path, api: httpx.Client
+    pipeline: Installation, tmp_path: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     unit_worktree(pipeline, "feature/2")
     recorded_acp_session(pipeline, OLD_ACP)
-    use_agent(tmp_path / "agent.jsonl", resume=True, list_sessions=True, sessions=())
+    use_in_process_agent(
+        monkeypatch, tmp_path / "agent.jsonl", resume=True, list_sessions=True, sessions=()
+    )
 
     opened = api.get(f"/api/sessions/acp/{OLD_ACP}").json()
 
@@ -331,11 +338,13 @@ def test_an_acp_session_the_agent_does_not_list_is_read_only_though_it_can_resum
 
 
 def test_continuing_a_session_the_agent_does_not_list_says_it_became_a_new_one(
-    pipeline: Installation, tmp_path: Path, api: httpx.Client
+    pipeline: Installation, tmp_path: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     unit_worktree(pipeline, "feature/2")
     recorded_acp_session(pipeline, OLD_ACP)
-    use_agent(tmp_path / "agent.jsonl", resume=True, list_sessions=True, sessions=())
+    use_in_process_agent(
+        monkeypatch, tmp_path / "agent.jsonl", resume=True, list_sessions=True, sessions=()
+    )
 
     events = turn(api, f"/api/sessions/acp/{OLD_ACP}/continue", {"tab": "t1", "prompt": "Go on."})
 
@@ -343,11 +352,11 @@ def test_continuing_a_session_the_agent_does_not_list_says_it_became_a_new_one(
 
 
 def test_a_seeded_turns_question_is_kept_under_the_new_session_and_not_the_first(
-    pipeline: Installation, tmp_path: Path, api: httpx.Client
+    pipeline: Installation, tmp_path: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     unit_worktree(pipeline, "feature/2")
     recorded_acp_session(pipeline, OLD_ACP)
-    use_agent(tmp_path / "agent.jsonl")
+    use_in_process_agent(monkeypatch, tmp_path / "agent.jsonl")
 
     turn(api, f"/api/sessions/acp/{OLD_ACP}/continue", {"tab": "t1", "prompt": "Carry on."})
 
@@ -369,3 +378,23 @@ def test_a_units_recorded_claude_session_continued_from_the_sessions_page_keeps_
 
     argv = fake.calls[0][0]
     assert argv[argv.index("--model") + 1] == "opus"
+
+
+def test_listing_reading_and_continuing_a_session_start_no_subprocess(
+    pipeline: Installation, tmp_path: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse(*args: object, **kwargs: object) -> None:
+        raise AssertionError("a test of the sessions page started a process")
+
+    unit_worktree(pipeline, "feature/2")
+    recorded_acp_session(pipeline, OLD_ACP)
+    use_in_process_agent(monkeypatch, tmp_path / "agent.jsonl")
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", refuse)
+    monkeypatch.setattr(asyncio, "create_subprocess_shell", refuse)
+    with monkeypatch.context() as listing:
+        # Listing and reading run nothing at all; a turn runs git, never an agent.
+        listing.setattr(subprocess, "Popen", refuse)
+        assert listed(api)[OLD_ACP]["runtime"] == "acp"
+        assert api.get(f"/api/sessions/acp/{OLD_ACP}").json()["read_only"] is True
+    events = turn(api, f"/api/sessions/acp/{OLD_ACP}/continue", {"tab": "t1", "prompt": "Go on."})
+    assert any(e["type"] == "CUSTOM" and e["name"] == "session" for e in events)

@@ -34,6 +34,9 @@ from tests.chat_serving import (
     use_claude,
 )
 from tests.runtimes.claude_cli import FakeClaude, finished_build
+from tests.serve.socket_api import (
+    socket_api,  # noqa: F401 — a page closing is the subject: a socket
+)
 from tests.serving import seed_pipeline
 
 pytestmark = pytest.mark.serial
