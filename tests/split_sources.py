@@ -9,7 +9,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from tests.conftest import make_installation
 
-__all__ = ["source_installation", "write_change", "write_spec", "write_units"]
+__all__ = ["snapshot_tree", "source_installation", "write_change", "write_spec", "write_units"]
 
 
 def source_installation(root: Path, **projects: Sequence[str]) -> Installation:
@@ -69,3 +69,10 @@ def write_units(source: Installation, *units: StoredUnit) -> UnitStore:
         if unit.state != "planned":
             store.set_state(unit.id, unit.state)
     return store
+
+
+def snapshot_tree(root: Path) -> dict[str, bytes]:
+    """Every file under `root` by relative path, to compare a tree before and after."""
+    return {
+        str(p.relative_to(root)): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()
+    }
