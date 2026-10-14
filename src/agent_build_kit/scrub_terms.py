@@ -130,11 +130,8 @@ def scrub_text(text: str, terms: list[str], *, replacement: str = "<redacted>") 
     """`text` with every term replaced, case-insensitively and longest first."""
     if not terms:
         return text
-    # A term inside the replacement would match its own output, and a second pass would corrupt it.
-    ordered = sorted(
-        {t for t in terms if t.lower() not in replacement.lower()}, key=lambda t: (-len(t), t)
-    )
-    if not ordered:
-        return text
-    pattern = re.compile("|".join(re.escape(t) for t in ordered), re.IGNORECASE)
+    # The placeholder is the first alternative, so one already in the text is consumed whole and
+    # re-emitted unchanged, even when a term is a piece of it: a second pass changes nothing.
+    ordered = sorted(set(terms), key=lambda t: (-len(t), t))
+    pattern = re.compile("|".join(re.escape(t) for t in [replacement, *ordered]), re.IGNORECASE)
     return pattern.sub(lambda _: replacement, text)
