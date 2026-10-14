@@ -523,20 +523,20 @@ an installation rather than reading one. Step by step in [init.md](init.md).
   A fix that exits non-zero is reported with its status and the check still
   runs again; one that exits 0 and changes nothing prints `the fix made no
   change; still not refused: <spellings>`; a pass is only reported when the
-  second check showed it. An agent with neither a fix nor an applier offers three
+  second check showed it. An agent with neither a fix nor an applier offers two
   choices, none guessed (and the menu says `abk policy patterns` prints the
   recommended patterns to place in its configuration yourself): rely on abk's own protocol layer (it sees what the agent asks
-  about, not what it never asks about), supply a fix command (an existing
-  executable, recorded as `policy_fix`), or continue without
-  (`policy: unchecked`, an entry doctor warns about). With `--yes` a configured fix, or the kit's recommended policy, is only
+  about, not what it never asks about), or supply a fix command (an existing
+  executable, recorded as `policy_fix`). With `--yes` a configured fix, or the kit's recommended policy, is only
   named, never run, unless `--policy-fix` or `--run-policy-fix` is also given. No answer is
   kept between runs; each check reads the file again.
 - `--policy-only` runs just that step on an existing installation: it reads
   `abk.yaml`, detects no repo, runs no research or propose and makes no
   commit; `--runtime NAME` names another entry already in the file. It writes
-  `runtimes.<name>.policy_fix` or `policy: unchecked` only when you chose to
+  `runtimes.<name>.policy_fix` only when you chose to
   record it in this run. Exit 0 when the check passes after the step, 1 when a
-  class is still not refused or a token-spending check was declined, 2 with no
+  class is still not refused, the configuration is absent or unreadable, or the
+  agent cannot be checked (`cannot check: abk has no policy for this agent`), 2 with no
   `abk.yaml`, an unknown runtime or a flag that cannot combine with it
   (`--repo`, `--consumes`, `--update-rules`, `--force`, `--dry-run`, the
   runtime-answer flags), writing nothing. When it passes on an entry marked

@@ -22,7 +22,9 @@ REMOVED = {
     "a probe that prompts the agent": re.compile(
         r"probe run|a probe costs|check that prompts the agent|whose check prompts", re.I
     ),
-    "a token question for the check": re.compile(r"spends tokens|policy_check_prompts_agent", re.I),
+    "a token question for the check": re.compile(
+        r"spends tokens|token-spending|policy_check_prompts_agent", re.I
+    ),
     "--live": re.compile(r"--live\b"),
     "policy_probe_seconds": re.compile(r"policy_probe_seconds"),
     "a 15-minute cache": re.compile(r"15 minutes|policy-check\.json", re.I),
@@ -54,3 +56,10 @@ def test_no_document_describes_the_removed_probe():
     }
     found = {name: paths for name, paths in found.items() if paths}
     assert not found, f"still described: {found}"
+
+
+def test_the_changelog_names_the_check_and_says_the_live_probe_is_gone():
+    text = (ROOT / "CHANGELOG.md").read_text()
+    unreleased = " ".join(text.split("## Unreleased", 1)[1].split("\n## ", 1)[0].split())
+    assert "abk policy check" in unreleased
+    assert re.search(r"live probe[^.]*\bremoved\b", unreleased)
