@@ -1380,7 +1380,7 @@ the runtime reported it (`cumulative_usd`), `basis` and, where a gateway's figur
 instead, the runtime's own incremental figure (`reported_usd`). `basis` is one of `reported` (the
 runtime gave the call's own figure), `derived` (the difference of two cumulative figures),
 `first` (the session's first call, baseline 0), `unknown` (a resumed call with no known
-baseline: no incremental figure, never the total), `backfilled` or `legacy`. A running total
+baseline: no incremental figure, never the total), `backfilled` (a row repaired once from a running total) or `legacy`. A running total
 (a Claude Code result's `total_cost_usd`, an ACP `usage_update` amount) becomes an increment
 against the session's previous total, kept on the recorded `AgentSession` and, failing that,
 read from the ledger's last record with the same session id; a total below the baseline starts a
