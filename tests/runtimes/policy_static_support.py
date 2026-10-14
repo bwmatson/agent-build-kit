@@ -38,10 +38,16 @@ def agent_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def write_config(home: Path, deny: list[str] | str) -> Path:
-    """The first known agent's configuration file holding `deny` (JSON is YAML)."""
+    """The first known agent's configuration file holding `deny`: a block list of
+    double-quoted scalars (JSON strings are valid YAML ones), or `deny` as it is when a string."""
     assert FIRST.apply is not None
     path = home / FIRST.apply.file
-    path.write_text(json.dumps({"approvals": {"deny": deny}}))
+    if isinstance(deny, str):
+        body = f"  deny: {json.dumps(deny)}\n"
+    else:
+        body = "  deny:\n" + "".join(f"    - {json.dumps(item)}\n" for item in deny)
+        body = body if deny else "  deny: []\n"
+    path.write_text(f"approvals:\n{body}")
     return path
 
 

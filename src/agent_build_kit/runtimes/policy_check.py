@@ -17,9 +17,12 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from agent_build_kit.pipeline.command_spellings import SPELLINGS, SpellingName
 from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.runtimes.base import AgentRuntime, PolicyReport, SpellingResult
-from agent_build_kit.runtimes.known_agents import agent_for_command
+from agent_build_kit.runtimes.known_agents import RUNTIME_NAME, agent_for_command
+from agent_build_kit.runtimes.policy_apply import ApplyRefused, held, resolve_home
+from agent_build_kit.runtimes.recommended_policy import UNCOVERED, matches
 
 if TYPE_CHECKING:
     from agent_build_kit.config import RuntimeConfig
@@ -67,11 +70,65 @@ def checked(
     return report
 
 
+LABEL = "what the configuration says, in abk's dialect; not observed from the agent"
+NO_POLICY = "cannot check: abk has no policy for this agent"
+UNCOVERED_LABELS = frozenset(u.label for u in UNCOVERED)
+
+
+def _cannot(reason: str) -> PolicyReport:
+    return PolicyReport(ok=False, cannot_check=reason, source=LABEL)
+
+
 def check_policy(
     runtime: AgentRuntime, entry: RuntimeConfig, installation: Installation
 ) -> PolicyReport:
-    """Whether the agent's configuration refuses what abk forbids."""
-    raise NotImplementedError
+    """Whether the agent's own configuration refuses what abk forbids, judged with the
+    kit's matcher (`recommended_policy.matches`) over every command the probe lists.
+
+    A runtime that is not the protocol one answers on its own. The agent is never started,
+    and nothing is kept: every call reads the file again."""
+    if runtime.name != RUNTIME_NAME:
+        return runtime.check_policy(installation.root)
+    agent = agent_for_command(entry.command or [])
+    if agent is None or agent.apply is None:
+        return _cannot(NO_POLICY)
+    descriptor = agent.apply
+    home = resolve_home(descriptor, installation.env_file)
+    try:
+        found = held(descriptor, home)
+    except ApplyRefused as exc:
+        return _cannot(str(exc))
+    if found is None:
+        return _cannot(
+            f"no configuration at {home / descriptor.file}; the agent is not installed or "
+            f"its home is elsewhere (set {descriptor.home_env})"
+        )
+
+    from agent_build_kit.runtimes.acp import PROBE_CLASSES  # needs the protocol library
+
+    spelled = {s.command: s.name.value for rows in SPELLINGS.values() for s in rows}
+    results = []
+    for command, label in PROBE_CLASSES:
+        by = next((p for p in found.deny if matches(p, command)), "")
+        results.append(
+            SpellingResult(
+                label=label,
+                spelling=spelled.get(command, SpellingName.PLAIN.value),
+                command=command,
+                refused=bool(by),
+                by=by,
+                by_design=label in UNCOVERED_LABELS,
+            )
+        )
+    # A plain spelling not refused reads as its class; another names itself.
+    unenforced = tuple(
+        r.label if r.spelling == SpellingName.PLAIN else f"{r.label} (as {r.command})"
+        for r in results
+        if not r.refused and not r.by_design
+    )
+    return PolicyReport(
+        ok=not unenforced, unenforced=unenforced, results=tuple(results), source=LABEL
+    )
 
 
 def cache_path(inst: Installation) -> Path:
@@ -90,7 +147,7 @@ def describe(report: PolicyReport, *, also: Collection[str] = ()) -> str:
         classes.setdefault(result.label, []).append(result)
     clauses = []
     for label, results in classes.items():
-        unrefused = [f"`{r.command}`" for r in results if not r.refused]
+        unrefused = [f"`{r.command}`" for r in results if not r.refused and not r.by_design]
         if not unrefused and label not in also:
             continue
         refused = [f"`{r.command}`" for r in results if r.refused]
@@ -104,8 +161,9 @@ def describe(report: PolicyReport, *, also: Collection[str] = ()) -> str:
 
 
 def unrefused(report: PolicyReport) -> list[SpellingResult]:
-    """The spellings a report found not refused, in table order."""
-    return [r for r in report.results if not r.refused]
+    """The spellings a report found not refused, in table order; a class the recommendation
+    leaves to the person is not among them."""
+    return [r for r in report.results if not r.refused and not r.by_design]
 
 
 def classes_of(report: PolicyReport) -> set[str]:

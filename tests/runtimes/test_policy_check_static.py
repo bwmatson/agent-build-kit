@@ -128,7 +128,7 @@ def test_an_absent_configuration_cannot_be_checked(home: Path, installation: Ins
 
 @pytest.mark.parametrize(
     ("text", "reason"),
-    [("approvals: [unclosed", ""), ('{"approvals": {"deny": "git push"}}', "not a list")],
+    [("approvals: [unclosed", ""), ("approvals:\n  deny: git push\n", "not a list")],
 )
 def test_a_configuration_that_cannot_be_read_cannot_be_checked(
     home: Path, installation: Installation, text: str, reason: str

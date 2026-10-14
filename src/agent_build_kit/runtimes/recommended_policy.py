@@ -3,8 +3,8 @@
 Per forbidden class: the command globs that refuse it, the samples they must and
 must not match, and what the recommendation does not cover. The commands are the
 spellings table's (`pipeline.command_spellings`); only what a glob alone can show
-is written here. `matches` is a reference matcher, an approximation of an agent's
-own: the live policy check is the confirmation.
+is written here. `matches` is the policy check's matcher: the check judges an agent's
+configuration with it.
 """
 
 from __future__ import annotations
