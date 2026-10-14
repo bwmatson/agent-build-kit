@@ -1,48 +1,13 @@
-"""The pytest options make forking a multi-threaded process fail the test that does it
-(spec: test-determinism), and leave every other warning as it was."""
+"""A test that forks a multi-threaded process fails, and every other warning is left as it
+was (spec: test-determinism). The guard is the plugin `tests.fork_warning_guard`: CPython
+drops the exception a `filterwarnings = error` entry would raise for this warning."""
 
-import functools
-import re
-import subprocess
-import sys
-import tomllib
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-
-# What Python 3.12 says when a process that has a second thread forks.
-FORK_WARNING = (
-    "This process (pid=4242) is multi-threaded, use of fork() may lead to deadlocks in the child."
-)
 OTHER_WARNING = "an unrelated deprecation"
-
-
-def configured_filters() -> list[str]:
-    options = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["pytest"]["ini_options"]
-    return options.get("filterwarnings", [])
-
-
-def fork_filter() -> str:
-    for entry in configured_filters():
-        action, message, category, *_ = [*entry.split(":"), "", ""]
-        if (
-            action.strip() == "error"
-            and category.strip() == "DeprecationWarning"
-            and re.match(message, FORK_WARNING)
-            and not re.match(message, OTHER_WARNING)
-        ):
-            return entry
-    pytest.fail(
-        "[tool.pytest.ini_options] filterwarnings has no entry that turns the "
-        f"multi-threaded-fork DeprecationWarning into an error; it holds {configured_filters()!r}"
-    )
-
-
-def test_the_multi_threaded_fork_warning_is_an_error_in_the_pytest_options() -> None:
-    assert fork_filter()
-
 
 FORKS_WHILE_THREADED = """
 import os, threading
@@ -86,63 +51,43 @@ def test_warns():
 """
 
 
-@pytest.fixture
-def filtered(pytester: pytest.Pytester) -> pytest.Pytester:
-    entries = "\n    ".join(configured_filters())
-    pytester.makeini(f"[pytest]\nfilterwarnings =\n    {entries}\n")
-    return pytester
+def run_with_the_guard(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> pytest.RunResult:
+    monkeypatch.setenv("PYTHONPATH", str(ROOT))
+    return pytester.runpytest_subprocess("-p", "tests.fork_warning_guard", "-p", "no:cacheprovider")
 
 
-@functools.cache
-def interpreter_warns_on_threaded_fork() -> bool:
-    """Whether this interpreter raises the warning at all: 3.12 does, and not every later
-    release does under every start."""
-    probe = subprocess.run(
-        [
-            sys.executable,
-            "-W",
-            "error::DeprecationWarning",
-            "-c",
-            FORKS_WHILE_THREADED + "\ntest_forks()",
-        ],
-        capture_output=True,
-    )
-    return probe.returncode != 0
+def test_the_repositorys_tests_run_with_the_guard(pytestconfig: pytest.Config) -> None:
+    assert pytestconfig.pluginmanager.has_plugin("tests.fork_warning_guard")
 
 
-@pytest.mark.skipif(
-    not interpreter_warns_on_threaded_fork(),
-    reason="this interpreter does not warn when a multi-threaded process forks",
-)
 def test_a_test_that_forks_while_another_thread_is_alive_fails_with_the_warning(
-    filtered: pytest.Pytester,
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    fork_filter()
-    filtered.makepyfile(test_forking=FORKS_WHILE_THREADED)
+    pytester.makepyfile(test_forking=FORKS_WHILE_THREADED)
 
-    result = filtered.runpytest_subprocess("-p", "no:cacheprovider")
+    result = run_with_the_guard(pytester, monkeypatch)
 
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(["*multi-threaded, use of fork() may lead to deadlocks*"])
 
 
 def test_a_test_that_spawns_while_another_thread_is_alive_passes(
-    filtered: pytest.Pytester,
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    fork_filter()
-    filtered.makepyfile(test_spawning=SPAWNS_WHILE_THREADED)
+    pytester.makepyfile(test_spawning=SPAWNS_WHILE_THREADED)
 
-    result = filtered.runpytest_subprocess("-p", "no:cacheprovider")
+    result = run_with_the_guard(pytester, monkeypatch)
 
     result.assert_outcomes(passed=1)
 
 
 def test_another_deprecation_warning_is_reported_and_does_not_fail(
-    filtered: pytest.Pytester,
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    fork_filter()
-    filtered.makepyfile(test_other=OTHER_DEPRECATION)
+    pytester.makepyfile(test_other=OTHER_DEPRECATION)
 
-    result = filtered.runpytest_subprocess("-p", "no:cacheprovider")
+    result = run_with_the_guard(pytester, monkeypatch)
 
     result.assert_outcomes(passed=1, warnings=1)

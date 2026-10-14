@@ -11,7 +11,7 @@ from agent_build_kit import config as config_module
 from agent_build_kit.config import WorkspaceConfig
 from agent_build_kit.pipeline import usage_guard
 from agent_build_kit.pipeline.usage_guard import read_live_usage
-from tests.usage_host import Response, payload
+from tests.usage_host import Response, faked_paths, payload
 
 
 def slow_urlopen(calls: Path, answer: dict, call_seconds: float) -> Callable[..., Response]:
@@ -35,8 +35,8 @@ def asking_in_a_process(
     answer: dict,
     call_seconds: float,
 ) -> None:
-    usage_guard.CREDENTIALS_PATH = home / "no-credentials.json"
-    usage_guard.DEFAULT_ANCHOR_PATH = home / ".claude.json"
+    for name, value in faked_paths(home).items():
+        setattr(usage_guard, name, value)
     urllib.request.urlopen = slow_urlopen(calls, answer, call_seconds)  # type: ignore[assignment]
     config_module.activate(WorkspaceConfig(), None)
     for _ in range(asks):

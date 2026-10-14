@@ -86,10 +86,6 @@ markers = [
     "serial: cannot share a process with other tests; excluded from the parallel pass and run by its own serial pass of `poe test`",
 ]
 addopts = "-m 'not integration and not local_stack'"
-# A fork of a multi-threaded process can hang its child; tests start processes with `spawn`.
-filterwarnings = [
-    "error:This process .* is multi-threaded, use of fork\\(\\) may lead to deadlocks in the child:DeprecationWarning",
-]
 
 [tool.poe.tasks]
 format = { sequence = [
