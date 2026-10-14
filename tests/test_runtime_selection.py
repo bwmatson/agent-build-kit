@@ -23,6 +23,8 @@ from agent_build_kit.installation import load_installation
 from agent_build_kit.settings import Settings, reload, settings
 from tests.runtimes.selectable import SelectableRuntime, select
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
 FLAT_MODELS = "models:\n  implement: opus\n  rework: opus\n  review: opus\n  rework_review: opus\n"
 
 # A second runtime's names for the same roles, in its own block.
@@ -65,7 +67,7 @@ def machine_runtime(monkeypatch: pytest.MonkeyPatch):
 def test_a_file_naming_neither_key_runs_on_claude_code_with_its_own_models(
     tmp_path: Path,
 ) -> None:
-    path = write(tmp_path, "models:\n  implement: sonnet\n  review: haiku\n")
+    path = write(tmp_path, "models:\n  implement: haiku\n  review: haiku\n")
 
     loaded = activate(path)
 
@@ -73,7 +75,7 @@ def test_a_file_naming_neither_key_runs_on_claude_code_with_its_own_models(
     assert loaded.runtimes == {}
     assert runtimes.active().name == "claude_code"
     models = config.models()
-    assert (models.implement, models.review) == ("sonnet", "haiku")
+    assert (models.implement, models.review) == ("haiku", "haiku")
     assert (models.rework, models.rework_review) == ("sonnet", "opus")
 
 
@@ -164,6 +166,43 @@ def test_the_machine_s_model_overrides_still_win(
     monkeypatch.setattr(settings, "review_model", "this-machine")
 
     assert config.models().review == "this-machine"
+
+
+def test_a_flat_block_naming_one_role_leaves_the_others_the_new_defaults(tmp_path: Path) -> None:
+    activate(write(tmp_path, "models:\n  implement: haiku\n"))
+
+    models = config.models()
+
+    assert models.implement == "haiku"
+    assert (models.rework, models.review, models.rework_review) == ("sonnet", "opus", "opus")
+
+
+def test_a_machine_override_wins_and_the_other_roles_keep_the_new_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    activate(write(tmp_path, "runtime: claude_code\n"))
+    monkeypatch.setattr(settings, "review_model", "this-machine")
+
+    models = config.models()
+
+    assert models.review == "this-machine"
+    assert (models.implement, models.rework, models.rework_review) == ("sonnet", "sonnet", "opus")
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        "docs/configuration.md",
+        "docs/agent-runtimes.md",
+        "docs/architecture.md",
+        "src/agent_build_kit/skills/abk-config/SKILL.md",
+    ],
+)
+def test_no_document_states_the_earlier_defaults(document: str) -> None:
+    text = (REPO_ROOT / document).read_text()
+
+    for earlier in ("implement: opus", "rework: opus", "rework_review: fable"):
+        assert earlier not in text
 
 
 # --- a selection that cannot work --------------------------------------------------------

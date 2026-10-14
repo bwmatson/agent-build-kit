@@ -736,9 +736,14 @@ def test_the_build_runs_on_sonnet(tmp_path: Path) -> None:
 def test_a_rework_is_evaluated_by_a_different_model_than_reworked_it() -> None:
     """Where independence is held, it is held here: a rework is a small
     targeted edit, and the model that made it is the worst judge of whether it
-    landed. A fresh build is deliberately not covered by this — see settings."""
+    landed. This pins the rework's reviewer; a fresh build's independence comes
+    from the defaults (sonnet builds, opus reviews), not from a separate setting."""
 
     assert models().rework_review != models().rework
+
+
+def test_a_fresh_build_is_reviewed_by_a_different_model_than_built_it() -> None:
+    assert models().review != models().implement
 
 
 def test_the_standard_review_runs_on_opus(tmp_path: Path) -> None:
