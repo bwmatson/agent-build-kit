@@ -381,6 +381,13 @@ def _matches(command: str, patterns: tuple[str, ...]) -> bool:
     )
 
 
+def allows(tool_list: str, command: str) -> bool:
+    """Whether a Claude Code tool list (`--allowedTools` syntax) allows a shell
+    command: some `Bash(...)` entry, or a bare `Bash`, matches the whole line, and
+    the line chains no second command."""
+    return _matches(command, _command_patterns(tool_list))
+
+
 READ_ONLY_WARNING = (
     "read-only run: edits, and commands outside allowed_tools, are refused when the "
     "agent asks permission for them; an agent that runs a tool without asking is "

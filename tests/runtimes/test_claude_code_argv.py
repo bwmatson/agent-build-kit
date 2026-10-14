@@ -29,7 +29,8 @@ from tests.runtimes.claude_cli import FakeClaude, finished_build, stream
 # python-uv profile's toolchain commands.
 BUILD_TOOLS = (
     "Read Edit Write Grep Glob Bash(git *) Bash(gh pr view*) Bash(gh pr diff*) "
-    "Bash(uv run *) Bash(pre-commit *)"
+    "Bash(uv run *) Bash(uv lock*) Bash(uv sync*) Bash(uv add *) Bash(uv remove *) "
+    "Bash(pre-commit *)"
 )
 REVIEW_TOOLS = "Read Grep Glob Bash(git diff*) Bash(git log*) Bash(git show*)"
 # init/research.py, init/propose.py and restack.claude_resolver's lists.

@@ -189,7 +189,10 @@ TESTMON = "pytest-testmon"
 class PythonUvProfile:
     name: str = "python-uv"
     detect_markers: tuple[str, ...] = ("uv.lock", "pyproject.toml")
-    allowed_tools: str = "Bash(uv run *) Bash(pre-commit *)"
+    allowed_tools: str = (
+        "Bash(uv run *) Bash(uv lock*) Bash(uv sync*) Bash(uv add *) Bash(uv remove *) "
+        "Bash(pre-commit *)"
+    )
     prompt_words: PromptWords = PromptWords(
         verify="linting, formatting and type checks (pre-commit)",
         stub="a signature whose body is only `raise NotImplementedError`, or a model field",
