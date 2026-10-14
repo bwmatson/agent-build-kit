@@ -37,6 +37,7 @@
 - A planned unit that never started, whose change no longer exists in the planning repo, is now
   marked `unplanned` at each planning pass, and a unit waiting on an `unplanned` unit no longer
   waits. Putting the change back and planning it makes its units `planned` again.
+
 - A rework can now answer a person's general pull-request comment: every comment with an id is
   handed over tagged `[comment <id>]`, not only those anchored to a line. The reply goes in that
   comment's thread where the host has threads for general comments, and elsewhere as a comment
