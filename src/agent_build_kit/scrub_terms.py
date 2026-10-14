@@ -126,7 +126,10 @@ def terms_for(installation: Installation, *, target: Path | None = None) -> list
     return sorted(terms, key=lambda t: (-len(t), t))
 
 
-def scrub_text(text: str, terms: list[str], *, replacement: str = "<redacted>") -> str:
+REPLACEMENT = "<redacted>"
+
+
+def scrub_text(text: str, terms: list[str], *, replacement: str = REPLACEMENT) -> str:
     """`text` with every term replaced, case-insensitively and longest first."""
     if not terms:
         return text

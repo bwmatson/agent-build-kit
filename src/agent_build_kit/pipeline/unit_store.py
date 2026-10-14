@@ -569,6 +569,24 @@ class UnitStore:
         self._write(stored)
 
     @_exclusive
+    def import_units(self, units: Sequence[StoredUnit]) -> None:
+        """Add records from another store with every field kept; an equal one is skipped and a
+        differing one with the same id is a conflict naming the id, with nothing written."""
+        stored = self._read()
+        added = {unit.id: unit for unit in units if unit.id not in stored}
+        if conflicts := [u.id for u in units if u.id in stored and stored[u.id] != u]:
+            raise ValueError(f"{self.path} holds a different record for {', '.join(conflicts)}")
+        if added:
+            self._write({**stored, **added})
+
+    @_exclusive
+    def remove_units(self, unit_ids: Collection[str]) -> None:
+        """Remove the records with these ids."""
+        stored = self._read()
+        kept = {uid: unit for uid, unit in stored.items() if uid not in unit_ids}
+        if len(kept) != len(stored):
+            self._write(kept)
+
     def unplan_vanished(self, changes: Collection[str]) -> list[str]:
         """Mark `unplanned` each unit that never started whose change is not among `changes`
         (the changes that exist), and return their ids. A started unit is left as it is."""

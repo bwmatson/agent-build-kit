@@ -11,7 +11,7 @@ from pathlib import Path
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.shell import porcelain
-from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import HELD, IN_FLIGHT
 from agent_build_kit.pipeline.work_graph import (
     ANY_GROUP_HEADING,
@@ -334,4 +334,29 @@ def uncommitted(source: Installation) -> tuple[str, ...] | None:
         return None
     return tuple(
         f"{'??' if code == '??' else 'D' if 'D' in code else 'M'} {path}" for code, path in entries
+    )
+
+
+def moved_records(source: Installation, plan: SplitPlan) -> list[StoredUnit]:
+    """The source's unit records the plan moves."""
+    return [
+        unit
+        for unit in UnitStore(source.state_dir / "units.json").all()
+        if unit.id in plan.units_moved
+    ]
+
+
+def moved_files(source: Installation, plan: SplitPlan) -> list[Path]:
+    """Every file a split copies, in path order: the moved changes, archive entries and specs
+    as they are in the working tree. Lock files are not copied."""
+    directories = [
+        *(source.changes_dir / name for name in plan.changes_moved),
+        *(source.changes_dir / "archive" / name for name in plan.archive_moved),
+        *(source.specs_dir / "specs" / name for name in plan.specs_moved),
+    ]
+    return sorted(
+        path
+        for directory in directories
+        for path in directory.rglob("*")
+        if path.is_file() and path.suffix != ".lock"
     )
