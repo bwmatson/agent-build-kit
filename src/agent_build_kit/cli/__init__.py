@@ -27,6 +27,7 @@ COMMAND_MODULES = (
     "agent_build_kit.cli.doctor",
     "agent_build_kit.cli.config_cmd",
     "agent_build_kit.cli.project_cmd",
+    "agent_build_kit.cli.planning_cmd",
     "agent_build_kit.cli.scrub",
     "agent_build_kit.cli.changelog_cmd",
     "agent_build_kit.cli.tracks",

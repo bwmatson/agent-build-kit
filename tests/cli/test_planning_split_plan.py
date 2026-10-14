@@ -26,6 +26,7 @@ def populated(source):
     write_change(installation, "two", ["app"])
     write_change(installation, "old", ["app"], archived="2025-01-01")
     write_change(installation, "stays", ["lib"])
+    write_spec(installation, "capability")
     write_spec(installation, "other")
     write_units(
         installation,
