@@ -2638,7 +2638,7 @@ class Tier2Session:
         """Every failure of a scheduled unit's run is pre-existing: its tree is its base, so a
         base run would be the same tree, command and stack. None when the run passed, base
         runs are off or no failure is named."""
-        if self.result is None or self.result.ok or not active().limits.tier2_base_runs:
+        if self.result is None or self.result.ok or not active().global_limits.tier2_base_runs:
             return None
         if not self.result.failures:
             return None
