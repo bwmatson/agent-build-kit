@@ -1,0 +1,55 @@
+"""A held unit's state is stored as text, and no node writes a type the checkpoint blocks.
+
+Each path that ends in `BuildPath.hold()` is driven with the fake runner, and
+what the nodes wrote is read from the checkpoint file itself, because the
+library reads a blocked type back as text and warns only once per process.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from agent_build_kit.graph.checkpointer import unit_graphs_path
+from agent_build_kit.graph.state import UnitRun
+from agent_build_kit.pipeline.units import PLANNED
+from tests.checkpoint_types import blocked_in_updates, node_updates, types_off_the_list
+from tests.graph.test_checkpoint_allowlist import populated
+from tests.graph.test_hold_causes import HOLD_PATHS, Held, fresh
+
+HOLDS = [h for h, _ in HOLD_PATHS]
+HOLD_IDS = [h.__name__ for h in HOLDS]
+
+
+def held_unit(tmp_path: Path, hold: Held) -> Path:
+    hold(tmp_path, fresh(tmp_path))
+    return unit_graphs_path(tmp_path / "state")
+
+
+@pytest.mark.parametrize("hold", HOLDS, ids=HOLD_IDS)
+def test_a_held_unit_stores_its_state_as_text(tmp_path: Path, hold: Held) -> None:
+    db = held_unit(tmp_path, hold)
+
+    stored = [value for field, value in node_updates(db) if field == "hold_state"]
+
+    assert stored, "the hold wrote a state"
+    assert all(type(value) is str for value in stored)
+    assert PLANNED.value in stored
+
+
+@pytest.mark.parametrize("hold", HOLDS, ids=HOLD_IDS)
+def test_no_node_writes_a_type_the_checkpoint_blocks(tmp_path: Path, hold: Held) -> None:
+    assert blocked_in_updates(held_unit(tmp_path, hold)) == []
+
+
+@pytest.mark.parametrize("hold", HOLDS, ids=HOLD_IDS)
+def test_a_populated_state_carrying_the_nodes_values_encodes_no_blocked_type(
+    tmp_path: Path, hold: Held
+) -> None:
+    written = dict(node_updates(held_unit(tmp_path, hold)))
+    state = populated(UnitRun).model_copy(
+        update={k: v for k, v in written.items() if k in UnitRun.model_fields}
+    )
+
+    assert types_off_the_list(state) == set()
