@@ -23,7 +23,7 @@ from agent_build_kit.runtimes import AgentInterrupted, AgentRequest
 from agent_build_kit.tracks import runner
 from tests.factories import git, init_repo
 from tests.runtimes.stand_in import StandInRuntime
-from tests.tracks.test_runner import make_installation, project
+from tests.tracks.test_runner import described_installation, project
 
 
 @pytest.fixture
@@ -37,7 +37,7 @@ def remote(tmp_path: Path) -> Path:
 @pytest.fixture
 def inst(tmp_path: Path, remote: Path) -> Installation:
     """A planning repo with real history and a bare `origin` to push to."""
-    installation = make_installation(tmp_path / "planning")
+    installation = described_installation(tmp_path / "planning")
     planning = init_repo(installation.root)
     (planning / "README.md").write_text("planning")
     git(planning, "add", "-A")

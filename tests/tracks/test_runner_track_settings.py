@@ -16,12 +16,12 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from agent_build_kit.tracks import runner
 from tests.runtimes.claude_cli import FakeClaude, record
-from tests.tracks.test_runner import make_installation, project
+from tests.tracks.test_runner import described_installation, project
 
 
 @pytest.fixture
 def inst(tmp_path: Path) -> Installation:
-    installation = make_installation(tmp_path / "planning", git={"branch_prefix": "abk/"})
+    installation = described_installation(tmp_path / "planning", git={"branch_prefix": "abk/"})
     installation.activate()
     return installation
 

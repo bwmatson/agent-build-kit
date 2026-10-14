@@ -6,7 +6,8 @@
   commit gate and the scaffold go through the shared git runner, where a change's directory is
   found, the remote-address and diff-hunk patterns, and the code hosts' check on an unexpected
   answer are each written once, and GitHub's list of a pull request's files comes from its
-  full listing.
+  full listing. The test suite's copied helpers (the commit helper, the OpenSpec stand-in) are
+  defined once in the shared test modules, and a test fails if one is copied again.
 
 - Every state file the tool writes (the unit store, the pause marker, the usage ledgers, the
   notification and review stores and the like) now goes through one atomic write, so a crash

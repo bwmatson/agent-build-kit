@@ -21,16 +21,10 @@ from agent_build_kit.pipeline.restack import RestackConflict, resolved_move
 from agent_build_kit.pipeline.usage_guard import RateLimited
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
-from tests.factories import git, init_repo
+from tests.factories import commit, git, init_repo
 from tests.runtimes.claude_cli import FakeClaude
 from tests.runtimes.stand_in import StandInRuntime
 from tests.runtimes.test_claude_code_argv import RESOLVER_TOOLS, flags
-
-
-def commit(repo: Path, name: str, content: str) -> None:
-    (repo / name).write_text(content)
-    git(repo, "add", "-A")
-    git(repo, "commit", "-qm", f"write {name}")
 
 
 @pytest.fixture

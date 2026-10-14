@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-from agent_build_kit import openspec
 from agent_build_kit.config import dump, load
 from agent_build_kit.forges import RepoId
 from agent_build_kit.init import scaffold
@@ -25,12 +24,8 @@ from agent_build_kit.init.scaffold import (
     rules_of,
     write_planning_repo,
 )
-from tests.factories import recognised_planning
+from tests.factories import STOCK_CONFIG, fake_openspec, recognised_planning
 from tests.git_runner_spy import spy_on_git
-
-STOCK_CONFIG = (
-    "schema: spec-driven\n\n# context: |\n#   ...\n# rules:\n#   proposal:\n#     - ...\n"
-)
 
 
 def detection(name: str, root: Path, **overrides) -> RepoDetection:
@@ -50,17 +45,6 @@ def detection(name: str, root: Path, **overrides) -> RepoDetection:
         "consumes": [],
     }
     return RepoDetection.model_validate({**fields, **overrides})
-
-
-def fake_openspec(argv, *, cwd, **kwargs):
-    """A stand-in for the OpenSpec CLI: `init` writes the stock layout."""
-    args = argv[len(openspec.command()) :]
-    if args[0] == "init":
-        (cwd / "openspec" / "changes" / "archive").mkdir(parents=True)
-        (cwd / "openspec" / "specs").mkdir()
-        (cwd / "openspec" / "config.yaml").write_text(STOCK_CONFIG)
-        return subprocess.CompletedProcess(argv, 0, "ok", "")
-    return subprocess.CompletedProcess(argv, 0, "", "")
 
 
 # --- draft_config ------------------------------------------------------------------

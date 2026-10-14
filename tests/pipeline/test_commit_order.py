@@ -20,6 +20,7 @@ from agent_build_kit.pipeline.commit_order import (
     classify_paths,
     stub_violations,
 )
+from tests.factories import commit_files as commit
 from tests.factories import git, init_repo
 
 
@@ -33,15 +34,6 @@ def repo(tmp_path: Path) -> Path:
     git(tmp_path, "commit", "-qm", "base")
     git(tmp_path, "checkout", "-q", "-b", "spec/change/1-unit")
     return tmp_path
-
-
-def commit(repo: Path, message: str, files: dict[str, str]) -> None:
-    for name, content in files.items():
-        path = repo / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content)
-    git(repo, "add", "-A")
-    git(repo, "commit", "-qm", message)
 
 
 def test_tests_first_then_implementation_passes(repo: Path) -> None:

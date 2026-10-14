@@ -15,6 +15,7 @@ from agent_build_kit import profiles
 from agent_build_kit.pipeline.check_runner import CheckCache
 from agent_build_kit.pipeline.gate import check_branch
 from agent_build_kit.profiles.python_uv import PROFILE as PYTHON
+from tests.factories import commit_files as commit
 from tests.factories import git, init_repo
 
 
@@ -26,15 +27,6 @@ def repo(tmp_path: Path) -> Path:
     git(work, "commit", "-qm", "base")
     git(work, "checkout", "-q", "-b", "spec/change/1-unit")
     return work
-
-
-def commit(repo: Path, message: str, files: dict[str, str]) -> None:
-    for name, content in files.items():
-        path = repo / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content)
-    git(repo, "add", "-A")
-    git(repo, "commit", "-qm", message)
 
 
 def tests_first_branch(repo: Path) -> None:
