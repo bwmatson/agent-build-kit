@@ -305,6 +305,20 @@ def _merge_guards(inst: Installation, run: Run) -> list[Check]:
     return checks
 
 
+def _linger(run: Run) -> list[Check]:
+    """A warning when the installed timers stop with the last login session."""
+    user = timers.current_user()
+    if timers.linger_state(user, run) != "off":
+        return []
+    return [
+        _warn(
+            "linger",
+            "lingering is off, so the timers only run while a login session is open",
+            timers.linger_advice(user),
+        )
+    ]
+
+
 def _timers(inst: Installation, run: Run, units: Path | None, which: Which) -> list[Check]:
     """Whether the pipeline is actually scheduled on this machine.
 
@@ -319,6 +333,7 @@ def _timers(inst: Installation, run: Run, units: Path | None, which: Which) -> l
     where = units or timers.user_unit_dir()
     state = timers.report(inst.root, dest=where, tool_dirs=timers.tool_dirs(inst, which=which))
     checks: list[Check] = []
+    enabled = False
 
     if not state.installed:
         checks.append(
@@ -334,6 +349,7 @@ def _timers(inst: Installation, run: Run, units: Path | None, which: Which) -> l
         problems += [f"out of date: {path.name}" for path in state.drifted]
         problems += [f"outdated (no longer installed): {path.name}" for path in state.outdated]
         unasked = False
+        not_enabled = False
         for name in timers.unit_names(inst.root):
             if not name.endswith(".timer") or name in state.missing:
                 continue
@@ -349,6 +365,8 @@ def _timers(inst: Installation, run: Run, units: Path | None, which: Which) -> l
                 break
             if answer.returncode:
                 problems.append(f"not enabled: {name}")
+                not_enabled = True
+        enabled = not unasked and not not_enabled
         if problems:
             checks.append(
                 _warn(
@@ -371,6 +389,9 @@ def _timers(inst: Installation, run: Run, units: Path | None, which: Which) -> l
         else:
             count = len(timers.unit_names(inst.root))
             checks.append(_ok("timers", f"{count} units, enabled, pointing at {inst.root}"))
+
+    if enabled:
+        checks += _linger(run)
 
     # What the installed service can find. A person's terminal has `az` on its
     # PATH; the unit does not inherit it, so every command a person runs works

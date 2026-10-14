@@ -15,17 +15,8 @@ import pytest
 
 from agent_build_kit import timers
 from agent_build_kit.cli import main
-from agent_build_kit.config import dump
-from agent_build_kit.installation import Installation
-from tests.conftest import make_installation
-
-
-def planning(root: Path) -> Installation:
-    """An installation the CLI can find: in memory is not enough, since the
-    command resolves abk.yaml from the working directory upwards."""
-    inst = make_installation(root)
-    (inst.root / "abk.yaml").write_text(dump(inst.config))
-    return inst
+from tests.factories import planning
+from tests.loginctl_fake import Loginctl, SubprocessModule
 
 
 @pytest.fixture
@@ -42,7 +33,7 @@ def test_no_enable_writes_without_scheduling(
     inst = planning(tmp_path)
     monkeypatch.chdir(inst.root)
     calls: list[list[str]] = []
-    monkeypatch.setattr(timers, "subprocess", _Recorder(calls))
+    monkeypatch.setattr(timers, "subprocess", SubprocessModule(Loginctl("yes", calls=calls)))
 
     code = main(["install-timers", "--no-enable"])
 
@@ -60,7 +51,7 @@ def test_the_units_land_pointing_at_this_installation(
     inst = planning(tmp_path)
     monkeypatch.chdir(inst.root)
     calls: list[list[str]] = []
-    monkeypatch.setattr(timers, "subprocess", _Recorder(calls))
+    monkeypatch.setattr(timers, "subprocess", SubprocessModule(Loginctl("yes", calls=calls)))
 
     code = main(["install-timers"])
 
@@ -93,7 +84,7 @@ def test_a_unit_somebody_else_wrote_is_refused(
     units.mkdir(parents=True)
     mine = units / timers.unit_names(inst.root)[1]
     mine.write_text("[Unit]\nDescription=mine\n")
-    monkeypatch.setattr(timers, "subprocess", _Recorder([]))
+    monkeypatch.setattr(timers, "subprocess", SubprocessModule(Loginctl("yes")))
 
     code = main(["install-timers"])
 
@@ -111,7 +102,7 @@ def test_installing_enables_the_timers_and_not_the_services(
     inst = planning(tmp_path)
     monkeypatch.chdir(inst.root)
     calls: list[list[str]] = []
-    monkeypatch.setattr(timers, "subprocess", _Recorder(calls))
+    monkeypatch.setattr(timers, "subprocess", SubprocessModule(Loginctl("yes", calls=calls)))
 
     code = main(["install-timers"])
 
@@ -134,23 +125,6 @@ def test_without_an_installation_it_says_so(
     assert "abk.yaml" in capsys.readouterr().err
 
 
-class _Recorder:
-    """Stands in for the `subprocess` module `timers` reaches systemctl through."""
-
-    def __init__(self, calls: list[list[str]]) -> None:
-        self.calls = calls
-
-    def run(self, argv, **kwargs):
-        self.calls.append(list(argv))
-
-        class Done:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-
-        return Done()
-
-
 def test_running_it_again_reports_that_nothing_changed(
     tmp_path: Path, units: Path, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
@@ -158,7 +132,7 @@ def test_running_it_again_reports_that_nothing_changed(
     eight writes that did not happen."""
     inst = planning(tmp_path)
     monkeypatch.chdir(inst.root)
-    monkeypatch.setattr(timers, "subprocess", _Recorder([]))
+    monkeypatch.setattr(timers, "subprocess", SubprocessModule(Loginctl("yes")))
     main(["install-timers"])
     capsys.readouterr()
 
@@ -175,7 +149,7 @@ def test_remove_takes_this_installation_s_units_off(
 ) -> None:
     inst = planning(tmp_path)
     monkeypatch.chdir(inst.root)
-    monkeypatch.setattr(timers, "subprocess", _Recorder([]))
+    monkeypatch.setattr(timers, "subprocess", SubprocessModule(Loginctl("yes")))
     main(["install-timers"])
     capsys.readouterr()
 
@@ -207,7 +181,7 @@ def test_installing_says_what_it_removed_as_outdated(
 
     inst = planning(tmp_path)
     monkeypatch.chdir(inst.root)
-    monkeypatch.setattr(timers, "subprocess", _Recorder([]))
+    monkeypatch.setattr(timers, "subprocess", SubprocessModule(Loginctl("yes")))
     legacy_units(units, inst.root)
 
     code = main(["install-timers"])
@@ -241,7 +215,7 @@ def test_an_installation_with_the_same_name_is_reported_not_overwritten(
     decide which of two directories called the same thing should keep them."""
     other = planning(tmp_path / "a" / "planning")
     here = planning(tmp_path / "b" / "planning")
-    monkeypatch.setattr(timers, "subprocess", _Recorder([]))
+    monkeypatch.setattr(timers, "subprocess", SubprocessModule(Loginctl("yes")))
     monkeypatch.chdir(other.root)
     main(["install-timers"])
     capsys.readouterr()
@@ -263,7 +237,7 @@ def test_the_tools_a_tick_needs_are_put_on_the_units_path_and_said(
     and a unit's does not."""
     inst = planning(tmp_path)
     monkeypatch.chdir(inst.root)
-    monkeypatch.setattr(timers, "subprocess", _Recorder([]))
+    monkeypatch.setattr(timers, "subprocess", SubprocessModule(Loginctl("yes")))
     monkeypatch.setattr(timers, "tool_dirs", lambda inst: ("/mnt/c/Azure/CLI2/wbin",))
 
     code = main(["install-timers", "--no-enable"])

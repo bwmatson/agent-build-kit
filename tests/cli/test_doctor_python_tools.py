@@ -11,7 +11,7 @@ from agent_build_kit import skills
 from agent_build_kit.cli.doctor import Check, run_doctor
 from agent_build_kit.config import EnvironmentConfig, RepoConfig, WorkspaceConfig, dump
 from agent_build_kit.init.scaffold import render_openspec_config
-from tests.factories import init_repo
+from tests.factories import init_repo, which_all
 
 HOOKS_FILE = ".pre-commit-config.yaml"
 
@@ -24,10 +24,6 @@ def ok_run(argv, **kwargs):
     if argv[0] == "gh":
         return subprocess.CompletedProcess(argv, 0, "tok\n", "")
     return subprocess.CompletedProcess(argv, 0, "", "")
-
-
-def which_all(name: str) -> str | None:
-    return f"/usr/bin/{name}"
 
 
 def pyproject(*dev: str) -> str:

@@ -28,7 +28,7 @@ from agent_build_kit.forges.transport import clear_credentials
 from agent_build_kit.init.scaffold import RULES_VERSION, render_openspec_config
 from agent_build_kit.runtimes import AgentRateLimited, PolicyReport
 from agent_build_kit.settings import reload, settings
-from tests.factories import git, init_repo
+from tests.factories import git, init_repo, which_all
 from tests.forges.mock_host import MockHost, ok, recorded
 from tests.runtimes.selectable import SelectableRuntime, select
 
@@ -68,10 +68,6 @@ class Answers:
         if argv[0] == "git":
             return subprocess.run(argv, **kwargs)
         return subprocess.CompletedProcess(argv, 0, "", "")
-
-
-def which_all(name: str) -> str | None:
-    return f"/usr/bin/{name}"
 
 
 def checkout(path: Path, *, email: bool = True) -> Path:

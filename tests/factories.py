@@ -14,7 +14,8 @@ from pathlib import Path
 from typing import Any
 
 from agent_build_kit import openspec
-from agent_build_kit.config import RepoConfig
+from agent_build_kit.config import RepoConfig, dump
+from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.shell import git_out as git
 from agent_build_kit.pipeline.tier2 import TestFailure, Tier2Result, build_snapshot
 from agent_build_kit.pipeline.unit_store import StoredUnit
@@ -223,3 +224,18 @@ def fake_openspec(argv, *, cwd, **kwargs):
         items = [{"id": n, "type": "change", "valid": True, "issues": []} for n in changes]
         return subprocess.CompletedProcess(argv, 0, json.dumps({"items": items}), "")
     return subprocess.CompletedProcess(argv, 0, f"ran {' '.join(args)}", "")
+
+
+def planning(root: Path) -> Installation:
+    """An installation the CLI can find: in memory is not enough, since the
+    command resolves abk.yaml from the working directory upwards."""
+    from tests.conftest import make_installation
+
+    inst = make_installation(root)
+    (inst.root / "abk.yaml").write_text(dump(inst.config))
+    return inst
+
+
+def which_all(name: str) -> str | None:
+    """A `which` that finds every program."""
+    return f"/usr/bin/{name}"

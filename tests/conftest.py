@@ -43,6 +43,35 @@ pytest_plugins = ["pytester", "tests.replay.plugin", "tests.time_limit", "tests.
 
 
 @pytest.fixture(autouse=True)
+def no_real_loginctl(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`loginctl` is the developer's machine, not the suite's.
+
+    Asking it whether lingering is on makes a test's output depend on whose
+    machine runs it (and wait on a slow or missing logind), and asking it to
+    enable lingering changes the machine. So by default the timers module sees
+    a host with no `loginctl`: the state is unknown and nothing is said, and a
+    test that reaches the enabling call fails. A test of the check injects a
+    runner or replaces `timers.subprocess`.
+    """
+    import subprocess
+
+    from agent_build_kit import timers
+
+    class NoLoginctl:
+        def run(self, argv, **kwargs):
+            if argv[0] == "loginctl":
+                if "enable-linger" in argv:
+                    pytest.fail(f"a test reached the real loginctl: {argv}")
+                raise FileNotFoundError("loginctl")
+            return subprocess.run(argv, **kwargs)
+
+        def __getattr__(self, name: str):
+            return getattr(subprocess, name)
+
+    monkeypatch.setattr(timers, "subprocess", NoLoginctl())
+
+
+@pytest.fixture(autouse=True)
 def no_real_unit_directory(
     tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:

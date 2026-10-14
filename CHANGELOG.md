@@ -7,6 +7,12 @@
   of the whole run. A storm of flaky tests logs and records the first three such sections, up
   to 3000 characters each, so the error they share can be found.
 
+- `abk install-timers` now checks that systemd lingering is on for the user, since timers only
+  run while the user manager does and without lingering that is only during a login session.
+  It tries to turn lingering on without `sudo` or a prompt, and otherwise prints
+  `sudo loginctl enable-linger <user>` with the reason. `abk init`'s next steps carry the same
+  advice, and `abk doctor` warns when timers are installed and lingering is off.
+
 - Internal cleanup with no change in behaviour: the remaining plain git calls in `abk init`, the
   commit gate and the scaffold go through the shared git runner, where a change's directory is
   found, the remote-address and diff-hunk patterns, and the code hosts' check on an unexpected

@@ -805,6 +805,9 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         "  4. Copy .env.example to .env and fill what this machine needs.\n"
         "  5. Run `abk doctor`, then `abk install-timers`."
     )
+    user = timers.current_user()
+    if timers.linger_state(user) == "off":
+        print(f"     {timers.linger_advice(user)}")
     if failures:
         print(f"\n{len(failures)} change(s) need finishing by hand: {', '.join(failures)}")
     return 1 if failures else 0
@@ -894,7 +897,23 @@ def cmd_install_timers(args: argparse.Namespace, inst: Installation | None) -> i
             print("timers enabled; `systemctl --user list-timers` shows when each next runs")
         else:
             print("nothing is scheduled: --no-enable was given, so enable them by hand")
+    if args.enable and not args.dry_run:
+        _linger(timers.current_user())
     return 1 if change.refused or change.taken else 0
+
+
+def _linger(user: str) -> None:
+    """Say so when the timers will stop with the last login session."""
+    if timers.linger_state(user) != "off":
+        return
+    if timers.enable_linger(user):
+        print(f"lingering enabled for {user}, so the timers keep running without a login session")
+        return
+    print(
+        f"\n{timers.linger_advice(user)}\n"
+        "Timers only run while your systemd user manager does, and without lingering that is "
+        "only while a login session is open. Run the command above once to keep it running."
+    )
 
 
 def register(sub: argparse._SubParsersAction) -> None:
