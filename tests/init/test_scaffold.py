@@ -11,6 +11,7 @@ import yaml
 from agent_build_kit import openspec
 from agent_build_kit.config import dump, load
 from agent_build_kit.forges import RepoId
+from agent_build_kit.init import scaffold
 from agent_build_kit.init.detect import ProjectDetection, RepoDetection, detect_repo
 from agent_build_kit.init.scaffold import (
     RULES_HEADER,
@@ -25,6 +26,7 @@ from agent_build_kit.init.scaffold import (
     write_planning_repo,
 )
 from tests.factories import recognised_planning
+from tests.git_runner_spy import spy_on_git
 
 STOCK_CONFIG = (
     "schema: spec-driven\n\n# context: |\n#   ...\n# rules:\n#   proposal:\n#     - ...\n"
@@ -471,3 +473,27 @@ def test_the_update_says_what_a_new_init_says() -> None:
     written = " ".join(template("openspec_context.md").split())
     for version, paragraph in RULES_UPDATES.items():
         assert paragraph in written, f"v{version}'s update has drifted from the context template"
+
+
+def test_the_repository_is_initialised_through_the_shared_runner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    planning = recognised_planning(tmp_path / "planning")
+    config = draft_config({}, planning_dir=planning)
+    spy = spy_on_git(monkeypatch, scaffold)
+
+    write_planning_repo(planning, config, run_openspec=fake_openspec)
+
+    assert spy.calls[0] == ("init", "-q", "-b", "main")
+    assert (planning / ".git").is_dir()
+
+
+def test_a_failed_init_is_reported_with_what_git_said(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    planning = recognised_planning(tmp_path / "planning")
+    config = draft_config({}, planning_dir=planning)
+    spy_on_git(monkeypatch, scaffold, failing={"init": "fatal: cannot init"})
+
+    with pytest.raises(ScaffoldError, match=r"git init failed in .*: fatal: cannot init"):
+        write_planning_repo(planning, config, run_openspec=fake_openspec)

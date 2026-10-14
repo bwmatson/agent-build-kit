@@ -1459,9 +1459,12 @@ it around the call. A test fails when another module replaces over a file from a
 
 #### Shared helpers
 
-Git is run through `pipeline.shell.git` everywhere but the restack module, which wraps it for its
-conflict-memory flags. Where a change lives comes from `changes_dir_under(root, specs_dir)`
-(`installation.py`), which `Installation.changes_dir` also uses. The host-address pattern
+`abk init`, the commit gate and the scaffold run git through `pipeline.shell.git`, as the modules
+that already did. The restack module keeps its own wrapper for its conflict-memory flags. Callers
+that take an injected runner (verify, the wiring's commit, init detection) or run in the hook
+process build their own git argv. Where a change lives comes from `changes_dir_under(root,
+specs_dir)` (`installation.py`), which `Installation.changes_dir` also uses and from which the
+pull request body derives its repo-relative link. The host-address pattern
 (`forges/github.py`) and the diff-hunk pattern (`pipeline/own_tests.py`) are each defined once and
 imported.
 

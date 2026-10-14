@@ -27,6 +27,7 @@ from agent_build_kit import forges
 from agent_build_kit.budget import Section, cut_head, cut_tail, fit
 from agent_build_kit.config import active
 from agent_build_kit.forges.base import fit_description
+from agent_build_kit.installation import changes_dir_under
 from agent_build_kit.pipeline.unit_store import Description, StoredUnit
 from agent_build_kit.pipeline.units import MERGED, Member, through_satisfied, trunk_of
 from agent_build_kit.pipeline.work_graph import TaskGroup, validate_tasks
@@ -83,7 +84,7 @@ def assumptions(unit: StoredUnit, graph: list[StoredUnit], trunk: str = "main") 
 
 def _change_path(change: str) -> str:
     """Where a change's files are, under the planning repo."""
-    return f"{active().planning.specs_dir}/changes/{change}"
+    return (changes_dir_under(Path(), active().planning.specs_dir) / change).as_posix()
 
 
 def _scope_lines(unit: StoredUnit) -> str:
