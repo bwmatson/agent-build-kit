@@ -190,6 +190,10 @@ class SpellingResult(Frozen):
     spelling: str
     command: str
     refused: bool
+    # The first pattern that refused it, in list order; empty when none did.
+    by: str = ""
+    # The recommendation leaves this class to the person: it never fails the check.
+    by_design: bool = False
 
 
 class PolicyReport(Frozen):
@@ -204,6 +208,10 @@ class PolicyReport(Frozen):
     unenforced: tuple[str, ...] = ()
     fix: str = ""
     results: tuple[SpellingResult, ...] = ()
+    # What the answer is: empty for a runtime's own answer.
+    source: str = ""
+    # Why no answer could be given; empty when one was.
+    cannot_check: str = ""
 
 
 class AgentInterrupted(RuntimeError):

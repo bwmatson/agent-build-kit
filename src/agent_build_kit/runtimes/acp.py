@@ -90,18 +90,16 @@ from acp.schema import (
 from agent_build_kit import __version__, config
 from agent_build_kit.config import ModelsConfig
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.command_policy import (
     Verdict,
     check_command,
     check_no_commit,
     check_no_push,
 )
-from agent_build_kit.pipeline.command_spellings import SPELLINGS, SpellingName, probe_rows
+from agent_build_kit.pipeline.command_spellings import probe_rows
 from agent_build_kit.pipeline.scratch import carries_scratch
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.transcript import TranscriptEvent
-from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.runtimes import known_agents
 from agent_build_kit.runtimes.acp_output import denied_call, output_of, refusal_line, text_of
 from agent_build_kit.runtimes.base import (
@@ -122,7 +120,6 @@ from agent_build_kit.runtimes.base import (
     QuestionKind,
     Run,
     SessionUnavailable,
-    SpellingResult,
     ToolPolicy,
     Which,
     child_environment,
@@ -1718,65 +1715,13 @@ class AcpRuntime:
         return asyncio.run(self._advertised_models(command))
 
     def check_policy(self, cwd: Path) -> PolicyReport:
-        """Whether this machine's agent really refuses what abk forbids: a
-        probe run in a throwaway worktree of its own, so `cwd` — the
-        caller's own checkout — is never touched, even by a command that is
-        not actually caught."""
+        """Starts nothing: this agent's policy is read from its configuration, which needs
+        the installation `cwd` does not carry (`policy_check.check_policy`)."""
         del cwd
-        command = config.runtime_entry(name=NAME).command or list(self.agent_command)
-        if not command:
-            return PolicyReport(ok=False, fix=f"set runtimes.{NAME}.command in abk.yaml")
-        return asyncio.run(self._probe(command))
-
-    async def _probe(self, command: list[str]) -> PolicyReport:
-        tracking = _ProbeTracking(PROBE_CLASSES)
-        with tempfile.TemporaryDirectory(prefix="abk-policy-probe-") as scratch:
-            worktree = _probe_worktree(Path(scratch))
-            session = _Session(
-                None, worktree=worktree, policy=ToolPolicy(specs_dir=None), probe=tracking
-            )
-            request = recorded(
-                AgentRequest(
-                    prompt=_probe_prompt(PROBE_CLASSES),
-                    role="generic",
-                    cwd=worktree,
-                    policy=ToolPolicy(specs_dir=None),
-                ),
-                self,
-                node=OverheadNode.POLICY_PROBE,
-                say=print,
-            )
-            result = await self._drive(command, request, session)
-        # `_drive` never reaches the request's `on_result`, so the probe's call is recorded here.
-        if request.on_result is not None:
-            request.on_result(result)
-        if not result.ok and session.refused_cancel is None:
-            # The probe itself did not run to its end — the agent did not
-            # start, or broke — so nothing is known about its classes.
-            raise RuntimeError(f"the policy probe did not complete: {result.error}")
-        spelled = {
-            spelling.command: spelling.name.value
-            for spellings in SPELLINGS.values()
-            for spelling in spellings
-        }
-        results = tuple(
-            SpellingResult(
-                label=label,
-                spelling=spelled.get(command, SpellingName.PLAIN.value),
-                command=command,
-                refused=command in tracking.refused,
-            )
-            for command, label in PROBE_CLASSES
+        return PolicyReport(
+            ok=False,
+            cannot_check="this agent's policy is checked from its configuration, not by running it",
         )
-        # A plain spelling not refused reads as its class; another names itself.
-        unenforced = tuple(
-            result.label
-            if result.spelling == SpellingName.PLAIN
-            else f"{result.label} (as {result.command})"
-            for result in results
-            if not result.refused
-        )
-        return PolicyReport(ok=not unenforced, unenforced=unenforced, results=results)
 
 
 @contextlib.asynccontextmanager
