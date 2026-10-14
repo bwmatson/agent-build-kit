@@ -19,6 +19,7 @@ from tests.scheduled_tier2_fakes import (
     SUMMARY,
     ScheduledRun,
     archiving,
+    archiving_on,
     scheduled_unit,
 )
 from tests.tier2_schedule_fakes import TODAY
@@ -134,7 +135,12 @@ def test_a_satisfied_scheduled_units_change_is_archived_by_the_existing_path(
 def test_the_next_due_date_is_read_from_the_archived_name(tmp_path: Path) -> None:
     run = ScheduledRun(tmp_path)
     run.tick()
-    archive_ready_changes(run.store.all(), planning_repo=run.inst.root, run=archiving)
+    # Archived later than written: the due date is the name's, not the archive prefix's.
+    archive_ready_changes(
+        run.store.all(),
+        planning_repo=run.inst.root,
+        run=archiving_on(TODAY + timedelta(days=3)),
+    )
     assert run.stored.id == scheduled_unit().id
 
     def due(days: int) -> list[str]:

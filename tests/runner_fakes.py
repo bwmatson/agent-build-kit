@@ -12,6 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from agent_build_kit.config import active
 from agent_build_kit.pipeline.stack_runner import UnitRunner
 from agent_build_kit.pipeline.unit_store import UnitStore
 
@@ -141,7 +142,7 @@ class Recorder:
         sha = self.head(cwd)
         if sha not in self.remote:
             self.remote.append(sha)
-        self.store.record_push(branch.removeprefix("spec/"), sha)
+        self.store.record_push(branch.removeprefix(active().git.branch_prefix), sha)
         self._after("push")
         return sha
 

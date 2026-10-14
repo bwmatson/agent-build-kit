@@ -8,7 +8,6 @@ from pathlib import Path
 
 from agent_build_kit.config import Tier2UnitScope
 from agent_build_kit.pipeline.tier2 import TestFailure, Tier2Result
-from agent_build_kit.pipeline.units import Unit
 from agent_build_kit.pipeline.wiring import Tier2Session
 from agent_build_kit.profiles.python_uv import PROFILE
 from tests.factories import git, init_repo, unit
@@ -126,11 +125,11 @@ class Runs:
         return [command for command, where in self.calls if where != self.repo]
 
 
-def session(tmp_path: Path, run: Runs, *, subject: Unit | None = None, **kwargs) -> Tier2Session:
+def session(tmp_path: Path, run: Runs, **kwargs) -> Tier2Session:
     """A gate that runs the whole marker: the base run is what a full run reaches."""
     kwargs.setdefault("scope", Tier2UnitScope.FULL)
     return Tier2Session(
-        subject or unit(tier="tier2"),
+        unit(tier="tier2"),
         lock=tmp_path / "t2.lock",
         timeout=5,
         run=run,

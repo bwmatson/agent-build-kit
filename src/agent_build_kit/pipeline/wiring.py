@@ -2588,6 +2588,8 @@ class Tier2Session:
         every test not yet named there is the unit's, and the unit fails as it would
         without the base run.
         """
+        if self.result is not None and is_scheduled(self.unit.change):
+            return self._scheduled_verdict()
         if (
             self.result is None
             or base is None
@@ -2595,15 +2597,6 @@ class Tier2Session:
             or not active().global_limits.tier2_base_runs
         ):
             return None
-        if is_scheduled(self.unit.change):
-            # Its tree is its base: a base run would be the same tree, command and stack.
-            if not self.result.failures:
-                return None
-            return Tier2Verdict(
-                pre_existing=list(self.result.failures),
-                command=self.result.command,
-                base_output=self.result.output,
-            )
         classified = self.classify(cwd=cwd, base=base)
         if not classified.untouched:
             return None
@@ -2639,6 +2632,20 @@ class Tier2Session:
             pre_existing=[f for f in classified.untouched if f.test in failing],
             command="; ".join(commands),
             base_output=redact_text("\n".join(outputs)[-4000:], where="tier-2 base output"),
+        )
+
+    def _scheduled_verdict(self) -> Tier2Verdict | None:
+        """Every failure of a scheduled unit's run is pre-existing: its tree is its base, so a
+        base run would be the same tree, command and stack. None when the run passed, base
+        runs are off or no failure is named."""
+        if self.result is None or self.result.ok or not active().limits.tier2_base_runs:
+            return None
+        if not self.result.failures:
+            return None
+        return Tier2Verdict(
+            pre_existing=list(self.result.failures),
+            command=self.result.command,
+            base_output=self.result.output,
         )
 
     def _run_on_dev_stack(self, cwd: Path, script: Path) -> tuple[bool, str]:
@@ -2695,6 +2702,8 @@ class Tier2Session:
             failures=failures,
             **self._kept(),
         )
+        if is_scheduled(self.unit.change):
+            self.verdict = self._scheduled_verdict()
         return self.result.ok, build_snapshot(self.result)
 
     def post(self, sha: str, ok: bool) -> None:

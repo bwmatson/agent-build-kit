@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import subprocess
 from collections.abc import Callable
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -17,11 +18,11 @@ from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import Unit, branch_name
 from agent_build_kit.pipeline.wiring import reset_to
 from agent_build_kit.pipeline.workspaces import prepare_worktree, worktree_path
-from tests.factories import git, init_repo, stored_unit, unit
+from tests.factories import git, stored_unit, unit
 from tests.graph_driver import tick
 from tests.runner_fakes import Recorder
 from tests.tier2_schedule_fakes import TODAY, planning, store_of
-from tests.tier2_scope_fakes import Ran, session
+from tests.tier2_scope_fakes import Ran, branch, session
 
 CHANGE = scheduled_name("app", TODAY)
 TEST_BODY = "def test_live():\n    assert True\n"
@@ -32,16 +33,13 @@ def scheduled_unit() -> Unit:
     return unit(f"{CHANGE}/1", change=CHANGE, tier="tier2", title="Run the full tier 2 suite")
 
 
-def default_branch(repo: Path) -> tuple[Path, str]:
-    """A repo on its default branch with a tier 2 test; the tree is its base. Returns the
-    repo and the base's sha."""
-    init_repo(repo)
-    (repo / "pyproject.toml").write_text("[project]\nname = 'app'\n")
-    (repo / "tests" / "live").mkdir(parents=True)
-    (repo / "tests" / "live" / "test_live.py").write_text(TEST_BODY)
-    git(repo, "add", "-A")
-    git(repo, "commit", "-qm", "base")
-    return repo, git(repo, "rev-parse", "HEAD").strip()
+def default_branch(repo: Path, *, dev_stack: str | None = None) -> tuple[Path, str]:
+    """A repo on its default branch with a tier 2 test, and the dev stack script `dev_stack`
+    if given; the tree is its base. Returns the repo and the base's sha."""
+    files = {"tests/live/test_live.py": TEST_BODY}
+    if dev_stack:
+        files[dev_stack] = "#!/bin/sh\n"
+    return branch(repo.parent, None, base_files=files, repo=repo)
 
 
 def written_change(tmp_path: Path, **limits: Any) -> tuple[Installation, UnitStore, StoredUnit]:
@@ -55,13 +53,21 @@ def written_change(tmp_path: Path, **limits: Any) -> tuple[Installation, UnitSto
     return inst, store, stored
 
 
-def archiving(args: list[str], *, cwd: Path, **kwargs: object) -> subprocess.CompletedProcess:
-    """The OpenSpec CLI's archive: the change's directory moves under `archive/`, dated."""
-    change = args[args.index("archive") + 1]
-    changes = cwd / "openspec" / "changes"
-    (changes / "archive").mkdir(exist_ok=True)
-    (changes / change).rename(changes / "archive" / f"{TODAY.isoformat()}-{change}")
-    return subprocess.CompletedProcess(args, 0, "archived\n", "")
+def archiving_on(day: date) -> Callable[..., subprocess.CompletedProcess]:
+    """The OpenSpec CLI's archive run on `day`: the change's directory moves under `archive/`,
+    prefixed with that day."""
+
+    def archive(args: list[str], *, cwd: Path, **kwargs: object) -> subprocess.CompletedProcess:
+        change = args[args.index("archive") + 1]
+        changes = cwd / "openspec" / "changes"
+        (changes / "archive").mkdir(exist_ok=True)
+        (changes / change).rename(changes / "archive" / f"{day.isoformat()}-{change}")
+        return subprocess.CompletedProcess(args, 0, "archived\n", "")
+
+    return archive
+
+
+archiving = archiving_on(TODAY)
 
 
 class ScheduledRun:
@@ -78,16 +84,24 @@ class ScheduledRun:
         scope: Tier2UnitScope = Tier2UnitScope.OWN,
         feedback: str = "",
         limits: dict[str, Any] | None = None,
+        dev_stack: str | None = None,
         **overrides: Any,
     ) -> None:
         self.tmp_path = tmp_path
         self.inst, self.store, stored = written_change(tmp_path, **(limits or {}))
         self.root = tmp_path / "trees"
-        self.repo, self.base = default_branch(self.inst.checkouts["app"])
+        self.repo, self.base = default_branch(self.inst.checkouts["app"], dev_stack=dev_stack)
         self.tree = worktree_path(self.repo, branch_name(scheduled_unit()), self.root)
         self.ran = make_ran(self.tree)
         self.log: list[str] = []
-        self.gate = session(tmp_path, self.ran, scope=scope, log=self.log, subject=scheduled_unit())
+        self.gate = session(
+            tmp_path,
+            self.ran,
+            scope=scope,
+            log=self.log,
+            subject=scheduled_unit(),
+            dev_stack=dev_stack,
+        )
         self.recorder = Recorder(self.store)
         if feedback:
             self.store.set_feedback(stored.id, feedback)

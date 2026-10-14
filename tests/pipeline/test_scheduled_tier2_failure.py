@@ -149,3 +149,58 @@ def test_a_failure_with_no_readable_test_fails_the_unit_and_records_nothing(
     assert preexisting_record(run.inst).entries() == []
     assert fixes(run) == []
     assert run.stored.cause is not Cause.GATED
+
+
+DEV_STACK = "scripts/dev-stack.sh"
+
+
+def on_dev_stack(*tests: str):
+    """A runner for the dev stack script: `up` and `down` succeed and `test` fails `tests`."""
+
+    def make(tree: Path) -> Runs:
+        class Script(Runs):
+            def __call__(self, command: list[str], **kwargs: object):
+                if command[-1] != "test":
+                    self.calls.append((command, Path(str(kwargs["cwd"]))))
+                    return subprocess.CompletedProcess(command, 0, "", "")
+                return super().__call__(command, **kwargs)
+
+        return Script(tree, pytest_output(failed={test: "assert 1 == 2" for test in tests}))
+
+    return make
+
+
+def test_a_failure_on_the_dev_stack_is_pre_existing_and_recorded_and_waited_on(
+    tmp_path: Path,
+) -> None:
+    run = wired(ScheduledRun(tmp_path, make_ran=on_dev_stack(ONE), dev_stack=DEV_STACK))
+
+    outcome = run.tick()
+
+    assert any(command[0].endswith("dev-stack.sh") for command in run.ran.on_unit)
+    assert run.gate.verdict is not None
+    assert [f.test for f in run.gate.verdict.pre_existing] == [ONE]
+    assert outcome.status == RunStatus.HELD
+    assert [e.test for e in preexisting_record(run.inst).entries()] == [ONE]
+    assert len(fixes(run)) == 1
+    assert (run.stored.state, run.stored.cause) == (PLANNED, Cause.GATED)
+
+
+def test_with_base_runs_off_a_dev_stack_failure_fails_the_unit_and_records_nothing(
+    tmp_path: Path,
+) -> None:
+    run = wired(
+        ScheduledRun(
+            tmp_path,
+            make_ran=on_dev_stack(ONE),
+            dev_stack=DEV_STACK,
+            limits={"tier2_base_runs": 0},
+        )
+    )
+
+    outcome = run.tick()
+
+    assert outcome.status == RunStatus.FAILED
+    assert run.gate.verdict is None
+    assert preexisting_record(run.inst).entries() == []
+    assert fixes(run) == []
