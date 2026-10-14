@@ -11,6 +11,7 @@ import time
 from typing import Any, Literal
 
 import httpx
+from pydantic import BaseModel
 
 from agent_build_kit.forges.constants import GH_TOKEN_SOURCE
 from agent_build_kit.model import Frozen
@@ -100,6 +101,12 @@ class Response(Frozen):
     headers: dict[str, str]
     data: Any = None
     text: str = ""
+
+
+def validated[Doc: BaseModel](model: type[Doc], data: object, endpoint: str, text: str) -> Doc:
+    """`data` as `model`, or a `TransportError` naming `endpoint` and quoting the
+    start of `text`, the body it came from."""
+    raise NotImplementedError
 
 
 _cache: dict[tuple[str, str], Credentials] = {}
