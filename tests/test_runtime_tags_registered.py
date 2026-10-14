@@ -8,8 +8,7 @@ import pytest
 from agent_build_kit import runtimes
 from agent_build_kit.runtimes import known_agents
 from tests.runtime_tag_collection import collect, project_options
-
-PREFIX = "runtime_"
+from tests.runtime_tags import PREFIX
 
 
 def registered_names() -> list[str]:

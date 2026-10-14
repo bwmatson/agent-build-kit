@@ -831,7 +831,7 @@ whose format has no writer.
 
 ## Test markers
 
-Two markers keep slow tests out of the default suite (`pytest`), and a third keeps a test out of the parallel pass:
+The markers the suite uses:
 
 - `integration` needs node (`npx`) and the network for the real OpenSpec CLI.
   Run with `pytest -m integration`.

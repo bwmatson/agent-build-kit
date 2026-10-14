@@ -20,13 +20,13 @@ def project_options() -> dict:
     return tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["pytest"]["ini_options"]
 
 
-def collect(pytester: pytest.Pytester, **files: str) -> pytest.RunResult:
-    """Collect the given modules under the project's markers and options, selecting every
-    marker (the default `-m` is replaced by an empty one)."""
+def collect(pytester: pytest.Pytester, expression: str = "", **files: str) -> pytest.RunResult:
+    """Collect the given modules under the project's markers and options, selecting by the
+    marker expression (empty: every marker, the default `-m` being replaced)."""
     options = project_options()
     markers = "\n".join(f"    {marker}" for marker in options["markers"])
     pytester.makeini(f"[pytest]\nmarkers =\n{markers}\naddopts = {options['addopts']}\n")
     pytester.makepyfile(**files)
     return pytester.runpytest(
-        "-p", PLUGIN, "-p", "no:cacheprovider", "--collect-only", "-q", "-m", ""
+        "-p", PLUGIN, "-p", "no:cacheprovider", "--collect-only", "-q", "-m", expression
     )

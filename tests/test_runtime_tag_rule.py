@@ -163,12 +163,7 @@ def test_plain():
     assert result.ret == 0
 
 
-def test_parameters_with_one_different_tag_each_collect_as_separate_items(
-    pytester: pytest.Pytester,
-) -> None:
-    result = collect(
-        pytester,
-        test_params="""
+PARAMETERS_EACH_TAGGED = """
 import pytest
 
 
@@ -182,8 +177,21 @@ import pytest
 )
 def test_drives_one(runtime):
     pass
-""",
-    )
+"""
 
-    assert result.ret == 0
-    result.stdout.fnmatch_lines(["*test_drives_one[[]claude[]]*", "*test_drives_one[[]acp[]]*"])
+
+def listed(result: pytest.RunResult) -> list[str]:
+    return [line for line in result.outlines if "::test_drives_one[" in line]
+
+
+def test_parameters_with_one_different_tag_each_collect_as_separate_items(
+    pytester: pytest.Pytester,
+) -> None:
+    both = collect(pytester, test_params=PARAMETERS_EACH_TAGGED)
+    acp = collect(pytester, "runtime_acp", test_params=PARAMETERS_EACH_TAGGED)
+    claude = collect(pytester, "runtime_claude_code", test_params=PARAMETERS_EACH_TAGGED)
+
+    assert both.ret == 0
+    assert len(listed(both)) == 2
+    assert [line.split("::")[-1] for line in listed(acp)] == ["test_drives_one[acp]"]
+    assert [line.split("::")[-1] for line in listed(claude)] == ["test_drives_one[claude]"]
