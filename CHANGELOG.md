@@ -25,6 +25,7 @@
   `throw new Error("not implemented")`, checked with a TypeScript parser. The files its
   commands create (type-check build info, Vite and Vitest caches) belong to the pipeline.
   This adds `tree-sitter` and `tree-sitter-typescript` as dependencies.
+
 - The workspace-wide `limits` block in `abk.yaml` is now `global_limits`, and `abk config`
   prints it under that name. A file that still says `limits` loads as before, but `abk config`
   and `abk doctor` warn that it is deprecated and point to `abk config --migrate`; a file with
