@@ -17,7 +17,6 @@ import argparse
 import fcntl
 import sqlite3
 import threading
-import time
 from collections.abc import Callable
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
@@ -54,6 +53,11 @@ from agent_build_kit.settings import reload
 from tests.conftest import make_installation
 from tests.factories import git, init_repo
 from tests.runtimes.selectable import SelectableRuntime, select
+from tests.tick_driver import count_refreshes
+from tests.waiting import wait_for
+
+# Refreshes a test waits through to show a unit is not readmitted.
+SEVERAL_REFRESHES = 5
 
 # How long a build waits for something the pass should make happen meanwhile.
 # Long enough never to trip when the pass does it; against a pass that fixes
@@ -61,17 +65,6 @@ from tests.runtimes.selectable import SelectableRuntime, select
 WAIT = 30
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
-
-
-def eventually(condition: Callable[[], bool]) -> bool:
-    """Whether `condition` comes true within `WAIT`. For waiting on another
-    build having *finished*, which no event it sets mid-build can say."""
-    deadline = time.monotonic() + WAIT
-    while not condition():
-        if time.monotonic() > deadline:
-            return False
-        time.sleep(0.01)
-    return True
 
 
 @pytest.fixture(autouse=True)
@@ -223,8 +216,8 @@ def test_a_parent_reaching_review_starts_its_child_in_the_same_pass(
             stored("slow/1", repo="platform"),
         ]
     )
-    builder.scripts["slow/1"] = lambda: (
-        None if eventually(lambda: "chain/2" in builder.finished) else "failed"
+    builder.scripts["slow/1"] = lambda: wait_for(
+        lambda: "chain/2" in builder.finished, what="chain/2 to finish", timeout=WAIT
     )
 
     assert tick(inst) == 0
@@ -251,8 +244,8 @@ def test_a_pass_with_one_long_build_still_refreshes_and_fills_free_slots(
             builder.store.upsert([stored("late/1")])
 
     monkeypatch.setattr(cli, "poll_all", poll)
-    builder.scripts["slow/1"] = lambda: (
-        None if eventually(lambda: "late/1" in builder.finished) else "failed"
+    builder.scripts["slow/1"] = lambda: wait_for(
+        lambda: "late/1" in builder.finished, what="late/1 to finish", timeout=WAIT
     )
 
     assert tick(inst) == 0
@@ -291,8 +284,10 @@ def test_a_unit_a_poll_sends_back_is_rebuilt_in_the_same_pass(
     builder.store.upsert([stored("conflicted/1"), stored("slow/1", repo="platform")])
     monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
     monkeypatch.setattr(cli, "poll_all", _sends_back(builder, "conflicted/1", times=1))
-    builder.scripts["slow/1"] = lambda: (
-        None if eventually(lambda: builder.finished.count("conflicted/1") == 2) else "failed"
+    builder.scripts["slow/1"] = lambda: wait_for(
+        lambda: builder.finished.count("conflicted/1") == 2,
+        what="conflicted/1 to finish twice",
+        timeout=WAIT,
     )
 
     assert tick(inst) == 0
@@ -319,8 +314,10 @@ def test_a_unit_that_held_itself_during_the_pass_is_started_again_in_it(
 
     builder.scripts["moved/1"] = holds_once
     builder.ends["moved/1"] = (PLANNED, Cause.BASE_CHANGED, MOVED_NOTE)
-    builder.scripts["slow/1"] = lambda: (
-        None if eventually(lambda: builder.finished.count("moved/1") == 2) else "failed"
+    builder.scripts["slow/1"] = lambda: wait_for(
+        lambda: builder.finished.count("moved/1") == 2,
+        what="moved/1 to finish twice",
+        timeout=WAIT,
     )
 
     assert tick(inst) == 0
@@ -338,10 +335,10 @@ def test_a_unit_that_keeps_holding_itself_is_started_a_bounded_number_of_times(
     monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
     builder.scripts["moved/1"] = lambda: "held"
     builder.ends["moved/1"] = (PLANNED, Cause.BASE_CHANGED, MOVED_NOTE)
-    builder.scripts["slow/1"] = lambda: (
-        None
-        if eventually(lambda: builder.started.count("moved/1") > cli.REBUILDS_PER_PASS)
-        else "failed"
+    builder.scripts["slow/1"] = lambda: wait_for(
+        lambda: builder.started.count("moved/1") > cli.REBUILDS_PER_PASS,
+        what="moved/1 to be rebuilt past the bound",
+        timeout=WAIT,
     )
 
     assert tick(inst) == 0
@@ -357,10 +354,10 @@ def test_a_unit_sent_back_again_and_again_is_rebuilt_a_bounded_number_of_times(
     builder.store.upsert([stored("conflicted/1"), stored("slow/1", repo="platform")])
     monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
     monkeypatch.setattr(cli, "poll_all", _sends_back(builder, "conflicted/1", times=100))
-    builder.scripts["slow/1"] = lambda: (
-        None
-        if eventually(lambda: builder.started.count("conflicted/1") > cli.REBUILDS_PER_PASS)
-        else "failed"
+    builder.scripts["slow/1"] = lambda: wait_for(
+        lambda: builder.started.count("conflicted/1") > cli.REBUILDS_PER_PASS,
+        what="conflicted/1 to be rebuilt past the bound",
+        timeout=WAIT,
     )
 
     assert tick(inst) == 0
@@ -400,8 +397,10 @@ def test_a_long_running_unit_does_not_keep_the_other_slots_idle(
     inst = workspace(tmp_path, max_concurrent=2)
     quick = ["quick/1", "quick/2", "quick/3"]
     builder.store.upsert([stored("slow/1", repo="platform"), *(stored(uid) for uid in quick)])
-    builder.scripts["slow/1"] = lambda: (
-        None if eventually(lambda: all(uid in builder.finished for uid in quick)) else "failed"
+    builder.scripts["slow/1"] = lambda: wait_for(
+        lambda: all(uid in builder.finished for uid in quick),
+        what="the quick units to finish",
+        timeout=WAIT,
     )
 
     assert tick(inst) == 0
@@ -552,10 +551,14 @@ def test_a_rate_limit_pause_recorded_by_a_build_still_running_ends_scheduling(
             marker=marker,
             kind="rate_limit",
         )
-        return None if eventually(lambda: "quick/1" in builder.finished) else "failed"
+        return wait_for(
+            lambda: "quick/1" in builder.finished, what="quick/1 to finish", timeout=WAIT
+        )
 
     builder.scripts["slow/1"] = slow
-    builder.scripts["quick/1"] = lambda: None if eventually(marker.exists) else "failed"
+    builder.scripts["quick/1"] = lambda: wait_for(
+        marker.exists, what="the marker file", timeout=WAIT
+    )
 
     assert tick(inst) == 0
 
@@ -588,8 +591,8 @@ def test_stopping_still_awaits_the_builds_in_flight(builder: Builder, tmp_path: 
         )
 
     builder.scripts["stops/1"] = refused
-    builder.scripts["slow/1"] = lambda: (
-        None if eventually((tmp_path / "paused.json").exists) else "failed"
+    builder.scripts["slow/1"] = lambda: wait_for(
+        (tmp_path / "paused.json").exists, what="the pause file", timeout=WAIT
     )
 
     assert tick(inst) == 0
@@ -1346,12 +1349,19 @@ def _ends_and_waits(
 
     builder.scripts["sent/1"] = ends_once
     builder.ends["sent/1"] = end
+    refreshes = count_refreshes(monkeypatch)
 
     def slow() -> str | None:
         if not readmitted:
-            time.sleep(0.4)  # several refreshes, in which a readmission would show
+            wait_for(lambda: "sent/1" in builder.finished, what="sent/1 to finish", timeout=WAIT)
+            # Several refreshes, in which a readmission would show.
+            refreshes.wait_for(refreshes.count + SEVERAL_REFRESHES, timeout=WAIT)
             return None
-        return None if eventually(lambda: builder.started.count("sent/1") == 2) else "failed"
+        return wait_for(
+            lambda: builder.started.count("sent/1") == 2,
+            what="sent/1 to be started a second time",
+            timeout=WAIT,
+        )
 
     builder.scripts["slow/1"] = slow
 
@@ -1671,8 +1681,8 @@ def test_a_unit_refused_for_usage_does_not_stop_the_pass(
 
     pauses_for_usage(builder, monkeypatch, "stops/1")
     builder.scripts["stops/1"] = stops
-    builder.scripts["slow/1"] = lambda: (
-        None if eventually(lambda: "later/1" in builder.finished) else "failed"
+    builder.scripts["slow/1"] = lambda: wait_for(
+        lambda: "later/1" in builder.finished, what="later/1 to finish", timeout=WAIT
     )
 
     assert tick(inst) == 0
@@ -1721,8 +1731,10 @@ def test_a_unit_paused_for_usage_resumes_in_the_pass_once_the_guard_allows(
 
     pauses_for_usage(builder, monkeypatch, "waits/1")
     builder.scripts["waits/1"] = pauses_once
-    builder.scripts["slow/1"] = lambda: (
-        None if eventually(lambda: builder.finished.count("waits/1") == 2) else "failed"
+    builder.scripts["slow/1"] = lambda: wait_for(
+        lambda: builder.finished.count("waits/1") == 2,
+        what="waits/1 to finish twice",
+        timeout=WAIT,
     )
 
     assert tick(inst) == 0
@@ -1753,7 +1765,9 @@ def test_a_window_used_up_leaves_the_paused_unit_and_the_one_behind_it_waiting(
 
     pauses_for_usage(builder, monkeypatch, "stops/1")
     builder.scripts["stops/1"] = stops
-    builder.scripts["slow/1"] = lambda: None if eventually(lambda: asked_after() >= 3) else "failed"
+    builder.scripts["slow/1"] = lambda: wait_for(
+        lambda: asked_after() >= 3, what="the guard to be asked three times", timeout=WAIT
+    )
 
     assert tick(inst) == 0
 
@@ -1792,7 +1806,9 @@ def test_a_rate_limit_pause_still_stops_new_builds_for_the_pass(
 
     builder.scripts["mid/1"] = refused_by_the_model
     # Rounds that went on after the refusal, not a wait of fixed length.
-    builder.scripts["slow/1"] = lambda: None if eventually(lambda: len(looks) >= 3) else "failed"
+    builder.scripts["slow/1"] = lambda: wait_for(
+        lambda: len(looks) >= 3, what="three rounds after the refusal", timeout=WAIT
+    )
 
     assert tick(inst) == 0
 
@@ -1856,8 +1872,8 @@ def test_a_rate_limit_pause_ends_at_its_deadline_within_the_pass(
     builder.scripts["mid/1"] = refused_by_the_model
     submitted: list[datetime] = []
     builder.scripts["later/1"] = lambda: submitted.append(datetime.now(UTC))
-    builder.scripts["slow/1"] = lambda: (
-        None if eventually(lambda: "later/1" in builder.finished) else "failed"
+    builder.scripts["slow/1"] = lambda: wait_for(
+        lambda: "later/1" in builder.finished, what="later/1 to finish", timeout=WAIT
     )
 
     assert tick(inst) == 0

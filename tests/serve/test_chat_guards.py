@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import os
-import time
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -21,6 +21,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.transcript import Transcript, TranscriptEvent, transcript_dir
 from agent_build_kit.pipeline.workspaces import branch_lock
+from agent_build_kit.serve.chat import Chat
 from tests.agui_protocol import validate_stream
 from tests.chat_serving import (
     WAIT,
@@ -44,6 +45,7 @@ from tests.serve.socket_api import (
     socket_api,  # noqa: F401 — a page closing is the subject: a socket
 )
 from tests.serving import seed_pipeline
+from tests.waiting import wait_for
 
 # A session id on a command line (an editor holding it, a fake agent listing it) is seen by
 # every server on the machine, so these cannot run beside each other.
@@ -75,6 +77,14 @@ def test_the_lease_stays_while_a_turn_the_closed_page_started_is_still_running(
     fake = use_blocking_claude(
         monkeypatch, finished_build(unit_worktree(pipeline, "feature/2"), "Done.")
     )
+    closed = threading.Event()
+    close_tab = Chat.close_tab
+
+    def close_tab_then_signal(self: Chat, tab: str) -> None:
+        close_tab(self, tab)
+        closed.set()
+
+    monkeypatch.setattr(Chat, "close_tab", close_tab_then_signal)
     with api.stream("GET", f"{REVIEW}/agent/events", params={"tab": "t1"}, timeout=WAIT) as page:
         page_events = events_of(page)  # kept: dropping the iterator would close the stream
         next(page_events)
@@ -86,7 +96,7 @@ def test_the_lease_stays_while_a_turn_the_closed_page_started_is_still_running(
             assert fake.started.wait(WAIT)
 
             page.close()
-            time.sleep(0.6)  # long enough for the server to see the page go
+            wait_for(closed.is_set, what="the server to handle the page closing", timeout=WAIT)
 
             assert holder(pipeline) == "tab:t1", "the agent is still editing the worktree"
 

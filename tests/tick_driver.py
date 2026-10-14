@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,7 @@ from agent_build_kit.pipeline.usage_guard import Decision
 from tests.conftest import make_installation
 from tests.graph_driver import fresh
 from tests.runner_fakes import Recorder, make_runner
+from tests.waiting import wait_for
 
 UNIT = "add-marker/1"
 OTHER = "add-marker/2"
@@ -30,6 +32,34 @@ NEEDING_PARENT = (
     "# Tasks\n\n## 1. [app] [tier1] Do the work\n\nNeeds: parent group 1 — a reason\n\n"
     "- [ ] 1.1 Test: it works\n- [ ] 1.2 Make it work\n"
 )
+
+
+class Refreshes:
+    """How many times a tick has refreshed (run `poll_all`), for a test to wait on."""
+
+    def __init__(self) -> None:
+        self._count = 0
+        self._lock = threading.Lock()
+
+    @property
+    def count(self) -> int:
+        with self._lock:
+            return self._count
+
+    def record(self) -> None:
+        with self._lock:
+            self._count += 1
+
+    def wait_for(self, runs: int, *, timeout: float = 10.0) -> None:
+        """Return once `runs` refreshes have run; raise TimeoutError after `timeout`."""
+        wait_for(lambda: self.count >= runs, what=f"{runs} refreshes", timeout=timeout)
+
+
+def count_refreshes(patch: pytest.MonkeyPatch) -> Refreshes:
+    """Replace the tick's `poll_all` with a no-op that counts its runs."""
+    refreshes = Refreshes()
+    patch.setattr(cli, "poll_all", lambda inst, **kwargs: refreshes.record())
+    return refreshes
 
 
 class Setup:

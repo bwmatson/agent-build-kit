@@ -25,15 +25,18 @@ from __future__ import annotations
 import json
 import re
 import threading
-import time
+from collections.abc import Callable
 from copy import deepcopy
 from typing import Any
 
 import httpx
 
 from tests.forges import azure_answers
+from tests.waiting import wait_for
 
 PAGE = 100
+# The longest a held request waits for its test to release it.
+GATE_LIMIT = 30
 PROJECT_ID = "11111111-2222-3333-4444-555555555555"
 NO_OBJECT = "0" * 40
 JSON = {"content-type": "application/json; charset=utf-8"}
@@ -107,7 +110,8 @@ class RestHost(httpx.MockTransport):
         policy_page: int = 1000,
         ref_status: str = "",
         change_page: int = 1000,
-        delay: float = 0.0,
+        gate: threading.Event | None = None,
+        hold_after: int = 0,
         refuse: dict[tuple[str, str], httpx.Response] | None = None,
     ) -> None:
         self.pulls = [deepcopy(p) if "repository" in p else listed(p) for p in pulls]
@@ -125,7 +129,9 @@ class RestHost(httpx.MockTransport):
         self.ref_status = ref_status
         self.rejected_tokens: set[str] = set()
         self.change_page = change_page
-        self.delay = delay
+        self.gate = gate
+        self.hold_after = hold_after
+        self._arrived = 0
         self.refuse = refuse or {}
         self.seen: list[Seen] = []
         self._lock = threading.Lock()
@@ -142,6 +148,31 @@ class RestHost(httpx.MockTransport):
             if (method is None or s.method == method) and (route is None or s.route == route)
         ]
 
+    def held_until(self, call: Callable[[], Any], reached: Callable[[], bool]) -> Any:
+        """Run `call` with every request held at the gate, release the gate once
+        `reached()` is true, and return what `call` returned (or raise what it raised)."""
+        assert self.gate is not None, "the host has no gate to hold requests at"
+        outcome: list[Any] = []
+        failure: list[BaseException] = []
+
+        def run() -> None:
+            try:
+                outcome.append(call())
+            except BaseException as error:  # noqa: BLE001 — re-raised below, in the test
+                failure.append(error)
+
+        worker = threading.Thread(target=run)
+        worker.start()
+        try:
+            wait_for(reached, what="the held requests to reach the host")
+        finally:
+            self.gate.set()
+            worker.join(timeout=GATE_LIMIT)
+        assert not worker.is_alive(), "the call did not return once the gate opened"
+        if failure:
+            raise failure[0]
+        return outcome[0]
+
     def writes(self) -> list[Seen]:
         return [s for s in self.seen if s.method != "GET"]
 
@@ -154,9 +185,11 @@ class RestHost(httpx.MockTransport):
         with self._lock:
             self._in_flight += 1
             self.peak = max(self.peak, self._in_flight)
+            self._arrived += 1
+            held = self.gate is not None and self._arrived > self.hold_after
         try:
-            if self.delay:
-                time.sleep(self.delay)
+            if held and self.gate is not None:
+                self.gate.wait(timeout=GATE_LIMIT)
             return self._route(request)
         finally:
             with self._lock:

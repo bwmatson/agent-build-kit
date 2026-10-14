@@ -22,6 +22,7 @@ import pytest
 
 from agent_build_kit import telemetry
 from agent_build_kit.settings import reload
+from tests.http_thread import serving
 
 ENV_KEYS = (
     "ABK_OTEL_ENABLED",
@@ -105,13 +106,8 @@ def serve(status: int) -> Iterator[Receiver]:
             pass
 
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
+    with serving(server):
         yield Receiver(port=server.server_address[1], posts=posts)
-    finally:
-        server.shutdown()
-        server.server_close()
 
 
 @pytest.fixture(params=[503, 429])
