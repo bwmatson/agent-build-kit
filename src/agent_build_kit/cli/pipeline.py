@@ -2082,7 +2082,8 @@ def _sent_back(
             when = datetime.fromisoformat(str(last.get("at", "")))
         except ValueError:
             continue
-        if when <= at:
+        # Equal stamps are a clock that did not move between the start and the record.
+        if when < at:
             continue
         if unit.state == PLANNED and unit.cause in READMITTED_CAUSES:
             out.add(unit.id)
@@ -2200,7 +2201,8 @@ def _schedule(
 
         def submit(units: list[Unit]) -> None:
             for unit in units:
-                started[unit.id] = datetime.now(UTC)
+                # On the clock the store stamps history with: readmission compares the two.
+                started[unit.id] = spans.clock.now()
                 # The tick's span goes into the worker by its context: a
                 # pool's threads do not inherit it.
                 work = contextvars.copy_context()
