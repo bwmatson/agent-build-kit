@@ -367,6 +367,9 @@ class Forge(RegistersStacks, Protocol):
         it, which is what a unit's actual size is summed from."""
         ...
 
+    # Whether a general comment on a pull request is a thread a reply can be added to.
+    general_threads: bool
+
     def review_notes(self, repo: RepoId, pr: int) -> list[ReviewNote]: ...
 
     def post_reply(self, repo: RepoId, pr: int, *, note_id: str, body: str) -> list[str]: ...
