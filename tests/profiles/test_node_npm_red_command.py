@@ -100,15 +100,16 @@ def test_a_lint_failure_fails_the_clean_command(profile, project: Project) -> No
     assert done.returncode != 0
 
 
-def test_the_red_command_runs_exactly_the_given_files(profile, project: Project) -> None:
+def test_the_red_command_names_the_given_files_and_no_others_to_vitest(
+    profile, project: Project
+) -> None:
     project.run(profile.red_command(FILES))
 
     (call,) = project.calls_made()
     assert call[0] == "vitest" and call[1] == "run"
-    here = (project.root / "project").resolve()
-    # Vitest reads a bare argument as a substring filter, so `src/a.test.ts` would also run
-    # `other/src/a.test.ts`; an absolute path matches by prefix only.
-    assert [arg for arg in call[2:] if not arg.startswith("-")] == [f"{here}/{f}" for f in FILES]
+    # What Vitest then selects is its filters' substring match: see
+    # `tests/integration/test_node_npm_red_command_vitest.py`.
+    assert [arg for arg in call[2:] if not arg.startswith("-")] == FILES
 
 
 def test_the_red_runs_exit_status_is_the_runners_and_the_report_outlives_its_file(

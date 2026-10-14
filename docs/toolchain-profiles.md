@@ -139,9 +139,10 @@ type checks (oxlint, tsc --noEmit)", a stub body of
 `throw new Error("not implemented")`), `no_tests_collected_exit` 0,
 `is_test_path` (a `__tests__` directory, or `.test`/`.spec` before `ts`, `tsx`, `js`,
 `jsx` or `mts`),
-`clean_command` (`npx oxlint . && npx oxfmt --check .`, no `tsc`), `red_command` (Vitest on
-exactly the given files, anchored to the project directory, its JUnit report printed after the
-marker), and `stub_violations` returning nothing. It also drafts the environment for
+`clean_command` (`npx oxlint . && npx oxfmt --check .`, no `tsc`), `red_command` (Vitest, with the
+given files as its filters, which match by substring so the report, naming each test
+suite by its file, is what tells the given files from others; its JUnit report is printed after
+the marker), and `stub_violations` returning nothing. It also drafts the environment for
 `abk init` from a `package.json` (`profiles/node_environment.py`): the manager is
 the manifest's `packageManager` field, else the lock file present (`package-lock.json`
 npm, `pnpm-lock.yaml` pnpm, `yarn.lock` yarn), else npm. `sync` is the plain install
