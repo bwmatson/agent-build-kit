@@ -4515,18 +4515,22 @@ def cmd_gate(args: argparse.Namespace, inst: Installation | None) -> int:
 
     profile_name = args.profile
     base = args.base
+    projects = []
     if inst is not None:
         repo = Path(args.repo).resolve()
         for name, path in inst.checkouts.items():
             if repo == path.resolve() or repo.is_relative_to(path.resolve()):
                 profile_name = profile_name or inst.repo(name).profile
+                projects = inst.repo(name).projects
                 # The remote's copy, as the runner builds on: the local branch of
                 # that name is the user's, and nothing updates it.
                 base = base or local_ref(trunk_of(name), repo=name)
                 break
     profile = profiles.get(profile_name or "python-uv")
     cache = CheckCache(args.cache) if args.cache else None
-    problems = check_branch(Path(args.repo), base or "main", cache=cache, profile=profile)
+    problems = check_branch(
+        Path(args.repo), base or "main", cache=cache, profile=profile, projects=projects
+    )
     for problem in problems:
         print(f"✗ {problem}")
     if problems:

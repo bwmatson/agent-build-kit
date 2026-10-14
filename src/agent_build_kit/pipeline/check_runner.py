@@ -67,8 +67,10 @@ def worktree_at(repo: Path, sha: str):
             git_out(repo, "worktree", "prune")
 
 
-def run_at_commit(repo: Path, sha: str, commands: list[str]) -> list[CommandResult]:
-    """Run each command in a worktree checked out at `sha`.
+def run_at_commit(
+    repo: Path, sha: str, commands: list[str], *, subdir: str = "."
+) -> list[CommandResult]:
+    """Run each command in a worktree checked out at `sha`, in `subdir` of it.
 
     A non-zero exit is data, not an error — the red check expects one — so
     results are returned rather than raised, and every command runs.
@@ -81,7 +83,7 @@ def run_at_commit(repo: Path, sha: str, commands: list[str]) -> list[CommandResu
                 completed = subprocess.run(
                     command,
                     shell=True,
-                    cwd=tree,
+                    cwd=tree / subdir,
                     capture_output=True,
                     text=True,
                     timeout=COMMAND_TIMEOUT_SECONDS,

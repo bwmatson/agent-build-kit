@@ -864,12 +864,16 @@ class BuildPath:
         """The prompt part listing commits made to the branch outside the build session."""
         held = state.sessions.get(SessionRole.BUILD)
         repo = self.runner.repo_config
-        profile = profiles.get(repo.profile if repo else "python-uv")
+
+        fallback = profiles.get(repo.profile if repo else "python-uv")
+
+        def is_test(path: str) -> bool:
+            return profiles.for_path(repo.projects if repo else [], path, fallback).is_test_path(
+                path
+            )
+
         return outside_commits_note(
-            tree,
-            self.ref(state),
-            held.session_id if held else "",
-            is_test=profile.is_test_path,
+            tree, self.ref(state), held.session_id if held else "", is_test=is_test
         )
 
     @staticmethod

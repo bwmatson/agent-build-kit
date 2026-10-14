@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import ast
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 from agent_build_kit.pipeline.shell import git_out
@@ -42,8 +43,11 @@ TEST_FILE_SUFFIXES = ("_test.py", ".test.ts", ".spec.ts")
 DOC_SUFFIXES = (".md", ".rst", ".txt")
 
 
-def classify_paths(paths: list[str]) -> dict[str, str]:
-    """Label each path "test", "docs" or "code"."""
+def classify_paths(
+    paths: list[str], is_test: Callable[[str], bool] | None = None
+) -> dict[str, str]:
+    """Label each path "test", "docs" or "code". `is_test` is the toolchain's own say on
+    what a test path is, beside the names every toolchain shares."""
     labels: dict[str, str] = {}
     for path in paths:
         parts = Path(path).parts
@@ -52,6 +56,7 @@ def classify_paths(paths: list[str]) -> dict[str, str]:
             any(part in TEST_DIR_NAMES for part in parts)
             or name.startswith(TEST_FILE_PREFIXES)
             or name.endswith(TEST_FILE_SUFFIXES)
+            or (is_test is not None and is_test(path))
         ):
             labels[path] = "test"
         elif path.endswith(DOC_SUFFIXES):
@@ -122,7 +127,9 @@ def _file_at(repo: Path, sha: str, path: str) -> str:
         return ""  # Deleted in this commit; nothing to vouch for.
 
 
-def check_structure(repo: Path, base: str) -> list[str]:
+def check_structure(
+    repo: Path, base: str, is_test: Callable[[str], bool] | None = None
+) -> list[str]:
     """Check a branch's commits read as tests-then-implementation.
 
     Returns every problem found, so one run shows the whole list rather than
@@ -137,7 +144,7 @@ def check_structure(repo: Path, base: str) -> list[str]:
     stub_problems: dict[int, list[str]] = {}
 
     for index, sha in enumerate(shas):
-        labels = classify_paths(_files_in(repo, sha))
+        labels = classify_paths(_files_in(repo, sha), is_test)
         has_tests = any(kind == "test" for kind in labels.values())
         code_paths = [path for path, kind in labels.items() if kind == "code"]
 

@@ -370,7 +370,9 @@ directory, against the remote's copy of the repo's `default_branch`, e.g.
 and format pass at each tests commit with type checking skipped, and the new
 tests there fail for an accepted reason. `--cache` keeps results by patch-id
 across restacks. `--profile` defaults to the profile `abk.yaml` gives the repo
-containing `--repo`, else `python-uv`. Prints each problem prefixed `✗`; exit
+containing `--repo`, else `python-uv`; it covers the files outside every project the repo
+declares. Each test file is judged by the profile of its project, with that project's clean
+and red commands run in its directory, and the gate fails if any project fails. Prints each problem prefixed `✗`; exit
 1 if any, else 0 with `✓ tests-first: ...`.
 
 ### `abk approve UNIT`
