@@ -27,7 +27,7 @@ def test_the_tasks_are_read_where_the_layout_function_says(
         "## 1. [app] [tier1] First\n\n- [ ] 1.1 Test it\n\nAcceptance: none — scaffolding only\n"
     )
 
-    errors = validation_errors(tmp_path, "feature", repos=("app",), run_openspec=valid)
+    errors = validation_errors(tmp_path, "feature", repos=("app",), projects={}, run_openspec=valid)
 
     assert errors == []
 
@@ -44,7 +44,12 @@ def test_a_custom_specs_directory_is_handed_to_the_layout_function(
     monkeypatch.setattr(propose, "changes_dir_under", layout)
 
     errors = validation_errors(
-        tmp_path, "feature", repos=("app",), run_openspec=valid, specs_dir="specs-store"
+        tmp_path,
+        "feature",
+        repos=("app",),
+        projects={},
+        run_openspec=valid,
+        specs_dir="specs-store",
     )
 
     assert asked == [(tmp_path, "specs-store")]

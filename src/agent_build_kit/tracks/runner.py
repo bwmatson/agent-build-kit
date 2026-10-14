@@ -70,6 +70,7 @@ from agent_build_kit.pipeline.usage_guard import (
     starting,
 )
 from agent_build_kit.pipeline.vocabulary import OverheadNode
+from agent_build_kit.pipeline.work_graph import declared_projects
 from agent_build_kit.runtimes import (
     AgentInterrupted,
     AgentRateLimited,
@@ -467,6 +468,7 @@ def _vet_proposed_change(inst: Installation, project: Project) -> list[str]:
         inst.root,
         change,
         repos=tuple(inst.repos),
+        projects=declared_projects(inst.repos),
         specs_dir=inst.config.planning.specs_dir,
     )
     if not errors:

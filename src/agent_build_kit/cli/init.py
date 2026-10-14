@@ -70,6 +70,7 @@ from agent_build_kit.init.scaffold import (
 from agent_build_kit.installation import Installation, changes_dir_under, load_config
 from agent_build_kit.notify.windows import INSTALL_COMMAND
 from agent_build_kit.pipeline.shell import git
+from agent_build_kit.pipeline.work_graph import project_tags
 from agent_build_kit.runtimes import AgentRuntime, PolicyReport, policy_apply, policy_check
 from agent_build_kit.runtimes.base import Run, Which, validate_argv
 from agent_build_kit.runtimes.known_agents import agent_for_command
@@ -747,6 +748,9 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
 
     failures: list[str] = []
     if not args.skip_propose:
+        projects = {
+            name: project_tags(detection.projects) for name, detection in detections.items()
+        }
         for name, detection in detections.items():
             if not detection.languages:
                 print(f"{name}: no language detected, nothing to propose")
@@ -768,6 +772,7 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
                         run_openspec=run_openspec,
                         runtime=agent,
                         repos=tuple(names),
+                        projects=projects,
                     )
                     print(f"wrote openspec/changes/{change}/")
                 except ProposeError as error:

@@ -269,7 +269,9 @@ from agent_build_kit.pipeline.wiring import (
 from agent_build_kit.pipeline.work_graph import (
     Need,
     TaskGroup,
+    ValidationError,
     check_tags,
+    declared_projects,
     group_needs,
     merged_needs_warnings,
     specification_text,
@@ -1162,7 +1164,7 @@ def _needs_planning(inst: Installation, store: UnitStore) -> bool:
             continue
         if record.get("hash") == digest and _plan_waiting(record, now):
             continue
-        groups, errors = validate_tasks(tasks, repos=tuple(inst.repos))
+        groups, errors = _validated(inst, tasks)
         # A change whose groups are all taken is recorded with no model call.
         taken = _taken_groups(store, tasks.parent.name)
         if not errors and not (groups and taken >= {g.number for g in groups}):
@@ -2501,10 +2503,7 @@ def _gone_groups(store: UnitStore, change: str, groups: Sequence[TaskGroup]) -> 
 
 def _task_catalog(inst: Installation) -> dict[str, tuple[TaskGroup, ...]]:
     """Every change's task groups, as `unit_priority` and the plan check read them."""
-    return {
-        path.parent.name: tuple(validate_tasks(path, repos=tuple(inst.repos))[0])
-        for path in inst.tasks_files()
-    }
+    return {path.parent.name: tuple(_validated(inst, path)[0]) for path in inst.tasks_files()}
 
 
 def _set_priorities(
@@ -2658,7 +2657,7 @@ def plan_all(
         # The tags are how a unit finds its repo and its tier. Planning
         # against a broken one spends a model call to produce a graph that
         # cannot be built, so this refuses before paying for it.
-        task_groups, errors = validate_tasks(tasks, repos=tuple(inst.repos))
+        task_groups, errors = _validated(inst, tasks)
         if errors:
             log(f"not planning {change}: {len(errors)} task-group problem(s) — run `abk tags`")
             results[change] = PlanResult(status="refused")
@@ -4012,11 +4011,21 @@ def _needs_cycle_problems(inst: Installation) -> dict[str, str]:
     return {change: f"{change}: Needs: cycle {chain}" for change in crossing}
 
 
+def _validated(inst: Installation, path: Path) -> tuple[list[TaskGroup], list[ValidationError]]:
+    """A tasks file's groups and errors against the installation's repos and their projects."""
+    return validate_tasks(path, repos=tuple(inst.repos), projects=declared_projects(inst.repos))
+
+
 def _tag_warnings(inst: Installation, path: Path) -> list[str]:
     """What `abk tags` and `abk check` warn of in a tasks file, none of it a problem."""
     return [
         *merged_needs_warnings(path),
-        *unrelated_parent_warnings(path, inst.changes_dir, repos=tuple(inst.repos)),
+        *unrelated_parent_warnings(
+            path,
+            inst.changes_dir,
+            repos=tuple(inst.repos),
+            projects=declared_projects(inst.repos),
+        ),
     ]
 
 
@@ -4030,7 +4039,12 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
     failed = 0
     cycles = _needs_cycle_problems(inst)
     for change in changes:
-        groups, errors = check_tags(change, inst.changes_dir, repos=tuple(inst.repos))
+        groups, errors = check_tags(
+            change,
+            inst.changes_dir,
+            repos=tuple(inst.repos),
+            projects=declared_projects(inst.repos),
+        )
         if change.lower() in cycles:
             errors.append(cycles[change.lower()])
         path = tasks_path(change, inst.changes_dir)
@@ -4045,7 +4059,7 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
         print(f"{change}: {len(groups)} task group(s), all tagged")
         for group in groups:
             urgency = f" (priority {group.priority})" if group.priority != Priority.NORMAL else ""
-            print(f"  {group.number}. [{group.repo}] [{group.tier}] {group.title}{urgency}")
+            print(f"  {group.number}. [{group.tag}] [{group.tier}] {group.title}{urgency}")
     return 1 if failed else 0
 
 
@@ -4172,7 +4186,7 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
             )
         elif not tasks.is_file():
             print(f"abk replan: {change} has no tasks.md")
-        elif not args.forget and validate_tasks(tasks, repos=tuple(inst.repos))[1]:
+        elif not args.forget and _validated(inst, tasks)[1]:
             print(f"abk replan: {change} has task-group problems — run `abk tags`")
         else:
             to_plan.append(change)
