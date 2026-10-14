@@ -89,7 +89,11 @@ fresh one, no more often than the cache time allows), the count of units by stat
 or `planned` with work on them and no cause on their last history entry. A repository with a
 `tests.replay` section adds a `cassettes:` line with the count of recordings waiting for review.
 A `flake storm:` line shows each run that failed more than `limits.max_flakes_per_run` tests on its
-first pass that all passed alone, as one line with its count and no per-test entries. At each
+first pass that all passed alone, as one line with its count and no per-test entries; its record
+keeps the first three failures' own sections of the run's output (up to 3000 characters each, from
+the end), and so does the log. Each flaky test's record keeps, next to `output`, `failure`: its
+own section of the first run's output with the traceback, up to 6000 characters from the end, empty
+when the profile reads none. At each
 planning pass a planned unit that never started, whose change directory no longer exists, becomes
 `unplanned`, and a unit waiting on it stops waiting. A `flaky:` line lists each flaky test with
 its count and fix change, and a `pre-existing:`

@@ -1,5 +1,6 @@
-"""Re-record `tests/fixtures/external/pytest/*.xml`, and `console_failures.txt` (pytest's
-console output for a run with failures, which the flake hooks read), from the installed pytest.
+"""Re-record `tests/fixtures/external/pytest/*.xml`, and `console_failures.txt` and
+`console_long_titles.txt` (pytest's console output for runs with failures, which the
+flake hooks read), from the installed pytest.
 
     uv run python tests/fixtures/external/record_pytest.py
 
@@ -53,12 +54,32 @@ CONSOLE_FILES = {
 }
 
 
-def record_console() -> None:
-    """`console_failures.txt`: pytest's own console output for `CONSOLE_FILES`, as the tail
-    tier 1 keeps it, with only the temporary path and timings redacted."""
+# A run whose first failing test prints a line shaped like a pytest section rule, followed by
+# one whose title is long enough that pytest pads its block header with a single underscore.
+LONG_TITLE_FILES = {
+    "test_long.py": (
+        "def test_noisy():\n    print('=== step ===')\n    assert 1 == 2\n\n\n"
+        "class TestAVeryLongGroupName:\n"
+        "    def test_a_long_name_that_pytest_cannot_pad(self):\n"
+        "        assert 'a' == 'b'\n"
+    ),
+}
+LONG_TITLE_PARAMS = (
+    "import pytest\n\n\n"
+    "@pytest.mark.parametrize('n', ['a-long-parameter-value-for-the-title'])\n"
+    "def test_a_parametrised_name_long_enough_that_the_title_is_padded_once(n):\n"
+    "    assert n == 1\n"
+)
+
+
+def record_console(
+    files: dict[str, str] = CONSOLE_FILES, out: str = "console_failures.txt"
+) -> None:
+    """`out`: pytest's own console output for `files`, as the tail tier 1 keeps it, with only
+    the temporary path and timings redacted."""
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        for name, source in CONSOLE_FILES.items():
+        for name, source in files.items():
             (root / name).write_text(source)
         done = subprocess.run(
             [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-q"],
@@ -69,17 +90,22 @@ def record_console() -> None:
         )
     text = (done.stdout + done.stderr).replace(tmp, "/tmp/case")
     text = re.sub(r" in [\d.]+s( \([\d:]+\))?", " in 0.01s", text)
+    # The repository's own hooks strip trailing whitespace from every file.
+    text = "".join(f"{line.rstrip()}\n" for line in text.splitlines())
     version = subprocess.run(
         [sys.executable, "-m", "pytest", "--version"], capture_output=True, text=True, check=True
     )
     header = f"# tool: {(version.stdout + version.stderr).strip()}\n"
     command = "$ uv run pytest -q (exit 1)\n"
-    (OUT / "console_failures.txt").write_text(header + command + text)
+    (OUT / out).write_text(header + command + text)
 
 
 def main() -> None:
     OUT.mkdir(exist_ok=True)
     record_console()
+    record_console(
+        {**LONG_TITLE_FILES, "test_params.py": LONG_TITLE_PARAMS}, "console_long_titles.txt"
+    )
     version = subprocess.run(
         [sys.executable, "-m", "pytest", "--version"], capture_output=True, text=True, check=True
     )

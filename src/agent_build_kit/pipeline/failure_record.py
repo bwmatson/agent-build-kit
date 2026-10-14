@@ -42,6 +42,8 @@ class Storm(Frozen):
     count: int
     tests: list[str]
     command: str
+    # The first few flaky tests' failure sections, so the error they share shows.
+    failures: list[str] = []
 
 
 def _is_storm(line: str) -> bool:

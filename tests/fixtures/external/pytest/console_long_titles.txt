@@ -1,0 +1,41 @@
+# tool: pytest 9.1.1
+$ uv run pytest -q (exit 1)
+FFF                                                                      [100%]
+=================================== FAILURES ===================================
+__________________________________ test_noisy __________________________________
+
+    def test_noisy():
+        print('=== step ===')
+>       assert 1 == 2
+E       assert 1 == 2
+
+test_long.py:3: AssertionError
+----------------------------- Captured stdout call -----------------------------
+=== step ===
+________ TestAVeryLongGroupName.test_a_long_name_that_pytest_cannot_pad ________
+
+self = <test_long.TestAVeryLongGroupName object at 0x786582874550>
+
+    def test_a_long_name_that_pytest_cannot_pad(self):
+>       assert 'a' == 'b'
+E       AssertionError: assert 'a' == 'b'
+E
+E         - b
+E         + a
+
+test_long.py:8: AssertionError
+_ test_a_parametrised_name_long_enough_that_the_title_is_padded_once[a-long-parameter-value-for-the-title] _
+
+n = 'a-long-parameter-value-for-the-title'
+
+    @pytest.mark.parametrize('n', ['a-long-parameter-value-for-the-title'])
+    def test_a_parametrised_name_long_enough_that_the_title_is_padded_once(n):
+>       assert n == 1
+E       AssertionError: assert 'a-long-parameter-value-for-the-title' == 1
+
+test_params.py:6: AssertionError
+=========================== short test summary info ============================
+FAILED test_long.py::test_noisy - assert 1 == 2
+FAILED test_long.py::TestAVeryLongGroupName::test_a_long_name_that_pytest_cannot_pad
+FAILED test_params.py::test_a_parametrised_name_long_enough_that_the_title_is_padded_once[a-long-parameter-value-for-the-title]
+3 failed in 0.01s
