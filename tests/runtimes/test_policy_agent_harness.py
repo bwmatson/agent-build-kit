@@ -70,7 +70,11 @@ def test_an_agent_that_never_answers_ends_at_the_deadline_with_nothing_left(
 def test_each_command_judged_is_named_on_stderr_and_a_stall_is_heartbeaten(
     record: Path, scratch: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    result = drive(command(record, "judge", "--judge", "3"), COMMANDS, deadline=2, heartbeat=0.2)
+    fourth = ("git branch -D probe-throwaway", "force-deleting a branch")
+
+    result = drive(
+        command(record, "judge", "--judge", "3"), (*COMMANDS, fourth), deadline=2, heartbeat=0.2
+    )
     err = capsys.readouterr().err
 
     assert not result.finished
