@@ -10,12 +10,12 @@ import pytest
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.runtimes.policy_check import check_policy
+from agent_build_kit.runtimes.recommended_policy import patterns
 from tests.runtimes.policy_static_support import (
     FIRST,
     agent_home,
     entry_for,
     protocol_runtime,
-    recommended,
     write_config,
 )
 
@@ -34,7 +34,7 @@ def program(tmp_path: Path) -> Path:
 def test_the_check_never_starts_the_agent(
     program: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, installation: Installation
 ) -> None:
-    write_config(agent_home(tmp_path, monkeypatch), recommended())
+    write_config(agent_home(tmp_path, monkeypatch), patterns())
 
     report = check_policy(protocol_runtime(), entry_for(str(program), "acp"), installation)
 

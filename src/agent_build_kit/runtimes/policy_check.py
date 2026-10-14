@@ -1,11 +1,12 @@
-"""Whether the active runtime refuses what abk forbids, asked at most once a
-short while.
+"""Whether an agent refuses what abk forbids.
 
-`check_policy` may cost an agent call (a probe run), and `doctor` and `init`
-ask it every time they run, so an answer is kept in a file beside the usage
-reading and reused while it is fresh. A caller that has just changed what the
-answer depends on — `init`, after running the installation's fix — asks for a
-fresh one.
+`check_policy` is the static check: for a known agent with an applier it reads the deny
+list from the agent's own configuration and judges every probe command with
+`recommended_policy.matches`. It starts nothing, costs no agent call and keeps nothing.
+Beside it sit the report helpers `describe`, `unrefused`, `classes_of` and `fix_for`.
+
+`checked` and its cache (`cache_path`, `CACHE_NAME`, `MAX_AGE`) stay only for `abk doctor`
+and `abk init` until they call `check_policy`; they are removed then.
 """
 
 from __future__ import annotations
@@ -43,10 +44,11 @@ def checked(
     now: datetime | None = None,
     fresh: bool = False,
 ) -> PolicyReport:
-    """`runtime.check_policy(cwd)`, or the answer it gave within `MAX_AGE`.
+    """`runtime.check_policy(cwd)`, or the answer it gave within `MAX_AGE`. Kept only until
+    `abk doctor` and `abk init` call `check_policy`.
 
-    Answers are kept per runtime, so switching runtimes never reuses the
-    other's. An unreadable cache is a cache miss."""
+        Answers are kept per runtime, so switching runtimes never reuses the
+        other's. An unreadable cache is a cache miss."""
     now = now or datetime.now(UTC)
     try:
         kept = json.loads(cache.read_text())

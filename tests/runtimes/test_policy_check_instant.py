@@ -9,11 +9,11 @@ import pytest
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.runtimes.policy_check import check_policy
+from agent_build_kit.runtimes.recommended_policy import patterns
 from tests.runtimes.policy_static_support import (
     agent_home,
     first_agent_entry,
     protocol_runtime,
-    recommended,
     write_config,
 )
 
@@ -28,7 +28,7 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def test_several_hundred_entries_are_judged_in_under_a_second(
     home: Path, installation: Installation
 ) -> None:
-    write_config(home, [*(f"tool-{n} *" for n in range(HUNDREDS)), *recommended()])
+    write_config(home, [*(f"tool-{n} *" for n in range(HUNDREDS)), *patterns()])
 
     started = time.perf_counter()
     report = check_policy(protocol_runtime(), first_agent_entry(), installation)
@@ -40,7 +40,7 @@ def test_several_hundred_entries_are_judged_in_under_a_second(
 def test_every_run_reads_the_file_again_and_keeps_no_answer(
     home: Path, installation: Installation
 ) -> None:
-    write_config(home, recommended())
+    write_config(home, patterns())
     first = check_policy(protocol_runtime(), first_agent_entry(), installation)
     write_config(home, [])
 
