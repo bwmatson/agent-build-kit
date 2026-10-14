@@ -17,6 +17,9 @@ from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.pr_poller import HOLD_LABEL, state_path
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import FAILED
+from tests.serve.socket_api import (
+    socket_api,  # noqa: F401 — a request timing out is the subject: a socket
+)
 from tests.serving import EXPECTED, seed_pipeline
 
 

@@ -46,7 +46,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import httpx
 import pytest
@@ -205,7 +205,13 @@ def holding_process(session: str) -> Iterator[int]:
         yield pid
 
 
-def events_of(response: httpx.Response) -> Iterator[dict[str, Any]]:
+class Streamed(Protocol):
+    """A streamed response, from the socket client or the in-process one."""
+
+    def iter_lines(self) -> Iterator[str]: ...
+
+
+def events_of(response: Streamed) -> Iterator[dict[str, Any]]:
     """The AG-UI events of a streamed response, as they arrive."""
     for line in response.iter_lines():
         if line.startswith("data:"):
@@ -216,11 +222,12 @@ def events_of(response: httpx.Response) -> Iterator[dict[str, Any]]:
 def in_process_client(installation: Installation) -> Iterator[TestClient]:
     """A client calling the application over `installation` as a function call: no server,
     no thread serving, no socket."""
-    with TestClient(create_app(installation)) as client:
+    # A failing handler answers 500, as it does to a client of a server, not an exception.
+    with TestClient(create_app(installation), raise_server_exceptions=False) as client:
         yield client
 
 
-def turn(api: httpx.Client, url: str, body: dict[str, Any]) -> list[dict[str, Any]]:
+def turn(api: httpx.Client | TestClient, url: str, body: dict[str, Any]) -> list[dict[str, Any]]:
     """Send a turn and read its whole reply."""
     with api.stream("POST", url, json=body, timeout=WAIT) as response:
         assert response.status_code == 200, response.read()

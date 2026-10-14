@@ -16,6 +16,9 @@ import pytest
 from agent_build_kit.installation import Installation
 from tests.chat_serving import WAIT, events_of, record_session, unit_worktree, until
 from tests.runtimes.acp_agent import SESSION, requests, use_agent
+from tests.serve.socket_api import (
+    socket_api,  # noqa: F401 — a page closing is the subject: a socket
+)
 from tests.serving import seed_pipeline
 
 REVIEW = "/api/units/feature/2"

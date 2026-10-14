@@ -27,3 +27,15 @@ def test_it_returns_at_once_for_a_condition_already_true() -> None:
 def test_it_names_what_it_waited_for_when_the_condition_never_holds() -> None:
     with pytest.raises(TimeoutError, match="the moon to fall"):
         wait_for(lambda: False, what="the moon to fall", timeout=0.1)
+
+
+def test_it_fails_with_the_reason_as_soon_as_one_is_given() -> None:
+    with pytest.raises(RuntimeError, match="the agent: boom"):
+        wait_for(lambda: False, what="the agent", timeout=30, failure=lambda: "the agent: boom")
+
+
+def test_it_keeps_waiting_while_there_is_no_reason() -> None:
+    reasons = iter([None, "", "stderr text"])
+
+    with pytest.raises(RuntimeError, match="stderr text"):
+        wait_for(lambda: False, what="the agent", timeout=30, failure=lambda: next(reasons))

@@ -40,6 +40,9 @@ from tests.factories import unit
 from tests.runtimes.acp_agent import SESSION as ACP_SESSION
 from tests.runtimes.acp_agent import requests, use_agent
 from tests.runtimes.claude_cli import finished_build
+from tests.serve.socket_api import (
+    socket_api,  # noqa: F401 — a page closing is the subject: a socket
+)
 from tests.serving import seed_pipeline
 
 # A session id on a command line (an editor holding it, a fake agent listing it) is seen by
