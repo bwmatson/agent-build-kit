@@ -81,6 +81,26 @@ BASE_PATH = (
 )
 
 
+def current_user() -> str:
+    """The user whose manager runs the timers."""
+    raise NotImplementedError
+
+
+def linger_state(user: str, run: Run | None = None) -> str:
+    """`on`, `off` or `unknown` (no `loginctl`, or it would not say)."""
+    raise NotImplementedError
+
+
+def enable_linger(user: str, run: Run | None = None) -> bool:
+    """Try `loginctl enable-linger` without sudo and without a prompt."""
+    raise NotImplementedError
+
+
+def linger_advice(user: str) -> str:
+    """The one line install-timers, init and doctor all say."""
+    raise NotImplementedError
+
+
 class UnitChange(Frozen):
     """What an install or a remove did, by unit path.
 
