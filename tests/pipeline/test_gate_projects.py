@@ -12,6 +12,7 @@ import pytest
 from agent_build_kit import profiles
 from agent_build_kit.config import ProjectConfig
 from agent_build_kit.pipeline.gate import check_branch
+from tests.factories import commit_files as commit
 from tests.factories import git, init_repo
 
 PYTHON_TEST = "tests/test_thing.py"
@@ -73,15 +74,6 @@ def repo(tmp_path: Path) -> Path:
     git(work, "commit", "-qm", "base")
     git(work, "checkout", "-q", "-b", "spec/change/1-unit")
     return work
-
-
-def commit(repo: Path, message: str, files: dict[str, str]) -> None:
-    for name, content in files.items():
-        path = repo / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content)
-    git(repo, "add", "-A")
-    git(repo, "commit", "-qm", message)
 
 
 def test_a_node_test_runs_the_node_red_command_in_its_project_and_no_pytest(
