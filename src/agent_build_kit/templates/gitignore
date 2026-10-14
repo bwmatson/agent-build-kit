@@ -10,10 +10,8 @@ runs/*.lock
 runs/locks/
 # A file per unit run, named for the unit; the unit's record names the latest.
 runs/unit-logs/
-# The runtime's last policy check, reused by `abk doctor` and `abk init`
-# (in the state directory; move this line if planning.state_dir is changed).
-# One line per agent call: the usage ledger (same note: move this line if
-# planning.state_dir is changed).
+# One line per agent call: the usage ledger (in the state directory; move this line
+# if planning.state_dir is changed).
 runs/usage-ledger.jsonl
 # One line per change of a unit's reason for waiting (same note).
 runs/decisions.jsonl
