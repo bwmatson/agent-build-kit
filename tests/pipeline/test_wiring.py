@@ -724,13 +724,13 @@ def test_build_and_rework_run_on_the_same_model() -> None:
     assert models().rework == models().implement
 
 
-def test_the_build_runs_on_opus(tmp_path: Path) -> None:
+def test_the_build_runs_on_sonnet(tmp_path: Path) -> None:
     recorder = Recorder()
 
     build_run(run=recorder)("do it", cwd=tmp_path, model=models().implement)
 
     command = recorder.commands[0]
-    assert command[command.index("--model") + 1] == "opus"
+    assert command[command.index("--model") + 1] == "sonnet"
 
 
 def test_a_rework_is_evaluated_by_a_different_model_than_reworked_it() -> None:
@@ -750,14 +750,13 @@ def test_the_standard_review_runs_on_opus(tmp_path: Path) -> None:
     assert command[command.index("--model") + 1] == "opus"
 
 
-def test_a_rework_s_review_runs_on_fable(tmp_path: Path) -> None:
-
+def test_a_rework_s_review_runs_on_opus(tmp_path: Path) -> None:
     recorder = Recorder()
 
     build_run_review(run=recorder, model=models().rework_review)(cwd=tmp_path)
 
     command = recorder.commands[0]
-    assert command[command.index("--model") + 1] == "fable"
+    assert command[command.index("--model") + 1] == "opus"
 
 
 def test_after_a_squash_merge_only_the_unit_s_own_commits_are_replayed(tmp_path: Path) -> None:

@@ -23,7 +23,7 @@ from agent_build_kit.installation import load_installation
 from agent_build_kit.settings import Settings, reload, settings
 from tests.runtimes.selectable import SelectableRuntime, select
 
-FLAT_MODELS = "models:\n  implement: opus\n  rework: opus\n  review: opus\n  rework_review: fable\n"
+FLAT_MODELS = "models:\n  implement: opus\n  rework: opus\n  review: opus\n  rework_review: opus\n"
 
 # A second runtime's names for the same roles, in its own block.
 OTHER_MODELS = "runtimes:\n  other:\n    models:\n      review: other-reviewer\n"
@@ -74,7 +74,7 @@ def test_a_file_naming_neither_key_runs_on_claude_code_with_its_own_models(
     assert runtimes.active().name == "claude_code"
     models = config.models()
     assert (models.implement, models.review) == ("sonnet", "haiku")
-    assert (models.rework, models.rework_review) == ("opus", "fable")
+    assert (models.rework, models.rework_review) == ("sonnet", "opus")
 
 
 def test_a_workspace_on_the_default_never_grows_either_key(tmp_path: Path) -> None:
@@ -128,7 +128,7 @@ def test_a_role_nothing_names_falls_back_to_the_active_runtime_s_own_default(
     models = config.models()
 
     assert models == OWN_DEFAULTS
-    assert not {"opus", "fable"} & set(models.model_dump().values())
+    assert not {"sonnet", "opus"} & set(models.model_dump().values())
 
 
 def test_a_flat_block_naming_some_roles_leaves_the_rest_to_the_runtime(
@@ -147,11 +147,13 @@ def test_a_flat_block_naming_some_roles_leaves_the_rest_to_the_runtime(
     )
 
 
-def test_claude_code_with_no_models_block_keeps_today_s_names(tmp_path: Path) -> None:
+def test_claude_code_with_no_models_block_builds_on_sonnet_and_reviews_on_opus(
+    tmp_path: Path,
+) -> None:
     activate(write(tmp_path, "runtime: claude_code\n"))
 
     assert config.models() == ModelsConfig(
-        implement="opus", rework="opus", review="opus", rework_review="fable"
+        implement="sonnet", rework="sonnet", review="opus", rework_review="opus"
     )
 
 
