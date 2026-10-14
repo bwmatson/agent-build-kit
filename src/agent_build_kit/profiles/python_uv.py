@@ -385,6 +385,11 @@ class PythonUvProfile:
         found = _FAILED_TEST.findall(output)
         return list(dict.fromkeys(found))
 
+    def failure_sections(self, output: str) -> dict[str, str]:
+        """Each failed test's own section of `output` (its `___ name ___` block), by the
+        identifier `failed_tests` gives it."""
+        raise NotImplementedError
+
     def serial_rerun_command(self, command: list[str], tests: list[str]) -> list[str]:
         """`command`, a failed test run, as one that runs only `tests`, serially."""
         program = _pytest_program(command)

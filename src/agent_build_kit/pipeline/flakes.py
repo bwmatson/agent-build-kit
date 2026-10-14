@@ -38,6 +38,8 @@ class Flake(Recorded):
 
     command: str
     output: str
+    # The test's own section of the first run's output: its traceback and captured output.
+    failure: str = ""
     at: datetime
     # Set by whoever records it: tier 1 does not know which unit it ran for.
     unit: str = ""
