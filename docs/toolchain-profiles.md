@@ -139,7 +139,9 @@ type checks (oxlint, tsc --noEmit)", a stub body of
 `throw new Error("not implemented")`), `no_tests_collected_exit` 0,
 `is_test_path` (a `__tests__` directory, or `.test`/`.spec` before `ts`, `tsx`, `js`,
 `jsx` or `mts`),
-and `stub_violations` returning nothing. It also drafts the environment for
+`clean_command` (`npx oxlint . && npx oxfmt --check .`, no `tsc`), `red_command` (Vitest on
+exactly the given files, anchored to the project directory, its JUnit report printed after the
+marker), and `stub_violations` returning nothing. It also drafts the environment for
 `abk init` from a `package.json` (`profiles/node_environment.py`): the manager is
 the manifest's `packageManager` field, else the lock file present (`package-lock.json`
 npm, `pnpm-lock.yaml` pnpm, `yarn.lock` yarn), else npm. `sync` is the plain install
@@ -147,7 +149,7 @@ npm, `pnpm-lock.yaml` pnpm, `yarn.lock` yarn), else npm. `sync` is the plain ins
 depth-0 listing, the manifest and lock files are inputs, a `workspaces` field adds
 `<workspace>/package.json` patterns, and `node_modules` is an artifact.
 
-What still raises, method by method: `clean_command`; the tier 2 and acceptance commands; `members`/`member_of`/`dependents` from
+What still raises, method by method: the tier 2 and acceptance commands; `members`/`member_of`/`dependents` from
 `package.json` workspaces; a red-output interpreter for the runner; and a
 stub checker for the `throw` body.
 

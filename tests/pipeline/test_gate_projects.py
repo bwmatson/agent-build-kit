@@ -110,7 +110,9 @@ def test_a_change_across_two_projects_fails_when_either_projects_check_fails(
     problems = check_branch(repo, "main", profile=made["python-uv"], projects=PROJECTS)
 
     assert len(problems) == 1
-    assert made[rejected].home in problems[0] and "red rejected" in problems[0]
+    assert "red rejected" in problems[0]
+    if rejected == "node-npm":
+        assert problems[0].startswith(f"{git(repo, 'rev-parse', '--short=8', 'HEAD~1')}: web: ")
     assert made["python-uv"].red_files == [[PYTHON_TEST]]
     assert made["node-npm"].red_files == [["src/widget.test.tsx"]]
 

@@ -1080,7 +1080,10 @@ is a logged fallback when no report could be read): an assertion or
 body, or a fixture raising `NotImplementedError` at setup. A test module that
 fails to import at collection is rejected, so the tests commit adds stubs for
 what its tests import; so are a syntax error, a missing fixture and an
-empty run. Results are cached by patch-id so a restack does not re-run them.
+empty run. Each test file is judged by the profile of the project it belongs to, with that
+project's clean and red commands run in its directory; the repo's profile covers files outside
+every project, and the gate fails if any project fails. Results are cached by patch-id so a
+restack does not re-run them.
 This is the command form of the rule, for a person or a hook; the runner's own
 push condition is the approved-SHA check above.
 

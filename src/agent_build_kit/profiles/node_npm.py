@@ -144,8 +144,12 @@ class NodeNpmProfile:
 
     def red_command(self, files: list[str]) -> str:
         """Vitest on exactly `files`, its JUnit report printed after the marker so it
-        outlives the worktree; the exit status is Vitest's own."""
-        run = f"npx {_TEST_RUNNER} run {shlex.join(files)} --reporter=junit"
+        outlives the worktree; the exit status is Vitest's own. Each path is anchored to
+        the project directory: Vitest takes a bare argument as a substring filter, so
+        `src/index.test.ts` would also run `packages/ui/src/index.test.ts`, while an
+        absolute path matches only by prefix."""
+        anchored = " ".join(f'"$PWD"/{shlex.quote(f)}' for f in files)
+        run = f"npx {_TEST_RUNNER} run {anchored} --reporter=junit"
         return wrap_report_command(run, "--outputFile")
 
     def interpret_red(self, output: str, exit_code: int) -> tuple[bool, list[str]]:

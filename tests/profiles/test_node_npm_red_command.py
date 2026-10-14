@@ -105,7 +105,10 @@ def test_the_red_command_runs_exactly_the_given_files(profile, project: Project)
 
     (call,) = project.calls_made()
     assert call[0] == "vitest" and call[1] == "run"
-    assert [arg for arg in call[2:] if not arg.startswith("-")] == FILES
+    here = (project.root / "project").resolve()
+    # Vitest reads a bare argument as a substring filter, so `src/a.test.ts` would also run
+    # `other/src/a.test.ts`; an absolute path matches by prefix only.
+    assert [arg for arg in call[2:] if not arg.startswith("-")] == [f"{here}/{f}" for f in FILES]
 
 
 def test_the_red_runs_exit_status_is_the_runners_and_the_report_outlives_its_file(

@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from agent_build_kit.config import EnvironmentConfig
+from agent_build_kit.config import EnvironmentConfig, ProjectConfig, owning_project
 from agent_build_kit.profiles.base import (
     EnvironmentDrafting,
     ProjectScaffold,
@@ -46,6 +46,19 @@ def get(name: str) -> ToolchainProfile:
         raise KeyError(
             f"unknown toolchain profile {name!r} (known: {', '.join(names())})"
         ) from None
+
+
+def for_project(project: ProjectConfig | None, fallback: ToolchainProfile) -> ToolchainProfile:
+    """The profile of `project`; `fallback` (the repo's) when there is none."""
+    return get(project.profile) if project else fallback
+
+
+def for_path(
+    projects: list[ProjectConfig], path: str, fallback: ToolchainProfile
+) -> ToolchainProfile:
+    """The profile of the project `path` (relative to the checkout) belongs to; `fallback`
+    (the repo's) when the repo declares no project that holds it."""
+    return for_project(owning_project(projects, path), fallback)
 
 
 def names() -> list[str]:
@@ -95,6 +108,8 @@ __all__ = [
     "PromptWords",
     "ToolchainProfile",
     "detect_environment",
+    "for_path",
+    "for_project",
     "get",
     "is_doc_path",
     "names",

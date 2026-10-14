@@ -78,12 +78,8 @@ def check_branch(
     profile = profile or profiles.get("python-uv")
     projects = projects or []
 
-    def toolchain_of(path: str) -> ToolchainProfile:
-        owner = owning_project(projects, path)
-        return profiles.get(owner.profile) if owner else profile
-
     def is_test(path: str) -> bool:
-        return toolchain_of(path).is_test_path(path)
+        return profiles.for_path(projects, path, profile).is_test_path(path)
 
     problems = check_structure(repo, base, is_test)
     if problems:
@@ -104,15 +100,14 @@ def check_branch(
         if not files:
             continue
 
-        by_project: dict[str | None, list[str]] = {}
+        by_project: dict[str | None, tuple[ProjectConfig | None, list[str]]] = {}
         for path in files:
             owner = owning_project(projects, path)
-            by_project.setdefault(owner.path if owner else None, []).append(path)
+            by_project.setdefault(owner.path if owner else None, (owner, []))[1].append(path)
 
         commit_problems: list[str] = []
-        for owner_path, owned in by_project.items():
-            owner = next((p for p in projects if p.path == owner_path), None)
-            toolchain = profiles.get(owner.profile) if owner else profile
+        for owner, owned in by_project.values():
+            toolchain = profiles.for_project(owner, profile)
             prefix = owner.prefix if owner else ""
             where = f"{sha[:8]}: " + (f"{owner.path}: " if prefix and owner else "")
             clean, red = run_at_commit(

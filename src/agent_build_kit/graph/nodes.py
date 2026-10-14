@@ -20,7 +20,7 @@ from langgraph.graph import END
 from langgraph.types import interrupt
 
 from agent_build_kit import forges, profiles, telemetry
-from agent_build_kit.config import active, active_root, models, owning_project
+from agent_build_kit.config import active, active_root, models
 from agent_build_kit.forges.base import BaseMissing
 from agent_build_kit.graph.state import (
     AgentSession,
@@ -865,10 +865,12 @@ class BuildPath:
         held = state.sessions.get(SessionRole.BUILD)
         repo = self.runner.repo_config
 
+        fallback = profiles.get(repo.profile if repo else "python-uv")
+
         def is_test(path: str) -> bool:
-            owner = owning_project(repo.projects, path) if repo else None
-            name = owner.profile if owner else (repo.profile if repo else "python-uv")
-            return profiles.get(name).is_test_path(path)
+            return profiles.for_path(repo.projects if repo else [], path, fallback).is_test_path(
+                path
+            )
 
         return outside_commits_note(
             tree, self.ref(state), held.session_id if held else "", is_test=is_test
