@@ -67,6 +67,13 @@ def checked(
     return report
 
 
+def check_policy(
+    runtime: AgentRuntime, entry: RuntimeConfig, installation: Installation
+) -> PolicyReport:
+    """Whether the agent's configuration refuses what abk forbids."""
+    raise NotImplementedError
+
+
 def cache_path(inst: Installation) -> Path:
     """Where `doctor` and `init` alike keep the answer."""
     return inst.state_dir / CACHE_NAME
