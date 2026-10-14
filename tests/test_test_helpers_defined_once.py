@@ -1,8 +1,9 @@
 """The guard against a test helper being copied from file to file (spec: dry-cleanup).
 
-The helpers merged into the shared test modules are defined there and nowhere else, and
-no two top-level helpers anywhere share a name and a body. A same-named helper with a
-different body (`commit`, `inst`, `runner`) is a different helper and is allowed.
+The helpers merged into the shared test modules are defined there and nowhere else, no test
+file repeats the body of a shared helper under any name, and the listed names (`commit`,
+`write_change`) are not copied with the same body. A same-named helper with a different body
+(`commit`, `inst`, `runner`) is a different helper and is allowed.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from pathlib import Path
 TESTS = Path(__file__).resolve().parent
 SHARED = {"factories.py", "conftest.py"}
 # Names that stand for one helper, so a definition outside the shared modules is a copy.
-MERGED = ("fake_openspec", "make_installation")
+MERGED = ("fake_openspec", "make_installation", "commit_files", "commit_unit_work")
 # Names several files use for different helpers, so only an identical body is a copy.
 COPIED = ("commit", "write_change")
 
@@ -72,3 +73,16 @@ def test_no_two_merged_helpers_share_a_name_and_a_body() -> None:
     duplicated = {name: files for (name, _), files in seen.items() if len(files) > 1}
 
     assert not duplicated, f"define once in a shared module and import: {duplicated}"
+
+
+def test_no_test_file_repeats_the_body_of_a_shared_helper_under_any_name() -> None:
+    found = helpers()
+    shared = {shape: name for name, path, shape in found if path.name in SHARED}
+
+    copies = {
+        f"{path.relative_to(TESTS)}:{name}": shared[shape]
+        for name, path, shape in found
+        if path.name not in SHARED and shape in shared
+    }
+
+    assert not copies, f"import the shared helper instead of copying it: {copies}"

@@ -21,9 +21,7 @@ from tests.tracks.test_runner import described_installation, project
 
 @pytest.fixture
 def inst(tmp_path: Path) -> Installation:
-    installation = described_installation(tmp_path / "planning", git={"branch_prefix": "abk/"})
-    installation.activate()
-    return installation
+    return described_installation(tmp_path / "planning", git={"branch_prefix": "abk/"})
 
 
 def test_the_settings_a_track_run_sends_let_it_write_its_run_log(

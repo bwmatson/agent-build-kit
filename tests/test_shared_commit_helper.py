@@ -12,8 +12,9 @@ def test_commit_writes_the_file_and_commits_it_with_the_name_in_the_message(
 ) -> None:
     repo = init_repo(tmp_path / "repo")
 
-    commit(repo, "markers.py", "MARKERS = 1\n")
+    sha = commit(repo, "markers.py", "MARKERS = 1\n")
 
+    assert sha == git(repo, "rev-parse", "HEAD")
     assert (repo / "markers.py").read_text() == "MARKERS = 1\n"
     assert git(repo, "log", "-1", "--format=%s") == "write markers.py"
     assert git(repo, "status", "--porcelain") == ""

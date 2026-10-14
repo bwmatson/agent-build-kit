@@ -16,9 +16,7 @@ from tests.tracks.test_runner import described_installation, project
 
 @pytest.fixture
 def inst(tmp_path: Path) -> Installation:
-    installation = described_installation(tmp_path / "planning", tracks={"model": "haiku"})
-    installation.activate()
-    return installation
+    return described_installation(tmp_path / "planning", tracks={"model": "haiku"})
 
 
 def test_a_health_phase_writes_one_track_health_row_for_the_project(inst: Installation) -> None:
