@@ -361,7 +361,7 @@ unit's thread with a command:
 
 | Event | Command | Routed by |
 |---|---|---|
-| A review asking for changes, a new comment, `agent-rework`, newly failing checks, a merge conflict | `rework{reason, kind, feedback, source}` | `await_review` → `rework` |
+| A review asking for changes, a new comment, `agent-rework`, newly failing checks, a merge conflict (one that stands is moved again per base tip, and holds the unit when its attempts are spent or changed nothing) | `rework{reason, kind, feedback, source}` | `await_review` → `rework` |
 | The parent merged, or the base was rewritten | `base_moved{new_base}` | `await_review` → `prepare` (a running unit sees it at its next node); the restack lane then runs `prepare` for a unit left parked there, outside the build slots |
 | `agent-hold` | `hold` | → `held` |
 | `agent-hold` removed | `release` | `held` → `await_review`, for a hold the label made |

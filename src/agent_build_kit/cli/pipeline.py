@@ -72,6 +72,7 @@ from agent_build_kit.pipeline.events import (
     build_rerun_checks,
     build_restack,
     build_retarget,
+    conflict_phrase,
 )
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.flakes import flake_record
@@ -108,6 +109,7 @@ from agent_build_kit.pipeline.pr_poller import (
     HOLD_LABEL,
     Poller,
     PrState,
+    conflicts,
     recorded_checks,
     state_path,
     unmergeable,
@@ -596,6 +598,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     # What the last poll of each repo saw: an entry that cannot be merged is not
     # actionable, so it should not read like the others.
     conflicted: dict[str, set[int]] = {}
+    conflicting: dict[str, dict[int, datetime]] = {}
 
     full = _queue_full_line(inst, units)
     if full:
@@ -668,6 +671,10 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             log(f"  attached: {held.unit_id}{where} — a chat is open with {files} changed")
 
     for unit in units:
+        if unit.state == HELD and unit.held_by == HeldBy.REVIEW and unit.pr:
+            since = _conflicting(inst, unit, conflicting).get(unit.pr)
+            if since is not None:
+                log(f"  held: {unit.id} ({unit.repo}) #{unit.pr} — {unit.note}; a person is needed")
         if unit.state == HELD and unit.cause is Cause.DIRTY_WORKTREE:
             log(f"  parked: {unit.id} ({unit.repo}) — {unit.note}")
         step = unit.step or "an unknown step"
@@ -706,6 +713,21 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             if unit.repo not in conflicted:
                 conflicted[unit.repo] = unmergeable(state_path(inst.state_dir, unit.repo))
             mark = " — cannot be merged" if unit.pr in conflicted[unit.repo] else ""
+            since = _conflicting(inst, unit, conflicting).get(unit.pr or 0)
+            if since is not None:
+                if branch_is_held(inst, unit.branch or branch_name(unit)):
+                    waits = "its branch is being built"
+                elif is_paused(_paused_marker(inst)):
+                    waits = "waiting for the usage pause to end"
+                elif not unit.is_new_conflict(since) and unit.attempts_spent(
+                    config.active().limits.max_review_rounds
+                ):
+                    # Unless its base has moved: a new tip starts the count again.
+                    waits = "the next poll holds it for a person unless its base has moved"
+                else:
+                    waits = "the next poll moves it"
+                phrase = conflict_phrase(unit, base_of(unit, units), since)
+                mark = f" — cannot be merged ({phrase}; {waits})"
             waiting = (
                 "checking"
                 if effective_state(unit, units, checks_of=checks_of) == "checking"
@@ -714,6 +736,15 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             ran_none = f" — {NO_TEST_RAN}" if unit.note == NO_TEST_RAN else ""
             log(f"  {waiting}: {unit.id} ({unit.repo}) #{unit.pr or '?'}{mark}{ran_none}")
     return 0
+
+
+def _conflicting(
+    inst: Installation, unit: StoredUnit, cache: dict[str, dict[int, datetime]]
+) -> dict[int, datetime]:
+    """When each of the repo's pull requests that the last poll found conflicting began to."""
+    if unit.repo not in cache:
+        cache[unit.repo] = conflicts(state_path(inst.state_dir, unit.repo))
+    return cache[unit.repo]
 
 
 def cmd_graph(args: argparse.Namespace, inst: Installation) -> int:
