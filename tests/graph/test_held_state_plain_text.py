@@ -1,8 +1,8 @@
 """A held unit's state is stored as text, and no node writes a type the checkpoint blocks.
 
 Each path that ends in `BuildPath.hold()` is driven with the fake runner, and
-what the nodes wrote is read from the checkpoint file itself, because the
-library reads a blocked type back as text and warns only once per process.
+what the nodes wrote is read from the checkpoint file itself, and
+the library's own report of what it blocks is listened to (it warns only once per process).
 """
 
 from __future__ import annotations
@@ -14,7 +14,13 @@ import pytest
 from agent_build_kit.graph.checkpointer import unit_graphs_path
 from agent_build_kit.graph.state import UnitRun
 from agent_build_kit.pipeline.units import PLANNED
-from tests.checkpoint_types import blocked_in_updates, node_updates, types_off_the_list
+from tests.checkpoint_types import (
+    blocked_in,
+    blocked_on_load,
+    blocked_while_reading,
+    node_updates,
+)
+from tests.graph.checkpoint_reads import read_back
 from tests.graph.test_checkpoint_allowlist import populated
 from tests.graph.test_hold_causes import HOLD_PATHS, Held, fresh
 
@@ -40,7 +46,7 @@ def test_a_held_unit_stores_its_state_as_text(tmp_path: Path, hold: Held) -> Non
 
 @pytest.mark.parametrize("hold", HOLDS, ids=HOLD_IDS)
 def test_no_node_writes_a_type_the_checkpoint_blocks(tmp_path: Path, hold: Held) -> None:
-    assert blocked_in_updates(held_unit(tmp_path, hold)) == []
+    assert blocked_in(node_updates(held_unit(tmp_path, hold))) == []
 
 
 @pytest.mark.parametrize("hold", HOLDS, ids=HOLD_IDS)
@@ -52,4 +58,15 @@ def test_a_populated_state_carrying_the_nodes_values_encodes_no_blocked_type(
         update={k: v for k, v in written.items() if k in UnitRun.model_fields}
     )
 
-    assert types_off_the_list(state) == set()
+    assert blocked_on_load(state) == set()
+
+
+@pytest.mark.parametrize("hold", HOLDS, ids=HOLD_IDS)
+def test_reading_a_held_unit_back_blocks_no_type(tmp_path: Path, hold: Held) -> None:
+    db = held_unit(tmp_path, hold)
+
+    with blocked_while_reading() as blocked:
+        snapshot = read_back(db)
+
+    assert blocked == set()
+    assert snapshot.values["hold_state"] == PLANNED.value

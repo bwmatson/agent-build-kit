@@ -1,55 +1,50 @@
-"""What a unit graph's checkpoint holds, read from the file a run left.
+"""What a unit graph's checkpoint holds, and what the library would refuse to load of it.
 
-The values are taken from the saver's own tables, before any allowlist reads
-them back: a type a checkpoint refuses to load is turned into text on the way
-out, so only the bytes on disk show it was there.
+Blocking is decided by the library itself: its serde events are listened to as
+a value is read back through the checkpointer's own serializer and allowed
+list, so there is no second copy of the rule here. The values nodes wrote are
+taken from the saver's tables, before any allowlist reads them back: a type a
+checkpoint refuses to load is turned into text on the way out.
 """
 
 from __future__ import annotations
 
 import sqlite3
-import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-import ormsgpack
+from langgraph.checkpoint.serde.event_hooks import SerdeEvent, register_serde_event_listener
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
 from agent_build_kit.graph.checkpointer import ALLOWED_MSGPACK_MODULES
 
-# Constructor, method and pydantic encodings: the data is (module, name, ...).
-_TYPED_EXTENSIONS = range(6)
+BLOCKED_KINDS = frozenset({"msgpack_blocked", "msgpack_method_blocked"})
 
 
-def _named_types(blob: bytes) -> set[tuple[str, str]]:
-    found: set[tuple[str, str]] = set()
+@contextmanager
+def blocked_while_reading() -> Iterator[set[tuple[str, str]]]:
+    """The (module, name) of each type the library blocks, filled in as the body reads."""
+    blocked: set[tuple[str, str]] = set()
 
-    def hook(code: int, data: bytes) -> Any:
-        inner = ormsgpack.unpackb(data, ext_hook=hook, option=ormsgpack.OPT_NON_STR_KEYS)
-        if code in _TYPED_EXTENSIONS:
-            found.add((inner[0], inner[1]))
-        return inner
+    def listen(event: SerdeEvent) -> None:
+        if event["kind"] in BLOCKED_KINDS:
+            blocked.add((event["module"], event["name"]))
 
-    ormsgpack.unpackb(blob, ext_hook=hook, option=ormsgpack.OPT_NON_STR_KEYS)
-    return found
+    unregister = register_serde_event_listener(listen)
+    try:
+        yield blocked
+    finally:
+        unregister()
 
 
-def types_off_the_list(value: Any) -> set[tuple[str, str]]:
-    """The (module, name) of every type `value` is encoded as that a checkpoint may not load.
-
-    The standard library's and the graph library's own types are the library's to load.
-    """
-    kind, blob = JsonPlusSerializer(
-        allowed_msgpack_modules=list(ALLOWED_MSGPACK_MODULES)
-    ).dumps_typed(value)
-    if kind != "msgpack":
-        return set()
-    return {
-        named
-        for named in _named_types(blob)
-        if named[0].split(".")[0] not in {*sys.stdlib_module_names, "langgraph"}
-        and named not in ALLOWED_MSGPACK_MODULES
-    }
+def blocked_on_load(value: Any) -> set[tuple[str, str]]:
+    """The types in `value` that the checkpoint's serializer, with the allowed list, would block."""
+    serde = JsonPlusSerializer(allowed_msgpack_modules=list(ALLOWED_MSGPACK_MODULES))
+    with blocked_while_reading() as blocked:
+        serde.loads_typed(serde.dumps_typed(value))
+    return blocked
 
 
 def node_updates(db: Path) -> list[tuple[str, Any]]:
@@ -60,10 +55,10 @@ def node_updates(db: Path) -> list[tuple[str, Any]]:
     return [(channel, serde.loads_typed((kind, value))) for channel, kind, value in rows]
 
 
-def blocked_in_updates(db: Path) -> list[str]:
-    """`field: module.Name` for each value a node wrote that the checkpoint would block."""
+def blocked_in(updates: list[tuple[str, Any]]) -> list[str]:
+    """`field: module.Name` for each value in `updates` that the checkpoint would block."""
     return [
-        f"{channel}: {module}.{name}"
-        for channel, value in node_updates(db)
-        for module, name in sorted(types_off_the_list(value))
+        f"{field}: {module}.{name}"
+        for field, value in updates
+        for module, name in sorted(blocked_on_load(value))
     ]
