@@ -11,7 +11,6 @@ only accepts a status for a commit it already has.
 """
 
 import threading
-import time
 from pathlib import Path
 
 import pytest
@@ -31,23 +30,26 @@ def test_a_second_run_waits_for_the_first(tmp_path: Path) -> None:
     the second unit's tests are just as valid, they simply can't run yet."""
     lock = tmp_path / "tier2.lock"
     order: list[str] = []
+    holding = threading.Event()
+    second_blocked = threading.Event()
 
     def hold() -> None:
         with stack_lock(lock, timeout=5):
             order.append("first-in")
-            time.sleep(0.2)
+            holding.set()
+            assert second_blocked.wait(5), "the second run never reported waiting"
             order.append("first-out")
 
     def wait() -> None:
-        time.sleep(0.05)
-        with stack_lock(lock, timeout=5):
+        assert holding.wait(5), "the first run never took the lock"
+        with stack_lock(lock, timeout=5, on_wait=lambda _who: second_blocked.set()):
             order.append("second-in")
 
     threads = [threading.Thread(target=hold), threading.Thread(target=wait)]
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join()
+        thread.join(timeout=10)
 
     assert order == ["first-in", "first-out", "second-in"]
 
