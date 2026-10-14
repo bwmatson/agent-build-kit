@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import fcntl
 import os
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -56,10 +56,19 @@ def atomic_write_text(path: Path, text: str) -> None:
     renamed into place last; whatever is raised, the temporary is removed and the old file stays.
     Writers on two threads of one process share the name, so they hold the file lock around it.
     """
+    _replace_through_partial(path, lambda partial: partial.write_text(text))
+
+
+def atomic_write_bytes(path: Path, data: bytes) -> None:
+    """`atomic_write_text` for bytes."""
+    _replace_through_partial(path, lambda partial: partial.write_bytes(data))
+
+
+def _replace_through_partial(path: Path, write: Callable[[Path], object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     partial = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     try:
-        partial.write_text(text)
+        write(partial)
         os.replace(partial, path)
     except BaseException:
         partial.unlink(missing_ok=True)

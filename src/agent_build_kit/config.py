@@ -876,6 +876,24 @@ def deprecation_notice(key: str) -> str:
     )
 
 
+class BuildersConfig(Frozen):
+    """What a builder run may do beyond writing files (`builders`)."""
+
+    # Base names `abk install-config` may install, besides `.pre-commit-config.yaml`.
+    installable_files: list[str] = []
+
+    @field_validator("installable_files")
+    @classmethod
+    def _base_names(cls, names: list[str]) -> list[str]:
+        for name in names:
+            if not name.strip() or name in (".", "..") or any(char in name for char in "/\\*?["):
+                raise ValueError(
+                    f"installable_files: {name!r} is not a base file name "
+                    "(no path separators, no patterns)"
+                )
+        return names
+
+
 class WorkspaceConfig(Frozen):
     version: int = 1
     planning: PlanningConfig = PlanningConfig()
@@ -889,6 +907,7 @@ class WorkspaceConfig(Frozen):
     models: ModelsConfig = ModelsConfig()
     # The workspace-wide limits; a root `limits` key is read as this one (see _limits_alias).
     global_limits: LimitsConfig = LimitsConfig()
+    builders: BuildersConfig = BuildersConfig()
     context: ContextConfig = ContextConfig()
     tracks: TracksConfig = TracksConfig()
     # Ordered: a task group's `[repo]` tag must be one of these keys.

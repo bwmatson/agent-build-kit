@@ -34,6 +34,13 @@
   install outside the project (`uv publish`, `uv tool install`, `uv python install`,
   `uv pip install`) stay unlisted.
 
+- `abk install-config <staged> <target>` installs a file the agent harness refuses to let a
+  builder write, such as `.pre-commit-config.yaml`. The builder stages the file under
+  `.abk/proposed/` and the command copies it into place when the target is inside the
+  worktree and its name is allow-listed; a YAML file must parse. Anything else is refused
+  and nothing is written. `builders.installable_files` in `abk.yaml` adds names to the
+  allow-list, and each install prints the target, the content hash and the size.
+
 - `abk tags` with no change and no `--all`, or with both, now prints one line saying what to
   pass and exits 2, instead of failing with a traceback. Its help names `--all`.
 
