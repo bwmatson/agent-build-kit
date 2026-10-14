@@ -115,3 +115,32 @@ def test_a_staying_edge_into_the_moved_set_is_a_warning_and_with_remove_an_error
     assert all(word in warning for word in ("stays/1", "depends_on", "moves/1"))
     (error,) = removing.errors
     assert all(word in error for word in ("stays/1", "depends_on", "moves/1"))
+
+
+def test_a_staying_changes_needs_line_naming_a_moved_change_is_a_warning_and_with_remove_an_error(
+    tmp_path,
+):
+    source, destination = installations(tmp_path)
+    tasks = source.changes_dir / "stays" / "tasks.md"
+    tasks.write_text(tasks.read_text() + "\nNeeds: moves group 1\n")
+    plan = plan_split(source, "app")
+
+    kept = preflight(source, destination, plan)
+    removing = preflight(source, destination, plan, remove=True)
+
+    assert kept.errors == ()
+    (warning,) = kept.warnings
+    assert all(word in warning for word in ("stays", "moves", "group 1"))
+    (error,) = removing.errors
+    assert all(word in error for word in ("stays", "moves", "group 1"))
+
+
+def test_a_needs_line_naming_an_archived_change_is_not_dangling(tmp_path):
+    source, destination = installations(tmp_path)
+    write_change(source, "done", ["lib"], archived="2026-01-01")
+    tasks = source.changes_dir / "moves" / "tasks.md"
+    tasks.write_text(tasks.read_text() + "\nNeeds: done group 1\n")
+
+    found = preflight(source, destination, plan_split(source, "app"))
+
+    assert found.errors == ()

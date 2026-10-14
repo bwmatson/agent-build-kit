@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-import hashlib
 import shutil
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from agent_build_kit.cli.pipeline import planned_hashes, record_plans
+from agent_build_kit.cli.pipeline import plan_digest, planned_hashes, record_plans
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
-from agent_build_kit.pipeline.work_graph import NEEDS_LINE, specification_text
+from agent_build_kit.pipeline.work_graph import group_needs
 from agent_build_kit.split import scrubbing
-from agent_build_kit.split.select import SplitPlan, moved_files
+from agent_build_kit.split.select import SplitPlan, moved_files, moved_records
 
 __all__ = ["CopyRefused", "CopyReport", "Preflight", "carry_out", "preflight"]
 
@@ -59,11 +58,7 @@ def _contents(source: Installation, plan: SplitPlan, scrub: bool) -> dict[Path, 
 def _records(source: Installation, plan: SplitPlan, scrub: bool) -> list[StoredUnit]:
     """The moved unit records as they would be written."""
     scrub_text = _passes(source, plan, scrub)
-    moved = [
-        unit
-        for unit in UnitStore(source.state_dir / "units.json").all()
-        if unit.id in plan.units_moved
-    ]
+    moved = moved_records(source, plan)
     return [scrubbing.scrub_record(unit, scrub_text) for unit in moved] if scrub else moved
 
 
@@ -112,15 +107,17 @@ def preflight(
             if member.change not in {*moved_changes, *destination_changes}
         ]
     for name in plan.changes_moved:
-        for line in (source.changes_dir / name / "tasks.md").read_text().splitlines():
-            found = NEEDS_LINE.match(line.strip())
-            if found and found["change"].lower() not in {*moved_changes, *destination_changes}:
-                errors.append(
-                    _dangling(
-                        f"change {name} `Needs: {found['change']} group {found['group']}`",
-                        found["change"],
-                    )
+        for group, needs in group_needs(source.changes_dir / name / "tasks.md").items():
+            errors += [
+                _dangling(
+                    f"change {name} group {group} `Needs: {need.change} group {need.group}`",
+                    need.change,
                 )
+                for need in needs
+                if need.change not in moved_changes
+                and (source.changes_dir / need.change / "tasks.md").is_file()
+                and not (destination.changes_dir / need.change / "tasks.md").is_file()
+            ]
 
     staying = [
         unit
@@ -133,6 +130,15 @@ def preflight(
         for field in ("depends_on", "needs")
         for target in getattr(unit, field)
         if target in moved_units
+    ]
+    edges += [
+        f"change {name} group {group} `Needs: {need.change} group {need.group}` names "
+        f"{need.change}, which moves"
+        for tasks in sorted(source.changes_dir.glob("*/tasks.md"))
+        if (name := tasks.parent.name) not in moved_changes
+        for group, needs in group_needs(tasks).items()
+        for need in needs
+        if need.change in moved_changes
     ]
     return Preflight(
         errors=tuple(errors + (edges if remove else [])),
@@ -175,9 +181,7 @@ def carry_out(
     recorded = planned_hashes(source)
     plans = {
         name: {
-            "hash": hashlib.sha256(
-                specification_text(contents[Path("changes") / name / "tasks.md"].decode()).encode()
-            ).hexdigest(),
+            "hash": plan_digest(destination.changes_dir / name / "tasks.md"),
             "attempts": 0,
             "ok": True,
         }

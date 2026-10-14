@@ -7,9 +7,9 @@ from pathlib import Path
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.unit_store import Description, StoredUnit, UnitStore
-from agent_build_kit.scrub_terms import scrub_text, terms_for
-from agent_build_kit.split.select import SplitPlan, moved_files
+from agent_build_kit.pipeline.unit_store import Description, StoredUnit
+from agent_build_kit.scrub_terms import REPLACEMENT, scrub_text, terms_for
+from agent_build_kit.split.select import SplitPlan, moved_files, moved_records
 
 __all__ = [
     "ScrubCounts",
@@ -20,8 +20,6 @@ __all__ = [
     "scrubber",
     "terms_for",
 ]
-
-PLACEHOLDER = "<redacted>"
 
 
 class ScrubCounts(Frozen):
@@ -77,11 +75,9 @@ def scrub_counts(source: Installation, plan: SplitPlan) -> ScrubCounts:
         text = read_text(path)
         if text is not None and (scrubbed := scrub(text)) != text:
             files += 1
-            substitutions += scrubbed.count(PLACEHOLDER) - text.count(PLACEHOLDER)
+            substitutions += scrubbed.count(REPLACEMENT) - text.count(REPLACEMENT)
     records = 0
-    for unit in UnitStore(source.state_dir / "units.json").all():
-        if unit.id not in plan.units_moved:
-            continue
+    for unit in moved_records(source, plan):
         if (changed := scrub_record(unit, scrub)) != unit:
             records += 1
             substitutions += _placeholders(changed) - _placeholders(unit)
@@ -89,4 +85,4 @@ def scrub_counts(source: Installation, plan: SplitPlan) -> ScrubCounts:
 
 
 def _placeholders(unit: StoredUnit) -> int:
-    return unit.model_dump_json().count(PLACEHOLDER)
+    return unit.model_dump_json().count(REPLACEMENT)
