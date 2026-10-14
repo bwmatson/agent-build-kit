@@ -9,6 +9,7 @@ import pytest
 
 from agent_build_kit import config
 from agent_build_kit.cli import build_parser
+from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.runtimes import acp
 from agent_build_kit.runtimes.known_agents import KnownAgent
 from tests.ecosystem_names import SOURCE_ROOT
@@ -45,6 +46,7 @@ def test_the_live_probe_and_its_remains_are_gone() -> None:
         for field in cls.model_fields
         if field in SETTINGS
     ]
+    left += [f"OverheadNode.{node.name}" for node in OverheadNode if "probe" in node.name.lower()]
     left += [f"KnownAgent.{field}" for field in KnownAgent.model_fields if field == "oracle"]
     left += [
         str(path.relative_to(SOURCE_ROOT))

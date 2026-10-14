@@ -1,12 +1,10 @@
 """The table of spellings lists, for each forbidden class, the spellings the
-design names, and what the probe sends is the table's probe rows.
+design names (`tests/runtimes/test_acp_probe_classes.py` holds the check's list to the table).
 """
 
 from __future__ import annotations
 
-from agent_build_kit.pipeline.command_policy import check_command
 from agent_build_kit.pipeline.command_spellings import SPELLINGS, Reader, probe_rows
-from agent_build_kit.runtimes.acp import PROBE_CLASSES, probe_branch
 from tests.spelling_rows import (
     AMEND,
     BRANCH_DELETE,
@@ -88,27 +86,3 @@ def test_the_wrapper_rows_are_for_the_judge_only() -> None:
         assert {s.name for s in wrappers} == WRAPPERS, label
         assert all(s.readers == {Reader.JUDGE} for s in wrappers), label
         assert sum(s.command.startswith("sudo -u root ") for s in wrappers) == 1, label
-
-
-def test_every_probe_row_is_refused_by_the_rules_on_a_probe_branch() -> None:
-    commands = [spelling.command for _label, spelling in probe_rows()]
-    assert commands
-    assert [
-        command for command in commands if check_command(command, branch=probe_branch()).allowed
-    ] == []
-
-
-def test_the_probe_sends_the_table_s_rows_and_the_other_classes_plain_commands() -> None:
-    sent = dict(PROBE_CLASSES)
-    expected = {spelling.command: label for label, spelling in probe_rows()}
-    assert expected
-    assert {command: sent.get(command) for command in expected} == expected
-    assert len(sent) == len(PROBE_CLASSES), "a command is probed twice"
-    assert {
-        "git commit --no-verify -m probe": "skipping the commit gate",
-        "git reset --hard HEAD": "a hard reset",
-        "git clean -fd": "discarding untracked work",
-        "git branch -D probe-throwaway": "force-deleting a branch",
-        "rm -rf probe-victim": "a recursive delete",
-        "git push --force origin probe-throwaway": "a bare force push",
-    }.items() <= sent.items()

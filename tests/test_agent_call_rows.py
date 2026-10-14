@@ -115,8 +115,8 @@ SITES: dict[str, tuple[str, str, Callable[[AgentRuntime, Path, Installation], No
 
 
 # Research asks for web tools, which the ACP runtime refuses to run without a way to hold them.
-# `policy_probe` exists on ACP only and `login_refresh` on Claude Code only: they are covered by
-# tests/runtimes/test_acp_probe_row.py and tests/runtimes/test_login_refresh_row.py. A chat turn
+# `login_refresh` exists on Claude Code only: it is covered by
+# tests/runtimes/test_login_refresh_row.py. A chat turn
 # and the attach flow's fix turn need the server and run over both runtimes in
 # tests/serve/test_chat_rows_runtimes.py.
 CASES = [
