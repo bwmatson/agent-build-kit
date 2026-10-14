@@ -32,6 +32,23 @@ NEEDING_PARENT = (
 )
 
 
+class Refreshes:
+    """How many times a tick has refreshed (run `poll_all`), for a test to wait on."""
+
+    @property
+    def count(self) -> int:
+        raise NotImplementedError
+
+    def wait_for(self, runs: int, *, timeout: float = 10.0) -> None:
+        """Return once `runs` refreshes have run; raise TimeoutError after `timeout`."""
+        raise NotImplementedError
+
+
+def count_refreshes(patch: pytest.MonkeyPatch) -> Refreshes:
+    """Replace the tick's `poll_all` with a no-op that counts its runs."""
+    raise NotImplementedError
+
+
 class Setup:
     def __init__(
         self,

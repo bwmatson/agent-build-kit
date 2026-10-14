@@ -108,6 +108,7 @@ class RestHost(httpx.MockTransport):
         ref_status: str = "",
         change_page: int = 1000,
         delay: float = 0.0,
+        gate: threading.Event | None = None,
         refuse: dict[tuple[str, str], httpx.Response] | None = None,
     ) -> None:
         self.pulls = [deepcopy(p) if "repository" in p else listed(p) for p in pulls]
@@ -126,6 +127,7 @@ class RestHost(httpx.MockTransport):
         self.rejected_tokens: set[str] = set()
         self.change_page = change_page
         self.delay = delay
+        self.gate = gate
         self.refuse = refuse or {}
         self.seen: list[Seen] = []
         self._lock = threading.Lock()
