@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit.installation import Installation
+from agent_build_kit.runtimes import policy_check
+from agent_build_kit.runtimes.acp import PROBE_CLASSES
 from agent_build_kit.runtimes.policy_check import check_policy
 from agent_build_kit.runtimes.recommended_policy import patterns
 from tests.runtimes.policy_static_support import (
@@ -25,15 +26,24 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return agent_home(tmp_path, monkeypatch)
 
 
-def test_several_hundred_entries_are_judged_in_under_a_second(
-    home: Path, installation: Installation
+def test_several_hundred_entries_are_judged_in_one_pass_per_command(
+    home: Path, installation: Installation, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    write_config(home, [*(f"tool-{n} *" for n in range(HUNDREDS)), *patterns()])
+    """Speed is stated as work done, not elapsed time, so load cannot change the answer."""
+    deny = [*(f"tool-{n} *" for n in range(HUNDREDS)), *patterns()]
+    write_config(home, deny)
+    asked: list[tuple[str, str]] = []
+    real = policy_check.matches
 
-    started = time.perf_counter()
+    def counting(pattern: str, command: str) -> bool:
+        asked.append((pattern, command))
+        return real(pattern, command)
+
+    monkeypatch.setattr(policy_check, "matches", counting)
+
     report = check_policy(protocol_runtime(), first_agent_entry(), installation)
 
-    assert time.perf_counter() - started < 1
+    assert len(asked) <= len(PROBE_CLASSES) * len(deny)
     assert report.ok
 
 
