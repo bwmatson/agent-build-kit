@@ -31,19 +31,22 @@ from pathlib import Path
 
 from pydantic import Field
 
-from agent_build_kit import forges
+from agent_build_kit import forges, runtimes
 from agent_build_kit.budget import cut_head
 from agent_build_kit.config import active
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.workspaces import process_alive
+from agent_build_kit.runtimes import known_agents
 
 # Shown on the PR beside the Actions checks.
 STATUS_CONTEXT = "local/tier2"
 
 # The group of tests that carry no runtime tag.
 BASE_GROUP = "base"
+# What a runtime's tag is named: this, then the runtime's name.
+RUNTIME_TAG_PREFIX = "runtime_"
 
 
 class Tier2Selection(Frozen):
@@ -64,13 +67,33 @@ def tier2_selection(
 ) -> Tier2Selection:
     """The marker expression of a tier 2 run that leaves out the `blocked` runtimes, or
     runs `only` one group (a runtime or `base`). `configured` are the keys under `runtimes`."""
-    raise NotImplementedError
+    known = {*runtimes.names(), known_agents.RUNTIME_NAME, *configured}
+    if BASE_GROUP in blocked:
+        raise ValueError(f"{BASE_GROUP!r} is the untagged group and cannot be blocked")
+    for name in [*blocked, *([only] if only not in (None, BASE_GROUP) else [])]:
+        if name not in known:
+            raise ValueError(f"unknown runtime {name!r} (known: {', '.join(sorted(known))})")
+    left_out = tuple(sorted(set(blocked)))
+    if only == BASE_GROUP:
+        left_out = tuple(sorted(known))
+    expression = " and ".join(
+        [marker, *(f"not {RUNTIME_TAG_PREFIX}{name}" for name in left_out)]
+        + ([f"{RUNTIME_TAG_PREFIX}{only}"] if only not in (None, BASE_GROUP) else [])
+    )
+    return Tier2Selection(expression=expression, left_out=left_out, only=only)
 
 
 def selection_unavailable(toolchain: object, *, dev_stack_script: bool) -> str | None:
     """Why a tier 2 run of this profile cannot leave a group out (the profile has no way to
     list a selection, or the repo runs tier 2 through its dev stack script), else None."""
-    raise NotImplementedError
+    from agent_build_kit.profiles.base import ListsSelectedTests
+
+    name = getattr(toolchain, "name", type(toolchain).__name__)
+    if dev_stack_script:
+        return "the repo's dev stack script runs tier 2 and takes no selection"
+    if not isinstance(toolchain, ListsSelectedTests):
+        return f"the {name} profile cannot list the tests a selection holds"
+    return None
 
 
 # The config key the tier 2 lock wait is read from; the busy message names it.
