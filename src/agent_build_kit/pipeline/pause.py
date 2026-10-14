@@ -23,14 +23,13 @@ rather than "idle since lunchtime for reasons unknown".
 from __future__ import annotations
 
 import json
-import os
 from contextlib import AbstractContextManager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 
 # The marker's file name in the state directory.
 PAUSE_MARKER = "paused.json"
@@ -123,24 +122,19 @@ def pause_until(
 
         # Written aside and renamed into place, as `is_paused` reads without
         # the lock and a torn file would read as "not paused".
-        partial = marker.with_name(f"{marker.name}.tmp")
-        try:
-            partial.write_text(
-                json.dumps(
-                    {
-                        "until": deadline.isoformat(),
-                        "reason": reason,
-                        "kind": kind,
-                        "at": datetime.now(UTC).isoformat(),
-                    },
-                    indent=2,
-                )
-                + "\n"
+        atomic_write_text(
+            marker,
+            json.dumps(
+                {
+                    "until": deadline.isoformat(),
+                    "reason": reason,
+                    "kind": kind,
+                    "at": datetime.now(UTC).isoformat(),
+                },
+                indent=2,
             )
-            os.replace(partial, marker)
-        except BaseException:
-            partial.unlink(missing_ok=True)
-            raise
+            + "\n",
+        )
     return Pause(until=deadline, reason=reason, kind=kind)
 
 

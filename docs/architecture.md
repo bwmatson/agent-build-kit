@@ -1445,6 +1445,15 @@ and for waits a `waited` bucket:
 Recording is as best-effort as the agent lines and shares their once-per-process report. The
 usage reader skips every line that is not an agent call.
 
+#### State files
+
+A state file (the unit store, the pause marker, the planned hashes, the notification store, the
+ledgers a command rewrites and the like) is written by `atomic_write_text`
+(`pipeline/file_lock.py`, beside the file lock): the text goes to a temporary named for the
+process, which is renamed over the file last and removed if anything is raised, so a reader never
+sees half a file and two writers never share a temporary. A writer that holds the file lock takes
+it around the call. A test fails when another module replaces over a file from a temporary name.
+
 #### Metric records
 
 The same file carries `kind: metric` lines, whether or not telemetry is on

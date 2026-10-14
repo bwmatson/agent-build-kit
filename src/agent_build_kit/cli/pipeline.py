@@ -73,7 +73,7 @@ from agent_build_kit.pipeline.events import (
     build_restack,
     build_retarget,
 )
-from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.flakes import flake_record
 from agent_build_kit.pipeline.joins import JoinContext
 from agent_build_kit.pipeline.label_sweep import sweep_finished
@@ -2933,9 +2933,7 @@ def update_plans(
                 records.pop(change, None)
             else:
                 records[change] = record
-        scratch = path.with_name("planned.json.tmp")
-        scratch.write_text(json.dumps(records, indent=2) + "\n")
-        scratch.replace(path)
+        atomic_write_text(path, json.dumps(records, indent=2) + "\n")
 
 
 def has_identity(inst: Installation, repo: str) -> bool:

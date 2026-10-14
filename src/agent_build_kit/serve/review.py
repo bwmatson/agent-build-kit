@@ -14,7 +14,7 @@ from typing import Literal
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.path_patterns import matches_any
-from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.ui_ids import THREAD_PREFIX
 from agent_build_kit.pipeline.unit_store import StoredUnit
@@ -198,9 +198,7 @@ class ReviewStore:
         path = self._path(unit_id)
         with file_lock(path.with_suffix(".lock")):
             review, result = change(self.read(unit_id))
-            temporary = path.with_suffix(".tmp")
-            temporary.write_text(review.model_dump_json(indent=2))
-            temporary.replace(path)
+            atomic_write_text(path, review.model_dump_json(indent=2))
         return result
 
     def add_thread(

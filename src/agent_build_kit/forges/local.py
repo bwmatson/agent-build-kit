@@ -25,7 +25,7 @@ from agent_build_kit.forges.base import (
     key,
     redacted_text,
 )
-from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.units import MERGED, build_ref
 
@@ -91,9 +91,7 @@ class LocalForge:
         with file_lock(path.with_suffix(".lock")):
             stored = self._read()
             result = change(stored.setdefault(key(repo), []))
-            temporary = path.with_suffix(".tmp")
-            temporary.write_text(json.dumps(stored, indent=2))
-            temporary.replace(path)
+            atomic_write_text(path, json.dumps(stored, indent=2))
         return result
 
     # --- identity -------------------------------------------------------------------

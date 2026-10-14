@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,6 +28,7 @@ from pydantic import ValidationError
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
+from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.unit_size import Kind, kind_of, measured
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW, PLANNED, RUNNING
@@ -1267,6 +1267,4 @@ def roll_up_change(ledger: Path, change: str, units: Sequence[StoredUnit] = ()) 
             if line and not ours:
                 kept.append(line)
         kept += [json.dumps(s) for s in summaries]
-        scratch = ledger.with_name(ledger.name + ".tmp")
-        scratch.write_text("".join(f"{line}\n" for line in kept))
-        os.replace(scratch, ledger)
+        atomic_write_text(ledger, "".join(f"{line}\n" for line in kept))

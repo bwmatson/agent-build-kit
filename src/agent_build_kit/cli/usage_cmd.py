@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.usage_allowances import (
     WINDOWS,
@@ -257,9 +257,7 @@ def _report(plan: _Plan, *, applied: bool) -> None:
 
 
 def _write(ledger: Path, lines: list[str]) -> None:
-    scratch = ledger.with_name(ledger.name + ".tmp")
-    scratch.write_text("".join(f"{line}\n" for line in lines))
-    os.replace(scratch, ledger)
+    atomic_write_text(ledger, "".join(f"{line}\n" for line in lines))
 
 
 def cmd_backfill_costs(args: argparse.Namespace, inst: Installation) -> int:

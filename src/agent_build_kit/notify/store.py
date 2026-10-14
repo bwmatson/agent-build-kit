@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 
 
 class Entry(Frozen):
@@ -39,7 +38,4 @@ class NotificationStore:
     def save(self, entries: dict[str, Entry]) -> None:
         payload = {"cards": {id: entry.model_dump(mode="json") for id, entry in entries.items()}}
         # Written aside and renamed into place: reads are not locked.
-        partial = self.path.with_name(f"{self.path.name}.tmp")
-        partial.parent.mkdir(parents=True, exist_ok=True)
-        partial.write_text(json.dumps(payload, indent=2) + "\n")
-        os.replace(partial, self.path)
+        atomic_write_text(self.path, json.dumps(payload, indent=2) + "\n")

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Every state file the tool writes (the unit store, the pause marker, the usage ledgers, the
+  notification and review stores and the like) now goes through one atomic write, so a crash
+  or two writers at once never leave a half-written file or a stray temporary behind. A log
+  trimmed to its size limit now has any byte that is not valid text replaced rather than kept.
+
 - A tier 1 run that fails more than five tests on its first pass and sees them all pass on both
   serial reruns is now treated as a disturbed run, not that many flaky tests: tier 1 passes, the
   tests and the first five names are logged, and no fix change is written and no unit made to

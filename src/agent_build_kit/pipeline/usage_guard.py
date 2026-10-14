@@ -70,7 +70,7 @@ from agent_build_kit.config import (
     active_root,
 )
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.file_lock import file_lock, try_file_lock
+from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock, try_file_lock
 from agent_build_kit.pipeline.pause import UNKNOWN_RETRY
 from agent_build_kit.pipeline.usage_allowances import (
     ALLOWANCES_NAME,
@@ -502,10 +502,7 @@ def _load_cache(path: Path) -> dict:
 
 def _write_cache(path: Path, body: dict) -> None:
     """Write the cache file whole: a reader outside the lock never sees half of it."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    temporary.write_text(json.dumps(body, indent=2))
-    temporary.replace(path)
+    atomic_write_text(path, json.dumps(body, indent=2))
 
 
 def _kept_reading(cached: dict) -> UsageReading | None:

@@ -12,7 +12,7 @@ import json
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.labels import ClearOutcome, StateLabels
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.vocabulary import FINISHED
@@ -33,9 +33,7 @@ def _record(path: Path, repo: str, pr: int) -> None:
         swept = _read(path)
         if pr not in swept.setdefault(repo, []):
             swept[repo].append(pr)
-        tmp = path.with_name(f"{path.name}.tmp")
-        tmp.write_text(json.dumps(swept, indent=2, sort_keys=True))
-        tmp.replace(path)
+        atomic_write_text(path, json.dumps(swept, indent=2, sort_keys=True))
 
 
 def sweep_finished(

@@ -16,6 +16,7 @@ waits: whatever holds it is done in seconds.
 from __future__ import annotations
 
 import fcntl
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -49,5 +50,16 @@ def try_file_lock(path: Path) -> Iterator[bool]:
 
 
 def atomic_write_text(path: Path, text: str) -> None:
-    """Write `text` over `path` so a reader sees the old file or the new, never half."""
-    raise NotImplementedError
+    """Write `text` over `path` so a reader sees the old file or the new, never half.
+
+    Written aside under a name of this process's own, so two writers do not share it, and
+    renamed into place last; whatever is raised, the temporary is removed and the old file stays.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    partial = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    try:
+        partial.write_text(text)
+        os.replace(partial, path)
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
