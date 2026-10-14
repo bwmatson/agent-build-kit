@@ -1513,7 +1513,7 @@ def _attempts_at(unit: StoredUnit, tip: str, *, since: datetime, read_at: dateti
 
     The answer is for the same conflict only if it is not older than the last attempt's start,
     and the run of conflicting answers began before it."""
-    if unit.conflict_at is None or since > unit.conflict_at or tip != unit.conflict_tip:
+    if unit.conflict_at is None or unit.is_new_conflict(since) or tip != unit.conflict_tip:
         return 0
     if read_at <= unit.conflict_at:
         return None
@@ -1530,7 +1530,7 @@ def _hold_conflict(
     why = "the last move changed nothing" if unchanged else "the host still reports a conflict"
     note = (
         f"conflicts with {base} since {since.astimezone(UTC):%H:%M} UTC: "
-        f"moved {unit.conflict_attempts} times at {tip}, {why}"
+        f"moved {unit.conflict_attempts} times at {tip[:12]}, {why}"
     )
     store.set_state(
         unit.id,

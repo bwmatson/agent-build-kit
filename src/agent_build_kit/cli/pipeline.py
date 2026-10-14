@@ -717,11 +717,12 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             mark = " — cannot be merged" if unit.pr in conflicted[unit.repo] else ""
             since = _conflicting(inst, unit, conflicting).get(unit.pr or 0)
             if since is not None:
-                waits = (
-                    "waiting for the usage pause to end"
-                    if is_paused(_paused_marker(inst))
-                    else "the next poll moves it"
-                )
+                if branch_is_held(inst, unit.branch or branch_name(unit)):
+                    waits = "its branch is being built"
+                elif is_paused(_paused_marker(inst)):
+                    waits = "waiting for the usage pause to end"
+                else:
+                    waits = "the next poll moves it"
                 mark = f" — cannot be merged ({_conflict_line(unit, units, since)}; {waits})"
             waiting = (
                 "checking"
@@ -746,7 +747,7 @@ def _conflict_line(unit: StoredUnit, units: list[StoredUnit], since: datetime) -
     """What a conflicting unit's status line says: against what, since when, how often moved."""
     return (
         f"conflicts with {base_of(unit, units)} since {since.astimezone(UTC):%H:%M} UTC; "
-        f"moved {unit.conflict_attempts} times"
+        f"moved {0 if unit.is_new_conflict(since) else unit.conflict_attempts} times"
     )
 
 

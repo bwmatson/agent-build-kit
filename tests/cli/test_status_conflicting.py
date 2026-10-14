@@ -1,6 +1,7 @@
 """`abk status` says what a conflicting unit waits for."""
 
 import argparse
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from agent_build_kit.pipeline.pause import PAUSE_MARKER, pause_until
 from agent_build_kit.pipeline.pr_poller import PrState, state_path
 from agent_build_kit.pipeline.unit_store import Cause, HeldBy, UnitStore
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW
+from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.conftest import make_installation
 from tests.factories import stored_unit
 
@@ -25,9 +27,11 @@ def status(
     seen: dict,
     attempts: int = 0,
     held: str = "",
+    busy: bool = False,
 ) -> str:
     """The status line of the one unit, `add-marker/1` with pull request 4, when the last poll
-    recorded `seen` for it and the unit has been moved `attempts` times."""
+    recorded `seen` for it and the unit has been moved `attempts` times; `busy` holds its
+    branch's lock while status is read."""
     inst = make_installation(
         tmp_path, planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")}
     )
@@ -44,7 +48,8 @@ def status(
             "add-marker/1", HELD, note=held, held_by=HeldBy.REVIEW, cause=Cause.NEEDS_HUMAN, pr=4
         )
     monkeypatch.setattr(cli, "current_usage", lambda: None)
-    assert cli.cmd_status(argparse.Namespace(), inst) == 0
+    with branch_lock("spec/add-marker/1", root=tmp_path / "locks") if busy else nullcontext():
+        assert cli.cmd_status(argparse.Namespace(), inst) == 0
     return next(line for line in capsys.readouterr().out.splitlines() if "add-marker/1" in line)
 
 
@@ -99,3 +104,59 @@ def test_a_held_conflicting_unit_carries_the_holds_reason_and_says_a_person_is_n
     assert "conflicts with main since 14:50 UTC; moved 3 times" in line
     assert reason in line
     assert "person" in line
+
+
+def test_a_conflicting_unit_whose_branch_is_being_built_says_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    line = status(tmp_path, monkeypatch, capsys, seen=conflicting(), attempts=1, busy=True)
+
+    assert "its branch is being built" in line
+    assert "next poll" not in line
+
+
+def test_the_count_of_a_conflict_that_began_after_the_last_attempt_reads_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    later = SINCE + timedelta(hours=1)
+
+    line = status(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        seen=conflicting(conflict_since=later.isoformat()),
+        attempts=3,
+    )
+
+    assert "since 15:50 UTC; moved 0 times" in line
+
+
+def test_an_entry_with_no_conflict_data_prints_the_mark_it_printed_before(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    line = status(tmp_path, monkeypatch, capsys, seen={"mergeable": False})
+
+    assert line.split("] ", 1)[1] == "  awaiting review: add-marker/1 (app) #4 — cannot be merged"
+    assert "moved" not in line
+
+
+def test_a_mergeable_entry_prints_the_line_it_printed_before(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen = {"mergeable": True, "mergeable_at": SINCE.isoformat(), "conflict_since": None}
+
+    line = status(tmp_path, monkeypatch, capsys, seen=seen)
+
+    assert line.split("] ", 1)[1] == "  awaiting review: add-marker/1 (app) #4"
+
+
+def test_an_undetermined_answer_after_a_conflict_keeps_the_conflict_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The snapshot keeps the last definite answer, `false`, and its start, through `None`."""
+    line = status(tmp_path, monkeypatch, capsys, seen=conflicting(), attempts=2)
+
+    assert line.split("] ", 1)[1] == (
+        "  awaiting review: add-marker/1 (app) #4 — cannot be merged "
+        "(conflicts with main since 14:50 UTC; moved 2 times; the next poll moves it)"
+    )

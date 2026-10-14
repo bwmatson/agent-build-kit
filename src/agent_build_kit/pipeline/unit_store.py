@@ -283,6 +283,11 @@ class StoredUnit(Unit):
         """Why the unit is in its present state, as its latest history entry says."""
         return str(self.history[-1].get("note", "")) if self.history else ""
 
+    def is_new_conflict(self, since: datetime) -> bool:
+        """Whether the conflict that began at `since` is not the one the recorded attempts
+        were made for: none recorded, or the run of conflicting answers began after them."""
+        return self.conflict_at is None or since > self.conflict_at
+
     @property
     def held_by_the_label(self) -> bool:
         """Held, and by a reviewer's hold label. A record from before the holder was

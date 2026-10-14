@@ -85,7 +85,7 @@ is recorded `failed`, not an exit status.
 Prints whether the pipeline is paused (until when, why), the usage reading held
 (session %, weekly %, source and age; no call is made, and `--refresh` asks the endpoint for a
 fresh one, no more often than the cache time allows), the count of units by state, and each
-`in_review` unit with its PR. A unit whose pull request conflicts reads `conflicts with <base> since <time>; moved N times` and what it waits for (the next poll, or the end of a usage pause); a held one adds the hold's reason and that a person is needed. A `no recorded cause:` line lists the units that are `held`
+`in_review` unit with its PR. A unit whose pull request conflicts reads `conflicts with <base> since <time>; moved N times` and what it waits for (the next poll, the end of a build of its branch, or the end of a usage pause); a held one adds the hold's reason and that a person is needed. A `no recorded cause:` line lists the units that are `held`
 or `planned` with work on them and no cause on their last history entry. A repository with a
 `tests.replay` section adds a `cassettes:` line with the count of recordings waiting for review.
 A `flaky:` line lists each flaky test with its count and fix change, and a `pre-existing:`
