@@ -18,6 +18,7 @@ from agent_build_kit import config as config_module
 from agent_build_kit.config import WorkspaceConfig
 from agent_build_kit.pipeline import usage_guard
 from agent_build_kit.pipeline.usage_calls import CALLS_NAME
+from agent_build_kit.settings import settings
 
 SECRET = "sk-ant-oat01-the-secret"
 
@@ -88,8 +89,27 @@ def faked_paths(home: Path) -> dict[str, Path]:
     }
 
 
+def editor_block(age: timedelta, *, session: int, resets_in: timedelta) -> dict:
+    """The block `cachedUsageUtilization` of a `.claude.json`, fetched `age` ago, as Claude Code
+    writes it."""
+    fetched = datetime.now(UTC) - age
+    resets = (datetime.now(UTC) + resets_in).isoformat()
+    return {
+        "cachedUsageUtilization": {
+            "fetchedAtMs": int(fetched.timestamp() * 1000),
+            "utilization": {
+                "five_hour": {"utilization": session, "resets_at": resets},
+                "seven_day": {"utilization": 5, "resets_at": resets},
+            },
+        }
+    }
+
+
 class Host:
     def __init__(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.monkeypatch = monkeypatch
+        # The default-account tests: no account is set, whatever the process holds.
+        monkeypatch.setattr(settings, "claude_home", None)
         self.answers: list[object] = []
         self.asked = 0
         self.home = tmp_path / "home"
@@ -127,21 +147,46 @@ class Host:
         self, age: timedelta, *, session: int = 20, resets_in: timedelta = timedelta(hours=2)
     ) -> None:
         """The editor's own reading in `~/.claude.json`, taken `age` ago, as it writes it."""
-        fetched = datetime.now(UTC) - age
-        resets = (datetime.now(UTC) + resets_in).isoformat()
         (self.home / ".claude.json").write_text(
-            json.dumps(
-                {
-                    "cachedUsageUtilization": {
-                        "fetchedAtMs": int(fetched.timestamp() * 1000),
-                        "utilization": {
-                            "five_hour": {"utilization": session, "resets_at": resets},
-                            "seven_day": {"utilization": 5, "resets_at": resets},
-                        },
-                    }
-                }
-            )
+            json.dumps(editor_block(age, session=session, resets_in=resets_in))
         )
+
+    def use_account(
+        self,
+        *,
+        token: str | None = None,
+        expires_at_ms: int | None = None,
+        block: dict | None = None,
+    ) -> Path:
+        """Set the account to a directory of its own and write its two files: the credentials
+        with `token` and `expires_at_ms`, and the state file with `block` (a `.claude.json`
+        body, see `editor_block`). A file with nothing to say is not written."""
+        account = self.home / "account"
+        account.mkdir(exist_ok=True)
+        self.monkeypatch.setattr(settings, "claude_home", account)
+        oauth = {"accessToken": token, "expiresAt": expires_at_ms}
+        oauth = {key: value for key, value in oauth.items() if value is not None}
+        if oauth:
+            (account / ".credentials.json").write_text(json.dumps({"claudeAiOauth": oauth}))
+        if block is not None:
+            (account / ".claude.json").write_text(json.dumps(block))
+        return account
+
+    def refuse_default_state_file(self) -> None:
+        """Opening the default account's `~/.claude.json` fails the test, whatever it holds."""
+        default = usage_guard.DEFAULT_ANCHOR_PATH
+        reads = (Path.read_text, Path.read_bytes, Path.open)
+
+        def guarded(original):
+            def read(path, *args, **kwargs):
+                if path == default:
+                    raise AssertionError(f"the default account's {default} was opened")
+                return original(path, *args, **kwargs)
+
+            return read
+
+        for original in reads:
+            self.monkeypatch.setattr(Path, original.__name__, guarded(original))
 
     def lines(self) -> list[dict]:
         if not self.calls_file.exists():
