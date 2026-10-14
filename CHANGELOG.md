@@ -17,6 +17,7 @@
   It tries to turn lingering on without `sudo` or a prompt, and otherwise prints
   `sudo loginctl enable-linger <user>` with the reason. `abk init`'s next steps carry the same
   advice, and `abk doctor` warns when timers are installed and lingering is off.
+
 - An acceptance or narrow unit now waits for every earlier unit of its change, worked out
   each time from the change's units rather than from the dependencies stored on it. A running
   one stops, and one in review goes back to planned, when any such unit in its own
