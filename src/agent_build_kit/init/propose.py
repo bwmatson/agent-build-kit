@@ -28,7 +28,7 @@ from agent_build_kit.init.scaffold import render_rules
 from agent_build_kit.installation import changes_dir_under
 from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.vocabulary import OverheadNode
-from agent_build_kit.pipeline.work_graph import validate_tasks
+from agent_build_kit.pipeline.work_graph import project_tags, validate_tasks
 from agent_build_kit.runtimes import AgentRequest, ToolPolicy
 from agent_build_kit.runtimes.base import AgentRuntime
 
@@ -265,9 +265,7 @@ def propose(
     projects each repo declares beside its root; the detected ones of `repo_name` when unsaid."""
     workspace_repos = repos or (repo_name,)
     workspace_projects = (
-        projects
-        if projects is not None
-        else {repo_name: tuple(p.path for p in detection.projects if p.path != ".")}
+        projects if projects is not None else {repo_name: project_tags(detection.projects)}
     )
     change = change_name(repo_name, kind)
     text = recommendations.read_text() if recommendations.is_file() else ""

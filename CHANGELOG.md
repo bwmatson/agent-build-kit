@@ -16,7 +16,8 @@
 - A task group heading can name a project of its repo, `## 2. [app/web] [tier1] Title`, and a
   plain `[app]` stays the repo's root project. A project the repo does not declare is refused
   by `abk tags` and by planning, with the projects it does declare listed, and `abk tags`
-  prints the project in its listing.
+  prints the project in its listing. `abk init` and the propose track refuse an undeclared
+  project the same way, and the heading message names the `[repo/project]` form.
 
 - The policy check no longer starts the agent or spends tokens: for an agent abk knows, it reads
   the deny list from the agent's own configuration and judges every probe command with abk's

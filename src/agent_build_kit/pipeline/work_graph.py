@@ -24,10 +24,18 @@ import re
 import sys
 from collections.abc import Iterable, Mapping
 from pathlib import Path
+from typing import Protocol
 
 from agent_build_kit.config import RepoConfig, active
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.units import Priority, reachable
+
+
+class HasPath(Protocol):
+    """A project, declared or detected: all a heading needs of it is its `path`."""
+
+    @property
+    def path(self) -> str: ...
 
 
 def known_repos() -> tuple[str, ...]:
@@ -41,12 +49,14 @@ def known_repos() -> tuple[str, ...]:
     return tuple(active().repos)
 
 
+def project_tags(projects: Iterable[HasPath]) -> tuple[str, ...]:
+    """The projects of a repo (declared or detected) beside its root, as a heading writes them."""
+    return tuple(path for p in projects if (path := _tag_path(p.path)) != ".")
+
+
 def declared_projects(repos: Mapping[str, RepoConfig]) -> dict[str, tuple[str, ...]]:
     """The projects each repo declares beside its root, by the `path` a heading writes."""
-    return {
-        name: tuple(path for p in repo.projects if (path := _tag_path(p.path)) != ".")
-        for name, repo in repos.items()
-    }
+    return {name: project_tags(repo.projects) for name, repo in repos.items()}
 
 
 def _tag_path(path: str) -> str:
@@ -332,6 +342,7 @@ def validate_tasks(
                     line=index,
                     message=f'group "{heading.group("rest")}" is missing its tags — '
                     f"headings are `## <n>. [<repo>] [<tier>] <title>`, "
+                    f"`[<repo>/<project>]` naming a project of the repo, "
                     f"repo one of {', '.join(repos) or '<the workspace repos>'}, "
                     f"tier one of {', '.join(TIERS)}",
                 )
@@ -353,7 +364,7 @@ def validate_tasks(
             continue
 
         declared = projects.get(repo, ())
-        if project is not None and (project == "." or (projects and project not in declared)):
+        if project is not None and (project == "." or (repos and project not in declared)):
             errors.append(
                 ValidationError(
                     line=index, message=_project_problem(number, repo, project, declared)
@@ -641,11 +652,15 @@ def _group_parents(groups: list[TaskGroup]) -> dict[int, list[int]]:
 
 
 def unrelated_parent_warnings(
-    path: Path, changes_dir: Path, *, repos: tuple[str, ...]
+    path: Path,
+    changes_dir: Path,
+    *,
+    repos: tuple[str, ...],
+    projects: Mapping[str, tuple[str, ...]],
 ) -> list[str]:
     """One warning per group of a tasks file that can give a unit unrelated parents: two or
     more same-repo parents, none built on another, as `abk tags` and `abk check` print it."""
-    groups, _ = validate_tasks(path, repos=repos)
+    groups, _ = validate_tasks(path, repos=repos, projects=projects)
     parents = _group_parents(groups)
     by_number = {g.number: g for g in groups}
     needs = group_needs(path)
@@ -656,7 +671,11 @@ def unrelated_parent_warnings(
         open_ones = [n for n in same if n not in built_on]
         independent_before = any(by_number[n].independent for n in open_ones)
         outside = [need for need in needs.get(group.number, []) if not names_own_change(need, path)]
-        outside = [need for need in outside if _needed_repo(need, changes_dir, repos) == group.repo]
+        outside = [
+            need
+            for need in outside
+            if _needed_repo(need, changes_dir, repos, projects) == group.repo
+        ]
         if len(open_ones) >= 2 and group.flag in ("acceptance", "narrow") and independent_before:
             shape = (
                 f"an [{group.flag}] group after an `Independent:` group of its repo depends on "
@@ -681,12 +700,17 @@ def unrelated_parent_warnings(
     return warnings
 
 
-def _needed_repo(need: Need, changes_dir: Path, repos: tuple[str, ...]) -> str:
+def _needed_repo(
+    need: Need,
+    changes_dir: Path,
+    repos: tuple[str, ...],
+    projects: Mapping[str, tuple[str, ...]],
+) -> str:
     """The repo of the group a `Needs:` line names, "" when its tasks file does not say."""
     other = tasks_path(need.change, changes_dir)
     if not other.is_file():
         return ""
-    groups, _ = validate_tasks(other, repos=repos)
+    groups, _ = validate_tasks(other, repos=repos, projects=projects)
     return next((g.repo for g in groups if g.number == need.group), "")
 
 

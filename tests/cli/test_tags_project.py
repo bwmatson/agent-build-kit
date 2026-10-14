@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.pipeline.work_graph import unrelated_parent_warnings
 from tests.cli.replan_driver import Replan, answer, planned
 from tests.project_workspace import repos_declaring, tasks_with
 
@@ -17,8 +18,7 @@ pytestmark = pytest.mark.usefixtures("scripted_engine")
 CHANGE = "feature"
 
 
-def tags(run: Replan) -> argparse.Namespace:
-    return argparse.Namespace(change=CHANGE, all=False)
+TAGS = argparse.Namespace(change=CHANGE, all=False)
 
 
 def replan_with(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *headings: str) -> Replan:
@@ -37,7 +37,7 @@ def test_tags_lists_each_group_with_its_project_beside_the_repo(
         tmp_path, monkeypatch, "[app] [tier1] Add the route", "[app/web] [tier1] Add the filter"
     )
 
-    status = cli.cmd_tags(tags(run), run.inst)
+    status = cli.cmd_tags(TAGS, run.inst)
 
     lines = capsys.readouterr().out.splitlines()
     assert status == 0
@@ -50,7 +50,7 @@ def test_tags_on_an_undeclared_project_prints_the_message_with_file_and_line_and
 ) -> None:
     run = replan_with(tmp_path, monkeypatch, "[app/mobile] [tier1] Add the screen")
 
-    status = cli.cmd_tags(tags(run), run.inst)
+    status = cli.cmd_tags(TAGS, run.inst)
 
     out = capsys.readouterr().out
     path = run.inst.changes_dir / CHANGE / "tasks.md"
@@ -77,3 +77,23 @@ def test_planning_plans_a_declared_project_and_refuses_an_undeclared_one_without
 
     assert results["declared"].status == "planned"
     assert run.calls == 1
+
+
+def test_a_project_group_takes_part_in_the_unrelated_parent_warning_given_the_projects(
+    tmp_path: Path,
+) -> None:
+    tasks = tmp_path / "tasks.md"
+    tasks.write_text(
+        tasks_with(
+            "[app] [tier1] First",
+            "[app/web] [tier1] Second\n\nIndependent: it needs nothing earlier",
+            "[app] [tier1] Third",
+        )
+    )
+
+    warnings = unrelated_parent_warnings(
+        tasks, tmp_path, repos=("platform", "app"), projects={"app": ("web",)}
+    )
+
+    assert len(warnings) == 1
+    assert "group 3" in warnings[0]
