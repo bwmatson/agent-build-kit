@@ -3,23 +3,16 @@
 `check_policy` is the static check: for a known agent with an applier it reads the deny
 list from the agent's own configuration and judges every probe command with
 `recommended_policy.matches`. It starts nothing, costs no agent call and keeps nothing.
-Beside it sit the report helpers `describe`, `unrefused`, `classes_of` and `fix_for`.
-
-`checked` and its cache (`cache_path`, `CACHE_NAME`, `MAX_AGE`) stay only for `abk doctor`
-and `abk init` until they call `check_policy`; they are removed then.
+Beside it sit the report helpers `describe`, `render`, `unrefused`, `classes_of` and `fix_for`.
 """
 
 from __future__ import annotations
 
-import json
 import shlex
 from collections.abc import Collection
-from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agent_build_kit.pipeline.command_spellings import SPELLINGS, SpellingName
-from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.runtimes.base import AgentRuntime, PolicyReport, SpellingResult
 from agent_build_kit.runtimes.known_agents import RUNTIME_NAME, agent_for_command
 from agent_build_kit.runtimes.policy_apply import ApplyRefused, held, resolve_home
@@ -29,51 +22,12 @@ if TYPE_CHECKING:
     from agent_build_kit.config import RuntimeConfig
     from agent_build_kit.installation import Installation
 
-# The cache's file name in the planning repo's state directory.
-CACHE_NAME = "policy-check.json"
-
-# How long an answer is reused before the runtime is asked again.
-MAX_AGE = timedelta(minutes=15)
-
-
-def checked(
-    runtime: AgentRuntime,
-    cwd: Path,
-    *,
-    cache: Path,
-    now: datetime | None = None,
-    fresh: bool = False,
-) -> PolicyReport:
-    """`runtime.check_policy(cwd)`, or the answer it gave within `MAX_AGE`. Kept only until
-    `abk doctor` and `abk init` call `check_policy`.
-
-        Answers are kept per runtime, so switching runtimes never reuses the
-        other's. An unreadable cache is a cache miss."""
-    now = now or datetime.now(UTC)
-    try:
-        kept = json.loads(cache.read_text())
-        if not isinstance(kept, dict):
-            kept = {}
-    except (OSError, ValueError):
-        kept = {}
-
-    if not fresh:
-        try:
-            entry = kept[runtime.name]
-            if now - datetime.fromisoformat(entry["checked_at"]) < MAX_AGE:
-                return PolicyReport.model_validate(entry["report"])
-        except (KeyError, TypeError, ValueError):
-            pass  # Nothing usable kept for this runtime: ask it.
-
-    report = runtime.check_policy(cwd)
-    kept[runtime.name] = {"checked_at": now.isoformat(), "report": report.model_dump(mode="json")}
-    # Written whole, so a doctor and an init running at once never read half a file.
-    atomic_write_text(cache, json.dumps(kept, indent=2))
-    return report
-
-
 LABEL = "what the configuration says, in abk's dialect; not observed from the agent"
 NO_POLICY = "cannot check: abk has no policy for this agent"
+NO_POLICY_FIX = (
+    "`abk policy patterns` prints the globs to add to its configuration yourself; "
+    "`abk policy check --agent NAME` checks a wrapper's agent"
+)
 UNCOVERED_LABELS = frozenset(u.label for u in UNCOVERED)
 
 
@@ -133,9 +87,30 @@ def check_policy(
     )
 
 
-def cache_path(inst: Installation) -> Path:
-    """Where `doctor` and `init` alike keep the answer."""
-    return inst.state_dir / CACHE_NAME
+def render(report: PolicyReport) -> list[str]:
+    """Every probe command a report judged, one line each with its class and what refused it,
+    or "not refused", or "not covered by design"; then the label of where the answer came from."""
+    lines = []
+    for r in report.results:
+        if r.refused:
+            verdict = "refused" + (f" by `{r.by}`" if r.by else "")
+            verdict += " (not required)" if r.by_design else ""
+        else:
+            verdict = "not covered by design" if r.by_design else "not refused"
+        lines.append(f"  {r.label}: `{r.command}`: {verdict}")
+    if report.source:
+        lines.append(f"({report.source})")
+    return lines
+
+
+def summary(report: PolicyReport) -> str:
+    """How many of the commands that must be refused were, and where the answer came from;
+    empty for a report that did not read a configuration."""
+    if not report.source:
+        return ""
+    covered = [r for r in report.results if not r.by_design]
+    refused = sum(r.refused for r in covered)
+    return f"{refused} of {len(covered)} commands refused ({report.source})"
 
 
 def describe(report: PolicyReport, *, also: Collection[str] = ()) -> str:

@@ -184,7 +184,7 @@ def stand_in_host(monkeypatch: pytest.MonkeyPatch, record: Path, models: tuple[s
             source="https://example.test/svc-a",
         ),
     )
-    monkeypatch.setattr(policy_check, "checked", lambda *a, **k: PolicyReport(ok=True))
+    monkeypatch.setattr(policy_check, "check_policy", lambda *a, **k: PolicyReport(ok=True))
 
 
 def test_an_agent_advertising_models_shows_them_with_its_current_one_as_the_default(

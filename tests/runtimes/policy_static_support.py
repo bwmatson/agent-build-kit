@@ -4,6 +4,7 @@ configuration, and the runtime and entry the check is asked about."""
 from __future__ import annotations
 
 import json
+import stat
 from pathlib import Path
 
 import pytest
@@ -62,3 +63,13 @@ def first_agent_entry() -> RuntimeConfig:
 
 def commands_of(label: str) -> list[str]:
     return [command for command, name in PROBE_CLASSES if name == label]
+
+
+def recording_program(directory: Path) -> Path:
+    """A program named for the first known agent that records any start in `started.log`
+    beside `directory` and exits non-zero."""
+    directory.mkdir(exist_ok=True)
+    path = directory / FIRST.program
+    path.write_text(f"#!/bin/sh\necho started >> {directory.parent / 'started.log'}\nexit 1\n")
+    path.chmod(path.stat().st_mode | stat.S_IXUSR)
+    return path

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import contextlib
-import stat
 from pathlib import Path
 
 import pytest
@@ -12,23 +11,17 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.runtimes.policy_check import check_policy
 from agent_build_kit.runtimes.recommended_policy import patterns
 from tests.runtimes.policy_static_support import (
-    FIRST,
     agent_home,
     entry_for,
     protocol_runtime,
+    recording_program,
     write_config,
 )
 
 
 @pytest.fixture
 def program(tmp_path: Path) -> Path:
-    """A program named for the first known agent that records a start and fails."""
-    programs = tmp_path / "bin"
-    programs.mkdir()
-    path = programs / FIRST.program
-    path.write_text(f"#!/bin/sh\necho started >> {tmp_path / 'started.log'}\nexit 1\n")
-    path.chmod(path.stat().st_mode | stat.S_IXUSR)
-    return path
+    return recording_program(tmp_path / "bin")
 
 
 def test_the_check_never_starts_the_agent(

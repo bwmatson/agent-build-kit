@@ -953,7 +953,8 @@ def _runtime(inst: Installation, which: Which, run: Run) -> list[Check]:
         )
 
     if not startable:
-        # A probe would spawn the very command that does not resolve.
+        # The agent cannot start, so what it would run under is not judged either; the
+        # runtime check above says what to fix.
         checks.append(
             _warn(
                 "runtime policy",
@@ -963,7 +964,7 @@ def _runtime(inst: Installation, which: Which, run: Run) -> list[Check]:
         )
         return checks
     if entry.policy == PolicyMarker.UNCHECKED:
-        # The person declined the check, which for some agents costs tokens: no probe.
+        # Someone recorded the runtime as unchecked: it is not checked.
         checks.append(
             _warn(
                 "runtime policy",
@@ -974,7 +975,7 @@ def _runtime(inst: Installation, which: Which, run: Run) -> list[Check]:
         )
         return checks
     try:
-        report = policy_check.checked(runtime, inst.root, cache=policy_check.cache_path(inst))
+        report = policy_check.check_policy(runtime, entry, inst)
     except Exception as error:  # noqa: BLE001 - whatever the runtime raised is the finding
         checks.append(
             _fail(
@@ -984,13 +985,32 @@ def _runtime(inst: Installation, which: Which, run: Run) -> list[Check]:
             )
         )
         return checks
-    if report.ok:
-        checks.append(_ok("runtime policy", "every forbidden class is refused"))
+    if report.cannot_check == policy_check.NO_POLICY:
+        checks.append(
+            _warn(
+                "runtime policy",
+                report.cannot_check,
+                policy_check.NO_POLICY_FIX,
+            )
+        )
+    elif report.cannot_check:
+        checks.append(
+            _fail(
+                "runtime policy",
+                report.cannot_check,
+                "install the agent, or point its home variable at its configuration",
+            )
+        )
+    elif report.ok:
+        said = policy_check.summary(report)
+        refused = "every forbidden class is refused"
+        checks.append(_ok("runtime policy", f"{refused}: {said}" if said else refused))
     else:
         checks.append(
             _fail(
                 "runtime policy",
-                f"not refused: {policy_check.describe(report)}",
+                f"not refused: {policy_check.describe(report)}"
+                + (f" | {policy_check.summary(report)}" if report.source else ""),
                 policy_check.fix_for(name, entry, report),
             )
         )

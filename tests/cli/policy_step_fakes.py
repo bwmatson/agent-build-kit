@@ -35,13 +35,9 @@ class PolicyFileRuntime(SelectableRuntime):
     """A runtime whose check reports as unrefused the rows listed in its policy file, one
     `class|spelling` per line: what a fix patches, as an agent's own configuration is."""
 
-    def __init__(
-        self, name: str, policy_file: Path, *, prompts_agent: bool = False, log: list[str]
-    ) -> None:
+    def __init__(self, name: str, policy_file: Path, *, log: list[str]) -> None:
         super().__init__(name, log=log)
         self.policy_file = policy_file
-        # Whether its check sends the agent a prompt, which costs tokens.
-        self.policy_check_prompts_agent = prompts_agent
 
     def check_policy(self, cwd: Path) -> PolicyReport:
         self.checked.append(cwd)
