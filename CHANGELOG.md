@@ -66,6 +66,7 @@
   notification and review stores and the like) now goes through one atomic write, so a crash
   or two writers at once never leave a half-written file or a stray temporary behind. A log
   trimmed to its size limit now has any byte that is not valid text replaced rather than kept.
+
 - `limits.tier2_schedule` (`daily`, `weekly` by default, `monthly` or `off`), overridable per
   repo as `tests.tier2_schedule`, says how often a repo's whole tier 2 suite is due, read from
   the dates in the names of its `scheduled-tier2-<repo>-<date>` changes. A function now writes
