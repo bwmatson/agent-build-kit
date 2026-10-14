@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A flaky test's record now keeps its own section of the first run's output, the traceback and
+  captured text, up to 6000 characters from the end, instead of only the summary at the tail
+  of the whole run. A storm of flaky tests logs and records the first three such sections, up
+  to 3000 characters each, so the error they share can be found.
+
 - Internal cleanup with no change in behaviour: the remaining plain git calls in `abk init`, the
   commit gate and the scaffold go through the shared git runner, where a change's directory is
   found, the remote-address and diff-hunk patterns, and the code hosts' check on an unexpected

@@ -162,6 +162,11 @@ Run = Callable[..., subprocess.CompletedProcess]
 
 # How many times the failed tests are run again, alone, before they count as a flake.
 FLAKE_RERUNS = 2
+# How much of a flaky test's own failure section is kept, and how many of a storm's tests keep
+# theirs, each cut to how many characters; all from the end, where the error is.
+FLAKE_FAILURE_CHARS = 6000
+STORM_FAILURES = 3
+STORM_FAILURE_CHARS = 3000
 
 # Told a finished agent call: `(result, *, role, model, runtime)`, and `gateway`
 # (a function giving the run's `Spend`) when a gateway key was minted for it.
@@ -1264,6 +1269,8 @@ def build_tier1(
         tests = _failed_ids(toolchain, output)
         if not tests:
             return False
+        reader = getattr(toolchain, "failure_sections", None)
+        sections = reader(output) if reader is not None else {}
         rerun = rerun_command(command, tests)
         for _ in range(FLAKE_RERUNS):
             again = ran(rerun, where, toolchain)
@@ -1272,11 +1279,15 @@ def build_tier1(
         if own is not None and any(test in own for test in tests):
             return False
         if len(tests) > active().limits.max_flakes_per_run:
-            record_storm(spans.current_unit.get()[0], tests, shlex.join(command))
+            failures = [
+                redact_text(sections.get(test, ""), where="tier-1 output")[-STORM_FAILURE_CHARS:]
+                for test in tests[:STORM_FAILURES]
+            ]
+            record_storm(spans.current_unit.get()[0], tests, shlex.join(command), failures)
             _say(
                 log,
                 f"{len(tests)} tests failed the first pass and passed on the rerun; recorded "
-                "as one storm, no fix changes",
+                "as one storm, no fix changes" + "".join(f"\n{failure}" for failure in failures),
             )
             return True
         at = datetime.now(UTC)
@@ -1286,6 +1297,9 @@ def build_tier1(
                     test=test,
                     command=shlex.join(command),
                     output=stored[-4000:],
+                    failure=redact_text(sections.get(test, ""), where="tier-1 output")[
+                        -FLAKE_FAILURE_CHARS:
+                    ],
                     at=at,
                     directory=str(where),
                 )

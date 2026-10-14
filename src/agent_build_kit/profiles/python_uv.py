@@ -68,6 +68,11 @@ TYPE_HOOKS = frozenset({"pyrefly-check", "pyrefly", "mypy", "pyright"})
 _PYTEST = re.compile(r"\bpytest\b")
 # pytest's short summary: `FAILED path::test - why` and `ERROR path::test - why`.
 _FAILED_TEST = re.compile(r"^(?:FAILED|ERROR) (\S+::\S+)", re.MULTILINE)
+# The `FAILURES` part of pytest's console output ends at the next `=== ... ===` line; each
+# failed test's block in it starts at a `___ name ___` line.
+_FAILURES_START = re.compile(r"^={3,} FAILURES ={3,}[ \t]*$", re.MULTILINE)
+_RULE_LINE = re.compile(r"^={3,} .*$", re.MULTILINE)
+_BLOCK_HEADER = re.compile(r"^_{3,} (?P<name>.+?) _{3,}[ \t]*$", re.MULTILINE)
 # pre-commit prints `<hook name>....Passed|Failed|(no files to check)Skipped` for every
 # hook; a failed one is followed by `- hook id: <id>`. The name is free text a repo can
 # change, the id is what a hook is called in the config, so the id decides.
@@ -387,8 +392,32 @@ class PythonUvProfile:
 
     def failure_sections(self, output: str) -> dict[str, str]:
         """Each failed test's own section of `output` (its `___ name ___` block), by the
-        identifier `failed_tests` gives it."""
-        raise NotImplementedError
+        identifier `failed_tests` gives it. A test with no block is left out."""
+        start = _FAILURES_START.search(output)
+        if start is None:
+            return {}
+        part = output[start.end() :]
+        end = _RULE_LINE.search(part)
+        if end is not None:
+            part = part[: end.start()]
+        headers = list(_BLOCK_HEADER.finditer(part))
+        blocks = [
+            (
+                header["name"],
+                part[header.end() : headers[i + 1].start() if i + 1 < len(headers) else None],
+            )
+            for i, header in enumerate(headers)
+        ]
+        sections: dict[str, str] = {}
+        for test in self.failed_tests(output):
+            # The header shows the class and test joined by dots, and any parametrisation.
+            name = ".".join(test.split("::")[1:])
+            for index, (shown, body) in enumerate(blocks):
+                if shown == name:
+                    sections[test] = body.strip()
+                    del blocks[index]
+                    break
+        return sections
 
     def serial_rerun_command(self, command: list[str], tests: list[str]) -> list[str]:
         """`command`, a failed test run, as one that runs only `tests`, serially."""
