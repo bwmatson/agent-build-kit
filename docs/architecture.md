@@ -1763,7 +1763,8 @@ review written through the server is what the in-process host sees.
   are valid and merely have to wait; a second run on one branch is a bug.
 - **A rework is reviewed by a different model** (`models.rework_review`): a
   small targeted edit, and the model that made it is the worst judge of
-  whether it landed.
+  whether it landed. This holds by default because the author is `sonnet`
+  and both reviews are `opus`.
 - **Nothing here names an installation.** Repos, owners, deploy commands and
   credentials come from `abk.yaml`; the framework is installable anywhere and
   publishable.

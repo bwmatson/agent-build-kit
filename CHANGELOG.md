@@ -17,6 +17,11 @@
   It tries to turn lingering on without `sudo` or a prompt, and otherwise prints
   `sudo loginctl enable-linger <user>` with the reason. `abk init`'s next steps carry the same
   advice, and `abk doctor` warns when timers are installed and lingering is off.
+- The Claude Code runtime's default models changed: building and reworking now run on `sonnet`,
+  and both reviews on `opus`, so each review is made by a different model from the one that
+  wrote the work. Building and reworking were `opus`, and a rework's review was `fable`. A
+  role your `abk.yaml` names keeps its name, so name the earlier models to keep them. If you set
+  the author to `opus`, set the reviewer of reworks to another model.
 
 - Internal cleanup with no change in behaviour: the remaining plain git calls in `abk init`, the
   commit gate and the scaffold go through the shared git runner, where a change's directory is

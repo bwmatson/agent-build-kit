@@ -315,10 +315,10 @@ meaning "the active runtime's models":
 
 ```yaml
 models:                   # unchanged; no runtimes: block needed at all
-  implement: opus
-  rework: opus
+  implement: sonnet
+  rework: sonnet
   review: opus
-  rework_review: fable
+  rework_review: opus
 ```
 
 A `runtimes:` entry appears only for a runtime that needs a fact abk cannot
@@ -349,7 +349,7 @@ and its siblings already override `models`.
 `runtimes.<active>.models` where present, then the flat block — only the roles
 the file actually names there — then the active adapter's own
 `default_models`. A role no config names never falls back to another
-runtime's names: `claude_code` declares today's `opus`/`fable`; `acp`
+runtime's names: `claude_code` declares `sonnet` for implementing and reworking and `opus` for both reviews; `acp`
 declares no names at all, and a role no config names runs on whichever agent
 `runtimes.acp.command` spawns and its own default. Role to model is deliberately
 many-to-one: a runtime with no "expensive versus cheap reviewer" split may
@@ -814,7 +814,7 @@ whose format has no writer.
 
 | Runtime | Invocation model | Policy coverage | Model naming | Streaming | Usage window | Status |
 |---|---|---|---|---|---|---|
-| `claude_code` | local CLI (`claude -p`), subprocess | `all_calls` via the `PreToolUse` hook plus `--disallowedTools` | bare aliases (`opus`, `fable`, ...) via `--model` | `--output-format stream-json`, one JSON event per line | live endpoint with its stored OAuth token, falling back to its own cache | **implemented**, as `runtimes/claude_code.py` |
+| `claude_code` | local CLI (`claude -p`), subprocess | `all_calls` via the `PreToolUse` hook plus `--disallowedTools` | bare aliases (`sonnet`, `opus`, ...) via `--model` | `--output-format stream-json`, one JSON event per line | live endpoint with its stored OAuth token, falling back to its own cache | **implemented**, as `runtimes/claude_code.py` |
 | `acp` | spawns the configured agent, JSON-RPC over stdio; `session/new` takes the worktree as `cwd`, extra readable directories as workspace roots; `session/prompt` returns the end-turn signal with a `stopReason` (`end_turn`, `max_tokens`, `max_turn_requests`, `refusal`, `cancelled`) | `all_calls` when the agent routes file and terminal work through the client's capabilities; `agent_flagged` otherwise, via `session/request_permission`. `check_policy` decides which | agent-defined: session config options expose a `model` category to select among what the agent offers, so a name abk does not recognise is a no-op, not an error | `session/update` notifications: message chunks, thought chunks, tool-call start and update, plan updates | none, and none needed: billed on demand per token, with no shared window over a time period, so a run is limited only by the work | **implemented**, as `runtimes/acp.py`: runs, outcomes, models, progress, enforcement and `check_policy`; registered when the `acp` extra is installed (see the status paragraph at the top) |
 
 ## Test markers

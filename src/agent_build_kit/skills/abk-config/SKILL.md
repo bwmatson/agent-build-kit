@@ -110,10 +110,11 @@ models:                       # bare aliases, not pinned ids; ABK_*_MODEL
                               # overrides win over these and runtimes' own.
                               # A role named nowhere takes the active
                               # runtime's own default (these, on claude_code)
-  implement: opus
-  rework: opus
+  implement: sonnet
+  rework: sonnet
   review: opus
-  rework_review: fable        # a different model reviews a rework
+  rework_review: opus         # both reviews are made by a different model from
+                              # the author; if the author is opus, set this to another
 
 session_reuse:                # per agent role: continue the role's latest session
   build: true                 # tests/implement/fix/rework/restack/adapt share one session
