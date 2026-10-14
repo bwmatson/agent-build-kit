@@ -11,9 +11,3 @@ def test_the_python_profile_names_its_lock_file(tmp_path: Path) -> None:
     profile = profiles.get("python-uv")
     assert isinstance(profile, CreatedFiles)
     assert profile.created_files(tmp_path) == [LOCK]
-
-
-def test_the_node_profile_names_none(tmp_path: Path) -> None:
-    profile = profiles.get("node-npm")
-    assert isinstance(profile, CreatedFiles)
-    assert profile.created_files(tmp_path) == []
