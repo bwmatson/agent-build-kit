@@ -1598,17 +1598,17 @@ class AcpRuntime:
         self, command: list[str], session_id: str, cwd: str, environment: dict[str, str] | None
     ) -> bool:
         try:
-            async with _bare_connection(command, environment) as conn:
-                initialized = await _initialize(conn)
-                return _resumes(initialized) and await self._listed(conn, session_id, cwd)
+            async with agent_connection(command, environment) as link:
+                initialized = await initialize_agent(link.conn)
+                return _resumes(initialized) and await self._listed(link.conn, session_id, cwd)
         except Exception:  # noqa: BLE001 — an agent that will not answer cannot be loaded from
             return False
 
     async def _opened(self, command: list[str]) -> Any:
-        async with _bare_connection(command, None) as conn:
-            await _initialize(conn)
+        async with agent_connection(command) as link:
+            await initialize_agent(link.conn)
             with tempfile.TemporaryDirectory(prefix="abk-models-") as scratch:
-                return await conn.new_session(cwd=scratch, mcp_servers=[])
+                return await link.conn.new_session(cwd=scratch, mcp_servers=[])
 
     async def _advertised_models(self, command: list[str]) -> ModelList:
         """What the agent offers when a session opens, in a temporary directory. No prompt
@@ -1669,16 +1669,42 @@ class AcpRuntime:
         )
 
 
+class AgentLink:
+    """An open connection to an agent process: `conn` to speak through and `kill()` to end its
+    whole process group at once. Once the connection has closed, `said` is what the agent wrote
+    on stderr and `killed` whether it had to be killed for not exiting."""
+
+    def __init__(self, conn: Any, process: asyncio.subprocess.Process) -> None:
+        self.conn = conn
+        self._process = process
+        self.said = ""
+        self.killed = False
+
+    def kill(self) -> None:
+        _kill_group(self._process)
+
+
 @contextlib.asynccontextmanager
-async def _bare_connection(command: list[str], environment: dict[str, str] | None):
-    """A connection to the agent started from `command`, for a question that sends no
-    prompt; the agent is ended when it closes."""
+async def agent_connection(
+    command: list[str],
+    environment: dict[str, str] | None = None,
+    *,
+    client: Any = None,
+    cwd: str | None = None,
+):
+    """A connection to the agent started from `command` in a session of its own, answered on
+    the client's side by `client` (by default a session that polices nothing, for a question
+    that sends no prompt). `environment` is the agent's whole environment, None for ours. On
+    leaving the block the agent is ended: its input closed and its process group killed if it
+    did not exit, with what it said on stderr kept on the yielded link. Raises `OSError` when
+    the agent cannot be started."""
     process = await asyncio.create_subprocess_exec(
         *command,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=child_environment(environment, {}),
+        cwd=cwd,
         limit=LINE_LIMIT,
         start_new_session=True,
     )
@@ -1686,19 +1712,27 @@ async def _bare_connection(command: list[str], environment: dict[str, str] | Non
     assert process.stderr is not None
     stderr = _Drained(process.stderr)
     conn = connect_to_agent(
-        cast(Client, _Session(None)), process.stdin, process.stdout, observers=[]
+        cast(Client, _Session(None) if client is None else client),
+        process.stdin,
+        process.stdout,
+        observers=[],
     )
+    link = AgentLink(conn, process)
     try:
-        yield conn
+        yield link
     finally:
-        await conn.close()
-        await _ended(process, stderr)
+        with contextlib.suppress(Exception):  # the agent may be gone already
+            await conn.close()
+        link.said, link.killed = await _ended(process, stderr)
 
 
-async def _initialize(conn: Any) -> InitializeResponse:
+async def initialize_agent(
+    conn: Any, capabilities: ClientCapabilities | None = None
+) -> InitializeResponse:
+    """The protocol's first call, offering the client capabilities given (none by default)."""
     return await conn.initialize(
         protocol_version=PROTOCOL_VERSION,
-        client_capabilities=_capabilities(None),
+        client_capabilities=capabilities or _capabilities(None),
         client_info=Implementation(name="abk", title="agent-build-kit", version=__version__),
     )
 
