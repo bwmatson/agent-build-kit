@@ -35,6 +35,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from agent_build_kit import forges
+from agent_build_kit.budget import cut_head
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.forges.base import COMMENT_MARKER
 from agent_build_kit.pipeline.ui_ids import THREAD_PREFIX
@@ -213,7 +214,7 @@ def build_post_replies(
         quotes: dict[str, str] = {}
 
         def quote(comment_id: str, body: str) -> None:
-            quotes[comment_id] = f"Re: {' '.join(body.split())[:60]}"
+            quotes[comment_id] = f"Re: {cut_head(' '.join(body.split()), 60, 'char')}"
 
         try:
             for note in forge.review_notes(repo_id, pr):

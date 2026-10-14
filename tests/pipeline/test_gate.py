@@ -7,6 +7,7 @@ two command templates — running the actual tools here would test uv's cache
 more than it tests the gate.
 """
 
+import shlex
 from pathlib import Path
 
 import pytest
@@ -96,6 +97,32 @@ def test_lint_failing_at_the_tests_commit_blocks_the_push(repo: Path, fake_comma
     problems = check_branch(repo, "main")
 
     assert any("lint/format" in problem for problem in problems)
+
+
+def test_the_lint_output_at_the_tests_commit_is_the_end_of_it_in_whole_lines(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    printed = [f"src/module_{n:04d}.py:1:1: F401 imported but unused" for n in range(200)]
+
+    class Linting:
+        def clean_command(self) -> str:
+            return f"printf '%s\\n' {shlex.join(printed)}; exit 1"
+
+        def red_command(self, files: list[str]) -> str:
+            return f"printf '%s' {FAILED!r}; exit 1"
+
+        def __getattr__(self, name):
+            return getattr(PYTHON, name)
+
+    monkeypatch.setattr(profiles, "get", lambda name: Linting())
+    tests_first_branch(repo)
+
+    (problem,) = [p for p in check_branch(repo, "main") if "lint/format" in p]
+
+    shown = problem.splitlines()
+    assert shown[-1] == printed[-1], "the end of the output is kept"
+    assert set(shown[1:]) <= set(printed), "no line starts or ends in the middle"
+    assert 30 < len(shown) <= 2000 // len(printed[0]) + 2
 
 
 def test_a_cached_pass_skips_the_work(repo: Path, fake_commands, tmp_path: Path) -> None:

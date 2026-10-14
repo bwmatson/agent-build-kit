@@ -15,6 +15,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import NamedTuple
 
+from agent_build_kit.budget import cut_head
 from agent_build_kit.pipeline.task_progress import without_boxes
 from agent_build_kit.pipeline.units import Member
 from agent_build_kit.pipeline.work_graph import group_sections
@@ -139,6 +140,6 @@ def notice(
     diff = "".join(diffs)
     rest = ""
     if len(diff) > DIFF_LIMIT:
-        diff = diff[:DIFF_LIMIT]
+        diff = cut_head(diff, DIFF_LIMIT)
         rest = REST_CUT.format(limit=DIFF_LIMIT, paths=", ".join(str(p) for p in places))
     return SPEC_CHANGED.format(names=", ".join(changed), diff=diff.rstrip("\n"), rest=rest)

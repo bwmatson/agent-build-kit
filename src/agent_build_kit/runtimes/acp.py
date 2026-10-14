@@ -88,6 +88,7 @@ from acp.schema import (
 )
 
 from agent_build_kit import __version__, config
+from agent_build_kit.budget import cut_head
 from agent_build_kit.config import ModelsConfig
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.command_policy import (
@@ -750,7 +751,8 @@ class _Session:
         if denied_call(update):
             self._answered.add(call_id)
             said = refusal_line(output) or output
-            self._refused(subject, " ".join(said.split())[:200], "the agent's own policy")
+            line = cut_head(" ".join(said.split()), 200, "char")
+            self._refused(subject, line, "the agent's own policy")
             return
         if forbidden:
             verdict = self._rules(forbidden, branch=branch, worktree=self._policed_worktree())

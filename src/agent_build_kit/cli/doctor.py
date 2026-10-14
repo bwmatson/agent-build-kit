@@ -44,10 +44,10 @@ from agent_build_kit.config import (
     WorkspaceConfig,
 )
 from agent_build_kit.forges.transport import (
-    PAGE_EXCERPT,
     Transport,
     TransportError,
     credential_for,
+    page_excerpt,
 )
 from agent_build_kit.init.detect import DEV_STACK_SCRIPT, detect_repo
 from agent_build_kit.init.scaffold import (
@@ -227,7 +227,7 @@ def _github_account(repo: forges.RepoId, run: Run, transport: httpx.BaseTranspor
     login = answer.data.get("login") if isinstance(answer.data, dict) else None
     if not login:
         raise TransportError(
-            f"GET /user: no login in the answer: {answer.text[:PAGE_EXCERPT]} "
+            f"GET /user: no login in the answer: {page_excerpt(answer.text)} "
             f"(credential from {credentials.source})"
         )
     return f"{login} via {credentials.source}"

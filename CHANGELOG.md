@@ -832,10 +832,11 @@
   declined are left out first, oldest and fixed ones first, with a count, and only then are
   a round's prose and the builder's responses reduced. A commit status description is
   fitted once to the lowest limit any code host allows, and each host declares
-  `status_limit` beside `description_limit`. The tails kept of the tier 2 base and
-  dev-stack output, of a failed CI job's log and of a person's note in the history now use
-  the same cuts, so a tail starts on a whole line and a code fence the cut leaves open is
-  balanced.
+  `status_limit` beside `description_limit`. The remaining cuts of text to a size use
+  the same cuts: the tails of command and CI output (tier 1 and tier 2, flakes, the push
+  gate, live verification and a failed CI job's log), the resolver's diff, and the notes and
+  error excerpts the history, the logs and the code hosts' errors quote. A tail now starts
+  on a whole line, and a code fence the cut leaves open is balanced.
 
 - The agents that write tests, implement, fix checks and rework are now told to look for
   existing code before adding any: search by behaviour as well as name, use or extend a

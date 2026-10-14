@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit import profiles
+from agent_build_kit.budget import cut_tail
 from agent_build_kit.config import RepoConfig, by_project, owning_project
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
@@ -250,7 +251,7 @@ def _clean_default_branch(checkout: Path, run: Run, repo: RepoConfig) -> str:
 
 
 def _output(done: subprocess.CompletedProcess) -> str:
-    return f"{done.stdout or ''}{done.stderr or ''}"[-3000:]
+    return cut_tail(f"{done.stdout or ''}{done.stderr or ''}", 3000)
 
 
 class VerifyRecord:

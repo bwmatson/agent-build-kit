@@ -1029,6 +1029,43 @@ def test_a_restack_that_cannot_be_merged_goes_to_the_adapt_step_not_a_human(
     assert store.get("c/2").state == PLANNED
 
 
+def test_the_note_of_a_restack_that_cannot_be_merged_keeps_the_head_and_closes_a_fence(
+    tmp_path: Path,
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit("c/2")])
+    store.set_state("c/2", IN_REVIEW, pr=2, branch="spec/c/2")
+
+    def conflicts(*a, **k):
+        raise RestackConflict("```\n" + "the resolution dropped a test\n" * 40)
+
+    restack = events.build_restack(
+        repos={"app": tmp_path},
+        store=store,
+        root=tmp_path,
+        move=conflicts,
+        tier1=lambda **k: (True, ""),
+        push=lambda *a, **k: "x",
+        retarget=lambda pr, base, **k: None,
+        comment=lambda *a, **k: None,
+        diff_id=lambda repo, base, branch: "d",
+        head_of=lambda repo, branch: "h",
+    )
+
+    restack(
+        branch="spec/c/2",
+        old_base="spec/c/1",
+        new_base="main",
+        child=unit("c/2", pr=2, branch="spec/c/2", approved="h"),
+        parent=unit("c/1", pr=1, branch="spec/c/1"),
+    )
+
+    excerpt = store.get("c/2").note.split("in its build session: ", 1)[1]
+    assert len(excerpt) <= 300
+    assert excerpt.startswith("```\nthe resolution dropped a test")
+    assert excerpt.endswith("```"), "the fence the cut left open is closed"
+
+
 @pytest.mark.parametrize(
     ("refusal", "why"),
     [

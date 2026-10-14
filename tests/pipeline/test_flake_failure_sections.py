@@ -60,8 +60,12 @@ class WithoutSections(HookedProfile):
         return super().__getattribute__(name)
 
 
+def storm_lines(number: int) -> list[str]:
+    return [f"case {number:03} line {n:03} " + "y" * 30 for n in range(100)]
+
+
 def storm_section(number: int) -> str:
-    return f"case {number:03} " + "y" * 4980 + f" ends {number:03}"
+    return "\n".join(storm_lines(number))
 
 
 class StormSections(ManyFailed):
@@ -184,8 +188,11 @@ def test_the_section_is_redacted(tmp_path: Path) -> None:
     assert SECRET not in failure
 
 
-def test_a_long_section_is_kept_from_its_end_to_6000_characters(tmp_path: Path) -> None:
-    body = "begins here\n" + "x" * 20000 + "\nE   the real error\n\ntest_one.py:3: AssertionError"
+def test_a_long_section_is_kept_from_its_end_in_whole_lines_within_6000_characters(
+    tmp_path: Path,
+) -> None:
+    filler = "".join(f"captured line {n:04} " + "x" * 30 + "\n" for n in range(400))
+    body = f"begins here\n{filler}E   the real error\n\ntest_one.py:3: AssertionError"
     output = (
         f"{FAILURES}\n{section('test_a', body)}{SUMMARY}\n"
         "FAILED test_one.py::test_a - the real error\n1 failed in 0.01s\n"
@@ -194,10 +201,40 @@ def test_a_long_section_is_kept_from_its_end_to_6000_characters(tmp_path: Path) 
     flakes = flakes_of(HookedProfile(), FirstRun(output, reruns=[0, 0]), tmp_path)
 
     failure = flakes["test_one.py::test_a"].failure
-    assert len(failure) == 6000
+    assert 5900 < len(failure) <= 6000
     assert failure.rstrip().endswith("test_one.py:3: AssertionError")
     assert "begins here" not in failure
     assert failure in output
+    assert failure.splitlines()[0].startswith("captured line"), "the cut falls between lines"
+
+
+PRINTED = [f"console line {n:05d} of a long output" for n in range(600)]
+
+
+def long_run() -> str:
+    return "\n".join(PRINTED) + "\n" + recorded_failure()
+
+
+def test_a_flake_keeps_the_end_of_the_first_runs_output_in_whole_lines(tmp_path: Path) -> None:
+    flakes = flakes_of(HookedProfile(), FirstRun(long_run(), reruns=[0, 0]), tmp_path)
+
+    kept = flakes["test_one.py::test_plain"].output
+    original = long_run().splitlines()
+    assert 3000 < len(kept) <= 4000
+    assert kept.splitlines()[-1] == original[-1], "the end of the output is kept"
+    assert set(kept.splitlines()) <= set(original), "no line starts or ends in the middle"
+
+
+def test_a_failed_command_keeps_the_end_of_what_it_printed_in_whole_lines(tmp_path: Path) -> None:
+    passed, text = tier1(HookedProfile(), FirstRun(long_run(), reruns=[0, 1]), tmp_path)
+
+    assert not passed
+    original = long_run().splitlines()
+    lines = text.splitlines()
+    assert lines[0].startswith("$ "), "the header names the command"
+    assert len(text) <= 4000 + 400, "the tail is cut to 4000 beside a short header"
+    assert lines[-1] == original[-1], "the end of the output is kept"
+    assert set(lines[2:]) <= set(original), "no line starts or ends in the middle"
 
 
 def test_a_profile_without_the_hook_gives_the_same_flake_with_an_empty_failure(
@@ -226,10 +263,15 @@ def test_ninety_seven_flakes_record_and_log_three_sections_cut_to_3000(tmp_path:
 
     assert passed
     (storm,) = storms(installation)
-    expected = [storm_section(n)[-3000:] for n in range(3)]
-    assert storm["failures"] == expected
+    failures = storm["failures"]
+    assert len(failures) == 3
+    for n, failure in enumerate(failures):
+        lines = storm_lines(n)
+        assert 2900 < len(failure) <= 3000
+        assert failure.splitlines()[-1] == lines[-1], "the end of the section is kept"
+        assert set(failure.splitlines()) <= set(lines), "every line is whole"
     text = "\n".join(logged)
-    for failure in expected:
+    for failure in failures:
         assert failure in text
-    assert storm_section(3)[-3000:] not in text, "only the first three"
+    assert storm_lines(3)[-1] not in text, "only the first three"
     assert flake_record(installation).entries() == [], "no per-test record"

@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from agent_build_kit import forges, profiles
+from agent_build_kit.budget import cut_head
 from agent_build_kit.forges import Forge, PullRequest, RepoId, ReviewNote
 from agent_build_kit.forges.base import cancelled_names, failing_names
 from agent_build_kit.model import Frozen
@@ -1929,7 +1930,7 @@ def build_restack(
                 child.id,
                 PLANNED,
                 note=f"restack onto {new_base} could not be merged; the unit's next run "
-                f"resolves it in its build session: {str(error)[:300]}",
+                f"resolves it in its build session: {cut_head(str(error), 300, 'char')}",
                 cause=Cause.RESTACK_CONFLICT,
             )
             return RestackOutcome.CONFLICT
@@ -1959,7 +1960,7 @@ def build_restack(
                 child.id,
                 PLANNED,
                 note=f"restack onto {new_base} deferred for {why}; the runner retries it: "
-                f"{str(error)[:300]}",
+                f"{cut_head(str(error), 300, 'char')}",
                 cause=Cause.RESTACK_DEFERRED,
             )
             return RestackOutcome.DEFERRED

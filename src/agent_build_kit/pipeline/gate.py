@@ -29,6 +29,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from agent_build_kit import profiles
+from agent_build_kit.budget import cut_tail
 from agent_build_kit.config import ProjectConfig, by_project
 from agent_build_kit.pipeline.check_runner import CheckCache, run_at_commit
 from agent_build_kit.pipeline.commit_order import check_structure, classify_paths
@@ -119,7 +120,8 @@ def check_branch(
             )
             if not clean.ok:
                 commit_problems.append(
-                    f"{where}lint/format did not pass at the tests commit\n{clean.stdout[-2000:]}"
+                    f"{where}lint/format did not pass at the tests commit\n"
+                    f"{cut_tail(clean.stdout, 2000)}"
                 )
             ok, red_problems = toolchain.interpret_red(red.stdout + red.stderr, red.exit_code)
             if not ok:

@@ -312,7 +312,7 @@ def _changes_section(described: Description) -> Section | None:
             for lead in (True, False):
                 if len(block(shown, lead=lead)) <= size:
                     return block(shown, lead=lead)
-        return bullets[0][:size]
+        return cut_head(bullets[0], size, "char")
 
     return Section(
         key="changes",

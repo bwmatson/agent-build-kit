@@ -332,6 +332,30 @@ def test_a_failing_live_test_fails_the_change_with_what_failed(inst) -> None:
     assert "no tools" in result.detail
 
 
+class Chatty(Host):
+    """A `Host` whose failing command prints a long output, one whole line at a time."""
+
+    PRINTED = [f"console line {n:05d} of a long output" for n in range(300)]
+
+    def __call__(self, command, **kwargs):
+        done = super().__call__(command, **kwargs)
+        if done.returncode:
+            return subprocess.CompletedProcess(
+                command, done.returncode, "\n".join(self.PRINTED), ""
+            )
+        return done
+
+
+def test_a_failing_live_test_reports_the_end_of_its_output_in_whole_lines(inst) -> None:
+    result = verify(Chatty(failing="pytest"), inst)
+
+    assert not result.passed
+    shown = result.detail.splitlines()
+    assert shown[-1] == Chatty.PRINTED[-1], "the end of the output is kept"
+    assert set(shown[1:]) <= set(Chatty.PRINTED), "no line starts or ends in the middle"
+    assert len(shown) > 50, "a good part of the output is kept"
+
+
 def test_a_failed_deploy_stops_before_testing(inst) -> None:
     host = Host(failing="deploy.sh")
 
