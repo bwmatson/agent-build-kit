@@ -1197,6 +1197,15 @@ approved.
   failed as today; its pre-existing failures are still recorded and fixed, without a `Needs:`
   line. The feedback saved on a failure drops the lines and output of pre-existing tests
   (`untouched_failures.feedback_snapshot`) and names them once.
+- **A unit about to run a full tier 2 run waits for an open fix.** Before `run_tier2`, and only
+  when the runner's `tier2_runs_whole` says the run executes the whole marker, the node asks
+  `on_tier2_gate` (`wiring.build_on_tier2_gate`). `untouched_failures.holding_fixes` returns
+  the recorded fix changes that are open, were recorded by a unit of the same repo, are not the
+  unit's own change and carry no `Needs:` from it; each gets a `Needs:` line through
+  `wait_on_preexisting`, and the unit is parked as above before the stack lock or any test.
+  A same-repo fix releases the unit once its unit is in review, not only when it has merged.
+  A closed fix change keeps the unit waiting until a person clears it. `abk status` ends each
+  `pre-existing:` line with the number of units waiting on its fix.
 - **New tests are repeated under load.** After tier 1 passes, the tests the unit added or
   changed (`tests_changed`) are run `limits.tier1_repeat_runs` times (three by default, 0
   turns it off) with each test command's own workers, narrowed to exactly those tests (`path::Class::name`) by the

@@ -1383,6 +1383,14 @@ class UnitRunner(BaseModel):
     # Whether the last tier 2 run ran no test, the unit having added or changed none.
     tier2_ran_no_tests: Callable[[], bool] = lambda: False
     on_preexisting: Callable[..., str | None] = lambda unit, verdict, failure, *, wait: None
+    # Whether the tier 2 run about to be made executes the whole marker (the one scope
+    # function `Tier2Session.run` decides by), given the worktree and the base; only such a
+    # run is held by an open fix. See `wiring.build_on_tier2_gate`.
+    tier2_runs_whole: Callable[..., bool] = lambda *, cwd, base: False
+    # Told the unit before a full tier 2 run: gives it a `Needs:` line on each open fix
+    # change of a base failure that holds it and answers those changes, none when nothing
+    # does. See `wiring.build_on_tier2_gate`.
+    on_tier2_gate: Callable[..., list[str]] = lambda unit: []
     push: Callable[..., str]
     open_pr: Callable[..., int]
     post_status: Callable[[str, bool], None]

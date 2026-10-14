@@ -133,6 +133,7 @@ from agent_build_kit.pipeline.units import (
 )
 from agent_build_kit.pipeline.untouched_failures import (
     PreExisting,
+    holding_fixes,
     preexisting_record,
     wait_on_preexisting,
 )
@@ -1460,6 +1461,27 @@ def _ids_for(
     ]
 
 
+def build_on_tier2_gate(
+    store: UnitStore, installation: Installation, *, log: Callable[[str], None] = print
+) -> Callable[..., list[str]]:
+    """Give a unit about to run a full tier 2 run a `Needs:` line on each open fix change
+    of a recorded base failure that holds it, and answer those changes (none: nothing
+    holds it). Writes no change."""
+
+    def on_tier2_gate(unit: Unit) -> list[str]:
+        stored = store.get(unit.id)
+        held = [
+            wait_on_preexisting(installation, entry, stored, wait=True, say=log)
+            for entry in holding_fixes(installation, stored, store.all())
+        ]
+        fixes = [fix for fix in held if fix]
+        for fix in fixes:
+            log(f"{unit.id}: open fix {fix} of a failing test on the base — waits")
+        return fixes
+
+    return on_tier2_gate
+
+
 def _under(path: Path, where: Path) -> str | None:
     """`path` as seen from the directory `where`, or None when it is not inside it."""
     try:
@@ -2348,6 +2370,19 @@ class Tier2Session:
             return {}
         return {"output_file": str(self._output_file), "output_withheld": self._withheld}
 
+    def scope(self, *, cwd: Path, base: str | None = None) -> Tier2Scope:
+        """How much of tier 2 a run on `cwd` against `base` executes: the one decision `run`
+        acts on and the open-fix gate asks."""
+        return tier2_scope(
+            cwd,
+            base,
+            setting=self._scope,
+            profile=self._profile,
+            projects=self._projects,
+            marker=self._marker,
+            dev_stack=str(self._dev_stack) if self._dev_stack else None,
+        )
+
     def run(self, *, cwd: Path, base: str | None = None) -> tuple[bool, str]:
         """Run tier 2 on `cwd`. `base` is the ref this run is against: with it, the failed
         tests of files the unit left alone are run once on it, and `verdict` says whose
@@ -2357,15 +2392,7 @@ class Tier2Session:
         self._started = None
         self._output_file = None
         self._withheld = False
-        scope = tier2_scope(
-            cwd,
-            base,
-            setting=self._scope,
-            profile=self._profile,
-            projects=self._projects,
-            marker=self._marker,
-            dev_stack=str(self._dev_stack) if self._dev_stack else None,
-        )
+        scope = self.scope(cwd=cwd, base=base)
         if scope.mode is Tier2UnitScope.FULL:
             self._log(scope.reason)
         if scope.dev_stack and self._dev_stack is not None:
@@ -3290,6 +3317,10 @@ def build_runner(
         tier2_verdict=lambda: tier2.verdict,
         tier2_ran_no_tests=lambda: bool(tier2.result and tier2.result.ran_no_tests),
         on_preexisting=build_on_preexisting(store, installation, log=log),
+        tier2_runs_whole=lambda *, cwd, base: (
+            tier2.scope(cwd=cwd, base=base).mode is Tier2UnitScope.FULL
+        ),
+        on_tier2_gate=build_on_tier2_gate(store, installation, log=log),
         push=push_in_turn,
         open_pr=build_open_pr(store=store, log=log),
         linear=is_linear,

@@ -8,7 +8,7 @@ change exists or would be written.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 
 from agent_build_kit.installation import Installation
@@ -18,6 +18,7 @@ from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.flakes import add_needs_to_unit, next_fix_name, open_fix_change
 from agent_build_kit.pipeline.tier2 import Tier2Verdict
 from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.work_graph import group_needs
 
 PREFIX = "fix-failing"
 CAPABILITY = "failing-tests"
@@ -107,6 +108,32 @@ def feedback_snapshot(snapshot: str, verdict: Tier2Verdict | None) -> str:
     ]
     text = re.sub(r"<details>.*?</details>\n?", "", "\n".join(lines), flags=re.DOTALL)
     return f"{text.rstrip()}\n\nalso failing on the base, recorded: {', '.join(old)}\n"
+
+
+def holding_fixes(
+    inst: Installation, unit: StoredUnit, units: Sequence[StoredUnit]
+) -> list[PreExisting]:
+    """The recorded entries whose fix change is open, was recorded for `unit`'s repo
+    (by the repo of the unit named in `units`), is not `unit`'s own change and has no
+    `Needs:` line from `unit`: each holds `unit` before a full tier 2 run."""
+    repo_of = {other.id: other.repo for other in units}
+    waits_on = {
+        need.change
+        for member in unit.members()
+        if (tasks := inst.changes_dir / member.change / "tasks.md").is_file()
+        for group in member.groups
+        for need in group_needs(tasks).get(group, [])
+    }
+    holding: dict[str, PreExisting] = {}
+    for entry in preexisting_record(inst).latest_with_change().values():
+        if (
+            repo_of.get(entry.unit) == unit.repo
+            and entry.change != unit.change
+            and entry.change not in waits_on
+            and (inst.changes_dir / entry.change).is_dir()
+        ):
+            holding.setdefault(entry.change, entry)
+    return list(holding.values())
 
 
 def wait_on_preexisting(

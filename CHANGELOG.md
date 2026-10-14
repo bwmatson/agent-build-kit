@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- A unit about to run a full tier 2 run now waits while the fix change of a test that fails
+  on the base is open in its repo (only a run that executes the whole marker, as the scope
+  function decides it), instead of spending the run to meet the same failure. It
+  gets a `Needs:` line on that change and is parked before the stack lock and any test, and
+  resumes once the fix is in review or merged. The fix's own units, units already waiting on
+  it and units of other repos run as before. `abk status` ends each `pre-existing:` line
+  with how many units wait on its fix.
+
 - `abk tags` with no change and no `--all`, or with both, now prints one line saying what to
   pass and exits 2, instead of failing with a traceback. Its help names `--all`.
 

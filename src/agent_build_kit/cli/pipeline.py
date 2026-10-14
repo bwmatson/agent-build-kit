@@ -599,9 +599,16 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
 
     for failing in preexisting_record(inst).counts():
         times = f"{failing.count} time{'' if failing.count == 1 else 's'}"
+        waiting = sum(
+            1
+            for unit in units
+            if unit.change != failing.change
+            and any(parent.change == failing.change for parent in waiting_on(unit, units))
+        )
+        count = f", {waiting} unit{'' if waiting == 1 else 's'} waiting" if waiting else ""
         log(
             f"  pre-existing: {failing.test} — failed on the base {times}, "
-            f"fix {failing.change or 'not written yet'}"
+            f"fix {failing.change or 'not written yet'}{count}"
         )
 
     # What the last poll of each repo saw: an entry that cannot be merged is not
