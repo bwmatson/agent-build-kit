@@ -33,6 +33,7 @@ from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED, RUNNING
 from agent_build_kit.pipeline.usage_guard import Decision
 from agent_build_kit.pipeline.verify import Verification, VerifyRecord
 from agent_build_kit.pipeline.workspaces import branch_lock
+from tests.cli.vanished_fakes import keep_changes_of_unstarted_units
 from tests.conftest import make_installation
 from tests.factories import stored_unit
 
@@ -87,6 +88,7 @@ def isolated(monkeypatch: pytest.MonkeyPatch) -> None:
     """The network, the thread database and the usage window stubbed;
     planning, verification, archive, reclaim and evaluation are the real ones
     unless a test fakes them."""
+    keep_changes_of_unstarted_units(monkeypatch)
     monkeypatch.setattr(cli, "poll_all", lambda inst, **kwargs: None)
     monkeypatch.setattr(cli, "fetch_all", lambda inst: None)
     monkeypatch.setattr(cli, "has_identity", lambda inst, repo: True)

@@ -10,12 +10,13 @@ from __future__ import annotations
 import ast
 import hashlib
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
+from agent_build_kit.config import active, active_root
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.failure_record import FailureRecord, Recorded, TestCount
+from agent_build_kit.pipeline.failure_record import FailureRecord, Recorded, Storm, TestCount
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import Unit
@@ -27,6 +28,8 @@ NAME_LIMIT = 70
 FLAKY_PREFIX = "fix-flaky"
 # Where a module imported by a test may sit in the code repo, relative to its root.
 SOURCE_ROOTS = ("", "src")
+# How many of a storm's tests its row names.
+STORM_TESTS = 10
 CAPABILITY = "test-determinism"
 
 
@@ -73,6 +76,24 @@ FlakeCount = TestCount
 
 def flake_record(inst: Installation) -> FailureRecord[Flake]:
     return FailureRecord(inst.state_dir / "flakes.jsonl", Flake)
+
+
+def record_storm(unit: str, tests: list[str], command: str) -> None:
+    """Record one `storm` row for `unit`: `tests` failed a run's first pass and passed alone,
+    more of them than `limits.max_flakes_per_run`. Names the first `STORM_TESTS` of them. No
+    row is written when no workspace is loaded."""
+    root = active_root()
+    if root is None:
+        return
+    flake_record(Installation(active(), root)).append(
+        Storm(
+            unit=unit,
+            at=datetime.now(UTC),
+            count=len(tests),
+            tests=tests[:STORM_TESTS],
+            command=command,
+        )
+    )
 
 
 def flake_change_name(test: str) -> str:

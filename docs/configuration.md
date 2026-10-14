@@ -228,6 +228,8 @@ limits:
                                 # restacks it; unset = the build cap's value
   max_concurrent_stacks: 4      # units being built at once, across all repos
   max_concurrent_restacks: 2    # restacks (a branch moved onto a changed base) at once; they take no build slot
+  max_flakes_per_run: 5         # more tests than this failing a run's first pass and passing
+                                # alone is one recorded storm, no fix change per test
   checks_register_seconds: 120  # seconds after a push in which a pull request with no
                                 # checks yet still reads `checking`
   label_sweep_per_tick: 20      # finished units' pull requests whose stale state

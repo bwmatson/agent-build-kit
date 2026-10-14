@@ -586,6 +586,12 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         if held := len(replay_waiting(directory)):
             log(f"cassettes: {held} waiting for review in {name} (`abk replay review`)")
 
+    for storm in flake_record(inst).storms():
+        log(
+            f"  flake storm: {storm.unit} — {storm.count} tests failed the first pass and "
+            f"passed alone ({storm.at:%Y-%m-%d %H:%M} UTC), no fix changes"
+        )
+
     for flaky in flake_record(inst).counts():
         times = f"{flaky.count} time{'' if flaky.count == 1 else 's'}"
         log(f"  flaky: {flaky.test} — flaked {times}, fix {flaky.change or 'not written yet'}")
@@ -2635,6 +2641,14 @@ def plan_all(
     max_attempts = inst.max_plan_attempts
     results: dict[str, PlanResult] = {}
     network_down = False
+
+    # A change removed from the planning repo is never planned again, so its units that never
+    # started would outlive it and hold the units that wait on them. A planning repo with no
+    # changes directory at all is misconfigured, not empty, and drops nothing.
+    if inst.changes_dir.is_dir():
+        existing = {path.name for path in inst.changes_dir.iterdir() if path.is_dir()}
+        if gone := store.unplan_vanished(existing):
+            log(f"unplanned, their change no longer exists: {', '.join(gone)}")
 
     for tasks in inst.tasks_files():
         change = tasks.parent.name

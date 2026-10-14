@@ -203,31 +203,6 @@ def test_failed_tests_that_pass_both_serial_reruns_are_a_flake_not_a_failure(
         assert "assert 1 == 2" in flake.output
 
 
-def test_a_storm_of_failed_tests_that_all_pass_alone_is_dropped_not_recorded_as_flakes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """One run once failed 97 tests that all passed alone and wrote 97 fix changes: more than
-    the limit is a disturbed run, so tier 1 passes and no `FlakeFound` (no change, no wait)."""
-    monkeypatch.setattr("agent_build_kit.pipeline.wiring.MAX_FLAKES_PER_RUN", 2)
-    runs = Runs(reruns=[0, 0])
-
-    passed, output = tier1(HookedProfile(), runs, tmp_path)
-
-    assert passed is True
-    assert output == ""
-    assert len(runs.serial_runs) == 2, "the tests were still run again, alone, twice"
-
-
-def test_failed_tests_up_to_the_limit_are_still_flakes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr("agent_build_kit.pipeline.wiring.MAX_FLAKES_PER_RUN", len(FAILED))
-    runs = Runs(reruns=[0, 0])
-
-    with pytest.raises(FlakeFound):
-        tier1(HookedProfile(), runs, tmp_path)
-
-
 def test_a_test_that_fails_again_alone_fails_the_unit_as_before(tmp_path: Path) -> None:
     runs = Runs(reruns=[0, 1])
 

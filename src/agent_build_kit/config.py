@@ -380,6 +380,9 @@ class LimitsConfig(Frozen):
     # How many restacks (moving a unit's branch onto a changed base) run at once, across
     # all repos, in a lane apart from the build workers: a restack takes no build slot.
     max_concurrent_restacks: Annotated[int, Field(ge=1)] = 2
+    # Most tests that may fail a run's first pass and pass the serial rerun before the run
+    # is recorded as one flake storm (a disturbed host), with no fix change per test.
+    max_flakes_per_run: Annotated[int, Field(ge=1)] = 5
     # Seconds after a push in which a pull request with no checks yet still reads
     # `checking`: CI may not have registered.
     checks_register_seconds: int = 120
