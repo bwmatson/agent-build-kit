@@ -168,7 +168,7 @@ def build_post_replies(
     never owed. Without it they are dropped, since no host can post to such an id."""
     for_repo = for_repo or forges.for_repo
 
-    def post_replies(*, repo: str, pr: int, answer_text: str, sha: str) -> str:
+    def post_replies(*, repo: str, pr: int, answer_text: str, sha: str, branch: str = "") -> str:
         answer = parse_answer(answer_text)
         if answer is None:
             log("no replies posted: the rework did not end with its answer as JSON")
@@ -179,7 +179,7 @@ def build_post_replies(
         owed = Answer()
         sha = answer.sha or sha
         try:
-            owed = _post_all(forge, repo_id, answer, repo, pr, sha, posted)
+            owed = _post_all(forge, repo_id, answer, repo, pr, sha, posted, branch)
         finally:
             # Whatever did go out is recorded even if a later post raised:
             # an unrecorded reply is one the poller would read as review.
@@ -205,20 +205,34 @@ def build_post_replies(
             log(f"could not look for an existing post: {error}")
             return None
 
-    def _quote_of(forge: Forge, repo_id: RepoId, pr: int, reply: Reply) -> str:
-        """`Re: <the note's first 60 characters>` for a reply to a general note on a host that
-        has no thread to hold it, else ""."""
-        if forge.general_threads:
-            return ""
+    def _quotes(forge: Forge, repo_id: RepoId, pr: int, branch: str) -> dict[str, str]:
+        """`Re: <first 60 characters>` by id, for each general comment on a PR whose host has no
+        thread to hold a reply to it: an unanchored note, and a conversation comment, which
+        a host lists with the PR rather than among its notes. A read that fails is logged and
+        costs only its quotes."""
+        quotes: dict[str, str] = {}
+
+        def quote(comment_id: str, body: str) -> None:
+            quotes[comment_id] = f"Re: {' '.join(body.split())[:60]}"
+
         try:
-            notes = forge.review_notes(repo_id, pr)
-        except Exception as error:  # noqa: BLE001 - an unreadable host only costs the quote
-            log(f"could not read the note {reply.comment_id} answers: {error}")
-            return ""
-        for note in notes:
-            if note.id == reply.comment_id and note.line is None and not note.path:
-                return f"Re: {' '.join(note.body.split())[:60]}"
-        return ""
+            for note in forge.review_notes(repo_id, pr):
+                if note.line is None and not note.path:
+                    quote(note.id, note.body)
+        except Exception as error:  # noqa: BLE001 - an unreadable host only costs the quotes
+            log(f"could not read the notes replies answer: {error}")
+        try:
+            pull = next(
+                (p for p in forge.list_prs(repo_id, head_prefix=branch) if p.number == pr), None
+            )
+            # The host lists comments before reviews, so the bodies line up with the first ids.
+            for comment_id, body in zip(
+                pull.conversation if pull else (), pull.comment_bodies if pull else (), strict=False
+            ):
+                quote(comment_id, body)
+        except Exception as error:  # noqa: BLE001
+            log(f"could not read the conversation replies answer: {error}")
+        return quotes
 
     def _post_all(
         forge: Forge,
@@ -228,6 +242,7 @@ def build_post_replies(
         pr: int,
         sha: str,
         posted: list[str],
+        branch: str,
     ) -> Answer:
         """Post each reply and the summary; return what is still owed."""
         owed: list[Reply] = []
@@ -236,10 +251,14 @@ def build_post_replies(
             written = ui_replies(repo, pr, mine) if ui_replies else []
             posted += written
             log(f"wrote {len(written)} of {len(mine)} repl(ies) into the review threads")
+        # Read once, and only when a reply here could be to a comment that has no thread.
+        quotes: dict[str, str] | None = None
         for reply in answer.replies:
             if reply.comment_id.startswith(THREAD_PREFIX):
                 continue
-            quote = _quote_of(forge, repo_id, pr, reply)
+            if quotes is None:
+                quotes = {} if forge.general_threads else _quotes(forge, repo_id, pr, branch)
+            quote = quotes.get(reply.comment_id, "")
             body = _signed(f"{quote}\n\n{reply.body}" if quote else reply.body, sha)
             found = _held(forge, repo_id, pr, body, None if quote else reply.comment_id)
             if found:

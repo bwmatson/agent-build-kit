@@ -13,6 +13,7 @@ from agent_build_kit.pipeline.events import build_fetch_comments
 from agent_build_kit.pipeline.pr_replies import build_post_replies, record_given_comments
 from tests.forges.stand_in import StandInForge, lookup
 from tests.graph_driver import fresh, tick
+from tests.runner_fakes import Recorder
 
 SLUG = "example/app"
 SUMMARY = "rebased, no changes"
@@ -24,7 +25,7 @@ class Host(StandInForge):
         return list(self.notes)
 
 
-def rework(tmp_path: Path, *, commits: bool) -> tuple[Host, list[str]]:
+def rework(tmp_path: Path, *, commits: bool) -> tuple[Host, Recorder]:
     """A rework of one comment whose agent answers with no replies and `SUMMARY`: the host, and
     what the run logged."""
     tmp_path.mkdir(parents=True)
@@ -64,16 +65,19 @@ def rework(tmp_path: Path, *, commits: bool) -> tuple[Host, list[str]]:
     )
     tick(tmp_path, recorder, event=event, **overrides)
     tick(tmp_path, recorder, **overrides)
-    return host, recorder.logged
+    return host, recorder
 
 
 def test_a_rework_with_no_commit_and_no_replies_is_silent_and_one_that_committed_posts(
     tmp_path: Path,
 ) -> None:
-    silent, logged = rework(tmp_path / "silent", commits=False)
+    silent, recorder = rework(tmp_path / "silent", commits=False)
 
     assert silent.comments == [] and silent.replies == []
-    assert any(SUMMARY in line for line in logged), "the summary is in the run log"
+    assert any(SUMMARY in line for line in recorder.logged), "the summary is in the run log"
+    assert any(COMMENT.body in context for context in recorder.contexts), (
+        "the next review is still shown what the person asked"
+    )
 
     committed, _ = rework(tmp_path / "committed", commits=True)
 

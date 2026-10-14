@@ -1555,14 +1555,18 @@ class BuildPath:
             committed = r.commit(f"fix: {unit.title}", cwd=tree, base=self.ref(state))
             r.store.set_guidance(unit.id, "")
             said = parse_answer(answer) if answer else None
-            if said and not committed and not said.replies and not failed_check:
-                # Nothing changed and nobody was answered, so the pull request has nothing to
-                # read: the account stays in the run log.
-                self.say(f"rework changed nothing and answered no comment: {said.summary.strip()}")
-            elif answer and stored.pr and not failed_check:
+            if answer and stored.pr and not failed_check:
                 # Only an existing pull request has a reviewer waiting in its threads.
-                kept["pending_replies"] = (*state.pending_replies, answer)
+                if said and not committed and not said.replies:
+                    # Nothing changed and nobody was answered, so the pull request has nothing
+                    # to read: the account stays in the run log.
+                    self.say(
+                        f"rework changed nothing and answered no comment: {said.summary.strip()}"
+                    )
+                else:
+                    kept["pending_replies"] = (*state.pending_replies, answer)
                 if stored.feedback_from_person:
+                    # The next review still judges the work against what the person asked.
                     kept["person_comments"] = f"{state.person_comments}\n\n{feedback}".strip()
         if guidance:
             # The next review judges the work against what the person asked, whichever
@@ -1918,7 +1922,15 @@ class BuildPath:
         unposted = tuple(
             left
             for answer in state.pending_replies
-            if (left := r.reply(repo=unit.repo, pr=pr, answer_text=answer, sha=sha))
+            if (
+                left := r.reply(
+                    repo=unit.repo,
+                    pr=pr,
+                    answer_text=answer,
+                    sha=sha,
+                    branch=branch_name(unit),
+                )
+            )
         )
         if state.given_comments:
             r.record_given(unit.repo, pr, list(state.given_comments))

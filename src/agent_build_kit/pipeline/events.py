@@ -948,7 +948,11 @@ def build_fetch_comments(
                 if comment_id not in found:
                     body = bodies.get(comment_id, "")
                     found[comment_id] = Comment(
-                        id=comment_id, words=body, own=comment_id in mine or MARKER in body
+                        id=comment_id,
+                        words=note_words(ReviewNote(id=comment_id, body=body))
+                        if body.strip()
+                        else "",
+                        own=comment_id in mine or MARKER in body,
                     )
         return tuple(found.values())
 
@@ -1720,7 +1724,9 @@ def _review_fetcher(
 
 
 def _latest_comment(pull: PullRequest | None) -> str:
-    """The newest comment's text, which is what the reviewer actually wrote.
+    """The newest comment, written as `note_words` writes a note, which is what the reviewer
+    actually wrote. The host lists comments before reviews, so the bodies line up with the
+    first ids; a body with no id is written bare.
 
     A failing check dispatches rework too and carries no comment, so the
     caller's `reason` stands in for it.
@@ -1728,9 +1734,12 @@ def _latest_comment(pull: PullRequest | None) -> str:
     The pipeline's own posts are skipped, as in `review_lines`: read back as
     review, a rework would be handed its own summary.
     """
+    if pull is None:
+        return ""
+    ids = (*pull.conversation, *("" for _ in pull.comment_bodies))
     comments = [
-        body
-        for raw in (pull.comment_bodies if pull else ())
+        note_words(ReviewNote(id=comment_id, body=body))
+        for comment_id, raw in zip(ids, pull.comment_bodies, strict=False)
         if (body := raw.strip()) and MARKER not in body
     ]
     return comments[-1] if comments else ""

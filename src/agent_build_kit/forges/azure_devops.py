@@ -181,9 +181,9 @@ class AzureDevOpsForge:
     # Azure DevOps keeps the source branch unless the PR asked for it to go,
     # so the remote branch is ours to delete.
     deletes_head_branch_on_merge: bool = False
-    # Azure DevOps has no first-class stacks, so the stack calls are never made.
     # Every comment is a thread, so a reply to a general one is added to it.
     general_threads: bool = True
+    # Azure DevOps has no first-class stacks, so the stack calls are never made.
     supports_stacks: bool = False
     # Annotated, not inferred: the Protocol's attribute is read-write, so a
     # narrower literal type would not satisfy it.

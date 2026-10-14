@@ -28,7 +28,7 @@ def test_conversation_comments_carry_their_bodies_and_reviews_carry_none() -> No
 
     found = {c.id: c for c in fetch("example/app", 7, "spec/add-marker/1")}
 
-    assert found["c1"].words == "please add a docstring"
+    assert found["c1"].words == "[comment c1] please add a docstring"
     assert not found["c1"].own
     assert found["c2"].own, "a body carrying the marker is the pipeline's"
     assert found["c3"].own, "an id the pipeline recorded is the pipeline's"
