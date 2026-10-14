@@ -70,3 +70,15 @@ def test_both_is_a_usage_error_naming_the_two_sides(tmp_path):
 
     with pytest.raises(SplitUsageError, match="source.*destination"):
         plan_split(source, "app", allow_mixed="both")
+
+
+def test_a_mixed_archive_entry_with_no_active_change_is_refused_without_a_side(tmp_path):
+    source = source_installation(tmp_path)
+    write_change(source, "x", ["app", "lib"], archived="2026-01-02")
+
+    plan = plan_split(source, "app")
+
+    (refusal,) = plan.refusals
+    assert refusal.kind == RefusalKind.MIXED
+    assert "2026-01-02-x" in refusal.line
+    assert "lib" in refusal.line

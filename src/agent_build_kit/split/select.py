@@ -2,23 +2,31 @@
 
 from __future__ import annotations
 
+import re
+import subprocess
 from collections.abc import Collection, Sequence
 from enum import StrEnum
 from pathlib import Path
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.shell import git
-from agent_build_kit.pipeline.unit_store import UnitState, UnitStore
+from agent_build_kit.pipeline.shell import porcelain
+from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.units import HELD, IN_FLIGHT
 from agent_build_kit.pipeline.work_graph import (
     ANY_GROUP_HEADING,
     TaskGroup,
     ValidationError,
     declared_projects,
+    tag_path,
     validate_tasks,
 )
 
-IN_FLIGHT = (UnitState.RUNNING, UnitState.IN_REVIEW, UnitState.HELD)
+# A held unit also blocks a split: its worktree and thread belong to the source.
+UNSETTLED = (*IN_FLIGHT, HELD)
+
+# An archive entry is the change's name after the date it was archived on.
+_ARCHIVE_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}-")
 
 
 class SplitUsageError(ValueError):
@@ -94,24 +102,29 @@ def _subdirectories(parent: Path) -> list[Path]:
     return sorted(p for p in parent.iterdir() if p.is_dir() and p.name != "archive")
 
 
-def _checked_project(source: Installation, repo: str, project: str | None) -> str | None:
+def _checked_project(
+    source: Installation, repo: str, project: str | None, declared: dict[str, tuple[str, ...]]
+) -> str | None:
     if repo not in source.repos:
         known = ", ".join(source.repos)
         raise SplitUsageError(f"{repo!r} is not a repo in abk.yaml (known: {known})")
     if project is None:
         return None
-    wanted = project.removeprefix("./").rstrip("/")
-    declared = declared_projects(source.repos)[repo]
-    if wanted not in declared:
+    wanted = tag_path(project)
+    if wanted not in declared[repo]:
         raise SplitUsageError(
             f"project {project!r} is not declared for repo {repo!r}; "
-            f"it declares {', '.join(declared) or 'only its root project'}"
+            f"it declares {', '.join(declared[repo]) or 'only its root project'}"
         )
     return wanted
 
 
 def _classify(
-    directories: list[Path], source: Installation, repo: str, project: str | None
+    directories: list[Path],
+    source: Installation,
+    declared: dict[str, tuple[str, ...]],
+    repo: str,
+    project: str | None,
 ) -> _Classified:
     moved: list[str] = []
     staying: list[str] = []
@@ -123,9 +136,7 @@ def _classify(
         if not tasks.is_file():
             unclassified.append(directory.name)
             continue
-        groups, errors = validate_tasks(
-            tasks, repos=tuple(source.repos), projects=declared_projects(source.repos)
-        )
+        groups, errors = validate_tasks(tasks, repos=tuple(source.repos), projects=declared)
         if bad := _unparsed_heading(tasks, groups, errors):
             unreadable.append(Unreadable(name=directory.name, line=bad[0], message=bad[1]))
             continue
@@ -169,13 +180,17 @@ def _mixed_decision(
     mixed: tuple[MixedChange, ...],
     allow_mixed: str | None,
     destination_repos: Collection[str] | None,
+    refused: Collection[str] = (),
 ) -> tuple[list[str], list[Refusal]]:
-    """The mixed changes that move, and what refuses the others."""
+    """The mixed changes that move, and what refuses the others. An archive entry named for a
+    change in `refused` is not refused again for want of a side: that change already is."""
     moving: list[str] = []
     refusals: list[Refusal] = []
     for item in mixed:
         repos = sorted({group.repo for group in item.groups})
         if allow_mixed is None:
+            if _ARCHIVE_DATE.sub("", item.name) in refused:
+                continue
             refusals.append(
                 Refusal(
                     kind=RefusalKind.MIXED,
@@ -210,7 +225,8 @@ def plan_split(
     destination_repos: Collection[str] | None = None,
 ) -> SplitPlan:
     """What moving `repo` (or its `project`) out of `source` would move, leave and refuse."""
-    wanted = _checked_project(source, repo, project)
+    declared = declared_projects(source.repos)
+    wanted = _checked_project(source, repo, project, declared)
     if allow_mixed not in (None, "source", "destination"):
         raise SplitUsageError(f"--allow-mixed takes `source` or `destination`, not {allow_mixed!r}")
     capabilities = {path.name for path in _subdirectories(source.specs_dir / "specs")}
@@ -219,13 +235,14 @@ def plan_split(
 
     active = _subdirectories(source.changes_dir)
     archived = _subdirectories(source.changes_dir / "archive")
-    changes = _classify(active, source, repo, wanted)
-    archive = _classify(archived, source, repo, wanted)
+    changes = _classify(active, source, declared, repo, wanted)
+    archive = _classify(archived, source, declared, repo, wanted)
 
     moving_changes, refusals = _mixed_decision(changes.mixed, allow_mixed, destination_repos)
-    moving_entries, entry_refusals = _mixed_decision(archive.mixed, allow_mixed, destination_repos)
-    # An archive entry follows its change: without a side, the change's refusal says it.
-    refusals += [r for r in entry_refusals if r.kind != RefusalKind.MIXED]
+    moving_entries, entry_refusals = _mixed_decision(
+        archive.mixed, allow_mixed, destination_repos, {item.name for item in changes.mixed}
+    )
+    refusals += entry_refusals
     changes_moved = tuple(sorted((*changes.moved, *moving_changes)))
     archive_moved = tuple(sorted((*archive.moved, *moving_entries)))
 
@@ -292,7 +309,7 @@ def _units(
                 f"unit {unit.id} builds change {moves[0]}, which moves, and {stays[0]}, which stays"
             )
             refusals.append(Refusal(kind=RefusalKind.SPANNING_UNIT, line=line))
-        elif unit.state in IN_FLIGHT:
+        elif unit.state in UNSETTLED:
             blocking.append(unit.id)
             line = f"unit {unit.id} is {unit.state}: settle it and run again"
             refusals.append(Refusal(kind=RefusalKind.IN_FLIGHT_UNIT, line=line))
@@ -309,14 +326,12 @@ def uncommitted(source: Installation) -> tuple[str, ...] | None:
         for path in (source.specs_dir, source.state_dir)
         if path.is_relative_to(source.root)
     ]
-    result = git(
-        source.root, "status", "--porcelain", "--untracked-files=all", "--", *paths, check=False
-    )
-    if result.returncode:
+    if not paths:
+        return ()
+    try:
+        entries = porcelain(source.root, *paths)
+    except subprocess.CalledProcessError:
         return None
-    lines: list[str] = []
-    for line in result.stdout.splitlines():
-        status, path = line[:2], line[3:]
-        kind = "??" if status == "??" else "D" if "D" in status else "M"
-        lines.append(f"{kind} {path}")
-    return tuple(lines)
+    return tuple(
+        f"{'??' if code == '??' else 'D' if 'D' in code else 'M'} {path}" for code, path in entries
+    )

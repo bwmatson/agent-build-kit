@@ -64,3 +64,12 @@ def test_a_source_outside_git_has_no_git_information(tmp_path):
 
     assert uncommitted(source) is None
     assert plan_split(source, "app").uncommitted is None
+
+
+def test_a_file_with_a_space_in_its_name_is_listed_by_its_exact_path(tmp_path):
+    source = source_installation(tmp_path)
+    change = write_change(source, "feature", ["app"])
+    commit_everything(source)
+    (change / "my notes.md").write_text("# new\n")
+
+    assert uncommitted(source) == (f"?? {change.relative_to(source.root)}/my notes.md",)
