@@ -23,7 +23,9 @@ from agent_build_kit.installation import load_installation
 from agent_build_kit.settings import Settings, reload, settings
 from tests.runtimes.selectable import SelectableRuntime, select
 
-FLAT_MODELS = "models:\n  implement: opus\n  rework: opus\n  review: opus\n  rework_review: fable\n"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+FLAT_MODELS = "models:\n  implement: opus\n  rework: opus\n  review: opus\n  rework_review: opus\n"
 
 # A second runtime's names for the same roles, in its own block.
 OTHER_MODELS = "runtimes:\n  other:\n    models:\n      review: other-reviewer\n"
@@ -65,7 +67,7 @@ def machine_runtime(monkeypatch: pytest.MonkeyPatch):
 def test_a_file_naming_neither_key_runs_on_claude_code_with_its_own_models(
     tmp_path: Path,
 ) -> None:
-    path = write(tmp_path, "models:\n  implement: sonnet\n  review: haiku\n")
+    path = write(tmp_path, "models:\n  implement: haiku\n  review: haiku\n")
 
     loaded = activate(path)
 
@@ -73,8 +75,8 @@ def test_a_file_naming_neither_key_runs_on_claude_code_with_its_own_models(
     assert loaded.runtimes == {}
     assert runtimes.active().name == "claude_code"
     models = config.models()
-    assert (models.implement, models.review) == ("sonnet", "haiku")
-    assert (models.rework, models.rework_review) == ("opus", "fable")
+    assert (models.implement, models.review) == ("haiku", "haiku")
+    assert (models.rework, models.rework_review) == ("sonnet", "opus")
 
 
 def test_a_workspace_on_the_default_never_grows_either_key(tmp_path: Path) -> None:
@@ -128,7 +130,7 @@ def test_a_role_nothing_names_falls_back_to_the_active_runtime_s_own_default(
     models = config.models()
 
     assert models == OWN_DEFAULTS
-    assert not {"opus", "fable"} & set(models.model_dump().values())
+    assert not {"sonnet", "opus"} & set(models.model_dump().values())
 
 
 def test_a_flat_block_naming_some_roles_leaves_the_rest_to_the_runtime(
@@ -147,11 +149,13 @@ def test_a_flat_block_naming_some_roles_leaves_the_rest_to_the_runtime(
     )
 
 
-def test_claude_code_with_no_models_block_keeps_today_s_names(tmp_path: Path) -> None:
+def test_claude_code_with_no_models_block_builds_on_sonnet_and_reviews_on_opus(
+    tmp_path: Path,
+) -> None:
     activate(write(tmp_path, "runtime: claude_code\n"))
 
     assert config.models() == ModelsConfig(
-        implement="opus", rework="opus", review="opus", rework_review="fable"
+        implement="sonnet", rework="sonnet", review="opus", rework_review="opus"
     )
 
 
@@ -162,6 +166,43 @@ def test_the_machine_s_model_overrides_still_win(
     monkeypatch.setattr(settings, "review_model", "this-machine")
 
     assert config.models().review == "this-machine"
+
+
+def test_a_flat_block_naming_one_role_leaves_the_others_the_new_defaults(tmp_path: Path) -> None:
+    activate(write(tmp_path, "models:\n  implement: haiku\n"))
+
+    models = config.models()
+
+    assert models.implement == "haiku"
+    assert (models.rework, models.review, models.rework_review) == ("sonnet", "opus", "opus")
+
+
+def test_a_machine_override_wins_and_the_other_roles_keep_the_new_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    activate(write(tmp_path, "runtime: claude_code\n"))
+    monkeypatch.setattr(settings, "review_model", "this-machine")
+
+    models = config.models()
+
+    assert models.review == "this-machine"
+    assert (models.implement, models.rework, models.rework_review) == ("sonnet", "sonnet", "opus")
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        "docs/configuration.md",
+        "docs/agent-runtimes.md",
+        "docs/architecture.md",
+        "src/agent_build_kit/skills/abk-config/SKILL.md",
+    ],
+)
+def test_no_document_states_the_earlier_defaults(document: str) -> None:
+    text = (REPO_ROOT / document).read_text()
+
+    for earlier in ("implement: opus", "rework: opus", "rework_review: fable"):
+        assert earlier not in text
 
 
 # --- a selection that cannot work --------------------------------------------------------

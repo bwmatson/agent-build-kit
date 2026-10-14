@@ -162,13 +162,14 @@ models:                         # bare aliases, not pinned ids. These are the
                                 # models block overrides them when present,
                                 # and a role left out of both takes the
                                 # runtime's own default (these, on claude_code).
-  implement: opus               # the tests, implementation and check-fix runs
-  rework: opus                  # reworks, restack conflict resolution, adapt, when they
+  implement: sonnet             # the tests, implementation and check-fix runs
+  rework: sonnet                # reworks, restack conflict resolution, adapt, when they
                                 # start a new session; a continued build session
                                 # keeps its model
   review: opus                  # the first review of a fresh build
-  rework_review: fable          # every review of a rework: a different model
-                                # from the one that made the edit
+  rework_review: opus           # every review of a rework. Both reviews default
+                                # to a different model from the author's; if the
+                                # author is set to opus, set this to another
 
 session_reuse:                  # per agent role, whether its nodes continue the
   build: true                   # role's latest session. build: the tests,

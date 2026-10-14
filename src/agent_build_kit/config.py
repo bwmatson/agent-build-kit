@@ -153,12 +153,14 @@ class ModelsConfig(Frozen):
     only the roles the file names count: one it leaves out takes the active
     runtime's own `default_models` (`config.models()`), not these defaults."""
 
-    implement: str = "opus"
-    rework: str = "opus"
+    implement: str = "sonnet"
+    rework: str = "sonnet"
     review: str = "opus"
     # A rework is a small targeted edit and the model that made it is the worst
-    # judge of whether it landed, so a different model reviews it.
-    rework_review: str = "fable"
+    # judge of whether it landed. With sonnet building and reworking, opus
+    # reviewing both is already a different model; an author set to opus wants
+    # this set to something else.
+    rework_review: str = "opus"
 
 
 class RuntimeModelsConfig(Frozen):
