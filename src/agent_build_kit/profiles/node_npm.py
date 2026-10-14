@@ -6,8 +6,9 @@ are language-agnostic); `abk tick` holds a unit that reaches a method that still
 raises, with a log line saying so. Implemented, by method of
 `profiles.base.ToolchainProfile`: `npx oxlint` and `npx oxfmt --check` as the lint,
 `npx tsc --noEmit` as the project check, `npx vitest run` with a JUnit report for the
-tests, the clean and red commands, and `.test`/`.spec` files and `__tests__/` as test paths.
-Still to come: judging a red run, the tier 2 and acceptance commands, workspace members, and
+tests, the clean and red commands, judging a red run, and `.test`/`.spec` files and
+`__tests__/` as test paths.
+Still to come: the tier 2 and acceptance commands, workspace members, and
 `throw new Error("not implemented")` as the permitted stub body.
 """
 
@@ -20,7 +21,13 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 from agent_build_kit.config import EnvironmentConfig, RepoConfig
-from agent_build_kit.pipeline.red_check import parse_report, split_report, wrap_report_command
+from agent_build_kit.pipeline.red_check import (
+    UNRECOGNISED_FAILURE,
+    parse_report,
+    passed_problem,
+    split_report,
+    wrap_report_command,
+)
 from agent_build_kit.pipeline.tier2 import TestFailure, TestTime, clip_failure_line
 from agent_build_kit.profiles import node_environment
 from agent_build_kit.profiles.base import ProfileUnsupported, PromptWords
@@ -46,6 +53,10 @@ _TESTS = wrap_report_command(
 )
 _TEST_COMMAND = ["sh", "-c", _TESTS]
 _LINT_ALL = "npx oxlint . && npx oxfmt --check ."
+# The red command lists the files it was given, one per line before the report, so the judge
+# can tell their suites from any other the runner's substring filters selected.
+_RED_FILE = "abk red file: "
+_NOT_IMPLEMENTED = "not implemented"
 _TEST_FILE = re.compile(rf"\.(test|spec)\.({'|'.join(_SOURCE)})$")
 
 
@@ -58,6 +69,14 @@ def _report(output: str) -> ElementTree.Element | None:
         return parse_report(report)
     except ValueError:
         return None
+
+
+def _failure(case: ElementTree.Element) -> tuple[str, ElementTree.Element | None]:
+    """The `file > test` name of a `testcase` and its `failure` (or else `error`) element,
+    None when the test did not fail."""
+    name = " > ".join(p for p in (case.get("classname"), case.get("name")) if p)
+    bad = case.find("failure")
+    return name, bad if bad is not None else case.find("error")
 
 
 class NodeNpmProfile:
@@ -150,10 +169,50 @@ class NodeNpmProfile:
         argument selects one file exactly: the report names each test suite by its file, which
         is how a reader keeps only the files it was given."""
         run = f"npx {_TEST_RUNNER} run {shlex.join(files)} --reporter=junit"
-        return wrap_report_command(run, "--outputFile")
+        listed = "printf '%s\\n' " + shlex.join(_RED_FILE + file for file in files) + "; "
+        return listed + wrap_report_command(run, "--outputFile")
 
     def interpret_red(self, output: str, exit_code: int) -> tuple[bool, list[str]]:
-        return self._todo("interpret_red")
+        """Red for the right reason, judged on the suites of the files the red command was
+        given (it lists them before the report): every test that ran failed by an assertion
+        or by an error saying `not implemented`. A file that failed to load (an unresolved
+        import, a syntax error), a passing test and a run with no suite of those files are
+        rejected, each with its reason."""
+        _, console = split_report(output)
+        given = {
+            line.removeprefix(_RED_FILE).removeprefix("./")
+            for line in console.splitlines()
+            if line.startswith(_RED_FILE)
+        }
+        root = _report(output)
+        if root is None:
+            return False, ["no test report was written, so the run cannot be judged"]
+        suites = [s for s in root.iter("testsuite") if (s.get("name") or "") in given]
+        problems: list[str] = []
+        passed = 0
+        failed_in: set[str] = set()
+        for suite in suites:
+            for case in suite.iter("testcase"):
+                name, bad = _failure(case)
+                if bad is None:
+                    passed += case.find("skipped") is None
+                    continue
+                failed_in.add(suite.get("name") or "")
+                message = (bad.get("message") or "").strip()
+                if case.get("name") == case.get("classname"):
+                    first = message.split("\n", 1)[0]
+                    problems.append(
+                        f"{name}: the test file could not be loaded, so no test failed for "
+                        f"the missing behaviour ({first})"
+                    )
+                elif bad.get("type") != "AssertionError" and message != _NOT_IMPLEMENTED:
+                    problems.append(f"{name}: {UNRECOGNISED_FAILURE}")
+        if passed:
+            problems.append(passed_problem(passed))
+        problems += [
+            f"{file}: nothing failed at the tests commit" for file in sorted(given - failed_in)
+        ]
+        return not problems, problems
 
     def parse_test_summary(self, output: str) -> tuple[int, int, int, float]:
         """(passed, failed, skipped, seconds) from the JUnit report after the marker."""
@@ -178,12 +237,9 @@ class NodeNpmProfile:
             return []
         failures = []
         for case in root.iter("testcase"):
-            bad = case.find("failure")
-            if bad is None:
-                bad = case.find("error")
+            name, bad = _failure(case)
             if bad is None:
                 continue
-            name = " > ".join(p for p in (case.get("classname"), case.get("name")) if p)
             first = (bad.get("message") or "").strip().split("\n", 1)[0]
             failures.append(TestFailure(test=name, line=clip_failure_line(first)))
         return failures

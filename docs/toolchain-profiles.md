@@ -142,7 +142,12 @@ type checks (oxlint, tsc --noEmit)", a stub body of
 `clean_command` (`npx oxlint . && npx oxfmt --check .`, no `tsc`), `red_command` (Vitest, with the
 given files as its filters, which match by substring so the report, naming each test
 suite by its file, is what tells the given files from others; its JUnit report is printed after
-the marker), and `stub_violations` returning nothing. It also drafts the environment for
+the marker, after a line for each given file), `interpret_red` (judges only the suites named
+after the given files, which the red command printed before the report: a failure of type
+`AssertionError` or an error whose message is `not implemented` is red; a file that failed to
+load (its testcase is named as the file), any passing test, a given file with no failing test
+and any other failure are each rejected with a reason), and `stub_violations` returning
+nothing. It also drafts the environment for
 `abk init` from a `package.json` (`profiles/node_environment.py`): the manager is
 the manifest's `packageManager` field, else the lock file present (`package-lock.json`
 npm, `pnpm-lock.yaml` pnpm, `yarn.lock` yarn), else npm. `sync` is the plain install
@@ -151,7 +156,7 @@ depth-0 listing, the manifest and lock files are inputs, a `workspaces` field ad
 `<workspace>/package.json` patterns, and `node_modules` is an artifact.
 
 What still raises, method by method: the tier 2 and acceptance commands; `members`/`member_of`/`dependents` from
-`package.json` workspaces; a red-output interpreter for the runner; and a
+`package.json` workspaces; and a
 stub checker for the `throw` body.
 
 ## Adding a profile

@@ -1,0 +1,36 @@
+<!-- tool: vitest 5.0.4 linux-x64 node-v22.23.2
+     command: vitest run --reporter=junit --passWithNoTests --outputFile=<path> -->
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="1" failures="1" errors="0" time="0">
+    <testsuite name="f.test.ts" timestamp="0" hostname="0" tests="1" failures="1" errors="0" skipped="0" time="0">
+        <testcase classname="f.test.ts" name="f.test.ts" time="0">
+            <failure message="Transform failed with 1 error:
+
+[PARSE_ERROR] Unexpected token
+   ╭─[ f.test.ts:3:13 ]
+   │
+ 3 │   expect(1 +).toBe(1);
+   │             ┬
+   │             ╰──
+───╯
+" type="Error">
+Error: Transform failed with 1 error:
+
+[PARSE_ERROR] Unexpected token
+   ╭─[ f.test.ts:3:13 ]
+   │
+ 3 │   expect(1 +).toBe(1);
+   │             ┬
+   │             ╰──
+───╯
+
+  Plugin: vite:oxc
+  File: /f.test.ts
+ ❯ transformWithOxc node_modules/vite/dist/node/chunks/node.js:7581:19
+ ❯ TransformPluginContext.transform node_modules/vite/dist/node/chunks/node.js:7653:26
+ ❯ EnvironmentPluginContainer.transform node_modules/vite/dist/node/chunks/node.js:8545:51
+ ❯ loadAndTransform node_modules/vite/dist/node/chunks/node.js:20184:26
+            </failure>
+        </testcase>
+    </testsuite>
+</testsuites>

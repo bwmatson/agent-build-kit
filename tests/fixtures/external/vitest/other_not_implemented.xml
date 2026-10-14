@@ -1,0 +1,13 @@
+<!-- tool: vitest 5.0.4 linux-x64 node-v22.23.2
+     command: vitest run --reporter=junit --passWithNoTests --outputFile=<path> -->
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="1" failures="1" errors="0" time="0">
+    <testsuite name="i.test.ts" timestamp="0" hostname="0" tests="1" failures="1" errors="0" skipped="0" time="0">
+        <testcase classname="i.test.ts" name="reads" time="0">
+            <failure message="the _read() method is not implemented" type="Error">
+Error: the _read() method is not implemented
+ ❯ i.test.ts:3:9
+            </failure>
+        </testcase>
+    </testsuite>
+</testsuites>
