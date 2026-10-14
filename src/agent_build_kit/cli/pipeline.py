@@ -4057,8 +4057,7 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
         print(f"{change}: {len(groups)} task group(s), all tagged")
         for group in groups:
             urgency = f" (priority {group.priority})" if group.priority != Priority.NORMAL else ""
-            tag = group.repo if group.project == "." else f"{group.repo}/{group.project}"
-            print(f"  {group.number}. [{tag}] [{group.tier}] {group.title}{urgency}")
+            print(f"  {group.number}. [{group.tag}] [{group.tier}] {group.title}{urgency}")
     return 1 if failed else 0
 
 

@@ -44,9 +44,14 @@ def known_repos() -> tuple[str, ...]:
 def declared_projects(repos: Mapping[str, RepoConfig]) -> dict[str, tuple[str, ...]]:
     """The projects each repo declares beside its root, by the `path` a heading writes."""
     return {
-        name: tuple(p.path for p in repo.projects if p.path not in (".", ""))
+        name: tuple(path for p in repo.projects if (path := _tag_path(p.path)) != ".")
         for name, repo in repos.items()
     }
+
+
+def _tag_path(path: str) -> str:
+    """A declared project path as a heading writes it: no leading `./`, no trailing `/`."""
+    return path.removeprefix("./").rstrip("/") or "."
 
 
 # tier1 runs on GitHub Actions; tier2 needs the live local stack on this host
@@ -183,6 +188,11 @@ class TaskGroup(Frozen):
     priority: int = Priority.NORMAL
     # The "Done when" sentence under the heading, "" when the group has none.
     goal: str = ""
+
+    @property
+    def tag(self) -> str:
+        """The first tag of the heading: the repo, and `/project` unless it is the root project."""
+        return self.repo if self.project == "." else f"{self.repo}/{self.project}"
 
 
 class ValidationError(Frozen):
@@ -727,7 +737,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"{args.change}: {len(groups)} task group(s), all tagged")
     for group in groups:
-        print(f"  {group.number}. [{group.repo}] [{group.tier}] {group.title}")
+        print(f"  {group.number}. [{group.tag}] [{group.tier}] {group.title}")
     return 0
 
 

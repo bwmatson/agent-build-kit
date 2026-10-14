@@ -768,6 +768,10 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
                         run_openspec=run_openspec,
                         runtime=agent,
                         repos=tuple(names),
+                        projects={
+                            n: tuple(p.path for p in d.projects if p.path != ".")
+                            for n, d in detections.items()
+                        },
                     )
                     print(f"wrote openspec/changes/{change}/")
                 except ProposeError as error:

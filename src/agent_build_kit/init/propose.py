@@ -16,6 +16,7 @@ The agent runs in the planning repo with the code repo added read-only
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Literal
 
@@ -199,6 +200,7 @@ def validation_errors(
     change: str,
     *,
     repos: tuple[str, ...],
+    projects: Mapping[str, tuple[str, ...]],
     run_openspec: openspec.Run | None = None,
     specs_dir: str = "openspec",
 ) -> list[str]:
@@ -238,7 +240,7 @@ def validation_errors(
     if not tasks.is_file():
         errors.append(f"{tasks.relative_to(planning)} is missing")
     else:
-        _groups, tag_errors = validate_tasks(tasks, repos=repos)
+        _groups, tag_errors = validate_tasks(tasks, repos=repos, projects=projects)
         errors.extend(f"tasks.md line {error.line}: {error.message}" for error in tag_errors)
     return errors
 
@@ -256,10 +258,17 @@ def propose(
     run_claude: RunClaude | None = None,
     run_openspec: openspec.Run | None = None,
     repos: tuple[str, ...] | None = None,
+    projects: Mapping[str, tuple[str, ...]] | None = None,
     runtime: AgentRuntime | None = None,
 ) -> str:
-    """Write the change and return its name, or raise `ProposeError`."""
+    """Write the change and return its name, or raise `ProposeError`. `projects` are the
+    projects each repo declares beside its root; the detected ones of `repo_name` when unsaid."""
     workspace_repos = repos or (repo_name,)
+    workspace_projects = (
+        projects
+        if projects is not None
+        else {repo_name: tuple(p.path for p in detection.projects if p.path != ".")}
+    )
     change = change_name(repo_name, kind)
     text = recommendations.read_text() if recommendations.is_file() else ""
     prompt = build_prompt(
@@ -276,6 +285,7 @@ def propose(
         change=change,
         reads=(detection.path,),
         repos=workspace_repos,
+        projects=workspace_projects,
         run_claude=run_claude,
         run_openspec=run_openspec,
         runtime=runtime,
@@ -290,6 +300,7 @@ def write_change(
     change: str,
     reads: tuple[Path, ...] = (),
     repos: tuple[str, ...],
+    projects: Mapping[str, tuple[str, ...]],
     run_claude: RunClaude | None = None,
     run_openspec: openspec.Run | None = None,
     runtime: AgentRuntime | None = None,
@@ -325,7 +336,9 @@ def write_change(
             say=print,
         )
         succeeded(agent.run(request))
-        return validation_errors(planning, change, repos=repos, run_openspec=run_openspec)
+        return validation_errors(
+            planning, change, repos=repos, projects=projects, run_openspec=run_openspec
+        )
 
     errors = attempt(prompt)
     if errors:

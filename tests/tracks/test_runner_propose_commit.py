@@ -81,7 +81,7 @@ def validates(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, tuple[str, ...
     """`validation_errors` answering "valid", recording what it was asked."""
     asked: list[tuple[str, tuple[str, ...]]] = []
 
-    def fine(planning, change, *, repos, run_openspec=None, specs_dir="openspec"):
+    def fine(planning, change, *, repos, projects, run_openspec=None, specs_dir="openspec"):
         asked.append((change, tuple(repos)))
         return []
 
