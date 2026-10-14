@@ -28,6 +28,7 @@ import sys
 from pathlib import Path
 
 from agent_build_kit import profiles
+from agent_build_kit.config import ProjectConfig
 from agent_build_kit.pipeline.check_runner import CheckCache, run_at_commit
 from agent_build_kit.pipeline.commit_order import check_structure, classify_paths
 from agent_build_kit.pipeline.shell import git
@@ -62,6 +63,7 @@ def check_branch(
     *,
     cache: CheckCache | None = None,
     profile: ToolchainProfile | None = None,
+    projects: list[ProjectConfig] | None = None,
 ) -> list[str]:
     """Every reason this branch may not be pushed, or an empty list.
 
