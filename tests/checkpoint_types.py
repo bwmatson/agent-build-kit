@@ -19,6 +19,7 @@ from langgraph.checkpoint.serde.event_hooks import SerdeEvent, register_serde_ev
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
 from agent_build_kit.graph.checkpointer import ALLOWED_MSGPACK_MODULES
+from tests.graph.checkpoint_reads import task_names
 
 BLOCKED_KINDS = frozenset({"msgpack_blocked", "msgpack_method_blocked"})
 
@@ -47,18 +48,24 @@ def blocked_on_load(value: Any) -> set[tuple[str, str]]:
     return blocked
 
 
-def node_updates(db: Path) -> list[tuple[str, Any]]:
-    """Every (field, value) the nodes of a run wrote, as the objects they returned."""
+def node_updates(db: Path, thread_id: str) -> list[tuple[str, str, Any]]:
+    """Every (node, field, value) the nodes of a run wrote, as the objects they returned."""
+    names = task_names(db, thread_id)
     serde = JsonPlusSerializer(allowed_msgpack_modules=True)
     with sqlite3.connect(db) as conn:
-        rows = conn.execute("SELECT channel, type, value FROM writes ORDER BY rowid").fetchall()
-    return [(channel, serde.loads_typed((kind, value))) for channel, kind, value in rows]
-
-
-def blocked_in(updates: list[tuple[str, Any]]) -> list[str]:
-    """`field: module.Name` for each value in `updates` that the checkpoint would block."""
+        rows = conn.execute(
+            "SELECT task_id, channel, type, value FROM writes ORDER BY rowid"
+        ).fetchall()
     return [
-        f"{field}: {module}.{name}"
-        for field, value in updates
+        (names.get(task, task), channel, serde.loads_typed((kind, value)))
+        for task, channel, kind, value in rows
+    ]
+
+
+def blocked_in(updates: list[tuple[str, str, Any]]) -> list[str]:
+    """`node.field: module.Name` for each value in `updates` that the checkpoint would block."""
+    return [
+        f"{node}.{field}: {module}.{name}"
+        for node, field, value in updates
         for module, name in sorted(blocked_on_load(value))
     ]

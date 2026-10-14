@@ -14,8 +14,11 @@ from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_pa
 from agent_build_kit.graph.state import UnitRun
 from agent_build_kit.pipeline.units import PLANNED
 from tests.checkpoint_types import blocked_while_reading
-from tests.graph.checkpoint_reads import read_back, thread_config
+from tests.factories import unit
+from tests.graph.checkpoint_reads import a_config, read_back
 from tests.graph.test_hold_causes import fresh, upstream_went_back
+
+THREAD = unit().id
 
 
 def with_the_enum_stored(db: Path) -> None:
@@ -23,7 +26,7 @@ def with_the_enum_stored(db: Path) -> None:
 
     async def rewrite() -> None:
         async with open_checkpointer(db) as saver:
-            latest = await saver.aget_tuple(thread_config())
+            latest = await saver.aget_tuple(a_config(THREAD))
             assert latest is not None
             checkpoint = dict(latest.checkpoint)
             values: dict[str, Any] = latest.checkpoint["channel_values"]
@@ -38,11 +41,11 @@ def test_a_checkpoint_holding_the_enum_loads_as_the_same_text_and_routes_as_befo
 ) -> None:
     upstream_went_back(tmp_path, fresh(tmp_path))
     db = unit_graphs_path(tmp_path / "state")
-    written_now = read_back(db)
+    written_now = read_back(db, THREAD)
 
     with_the_enum_stored(db)
     with blocked_while_reading() as blocked:
-        earlier: Any = read_back(db)
+        earlier: Any = read_back(db, THREAD)
 
     assert ("agent_build_kit.pipeline.units", "UnitState") in blocked
     loaded = UnitRun.model_validate(earlier.values)
