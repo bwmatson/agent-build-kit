@@ -72,6 +72,7 @@ from agent_build_kit.pipeline.events import (
     build_rerun_checks,
     build_restack,
     build_retarget,
+    conflict_phrase,
 )
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.flakes import flake_record
@@ -673,10 +674,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         if unit.state == HELD and unit.held_by == HeldBy.REVIEW and unit.pr:
             since = _conflicting(inst, unit, conflicting).get(unit.pr)
             if since is not None:
-                log(
-                    f"  held: {unit.id} ({unit.repo}) #{unit.pr} — "
-                    f"{_conflict_line(unit, units, since)}, {unit.note}; a person is needed"
-                )
+                log(f"  held: {unit.id} ({unit.repo}) #{unit.pr} — {unit.note}; a person is needed")
         if unit.state == HELD and unit.cause is Cause.DIRTY_WORKTREE:
             log(f"  parked: {unit.id} ({unit.repo}) — {unit.note}")
         step = unit.step or "an unknown step"
@@ -721,9 +719,15 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
                     waits = "its branch is being built"
                 elif is_paused(_paused_marker(inst)):
                     waits = "waiting for the usage pause to end"
+                elif not unit.is_new_conflict(since) and (
+                    unit.conflict_attempts >= config.active().limits.max_review_rounds
+                    or (unit.pushed or "") == unit.conflict_head
+                ):
+                    waits = "the next poll holds it for a person"
                 else:
                     waits = "the next poll moves it"
-                mark = f" — cannot be merged ({_conflict_line(unit, units, since)}; {waits})"
+                phrase = conflict_phrase(unit, base_of(unit, units), since)
+                mark = f" — cannot be merged ({phrase}; {waits})"
             waiting = (
                 "checking"
                 if effective_state(unit, units, checks_of=checks_of) == "checking"
@@ -741,14 +745,6 @@ def _conflicting(
     if unit.repo not in cache:
         cache[unit.repo] = conflicts(state_path(inst.state_dir, unit.repo))
     return cache[unit.repo]
-
-
-def _conflict_line(unit: StoredUnit, units: list[StoredUnit], since: datetime) -> str:
-    """What a conflicting unit's status line says: against what, since when, how often moved."""
-    return (
-        f"conflicts with {base_of(unit, units)} since {since.astimezone(UTC):%H:%M} UTC; "
-        f"moved {0 if unit.is_new_conflict(since) else unit.conflict_attempts} times"
-    )
 
 
 def cmd_graph(args: argparse.Namespace, inst: Installation) -> int:

@@ -1361,9 +1361,18 @@ def on_conflict(
     if done is None:
         return True
     if done == UNCHANGED or done >= active().limits.max_review_rounds:
-        _hold_conflict(unit, store, tip=tip, since=since, unchanged=done == UNCHANGED, log=log)
+        try:
+            with claim(unit):
+                # Re-read under the claim: a build that has just ended moved it.
+                current = store.get(unit.id)
+                if current.state == IN_REVIEW and current.pushed == unit.pushed:
+                    _hold_conflict(
+                        current, store, tip=tip, since=since, unchanged=done == UNCHANGED, log=log
+                    )
+        except BranchBusy as error:
+            return _deferred(f"conflict #{pr}", unit, error, log)
         return True
-    if unit.conflict_at is not None and since > unit.conflict_at:
+    if unit.is_new_conflict(since):
         # A new conflict: the last one's count and tip are not this one's.
         store.clear_conflict_attempts(unit.id)
     head = unit.pushed or ""
@@ -1522,16 +1531,20 @@ def _attempts_at(unit: StoredUnit, tip: str, *, since: datetime, read_at: dateti
     return UNCHANGED
 
 
+def conflict_phrase(unit: StoredUnit, base: str, since: datetime) -> str:
+    """What says a unit conflicts: against what, since when, how often it has been moved.
+    The one wording of a hold's note and of `abk status`."""
+    moved = 0 if unit.is_new_conflict(since) else unit.conflict_attempts
+    return f"conflicts with {base} since {since.astimezone(UTC):%H:%M} UTC; moved {moved} times"
+
+
 def _hold_conflict(
     unit: StoredUnit, store: UnitStore, *, tip: str, since: datetime, unchanged: bool, log: Log
 ) -> None:
     """Hold a unit whose conflict its attempts did not settle, for a person, with the reason."""
-    base = base_of(unit, store.all())
     why = "the last move changed nothing" if unchanged else "the host still reports a conflict"
-    note = (
-        f"conflicts with {base} since {since.astimezone(UTC):%H:%M} UTC: "
-        f"moved {unit.conflict_attempts} times at {tip[:12]}, {why}"
-    )
+    phrase = conflict_phrase(unit, base_of(unit, store.all()), since)
+    note = f"{phrase} (base tip {tip[:12]}): {why}"
     store.set_state(
         unit.id,
         HELD,

@@ -28,6 +28,7 @@ def status(
     attempts: int = 0,
     held: str = "",
     busy: bool = False,
+    pushed: str | None = None,
 ) -> str:
     """The status line of the one unit, `add-marker/1` with pull request 4, when the last poll
     recorded `seen` for it and the unit has been moved `attempts` times; `busy` holds its
@@ -43,6 +44,8 @@ def status(
         store.record_conflict_attempt(
             "add-marker/1", tip="tip1", head="h1", attempts=attempts, at=SINCE
         )
+    if pushed:
+        store.record_push("add-marker/1", pushed)
     if held:
         store.set_state(
             "add-marker/1", HELD, note=held, held_by=HeldBy.REVIEW, cause=Cause.NEEDS_HUMAN, pr=4
@@ -97,12 +100,15 @@ def test_a_conflicting_unit_under_a_usage_pause_says_it_waits_for_the_pause_to_e
 def test_a_held_conflicting_unit_carries_the_holds_reason_and_says_a_person_is_needed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    reason = "conflicts with main since 14:50 UTC: moved 3 times, the last move changed nothing"
+    reason = (
+        "conflicts with main since 14:50 UTC; moved 3 times (base tip tip1): "
+        "the last move changed nothing"
+    )
 
     line = status(tmp_path, monkeypatch, capsys, seen=conflicting(), attempts=3, held=reason)
 
-    assert "conflicts with main since 14:50 UTC; moved 3 times" in line
     assert reason in line
+    assert line.count("conflicts with main") == 1
     assert "person" in line
 
 
@@ -150,13 +156,34 @@ def test_a_mergeable_entry_prints_the_line_it_printed_before(
     assert line.split("] ", 1)[1] == "  awaiting review: add-marker/1 (app) #4"
 
 
-def test_an_undetermined_answer_after_a_conflict_keeps_the_conflict_line(
+@pytest.mark.parametrize(
+    "seen",
+    [
+        {"mergeable": None, "mergeable_at": None, "conflict_since": None},
+        {"mergeable": None, "mergeable_at": None, "conflict_since": SINCE.isoformat()},
+    ],
+    ids=["never determined", "stale conflict start"],
+)
+def test_an_entry_never_determined_prints_the_line_it_printed_before(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], seen: dict
+) -> None:
+    line = status(tmp_path, monkeypatch, capsys, seen=seen)
+
+    assert line.split("] ", 1)[1] == "  awaiting review: add-marker/1 (app) #4"
+
+
+def test_a_conflict_whose_attempts_are_spent_says_the_next_poll_holds_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The snapshot keeps the last definite answer, `false`, and its start, through `None`."""
-    line = status(tmp_path, monkeypatch, capsys, seen=conflicting(), attempts=2)
+    line = status(tmp_path, monkeypatch, capsys, seen=conflicting(), attempts=3)
 
-    assert line.split("] ", 1)[1] == (
-        "  awaiting review: add-marker/1 (app) #4 — cannot be merged "
-        "(conflicts with main since 14:50 UTC; moved 2 times; the next poll moves it)"
-    )
+    assert "the next poll holds it for a person" in line
+    assert "moves it" not in line
+
+
+def test_a_conflict_whose_last_attempt_changed_nothing_says_the_next_poll_holds_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    line = status(tmp_path, monkeypatch, capsys, seen=conflicting(), attempts=1, pushed="h1")
+
+    assert "the next poll holds it for a person" in line
