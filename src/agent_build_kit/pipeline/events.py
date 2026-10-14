@@ -1360,7 +1360,7 @@ def on_conflict(
     done = _attempts_at(unit, tip, since=since, read_at=read_at)
     if done is None:
         return True
-    if done == UNCHANGED or done >= active().limits.max_review_rounds:
+    if done != 0 and unit.attempts_spent(active().limits.max_review_rounds):
         try:
             with claim(unit):
                 # Re-read under the claim: a build that has just ended moved it.

@@ -4,14 +4,17 @@ The bound is `limits.max_review_rounds` attempts at one base tip; an attempt tha
 nothing holds the unit at once.
 """
 
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit.config import active
-from agent_build_kit.pipeline.unit_store import HeldBy
+from agent_build_kit.pipeline.pr_poller import CONFLICT_REASON
+from agent_build_kit.pipeline.unit_store import HeldBy, ReworkKind
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW
-from tests.conflict_event_fakes import ConflictRig
+from agent_build_kit.pipeline.workspaces import BranchBusy
+from tests.conflict_event_fakes import UNIT, ConflictRig
 
 
 @pytest.fixture
@@ -69,3 +72,41 @@ def test_an_attempt_that_left_the_head_unchanged_holds_the_unit_at_once(rig: Con
     assert (stored.state, stored.held_by) == (HELD, HeldBy.REVIEW)
     assert "changed nothing" in stored.note
     assert len(rig.restacked) == 1
+
+
+def at_the_hold(rig: ConflictRig) -> None:
+    """A rework that changed nothing, the unit back in review: the next conflict holds it."""
+    rig.rework(CONFLICT_REASON, ReworkKind.CONFLICT)
+    rig.back_in_review("h1")
+
+
+def test_a_hold_on_a_busy_branch_is_offered_again_and_does_not_hold(rig: ConflictRig) -> None:
+    at_the_hold(rig)
+
+    @contextmanager
+    def busy(unit):
+        raise BranchBusy("being built")
+        yield
+
+    rig.claim = busy
+
+    assert rig.conflict() is False
+    stored = rig.stored()
+    assert stored.state == IN_REVIEW
+    assert "changed nothing" not in stored.note
+
+
+def test_a_unit_that_moved_while_the_hold_waited_for_its_claim_is_not_held(
+    rig: ConflictRig,
+) -> None:
+    at_the_hold(rig)
+
+    @contextmanager
+    def pushing(unit):
+        rig.store.record_push(UNIT, "h2")
+        yield
+
+    rig.claim = pushing
+
+    assert rig.conflict() is True
+    assert rig.stored().state != HELD

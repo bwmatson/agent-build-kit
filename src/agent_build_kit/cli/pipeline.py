@@ -719,11 +719,11 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
                     waits = "its branch is being built"
                 elif is_paused(_paused_marker(inst)):
                     waits = "waiting for the usage pause to end"
-                elif not unit.is_new_conflict(since) and (
-                    unit.conflict_attempts >= config.active().limits.max_review_rounds
-                    or (unit.pushed or "") == unit.conflict_head
+                elif not unit.is_new_conflict(since) and unit.attempts_spent(
+                    config.active().limits.max_review_rounds
                 ):
-                    waits = "the next poll holds it for a person"
+                    # Unless its base has moved: a new tip starts the count again.
+                    waits = "the next poll holds it for a person unless its base has moved"
                 else:
                     waits = "the next poll moves it"
                 phrase = conflict_phrase(unit, base_of(unit, units), since)

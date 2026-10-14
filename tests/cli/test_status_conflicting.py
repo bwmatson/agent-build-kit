@@ -177,7 +177,7 @@ def test_a_conflict_whose_attempts_are_spent_says_the_next_poll_holds_it(
 ) -> None:
     line = status(tmp_path, monkeypatch, capsys, seen=conflicting(), attempts=3)
 
-    assert "the next poll holds it for a person" in line
+    assert "the next poll holds it for a person unless its base has moved" in line
     assert "moves it" not in line
 
 
@@ -186,4 +186,4 @@ def test_a_conflict_whose_last_attempt_changed_nothing_says_the_next_poll_holds_
 ) -> None:
     line = status(tmp_path, monkeypatch, capsys, seen=conflicting(), attempts=1, pushed="h1")
 
-    assert "the next poll holds it for a person" in line
+    assert "the next poll holds it for a person unless its base has moved" in line
