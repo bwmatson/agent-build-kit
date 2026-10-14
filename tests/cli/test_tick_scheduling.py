@@ -1353,6 +1353,7 @@ def _ends_and_waits(
 
     def slow() -> str | None:
         if not readmitted:
+            wait_for(lambda: "sent/1" in builder.finished, what="sent/1 to finish", timeout=WAIT)
             # Several refreshes, in which a readmission would show.
             refreshes.wait_for(refreshes.count + SEVERAL_REFRESHES, timeout=WAIT)
             return None

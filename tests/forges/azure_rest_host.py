@@ -168,6 +168,7 @@ class RestHost(httpx.MockTransport):
         finally:
             self.gate.set()
             worker.join(timeout=GATE_LIMIT)
+        assert not worker.is_alive(), "the call did not return once the gate opened"
         if failure:
             raise failure[0]
         return outcome[0]

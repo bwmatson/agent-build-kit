@@ -23,9 +23,11 @@ def test_a_request_waits_at_the_gate_until_the_test_releases_it() -> None:
     worker = threading.Thread(target=lambda: AzureDevOpsForge(http=host).list_prs(REPO))
 
     worker.start()
-    wait_for(lambda: host.peak >= 1, what="a request to reach the host")
-    answered_while_held = list(host.seen)
-    gate.set()
+    try:
+        wait_for(lambda: host.peak >= 1, what="a request to reach the host")
+        answered_while_held = list(host.seen)
+    finally:
+        gate.set()
     worker.join(timeout=10)
 
     assert answered_while_held == []
