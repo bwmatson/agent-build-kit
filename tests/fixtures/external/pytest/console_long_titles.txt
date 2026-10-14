@@ -19,7 +19,7 @@ self = <test_long.TestAVeryLongGroupName object at 0x786582874550>
     def test_a_long_name_that_pytest_cannot_pad(self):
 >       assert 'a' == 'b'
 E       AssertionError: assert 'a' == 'b'
-E         
+E
 E         - b
 E         + a
 

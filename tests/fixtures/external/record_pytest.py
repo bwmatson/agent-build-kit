@@ -90,6 +90,8 @@ def record_console(
         )
     text = (done.stdout + done.stderr).replace(tmp, "/tmp/case")
     text = re.sub(r" in [\d.]+s( \([\d:]+\))?", " in 0.01s", text)
+    # The repository's own hooks strip trailing whitespace from every file.
+    text = "".join(f"{line.rstrip()}\n" for line in text.splitlines())
     version = subprocess.run(
         [sys.executable, "-m", "pytest", "--version"], capture_output=True, text=True, check=True
     )
