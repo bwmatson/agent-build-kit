@@ -963,6 +963,11 @@ def load(path: Path) -> WorkspaceConfig:
     return loaded
 
 
+def deprecations(path: Path) -> list[str]:
+    """The root keys of the file at `path` that are deprecated spellings."""
+    raise NotImplementedError
+
+
 def _check_infra(config: WorkspaceConfig, path: Path) -> None:
     """An unknown infrastructure profile fails here, naming the registered ones."""
     for name, repo in config.repos.items():
