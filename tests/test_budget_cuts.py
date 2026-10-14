@@ -181,3 +181,35 @@ def test_a_marker_does_not_stop_a_long_line_from_keeping_characters() -> None:
 
     assert got.startswith("[cut]") and got.endswith("x" * 50)
     assert len(got) <= 100
+
+
+def test_a_tail_of_one_long_line_and_a_newline_keeps_the_end_of_the_line() -> None:
+    got = cut_tail("x" * 5000 + "\n", 4000)
+
+    assert len(got) <= 4000
+    assert got.count("x") >= 3999
+
+
+def test_a_tail_of_one_long_line_and_two_newlines_keeps_the_end_of_the_line() -> None:
+    got = cut_tail("x" * 5000 + "\n\n", 4000)
+
+    assert len(got) <= 4000
+    assert got.count("x") >= 3998
+
+
+def test_a_head_that_starts_with_a_newline_and_a_long_line_keeps_the_start_of_the_line() -> None:
+    got = cut_head("\n" + "a" * 9000, 8000)
+
+    assert len(got) <= 8000
+    assert got.count("a") >= 7999
+
+
+def test_a_paragraph_tail_of_one_long_paragraph_and_blank_lines_keeps_its_end() -> None:
+    got = cut_tail("p" * 600 + "\n\n", 500, "paragraph")
+
+    assert len(got) <= 500
+    assert got.count("p") >= 498
+
+
+def test_a_text_of_only_blank_lines_is_still_cut_to_whole_pieces() -> None:
+    assert len(cut_tail("\n" * 50, 10)) <= 10

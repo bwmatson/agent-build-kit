@@ -60,3 +60,31 @@ def test_the_base_output_is_a_tail_of_whole_lines(tmp_path: Path) -> None:
 
     assert gate.verdict is not None
     assert_tail_of_whole_lines(gate.verdict.base_output, base.splitlines())
+
+
+def test_the_dev_stack_output_of_one_long_line_and_a_newline_keeps_the_end_of_it(
+    tmp_path: Path,
+) -> None:
+    root = checkout(tmp_path)
+    script = root / "scripts" / "dev-stack.sh"
+    script.parent.mkdir()
+    script.write_text("#!/bin/sh\n")
+    line = "".join(f"{n:04d}" for n in range(1250))
+
+    def run(command: list[str], **kwargs) -> subprocess.CompletedProcess:
+        out = f"{line}\n" if command[-1] == "test" else ""
+        return subprocess.CompletedProcess(command, 0, out, "")
+
+    gate = Tier2Session(
+        unit(tier="tier2"),
+        lock=tmp_path / "t2.lock",
+        timeout=5,
+        run=run,
+        sha=lambda cwd: "abc1234",
+    )
+
+    gate.run(cwd=root)
+
+    assert gate.result is not None
+    assert 3000 < len(gate.result.output) <= BUDGET
+    assert gate.result.output.rstrip().endswith(line[-3000:])
