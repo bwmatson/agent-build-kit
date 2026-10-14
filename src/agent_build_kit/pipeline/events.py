@@ -942,8 +942,7 @@ def build_fetch_comments(
             (p for p in forge.list_prs(repo_id, head_prefix=branch) if p.number == pr), None
         )
         if pull is not None:
-            # The host lists comments before reviews, so the bodies line up with the first ids.
-            bodies = dict(zip(pull.conversation, pull.comment_bodies, strict=False))
+            bodies = dict(pull.comments())
             for comment_id in pull.conversation:
                 if comment_id not in found:
                     body = bodies.get(comment_id, "")
@@ -1725,8 +1724,7 @@ def _review_fetcher(
 
 def _latest_comment(pull: PullRequest | None) -> str:
     """The newest comment, written as `note_words` writes a note, which is what the reviewer
-    actually wrote. The host lists comments before reviews, so the bodies line up with the
-    first ids; a body with no id is written bare.
+    actually wrote. A body with no id (`PullRequest.comments`) is written bare.
 
     A failing check dispatches rework too and carries no comment, so the
     caller's `reason` stands in for it.
@@ -1736,10 +1734,9 @@ def _latest_comment(pull: PullRequest | None) -> str:
     """
     if pull is None:
         return ""
-    ids = (*pull.conversation, *("" for _ in pull.comment_bodies))
     comments = [
         note_words(ReviewNote(id=comment_id, body=body))
-        for comment_id, raw in zip(ids, pull.comment_bodies, strict=False)
+        for comment_id, raw in pull.comments()
         if (body := raw.strip()) and MARKER not in body
     ]
     return comments[-1] if comments else ""

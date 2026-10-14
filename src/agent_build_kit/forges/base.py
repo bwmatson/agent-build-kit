@@ -185,6 +185,15 @@ class PullRequest(Frozen):
     # host has not worked it out, which is not a conflict.
     mergeable: bool | None = None
 
+    def comments(self) -> tuple[tuple[str, str], ...]:
+        """Each comment with a body, as `(id, body)`, oldest first. A host lists comments
+        before reviews in `conversation`, so the bodies line up with its first ids; a body
+        with no id to line up with is paired with `""`. The one place that rule is written."""
+        return tuple(
+            (self.conversation[at] if at < len(self.conversation) else "", body)
+            for at, body in enumerate(self.comment_bodies)
+        )
+
 
 class Label(Frozen):
     """A label as a host keeps it: a name, a colour and what it means.

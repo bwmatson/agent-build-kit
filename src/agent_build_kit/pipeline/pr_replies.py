@@ -225,11 +225,9 @@ def build_post_replies(
             pull = next(
                 (p for p in forge.list_prs(repo_id, head_prefix=branch) if p.number == pr), None
             )
-            # The host lists comments before reviews, so the bodies line up with the first ids.
-            for comment_id, body in zip(
-                pull.conversation if pull else (), pull.comment_bodies if pull else (), strict=False
-            ):
-                quote(comment_id, body)
+            for comment_id, body in pull.comments() if pull else ():
+                if comment_id:
+                    quote(comment_id, body)
         except Exception as error:  # noqa: BLE001
             log(f"could not read the conversation replies answer: {error}")
         return quotes
