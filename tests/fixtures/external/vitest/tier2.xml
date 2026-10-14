@@ -1,0 +1,11 @@
+<!-- tool: vitest 5.0.4 linux-x64 node-v22.23.2
+     command: vitest run --reporter=junit --passWithNoTests --outputFile=<path> -->
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="2" failures="0" errors="0" time="0.055218097">
+    <testsuite name="live.local_stack.test.ts" timestamp="0" hostname="0" tests="2" failures="0" errors="0" skipped="0" time="0.055218097">
+        <testcase classname="live.local_stack.test.ts" name="waits" time="0.053237215">
+        </testcase>
+        <testcase classname="live.local_stack.test.ts" name="answers" time="0.000465541">
+        </testcase>
+    </testsuite>
+</testsuites>
