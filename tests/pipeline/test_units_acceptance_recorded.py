@@ -21,11 +21,10 @@ from agent_build_kit.pipeline.units import (
     HELD,
     PLANNED,
     RUNNING,
-    UnitState,
-    ready_units,
     unit_number,
     waiting_on,
 )
+from tests.factories import replaced, started_ids
 
 RECORDED = Path(__file__).parent.parent / "fixtures" / "stores" / "recorded_units.json"
 LIMITS = (1, 2, 3, 5)
@@ -77,10 +76,6 @@ def earlier(unit: StoredUnit, graph: list[StoredUnit]) -> list[StoredUnit]:
     ]
 
 
-def with_state(graph: list[StoredUnit], uid: str, state: UnitState) -> list[StoredUnit]:
-    return [u.model_copy(update={"state": state}) if u.id == uid else u for u in graph]
-
-
 def sweeps(graph: list[StoredUnit]):
     """The recorded graph, then one graph for each earlier unit of a flagged unit set to
     each state in turn."""
@@ -92,7 +87,7 @@ def sweeps(graph: list[StoredUnit]):
                 continue
             seen.add(before.id)
             for state in SWEEP:
-                yield with_state(graph, before.id, state)
+                yield replaced(graph, before.id, state=state)
 
 
 def wait_names(graph: list[StoredUnit]) -> dict[str, set[str]]:
@@ -111,8 +106,4 @@ def test_flagged_units_wait_for_the_same_units_reduced_as_unreduced(
 def test_ready_units_is_unchanged_by_the_reduction(recorded: list[StoredUnit]) -> None:
     for graph in sweeps(recorded):
         for limit in LIMITS:
-
-            def started(units: list[StoredUnit], limit: int = limit) -> list[str]:
-                return [u.id for u in ready_units(units, max_concurrent=limit, depth_cap=9)]
-
-            assert started(reduced(graph)) == started(graph)
+            assert started_ids(reduced(graph), slots=limit) == started_ids(graph, slots=limit)

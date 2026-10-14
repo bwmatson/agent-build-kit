@@ -26,7 +26,7 @@ from agent_build_kit.pipeline.units import (
     second_open_parents,
     waiting_on,
 )
-from tests.factories import started_ids
+from tests.factories import replaced, started_ids
 from tests.factories import stored_unit as unit
 
 CHAIN = ("feature/1", "feature/2", "feature/3")
@@ -54,10 +54,6 @@ def chain_graph(*, flag: str = "acceptance", first: UnitState = PLANNED):
 
 def waits(graph, uid: str = ACCEPTANCE) -> set[str]:
     return {w.id for w in waiting_on(next(u for u in graph if u.id == uid), graph)}
-
-
-def replaced(graph, uid: str, **update):
-    return [u.model_copy(update=update) if u.id == uid else u for u in graph]
 
 
 @pytest.mark.parametrize("flag", ["acceptance", "narrow"])
