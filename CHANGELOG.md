@@ -18,6 +18,12 @@
   `sudo loginctl enable-linger <user>` with the reason. `abk init`'s next steps carry the same
   advice, and `abk doctor` warns when timers are installed and lingering is off.
 
+- An acceptance or narrow unit now waits for every earlier unit of its change, worked out
+  each time from the change's units rather than from the dependencies stored on it. A running
+  one stops, and one in review goes back to planned, when any such unit in its own
+  repository goes back or is changing, so a store can later list only each unit's direct
+  dependencies without a unit that exercises earlier work starting too soon.
+
 - A held unit's state is stored in its checkpoint as plain text, not as a class, so holding a
   unit no longer logs a blocked-type warning and a checkpoint stays readable across releases.
   Checkpoints already written still load.

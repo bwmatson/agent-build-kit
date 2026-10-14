@@ -12,7 +12,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from agent_build_kit.pipeline.units import Unit
+from agent_build_kit.pipeline.units import Unit, unit_number
 from agent_build_kit.redaction import redact_text
 
 # How many runs of one unit are kept; older ones go when a new one is written.
@@ -54,8 +54,7 @@ def append_tier2_output(directory: Path, unit: Unit, started: datetime, text: st
 
 
 def _unit_prefix(unit: Unit) -> str:
-    number = int(unit.id.rsplit("/", 1)[1])
-    return f"{unit.change}-{number:02d}-"
+    return f"{unit.change}-{unit_number(unit):02d}-"
 
 
 def run_log_name(unit: Unit, started: datetime, step: str) -> str:

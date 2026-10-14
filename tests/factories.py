@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,7 @@ __all__ = [
     "init_repo",
     "new_unit",
     "output_of",
+    "replaced",
     "snapshot",
     "started_ids",
     "stored_unit",
@@ -68,6 +70,11 @@ def new_unit(uid: str, **overrides) -> StoredUnit:
 def started_ids(graph, *, slots: int = 1, **kw) -> list[str]:
     """The ids `ready_units` starts from the graph, in the order it starts them."""
     return [u.id for u in ready_units(graph, max_concurrent=slots, depth_cap=9, **kw)]
+
+
+def replaced[U: Unit](graph: Sequence[U], uid: str, **update: Any) -> list[U]:
+    """The graph with the fields in `update` set on the unit `uid`."""
+    return [u.model_copy(update=update) if u.id == uid else u for u in graph]
 
 
 def init_repo(path: Path) -> Path:

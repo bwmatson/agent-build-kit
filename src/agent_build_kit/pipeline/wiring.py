@@ -125,6 +125,7 @@ from agent_build_kit.pipeline.units import (
     Unit,
     base_of,
     branch_name,
+    followed_dependencies,
     local_ref,
     through_satisfied,
     trunk_of,
@@ -2922,7 +2923,8 @@ def build_upstream_incomplete(store: UnitStore) -> Callable[..., tuple[Cause, st
     def upstream_incomplete(unit: Unit) -> tuple[Cause, str] | None:
         known = list(store.all())
         index = {u.id: u for u in known}
-        for dep in through_satisfied(as_stored(unit, known), known):
+        stored = as_stored(unit, known)
+        for dep in followed_dependencies(stored, known):
             parent = index.get(dep)
             if parent and parent.repo == unit.repo and parent.state not in REVIEWED:
                 return (
@@ -2994,7 +2996,7 @@ def follow_predecessors(
             ):
                 continue
             found = None
-            for dep in through_satisfied(unit, graph):
+            for dep in followed_dependencies(unit, graph):
                 parent = index.get(dep)
                 if not parent or parent.repo != unit.repo:
                     continue
