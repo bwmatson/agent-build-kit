@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `abk scrub-check` no longer flags the planning root's own name when it scans the planning
+  root itself, and finds more of what identifies an installation: literal values and
+  provider files in `verify.env`, the home user name, and the dot-directories configured
+  paths live in. A gitignored `scrub.local` in the planning root adds terms (one per line,
+  `#` comments) and a `!term` line removes a derived one. The term list and `scrub_text`
+  now live in one module that other commands can reuse.
+
 - A unit about to run a full tier 2 run now waits while the fix change of a test that fails
   on the base is open in its repo (only a run that executes the whole marker, as the scope
   function decides it), instead of spending the run to meet the same failure. It

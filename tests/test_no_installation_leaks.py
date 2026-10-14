@@ -17,6 +17,8 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.scrub_terms import TOOL_DIRS
+
 ROOT = Path(__file__).resolve().parents[1]
 SCANNED = ("src", "tests", "docs", "web")
 # Installed and built files are not this repo's own text.
@@ -47,10 +49,10 @@ FIXTURE_AZURE_ORGS = ("acme", "example", "o", "org")
 
 # A product's config directory under the home directory; the agent runtime's
 # own, and the XDG/ssh conventions, are the framework's business.
-HOME_PRODUCT_DIR = re.compile(
-    r'Path\.home\(\)\s*/\s*"\.(?!claude\b|local\b|config\b|cache\b|ssh\b)'
-)
-HOME_PATH = re.compile(r"(?<![\w/])~/(?!\.(?:claude|local|config|cache|ssh|volta)\b)|/home/[a-z]")
+# The tool directories are the framework's own list, shared with `abk scrub-check`.
+_TOOL_DIR_NAMES = "|".join(re.escape(d.removeprefix(".")) for d in sorted(TOOL_DIRS))
+HOME_PRODUCT_DIR = re.compile(rf'Path\.home\(\)\s*/\s*"\.(?!(?:{_TOOL_DIR_NAMES})\b)')
+HOME_PATH = re.compile(rf"(?<![\w/])~/(?!\.(?:{_TOOL_DIR_NAMES})\b)|/home/[a-z]")
 GITHUB_SLUG = re.compile(r"github\.com[:/](?P<owner>[A-Za-z0-9-]+)/[A-Za-z0-9._-]+")
 AZURE_ORG = re.compile(r"dev\.azure\.com[:/](?:v3/)?(?!v3/)(?P<org>[A-Za-z0-9._-]+)")
 NOREPLY = re.compile(r"\d+\+[A-Za-z0-9-]+@users\.noreply\.github\.com")
