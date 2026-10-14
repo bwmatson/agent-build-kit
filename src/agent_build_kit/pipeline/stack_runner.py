@@ -1063,14 +1063,12 @@ def _apply_answers(rounds: Sequence[dict], earlier: Sequence[EarlierAnswer] | No
 
 # What a round's prose or response keeps at least, so a reduced one still says something.
 _SMALLEST_ACCOUNT = 60
-# The fitter leaves out the lowest weight first: findings are weighed oldest first, fixed
-# before declined, and a round's own words outweigh every finding.
-_DECLINED_WEIGHT = 1_000
-_ACCOUNT_WEIGHT = 1_000_000
+# Added to the rank of a declined finding, so every fixed one is left out before it.
+_DECLINED_RANK = 1_000
 
 
 def _required_text(text: str) -> Section:
-    """Text the reviewer must see whole: an open finding, or a round's heading."""
+    """Text the reviewer must see whole: an open finding, a kept resolved one, a heading."""
     return Section(
         key="required",
         render=lambda _: text,
@@ -1080,27 +1078,29 @@ def _required_text(text: str) -> Section:
     )
 
 
-def _left_out_text(text: str, weight: int) -> Section:
-    """A resolved finding: whole or not at all."""
-    return Section(
-        key="resolved",
-        render=lambda _: text,
-        natural=len(text),
-        smallest=len(text),
-        weight=weight,
-    )
-
-
 def _account(text: str) -> Section:
-    """A round's own words: reduced to what the budget allows, never left out."""
+    """A round's own words: reduced only once no resolved finding is left to leave out,
+    and then never below a few words."""
     text = cut_head(text, ROUND_CHARS, "char", "…")
     return Section(
         key="account",
         render=lambda size: cut_head(text, size, "char", "…"),
         natural=len(text),
         smallest=min(len(text), _SMALLEST_ACCOUNT),
-        weight=_ACCOUNT_WEIGHT,
     )
+
+
+def _kept_resolved(slots: Sequence[Section], resolved: dict[int, int], room: int) -> set[int]:
+    """Which resolved findings (slot index to rank, fixed before declined, each oldest first)
+    stay in `room`: the last to be left out are kept first, and a finding that does not fit
+    ends it, so what is left out is always the oldest and fixed ones."""
+    kept: set[int] = set()
+    for index in sorted(resolved, key=lambda i: resolved[i], reverse=True):
+        room -= slots[index].natural + 1
+        if room < 0:
+            break
+        kept.add(index)
+    return kept
 
 
 COMMENT_LINE = re.compile(r"^\[comment ([^\]]+)\]")
@@ -1164,38 +1164,44 @@ def _comments_note(asked: str, answers: Sequence[str]) -> str:
 def _earlier_rounds(rounds: Sequence[dict]) -> str:
     if not rounds:
         return ""
-    sections: list[Section] = []
-    resolved: list[str] = []
+    slots: list[Section] = []
+    # Resolved findings by slot: the order they are left out in, fixed ones first.
+    resolved: dict[int, int] = {}
     for number, entry in enumerate(rounds, start=1):
         lead = "\n---\n\n" if number > 1 else ""
         response = str(entry.get("response", "")).strip() or "(no account given)"
         answer = f"The builder's response:\n{response}"
         if not (entry.get("findings") or entry.get("judged")):
-            sections.append(_required_text(f"{lead}Round {number} asked:"))
-            sections.append(_account(str(entry.get("asked", "")).strip()))
-            sections.append(_account(f"\n{answer}"))
+            slots.append(_required_text(f"{lead}Round {number} asked:"))
+            slots.append(_account(str(entry.get("asked", "")).strip()))
+            slots.append(_account(f"\n{answer}"))
             continue
         judged = str(entry.get("judged") or "")
         heading = f"Round {number} judged commit {judged}." if judged else f"Round {number}."
-        sections.append(_required_text(lead + heading))
+        slots.append(_required_text(lead + heading))
         if prose := str(entry.get("prose", "")).strip():
-            sections.append(_account(prose))
+            slots.append(_account(prose))
         for f in entry.get("findings") or []:
             if not f.get("required"):
                 continue
             status = str(f.get("status") or "")
             text = _render_one(_recorded(f), status)
-            if status not in RESOLVED:
-                sections.append(_required_text(text))
-                continue
-            resolved.append(text)
-            weight = len(resolved) + (_DECLINED_WEIGHT if status == "declined" else 0)
-            sections.append(_left_out_text(text, weight))
-        sections.append(_account(answer))
-    # What must be kept (open findings, headings, a reduced account) sets a floor under the budget.
-    floor = sum(s.smallest + 1 for s in sections if s.required or s.key == "account")
+            if status in RESOLVED:
+                resolved[len(slots)] = len(resolved) + (
+                    _DECLINED_RANK if status == "declined" else 0
+                )
+            slots.append(_required_text(text))
+        slots.append(_account(answer))
+    # What is not resolved (open findings, headings, the rounds' own words) comes first: the
+    # resolved findings take what is left of the budget, and only when none is left are the
+    # words reduced.
+    mandatory = [i for i in range(len(slots)) if i not in resolved]
+    base = sum(slots[i].natural + 1 for i in mandatory)
+    kept = _kept_resolved(slots, resolved, ROUND_CHARS - base)
+    sections = [s for i, s in enumerate(slots) if i not in resolved or i in kept]
+    floor = sum(slots[i].smallest + 1 for i in mandatory)
     body = fit(sections, max(ROUND_CHARS, floor), "\n")
-    dropped = sum(text not in body for text in resolved)
+    dropped = len(resolved) - len(kept)
     last = next((str(e["judged"]) for e in reversed(rounds) if e.get("judged")), "")
     if last:
         body += f"\n\nWhat changed since the last judged commit is `git diff {last}..HEAD`."

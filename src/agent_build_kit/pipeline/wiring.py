@@ -190,8 +190,7 @@ def _failure_digest(toolchain: ToolchainProfile, text: str) -> str:
     tests = _failed_ids(toolchain, text)
     if not tests:
         return ""
-    sections = getattr(toolchain, "failure_sections", None)
-    found = sections(text) if sections is not None else {}
+    found = _failure_sections(toolchain, text)
     return "\n".join(
         "\n".join(
             part for part in (test, cut_tail(found.get(test, ""), TIER2_DIGEST_CHARS)) if part
@@ -1335,9 +1334,8 @@ def build_tier1(
         tests = _failed_ids(toolchain, output)
         if not tests:
             return False
-        reader = getattr(toolchain, "failure_sections", None)
         # Read from the redacted text, so what is kept of a section holds no secret.
-        sections = reader(stored) if reader is not None else {}
+        sections = _failure_sections(toolchain, stored)
         rerun = rerun_command(command, tests)
         for _ in range(FLAKE_RERUNS):
             again = ran(rerun, where, toolchain)
@@ -1519,6 +1517,13 @@ def _failed_ids(toolchain: ToolchainProfile, output: str) -> list[str]:
     """The tests a failed check's output names, as the profile reads them; none when it cannot."""
     reader = getattr(toolchain, "failed_tests", None)
     return reader(output) if reader is not None else []
+
+
+def _failure_sections(toolchain: ToolchainProfile, output: str) -> dict[str, str]:
+    """Each failed test's own section of a failed check's output, as the profile reads them;
+    none when it cannot."""
+    reader = getattr(toolchain, "failure_sections", None)
+    return reader(output) if reader is not None else {}
 
 
 def expand_template(template: str, changed_files: list[str], failed_ids: list[str]) -> list[str]:

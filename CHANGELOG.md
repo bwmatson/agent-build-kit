@@ -741,6 +741,14 @@
   request description is fitted once, to the lowest limit any registered code host allows,
   instead of being cut by whichever host receives it, so it reads the same on every host
   and a host added later with a lower limit lowers it; the hosts send what they are given.
+  A unit's saved tier 2 output keeps what a failure needs, for each failed test its
+  identifier and the end of its own section ahead of passing output and the rest of the log,
+  so a long run no longer loses which tests failed and why. The earlier review rounds shown
+  to a reviewer use the same fitting: open findings stay whole, findings already fixed or
+  declined are left out first, oldest and fixed ones first, with a count, and only then are
+  a round's prose and the builder's responses reduced. A commit status description is
+  fitted once to the lowest limit any code host allows, and each host declares
+  `status_limit` beside `description_limit`.
 
 - The agents that write tests, implement, fix checks and rework are now told to look for
   existing code before adding any: search by behaviour as well as name, use or extend a

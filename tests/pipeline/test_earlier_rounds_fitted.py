@@ -86,3 +86,20 @@ def test_open_findings_stay_whole_when_they_alone_pass_the_budget(
     assert left_out >= 1, "findings already fixed are what is left out"
     assert re.search(rf"\b{left_out}\b[^\n]*(left out|omitted)", context)
     assert context.count("z") < 1_200, "the response is reduced where the findings need the room"
+
+
+def test_resolved_findings_are_left_out_before_the_builders_reasons_are_reduced(
+    tmp_path: Path,
+) -> None:
+    statuses = ["fixed"] * 6 + ["declined"]
+    findings = [finding(n, status, filler=430) for n, status in enumerate(statuses, start=1)]
+    response = "because " + "r" * 1_480 + " SENTINEL"
+    rounds = ({"asked": "r", "response": response, "judged": "sha-abc", "findings": findings},)
+
+    context = context_of(tmp_path, rounds)
+
+    assert "SENTINEL" in context, "the reason for the decline is kept whole"
+    match = re.search(r"\b(\d+)\b[^\n]*(left out|omitted)", context)
+    assert match is not None
+    assert int(match.group(1)) >= 1
+    assert "C7 " in context, "the declined finding is the last to be left out"

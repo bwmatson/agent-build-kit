@@ -28,9 +28,9 @@ ERRORS = [f"E   AssertionError: route {n} answered 404" for n in range(FAILED)]
 
 
 def failing_log(*, head: str = "", count: int = FAILED) -> str:
-    """A failed pytest run over seven tests: long tracebacks, a coverage table between the
-    failures and the closing line, so that the last four thousand characters hold none of
-    the failed tests."""
+    """A failed pytest run over `count` tests, seven by default: long tracebacks, a coverage
+    table between the failures and the closing line, so that the last four thousand
+    characters hold none of the failed tests."""
     names = [f"test_route_{n}" for n in range(count)]
     errors = [f"E   AssertionError: route {n} answered 404" for n in range(count)]
     blocks = [

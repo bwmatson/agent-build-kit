@@ -915,8 +915,8 @@ test, its identifier and the end of its own section (where the error is) before 
 the rest; a profile that cannot read the failed tests keeps the end of the output, as
 before. The earlier review rounds a reviewer is shown are sections too: open findings and
 round headings are required and kept whole however long, findings already fixed or declined
-are left out whole (oldest and fixed first) with a count, and a round's prose and the
-builder's responses are reduced to what the budget allows. A commit status description is
+are left out whole (fixed ones first, each oldest first) with a count, and only when none is
+left to leave out are a round's prose and the builder's responses reduced. A commit status description is
 fitted to `forges.status_limit()`, the lowest `status_limit` across the registered forges,
 where `tier2.post_status` builds it; no forge cuts it.
 
