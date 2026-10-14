@@ -329,6 +329,18 @@ def _durations_listing(durations: list[TestTime]) -> tuple[str, str]:
     return f"- **Slowest:** {head}\n", table
 
 
+_WITHHELD_NOTE = " (withheld: redaction failed)"
+_FULL_OUTPUT = re.compile(r"\*\*Full output:\*\* `([^`]+)`(" + re.escape(_WITHHELD_NOTE) + ")?")
+
+
+def latest_full_output(feedback: str) -> tuple[str, bool]:
+    """The file named by the last "Full output" line of saved feedback and whether that
+    output was withheld, or ("", False) when none is named. Each failure is added to the
+    feedback already saved, so the last line is the latest run's."""
+    found = _FULL_OUTPUT.findall(feedback)
+    return (found[-1][0], bool(found[-1][1])) if found else ("", False)
+
+
 def build_snapshot(result: Tier2Result) -> str:
     """The "Tier 2 results" section of a PR description.
 
@@ -349,7 +361,7 @@ def build_snapshot(result: Tier2Result) -> str:
 
     kept = ""
     if result.output_file:
-        withheld = " (withheld: redaction failed)" if result.output_withheld else ""
+        withheld = _WITHHELD_NOTE if result.output_withheld else ""
         kept = f"- **Full output:** `{result.output_file}`{withheld}\n"
 
     slowest, table = _durations_listing(result.durations)

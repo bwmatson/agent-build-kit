@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A tier 2 fix prompt now names the file holding the failed run's full output and tells the
+  agent to read it with `grep` or `sed`, instead of telling it to rerun live tests it cannot
+  run. When the output was withheld or never written, the prompt says so and names no file.
+  Tier 1 prompts are unchanged.
+
 - A flaky test's record now keeps its own section of the first run's output, the traceback and
   captured text, up to 6000 characters from the end, instead of only the summary at the tail
   of the whole run. A storm of flaky tests logs and records the first three such sections, up

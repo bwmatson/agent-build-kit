@@ -1528,6 +1528,7 @@ class BuildPath:
                         change_dir=change_dir,
                         feedback=feedback,
                         boundary=build_boundary,
+                        rerun=CHECKS_PROMPT.advice(feedback, stored.feedback_source),
                     )
                     if failed_check
                     else REWORK_PROMPT.format(
@@ -1545,7 +1546,11 @@ class BuildPath:
                 state=state,
                 model=models().rework,
                 follow_up=self.told(
-                    CHECKS_CONTINUATION.format(guidance=note, feedback=feedback)
+                    CHECKS_CONTINUATION.format(
+                        guidance=note,
+                        feedback=feedback,
+                        rerun=CHECKS_CONTINUATION.advice(feedback, stored.feedback_source),
+                    )
                     if failed_check
                     else REWORK_CONTINUATION.format(
                         guidance=note,

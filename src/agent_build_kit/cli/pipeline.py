@@ -21,7 +21,6 @@ import asyncio
 import contextvars
 import hashlib
 import json
-import re
 import subprocess
 import sys
 import time
@@ -146,6 +145,7 @@ from agent_build_kit.pipeline.stack_runner import (
 from agent_build_kit.pipeline.tier2 import (
     LOCK_WAIT_SETTING,
     NO_TEST_RAN,
+    latest_full_output,
     lock_status_line,
     stack_lock,
 )
@@ -485,14 +485,9 @@ def _status_reading(args: argparse.Namespace) -> UsageReading | None:
     return held_usage()
 
 
-_FULL_OUTPUT = re.compile(r"\*\*Full output:\*\* `([^`]+)`")
-
-
 def _tier2_output(unit: StoredUnit) -> str:
-    """The file holding the full output of the unit's last tier 2 run. Each failure is added
-    to the feedback already saved, so the last line naming a file is the latest run's."""
-    found = _FULL_OUTPUT.findall(unit.feedback)
-    return found[-1] if found else ""
+    """The file holding the full output of the unit's last tier 2 run."""
+    return latest_full_output(unit.feedback)[0]
 
 
 def restacking_bases(inst: Installation) -> dict[str, str]:
