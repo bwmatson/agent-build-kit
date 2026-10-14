@@ -17,6 +17,7 @@
   `throw new Error("not implemented")`, checked with a TypeScript parser. The files its
   commands create (type-check build info, Vite and Vitest caches) belong to the pipeline.
   This adds `tree-sitter` and `tree-sitter-typescript` as dependencies.
+
 - A `Needs:` line whose target the unit already reaches through its dependencies is no longer
   linked again on every tick; the unit's `needs` names every declared target, linked or not,
   and changes only when the lines do. A target that reaches a dependency the unit listed
