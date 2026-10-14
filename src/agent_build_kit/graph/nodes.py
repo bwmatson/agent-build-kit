@@ -47,6 +47,7 @@ from agent_build_kit.pipeline.gateway_usage import attribution
 from agent_build_kit.pipeline.metric_records import emit_metric
 from agent_build_kit.pipeline.outside_commits import outside_commits_note
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
+from agent_build_kit.pipeline.pr_replies import parse_answer
 from agent_build_kit.pipeline.restack import RESOLVER_TOOLS, BranchMoved, HostMoved
 from agent_build_kit.pipeline.run_log import RunLog
 from agent_build_kit.pipeline.stack_runner import (
@@ -1551,9 +1552,14 @@ class BuildPath:
                     outside,
                 ),
             )
-            r.commit(f"fix: {unit.title}", cwd=tree, base=self.ref(state))
+            committed = r.commit(f"fix: {unit.title}", cwd=tree, base=self.ref(state))
             r.store.set_guidance(unit.id, "")
-            if answer and stored.pr and not failed_check:
+            said = parse_answer(answer) if answer else None
+            if said and not committed and not said.replies and not failed_check:
+                # Nothing changed and nobody was answered, so the pull request has nothing to
+                # read: the account stays in the run log.
+                self.say(f"rework changed nothing and answered no comment: {said.summary.strip()}")
+            elif answer and stored.pr and not failed_check:
                 # Only an existing pull request has a reviewer waiting in its threads.
                 kept["pending_replies"] = (*state.pending_replies, answer)
                 if stored.feedback_from_person:

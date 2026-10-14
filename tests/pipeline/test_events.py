@@ -917,7 +917,7 @@ def test_a_review_body_is_never_outdated(store: UnitStore) -> None:
     body has nothing to go stale against."""
     lines = events.review_lines([ReviewNote(id="1", body="please split this")])
 
-    assert lines == ["please split this"]
+    assert lines == ["[comment 1] please split this"]
 
 
 def test_inline_comments_carry_their_id_so_replies_can_find_the_thread() -> None:

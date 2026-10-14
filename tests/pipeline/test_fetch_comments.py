@@ -44,5 +44,5 @@ def test_a_note_reads_the_same_whichever_way_it_reaches_the_agent() -> None:
     notes = [anchored, unanchored, pathless]
 
     assert review_lines(notes) == [note_words(n) for n in notes]
-    assert note_words(unanchored) == "overall: split this up"
+    assert note_words(unanchored) == "[comment n2] overall: split this up"
     assert note_words(pathless) == "[comment n3] ?:4 — here"

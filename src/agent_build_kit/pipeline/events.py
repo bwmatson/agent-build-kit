@@ -863,13 +863,13 @@ def review_lines(notes: list[ReviewNote]) -> list[str]:
 
 
 def note_words(note: ReviewNote) -> str:
-    """One note as the rework reads it: the tagged `path:line — body` line, or the bare body
-    for a note anchored nowhere. The tag is how a reply finds its thread, so every
-    place that hands a note to the agent writes it here."""
+    """One note as the rework reads it: the tagged `path:line — body` line, or the tagged body
+    for a note anchored nowhere (bare when it has no id). The tag is how a reply finds its
+    thread, so every place that hands a note to the agent writes it here."""
     body = note.body.strip()
-    if note.line is None and not note.path:
-        return body
     tag = f"[comment {note.id}] " if note.id else ""
+    if note.line is None and not note.path:
+        return f"{tag}{body}"
     words = f"{tag}{note.path or '?'}:{note.line} — {body}"
     return f"{words}\n{note.hunk}" if note.hunk else words
 

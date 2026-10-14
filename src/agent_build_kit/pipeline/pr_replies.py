@@ -205,6 +205,21 @@ def build_post_replies(
             log(f"could not look for an existing post: {error}")
             return None
 
+    def _quote_of(forge: Forge, repo_id: RepoId, pr: int, reply: Reply) -> str:
+        """`Re: <the note's first 60 characters>` for a reply to a general note on a host that
+        has no thread to hold it, else ""."""
+        if forge.general_threads:
+            return ""
+        try:
+            notes = forge.review_notes(repo_id, pr)
+        except Exception as error:  # noqa: BLE001 - an unreadable host only costs the quote
+            log(f"could not read the note {reply.comment_id} answers: {error}")
+            return ""
+        for note in notes:
+            if note.id == reply.comment_id and note.line is None and not note.path:
+                return f"Re: {' '.join(note.body.split())[:60]}"
+        return ""
+
     def _post_all(
         forge: Forge,
         repo_id: RepoId,
@@ -224,13 +239,17 @@ def build_post_replies(
         for reply in answer.replies:
             if reply.comment_id.startswith(THREAD_PREFIX):
                 continue
-            body = _signed(reply.body, sha)
-            found = _held(forge, repo_id, pr, body, reply.comment_id)
+            quote = _quote_of(forge, repo_id, pr, reply)
+            body = _signed(f"{quote}\n\n{reply.body}" if quote else reply.body, sha)
+            found = _held(forge, repo_id, pr, body, None if quote else reply.comment_id)
             if found:
                 posted.append(found)
                 continue
             try:
-                ids = forge.post_reply(repo_id, pr, note_id=reply.comment_id, body=body)
+                if quote:
+                    ids = forge.post_comment(repo_id, pr, body=body)
+                else:
+                    ids = forge.post_reply(repo_id, pr, note_id=reply.comment_id, body=body)
             except Exception as error:  # noqa: BLE001 - one bad id must not cost the rest
                 log(f"reply to comment {reply.comment_id} not posted: {error}")
                 ids = []
