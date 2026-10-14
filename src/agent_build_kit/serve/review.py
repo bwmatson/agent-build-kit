@@ -4,7 +4,6 @@ decision a reviewer keeps against it."""
 from __future__ import annotations
 
 import json
-import re
 import uuid
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
@@ -15,6 +14,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.path_patterns import matches_any
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
+from agent_build_kit.pipeline.own_tests import HUNK
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.ui_ids import THREAD_PREFIX
 from agent_build_kit.pipeline.unit_store import StoredUnit
@@ -26,8 +26,6 @@ Decision = Literal["request_changes", "approve"]
 # What every diff here is parsed from must not depend on the user's git config: prefixes
 # (`diff.noprefix`, `diff.mnemonicPrefix`), colour and an external driver change its text.
 _PLAIN = ("--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/")
-
-_HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", re.MULTILINE)
 
 
 class NoDiff(Exception):
@@ -151,7 +149,7 @@ def relocate(repo: Path, path: str, line: int | None, commit: str, tip: str) -> 
         return None
     patch = diff.stdout
     shift = 0
-    for match in _HUNK.finditer(patch):
+    for match in HUNK.finditer(patch):
         start, count, _, new_count = match.groups()
         first, old_n = int(start), 1 if count is None else int(count)
         new_n = 1 if new_count is None else int(new_count)

@@ -4,13 +4,13 @@ written back into the threads they answer, and the diff hunk on a review note.""
 from __future__ import annotations
 
 import logging
-import re
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agent_build_kit.forges import PullRequest, ReviewNote
 from agent_build_kit.pipeline import pr_replies
+from agent_build_kit.pipeline.own_tests import HUNK
 from agent_build_kit.pipeline.pr_poller import ListPrs
 from agent_build_kit.pipeline.ui_ids import THREAD_PREFIX
 from agent_build_kit.pipeline.units import base_of
@@ -28,7 +28,6 @@ if TYPE_CHECKING:
     from agent_build_kit.installation import Installation
     from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 
-_HUNK_HEAD = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 _DECISIONS = {"request_changes": "changes_requested", "approve": "approved"}
 # Beside the line the agent's prompt marks the comment on, in the hunk it prints.
 _MARK = "  <- comment"
@@ -200,7 +199,7 @@ def _hunks(patch: str) -> dict[str, list[tuple[_Span, _Span, list[str]]]]:
     current: list[str] = []
 
     def close() -> None:
-        head = _HUNK_HEAD.match(current[0]) if current else None
+        head = HUNK.match(current[0]) if current else None
         if head and path:
             old = (int(head.group(1)), 1 if head.group(2) is None else int(head.group(2)))
             new = (int(head.group(3)), 1 if head.group(4) is None else int(head.group(4)))

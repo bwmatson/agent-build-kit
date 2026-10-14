@@ -30,30 +30,21 @@ from pathlib import Path
 from agent_build_kit import profiles
 from agent_build_kit.pipeline.check_runner import CheckCache, run_at_commit
 from agent_build_kit.pipeline.commit_order import check_structure, classify_paths
+from agent_build_kit.pipeline.shell import git
 from agent_build_kit.profiles.base import ToolchainProfile
+
+
+def _files_of(repo: Path, sha: str) -> list[str]:
+    return git(repo, "show", "--name-only", "--pretty=format:", sha).stdout.split()
 
 
 def _tests_commits(repo: Path, base: str) -> list[str]:
     """The commits on this branch that are tests-only (plus stubs)."""
-    import subprocess
-
-    out = subprocess.run(
-        ["git", "rev-list", "--reverse", f"{base}..HEAD"],
-        cwd=repo,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.split()
+    out = git(repo, "rev-list", "--reverse", f"{base}..HEAD").stdout.split()
 
     tests_commits = []
     for sha in out:
-        files = subprocess.run(
-            ["git", "show", "--name-only", "--pretty=format:", sha],
-            cwd=repo,
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.split()
+        files = _files_of(repo, sha)
         labels = classify_paths(files)
         if any(kind == "test" for kind in labels.values()):
             tests_commits.append(sha)
@@ -61,15 +52,7 @@ def _tests_commits(repo: Path, base: str) -> list[str]:
 
 
 def _test_files_in(repo: Path, sha: str) -> list[str]:
-    import subprocess
-
-    files = subprocess.run(
-        ["git", "show", "--name-only", "--pretty=format:", sha],
-        cwd=repo,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.split()
+    files = _files_of(repo, sha)
     return [path for path, kind in classify_paths(files).items() if kind == "test"]
 
 

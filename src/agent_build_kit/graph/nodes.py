@@ -31,7 +31,7 @@ from agent_build_kit.graph.state import (
     UnitRun,
     Verdict,
 )
-from agent_build_kit.installation import Installation
+from agent_build_kit.installation import Installation, changes_dir_under
 from agent_build_kit.pipeline import environment, spans, spec_snapshot
 from agent_build_kit.pipeline.call_record import call_recorder
 from agent_build_kit.pipeline.changelog_convention import changelog_note
@@ -1870,7 +1870,7 @@ class BuildPath:
             follow_ups=r.follow_ups_for(unit) or None,
             linear=r.linear(tree, local_ref(base, repo=unit.repo)),
             limit=forges.description_limit(),
-            changes_dir=Path(r.planning_repo) / active().planning.specs_dir / "changes",
+            changes_dir=changes_dir_under(Path(r.planning_repo), active().planning.specs_dir),
         )
         try:
             pr = r.open_pr(

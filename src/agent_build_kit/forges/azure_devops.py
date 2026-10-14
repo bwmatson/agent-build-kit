@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, unquote
 
 import httpx
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from agent_build_kit.forges.azure_models import (
     BuildDoc,
@@ -64,7 +64,6 @@ from agent_build_kit.forges.base import (
 )
 from agent_build_kit.forges.transport import (
     AZURE_CLI_SOURCE,
-    PAGE_EXCERPT,
     TRANSIENT,
     AuthError,
     NotFound,
@@ -73,6 +72,8 @@ from agent_build_kit.forges.transport import (
     TransportError,
     credential_for,
     forget_credential,
+    unexpected,
+    validated,
 )
 from agent_build_kit.pipeline import units
 
@@ -906,10 +907,7 @@ FORGE = AzureDevOpsForge()
 def _parse[Doc: BaseModel](response: Response, model: type[Doc], endpoint: str) -> Doc:
     """The body as `model`, or a `TransportError` naming the endpoint and
     quoting the start of what came back."""
-    try:
-        return model.model_validate(response.data)
-    except ValidationError as error:
-        raise TransportError(_unexpected(endpoint, response)) from error
+    return validated(model, response.data, endpoint, response.text)
 
 
 def _items[Doc: BaseModel](response: Response, model: type[Doc], endpoint: str) -> list[Doc]:
@@ -917,15 +915,8 @@ def _items[Doc: BaseModel](response: Response, model: type[Doc], endpoint: str) 
     data = response.data
     values = data.get("value") if isinstance(data, dict) else None
     if not isinstance(values, list):
-        raise TransportError(_unexpected(endpoint, response))
-    try:
-        return [model.model_validate(value) for value in values]
-    except ValidationError as error:
-        raise TransportError(_unexpected(endpoint, response)) from error
-
-
-def _unexpected(endpoint: str, response: Response) -> str:
-    return f"{endpoint}: not the document expected: {response.text[:PAGE_EXCERPT]}"
+        raise TransportError(unexpected(endpoint, response.text))
+    return [validated(model, value, endpoint, response.text) for value in values]
 
 
 def _branch(ref: object) -> str:

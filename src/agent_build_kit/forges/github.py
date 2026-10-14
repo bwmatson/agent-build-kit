@@ -72,6 +72,8 @@ from agent_build_kit.forges.transport import (
     RateLimited,
     TransportError,
     credential_for,
+    unexpected,
+    validated,
 )
 from agent_build_kit.pipeline import units
 from agent_build_kit.settings import Settings, settings
@@ -154,7 +156,7 @@ _FAILED_JOB = ("failure", "timed_out")
 # `ssh://git@github.com/owner/name.git`, `alias:owner/name.git` (an ssh host
 # alias carrying a deploy key). The last form is why this pattern matches any
 # host and must be tried after the host-anchored ones.
-_ORIGIN = re.compile(
+ORIGIN = re.compile(
     r"^(?:[\w.@-]+:(?!//)|[a-z+]+://[^/]+/)(?P<owner>[\w.-]+)/(?P<name>[\w.-]+?)(?:\.git)?/?$"
 )
 
@@ -191,7 +193,7 @@ class GitHubForge:
         self._lock = threading.Lock()
 
     def parse_remote(self, url: str) -> RepoId | None:
-        match = _ORIGIN.match(url.strip())
+        match = ORIGIN.match(url.strip())
         if not match:
             return None
         return RepoId(forge=self.name, account=match["owner"], name=match["name"])
@@ -469,8 +471,7 @@ class GitHubForge:
         return [p for p in pulls if p.head.startswith(head_prefix)] if head_prefix else pulls
 
     def pr_files(self, repo: RepoId, pr: int) -> list[str]:
-        files = self._pages(repo, lambda gh: gh.rest.pulls.list_files, FileDoc, pull_number=pr)
-        return [item.filename for item in files]
+        return [change.path for change in self.pr_changes(repo, pr)]
 
     def pr_changes(self, repo: RepoId, pr: int) -> list[FileChange]:
         files = self._pages(repo, lambda gh: gh.rest.pulls.list_files, FileDoc, pull_number=pr)
@@ -848,10 +849,6 @@ def _body(response: Response[Any, Any]) -> Any:
         raise HostError(f"{where}: unreadable JSON: {response.text[:PAGE_EXCERPT]}") from error
 
 
-def _unexpected(endpoint: str, response: Response[Any, Any]) -> str:
-    return f"{endpoint}: not the document expected: {response.text[:PAGE_EXCERPT]}"
-
-
 def _model[Doc: BaseModel](model: type[Doc], found: object, what: str) -> Doc:
     try:
         return model.model_validate(found)
@@ -861,10 +858,7 @@ def _model[Doc: BaseModel](model: type[Doc], found: object, what: str) -> Doc:
 
 
 def _parse[Doc: BaseModel](response: Response[Any, Any], model: type[Doc], endpoint: str) -> Doc:
-    try:
-        return model.model_validate(_body(response))
-    except ValidationError as error:
-        raise TransportError(_unexpected(endpoint, response)) from error
+    return validated(model, _body(response), endpoint, response.text)
 
 
 def _items[Doc: BaseModel](
@@ -872,11 +866,8 @@ def _items[Doc: BaseModel](
 ) -> list[Doc]:
     data = _body(response)
     if not isinstance(data, list):
-        raise TransportError(_unexpected(endpoint, response))
-    try:
-        return [model.model_validate(item) for item in data]
-    except ValidationError as error:
-        raise TransportError(_unexpected(endpoint, response)) from error
+        raise TransportError(unexpected(endpoint, response.text))
+    return [validated(model, item, endpoint, response.text) for item in data]
 
 
 def _said(error: TransportError) -> tuple[str, list[dict]]:

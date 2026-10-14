@@ -11,7 +11,8 @@ from agent_build_kit.cli import init as init_cmd
 from agent_build_kit.cli import main
 from agent_build_kit.config import RepoConfig, WorkspaceConfig, dump
 from agent_build_kit.init.detect import Host
-from tests.cli.test_init import claude_only, fake_claude, fake_openspec
+from tests.cli.init_quiet import claude_only, fake_openspec
+from tests.cli.test_init import fake_claude
 from tests.factories import git, init_repo, recognised_planning
 
 

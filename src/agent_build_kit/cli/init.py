@@ -67,8 +67,9 @@ from agent_build_kit.init.scaffold import (
     write_code_repo_conventions,
     write_planning_repo,
 )
-from agent_build_kit.installation import Installation, load_config
+from agent_build_kit.installation import Installation, changes_dir_under, load_config
 from agent_build_kit.notify.windows import INSTALL_COMMAND
+from agent_build_kit.pipeline.shell import git
 from agent_build_kit.runtimes import AgentRuntime, PolicyReport, policy_apply, policy_check
 from agent_build_kit.runtimes.base import Run, Which, validate_argv
 from agent_build_kit.runtimes.known_agents import agent_for_command
@@ -177,23 +178,17 @@ def _read_yaml(path: Path) -> dict | None:
 def _tree_clean(planning: Path) -> bool:
     if not (planning / ".git").exists():
         return True
-    result = subprocess.run(
-        ["git", "status", "--porcelain"], cwd=planning, capture_output=True, text=True, check=False
-    )
+    result = git(planning, "status", "--porcelain", check=False)
     return result.returncode == 0 and not result.stdout.strip()
 
 
 def _commit(planning: Path, names: list[str]) -> str | None:
     """Commit everything; returns the reason it could not, if it could not."""
-    add = subprocess.run(["git", "add", "-A"], cwd=planning, capture_output=True, text=True)
+    add = git(planning, "add", "-A", check=False)
     if add.returncode:
         return add.stderr.strip()
-    commit = subprocess.run(
-        ["git", "commit", "-q", "-m", f"abk init: workspace {', '.join(names)}"],
-        cwd=planning,
-        capture_output=True,
-        text=True,
-        check=False,
+    commit = git(
+        planning, "commit", "-q", "-m", f"abk init: workspace {', '.join(names)}", check=False
     )
     return None if commit.returncode == 0 else (commit.stderr or commit.stdout).strip()
 
@@ -758,7 +753,7 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
                 continue
             for kind in kinds_for(detection):
                 change = change_name(name, kind)
-                if (planning / "openspec" / "changes" / change).exists() and not args.force:
+                if (changes_dir_under(planning, "openspec") / change).exists() and not args.force:
                     print(f"kept openspec/changes/{change}/")
                     continue
                 print(f"proposing {change}…")
