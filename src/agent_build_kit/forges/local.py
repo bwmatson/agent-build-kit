@@ -54,7 +54,7 @@ class LocalForge:
     requires: tuple[str, ...] = ()
     ci_name: str = "no CI"
     description_limit: int = 65_536
-    status_limit: int = 0
+    status_limit: int = 139
 
     def api_url(self, machine: Settings) -> str | None:
         return None

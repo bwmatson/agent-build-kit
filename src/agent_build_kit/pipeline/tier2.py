@@ -31,6 +31,8 @@ from pathlib import Path
 
 from pydantic import Field
 
+from agent_build_kit import forges
+from agent_build_kit.budget import cut_head
 from agent_build_kit.config import active
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.model import Frozen
@@ -412,6 +414,6 @@ def post_status(forge: Forge, repo: RepoId, result: Tier2Result, head: str = "")
         sha=result.sha,
         ok=result.ok,
         context=STATUS_CONTEXT,
-        description=description,
+        description=cut_head(description, forges.status_limit(), "char"),
         head=head,
     )

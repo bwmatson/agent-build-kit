@@ -85,8 +85,13 @@ def description_limit() -> int:
 
 
 def status_limit() -> int:
-    """The lowest status description limit across the registered forges."""
-    raise NotImplementedError
+    """The lowest status description limit across the registered forges.
+
+    A status description is fitted to this once, where it is built, so no forge
+    cuts it.
+    """
+    _load_builtin()
+    return min(forge.status_limit for forge in _REGISTRY.values())
 
 
 def denies(tokens: list[str]) -> str:

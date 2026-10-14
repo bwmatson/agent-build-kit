@@ -183,7 +183,7 @@ class GitHubForge:
     requires: tuple[str, ...] = ("slug",)
     ci_name: str = "GitHub Actions"
     description_limit: int = 65_536
-    status_limit: int = 0
+    status_limit: int = 139
 
     def api_url(self, machine: Settings) -> str | None:
         return machine.github_api_url
@@ -436,7 +436,7 @@ class GitHubForge:
         """Publish a result as a commit status on the tested SHA.
 
         Called after the push: GitHub rejects a status for a commit it has not
-        seen. 139 characters is GitHub's own limit for the description.
+        seen. The description is fitted by the caller to `status_limit`.
         """
         try:
             with self._on(repo) as gh:
@@ -446,7 +446,7 @@ class GitHubForge:
                     sha,
                     state="success" if ok else "failure",
                     context=context,
-                    description=description[:139],
+                    description=description,
                 )
         except TRANSIENT:
             raise

@@ -35,6 +35,7 @@ from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from agent_build_kit.budget import Section, cut_head, fit
 from agent_build_kit.config import RepoConfig
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.determinism_guidance import determinism_guidance
@@ -1060,25 +1061,46 @@ def _apply_answers(rounds: Sequence[dict], earlier: Sequence[EarlierAnswer] | No
     ]
 
 
-def _fit(carried: list[tuple[str, str]]) -> set[int]:
-    """Which of the (status, rendered) findings to leave out to fit ROUND_CHARS.
+# What a round's prose or response keeps at least, so a reduced one still says something.
+_SMALLEST_ACCOUNT = 60
+# The fitter leaves out the lowest weight first: findings are weighed oldest first, fixed
+# before declined, and a round's own words outweigh every finding.
+_DECLINED_WEIGHT = 1_000
+_ACCOUNT_WEIGHT = 1_000_000
 
-    Whole findings only, reported-fixed first, then declined, each oldest
-    first; a finding is never truncated. One not yet fixed or declined is never
-    left out, even over the limit: the reviewer must answer it.
-    """
-    order = {"fixed": 0, "declined": 1}
-    dropped: set[int] = set()
-    total = sum(len(text) for _, text in carried)
-    for index, (_, text) in sorted(
-        ((i, c) for i, c in enumerate(carried) if c[0] in order),
-        key=lambda item: (order[item[1][0]], item[0]),
-    ):
-        if total <= ROUND_CHARS:
-            break
-        dropped.add(index)
-        total -= len(text)
-    return dropped
+
+def _required_text(text: str) -> Section:
+    """Text the reviewer must see whole: an open finding, or a round's heading."""
+    return Section(
+        key="required",
+        render=lambda _: text,
+        natural=len(text),
+        smallest=len(text),
+        required=True,
+    )
+
+
+def _left_out_text(text: str, weight: int) -> Section:
+    """A resolved finding: whole or not at all."""
+    return Section(
+        key="resolved",
+        render=lambda _: text,
+        natural=len(text),
+        smallest=len(text),
+        weight=weight,
+    )
+
+
+def _account(text: str) -> Section:
+    """A round's own words: reduced to what the budget allows, never left out."""
+    text = cut_head(text, ROUND_CHARS, "char", "…")
+    return Section(
+        key="account",
+        render=lambda size: cut_head(text, size, "char", "…"),
+        natural=len(text),
+        smallest=min(len(text), _SMALLEST_ACCOUNT),
+        weight=_ACCOUNT_WEIGHT,
+    )
 
 
 COMMENT_LINE = re.compile(r"^\[comment ([^\]]+)\]")
@@ -1142,40 +1164,44 @@ def _comments_note(asked: str, answers: Sequence[str]) -> str:
 def _earlier_rounds(rounds: Sequence[dict]) -> str:
     if not rounds:
         return ""
-    carried = [
-        (str(f.get("status") or ""), _render_one(_recorded(f), str(f.get("status") or "")))
-        for entry in rounds
-        for f in entry.get("findings") or []
-        if f.get("required")
-    ]
-    dropped = _fit(carried)
-    parts = []
-    index = 0
+    sections: list[Section] = []
+    resolved: list[str] = []
     for number, entry in enumerate(rounds, start=1):
-        response = str(entry.get("response", "")).strip()[:ROUND_CHARS] or "(no account given)"
+        lead = "\n---\n\n" if number > 1 else ""
+        response = str(entry.get("response", "")).strip() or "(no account given)"
+        answer = f"The builder's response:\n{response}"
         if not (entry.get("findings") or entry.get("judged")):
-            asked = str(entry.get("asked", "")).strip()[:ROUND_CHARS]
-            parts.append(f"Round {number} asked:\n{asked}\n\nThe builder's response:\n{response}")
+            sections.append(_required_text(f"{lead}Round {number} asked:"))
+            sections.append(_account(str(entry.get("asked", "")).strip()))
+            sections.append(_account(f"\n{answer}"))
             continue
         judged = str(entry.get("judged") or "")
-        lines = [f"Round {number} judged commit {judged}." if judged else f"Round {number}."]
-        prose = str(entry.get("prose", "")).strip()[:ROUND_CHARS]
-        if prose:
-            lines.append(prose)
+        heading = f"Round {number} judged commit {judged}." if judged else f"Round {number}."
+        sections.append(_required_text(lead + heading))
+        if prose := str(entry.get("prose", "")).strip():
+            sections.append(_account(prose))
         for f in entry.get("findings") or []:
-            if f.get("required"):
-                if index not in dropped:
-                    lines.append(carried[index][1])
-                index += 1
-        lines.append(f"The builder's response:\n{response}")
-        parts.append("\n".join(lines))
-    body = "\n\n---\n\n".join(parts)
+            if not f.get("required"):
+                continue
+            status = str(f.get("status") or "")
+            text = _render_one(_recorded(f), status)
+            if status not in RESOLVED:
+                sections.append(_required_text(text))
+                continue
+            resolved.append(text)
+            weight = len(resolved) + (_DECLINED_WEIGHT if status == "declined" else 0)
+            sections.append(_left_out_text(text, weight))
+        sections.append(_account(answer))
+    # What must be kept (open findings, headings, a reduced account) sets a floor under the budget.
+    floor = sum(s.smallest + 1 for s in sections if s.required or s.key == "account")
+    body = fit(sections, max(ROUND_CHARS, floor), "\n")
+    dropped = sum(text not in body for text in resolved)
     last = next((str(e["judged"]) for e in reversed(rounds) if e.get("judged")), "")
     if last:
         body += f"\n\nWhat changed since the last judged commit is `git diff {last}..HEAD`."
     if dropped:
         body += (
-            f"\n\n{len(dropped)} earlier required finding(s) left out to keep this "
+            f"\n\n{dropped} earlier required finding(s) left out to keep this "
             "short, those reported fixed first."
         )
     return EARLIER_ROUNDS_NOTE.format(round=len(rounds) + 1, rounds=body)

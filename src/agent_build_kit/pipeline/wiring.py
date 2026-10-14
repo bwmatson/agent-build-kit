@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from agent_build_kit import forges, infra, profiles, runtimes
+from agent_build_kit.budget import Section, cut_head, cut_tail, fit
 from agent_build_kit.config import (
     CONFIG_ENV,
     CONFIG_FILENAME,
@@ -168,6 +169,63 @@ FLAKE_RERUNS = 2
 FLAKE_FAILURE_CHARS = 6000
 STORM_FAILURES = 3
 STORM_FAILURE_CHARS = 3000
+
+# A unit's tier 2 output: how much is kept, what a passing command's section may take, how
+# much of a failed test's own section its line in the digest keeps, and how much more a
+# failed command weighs than a passing one.
+TIER2_OUTPUT_CHARS = 4000
+TIER2_PASSING_CHARS = 1500
+TIER2_DIGEST_CHARS = 400
+TIER2_FAILED_WEIGHT = 4
+# What a command's section keeps at least, beside its header, when it cannot read the tests.
+TIER2_SMALLEST_TAIL = 200
+
+
+def _failure_digest(toolchain: ToolchainProfile, text: str) -> str:
+    """Each failed test's identifier and the end of its own section, where the error is;
+    empty when the profile cannot read the failed tests."""
+    named = getattr(toolchain, "failed_tests", None)
+    sections = getattr(toolchain, "failure_sections", None)
+    if named is None:
+        return ""
+    found = sections(text) if sections is not None else {}
+    return "\n".join(
+        "\n".join(
+            part for part in (test, cut_tail(found.get(test, ""), TIER2_DIGEST_CHARS)) if part
+        )
+        for test in named(text)
+    )
+
+
+def _command_section(
+    header: str, text: str, toolchain: ToolchainProfile, *, failed: bool
+) -> Section:
+    """One command's part of the tier 2 output. A passing command keeps the end of its
+    output; a failed one keeps its failed tests and why first, then the end of the rest."""
+    digest = _failure_digest(toolchain, text) if failed else ""
+    full = f"{header}\n{text}"
+    front = len(header) + 1
+
+    def render(size: int) -> str:
+        room = size - front
+        if size >= len(full):
+            return full
+        if digest and len(digest) >= room:
+            return f"{header}\n{cut_head(digest, max(room, 0), 'line')}"
+        if digest:
+            rest = cut_tail(text, room - len(digest) - 1, "line") if room > len(digest) + 1 else ""
+            return f"{header}\n{digest}" + (f"\n{rest}" if rest else "")
+        return f"{header}\n{cut_tail(text, max(room, 0), 'line')}"
+
+    return Section(
+        key=header,
+        render=render,
+        natural=len(full),
+        smallest=min(len(full), front + (len(digest) if digest else TIER2_SMALLEST_TAIL)),
+        weight=TIER2_FAILED_WEIGHT if failed else 1,
+        ceiling=None if failed else front + TIER2_PASSING_CHARS,
+    )
+
 
 # Told a finished agent call: `(result, *, role, model, runtime)`, and `gateway`
 # (a function giving the run's `Spend`) when a gateway key was minted for it.
@@ -2379,9 +2437,14 @@ class Tier2Session:
             # Every command's text in one pass, before any cut, so a cut cannot leave half a
             # value and a failing redaction is logged once.
             redacted = redact_leaves([out for _, out, *_ in outputs], where="tier-2 output")
-            output = "\n\n".join(
-                f"{header}\n{text if keep is None else text[-keep:]}"
-                for (header, _, keep, *_), text in zip(outputs, redacted, strict=True)
+            output = fit(
+                [
+                    _command_section(header, text, toolchain, failed=keep is None)
+                    for (header, _, keep, toolchain, *_), text in zip(
+                        outputs, redacted, strict=True
+                    )
+                ],
+                TIER2_OUTPUT_CHARS,
             )
             # Read from the redacted text, so a line is redacted before it is shortened.
             failures: list[TestFailure] = []

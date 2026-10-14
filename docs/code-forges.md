@@ -214,7 +214,9 @@ flags.
    (`forges.description_limit()`), so a description reads the same on every
    host and a host added with a lower limit lowers it. The reason and the goal
    that open the description are the last of it to shrink. The forge's `create_pr`
-   and `update_pr` send the body as given and never cut it.
+   and `update_pr` send the body as given and never cut it. `status_limit` is
+   the same for a commit status description: it is fitted once, to the lowest
+   of these (`forges.status_limit()`), and `post_status` sends it as given.
 8. **Record real fixtures.** From a real pull request, keeping the fields your
    code does *not* read. That is what makes a host's traps catchable by a test
    rather than by an incident — see below.
