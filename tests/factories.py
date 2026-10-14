@@ -18,6 +18,7 @@ from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import Unit, ready_units
 
 __all__ = [
+    "commit",
     "follow_ups",
     "git",
     "init_repo",
@@ -168,3 +169,7 @@ def snapshot(output: str, *, failures: list[TestFailure] | None = None) -> str:
 
 def follow_ups(count: int) -> list[str]:
     return [f"follow-up {number:02d}: " + "f" * 60 for number in range(count)]
+
+
+def commit(repo: Path, name: str, content: str = "x") -> None:
+    raise NotImplementedError
