@@ -18,7 +18,13 @@ from agent_build_kit.pipeline.wiring import build_tier1
 from agent_build_kit.profiles.base import ToolchainProfile
 from agent_build_kit.profiles.python_uv import PythonUvProfile
 from tests.conftest import make_installation
-from tests.pipeline.test_flake_isolation import FAILED, HookedProfile, Runs, recorded_failure
+from tests.pipeline.test_flake_isolation import (
+    FAILED,
+    RECORDED,
+    HookedProfile,
+    Runs,
+    recorded_failure,
+)
 from tests.pipeline.test_flake_storm import storms
 from tests.redaction_fakes import NAME, SECRET, known
 from tests.storm_fakes import ManyFailed
@@ -102,6 +108,35 @@ def test_each_failed_test_has_its_own_block_and_no_other_tests_text() -> None:
     assert "assert 2 == 1" not in other, "the block ends at the next header"
     assert "short test summary info" not in other, "the block ends where the summary starts"
     assert set(sections) <= set(FAILED)
+
+
+def long_titles() -> str:
+    return (RECORDED / "console_long_titles.txt").read_text().split("\n", 1)[1]
+
+
+LONG_TITLED = [
+    "test_long.py::test_noisy",
+    "test_long.py::TestAVeryLongGroupName::test_a_long_name_that_pytest_cannot_pad",
+    "test_params.py::test_a_parametrised_name_long_enough_that_the_title_is_padded_once"
+    "[a-long-parameter-value-for-the-title]",
+]
+
+
+def test_a_title_padded_with_one_underscore_still_starts_its_own_block() -> None:
+    sections = PythonUvProfile().failure_sections(long_titles())
+
+    noisy, grouped, padded = (sections[test] for test in LONG_TITLED)
+    assert "AssertionError: assert 'a' == 'b'" in grouped
+    assert "AssertionError: assert 'a' == 'b'" not in noisy
+    assert "assert 'a-long-parameter-value-for-the-title' == 1" in padded
+    assert "assert 'a-long-parameter-value-for-the-title' == 1" not in grouped
+
+
+def test_a_line_that_looks_like_a_rule_in_captured_output_does_not_end_the_failures() -> None:
+    sections = PythonUvProfile().failure_sections(long_titles())
+
+    assert "=== step ===" in sections[LONG_TITLED[0]], "the noisy test's own output is kept"
+    assert set(sections) == set(LONG_TITLED), "the tests after it still have their sections"
 
 
 def test_a_run_with_no_failures_section_has_no_sections() -> None:

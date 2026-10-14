@@ -68,11 +68,17 @@ TYPE_HOOKS = frozenset({"pyrefly-check", "pyrefly", "mypy", "pyright"})
 _PYTEST = re.compile(r"\bpytest\b")
 # pytest's short summary: `FAILED path::test - why` and `ERROR path::test - why`.
 _FAILED_TEST = re.compile(r"^(?:FAILED|ERROR) (\S+::\S+)", re.MULTILINE)
-# The `FAILURES` part of pytest's console output ends at the next `=== ... ===` line; each
-# failed test's block in it starts at a `___ name ___` line.
+# The `FAILURES` part of pytest's console output ends at the rule of the section that follows
+# it, not at any `=== ... ===` line, which a failing test's captured output may print; each
+# failed test's block in it starts at a `___ name ___` line, padded with as little as one
+# underscore a side when the title is long.
 _FAILURES_START = re.compile(r"^={3,} FAILURES ={3,}[ \t]*$", re.MULTILINE)
-_RULE_LINE = re.compile(r"^={3,} .*$", re.MULTILINE)
-_BLOCK_HEADER = re.compile(r"^_{3,} (?P<name>.+?) _{3,}[ \t]*$", re.MULTILINE)
+_AFTER_FAILURES = re.compile(
+    r"^={3,} (?:warnings summary|short test summary info|slowest (?:\d+ )?durations"
+    r"|.* in [\d.]+s(?: \([\d:]+\))?) ={3,}[ \t]*$",
+    re.MULTILINE,
+)
+_BLOCK_HEADER = re.compile(r"^_+ (?P<name>.+?) _+[ \t]*$", re.MULTILINE)
 # pre-commit prints `<hook name>....Passed|Failed|(no files to check)Skipped` for every
 # hook; a failed one is followed by `- hook id: <id>`. The name is free text a repo can
 # change, the id is what a hook is called in the config, so the id decides.
@@ -397,7 +403,7 @@ class PythonUvProfile:
         if start is None:
             return {}
         part = output[start.end() :]
-        end = _RULE_LINE.search(part)
+        end = _AFTER_FAILURES.search(part)
         if end is not None:
             part = part[: end.start()]
         headers = list(_BLOCK_HEADER.finditer(part))

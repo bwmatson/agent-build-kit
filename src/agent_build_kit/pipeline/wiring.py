@@ -1270,7 +1270,8 @@ def build_tier1(
         if not tests:
             return False
         reader = getattr(toolchain, "failure_sections", None)
-        sections = reader(output) if reader is not None else {}
+        # Read from the redacted text, so what is kept of a section holds no secret.
+        sections = reader(stored) if reader is not None else {}
         rerun = rerun_command(command, tests)
         for _ in range(FLAKE_RERUNS):
             again = ran(rerun, where, toolchain)
@@ -1280,8 +1281,7 @@ def build_tier1(
             return False
         if len(tests) > active().limits.max_flakes_per_run:
             failures = [
-                redact_text(sections.get(test, ""), where="tier-1 output")[-STORM_FAILURE_CHARS:]
-                for test in tests[:STORM_FAILURES]
+                sections.get(test, "")[-STORM_FAILURE_CHARS:] for test in tests[:STORM_FAILURES]
             ]
             record_storm(spans.current_unit.get()[0], tests, shlex.join(command), failures)
             _say(
@@ -1297,9 +1297,7 @@ def build_tier1(
                     test=test,
                     command=shlex.join(command),
                     output=stored[-4000:],
-                    failure=redact_text(sections.get(test, ""), where="tier-1 output")[
-                        -FLAKE_FAILURE_CHARS:
-                    ],
+                    failure=sections.get(test, "")[-FLAKE_FAILURE_CHARS:],
                     at=at,
                     directory=str(where),
                 )
