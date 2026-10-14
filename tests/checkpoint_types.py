@@ -35,7 +35,10 @@ def _named_types(blob: bytes) -> set[tuple[str, str]]:
 
 
 def types_off_the_list(value: Any) -> set[tuple[str, str]]:
-    """The (module, name) of every type `value` is encoded as that a checkpoint may not load."""
+    """The (module, name) of every type `value` is encoded as that a checkpoint may not load.
+
+    The standard library's and the graph library's own types are the library's to load.
+    """
     kind, blob = JsonPlusSerializer(
         allowed_msgpack_modules=list(ALLOWED_MSGPACK_MODULES)
     ).dumps_typed(value)
@@ -44,7 +47,7 @@ def types_off_the_list(value: Any) -> set[tuple[str, str]]:
     return {
         named
         for named in _named_types(blob)
-        if named[0].split(".")[0] not in sys.stdlib_module_names
+        if named[0].split(".")[0] not in {*sys.stdlib_module_names, "langgraph"}
         and named not in ALLOWED_MSGPACK_MODULES
     }
 

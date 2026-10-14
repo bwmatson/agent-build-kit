@@ -501,7 +501,7 @@ class BuildPath:
         )
         update: Update = {
             "held": detail,
-            "hold_state": state,
+            "hold_state": state.value,
             "hold_note": note,
             "status": RunStatus.HELD,
             "detail": detail,

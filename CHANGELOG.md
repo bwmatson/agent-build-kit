@@ -17,6 +17,9 @@
   It tries to turn lingering on without `sudo` or a prompt, and otherwise prints
   `sudo loginctl enable-linger <user>` with the reason. `abk init`'s next steps carry the same
   advice, and `abk doctor` warns when timers are installed and lingering is off.
+- A held unit's state is stored in its checkpoint as plain text, not as a class, so holding a
+  unit no longer logs a blocked-type warning and a checkpoint stays readable across releases.
+  Checkpoints already written still load.
 
 - The Claude Code runtime's default models changed: building and reworking now run on `sonnet`,
   and both reviews on `opus`, so each review is made by a different model from the one that
