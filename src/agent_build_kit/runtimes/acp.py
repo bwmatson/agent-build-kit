@@ -33,8 +33,8 @@ and terminal capabilities and does the work itself — applying
 `pipeline.command_policy` before running a command,
 confining every write to the worktree and out of the read-only specs
 directory — and answers an agent's own permission requests with the same
-rules. `check_policy` proves which of those an agent on this machine actually
-routes through the client, with a throwaway probe worktree of its own.
+rules. `check_policy` starts nothing: the policy is read from the agent's
+configuration (`runtimes.policy_check`).
 """
 
 from __future__ import annotations
@@ -156,15 +156,11 @@ STOPPED: dict[StopReason, str] = {
     "refusal": "the agent refused to carry on with the prompt",
 }
 
-# What `check_policy`'s probe attempts, with each forbidden class in abk's own
-# words for the report: every probe spelling of the table of spellings, then one
-# plain command for each class the table has none for. The shapes
-# `pipeline.command_policy` forbids whichever branch or worktree they run
-# in (`tests/runtimes/test_acp_probe.py` holds the list to that), so an
-# attempt is unambiguous even in a throwaway one. The commands are harmless
-# in the probe's checkout, which has no remote; the `gh` rows name a repository
-# and so reach the code host if an agent runs them unasked, where the
-# installation's token has no rights to act.
+# The commands the policy check judges against an agent's configuration, each forbidden
+# class in abk's own words for the report: every probe spelling of the table of spellings,
+# then one plain command for each class the table has none for. The shapes
+# `pipeline.command_policy` forbids whichever branch or worktree they run in
+# (`tests/runtimes/test_acp_probe_classes.py` holds the list to that). Nothing runs them.
 PROBE_CLASSES: tuple[tuple[str, str], ...] = (
     *((spelling.command, label) for label, spelling in probe_rows()),
     ("git commit --no-verify -m probe", "skipping the commit gate"),
@@ -177,7 +173,7 @@ PROBE_CLASSES: tuple[tuple[str, str], ...] = (
 
 
 def probe_branch() -> str:
-    """The branch the probe's throwaway worktree is on: under the active
+    """The branch the command rules judge the probe commands on: under the active
     workspace's own prefix, so the rules judge it as a unit's branch."""
     return f"{config.active().git.branch_prefix}policy-probe/1"
 
@@ -268,49 +264,6 @@ def _capabilities(policy: ToolPolicy | None) -> ClientCapabilities:
     return ClientCapabilities(
         fs=FileSystemCapabilities(read_text_file=True, write_text_file=True), terminal=True
     )
-
-
-class _ProbeTracking:
-    """What `check_policy`'s probe watches for, across one run: which of its
-    representative commands were refused at this client's own enforcement —
-    `create_terminal` refusing it by the rules, or `request_permission`
-    answering it with a refusing option. A command never attempted, run
-    without asking, allowed by the rules or cut off by a cancel is not
-    among them."""
-
-    def __init__(self, classes: tuple[tuple[str, str], ...]) -> None:
-        self._known = {command for command, _label in classes}
-        self.refused: set[str] = set()
-
-    def note_refused(self, line: str | None) -> None:
-        if line is not None and line in self._known:
-            self.refused.add(line)
-
-
-def _probe_prompt(classes: tuple[tuple[str, str], ...]) -> str:
-    spans = " ".join(f"`{command}`" for command, _label in classes)
-    return (
-        "This is abk's own policy probe, not a real change. Attempt each of the "
-        f"following commands exactly as written, one at a time, and report what "
-        f"happened to each: {spans}"
-    )
-
-
-def _probe_worktree(root: Path) -> Path:
-    """A throwaway git checkout with no remote, on `probe_branch()`, for the
-    probe to attempt commands in: real enough for the rules to apply,
-    disposable either way."""
-    worktree = root / "probe"
-    worktree.mkdir()
-    git(worktree, "init", "-q", "-b", "main")
-    git(worktree, "config", "user.email", "policy-probe@abk.invalid")
-    git(worktree, "config", "user.name", "abk policy probe")
-    (worktree / "probe-victim").mkdir()
-    (worktree / "probe-victim" / "keep.txt").write_text("keep\n")
-    git(worktree, "add", "-A")
-    git(worktree, "commit", "-q", "-m", "probe")
-    git(worktree, "checkout", "-q", "-b", probe_branch())
-    return worktree
 
 
 class _Terminal:
@@ -535,7 +488,6 @@ class _Session:
         policy: ToolPolicy | None = None,
         roots: tuple[Path, ...] = (),
         grants_nothing: bool = False,
-        probe: _ProbeTracking | None = None,
         read_only: tuple[str, ...] | None = None,
         permission: Callable[[PermissionAsk], str | None] | None = None,
     ) -> None:
@@ -580,7 +532,6 @@ class _Session:
         self._readable = tuple(
             root.resolve() for root in (*([self._specs] if self._specs else []), *roots)
         )
-        self._probe = probe
         self._terminals: dict[str, _Terminal] = {}
         # Never goes back on release, so an id is never handed out twice.
         self._terminal_ids = itertools.count(1)
@@ -879,8 +830,6 @@ class _Session:
                 if self._conn is not None:
                     await self._conn.cancel(session_id=session_id)
             return RequestPermissionResponse(outcome=DeniedOutcome(outcome="cancelled"))
-        if not verdict.allowed and self._probe is not None:
-            self._probe.note_refused(_command_of(known.raw_input))
         return RequestPermissionResponse(
             outcome=AllowedOutcome(outcome="selected", option_id=chosen.option_id)
         )
@@ -1036,8 +985,6 @@ class _Session:
         if verdict.allowed:
             verdict = self._read_only_verdict(line)
         if not verdict.allowed:
-            if self._probe is not None:
-                self._probe.note_refused(line)
             self._answered.update(
                 call_id
                 for call_id, call in self._calls.items()

@@ -33,6 +33,7 @@
   spend tokens, with or without `--yes`; `abk policy check` runs it on demand and prints every
   class with the pattern that refused it, and `abk policy apply` points to it for confirming.
   A runtime recorded as unchecked is still warned about, but `abk init` no longer records that.
+  The live probe that prompted the agent is removed from the protocol runtime.
 
 - A tier 1 run whose first pass fails more tests than `limits.max_flakes_per_run` (default 5),
   all of which pass both serial reruns, is now one flake storm, not that many flaky tests: one
