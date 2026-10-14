@@ -33,7 +33,7 @@ def test_the_last_attempt_that_leaves_the_conflict_standing_holds_the_unit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rig = ConflictRig(tmp_path, monkeypatch, pushes=True)
-    rounds = active().limits.max_review_rounds
+    rounds = active().global_limits.max_review_rounds
     for number in range(rounds):
         attempt(rig, number)
     assert rig.stored().conflict_attempts == rounds
@@ -50,7 +50,7 @@ def test_a_held_unit_is_not_attempted_again_at_the_same_tip(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rig = ConflictRig(tmp_path, monkeypatch, pushes=True)
-    for number in range(active().limits.max_review_rounds + 1):
+    for number in range(active().global_limits.max_review_rounds + 1):
         attempt(rig, number)
     attempts = rig.stored().conflict_attempts
     moves = len(rig.restacked)

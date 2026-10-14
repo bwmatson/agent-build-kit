@@ -803,10 +803,10 @@ def test_a_change_that_keeps_failing_is_given_up_on(tmp_path: Path, monkeypatch)
         raise RuntimeError("cannot satisfy the constraints")
 
     monkeypatch.setattr(cli, "plan_round", explode)
-    for _ in range(inst.config.limits.max_plan_attempts + 3):
+    for _ in range(inst.config.global_limits.max_plan_attempts + 3):
         real_plan_all(inst, store=store)
 
-    assert len(calls) == inst.config.limits.max_plan_attempts
+    assert len(calls) == inst.config.global_limits.max_plan_attempts
 
 
 def test_editing_the_change_starts_the_attempts_over(tmp_path: Path, monkeypatch) -> None:
@@ -821,7 +821,7 @@ def test_editing_the_change_starts_the_attempts_over(tmp_path: Path, monkeypatch
         raise RuntimeError("cannot satisfy the constraints")
 
     monkeypatch.setattr(cli, "plan_round", explode)
-    for _ in range(inst.config.limits.max_plan_attempts + 2):
+    for _ in range(inst.config.global_limits.max_plan_attempts + 2):
         real_plan_all(inst, store=store)
     before = len(calls)
 
@@ -905,10 +905,10 @@ def test_a_plan_that_keeps_ignoring_the_ceiling_uses_up_the_attempts(
         plan_output({"id": "add-marker/1", "groups": [1, 2], "estimated_lines": 1400}),
     )
 
-    for _ in range(inst.config.limits.max_plan_attempts + 2):
+    for _ in range(inst.config.global_limits.max_plan_attempts + 2):
         real_plan_all(inst, store=store)
 
-    assert len(runtime.requests) == inst.config.limits.max_plan_attempts
+    assert len(runtime.requests) == inst.config.global_limits.max_plan_attempts
     assert store.all() == []
 
 
@@ -924,7 +924,7 @@ def test_a_group_too_large_to_plan_is_reported_not_retried(
         monkeypatch, plan_output({"id": "add-marker/1", "groups": [1], "estimated_lines": 1500})
     )
 
-    for _ in range(inst.config.limits.max_plan_attempts + 2):
+    for _ in range(inst.config.global_limits.max_plan_attempts + 2):
         real_plan_all(inst, store=store)
 
     assert len(runtime.requests) == 1

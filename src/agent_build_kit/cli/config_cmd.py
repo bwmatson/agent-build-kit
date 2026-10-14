@@ -4,10 +4,11 @@ default is filled in."""
 from __future__ import annotations
 
 import argparse
+import sys
 
 import yaml
 
-from agent_build_kit.config import locate
+from agent_build_kit.config import deprecation_notice, deprecations, locate
 from agent_build_kit.installation import Installation
 
 
@@ -15,6 +16,8 @@ def cmd_config(args: argparse.Namespace, inst: Installation) -> int:
     if args.path:
         print(locate(args.config))
         return 0
+    for key in deprecations(locate(args.config)):
+        print(deprecation_notice(key), file=sys.stderr)
     data = inst.config.model_dump(by_alias=True, mode="json")
     print(yaml.safe_dump(data, sort_keys=False, default_flow_style=False), end="")
     return 0

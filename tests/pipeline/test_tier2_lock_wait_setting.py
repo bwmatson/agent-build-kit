@@ -44,7 +44,7 @@ def test_the_wait_defaults_to_ninety_minutes(tmp_path: Path) -> None:
     path = tmp_path / "abk.yaml"
     path.write_text("{}\n")
 
-    assert load(path).limits.tier2_lock_wait_seconds == 5400
+    assert load(path).global_limits.tier2_lock_wait_seconds == 5400
     assert LimitsConfig().tier2_lock_wait_seconds == 5400
 
 
@@ -110,11 +110,13 @@ def test_config_show_lists_the_wait_with_its_default_and_a_configured_value(
     path.write_text(dump(WorkspaceConfig(repos=repos)))
 
     main(["--config", str(path), "config", "--show"])
-    default = yaml.safe_load(capsys.readouterr().out)["limits"]["tier2_lock_wait_seconds"]
+    default = yaml.safe_load(capsys.readouterr().out)["global_limits"]["tier2_lock_wait_seconds"]
 
-    configured = WorkspaceConfig(repos=repos, limits=LimitsConfig(tier2_lock_wait_seconds=120))
+    configured = WorkspaceConfig(
+        repos=repos, global_limits=LimitsConfig(tier2_lock_wait_seconds=120)
+    )
     path.write_text(dump(configured))
     main(["--config", str(path), "config", "--show"])
-    shown = yaml.safe_load(capsys.readouterr().out)["limits"]["tier2_lock_wait_seconds"]
+    shown = yaml.safe_load(capsys.readouterr().out)["global_limits"]["tier2_lock_wait_seconds"]
 
     assert (default, shown) == (5400, 120)

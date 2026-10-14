@@ -56,7 +56,7 @@ def node_of(diagram: str, unit_id: str) -> str:
 
 
 def test_the_graph_page_shows_a_unit_over_the_ceiling_as_it_shows_one_under_it() -> None:
-    activate_with(limits={"min_unit_lines": 400, "max_unit_lines": 750})
+    activate_with(global_limits={"min_unit_lines": 400, "max_unit_lines": 750})
     over = render_mermaid([unit("big", estimated_lines=600, actual_lines=1400)])
     under = render_mermaid([unit("big", estimated_lines=600, actual_lines=300)])
 
@@ -70,7 +70,7 @@ def test_status_lists_the_units_over_the_ceiling(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     inst = make_installation(tmp_path)
-    activate_with(limits={"min_unit_lines": 400, "max_unit_lines": 750})
+    activate_with(global_limits={"min_unit_lines": 400, "max_unit_lines": 750})
     store = cli.store_for(inst)
     store.upsert([unit(f"a/{n}", estimated_lines=600) for n in (1, 2, 3)])
     for n, lines in ((1, 1400), (2, 700)):
@@ -99,7 +99,7 @@ def test_the_unit_records_its_size_and_the_log_says_it_is_over(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     inst = make_installation(tmp_path)
-    activate_with(limits={"min_unit_lines": 400, "max_unit_lines": 750})
+    activate_with(global_limits={"min_unit_lines": 400, "max_unit_lines": 750})
     store = cli.store_for(inst)
     store.upsert([unit("a/1", estimated_lines=600)])
     store.set_state("a/1", IN_REVIEW, pr=1, branch="spec/a/1")

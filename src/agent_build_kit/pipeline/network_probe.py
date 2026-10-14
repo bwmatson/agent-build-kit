@@ -48,7 +48,7 @@ def control_group(installation: Installation) -> tuple[str, ...]:
         forge, _ = installation.forge_of(name)
         if (url := forge.api_url(settings)) and (host := urlparse(url).hostname):
             hosts[host] = None
-    for host in installation.config.limits.network_control_hosts:
+    for host in installation.config.global_limits.network_control_hosts:
         hosts[host] = None
     return tuple(hosts)
 
@@ -127,7 +127,7 @@ def control_reachable(
     hosts = control_group(installation)
     if not hosts:
         return True
-    timeout = installation.config.limits.network_probe_timeout_seconds
+    timeout = installation.config.global_limits.network_probe_timeout_seconds
     try:
         return any(
             host_connects(

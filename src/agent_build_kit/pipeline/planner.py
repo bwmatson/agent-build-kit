@@ -183,7 +183,7 @@ def parse_plan(
                     change=change,
                     groups=groups or [],
                     built=built or set(),
-                    ceiling=active().limits.max_unit_lines,
+                    ceiling=active().global_limits.max_unit_lines,
                     calibrations=calibrations,
                 )
             except JoinRefused as error:
@@ -263,7 +263,7 @@ def _check_ceiling(
     unit is: that one is fixed in tasks.md, and re-asking would only spend
     attempts on it.
     """
-    ceiling = active().limits.max_unit_lines
+    ceiling = active().global_limits.max_unit_lines
     applying = {unit.id: applied(found, plan_kind(unit, groups)) for unit in units}
     oversized = [
         unit
@@ -637,17 +637,17 @@ TITLE_MAXIMUM = 80
 
 def _listed(found: Mapping[Kind, Calibration] | None) -> list[Kind]:
     """The kinds the planner is told about: above 1, the most samples first, ties by name."""
-    if not active().limits.calibrate_estimates or not found:
+    if not active().global_limits.calibrate_estimates or not found:
         return []
     above = sorted(
         (kind for kind in found if found[kind].ratio > 1.0),
         key=lambda kind: (-found[kind].samples, kind.label),
     )
-    return above[: active().limits.calibration_kinds_listed]
+    return above[: active().global_limits.calibration_kinds_listed]
 
 
 def _kind_lines(kind: Kind, found: Calibration, shown: Sequence[StoredUnit]) -> list[str]:
-    limits = active().limits
+    limits = active().global_limits
     lines = [
         f"- {kind.label}: {found.ratio:.2f} from {found.samples} samples; largest raw estimate "
         f"{largest_raw(limits.max_unit_lines, found.ratio)}, group up to about "
@@ -716,7 +716,7 @@ def _join_raw(
     kinds = _fitted(found, examples)[1]
     if not found or not kinds:
         return ""
-    ceiling = active().limits.max_unit_lines
+    ceiling = active().global_limits.max_unit_lines
     figures = ", ".join(
         f"{kind.label}: {largest_raw(ceiling, found[kind].ratio)}" for kind in kinds
     )
@@ -774,8 +774,8 @@ def build_prompt(
         repos=", ".join(repos) or "(none configured)",
         example_repo=repos[0] if repos else "repo",
         tiers=", ".join(TIERS),
-        min_lines=workspace.limits.min_unit_lines,
-        max_lines=workspace.limits.max_unit_lines,
+        min_lines=workspace.global_limits.min_unit_lines,
+        max_lines=workspace.global_limits.max_unit_lines,
         relationships=relationships.strip() or "(independent)",
         calibration=_calibration_section(calibrations, examples),
         join_raw=_join_raw(calibrations, examples),

@@ -66,5 +66,5 @@ def test_an_existing_limits_block_is_extended_in_place_when_there_is_no_global_l
     assert "uv.lock" in after["limits"]["generated_files"]
     assert after["limits"]["max_unit_lines"] == 900
     assert "global_limits" not in after
-    block = load(planning / "abk.yaml").global_limits  # pyrefly: ignore
+    block = load(planning / "abk.yaml").global_limits
     assert "uv.lock" in block.generated_files

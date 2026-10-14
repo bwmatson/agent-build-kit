@@ -31,7 +31,7 @@ CLOSES = "Changes ready to plan"
 def prompt_for(units: list[StoredUnit], *, shown: bool = True) -> str:
     """The prompt a round sends for these units, with the ratios and examples a caller computes."""
     found = calibrations(units)
-    n = active().limits.calibration_examples
+    n = active().global_limits.calibration_examples
     examples = {kind: recent_examples(units, kind, n) for kind in found} if shown else None
     captured: dict[str, str] = {}
 

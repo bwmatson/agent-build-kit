@@ -47,4 +47,7 @@ def test_config_show_lists_it(tmp_path: Path, capsys: pytest.CaptureFixture[str]
 
     assert main(["--config", str(path), "config", "--show"]) == 0
 
-    assert yaml.safe_load(capsys.readouterr().out)["limits"]["service_unavailable_attempts"] == 5
+    assert (
+        yaml.safe_load(capsys.readouterr().out)["global_limits"]["service_unavailable_attempts"]
+        == 5
+    )

@@ -419,7 +419,7 @@ def test_spent_rounds_push_the_branch_report_the_points_and_hold_the_unit(
 
     outcome = build(tmp_path, recorder, open_pr=capturing(recorder, bodies))
 
-    rounds = active().limits.max_review_rounds
+    rounds = active().global_limits.max_review_rounds
     assert outcome.status == "held"
     assert recorder.events.count("review") == rounds
     assert recorder.events.count("tier1") == rounds, "checked before each round, not after"
@@ -1135,7 +1135,7 @@ def test_a_unit_whose_rounds_ran_out_gets_a_fresh_budget_when_its_base_is_gone_a
     recorder = fresh(tmp_path)
     recorder.verdicts = [
         rejecting("the lock is still not released")
-    ] * active().limits.max_review_rounds
+    ] * active().global_limits.max_review_rounds
     base_now = ["spec/add-marker/0"]
 
     def gone(u: Any, *, body: str, base: str, cwd: Path, **bodies: str) -> int:

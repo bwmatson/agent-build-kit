@@ -44,7 +44,7 @@ def test_abk_yaml_with_no_limits_loads_the_new_defaults(tmp_path: Path) -> None:
     path = tmp_path / "abk.yaml"
     path.write_text("{}\n")
 
-    limits = load(path).limits
+    limits = load(path).global_limits
 
     assert (limits.min_unit_lines, limits.max_unit_lines) == (400, 750)
 
@@ -232,7 +232,7 @@ def test_the_fix_rounds_for_failing_checks_default_to_three_and_may_be_unlimited
     assert (
         WorkspaceConfig.model_validate(
             {"limits": {"max_check_rounds": None}}
-        ).limits.max_check_rounds
+        ).global_limits.max_check_rounds
         is None
     )
     with pytest.raises(ValidationError):

@@ -527,7 +527,7 @@ def test_the_prompt_says_how_to_place_an_independent_group() -> None:
 def test_the_prompt_tells_the_planner_the_ceiling() -> None:
     """The packer and the planner must say the same thing: a ceiling only the
     validator knows about spends a round on every plan that misses it."""
-    activate_with(limits={"min_unit_lines": 300, "max_unit_lines": 1234})
+    activate_with(global_limits={"min_unit_lines": 300, "max_unit_lines": 1234})
     captured: dict = {}
 
     plan_round(
@@ -590,7 +590,7 @@ def test_a_unit_combining_groups_past_the_ceiling_is_rejected() -> None:
 
 
 def test_the_ceiling_is_the_configured_one() -> None:
-    activate_with(limits={"min_unit_lines": 200, "max_unit_lines": 600})
+    activate_with(global_limits={"min_unit_lines": 200, "max_unit_lines": 600})
     output = graph_json(
         [
             planned(id="c/1", repo="platform", groups=[1], estimated_lines=100),

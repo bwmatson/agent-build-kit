@@ -17,7 +17,7 @@ def load_text(tmp_path: Path, text: str) -> config.WorkspaceConfig:
 def test_a_setting_under_its_new_name_is_read_and_the_rest_default(tmp_path: Path) -> None:
     loaded = load_text(tmp_path, "version: 1\nglobal_limits:\n  max_review_rounds: 5\n")
 
-    block = loaded.global_limits  # pyrefly: ignore
+    block = loaded.global_limits
     assert block.max_review_rounds == 5
     assert block == LimitsConfig(max_review_rounds=5)
 

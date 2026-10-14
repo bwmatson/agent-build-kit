@@ -68,6 +68,6 @@ def test_config_show_lists_both(tmp_path: Path, capsys: pytest.CaptureFixture[st
 
     assert main(["--config", str(path), "config", "--show"]) == 0
 
-    shown = yaml.safe_load(capsys.readouterr().out)["limits"]
+    shown = yaml.safe_load(capsys.readouterr().out)["global_limits"]
     assert shown["network_probe_timeout_seconds"] == 5
     assert shown["network_control_hosts"] == ["one.one.one.one", "dns.google"]

@@ -63,7 +63,7 @@ CONFIGURED: dict[str, Any] = {}
 def limits(**overrides: Any) -> None:
     CONFIGURED.clear()
     CONFIGURED.update(overrides)
-    activate_with(limits=overrides)
+    activate_with(global_limits=overrides)
 
 
 OPT_OUT = "Acceptance: none — a fixture about planning, not about the acceptance group\n"

@@ -267,7 +267,7 @@ def _specs_dir(planning_repo: Path | None) -> Path:
 
 def _run_limited(args: list[str], **kwargs) -> subprocess.CompletedProcess:
     """The default runner for tier 1: `_run` under the configured command time limit."""
-    limits = active().limits
+    limits = active().global_limits
     return run_limited(
         args,
         limit=limits.tier1_command_seconds,
@@ -341,8 +341,8 @@ def _recorder(
         node=node or role,
         round=int(number) if number.isdigit() else 0,
         started=started,
-        result_limit=active().limits.transcript_result_chars,
-        runs_kept=active().limits.transcript_runs_kept,
+        result_limit=active().global_limits.transcript_result_chars,
+        runs_kept=active().global_limits.transcript_runs_kept,
     )
 
 
@@ -917,7 +917,7 @@ def build_tier1(
                 own=changed(cwd, base),
                 base=base,
                 moved_from=moved_from,
-                setting=active().limits.restack_check,
+                setting=active().global_limits.restack_check,
             )
         work = _work(cwd, base, whole_repo, projects, profile, changed)
         if projects and not work:
@@ -1188,7 +1188,7 @@ def build_tier1(
     ) -> tuple[bool, str]:
         """Run the tests the unit added or changed again, under the load of the run that
         passed. A new test has no excuse to be flaky, so any failure fails tier 1."""
-        runs = active().limits.tier1_repeat_runs
+        runs = active().global_limits.tier1_repeat_runs
         try:
             touched = touched_tests(cwd, base) if runs else []
         except (subprocess.CalledProcessError, OSError) as error:
@@ -1344,7 +1344,7 @@ def build_tier1(
                 return False
         if own is not None and any(test in own for test in tests):
             return False
-        if len(tests) > active().limits.max_flakes_per_run:
+        if len(tests) > active().global_limits.max_flakes_per_run:
             failures = [
                 sections.get(test, "")[-STORM_FAILURE_CHARS:] for test in tests[:STORM_FAILURES]
             ]
@@ -1798,7 +1798,7 @@ def build_open_pr(
         if over_ceiling(lines):
             log(
                 f"{unit.id}: estimated {unit.estimated_lines}, landed {lines}, "
-                f"over the ceiling of {active().limits.max_unit_lines}"
+                f"over the ceiling of {active().global_limits.max_unit_lines}"
             )
 
     def _below(unit: Unit, base: str) -> int | None:
@@ -2578,7 +2578,7 @@ class Tier2Session:
             self.result is None
             or base is None
             or self.result.ok
-            or not active().limits.tier2_base_runs
+            or not active().global_limits.tier2_base_runs
         ):
             return None
         classified = self.classify(cwd=cwd, base=base)
@@ -3217,7 +3217,7 @@ def build_runner(
         under=dev_stack_underneath(unit, installation),
         profile=profile,
         marker=repo.tests.tier2_marker,
-        scope=tier2_unit_scope(repo, installation.config.limits),
+        scope=tier2_unit_scope(repo, installation.config.global_limits),
         dev_stack=repo.dev_stack.script if repo.dev_stack else None,
         stack_versions_command=stack_versions_for(
             installation.config.verify, infra.get(repo.infra)

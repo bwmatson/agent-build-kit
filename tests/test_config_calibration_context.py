@@ -9,7 +9,7 @@ from agent_build_kit.config import WorkspaceConfig
 
 
 def limits_config(**overrides: object):
-    return WorkspaceConfig.model_validate({"limits": overrides}).limits
+    return WorkspaceConfig.model_validate({"global_limits": overrides}).global_limits
 
 
 def test_examples_default_to_three_and_zero_is_valid_but_negative_or_fractional_is_not() -> None:

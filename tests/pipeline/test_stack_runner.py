@@ -496,7 +496,9 @@ def checked_runner(
 
     current = config_module.active()
     config_module.activate(
-        current.model_copy(update={"limits": current.limits.model_copy(update=limits)}),
+        current.model_copy(
+            update={"global_limits": current.global_limits.model_copy(update=limits)}
+        ),
         config_module.active_root(),
     )
     store = UnitStore(tmp_path / "units.json")

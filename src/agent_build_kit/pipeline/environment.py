@@ -94,7 +94,7 @@ def _write_state(state_dir: Path, state: EnvironmentState) -> None:
 
 def _run(command: list[str], root: Path) -> tuple[bool, str]:
     """Whether `command` exits 0 in `root`, and what it printed."""
-    limits = active().limits
+    limits = active().global_limits
     try:
         result = run_limited(
             command,

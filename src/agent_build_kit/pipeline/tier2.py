@@ -317,7 +317,7 @@ def _durations_listing(durations: list[TestTime]) -> tuple[str, str]:
     if not durations:
         return "", ""
     ranked = sorted(durations, key=lambda e: e.seconds, reverse=True)
-    limit = active().limits.tier2_durations_shown
+    limit = active().global_limits.tier2_durations_shown
     shown = ranked[:limit] if limit else ranked
     head = "; ".join(f"`{e.test}` {e.phase} {_age(e.seconds)}" for e in ranked[:3])
     rows = "\n".join(

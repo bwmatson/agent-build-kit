@@ -629,7 +629,7 @@ def test_status_is_unchanged_for_units_with_no_calibrated_figure(
 
 
 def limits_config(**overrides: Any):
-    return WorkspaceConfig.model_validate({"limits": overrides}).limits
+    return WorkspaceConfig.model_validate({"global_limits": overrides}).global_limits
 
 
 def test_the_six_keys_have_their_defaults() -> None:

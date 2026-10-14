@@ -1147,6 +1147,10 @@ def run_doctor(
     except ConfigError as error:
         return [_fail("config", str(error), "run `abk init`, or fix abk.yaml")]
     checks = [_ok("config", str(path))]
+    checks += [
+        _warn("config", config.deprecation_notice(key), "run `abk config --migrate`")
+        for key in config.deprecations(path)
+    ]
 
     try:
         inst = Installation(loaded, path.parent)

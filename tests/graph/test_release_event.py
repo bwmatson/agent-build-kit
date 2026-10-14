@@ -21,7 +21,9 @@ def limited(**limits: int | None) -> None:
     """The given limits; the suite's autouse fixture puts the config back."""
     current = config_module.active()
     config_module.activate(
-        current.model_copy(update={"limits": current.limits.model_copy(update=limits)}),
+        current.model_copy(
+            update={"global_limits": current.global_limits.model_copy(update=limits)}
+        ),
         config_module.active_root(),
     )
 

@@ -121,7 +121,7 @@ def test_a_present_section_is_left_alone_and_a_missing_one_is_filled(tmp_path: P
     config = written(planning)
     mine = {"sync": ["my-sync"], "check": ["my-check"], "inputs": {"lock": ["my.lock"]}}
     config["environment"] = mine
-    config["limits"] = {"generated_files": ["mine.lock"]}
+    config["global_limits"] = {"generated_files": ["mine.lock"]}
     config["repos"]["app"].pop("environment", None)
     config["repos"]["app"]["description"] = "kept as written"
     (planning / "abk.yaml").write_text(yaml.safe_dump(config))
@@ -130,7 +130,7 @@ def test_a_present_section_is_left_alone_and_a_missing_one_is_filled(tmp_path: P
 
     after = written(planning)
     assert after["environment"] == mine
-    assert after["limits"]["generated_files"] == ["mine.lock"]
+    assert after["global_limits"]["generated_files"] == ["mine.lock"]
     assert after["repos"]["app"]["description"] == "kept as written"
     filled = after["repos"]["app"]["environment"]
     assert filled["sync"]
@@ -147,14 +147,14 @@ def test_the_generated_file_patterns_are_filled_when_missing_and_nothing_else_ch
     config = written(planning)
     mine = {"sync": ["my-sync"], "check": ["my-check"]}
     config["environment"] = mine
-    config["limits"] = {"max_unit_lines": 900}
+    config["global_limits"] = {"max_unit_lines": 900}
     (planning / "abk.yaml").write_text(yaml.safe_dump(config))
 
     assert run_init(planning, app) == 0
 
     after = written(planning)
-    assert "uv.lock" in after["limits"]["generated_files"]
-    assert after["limits"]["max_unit_lines"] == 900
+    assert "uv.lock" in after["global_limits"]["generated_files"]
+    assert after["global_limits"]["max_unit_lines"] == 900
     assert after["environment"] == mine
 
 
@@ -181,7 +181,7 @@ def test_the_lock_files_found_are_written_into_the_generated_file_patterns(
 
     assert run_init(planning, app) == 0
 
-    assert "uv.lock" in written(planning)["limits"]["generated_files"]
+    assert "uv.lock" in written(planning)["global_limits"]["generated_files"]
 
 
 def test_the_dry_run_shows_a_repository_s_section(
@@ -203,7 +203,7 @@ repos:
   app:
     path: '{app}'   # quoted by hand
     slug: "example/app"
-limits:
+global_limits:
   max_unit_lines: 900  # raised on purpose
 """
 
@@ -230,19 +230,19 @@ def test_a_fill_keeps_every_line_and_comment_of_the_file_it_adds_to(tmp_path: Pa
     config = load(planning / "abk.yaml")
     assert config.environment is not None
     assert config.repos["app"].environment is not None
-    assert config.limits.generated_files == ("uv.lock",)
-    assert config.limits.max_unit_lines == 900
+    assert config.global_limits.generated_files == ("uv.lock",)
+    assert config.global_limits.max_unit_lines == 900
 
 
 def test_a_fill_adds_a_limits_block_when_there_is_none(tmp_path: Path) -> None:
     planning, app, original = annotated_installation(tmp_path)
-    without = original.replace("limits:\n  max_unit_lines: 900  # raised on purpose\n", "")
+    without = original.replace("global_limits:\n  max_unit_lines: 900  # raised on purpose\n", "")
     (planning / "abk.yaml").write_text(without)
 
     assert run_init(planning, app) == 0
 
-    assert load(planning / "abk.yaml").limits.generated_files == ("uv.lock",)
-    assert "limits:\n" in (planning / "abk.yaml").read_text()
+    assert load(planning / "abk.yaml").global_limits.generated_files == ("uv.lock",)
+    assert "global_limits:\n" in (planning / "abk.yaml").read_text()
 
 
 def test_the_dry_run_over_an_existing_file_lists_what_it_would_fill_and_changes_nothing(
@@ -255,7 +255,7 @@ def test_the_dry_run_over_an_existing_file_lists_what_it_would_fill_and_changes_
     out = capsys.readouterr().out
     assert "would fill environment in abk.yaml" in out
     assert "would fill repos.app.environment in abk.yaml" in out
-    assert "would fill limits.generated_files in abk.yaml" in out
+    assert "would fill global_limits.generated_files in abk.yaml" in out
     assert "as it would be written" not in out
     assert (planning / "abk.yaml").read_text() == original
 

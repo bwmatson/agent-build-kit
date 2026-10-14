@@ -19,8 +19,8 @@ def test_the_old_key_alone_loads_as_the_new_one(tmp_path: Path) -> None:
     old = config.load(write(tmp_path, "version: 1\nlimits:\n  max_review_rounds: 5\n"))
     new = config.load(write(tmp_path, "version: 1\nglobal_limits:\n  max_review_rounds: 5\n"))
 
-    old_block = old.global_limits  # pyrefly: ignore
-    assert old_block == new.global_limits  # pyrefly: ignore
+    old_block = old.global_limits
+    assert old_block == new.global_limits
     assert old_block.max_review_rounds == 5
 
 
