@@ -634,6 +634,24 @@ this machine. `check_policy` establishes the fact.
   command does not resolve is a doctor warning, as the `runtime` check has
   already failed for that cause.
 
+### What a real agent does with its deny list: not yet observed
+
+The acceptance test of the policy check drives a real agent over the probe
+commands through a test harness (`tests/runtimes/policy_agent_harness.py`): its
+client allows every request and runs nothing, one prompt names each command,
+and a command counts as reached when the agent asked the client's terminal for
+anything during that prompt's turn, refused otherwise. That reading rests on
+two things only a real run can show: how the first known agent signals a
+refusal by its own deny list (no terminal request, a failed tool call, or a
+rejected permission), and whether its approval step refuses anything beyond the
+list when the client allows everything, so that the six classes the
+recommendation does not cover are seen to run. **Neither has been observed
+yet**: the run was not made, because it spends tokens on a real model and
+lets the agent's own tools act on the machine, which an unattended build does
+not do. The harness has been proven with fake agents only, so the items listed
+UNVERIFIED in the change's design stand, and the first run of the acceptance
+test on a machine that has the agent records the finding here.
+
 ## Network outages are a typed error
 
 A run that ends because the network is down raises `NetworkUnavailable`, carrying the
