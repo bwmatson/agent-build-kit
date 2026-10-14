@@ -5,6 +5,14 @@
 - `abk tags` with no change and no `--all`, or with both, now prints one line saying what to
   pass and exits 2, instead of failing with a traceback. Its help names `--all`.
 
+- The node-npm profile now works through the tests-first gate. The gate uses the toolchain of
+  the project a file belongs to, a red run is judged by why a test failed (an assertion or
+  `Error: not implemented` is accepted; a file that fails to load, a passing test or an empty
+  run is rejected with the reason), and a stub must be only
+  `throw new Error("not implemented")`, checked with a TypeScript parser. The files its
+  commands create (type-check build info, Vite and Vitest caches) belong to the pipeline.
+  This adds `tree-sitter` and `tree-sitter-typescript` as dependencies.
+
 - A tier 2 fix prompt now names the file holding the failed run's full output and tells the
   agent to read it with `grep` or `sed`, instead of telling it to rerun live tests it cannot
   run. When the output was withheld or never written, the prompt says so and names no file.

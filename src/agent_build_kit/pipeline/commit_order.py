@@ -128,9 +128,15 @@ def _file_at(repo: Path, sha: str, path: str) -> str:
 
 
 def check_structure(
-    repo: Path, base: str, is_test: Callable[[str], bool] | None = None
+    repo: Path,
+    base: str,
+    is_test: Callable[[str], bool] | None = None,
+    stubs: Callable[[str, str], list[str]] = stub_violations,
 ) -> list[str]:
     """Check a branch's commits read as tests-then-implementation.
+
+    `stubs` is the toolchain's check of a code file's content shipped beside tests, by
+    path and content; it defaults to the Python one.
 
     Returns every problem found, so one run shows the whole list rather than
     one problem per push.
@@ -153,9 +159,7 @@ def check_structure(
             # stubs, which is what makes the tests fail honestly rather than
             # fail to import.
             found = [
-                problem
-                for path in code_paths
-                for problem in stub_violations(path, _file_at(repo, sha, path))
+                problem for path in code_paths for problem in stubs(path, _file_at(repo, sha, path))
             ]
             if found:
                 stub_problems[index] = found

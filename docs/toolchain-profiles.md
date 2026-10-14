@@ -146,8 +146,11 @@ the marker, after a line for each given file), `interpret_red` (judges only the 
 after the given files, which the red command printed before the report: a failure of type
 `AssertionError` or an error whose message is `not implemented` is red; a file that failed to
 load (its testcase is named as the file), any passing test, a given file with no failing test
-and any other failure are each rejected with a reason), and `stub_violations` returning
-nothing. It also drafts the environment for
+and any other failure are each rejected with a reason), `stub_violations` (parsed with tree-sitter: every function, method or arrow body, at any
+depth, must be only `throw new Error("not implemented")`, comments aside; a function without a
+body is accepted; an unparseable file is a violation; test files and non-source extensions are
+not checked), and `created_files` (`**/*.tsbuildinfo`, `node_modules/.vite`,
+`node_modules/.vitest` and `.vite`). It also drafts the environment for
 `abk init` from a `package.json` (`profiles/node_environment.py`): the manager is
 the manifest's `packageManager` field, else the lock file present (`package-lock.json`
 npm, `pnpm-lock.yaml` pnpm, `yarn.lock` yarn), else npm. `sync` is the plain install
@@ -156,8 +159,7 @@ depth-0 listing, the manifest and lock files are inputs, a `workspaces` field ad
 `<workspace>/package.json` patterns, and `node_modules` is an artifact.
 
 What still raises, method by method: the tier 2 and acceptance commands; `members`/`member_of`/`dependents` from
-`package.json` workspaces; and a
-stub checker for the `throw` body.
+`package.json` workspaces.
 
 ## Adding a profile
 

@@ -8,8 +8,9 @@ raises, with a log line saying so. Implemented, by method of
 `npx tsc --noEmit` as the project check, `npx vitest run` with a JUnit report for the
 tests, the clean and red commands, judging a red run, and `.test`/`.spec` files and
 `__tests__/` as test paths.
-Still to come: the tier 2 and acceptance commands, workspace members, and
-`throw new Error("not implemented")` as the permitted stub body.
+The stub check (`throw new Error("not implemented")` as the permitted body) and the files the
+commands create are implemented too.
+Still to come: the tier 2 and acceptance commands and workspace members.
 """
 
 from __future__ import annotations
@@ -19,6 +20,9 @@ import re
 import shlex
 from pathlib import Path
 from xml.etree import ElementTree
+
+import tree_sitter_typescript
+from tree_sitter import Language, Node, Parser
 
 from agent_build_kit.config import EnvironmentConfig, RepoConfig
 from agent_build_kit.pipeline.red_check import (
@@ -57,7 +61,70 @@ _LINT_ALL = "npx oxlint . && npx oxfmt --check ."
 # can tell their suites from any other the runner's substring filters selected.
 _RED_FILE = "abk red file: "
 _NOT_IMPLEMENTED = "not implemented"
+# What the profile's own commands create in a project: type-check build info and the Vite and
+# Vitest caches.
+_CREATED = ["**/*.tsbuildinfo", "node_modules/.vite", "node_modules/.vitest", ".vite"]
+_FUNCTIONS = frozenset(
+    {
+        "function_declaration",
+        "generator_function_declaration",
+        "function_expression",
+        "generator_function",
+        "function",
+        "arrow_function",
+        "method_definition",
+    }
+)
 _TEST_FILE = re.compile(rf"\.(test|spec)\.({'|'.join(_SOURCE)})$")
+
+
+_TYPESCRIPT = Language(tree_sitter_typescript.language_typescript())
+_TSX = Language(tree_sitter_typescript.language_tsx())
+
+
+def _parser(path: str) -> Parser:
+    """A parser of the TSX grammar for the extensions that may hold JSX (`.tsx`, `.jsx`, and
+    `.js`, which Vite projects sometimes keep JSX in), else of the TypeScript one."""
+    return Parser(_TSX if path.endswith(("x", ".js")) else _TYPESCRIPT)
+
+
+def _text(node: Node | None) -> str:
+    return node.text.decode() if node is not None and node.text is not None else ""
+
+
+def _is_sentinel(node: Node) -> bool:
+    """`throw new Error("not implemented")`, in either quote style."""
+    if node.type != "throw_statement" or not node.named_children:
+        return False
+    error = node.named_children[0]
+    if error.type != "new_expression":
+        return False
+    arguments = error.child_by_field_name("arguments")
+    values = arguments.named_children if arguments is not None else []
+    return (
+        _text(error.child_by_field_name("constructor")) == "Error"
+        and len(values) == 1
+        and values[0].type == "string"
+        and _text(values[0])[1:-1] == _NOT_IMPLEMENTED
+    )
+
+
+def _is_stub_body(body: Node) -> bool:
+    """A block of only the sentinel throw; nested function declarations and comments are
+    judged on their own."""
+    statements = [
+        child
+        for child in body.named_children
+        if child.type != "comment" and not child.type.endswith("function_declaration")
+    ]
+    return len(statements) == 1 and _is_sentinel(statements[0])
+
+
+def _function_name(node: Node) -> str:
+    name = node.child_by_field_name("name")
+    if name is None and node.parent is not None and node.parent.type == "variable_declarator":
+        name = node.parent.child_by_field_name("name")
+    return _text(name) or "anonymous function"
 
 
 def _report(output: str) -> ElementTree.Element | None:
@@ -95,7 +162,8 @@ class NodeNpmProfile:
         )
 
     def created_files(self, repo: Path) -> list[str]:
-        return []
+        """The type-check build info and the Vite and Vitest caches."""
+        return list(_CREATED)
 
     def scaffold_manifest(self, name: str) -> tuple[str, str]:
         return "package.json", json.dumps({"name": name, "version": "0.1.0"}, indent=2) + "\n"
@@ -258,7 +326,29 @@ class NodeNpmProfile:
         return node_environment.detect_environment(root)
 
     def stub_violations(self, path: str, content: str) -> list[str]:
-        return []
+        """A violation for every function whose body is more than the sentinel throw, at any
+        depth, and for a file that does not parse; none for a test file or a non-source file.
+        A function without a body (a declaration, an overload) is accepted."""
+        if self.is_test_path(path) or not path.endswith(tuple(f".{ext}" for ext in _SOURCE)):
+            return []
+        root = _parser(path).parse(content.encode()).root_node
+        if root.has_error:
+            return [f"{path}: the file could not be parsed"]
+        problems: list[str] = []
+        pending = [root]
+        while pending:
+            node = pending.pop()
+            pending.extend(reversed(node.children))
+            if node.type not in _FUNCTIONS:
+                continue
+            body = node.child_by_field_name("body")
+            if body is None or (body.type == "statement_block" and _is_stub_body(body)):
+                continue
+            problems.append(
+                f"{path}: {_function_name(node)}() has a body — a stub's body is only "
+                f'`throw new Error("{_NOT_IMPLEMENTED}")`'
+            )
+        return problems
 
     def members(self, repo: Path) -> list[str]:
         return self._todo("members")
