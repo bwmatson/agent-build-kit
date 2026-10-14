@@ -555,7 +555,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     if line := lock_status_line(inst.tier2_lock):
         log(line)
 
-    for change, record in _planned_hashes(inst).items():
+    for change, record in planned_hashes(inst).items():
         if record.get("waiting") in PLAN_WAITS:
             log(f"planning {change}: {_plan_state(record, inst.max_plan_attempts)}")
 
@@ -1169,7 +1169,7 @@ def _release_network_waits(inst: Installation) -> None:
 def _needs_planning(inst: Installation, store: UnitStore) -> bool:
     """Whether some change would be planned now: planning is a model call, so a round that
     has some to do is one the usage guard has to be asked about."""
-    planned = _planned_hashes(inst)
+    planned = planned_hashes(inst)
     now = spans.clock.now()
     for tasks in inst.tasks_files():
         digest = hashlib.sha256(specification(tasks).encode()).hexdigest()
@@ -2657,7 +2657,7 @@ def plan_all(
     recorded plan says, with their failed attempts counted from none: what
     `abk replan` asks for. The result has an entry for each change visited.
     """
-    planned = _planned_hashes(inst)
+    planned = planned_hashes(inst)
     max_attempts = inst.max_plan_attempts
     results: dict[str, PlanResult] = {}
     network_down = False
@@ -3001,7 +3001,7 @@ def has_work(inst: Installation, store: UnitStore) -> bool:
         waiting = set(_unverified(inst, units, record))
         if any(m.change in waiting for u in satisfied for m in u.members()):
             return True
-    planned = _planned_hashes(inst)
+    planned = planned_hashes(inst)
     for tasks in inst.tasks_files():
         record = planned.get(tasks.parent.name) or {}
         digest = hashlib.sha256(specification(tasks).encode()).hexdigest()
@@ -3010,7 +3010,7 @@ def has_work(inst: Installation, store: UnitStore) -> bool:
     return False
 
 
-def _planned_hashes(inst: Installation) -> dict[str, dict]:
+def planned_hashes(inst: Installation) -> dict[str, dict]:
     """What has been planned, and what failed to plan, keyed by change.
 
     Machine-local and safe to lose: `upsert` merges by unit id and keeps
@@ -3039,7 +3039,7 @@ def update_plans(
     """
     path = inst.state_dir / "planned.json"
     with file_lock(inst.state_dir / "planned.lock"):
-        records = _planned_hashes(inst)
+        records = planned_hashes(inst)
         for change, record in updates(records).items():
             if record is None:
                 records.pop(change, None)
@@ -4187,7 +4187,7 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
         if inst.changes_dir.is_dir()
         else []
     )
-    records = _planned_hashes(inst)
+    records = planned_hashes(inst)
     max_attempts = inst.max_plan_attempts
 
     if not (args.changes or args.all or args.failed):
@@ -4251,7 +4251,7 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
     after = {unit.id: unit for unit in store.all()}
 
     failed = [change for change in to_plan if results[change].status != "planned"]
-    stored = _planned_hashes(inst)
+    stored = planned_hashes(inst)
     for change in to_plan:
         if results[change].recorded_only:
             print(f"{change}: nothing was asked of the planner; {ALL_TAKEN}; the plan is recorded")

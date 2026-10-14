@@ -61,13 +61,10 @@ def write_spec(source: Installation, capability: str) -> Path:
 
 
 def write_units(source: Installation, *units: StoredUnit) -> UnitStore:
-    """The source's unit store holding `units`, each in the state it carries (`upsert`
-    drops a unit's state, so it is recorded after)."""
+    """The source's unit store holding `units` as given, state and free text included (`upsert`
+    drops both)."""
     store = UnitStore(source.state_dir / "units.json")
-    store.upsert(units)
-    for unit in units:
-        if unit.state != "planned":
-            store.set_state(unit.id, unit.state)
+    store.import_units(units)
     return store
 
 

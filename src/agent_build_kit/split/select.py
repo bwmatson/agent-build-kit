@@ -335,3 +335,19 @@ def uncommitted(source: Installation) -> tuple[str, ...] | None:
     return tuple(
         f"{'??' if code == '??' else 'D' if 'D' in code else 'M'} {path}" for code, path in entries
     )
+
+
+def moved_files(source: Installation, plan: SplitPlan) -> list[Path]:
+    """Every file a split copies, in path order: the moved changes, archive entries and specs
+    as they are in the working tree. Lock files are not copied."""
+    directories = [
+        *(source.changes_dir / name for name in plan.changes_moved),
+        *(source.changes_dir / "archive" / name for name in plan.archive_moved),
+        *(source.specs_dir / "specs" / name for name in plan.specs_moved),
+    ]
+    return sorted(
+        path
+        for directory in directories
+        for path in directory.rglob("*")
+        if path.is_file() and path.suffix != ".lock"
+    )
