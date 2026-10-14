@@ -5,6 +5,11 @@
 - `abk tags` with no change and no `--all`, or with both, now prints one line saying what to
   pass and exits 2, instead of failing with a traceback. Its help names `--all`.
 
+- The temporary `abk usage backfill-costs` command is removed; it has repaired the ledgers
+  that needed it. `abk usage replay` stays, and ledgers still read the rows it wrote (basis
+  `backfilled`), summaries it marked `cumulative_summed`, and old rows with no `cost` object
+  as `legacy`, never summed. Its private helpers went with it; none was shared.
+
 - The node-npm profile now works through the tests-first gate. The gate uses the toolchain of
   the project a file belongs to, a red run is judged by why a test failed (an assertion or
   `Error: not implemented` is accepted; a file that fails to load, a passing test or an empty
@@ -779,10 +784,9 @@
   figure. Older rows with a flat `cost_usd` are read as `legacy`: counted, listed and totalled
   apart in `abk report`, never added to the cost. `abk report` also shows each session's
   cumulative cost and flags one whose increments do not add up. The counter is right from this
-  release; figures exported before it stay overstated. `abk usage backfill-costs` repairs an
-  existing ledger once (temporary: removed once every installation has run it): a dry run
-  shows the before and after totals per unit, `--apply` keeps a timestamped copy and rewrites
-  the ledger, and sessions whose figures fall and summaries with no detail left are listed.
+  release; figures exported before it stay overstated. A one-time command repaired
+  existing ledgers (since removed): sessions whose figures fell and summaries with no detail
+  left were listed.
 
 - A test that fails under load and passes alone no longer fails the unit that met it. When
   tier 1 fails on tests, the profile reads which ones from the output and they are run again,
