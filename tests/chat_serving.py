@@ -41,7 +41,6 @@ import signal
 import subprocess
 import sys
 import threading
-import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -63,6 +62,7 @@ from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from tests.factories import unit
 from tests.runtimes.acp_agent import EARLIER_TURN
 from tests.runtimes.claude_cli import FakeClaude
+from tests.waiting import wait_for
 
 WAIT = 15
 
@@ -218,11 +218,10 @@ def turn(api: httpx.Client, url: str, body: dict[str, Any]) -> list[dict[str, An
 
 
 def until(condition: Callable[[], object]) -> bool:
-    deadline = time.monotonic() + WAIT
-    while not condition():
-        if time.monotonic() > deadline:
-            return False
-        time.sleep(0.02)
+    try:
+        wait_for(lambda: bool(condition()), what="the condition", timeout=WAIT)
+    except TimeoutError:
+        return False
     return True
 
 

@@ -10,10 +10,11 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import pytest
+
+from tests.waiting import wait_for
 
 SCRIPT = """
 import asyncio, json, pathlib, sys
@@ -101,12 +102,18 @@ def test_a_process_killed_while_a_node_runs_leaves_the_thread_resumable_at_that_
 ) -> None:
     first = start(tmp_path, "block")
     running = tmp_path / "running"
-    deadline = time.monotonic() + 30
-    while not running.exists():
-        if first.poll() is not None or time.monotonic() > deadline:
+
+    def started() -> bool:
+        if first.poll() is not None:
             first.kill()
-            pytest.fail("the node never started")
-        time.sleep(0.05)
+            pytest.fail("the child exited before the node started")
+        return running.exists()
+
+    try:
+        wait_for(started, what="the node to start", timeout=30)
+    except TimeoutError:
+        first.kill()
+        pytest.fail("the node never started")
     first.kill()
     first.wait(timeout=30)
 
