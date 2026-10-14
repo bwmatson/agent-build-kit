@@ -23,6 +23,7 @@ from typing import Any
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.events import Claim
+from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit
@@ -286,9 +287,7 @@ class RestackLane:
                 }
                 for status, entry in held
             ]
-            partial = self._record.with_name(f"{self._record.name}.{os.getpid()}.tmp")
-            partial.write_text(json.dumps({"pid": os.getpid(), "units": units}))
-            os.replace(partial, self._record)
+            atomic_write_text(self._record, json.dumps({"pid": os.getpid(), "units": units}))
         except Exception as error:  # noqa: BLE001
             self._log(f"restack record not written — {type(error).__name__}: {error}")
 

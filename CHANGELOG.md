@@ -6,13 +6,14 @@
   notification and review stores and the like) now goes through one atomic write, so a crash
   or two writers at once never leave a half-written file or a stray temporary behind. A log
   trimmed to its size limit now has any byte that is not valid text replaced rather than kept.
+
 - The policy check no longer starts the agent or spends tokens: for an agent abk knows, it reads
   the deny list from the agent's own configuration and judges every probe command with abk's
   matcher, naming the pattern that refused each one. The six classes the recommendation leaves
   to the person never fail it, a missing or unreadable configuration fails it naming the path or
   the reason, an agent abk has no policy for is reported as one that cannot be checked, and no
-  answer is kept between runs. The live probe is gone; `abk doctor`
-  and `abk init` are moved onto the new check in a following change.
+  answer is kept between runs. The live probe is gone; `abk doctor` and `abk init` are moved
+  onto the new check in a following change.
 
 - A tier 1 run that fails more than five tests on its first pass and sees them all pass on both
   serial reruns is now treated as a disturbed run, not that many flaky tests: tier 1 passes, the
