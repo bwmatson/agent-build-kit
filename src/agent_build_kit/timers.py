@@ -32,7 +32,7 @@ import shutil
 import subprocess
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from agent_build_kit import config, runtimes
 from agent_build_kit.init.scaffold import render_systemd
@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from agent_build_kit.installation import Installation
 
 Run = Callable[..., subprocess.CompletedProcess]
+LingerState = Literal["on", "off", "unknown"]
 
 # How long `loginctl` gets to answer before the check gives up.
 LOGINCTL_TIMEOUT = 10
@@ -90,7 +91,7 @@ def current_user() -> str:
     return getpass.getuser()
 
 
-def linger_state(user: str, run: Run | None = None) -> str:
+def linger_state(user: str, run: Run | None = None) -> LingerState:
     """`on`, `off` or `unknown` (no `loginctl`, or it would not say)."""
     run = run or subprocess.run
     try:
@@ -106,18 +107,21 @@ def linger_state(user: str, run: Run | None = None) -> str:
     if answer.returncode:
         return "unknown"
     value = (answer.stdout or "").strip().partition("=")[2]
-    return {"yes": "on", "no": "off"}.get(value, "unknown")
+    if value == "yes":
+        return "on"
+    return "off" if value == "no" else "unknown"
 
 
 def enable_linger(user: str, run: Run | None = None) -> bool:
     """Try `loginctl enable-linger` without sudo and without a prompt.
 
-    Stdin is closed so that a polkit prompt can never leave the command waiting.
+    Stdin is closed and `--no-ask-password` given, so neither loginctl's own text
+    agent nor a polkit agent registered for the session can leave it waiting.
     """
     run = run or subprocess.run
     try:
         answer = run(
-            ["loginctl", "enable-linger", user],
+            ["loginctl", "--no-ask-password", "enable-linger", user],
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,

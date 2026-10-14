@@ -9,10 +9,8 @@ import pytest
 from agent_build_kit import timers
 from agent_build_kit.cli import main
 from agent_build_kit.cli.doctor import Check, run_doctor
-from agent_build_kit.config import dump
 from tests.cli.init_quiet import quiet
-from tests.conftest import make_installation
-from tests.factories import git, init_repo, recognised_planning
+from tests.factories import git, init_repo, planning, recognised_planning, which_all
 from tests.loginctl_fake import Loginctl, SubprocessModule
 
 USER = "alice"
@@ -21,10 +19,6 @@ USER = "alice"
 @pytest.fixture(autouse=True)
 def alice(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(timers, "current_user", lambda: USER)
-
-
-def which_all(name: str) -> str | None:
-    return f"/usr/bin/{name}"
 
 
 # --- abk init ----------------------------------------------------------------------
@@ -58,8 +52,7 @@ def test_init_carries_the_advice_when_lingering_is_off_and_not_otherwise(
 
 
 def linger_check(tmp_path: Path, runner: Loginctl, *, installed: bool = True) -> Check | None:
-    inst = make_installation(tmp_path)
-    (inst.root / "abk.yaml").write_text(dump(inst.config))
+    inst = planning(tmp_path)
     units = tmp_path / "units"
     if installed:
         timers.install(inst.root, dest=units, run=Loginctl())

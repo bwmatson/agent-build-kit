@@ -10,9 +10,7 @@ import pytest
 
 from agent_build_kit import timers
 from agent_build_kit.cli import main
-from agent_build_kit.config import dump
-from agent_build_kit.installation import Installation
-from tests.conftest import make_installation
+from tests.factories import planning
 from tests.loginctl_fake import Loginctl, SubprocessModule
 
 USER = "alice"
@@ -47,9 +45,10 @@ def test_enable_linger_reports_success_and_never_waits_on_input() -> None:
 
     assert timers.enable_linger(USER, runner) is True
 
-    (kwargs,) = [
-        k for c, k in zip(runner.calls, runner.kwargs, strict=True) if c[1] == "enable-linger"
+    ((argv, kwargs),) = [
+        (c, k) for c, k in zip(runner.calls, runner.kwargs, strict=True) if "enable-linger" in c
     ]
+    assert argv == ["loginctl", "--no-ask-password", "enable-linger", USER]
     assert kwargs["stdin"] == subprocess.DEVNULL
     assert kwargs.get("timeout")
 
@@ -59,12 +58,6 @@ def test_enable_linger_without_loginctl_is_false() -> None:
 
 
 # --- abk install-timers ------------------------------------------------------------
-
-
-def planning(root: Path) -> Installation:
-    inst = make_installation(root)
-    (inst.root / "abk.yaml").write_text(dump(inst.config))
-    return inst
 
 
 @pytest.fixture

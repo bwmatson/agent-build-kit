@@ -630,7 +630,10 @@ and everyone who cloned it afterwards got units aimed at someone else's home.
   `loginctl enable-linger <user>` without `sudo` or a prompt, and if that fails
   prints `sudo loginctl enable-linger <user>` with the reason. It never runs
   `sudo`, says nothing when lingering is on or `loginctl` is missing, and skips
-  the check with `--no-enable`, `--dry-run` and `--remove`.
+  the check with `--no-enable`, `--dry-run` and `--remove`. The enable attempt
+  passes `--no-ask-password`, so no polkit dialog appears. A shell logind has no
+  record of (some `su` and container shells) makes `loginctl show-user` fail, which
+  is reported as unknown and stays silent even though lingering is off there.
 - **Repeatable.** A unit that already holds the right content is left alone,
   down to its modification time, and systemd is told nothing when nothing
   changed. Safe in a setup script that runs on every boot.
