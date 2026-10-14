@@ -630,7 +630,7 @@ def _in_flight_line(item: dict) -> str:
 
 
 # What the calibration section may add to the prompt, in characters; examples are dropped
-# first, and kinds are capped by `limits.calibration_kinds_listed`.
+# first, and kinds are capped by `global_limits.calibration_kinds_listed`.
 SECTION_MAXIMUM = 2000
 TITLE_MAXIMUM = 80
 

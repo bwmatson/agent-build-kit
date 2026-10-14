@@ -1,4 +1,4 @@
-"""`limits.service_unavailable_attempts`.
+"""`global_limits.service_unavailable_attempts`.
 
 How many times in a row a unit may be parked because the model service answered 5xx or 529
 before the next such failure fails it: a persistent 5xx can be a real fault.

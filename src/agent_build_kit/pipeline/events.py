@@ -1570,7 +1570,7 @@ def on_rerun_checks(
     log: Log = print,
 ) -> bool:
     """Ask the host to run a unit's cancelled checks again, without an agent,
-    up to `limits.max_check_reruns` times per head commit.
+    up to `global_limits.max_check_reruns` times per head commit.
 
     The count is on the stored unit, against the commit last pushed: it starts
     again when the head moves. Past the bound nothing is asked for and the unit

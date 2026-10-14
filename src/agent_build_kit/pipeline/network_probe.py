@@ -3,7 +3,7 @@
 Evidence for an agent run that ended on a failure to connect, never a model call: a DNS
 lookup then a TCP connect, sending nothing, so it spends nothing and needs no key. The
 host the run called is the one asked about; the control group (the code hosts and
-`limits.network_control_hosts`) says whether the network as a whole is up. A probe that
+`global_limits.network_control_hosts`) says whether the network as a whole is up. A probe that
 cannot answer counts as the host being reachable, so a bug in it never parks a unit.
 """
 
@@ -42,7 +42,7 @@ def connect_tcp(host: str, port: int, timeout: float) -> object:
 
 
 def control_group(installation: Installation) -> tuple[str, ...]:
-    """The forge hosts of the installation's repos, then `limits.network_control_hosts`."""
+    """The forge hosts of the installation's repos, then `global_limits.network_control_hosts`."""
     hosts: dict[str, None] = {}
     for name in installation.repos:
         forge, _ = installation.forge_of(name)

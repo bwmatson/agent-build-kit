@@ -1,7 +1,7 @@
 """A model service answering 5xx or 529 parks the unit, up to a cap.
 
 The status is evidence on its own, so the probe is never asked. Such a parking counts in a
-row, and at `limits.service_unavailable_attempts` the next failure fails the unit with its
+row, and at `global_limits.service_unavailable_attempts` the next failure fails the unit with its
 error text and step. A step that completes, or a move to review, ends the row; a parking
 the probe sorted is not counted and not capped.
 """

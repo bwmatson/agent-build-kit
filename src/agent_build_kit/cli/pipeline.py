@@ -801,7 +801,7 @@ def verify_one(
 ) -> Verification:
     """Deploy one merged change and run its live tests — under the stack
     lock, since both touch the one live stack tier 2 also uses. Waits
-    `limits.tier2_lock_wait_seconds` for the lock, or `wait` seconds when given,
+    `global_limits.tier2_lock_wait_seconds` for the lock, or `wait` seconds when given,
     then raises `StackBusy`."""
     # A wait the caller chose is its own; only the configured one names the setting.
     timeout = inst.config.global_limits.tier2_lock_wait_seconds if wait is None else wait
@@ -2607,7 +2607,8 @@ PLAN_WAITS = {"network": "the network", "service": "the model service"}
 def _plan_wait(inst: Installation, error: Exception, previous: Mapping) -> tuple[str, dict] | None:
     """The kind of wait an outage error makes of a plan, and the fields of the record
     that says so, or None when the failure counts as an attempt: a weak sign the probe
-    does not confirm, or a run of statuses longer than `limits.service_unavailable_attempts`."""
+    does not confirm, or a run of statuses longer than
+    `global_limits.service_unavailable_attempts`."""
     waiting = bool(previous.get("waiting"))
     waited = previous.get("waits", 0) if waiting else 0
     # Only statuses are capped: waits the probe found are not, and do not count.
@@ -3162,7 +3163,7 @@ def build_turned_move(
 
 
 def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLane:
-    """The tick's lane: `limits.max_concurrent_restacks` workers apart from the build
+    """The tick's lane: `global_limits.max_concurrent_restacks` workers apart from the build
     workers, moving a unit onto the base it has when its move starts."""
 
     def refused(unit_id: str, resume_at: datetime | None) -> None:

@@ -1,4 +1,4 @@
-"""`limits.tier2_base_runs` allows the one run of the untouched failed tests on the base
+"""`global_limits.tier2_base_runs` allows the one run of the untouched failed tests on the base
 (spec: tier2-failures); at 0 the unit fails as it does without it."""
 
 from __future__ import annotations

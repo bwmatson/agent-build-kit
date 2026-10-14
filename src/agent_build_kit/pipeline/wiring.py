@@ -1324,7 +1324,7 @@ def build_tier1(
         given by a moved base's run) is given, unless one of them is the unit's own, which
         is never excused: that is a failure. Returns False when any fails again, or the
         profile cannot say which tests failed, so the failure stands. Returns True when more than
-        `limits.max_flakes_per_run` tests failed and passed both reruns: a disturbed run, not
+        `global_limits.max_flakes_per_run` tests failed and passed both reruns: a disturbed run, not
         that many flaky tests, so it is recorded as one storm, no fix change is written, and the
         caller goes on to the checks that remain."""
         rerun_command = getattr(toolchain, "serial_rerun_command", None)

@@ -666,7 +666,7 @@ reporting the call's spend through `on_result`. When the status is null the CLI'
 `API Error: <status>` are read instead, a word before the number allowed. A 4xx (401, 403,
 404 and the rest), a 429 (still `AgentRateLimited`), a model refusal and an ending with no
 status in the event or the words stay `AgentResult(ok=False)`. The pipeline parks the unit
-and caps a row of them at `limits.service_unavailable_attempts`.
+and caps a row of them at `global_limits.service_unavailable_attempts`.
 
 ## Usage tracking is optional
 

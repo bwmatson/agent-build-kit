@@ -25,7 +25,7 @@ def scope_of(own: Sequence[str], incoming: Sequence[str], setting: RestackCheck)
     Scoped unless the setting says full, the unit changed nothing of its own, or a file the
     move brought in is one the unit changes, which git merging cleanly says nothing about."""
     if setting is RestackCheck.FULL:
-        return MoveScope(scoped=False, reason="limits.restack_check is full")
+        return MoveScope(scoped=False, reason="global_limits.restack_check is full")
     if not own:
         return MoveScope(scoped=False, reason="the unit produced nothing of its own")
     shared = sorted(set(own) & set(incoming))

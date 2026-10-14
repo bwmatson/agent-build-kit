@@ -43,7 +43,7 @@ from agent_build_kit.pipeline.workspaces import process_alive
 STATUS_CONTEXT = "local/tier2"
 
 # The config key the tier 2 lock wait is read from; the busy message names it.
-LOCK_WAIT_SETTING = "limits.tier2_lock_wait_seconds"
+LOCK_WAIT_SETTING = "global_limits.tier2_lock_wait_seconds"
 
 Runner = Callable[[list[str]], str]
 

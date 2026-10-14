@@ -256,8 +256,8 @@ def status_lines(
     limit: int | None = None,
 ) -> list[str]:
     """`abk status` over `units`. `upsert` drops a unit's state, branch and pull request, so
-    those are recorded after it; `limit` is `limits.max_units_in_progress`."""
-    limits = {} if limit is None else dict(limits=dict(max_units_in_progress=limit))
+    those are recorded after it; `limit` is `global_limits.max_units_in_progress`."""
+    limits = {} if limit is None else dict(global_limits=dict(max_units_in_progress=limit))
     workspace = make_installation(
         tmp_path,
         planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),

@@ -581,7 +581,7 @@ class TestsConfig(Frozen):
     root_extras: list[str] = []
     # The pytest marker on tests that need the real local stack (tier 2).
     tier2_marker: str = "local_stack"
-    # This repo's tier 2 scope; None follows `limits.tier2_unit_scope`.
+    # This repo's tier 2 scope; None follows `global_limits.tier2_unit_scope`.
     tier2_unit_scope: Tier2UnitScope | None = None
     # This repo's schedule; None follows `limits.tier2_schedule`.
     tier2_schedule: Tier2Schedule | None = None

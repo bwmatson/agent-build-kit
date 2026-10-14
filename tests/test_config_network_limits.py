@@ -1,4 +1,4 @@
-"""`limits.network_probe_timeout_seconds` and `limits.network_control_hosts`.
+"""`global_limits.network_probe_timeout_seconds` and `global_limits.network_control_hosts`.
 
 The probe that tells a network outage from a provider outage looks at each host for at
 most the timeout, and at the control group: the forge hosts and the hosts named here.

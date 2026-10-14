@@ -74,17 +74,17 @@ more task groups of a change.
 | `planned` | In the graph, waiting for its dependencies (a never-started unit with two open same-repo parents, neither built on the other, builds on the deeper and waits for the rest: `waiting for <parent> to merge (second open parent)` in `abk status`) and a free slot — or a unit held before a step, which its next run decides again from the branch. A pass lets such a unit back in only when it was sent back for rework or its base changed, or when it was parked with the cause `host_unavailable`, `network_unavailable` or `service_unavailable` (the code host, the network or the model service could not be reached) and its backoff of 1, 2, 5, 10 then 30 minutes by consecutive parking has elapsed — it then resumes at the failing step, and an approved, pushed unit goes straight to the pull request step; any other cause waits for the next pass, and the tick log names it. A step already running is never interrupted; a usage pause leaves the unit `running` (below), not `planned`. | Nothing. `abk tick --dry-run` says whether it is ready. |
 | `running` | A worktree is open and an agent is in the build/review loop, or the run was killed or paused for the usage window and its thread is interrupted. | Nothing. A killed run is resumed at the node it was in by the next tick; a usage pause resumes on the first tick the usage guard allows. Status, the graph and the label may name it `reworking` (answering review or check feedback) or `rebasing` (a conflict or moved base), or `paused` (a pause is in force and no run holds it; it resumes by itself): derived names, never stored, for a stored `running`. A PR is a draft while its unit is `running` or `planned`. |
 | `in_review` | The loop and tier 1 passed; the PR is waiting for a human. | Review the PR. A comment sends it back for rework, and a comment added while that rework runs is addressed by it before it pushes; a merge moves it on. A branch that stops merging into its base sends it back to `planned` by itself; `abk status` says `conflicts with <base> since <time>; moved N times` and what it waits for; a conflict that survives its attempts, or one an attempt changed nothing for, holds the unit with that reason. It also leaves review for `planned` (read as `paused_rework`) while a predecessor in the same repo is changing its branch, and returns by itself once that predecessor is back in review; the move is an `upstream_changed` event to its thread. |
-| `checking` | Shown, never stored: a unit in review whose checks are still running, or that was pushed moments ago with none yet. It counts as in review for scheduling and dependents. `abk status` lists it as `checking`, apart from `awaiting review`. | Wait; it reads `in_review` once its checks pass, or a repo with no checks has waited `limits.checks_register_seconds`. |
+| `checking` | Shown, never stored: a unit in review whose checks are still running, or that was pushed moments ago with none yet. It counts as in review for scheduling and dependents. `abk status` lists it as `checking`, apart from `awaiting review`. | Wait; it reads `in_review` once its checks pass, or a repo with no checks has waited `global_limits.checks_register_seconds`. |
 | `merged` | Landed. | Nothing; the change archives once every unit is merged and verified. |
 | `closed` | The PR was closed without merging. | Units stacked on it are left as they are; re-plan if the work is still wanted. |
-| `held` | A reviewer took the unit over, the toolchain cannot build it, the review loop held it itself, a merge left it beyond `limits.stack_depth_rebase_cap` — a change only a human can make, an escalated class or disagreement, or rounds spent with a pushed branch and PR. The pipeline will not touch it (a depth hold is released by a later merge). | See below. |
+| `held` | A reviewer took the unit over, the toolchain cannot build it, the review loop held it itself, a merge left it beyond `global_limits.stack_depth_rebase_cap` — a change only a human can make, an escalated class or disagreement, or rounds spent with a pushed branch and PR. The pipeline will not touch it (a depth hold is released by a later merge). | See below. |
 | `failed` | The build raised. With the cause `environment`, the pipeline's own environment failed its `environment.check` before tier 1; the unit keeps its slot, `abk status` says it is waiting for the environment, and the tick resumes it once the environment is healthy. | See below; for the environment cause, fix the environment (`abk doctor` runs the check). |
 | `satisfied` | The unit's groups were already implemented — by an earlier unit that worked ahead of its own plan — so it added no commits of its own, and what was already at the tip passed tier 1. | Nothing; its groups are ticked and its dependents released, the same as a merge: a pull request stacked on it is moved onto its predecessor's branch or the trunk and retargeted before the satisfied unit's own is closed. No PR was opened — or, if a rework found this after one was already open, the reason (the groups, that they were implemented elsewhere, and where when the graph can say) was posted on it and it was closed. |
 
 ### `held`
 
 Four ways in: a reviewer put the `agent-hold` label on the PR, the review loop
-itself held it, a merge left it deeper than `limits.stack_depth_rebase_cap`
+itself held it, a merge left it deeper than `global_limits.stack_depth_rebase_cap`
 (the history note names the depth and the cap, and the branch it is still on),
 or the tick found it cannot build the unit (the unit's `history` entry says
 which — a toolchain profile the framework does not implement yet, for
@@ -117,7 +117,7 @@ instance).
   its branch, or change the plan.
 - A depth hold: no action needed. Its PR was retargeted, and a later merge in
   the same repo restacks it once its depth is within the cap. To move it
-  sooner, raise `limits.stack_depth_rebase_cap` or restack the branch by hand.
+  sooner, raise `global_limits.stack_depth_rebase_cap` or restack the branch by hand.
 
 ### Parked for its worktree
 
@@ -146,7 +146,7 @@ afterwards: `abk requeue <unit>` returns it.
 The run raised an exception, or its checks failed; its last log line in the
 tick output says which, and `abk status` shows the unit. A branch is checked
 (lint, types, tests) before a reviewer is asked, and sent back to the builder up
-to `limits.max_check_rounds` times (3 by default, counted per review round; `null` for no limit) before it fails with the output kept.
+to `global_limits.max_check_rounds` times (3 by default, counted per review round; `null` for no limit) before it fails with the output kept.
 
 Fix the cause first where it is outside the branch — a missing credential, a
 broken toolchain, a branch someone deleted — then `abk requeue <unit>` resumes
@@ -183,7 +183,7 @@ change the pipeline wrote to fix that test. `abk status` lists each flaky test a
 with its count and fix change; the unit resumes at tier 1 once that change merges. The one
 exception is the scoped run after a clean move of the base: a flake there is recorded and
 its fix change written, but the unit is not parked and gains no `Needs:` line. More than
-`limits.max_flakes_per_run` (default 5) such tests in one run is a disturbed run, not that many
+`global_limits.max_flakes_per_run` (default 5) such tests in one run is a disturbed run, not that many
 flakes: tier 1 records one `storm` row (`abk status` shows it as `flake storm:`), writes no change,
 and goes on with the checks that remain.
 
@@ -234,9 +234,9 @@ reads a draft as "not yet" and a ready pull request as theirs to review.
 1. The change is authored in `openspec/changes/<change>/` and committed
    (`abk check` and `abk tags` first).
 2. The next tick's planner reads its `tasks.md` and adds units to the graph.
-3. Units build in dependency order, at most `limits.max_concurrent_stacks`
+3. Units build in dependency order, at most `global_limits.max_concurrent_stacks`
    at a time. No unit that has never started starts while the units in
-   progress across all repos are at `limits.max_units_in_progress`, and a pass
+   progress across all repos are at `global_limits.max_units_in_progress`, and a pass
    starts no more new units than fit under it: the rest stay `planned`, and
    the tick log and `abk status` say "queue is full: N units in progress,
    limit M" with the count in each state, then "N blocked not counted" and a

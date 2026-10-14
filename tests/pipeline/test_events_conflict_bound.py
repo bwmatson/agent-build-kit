@@ -1,6 +1,6 @@
 """A conflict that survives its attempts holds the unit with a reason.
 
-The bound is `limits.max_review_rounds` attempts at one base tip; an attempt that changed
+The bound is `global_limits.max_review_rounds` attempts at one base tip; an attempt that changed
 nothing holds the unit at once.
 """
 

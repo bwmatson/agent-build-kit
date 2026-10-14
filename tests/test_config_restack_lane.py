@@ -1,4 +1,4 @@
-"""`limits.max_concurrent_restacks`: how many restacks the lane runs at once."""
+"""`global_limits.max_concurrent_restacks`: how many restacks the lane runs at once."""
 
 from __future__ import annotations
 

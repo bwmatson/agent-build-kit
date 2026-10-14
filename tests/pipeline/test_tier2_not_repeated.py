@@ -1,5 +1,5 @@
 """A tier 2 test is run by the tier 2 gate alone: tier 1's repeat and its serial rerun never
-reach it, whatever `limits.tier1_repeat_runs` says (spec: tier2-failures).
+reach it, whatever `global_limits.tier1_repeat_runs` says (spec: tier2-failures).
 
 The base run is the one further run of the untouched failures, and it is the gate's own.
 """
