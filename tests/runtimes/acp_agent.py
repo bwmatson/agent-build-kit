@@ -53,12 +53,11 @@ offers a model and then refuses to switch to it. `load` answers every
 `session/load` with a JSON-RPC error, as an agent that declares the capability
 and no longer holds the session.
 
-Three more options make it do work, in place of the edit it otherwise only
+One more option makes it do work, in place of the edit it otherwise only
 reports. What it did, and what the client answered, is appended to RECORD as
 `did/<what>` lines beside the requests:
 
-    [--act ACTIONS] [--probe terminal|ask] [--unasked PREFIX]
-    [--only PREFIX] [--split] [--offer KIND,...]
+    [--act ACTIONS]
 
 `--usage reported|extra|malformed|uncounted|empty|negative` has the prompt's
 response carry a `usage` payload: the protocol's own counts, the same with
@@ -108,17 +107,6 @@ carries it.
   instead, with no locations at all. `"title": TEXT` is the request's title
   in place of the command or `Edit <paths>`; with no paths and no command the
   raw input names no target either, so the title is all there is.
-
-`--probe` has it attempt what the prompt names, one attempt per inline code
-span: an absolute path is a write to it, anything else a command — through
-the client's capabilities (`terminal`) or by asking permission (`ask`).
-`--unasked` makes it run, without asking, any command starting with PREFIX:
-an agent whose own configuration does not flag that class, so the client
-only hears of it from the tool call's updates. That run too is only
-reported, never performed; an empty PREFIX is every command. `--only` has it
-attempt just the commands starting with PREFIX; `--split` sends a probed
-terminal command as a program and its arguments rather than one line;
-`--offer` is the option kinds its probed asks offer.
 """
 
 from __future__ import annotations
@@ -127,7 +115,6 @@ import argparse
 import asyncio
 import json
 import os
-import re
 import signal
 import subprocess
 import sys
@@ -302,11 +289,6 @@ class FakeAgent:
         linger: bool = False,
         fail: str | None = None,
         acts: list[dict[str, Any]] | None = None,
-        probe: str | None = None,
-        unasked: str | None = None,
-        only: str | None = None,
-        split: bool = False,
-        offer: list[str] | None = None,
         usage: str | None = None,
         cost: str | None = None,
         reply: str | None = None,
@@ -340,11 +322,6 @@ class FakeAgent:
         self._linger = linger
         self._fail = fail
         self._acts = acts
-        self._probe = probe
-        self._unasked = unasked
-        self._only = only
-        self._split = split
-        self._offer = offer
         self._model = models[0] if models else ""
         self._client: Client | None = None
         self._cwd = str(Path.cwd())
@@ -549,7 +526,7 @@ class FakeAgent:
             os.close(1)
             print(STDERR_LINE, file=sys.stderr, flush=True)
             time.sleep(HANG_SECONDS)
-        if self._acts is not None or self._probe is not None:
+        if self._acts is not None:
             if not await self._work(session_id, prompt):
                 return self._response("cancelled")
             for chunk in ANSWER_CHUNKS:
@@ -622,17 +599,8 @@ class FakeAgent:
         orphan_pid_file(self._record).write_text(str(child.pid))
 
     async def _work(self, session_id: str, prompt: list) -> bool:
-        """Take `--act`'s actions, or `--probe`'s attempts; False once the
-        client has cancelled the turn."""
-        acts = list(self._acts or [])
-        if self._probe is not None:
-            text = " ".join(getattr(block, "text", "") for block in prompt)
-            acts += [
-                self._attempt(span)
-                for span in re.findall(r"`([^`\n]+)`", text)
-                if self._only is None or span.startswith(self._only)
-            ]
-        for act in acts:
+        """Take `--act`'s actions; False once the client has cancelled the turn."""
+        for act in self._acts or []:
             if "terminal" in act:
                 await self._terminal(
                     session_id,
@@ -666,21 +634,6 @@ class FakeAgent:
             elif not await self._ask(session_id, act):
                 return False
         return True
-
-    def _attempt(self, span: str) -> dict[str, Any]:
-        """One attempt at what an inline code span of the prompt names."""
-        if span.startswith("/") and " " not in span:
-            if self._probe == "terminal":
-                return {"write": span, "content": "probe\n"}
-            return {"ask": "edit", "paths": [span]}
-        if self._unasked is not None and span.startswith(self._unasked):
-            return {"unasked": span}
-        if self._probe == "terminal":
-            if self._split:
-                command, *args = span.split()
-                return {"terminal": command, "args": args}
-            return {"terminal": span, "args": []}
-        return {"ask": "execute", "command": span, "options": self._offer or list(OPTIONS)}
 
     def _call_id(self) -> str:
         self._calls += 1
@@ -971,11 +924,6 @@ def command(
     linger: bool = False,
     fail: str | None = None,
     act: list[dict[str, Any]] | None = None,
-    probe: str | None = None,
-    unasked: str | None = None,
-    only: str | None = None,
-    split: bool = False,
-    offer: list[str] | None = None,
     usage: str | None = None,
     cost: str | None = None,
     reply: str | None = None,
@@ -1004,16 +952,6 @@ def command(
         actions = record.with_suffix(".act.json")
         actions.write_text(json.dumps(act))
         argv += ["--act", str(actions)]
-    if probe:
-        argv += ["--probe", probe]
-    if unasked is not None:
-        argv += ["--unasked", unasked]
-    if only:
-        argv += ["--only", only]
-    if split:
-        argv.append("--split")
-    if offer:
-        argv += ["--offer", ",".join(offer)]
     if usage:
         argv += ["--usage", usage]
     if cost:
@@ -1053,11 +991,6 @@ def use_agent(
     linger: bool = False,
     fail: str | None = None,
     act: list[dict[str, Any]] | None = None,
-    probe: str | None = None,
-    unasked: str | None = None,
-    only: str | None = None,
-    split: bool = False,
-    offer: list[str] | None = None,
     usage: str | None = None,
     cost: str | None = None,
     reply: str | None = None,
@@ -1083,11 +1016,6 @@ def use_agent(
             linger=linger,
             fail=fail,
             act=act,
-            probe=probe,
-            unasked=unasked,
-            only=only,
-            split=split,
-            offer=offer,
             usage=usage,
             cost=cost,
             reply=reply,
@@ -1146,11 +1074,6 @@ def main() -> None:
         ],
     )
     parser.add_argument("--act", type=Path)
-    parser.add_argument("--probe", choices=["terminal", "ask"])
-    parser.add_argument("--unasked")
-    parser.add_argument("--only")
-    parser.add_argument("--split", action="store_true")
-    parser.add_argument("--offer")
     parser.add_argument("--usage", choices=sorted(USAGE_PAYLOADS))
     parser.add_argument("--cost", choices=["USD", "EUR"])
     parser.add_argument("--reply")
@@ -1173,11 +1096,6 @@ def main() -> None:
         linger=args.linger,
         fail=args.fail,
         acts=json.loads(args.act.read_text()) if args.act else None,
-        probe=args.probe,
-        unasked=args.unasked,
-        only=args.only,
-        split=args.split,
-        offer=args.offer.split(",") if args.offer else None,
         usage=args.usage,
         cost=args.cost,
         reply=args.reply,

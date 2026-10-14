@@ -59,7 +59,6 @@ class OverheadNode(StrEnum):
     TRACK_PROPOSE = "track_propose"
     INIT_RESEARCH = "init_research"
     INIT_PROPOSE = "init_propose"
-    POLICY_PROBE = "policy_probe"
     LOGIN_REFRESH = "login_refresh"
     CHAT = "chat"
     CHAT_COMMIT = "chat_commit"
