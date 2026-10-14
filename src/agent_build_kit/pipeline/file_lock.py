@@ -46,3 +46,8 @@ def try_file_lock(path: Path) -> Iterator[bool]:
             yield True
         finally:
             fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    """Write `text` over `path` so a reader sees the old file or the new, never half."""
+    raise NotImplementedError
