@@ -508,12 +508,12 @@ def _restack_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
     pause = is_paused(_paused_marker(inst))
     for unit_id in owed:
         unit = by_id[unit_id]
-        if pause is None:
+        if pause is None or unit.cause is not Cause.RESTACK_DEFERRED:
+            # Not deferred by a pause: a clean move proceeds during one.
             lines.append(f"  {unit.id} ({unit.repo}) restacking onto {base_of(unit, units)}")
             continue
-        until = max(pause.until, datetime.now(UTC)).astimezone()
-        kind = "usage pause" if pause.kind == "usage" else f"{pause.kind} pause"
-        lines.append(f"  restack waiting: {unit.id} — {kind} until {until:%H:%M}")
+        verb = "usage pause" if pause.kind == "usage" else "paused"
+        lines.append(f"  restack waiting: {unit.id} — {pause_line(pause, verb=verb)}")
     return lines
 
 
@@ -3049,10 +3049,13 @@ class StackMoves(TypedDict):
     lane: RestackLane | None
 
 
-def gated_resolver(unit_id: str) -> ConflictSession:
+def gated_resolver(
+    unit_id: str, refused: Callable[[str, datetime | None], None] | None = None
+) -> ConflictSession:
     """A conflict resolver that asks the usage guard before each call, as a unit's agent step
     does, naming `unit_id` so an admission on an estimate is kept under it. A refusal is raised
-    as the model's own, which the move answers by aborting the rebase."""
+    as the model's own, which the move answers by aborting the rebase, and `refused` is told
+    when the guard expects to allow it again."""
     may_start, resume_at = build_usage_gate()
 
     class Gated(ConflictSession):
@@ -3060,22 +3063,30 @@ def gated_resolver(unit_id: str) -> ConflictSession:
             with starting(unit_id):
                 allowed, reason = may_start()
             if not allowed:
-                raise AgentRateLimited(reason, resets_at=resume_at())
+                again = resume_at()
+                if refused is not None:
+                    refused(unit_id, again)
+                raise AgentRateLimited(reason, resets_at=again)
             super().__call__(prompt, cwd=cwd, follow_up=follow_up)
 
     return Gated()
 
 
-def build_turned_move(installation: Installation, *, gated: bool = False) -> Callable[..., Moved]:
+def build_turned_move(
+    installation: Installation,
+    *,
+    gated: bool = False,
+    refused: Callable[[str, datetime | None], None] | None = None,
+) -> Callable[..., Moved]:
     """The move of a branch onto a base, told which repo's settings apply and holding that
     repo's turn only for the phases that write what its worktrees share. With `gated`, the
-    conflict resolver is asked of the usage guard first."""
+    conflict resolver is asked of the usage guard first, and `refused` hears of a refusal."""
     names = {path: repo for repo, path in installation.checkouts.items()}
 
     def move(path: Path, *args, **kwargs) -> Moved:
         name = names[path]
         if gated and "resolve" not in kwargs:
-            kwargs["resolve"] = gated_resolver(kwargs["moving_unit"])
+            kwargs["resolve"] = gated_resolver(kwargs["moving_unit"], refused)
         return resolved_move(
             path,
             *args,
@@ -3090,8 +3101,12 @@ def build_turned_move(installation: Installation, *, gated: bool = False) -> Cal
 def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLane:
     """The tick's lane: `limits.max_concurrent_restacks` workers apart from the build
     workers, moving a unit onto the base it has when its move starts."""
-    moves = build_stack_moves(store, inst, gated=True)
-    move = build_turned_move(inst, gated=True)
+
+    def refused(unit_id: str, resume_at: datetime | None) -> None:
+        lane.defer_until(unit_id, resume_at)
+
+    moves = build_stack_moves(store, inst, gated=True, refused=refused)
+    move = build_turned_move(inst, gated=True, refused=refused)
 
     def move_unit(owed: StoredUnit) -> None:
         unit = store.get(owed.id)
@@ -3148,6 +3163,14 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLane:
                 onto_intent=parent.title,
                 temporary_root=inst.worktree_root,
             )
+        except AgentRateLimited as error:
+            # Refused for usage, not a conflict: still owed, and moved when the guard allows.
+            store.set_state(
+                unit.id,
+                RUNNING,
+                note=f"restack onto {new_base} deferred: {str(error)[:300]}",
+                cause=Cause.RESTACK_DEFERRED,
+            )
         except Exception as error:  # noqa: BLE001
             store.set_state(
                 unit.id,
@@ -3167,7 +3190,7 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLane:
         ]
         return heads[0], heads[1]
 
-    return RestackLane(
+    lane = RestackLane(
         inst.max_concurrent_restacks,
         move=move_unit,
         claim=moves["claim"],
@@ -3178,6 +3201,7 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLane:
         base=lambda owed: base_of(owed, store.all()),
         log=log,
     )
+    return lane
 
 
 def build_stack_moves(
@@ -3186,6 +3210,7 @@ def build_stack_moves(
     *,
     lane: RestackLane | None = None,
     gated: bool = False,
+    refused: Callable[[str, datetime | None], None] | None = None,
 ) -> StackMoves:
     """The one place the merge handler and the satisfied path get what they
     move a stack with, every write to a repo's `.git` in that repo's turn, so
@@ -3207,7 +3232,7 @@ def build_stack_moves(
 
         return in_turn
 
-    move = build_turned_move(installation, gated=gated)
+    move = build_turned_move(installation, gated=gated, refused=refused)
 
     def checkout(path: Path, branch: str, **kwargs):
         """A checkout of the branch at a given head, made and removed in the repo's turn."""
@@ -3274,7 +3299,14 @@ def _dispatch(
     that repo's turn. Also how a merge the poll has not reported yet is recorded."""
     return build_dispatch(
         store,
-        **build_stack_moves(store, inst, lane=lane),
+        # A lane moves what the handlers hand it, and asks the guard before its resolver.
+        **build_stack_moves(
+            store,
+            inst,
+            lane=lane,
+            gated=lane is not None,
+            refused=lane.defer_until if lane is not None else None,
+        ),
         base_tip=build_base_tip(store, inst.checkouts),
         fork_point=build_fork_point(store, inst.checkouts),
         paused=lambda: pause_in_force(inst.state_dir),
@@ -3803,6 +3835,32 @@ async def _on_thread(
         )
 
 
+def _unit_log(unit: StoredUnit) -> Callable[[str], None]:
+    def say(message: str) -> None:
+        log(f"{unit.id}: {message}")
+
+    return say
+
+
+def _thread_runner(
+    inst: Installation, unit: StoredUnit, store: UnitStore, say: Callable[[str], None]
+) -> tuple[Callable[[], UnitRunner], str, list[StoredUnit]]:
+    """What a thread is run with away from a build slot: a way to make its runner, the base it
+    builds on and the graph it is read against."""
+    graph = store.all()
+
+    def make_runner() -> UnitRunner:
+        return build_runner(
+            unit,
+            store=store,
+            installation=inst,
+            record_merge=lambda repo, pr: _dispatch(inst, store)("merged", pr, repo=repo),
+            log=say,
+        )
+
+    return make_runner, base_of(unit, graph), graph
+
+
 def advance_thread_through_prepare(
     inst: Installation, unit: StoredUnit, *, store: UnitStore
 ) -> UnitRun | None:
@@ -3811,27 +3869,14 @@ def advance_thread_through_prepare(
     the thread is not parked at `prepare`. The caller holds the unit's branch."""
     # Late: the graph package imports the pipeline.
     from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
-    from agent_build_kit.graph.unit import advance_through_prepare, thread_position
+    from agent_build_kit.graph.unit import advance_through_prepare
 
-    graph = store.all()
-    base = base_of(unit, graph)
-
-    def say(message: str) -> None:
-        log(f"{unit.id}: {message}")
+    make_runner, base, graph = _thread_runner(inst, unit, store, _unit_log(unit))
 
     async def advance() -> UnitRun | None:
         async with open_checkpointer(unit_graphs_path(inst.state_dir)) as saver:
-            if (await thread_position(saver, unit.id)).next != (Node.PREPARE,):
-                return None
-            runner = build_runner(
-                unit,
-                store=store,
-                installation=inst,
-                record_merge=lambda repo, pr: _dispatch(inst, store)("merged", pr, repo=repo),
-                log=say,
-            )
             return await advance_through_prepare(
-                runner, unit, base=base, graph=graph, saver=saver, tracer=telemetry.tracer()
+                make_runner, unit, base=base, graph=graph, saver=saver, tracer=telemetry.tracer()
             )
 
     return asyncio.run(advance())
@@ -3889,20 +3934,10 @@ def resume_thread(
         requeue=requeue,
         rework=rework,
     )
-    graph = store.all()
-    base = base_of(unit, graph)
-
-    def say(message: str) -> None:
-        log(f"{unit.id}: {message}")
-
+    say = _unit_log(unit)
     try:
-        runner = build_runner(
-            unit,
-            store=store,
-            installation=inst,
-            record_merge=lambda repo, pr: _dispatch(inst, store)("merged", pr, repo=repo),
-            log=say,
-        )
+        make_runner, base, graph = _thread_runner(inst, unit, store, say)
+        runner = make_runner()
         store.record_step(unit.id, "")
         outcome = asyncio.run(
             _on_thread(

@@ -30,8 +30,8 @@
   The lane asks the usage guard before each conflict-resolving agent call, as a unit's own
   agent steps do, while a clean move proceeds during a pause; a conflicting restack waits
   for the pause to end and is moved then. An in-review unit told its base moved is moved by
-  the lane through its `prepare` step. `abk status` and the graph page show
-  `restacks: N running, M waiting` and each unit restacking onto its base, and two gauges,
+  the lane through its `prepare` step. `abk status` prints `restacks: N running, M waiting`,
+  and it and the graph page show each unit restacking onto its base. Two gauges,
   `abk.restacks.running` and `abk.restacks.waiting`, report the lane.
 
 - The poll now records when it last read a definite answer on whether a pull request

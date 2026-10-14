@@ -283,7 +283,7 @@ async def _stopped_by_error(path: BuildPath, unit: Unit) -> bool:
 
 
 async def advance_through_prepare(
-    runner: UnitRunner,
+    make_runner: Callable[[], UnitRunner],
     unit: Unit,
     *,
     base: str,
@@ -292,15 +292,15 @@ async def advance_through_prepare(
     tracer: Tracer | None = None,
 ) -> UnitRun | None:
     """Run a thread parked at `prepare` through it and stop, leaving it positioned at the node
-    after, which a worker then runs; the state it ends in. None, with nothing run, for a thread
-    that is not parked at `prepare`.
+    after, which a worker then runs; the state it ends in. None, with nothing made or run, for
+    a thread that is not parked at `prepare`: `make_runner` is asked only for one that is.
 
     The caller holds the unit's branch lock, as for `run_unit`."""
-    path = BuildPath(runner, unit, base=base, graph=graph, run_log=None, tracer=tracer)
-    compiled = _compiled(saver, path)
-    where = _position(await compiled.aget_state(_config(unit.id)))
+    where = await thread_position(saver, unit.id)
     if where.state is None or where.next != (Node.PREPARE,):
         return None
+    path = BuildPath(make_runner(), unit, base=base, graph=graph, run_log=None, tracer=tracer)
+    compiled = _compiled(saver, path)
     _record_sessions(path, compiled, unit.id)
     await run_thread(compiled, None, unit.id, interrupt_after=[Node.PREPARE])
     return _position(await compiled.aget_state(_config(unit.id))).state

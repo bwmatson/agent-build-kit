@@ -9,15 +9,16 @@ reports a usage window, so the guard is the one asked before it is called.
 from __future__ import annotations
 
 import json
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.pause import PAUSE_MARKER, clear_pause, pause_until
 from agent_build_kit.pipeline.unit_store import Cause
-from agent_build_kit.pipeline.units import PLANNED
+from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED
 from agent_build_kit.runtimes import AgentRateLimited, AgentRequest
 from tests.factories import git, stored_unit
 from tests.restack_lane_fakes import asked_of_the_guard, moved_onto_main, restack, tracked_rig
@@ -33,6 +34,22 @@ from tests.usage_host import Host, payload, refused
 
 MINUTE = timedelta(minutes=1)
 CLEAN = "spec/c/3"
+
+
+class Moving:
+    """The pipeline's clock, from now on, moved only by the test."""
+
+    def __init__(self) -> None:
+        self.at = datetime.now(UTC)
+
+    def set(self, at: datetime) -> None:
+        self.at = at
+
+    def now(self) -> datetime:
+        return self.at
+
+    def monotonic(self) -> float:
+        return self.at.timestamp()
 
 
 @pytest.fixture
@@ -156,6 +173,60 @@ def test_when_the_pause_ends_the_next_scan_moves_the_unit_asking_the_guard_again
         assert not moved_onto_main(rig, BRANCH)
 
         clear_pause(marker)
+        lane.scan(rig.store.all())
+        lane.drain()
+
+    assert [decision.may_start for decision in decisions] == [False, True]
+    assert moved_onto_main(rig, BRANCH)
+
+
+def test_a_merge_seen_by_the_handler_hands_the_conflicting_child_to_a_gated_lane(
+    rig: Rig, host: Host, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No pause marker stands: the guard's own refusal is what holds the resolver back."""
+    monkeypatch.setattr(cli, "build_retarget", lambda: lambda unit, base: None)
+    rig.store.upsert([stored_unit("c/2", change="c", depends_on=("c/1",), title=rig.child.title)])
+    rig.store.set_state("c/1", IN_REVIEW, pr=1, branch=OLD_BASE)
+    rig.store.set_state("c/2", IN_REVIEW, branch=BRANCH)
+    head = git(rig.repo, "rev-parse", BRANCH)
+    host.keep_reading(MINUTE // 2, payload(session=99.0, weekly=5.0))
+    decisions = asked_of_the_guard(monkeypatch)
+
+    with cli.build_restack_lane(rig.installation, rig.store) as lane:
+        merged = cli._dispatch(rig.installation, rig.store, lane=lane)("merged", 1, repo="app")
+        lane.drain()
+
+    assert merged
+    assert [decision.may_start for decision in decisions] == [False]
+    assert rig.requests == [], "the agent was called without the guard's say"
+    assert git(rig.repo, "rev-parse", BRANCH) == head
+    assert not rebase_in_progress(rig.repo)
+    stored = rig.store.get("c/2")
+    assert (stored.state, stored.cause) == (PLANNED, Cause.RESTACK_DEFERRED)
+
+
+def test_a_refusal_is_not_retried_before_its_time_and_is_after_it_with_no_pause_marker(
+    rig: Rig, host: Host, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = Moving()
+    monkeypatch.setattr(spans, "clock", clock)
+    host.keep_reading(MINUTE // 2, payload(session=99.0, weekly=5.0))
+    decisions = asked_of_the_guard(monkeypatch)
+
+    with cli.build_restack_lane(rig.installation, rig.store) as lane:
+        lane.scan(rig.store.all())
+        lane.drain()
+        assert [decision.may_start for decision in decisions] == [False]
+        assert not (rig.installation.state_dir / PAUSE_MARKER).exists()
+
+        with_room(host)
+        lane.scan(rig.store.all())
+        lane.drain()
+        assert len(decisions) == 1, "retried before the guard expected to allow it"
+
+        resume_at = decisions[0].resume_at
+        assert resume_at is not None
+        clock.set(resume_at + timedelta(seconds=1))
         lane.scan(rig.store.all())
         lane.drain()
 

@@ -15,6 +15,7 @@ import os
 import threading
 from collections.abc import Callable, Collection
 from concurrent.futures import Future
+from datetime import datetime
 from pathlib import Path
 from types import TracebackType
 from typing import Any
@@ -146,6 +147,7 @@ class RestackLane:
         self._cap, self._move, self._claim, self._owed, self._log = cap, move, claim, owed, log
         self._stamp, self._paused, self._record, self._base = stamp, paused, record, base
         self._was_paused = False
+        self._until: dict[str, datetime] = {}
         self._tried: dict[str, object] = {}
         self._changed = threading.Condition()
         self._queue: list[_Entry] = []
@@ -187,14 +189,28 @@ class RestackLane:
             self._was_paused = False
             with self._changed:
                 self._tried.clear()
+                self._until.clear()
         owed = set(self._owed(units))
         for unit in units:
             if unit.id in owed and not self._unchanged_since_tried(unit):
                 self.hand_over(unit)
 
+    def defer_until(self, unit_id: str, resume_at: datetime | None) -> None:
+        """The usage guard refused the unit's resolver and expects to allow it from `resume_at`:
+        `scan` does not hand the unit over again before then, and does once it has passed."""
+        if resume_at is not None:
+            with self._changed:
+                self._until[unit_id] = resume_at
+
     def _unchanged_since_tried(self, unit: StoredUnit) -> bool:
         with self._changed:
             tried = self._tried.get(unit.id)
+            until = self._until.get(unit.id)
+            if until is not None and spans.clock.now() >= until:
+                # The refusal's time has come: the same branch and base are tried again.
+                del self._until[unit.id]
+                self._tried.pop(unit.id, None)
+                return False
         return self._stamp is not None and tried is not None and tried == self._stamp(unit)
 
     def drain(self) -> None:
