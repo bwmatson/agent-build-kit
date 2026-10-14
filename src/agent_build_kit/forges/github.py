@@ -30,6 +30,7 @@ from githubkit.exception import (
 from githubkit.response import Response
 from pydantic import BaseModel, ValidationError
 
+from agent_build_kit.budget import cut_tail
 from agent_build_kit.forges.base import (
     BaseMissing,
     Check,
@@ -646,7 +647,7 @@ class GitHubForge:
                 lines = lines[: errors[-1] + 1]
             text = "\n".join(lines).strip()
             if text:
-                out.append(f"{job.name}:\n{text[-_LOG_CHARS:]}")
+                out.append(f"{job.name}:\n{cut_tail(text, _LOG_CHARS)}")
         return "\n\n".join(out)
 
     def _job_log(self, repo: RepoId, job: int) -> str:

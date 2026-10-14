@@ -2754,7 +2754,7 @@ class Tier2Session:
             broken=[f for f in classified.untouched if f.test not in failing],
             pre_existing=[f for f in classified.untouched if f.test in failing],
             command="; ".join(commands),
-            base_output=redact_text("\n".join(outputs)[-4000:], where="tier-2 base output"),
+            base_output=redact_text(cut_tail("\n".join(outputs), 4000), where="tier-2 base output"),
         )
 
     def _scheduled_verdict(self) -> Tier2Verdict | None:
@@ -2820,7 +2820,7 @@ class Tier2Session:
             command=f"{script} up && {script} test (then down)"
             if command == test
             else f"{script} up (failed)",
-            output=output[-4000:],
+            output=cut_tail(output, 4000),
             stack_versions=_stack_versions(self._stack_versions_command, run=self._run),
             failures=failures,
             **self._kept(),
