@@ -23,7 +23,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.path_patterns import GIT_DIR, inside, matches_any, matching_files, normalize
 from agent_build_kit.pipeline.command_limit import run_limited
-from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.shell import git, git_out
 from agent_build_kit.profiles.base import CreatedFiles
 
@@ -89,10 +89,7 @@ def read_state(state_dir: Path) -> EnvironmentState | None:
 
 
 def _write_state(state_dir: Path, state: EnvironmentState) -> None:
-    state_dir.mkdir(parents=True, exist_ok=True)
-    temporary = state_dir / f"{RECORD}.tmp"
-    temporary.write_text(state.model_dump_json())
-    temporary.replace(state_dir / RECORD)
+    atomic_write_text(state_dir / RECORD, state.model_dump_json())
 
 
 def _run(command: list[str], root: Path) -> tuple[bool, str]:

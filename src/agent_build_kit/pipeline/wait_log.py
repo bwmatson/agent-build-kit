@@ -9,6 +9,7 @@ from pathlib import Path
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
+from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.vocabulary import WaitReason
 
 # The decision log, in the state directory.
@@ -132,9 +133,7 @@ def trim_decision_log(path: Path, *, limit_mb: float) -> None:
             break
         kept.append(line)
         size += len(line)
-    scratch = path.with_name(path.name + ".tmp")
     try:
-        scratch.write_bytes(b"".join(reversed(kept)))
-        scratch.replace(path)
-    except OSError:
-        scratch.unlink(missing_ok=True)
+        atomic_write_text(path, b"".join(reversed(kept)).decode(errors="replace"))
+    except (OSError, UnicodeError):
+        pass

@@ -11,13 +11,13 @@ fresh one.
 from __future__ import annotations
 
 import json
-import os
 import shlex
 from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.runtimes.base import AgentRuntime, PolicyReport, SpellingResult
 from agent_build_kit.runtimes.known_agents import agent_for_command
 
@@ -62,12 +62,8 @@ def checked(
 
     report = runtime.check_policy(cwd)
     kept[runtime.name] = {"checked_at": now.isoformat(), "report": report.model_dump(mode="json")}
-    cache.parent.mkdir(parents=True, exist_ok=True)
-    # Written aside and moved into place, so a doctor and an init running at
-    # once never read half a file.
-    partial = cache.with_name(f".{cache.name}.{os.getpid()}.tmp")
-    partial.write_text(json.dumps(kept, indent=2))
-    os.replace(partial, cache)
+    # Written whole, so a doctor and an init running at once never read half a file.
+    atomic_write_text(cache, json.dumps(kept, indent=2))
     return report
 
 

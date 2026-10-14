@@ -7,7 +7,6 @@ and a second dry run finds nothing. It reads the files only; no code host is cal
 from __future__ import annotations
 
 import argparse
-import os
 import shutil
 import sys
 from contextlib import AbstractContextManager, nullcontext
@@ -15,6 +14,7 @@ from pathlib import Path
 
 from agent_build_kit import redaction
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.pause import pause_in_force
 from agent_build_kit.pipeline.run_log import run_log_dir
 from agent_build_kit.pipeline.transcript import transcript_dir
@@ -45,9 +45,7 @@ def _rewrite(path: Path, redactor: redaction.Redactor, *, apply: bool) -> None:
     print(f"{path}: {', '.join(names)}")
     if apply:
         shutil.copy2(path, path.with_name(path.name + COPY_SUFFIX))
-        scratch = path.with_name(path.name + ".tmp")
-        scratch.write_text(redactor.redact(text))
-        os.replace(scratch, path)
+        atomic_write_text(path, redactor.redact(text))
 
 
 def _lock_of(inst: Installation, path: Path) -> AbstractContextManager[None]:

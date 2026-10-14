@@ -98,11 +98,11 @@ def test_a_trim_that_cannot_write_leaves_the_log_and_no_scratch_file(
     decisions(path, 400)
     before = path.read_text()
 
-    def full_disk(self: Path, data: bytes) -> int:
+    def full_disk(self: Path, data: str) -> int:
         self.touch()
         raise OSError("no space left on device")
 
-    monkeypatch.setattr(Path, "write_bytes", full_disk)
+    monkeypatch.setattr(Path, "write_text", full_disk)
     trim_decision_log(path, limit_mb=0.001)
 
     assert path.read_text() == before

@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import functools
 import json
-import os
 import time
 from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
@@ -34,7 +33,7 @@ from pydantic import Field, ValidationError, field_validator, model_validator
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
-from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.units import (
     FAILED,
     HELD,
@@ -451,9 +450,7 @@ class UnitStore:
         # in diffs and reviews, where dense JSON is unreadable.
         # Written aside and renamed into place: reads are not locked, and a
         # reader catching a half-written file would take it for corruption.
-        partial = self.path.with_name(f"{self.path.name}.tmp")
-        partial.write_text(json.dumps(payload, indent=2) + "\n")
-        os.replace(partial, self.path)
+        atomic_write_text(self.path, json.dumps(payload, indent=2) + "\n")
         if self.on_write:
             self.on_write(list(stored.values()))
 

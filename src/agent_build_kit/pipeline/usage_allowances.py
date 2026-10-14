@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -19,6 +18,7 @@ from pydantic import ValidationError
 
 from agent_build_kit.config import ClaudeLimitsConfig
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.usage_calls import (
     CALLS_NAME,
     UsageCall,
@@ -160,11 +160,8 @@ def read_allowances(path: Path) -> dict[str, Calibrated]:
 
 def write_allowances(path: Path, found: Mapping[str, Calibrated]) -> None:
     """Keep `found` whole: a reader never sees half of it."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    partial = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     body = {name: each.model_dump(mode="json") for name, each in found.items()}
-    partial.write_text(json.dumps(body, indent=2))
-    os.replace(partial, path)
+    atomic_write_text(path, json.dumps(body, indent=2))
 
 
 def refresh_allowances(state_dir: Path, *, limits: ClaudeLimitsConfig, now: datetime) -> None:
