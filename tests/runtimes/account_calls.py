@@ -52,7 +52,10 @@ def restack_resolution(tmp_path: Path) -> dict[str, str] | None:
 
 
 def track_phase(tmp_path: Path) -> dict[str, str] | None:
+    account = settings.claude_home
     inst = described_installation(tmp_path / "planning")
+    # Building the installation reloads the settings, which would undo the account.
+    settings.claude_home = account
     fake = FakeClaude(stdout=record("Wrote one change."))
     runner.propose(inst, project(inst), runtime=ClaudeCodeRuntime(execute=fake))
     return fake.envs[0]

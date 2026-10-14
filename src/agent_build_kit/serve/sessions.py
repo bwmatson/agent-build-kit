@@ -9,8 +9,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from agent_build_kit import claude_account
 from agent_build_kit.model import Frozen
-from agent_build_kit.settings import settings
 
 
 class ClaudeSession(Frozen):
@@ -22,7 +22,7 @@ class ClaudeSession(Frozen):
 
 
 def claude_home() -> Path:
-    return settings.claude_home or Path.home() / ".claude"
+    return claude_account.home()
 
 
 def _arguments(entry: Path) -> list[bytes] | None:

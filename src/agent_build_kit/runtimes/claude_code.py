@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from agent_build_kit import config
+from agent_build_kit import claude_account, config
 from agent_build_kit.config import ModelsConfig
 from agent_build_kit.hooks.policy import hook_settings
 from agent_build_kit.pipeline.call_record import call_recorder
@@ -173,12 +173,14 @@ def refresh_login(run: Callable[..., object] = subprocess.run) -> None:
     takes — see `usage_guard.refresh_login` for why the usage read needs it."""
     started = time.monotonic()
     argv = [*command(), "-p", "Reply with OK and nothing else.", "--model", "haiku"]
+    entry = claude_account.environment_entry()
     done = run(
         argv,
         capture_output=True,
         text=True,
         check=False,
         timeout=120,
+        **({"env": child_environment(None, entry)} if entry else {}),
     )
     # The output is discarded, so the row has no figures: a duration and the exit status.
     call_recorder(OverheadNode.LOGIN_REFRESH, say=print)(
@@ -312,7 +314,8 @@ class ClaudeCodeRuntime:
         execute = self._execute or spawn
         # Only when there is something to add: an injected `execute` written
         # before the environment was passed does not take the argument.
-        extra: dict[str, Any] = {"env": request.env} if request.env else {}
+        env = {**request.env, **claude_account.environment_entry()}
+        extra: dict[str, Any] = {"env": env} if env else {}
         if request.environment is not None:
             extra["environment"] = request.environment
         result = execute(build_argv(request), cwd=request.cwd, on_event=_progress(request), **extra)
@@ -521,7 +524,7 @@ def through(run: Callable[..., subprocess.CompletedProcess[str]]) -> ClaudeCodeR
     exact argv."""
 
     def execute(argv: list[str], *, cwd: Path | None = None, on_event=None, env=None):
-        return run(argv, cwd=cwd)
+        return run(argv, cwd=cwd, **({"env": env} if env else {}))
 
     return ClaudeCodeRuntime(execute=execute)
 

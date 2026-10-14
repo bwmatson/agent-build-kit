@@ -9,6 +9,11 @@
   resumes once the fix is in review or merged. The fix's own units, units already waiting on
   it and units of other repos run as before. `abk status` ends each `pre-existing:` line
   with how many units wait on its fix.
+- An installation can run Claude Code on its own account: set `CLAUDE_CONFIG_DIR` or
+  `ABK_CLAUDE_HOME` (in the process environment or the installation's `.env`) to an absolute
+  directory, and every `claude` abk starts, including the login refresh, runs in it. The
+  sessions page lists and resumes sessions from that directory. With neither set nothing
+  changes.
 
 - `abk tags` with no change and no `--all`, or with both, now prints one line saying what to
   pass and exits 2, instead of failing with a traceback. Its help names `--all`.

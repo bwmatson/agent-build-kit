@@ -3,12 +3,27 @@
 The account directory is what Claude Code calls its config directory. It is read
 from `CLAUDE_CONFIG_DIR` or `ABK_CLAUDE_HOME` (aliases of one value), from the
 process environment or the installation's `.env`, and is never a key of abk.yaml.
+The rules are the settings layer's own (`settings.claude_home`); `source` only says
+which name and place supplied the value.
 """
 
 from __future__ import annotations
 
+import os
 from enum import Enum
 from pathlib import Path
+
+from dotenv import dotenv_values
+
+from agent_build_kit import settings as settings_module
+from agent_build_kit.config import ConfigError
+from agent_build_kit.settings import settings
+
+# The names the setting is read under, `CLAUDE_CONFIG_DIR` first.
+NAMES = ("CLAUDE_CONFIG_DIR", "ABK_CLAUDE_HOME")
+
+# The variable Claude Code reads its account directory from.
+VARIABLE = "CLAUDE_CONFIG_DIR"
 
 
 class Source(Enum):
@@ -21,29 +36,84 @@ class Source(Enum):
     DEFAULT = "the default"
 
 
-def home() -> Path:
-    raise NotImplementedError
+_PROCESS = {
+    "CLAUDE_CONFIG_DIR": Source.PROCESS_CLAUDE_CONFIG_DIR,
+    "ABK_CLAUDE_HOME": Source.PROCESS_ABK_CLAUDE_HOME,
+}
+_ENV_FILE = {
+    "CLAUDE_CONFIG_DIR": Source.ENV_FILE_CLAUDE_CONFIG_DIR,
+    "ABK_CLAUDE_HOME": Source.ENV_FILE_ABK_CLAUDE_HOME,
+}
 
 
-def is_default() -> bool:
-    raise NotImplementedError
+def _supplied(env_file: Path | None) -> tuple[Source, str, str] | None:
+    """The source, name and raw value of the first place that sets a name: the process
+    before the `.env`, `CLAUDE_CONFIG_DIR` before `ABK_CLAUDE_HOME`; None when none does."""
+    for name in NAMES:
+        if name in os.environ:
+            return _PROCESS[name], name, os.environ[name]
+    held = (
+        {key.upper(): value for key, value in dotenv_values(env_file).items()} if env_file else {}
+    )
+    for name in NAMES:
+        if name in held:
+            return _ENV_FILE[name], name, held[name] or ""
+    return None
 
 
 def source(env_file: Path | None) -> Source:
-    raise NotImplementedError
+    found = _supplied(env_file)
+    return found[0] if found and found[2] else Source.DEFAULT
+
+
+def _default() -> Path:
+    return Path.home() / ".claude"
+
+
+def _configured() -> Path | None:
+    """The account directory the setting names; None when unset or empty."""
+    raw = settings.claude_home
+    found = _supplied(settings_module.loaded_env_file)
+    if raw is None or (found is not None and not found[2]):
+        return None
+    path = raw.expanduser()
+    if not path.is_absolute():
+        where, name = (found[0].value, found[1]) if found else ("the settings", "CLAUDE_CONFIG_DIR")
+        raise ConfigError(
+            f"{name} is {str(raw)!r} ({where}); write an absolute path, since a relative one "
+            "would mean a different directory under each shell and timer"
+        )
+    return path
+
+
+def home() -> Path:
+    return _configured() or _default()
+
+
+def is_default() -> bool:
+    return _configured() is None
+
+
+def environment_entry() -> dict[str, str]:
+    """What a `claude` is started with to run in the account: its directory under Claude Code's
+    own variable, or nothing for the default account."""
+    account = _configured()
+    return {VARIABLE: str(account)} if account else {}
 
 
 def credentials_path() -> Path:
-    raise NotImplementedError
+    return home() / ".credentials.json"
 
 
 def state_file() -> Path:
-    raise NotImplementedError
+    account = _configured()
+    return account / ".claude.json" if account else Path.home() / ".claude.json"
 
 
 def skills_dir() -> Path:
-    raise NotImplementedError
+    return home() / "skills"
 
 
 def account_key() -> str | None:
-    raise NotImplementedError
+    account = _configured()
+    return str(account) if account else None

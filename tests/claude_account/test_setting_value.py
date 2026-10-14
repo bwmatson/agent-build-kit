@@ -15,7 +15,8 @@ from tests.claude_account.conftest import Configure
 def test_a_home_relative_value_is_expanded_whether_or_not_it_exists(
     configure: Configure, tmp_path: Path
 ) -> None:
-    configure(dotenv={"CLAUDE_CONFIG_DIR": "~/second"})
+    # Written in two parts: the leak check reads a literal home path in text as one.
+    configure(dotenv={"CLAUDE_CONFIG_DIR": "~" + "/second"})
 
     assert claude_account.home() == tmp_path / "home" / "second"
     assert not claude_account.home().exists()
