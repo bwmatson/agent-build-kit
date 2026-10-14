@@ -2379,7 +2379,7 @@ def link_needs(
 
     Every tick, after planning: a re-plan takes each unit's dependencies from
     the plan, which knows nothing of these, so linking once would not last.
-    Idempotent — a dependency already there is left alone. The dependencies
+    Idempotent — a target the unit already reaches is left alone. The dependencies
     refused because they would close a cycle are returned and logged, but not again
     for a pair already in `reported`, which a pass keeps across its rounds.
     """
@@ -2393,13 +2393,17 @@ def link_needs(
         ),
     )
     graph = {u.id: list(u.depends_on) for u in units if u.state not in FINISHED}
+    # Every stored edge, of units in any state: a merged unit between two still links them.
+    stored = {u.id: list(u.depends_on) for u in units}
     refused: list[CycleEdge] = []
     for unit in units:
         if unit.id not in wanted and not unit.needs:
             continue
         added: list[str] = []
+        needs: list[str] = []
         for target in dict.fromkeys(wanted.get(unit.id, [])):
-            if target in unit.depends_on:
+            if path_between(stored, unit.id, target):
+                needs.append(target)
                 continue
             if back := path_between(graph, target, unit.id):
                 edge = CycleEdge(unit=unit.id, dependency=target, cycle=(unit.id, *back))
@@ -2413,15 +2417,21 @@ def link_needs(
                 refused.append(edge)
                 continue
             added.append(target)
+            needs.append(target)
             graph.setdefault(unit.id, []).append(target)
-        linked = (*unit.depends_on, *added)
+            stored[unit.id].append(target)
         if added:
+            # A listed dependency an added target reaches is no longer a direct one.
+            kept = [
+                d for d in unit.depends_on if not any(path_between(stored, t, d) for t in added)
+            ]
+            linked = (*kept, *added)
             store.set_dependencies(unit.id, linked)
+            stored[unit.id] = list(linked)
             log(f"{unit.id}: now depends on {', '.join(added)} (Needs: in tasks.md)")
-        # Which dependencies a `Needs:` line asked for, for the graph alone; a removed
-        # line removes the mark.
-        needs = tuple(t for t in dict.fromkeys(wanted.get(unit.id, [])) if t in linked)
-        if needs != unit.needs:
+        # Which targets a `Needs:` line named, linked or implied, for the graph alone; a
+        # removed line removes the mark.
+        if tuple(needs) != unit.needs:
             store.set_needs(unit.id, needs)
     return refused
 
