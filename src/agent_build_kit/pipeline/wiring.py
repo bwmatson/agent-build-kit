@@ -175,36 +175,42 @@ STORM_FAILURE_CHARS = 3000
 # failed command weighs than a passing one.
 TIER2_OUTPUT_CHARS = 4000
 TIER2_PASSING_CHARS = 1500
-TIER2_DIGEST_CHARS = 400
+TIER2_DIGEST_CHARS = 300
 TIER2_FAILED_WEIGHT = 4
-# What a command's section keeps at least, beside its header, when it cannot read the tests.
+# How much of the output the failed commands' digests may reserve between them.
+TIER2_DIGEST_SHARE = TIER2_OUTPUT_CHARS * 3 // 4
+# What a command's section keeps at least, beside its header: the end of its output, or the
+# start of its failure digest, so a section can always get what its smallest form says.
 TIER2_SMALLEST_TAIL = 200
 
 
 def _failure_digest(toolchain: ToolchainProfile, text: str) -> str:
     """Each failed test's identifier and the end of its own section, where the error is;
     empty when the profile cannot read the failed tests."""
-    named = getattr(toolchain, "failed_tests", None)
-    sections = getattr(toolchain, "failure_sections", None)
-    if named is None:
+    tests = _failed_ids(toolchain, text)
+    if not tests:
         return ""
+    sections = getattr(toolchain, "failure_sections", None)
     found = sections(text) if sections is not None else {}
     return "\n".join(
         "\n".join(
             part for part in (test, cut_tail(found.get(test, ""), TIER2_DIGEST_CHARS)) if part
         )
-        for test in named(text)
+        for test in tests
     )
 
 
 def _command_section(
-    header: str, text: str, toolchain: ToolchainProfile, *, failed: bool
+    header: str, text: str, toolchain: ToolchainProfile, *, failed: bool, failures: int = 1
 ) -> Section:
     """One command's part of the tier 2 output. A passing command keeps the end of its
-    output; a failed one keeps its failed tests and why first, then the end of the rest."""
+    output; a failed one keeps its failed tests and why first, then the end of the rest. A
+    failed command is never left out, and reserves its digest up to its part (of `failures`
+    commands) of `TIER2_DIGEST_SHARE`."""
     digest = _failure_digest(toolchain, text) if failed else ""
     full = f"{header}\n{text}"
     front = len(header) + 1
+    reserve = max(TIER2_DIGEST_SHARE // failures, TIER2_SMALLEST_TAIL)
 
     def render(size: int) -> str:
         room = size - front
@@ -221,9 +227,10 @@ def _command_section(
         key=header,
         render=render,
         natural=len(full),
-        smallest=min(len(full), front + (len(digest) if digest else TIER2_SMALLEST_TAIL)),
+        smallest=min(len(full), front + min(len(digest) or TIER2_SMALLEST_TAIL, reserve)),
         weight=TIER2_FAILED_WEIGHT if failed else 1,
         ceiling=None if failed else front + TIER2_PASSING_CHARS,
+        required=failed,
     )
 
 
@@ -2392,9 +2399,9 @@ class Tier2Session:
             """A test's id as the result names it: with its project, where there is one."""
             return f"{project}/{test}" if project else test
 
-        # header, text, how much of it to keep, the toolchain that read it, its project,
+        # header, text, whether the command failed, the toolchain that read it, its project,
         # and where and with which command it ran
-        outputs: list[tuple[str, str, int | None, ToolchainProfile, str, Path, list[str]]] = []
+        outputs: list[tuple[str, str, bool, ToolchainProfile, str, Path, list[str]]] = []
 
         # A queue, not a fail-fast lock: a second unit's tier 2 tests are
         # perfectly valid, there is simply one local stack to run them on.
@@ -2430,17 +2437,20 @@ class Tier2Session:
                     # would fill the cut output and push the failures from it.
                     kept = toolchain.without_durations(out)
                     if f or completed.returncode not in (0, nothing):
-                        outputs.append((header, kept, None, toolchain, project, where, command))
+                        outputs.append((header, kept, True, toolchain, project, where, command))
                     elif p:
-                        outputs.append((header, kept, 1500, toolchain, project, where, command))
+                        outputs.append((header, kept, False, toolchain, project, where, command))
 
             # Every command's text in one pass, before any cut, so a cut cannot leave half a
             # value and a failing redaction is logged once.
             redacted = redact_leaves([out for _, out, *_ in outputs], where="tier-2 output")
+            failures_count = sum(failed for _, _, failed, *_ in outputs)
             output = fit(
                 [
-                    _command_section(header, text, toolchain, failed=keep is None)
-                    for (header, _, keep, toolchain, *_), text in zip(
+                    _command_section(
+                        header, text, toolchain, failed=failed, failures=max(failures_count, 1)
+                    )
+                    for (header, _, failed, toolchain, *_), text in zip(
                         outputs, redacted, strict=True
                     )
                 ],
@@ -2450,10 +2460,10 @@ class Tier2Session:
             failures: list[TestFailure] = []
             # Which command named each failure, for the base run to repeat that one.
             named_by: dict[str, tuple[Path, ToolchainProfile, list[str]]] = {}
-            for (_, _, keep, toolchain, project, at, ran), text in zip(
+            for (_, _, command_failed, toolchain, project, at, ran), text in zip(
                 outputs, redacted, strict=True
             ):
-                if keep is not None:
+                if not command_failed:
                     continue
                 for found in toolchain.parse_test_failures(text):
                     test = labelled(project, found.test)
@@ -2478,7 +2488,7 @@ class Tier2Session:
                 skipped=skipped,
                 duration_seconds=duration,
                 command=command,
-                output=output[-4000:],
+                output=output,
                 stack_versions=_stack_versions(self._stack_versions_command, run=self._run),
                 failures=failures,
                 durations=sorted(timed, key=lambda e: e.seconds, reverse=True),

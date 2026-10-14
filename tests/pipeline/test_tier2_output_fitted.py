@@ -27,19 +27,21 @@ CLOSING = f"========================= {FAILED} failed, 3 passed in 4.21s =======
 ERRORS = [f"E   AssertionError: route {n} answered 404" for n in range(FAILED)]
 
 
-def failing_log(*, head: str = "") -> str:
+def failing_log(*, head: str = "", count: int = FAILED) -> str:
     """A failed pytest run over seven tests: long tracebacks, a coverage table between the
     failures and the closing line, so that the last four thousand characters hold none of
     the failed tests."""
+    names = [f"test_route_{n}" for n in range(count)]
+    errors = [f"E   AssertionError: route {n} answered 404" for n in range(count)]
     blocks = [
         f"{'_' * 20} {name} {'_' * 20}\n"
         + "".join(
             f"tests/live/test_route.py:{line}: in helper\n    call({line})\n" for line in range(12)
         )
         + f"{error}\n"
-        for name, error in zip(NAMES, ERRORS, strict=True)
+        for name, error in zip(names, errors, strict=True)
     ]
-    summary = "".join(f"FAILED {id_} - AssertionError\n" for id_ in IDS)
+    summary = "".join(f"FAILED tests/live/test_route.py::{n} - AssertionError\n" for n in names)
     coverage = "".join(f"src/pkg/module_{n:03d}.py   120   4   97%\n" for n in range(120))
     return (
         f"{head}"
@@ -49,7 +51,7 @@ def failing_log(*, head: str = "") -> str:
         + "=========================== short test summary info ============================\n"
         + summary
         + coverage
-        + f"{CLOSING}\n"
+        + f"{CLOSING.replace(str(FAILED), str(count), 1)}\n"
     )
 
 
@@ -135,3 +137,17 @@ def test_a_profile_that_cannot_read_the_failed_tests_keeps_the_tail(tmp_path: Pa
     assert output.rstrip().endswith(CLOSING)
     assert "HEAD-OF-THE-LOG" not in output
     assert IDS[0] not in output
+
+
+def test_a_log_with_very_many_failures_still_keeps_the_first_of_them(tmp_path: Path) -> None:
+    root = checkout(tmp_path)
+    gate = session(tmp_path, runner({"checkout": (1, failing_log(count=30))}))
+
+    gate.run(cwd=root)
+
+    assert gate.result is not None
+    output = gate.result.output
+    assert 0 < len(output) <= BUDGET
+    assert output.startswith("$ ")
+    assert IDS[0] in output
+    assert ERRORS[0] in output
