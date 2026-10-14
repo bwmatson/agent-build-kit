@@ -45,7 +45,7 @@ from agent_build_kit.pipeline.pr_replies import last_json, parse_answer
 from agent_build_kit.pipeline.reuse_guidance import reuse_guidance
 from agent_build_kit.pipeline.scratch import output_convention
 from agent_build_kit.pipeline.task_progress import mark_groups
-from agent_build_kit.pipeline.tier2 import Tier2Verdict
+from agent_build_kit.pipeline.tier2 import Tier2Verdict, latest_full_output
 from agent_build_kit.pipeline.unit_store import (
     Cause,
     Description,
@@ -165,24 +165,21 @@ class ChecksTemplate(PromptTemplate):
     def format(self, *args: object, **fields: object) -> str:
         return super().format(*args, **{"rerun": self.tier1, **fields})
 
-
-_FULL_OUTPUT = re.compile(r"\*\*Full output:\*\* `([^`]+)`( \(withheld)?")
-
-
-def rerun_advice(template: ChecksTemplate, feedback: str, source: FeedbackSource) -> str:
-    """What a checks prompt says about seeing the whole output: for tier 1 the template's own
-    sentence, to run the checks; for tier 2, which a builder cannot rerun, the file holding
-    the full output when the saved failure names one that was not withheld."""
-    if source is not FeedbackSource.TIER2:
-        return template.tier1
-    cut = "The output above is cut short, and you cannot rerun the live tests."
-    found = _FULL_OUTPUT.search(feedback)
-    if found is None or found.group(2):
-        return cut
-    return (
-        f"The output above is cut short; the full output is in {found.group(1)}: read it "
-        "with `grep` or `sed`. You cannot rerun the live tests."
-    )
+    def advice(self, feedback: str, source: FeedbackSource) -> str:
+        """What the prompt says about seeing the whole output: for tier 1 this template's
+        own sentence, to run the checks; for tier 2, which a builder cannot rerun, the file
+        holding the latest run's full output when the saved failure names one that was not
+        withheld."""
+        if source is not FeedbackSource.TIER2:
+            return self.tier1
+        cut = "The output above is cut short, and you cannot rerun the live tests."
+        path, withheld = latest_full_output(feedback)
+        if not path or withheld:
+            return cut
+        return (
+            f"The output above is cut short; the full output is in {path}: read it "
+            "with `grep` or `sed`. You cannot rerun the live tests."
+        )
 
 
 def person_guidance(note: str) -> str:

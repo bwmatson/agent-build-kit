@@ -43,6 +43,12 @@ def tier2_feedback(*, output_file: str = LOG, withheld: bool = False) -> str:
     return f"tier 2 failed:\n{build_snapshot(result)}"
 
 
+def failed_twice(first: str, second: str, *, withheld: bool = False) -> str:
+    """Two failures saved as the node saves the second: added to the first's feedback."""
+    latest = tier2_feedback(output_file=second, withheld=withheld)
+    return f"{tier2_feedback(output_file=first)}\n\n{latest}"
+
+
 def reworked(tmp_path: Path, feedback: str, source: FeedbackSource, *, resumes: bool) -> str:
     """The prompt the rework of a unit with this saved failure sends: the continuation of
     its build session when `resumes`, else the full prompt of a new one."""
@@ -89,6 +95,31 @@ def test_a_tier2_failure_without_a_readable_file_names_none_and_says_it_cannot_b
     assert "cut short" in after
     assert NO_RERUN in after
     assert RUN_YOURSELF not in " ".join(prompt.lower().split())
+
+
+FIRST, SECOND = "runs/tier2-output/unit-1-a.log", "runs/tier2-output/unit-1-b.log"
+
+
+@pytest.mark.parametrize("resumes", [False, True], ids=["prompt", "continuation"])
+def test_a_second_tier2_failure_names_the_latest_runs_file(tmp_path: Path, resumes: bool) -> None:
+    prompt = reworked(tmp_path, failed_twice(FIRST, SECOND), FeedbackSource.TIER2, resumes=resumes)
+
+    after = prompt.split("---")[-1]
+    assert SECOND in after
+    assert FIRST not in after
+
+
+@pytest.mark.parametrize("resumes", [False, True], ids=["prompt", "continuation"])
+def test_a_withheld_latest_run_names_no_file_even_when_an_older_one_was_readable(
+    tmp_path: Path, resumes: bool
+) -> None:
+    feedback = failed_twice(FIRST, SECOND, withheld=True)
+
+    prompt = reworked(tmp_path, feedback, FeedbackSource.TIER2, resumes=resumes)
+
+    after = prompt.split("---")[-1]
+    assert FIRST not in after and SECOND not in after
+    assert NO_RERUN in after
 
 
 @pytest.mark.parametrize("resumes", [False, True], ids=["prompt", "continuation"])
