@@ -80,14 +80,18 @@ class FailureRecord[T: Recorded]:
         """Every storm recorded, oldest first."""
         return [Storm.model_validate_json(line) for line in self._lines() if _is_storm(line)]
 
+    def latest_with_change(self) -> dict[str, T]:
+        """For each test, the latest entry that names a fix change: the one whose change
+        fixes the test now."""
+        return {entry.test: entry for entry in self.entries() if entry.change}
+
     def counts(self) -> list[TestCount]:
         """Each test once, with how often it was recorded and its latest fix change."""
-        counted: dict[str, TestCount] = {}
+        fixing = {test: entry.change for test, entry in self.latest_with_change().items()}
+        counted: dict[str, int] = {}
         for entry in self.entries():
-            before = counted.get(entry.test)
-            counted[entry.test] = TestCount(
-                test=entry.test,
-                count=(before.count if before else 0) + 1,
-                change=entry.change or (before.change if before else ""),
-            )
-        return list(counted.values())
+            counted[entry.test] = counted.get(entry.test, 0) + 1
+        return [
+            TestCount(test=test, count=count, change=fixing.get(test, ""))
+            for test, count in counted.items()
+        ]

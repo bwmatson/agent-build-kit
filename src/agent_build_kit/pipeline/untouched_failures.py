@@ -116,20 +116,16 @@ def holding_fixes(
     """The recorded entries whose fix change is open, was recorded for `unit`'s repo
     (by the repo of the unit named in `units`), is not `unit`'s own change and has no
     `Needs:` line from `unit`: each holds `unit` before a full tier 2 run."""
-    latest: dict[str, PreExisting] = {}
-    for entry in preexisting_record(inst).entries():
-        if entry.change:
-            latest[entry.test] = entry
     repo_of = {other.id: other.repo for other in units}
     waits_on = {
         need.change
         for member in unit.members()
         if (tasks := inst.changes_dir / member.change / "tasks.md").is_file()
-        for needs in group_needs(tasks).values()
-        for need in needs
+        for group in member.groups
+        for need in group_needs(tasks).get(group, [])
     }
     holding: dict[str, PreExisting] = {}
-    for entry in latest.values():
+    for entry in preexisting_record(inst).latest_with_change().values():
         if (
             repo_of.get(entry.unit) == unit.repo
             and entry.change != unit.change

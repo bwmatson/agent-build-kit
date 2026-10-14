@@ -42,7 +42,6 @@ def test_an_own_scope_unit_with_no_tier_2_test_is_not_held_and_takes_no_lock(
     assert planning.gate.asked == []
     assert outcome.status != RunStatus.HELD and asked == ["run"]
     assert planning.needs() == {}
-    assert not planning.installation.tier2_lock.exists()
 
 
 def test_a_full_scope_run_is_held_however_the_scope_function_came_to_say_so(

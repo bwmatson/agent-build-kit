@@ -13,6 +13,7 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.graph.state import EventKind, ResumeEvent
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.flakes import fix_change_name
 from agent_build_kit.pipeline.stack_runner import RunOutcome
 from agent_build_kit.pipeline.unit_store import RequeueReason
@@ -124,8 +125,17 @@ class Planning:
     def tick(self, **more: Any) -> RunOutcome:
         """The unit reaches tier 2 (or is resumed there), `run_tier2` being the recorder's
         unless `more` says otherwise."""
+
+        def run_under_lock(*, cwd: Path, base: str | None = None) -> tuple[bool, str]:
+            """The recorder's tier 2, taking the stack lock as `Tier2Session.run` does."""
+            with file_lock(self.installation.tier2_lock):
+                return self.recorder.tier2(cwd=cwd, base=base)
+
         wired: dict[str, Any] = dict(
-            tier="tier2", tier2_runs_whole=self.scope, on_tier2_gate=self.gate
+            tier="tier2",
+            tier2_runs_whole=self.scope,
+            on_tier2_gate=self.gate,
+            run_tier2=run_under_lock,
         )
         return tick(self.tmp_path, self.recorder, **{**wired, **more})
 

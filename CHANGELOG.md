@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- A unit about to run a full tier 2 run now waits while the fix change of a test that fails
+  on the base is open in its repo (only a run that executes the whole marker, as the scope
+  function decides it), instead of spending the run to meet the same failure. It
+  gets a `Needs:` line on that change and is parked before the stack lock and any test, and
+  resumes once the fix is in review or merged. The fix's own units, units already waiting on
+  it and units of other repos run as before. `abk status` ends each `pre-existing:` line
+  with how many units wait on its fix.
+
 - `abk tags` with no change and no `--all`, or with both, now prints one line saying what to
   pass and exits 2, instead of failing with a traceback. Its help names `--all`.
 
@@ -155,12 +163,6 @@
   that survives as many attempts at one tip as `limits.max_review_rounds` allows, or an
   attempt that changed nothing, holds the unit with the reason instead of trying again, and
   `abk status` says how often a conflicting unit has been moved and what it waits for.
-- A unit about to run a full tier 2 run now waits while the fix change of a test that fails
-  on the base is open in its repo, instead of spending the run to meet the same failure. It
-  gets a `Needs:` line on that change and is parked before the stack lock and any test, and
-  resumes once the fix is in review or merged. The fix's own units, units already waiting on
-  it and units of other repos run as before. `abk status` ends each `pre-existing:` line
-  with how many units wait on its fix.
 
 - A clean move of a unit's branch onto a moved base, before a push or when a merge releases
   a dependent, now tells tier 1 which base it left. Tier 1 classifies the move as scoped (no

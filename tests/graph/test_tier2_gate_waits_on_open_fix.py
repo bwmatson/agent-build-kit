@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.pipeline.flakes import add_needs_to_unit
+from agent_build_kit.pipeline.flakes import add_needs, add_needs_to_unit
 from agent_build_kit.pipeline.stack_runner import RunStatus
 from agent_build_kit.pipeline.unit_store import Cause, RequeueReason
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED
@@ -184,3 +184,18 @@ def test_a_record_whose_fix_change_is_archived_holds_nobody(tmp_path: Path) -> N
     assert planning.gate.asked == ["add-marker/1"]
     assert outcome.status != RunStatus.HELD and planning.ran_tier2
     assert planning.needs() == {}
+
+
+def test_a_line_on_a_group_another_unit_of_the_change_owns_does_not_exempt_the_unit(
+    tmp_path: Path,
+) -> None:
+    planning = Planning(tmp_path)
+    fix = planning.open_fix()
+    planning.store.upsert([stored_unit("add-marker/1", groups=(1,))])
+    add_needs(planning.installation, "add-marker", 2, fix, "failing test")
+
+    outcome = planning.tick()
+
+    assert outcome.status == RunStatus.HELD
+    assert planning.needs() == {1: [fix], 2: [fix]}, "group 1 gained its own line"
+    assert not planning.ran_tier2

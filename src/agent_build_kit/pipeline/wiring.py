@@ -2370,6 +2370,19 @@ class Tier2Session:
             return {}
         return {"output_file": str(self._output_file), "output_withheld": self._withheld}
 
+    def scope(self, *, cwd: Path, base: str | None = None) -> Tier2Scope:
+        """How much of tier 2 a run on `cwd` against `base` executes: the one decision `run`
+        acts on and the open-fix gate asks."""
+        return tier2_scope(
+            cwd,
+            base,
+            setting=self._scope,
+            profile=self._profile,
+            projects=self._projects,
+            marker=self._marker,
+            dev_stack=str(self._dev_stack) if self._dev_stack else None,
+        )
+
     def run(self, *, cwd: Path, base: str | None = None) -> tuple[bool, str]:
         """Run tier 2 on `cwd`. `base` is the ref this run is against: with it, the failed
         tests of files the unit left alone are run once on it, and `verdict` says whose
@@ -2379,15 +2392,7 @@ class Tier2Session:
         self._started = None
         self._output_file = None
         self._withheld = False
-        scope = tier2_scope(
-            cwd,
-            base,
-            setting=self._scope,
-            profile=self._profile,
-            projects=self._projects,
-            marker=self._marker,
-            dev_stack=str(self._dev_stack) if self._dev_stack else None,
-        )
+        scope = self.scope(cwd=cwd, base=base)
         if scope.mode is Tier2UnitScope.FULL:
             self._log(scope.reason)
         if scope.dev_stack and self._dev_stack is not None:
@@ -3312,9 +3317,9 @@ def build_runner(
         tier2_verdict=lambda: tier2.verdict,
         tier2_ran_no_tests=lambda: bool(tier2.result and tier2.result.ran_no_tests),
         on_preexisting=build_on_preexisting(store, installation, log=log),
-        # Every tier 2 run executes the whole marker until a scope function narrows it;
-        # that function replaces this answer.
-        tier2_runs_whole=lambda *, cwd, base: True,
+        tier2_runs_whole=lambda *, cwd, base: (
+            tier2.scope(cwd=cwd, base=base).mode is Tier2UnitScope.FULL
+        ),
         on_tier2_gate=build_on_tier2_gate(store, installation, log=log),
         push=push_in_turn,
         open_pr=build_open_pr(store=store, log=log),
