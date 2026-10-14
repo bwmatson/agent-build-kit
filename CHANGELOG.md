@@ -4,6 +4,7 @@
 
 - `abk tags` with no change and no `--all`, or with both, now prints one line saying what to
   pass and exits 2, instead of failing with a traceback. Its help names `--all`.
+
 - The node-npm profile now works through the tests-first gate. The gate uses the toolchain of
   the project a file belongs to, a red run is judged by why a test failed (an assertion or
   `Error: not implemented` is accepted; a file that fails to load, a passing test or an empty
