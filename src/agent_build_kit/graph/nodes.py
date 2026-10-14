@@ -19,7 +19,7 @@ from langgraph.errors import GraphInterrupt
 from langgraph.graph import END
 from langgraph.types import interrupt
 
-from agent_build_kit import forges, profiles, telemetry
+from agent_build_kit import claude_account, forges, profiles, telemetry
 from agent_build_kit.config import active, active_root, models
 from agent_build_kit.forges.base import BaseMissing
 from agent_build_kit.graph.state import (
@@ -614,7 +614,7 @@ class BuildPath:
                 )
             except SessionUnavailable as error:
                 self.say(
-                    f"session {state.session_id} cannot be continued ({error}); "
+                    f"session {state.session_id} cannot be continued ({error}{_under_account()}); "
                     "running the node from its start in a new session"
                 )
         elif follow_up:
@@ -635,7 +635,8 @@ class BuildPath:
                     why = str(error)
             if why:
                 self.say(
-                    f"the {SESSION_ROLES[Node(self._node)]} session cannot be continued ({why}); "
+                    f"the {SESSION_ROLES[Node(self._node)]} session cannot be continued "
+                    f"({why}{_under_account()}); "
                     "running the node from its start in a new session"
                 )
         if self._leftovers:
@@ -2198,6 +2199,13 @@ class BuildPath:
 def guidance_asked(state: UnitRun, note: str) -> str:
     """The notes the next review is told, with `note` added to those already kept."""
     return f"{state.guidance_asked}\n\n{note}".strip()
+
+
+def _under_account() -> str:
+    """Names the Claude Code account in a line about a session `claude` cannot find, when one
+    is set: a stored session belongs to the account it was begun under."""
+    account = claude_account.account_key()
+    return f", under the account {account}" if account else ""
 
 
 def _listed(paths: tuple[str, ...]) -> str:

@@ -33,7 +33,7 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
-from agent_build_kit import config, forges, profiles, runtimes, telemetry
+from agent_build_kit import claude_account, config, forges, profiles, runtimes, telemetry
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun
@@ -528,6 +528,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     if paused:
         log(pause_line(paused))
 
+    account = claude_account.account_key()
+    whose = f" (account {account})" if account else ""
     try:
         runtime = runtimes.active()
     except KeyError as exc:
@@ -539,9 +541,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             log(f"usage: runtime {runtime.name} has no usage window")
         elif reading:
             age = int(reading.age.total_seconds() // 60)
-            log(f"usage: {_usage_line(reading)} ({reading.source}, {age}m old)")
+            log(f"usage: {_usage_line(reading)} ({reading.source}, {age}m old){whose}")
         else:
-            log("usage: unknown")
+            log(f"usage: unknown{whose}")
         if runtime.supports_usage_tracking and (estimate := held_estimate_line()):
             log(estimate)
         if runtime.supports_usage_tracking:

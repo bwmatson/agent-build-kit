@@ -14,6 +14,7 @@ from agent_build_kit.pipeline import usage_guard
 from agent_build_kit.pipeline.usage_guard import current_usage, held_usage
 from agent_build_kit.runtimes import claude_code
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
+from agent_build_kit.settings import settings
 from tests.usage_host import Host, configure, editor_block, pause_at, payload
 
 MINUTE = timedelta(minutes=1)
@@ -41,7 +42,8 @@ def test_the_held_reading_falls_back_to_the_accounts_file(host: Host) -> None:
 def test_the_fresh_block_stays_off_and_does_not_replace_the_guards_own_reading(
     host: Host,
 ) -> None:
-    host.keep_reading(40 * MINUTE, payload(session=50.0))
+    # The kept reading is the account's, so it records the account.
+    host.keep_reading(40 * MINUTE, {**payload(session=50.0), "account": str(settings.claude_home)})
 
     reading = held_usage()
 

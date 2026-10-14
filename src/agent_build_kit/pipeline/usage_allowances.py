@@ -16,6 +16,7 @@ from typing import Literal
 
 from pydantic import ValidationError
 
+from agent_build_kit import claude_account
 from agent_build_kit.config import ClaudeLimitsConfig
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import atomic_write_text
@@ -91,6 +92,15 @@ def calibrate_pairs(
     )
 
 
+def since_last_change(calls: list[UsageCall], account: str | None) -> list[UsageCall]:
+    """The lines after the last one of an account other than `account`, so readings of one
+    account are never paired with another's."""
+    for index in range(len(calls) - 1, -1, -1):
+        if calls[index].account != account:
+            return calls[index + 1 :]
+    return calls
+
+
 def calibrated_allowances(
     calls: list[UsageCall],
     ledger: list[UsageRecord],
@@ -102,6 +112,7 @@ def calibrated_allowances(
     if not limits.calibrate_usage_allowances:
         return {}
     min_gap = timedelta(minutes=limits.usage_cache_minutes)
+    calls = since_last_change(calls, claude_account.account_key())
     found: dict[str, Calibrated] = {}
     for window in WINDOWS:
         usable = pairs(calls, ledger, window, min_gap=min_gap)

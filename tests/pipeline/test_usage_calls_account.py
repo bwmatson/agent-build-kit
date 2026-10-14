@@ -66,6 +66,6 @@ def test_the_rate_counts_the_lines_of_every_account_and_an_old_line_has_none(hos
         None,
         str(host.home / "b"),
     ]
-    assert all("account" in each for each in host.lines())
+    assert all("account" in each for each in host.lines()[1:])
     assert isinstance(calls[0], UsageCall)
     assert rate.day.calls == 4
