@@ -19,6 +19,7 @@ import type {{ Options }} from "./options";
 export type Id = string;
 export interface Shape {{ id: Id; area(): number }}
 export const LIMIT = 10;
+export enum Kind {{ A, B }}
 declare function external(x: number): number;
 
 export function area(shape: Shape): number {{

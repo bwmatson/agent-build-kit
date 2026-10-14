@@ -81,7 +81,10 @@ def check_branch(
     def is_test(path: str) -> bool:
         return profiles.for_path(projects, path, profile).is_test_path(path)
 
-    problems = check_structure(repo, base, is_test)
+    def stubs(path: str, content: str) -> list[str]:
+        return profiles.for_path(projects, path, profile).stub_violations(path, content)
+
+    problems = check_structure(repo, base, is_test, stubs)
     if problems:
         # No point running anything: the shape is wrong, so "which commit is
         # the tests commit" isn't yet a meaningful question.

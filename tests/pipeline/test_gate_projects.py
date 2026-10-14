@@ -125,3 +125,33 @@ def test_a_repo_without_projects_takes_every_command_and_the_test_paths_from_its
     assert problems == []
     assert node.red_files == [["src/widget.test.tsx"]]
     assert made["python-uv"].red_files == []
+
+
+def test_a_node_projects_tests_commit_with_a_source_that_has_a_body_fails_the_stub_check(
+    repo: Path, toolchains
+) -> None:
+    made = toolchains()
+    commit(
+        repo,
+        "test: covers it",
+        {NODE_TEST: "// a test\n", "web/src/a.ts": "export function a() { return 1 }\n"},
+    )
+    commit(repo, "feat: implements it", {"web/src/b.ts": "export const x = 1\n"})
+
+    problems = check_branch(repo, "main", profile=made["python-uv"], projects=PROJECTS)
+
+    assert any("web/src/a.ts: a() has a body" in problem for problem in problems), problems
+    assert made["node-npm"].red_files == [], "the shape is wrong, so nothing ran"
+
+
+def test_a_node_projects_tests_commit_with_only_the_sentinel_body_passes_the_stub_check(
+    repo: Path, toolchains
+) -> None:
+    made = toolchains()
+    stub = "export function a() { throw new Error('not implemented') }\n"
+    commit(repo, "test: covers it", {NODE_TEST: "// a test\n", "web/src/a.ts": stub})
+    commit(repo, "feat: implements it", {"web/src/a.ts": "export function a() { return 1 }\n"})
+
+    problems = check_branch(repo, "main", profile=made["python-uv"], projects=PROJECTS)
+
+    assert problems == []

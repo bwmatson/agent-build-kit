@@ -78,14 +78,14 @@ _FUNCTIONS = frozenset(
 _TEST_FILE = re.compile(rf"\.(test|spec)\.({'|'.join(_SOURCE)})$")
 
 
+_TYPESCRIPT = Language(tree_sitter_typescript.language_typescript())
+_TSX = Language(tree_sitter_typescript.language_tsx())
+
+
 def _parser(path: str) -> Parser:
-    """A TypeScript parser, or the TSX one for the extensions that may hold JSX."""
-    grammar = (
-        tree_sitter_typescript.language_tsx()
-        if path.endswith("x")
-        else tree_sitter_typescript.language_typescript()
-    )
-    return Parser(Language(grammar))
+    """A parser of the TSX grammar for the extensions that may hold JSX (`.tsx`, `.jsx`, and
+    `.js`, which Vite projects sometimes keep JSX in), else of the TypeScript one."""
+    return Parser(_TSX if path.endswith(("x", ".js")) else _TYPESCRIPT)
 
 
 def _text(node: Node | None) -> str:
