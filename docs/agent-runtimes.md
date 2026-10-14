@@ -10,7 +10,7 @@ the `acp` extra) runs a prompt, maps each end-of-turn reason, selects a model
 and streams progress; a request for a named `worktree` it refuses as a
 failed result rather than run in `cwd`. Its client capabilities, permission
 answering and `check_policy` are now implemented too (see "Policy enforcement
-without a hook contract" and "Proving the constraint: `check_policy`" below),
+without a hook contract" and "Proving the constraint: `abk policy check`" below),
 and it is registered when the `acp` extra is installed — `runtimes/__init__.py`'s
 `_load_builtin` imports `runtimes.acp` and registers it only if that import
 succeeds, so an installation without the extra still imports cleanly and knows
@@ -519,9 +519,9 @@ compound command split at `&&`, `||`, `|`, `;` and a newline, with runs of
 whitespace collapsed; a pattern is anchored, so it must match the whole command
 or segment and a wrapper prefix is not matched.
 
-**An approximation.** `matches` is a reference matcher, not any agent's own. The
-live policy check (`check_policy`) is the confirmation that a given agent
-refuses what the globs say it should.
+**An approximation.** `matches` is the matcher `abk policy check` judges with,
+not any agent's own. The acceptance test (below) is the confirmation that a
+given agent refuses what the globs say it should.
 
 **Spelling rows without a glob reader.** The globs do not read:
 
@@ -548,53 +548,48 @@ main`), a bare `git push` that relies on the configured upstream, and
 list and never replace it (`patterns(extra)` returns the recommended globs in
 table order, then the extras, none repeated).
 
-## Proving the constraint: `check_policy`
+## Proving the constraint: `abk policy check`
 
 A runtime whose agent runs its own tools is only as constrained as that
 agent's own configuration, and abk must not take that on trust — a
 `policy_coverage` of `agent_flagged` states a capability, not a fact about
-this machine. `check_policy` establishes the fact.
+this machine. `abk policy check` (`runtimes/policy_check.py`) establishes it
+without running the agent.
 
 - **A local answer, where one exists.** Claude Code's adapter answers without
   calling anything: the hook is registered per run and the same denies are
-  passed as flags.
-- **A probe run, otherwise.** In a throwaway worktree with no remote, the
-  adapter asks the agent to attempt one representative command per forbidden
-  class — a bare force push, an amend, a skipped commit gate, a merge of a
-  pull request, and so on. A class passes only when the attempt reached abk
-  and was refused there: a terminal request the rules refused, or a permission
-  request answered with a refusing option. Every other class — never
-  attempted, run without asking, allowed by the rules, or cut off because no
-  refusing option was on offer — is reported unenforced. A probe run that
-  itself fails (the agent does not start, or errors) is an error, not a
-  report. The command shapes come from abk's own `command_policy` (a test
-  holds the list to it), so this names no product, and every attempt is
-  harmless in that worktree even if it does run.
-
-  The probe also attempts the spellings of the amend, the push to the default
-  branch, the force push and the merge (git's global options, the host CLI's
-  repository option, a raw-API merge) listed once in
-  `pipeline/command_spellings.py`. They go in the same single prompt, so a
-  check costs one session of as many commands as the table has rows, and is
-  reused for 15 minutes. The table decides what is tried, not the model, and
-  it is a bounded subset: wrappers and directory changes are covered by the
-  rules' own tests, not probed. `abk doctor` and `abk init` print an open
-  spelling by class and spelling, with the class's other spellings as refused.
-
-  What the client cannot see: an agent that declines a forbidden command
-  before announcing any tool call tells abk nothing, so no refusal line, and
-  no layer, can be logged for it. The tier-2 build test does not accept that
-  silence: it requires a refusal line naming its layer, and fails for an agent
-  that never makes the attempt.
-- **`abk init` asks before changing anything.** It runs the check for the
-  configured runtime, prints each unenforced class in abk's own words, and
+  passed as flags. It reads no configuration.
+- **What the check reads.** For a known agent whose row has an applier, the
+  check reads the deny list from the agent's own configuration, through the
+  applier's reader, and judges every probe command (`PROBE_CLASSES`, one per
+  forbidden class plus the spellings listed once in
+  `pipeline/command_spellings.py`) with abk's matcher
+  (`recommended_policy.matches`). Each result names the first pattern, in list
+  order, that refuses the command; a command no pattern refuses is `not
+  refused`. It starts no agent, spends no tokens, asks no question and keeps no
+  answer: two runs read the file twice. The report carries the label "what the
+  configuration says, in abk's dialect; not observed from the agent", and every
+  printout ends with it.
+- **What it does not observe.** Whether the agent's own matcher agrees with
+  abk's dialect, and the client-side rules (the permission request abk answers,
+  the terminal it refuses) are not measured here. The acceptance test below
+  measures the agreement.
+- **Not covered by design.** The six classes in `UNCOVERED` never fail the
+  check: one no pattern refuses is printed `not covered by design`, and one a
+  pattern does refuse is printed refused, with its pattern and "not required".
+- **Cannot check.** An absent configuration file, one that does not parse and a
+  deny path that is not a list each give `cannot_check` naming the path and the
+  reason. A runtime command with no table entry, or a known agent with no
+  applier, gives `cannot check: abk has no policy for this agent`, and the
+  report is never ok. `abk policy check` exits 1 for it; doctor warns.
+- **`abk init` asks nothing.** It runs the same check for the configured
+  runtime, prints each unenforced class in abk's own words, and
   offers to run `runtimes.<name>.policy_fix` — a command the installation
   supplies, whose contents abk never inspects. This is the shape
   `cli/doctor.py`'s `_forge_access` already uses with `forge.access_fix`.
   Declining leaves the workspace untouched and says which guarantee is
-  missing. A runtime whose check prompts the agent says so by
-  `policy_check_prompts_agent`; init asks before such a check spends tokens,
-  and a refusal records `runtimes.<name>.policy: unchecked`.
+  missing, and no question about spending tokens is asked, with or without
+  `--yes`.
 - **A machine with the kit and the agent and nothing else.** When the
   installation sets no `policy_fix` and the selected agent has an applier,
   init's policy step offers the kit's own recommended policy (`abk policy
@@ -617,7 +612,7 @@ this machine. `check_policy` establishes the fact.
   `agent_flagged`. A known-agent table row says a spelling is covered only when
   its `spellings` note records a live check that showed it; otherwise it reads
   UNVERIFIED. `abk doctor` warns on every run for an entry recorded as
-  `unchecked`, without probing it, and goes on warning until that line is
+  `unchecked`, without checking it, and goes on warning until that line is
   removed from `abk.yaml` after a pass.
 - **`abk doctor` fails rather than warns** when a class is unenforced, and
   prints what to run, in order: the installation's `policy_fix`; else the
@@ -625,14 +620,13 @@ this machine. `check_policy` establishes the fact.
   merge into, `abk policy apply`; else `abk policy patterns` (add the globs to
   the agent's configuration) followed by the `policy_fix` key to set. The
   installation's own fix stays first, with `abk policy apply` after it when the
-  agent has an applier. A probe costs one small agent call, so the
-  result is cached in the state directory (`<state_dir>/policy-check.json`, per
-  runtime) for 15 minutes, as the usage reading already is
-  (`runtimes/policy_check.py`); `abk init` asks afresh after running the fix.
-  A check the runtime could not answer (it raised) is a FAIL in doctor and a
-  printed note in init, and is never cached; one skipped because the agent
-  command does not resolve is a doctor warning, as the `runtime` check has
-  already failed for that cause.
+  agent has an applier. The check reads the configuration each time and keeps
+  nothing between runs (`abk init` reads it again after running the fix). A
+  configuration that is absent or unreadable is a FAIL in doctor naming the
+  path or reason; an agent abk has no policy for (`cannot check`) is a doctor
+  warning and never a pass; one skipped because the agent command does not
+  resolve is a doctor warning, as the `runtime` check has already failed for
+  that cause.
 
 ### What a real agent does with its deny list: not yet observed
 
@@ -646,7 +640,7 @@ refusal by its own deny list (no terminal request, a failed tool call, or a
 rejected permission), and whether its approval step refuses anything beyond the
 list when the client allows everything, so that the six classes the
 recommendation does not cover are seen to run. **Neither has been observed
-yet**: the run was not made, because it spends tokens on a real model and
+yet**: the run was not made, because it bills a real model and
 lets the agent's own tools act on the machine, which an unattended build does
 not do. The harness has been proven with fake agents only, so the items listed
 UNVERIFIED in the change's design stand, and the first run of the acceptance
