@@ -112,10 +112,11 @@ And what it knows:
 
 Declared so that `abk init` detects JavaScript/TypeScript repos and writes
 their specs — research and proposal are language-agnostic — and so the
-planner can place units in them. Lint and the type check are implemented; the
-test commands are not yet: they raise, and `abk tick` catches that when it
-tries to build a unit in such a repo, logs it, and puts the unit in `held`
-(nothing a retry changes; a person builds it by hand or changes the plan).
+planner can place units in them. Lint, the type check and the test commands are
+implemented for a single package; the methods listed at the end of this section still
+raise, and `abk tick` catches that when it tries to build a unit in such a repo, logs
+it, and puts the unit in `held` (nothing a retry changes; a person builds it by hand or
+changes the plan).
 
 Implemented: `lint_command(base)` lints (`npx oxlint`) and format-checks
 (`npx oxfmt --check`) the `ts`, `tsx`, `js`, `jsx` and `mts` files that differ from
@@ -123,13 +124,21 @@ Implemented: `lint_command(base)` lints (`npx oxlint`) and format-checks
 `lint_command_all_files()` does both over the whole project. `project_checks` is
 `npx tsc --noEmit`, the type check as its own check, run over the whole project in
 its directory. `failure_kind` reads the failed command in the `$` header: the type
-checker is `types`, the linter and format check are `lint`.
+checker is `types`, the test runner is `test`, the linter and format check are `lint`.
+`test_commands` and `test_commands_all` run `npx vitest run --passWithNoTests
+--reporter=junit` with the JUnit report written to a temporary file and printed after
+the report marker (the shape of the Python profile's red command), so a project with
+no test files passes and the report outlives the worktree; `parse_test_summary` and
+`parse_test_failures` read that report, one failure per failing `testcase`, named
+`file > test`. Recorded reports live under `tests/fixtures/external/vitest/`;
+re-record them with `uv run python tests/fixtures/external/record_vitest.py`.
 
 What exists: `detect_markers` (`package-lock.json`, `package.json`),
 `allowed_tools` (`Bash(npm *) Bash(npx *)`), the prompt words ("linting and
 type checks (oxlint, tsc --noEmit)", a stub body of
 `throw new Error("not implemented")`), `no_tests_collected_exit` 0,
-`is_test_path` (a `__tests__` directory, or `.test.ts`/`.spec.ts`/`.test.js`),
+`is_test_path` (a `__tests__` directory, or `.test`/`.spec` before `ts`, `tsx`, `js`,
+`jsx` or `mts`),
 and `stub_violations` returning nothing. It also drafts the environment for
 `abk init` from a `package.json` (`profiles/node_environment.py`): the manager is
 the manifest's `packageManager` field, else the lock file present (`package-lock.json`
@@ -138,8 +147,7 @@ npm, `pnpm-lock.yaml` pnpm, `yarn.lock` yarn), else npm. `sync` is the plain ins
 depth-0 listing, the manifest and lock files are inputs, a `workspaces` field adds
 `<workspace>/package.json` patterns, and `node_modules` is an artifact.
 
-What it would still need, method by method: the test commands with a summary
-parser for the chosen runner; `clean_command`; `members`/`member_of`/`dependents` from
+What still raises, method by method: `clean_command`; the tier 2 and acceptance commands; `members`/`member_of`/`dependents` from
 `package.json` workspaces; a red-output interpreter for the runner; and a
 stub checker for the `throw` body.
 

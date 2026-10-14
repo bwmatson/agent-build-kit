@@ -162,8 +162,21 @@ def split_report(output: str) -> tuple[str | None, str]:
     return report or None, console
 
 
-def red_check(report: str) -> RedResult:
-    """Judge a run from pytest's JUnit report, by each failing test's exception.
+def wrap_report_command(command: str, report_flag: str) -> str:
+    """`command` run so that its JUnit report is printed after `REPORT_MARK`, where
+    `split_report` reads it, and outlives the worktree the command runs in. `report_flag`
+    is the runner's option naming the report file; the file is a fresh temporary one, so a
+    file already in the tree is never read as the report, and the exit status is the
+    runner's own."""
+    return (
+        f'report=$(mktemp); {command} {report_flag}="$report"; status=$?; '
+        f'echo \'{REPORT_MARK}\'; cat "$report" 2>/dev/null; rm -f "$report"; '
+        "exit $status"
+    )
+
+
+def parse_report(report: str) -> ElementTree.Element:
+    """The element tree of a JUnit report, without a leading comment.
 
     Raises `ValueError` when `report` is not a JUnit report.
     """
@@ -171,9 +184,17 @@ def red_check(report: str) -> RedResult:
     if body.startswith("<!--"):
         body = body.partition("-->")[2].strip()
     try:
-        root = ElementTree.fromstring(body)
+        return ElementTree.fromstring(body)
     except ElementTree.ParseError as error:
         raise ValueError(f"not a JUnit report: {error}") from error
+
+
+def red_check(report: str) -> RedResult:
+    """Judge a run from pytest's JUnit report, by each failing test's exception.
+
+    Raises `ValueError` when `report` is not a JUnit report.
+    """
+    root = parse_report(report)
 
     failing: list[str] = []
     problems: list[str] = []

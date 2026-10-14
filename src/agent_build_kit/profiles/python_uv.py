@@ -24,8 +24,13 @@ from agent_build_kit.config import (
     RepoConfig,
 )
 from agent_build_kit.pipeline.commit_order import stub_violations as _stub_violations
-from agent_build_kit.pipeline.red_check import REPORT_MARK, judge_red, split_report
-from agent_build_kit.pipeline.tier2 import TestFailure, TestTime, parse_pytest_summary
+from agent_build_kit.pipeline.red_check import judge_red, split_report, wrap_report_command
+from agent_build_kit.pipeline.tier2 import (
+    TestFailure,
+    TestTime,
+    clip_failure_line,
+    parse_pytest_summary,
+)
 from agent_build_kit.profiles.base import PromptWords, is_doc_path
 
 # pytest's exit status when every test was deselected: "nothing to run here",
@@ -48,7 +53,6 @@ DURATIONS_RULE = re.compile(r"^=+ slowest (?:\d+ )?durations =+\s*$")
 DURATION_ENTRY = re.compile(r"^(\d+(?:\.\d+)?)s +(setup|call|teardown) +(\S.*)$")
 SUMMARY_MARK = "short test summary info"
 SUMMARY_ENTRY = re.compile(r"^(?:FAILED|ERROR) (.+?)(?: - (.*))?$")
-FAILURE_LINE_LIMIT = 500
 # The lock-freshness and environment-freshness commands a path-source draft's check starts with.
 DRIFT_CHECKS = "uv lock --check && uv sync --check"
 PATH_SOURCES_NOTE = (
@@ -290,11 +294,7 @@ class PythonUvProfile:
         # the command runs in; the exit status is pytest's own. It goes to a
         # fresh temp file, so a file already in the tree is never read as it.
         pytest = f"uv run pytest {' '.join(files)} -p no:cacheprovider --tb=line -q"
-        return (
-            f'report=$(mktemp); {pytest} --junitxml="$report"; status=$?; '
-            f'echo \'{REPORT_MARK}\'; cat "$report" 2>/dev/null; rm -f "$report"; '
-            "exit $status"
-        )
+        return wrap_report_command(pytest, "--junitxml")
 
     def interpret_red(self, output: str, exit_code: int) -> tuple[bool, list[str]]:
         report, console = split_report(output)
@@ -306,7 +306,7 @@ class PythonUvProfile:
 
     def parse_test_failures(self, output: str) -> list[TestFailure]:
         """One entry per `FAILED`/`ERROR` line of pytest's short summary, in the order
-        printed; a line over `FAILURE_LINE_LIMIT` is cut with an ellipsis."""
+        printed; a long line is cut with an ellipsis."""
         _, found, summary = output.partition(SUMMARY_MARK)
         if not found:
             return []
@@ -316,9 +316,7 @@ class PythonUvProfile:
             # A message printed whole spans lines; one that begins with the word
             # `ERROR` is not an entry unless its id has the shape of a node id.
             if matched and ("::" in matched.group(1) or matched.group(1).endswith(".py")):
-                first = matched.group(2) or ""
-                if len(first) > FAILURE_LINE_LIMIT:
-                    first = first[: FAILURE_LINE_LIMIT - 1] + "…"
+                first = clip_failure_line(matched.group(2) or "")
                 failures.append(TestFailure(test=matched.group(1), line=first))
         return failures
 

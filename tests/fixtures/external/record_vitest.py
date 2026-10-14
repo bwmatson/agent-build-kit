@@ -5,8 +5,8 @@
 Each fixture is the JUnit report Vitest wrote for one tiny project in a temporary
 directory: a failing assertion beside a skipped and a passing test, a stub that throws
 `not implemented`, a test file importing a module that does not exist, a type error, and a
-passing run. Needs network access once, for `npx` to fetch Vitest. Only the temporary path
-and timings are redacted; the header names the tool version and the command.
+passing run. Needs network access once, for `npx` to fetch Vitest. Only the temporary path,
+timings and host name are redacted; the header names the tool version and the command.
 """
 
 import re
@@ -17,6 +17,7 @@ from pathlib import Path
 OUT = Path(__file__).resolve().parent / "vitest"
 
 COMMAND = ["npx", "--yes", "vitest", "run", "--reporter=junit", "--passWithNoTests"]
+REPORT_FILE = "report.xml"
 HEADER = "import { expect, test } from 'vitest';\n"
 
 CASES = {
@@ -66,7 +67,14 @@ def record(name: str, case: tuple) -> None:
         (root / test_name).write_text(source)
         for file, content in (extra[0] if extra else {}).items():
             (root / file).write_text(content)
-        done = subprocess.run(COMMAND, cwd=root, capture_output=True, text=True, check=False)
+        subprocess.run(
+            [*COMMAND, f"--outputFile={REPORT_FILE}"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        report = (root / REPORT_FILE).read_text()
         version = subprocess.run(
             ["npx", "--yes", "vitest", "--version"],
             cwd=root,
@@ -74,10 +82,10 @@ def record(name: str, case: tuple) -> None:
             text=True,
             check=True,
         ).stdout.strip()
-    report = done.stdout[done.stdout.find("<?xml") :].replace(tmp, "")
-    report = re.sub(r'(time|timestamp)="[^"]*"', r'\1="0"', report)
+    report = report.replace(tmp, "")
+    report = re.sub(r'(time|timestamp|hostname)="[^"]*"', r'\1="0"', report)
     tool = version.replace("vitest/", "vitest ")
-    header = f"<!-- tool: {tool}\n     command: {' '.join(COMMAND[2:])} -->\n"
+    header = f"<!-- tool: {tool}\n     command: {' '.join(COMMAND[2:])} --outputFile=<path> -->\n"
     (OUT / f"{name}.xml").write_text(header + report)
 
 

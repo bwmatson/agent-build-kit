@@ -1,0 +1,9 @@
+<!-- tool: vitest 5.0.4 linux-x64 node-v22.23.2
+     command: vitest run --reporter=junit --passWithNoTests --outputFile=<path> -->
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="1" failures="0" errors="0" time="0">
+    <testsuite name="e.test.ts" timestamp="0" hostname="0" tests="1" failures="0" errors="0" skipped="0" time="0">
+        <testcase classname="e.test.ts" name="types" time="0">
+        </testcase>
+    </testsuite>
+</testsuites>

@@ -77,7 +77,7 @@ def recording(name: str) -> str:
 def printed(name: str) -> str:
     """What the test command prints for the recorded run: console output, then the report
     after the marker."""
-    return f"RUN v3.2.4\n{REPORT_MARK}\n{recording(name)}"
+    return f"RUN v5.0.4\n{REPORT_MARK}\n{recording(name)}"
 
 
 def commands(profile, work: Path) -> list[list[str]]:
@@ -109,15 +109,37 @@ def test_each_failing_test_is_returned_with_its_name_and_location(profile) -> No
 
     assert isinstance(failure, TestFailure)
     assert "adds" in failure.test
-    assert "src/a.test.ts" in failure.test + failure.line
+    assert "a.test.ts" in failure.test + failure.line
 
 
 def test_a_failure_of_a_not_implemented_stub_is_returned_with_its_message(profile) -> None:
     (failure,) = profile.parse_test_failures(printed("not_implemented.xml"))
 
     assert "creates" in failure.test
-    assert "src/b.test.ts" in failure.test + failure.line
+    assert "b.test.ts" in failure.test + failure.line
     assert "not implemented" in failure.line
+
+
+def test_a_test_file_that_cannot_import_its_subject_is_a_failed_run_naming_the_file(
+    profile,
+) -> None:
+    _, failed, _, _ = profile.parse_test_summary(printed("missing_import.xml"))
+    (failure,) = profile.parse_test_failures(printed("missing_import.xml"))
+
+    assert failed >= 1
+    assert "c.test.ts" in failure.test
+    assert "nothing" in failure.line
+
+
+def test_a_type_error_in_a_test_file_is_not_a_test_failure_because_vitest_strips_types(
+    profile,
+) -> None:
+    """The recording shows what Vitest does with a type error: it runs the test and passes.
+    That is why the type check is a check of its own (`project_checks`)."""
+    passed, failed, _, _ = profile.parse_test_summary(printed("type_error.xml"))
+
+    assert (passed, failed) == (1, 0)
+    assert profile.parse_test_failures(printed("type_error.xml")) == []
 
 
 def test_a_project_with_no_test_files_passes(profile, project: Path) -> None:

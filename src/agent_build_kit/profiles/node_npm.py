@@ -2,12 +2,13 @@
 tests of a single package are implemented; the rest is declared.
 
 `abk init` detects such repos and writes their specs (research and proposal
-are language-agnostic); `abk tick` refuses to build a unit in one until this
-profile exists, with a log line saying so. What it will need, by method of
-`profiles.base.ToolchainProfile`: `npm test --workspace <member>` with a
-summary parser for the chosen runner, `npx oxlint` and `npx tsc --noEmit` as
-the lint and clean commands, `.test.ts`/`.spec.ts` and `__tests__/` as test
-paths, and `throw new Error("not implemented")` as the permitted stub body.
+are language-agnostic); `abk tick` holds a unit that reaches a method that still
+raises, with a log line saying so. Implemented, by method of
+`profiles.base.ToolchainProfile`: `npx oxlint` and `npx oxfmt --check` as the lint,
+`npx tsc --noEmit` as the project check, `npx vitest run` with a JUnit report for the
+tests, and `.test`/`.spec` files and `__tests__/` as test paths. Still to come: the
+clean, red, tier 2 and acceptance commands, workspace members, and
+`throw new Error("not implemented")` as the permitted stub body.
 """
 
 from __future__ import annotations
@@ -19,11 +20,10 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 from agent_build_kit.config import EnvironmentConfig, RepoConfig
-from agent_build_kit.pipeline.red_check import REPORT_MARK, split_report
-from agent_build_kit.pipeline.tier2 import TestFailure, TestTime
+from agent_build_kit.pipeline.red_check import parse_report, split_report, wrap_report_command
+from agent_build_kit.pipeline.tier2 import TestFailure, TestTime, clip_failure_line
 from agent_build_kit.profiles import node_environment
 from agent_build_kit.profiles.base import ProfileUnsupported, PromptWords
-from agent_build_kit.profiles.python_uv import FAILURE_LINE_LIMIT
 
 _SOURCE = ("ts", "tsx", "js", "jsx", "mts")
 # The names of the source files that differ from the base ref `$1`, relative to the project.
@@ -40,13 +40,11 @@ _DIFF_LINT = (
 )
 _TYPE_CHECK = "tsc"
 _TEST_RUNNER = "vitest"
-# The report goes to a fresh temporary file and is printed after the marker, so it outlives
-# the worktree; the exit status is the runner's own. No test files is a pass.
-_TESTS = (
-    f"report=$(mktemp); npx {_TEST_RUNNER} run --passWithNoTests --reporter=junit "
-    '--outputFile="$report"; status=$?; '
-    f'echo \'{REPORT_MARK}\'; cat "$report" 2>/dev/null; rm -f "$report"; exit $status'
+# No test files is a pass; the report is printed after the marker.
+_TESTS = wrap_report_command(
+    f"npx {_TEST_RUNNER} run --passWithNoTests --reporter=junit", "--outputFile"
 )
+_TEST_COMMAND = ["sh", "-c", _TESTS]
 _TEST_FILE = re.compile(rf"\.(test|spec)\.({'|'.join(_SOURCE)})$")
 
 
@@ -55,12 +53,9 @@ def _report(output: str) -> ElementTree.Element | None:
     report, _ = split_report(output)
     if report is None:
         return None
-    body = report.strip()
-    if body.startswith("<!--"):
-        body = body.partition("-->")[2].strip()
     try:
-        return ElementTree.fromstring(body)
-    except ElementTree.ParseError:
+        return parse_report(report)
+    except ValueError:
         return None
 
 
@@ -97,10 +92,10 @@ class NodeNpmProfile:
         self, repo: Path, changed: list[str], *, root_extras: list[str]
     ) -> list[list[str]]:
         """The project's Vitest run, whatever changed: it reads its own configuration."""
-        return [["sh", "-c", _TESTS]]
+        return [list(_TEST_COMMAND)]
 
     def test_commands_all(self, repo: Path, *, root_extras: list[str]) -> list[list[str]]:
-        return [["sh", "-c", _TESTS]]
+        return [list(_TEST_COMMAND)]
 
     def tolerates_exit(self, command: list[str], returncode: int) -> bool:
         return returncode == 0
@@ -118,7 +113,7 @@ class NodeNpmProfile:
             return "lint"
         if words[:2] == ["npx", _TYPE_CHECK]:
             return "types"
-        return "test" if any(_TEST_RUNNER in word for word in words) else "lint"
+        return "test" if words == _TEST_COMMAND else "lint"
 
     def extra_checks(self, repo: RepoConfig) -> list[list[str]]:
         return []
@@ -180,9 +175,7 @@ class NodeNpmProfile:
                 continue
             name = " > ".join(p for p in (case.get("classname"), case.get("name")) if p)
             first = (bad.get("message") or "").strip().split("\n", 1)[0]
-            if len(first) > FAILURE_LINE_LIMIT:
-                first = first[: FAILURE_LINE_LIMIT - 1] + "…"
-            failures.append(TestFailure(test=name, line=first))
+            failures.append(TestFailure(test=name, line=clip_failure_line(first)))
         return failures
 
     def parse_test_durations(self, output: str) -> list[TestTime]:
