@@ -307,7 +307,10 @@ Answers that are not the expected one are errors: `AuthError` for 401/403, a mis
 credential, or an HTML page where JSON was expected (quoting its first characters);
 `NotFound` carrying the account the call was made as; `RateLimited` with the host's
 hint; `HostError` for a 5xx or a network failure. A test passes an `httpx.MockTransport`
-as `transport=` and never reaches a network. `abk doctor` resolves a credential for each
+as `transport=` and never reaches a network. A body that does not validate as the document a
+call expects is turned into one `TransportError` naming the endpoint by `validated`, which both
+hosts' parsing helpers call. On GitHub `pr_files` is the paths of `pr_changes`, so a pull
+request's files are listed once. `abk doctor` resolves a credential for each
 GitHub repo, calls `GET /user` and reports the account, or the source that failed.
 
 ## The retry layer

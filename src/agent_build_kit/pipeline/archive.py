@@ -28,6 +28,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from agent_build_kit import openspec
+from agent_build_kit.installation import changes_dir_under
 from agent_build_kit.pipeline.run_log import remove_change_logs
 from agent_build_kit.pipeline.scratch import remove_leftovers
 from agent_build_kit.pipeline.transcript import remove_change_transcripts
@@ -82,7 +83,7 @@ def _merged_at(change: str, units: list[StoredUnit]) -> str:
 
 
 def _already_archived(change: str, planning_repo: Path, specs_dir: str = "openspec") -> bool:
-    archive = planning_repo / specs_dir / "changes" / "archive"
+    archive = changes_dir_under(planning_repo, specs_dir) / "archive"
     if not archive.exists():
         return False
     return any(entry.name.endswith(f"-{change}") for entry in archive.iterdir())
@@ -123,7 +124,7 @@ def archive_ready_changes(
 
     archived: list[str] = []
     for change in sorted(ready, key=lambda name: _merged_at(name, units)):
-        directory = planning_repo / specs_dir / "changes" / change
+        directory = changes_dir_under(planning_repo, specs_dir) / change
         if not directory.is_dir():
             logger.warning("not archiving %s: withdrawn, no change directory", change)
             continue

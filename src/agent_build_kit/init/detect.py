@@ -26,16 +26,10 @@ from pathlib import Path
 
 from agent_build_kit import forges, infra
 from agent_build_kit.forges import RepoId
+from agent_build_kit.forges.github import ORIGIN
 from agent_build_kit.model import Frozen
 
 Run = Callable[..., subprocess.CompletedProcess]
-
-# `git@github.com:owner/name.git`, `https://github.com/owner/name`,
-# `ssh://git@github.com/owner/name.git`, `alias:owner/name.git` (an ssh host
-# alias carrying a deploy key).
-_ORIGIN = re.compile(
-    r"^(?:[\w.@-]+:(?!//)|[a-z+]+://[^/]+/)(?P<owner>[\w.-]+)/(?P<name>[\w.-]+?)(?:\.git)?/?$"
-)
 
 # Files that are not code for the purpose of "does this repo have code yet".
 _NOT_CODE_NAMES = {".gitignore", "pyproject.toml", "package.json"}
@@ -108,7 +102,7 @@ class RepoDetection(Frozen):
 
 
 def parse_slug(url: str) -> str | None:
-    match = _ORIGIN.match(url.strip())
+    match = ORIGIN.match(url.strip())
     return f"{match['owner']}/{match['name']}" if match else None
 
 

@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import hashlib
 import re
-import subprocess
 import textwrap
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -47,6 +46,7 @@ from agent_build_kit.init.environment import detect_environment, lock_patterns, 
 from agent_build_kit.init.runtime_choice import merge_values
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.changelog_convention import packaged_convention
+from agent_build_kit.pipeline.shell import git
 
 TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
 
@@ -599,13 +599,7 @@ def write_planning_repo(
     written: list[Path] = []
 
     if not (planning / ".git").exists():
-        result = subprocess.run(
-            ["git", "init", "-q", "-b", "main"],
-            cwd=planning,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        result = git(planning, "init", "-q", "-b", "main", check=False)
         if result.returncode:
             raise ScaffoldError(f"git init failed in {planning}: {result.stderr.strip()}")
 

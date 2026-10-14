@@ -11,7 +11,7 @@ import time
 from typing import Any, Literal
 
 import httpx
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from agent_build_kit.forges.constants import GH_TOKEN_SOURCE
 from agent_build_kit.model import Frozen
@@ -103,10 +103,18 @@ class Response(Frozen):
     text: str = ""
 
 
+def unexpected(endpoint: str, text: str) -> str:
+    """What a body that is not the document expected is reported as."""
+    return f"{endpoint}: not the document expected: {text[:PAGE_EXCERPT]}"
+
+
 def validated[Doc: BaseModel](model: type[Doc], data: object, endpoint: str, text: str) -> Doc:
     """`data` as `model`, or a `TransportError` naming `endpoint` and quoting the
     start of `text`, the body it came from."""
-    raise NotImplementedError
+    try:
+        return model.model_validate(data)
+    except ValidationError as error:
+        raise TransportError(unexpected(endpoint, text)) from error
 
 
 _cache: dict[tuple[str, str], Credentials] = {}

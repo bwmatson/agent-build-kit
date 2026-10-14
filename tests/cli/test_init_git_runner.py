@@ -25,6 +25,8 @@ def planning_repo(root: Path) -> Path:
     git(planning, "init", "-q", "-b", "main")
     git(planning, "config", "user.email", "t@t.t")
     git(planning, "config", "user.name", "t")
+    git(planning, "add", "-A")
+    git(planning, "commit", "-qm", "base")
     return planning
 
 

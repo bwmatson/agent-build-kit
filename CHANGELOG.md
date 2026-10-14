@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Internal cleanup with no change in behaviour: the remaining plain git calls in `abk init`, the
+  commit gate and the scaffold go through the shared git runner, where a change's directory is
+  found, the remote-address and diff-hunk patterns, and the code hosts' check on an unexpected
+  answer are each written once, and GitHub's list of a pull request's files comes from its
+  full listing.
+
 - Every state file the tool writes (the unit store, the pause marker, the usage ledgers, the
   notification and review stores and the like) now goes through one atomic write, so a crash
   or two writers at once never leave a half-written file or a stray temporary behind. A log

@@ -24,6 +24,7 @@ from agent_build_kit.config import active
 from agent_build_kit.init.claude_call import RunClaude, runtime_for, succeeded
 from agent_build_kit.init.detect import RepoDetection
 from agent_build_kit.init.scaffold import render_rules
+from agent_build_kit.installation import changes_dir_under
 from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.work_graph import validate_tasks
@@ -233,7 +234,7 @@ def validation_errors(
                     issue = issue.get("message", json.dumps(issue))
                 errors.append(f"openspec: {issue}")
 
-    tasks = planning / specs_dir / "changes" / change / "tasks.md"
+    tasks = changes_dir_under(planning, specs_dir) / change / "tasks.md"
     if not tasks.is_file():
         errors.append(f"{tasks.relative_to(planning)} is missing")
     else:

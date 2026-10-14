@@ -1457,6 +1457,14 @@ process, which is renamed over the file last and removed if anything is raised, 
 sees half a file and two writers never share a temporary. A writer that holds the file lock takes
 it around the call. A test fails when another module replaces over a file from a temporary name.
 
+#### Shared helpers
+
+Git is run through `pipeline.shell.git` everywhere but the restack module, which wraps it for its
+conflict-memory flags. Where a change lives comes from `changes_dir_under(root, specs_dir)`
+(`installation.py`), which `Installation.changes_dir` also uses. The host-address pattern
+(`forges/github.py`) and the diff-hunk pattern (`pipeline/own_tests.py`) are each defined once and
+imported.
+
 #### Metric records
 
 The same file carries `kind: metric` lines, whether or not telemetry is on

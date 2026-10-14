@@ -31,7 +31,7 @@ from agent_build_kit.forges import Forge, RepoId
 def changes_dir_under(root: Path, specs_dir: str) -> Path:
     """Where the changes of a store live, for a caller that holds a root and the
     name of a specs directory but no installation."""
-    raise NotImplementedError
+    return root / Path(specs_dir).expanduser() / "changes"
 
 
 class Installation:
@@ -64,7 +64,7 @@ class Installation:
 
     @property
     def changes_dir(self) -> Path:
-        return self.specs_dir / "changes"
+        return changes_dir_under(self.root, self.config.planning.specs_dir)
 
     @property
     def tier2_lock(self) -> Path:

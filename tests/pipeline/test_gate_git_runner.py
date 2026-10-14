@@ -28,6 +28,10 @@ def repo(tmp_path: Path) -> Path:
     (work / "tests" / "test_thing.py").write_text("def test_x(): assert False\n")
     git(work, "add", "-A")
     git(work, "commit", "-qm", "test: covers it")
+    (work / "src").mkdir()
+    (work / "src" / "thing.py").write_text("x = 1\n")
+    git(work, "add", "-A")
+    git(work, "commit", "-qm", "feat: implements it")
     return work
 
 
