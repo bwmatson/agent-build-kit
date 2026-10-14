@@ -39,7 +39,14 @@ from agent_build_kit.pipeline.unit_size import (
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import Join, Priority, Unit
 from agent_build_kit.pipeline.vocabulary import OverheadNode
-from agent_build_kit.pipeline.work_graph import GROUP_NUMBER, TIERS, TaskGroup, known_repos
+from agent_build_kit.pipeline.work_graph import (
+    GROUP_HEADING,
+    GROUP_NUMBER,
+    TIERS,
+    TaskGroup,
+    known_repos,
+    split_repo_tag,
+)
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.base import AgentRuntime
 
@@ -498,6 +505,10 @@ Rules the graph must satisfy:
   the group can belong to. A unit's `groups` must ALL carry that unit's repo
   tag. Putting one repo's group in another repo's unit is the most common
   mistake here and is rejected outright.
+- A unit is in one repo and one project. A group's project is shown on its
+  heading below as `(project <path>)` when it is not the repo's root; a unit
+  never takes groups tagged for different projects, and a join never crosses
+  projects.
 - Every group in the change must be claimed by exactly one unit: none left
   out, none in two units. The exception is a group whose heading is marked
   `(built by <unit id>)`: it is taken, so never claim it and return no unit
@@ -588,6 +599,7 @@ def in_flight_item(unit: StoredUnit) -> dict:
     return {
         "id": unit.id,
         "repo": unit.repo,
+        "project": unit.project,
         "branch": unit.branch,
         "state": unit.state,
         "unstarted": unit.unstarted,
@@ -725,6 +737,10 @@ def _mark_built(change: str, tasks: str, in_flight: list[dict]) -> str:
     def mark(line: str) -> str:
         found = GROUP_NUMBER.match(line)
         unit_id = built.get(int(found["number"])) if found else None
+        if heading := GROUP_HEADING.match(line):
+            _, project = split_repo_tag(heading["repo"], known_repos())
+            if project:
+                line += f" (project {project})"
         return f"{line} (built by {unit_id})" if unit_id else line
 
     return "\n".join(mark(line) for line in tasks.split("\n"))
