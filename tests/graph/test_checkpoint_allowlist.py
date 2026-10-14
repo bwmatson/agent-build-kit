@@ -2,7 +2,8 @@
 
 The state's types are found by walking `UnitRun`'s annotations, so a type added
 to the state and left off the allowlist fails here, not on a resume in
-production.
+production. The values nodes return for a field are checked, from what a run wrote,
+in `test_held_state_plain_text.py`: an annotation alone cannot show what a `str` field receives.
 """
 
 from __future__ import annotations
@@ -16,7 +17,6 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import empty_checkpoint
 from pydantic import BaseModel
 
@@ -24,6 +24,7 @@ from agent_build_kit.graph.build import compile_graph
 from agent_build_kit.graph.checkpointer import ALLOWED_MSGPACK_MODULES, open_checkpointer
 from agent_build_kit.graph.run import run_thread
 from agent_build_kit.graph.state import UnitRun
+from tests.graph.checkpoint_reads import a_config, read_back
 
 
 def reachable(annotation: Any, found: set[type]) -> set[type]:
@@ -78,10 +79,6 @@ def test_every_type_the_state_uses_is_on_the_allowlist() -> None:
     assert not missing, f"add to ALLOWED_MSGPACK_MODULES: {sorted(missing)}"
 
 
-def a_config(thread_id: str) -> RunnableConfig:
-    return {"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}}
-
-
 def test_a_checkpoint_holding_every_state_type_loads_through_the_real_checkpointer(
     tmp_path: Path,
 ) -> None:
@@ -92,12 +89,8 @@ def test_a_checkpoint_holding_every_state_type_loads_through_the_real_checkpoint
         async with open_checkpointer(db) as saver:
             await run_thread(compile_graph(saver), state, "feature/1")
 
-    async def read() -> Any:
-        async with open_checkpointer(db) as saver:
-            return await compile_graph(saver).aget_state(a_config("feature/1"))
-
     asyncio.run(write())
-    snapshot = asyncio.run(read())
+    snapshot = read_back(db, "feature/1")
 
     assert UnitRun.model_validate(snapshot.values) == state
 

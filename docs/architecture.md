@@ -317,7 +317,10 @@ since the merge event is consumed: such a branch is left behind and can be
 deleted by hand.
 
 The unit's graph (`graph/`, see [unit-graph.md](unit-graph.md)) is the
-sequence; `wiring.py` binds each step to git, gh and `claude`:
+sequence; `wiring.py` binds each step to git, gh and `claude`. A value a node returns
+for the checkpoint is plain data or a type on the checkpoint's allowed list: the held node
+stores the state's text, never the enum, so a checkpoint holds no class path that a later
+release could move. The steps:
 
 1. **Usage guard first**, before the worktree exists, so a refusal never
    leaves a half-built unit.
