@@ -60,7 +60,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
-from agent_build_kit import telemetry
+from agent_build_kit import claude_account, telemetry
 from agent_build_kit.config import (
     CLAUDE_CODE,
     ClaudeLimitsConfig,
@@ -258,6 +258,16 @@ def _http_get_json(url: str, headers: dict[str, str]) -> object:
         return json.load(response)
 
 
+def _credentials_path() -> Path:
+    """The credentials file read by default: the account's when one is set, else the constant."""
+    return CREDENTIALS_PATH if claude_account.is_default() else claude_account.credentials_path()
+
+
+def _state_file() -> Path:
+    """Claude Code's own state file read by default: the account's when one is set."""
+    return DEFAULT_ANCHOR_PATH if claude_account.is_default() else claude_account.state_file()
+
+
 def read_oauth_token(path: Path | None = None) -> str | None:
     """Find Claude Code's stored OAuth token.
 
@@ -269,7 +279,7 @@ def read_oauth_token(path: Path | None = None) -> str | None:
         return from_env
 
     try:
-        raw = json.loads((path or CREDENTIALS_PATH).read_text())
+        raw = json.loads((path or _credentials_path()).read_text())
     except (OSError, ValueError):
         return None
 
@@ -438,7 +448,7 @@ def token_expired(path: Path | None = None, *, now: datetime | None = None) -> b
     False when that cannot be read: the refresh below is only for the state it
     is known to fix, not a general retry.
     """
-    path = path or CREDENTIALS_PATH
+    path = path or _credentials_path()
     try:
         raw = json.loads(path.read_text())
     except (OSError, ValueError):
@@ -728,8 +738,8 @@ def read_live_usage(
 
 
 def read_cached_usage(path: Path | None = None) -> UsageReading | None:
-    """Read Claude Code's own cache in ~/.claude.json, the fallback source."""
-    path = path or DEFAULT_ANCHOR_PATH
+    """Read Claude Code's own cache in its state file (the account's, else ~/.claude.json)."""
+    path = path or _state_file()
 
     try:
         raw = json.loads(path.read_text())

@@ -20,8 +20,9 @@
 - An installation can run Claude Code on its own account: set `CLAUDE_CONFIG_DIR` or
   `ABK_CLAUDE_HOME` (in the process environment or the installation's `.env`) to an absolute
   directory, and every `claude` abk starts, including the login refresh, runs in it. The
-  sessions page lists and resumes sessions from that directory. With neither set nothing
-  changes.
+  sessions page lists and resumes sessions from that directory. The usage guard reads that
+  account's login and its own usage cache too, never the default account's. With neither set
+  nothing changes.
 
 - `abk tags` with no change and no `--all`, or with both, now prints one line saying what to
   pass and exits 2, instead of failing with a traceback. Its help names `--all`.
