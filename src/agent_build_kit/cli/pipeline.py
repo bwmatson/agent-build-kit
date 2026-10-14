@@ -2530,7 +2530,7 @@ def _carrying_unstarted(store: UnitStore, change: str) -> list[str]:
 
 
 def _tag_problems(store: UnitStore, change: str, groups: Sequence[TaskGroup]) -> list[str]:
-    """Where a started unit's stored repo, tier or flag differs from the tags of a group
+    """Where a started unit's stored repo, project, tier or flag differs from the tags of a group
     of `change` it carries, its own or joined. Each line names the unit, the group and
     the way out; none when they agree."""
     by_number = {g.number: g for g in groups}
@@ -2549,6 +2549,7 @@ def _tag_problems(store: UnitStore, change: str, groups: Sequence[TaskGroup]) ->
                 if group := by_number.get(number):
                     checks += [
                         (f"its group {number}", "repo", u.repo, group.repo),
+                        (f"its group {number}", "project", u.project, group.project),
                         (f"its group {number}", "tier", u.tier, group.tier),
                     ]
         # The flag is the unit's own first flagged group (see `plan_kind`). A record

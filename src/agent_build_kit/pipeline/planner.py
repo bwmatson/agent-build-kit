@@ -152,6 +152,7 @@ def parse_plan(
                     title=raw["title"],
                     repo=raw["repo"],
                     tier=raw["tier"],
+                    project=_unit_project(raw, groups),
                     depends_on=tuple(raw.get("depends_on") or ()),
                     estimated_lines=int(raw.get("estimated_lines") or 0),
                     groups=tuple(raw.get("groups") or ()),
@@ -184,6 +185,15 @@ def parse_plan(
         error.units = tuple(u.id for u in units)
         raise
     return Plan(units=tuple(units), joins=tuple(joins))
+
+
+def _unit_project(raw: dict, groups: list[TaskGroup] | None) -> str:
+    """The project a planned unit is for: the one it names, else that of its first group."""
+    if raw.get("project"):
+        return str(raw["project"])
+    by_number = {group.number: group for group in groups or ()}
+    first = next((by_number[n] for n in raw.get("groups") or () if n in by_number), None)
+    return first.project if first else "."
 
 
 def unit_priority(unit: Unit, catalog: Mapping[str, Sequence[TaskGroup]]) -> int:
@@ -321,6 +331,11 @@ def _check_groups(
                 raise PlannerError(
                     f"unit {unit.id} is for {unit.repo} but claims group {number}, "
                     f"which is tagged [{group.repo}]"
+                )
+            if group.project != unit.project:
+                raise PlannerError(
+                    f"unit {unit.id} is for project {unit.project!r} of {unit.repo} but claims "
+                    f"group {number}, which is tagged for project {group.project!r}"
                 )
             if number in built:
                 raise PlannerError(

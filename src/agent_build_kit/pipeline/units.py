@@ -203,7 +203,8 @@ def plan_units(change: str, groups: list[dict], *, min_lines: int, max_lines: in
     sooner lets them start. It never combines groups past `max_lines`: a group
     that would take the unit over it starts a unit of its own.
 
-    A unit never spans repos: a branch lives in one, so its unit does too.
+    A unit never spans repos: a branch lives in one, so its unit does too. Nor does it span
+    projects of one repo: a unit builds in one project.
     """
     units: list[Unit] = []
     current: list[dict] = []
@@ -235,6 +236,7 @@ def plan_units(change: str, groups: list[dict], *, min_lines: int, max_lines: in
                 if len(current) == 1
                 else f"{current[0]['title']} (+{len(current) - 1})",
                 repo=current[0]["repo"],
+                project=current[0].get("project", "."),
                 # A unit that needs the live stack anywhere needs it overall:
                 # tier decides how it's verified, not what belongs together.
                 tier="tier2" if any(g["tier"] == "tier2" for g in current) else "tier1",
@@ -253,7 +255,11 @@ def plan_units(change: str, groups: list[dict], *, min_lines: int, max_lines: in
         independent = bool(group.get("independent"))
         # Joining is a form of ordering, so an independent group is joined
         # neither to the unit before it nor to the one after.
-        if current and (independent or group["repo"] != current[0]["repo"]):
+        if current and (
+            independent
+            or group["repo"] != current[0]["repo"]
+            or group.get("project", ".") != current[0].get("project", ".")
+        ):
             flush()
 
         size = sum(g["estimated_lines"] for g in current) + group["estimated_lines"]
