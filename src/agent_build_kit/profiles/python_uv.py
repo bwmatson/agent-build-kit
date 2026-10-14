@@ -13,8 +13,10 @@ from __future__ import annotations
 import json
 import re
 import shlex
+import subprocess
 import sys
 import tomllib
+from collections.abc import Callable
 from pathlib import Path
 
 from agent_build_kit.config import (
@@ -435,6 +437,18 @@ class PythonUvProfile:
             return [*command, *tests]
         # What follows is the run's selection, workers and markers: all dropped.
         return [*command[: program + 1], *tests, "-q"]
+
+    def selected_tests(
+        self,
+        command: list[str],
+        expression: str,
+        *,
+        run: Callable[..., subprocess.CompletedProcess],
+        among: list[str] | None = None,
+    ) -> list[str] | None:
+        """The identifiers `command` runs under `expression`, listed with pytest's
+        collection, as paths from the repository root."""
+        raise NotImplementedError
 
     def repeat_command(self, command: list[str], tests: list[str]) -> list[str] | None:
         """`command`, a test run, as one of exactly those node ids of `tests` that fall under

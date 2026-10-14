@@ -24,7 +24,7 @@ import fcntl
 import os
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -41,6 +41,37 @@ from agent_build_kit.pipeline.workspaces import process_alive
 
 # Shown on the PR beside the Actions checks.
 STATUS_CONTEXT = "local/tier2"
+
+# The group of tests that carry no runtime tag.
+BASE_GROUP = "base"
+
+
+class Tier2Selection(Frozen):
+    """The marker expression of one tier 2 run, the runtimes it leaves out and the group
+    it runs alone."""
+
+    expression: str
+    left_out: tuple[str, ...] = ()
+    only: str | None = None
+
+
+def tier2_selection(
+    marker: str,
+    blocked: Collection[str],
+    *,
+    only: str | None = None,
+    configured: Collection[str] = (),
+) -> Tier2Selection:
+    """The marker expression of a tier 2 run that leaves out the `blocked` runtimes, or
+    runs `only` one group (a runtime or `base`). `configured` are the keys under `runtimes`."""
+    raise NotImplementedError
+
+
+def selection_unavailable(toolchain: object, *, dev_stack_script: bool) -> str | None:
+    """Why a tier 2 run of this profile cannot leave a group out (the profile has no way to
+    list a selection, or the repo runs tier 2 through its dev stack script), else None."""
+    raise NotImplementedError
+
 
 # The config key the tier 2 lock wait is read from; the busy message names it.
 LOCK_WAIT_SETTING = "global_limits.tier2_lock_wait_seconds"
