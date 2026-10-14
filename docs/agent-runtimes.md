@@ -831,7 +831,7 @@ whose format has no writer.
 
 ## Test markers
 
-Two markers keep slow tests out of the default suite (`pytest`), and a third keeps a test out of the parallel pass:
+The markers the suite uses:
 
 - `integration` needs node (`npx`) and the network for the real OpenSpec CLI.
   Run with `pytest -m integration`.
@@ -892,6 +892,13 @@ Two markers keep slow tests out of the default suite (`pytest`), and a third kee
   runs the suite in parallel workers (pytest-xdist, capped at 8) without these
   tests, then runs them alone in a serial pass. A plain `pytest <file>` runs
   without workers.
+- `runtime_<name>` (`runtime_claude_code`, `runtime_acp`) names the one agent
+  runtime a `local_stack` test drives; a test with none is the untagged base and
+  needs no agent. Two different runtime tags on one live-stack test, from the test,
+  its class, its module or a parameter, fail collection naming the test, so a
+  scenario that needs two runtimes is two tests. Markers are strict: an
+  unregistered one fails collection. `dev_stack` marks a test that needs the
+  repo's dev stack.
 
 ## Record and replay of external calls
 

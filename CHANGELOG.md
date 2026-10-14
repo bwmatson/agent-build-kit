@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Live-stack tests now name the agent runtime they drive with one tag (`runtime_claude_code`,
+  `runtime_acp`); a test with none is the base and always runs. A live-stack test carrying
+  two different runtime tags, or any marker that is not registered, fails collection naming
+  it, so a mistyped tag can no longer silently select nothing.
+
 - `abk scrub-check` no longer flags the planning root's own name when it scans the planning
   root itself, and finds more of what identifies an installation: literal values and
   provider files in `verify.env`, the home user name, and the dot-directories configured
