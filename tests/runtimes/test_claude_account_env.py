@@ -8,9 +8,10 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.claude_account import VARIABLE
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime, spawn
-from tests.runtimes.account_calls import KINDS, VARIABLE, use_account
+from tests.runtimes.account_calls import KINDS, use_account
 from tests.runtimes.claude_cli import FakeClaude, finished_build
 
 GATEWAY = {"ANTHROPIC_BASE_URL": "http://gateway.test", "ANTHROPIC_API_KEY": "run-key"}

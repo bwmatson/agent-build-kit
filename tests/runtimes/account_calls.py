@@ -25,8 +25,6 @@ from tests.pipeline.test_planner_runtime import CHANGES, PLAN
 from tests.runtimes.claude_cli import FakeClaude, finished_build, record
 from tests.tracks.test_runner import described_installation, project
 
-VARIABLE = "CLAUDE_CONFIG_DIR"
-
 
 def use_account(monkeypatch: pytest.MonkeyPatch, directory: Path | None) -> None:
     """The setting as the settings layer holds it: `directory`, or unset."""

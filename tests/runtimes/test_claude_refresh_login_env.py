@@ -10,10 +10,11 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.claude_account import VARIABLE
 from agent_build_kit.installation import Installation
 from agent_build_kit.runtimes.claude_code import refresh_login
 from tests.call_rows import agent_rows
-from tests.runtimes.account_calls import VARIABLE, use_account
+from tests.runtimes.account_calls import use_account
 
 
 class Recorder:

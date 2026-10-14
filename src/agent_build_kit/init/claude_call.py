@@ -16,7 +16,8 @@ from agent_build_kit import runtimes
 from agent_build_kit.runtimes import AgentResult, AgentRuntime
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime, through
 
-# (argv, *, cwd=None) -> the model's text output.
+# (argv, *, cwd=None) -> the model's text output. It stands in for the executable, so the
+# environment the runtime would add is not passed to it.
 RunClaude = Callable[..., str]
 
 
@@ -30,7 +31,7 @@ def runtime_for(run_claude: RunClaude | None, runtime: AgentRuntime | None) -> A
     if runtime is not None and not isinstance(runtime, ClaudeCodeRuntime):
         return runtime
 
-    def run(argv: list[str], *, cwd=None) -> subprocess.CompletedProcess[str]:
+    def run(argv: list[str], *, cwd=None, env=None) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(argv, 0, run_claude(argv, cwd=cwd), "")
 
     return through(run)

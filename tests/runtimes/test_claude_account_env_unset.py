@@ -8,10 +8,11 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.claude_account import VARIABLE
 from agent_build_kit.config import models
 from agent_build_kit.pipeline.wiring import build_run
 from tests.conftest import make_installation
-from tests.runtimes.account_calls import KINDS, VARIABLE, use_account
+from tests.runtimes.account_calls import KINDS, use_account
 from tests.runtimes.stand_in import StandInRuntime
 
 

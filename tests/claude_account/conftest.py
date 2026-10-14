@@ -7,9 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.claude_account import NAMES
 from agent_build_kit.settings import reload
-
-NAMES = ("CLAUDE_CONFIG_DIR", "ABK_CLAUDE_HOME")
 
 # Sets the process environment and the `.env` as given (`process=`, `dotenv=`), reloads the
 # settings from that `.env` and returns its path.

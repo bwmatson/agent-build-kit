@@ -14,16 +14,23 @@ from enum import Enum
 from pathlib import Path
 
 from dotenv import dotenv_values
+from pydantic import AliasChoices
 
 from agent_build_kit import settings as settings_module
 from agent_build_kit.config import ConfigError
-from agent_build_kit.settings import settings
+from agent_build_kit.settings import Settings, settings
 
-# The names the setting is read under, `CLAUDE_CONFIG_DIR` first.
-NAMES = ("CLAUDE_CONFIG_DIR", "ABK_CLAUDE_HOME")
+_ALIAS = Settings.model_fields["claude_home"].validation_alias
 
-# The variable Claude Code reads its account directory from.
-VARIABLE = "CLAUDE_CONFIG_DIR"
+# The names the setting is read under, in the settings layer's order (`CLAUDE_CONFIG_DIR` first).
+NAMES: tuple[str, ...] = (
+    tuple(c for c in _ALIAS.choices if isinstance(c, str))
+    if isinstance(_ALIAS, AliasChoices)
+    else ()
+)
+
+# The variable Claude Code reads its account directory from: the first name.
+VARIABLE = NAMES[0]
 
 
 class Source(Enum):
@@ -73,8 +80,10 @@ def _default() -> Path:
 def _configured() -> Path | None:
     """The account directory the setting names; None when unset or empty."""
     raw = settings.claude_home
+    if raw is None:
+        return None
     found = _supplied(settings_module.loaded_env_file)
-    if raw is None or (found is not None and not found[2]):
+    if found is not None and not found[2]:
         return None
     path = raw.expanduser()
     if not path.is_absolute():

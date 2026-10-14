@@ -521,7 +521,9 @@ def through(run: Callable[..., subprocess.CompletedProcess[str]]) -> ClaudeCodeR
     """This adapter with `run(argv, *, cwd)` in place of the process: the
     shape a call site's own injection point took before the runtime seam,
     which never streamed, kept so a caller handing one in still sees the
-    exact argv."""
+    exact argv. `run` is called as `run(argv, *, cwd, env=...)` when there is an
+    environment to add (an account is set, or the request has entries), so it
+    must accept `env`."""
 
     def execute(argv: list[str], *, cwd: Path | None = None, on_event=None, env=None):
         return run(argv, cwd=cwd, **({"env": env} if env else {}))

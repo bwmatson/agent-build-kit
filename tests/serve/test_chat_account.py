@@ -8,6 +8,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from agent_build_kit.claude_account import VARIABLE
 from agent_build_kit.installation import Installation
 from agent_build_kit.settings import settings
 from tests.chat_serving import claude_session_file, turn, use_claude
@@ -17,7 +18,6 @@ pytestmark = pytest.mark.serial
 
 ACCOUNT_SESSION = "0b7e1d52-9c3a-4f8e-b1d6-2a5c7e9f0d61"
 DEFAULT_SESSION = "6d2a8f14-3e5b-4c7a-9f0e-1b8d3c6a2e71"
-VARIABLE = "CLAUDE_CONFIG_DIR"
 
 
 @pytest.fixture
