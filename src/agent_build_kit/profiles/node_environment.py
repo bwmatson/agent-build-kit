@@ -19,7 +19,8 @@ LOCKS = {"npm": "package-lock.json", "pnpm": "pnpm-lock.yaml", "yarn": "yarn.loc
 ARTIFACTS = ["node_modules"]
 
 
-def _manifest(root: Path) -> dict:
+def read_manifest(root: Path) -> dict:
+    """The parsed `package.json` in `root`; empty when it is missing or not an object."""
     try:
         data = json.loads((root / MANIFEST).read_text())
     except (OSError, ValueError):
@@ -39,7 +40,8 @@ def _declared(manifest: dict) -> tuple[str, int | None] | None:
     return name, int(major) if major.isdigit() else None
 
 
-def _workspaces(manifest: dict) -> list[str]:
+def workspace_patterns(manifest: dict) -> list[str]:
+    """The `workspaces` patterns of a manifest, in the array or the object form."""
     workspaces = manifest.get("workspaces")
     if isinstance(workspaces, dict):
         workspaces = workspaces.get("packages")
@@ -64,7 +66,7 @@ def detect_environment(root: Path) -> EnvironmentConfig | None:
     root = root.expanduser().resolve()
     if not (root / MANIFEST).is_file():
         return None
-    manifest = _manifest(root)
+    manifest = read_manifest(root)
     locks = [name for name in LOCKS.values() if (root / name).is_file()]
     declared = _declared(manifest)
     if declared:
@@ -72,7 +74,7 @@ def detect_environment(root: Path) -> EnvironmentConfig | None:
     else:
         manager = next((m for m, name in LOCKS.items() if name in locks), "npm")
         major = None
-    dependencies = [MANIFEST, *(f"{w}/{MANIFEST}" for w in _workspaces(manifest))]
+    dependencies = [MANIFEST, *(f"{w}/{MANIFEST}" for w in workspace_patterns(manifest))]
     return EnvironmentConfig(
         sync=[manager, "install"],
         check=_check(manager, major),

@@ -1,16 +1,16 @@
-"""The profile for a JavaScript/TypeScript repo managed by npm — lint, type check and
-tests of a single package are implemented; the rest is declared.
+"""The profile for a JavaScript/TypeScript repo managed by npm.
 
 `abk init` detects such repos and writes their specs (research and proposal
-are language-agnostic); `abk tick` holds a unit that reaches a method that still
-raises, with a log line saying so. Implemented, by method of
+are language-agnostic); `abk tick` holds a unit that reaches a method that raises
+`ProfileUnsupported`, with a log line saying so. Implemented, by method of
 `profiles.base.ToolchainProfile`: `npx oxlint` and `npx oxfmt --check` as the lint,
 `npx tsc --noEmit` as the project check, `npx vitest run` with a JUnit report for the
 tests, the clean and red commands, judging a red run, and `.test`/`.spec` files and
 `__tests__/` as test paths.
 The stub check (`throw new Error("not implemented")` as the permitted body) and the files the
 commands create are implemented too.
-Still to come: the tier 2 and acceptance commands and workspace members.
+npm workspace members (the `workspaces` field, globs expanded) are tested one command each
+in their own directory, and a tier 2 test is a file named `<name>.<marker>.test.<ext>`.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from agent_build_kit.pipeline.red_check import (
 )
 from agent_build_kit.pipeline.tier2 import TestFailure, TestTime, clip_failure_line
 from agent_build_kit.profiles import node_environment
-from agent_build_kit.profiles.base import ProfileUnsupported, PromptWords
+from agent_build_kit.profiles.base import PromptWords, is_doc_path
 
 _SOURCE = ("ts", "tsx", "js", "jsx", "mts")
 # The names of the source files that differ from the base ref `$1`, relative to the project.
@@ -56,6 +56,15 @@ _TESTS = wrap_report_command(
     f"npx {_TEST_RUNNER} run --passWithNoTests --reporter=junit", "--outputFile"
 )
 _TEST_COMMAND = ["sh", "-c", _TESTS]
+# The same in the directory `$1`, for a workspace member; the report path is absolute, so the
+# change of directory does not hide it.
+# The directory of a project that is not a workspace.
+_HERE = "./"
+_RUN = f"npx {_TEST_RUNNER} run --passWithNoTests --reporter=junit"
+_MEMBER_TESTS = wrap_report_command(f'cd "$1" && {_RUN}', "--outputFile")
+# Tier 2 and acceptance: in `$1`, the rest are Vitest's filters, which match by substring of
+# a file's path.
+_FILTERED = wrap_report_command(f'cd "$1" && shift && {_RUN} "$@"', "--outputFile")
 _LINT_ALL = "npx oxlint . && npx oxfmt --check ."
 # The red command lists the files it was given, one per line before the report, so the judge
 # can tell their suites from any other the runner's substring filters selected.
@@ -156,11 +165,6 @@ class NodeNpmProfile:
     )
     no_tests_collected_exit: int = 0
 
-    def _todo(self, what: str):
-        raise ProfileUnsupported(
-            f"the {self.name} toolchain profile is not implemented in this release ({what})"
-        )
-
     def created_files(self, repo: Path) -> list[str]:
         """The type-check build info and the Vite and Vitest caches."""
         return list(_CREATED)
@@ -179,11 +183,22 @@ class NodeNpmProfile:
     def test_commands(
         self, repo: Path, changed: list[str], *, root_extras: list[str]
     ) -> list[list[str]]:
-        """The project's Vitest run, whatever changed: it reads its own configuration."""
-        return [list(_TEST_COMMAND)]
+        """The project's Vitest run, whatever changed: it reads its own configuration. In a
+        workspace, one run in each member a changed path is under, and in every member when
+        a path outside them all (the root manifest, a shared configuration) changed;
+        documentation changes nothing."""
+        members = self.members(repo)
+        if not members:
+            return [list(_TEST_COMMAND)]
+        outside = any(
+            not is_doc_path(path) and self.member_of(repo, path) is None for path in changed
+        )
+        touched = {self.member_of(repo, path) for path in changed}
+        return [_member_command(m) for m in members if outside or m in touched]
 
     def test_commands_all(self, repo: Path, *, root_extras: list[str]) -> list[list[str]]:
-        return [list(_TEST_COMMAND)]
+        members = self.members(repo)
+        return [_member_command(m) for m in members] if members else [list(_TEST_COMMAND)]
 
     def tolerates_exit(self, command: list[str], returncode: int) -> bool:
         return returncode == 0
@@ -201,7 +216,7 @@ class NodeNpmProfile:
             return "lint"
         if words[:2] == ["npx", _TYPE_CHECK]:
             return "types"
-        return "test" if words == _TEST_COMMAND else "lint"
+        return "test" if words[:3] in (_TEST_COMMAND, _member_command("")[:3]) else "lint"
 
     def extra_checks(self, repo: RepoConfig) -> list[list[str]]:
         return []
@@ -211,7 +226,11 @@ class NodeNpmProfile:
         return [["npx", _TYPE_CHECK, "--noEmit"]]
 
     def tier2_commands(self, repo: Path, *, marker: str) -> list[list[str]]:
-        return self._todo("tier2_commands")
+        """The files named for `marker`, in each member of a workspace or else the project."""
+        return [
+            ["sh", "-c", _FILTERED, "sh", member, f".{marker}.test."]
+            for member in self.members(repo) or [_HERE]
+        ]
 
     def acceptance_commands(
         self,
@@ -222,7 +241,17 @@ class NodeNpmProfile:
         exclude_marker: str,
         root_extras: list[str],
     ) -> list[list[str]]:
-        return self._todo("acceptance_commands")
+        """The changed files named for `marker` that exist, and not for `exclude_marker`
+        (the tests only the dev stack can run), a run per member."""
+        by_member: dict[str | None, list[str]] = {}
+        for path in paths:
+            if _marked(path, marker, exclude_marker) and (checkout / path).exists():
+                by_member.setdefault(self.member_of(checkout, path), []).append(path)
+        commands = []
+        for member, files in sorted(by_member.items(), key=lambda item: item[0] or ""):
+            relative = [f.removeprefix(f"{member}/") if member else f for f in sorted(files)]
+            commands.append(["sh", "-c", _FILTERED, "sh", member or _HERE, *relative])
+        return commands
 
     def clean_command(self) -> str:
         """Lint and the format check over the project; no type check, since a test importing
@@ -313,7 +342,18 @@ class NodeNpmProfile:
         return failures
 
     def parse_test_durations(self, output: str) -> list[TestTime]:
-        return []
+        """One `call` entry per test of the report, with the time Vitest gave it."""
+        root = _report(output)
+        if root is None:
+            return []
+        return [
+            TestTime(
+                test=" > ".join(p for p in (c.get("classname"), c.get("name")) if p),
+                phase="call",
+                seconds=float(c.get("time") or 0),
+            )
+            for c in root.iter("testcase")
+        ]
 
     def without_durations(self, output: str) -> str:
         return output
@@ -351,13 +391,58 @@ class NodeNpmProfile:
         return problems
 
     def members(self, repo: Path) -> list[str]:
-        return self._todo("members")
+        """The directories the root manifest's `workspaces` patterns name that hold a
+        manifest, sorted; none for a manifest without the field. A negated pattern is not
+        supported."""
+        found: set[str] = set()
+        for pattern in node_environment.workspace_patterns(node_environment.read_manifest(repo)):
+            if pattern.startswith("!"):
+                continue
+            for directory in repo.glob(pattern):
+                relative = directory.relative_to(repo)
+                if (
+                    "node_modules" not in relative.parts
+                    and (directory / node_environment.MANIFEST).is_file()
+                ):
+                    found.add(relative.as_posix())
+        return sorted(found)
 
     def member_of(self, repo: Path, path: str) -> str | None:
-        return self._todo("member_of")
+        inside = [m for m in self.members(repo) if path == m or path.startswith(f"{m}/")]
+        return max(inside, key=len, default=None)
 
     def dependents(self, repo: Path, member: str) -> list[str]:
-        return self._todo("dependents")
+        """The members that name `member`'s package among their dependencies, development
+        dependencies or peer dependencies."""
+        name = node_environment.read_manifest(repo / member).get("name")
+        found = []
+        for other in self.members(repo):
+            manifest = node_environment.read_manifest(repo / other)
+            declared = {
+                dependency
+                for kind in ("dependencies", "devDependencies", "peerDependencies")
+                if isinstance(manifest.get(kind), dict)
+                for dependency in manifest[kind]
+            }
+            if other != member and name in declared:
+                found.append(other)
+        return found
+
+
+def _member_command(member: str) -> list[str]:
+    return ["sh", "-c", _MEMBER_TESTS, "sh", member]
+
+
+def _marked(path: str, marker: str, exclude_marker: str) -> bool:
+    """Whether `path` is named `<name>.<marker>.test.<ext>` and not for `exclude_marker`."""
+    parts = path.rsplit("/", 1)[-1].split(".")
+    segments = parts[1:-2]
+    return (
+        len(parts) > 3
+        and parts[-2] == "test"
+        and marker in segments
+        and (not exclude_marker or exclude_marker not in segments)
+    )
 
 
 PROFILE = NodeNpmProfile()
