@@ -4047,6 +4047,12 @@ def _tag_warnings(inst: Installation, path: Path) -> list[str]:
 
 def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
     """Validate a change's task-group tags (or every change's)."""
+    if args.all and args.change:
+        print("abk tags: give a change or --all, not both", file=sys.stderr)
+        return 2
+    if not args.all and not args.change:
+        print("abk tags: name a change, or pass --all for every change", file=sys.stderr)
+        return 2
     changes = [t.parent.name for t in inst.tasks_files()] if args.all else [args.change]
     if not changes:
         # Silence reads as a failure; an empty store is a normal state.
@@ -4563,8 +4569,9 @@ def register(sub: argparse._SubParsersAction) -> None:
     verify.add_argument("change")
     verify.set_defaults(func=cmd_verify)
 
-    tags = sub.add_parser("tags", help="validate a change's task-group tags")
-    tags.add_argument("change", nargs="?")
+    tags_help = "validate a change's task-group tags (name a change, or --all for every change)"
+    tags = sub.add_parser("tags", help=tags_help, description=tags_help)
+    tags.add_argument("change", nargs="?", help="the change to check")
     tags.add_argument("--all", action="store_true", help="every change in the store")
     tags.set_defaults(func=cmd_tags)
 
