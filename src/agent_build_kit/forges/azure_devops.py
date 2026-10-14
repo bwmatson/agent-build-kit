@@ -152,10 +152,6 @@ _STATUS_CHECKS = {
     "notSet": CheckStatus.PENDING,
 }
 
-# A status description well inside what the API accepts. Over the limit the
-# whole status is refused, not its tail.
-_DESCRIPTION = 950
-
 # `git@ssh.dev.azure.com:v3/<org>/<project>/<repo>`, with or without the
 # ssh:// scheme, and `https://[user@]dev.azure.com/<org>/<project>/_git/<repo>`.
 # Anchored on the host, which is why this forge is asked before GitHub's
@@ -204,6 +200,7 @@ class AzureDevOpsForge:
     requires: tuple[str, ...] = ("azure_devops.org", "azure_devops.project", "azure_devops.repo")
     ci_name: str = "Azure Pipelines"
     description_limit: int = 4_000
+    status_limit: int = 950
 
     def api_url(self, machine: Settings) -> str | None:
         return _HOST
@@ -731,9 +728,7 @@ class AzureDevOpsForge:
         genre, _, name = context.rpartition("/")
         payload = {
             "state": "succeeded" if ok else "failed",
-            # Well inside what the API accepts: an over-long description
-            # loses the whole status rather than its tail.
-            "description": description[:_DESCRIPTION],
+            "description": description,
             "context": {"genre": genre or "abk", "name": name},
         }
         try:

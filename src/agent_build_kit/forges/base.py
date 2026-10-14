@@ -314,6 +314,10 @@ class Forge(RegistersStacks, Protocol):
     # forge does not cut: the pipeline fits a description once, to the lowest
     # of these across the registered forges (`forges.description_limit`).
     description_limit: int
+    # The most characters this host takes in a commit status description. The
+    # pipeline fits one once, to the lowest of these across the registered
+    # forges (`forges.status_limit`); the forge does not cut.
+    status_limit: int
 
     def api_url(self, machine: Settings) -> str | None:
         """The address this host's API is called at, or None for a host with none."""

@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from agent_build_kit import forges, infra, profiles, runtimes
+from agent_build_kit.budget import Section, cut_head, cut_tail, fit
 from agent_build_kit.config import (
     CONFIG_ENV,
     CONFIG_FILENAME,
@@ -168,6 +169,69 @@ FLAKE_RERUNS = 2
 FLAKE_FAILURE_CHARS = 6000
 STORM_FAILURES = 3
 STORM_FAILURE_CHARS = 3000
+
+# A unit's tier 2 output: how much is kept, what a passing command's section may take, how
+# much of a failed test's own section its line in the digest keeps, and how much more a
+# failed command weighs than a passing one.
+TIER2_OUTPUT_CHARS = 4000
+TIER2_PASSING_CHARS = 1500
+TIER2_DIGEST_CHARS = 300
+TIER2_FAILED_WEIGHT = 4
+# How much of the output the failed commands' digests may reserve between them.
+TIER2_DIGEST_SHARE = TIER2_OUTPUT_CHARS * 3 // 4
+# What a command's section keeps at least, beside its header: the end of its output, or the
+# start of its failure digest, so a section can always get what its smallest form says.
+TIER2_SMALLEST_TAIL = 200
+
+
+def _failure_digest(toolchain: ToolchainProfile, text: str) -> str:
+    """Each failed test's identifier and the end of its own section, where the error is;
+    empty when the profile cannot read the failed tests."""
+    tests = _failed_ids(toolchain, text)
+    if not tests:
+        return ""
+    found = _failure_sections(toolchain, text)
+    return "\n".join(
+        "\n".join(
+            part for part in (test, cut_tail(found.get(test, ""), TIER2_DIGEST_CHARS)) if part
+        )
+        for test in tests
+    )
+
+
+def _command_section(
+    header: str, text: str, toolchain: ToolchainProfile, *, failed: bool, failures: int = 1
+) -> Section:
+    """One command's part of the tier 2 output. A passing command keeps the end of its
+    output; a failed one keeps its failed tests and why first, then the end of the rest. A
+    failed command is never left out, and reserves its digest up to its part (of `failures`
+    commands) of `TIER2_DIGEST_SHARE`."""
+    digest = _failure_digest(toolchain, text) if failed else ""
+    full = f"{header}\n{text}"
+    front = len(header) + 1
+    reserve = max(TIER2_DIGEST_SHARE // failures, TIER2_SMALLEST_TAIL)
+
+    def render(size: int) -> str:
+        room = size - front
+        if size >= len(full):
+            return full
+        if digest and len(digest) >= room:
+            return f"{header}\n{cut_head(digest, max(room, 0), 'line')}"
+        if digest:
+            rest = cut_tail(text, room - len(digest) - 1, "line") if room > len(digest) + 1 else ""
+            return f"{header}\n{digest}" + (f"\n{rest}" if rest else "")
+        return f"{header}\n{cut_tail(text, max(room, 0), 'line')}"
+
+    return Section(
+        key=header,
+        render=render,
+        natural=len(full),
+        smallest=min(len(full), front + min(len(digest) or TIER2_SMALLEST_TAIL, reserve)),
+        weight=TIER2_FAILED_WEIGHT if failed else 1,
+        ceiling=None if failed else front + TIER2_PASSING_CHARS,
+        required=failed,
+    )
+
 
 # Told a finished agent call: `(result, *, role, model, runtime)`, and `gateway`
 # (a function giving the run's `Spend`) when a gateway key was minted for it.
@@ -1270,9 +1334,8 @@ def build_tier1(
         tests = _failed_ids(toolchain, output)
         if not tests:
             return False
-        reader = getattr(toolchain, "failure_sections", None)
         # Read from the redacted text, so what is kept of a section holds no secret.
-        sections = reader(stored) if reader is not None else {}
+        sections = _failure_sections(toolchain, stored)
         rerun = rerun_command(command, tests)
         for _ in range(FLAKE_RERUNS):
             again = ran(rerun, where, toolchain)
@@ -1454,6 +1517,13 @@ def _failed_ids(toolchain: ToolchainProfile, output: str) -> list[str]:
     """The tests a failed check's output names, as the profile reads them; none when it cannot."""
     reader = getattr(toolchain, "failed_tests", None)
     return reader(output) if reader is not None else []
+
+
+def _failure_sections(toolchain: ToolchainProfile, output: str) -> dict[str, str]:
+    """Each failed test's own section of a failed check's output, as the profile reads them;
+    none when it cannot."""
+    reader = getattr(toolchain, "failure_sections", None)
+    return reader(output) if reader is not None else {}
 
 
 def expand_template(template: str, changed_files: list[str], failed_ids: list[str]) -> list[str]:
@@ -2334,9 +2404,9 @@ class Tier2Session:
             """A test's id as the result names it: with its project, where there is one."""
             return f"{project}/{test}" if project else test
 
-        # header, text, how much of it to keep, the toolchain that read it, its project,
+        # header, text, whether the command failed, the toolchain that read it, its project,
         # and where and with which command it ran
-        outputs: list[tuple[str, str, int | None, ToolchainProfile, str, Path, list[str]]] = []
+        outputs: list[tuple[str, str, bool, ToolchainProfile, str, Path, list[str]]] = []
 
         # A queue, not a fail-fast lock: a second unit's tier 2 tests are
         # perfectly valid, there is simply one local stack to run them on.
@@ -2372,25 +2442,33 @@ class Tier2Session:
                     # would fill the cut output and push the failures from it.
                     kept = toolchain.without_durations(out)
                     if f or completed.returncode not in (0, nothing):
-                        outputs.append((header, kept, None, toolchain, project, where, command))
+                        outputs.append((header, kept, True, toolchain, project, where, command))
                     elif p:
-                        outputs.append((header, kept, 1500, toolchain, project, where, command))
+                        outputs.append((header, kept, False, toolchain, project, where, command))
 
             # Every command's text in one pass, before any cut, so a cut cannot leave half a
             # value and a failing redaction is logged once.
             redacted = redact_leaves([out for _, out, *_ in outputs], where="tier-2 output")
-            output = "\n\n".join(
-                f"{header}\n{text if keep is None else text[-keep:]}"
-                for (header, _, keep, *_), text in zip(outputs, redacted, strict=True)
+            failures_count = sum(failed for _, _, failed, *_ in outputs)
+            output = fit(
+                [
+                    _command_section(
+                        header, text, toolchain, failed=failed, failures=max(failures_count, 1)
+                    )
+                    for (header, _, failed, toolchain, *_), text in zip(
+                        outputs, redacted, strict=True
+                    )
+                ],
+                TIER2_OUTPUT_CHARS,
             )
             # Read from the redacted text, so a line is redacted before it is shortened.
             failures: list[TestFailure] = []
             # Which command named each failure, for the base run to repeat that one.
             named_by: dict[str, tuple[Path, ToolchainProfile, list[str]]] = {}
-            for (_, _, keep, toolchain, project, at, ran), text in zip(
+            for (_, _, command_failed, toolchain, project, at, ran), text in zip(
                 outputs, redacted, strict=True
             ):
-                if keep is not None:
+                if not command_failed:
                     continue
                 for found in toolchain.parse_test_failures(text):
                     test = labelled(project, found.test)
@@ -2415,7 +2493,7 @@ class Tier2Session:
                 skipped=skipped,
                 duration_seconds=duration,
                 command=command,
-                output=output[-4000:],
+                output=output,
                 stack_versions=_stack_versions(self._stack_versions_command, run=self._run),
                 failures=failures,
                 durations=sorted(timed, key=lambda e: e.seconds, reverse=True),

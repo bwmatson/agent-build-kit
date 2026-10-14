@@ -885,8 +885,8 @@ tick tries it again. A finished change with no directory is logged as withdrawn 
 `cut_middle` take a text, a size, a boundary (`char`, `line` or `paragraph`) and a
 marker: each returns the text unchanged when it fits and never returns more than the size.
 A head cut (keeping the start) closes any code fence or `<details>` block it leaves open;
-a tail cut (keeping the end) reopens what the dropped head left open, with lines of its own
-that it then closes. `forges.base.fit_description` is a wrapper over `cut_head` with the
+a tail cut (keeping the end) opens again what the dropped head left open, with lines of its
+own that it keeps within the size. `forges.base.fit_description` is a wrapper over `cut_head` with the
 description note as its marker; it is the last guard of the description builder.
 
 The description is fitted once, to `forges.description_limit()`, the lowest description
@@ -907,6 +907,18 @@ section needing less than its share keeps only what it needs and passes the rema
 A render that overshoots is trimmed from the section with the most room and rendered again
 (up to three times), and a final line cut guarantees the budget. Ties go to the earlier
 section, so the result is deterministic.
+
+The same module builds three other texts. A unit's tier 2 output is one section per
+command (4,000 characters in all): a passing command keeps the end of its output, up to
+1,500 characters, and a failed one weighs four times as much and keeps, for each failed
+test, its identifier and the end of its own section (where the error is) before the end of
+the rest; a profile that cannot read the failed tests keeps the end of the output, as
+before. The earlier review rounds a reviewer is shown are sections too: open findings and
+round headings are required and kept whole however long, findings already fixed or declined
+are left out whole (fixed ones first, each oldest first) with a count, and only when none is
+left to leave out are a round's prose and the builder's responses reduced. A commit status description is
+fitted to `forges.status_limit()`, the lowest `status_limit` across the registered forges,
+where `tier2.post_status` builds it; no forge cuts it.
 
 ## The guards
 

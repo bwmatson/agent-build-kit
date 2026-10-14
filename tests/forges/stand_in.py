@@ -42,6 +42,7 @@ class StandInForge:
     requires: tuple[str, ...] = ()
     ci_name: str = "the stand-in CI"
     description_limit: int = 65_536
+    status_limit: int = 65_536
 
     def api_url(self, machine: Settings) -> str | None:
         return None
