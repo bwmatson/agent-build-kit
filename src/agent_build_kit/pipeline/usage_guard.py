@@ -28,7 +28,8 @@ where credits start paying.
    answers with both windows' utilization, their reset times, and the credits
    state. Undocumented, so it can change or disappear — which is why there is
    a fallback, and why anything unrecognised reads as unknown.
-2. **`~/.claude.json`'s `cachedUsageUtilization`**, the same numbers cached
+2. **Claude Code's state file** (`<account dir>/.claude.json` with an account
+   set, else `~/.claude.json`) and its `cachedUsageUtilization`, the same numbers cached
    locally. Only refreshed when an *interactive* session talks to the API — a
    headless run does not refresh it (verified) — so it is stale exactly when
    the runner is working alone, and readings past `MAX_ANCHOR_AGE` are
@@ -953,7 +954,7 @@ def may_start_unit(reading: UsageReading | None, *, trust_age: bool = False) -> 
         note = rate_limit_note()
         return Decision(
             may_start=False,
-            reason="usage is unknown: neither the usage endpoint nor ~/.claude.json could be read"
+            reason=f"usage is unknown: neither the usage endpoint nor {_state_file()} could be read"
             + (f" (the usage endpoint is {note})" if note else ""),
             resume_at=now + UNKNOWN_RETRY,
         )
