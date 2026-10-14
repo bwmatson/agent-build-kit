@@ -78,6 +78,7 @@ from agent_build_kit.pipeline.stack_runner import (
     escalates,
     parse_test_decisions,
     person_guidance,
+    rerun_advice,
     tests_needing_decision,
     with_response,
 )
@@ -1524,6 +1525,7 @@ class BuildPath:
                         change_dir=change_dir,
                         feedback=feedback,
                         boundary=build_boundary,
+                        rerun=rerun_advice(CHECKS_PROMPT, feedback, stored.feedback_source),
                     )
                     if failed_check
                     else REWORK_PROMPT.format(
@@ -1541,7 +1543,11 @@ class BuildPath:
                 state=state,
                 model=models().rework,
                 follow_up=self.told(
-                    CHECKS_CONTINUATION.format(guidance=note, feedback=feedback)
+                    CHECKS_CONTINUATION.format(
+                        guidance=note,
+                        feedback=feedback,
+                        rerun=rerun_advice(CHECKS_CONTINUATION, feedback, stored.feedback_source),
+                    )
                     if failed_check
                     else REWORK_CONTINUATION.format(
                         guidance=note,

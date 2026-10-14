@@ -72,7 +72,7 @@ def test_a_tier2_failure_with_a_file_names_it_and_says_the_live_tests_cannot_be_
     assert "cut short" in prompt
     assert "grep" in prompt and "sed" in prompt
     assert NO_RERUN in prompt
-    assert RUN_YOURSELF not in prompt.lower()
+    assert RUN_YOURSELF not in " ".join(prompt.lower().split())
 
 
 @pytest.mark.parametrize("resumes", [False, True], ids=["prompt", "continuation"])
@@ -88,7 +88,7 @@ def test_a_tier2_failure_without_a_readable_file_names_none_and_says_it_cannot_b
     assert LOG not in after
     assert "cut short" in after
     assert NO_RERUN in after
-    assert RUN_YOURSELF not in prompt.lower()
+    assert RUN_YOURSELF not in " ".join(prompt.lower().split())
 
 
 @pytest.mark.parametrize("resumes", [False, True], ids=["prompt", "continuation"])
@@ -104,7 +104,7 @@ def test_a_tier1_failure_keeps_the_instruction_to_run_the_checks_yourself(
         if resumes
         else "The output may be cut short; run the checks yourself to see all of it."
     )
-    assert old in prompt
+    assert old in " ".join(prompt.split())
     assert NO_RERUN not in prompt
     assert "tier2-output" not in prompt
 

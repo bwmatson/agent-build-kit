@@ -46,7 +46,13 @@ from agent_build_kit.pipeline.reuse_guidance import reuse_guidance
 from agent_build_kit.pipeline.scratch import output_convention
 from agent_build_kit.pipeline.task_progress import mark_groups
 from agent_build_kit.pipeline.tier2 import Tier2Verdict
-from agent_build_kit.pipeline.unit_store import Cause, Description, StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import (
+    Cause,
+    Description,
+    FeedbackSource,
+    StoredUnit,
+    UnitStore,
+)
 from agent_build_kit.pipeline.units import (
     Unit,
     UnitState,
@@ -143,6 +149,40 @@ with a saved failure or review text, follow it and say so.
 
 # What stands where the saved failure would, for a unit requeued with only a note.
 WHOLE_ASK = "(No failure was saved for this unit: the person's instruction above is the whole ask.)"
+
+
+class ChecksTemplate(PromptTemplate):
+    """A checks prompt with a `{rerun}` place, which is tier 1's sentence (`tier1`) unless a
+    caller fills it, so a tier 1 failure renders as it always did."""
+
+    tier1: str
+
+    def __new__(cls, text: str, tier1: str) -> ChecksTemplate:
+        made = super().__new__(cls, text)
+        made.tier1 = tier1
+        return made
+
+    def format(self, *args: object, **fields: object) -> str:
+        return super().format(*args, **{"rerun": self.tier1, **fields})
+
+
+_FULL_OUTPUT = re.compile(r"\*\*Full output:\*\* `([^`]+)`( \(withheld)?")
+
+
+def rerun_advice(template: ChecksTemplate, feedback: str, source: FeedbackSource) -> str:
+    """What a checks prompt says about seeing the whole output: for tier 1 the template's own
+    sentence, to run the checks; for tier 2, which a builder cannot rerun, the file holding
+    the full output when the saved failure names one that was not withheld."""
+    if source is not FeedbackSource.TIER2:
+        return template.tier1
+    cut = "The output above is cut short, and you cannot rerun the live tests."
+    found = _FULL_OUTPUT.search(feedback)
+    if found is None or found.group(2):
+        return cut
+    return (
+        f"The output above is cut short; the full output is in {found.group(1)}: read it "
+        "with `grep` or `sed`. You cannot rerun the live tests."
+    )
 
 
 def person_guidance(note: str) -> str:
@@ -255,7 +295,7 @@ the unit has passed review, tier 1 and been pushed.
 TIER1_FAILED = "tier 1 failed:"
 
 
-CHECKS_PROMPT = PromptTemplate(
+CHECKS_PROMPT = ChecksTemplate(
     """\
 {guidance}The pipeline's checks (lint, formatting, types and the tests) failed on this
 branch, for change {change_dir}, task group(s) {groups}. Nothing has been
@@ -266,8 +306,7 @@ reviewed yet: a reviewer is only asked once these pass.
 ---
 {boundary}
 Fix every failure above, and look for others of the same kind, so the next run
-of the checks does not find them. The output may be cut short; run the checks
-yourself to see all of it. Fix the cause, not the report: do not suppress a
+of the checks does not find them. {rerun} Fix the cause, not the report: do not suppress a
 rule, loosen a type to `Any`, or skip a test to make a check pass unless the
 rule itself is wrong for this code, and then say so.
 
@@ -278,7 +317,8 @@ The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, tier 1 and been pushed.
 """
-    + REUSE_NOTE
+    + REUSE_NOTE,
+    tier1="The output may be cut short; run the checks\nyourself to see all of it.",
 )
 
 
@@ -796,7 +836,7 @@ the tests before you finish.
     + "{changelog}"
 )
 
-CHECKS_CONTINUATION = PromptTemplate(
+CHECKS_CONTINUATION = ChecksTemplate(
     """\
 {guidance}The pipeline's checks (lint, formatting, types and the tests) failed on this
 branch. Nothing has been reviewed yet: a reviewer is only asked once these pass.
@@ -805,8 +845,7 @@ branch. Nothing has been reviewed yet: a reviewer is only asked once these pass.
 {feedback}
 ---
 
-Run the checks yourself first: the output above may be cut short, and what you
-remember of the earlier work may not be exact. Fix every failure and look for
+{rerun} Fix every failure and look for
 others of the same kind. Fix the cause, not the report: do not suppress a rule,
 loosen a type to `Any`, or skip a test to make a check pass unless the rule
 itself is wrong for this code, and then say so.
@@ -814,7 +853,11 @@ itself is wrong for this code, and then say so.
 Run linting, formatting, types and the tests again, and finish only when all of
 them pass.
 """
-    + CONTINUATION_READONLY
+    + CONTINUATION_READONLY,
+    tier1=(
+        "Run the checks yourself first: the output above may be cut short, and what you\n"
+        "remember of the earlier work may not be exact."
+    ),
 )
 
 REVIEW_FEEDBACK_CONTINUATION = PromptTemplate(
