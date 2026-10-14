@@ -68,8 +68,8 @@ class Settings(BaseSettings):
         None, validation_alias=AliasChoices("XDG_CONFIG_HOME", "ABK_CONFIG_HOME")
     )
 
-    # Where Claude Code keeps its sessions (`projects/<directory>/<id>.jsonl`), which the
-    # sessions page lists; `~/.claude` when unset. Claude Code's own variable comes first.
+    # The Claude Code account directory (claude_account.py reads it): where its sessions,
+    # credentials and skills live; `~/.claude` when unset. Claude Code's own variable comes first.
     claude_home: Path | None = Field(
         None, validation_alias=AliasChoices("CLAUDE_CONFIG_DIR", "ABK_CLAUDE_HOME")
     )
@@ -157,6 +157,10 @@ def unclassified_secret_fields(model: type[BaseSettings]) -> tuple[str, ...]:
 
 settings = Settings()
 
+# The `.env` the settings were last read from (None: none), so a reader can say which place a
+# value came from.
+loaded_env_file: Path | None = None
+
 
 def named_value(name: str, env_file: Path | None) -> str:
     """The value of the variable `name`: the process environment first, then
@@ -169,6 +173,8 @@ def named_value(name: str, env_file: Path | None) -> str:
 def reload(env_file: Path | None) -> Settings:
     """Re-read the settings with `env_file` (the planning root's .env) and
     update the shared object in place."""
+    global loaded_env_file
+    loaded_env_file = env_file
     fresh = Settings(_env_file=env_file) if env_file else Settings(_env_file=None)
     for name, value in fresh.model_dump().items():
         setattr(settings, name, value)

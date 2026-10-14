@@ -23,8 +23,8 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit import claude_account, forges
 from agent_build_kit import config as config_module
-from agent_build_kit import forges
 from agent_build_kit.cli import doctor
 from agent_build_kit.cli import pipeline as pipeline_cli
 from agent_build_kit.config import RepoConfig, WorkspaceConfig
@@ -93,6 +93,11 @@ def no_real_unit_directory(
     # The pipeline's environment names the live installation; the settings read it at import,
     # so a command run without `--config` would act on that installation's state.
     monkeypatch.setattr(settings, "config", None)
+    # The account a `claude` runs on is the developer's or builder's own: a test that wants one
+    # sets it, and none inherits it from the process.
+    monkeypatch.setattr(settings, "claude_home", None)
+    for name in claude_account.NAMES:
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture(autouse=True)
