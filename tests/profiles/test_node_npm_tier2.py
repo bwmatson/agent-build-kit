@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import fnmatch
 from pathlib import Path
 
 import pytest
@@ -16,7 +15,10 @@ from tests.node_workspace import touch, workspace
 
 MARKED = "src/live.local_stack.test.ts"
 UNMARKED = "src/unit.test.ts"
-DEV = "src/dev.dev_stack.test.ts"
+# Carries both markers: tier 2 selects it, and only the exclusion keeps it out of acceptance.
+DEV = "src/dev.dev_stack.local_stack.test.ts"
+# The marker is not right before `test`, so it is not a tier-2 file.
+DETACHED = "src/x.local_stack.browser.test.ts"
 
 
 @pytest.fixture
@@ -25,10 +27,9 @@ def profile():
 
 
 def selects(command: list[str], path: str) -> bool:
-    """Whether a Vitest run of `command` takes the file `path`: a word with a `*` is a glob
-    over the path, any other word that is not an option is a substring filter."""
-    words = [w for w in command if not w.startswith("-") and w not in ("npx", "vitest", "run")]
-    return any(fnmatch.fnmatch(path, w) if "*" in w else w in path for w in words)
+    """Whether a Vitest run of `command` takes the file `path`: the words after
+    `sh -c <script> sh <directory>` are filters, each matching by substring."""
+    return any(f in path for f in command[5:])
 
 
 def test_tier_two_selects_the_files_carrying_the_marker_and_not_the_unmarked(
@@ -79,6 +80,9 @@ def test_acceptance_names_the_changed_marked_files_only(profile, tmp_path: Path)
 
 def test_acceptance_leaves_out_the_dev_stack_markers_files(profile, tmp_path: Path) -> None:
     touch(tmp_path, MARKED, DEV)
+    (tier2,) = profile.tier2_commands(tmp_path, marker="local_stack")
+
+    assert selects(tier2, DEV)
 
     text = "\n".join(" ".join(c) for c in acceptance(profile, tmp_path, [MARKED, DEV]))
 
@@ -106,3 +110,13 @@ def test_each_tests_time_comes_from_the_recorded_tier_two_report(profile) -> Non
     assert all(isinstance(t, TestTime) for t in times)
     assert times[0].seconds == pytest.approx(0.0532, abs=0.001)
     assert times[1].seconds == pytest.approx(0.00047, abs=0.0001)
+
+
+def test_a_marker_not_right_before_test_is_a_tier_two_file_for_neither_run(
+    profile, tmp_path: Path
+) -> None:
+    touch(tmp_path, DETACHED)
+    (tier2,) = profile.tier2_commands(tmp_path, marker="local_stack")
+
+    assert not selects(tier2, DETACHED)
+    assert acceptance(profile, tmp_path, [DETACHED]) == []

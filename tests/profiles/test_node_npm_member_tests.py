@@ -39,3 +39,11 @@ def test_a_change_to_the_root_manifest_runs_every_member(profile, repo) -> None:
     assert len(commands) == 2
     assert sorted("packages/a" in words(c) for c in commands) == [False, True]
     assert sorted("packages/b" in words(c) for c in commands) == [False, True]
+
+
+def test_a_changed_test_file_at_the_workspace_root_runs_beside_the_members(profile, repo) -> None:
+    commands = profile.test_commands(repo, ["tests/e2e.test.ts"], root_extras=[])
+
+    assert len(commands) == 3
+    (root,) = [c for c in commands if "tests/e2e.test.ts" in c]
+    assert root[4:] == ["./", "tests/e2e.test.ts"]

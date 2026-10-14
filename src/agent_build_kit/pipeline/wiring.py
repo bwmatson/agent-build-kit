@@ -42,6 +42,7 @@ from agent_build_kit.config import (
     Tier2UnitScope,
     active,
     active_root,
+    by_project,
     models,
     owning_project,
     stack_versions_for,
@@ -1596,15 +1597,10 @@ def _work(
     if whole_repo:
         return [(cwd / p.path, profiles.get(p.profile), []) for p in projects]
 
-    owned: dict[str, tuple[ProjectConfig, list[str]]] = {}
-    for name in changed(cwd, base):
-        project = owning_project(projects, name)
-        if project is not None:
-            owned.setdefault(project.path, (project, []))[1].append(name[len(project.prefix) :])
-
     work = [
         (cwd / project.path, profiles.get(project.profile), files)
-        for project, files in owned.values()
+        for project, files in by_project(projects, changed(cwd, base))
+        if project is not None
     ]
     # Never the repo root. A repo that declares its projects is saying its root
     # is not one of them, and a linter run there finds no config and fails

@@ -29,7 +29,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from agent_build_kit import profiles
-from agent_build_kit.config import ProjectConfig, owning_project
+from agent_build_kit.config import ProjectConfig, by_project
 from agent_build_kit.pipeline.check_runner import CheckCache, run_at_commit
 from agent_build_kit.pipeline.commit_order import check_structure, classify_paths
 from agent_build_kit.pipeline.shell import git
@@ -103,13 +103,8 @@ def check_branch(
         if not files:
             continue
 
-        by_project: dict[str | None, tuple[ProjectConfig | None, list[str]]] = {}
-        for path in files:
-            owner = owning_project(projects, path)
-            by_project.setdefault(owner.path if owner else None, (owner, []))[1].append(path)
-
         commit_problems: list[str] = []
-        for owner, owned in by_project.values():
+        for owner, owned in by_project(projects, files):
             toolchain = profiles.for_project(owner, profile)
             prefix = owner.prefix if owner else ""
             where = f"{sha[:8]}: " + (f"{owner.path}: " if prefix and owner else "")
@@ -118,7 +113,7 @@ def check_branch(
                 sha,
                 [
                     toolchain.clean_command(),
-                    toolchain.red_command([p[len(prefix) :] for p in owned]),
+                    toolchain.red_command(owned),
                 ],
                 subdir=prefix or ".",
             )

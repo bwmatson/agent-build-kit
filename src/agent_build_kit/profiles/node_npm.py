@@ -52,19 +52,18 @@ _DIFF_LINT = (
 _TYPE_CHECK = "tsc"
 _TEST_RUNNER = "vitest"
 # No test files is a pass; the report is printed after the marker.
-_TESTS = wrap_report_command(
-    f"npx {_TEST_RUNNER} run --passWithNoTests --reporter=junit", "--outputFile"
-)
+_RUN = f"npx {_TEST_RUNNER} run --passWithNoTests --reporter=junit"
+_TESTS = wrap_report_command(_RUN, "--outputFile")
 _TEST_COMMAND = ["sh", "-c", _TESTS]
 # The same in the directory `$1`, for a workspace member; the report path is absolute, so the
 # change of directory does not hide it.
-# The directory of a project that is not a workspace.
-_HERE = "./"
-_RUN = f"npx {_TEST_RUNNER} run --passWithNoTests --reporter=junit"
 _MEMBER_TESTS = wrap_report_command(f'cd "$1" && {_RUN}', "--outputFile")
 # Tier 2 and acceptance: in `$1`, the rest are Vitest's filters, which match by substring of
 # a file's path.
 _FILTERED = wrap_report_command(f'cd "$1" && shift && {_RUN} "$@"', "--outputFile")
+_TEST_SCRIPTS = (_TESTS, _MEMBER_TESTS, _FILTERED)
+# The directory of a project that is not a workspace, or the root of one.
+_HERE = "./"
 _LINT_ALL = "npx oxlint . && npx oxfmt --check ."
 # The red command lists the files it was given, one per line before the report, so the judge
 # can tell their suites from any other the runner's substring filters selected.
@@ -190,13 +189,18 @@ class NodeNpmProfile:
         members = self.members(repo)
         if not members:
             return [list(_TEST_COMMAND)]
-        outside = any(
-            not is_doc_path(path) and self.member_of(repo, path) is None for path in changed
-        )
-        touched = {self.member_of(repo, path) for path in changed}
-        return [_member_command(m) for m in members if outside or m in touched]
+        owners = {path: _deepest(members, path) for path in changed}
+        outside = [path for path in changed if owners[path] is None and not is_doc_path(path)]
+        touched = set(owners.values())
+        commands = [_member_command(m) for m in members if outside or m in touched]
+        # A test file outside every member (a workspace-level suite) belongs to the root.
+        root_tests = [path for path in outside if self.is_test_path(path)]
+        if root_tests:
+            commands.append(["sh", "-c", _FILTERED, "sh", _HERE, *root_tests])
+        return commands
 
     def test_commands_all(self, repo: Path, *, root_extras: list[str]) -> list[list[str]]:
+        """Every member's tests; the workspace root's own, if it has any, are not run."""
         members = self.members(repo)
         return [_member_command(m) for m in members] if members else [list(_TEST_COMMAND)]
 
@@ -216,7 +220,8 @@ class NodeNpmProfile:
             return "lint"
         if words[:2] == ["npx", _TYPE_CHECK]:
             return "types"
-        return "test" if words[:3] in (_TEST_COMMAND, _member_command("")[:3]) else "lint"
+        is_tests = words[:2] == ["sh", "-c"] and words[2:3] and words[2] in _TEST_SCRIPTS
+        return "test" if is_tests else "lint"
 
     def extra_checks(self, repo: RepoConfig) -> list[list[str]]:
         return []
@@ -243,10 +248,11 @@ class NodeNpmProfile:
     ) -> list[list[str]]:
         """The changed files named for `marker` that exist, and not for `exclude_marker`
         (the tests only the dev stack can run), a run per member."""
+        members = self.members(checkout)
         by_member: dict[str | None, list[str]] = {}
         for path in paths:
             if _marked(path, marker, exclude_marker) and (checkout / path).exists():
-                by_member.setdefault(self.member_of(checkout, path), []).append(path)
+                by_member.setdefault(_deepest(members, path), []).append(path)
         commands = []
         for member, files in sorted(by_member.items(), key=lambda item: item[0] or ""):
             relative = [f.removeprefix(f"{member}/") if member else f for f in sorted(files)]
@@ -408,8 +414,7 @@ class NodeNpmProfile:
         return sorted(found)
 
     def member_of(self, repo: Path, path: str) -> str | None:
-        inside = [m for m in self.members(repo) if path == m or path.startswith(f"{m}/")]
-        return max(inside, key=len, default=None)
+        return _deepest(self.members(repo), path)
 
     def dependents(self, repo: Path, member: str) -> list[str]:
         """The members that name `member`'s package among their dependencies, development
@@ -429,19 +434,25 @@ class NodeNpmProfile:
         return found
 
 
+def _deepest(members: list[str], path: str) -> str | None:
+    """The longest of `members` that holds `path`."""
+    inside = [m for m in members if path == m or path.startswith(f"{m}/")]
+    return max(inside, key=len, default=None)
+
+
 def _member_command(member: str) -> list[str]:
     return ["sh", "-c", _MEMBER_TESTS, "sh", member]
 
 
 def _marked(path: str, marker: str, exclude_marker: str) -> bool:
-    """Whether `path` is named `<name>.<marker>.test.<ext>` and not for `exclude_marker`."""
+    """Whether `path` is named `<name>.<marker>.test.<ext>`, and not also for
+    `exclude_marker` in an earlier segment (the tests only the dev stack can run)."""
     parts = path.rsplit("/", 1)[-1].split(".")
-    segments = parts[1:-2]
     return (
         len(parts) > 3
         and parts[-2] == "test"
-        and marker in segments
-        and (not exclude_marker or exclude_marker not in segments)
+        and parts[-3] == marker
+        and (not exclude_marker or exclude_marker not in parts[1:-3])
     )
 
 

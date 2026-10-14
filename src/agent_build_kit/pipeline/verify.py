@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit import profiles
-from agent_build_kit.config import RepoConfig, owning_project
+from agent_build_kit.config import RepoConfig, by_project, owning_project
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.unit_store import StoredUnit
@@ -80,19 +80,13 @@ def _acceptance_runs(
     """The live tests of the changed `paths`, as (profile, directory to run in, command):
     each project's own profile is asked about the paths under it, from its directory; the
     repo's profile about the rest, from the checkout root."""
-    owned: dict[str, list[str]] = {}
-    for path in paths:
-        project = owning_project(repo.projects, path)
-        owned.setdefault(project.path if project else "", []).append(path)
     runs = []
-    for key, group in owned.items():
-        project = next((p for p in repo.projects if p.path == key), None)
+    for project, group in by_project(repo.projects, paths):
         profile = profiles.for_project(project, fallback)
-        prefix = project.prefix if project else ""
-        directory = checkout / prefix
+        directory = checkout / project.prefix if project else checkout
         commands = profile.acceptance_commands(
             directory,
-            [path.removeprefix(prefix) for path in group],
+            group,
             marker=repo.tests.tier2_marker,
             exclude_marker=repo.tests.dev_stack_marker,
             root_extras=repo.tests.root_extras,
