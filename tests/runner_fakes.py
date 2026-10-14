@@ -14,7 +14,6 @@ from typing import Any
 
 from agent_build_kit.pipeline.stack_runner import UnitRunner
 from agent_build_kit.pipeline.unit_store import UnitStore
-from tests.factories import unit
 
 
 class Killed(BaseException):
@@ -142,7 +141,7 @@ class Recorder:
         sha = self.head(cwd)
         if sha not in self.remote:
             self.remote.append(sha)
-        self.store.record_push(unit().id, sha)
+        self.store.record_push(branch.removeprefix("spec/"), sha)
         self._after("push")
         return sha
 

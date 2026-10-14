@@ -34,6 +34,11 @@ def scheduled_name(repo: str, day: date) -> str:
     return f"{PREFIX}-{repo}-{day.isoformat()}"
 
 
+def is_scheduled(change: str) -> bool:
+    """Whether `change` is a scheduled run of a repo's suite: the prefix is reserved."""
+    return change.startswith(f"{PREFIX}-")
+
+
 def scheduled_date(name: str, repo: str) -> date | None:
     """The date in `name` when it is a scheduled change of exactly `repo`, else None."""
     tail = name.removeprefix(f"{PREFIX}-{repo}-")

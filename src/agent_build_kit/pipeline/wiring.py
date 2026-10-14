@@ -113,6 +113,7 @@ from agent_build_kit.pipeline.tier2 import (
 from agent_build_kit.pipeline.tier2 import (
     post_status as tier2_post_status,
 )
+from agent_build_kit.pipeline.tier2_schedule import is_scheduled
 from agent_build_kit.pipeline.tier2_times import record_test_times, with_split
 from agent_build_kit.pipeline.transcript import Transcript, transcript_dir
 from agent_build_kit.pipeline.ui_review import ui_notes_of, ui_reply_writer, unit_patch_of
@@ -2195,6 +2196,7 @@ def tier2_scope(
     cwd: Path,
     base: str | None,
     *,
+    change: str,
     setting: Tier2UnitScope,
     profile: ToolchainProfile,
     projects: list[ProjectConfig],
@@ -2224,6 +2226,8 @@ def tier2_scope(
 
     if dev_stack and (cwd / dev_stack).is_file():
         return whole("the repo's dev stack script runs it", dev_stack=True)
+    if is_scheduled(change):
+        return whole("a scheduled run is the whole suite")
     if setting is Tier2UnitScope.FULL:
         return whole("tier2_unit_scope is full")
     for _, toolchain, _ in work:
@@ -2376,6 +2380,7 @@ class Tier2Session:
         return tier2_scope(
             cwd,
             base,
+            change=self.unit.change,
             setting=self._scope,
             profile=self._profile,
             projects=self._projects,
@@ -2539,6 +2544,15 @@ class Tier2Session:
             self.verdict = self._judge(cwd, base, named_by)
         return self.result.ok, build_snapshot(self.result)
 
+    def passed_note(self) -> str:
+        """The note of a scheduled unit whose whole run passed."""
+        result = self.result
+        assert result is not None, "tier 2 has not run for this unit"
+        return (
+            f"scheduled tier 2 passed: {result.passed} passed, {result.skipped} skipped "
+            f"on {result.sha}"
+        )
+
     def classify(self, *, cwd: Path, base: str | None) -> Tier2Classification:
         """The failed tests of the last run, the unit's own and the untouched.
 
@@ -2581,6 +2595,15 @@ class Tier2Session:
             or not active().global_limits.tier2_base_runs
         ):
             return None
+        if is_scheduled(self.unit.change):
+            # Its tree is its base: a base run would be the same tree, command and stack.
+            if not self.result.failures:
+                return None
+            return Tier2Verdict(
+                pre_existing=list(self.result.failures),
+                command=self.result.command,
+                base_output=self.result.output,
+            )
         classified = self.classify(cwd=cwd, base=base)
         if not classified.untouched:
             return None
@@ -3316,6 +3339,7 @@ def build_runner(
         run_tier2=tier2.run,
         tier2_verdict=lambda: tier2.verdict,
         tier2_ran_no_tests=lambda: bool(tier2.result and tier2.result.ran_no_tests),
+        tier2_passed_note=tier2.passed_note,
         on_preexisting=build_on_preexisting(store, installation, log=log),
         tier2_runs_whole=lambda *, cwd, base: (
             tier2.scope(cwd=cwd, base=base).mode is Tier2UnitScope.FULL

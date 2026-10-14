@@ -55,20 +55,22 @@ def tick(
     run_log: RunLog | None = None,
     tier: str = "tier1",
     base: str = "main",
+    subject: Unit | None = None,
     **overrides: Any,
 ) -> RunOutcome:
     """Start or resume the unit's thread, or deliver `event` to it, as the
     tick does: a run under the branch's lock (`build_graph`'s), a delivery
-    taking it itself. `base` is the one the store names for the unit."""
+    taking it itself. `base` is the one the store names for the unit; `subject`
+    is the unit run, where it is not the factory's."""
     runner = make_runner(recorder.store, recorder, tmp_path, **overrides)
-    subject = unit(tier=tier)
+    subject = subject or unit(tier=tier)
     common: dict[str, Any] = dict(base=base, graph=[], run_log=run_log, tracer=tracer)
     locks = tmp_path / "locks"
 
     async def go() -> RunOutcome:
         async with open_checkpointer(unit_graphs_path(tmp_path / "state")) as saver:
             if event is None:
-                with branch_lock(branch_name(unit()), root=locks):
+                with branch_lock(branch_name(subject), root=locks):
                     return await run_unit(runner, subject, saver=saver, **common)
             return await resume_unit(
                 runner, subject, saver=saver, event=event, locks=locks, **common
