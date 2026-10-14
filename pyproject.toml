@@ -85,9 +85,12 @@ pythonpath = ["."]
 markers = [
     "integration: needs node (npx) and the network for the real OpenSpec CLI; excluded by default, run with `pytest -m integration`",
     "local_stack: drives the real CLI against a real agent on this host, bills on demand and takes minutes; excluded by default, run with `pytest -m local_stack`",
+    "runtime_claude_code: a live-stack test that drives the claude_code runtime; at most one runtime tag per test, none is the untagged base that always runs",
+    "runtime_acp: a live-stack test that drives the protocol (acp) runtime; at most one runtime tag per test",
+    "dev_stack: needs the repo's dev stack up; left out of acceptance runs",
     "serial: cannot share a process with other tests; excluded from the parallel pass and run by its own serial pass of `poe test`",
 ]
-addopts = "-m 'not integration and not local_stack'"
+addopts = "--strict-markers -m 'not integration and not local_stack'"
 
 [tool.poe.tasks]
 format = { sequence = [
