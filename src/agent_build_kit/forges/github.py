@@ -183,6 +183,7 @@ class GitHubForge:
     requires: tuple[str, ...] = ("slug",)
     ci_name: str = "GitHub Actions"
     description_limit: int = 65_536
+    status_limit: int = 0
 
     def api_url(self, machine: Settings) -> str | None:
         return machine.github_api_url

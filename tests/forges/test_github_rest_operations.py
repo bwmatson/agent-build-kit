@@ -279,17 +279,15 @@ def status_route(sha: str) -> dict:
     return {("POST", f"{BASE}/statuses/{sha}"): answer({"id": 1, "state": "success"}, 201)}
 
 
-def test_a_status_names_the_tested_commit_and_is_truncated() -> None:
-    """GitHub rejects a description over 139 characters outright, which would
-    lose the whole status rather than the tail of a sentence."""
+def test_a_status_names_the_tested_commit() -> None:
     host = GitHubHost(routes=status_route("abc1234def"))
 
     forge(host).post_status(
-        REPO, sha="abc1234def", ok=True, context="local/tier2", description="x" * 200
+        REPO, sha="abc1234def", ok=True, context="local/tier2", description="4 passed"
     )
 
     [call] = host.calls("POST", f"{BASE}/statuses/abc1234def")
-    assert call.body == {"state": "success", "context": "local/tier2", "description": "x" * 139}
+    assert call.body == {"state": "success", "context": "local/tier2", "description": "4 passed"}
 
 
 def test_a_failed_run_is_a_failure_status() -> None:

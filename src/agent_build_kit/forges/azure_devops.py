@@ -204,6 +204,7 @@ class AzureDevOpsForge:
     requires: tuple[str, ...] = ("azure_devops.org", "azure_devops.project", "azure_devops.repo")
     ci_name: str = "Azure Pipelines"
     description_limit: int = 4_000
+    status_limit: int = 0
 
     def api_url(self, machine: Settings) -> str | None:
         return _HOST

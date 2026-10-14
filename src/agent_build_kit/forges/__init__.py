@@ -84,6 +84,11 @@ def description_limit() -> int:
     return min(forge.description_limit for forge in _REGISTRY.values())
 
 
+def status_limit() -> int:
+    """The lowest status description limit across the registered forges."""
+    raise NotImplementedError
+
+
 def denies(tokens: list[str]) -> str:
     """The reason no agent may run this command, or "" when it may.
 

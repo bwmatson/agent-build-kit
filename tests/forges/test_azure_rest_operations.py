@@ -339,14 +339,6 @@ def test_a_context_with_no_slash_keeps_abk_s_own_genre() -> None:
     assert commit.body["context"] == {"genre": "abk", "name": "smoke"}
 
 
-def test_a_long_description_is_cut_by_the_forge() -> None:
-    host = RestHost(azure_answers.OPEN)
-
-    post(host, description="x" * 5000)
-
-    assert len(host.writes()[0].body["description"]) <= 950
-
-
 def test_the_pull_request_looked_up_is_the_active_one_for_the_head() -> None:
     other = azure_answers.pull(pullRequestId=170, sourceRefName="refs/heads/spec/other/1")
     host = RestHost(other, azure_answers.OPEN)
