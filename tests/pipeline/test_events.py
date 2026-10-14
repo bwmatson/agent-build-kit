@@ -616,7 +616,7 @@ def test_rework_keeps_what_the_reviewer_actually_said(store: UnitStore) -> None:
         1, repo="app", reason="new comment", pull=rework_pull("Use a Sequence here"), store=store
     )
 
-    assert store.get("add-marker/1").feedback == "Use a Sequence here"
+    assert store.get("add-marker/1").feedback == "[comment c1] Use a Sequence here"
 
 
 def test_a_reworked_unit_goes_back_in_the_queue(store: UnitStore) -> None:
@@ -917,7 +917,7 @@ def test_a_review_body_is_never_outdated(store: UnitStore) -> None:
     body has nothing to go stale against."""
     lines = events.review_lines([ReviewNote(id="1", body="please split this")])
 
-    assert lines == ["please split this"]
+    assert lines == ["[comment 1] please split this"]
 
 
 def test_inline_comments_carry_their_id_so_replies_can_find_the_thread() -> None:
@@ -1404,7 +1404,7 @@ def test_a_review_that_arrives_mid_rework_is_not_dropped(
     poller.poll()
 
     assert store.get("add-marker/1").state == PLANNED
-    assert store.get("add-marker/1").feedback == "rename the flag too"
+    assert store.get("add-marker/1").feedback == "[comment c9] rename the flag too"
 
 
 # A pull request number names a unit only within its repo --------------------

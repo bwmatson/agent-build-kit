@@ -88,7 +88,7 @@ def test_the_review_fetch_holds_host_and_ui_notes_each_with_its_hunk_and_the_sum
     assert [line for line in host_hunk if line.endswith("<- comment")] == [
         "+two line 5  <- comment"
     ]
-    assert summary == "split this up"
+    assert summary == "[comment ui-decision-1] split this up"
     assert {thread, "901", "ui-decision-1"} <= set(review.ids)
 
 

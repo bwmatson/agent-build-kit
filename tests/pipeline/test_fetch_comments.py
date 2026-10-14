@@ -28,7 +28,7 @@ def test_conversation_comments_carry_their_bodies_and_reviews_carry_none() -> No
 
     found = {c.id: c for c in fetch("example/app", 7, "spec/add-marker/1")}
 
-    assert found["c1"].words == "please add a docstring"
+    assert found["c1"].words == "[comment c1] please add a docstring"
     assert not found["c1"].own
     assert found["c2"].own, "a body carrying the marker is the pipeline's"
     assert found["c3"].own, "an id the pipeline recorded is the pipeline's"
@@ -44,5 +44,5 @@ def test_a_note_reads_the_same_whichever_way_it_reaches_the_agent() -> None:
     notes = [anchored, unanchored, pathless]
 
     assert review_lines(notes) == [note_words(n) for n in notes]
-    assert note_words(unanchored) == "overall: split this up"
+    assert note_words(unanchored) == "[comment n2] overall: split this up"
     assert note_words(pathless) == "[comment n3] ?:4 — here"

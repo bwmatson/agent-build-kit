@@ -426,7 +426,13 @@ def retry_replies(inst: Installation, store: UnitStore, *, reply: Callable[..., 
                     rest
                     for answer in owed.pending_replies
                     if (
-                        rest := reply(repo=unit.repo, pr=unit.pr, answer_text=answer, sha=owed.head)
+                        rest := reply(
+                            repo=unit.repo,
+                            pr=unit.pr,
+                            answer_text=answer,
+                            sha=owed.head,
+                            branch=unit.branch,
+                        )
                     )
                 )
                 if left != owed.pending_replies:

@@ -169,6 +169,7 @@ class GitHubForge:
     client: str | None = "gh"
     # GitHub deletes the head branch on merge, so only the local one is ours.
     deletes_head_branch_on_merge: bool = True
+    general_threads: bool = False
     supports_stacks: bool = True
     # Annotated, not inferred: the Protocol's attribute is read-write, so a
     # narrower literal type would not satisfy it.

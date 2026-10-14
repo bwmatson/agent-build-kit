@@ -43,6 +43,20 @@
   marked `unplanned` at each planning pass, and a unit waiting on an `unplanned` unit no longer
   waits. Putting the change back and planning it makes its units `planned` again.
 
+- A rework can now answer a person's general pull-request comment: every comment with an id is
+  handed over tagged `[comment <id>]`, not only those anchored to a line. The reply goes in that
+  comment's thread where the host has threads for general comments, and elsewhere as a comment
+  that begins `Re:` and the first 60 characters of what it answers. A rework that made no commit
+  and answered no comment no longer posts a summary on the pull request; the summary goes to the
+  run log.
+
+- A tier 1 run that fails more than five tests on its first pass and sees them all pass on both
+  serial reruns is now treated as a disturbed run, not that many flaky tests: tier 1 passes, the
+  tests and the first five names are logged, and no fix change is written and no unit made to
+  wait. One run once failed 97 such tests and wrote 97 fix changes (28 units, 388 `Needs:` lines
+  on one unit); at five or fewer the handling is unchanged. The limit is `MAX_FLAKES_PER_RUN` in
+  `pipeline/wiring.py` for now.
+
 - `abk project init PATH --profile NAME --repo REPO` registers a project in a repo's
   `abk.yaml` before it exists, keeping the file's comments and key order, and refuses a
   duplicate path, an unknown profile or an undeclared repo. `--scaffold` also writes the

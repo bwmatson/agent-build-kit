@@ -185,6 +185,15 @@ class PullRequest(Frozen):
     # host has not worked it out, which is not a conflict.
     mergeable: bool | None = None
 
+    def comments(self) -> tuple[tuple[str, str], ...]:
+        """Each comment with a body, as `(id, body)`, oldest first. A host lists comments
+        before reviews in `conversation`, so the bodies line up with its first ids; a body
+        with no id to line up with is paired with `""`. The one place that rule is written."""
+        return tuple(
+            (self.conversation[at] if at < len(self.conversation) else "", body)
+            for at, body in enumerate(self.comment_bodies)
+        )
+
 
 class Label(Frozen):
     """A label as a host keeps it: a name, a colour and what it means.
@@ -366,6 +375,9 @@ class Forge(RegistersStacks, Protocol):
         """Every file a PR changes with the host's additions and deletions for
         it, which is what a unit's actual size is summed from."""
         ...
+
+    # Whether a general comment on a pull request is a thread a reply can be added to.
+    general_threads: bool
 
     def review_notes(self, repo: RepoId, pr: int) -> list[ReviewNote]: ...
 

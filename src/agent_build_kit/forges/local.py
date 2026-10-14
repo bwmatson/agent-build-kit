@@ -46,6 +46,7 @@ class LocalForge:
     implemented: bool = True
     client: str | None = None
     deletes_head_branch_on_merge: bool = False
+    general_threads: bool = False
     supports_stacks: bool = False
     denied_commands: tuple[tuple[str, ...], ...] = ()
     denied_requests: tuple[DeniedRequest, ...] = ()
