@@ -70,8 +70,8 @@ from agent_build_kit.pipeline.planning_repo import (
 from agent_build_kit.pipeline.planning_repo import restore_default_branch as _restore
 from agent_build_kit.pipeline.planning_sync import (
     PlanningMode,
+    in_repo_default_branch,
     in_repo_name,
-    planning_default_branch,
     planning_mode,
     sync_or_stop,
 )
@@ -435,7 +435,7 @@ def record_planning(inst: Installation) -> PlanningHead | None:
         return None
     _keep_raw_output_untracked(inst)
     if mode == PlanningMode.PIPELINE_WORKTREE:
-        branch = planning_default_branch(inst)
+        branch = in_repo_default_branch(inst)
         head = _git(["rev-parse", "--verify", "-q", "HEAD"], inst.root)
         return (
             PlanningHead(branch=branch, head=head.stdout.strip()) if head.returncode == 0 else None
@@ -867,14 +867,11 @@ def run_track(
         return 0
 
     failed: list[str] = []
+    mode = planning_mode(inst)
     for project in projects:
         log(f"=== {phase} for {project.name} ({project.path}, {project.repo})")
-        if (
-            not dry_run
-            and planning_mode(inst) != PlanningMode.SEPARATE
-            and project.name == in_repo_name(inst)
-        ):
-            log(f"[{project.name}] is the planning repo itself — synced above, not pulled")
+        if not dry_run and mode != PlanningMode.SEPARATE and project.name == in_repo_name(inst):
+            log(f"[{project.name}] is the planning repo itself — not pulled")
         elif not dry_run and not pull(project.path, project.default_branch):
             log(f"[{project.name}] couldn't update to latest {project.default_branch} — skipping")
             failed.append(project.name)

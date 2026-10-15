@@ -167,3 +167,17 @@ def test_a_rebase_that_conflicts_is_aborted_and_reported_with_the_commit_kept(
     assert not (git_dir / "rebase-merge").exists()
     assert not (git_dir / "rebase-apply").exists()
     assert git(worktree, "log", "-1", "--format=%s", origin_main(setup)) == "theirs"
+
+
+def test_a_phase_in_a_working_copy_commits_and_pushes_nothing(tmp_path: Path) -> None:
+    setup = in_repo(tmp_path)
+    git(setup.working_copy, "checkout", "-q", "-b", "feature")
+    inst = installation_at(setup.working_copy, setup.working_copy)
+    head = git(setup.working_copy, "rev-parse", "HEAD")
+    pushed = origin_main(setup)
+
+    assert phase(inst, doing(inst)) == 0
+
+    assert git(setup.working_copy, "rev-parse", "HEAD") == head
+    assert origin_main(setup) == pushed
+    assert git(setup.working_copy, "status", "--porcelain", "--", log_name(inst)).startswith("??")
