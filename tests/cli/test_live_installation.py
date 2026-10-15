@@ -15,9 +15,10 @@ from agent_build_kit.cli import main
 from agent_build_kit.cli import pipeline as pipeline_cli
 from agent_build_kit.cli import tracks as tracks_cli
 from agent_build_kit.cli.doctor import Check, run_doctor
-from agent_build_kit.config import CONFIG_ENV, dump
+from agent_build_kit.config import dump
 from agent_build_kit.pipeline.planning_sync import write_pipeline_marker
 from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.settings import settings
 from tests.cli.test_doctor import Answers
 from tests.factories import git, stored_unit, which_all
 from tests.planning_worktree_support import installation_at, working_copy_of
@@ -60,7 +61,7 @@ def installed(base: Path, *, marker: bool = True) -> Live:
 
 @pytest.fixture(autouse=True)
 def no_ambient_config(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv(CONFIG_ENV, raising=False)
+    monkeypatch.setattr(settings, "config", None)
     monkeypatch.setattr(pipeline_cli, "current_usage", lambda: None)
 
 
@@ -157,7 +158,7 @@ def test_a_config_named_on_the_command_line_runs_it_and_says_it_is_not_the_live_
 
 
 @pytest.mark.parametrize(("argv", "name", "module"), COMMANDS)
-def test_a_config_named_in_the_environment_runs_it_and_says_it_is_not_the_live_one(
+def test_a_config_named_in_the_settings_runs_it_and_says_it_is_not_the_live_one(
     live: Live,
     argv: list[str],
     name: str,
@@ -166,10 +167,65 @@ def test_a_config_named_in_the_environment_runs_it_and_says_it_is_not_the_live_o
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     calls = ran(monkeypatch, module, name)
-    monkeypatch.setenv(CONFIG_ENV, str(live.working_copy / "abk.yaml"))
+    monkeypatch.setattr(settings, "config", live.working_copy / "abk.yaml")
 
     assert main(argv) == 0
 
     captured = capsys.readouterr()
     assert calls == [name]
     assert "not the live" in captured.out + captured.err
+
+
+WITH_STATUS = [*COMMANDS, pytest.param(["status"], "cmd_status", pipeline_cli, id="status")]
+
+
+@pytest.mark.parametrize(("argv", "name", "module"), WITH_STATUS)
+def test_the_pipeline_worktree_runs_the_command_with_no_notice(
+    live: Live,
+    argv: list[str],
+    name: str,
+    module,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls = ran(monkeypatch, module, name)
+    monkeypatch.chdir(live.worktree)
+
+    assert main(argv) == 0
+
+    captured = capsys.readouterr()
+    assert calls == [name]
+    assert str(live.worktree) not in captured.out + captured.err
+    assert "not the live" not in captured.out + captured.err
+
+
+@pytest.mark.parametrize(("argv", "name", "module"), WITH_STATUS)
+def test_with_no_marker_the_command_runs_as_before(
+    tmp_path: Path,
+    argv: list[str],
+    name: str,
+    module,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    setup = installed(tmp_path, marker=False)
+    monkeypatch.chdir(setup.working_copy)
+    calls = ran(monkeypatch, module, name)
+
+    assert main(argv) == 0
+
+    captured = capsys.readouterr()
+    assert calls == [name]
+    assert str(setup.worktree) not in captured.out + captured.err
+    assert "not the live" not in captured.out + captured.err
+
+
+def test_status_with_no_marker_lists_the_working_copys_units(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    setup = installed(tmp_path, marker=False)
+    monkeypatch.chdir(setup.working_copy)
+
+    assert main(["status"]) == 0
+
+    assert "working-copy-only/1" in capsys.readouterr().out

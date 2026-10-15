@@ -68,6 +68,7 @@ from agent_build_kit.path_patterns import matches
 from agent_build_kit.pipeline.environment import matched_inputs
 from agent_build_kit.pipeline.original_copy import COPY_PATTERN
 from agent_build_kit.pipeline.pending import describe, pending_projects
+from agent_build_kit.pipeline.planning_sync import live_notice
 from agent_build_kit.pipeline.shell import git, git_out
 from agent_build_kit.profiles.base import ProfileUnsupported
 from agent_build_kit.redaction import MIN_LENGTH
@@ -1279,8 +1280,6 @@ def _grafana() -> list[Check]:
 
 def _live_installation(inst: Installation) -> list[Check]:
     """In a working copy: which pipeline worktree the installation is live in."""
-    from agent_build_kit.cli import live_notice
-
     notice = live_notice(inst, "doctor", explicit=False)
     if notice is None:
         return []
