@@ -7,7 +7,15 @@ from pathlib import Path
 
 import yaml
 
-from agent_build_kit.config import RepoConfig, WorkspaceConfig, dump, load, merge_local, read_base
+from agent_build_kit.config import (
+    RepoConfig,
+    WorkspaceConfig,
+    deprecations,
+    dump,
+    load,
+    merge_local,
+    read_base,
+)
 
 PROVIDER_A = {"from": "literal", "value": "a-value"}
 PROVIDER_B = {"from": "literal", "value": "b-value"}
@@ -95,3 +103,28 @@ def test_a_committed_file_at_its_defaults_merges_to_what_the_old_loader_gave(
 
     assert WorkspaceConfig.model_validate(merged) == config
     assert load(path) == config
+
+
+def test_a_deprecated_root_key_in_one_file_merges_with_the_new_spelling_in_the_other(
+    tmp_path: Path,
+) -> None:
+    path = committed(tmp_path, limits={"min_unit_lines": 100})
+    overlay(tmp_path, {"global_limits": {"max_unit_lines": 600}})
+
+    limits = load(path).global_limits
+
+    assert (limits.min_unit_lines, limits.max_unit_lines) == (100, 600)
+
+    path = committed(tmp_path, global_limits={"min_unit_lines": 100})
+    overlay(tmp_path, {"limits": {"max_unit_lines": 600}})
+
+    limits = load(path).global_limits
+
+    assert (limits.min_unit_lines, limits.max_unit_lines) == (100, 600)
+
+
+def test_deprecations_reports_the_old_key_when_only_the_overlay_uses_it(tmp_path: Path) -> None:
+    path = committed(tmp_path)
+    overlay(tmp_path, {"limits": {"max_unit_lines": 600}})
+
+    assert deprecations(path) == ["limits"]

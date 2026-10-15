@@ -80,3 +80,32 @@ def test_a_value_only_the_combination_makes_invalid_names_both_files(tmp_path: P
     shown = str(raised.value)
     assert "abk.local.yaml" in shown
     assert str(path) in shown
+
+
+def test_an_overlay_that_sets_both_spellings_is_refused_naming_only_itself(
+    tmp_path: Path,
+) -> None:
+    path = committed(tmp_path)
+    (tmp_path / "abk.local.yaml").write_text(
+        yaml.safe_dump({"limits": {"min_unit_lines": 100}, "global_limits": {}})
+    )
+
+    with pytest.raises(ConfigError) as raised:
+        load(path)
+
+    shown = str(raised.value)
+    assert "abk.local.yaml" in shown
+    assert str(path) not in shown
+
+
+def test_a_value_the_overlay_replaced_whole_names_only_the_overlay(tmp_path: Path) -> None:
+    path = committed(tmp_path)
+    (tmp_path / "abk.local.yaml").write_text(yaml.safe_dump({"repos": {"app": {"slug": [1]}}}))
+
+    with pytest.raises(ConfigError) as raised:
+        load(path)
+
+    first = str(raised.value).splitlines()[0]
+    assert "abk.local.yaml" in first
+    assert "abk.yaml and" not in first
+    assert "repos.app.slug" in str(raised.value)

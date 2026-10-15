@@ -73,6 +73,9 @@ def test_project_init_reads_the_overlay_and_leaves_its_bytes_alone(tmp_path: Pat
     assert code == 0
     assert (local_app / "svc-a" / "pyproject.toml").exists()
     assert overlay.read_bytes() == before
+    assert yaml.safe_load(path.read_text())["repos"]["app"]["path"] == str(
+        tmp_path / "committed-app"
+    )
     registered = yaml.safe_load(path.read_text())["repos"]["app"]["projects"]
     assert [project["path"] for project in registered] == ["svc-a"]
 

@@ -1127,10 +1127,17 @@ def _holds(document: object, location: tuple[int | str, ...]) -> bool:
     return True
 
 
+def _value_at(document: object, location: tuple[int | str, ...]) -> object:
+    for key in location:
+        document = document[key]  # type: ignore[index]
+    return document
+
+
 def _files_of(
     error: ValidationError, path: Path, base: dict[str, Any], local: dict[str, Any] | None
 ) -> list[Path]:
-    """The files a failing key path comes from: each that holds it, else every file read."""
+    """The files a failing key path comes from: the overlay alone when it replaced the value
+    whole, else each that holds the path, else every file read."""
     named: list[Path] = []
     for found in error.errors():
         location = tuple(found["loc"])
@@ -1139,25 +1146,48 @@ def _files_of(
             for file, document in ((path, base), (overlay_path(path), local))
             if document is not None and _holds(document, location)
         ]
+        if local is not None and overlay_path(path) in holders:
+            if not isinstance(_value_at(local, location), dict):
+                holders = [overlay_path(path)]
         for file in holders or [path, *([overlay_path(path)] if local is not None else [])]:
             if file not in named:
                 named.append(file)
     return named
 
 
+def _renamed(document: dict[str, Any] | None, file: Path) -> dict[str, Any] | None:
+    """`document` with the deprecated root key renamed, so two files that spell it
+    differently still merge; one file that sets both spellings is refused."""
+    if document is None or DEPRECATED_ROOT_KEY not in document:
+        return document
+    if "global_limits" in document:
+        raise ConfigError(
+            f"{file}: `{DEPRECATED_ROOT_KEY}` and `global_limits` are both set; "
+            f"`{DEPRECATED_ROOT_KEY}` is the deprecated name of `global_limits`, keep one"
+        )
+    renamed = dict(document)
+    renamed["global_limits"] = renamed.pop(DEPRECATED_ROOT_KEY)
+    return renamed
+
+
 def load(path: Path) -> WorkspaceConfig:
-    raw = read_base(path)
-    local = read_overlay(path)
+    spelled = read_base(path), read_overlay(path)
+    raw = _renamed(spelled[0], path)
+    local = _renamed(spelled[1], overlay_path(path))
+    assert raw is not None
     merged = raw if local is None else merge_local(raw, local)
     try:
         loaded = WorkspaceConfig.model_validate(merged)
     except ValidationError as error:
         message = str(error)
-        if DEPRECATED_ROOT_KEY in merged and "global_limits" not in merged:
+        if any(document and DEPRECATED_ROOT_KEY in document for document in spelled):
             # Name a setting as the file spells it.
             message = re.sub(r"(?m)^global_limits\b", DEPRECATED_ROOT_KEY, message)
-        files = " and ".join(str(file) for file in _files_of(error, path, raw, local))
-        raise ConfigError(f"{files} does not match the schema:\n{message}") from error
+        files = [str(file) for file in _files_of(error, path, raw, local)]
+        verb = "does" if len(files) == 1 else "do"
+        raise ConfigError(
+            f"{' and '.join(files)} {verb} not match the schema:\n{message}"
+        ) from error
     _check_runtime(loaded, path)
     _check_forges(loaded, path)
     _check_infra(loaded, path)
@@ -1165,12 +1195,15 @@ def load(path: Path) -> WorkspaceConfig:
 
 
 def deprecations(path: Path) -> list[str]:
-    """The root keys of the file at `path` that are deprecated spellings."""
-    try:
-        raw = yaml.safe_load(path.read_text())
-    except (OSError, yaml.YAMLError):
-        return []
-    return [DEPRECATED_ROOT_KEY] if isinstance(raw, dict) and DEPRECATED_ROOT_KEY in raw else []
+    """The root keys of the file at `path`, or of its overlay, that are deprecated spellings."""
+    for file in (path, overlay_path(path)):
+        try:
+            raw = yaml.safe_load(file.read_text())
+        except (OSError, yaml.YAMLError):
+            continue
+        if isinstance(raw, dict) and DEPRECATED_ROOT_KEY in raw:
+            return [DEPRECATED_ROOT_KEY]
+    return []
 
 
 def _check_infra(config: WorkspaceConfig, path: Path) -> None:
