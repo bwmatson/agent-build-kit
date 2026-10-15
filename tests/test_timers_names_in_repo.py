@@ -6,18 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent_build_kit import timers
-from agent_build_kit.pipeline.planning_sync import write_pipeline_marker
-from tests.factories import commit_files, git, init_repo
-
-
-def pipeline_worktree(base: Path, repository: str) -> Path:
-    """`<base>/<repository>` with a pipeline worktree `<base>/<repository>-data/planning`."""
-    working_copy = init_repo(base / repository)
-    commit_files(working_copy, "start", {"README.md": f"{repository}\n"})
-    worktree = base / f"{repository}-data" / "planning"
-    git(working_copy, "worktree", "add", "-q", "--detach", str(worktree), "HEAD")
-    write_pipeline_marker(working_copy, worktree)
-    return worktree
+from tests.planning_worktree_support import in_repo
 
 
 def install_files(root: Path, dest: Path) -> None:
@@ -27,8 +16,8 @@ def install_files(root: Path, dest: Path) -> None:
 
 
 def test_two_repositories_with_a_worktree_called_planning_are_named_apart(tmp_path: Path) -> None:
-    first = pipeline_worktree(tmp_path, "app")
-    second = pipeline_worktree(tmp_path, "service")
+    first = in_repo(tmp_path / "one", name="app").worktree
+    second = in_repo(tmp_path / "two", name="service").worktree
     separate = tmp_path / "meta"
     separate.mkdir()
 
@@ -40,8 +29,8 @@ def test_two_repositories_with_a_worktree_called_planning_are_named_apart(tmp_pa
 
 
 def test_each_installation_finds_its_own_units_only(tmp_path: Path) -> None:
-    first = pipeline_worktree(tmp_path, "app")
-    second = pipeline_worktree(tmp_path, "service")
+    first = in_repo(tmp_path / "one", name="app").worktree
+    second = in_repo(tmp_path / "two", name="service").worktree
     dest = tmp_path / "units"
     install_files(first, dest)
     install_files(second, dest)

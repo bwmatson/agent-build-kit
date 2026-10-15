@@ -8,8 +8,10 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit import installation as installation_module
+from agent_build_kit.installation import Installation, load_config, load_installation
 from agent_build_kit.pipeline.planning_repo import repository_name
 from agent_build_kit.pipeline.planning_sync import PlanningMode, planning_mode
+from agent_build_kit.settings import settings
 from tests.conftest import make_installation
 from tests.factories import commit_files, git, init_repo
 from tests.planning_worktree_support import in_repo, installation_at
@@ -131,3 +133,21 @@ def test_a_common_git_directory_not_named_dot_git_falls_back_to_the_root_name(
 
     assert found.name == "checkout"
     assert "store.git" in found.reason
+
+
+def test_settings_come_from_the_main_working_trees_env_file(
+    tmp_path: Path, data: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    setup = in_repo(tmp_path)
+    units = tmp_path / "unit-trees"
+    (setup.working_copy / ".env").write_text(f"ABK_WORKTREE_ROOT={units}\n")
+    (setup.worktree / "abk.yaml").write_text("repos:\n  app:\n    path: .\n    slug: example/app\n")
+    config_path = setup.worktree / "abk.yaml"
+    monkeypatch.setattr(settings, "worktree_root", None)
+
+    loaded = load_installation(config_path=config_path)
+
+    assert loaded.worktree_root == units.resolve()
+    monkeypatch.setattr(settings, "worktree_root", None)
+    config = load_config(config_path)
+    assert Installation(config, setup.worktree).worktree_root == units.resolve()

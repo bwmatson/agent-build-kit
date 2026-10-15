@@ -19,11 +19,13 @@ class InRepo(Frozen):
     worktree: Path
 
 
-def working_copy_of(base: Path, *, origin: bool = True) -> tuple[Path | None, Path]:
-    """A working copy of `app` on `main` holding `runs/units.json`, published to a bare origin
-    (unless `origin` is False); the origin and the working copy."""
-    working_copy = init_repo(base / "app")
-    commit_files(working_copy, "start", {"runs/units.json": "[]\n", "README.md": "app\n"})
+def working_copy_of(
+    base: Path, *, origin: bool = True, name: str = "app"
+) -> tuple[Path | None, Path]:
+    """A working copy of the repository `name` on `main` holding `runs/units.json`, published to a
+    bare origin (unless `origin` is False); the origin and the working copy."""
+    working_copy = init_repo(base / name)
+    commit_files(working_copy, "start", {"runs/units.json": "[]\n", "README.md": f"{name}\n"})
     bare = None
     if origin:
         bare = base / "origin.git"
@@ -34,10 +36,10 @@ def working_copy_of(base: Path, *, origin: bool = True) -> tuple[Path | None, Pa
     return bare, working_copy
 
 
-def in_repo(base: Path, *, origin: bool = True) -> InRepo:
+def in_repo(base: Path, *, origin: bool = True, name: str = "app") -> InRepo:
     """The working copy of `working_copy_of`, and a detached worktree of it at that commit,
-    recorded in the pipeline marker."""
-    bare, working_copy = working_copy_of(base, origin=origin)
+    recorded in the pipeline marker. Two repositories need a base each."""
+    bare, working_copy = working_copy_of(base, origin=origin, name=name)
     worktree = base / "planning"
     git(working_copy, "worktree", "add", "-q", "--detach", str(worktree), "HEAD")
     write_pipeline_marker(working_copy, worktree)

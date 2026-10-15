@@ -93,14 +93,19 @@ def terms_for(installation: Installation, *, target: Path | None = None) -> list
     if resolved_target is None or installation.root.resolve() != resolved_target:
         found.add(installation.root.name)
     for name, repo in config.repos.items():
-        if resolved_target is not None and repo.path.expanduser().resolve() == resolved_target:
+        if (
+            resolved_target is not None
+            and installation.checkouts[name].resolve() == resolved_target
+        ):
             continue
         found.add(name)
         # Every segment of the identity, whatever the host calls them: an
         # owner and a name on GitHub, an organisation, project and repo on
         # Azure DevOps.
         _, repo_id = installation.forge_of(name)
-        found.update({repo_id.account, repo_id.project, repo_id.name, repo.path.expanduser().name})
+        found.update(
+            {repo_id.account, repo_id.project, repo_id.name, installation.checkouts[name].name}
+        )
         for path in repo.deploy.live_written:
             _add_file_name(found, Path(path))
         if repo.deploy.ssh_key is not None:

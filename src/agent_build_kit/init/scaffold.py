@@ -806,6 +806,7 @@ def write_code_repo_conventions(
     set; one result per repo and action. With `dry_run` nothing is written."""
     results: list[ConventionResult] = []
     for name, repo in workspace.repos.items():
+        # init runs before an installation exists, so the configured path is all there is
         root = repo.path.expanduser()
         if repo.changelog is None or not root.is_dir():
             note = "changelog convention is off" if repo.changelog is None else "no checkout"

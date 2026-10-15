@@ -36,11 +36,13 @@ class Waiting(Frozen):
     replacement: Cassette | None = None
 
 
-def directories(repos: Mapping[str, RepoConfig]) -> dict[str, tuple[Path, ReplayConfig]]:
+def directories(
+    repos: Mapping[str, RepoConfig], checkouts: Mapping[str, Path]
+) -> dict[str, tuple[Path, ReplayConfig]]:
     """Each repository with a `tests.replay` section, to where its cassettes are and how
     they are configured."""
     return {
-        name: (repo.path.expanduser() / repo.tests.replay.directory, repo.tests.replay)
+        name: (checkouts[name] / repo.tests.replay.directory, repo.tests.replay)
         for name, repo in repos.items()
         if repo.tests.replay is not None
     }
