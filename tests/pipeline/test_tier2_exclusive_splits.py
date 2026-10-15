@@ -26,7 +26,7 @@ class FakeProfile:
     """Lists the tests given for each selection's `only`; None stands for a failed listing."""
 
     name = "fake"
-    selector_kinds = ("marker",)
+    selector_kinds: tuple[str, ...] = ("marker",)
 
     def __init__(
         self, listings: dict[str, list[str] | None], registered: list[str] | None = REGISTERED
