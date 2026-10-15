@@ -21,7 +21,7 @@ from tests.tier2_park_fakes import (
     SECOND_RUN,
     Parking,
     Step,
-    blocks_of,
+    holds_of,
 )
 from tests.tier2_wait_fakes import OLD, Told
 
@@ -50,7 +50,7 @@ class Run:
             tier="tier2",
             run_tier2=self.parking.run,
             tier2_result=self.parking.result,
-            tier2_blocks=lambda: blocks_of(**self.blocked),
+            tier2_holds=lambda: holds_of(**self.blocked),
             on_preexisting=self.told,
             open_pr=self.open_pr,
         )

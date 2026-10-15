@@ -3445,10 +3445,10 @@ def build_runner(
     # One stamp for this thread's whole run: every call in it is one run to retention.
     record_for = (unit, transcript_dir(root), datetime.now(UTC))
     # What the unit's tier 2 leaves out, and what a parked unit says it waits for.
-    blocks = blocked_runtimes(installation.config, root, now=datetime.now(UTC))
+    holds = held_splits(tier2_splits(repo, installation.config), root, now=datetime.now(UTC))
     tier2 = Tier2Session(
         unit,
-        blocked=list(blocks.blocked),
+        blocked=list(holds.held),
         lock=installation.tier2_lock,
         log=log,
         under=dev_stack_underneath(unit, installation),
@@ -3554,7 +3554,7 @@ def build_runner(
         run_tier2=tier2.run,
         tier2_verdict=lambda: tier2.verdict,
         tier2_result=lambda: tier2.result,
-        tier2_blocks=lambda: blocks,
+        tier2_holds=lambda: holds,
         tier2_ran_no_tests=lambda: bool(tier2.result and tier2.result.ran_no_tests),
         tier2_passed_note=tier2.passed_note,
         on_preexisting=build_on_preexisting(store, installation, log=log),

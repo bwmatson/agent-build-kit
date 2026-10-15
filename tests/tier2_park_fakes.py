@@ -9,7 +9,7 @@ from pathlib import Path
 
 from agent_build_kit.graph.state import EventKind, ResumeEvent
 from agent_build_kit.pipeline.tier2 import Tier2Result
-from agent_build_kit.pipeline.tier2_blocks import ORIGIN_FILE, Block, Blocks
+from agent_build_kit.pipeline.tier2_holds import ORIGIN_FILE, Hold, Holds
 from agent_build_kit.pipeline.unit_store import RequeueReason
 
 GATE_CLEARED = ResumeEvent(
@@ -31,12 +31,12 @@ class Step:
     sha: str = RAN
 
 
-def blocks_of(**reasons: str) -> Blocks:
-    """The runtimes blocked now, each with the reason given."""
-    return Blocks(
-        blocked={
-            name: Block(
-                runtime=name,
+def holds_of(**reasons: str) -> Holds:
+    """The splits held now, each with the reason given."""
+    return Holds(
+        held={
+            name: Hold(
+                split=name,
                 reason=reason,
                 origins=(ORIGIN_FILE,),
                 since=datetime(2026, 1, 1, tzinfo=UTC),

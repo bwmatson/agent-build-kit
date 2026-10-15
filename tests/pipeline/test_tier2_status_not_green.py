@@ -14,7 +14,7 @@ from agent_build_kit.pipeline.unit_store import Cause
 from tests.forges.stand_in import StandInForge
 from tests.graph_driver import fresh, tick
 from tests.pipeline.test_tier2_runtime_groups import FILES, SOURCE, Groups
-from tests.tier2_park_fakes import Parking, Step, blocks_of
+from tests.tier2_park_fakes import Parking, Step, holds_of
 from tests.tier2_scope_fakes import branch, session
 
 
@@ -45,7 +45,7 @@ def test_a_unit_parked_before_its_push_has_no_commit_on_the_host_to_carry_a_stat
         tier="tier2",
         run_tier2=parking.run,
         tier2_result=parking.result,
-        tier2_blocks=lambda: blocks_of(acp="down"),
+        tier2_holds=lambda: holds_of(acp="down"),
     )
 
     assert recorder.store.get("add-marker/1").cause is Cause.RUNTIME_BLOCKED

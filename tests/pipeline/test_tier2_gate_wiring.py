@@ -13,7 +13,7 @@ import pytest
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.flakes import fix_change_name
 from agent_build_kit.pipeline.stack_runner import UnitRunner
-from agent_build_kit.pipeline.tier2_blocks import write_block
+from agent_build_kit.pipeline.tier2_holds import write_hold
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.untouched_failures import PREFIX
 from agent_build_kit.pipeline.wiring import build_on_preexisting, build_runner
@@ -45,14 +45,17 @@ def runner_of(
         repos={"app": app},
         limits={"tier2_unit_scope": scope},
         tests={
-            "runtimes_blocked": list(blocked_in_config),
             "tier2_splits": {
-                name: {"marker": f"runtime_{name}"} for name in ("acp", "claude_code")
+                name: {
+                    "marker": f"runtime_{name}",
+                    "hold": True if name in blocked_in_config else None,
+                }
+                for name in ("acp", "claude_code")
             },
         },
     )
     for runtime, reason in (blocked_in_file or {}).items():
-        write_block(
+        write_hold(
             installation.state_dir,
             runtime,
             reason=reason,
