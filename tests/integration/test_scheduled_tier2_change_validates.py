@@ -15,6 +15,7 @@ from tests.tier2_schedule_fakes import TODAY, planning, store_of
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.skipif(shutil.which("npx") is None, reason="npx is not on PATH"),
+    pytest.mark.usefixtures("openspec_cli"),
 ]
 
 

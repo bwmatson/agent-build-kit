@@ -17,10 +17,12 @@ from agent_build_kit.cli import init as init_cmd
 from agent_build_kit.cli import main
 from agent_build_kit.config import load
 from tests.factories import git, init_repo, recognised_planning
+from tests.openspec_cli import require
 
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.skipif(shutil.which("npx") is None, reason="npx is not on PATH"),
+    pytest.mark.usefixtures("openspec_cli"),
 ]
 
 
@@ -90,7 +92,7 @@ def test_init_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     )
     for change in ("app-testing-infrastructure", "app-code-standards"):
         assert (planning / "openspec" / "changes" / change / "tasks.md").exists()
-    result = openspec.validate(planning)
+    result = require(openspec.validate(planning))
     assert result.returncode == 0, result.stdout + result.stderr
     assert '"failed": 0' in result.stdout
     assert "abk init: workspace app" in git(planning, "log", "--oneline")

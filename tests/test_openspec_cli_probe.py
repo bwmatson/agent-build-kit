@@ -141,10 +141,5 @@ def test_two_tests_fail_with_one_message_and_a_test_without_the_fixture_passes(
     result = pytester.runpytest_inprocess("-p", "no:cacheprovider")
 
     result.assert_outcomes(passed=1, errors=2)
-    first_lines = {
-        line.strip()
-        for line in result.outlines
-        if line.lstrip().startswith("E") and MESSAGE in line
-    }
-    assert len(first_lines) == 1
-    assert next(iter(first_lines)).removeprefix("E").strip().startswith(MESSAGE)
+    first_lines = [line for line in result.outlines if line.startswith(MESSAGE)]
+    assert first_lines == [first_lines[0]] * 2

@@ -11,17 +11,19 @@ import pytest
 from agent_build_kit import openspec
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.untouched_failures import ensure_fix
+from tests.openspec_cli import require
 from tests.pipeline.test_flake_fix_change import change_with_unit, code_repo
 from tests.untouched_failure_fakes import failing
 
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.skipif(shutil.which("npx") is None, reason="npx is not on PATH"),
+    pytest.mark.usefixtures("openspec_cli"),
 ]
 
 
 def validated(inst: Installation, name: str) -> None:
-    result = openspec.run(["validate", name, "--strict", "--json"], cwd=inst.root)
+    result = require(openspec.run(["validate", name, "--strict", "--json"], cwd=inst.root))
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert '"failed": 0' in result.stdout
