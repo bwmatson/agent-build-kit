@@ -598,10 +598,11 @@ def install_in_repo(
             "it before the units can run",
         )
     # Units an earlier install left running in the working copy would tick beside the worktree's.
-    superseded = installed_units(inst.root, dest) if mode == PlanningMode.WORKING_COPY else []
-    if superseded and not dry_run:
-        _stop_and_delete(superseded, run or subprocess.run)
-        (run or subprocess.run)(["systemctl", "--user", "daemon-reload"], check=False)
+    superseded = (
+        remove(inst.root, dest=dest, run=run, dry_run=dry_run).removed
+        if mode == PlanningMode.WORKING_COPY
+        else ()
+    )
     change = install(
         worktree, dest=dest, run=run, enable=enable, dry_run=dry_run, tool_dirs=tool_dirs
     )
