@@ -54,9 +54,9 @@ class Gate:
         self.inner = inner
         self.asked: list[str] = []
 
-    def __call__(self, unit: Any) -> list[str]:
+    def __call__(self, unit: Any, runtimes: Any = None) -> list[str]:
         self.asked.append(unit.id)
-        return self.inner(unit)
+        return self.inner(unit, runtimes=runtimes)
 
 
 class Planning:

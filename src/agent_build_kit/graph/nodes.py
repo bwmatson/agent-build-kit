@@ -1711,7 +1711,9 @@ class BuildPath:
         base = state.base or self.base
         self.say("tier 2 again on the moved commit" if state.moved else "tier 2")
         tree = self.tree()
-        if r.tier2_runs_whole(cwd=tree, base=base) and (held := r.on_tier2_gate(unit)):
+        if r.tier2_runs_whole(cwd=tree, base=base) and (
+            held := r.on_tier2_gate(unit, runtimes=r.tier2_runtimes())
+        ):
             return self.park_for_fix(
                 f"waiting for the fix change {', '.join(held)} of a failing test on the base"
             )

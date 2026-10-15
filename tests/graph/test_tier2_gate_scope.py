@@ -67,9 +67,9 @@ def test_the_scope_is_asked_for_the_tree_and_base_of_the_run_before_the_gate(
     planning.open_fix()
     seen: list[int] = []
 
-    def gate(unit: Any) -> list[str]:
+    def gate(unit: Any, runtimes: Any = None) -> list[str]:
         seen.append(len(planning.scope.asked))
-        return planning.gate(unit)
+        return planning.gate(unit, runtimes)
 
     planning.tick(on_tier2_gate=gate, base="release")
 
