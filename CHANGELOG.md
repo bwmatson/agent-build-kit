@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A unit now carries the review tier its plan estimated (`auto`, `light` or `full`), kept
+  through a re-plan once the unit has started. A store written before this reads as no
+  estimate, and nothing acts on the field yet.
+
 - `abk scrub-store` reports, and with `--apply` on a paused pipeline replaces, the
   home-directory paths in the unit store's text (feedback, guidance, notes) with `<home>/`,
   keeping the rest of each path and every other word. The original is kept once as

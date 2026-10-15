@@ -195,7 +195,9 @@ class ModelAnswers(Answers):
     def __call__(self, prompt: str) -> str:
         if len(self.prompts) > MOST_PROMPTS:
             pytest.fail(f"asked {len(self.prompts)} questions; the last was {prompt!r}")
-        words = prompt.lower().replace(" ", "_").replace("-", "_")
+        # The question, not its bracketed default: a default holding a path would name a role
+        # whenever the checkout's own path does.
+        words = prompt.partition(" [")[0].lower().replace(" ", "_").replace("-", "_")
         role = next((r for r in ROLES if r in words), None)
         if role is None and not (self.general and "model" in words):
             return super().__call__(prompt)

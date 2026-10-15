@@ -547,9 +547,13 @@ class UnitStore:
                 history=existing.history if existing else ({"state": PLANNED, "at": _now()},),
             )
             if existing and not existing.unstarted:
-                # A unit keeps the priority and the project it started with.
+                # A unit keeps the priority, the project and the review tier it started with.
                 fresh = fresh.model_copy(
-                    update={"priority": existing.priority, "project": existing.project}
+                    update={
+                        "priority": existing.priority,
+                        "project": existing.project,
+                        "review_tier": existing.review_tier,
+                    }
                 )
             if existing and existing.joined and not fresh.joined:
                 # Groups of other changes it took in are not in the plan the
@@ -958,7 +962,7 @@ def _record(unit: StoredUnit) -> dict:
         del record["priority"]
     if unit.description is None:
         del record["description"]
-    for name in ("ready_at", "first_human_activity_at"):
+    for name in ("ready_at", "first_human_activity_at", "review_tier"):
         if record[name] is None:
             del record[name]
     return record

@@ -122,6 +122,8 @@ class Unit(Frozen):
     # through one; only the graph reads it, and draws an edge only for those also in `depends_on`.
     needs: tuple[str, ...] = ()
     estimated_lines: int = 0
+    # The planner's review tier (`auto`, `light` or `full`); None for a unit planned without one.
+    review_tier: str | None = None
     state: UnitState = PLANNED
     issue: int | None = None
     groups: tuple[int, ...] = ()
