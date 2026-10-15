@@ -338,6 +338,12 @@ def tier2_schedule(repo: RepoConfig, limits: LimitsConfig) -> Tier2Schedule:
     return repo.tests.tier2_schedule or limits.tier2_schedule
 
 
+def tier2_variants(repo: RepoConfig, config: WorkspaceConfig) -> tuple[str, ...]:
+    """The groups a scheduled tier 2 run covers for `repo`: `base`, then the repo's own
+    `tests.tier2_runtimes` when set, else the top-level `tests.tier2_runtimes`."""
+    raise NotImplementedError
+
+
 def _unquoted_off(value: object) -> object:
     # YAML 1.1 reads an unquoted `off`, the documented default, as the boolean False.
     return "off" if value is False else value
