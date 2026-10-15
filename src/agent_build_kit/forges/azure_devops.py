@@ -39,6 +39,7 @@ from agent_build_kit.forges.azure_models import (
     EvaluationDoc,
     IterationDoc,
     LabelDoc,
+    MergeDoc,
     PullRequestDoc,
     RefDoc,
     RefUpdateDoc,
@@ -53,6 +54,7 @@ from agent_build_kit.forges.base import (
     DeniedRequest,
     FileChange,
     Label,
+    MergeRefused,
     PullRequest,
     RepoId,
     ReviewNote,
@@ -168,6 +170,9 @@ _HTTPS = re.compile(
 
 # How many pull requests' conversations and checks are read at once.
 READ_POOL = 4
+# Statuses on which the completion call is a refusal: invalid, not allowed, a conflict with
+# the pull request's state or head, a failed precondition.
+_MERGE_REFUSALS = (400, 405, 409, 412)
 
 
 class AzureDevOpsForge:
@@ -181,7 +186,7 @@ class AzureDevOpsForge:
     general_threads: bool = True
     # Azure DevOps has no first-class stacks, so the stack calls are never made.
     supports_stacks: bool = False
-    merges: bool = False
+    merges: bool = True
     # Annotated, not inferred: the Protocol's attribute is read-write, so a
     # narrower literal type would not satisfy it.
     denied_commands: tuple[tuple[str, ...], ...] = (
@@ -858,10 +863,35 @@ class AzureDevOpsForge:
         self._git(repo, "PATCH", f"pullrequests/{pr}", json={"isDraft": draft}, run=run)
 
     def merge_pr(self, repo: RepoId, pr: int, *, head: str, run: Run | None = None) -> str:
-        raise NotImplementedError
+        """Complete by squash, with `head` as the last merge source commit the host must
+        still find. A host that refuses the completion, or leaves the pull request
+        active or abandoned, is a refusal carrying its reason; any other failure is the
+        transport's."""
+        route = f"pullrequests/{pr}"
+        body = {
+            "status": "completed",
+            "lastMergeSourceCommit": {"commitId": head},
+            "completionOptions": {"mergeStrategy": "squash"},
+        }
+        try:
+            reply = self._git(repo, "PATCH", route, json=body, run=run)
+        except TRANSIENT:
+            raise
+        except TransportError as error:
+            if error.status in _MERGE_REFUSALS:
+                raise MergeRefused(f"HTTP {error.status}: {error}") from error
+            raise
+        done = _parse(reply, MergeDoc, f"PATCH {route}")
+        if done.status == "completed" and done.last_merge_commit:
+            return done.last_merge_commit.commit_id
+        reason = done.merge_failure_message or f"merge status {done.merge_status or 'unknown'}"
+        raise MergeRefused(f"the pull request is {done.status} after the completion: {reason}")
 
     def merge_commit(self, repo: RepoId, pr: int, *, run: Run | None = None) -> str | None:
-        raise NotImplementedError
+        merged = self._pull_doc(repo, pr, run=run)
+        if merged.status != "completed" or merged.last_merge_commit is None:
+            return None
+        return merged.last_merge_commit.commit_id
 
     def close_pr(self, repo: RepoId, pr: int, *, run: Run | None = None) -> None:
         """Abandon without merging - a satisfied unit's stale pull request.

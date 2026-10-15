@@ -36,10 +36,24 @@ class LabelDoc(_Doc):
     name: str
 
 
+class CommitDoc(_Doc):
+    commit_id: str
+
+
+class MergeDoc(_Doc):
+    """What the completion call and the read of a pull request say of its merge."""
+
+    status: str
+    merge_status: str | None = None
+    merge_failure_message: str | None = None
+    last_merge_commit: CommitDoc | None = None
+
+
 class PullRequestDoc(_Doc):
     pull_request_id: int
     status: str
     merge_status: str | None = None
+    last_merge_commit: CommitDoc | None = None
     is_draft: bool = False
     source_ref_name: str
     target_ref_name: str

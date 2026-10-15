@@ -32,11 +32,8 @@ def forge(host: httpx.BaseTransport) -> AzureDevOpsForge:
 
 def active(**overrides: object) -> dict:
     """An open pull request whose source head is the approved commit."""
-    return azure_answers.pull(
-        lastMergeSourceCommit=dict(commitId=HEAD),
-        lastMergeCommit=dict(commitId=MERGED),
-        **overrides,
-    )
+    fields = dict(lastMergeSourceCommit=dict(commitId=HEAD), lastMergeCommit=dict(commitId=MERGED))
+    return azure_answers.pull(**{**fields, **overrides})
 
 
 def completed() -> dict:
