@@ -870,7 +870,12 @@ def cmd_install_timers(args: argparse.Namespace, inst: Installation | None) -> i
             print(f"{'would remove' if args.dry_run else 'removed'} {path}")
         if not removal.change.removed:
             print(f"nothing installed for {removal.worktree or inst.root}")
-        if removal.worktree is not None:
+        if removal.worktree is not None and not removal.worktree.is_dir():
+            print(
+                f"the marker named a planning worktree at {removal.worktree}, which is gone; "
+                "`git worktree prune` forgets it"
+            )
+        elif removal.worktree is not None:
             print(
                 f"left the planning worktree at {removal.worktree}; "
                 f"`git worktree remove {removal.worktree}` removes it"

@@ -42,6 +42,7 @@ from agent_build_kit.pipeline.planning_repo import common_dir
 from agent_build_kit.pipeline.planning_sync import (
     PlanningMode,
     SyncOutcome,
+    default_tip_ref,
     in_repo_default_branch,
     planning_mode,
     read_pipeline_marker,
@@ -520,26 +521,21 @@ def _worktree_of_this_repository(path: Path, common: Path) -> bool:
 
 
 def _make_worktree(inst: Installation, target: Path) -> None:
-    """A detached worktree at `target`, at the default branch's remote tip when the repository
-    has one (the sync then fetches and moves it) and its local tip otherwise."""
+    """A detached worktree at `target`, at the tip the sync moves it to."""
     default = in_repo_default_branch(inst)
-    remote = f"refs/remotes/origin/{default}"
-    local = f"refs/heads/{default}"
-    tip = next(
-        (
-            ref
-            for ref in (remote, local)
-            if git(inst.root, "rev-parse", "--verify", "-q", ref, check=False).returncode == 0
-        ),
-        None,
-    )
-    if tip is None:
+    tip = default_tip_ref(inst.root, default)
+    if git(inst.root, "rev-parse", "--verify", "-q", tip, check=False).returncode != 0:
         raise PlanningWorktreeRefused(
-            f"the default branch {default} is neither fetched nor local in {inst.root}; "
+            f"{tip} does not exist in {inst.root}; "
             f"run `git fetch origin {default}` and install again"
         )
     target.parent.mkdir(parents=True, exist_ok=True)
-    git(inst.root, "worktree", "add", "-q", "--detach", str(target), tip)
+    added = git(inst.root, "worktree", "add", "-q", "--detach", str(target), tip, check=False)
+    if added.returncode != 0:
+        raise PlanningWorktreeRefused(
+            f"git could not add the worktree {target}: {' '.join(added.stderr.split())}; if it "
+            "was deleted by hand, `git worktree prune` forgets it, then install again"
+        )
 
 
 def _bring_to_tip(inst: Installation, worktree: Path) -> tuple[str, ...]:
@@ -601,9 +597,15 @@ def install_in_repo(
             f"{worktree} has no abk.yaml: it is not on the default branch yet, so commit and push "
             "it before the units can run",
         )
+    # Units an earlier install left running in the working copy would tick beside the worktree's.
+    superseded = installed_units(inst.root, dest) if mode == PlanningMode.WORKING_COPY else []
+    if superseded and not dry_run:
+        _stop_and_delete(superseded, run or subprocess.run)
+        (run or subprocess.run)(["systemctl", "--user", "daemon-reload"], check=False)
     change = install(
         worktree, dest=dest, run=run, enable=enable, dry_run=dry_run, tool_dirs=tool_dirs
     )
+    change = change.model_copy(update={"removed": (*change.removed, *superseded)})
     return InRepoInstall(worktree=worktree, created=created, change=change, notes=notes)
 
 
@@ -623,9 +625,13 @@ def remove_in_repo(
         worktree = inst.root
     else:
         worktree = read_pipeline_marker(inst.root)
-    change = UnitChange()
+    removed: list[Path] = []
     if worktree is not None:
-        change = remove(worktree, dest=dest, run=run, dry_run=dry_run)
+        removed += remove(worktree, dest=dest, run=run, dry_run=dry_run).removed
+    if mode == PlanningMode.WORKING_COPY:
+        # Units an earlier install pointed at the working copy itself.
+        removed += remove(inst.root, dest=dest, run=run, dry_run=dry_run).removed
+    change = UnitChange(removed=tuple(removed))
     if not dry_run:
         remove_pipeline_marker(inst.root)
     return InRepoRemoval(worktree=worktree, change=change)

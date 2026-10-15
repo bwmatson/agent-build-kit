@@ -8,6 +8,7 @@ records it in the marker and points every unit at it.
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -237,6 +238,60 @@ def test_a_separate_planning_repo_installs_byte_for_byte_as_before(tmp_path: Pat
     assert result.worktree is None
     assert not data.exists()
     assert {path.name: path.read_text() for path in dest.iterdir()} == timers.render(root)
+
+
+def install_from_the_working_copy_before(machine: Machine) -> list[Path]:
+    """Units an earlier version wrote with the working copy itself as their directory."""
+    timers.install(machine.working_copy, dest=machine.dest, run=machine.run)
+    old = machine.units(".timer")
+    assert len(old) == 4
+    machine.calls.clear()
+    return old
+
+
+def test_units_an_earlier_install_pointed_at_the_working_copy_are_replaced(
+    machine: Machine,
+) -> None:
+    old_timers = install_from_the_working_copy_before(machine)
+    old_files = machine.units(".service") + old_timers
+
+    result = machine.install()
+
+    for service in machine.units(".service"):
+        assert f"WorkingDirectory={machine.working_copy.resolve()}\n" not in service.read_text()
+    for timer in old_timers:
+        assert ["systemctl", "--user", "disable", "--now", timer.name] in machine.calls
+    assert set(old_files) <= set(result.change.removed)
+    assert len(machine.units(".service")) == 4
+
+
+def test_a_dry_run_lists_the_working_copy_units_without_touching_them(machine: Machine) -> None:
+    old_timers = install_from_the_working_copy_before(machine)
+
+    result = machine.install(dry_run=True)
+
+    assert set(old_timers) <= set(result.change.removed)
+    assert all(path.is_file() for path in old_timers)
+    assert machine.calls == []
+
+
+def test_remove_also_takes_the_units_pointed_at_the_working_copy(machine: Machine) -> None:
+    machine.install()
+    timers.install(machine.working_copy, dest=machine.dest, run=machine.run)
+
+    removed = machine.remove()
+
+    assert len(removed.change.removed) == 16
+    assert machine.units(".service") == []
+    assert machine.units(".timer") == []
+
+
+def test_a_worktree_deleted_by_hand_is_refused_with_the_prune_advice(machine: Machine) -> None:
+    machine.install()
+    shutil.rmtree(machine.worktree)
+
+    with pytest.raises(timers.PlanningWorktreeRefused, match="git worktree prune"):
+        machine.install()
 
 
 def test_a_worktree_without_abk_yaml_says_it_is_not_on_the_default_branch(
