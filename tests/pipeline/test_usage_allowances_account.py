@@ -95,3 +95,14 @@ def test_a_return_to_the_first_account_counts_only_the_readings_after_the_last_c
 
     assert found.pairs_available == ENOUGH
     assert found.quantile_pct_per_unit == 1
+
+
+def test_with_no_account_set_the_whole_record_is_calibrated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "claude_home", None)
+    old, old_spent = per_unit("weekly", [5] * 10)
+    new, new_spent = later(ENOUGH, 1, 10)
+    keep(tmp_path / "state", of(None, old + new), old_spent + new_spent)
+
+    assert refreshed(tmp_path / "state").pairs_available == 10 + ENOUGH

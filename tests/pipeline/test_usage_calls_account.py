@@ -10,7 +10,9 @@ from datetime import UTC, datetime, timedelta
 
 from agent_build_kit.pipeline.usage_calls import (
     CLAUDE_JSON,
+    REFUSED,
     UsageCall,
+    cache_interval,
     derive_rate,
     parse_calls,
 )
@@ -69,3 +71,24 @@ def test_the_rate_counts_the_lines_of_every_account_and_an_old_line_has_none(hos
     assert all("account" in each for each in host.lines()[1:])
     assert isinstance(calls[0], UsageCall)
     assert rate.day.calls == 4
+
+
+def test_a_refusal_under_another_account_still_doubles_the_cache_interval() -> None:
+    now = datetime.now(UTC)
+    base = timedelta(minutes=10)
+    calls = [
+        UsageCall(
+            at=now - 5 * MINUTE, caller="guard", outcome=REFUSED, status=429, account="/accounts/a"
+        ),
+        UsageCall(
+            at=now - 3 * MINUTE, caller="guard", outcome="ok", status=200, account="/accounts/b"
+        ),
+        UsageCall(
+            at=now - 1 * MINUTE, caller="guard", outcome="ok", status=200, account="/accounts/b"
+        ),
+    ]
+
+    interval = cache_interval(calls, now=now, base=base, maximum=6 * base)
+
+    assert interval.kept == 2 * base
+    assert interval.reason == "refusal"
