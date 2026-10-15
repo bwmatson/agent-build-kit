@@ -147,7 +147,7 @@ def test_the_check_reaches_the_host_no_more_than_the_rest_of_doctor_does(
 
 
 def test_a_repo_only_the_local_overlay_adds_is_not_judged(tmp_path: Path) -> None:
-    config = planning(tmp_path / "plan")
+    config = planning(tmp_path / "plan", ignore="abk.local.yaml\n")
     (config.parent / "abk.local.yaml").write_text(
         "repos:\n  platform:\n    path: platform\n    slug: elsewhere/app\n"
     )

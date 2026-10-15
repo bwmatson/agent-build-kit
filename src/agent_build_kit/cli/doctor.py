@@ -36,6 +36,7 @@ from agent_build_kit import (
 )
 from agent_build_kit import settings as settings_module
 from agent_build_kit.config import (
+    OVERLAY_FILENAME,
     CommandProvider,
     ConfigError,
     EnvironmentConfig,
@@ -641,25 +642,23 @@ def _committed_facts(inst: Installation, toplevel: Path) -> list[Check]:
 
 
 def _local_files(inst: Installation, toplevel: Path) -> list[Check]:
-    """The local scrub list and the redaction copies: never committed."""
+    """The local scrub list, the configuration overlay and the redaction copies: never committed."""
     root = inst.root
     checks = []
-    if (root / "scrub.local").exists():
-        if _is_tracked(root, "scrub.local"):
+    for local in ("scrub.local", OVERLAY_FILENAME):
+        if not (root / local).exists():
+            continue
+        if _is_tracked(root, local):
             checks.append(
                 _warn(
                     PUBLIC_CONTENT,
-                    "scrub.local is tracked",
-                    "git rm --cached scrub.local, and add `scrub.local` to .gitignore",
+                    f"{local} is tracked",
+                    f"git rm --cached {local}, and add `{local}` to .gitignore",
                 )
             )
-        elif not _is_ignored(root, "scrub.local"):
+        elif not _is_ignored(root, local):
             checks.append(
-                _warn(
-                    PUBLIC_CONTENT,
-                    "scrub.local is not ignored",
-                    "add `scrub.local` to .gitignore",
-                )
+                _warn(PUBLIC_CONTENT, f"{local} is not ignored", f"add `{local}` to .gitignore")
             )
     found = {*root.glob(COPY_PATTERN), *inst.state_dir.rglob(COPY_PATTERN)}
     # A copy outside the repository cannot be committed to it.

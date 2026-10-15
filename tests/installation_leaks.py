@@ -21,6 +21,8 @@ from pathlib import Path
 
 import yaml
 
+from agent_build_kit.config import OVERLAY_FILENAME
+from agent_build_kit.pipeline.shell import git
 from agent_build_kit.scrub_terms import TOOL_DIRS
 
 SCANNED = ("src", "tests", "docs", "web", "openspec")
@@ -50,6 +52,7 @@ SELF = {
     "installation_leaks.py",
     "test_no_installation_leaks.py",
     "test_leak_scan_planning_content.py",
+    "test_installation_leaks_overlay.py",
 }
 # Fixture owners, and the placeholder words a regex's own documentation uses.
 FIXTURE_OWNERS = ("example", "acme", "octo", "owner", "o")
@@ -122,41 +125,59 @@ def foreign_slug_owners(text: str) -> list[str]:
     ]
 
 
+def leaky_line(line: str) -> bool:
+    return bool(
+        any(shape.search(line) for shape in SHAPES)
+        or foreign_slug_owners(line)
+        or foreign_azure_orgs(line)
+    )
+
+
 def leaks(root: Path) -> list[str]:
     """Each hit under `root` as `path:line: clipped line`: home paths, non-fixture slugs,
     anecdotes and product directories in the scanned text, planning content included."""
-    return hits(
-        root,
-        lambda line: (
-            any(shape.search(line) for shape in SHAPES)
-            or foreign_slug_owners(line)
-            or foreign_azure_orgs(line)
-        ),
-    )
+    return hits(root, leaky_line)
 
 
 def overlay_leaks(root: Path) -> list[str]:
     """Findings about `root`'s `abk.local.yaml`: that git tracks it, that it is not ignored,
-    and, for a file that is tracked or not ignored, each home path or repo path leaving the
-    checkout, with file and line. An ignored, untracked file's text is not read."""
-    raise NotImplementedError
+    and, for a file that is tracked or not ignored, each leaky line (`file:line: text`) and
+    each repo path leaving the checkout. An ignored, untracked file's text is not read."""
+    path = root / OVERLAY_FILENAME
+    if not path.is_file():
+        return []
+    tracked = (
+        git(root, "ls-files", "--error-unmatch", OVERLAY_FILENAME, check=False).returncode == 0
+    )
+    ignored = git(root, "check-ignore", "-q", OVERLAY_FILENAME, check=False).returncode == 0
+    found = []
+    if tracked:
+        found.append(f"{OVERLAY_FILENAME}: tracked by git")
+    if not ignored:
+        found.append(f"{OVERLAY_FILENAME}: not ignored")
+    if not tracked and ignored:
+        return []
+    for number, line in enumerate(path.read_text(errors="replace").splitlines(), start=1):
+        if leaky_line(line):
+            found.append(f"{OVERLAY_FILENAME}:{number}: {line.strip()[:100]}")
+    return found + repo_path_leaks(root, OVERLAY_FILENAME)
 
 
-def repo_path_leaks(root: Path) -> list[str]:
-    """One finding per `repos.<name>.path` of `root`'s committed `abk.yaml` that leaves the
+def repo_path_leaks(root: Path, name: str = "abk.yaml") -> list[str]:
+    """One finding per `repos.<name>.path` of `root`'s committed `name` that leaves the
     checkout, naming the repo key and never the value."""
-    config = root / "abk.yaml"
+    config = root / name
     if not config.is_file():
         return []
     loaded = yaml.safe_load(config.read_text())
     repos = loaded.get("repos") if isinstance(loaded, dict) else None
     base = Path(os.path.abspath(root))
     found = []
-    for name, repo in (repos if isinstance(repos, dict) else {}).items():
+    for key, repo in (repos if isinstance(repos, dict) else {}).items():
         if not isinstance(repo, dict):
             continue
         path = str(repo.get("path", "."))
         target = Path(os.path.normpath(base / Path(path).expanduser()))
         if target != base and base not in target.parents:
-            found.append(f"abk.yaml: repos.{name}.path leaves the checkout")
+            found.append(f"{name}: repos.{key}.path leaves the checkout")
     return found

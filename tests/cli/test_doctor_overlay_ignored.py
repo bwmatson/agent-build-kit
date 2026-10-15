@@ -6,10 +6,15 @@ from __future__ import annotations
 from pathlib import Path
 
 from tests.cli.public_content_repo import planning, public_content, said
-from tests.cli.test_doctor_local_ignored import IGNORED, put
+from tests.cli.test_doctor_local_ignored import IGNORED
 from tests.factories import git
 
 OVERLAY = "abk.local.yaml"
+
+
+def put(root: Path, name: str) -> None:
+    """The overlay must load, or doctor stops at `config loads`."""
+    (root / name).write_text("{}\n")
 
 
 def test_an_overlay_without_an_ignore_line_warns_naming_the_file_and_the_line_to_add(

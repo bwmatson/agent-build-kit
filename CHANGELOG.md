@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Where an installation's own facts go is now written down in `docs/configuration.md`, the
+  `abk-config` skill, `docs/init.md` and `docs/cli.md`: single values and secrets in the
+  ignored `.env`, read through `from: env-file` entries; structured, user-specific
+  configuration in the ignored `abk.local.yaml`, merged over `abk.yaml`. The two are
+  independent layers that may both be used. `abk doctor`'s `public content` check now also
+  warns when `abk.local.yaml` is tracked or not ignored, `abk init` adds it to the ignore
+  lines beside `scrub.local` and `*.pre-redact`, and the leak test fails a tracked or
+  unignored overlay. The docs also cover `abk scrub-check`'s root-name condition and
+  `scrub.local`, and `abk scrub-store`.
+
 - The runner's change directory and follow-ups, and `abk init`'s check for an existing
   change, now use `planning.specs_dir` instead of a fixed `openspec`, so a specs directory
   with another name works. This repository's hooks skip the state directory, and its CI

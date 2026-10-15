@@ -104,7 +104,7 @@ changes nothing else:
 | `abk.yaml` | the draft, defaults left out. Overwritten only with `--force` |
 | `openspec/config.yaml` | `schema: spec-driven`, a `context:` describing the repos and cross-repo conventions, and the framework's per-artifact `rules:` for the authoring model (tagged headings, GIVEN/WHEN/THEN scenarios, `[contract]`/`[narrow]`/`[acceptance]`, tests before implementation) headed `# abk-rules: v1`. Overwritten with `--force`, or when it is still the stock file `openspec init` wrote (only a `schema` key) |
 | `runs/.gitkeep`, `runs/units.json` | the state directory and an empty unit store |
-| `.gitignore` | `.env`, `.last-runs/`, `runs/*.lock`, `runs/locks/`, local tooling |
+| `.gitignore` | `.env`, `abk.local.yaml`, `scrub.local`, `*.pre-redact`, `.last-runs/`, `runs/*.lock`, `runs/locks/`, local tooling (lines an existing file lacks are appended once) |
 | `.env.example` | every machine-level variable, commented out |
 | `CLAUDE.md` | what lives where in a planning repo, and the three skills |
 | `.claude/skills/*/SKILL.md` | the three skills, version-stamped |
@@ -195,7 +195,12 @@ is, and the reason is printed. Finally the next steps: review `abk.yaml`
 (fill each `deploy.rules[].run`, `description`, `relationships`; replace any
 `todo-owner/` slug), set a repo-local git identity in each checkout, log `gh`
 in for every owner, copy `.env.example` to `.env`, run `abk doctor`, install
-the timers with `abk install-timers`.
+the timers with `abk install-timers`. The output and the planning context say where an
+installation's own facts go: single values and secrets about its stack (an agent command,
+local ports, a home variable) in the ignored `.env`, read by `from: env-file` entries, and
+structured, user-specific configuration in the ignored `abk.local.yaml`, merged over
+`abk.yaml`. A planning repo of one repo needs no other repo entries. Init creates neither
+file; `.env.example`'s header names `scrub.local`.
 
 ### Notifications
 

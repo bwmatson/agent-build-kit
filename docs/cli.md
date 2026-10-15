@@ -782,6 +782,26 @@ of its commands, `verify.env` variable names — minus generic words
 case-insensitive. Prints `path:line: term` per hit; `--show-terms` prints the
 list. Exit 2 if `DIR` is not a directory, 1 with hits, 0 when clean.
 
+The planning root's own name is a term only when it is not the target: a root whose repo
+entry has path `.` is the checkout naming itself, so scanning its own checkout does not
+report the root's name. Terms also come from the home and literal-value facts of the merged
+configuration (`verify.env` literals, `env-file` provider paths under a dot-directory, the
+home user's name). A gitignored `scrub.local` in the planning root adds terms, one per line:
+`#` starts a comment, a blank line is skipped, `!word` removes a derived term, and a term
+under three characters is dropped. A word on the generic list written there is kept.
+
+### `abk scrub-store [--apply]`
+
+Finds home-directory paths in the text fields of the unit store (`feedback`, `guidance`,
+`predecessor_note`, `stack_refusal` and each history note). The default is a dry run: it
+prints each record, field and count, never the text, and changes nothing. `--apply` needs a
+paused pipeline (`abk pause`); it keeps one original as `units.json.pre-redact` beside the
+store (ignored by `.gitignore`, the same suffix `abk redact-history --apply` writes),
+replaces each Linux, macOS or `~` home prefix with `<home>/` keeping the rest of the path,
+and writes every changed record in one write. Other terms, such as a repo name, stay in the
+text. A second `--apply` finds nothing, writes nothing and leaves the first copy alone. Exit
+0 on success, 1 when `--apply` runs without a pause (the pause is named and nothing changes).
+
 ## Tracks
 
 ### `abk track PHASE [--project NAME] [--focus TRACK|RUN_ID] [--dry-run]`
