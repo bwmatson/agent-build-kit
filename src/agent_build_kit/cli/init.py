@@ -230,6 +230,7 @@ def _convention_lines(
     """One line per repo and action: what a dry run would do, or what a run did."""
     lines = []
     for r in results:
+        # init runs before an installation exists, so the configured path is all there is
         root = workspace.repos[r.repo].path.expanduser()
         name = f"{r.repo}/{r.path.relative_to(root).as_posix()}"
         if r.result == "unchanged":

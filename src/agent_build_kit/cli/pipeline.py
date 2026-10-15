@@ -597,7 +597,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         )
         by_state[shown] = by_state.get(shown, 0) + 1
     log("units: " + ", ".join(f"{count} {state}" for state, count in sorted(by_state.items())))
-    for name, (directory, _) in replay_directories(inst.repos).items():
+    for name, (directory, _) in replay_directories(inst.repos, inst.checkouts).items():
         if held := len(replay_waiting(directory)):
             log(f"cassettes: {held} waiting for review in {name} (`abk replay review`)")
 

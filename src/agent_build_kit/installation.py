@@ -9,6 +9,7 @@ installed anywhere and pointed at any planning repo.
 from __future__ import annotations
 
 import subprocess
+from functools import cached_property
 from pathlib import Path
 
 import yaml
@@ -26,6 +27,13 @@ from agent_build_kit.config import (
     YamlProvider,
 )
 from agent_build_kit.forges import Forge, RepoId
+from agent_build_kit.pipeline.planning_repo import (
+    common_dir,
+    is_worktree_of,
+    main_working_tree,
+    repository_name,
+)
+from agent_build_kit.pipeline.planning_sync import is_pipeline_worktree
 
 
 def changes_dir_under(root: Path, specs_dir: str) -> Path:
@@ -40,13 +48,28 @@ def data_home() -> Path:
     return Path.home() / ".local" / "share"
 
 
+def env_file_for(root: Path) -> Path:
+    """The `.env` a planning root reads: its own, or the main working tree's when the root is the
+    pipeline worktree (a fresh checkout, which never has one) and has none."""
+    own = root / ".env"
+    if not own.exists() and is_pipeline_worktree(root):
+        main = main_working_tree(root)
+        if main is not None:
+            return main / ".env"
+    return own
+
+
 class Installation:
     def __init__(self, config: WorkspaceConfig, root: Path) -> None:
         self.config = config
         self.root = root.resolve()
+        self.in_pipeline_worktree = is_pipeline_worktree(self.root)
+        self._common = common_dir(self.root) if self.in_pipeline_worktree else None
+        # Every pipeline worktree is called the same, so it is named for its repository.
+        name = repository_name(self.root).name if self.in_pipeline_worktree else self.root.name
         worktree_root = settings_module.settings.worktree_root or config.planning.worktree_root
         if worktree_root is None:
-            worktree_root = data_home() / self.root.name / "worktrees"
+            worktree_root = data_home() / name / "worktrees"
         self.worktree_root = Path(worktree_root).expanduser().resolve()
         if self.worktree_root == self.root or self.worktree_root.is_relative_to(self.root):
             raise ConfigError(
@@ -86,7 +109,7 @@ class Installation:
 
     @property
     def env_file(self) -> Path:
-        return self.root / ".env"
+        return env_file_for(self.root)
 
     def tasks_files(self) -> list[Path]:
         """Every active change's tasks.md, in name order."""
@@ -98,9 +121,18 @@ class Installation:
     def repos(self) -> dict[str, RepoConfig]:
         return self.config.repos
 
-    @property
+    def checkout_of(self, configured: Path) -> Path:
+        """A repo's configured path as a checkout: a relative path is under the root, and a path
+        that is a worktree of the root's own repository is the root when the root is the pipeline
+        worktree."""
+        path = self._under_root(str(configured))
+        if self._common is not None and is_worktree_of(path, self._common):
+            return self.root
+        return path
+
+    @cached_property
     def checkouts(self) -> dict[str, Path]:
-        return {name: repo.path.expanduser() for name, repo in self.config.repos.items()}
+        return {name: self.checkout_of(repo.path) for name, repo in self.config.repos.items()}
 
     def repo(self, name: str) -> RepoConfig:
         try:
@@ -183,7 +215,7 @@ class Installation:
     def activate(self) -> None:
         """Make this the workspace the leaf modules see (config.active())."""
         settings_module.reload(self.env_file if self.env_file.exists() else None)
-        config_module.activate(self.config, self.root)
+        config_module.activate(self.config, self.root, self.checkout_of)
         redaction.activate(redaction.gather(self))
 
 
@@ -220,7 +252,7 @@ def load_config(path: Path) -> WorkspaceConfig:
     """The abk.yaml at `path`, loaded once its planning root's `.env` has been
     read: a runtime selected there (`ABK_RUNTIME`) is the one `config.load`
     checks, not whatever the process started with."""
-    env_file = path.parent / ".env"
+    env_file = env_file_for(path.parent.resolve())
     settings_module.reload(env_file if env_file.exists() else None)
     return config_module.load(path)
 

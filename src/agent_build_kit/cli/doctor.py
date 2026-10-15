@@ -111,8 +111,8 @@ def _fail(name: str, detail: str, fix: str) -> Check:
 
 def _repos(inst: Installation, run: Run) -> list[Check]:
     checks = []
-    for name, repo in inst.repos.items():
-        path = repo.path.expanduser()
+    for name in inst.repos:
+        path = inst.checkouts[name]
         if not path.is_dir():
             checks.append(_fail(f"repo {name}", f"{path} does not exist", "fix `path` in abk.yaml"))
             continue
@@ -151,8 +151,8 @@ def _pending_projects(inst: Installation) -> list[Check]:
     return [
         _info(f"project {name}/{project.path}", describe(project))
         for name, repo in inst.repos.items()
-        if repo.path.expanduser().is_dir()  # a missing repo is already a failure
-        for project in pending_projects(repo.path.expanduser(), repo.projects)
+        if inst.checkouts[name].is_dir()  # a missing repo is already a failure
+        for project in pending_projects(inst.checkouts[name], repo.projects)
     ]
 
 
@@ -160,7 +160,7 @@ def _cassettes(inst: Installation) -> list[Check]:
     """Recordings waiting for review, for each repo that records: a note, or a warning when
     one has waited through more runs than `review_after_runs`."""
     checks = []
-    for name, (directory, replay) in directories(inst.repos).items():
+    for name, (directory, replay) in directories(inst.repos, inst.checkouts).items():
         if not (held := len(waiting(directory))):
             continue
         limit = replay.review_after_runs
@@ -178,7 +178,7 @@ def _changelogs(inst: Installation) -> list[Check]:
     """A repo that names a changelog its checkout does not have is warned about."""
     checks = []
     for name, repo in inst.repos.items():
-        path = repo.path.expanduser()
+        path = inst.checkouts[name]
         if repo.changelog is None or not path.is_dir():
             continue
         if (path / repo.changelog).is_file():
@@ -839,7 +839,7 @@ def _rules_drift(inst: Installation) -> Check:
 def _gaps(inst: Installation, run: Run) -> list[Check]:
     checks = []
     for name, repo in inst.repos.items():
-        path = repo.path.expanduser()
+        path = inst.checkouts[name]
         if not path.is_dir():
             continue
         detection = detect_repo(path, run=run)
@@ -995,8 +995,8 @@ def _python_tools(inst: Installation) -> list[Check]:
     repository pins one the dependency group also holds, and when a system hook
     runs one the group does not hold."""
     checks = []
-    for name, repo in inst.repos.items():
-        path = repo.path.expanduser()
+    for name in inst.repos:
+        path = inst.checkouts[name]
         hooks_file = path / ".pre-commit-config.yaml"
         if not (path / "pyproject.toml").is_file() or not hooks_file.is_file():
             continue

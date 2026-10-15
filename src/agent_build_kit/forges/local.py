@@ -105,8 +105,11 @@ class LocalForge:
 
     def identity(self, repo: RepoConfig) -> RepoId:
         # The checkout's full path, hashed, tells apart two repos whose directories share a name.
-        where = hashlib.sha1(str(repo.path.expanduser().resolve()).encode()).hexdigest()[:8]
-        return RepoId(forge=self.name, account="local", name=repo.path.name, project=where)
+        from agent_build_kit import config
+
+        checkout = config.active_checkout(repo.path).resolve()
+        where = hashlib.sha1(str(checkout).encode()).hexdigest()[:8]
+        return RepoId(forge=self.name, account="local", name=checkout.name, project=where)
 
     def config_entry(self, repo: RepoId) -> dict[str, object]:
         return {}
@@ -129,7 +132,7 @@ class LocalForge:
 
         for candidate in config.active().repos.values():
             if candidate.forge == self.name and self.identity(candidate) == repo:
-                return candidate.path.expanduser()
+                return config.active_checkout(candidate.path)
         return None
 
     # --- pull requests --------------------------------------------------------------

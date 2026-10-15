@@ -23,7 +23,7 @@ import logging
 import os
 import re
 import shlex
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Literal
@@ -1461,9 +1461,27 @@ _active: WorkspaceConfig = WorkspaceConfig()
 _active_root: Path | None = None
 
 
-def activate(config: WorkspaceConfig, root: Path | None = None) -> None:
-    global _active, _active_root
-    _active, _active_root = config, root
+def _expanded(path: Path) -> Path:
+    return path.expanduser()
+
+
+_active_checkout: Callable[[Path], Path] = _expanded
+
+
+def activate(
+    config: WorkspaceConfig,
+    root: Path | None = None,
+    checkout: Callable[[Path], Path] = _expanded,
+) -> None:
+    """`checkout` turns a repo's configured path into its checkout (the installation's rule)."""
+    global _active, _active_root, _active_checkout
+    _active, _active_root, _active_checkout = config, root, checkout
+
+
+def active_checkout(configured: Path) -> Path:
+    """The checkout a repo's configured path names in the active workspace, for a caller that
+    holds a repo's config but no installation."""
+    return _active_checkout(configured)
 
 
 def active() -> WorkspaceConfig:

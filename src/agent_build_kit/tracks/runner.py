@@ -212,7 +212,7 @@ def eligible_projects(inst: Installation, only: str | None = None) -> list[Proje
     for name, repo in inst.config.repos.items():
         if only and name != only:
             continue
-        path = repo.path.expanduser().resolve()
+        path = inst.checkouts[name].resolve()
         if not (path / ".git").exists():
             log(f"skip {name}: {path} is not a git checkout")
             continue

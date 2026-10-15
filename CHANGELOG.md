@@ -46,6 +46,12 @@
   an earlier install pointed at the working copy itself are stopped and removed by both, so
   nothing keeps ticking there. A separate planning repo installs as before.
 
+- In a pipeline worktree, unit names and the default worktree root are named for the
+  repository, so two repositories no longer collide on `planning`; a `.env` the worktree lacks
+  is read from the main working tree; a relative `repos.<name>.path` is relative to the
+  planning root; and an absolute path naming the repository's working copy is the pipeline
+  worktree there. Other installations are unchanged.
+
 - `abk doctor` has a `public content` check. It reads a tracked `abk.yaml` offline and warns
   about a repo path outside the checkout, a home-directory path in a value and a repo owned
   by another account than the planning repo's origin, naming the key and never the value. It

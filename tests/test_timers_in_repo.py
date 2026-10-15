@@ -276,12 +276,15 @@ def test_a_dry_run_lists_the_working_copy_units_without_touching_them(machine: M
 
 
 def test_remove_also_takes_the_units_pointed_at_the_working_copy(machine: Machine) -> None:
-    machine.install()
+    # The repository names both installations alike, so installing for the worktree takes the
+    # earlier units over and removing takes them off once.
     timers.install(machine.working_copy, dest=machine.dest, run=machine.run)
+    machine.install()
+    assert {timers.owner_of(unit) for unit in machine.units(".service")} == {machine.worktree}
 
     removed = machine.remove()
 
-    assert len(removed.change.removed) == 16
+    assert len(removed.change.removed) == 8
     assert machine.units(".service") == []
     assert machine.units(".timer") == []
 

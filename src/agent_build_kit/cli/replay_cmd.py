@@ -27,7 +27,7 @@ def _show(held: review.Waiting) -> None:
 
 
 def cmd_review(args: argparse.Namespace, inst: Installation) -> int:
-    found = review.directories(inst.repos)
+    found = review.directories(inst.repos, inst.checkouts)
     if not found:
         print("no repository has a tests.replay section")
         return 1 if args.keep or args.delete else 0

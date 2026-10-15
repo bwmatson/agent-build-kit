@@ -24,7 +24,7 @@ from typing import Self
 
 from pydantic import Field
 
-from agent_build_kit.config import active
+from agent_build_kit.config import active, active_checkout
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.shell import has_origin
 
@@ -181,7 +181,7 @@ def local_ref(base: str, repo: str | None = None) -> str:
 
     A repo with no remote (named by `repo`) has its own trunk to build on.
     """
-    checkout = active().repos[repo].path.expanduser() if repo is not None else None
+    checkout = active_checkout(active().repos[repo].path) if repo is not None else None
     return build_ref(checkout, base)
 
 

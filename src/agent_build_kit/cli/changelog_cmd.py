@@ -34,8 +34,8 @@ def _repo_here(inst: Installation, cwd: Path) -> tuple[RepoConfig, Path] | None:
     if found is None:
         return None
     top, home = found
-    for repo in inst.repos.values():
-        if repo.path.expanduser().resolve() == home.resolve():
+    for name, repo in inst.repos.items():
+        if inst.checkouts[name].resolve() == home.resolve():
             return repo, top
     return None
 
