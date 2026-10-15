@@ -40,8 +40,11 @@ class Holds(Frozen):
     """The splits held now, by name, and what reading the file found."""
 
     held: dict[str, Hold] = {}
+    # Splits whose file entry the configuration's `hold: false` overrode.
     overridden: tuple[str, ...] = ()
+    # The file exists and could not be read.
     unreadable: bool = False
+    # Splits a file entry named that nothing declares.
     unknown: tuple[str, ...] = ()
 
 
@@ -69,7 +72,8 @@ def _read(path: Path) -> dict[str, _Entry] | None:
 
 
 def held_splits(splits: tuple[Tier2Split, ...], state_dir: Path, *, now: datetime) -> Holds:
-    """The splits held at `now`; reads, and changes nothing on disk."""
+    """The splits held at `now`; reads, and changes nothing on disk, so an expired entry stays
+    in the file until the next write. A file that cannot be read holds nothing."""
     entries = _read(state_dir / HELD_FILE)
     known = {split.name for split in splits}
     held: dict[str, Hold] = {
@@ -122,9 +126,11 @@ def write_hold(
     now: datetime,
 ) -> None:
     """Write `split`'s entry atomically under a lock, replacing an earlier one. A deadline
-    is refused (ValueError) for the source `command`."""
-    if source == SOURCE_COMMAND and until is not None:
-        raise ValueError(f"a hold with the source {SOURCE_COMMAND!r} has no deadline")
+    is refused (ValueError) for any source but `gate`."""
+    if until is not None and source != SOURCE_GATE:
+        raise ValueError(
+            f"a hold with the source {source!r} has no deadline; only {SOURCE_GATE!r} does"
+        )
     path = state_dir / HELD_FILE
     entry = _Entry(reason=reason, since=now, until=until, source=source, by=by)
     with file_lock(path.with_name(f"{path.name}.lock")):
@@ -135,13 +141,16 @@ def write_hold(
 
 
 def remove_hold(state_dir: Path, split: str) -> bool:
-    """Remove `split`'s entry under the lock; False when there was none."""
+    """Remove `split`'s entry under the lock; False when there was none. A file that cannot
+    be read raises ValueError rather than saying there was nothing to remove."""
     path = state_dir / HELD_FILE
     if not path.exists():
         return False
     with file_lock(path.with_name(f"{path.name}.lock")):
         entries = _read(path)
-        if not entries or split not in entries:
+        if entries is None:
+            raise ValueError(f"{path} cannot be read; fix or remove it")
+        if split not in entries:
             return False
         del entries[split]
         atomic_write_text(path, _ENTRIES.dump_json(entries, indent=2).decode() + "\n")

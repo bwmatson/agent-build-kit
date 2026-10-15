@@ -1449,7 +1449,7 @@ def build_on_preexisting(
     ) -> str | None:
         runtime = failure.group or BASE_GROUP
         held = held_splits(
-            tier2_splits(installation.config.repos[unit.repo], installation.config),
+            tier2_splits(installation.repo(unit.repo), installation.config),
             installation.state_dir,
             now=datetime.now(UTC),
         ).held

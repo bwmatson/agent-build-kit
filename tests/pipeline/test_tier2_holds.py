@@ -152,9 +152,10 @@ def test_an_entry_with_no_deadline_never_expires(tmp_path: Path) -> None:
     assert found.held["acp"].until is None
 
 
-def test_a_command_entry_is_never_written_with_a_deadline(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="command"):
-        hold(tmp_path, source="command", until=NOW + timedelta(hours=1))
+@pytest.mark.parametrize("source", ["command", "something-later"])
+def test_only_a_gate_entry_is_ever_written_with_a_deadline(tmp_path: Path, source: str) -> None:
+    with pytest.raises(ValueError, match=source):
+        hold(tmp_path, source=source, until=NOW + timedelta(hours=1))
 
     assert not (tmp_path / HELD_FILE).exists()
 
@@ -299,6 +300,15 @@ def test_removing_an_entry_that_is_absent_says_so_and_changes_nothing(tmp_path: 
 
     assert (tmp_path / HELD_FILE).read_bytes() == before
     assert remove_hold(tmp_path / "nothing-here", "acp") is False
+
+
+def test_removing_from_a_file_that_cannot_be_read_raises_and_leaves_it(tmp_path: Path) -> None:
+    (tmp_path / HELD_FILE).write_text("not json")
+
+    with pytest.raises(ValueError, match="cannot be read"):
+        remove_hold(tmp_path, "acp")
+
+    assert (tmp_path / HELD_FILE).read_text() == "not json"
 
 
 def test_a_leftover_blocked_file_is_never_read(tmp_path: Path) -> None:
