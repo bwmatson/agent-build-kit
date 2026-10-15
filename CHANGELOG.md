@@ -28,6 +28,12 @@
   profile cannot apply; it runs no test and changes nothing. It lists from each declared
   project's directory under the verify environment, as a tier 2 run does.
 
+- A tier 2 split may carry a `gate` naming the provider of its model (`provider` with a
+  `name`, a `budget_usd` and window `limits`) or a `command`, with `timeout_seconds`,
+  `on_unknown` and the two cache settings; a gate that sets both or neither, an unknown
+  provider or a non-positive budget is refused when the file loads, and `abk config --show`
+  prints it.
+
 - An `abk.local.yaml` beside `abk.yaml` is merged over it when the configuration loads, so
   facts about other repos and a stack can stay out of a public checkout: mappings merge key
   by key, anything else (lists, text, `null`) is replaced whole. A schema error names the

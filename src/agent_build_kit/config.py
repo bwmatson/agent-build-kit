@@ -180,9 +180,9 @@ class RuntimeModelsConfig(Frozen):
 BUILTIN_UNIT_ALLOWANCES = {"session": 10, "weekly": 2}
 
 
-class UsageWindowConfig(Frozen):
-    """How full one usage window may get before the pipeline stops starting
-    units. The session and the week are both this, with the same names."""
+class WindowLimits(Frozen):
+    """The ramp every usage window shares: where its threshold sits and how it moves
+    toward the window's reset (a subscription window and a provider's month alike)."""
 
     # Percent of the window at which no NEW unit starts, for most of that window.
     usage_pause_pct: Annotated[int, Field(ge=0, lt=100)] = 70
@@ -201,6 +201,29 @@ class UsageWindowConfig(Frozen):
     # paused pipeline is woken: enough that a unit which starts can finish,
     # rather than being admitted exactly at the margin.
     usage_resume_buffer_pct: Annotated[int, Field(ge=0)] = 5
+
+    @property
+    def usage_ceiling_pct(self) -> int:
+        """The ceiling as it applies: the pause percent when unset."""
+        ceiling = self.usage_pause_ceiling_pct
+        return self.usage_pause_pct if ceiling is None else ceiling
+
+    @model_validator(mode="after")
+    def _ceiling_not_below_pause(self) -> WindowLimits:
+        """A ceiling under the pause percent would make the threshold *fall* as
+        a reset approaches, which is the opposite of what it is for."""
+        if self.usage_ceiling_pct < self.usage_pause_pct:
+            raise ValueError(
+                f"usage_pause_ceiling_pct ({self.usage_ceiling_pct}) is below "
+                f"usage_pause_pct ({self.usage_pause_pct})"
+            )
+        return self
+
+
+class UsageWindowConfig(WindowLimits):
+    """How full one usage window may get before the pipeline stops starting
+    units. The session and the week are both this, with the same names."""
+
     # Points of this window one unit may spend, counted for each unit that has spent since
     # the last reading or started on an estimate. `auto` (the default) calibrates it from the
     # recorded history and falls back to 10 for the session and 2 for the weekly: a unit costs
@@ -209,12 +232,6 @@ class UsageWindowConfig(Frozen):
     usage_unit_allowance_pct: Annotated[int, Field(ge=0)] | Literal["auto"] = "auto"
     # The least a calibrated allowance of this window may be, in points per unit.
     usage_allowance_floor_pct: Annotated[int, Field(ge=0)] = 1
-
-    @property
-    def usage_ceiling_pct(self) -> int:
-        """The ceiling as it applies: the pause percent when unset."""
-        ceiling = self.usage_pause_ceiling_pct
-        return self.usage_pause_pct if ceiling is None else ceiling
 
     @model_validator(mode="after")
     def _floor_not_above_cap(self) -> UsageWindowConfig:
@@ -228,17 +245,6 @@ class UsageWindowConfig(Frozen):
             raise ValueError(
                 f"usage_allowance_floor_pct ({self.usage_allowance_floor_pct}) is above "
                 f"usage_unit_allowance_pct ({cap})"
-            )
-        return self
-
-    @model_validator(mode="after")
-    def _ceiling_not_below_pause(self) -> UsageWindowConfig:
-        """A ceiling under the pause percent would make the threshold *fall* as
-        a reset approaches, which is the opposite of what it is for."""
-        if self.usage_ceiling_pct < self.usage_pause_pct:
-            raise ValueError(
-                f"usage_pause_ceiling_pct ({self.usage_ceiling_pct}) is below "
-                f"usage_pause_pct ({self.usage_pause_pct})"
             )
         return self
 
@@ -610,11 +616,94 @@ REST_SPLIT = "rest"
 SPLIT_NAME = re.compile(r"[a-z0-9_]+")
 
 
+# The providers a split's gate may name; the provider table replaces this list.
+GATE_PROVIDER_NAMES = ("modal",)
+
+
+class ProviderLimitsConfig(WindowLimits):
+    """`gate.provider.limits`: one window's ramp, and nothing a subscription window alone has."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_subscription_settings(cls, data: object) -> object:
+        if isinstance(data, dict):
+            own = set(cls.model_fields)
+            only_claude = (
+                set(ClaudeLimitsConfig.model_fields) | set(UsageWindowConfig.model_fields)
+            ) - own
+            for key in data:
+                if key in set(GateConfig.model_fields) - {"command", "provider"}:
+                    raise ValueError(
+                        f"gate.provider.limits.{key}: set `{key}` on `gate`, beside `provider`"
+                    )
+                if key in only_claude:
+                    raise ValueError(
+                        f"gate.provider.limits.{key}: belongs to runtimes.{CLAUDE_CODE}.limits, "
+                        "the only runtime with subscription usage windows"
+                    )
+        return data
+
+
+class GateProviderConfig(Frozen):
+    """The provider whose usage a split's gate reads."""
+
+    name: str
+    budget_usd: Annotated[float, Field(gt=0, allow_inf_nan=False)]
+    limits: ProviderLimitsConfig = ProviderLimitsConfig()
+
+    @field_validator("name")
+    @classmethod
+    def _name_in_table(cls, name: str) -> str:
+        if name not in GATE_PROVIDER_NAMES:
+            raise ValueError(
+                f"gate.provider.name: {name!r} is not a provider; "
+                f"the table has {', '.join(GATE_PROVIDER_NAMES)}"
+            )
+        return name
+
+
+class OnUnknown(StrEnum):
+    """What a gate whose answer cannot be had does: let the split run, or hold it."""
+
+    ALLOW = "allow"
+    HOLD = "hold"
+
+
+class GateConfig(Frozen):
+    """A split's gate: the provider it reads usage from, or a command that answers."""
+
+    command: Annotated[list[str], Field(min_length=1)] | None = None
+    provider: GateProviderConfig | None = None
+    timeout_seconds: Annotated[int, Field(gt=0)] = 30
+    on_unknown: OnUnknown = OnUnknown.ALLOW
+    usage_cache_minutes: Annotated[int, Field(gt=0)] = 15
+    usage_stale_retry_minutes: Annotated[int, Field(gt=0)] = 5
+
+    @model_validator(mode="before")
+    @classmethod
+    def _limits_belong_under_provider(cls, data: object) -> object:
+        if isinstance(data, dict) and "limits" in data:
+            if data.get("command") is not None:
+                raise ValueError("gate.limits: a command has no window for limits to mean anything")
+            raise ValueError("gate.limits: set limits under gate.provider")
+        return data
+
+    @model_validator(mode="after")
+    def _exactly_one_answer(self) -> GateConfig:
+        if (self.command is None) == (self.provider is None):
+            raise ValueError(
+                "gate: set exactly one of `provider` and `command`"
+                + (", not both" if self.command is not None else ", neither is set")
+            )
+        return self
+
+
 class Tier2SplitEntry(Frozen):
-    """One `tests.tier2_splits.<name>` entry as written: a selector and a hold."""
+    """One `tests.tier2_splits.<name>` entry as written: a selector, a hold and a gate."""
 
     marker: str | None = None
     hold: bool | None = None
+    gate: GateConfig | None = None
 
 
 class Tier2Split(Frozen):
@@ -1100,8 +1189,10 @@ class WorkspaceConfig(Frozen):
                             f"{setting}.{name}.marker: {entry.marker!r}: `rest` is the tests "
                             "of no other split and takes no marker"
                         )
-                    if entry.hold is None:
-                        raise ValueError(f"{setting}.{name}: empty; set `hold` or leave it out")
+                    if entry.hold is None and entry.gate is None:
+                        raise ValueError(
+                            f"{setting}.{name}: empty; set `hold` or `gate`, or leave it out"
+                        )
                     continue
                 if not entry.marker:
                     raise ValueError(
