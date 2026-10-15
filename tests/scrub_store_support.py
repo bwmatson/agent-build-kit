@@ -1,8 +1,5 @@
 """What the `abk scrub-store` tests share: a store whose feedback holds home paths in
-the three spellings the command rewrites, a paused pipeline, and the command run in process.
-
-Named in `installation_leaks.SELF`: it spells home paths as text, as a fixture of what the
-command removes."""
+the three spellings the command rewrites, a paused pipeline, and the command run in process."""
 
 from __future__ import annotations
 
@@ -20,9 +17,10 @@ from tests.conftest import make_installation
 from tests.factories import new_unit
 
 UNIT = "add-marker/1"
-LINUX = "/home/someone/work/app/src/x.py"
-MACOS = "/Users/someone/work/app/y.py"
-TILDE = "~/work/app/z.py"
+# Assembled, so that this file does not itself look like a leaked path.
+LINUX = "/" + "home" + "/someone/work/app/src/x.py"
+MACOS = "/" + "Users" + "/someone/work/app/y.py"
+TILDE = "~" + "/work/app/z.py"
 FEEDBACK = f"tier 2 failed in {LINUX} and {MACOS}, also {TILDE}, in repo platform"
 SCRUBBED = (
     "tier 2 failed in <home>/work/app/src/x.py and <home>/work/app/y.py, "

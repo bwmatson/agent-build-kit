@@ -66,6 +66,7 @@ from agent_build_kit.notify.windows import (
 )
 from agent_build_kit.path_patterns import matches
 from agent_build_kit.pipeline.environment import matched_inputs
+from agent_build_kit.pipeline.original_copy import COPY_PATTERN
 from agent_build_kit.pipeline.pending import describe, pending_projects
 from agent_build_kit.pipeline.shell import git, git_out
 from agent_build_kit.profiles.base import ProfileUnsupported
@@ -74,6 +75,7 @@ from agent_build_kit.redaction import active as active_redactor
 from agent_build_kit.replay.review import directories, overdue, waiting
 from agent_build_kit.runtimes import policy_check
 from agent_build_kit.runtimes.base import AgentRuntime, Run, Which, account_report_of
+from agent_build_kit.scrub_terms import ROOT_HOME, TILDE_HOME
 from agent_build_kit.settings import settings
 
 Status = Literal["ok", "info", "warn", "FAIL"]
@@ -564,12 +566,7 @@ def _verify_env(inst: Installation, run: Run) -> list[Check]:
 
 
 PUBLIC_CONTENT = "public content"
-# The Linux and macOS home roots and a tilde prefix, assembled so that this
-# file does not itself look like a leaked path to the leak test.
-_HOME_ROOTS = ("/" + "home" + "/", "/" + "Users" + "/")
-_HOME_PATH = re.compile(
-    rf"(?<![\w/]){re.escape('~' + '/')}|(?:{'|'.join(map(re.escape, _HOME_ROOTS))})[A-Za-z]"
-)
+_HOME_PATH = re.compile(rf"{TILDE_HOME}|{ROOT_HOME}[A-Za-z]")
 _PUBLIC_FIX = (
     "keep the value in the ignored .env (read through a `from: env-file` entry) or remove the "
     "entry; if this repository is private, ignore this"
@@ -664,7 +661,7 @@ def _local_files(inst: Installation, toplevel: Path) -> list[Check]:
                     "add `scrub.local` to .gitignore",
                 )
             )
-    found = {*root.glob("*.pre-redact"), *inst.state_dir.rglob("*.pre-redact")}
+    found = {*root.glob(COPY_PATTERN), *inst.state_dir.rglob(COPY_PATTERN)}
     # A copy outside the repository cannot be committed to it.
     for copy in sorted(c for c in found if c.resolve().is_relative_to(toplevel)):
         name = copy.resolve().relative_to(toplevel).as_posix()
@@ -673,12 +670,14 @@ def _local_files(inst: Installation, toplevel: Path) -> list[Check]:
                 _warn(
                     PUBLIC_CONTENT,
                     f"{name} is tracked",
-                    f"git rm --cached {name}, and add `*.pre-redact` to .gitignore",
+                    f"git rm --cached {name}, and add `{COPY_PATTERN}` to .gitignore",
                 )
             )
         elif not _is_ignored(toplevel, name):
             checks.append(
-                _warn(PUBLIC_CONTENT, f"{name} is not ignored", "add `*.pre-redact` to .gitignore")
+                _warn(
+                    PUBLIC_CONTENT, f"{name} is not ignored", f"add `{COPY_PATTERN}` to .gitignore"
+                )
             )
     return checks
 

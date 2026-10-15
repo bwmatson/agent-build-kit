@@ -23,6 +23,7 @@ rather than "idle since lunchtime for reasons unknown".
 from __future__ import annotations
 
 import json
+import sys
 from contextlib import AbstractContextManager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -84,6 +85,17 @@ def is_paused(marker: Path) -> Pause | None:
 def pause_in_force(state_dir: Path) -> bool:
     """Whether a pause is in force in `state_dir`, for what only shows it."""
     return is_paused(state_dir / PAUSE_MARKER) is not None
+
+
+def paused_or_refused(command: str, state_dir: Path, why: str) -> bool:
+    """Whether a pause is in force in `state_dir`; when not, say `command` refuses, for `why`."""
+    if pause_in_force(state_dir):
+        return True
+    print(
+        f"{command}: refused; {why}, so pause the pipeline first (nothing was changed)",
+        file=sys.stderr,
+    )
+    return False
 
 
 def resume_deadline(until: datetime | None, *, now: datetime | None = None) -> datetime:

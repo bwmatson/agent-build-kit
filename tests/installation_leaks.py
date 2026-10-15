@@ -50,7 +50,6 @@ SELF = {
     "installation_leaks.py",
     "test_no_installation_leaks.py",
     "test_leak_scan_planning_content.py",
-    "scrub_store_support.py",
 }
 # Fixture owners, and the placeholder words a regex's own documentation uses.
 FIXTURE_OWNERS = ("example", "acme", "octo", "owner", "o")

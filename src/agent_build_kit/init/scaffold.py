@@ -47,6 +47,7 @@ from agent_build_kit.init.runtime_choice import merge_values
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.changelog_convention import packaged_convention
 from agent_build_kit.pipeline.file_lock import append_missing_lines
+from agent_build_kit.pipeline.original_copy import COPY_PATTERN
 from agent_build_kit.pipeline.shell import git
 
 TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
@@ -603,7 +604,7 @@ def _write(path: Path, text: str, *, overwrite: bool, written: list[Path]) -> No
 
 
 # What an installation keeps to itself: the local scrub list and the redaction originals.
-LOCAL_IGNORES = ("scrub.local", "*.pre-redact")
+LOCAL_IGNORES = ("scrub.local", COPY_PATTERN)
 
 
 def _ensure_ignored(path: Path, lines: tuple[str, ...], *, written: list[Path]) -> None:

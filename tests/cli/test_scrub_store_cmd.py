@@ -8,8 +8,10 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.units import IN_REVIEW
 from tests.scrub_store_support import (
     FEEDBACK,
+    LINUX,
     SCRUBBED,
     UNIT,
     pause,
@@ -84,3 +86,28 @@ def test_a_repo_name_in_feedback_is_kept(inst: Installation) -> None:
     assert run(inst, "scrub-store", "--apply") == 0
 
     assert store_of(inst).get(UNIT).feedback == SCRUBBED + " and repo app of platform"
+
+
+def test_punctuation_after_a_bare_user_directory_stays(inst: Installation) -> None:
+    user_dir = LINUX.split("/work")[0]
+    seed(inst, f"({user_dir}) and '{user_dir}', then {user_dir}")
+    pause(inst)
+
+    assert run(inst, "scrub-store", "--apply") == 0
+
+    assert store_of(inst).get(UNIT).feedback == "(<home>/) and '<home>/', then <home>/"
+
+
+def test_history_notes_are_one_row_per_unit(
+    inst: Installation, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seed(inst)
+    store = store_of(inst)
+    store.set_state(UNIT, IN_REVIEW, note=f"first {LINUX}")
+    store.set_state(UNIT, IN_REVIEW, note=f"second {LINUX}")
+
+    assert run(inst, "scrub-store") == 0
+
+    rows = [line for line in shown_by(capsys).splitlines() if "history note" in line]
+    assert len(rows) == 1
+    assert "2" in rows[0]

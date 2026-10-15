@@ -405,6 +405,22 @@ def _exclusive(method):
     return locked
 
 
+def with_text(unit: StoredUnit, fn: Callable[[str], str]) -> StoredUnit:
+    """The record with `fn` applied to its free text (`REWRITTEN_TEXT_FIELDS` and each history
+    note); identifiers, state and timestamps are kept."""
+    return unit.model_copy(
+        update={
+            **{field: fn(getattr(unit, field)) for field in REWRITTEN_TEXT_FIELDS},
+            "history": tuple(
+                {**entry, "note": fn(entry["note"])}
+                if isinstance(entry.get("note"), str)
+                else entry
+                for entry in unit.history
+            ),
+        }
+    )
+
+
 def guidance_excerpt(note: str) -> str:
     """What a history entry says of a person's note: its first 200 characters, or nothing."""
     return f" — {cut_head(note, 200, 'char')}" if note else ""
@@ -597,14 +613,7 @@ class UnitStore:
         stored = self._read()
         changed = []
         for uid, unit in stored.items():
-            update: dict[str, Any] = {
-                field: fn(getattr(unit, field)) for field in REWRITTEN_TEXT_FIELDS
-            }
-            update["history"] = tuple(
-                {**entry, "note": fn(entry["note"])} if "note" in entry else entry
-                for entry in unit.history
-            )
-            rewritten = unit.model_copy(update=update)
+            rewritten = with_text(unit, fn)
             if rewritten != unit:
                 stored[uid] = rewritten
                 changed.append(uid)
