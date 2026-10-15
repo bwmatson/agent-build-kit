@@ -31,14 +31,13 @@ from pathlib import Path
 
 from pydantic import Field
 
-from agent_build_kit import forges, runtimes
+from agent_build_kit import forges
 from agent_build_kit.budget import cut_head
-from agent_build_kit.config import active
+from agent_build_kit.config import active, known_runtime_names
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.workspaces import process_alive
-from agent_build_kit.runtimes import known_agents
 
 # Shown on the PR beside the Actions checks.
 STATUS_CONTEXT = "local/tier2"
@@ -67,7 +66,7 @@ def tier2_selection(
 ) -> Tier2Selection:
     """The marker expression of a tier 2 run that leaves out the `blocked` runtimes, or
     runs `only` one group (a runtime or `base`). `configured` are the keys under `runtimes`."""
-    known = {*runtimes.names(), known_agents.RUNTIME_NAME, *configured}
+    known = known_runtime_names(configured)
     if BASE_GROUP in blocked:
         raise ValueError(f"{BASE_GROUP!r} is the untagged group and cannot be blocked")
     for name in [*blocked, *([only] if only not in (None, BASE_GROUP) else [])]:
