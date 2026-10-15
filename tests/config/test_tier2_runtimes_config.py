@@ -189,5 +189,6 @@ def test_config_show_prints_the_lists_set(tmp_path: Path, capsys: pytest.Capture
         "runtimes_blocked": ["acp"],
         "runtimes_allowed": ["claude_code"],
         "tier2_runtimes": ["acp"],
+        "tier2_splits": {},
     }
     assert shown["repos"]["app"]["tests"]["tier2_runtimes"] == ["claude_code"]

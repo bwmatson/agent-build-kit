@@ -350,7 +350,15 @@ def tier2_variants(repo: RepoConfig, config: WorkspaceConfig) -> tuple[str, ...]
 
 def tier2_splits(repo: RepoConfig, config: WorkspaceConfig) -> tuple[Tier2Split, ...]:
     """The splits in effect for `repo`: its declared ones in declaration order, then `rest`."""
-    raise NotImplementedError
+    own = repo.tests.tier2_splits
+    declared = config.tests.tier2_splits if own is None else own
+    named = [
+        Tier2Split(name=name, marker=entry.marker, hold=entry.hold)
+        for name, entry in declared.items()
+        if name != REST_SPLIT
+    ]
+    rest = declared.get(REST_SPLIT, Tier2SplitEntry())
+    return (*named, Tier2Split(name=REST_SPLIT, hold=rest.hold))
 
 
 def known_runtime_names(configured: Iterable[str] = ()) -> set[str]:
@@ -595,6 +603,11 @@ class ReplayConfig(Frozen):
     max_body_bytes: int = 2 * 1024 * 1024
     max_directory_mb: int = 100
     review_after_runs: int = 5
+
+
+# The reserved split of the tests that sit in no declared split.
+REST_SPLIT = "rest"
+SPLIT_NAME = re.compile(r"[a-z0-9_]+")
 
 
 class Tier2SplitEntry(Frozen):
@@ -1064,6 +1077,42 @@ class WorkspaceConfig(Frozen):
                 f"{', '.join(sorted(both))} is in both tests.runtimes_blocked and "
                 "tests.runtimes_allowed; keep it in one"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _tier2_splits_declared_well(self) -> WorkspaceConfig:
+        """Each split has a valid name and one marker no other split has; `rest` has none."""
+        maps = {"tests.tier2_splits": self.tests.tier2_splits}
+        for key, repo in self.repos.items():
+            if repo.tests.tier2_splits is not None:
+                maps[f"repos.{key}.tests.tier2_splits"] = repo.tests.tier2_splits
+        for setting, splits in maps.items():
+            seen: dict[str, str] = {}
+            for name, entry in splits.items():
+                if not SPLIT_NAME.fullmatch(name):
+                    raise ValueError(
+                        f"{setting}: {name!r} is not a split name; use lowercase letters, "
+                        "digits and underscores"
+                    )
+                if name == REST_SPLIT:
+                    if entry.marker is not None:
+                        raise ValueError(
+                            f"{setting}.{name}.marker: {entry.marker!r}: `rest` is the tests "
+                            "of no other split and takes no marker"
+                        )
+                    if entry.hold is None:
+                        raise ValueError(f"{setting}.{name}: empty; set `hold` or leave it out")
+                    continue
+                if not entry.marker:
+                    raise ValueError(
+                        f"{setting}.{name}.marker: {entry.marker!r}: a split needs one"
+                    )
+                if entry.marker in seen:
+                    raise ValueError(
+                        f"{setting}.{name}.marker: {entry.marker!r} is also the marker of "
+                        f"{seen[entry.marker]}"
+                    )
+                seen[entry.marker] = name
         return self
 
     @model_validator(mode="after")

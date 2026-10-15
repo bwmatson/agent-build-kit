@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `tests.tier2_splits` declares a repo's tier 2 splits, each a name with a `marker` and an
+  optional `hold`, at the top of `abk.yaml` or under a repo's own `tests` (which replaces
+  the top-level map for that repo). The tests in no split are the always-declared split
+  `rest`, which may carry a `hold` but no marker. A repo with no splits behaves as before,
+  a bad name, a missing or repeated marker or an unknown key is refused when the file
+  loads, and `abk config --show` prints the splits.
+
 - An `abk.local.yaml` beside `abk.yaml` is merged over it when the configuration loads, so
   facts about other repos and a stack can stay out of a public checkout: mappings merge key
   by key, anything else (lists, text, `null`) is replaced whole. A schema error names the
