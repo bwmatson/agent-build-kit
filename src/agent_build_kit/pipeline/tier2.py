@@ -210,6 +210,8 @@ class Tier2Result(Frozen):
     ran_no_tests: bool = False
     # The blocked runtimes whose tests this run would have executed and did not.
     parked: list[str] = Field(default_factory=list)
+    # The one group this run was limited to, when it was (a resume of a parked group).
+    only: str = ""
 
     @property
     def ok(self) -> bool:
@@ -493,12 +495,15 @@ def post_status(forge: Forge, repo: RepoId, result: Tier2Result, head: str = "")
     moment a restack happens, and a status on the wrong commit is worse than
     none.
     """
+    if result.parked:
+        raise ValueError(
+            f"tier 2 parked {', '.join(result.parked)}: no status stands for tests that did not run"
+        )
     description = (
-        f"{result.failed} failed, parked, not run: {', '.join(result.parked)}"
-        if result.parked
-        else NO_TEST_RAN
+        NO_TEST_RAN
         if result.ran_no_tests
         else f"{result.passed} passed, {result.failed} failed in {result.duration_seconds:.0f}s"
+        + (f" ({result.only} tests, completing an earlier run)" if result.only else "")
     )
     forge.post_status(
         repo,

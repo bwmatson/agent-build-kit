@@ -2317,7 +2317,7 @@ class Tier2Session:
         self.unit = unit
         self.verdict: Tier2Verdict | None = None
         self._blocked = blocked
-        self._only = only
+        self._only = self._only_given = only
         self._splits = splits
         self._on_dev_stack = False
         self._projects = projects or []
@@ -2547,15 +2547,40 @@ class Tier2Session:
                 groups.setdefault(test, BASE_GROUP if sure else UNKNOWN_GROUP)
         return [f.model_copy(update={"group": groups.get(f.test, UNKNOWN_GROUP)}) for f in failures]
 
-    def run(self, *, cwd: Path, base: str | None = None) -> tuple[bool, str]:
+    def run(
+        self, *, cwd: Path, base: str | None = None, only: str | None = None
+    ) -> tuple[bool, str]:
         """Run tier 2 on `cwd`. `base` is the ref this run is against: with it, the failed
         tests of files the unit left alone are run once on it, and `verdict` says whose
-        each is. Without it, or on the dev stack, nothing is classified."""
+        each is. Without it, or on the dev stack, nothing is classified. `only` limits the
+        run to one group, as a resume of a parked one does; a group still blocked is
+        parked again without running. The result names the group it was limited to."""
+        self._only = self._only_given if only is None else only
+        done = self._execute(cwd=cwd, base=base)
+        if self._only is not None and self.result is not None:
+            self.result = self.result.model_copy(update={"only": self._only})
+        return done
+
+    def _execute(self, *, cwd: Path, base: str | None) -> tuple[bool, str]:
         self.verdict = None
         self._on_dev_stack = False
         self._started = None
         self._output_file = None
         self._withheld = False
+        if self._only is not None and self._only in self._blocked:
+            self._log(f"tier 2 parked {self._only}: still blocked")
+            self.result = Tier2Result(
+                sha=self._sha(cwd),
+                passed=0,
+                failed=0,
+                skipped=0,
+                duration_seconds=0.0,
+                command="",
+                output="",
+                ran_no_tests=True,
+                parked=[self._only],
+            )
+            return True, build_snapshot(self.result)
         scope = self.scope(cwd=cwd, base=base)
         if scope.mode is Tier2UnitScope.FULL:
             self._log(scope.reason)
@@ -3415,8 +3440,11 @@ def build_runner(
     root = installation.state_dir
     # One stamp for this thread's whole run: every call in it is one run to retention.
     record_for = (unit, transcript_dir(root), datetime.now(UTC))
+    # What the unit's tier 2 leaves out, and what a parked unit says it waits for.
+    blocks = blocked_runtimes(installation.config, root, now=datetime.now(UTC))
     tier2 = Tier2Session(
         unit,
+        blocked=list(blocks.blocked),
         lock=installation.tier2_lock,
         log=log,
         under=dev_stack_underneath(unit, installation),
@@ -3521,6 +3549,8 @@ def build_runner(
         on_flake=build_on_flake(store, installation, log=log),
         run_tier2=tier2.run,
         tier2_verdict=lambda: tier2.verdict,
+        tier2_result=lambda: tier2.result,
+        tier2_blocks=lambda: blocks,
         tier2_ran_no_tests=lambda: bool(tier2.result and tier2.result.ran_no_tests),
         tier2_passed_note=tier2.passed_note,
         on_preexisting=build_on_preexisting(store, installation, log=log),

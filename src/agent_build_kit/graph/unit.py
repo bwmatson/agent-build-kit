@@ -24,7 +24,7 @@ from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.metric_records import emit_metric
 from agent_build_kit.pipeline.run_log import RunLog
 from agent_build_kit.pipeline.stack_runner import PauseInfo, RunOutcome, RunStatus, UnitRunner
-from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, feedback_source_of
+from agent_build_kit.pipeline.unit_store import StoredUnit, awaits_release, feedback_source_of
 from agent_build_kit.pipeline.units import FAILED, HELD, Unit, branch_name
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock
 
@@ -277,9 +277,9 @@ async def _stopped_by_error(path: BuildPath, unit: Unit) -> bool:
     stored = await asyncio.to_thread(path.runner.store.get, unit.id)
     if stored.state in (FAILED, HELD):
         return True
-    # Requeued while a dependency it waits on was unmet: `planned`, its thread left where
-    # the error stopped it, the requeue waiting to be delivered.
-    return stored.cause is Cause.GATED and stored.gated_requeue is not None
+    # Requeued while a dependency it waits on was unmet, or parked for a blocked runtime:
+    # `planned`, its thread left where it stopped, waiting to be delivered.
+    return awaits_release(stored)
 
 
 async def advance_through_prepare(

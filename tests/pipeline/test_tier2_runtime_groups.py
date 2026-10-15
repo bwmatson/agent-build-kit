@@ -10,15 +10,12 @@ from pathlib import Path
 
 from agent_build_kit.config import ProjectConfig, Tier2Split, Tier2UnitScope, known_runtime_names
 from agent_build_kit.pipeline.tier2 import (
-    STATUS_CONTEXT,
     UNKNOWN_GROUP,
     build_selection,
-    post_status,
     stack_lock,
 )
 from agent_build_kit.pipeline.wiring import Tier2Session
 from agent_build_kit.profiles.python_uv import PROFILE
-from tests.forges.stand_in import StandInForge
 from tests.tier2_base_fakes import pytest_output
 from tests.tier2_scope_fakes import KIT_SPLITS, PASSED, Ran, branch, session
 
@@ -213,23 +210,6 @@ def test_a_result_with_a_parked_runtime_names_it_in_the_snapshot_and_not_as_a_pa
     [result_line] = [line for line in snapshot.splitlines() if line.startswith("- **Result:**")]
     assert "parked" in result_line
     assert "acp" in result_line
-
-
-def test_the_status_description_of_a_parked_result_names_the_runtime_and_says_no_pass(
-    tmp_path: Path,
-) -> None:
-    gate, repo, base = whole_run(tmp_path, Groups(), blocked=["acp"])
-    gate.run(cwd=repo, base=base)
-    assert gate.result is not None
-    forge = StandInForge()
-
-    post_status(forge, forge.repo_id(), gate.result)
-
-    [posted] = forge.statuses
-    assert posted["context"] == STATUS_CONTEXT
-    assert "acp" in posted["description"]
-    assert "parked" in posted["description"]
-    assert "passed" not in posted["description"]
 
 
 def test_a_parked_group_with_nothing_else_to_run_runs_no_command_and_takes_no_lock(
@@ -458,3 +438,35 @@ def test_a_run_limited_to_one_group_executes_only_that_group(tmp_path: Path) -> 
 
     assert only_acp.runtimes() == ("acp",)
     assert only_base.runtimes() == ("base",)
+
+
+def test_one_call_limited_to_a_group_runs_only_its_expression_and_the_next_call_runs_whole(
+    tmp_path: Path,
+) -> None:
+    ran = Groups()
+    gate, repo, base = whole_run(tmp_path, ran)
+
+    gate.run(cwd=repo, base=base, only="acp")
+
+    [command] = ran.runs
+    assert expression_of(command) == expected([], only="acp")
+    assert gate.result is not None and gate.result.only == "acp"
+
+    gate.run(cwd=repo, base=base)
+
+    assert [expression_of(c) for c in ran.runs[1:]] == [MARKER]
+    assert gate.result.only == ""
+
+
+def test_a_call_limited_to_a_group_that_is_still_blocked_parks_it_without_running_or_locking(
+    tmp_path: Path,
+) -> None:
+    ran = Groups()
+    gate, repo, base = whole_run(tmp_path, ran, blocked=["acp"], timeout=0.1)
+
+    with stack_lock(gate.lock, timeout=1, holder="another/1"):
+        ok, _ = gate.run(cwd=repo, base=base, only="acp")
+
+    assert ok
+    assert ran.commands == []
+    assert gate.result is not None and gate.result.parked == ["acp"]
