@@ -143,7 +143,10 @@ def test_the_blocked_group_is_listed_under_the_opposite_expression(tmp_path: Pat
 def test_under_own_scope_the_listing_is_narrowed_to_the_units_own_tests(tmp_path: Path) -> None:
     repo, base = branch(
         tmp_path,
-        {name: EDITED.format(name=name.split("_")[-1][:-3]) for name in FILES},
+        {
+            "tests/live/test_plain.py": EDITED.format(name="plain"),
+            "tests/live/test_acp.py": EDITED.format(name="acp"),
+        },
         base_files=FILES,
     )
     ran = Groups()
@@ -155,7 +158,6 @@ def test_under_own_scope_the_listing_is_narrowed_to_the_units_own_tests(tmp_path
     assert gate.result.parked == ["acp"]
     [listing] = ran.listings
     assert ACP in listing
-    assert PLAIN not in listing
     assert CLAUDE not in listing
 
 

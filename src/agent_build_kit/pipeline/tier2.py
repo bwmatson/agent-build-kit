@@ -434,6 +434,8 @@ def build_snapshot(result: Tier2Result) -> str:
         else f"{result.passed} passed, {result.failed} failed, "
         f"{result.skipped} skipped in {result.duration_seconds}s"
     )
+    if result.parked:
+        counts += f"; parked, not run: {', '.join(result.parked)} (not a complete pass)"
 
     return f"""## Tier 2 results
 
@@ -466,7 +468,9 @@ def post_status(forge: Forge, repo: RepoId, result: Tier2Result, head: str = "")
     none.
     """
     description = (
-        NO_TEST_RAN
+        f"parked, not run: {', '.join(result.parked)}"
+        if result.parked
+        else NO_TEST_RAN
         if result.ran_no_tests
         else f"{result.passed} passed, {result.failed} failed in {result.duration_seconds:.0f}s"
     )
