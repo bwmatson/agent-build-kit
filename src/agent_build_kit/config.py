@@ -26,7 +26,7 @@ import shlex
 from collections.abc import Iterable
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 import yaml
 from pydantic import Field, ValidationError, ValidationInfo, field_validator, model_validator
@@ -37,6 +37,7 @@ from agent_build_kit.replay.models import DEFAULT_KEYED_HEADERS, UpstreamKind
 from agent_build_kit.runtimes import known_agents
 
 CONFIG_FILENAME = "abk.yaml"
+OVERLAY_FILENAME = "abk.local.yaml"
 CONFIG_ENV = "ABK_CONFIG"
 
 
@@ -925,6 +926,21 @@ class BuildersConfig(Frozen):
         return names
 
 
+def _alias_limits(data: dict[str, Any]) -> dict[str, Any]:
+    """`data` with the deprecated root key `limits` renamed to `global_limits`; a mapping
+    that sets both spellings is refused."""
+    if DEPRECATED_ROOT_KEY not in data:
+        return data
+    if "global_limits" in data:
+        raise ValueError(
+            f"`{DEPRECATED_ROOT_KEY}` and `global_limits` are both set; "
+            f"`{DEPRECATED_ROOT_KEY}` is the deprecated name of `global_limits`, keep one"
+        )
+    renamed = dict(data)
+    renamed["global_limits"] = renamed.pop(DEPRECATED_ROOT_KEY)
+    return renamed
+
+
 class WorkspaceConfig(Frozen):
     version: int = 1
     planning: PlanningConfig = PlanningConfig()
@@ -960,16 +976,7 @@ class WorkspaceConfig(Frozen):
     @classmethod
     def _limits_alias(cls, data: object) -> object:
         """`limits` at the root is the deprecated spelling of `global_limits`."""
-        if not isinstance(data, dict) or DEPRECATED_ROOT_KEY not in data:
-            return data
-        if "global_limits" in data:
-            raise ValueError(
-                f"`{DEPRECATED_ROOT_KEY}` and `global_limits` are both set; "
-                f"`{DEPRECATED_ROOT_KEY}` is the deprecated name of `global_limits`, keep one"
-            )
-        renamed = dict(data)
-        renamed["global_limits"] = renamed.pop(DEPRECATED_ROOT_KEY)
-        return renamed
+        return _alias_limits(data) if isinstance(data, dict) else data
 
     def generated_file_patterns(self) -> tuple[str, ...]:
         """The patterns left out of a unit's size: the configured ones and the
@@ -1070,23 +1077,119 @@ def locate(explicit: Path | None = None, *, cwd: Path | None = None) -> Path:
     )
 
 
-def load(path: Path) -> WorkspaceConfig:
+def merge_local(base: dict[str, Any], local: dict[str, Any]) -> dict[str, Any]:
+    """`base` with `local` laid over it: two mappings merge key by key, anything else in
+    `local` (a scalar, a list, a string, `null`) replaces the committed value whole."""
+    merged = dict(base)
+    for key, value in local.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = merge_local(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _read_mapping(path: Path) -> dict[str, Any] | None:
+    """The mapping the YAML file at `path` holds, or None when there is no file."""
     try:
         raw = yaml.safe_load(path.read_text()) or {}
+    except FileNotFoundError:
+        return None
     except OSError as error:
         raise ConfigError(f"cannot read {path}: {error}") from error
     except yaml.YAMLError as error:
         raise ConfigError(f"{path} is not valid YAML: {error}") from error
     if not isinstance(raw, dict):
         raise ConfigError(f"{path} must hold a mapping at the top level")
+    return raw
+
+
+def overlay_path(path: Path) -> Path:
+    """The local overlay that sits beside the abk.yaml at `path`."""
+    return path.with_name(OVERLAY_FILENAME)
+
+
+def read_base(path: Path) -> dict[str, Any]:
+    """The committed file alone, parsed, without the overlay."""
+    raw = _read_mapping(path)
+    if raw is None:
+        raise ConfigError(f"cannot read {path}: no such file")
+    return raw
+
+
+def read_overlay(path: Path) -> dict[str, Any] | None:
+    """The overlay beside the abk.yaml at `path`, or None when there is none."""
+    return _read_mapping(overlay_path(path))
+
+
+def _holds(document: object, location: tuple[int | str, ...]) -> bool:
+    for key in location:
+        if isinstance(document, dict) and key in document:
+            document = document[key]
+        elif isinstance(document, list) and isinstance(key, int) and key < len(document):
+            document = document[key]
+        else:
+            return False
+    return True
+
+
+def _value_at(document: object, location: tuple[int | str, ...]) -> object:
+    for key in location:
+        document = document[key]  # type: ignore[index]
+    return document
+
+
+def _files_of(
+    error: ValidationError, path: Path, base: dict[str, Any], local: dict[str, Any] | None
+) -> list[Path]:
+    """The files a failing key path comes from: the overlay alone when it replaced the value
+    whole, else each that holds the path, else every file read."""
+    named: list[Path] = []
+    for found in error.errors():
+        location = tuple(found["loc"])
+        holders = [
+            file
+            for file, document in ((path, base), (overlay_path(path), local))
+            if document is not None and _holds(document, location)
+        ]
+        if local is not None and overlay_path(path) in holders:
+            if not isinstance(_value_at(local, location), dict):
+                holders = [overlay_path(path)]
+        for file in holders or [path, *([overlay_path(path)] if local is not None else [])]:
+            if file not in named:
+                named.append(file)
+    return named
+
+
+def _renamed(document: dict[str, Any] | None, file: Path) -> dict[str, Any] | None:
+    """`document` with the deprecated root key renamed, so two files that spell it
+    differently still merge; one file that sets both spellings is refused."""
+    if document is None:
+        return None
     try:
-        loaded = WorkspaceConfig.model_validate(raw)
+        return _alias_limits(document)
+    except ValueError as error:
+        raise ConfigError(f"{file}: {error}") from error
+
+
+def load(path: Path) -> WorkspaceConfig:
+    spelled = read_base(path), read_overlay(path)
+    raw = _renamed(spelled[0], path)
+    local = _renamed(spelled[1], overlay_path(path))
+    assert raw is not None
+    merged = raw if local is None else merge_local(raw, local)
+    try:
+        loaded = WorkspaceConfig.model_validate(merged)
     except ValidationError as error:
         message = str(error)
-        if DEPRECATED_ROOT_KEY in raw and "global_limits" not in raw:
+        if any(document and DEPRECATED_ROOT_KEY in document for document in spelled):
             # Name a setting as the file spells it.
             message = re.sub(r"(?m)^global_limits\b", DEPRECATED_ROOT_KEY, message)
-        raise ConfigError(f"{path} does not match the schema:\n{message}") from error
+        files = [str(file) for file in _files_of(error, path, raw, local)]
+        verb = "does" if len(files) == 1 else "do"
+        raise ConfigError(
+            f"{' and '.join(files)} {verb} not match the schema:\n{message}"
+        ) from error
     _check_runtime(loaded, path)
     _check_forges(loaded, path)
     _check_infra(loaded, path)
@@ -1094,12 +1197,15 @@ def load(path: Path) -> WorkspaceConfig:
 
 
 def deprecations(path: Path) -> list[str]:
-    """The root keys of the file at `path` that are deprecated spellings."""
-    try:
-        raw = yaml.safe_load(path.read_text())
-    except (OSError, yaml.YAMLError):
-        return []
-    return [DEPRECATED_ROOT_KEY] if isinstance(raw, dict) and DEPRECATED_ROOT_KEY in raw else []
+    """The root keys of the file at `path`, or of its overlay, that are deprecated spellings."""
+    for file in (path, overlay_path(path)):
+        try:
+            raw = yaml.safe_load(file.read_text())
+        except (OSError, yaml.YAMLError):
+            continue
+        if isinstance(raw, dict) and DEPRECATED_ROOT_KEY in raw:
+            return [DEPRECATED_ROOT_KEY]
+    return []
 
 
 def _check_infra(config: WorkspaceConfig, path: Path) -> None:
