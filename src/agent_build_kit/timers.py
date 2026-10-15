@@ -38,12 +38,13 @@ from agent_build_kit import config, runtimes
 from agent_build_kit.init.scaffold import render_systemd
 from agent_build_kit.installation import Installation, data_home
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.planning_repo import common_dir
+from agent_build_kit.pipeline.planning_repo import common_dir, is_worktree_of, repository_name
 from agent_build_kit.pipeline.planning_sync import (
     PlanningMode,
     SyncOutcome,
     default_tip_ref,
     in_repo_default_branch,
+    is_pipeline_worktree,
     planning_mode,
     read_pipeline_marker,
     remove_pipeline_marker,
@@ -179,7 +180,9 @@ def user_unit_dir() -> Path:
 
 def slug(root: Path) -> str:
     """The installation's name as a unit name may spell it."""
-    cleaned = _UNSAFE.sub("-", root.expanduser().resolve().name).strip("-")
+    root = root.expanduser().resolve()
+    name = repository_name(root).name if is_pipeline_worktree(root) else root.name
+    cleaned = _UNSAFE.sub("-", name).strip("-")
     return cleaned or "workspace"
 
 
@@ -510,16 +513,6 @@ class InRepoRemoval(Frozen):
     change: UnitChange
 
 
-def _worktree_of_this_repository(path: Path, common: Path) -> bool:
-    """Whether `path` is the top of a worktree of the repository with this common git directory."""
-    top = git(path, "rev-parse", "--show-toplevel", check=False)
-    return (
-        top.returncode == 0
-        and Path(top.stdout.strip()).resolve() == path.resolve()
-        and common_dir(path) == common
-    )
-
-
 def _make_worktree(inst: Installation, target: Path) -> None:
     """A detached worktree at `target`, at the tip the sync moves it to."""
     default = in_repo_default_branch(inst)
@@ -581,7 +574,7 @@ def install_in_repo(
         else:
             base = data_dir or data_home()
             worktree = base / common.parent.name / "planning"
-        if worktree.exists() and not _worktree_of_this_repository(worktree, common):
+        if worktree.exists() and not is_worktree_of(worktree, common):
             raise PlanningWorktreeRefused(
                 f"{worktree} exists and is not a worktree of {common.parent}; "
                 "move it away or remove it, then install again"

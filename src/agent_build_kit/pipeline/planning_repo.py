@@ -33,11 +33,39 @@ class RepositoryName(Frozen):
     reason: str = ""
 
 
+def main_working_tree(root: Path) -> Path | None:
+    """The main working tree of the repository `root` is in, when its common git directory is
+    named `.git`; None for a bare layout, a separate git directory or no repository."""
+    common = common_dir(root)
+    return common.parent if common is not None and common.name == ".git" else None
+
+
 def repository_name(root: Path) -> RepositoryName:
     """What an installation in the repository `root` is in is called: the directory name of the
     repository's main working tree. When the common git directory is not named `.git`, the root's
     own directory name, with the reason `abk doctor` reports."""
-    raise NotImplementedError
+    main = main_working_tree(root)
+    if main is not None:
+        return RepositoryName(name=main.name)
+    common = common_dir(root)
+    if common is None:
+        return RepositoryName(name=root.name)
+    return RepositoryName(
+        name=root.name,
+        reason=f"the common git directory {common} is not named .git, so {root.name} names it",
+    )
+
+
+def is_worktree_of(path: Path, common: Path) -> bool:
+    """Whether `path` is the top of a worktree of the repository with this common git directory."""
+    if not path.is_dir():
+        return False
+    top = git(path, "rev-parse", "--show-toplevel", check=False)
+    return (
+        top.returncode == 0
+        and Path(top.stdout.strip()).resolve() == path.resolve()
+        and common_dir(path) == common
+    )
 
 
 def git_dir(path: Path) -> Path | None:

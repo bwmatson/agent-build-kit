@@ -26,6 +26,13 @@ from agent_build_kit.config import (
     YamlProvider,
 )
 from agent_build_kit.forges import Forge, RepoId
+from agent_build_kit.pipeline.planning_repo import (
+    common_dir,
+    is_worktree_of,
+    main_working_tree,
+    repository_name,
+)
+from agent_build_kit.pipeline.planning_sync import is_pipeline_worktree
 
 
 def changes_dir_under(root: Path, specs_dir: str) -> Path:
@@ -44,9 +51,12 @@ class Installation:
     def __init__(self, config: WorkspaceConfig, root: Path) -> None:
         self.config = config
         self.root = root.resolve()
+        self.in_pipeline_worktree = is_pipeline_worktree(self.root)
+        # Every pipeline worktree is called the same, so it is named for its repository.
+        name = repository_name(self.root).name if self.in_pipeline_worktree else self.root.name
         worktree_root = settings_module.settings.worktree_root or config.planning.worktree_root
         if worktree_root is None:
-            worktree_root = data_home() / self.root.name / "worktrees"
+            worktree_root = data_home() / name / "worktrees"
         self.worktree_root = Path(worktree_root).expanduser().resolve()
         if self.worktree_root == self.root or self.worktree_root.is_relative_to(self.root):
             raise ConfigError(
@@ -86,7 +96,12 @@ class Installation:
 
     @property
     def env_file(self) -> Path:
-        return self.root / ".env"
+        own = self.root / ".env"
+        if self.in_pipeline_worktree and not own.exists():
+            main = main_working_tree(self.root)
+            if main is not None:
+                return main / ".env"
+        return own
 
     def tasks_files(self) -> list[Path]:
         """Every active change's tasks.md, in name order."""
@@ -100,7 +115,16 @@ class Installation:
 
     @property
     def checkouts(self) -> dict[str, Path]:
-        return {name: repo.path.expanduser() for name, repo in self.config.repos.items()}
+        """Each repo's checkout: a relative path is under the root, and a path that is a worktree of
+        the root's own repository is the root when the root is the pipeline worktree."""
+        common = common_dir(self.root) if self.in_pipeline_worktree else None
+        found: dict[str, Path] = {}
+        for name, repo in self.config.repos.items():
+            path = self._under_root(str(repo.path))
+            if common is not None and is_worktree_of(path, common):
+                path = self.root
+            found[name] = path
+        return found
 
     def repo(self, name: str) -> RepoConfig:
         try:

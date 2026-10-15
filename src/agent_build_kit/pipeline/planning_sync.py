@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from enum import StrEnum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.planning_repo import (
     common_dir,
@@ -18,6 +18,9 @@ from agent_build_kit.pipeline.planning_repo import (
     restore_default_branch,
 )
 from agent_build_kit.pipeline.shell import git, has_origin
+
+if TYPE_CHECKING:
+    from agent_build_kit.installation import Installation
 
 
 class PlanningMode(StrEnum):
@@ -79,6 +82,15 @@ def read_pipeline_marker(root: Path) -> Path | None:
 
 def remove_pipeline_marker(root: Path) -> None:
     marker_path(root).unlink(missing_ok=True)
+
+
+def is_pipeline_worktree(root: Path) -> bool:
+    """Whether `root` is the path its repository's marker names. A pipeline worktree is always a
+    linked one, whose `.git` is a file, so no other root asks git."""
+    if not (root / ".git").is_file() or common_dir(root) is None:
+        return False
+    named = read_pipeline_marker(root)
+    return named is not None and named.resolve() == root.resolve()
 
 
 def live_pipeline_worktree(inst: Installation) -> Path | None:
