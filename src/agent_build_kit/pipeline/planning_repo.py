@@ -58,6 +58,20 @@ def default_branch_of(repo_dir: Path) -> str:
     return result.stdout.strip().removeprefix("origin/") or "main"
 
 
+def detach_at(root: Path, commit: str, say: Callable[[str], None]) -> bool:
+    """Puts a worktree left on a branch back, detached at `commit`, keeping the branch.
+    False when it cannot be put back."""
+    found = current_branch(root)
+    if not found:
+        return True
+    say(f"the planning worktree was left on {found} — putting it back at {commit[:10]}")
+    say(f"the branch {found} is kept")
+    result = git(root, "checkout", "-q", "--detach", commit, check=False)
+    if result.returncode != 0:
+        say(f"FATAL: cannot detach HEAD in {root}:\n{result.stderr}")
+    return result.returncode == 0
+
+
 def restore_default_branch(root: Path, branch: str, say: Callable[[str], None]) -> bool:
     """Puts the planning repo back on `branch`, keeping any stray branch it was
     left on. False when it cannot be put back."""

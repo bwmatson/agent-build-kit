@@ -12,6 +12,14 @@
   `units.json.pre-redact`, and a second run finds nothing. The packaged `.gitignore` now
   ignores `*.pre-redact` wherever the state directory is.
 
+- A tick and a track run in a repository that is also its own planning repo sync the pipeline
+  worktree to the default branch's tip before any planning or phase work, and stop with one
+  `planning sync stopped: <reason>` line when they cannot. A person's working copy is never
+  checked out or pulled. A track phase settles on a detached HEAD: a branch the agent left
+  is kept and named, a rewritten HEAD stops the run, and the bookkeeping is pushed as
+  `HEAD:<default>`, with one fetch and rebase on a rejected push. A separate planning repo
+  behaves as before.
+
 - `abk install-timers` run from a repository that is also the planning repo now creates a
   detached worktree of it outside the working copy (under the data directory, named for the
   repository), records it, and points every unit at it, so a tick never touches the branch you

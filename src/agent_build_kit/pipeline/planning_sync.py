@@ -109,6 +109,11 @@ def in_repo_default_branch(inst: Installation) -> str:
     return inst.repo(name).default_branch if name else default_branch_of(inst.root)
 
 
+def planning_default_branch(inst: Installation) -> str:
+    """The branch a tick and a track sync the pipeline worktree to and push bookkeeping to."""
+    return in_repo_default_branch(inst)
+
+
 def default_tip_ref(root: Path, default: str) -> str:
     """The ref holding the default branch's tip: origin's when the repository has an origin,
     else the local branch."""
@@ -143,7 +148,7 @@ def _sync_worktree(inst: Installation, say: Callable[[str], None]) -> SyncResult
     branch = current_branch(root)
     if branch:
         return _stopped(f"HEAD is on the branch {branch}, which is kept")
-    default = in_repo_default_branch(inst)
+    default = planning_default_branch(inst)
     if has_origin(root):
         fetched = git(root, "fetch", "origin", default, check=False)
         if fetched.returncode != 0:
@@ -182,3 +187,13 @@ def sync_planning(inst: Installation, say: Callable[[str], None]) -> SyncResult:
     if mode == PlanningMode.SEPARATE:
         return _sync_separate(inst, say)
     return _sync_worktree(inst, say)
+
+
+def sync_or_stop(inst: Installation, say: Callable[[str], None]) -> bool:
+    """Syncs the planning root; on a stop says the one `planning sync stopped: <reason>` line and
+    returns False, so the caller ends its run."""
+    result = sync_planning(inst, say)
+    if result.outcome == SyncOutcome.STOPPED:
+        say(f"planning sync stopped: {result.reason}")
+        return False
+    return True
