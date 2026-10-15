@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `abk doctor` has a `public content` check. It reads a tracked `abk.yaml` offline and warns
+  about a repo path outside the checkout, a home-directory path in a value and a repo owned
+  by another account than the planning repo's origin, naming the key and never the value. It
+  also warns when `scrub.local` is tracked or not ignored, or a `*.pre-redact` copy is not
+  ignored, naming the line to add.
+
 - `abk init` now ignores `scrub.local` and `*.pre-redact` in the planning repo's `.gitignore`
   (appending only the lines an existing file lacks) and says, in its closing output, the
   planning context and `.env.example`, that facts about an installation's own stack belong

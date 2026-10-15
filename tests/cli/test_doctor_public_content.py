@@ -9,7 +9,9 @@ from agent_build_kit.config import RepoConfig
 from tests.cli.public_content_repo import planning, public_content, said
 from tests.forges.mock_host import MockHost, ok
 
-HOME_FILE = {"from": "env-file", "file": "/home/someone/.config/svc/token.env", "key": "TOKEN"}
+# Assembled, so that this file does not itself look like a leaked path.
+HOME = "/" + "home" + "/someone"
+HOME_FILE = {"from": "env-file", "file": f"{HOME}/.config/svc/token.env", "key": "TOKEN"}
 
 
 def inside(name: str = "app", slug: str = "example/app") -> dict[str, RepoConfig]:
@@ -41,7 +43,7 @@ def test_a_home_path_in_a_value_warns_naming_the_key_not_the_value(tmp_path: Pat
 
     assert [c.status for c in found] == ["warn"]
     assert "verify.env.TOKEN.file" in said(found[0])
-    assert "/home/someone" not in said(found[0])
+    assert HOME not in said(found[0])
 
 
 def test_a_repo_owned_by_another_account_than_the_origin_warns_naming_the_entry(
