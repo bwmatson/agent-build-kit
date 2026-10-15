@@ -348,6 +348,19 @@ def tier2_variants(repo: RepoConfig, config: WorkspaceConfig) -> tuple[str, ...]
     return (BASE_GROUP, *(config.tests.tier2_runtimes if own is None else own))
 
 
+def tier2_splits(repo: RepoConfig, config: WorkspaceConfig) -> tuple[Tier2Split, ...]:
+    """The splits in effect for `repo`: its declared ones in declaration order, then `rest`."""
+    own = repo.tests.tier2_splits
+    declared = config.tests.tier2_splits if own is None else own
+    named = [
+        Tier2Split(name=name, marker=entry.marker, hold=entry.hold)
+        for name, entry in declared.items()
+        if name != REST_SPLIT
+    ]
+    rest = declared.get(REST_SPLIT, Tier2SplitEntry())
+    return (*named, Tier2Split(name=REST_SPLIT, hold=rest.hold))
+
+
 def known_runtime_names(configured: Iterable[str] = ()) -> set[str]:
     """The runtimes a test tag or a `tests` list may name: the registry's, the protocol
     runtime's and the keys under `runtimes`, never the reserved name of the base group."""
@@ -592,6 +605,26 @@ class ReplayConfig(Frozen):
     review_after_runs: int = 5
 
 
+# The reserved split of the tests that sit in no declared split.
+REST_SPLIT = "rest"
+SPLIT_NAME = re.compile(r"[a-z0-9_]+")
+
+
+class Tier2SplitEntry(Frozen):
+    """One `tests.tier2_splits.<name>` entry as written: a selector and a hold."""
+
+    marker: str | None = None
+    hold: bool | None = None
+
+
+class Tier2Split(Frozen):
+    """A repo's tier 2 split: its name, its marker (None for `rest`) and its configured hold."""
+
+    name: str
+    marker: str | None = None
+    hold: bool | None = None
+
+
 class TestsConfig(Frozen):
     # Extra packages the repo-root tests (outside every workspace member) need.
     root_extras: list[str] = []
@@ -609,6 +642,8 @@ class TestsConfig(Frozen):
     # The runtimes this repo's scheduled tier 2 runs besides the base group; None follows
     # the top-level `tests.tier2_runtimes`.
     tier2_runtimes: list[str] | None = None
+    # This repo's tier 2 splits; None follows the top-level `tests.tier2_splits`.
+    tier2_splits: dict[str, Tier2SplitEntry] | None = None
 
 
 # The group of tier 2 tests that carry no runtime tag; reserved, so no runtime has this name.
@@ -622,6 +657,7 @@ class RuntimeTestsConfig(Frozen):
     runtimes_blocked: list[str] = []
     runtimes_allowed: list[str] = []
     tier2_runtimes: list[str] = []
+    tier2_splits: dict[str, Tier2SplitEntry] = {}
 
 
 # The words of a `command` template that stand for a list of arguments.
@@ -1041,6 +1077,42 @@ class WorkspaceConfig(Frozen):
                 f"{', '.join(sorted(both))} is in both tests.runtimes_blocked and "
                 "tests.runtimes_allowed; keep it in one"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _tier2_splits_declared_well(self) -> WorkspaceConfig:
+        """Each split has a valid name and one marker no other split has; `rest` has none."""
+        maps = {"tests.tier2_splits": self.tests.tier2_splits}
+        for key, repo in self.repos.items():
+            if repo.tests.tier2_splits is not None:
+                maps[f"repos.{key}.tests.tier2_splits"] = repo.tests.tier2_splits
+        for setting, splits in maps.items():
+            seen: dict[str, str] = {}
+            for name, entry in splits.items():
+                if not SPLIT_NAME.fullmatch(name):
+                    raise ValueError(
+                        f"{setting}: {name!r} is not a split name; use lowercase letters, "
+                        "digits and underscores"
+                    )
+                if name == REST_SPLIT:
+                    if entry.marker is not None:
+                        raise ValueError(
+                            f"{setting}.{name}.marker: {entry.marker!r}: `rest` is the tests "
+                            "of no other split and takes no marker"
+                        )
+                    if entry.hold is None:
+                        raise ValueError(f"{setting}.{name}: empty; set `hold` or leave it out")
+                    continue
+                if not entry.marker:
+                    raise ValueError(
+                        f"{setting}.{name}.marker: {entry.marker!r}: a split needs one"
+                    )
+                if entry.marker in seen:
+                    raise ValueError(
+                        f"{setting}.{name}.marker: {entry.marker!r} is also the marker of "
+                        f"{seen[entry.marker]}"
+                    )
+                seen[entry.marker] = name
         return self
 
     @model_validator(mode="after")
