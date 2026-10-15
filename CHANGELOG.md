@@ -26,6 +26,11 @@
   with another name works. This repository's hooks skip the state directory, and its CI
   runs the test and integration jobs only when something outside the planning paths
   changed.
+- The shipped skills now explain how a hold ends (what `abk approve` does and does not do, and
+  which exit fits which hold), why a unit is held "needs a human", what to check when nothing
+  is moving (lingering, units marked running with no process, never running a tick under a
+  timeout, which states fill `limits.max_units_in_progress`), the authoring rules behind
+  changes that were not planned, and the shell form of a multi-command `environment.sync`.
 
 - A unit can be recorded merged with the cause `auto_landed`, for a merge the pipeline makes
   itself, and goes through the same restack and cleanup as a person's merge. A merged event

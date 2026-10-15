@@ -340,6 +340,20 @@ derived term); `abk scrub-check` reads it. `abk doctor`'s `public content` check
 `abk.local.yaml` or `scrub.local` is tracked or not ignored, and when a committed `abk.yaml`
 holds a repo path outside the checkout, a home path or another account's repo.
 
+## A sync that runs more than one command
+
+`environment.sync` is one argv list, run without a shell. A repo that needs two
+installs (say `uv sync` and `npm ci` in a subfolder) writes it as a shell
+command with `sh -c`, changing directory in a subshell:
+
+```yaml
+environment:
+  sync: [sh, -c, "uv sync && (cd web && npm ci)"]
+```
+
+`npm ci --prefix` is not accepted, so the directory change is written
+`(cd dir && npm ci)`.
+
 ## The Claude Code account
 
 The account the pipeline runs `claude` on is a config directory, set in the
