@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from tests.account_settings import Configure
-from tests.cli.claude_auth_fakes import VARIABLE, FakeClaude, account_lines, said
+from tests.cli.claude_auth_fakes import VARIABLE, FakeClaude, account_lines, in_planning_env, said
 from tests.cli.test_doctor import (  # noqa: F401 — fixture
     select_runtime,
     workspace,
@@ -39,7 +39,9 @@ def test_a_logged_in_account_prints_its_directory_source_and_login(
     place: str,
 ) -> None:
     directory = account_dir(tmp_path)
-    configure(
+    in_planning_env(
+        workspace,
+        configure,
         process={k: v.format(dir=directory) for k, v in process.items()},
         dotenv={k: v.format(dir=directory) for k, v in dotenv.items()},
     )
@@ -60,7 +62,7 @@ def test_the_login_question_is_asked_with_the_accounts_variable(
     configure: Configure,
 ) -> None:
     directory = account_dir(tmp_path)
-    configure(dotenv={"ABK_CLAUDE_HOME": str(directory)})
+    in_planning_env(workspace, configure, dotenv={"ABK_CLAUDE_HOME": str(directory)})
     run = FakeClaude()
 
     account_lines(workspace, run)
@@ -76,7 +78,7 @@ def test_a_logged_out_account_fails_with_the_exact_login_command(
     configure: Configure,
 ) -> None:
     directory = account_dir(tmp_path)
-    configure(dotenv={"ABK_CLAUDE_HOME": str(directory)})
+    in_planning_env(workspace, configure, dotenv={"ABK_CLAUDE_HOME": str(directory)})
 
     checks = account_lines(workspace, FakeClaude(status=1, logged_in=False))
 
@@ -90,7 +92,7 @@ def test_the_login_command_uses_the_configured_claude_command(
     configure: Configure,
 ) -> None:
     directory = account_dir(tmp_path)
-    configure(dotenv={"ABK_CLAUDE_HOME": str(directory)})
+    in_planning_env(workspace, configure, dotenv={"ABK_CLAUDE_HOME": str(directory)})
     select_runtime(workspace, "claude_code", "    command: [claude-wrapper, --flag]\n")
 
     checks = account_lines(workspace, FakeClaude(status=1, logged_in=False))
@@ -104,7 +106,7 @@ def test_a_missing_directory_is_a_failure_that_prints_the_login_command_and_asks
     configure: Configure,
 ) -> None:
     directory = tmp_path / "never-made"
-    configure(dotenv={"ABK_CLAUDE_HOME": str(directory)})
+    in_planning_env(workspace, configure, dotenv={"ABK_CLAUDE_HOME": str(directory)})
     run = FakeClaude()
 
     checks = account_lines(workspace, run)
@@ -119,7 +121,7 @@ def test_the_default_account_says_so_and_asks_without_a_variable(
     workspace: Path,  # noqa: F811 — fixture
     configure: Configure,
 ) -> None:
-    configure()
+    in_planning_env(workspace, configure)
     run = FakeClaude()
 
     checks = account_lines(workspace, run)

@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 
 from agent_build_kit.cli.doctor import Check, run_doctor
+from tests.account_settings import Configure
 from tests.cli.test_doctor import Answers
 from tests.factories import which_all
 
@@ -40,3 +41,9 @@ def account_lines(workspace: Path, run: Answers) -> list[Check]:
 def said(checks: list[Check]) -> str:
     """Everything the checks print."""
     return "\n".join(f"{c.name} {c.status} {c.detail} {c.fix}" for c in checks)
+
+
+def in_planning_env(workspace: Path, configure: Configure, **settings: dict[str, str]) -> None:
+    """Configure the process and `.env` as `configure` does, with the `.env` the planning
+    repo's own, which is the one doctor reads."""
+    (workspace / ".env").write_text(configure(**settings).read_text())

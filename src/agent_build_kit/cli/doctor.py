@@ -34,6 +34,7 @@ from agent_build_kit import (
     skills,
     timers,
 )
+from agent_build_kit import settings as settings_module
 from agent_build_kit.config import (
     CommandProvider,
     ConfigError,
@@ -71,7 +72,7 @@ from agent_build_kit.redaction import MIN_LENGTH
 from agent_build_kit.redaction import active as active_redactor
 from agent_build_kit.replay.review import directories, overdue, waiting
 from agent_build_kit.runtimes import policy_check
-from agent_build_kit.runtimes.base import Run, Which
+from agent_build_kit.runtimes.base import AgentRuntime, Run, Which, account_report_of
 from agent_build_kit.settings import settings
 
 Status = Literal["ok", "info", "warn", "FAIL"]
@@ -933,6 +934,14 @@ def _probed(name: str, command: list[str], which: Which, run: Run) -> list[Check
     return checks
 
 
+def _account(runtime: AgentRuntime, run: Run) -> list[Check]:
+    """What the runtime says of the account it runs on, as checks."""
+    return [
+        Check(name="runtime account", status=line.status, detail=line.detail, fix=line.fix)
+        for line in account_report_of(runtime, run, settings_module.loaded_env_file)
+    ]
+
+
 def _runtime(inst: Installation, which: Which, run: Run) -> list[Check]:
     """Which runtime the pipeline runs on, whether it can start, how much it
     interposes on, and whether it refuses what abk forbids."""
@@ -960,6 +969,7 @@ def _runtime(inst: Installation, which: Which, run: Run) -> list[Check]:
             )
         ]
 
+    checks += _account(runtime, run)
     checks += _probed(name, command, which, run)
 
     if runtime.policy_coverage == "all_calls":

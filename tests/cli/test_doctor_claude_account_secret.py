@@ -10,7 +10,7 @@ import pytest
 
 from agent_build_kit.cli.doctor import run_doctor
 from tests.account_settings import Configure
-from tests.cli.claude_auth_fakes import FakeClaude, account_lines, said
+from tests.cli.claude_auth_fakes import FakeClaude, account_lines, in_planning_env, said
 from tests.cli.test_doctor import (  # noqa: F401 — fixture
     Answers,
     select_runtime,
@@ -32,7 +32,7 @@ def test_no_other_field_of_the_answer_is_printed_logged_or_sent_to_the_error_str
 ) -> None:
     directory = tmp_path / "second"
     directory.mkdir()
-    configure(dotenv={"ABK_CLAUDE_HOME": str(directory)})
+    in_planning_env(workspace, configure, dotenv={"ABK_CLAUDE_HOME": str(directory)})
     run = FakeClaude(extra={"accessToken": TOKEN, "email": EMAIL, "authMethod": "claude.ai"})
 
     with caplog.at_level(logging.DEBUG):
@@ -52,7 +52,7 @@ def test_a_token_beside_an_account_warns_without_printing_its_value(
 ) -> None:
     directory = tmp_path / "second"
     directory.mkdir()
-    configure(dotenv={"ABK_CLAUDE_HOME": str(directory)})
+    in_planning_env(workspace, configure, dotenv={"ABK_CLAUDE_HOME": str(directory)})
     monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", TOKEN)
 
     checks = account_lines(workspace, FakeClaude())
@@ -71,7 +71,7 @@ def test_a_runtime_that_reports_no_account_has_no_account_line_and_claude_code_h
 ) -> None:
     directory = tmp_path / "second"
     directory.mkdir()
-    configure(dotenv={"ABK_CLAUDE_HOME": str(directory)})
+    in_planning_env(workspace, configure, dotenv={"ABK_CLAUDE_HOME": str(directory)})
     assert account_lines(workspace, FakeClaude())
 
     select(monkeypatch, SelectableRuntime("plain"))

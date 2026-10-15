@@ -829,6 +829,15 @@ whose format has no writer.
 | `claude_code` | local CLI (`claude -p`), subprocess | `all_calls` via the `PreToolUse` hook plus `--disallowedTools` | bare aliases (`sonnet`, `opus`, ...) via `--model` | `--output-format stream-json`, one JSON event per line | live endpoint with its stored OAuth token, falling back to its own cache | **implemented**, as `runtimes/claude_code.py` |
 | `acp` | spawns the configured agent, JSON-RPC over stdio; `session/new` takes the worktree as `cwd`, extra readable directories as workspace roots; `session/prompt` returns the end-turn signal with a `stopReason` (`end_turn`, `max_tokens`, `max_turn_requests`, `refusal`, `cancelled`) | `all_calls` when the agent routes file and terminal work through the client's capabilities; `agent_flagged` otherwise, via `session/request_permission`. `check_policy` decides which | agent-defined: session config options expose a `model` category to select among what the agent offers, so a name abk does not recognise is a no-op, not an error | `session/update` notifications: message chunks, thought chunks, tool-call start and update, plan updates | none, and none needed: billed on demand per token, with no shared window over a time period, so a run is limited only by the work | **implemented**, as `runtimes/acp.py`: runs, outcomes, models, progress, enforcement and `check_policy`; registered when the `acp` extra is installed (see the status paragraph at the top) |
 
+### Claude Code's account
+
+With `CLAUDE_CONFIG_DIR` or `ABK_CLAUDE_HOME` set (see [configuration.md](configuration.md)),
+the runtime adds `CLAUDE_CONFIG_DIR=<dir>` to the environment of every `claude` it starts.
+`abk doctor` checks the login with `claude auth status --json` run that way, reading only the
+exit status and `loggedIn`. Before a switch, let units in flight finish (a stored session of
+the old account starts fresh) and set the usage windows for the new plan under
+`runtimes.claude_code.limits`. See [claude-code-second-account.md](claude-code-second-account.md).
+
 ## Test markers
 
 The markers the suite uses:

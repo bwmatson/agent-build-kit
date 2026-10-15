@@ -11,6 +11,7 @@ spent usage window, an interruption, or a failed result as
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 import time
 from collections.abc import Callable, Sequence
@@ -41,6 +42,7 @@ from agent_build_kit.pipeline.usage_guard import (
 )
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.runtimes.base import (
+    AccountLine,
     AgentInterrupted,
     AgentRateLimited,
     AgentRequest,
@@ -439,10 +441,66 @@ class ClaudeCodeRuntime:
             "aliases, not queried",
         )
 
+    def account_report(self, run: Run, env_file: Path | None) -> list[AccountLine]:
+        """The account directory, where the setting came from, and whether it is logged in,
+        asked of `auth status` with the account's variable; only its exit status and
+        `loggedIn` are read, so no token or address of the answer is kept."""
+        account = claude_account.home()
+        where = claude_account.source(env_file).value
+        entry = claude_account.environment_entry()
+        login = " ".join(
+            [*(f"{name}={value}" for name, value in entry.items()), *map(shlex.quote, command())]
+            + ["auth", "login"]
+        )
+        lines: list[AccountLine] = []
+        if entry:
+            if not account.is_dir():
+                return [
+                    AccountLine(
+                        status="FAIL", detail=f"{account} ({where}) does not exist", fix=login
+                    )
+                ]
+            summary = f"{account} ({where}) exists"
+        else:
+            summary = f"the default account {account} is in use"
+        if entry and named_value("CLAUDE_CODE_OAUTH_TOKEN", env_file):
+            lines.append(
+                AccountLine(
+                    status="warn",
+                    detail="CLAUDE_CODE_OAUTH_TOKEN is set beside an account: the token names its "
+                    "own account, which the usage guard reads whatever the directory",
+                    fix="unset CLAUDE_CODE_OAUTH_TOKEN so the guard reads the account's directory",
+                )
+            )
+        if _logged_in(run, entry):
+            lines.insert(0, AccountLine(status="ok", detail=f"{summary}, logged in"))
+        else:
+            lines.insert(
+                0, AccountLine(status="FAIL", detail=f"{summary}, not logged in", fix=login)
+            )
+        return lines
+
     def check_policy(self, cwd: Path) -> PolicyReport:
         """Answered locally: every policed run registers the hook and passes
         the same denies as flags, so no class goes unenforced."""
         return PolicyReport(ok=True)
+
+
+def _logged_in(run: Run, entry: dict[str, str]) -> bool:
+    """Whether `auth status` exits 0 with `loggedIn` true; nothing else of its answer is read."""
+    try:
+        done = run(
+            [*command(), "auth", "status", "--json"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+            **({"env": child_environment(None, entry)} if entry else {}),
+        )
+        answer = json.loads(done.stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return False
+    return done.returncode == 0 and isinstance(answer, dict) and answer.get("loggedIn") is True
 
 
 def _context(stdout: str, ended: ResultEvent | None, model: str | None) -> Context | None:
