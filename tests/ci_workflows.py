@@ -23,6 +23,7 @@ POINTER = "see AGENTS.md, CI workflows"
 EXACT = re.compile(
     r"^(?P<name>[^/@\s]+/[^/@\s]+)(?:/\S*)?@(?:v(?P<major>\d+)\.\d+\.\d+|[0-9a-f]{40})$"
 )
+LOOSE = re.compile(r"^(?P<name>[^/@\s]+/[^/@\s]+)(?:/\S*)?@v(?P<major>\d+)(?:\.\d+)*$")
 EXPRESSION = re.compile(r"^\$\{\{\s*matrix\.(\w+)\s*\}\}$")
 
 
@@ -34,15 +35,19 @@ def _check_uses(where: str, uses: str) -> list[str]:
     if uses.startswith(("./", "docker://")):
         return []
     found = EXACT.match(uses)
+    loose = LOOSE.match(uses)
+    named = found or loose
+    name = named["name"] if named else None
+    major = named["major"] if named else None
+    first = FIRST_NODE_24_MAJOR.get(name) if name else None
+    reasons = []
     if "${{" in uses or not found:
-        return [_problem(where, f"{uses} is not owner/name@vX.Y.Z or a full commit SHA")]
-    name, major = found["name"], found["major"]
-    first = FIRST_NODE_24_MAJOR.get(name)
-    if first is None:
+        reasons.append("is not owner/name@vX.Y.Z or a full commit SHA")
+    elif first is None:
         return [_problem(where, f"{uses}: add {name} to the table with its first Node 24 major")]
-    if major is not None and int(major) < first:
-        return [_problem(where, f"{uses} is below {name} v{first}, the first major on Node 24")]
-    return []
+    if first is not None and major is not None and int(major) < first:
+        reasons.append(f"is below {name} v{first}, the first major on Node 24")
+    return [_problem(where, f"{uses} " + ", and ".join(reasons))] if reasons else []
 
 
 def _runner_labels(job: dict, runs_on: object) -> list[object] | None:
@@ -57,14 +62,13 @@ def _check_runner(where: str, job: dict) -> list[str]:
     labels = _runner_labels(job, runs_on)
     if labels is None:
         return [_problem(where, f"runs-on {runs_on} cannot be read")]
-    scalar = not isinstance(runs_on, list)
-    problems = []
-    for label in labels:
-        if str(label).endswith("-latest"):
-            problems.append(_problem(where, f"runner {label} floats; use {RUNNER}"))
-        elif scalar and label != RUNNER:
-            problems.append(_problem(where, f"runner {label} is not {RUNNER}"))
-    return problems
+    if any(str(label).endswith("-latest") for label in labels):
+        return [_problem(where, f"runner {labels} floats; use {RUNNER}")]
+    # A list of labels names one machine and must include the pin; a matrix runs each value.
+    pinned = (
+        RUNNER in labels if isinstance(runs_on, list) else all(label == RUNNER for label in labels)
+    )
+    return [] if pinned else [_problem(where, f"runner {labels} is not {RUNNER}")]
 
 
 def check_workflow(file: str, text: str) -> list[str]:

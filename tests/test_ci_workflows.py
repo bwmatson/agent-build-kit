@@ -6,11 +6,21 @@ import pytest
 
 from tests.ci_workflows import FIRST_NODE_24_MAJOR, POINTER, RUNNER, WORKFLOWS, check_workflow
 
+STEP = "Check out"
 SHA = "3d3c42e5aac5ba805825da76410c181273ba90b1"
 
 
 def workflow(uses: str = "actions/checkout@v7.0.1", runs_on: str = RUNNER) -> str:
-    return f"name: CI\njobs:\n  build:\n    runs-on: {runs_on}\n    steps:\n      - uses: {uses}\n"
+    return (
+        f"name: CI\njobs:\n  build:\n    runs-on: {runs_on}\n"
+        f"    steps:\n      - name: {STEP}\n        uses: {uses}\n"
+    )
+
+
+def assert_names_file_job_and_step(problem: str) -> None:
+    assert "ci.yml" in problem
+    assert "build" in problem
+    assert STEP in problem
 
 
 def test_the_table_holds_the_first_node_24_majors() -> None:
@@ -31,20 +41,21 @@ def test_the_shipped_workflows_pass() -> None:
     assert problems == []
 
 
-def test_an_action_below_its_node_24_release_fails_naming_file_job_and_step() -> None:
-    problems = check_workflow("ci.yml", workflow(uses="actions/checkout@v4.2.0"))
+@pytest.mark.parametrize("uses", ["actions/checkout@v4", "actions/checkout@v4.2.0"])
+def test_an_action_below_its_node_24_release_fails_naming_file_job_and_step(uses: str) -> None:
+    problems = check_workflow("ci.yml", workflow(uses=uses))
 
     assert len(problems) == 1
-    assert "ci.yml" in problems[0]
-    assert "build" in problems[0]
-    assert "actions/checkout@v4.2.0" in problems[0]
-    assert "5" in problems[0]
+    assert_names_file_job_and_step(problems[0])
+    assert uses in problems[0]
+    assert "v5" in problems[0]
 
 
 def test_an_action_missing_from_the_table_says_to_add_it() -> None:
     problems = check_workflow("ci.yml", workflow(uses="actions/setup-uv@v3.0.0"))
 
     assert len(problems) == 1
+    assert_names_file_job_and_step(problems[0])
     assert "add actions/setup-uv to the table" in problems[0]
 
 
@@ -63,10 +74,13 @@ def test_a_floating_or_expression_reference_fails_naming_it(uses: str) -> None:
     problems = check_workflow("ci.yml", workflow(uses=quoted))
 
     assert len(problems) == 1
+    assert_names_file_job_and_step(problems[0])
     assert uses in problems[0]
 
 
-@pytest.mark.parametrize("runs_on", ["ubuntu-latest", "[self-hosted, macos-latest]"])
+@pytest.mark.parametrize(
+    "runs_on", ["ubuntu-latest", "[self-hosted, macos-latest]", "[self-hosted, linux]"]
+)
 def test_a_floating_runner_fails_naming_the_job(runs_on: str) -> None:
     problems = check_workflow("ci.yml", workflow(runs_on=runs_on))
 
