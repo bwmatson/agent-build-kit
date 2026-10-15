@@ -39,6 +39,7 @@ COMMAND_MODULES = (
     "agent_build_kit.cli.pr_cmd",
     "agent_build_kit.cli.replay_cmd",
     "agent_build_kit.cli.policy_cmd",
+    "agent_build_kit.cli.install_config",
 )
 
 
