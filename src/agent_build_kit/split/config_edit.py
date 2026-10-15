@@ -18,7 +18,7 @@ from agent_build_kit.init.scaffold import (
 from agent_build_kit.model import Frozen
 from agent_build_kit.runtimes.policy_apply import backup_and_replace
 
-__all__ = ["ConfigEditError", "RepoEntry", "add_repo_entry"]
+__all__ = ["ConfigEditError", "RepoEntry", "add_repo_entry", "remove_repo_entry"]
 
 
 class ConfigEditError(ValueError):
@@ -92,3 +92,23 @@ def add_repo_entry(source: Path, destination: Path, repo: str, *, write: bool = 
     if write:
         backup_and_replace(destination, updated)
     return RepoEntry(written=write, missing_consumes=missing)
+
+
+def remove_repo_entry(path: Path, repo: str) -> None:
+    """Remove `repos.<repo>` from the abk.yaml at `path` as text, every other line as it is.
+    The original is copied once to `<file>.abk-backup`; a layout that cannot be followed, or a
+    result that does not parse to the old document less the block, raises `ConfigEditError`
+    and writes nothing."""
+    raw, lines = read_lines(path)
+    declared = raw.get("repos") or {}
+    found = repo_block(lines, repo)
+    if repo not in declared or found is None:
+        raise ConfigEditError(f"{path}: cannot find a block entry for repo {repo!r} under `repos:`")
+    start, end, _ = found
+    del lines[start:end]
+    remaining = {name: entry for name, entry in declared.items() if name != repo}
+    try:
+        checked(path, "".join(lines), {**raw, "repos": remaining})
+    except ScaffoldError as error:
+        raise ConfigEditError(f"{error} (removing {repo!r})") from error
+    backup_and_replace(path, "".join(lines))
