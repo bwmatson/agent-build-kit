@@ -59,6 +59,7 @@ def test_the_causes_are_the_fixed_set_the_design_names() -> None:
         "network_unavailable",
         "service_unavailable",
         "environment",
+        "runtime_blocked",
     }
 
 

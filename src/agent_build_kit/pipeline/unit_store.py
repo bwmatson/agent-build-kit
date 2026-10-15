@@ -97,6 +97,7 @@ class Cause(StrEnum):
     NETWORK_UNAVAILABLE = "network_unavailable"
     SERVICE_UNAVAILABLE = "service_unavailable"
     ENVIRONMENT = "environment"
+    RUNTIME_BLOCKED = "runtime_blocked"
 
 
 class RequeueReason(StrEnum):
@@ -231,6 +232,11 @@ class StoredUnit(Unit):
     # How a requeue that found a dependency it waits on unmet is delivered once
     # it is met (see `Cause.GATED`); None when no requeue is waiting.
     gated_requeue: RequeueReason | None = None
+    # What a unit held for `Cause.RUNTIME_BLOCKED` waits on: the runtimes its tier 2 run
+    # parked, the commit that run passed on and the snapshot it posted.
+    parked_runtimes: list[str] = []
+    parked_sha: str = ""
+    parked_snapshot: str = ""
     # The close of a satisfied unit's pull request, kept until it is done.
     close_pending: ClosePending | None = None
     # The step the unit last stopped in, and how many times in a row the code host
@@ -845,6 +851,13 @@ class UnitStore:
     def set_gated_requeue(self, unit_id: str, requeue: RequeueReason | None) -> None:
         self._update(unit_id, gated_requeue=requeue)
 
+    def set_parked(
+        self, unit_id: str, runtimes: Sequence[str] = (), sha: str = "", snapshot: str = ""
+    ) -> None:
+        self._update(
+            unit_id, parked_runtimes=list(runtimes), parked_sha=sha, parked_snapshot=snapshot
+        )
+
     def set_needs(self, unit_id: str, needs: Sequence[str]) -> None:
         self._update(unit_id, needs=tuple(needs))
 
@@ -980,3 +993,11 @@ def backoff_remaining(unit: StoredUnit, now: datetime) -> timedelta | None:
         return None
     left = ends - now
     return left if left > timedelta(0) else None
+
+
+def awaits_release(unit: StoredUnit) -> bool:
+    """Whether a planned unit is stopped until something releases it: a gated requeue to be
+    delivered, or tier 2 tests parked for a blocked runtime. A tick never starts one."""
+    return unit.cause is Cause.RUNTIME_BLOCKED or (
+        unit.cause is Cause.GATED and unit.gated_requeue is not None
+    )

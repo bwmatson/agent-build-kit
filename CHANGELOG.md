@@ -74,6 +74,14 @@
   only when the run executes that runtime, so a blocked or other-runtime run is not held
   by it. A failure whose runtime is unknown, or a blocked runtime's, is never recorded.
 
+- A unit whose tier 2 run could not execute a blocked runtime's tests now waits, held
+  planned with the runtime and the reason in its note, instead of passing without them. It
+  gets no feedback, no fix round, no failure record and no status, nothing is pushed, and
+  a tick does not start it again; `abk status` shows it as blocked. When it resumes it runs
+  only that runtime's tests on the same commit (the whole run if the commit moved), and
+  posts one status after both runs passed. A commit status is never
+  posted for a result that left a runtime's tests unrun.
+
 - `abk scrub-check` no longer flags the planning root's own name when it scans the planning
   root itself, and finds more of what identifies an installation: literal values and
   provider files in `verify.env`, the home user name, and the dot-directories configured

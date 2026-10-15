@@ -177,6 +177,7 @@ from agent_build_kit.pipeline.unit_store import (
     ReworkKind,
     StoredUnit,
     UnitStore,
+    awaits_release,
     backoff_remaining,
     feedback_source_of,
     guidance_excerpt,
@@ -1798,9 +1799,10 @@ def _evaluate_round(
             or (only and unit.id not in only)
             # Someone is chatting with it: it goes back to the tick when the lease is released.
             or leases.holder(unit.id) is not None
-            # A requeue is still to be delivered to its thread: starting the
-            # unit as a planned build would drop the mode it was requeued with.
-            or (unit.cause is Cause.GATED and unit.gated_requeue is not None)
+            # A requeue is still to be delivered to its thread, or its tier 2 tests wait for a
+            # runtime: starting the unit as a planned build would drop the mode it was
+            # requeued with, or build it all again.
+            or awaits_release(unit)
             # Parked for the host being unavailable, and its backoff is not over.
             or backoff_remaining(unit, now) is not None
         ):
@@ -4763,9 +4765,7 @@ def _planned_wait(
         return Wait(reason=WaitReason.BLOCKED, waits_on=tuple(parent.id for parent in parents))
     # Not ready for want of work another unit has to finish: a requeue gated on a merge,
     # or a stack deeper than may be built until what it stacks on merges.
-    if (unit.cause is Cause.GATED and unit.gated_requeue is not None) or (
-        depth_of(unit, view) > inst.stack_depth_build_cap
-    ):
+    if awaits_release(unit) or depth_of(unit, view) > inst.stack_depth_build_cap:
         return Wait(reason=WaitReason.BLOCKED)
     if usage_paused:
         return Wait(reason=WaitReason.USAGE_PAUSE)

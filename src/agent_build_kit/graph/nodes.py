@@ -1321,6 +1321,22 @@ class BuildPath:
         self.runner.store.set_gated_requeue(self.unit.id, RequeueReason.RESUME)
         return update
 
+    def park_for_runtime(self, runtimes: list[str], sha: str, snapshot: str) -> Update:
+        """Hold the unit, planned, until the runtimes whose tests did not run are usable. Nothing
+        is published and nothing counts against it: those tests have not failed."""
+        blocks = self.runner.tier2_blocks().blocked
+        waiting = ", ".join(
+            f"{name} ({blocks[name].reason})" if name in blocks else name for name in runtimes
+        )
+        update = self.hold(
+            PLANNED,
+            f"tier 2 tests of {waiting} did not run: the runtime is blocked",
+            f"waiting for {', '.join(runtimes)}",
+            cause=Cause.RUNTIME_BLOCKED,
+        )
+        self.runner.store.set_parked(self.unit.id, runtimes, sha, snapshot)
+        return update
+
     def fix_checks(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit
         tree = self.tree()
@@ -1718,7 +1734,33 @@ class BuildPath:
             return self.park_for_fix(
                 f"waiting for the fix change {', '.join(held)} of a failing test on the base"
             )
-        ok, snapshot = r.run_tier2(cwd=tree, base=base)
+        before = r.store.get(unit.id)
+        # A unit parked on a runtime resumes with that group alone, on the commit it passed on.
+        resumed = bool(before.parked_runtimes) and r.head(tree) == before.parked_sha
+        parts: list[str] = []
+        left_out: list[str] = []
+        # The groups of a resume that ran and passed, kept if the unit parks again on others.
+        passed: list[str] = []
+        sha = ""
+        for group in before.parked_runtimes if resumed else [None]:
+            only = {} if group is None else {"only": group}
+            ok, part = r.run_tier2(cwd=tree, base=base, **only)
+            parts.append(part)
+            result = r.tier2_result()
+            left_out += result.parked if result else []
+            if ok and not (result and result.parked):
+                passed.append(part)
+            sha = result.sha if result else sha
+            if not ok:
+                break
+        snapshot = "\n\n".join(parts)
+        if ok and left_out:
+            kept = "\n\n".join([before.parked_snapshot, *passed]).strip()
+            return self.park_for_runtime(left_out, sha, kept if resumed else snapshot)
+        if before.parked_runtimes:
+            r.store.set_parked(unit.id)
+            if ok and resumed:
+                snapshot = f"{before.parked_snapshot}\n\n{snapshot}".strip()
         ran_none = ok and r.tier2_ran_no_tests()
         self.say("tier 2 ran no test" if ran_none else f"tier 2 {'passed' if ok else 'failed'}")
         if ok:

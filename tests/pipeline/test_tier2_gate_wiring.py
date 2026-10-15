@@ -3,6 +3,8 @@ whole marker, and carries the real open-fix gate (spec: tier2-waits-on-open-base
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +13,7 @@ import pytest
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.flakes import fix_change_name
 from agent_build_kit.pipeline.stack_runner import UnitRunner
+from agent_build_kit.pipeline.tier2_blocks import write_block
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.untouched_failures import PREFIX
 from agent_build_kit.pipeline.wiring import build_on_preexisting, build_runner
@@ -24,7 +27,12 @@ TASKS = "# Tasks\n\n## 1. [app] [tier2] Work\n\n- [ ] 1.1 Test: it\n- [ ] 1.2 Ma
 
 
 def runner_of(
-    tmp_path: Path, *, scope: str = "own", dev_stack: bool = False
+    tmp_path: Path,
+    *,
+    scope: str = "own",
+    dev_stack: bool = False,
+    blocked_in_config: tuple[str, ...] = (),
+    blocked_in_file: Mapping[str, str] | None = None,
 ) -> tuple[UnitRunner, Installation, UnitStore]:
     app: dict[str, Any] = {
         "path": str(tmp_path / "checkouts" / "app"),
@@ -33,8 +41,25 @@ def runner_of(
     if dev_stack:
         app["dev_stack"] = {"script": "scripts/dev-stack.sh"}
     installation = make_installation(
-        tmp_path / "planning", repos={"app": app}, limits={"tier2_unit_scope": scope}
+        tmp_path / "planning",
+        repos={"app": app},
+        limits={"tier2_unit_scope": scope},
+        tests={
+            "runtimes_blocked": list(blocked_in_config),
+            "tier2_splits": {
+                name: {"marker": f"runtime_{name}"} for name in ("acp", "claude_code")
+            },
+        },
     )
+    for runtime, reason in (blocked_in_file or {}).items():
+        write_block(
+            installation.state_dir,
+            runtime,
+            reason=reason,
+            source="command",
+            by="someone",
+            now=datetime.now(UTC) - timedelta(hours=1),
+        )
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored_unit("add-marker/1", repo="app")])
     tasks = installation.changes_dir / "add-marker" / "tasks.md"
