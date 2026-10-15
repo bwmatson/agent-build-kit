@@ -5,7 +5,9 @@
 - A unit can be recorded merged with the cause `auto_landed`, for a merge the pipeline makes
   itself, and goes through the same restack and cleanup as a person's merge. A merged event
   for a unit already recorded merged now changes nothing, whichever report came first.
-  Nothing lands a unit on its own yet.
+  Nothing lands a unit on its own yet. A landing in progress is recorded in `landing.json` in
+  the state directory, so a merge the poller reports after a crash is still recorded as the
+  pipeline's own.
 
 - A unit now carries the review tier its plan estimated (`auto`, `light` or `full`), kept
   through a re-plan once the unit has started. A store written before this reads as no

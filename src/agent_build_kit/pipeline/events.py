@@ -49,6 +49,7 @@ from agent_build_kit.forges.base import cancelled_names, failing_names
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.flakes import FlakeFound, OnFlake, waiting_note
+from agent_build_kit.pipeline.landing_intent import has_intent
 from agent_build_kit.pipeline.pr_poller import (  # noqa: F401 — FAILING_CHECKS_REASON re-exported
     CONFLICT_REASON,
     FAILING_CHECKS_REASON,
@@ -274,6 +275,15 @@ def on_merged(
         # second finds it recorded and moves, cleans and records nothing again.
         log(f"merged #{pr}: {merged.id} already recorded merged, nothing to do")
         return True
+
+    if (
+        cause == Cause.MERGED
+        and landing_path is not None
+        and has_intent(landing_path, repo=repo, pr=pr)
+    ):
+        # A landing the pipeline began, whoever reports its merge: a crash between the
+        # merge and its record leaves the intent, and this must not count as a person's.
+        cause = Cause.AUTO_LANDED
 
     try:
         # First: a thread mid-node defers the event before anything is recorded.
@@ -2246,6 +2256,7 @@ def build_dispatch(
                 rebase_cap=rebase_cap,
                 resume=resume,
                 lane=lane,
+                landing_path=landing_path,
                 log=log,
             )
         if event == "closed":
