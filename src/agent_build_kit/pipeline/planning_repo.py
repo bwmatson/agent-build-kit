@@ -56,16 +56,21 @@ def repository_name(root: Path) -> RepositoryName:
     )
 
 
+def toplevel(path: Path) -> Path | None:
+    """The top of the repository `path` is in, or of its nearest existing parent when `path` is
+    not made yet; None when there is no repository."""
+    here = path.resolve()
+    while not here.is_dir() and here != here.parent:
+        here = here.parent
+    top = git(here, "rev-parse", "--show-toplevel", check=False)
+    return Path(top.stdout.strip()).resolve() if top.returncode == 0 else None
+
+
 def is_worktree_of(path: Path, common: Path) -> bool:
     """Whether `path` is the top of a worktree of the repository with this common git directory."""
     if not path.is_dir():
         return False
-    top = git(path, "rev-parse", "--show-toplevel", check=False)
-    return (
-        top.returncode == 0
-        and Path(top.stdout.strip()).resolve() == path.resolve()
-        and common_dir(path) == common
-    )
+    return toplevel(path) == path.resolve() and common_dir(path) == common
 
 
 def git_dir(path: Path) -> Path | None:

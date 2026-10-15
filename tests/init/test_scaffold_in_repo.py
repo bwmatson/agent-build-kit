@@ -5,9 +5,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 from agent_build_kit.config import WorkspaceConfig
-from agent_build_kit.init.scaffold import draft_config, write_planning_repo
+from agent_build_kit.init.scaffold import ScaffoldError, draft_config, write_planning_repo
 from tests.factories import fake_openspec, init_repo
+from tests.init.test_code_repo_conventions import snapshot
 from tests.init.test_scaffold import detection
 
 STATE_LINES = {
@@ -34,14 +37,6 @@ def lay_out(repo: Path) -> list[Path]:
     return write_planning_repo(repo, in_repo_config(repo), run_openspec=fake_openspec)
 
 
-def tree(root: Path) -> dict[str, bytes]:
-    return {
-        str(p.relative_to(root)): p.read_bytes()
-        for p in sorted(root.rglob("*"))
-        if p.is_file() and ".git" not in p.relative_to(root).parts
-    }
-
-
 def repo_with(tmp_path: Path, files: dict[str, str] | None = None) -> Path:
     repo = init_repo(tmp_path / "app")
     for name, text in (files or {}).items():
@@ -56,13 +51,13 @@ def test_an_existing_store_is_untouched_and_a_second_run_writes_nothing(tmp_path
     (repo / "runs" / "units.json").write_bytes(store)
 
     first = lay_out(repo)
-    after_first = tree(repo)
+    after_first = snapshot(repo)
     second = lay_out(repo)
 
     assert (repo / "runs" / "units.json").read_bytes() == store
     assert repo / "abk.yaml" in first
     assert second == []
-    assert tree(repo) == after_first
+    assert snapshot(repo) == after_first
 
 
 def test_the_gitignore_gains_one_block_of_exactly_the_missing_lines(tmp_path: Path) -> None:
@@ -162,3 +157,35 @@ def test_an_older_orientation_is_replaced_in_place(tmp_path: Path) -> None:
     assert "stale words" not in text
     assert text.startswith(before) and text.endswith(after)
     assert len(ORIENTATION.findall(text)) == 1
+
+
+@pytest.mark.parametrize(
+    ("name", "text"),
+    [
+        ("AGENTS.md", "# App\n<!-- abk:planning v1 -->\nmy own rules\n"),
+        ("AGENTS.md", "# App\nmy own rules\n<!-- /abk:planning -->\n"),
+        (".gitignore", "build/\n# abk:planning v1\nmine/\n"),
+        (".gitignore", "build/\n# /abk:planning\n"),
+    ],
+)
+def test_mismatched_markers_leave_the_file_alone_and_say_so(
+    tmp_path: Path, name: str, text: str
+) -> None:
+    repo = repo_with(tmp_path, {name: text})
+
+    for _ in range(2):
+        with pytest.raises(ScaffoldError, match="fix the markers by hand|fix them by hand"):
+            lay_out(repo)
+
+    assert (repo / name).read_text() == text
+    assert not (repo / "abk.yaml").exists()
+
+
+def test_a_file_that_is_not_utf8_is_refused_by_name(tmp_path: Path) -> None:
+    repo = repo_with(tmp_path)
+    (repo / "AGENTS.md").write_bytes("caf\xe9\n".encode("latin-1"))
+
+    with pytest.raises(ScaffoldError, match="AGENTS.md is not valid UTF-8"):
+        lay_out(repo)
+
+    assert (repo / "AGENTS.md").read_bytes() == "caf\xe9\n".encode("latin-1")

@@ -11,16 +11,13 @@ from agent_build_kit import skills
 from agent_build_kit.cli import main
 from tests.cli.init_quiet import app_repo, quiet
 from tests.factories import git
+from tests.init.test_code_repo_conventions import snapshot
 
 FLAGS = ["--yes", "--skip-research", "--skip-propose"]
 
 
 def head(repo: Path) -> str:
     return git(repo, "rev-parse", "HEAD").strip()
-
-
-def files_of(repo: Path) -> dict[Path, bytes]:
-    return {p: p.read_bytes() for p in repo.rglob("*") if p.is_file() and ".git" not in p.parts}
 
 
 def run_init(repo: Path, monkeypatch: pytest.MonkeyPatch) -> int:
@@ -57,6 +54,40 @@ def test_a_clean_tree_is_not_committed(
     assert (repo / "abk.yaml").is_file()
 
 
+def test_a_dirty_tree_is_not_committed_and_its_edits_stay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = app_repo(tmp_path)
+    (repo / "src" / "app.py").write_text("x = 2\n")
+    (repo / "scratch.txt").write_text("loose\n")
+    before, diff = head(repo), git(repo, "diff", "--", "src/app.py")
+
+    assert run_init(repo, monkeypatch) == 0
+
+    assert head(repo) == before
+    assert (repo / "src" / "app.py").read_text() == "x = 2\n"
+    assert git(repo, "diff", "--", "src/app.py") == diff
+    assert "?? scratch.txt" in git(repo, "status", "--porcelain").splitlines()
+
+
+def test_a_planning_directory_inside_the_repo_is_in_repo_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    quiet(monkeypatch)
+    repo = app_repo(tmp_path)
+    monkeypatch.chdir(repo)
+    before = head(repo)
+
+    assert main(["init", "sub", "--repo", ".", *FLAGS]) == 0
+
+    assert not (repo / "sub" / ".git").exists()
+    assert head(repo) == before
+    config = yaml.safe_load((repo / "sub" / "abk.yaml").read_text())
+    assert [entry["path"] for entry in config["repos"].values()] == [".."]
+    assert "runs/unit-logs/" in (repo / "sub" / ".gitignore").read_text()
+    assert "sub/abk.yaml" in (repo / "AGENTS.md").read_text()
+
+
 def test_what_was_written_is_listed_and_each_skill_is_installed_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -77,7 +108,7 @@ def test_a_second_run_writes_nothing_and_says_so(
 ) -> None:
     repo = app_repo(tmp_path)
     assert run_init(repo, monkeypatch) == 0
-    snapshot = files_of(repo)
+    before = snapshot(repo)
     capsys.readouterr()
 
     assert run_init(repo, monkeypatch) == 0
@@ -85,4 +116,4 @@ def test_a_second_run_writes_nothing_and_says_so(
     out = capsys.readouterr().out
     assert not [line for line in out.splitlines() if line.startswith("wrote ")]
     assert "nothing written" in out
-    assert files_of(repo) == snapshot
+    assert snapshot(repo) == before

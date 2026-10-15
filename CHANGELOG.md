@@ -13,9 +13,13 @@
   `scrub.local`, and `abk scrub-store`.
 - `abk init . --repo .` now recognises a repository that is its own planning repo. It
   writes the repo at `.`, leaves existing files and the unit store as they are, adds the
+- `abk init . --repo .` (or any planning directory inside the repo, such as `abk init sub
+  --repo .`) now recognises a repository that is its own planning repo. It writes the
+  repo relative to the planning directory, makes no nested repository, leaves existing files and the unit store as they are, adds the
   state-directory ignore lines to `.gitignore` and a planning orientation to `AGENTS.md`
   (else `CLAUDE.md`) as marker blocks that a rerun refreshes in place, commits nothing, and
-  lists what it wrote. Installing the skills lists only the files that changed.
+  lists what it wrote. A file whose markers do not pair up, or that is not UTF-8, is
+  refused and left untouched. Installing the skills lists only the files that changed.
 
 - The runner's change directory and follow-ups, and `abk init`'s check for an existing
   change, now use `planning.specs_dir` instead of a fixed `openspec`, so a specs directory
