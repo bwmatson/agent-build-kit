@@ -46,7 +46,6 @@ from agent_build_kit.config import (
     active,
     active_root,
     by_project,
-    known_runtime_names,
     models,
     owning_project,
     stack_versions_for,
@@ -2427,20 +2426,17 @@ class Tier2Session:
             dev_stack=str(self._dev_stack) if self._dev_stack else None,
         )
 
-    def runtimes(self) -> tuple[str, ...]:
-        """The groups this run executes: the group it runs alone, or the base and every
-        known runtime it does not leave out."""
-        if self._only is not None:
-            return (self._only,)
-        left_out = set(self._selection().left_out)
-        known = sorted(known_runtime_names(active().runtimes) - left_out)
-        return (BASE_GROUP, *known)
+    @property
+    def _only_split(self) -> str | None:
+        """The split this run is limited to; the older name of the untagged group is `rest`."""
+        return REST_SPLIT if self._only == BASE_GROUP else self._only
 
     def splits(self) -> tuple[str, ...]:
         """The splits this run executes: the one it runs alone, or every declared split it
         does not leave out."""
-        if self._only is not None:
-            return (REST_SPLIT if self._only == BASE_GROUP else self._only,)
+        only = self._only_split
+        if only is not None:
+            return (only,)
         left_out = set(self._selection().left_out)
         return tuple(split.name for split in self._splits if split.name not in left_out)
 
@@ -2452,8 +2448,7 @@ class Tier2Session:
             self._profile, dev_stack_script=False, splits=self._splits
         ):
             return Tier2Selection(marker=self._marker)
-        only = REST_SPLIT if self._only == BASE_GROUP else self._only
-        return build_selection(self._marker, self._splits, held=self._held, only=only)
+        return build_selection(self._marker, self._splits, held=self._held, only=self._only_split)
 
     def _expression(self) -> str | None:
         """The text the test runner takes for this run's selection; None when it selects

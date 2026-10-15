@@ -199,7 +199,7 @@ def _proposal(inst: Installation, entry: PreExisting, unit: StoredUnit, earlier:
         if earlier
         else ""
     )
-    runtime_line = (
+    split_line = (
         f"It belongs to the `{entry.split}` split's tests.\n\n" if entry.split != REST_SPLIT else ""
     )
     return (
@@ -207,7 +207,7 @@ def _proposal(inst: Installation, entry: PreExisting, unit: StoredUnit, earlier:
         f"`{entry.test}` fails on the base as well as on the branches that meet it, so it fails "
         "units that did not touch it.\n"
         f"{again}\n"
-        f"{runtime_line}"
+        f"{split_line}"
         f"It ran as `{entry.command}` and failed with `{entry.line}`. "
         f"On the base it {entry.base_result}, with this output:\n\n"
         f"```\n{entry.base_output.strip()}\n```\n\n"

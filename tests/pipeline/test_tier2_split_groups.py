@@ -14,7 +14,6 @@ from agent_build_kit.config import (
     ProjectConfig,
     Tier2Split,
     Tier2UnitScope,
-    known_runtime_names,
 )
 from agent_build_kit.pipeline.tier2 import (
     UNKNOWN_SPLIT,
@@ -485,32 +484,26 @@ def test_a_result_stored_with_failures_under_the_older_group_key_reads_their_spl
 # --- the groups a run executes, which the open-fix gate asks --------------------
 
 
-def test_the_groups_a_run_executes_leave_out_the_blocked_runtimes(tmp_path: Path) -> None:
+def test_the_splits_a_run_executes_leave_out_the_held_splits(tmp_path: Path) -> None:
     gate = session(tmp_path, Groups(), scope=Tier2UnitScope.FULL, held=["acp"])
 
-    groups = gate.runtimes()
-
-    assert groups[0] == "base"
-    assert "acp" not in groups
-    assert set(groups[1:]) == known_runtime_names() - {"acp"}
+    assert gate.splits() == ("claude_code", REST_SPLIT)
 
 
-def test_the_groups_a_run_executes_are_every_one_when_nothing_is_blocked(tmp_path: Path) -> None:
+def test_the_splits_a_run_executes_are_every_one_when_none_is_held(tmp_path: Path) -> None:
     gate = session(tmp_path, Groups(), scope=Tier2UnitScope.FULL)
 
-    groups = gate.runtimes()
-
-    assert groups[0] == "base"
-    assert set(groups[1:]) == known_runtime_names()
-    assert "acp" in groups
+    assert gate.splits() == tuple(split.name for split in SPLITS)
 
 
-def test_a_run_limited_to_one_group_executes_only_that_group(tmp_path: Path) -> None:
+def test_a_run_limited_to_one_split_executes_only_that_split(tmp_path: Path) -> None:
     only_acp = session(tmp_path, Groups(), scope=Tier2UnitScope.FULL, only="acp")
+    only_rest = session(tmp_path, Groups(), scope=Tier2UnitScope.FULL, only=REST_SPLIT)
     only_base = session(tmp_path, Groups(), scope=Tier2UnitScope.FULL, only="base")
 
-    assert only_acp.runtimes() == ("acp",)
-    assert only_base.runtimes() == ("base",)
+    assert only_acp.splits() == ("acp",)
+    assert only_rest.splits() == (REST_SPLIT,)
+    assert only_base.splits() == (REST_SPLIT,)
 
 
 def test_one_call_limited_to_a_group_runs_only_its_expression_and_the_next_call_runs_whole(
