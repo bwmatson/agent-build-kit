@@ -461,11 +461,16 @@ class PythonUvProfile:
             marker = [] if _is_serial_split(expression) else ["-m", expression]
         return [*command[: program + 1], *marker, *tests, "-q"]
 
-    selector_kinds: tuple[str, ...] = ()
+    selector_kinds: tuple[str, ...] = ("marker",)
 
     def expression(self, marker: str, selection: Tier2Selection) -> str:
         """The `-m` text of `selection` over `marker`."""
-        raise NotImplementedError
+        parts = [marker, *(f"not {tag}" for tag in selection.none_of)]
+        if len(selection.any_of) == 1:
+            parts.append(selection.any_of[0])
+        elif selection.any_of:
+            parts.append(f"({' or '.join(selection.any_of)})")
+        return " and ".join(parts)
 
     def list_tests(
         self,
@@ -476,7 +481,8 @@ class PythonUvProfile:
         among: list[str] | None = None,
     ) -> list[str] | None:
         """The identifiers `command` runs under `selection`, listed without running them."""
-        raise NotImplementedError
+        text = self.expression(selection.marker, selection)
+        return self.selected_tests(command, text, run=run, among=among)
 
     def selected_tests(
         self,

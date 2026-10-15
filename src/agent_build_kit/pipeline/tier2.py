@@ -33,7 +33,7 @@ from pydantic import Field
 
 from agent_build_kit import forges
 from agent_build_kit.budget import cut_head
-from agent_build_kit.config import BASE_GROUP, Tier2Split, active, known_runtime_names
+from agent_build_kit.config import BASE_GROUP, REST_SPLIT, Tier2Split, active, known_runtime_names
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
@@ -55,6 +55,11 @@ class Tier2Selection(Frozen):
     only: str | None = None
     # True when every split, `rest` included, is held and nothing is selected.
     empty: bool = False
+    # What a built selection is over: the repo's marker, the selectors of the splits it
+    # requires one of (when `rest` is left out or one split runs alone) and those it leaves out.
+    marker: str = ""
+    any_of: tuple[str, ...] = ()
+    none_of: tuple[str, ...] = ()
 
 
 def build_selection(
@@ -66,7 +71,36 @@ def build_selection(
 ) -> Tier2Selection:
     """The selection of a tier 2 run over a repo's declared `splits`: leaving out the `held`
     ones, or running `only` one (a split name or `rest`)."""
-    raise NotImplementedError
+    known = [split.name for split in splits]
+    for name in [*held, *([only] if only is not None else [])]:
+        if name not in known:
+            raise ValueError(f"unknown split {name!r} (declared: {', '.join(known)})")
+    if only is not None and only in held:
+        raise ValueError(f"split {only!r} is asked for alone and also held")
+    declared = [split for split in splits if split.marker is not None]
+    markers = {split.name: split.marker for split in declared}
+    left_out = tuple(sorted(set(held)))
+    base = Tier2Selection(expression=marker, marker=marker)
+    if only == REST_SPLIT:
+        left_out = tuple(split.name for split in declared)
+        return base.model_copy(
+            update={
+                "left_out": left_out,
+                "only": only,
+                "none_of": tuple(markers[name] for name in left_out),
+            }
+        )
+    if only is not None:
+        return base.model_copy(update={"only": only, "any_of": (markers[only],)})
+    if REST_SPLIT in left_out:
+        kept = tuple(markers[split.name] for split in declared if split.name not in left_out)
+        return base.model_copy(update={"left_out": left_out, "any_of": kept, "empty": not kept})
+    return base.model_copy(
+        update={
+            "left_out": left_out,
+            "none_of": tuple(markers[s.name] for s in declared if s.name in left_out),
+        }
+    )
 
 
 def tier2_selection(
@@ -97,17 +131,29 @@ def tier2_selection(
 
 
 def selection_unavailable(
-    toolchain: object, *, dev_stack_script: bool, splits: Collection[Tier2Split] = ()
+    toolchain: object,
+    *,
+    dev_stack_script: bool,
+    splits: Collection[Tier2Split] | None = None,
 ) -> str | None:
-    """Why a tier 2 run of this profile cannot leave a group out (the profile has no way to
-    list a selection, or the repo runs tier 2 through its dev stack script), else None."""
+    """Why a tier 2 run of this profile cannot leave a split out, else None. With `splits`
+    given, a repo that declares none is never unable; without them (a caller not yet moved to
+    splits) the profile must have the listing hook."""
     from agent_build_kit.profiles.base import ListsSelectedTests
 
     name = getattr(toolchain, "name", type(toolchain).__name__)
+    if splits is not None and not any(split.marker is not None for split in splits):
+        return None
     if dev_stack_script:
         return "the repo's dev stack script runs tier 2 and takes no selection"
-    if not isinstance(toolchain, ListsSelectedTests):
-        return f"the {name} profile cannot list the tests a selection holds"
+    if splits is None:
+        if not isinstance(toolchain, ListsSelectedTests):
+            return f"the {name} profile cannot list the tests a selection holds"
+        return None
+    kinds = tuple(getattr(toolchain, "selector_kinds", ()))
+    if "marker" not in kinds:
+        supported = ", ".join(kinds) or "none"
+        return f"the {name} profile cannot apply a marker selector (it supports: {supported})"
     return None
 
 
