@@ -7,6 +7,13 @@
   keeping the rest of each path and every other word. The original is kept once as
   `units.json.pre-redact`, and a second run finds nothing. The packaged `.gitignore` now
   ignores `*.pre-redact` wherever the state directory is.
+- `abk install-timers` run from a repository that is also the planning repo now creates a
+  detached worktree of it outside the working copy (under the data directory, named for the
+  repository), records it, and points every unit at it, so a tick never touches the branch you
+  are working on. It is safe to run again, from either place; it refuses a directory in the way
+  that is not a worktree of the repository, leaves a dirty worktree where it is and says so,
+  and `--remove` takes the units off but leaves the worktree and prints how to remove it. A
+  separate planning repo installs as before.
 
 - `abk doctor` has a `public content` check. It reads a tracked `abk.yaml` offline and warns
   about a repo path outside the checkout, a home-directory path in a value and a repo owned

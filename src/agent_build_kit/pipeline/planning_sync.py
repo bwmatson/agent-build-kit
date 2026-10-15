@@ -103,7 +103,7 @@ def planning_mode(inst: Installation) -> PlanningMode:
     return PlanningMode.WORKING_COPY
 
 
-def _in_repo_default_branch(inst: Installation) -> str:
+def in_repo_default_branch(inst: Installation) -> str:
     """The in-repo repo's `default_branch`, as verify reads it."""
     name = in_repo_name(inst)
     return inst.repo(name).default_branch if name else default_branch_of(inst.root)
@@ -137,7 +137,7 @@ def _sync_worktree(inst: Installation, say: Callable[[str], None]) -> SyncResult
     branch = current_branch(root)
     if branch:
         return _stopped(f"HEAD is on the branch {branch}, which is kept")
-    default = _in_repo_default_branch(inst)
+    default = in_repo_default_branch(inst)
     if has_origin(root):
         fetched = git(root, "fetch", "origin", default, check=False)
         if fetched.returncode != 0:
