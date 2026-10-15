@@ -69,7 +69,8 @@
 - The scheduled tier 2 run is now one change per declared split and `rest`:
   `scheduled-tier2-<repo>-<date>-<split>`, with `-rest` for the tests in no split. Each split
   is due and open on its own, so a newly declared split runs at once while the others wait
-  out their period. An older change with no suffix, or ending `-base`, counts as `rest`.
+  out their period. An older change with no suffix, or ending `-base`, counts as `rest`, so
+  `base` can no longer be a split's name.
   `tests.tier2_runtimes` (never released) is refused at load, as are `tests.runtimes_blocked`
   and `tests.runtimes_allowed`, each naming the `tests.tier2_splits` setting that replaces it.
 

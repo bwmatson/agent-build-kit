@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+from agent_build_kit.config import REST_SPLIT
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.tier2_schedule import PREFIX, scheduled_name
 from agent_build_kit.pipeline.unit_store import UnitStore
@@ -63,15 +64,15 @@ def store_of(inst: Installation, *tier2_repos: str, **others: str) -> UnitStore:
     return store
 
 
-def archived(inst: Installation, repo: str, written: date, variant: str = "base") -> str:
+def archived(inst: Installation, repo: str, written: date, split: str = REST_SPLIT) -> str:
     """A scheduled change written on `written` and archived the same day; returns its name."""
-    name = scheduled_name(repo, written, variant)
+    name = scheduled_name(repo, written, split)
     (inst.changes_dir / "archive" / f"{written.isoformat()}-{name}").mkdir(parents=True)
     return name
 
 
-def open_change(inst: Installation, repo: str, written: date, variant: str = "base") -> str:
-    name = scheduled_name(repo, written, variant)
+def open_change(inst: Installation, repo: str, written: date, split: str = REST_SPLIT) -> str:
+    name = scheduled_name(repo, written, split)
     (inst.changes_dir / name).mkdir(parents=True)
     return name
 

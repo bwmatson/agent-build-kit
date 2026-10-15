@@ -51,6 +51,23 @@ def test_a_repos_own_runtime_list_is_refused_naming_a_declared_split() -> None:
     assert "tests.tier2_splits" in text
 
 
+@pytest.mark.parametrize("repo_level", [False, True], ids=["top-level", "repo"])
+def test_a_split_named_base_is_refused_as_the_older_name_of_rest(repo_level: bool) -> None:
+    base = {"base": {"marker": "runtime_base"}}
+    setting = "repos.app.tests.tier2_splits" if repo_level else "tests.tier2_splits"
+
+    with pytest.raises(ValidationError) as refused:
+        if repo_level:
+            load(own={"tier2_splits": base})
+        else:
+            load(tests={"tier2_splits": base})
+
+    text = str(refused.value)
+    assert setting in text
+    assert "base" in text
+    assert "rest" in text
+
+
 def test_config_show_no_longer_prints_the_lists(
     tmp_path: Path, capsys: pytest.CaptureFixture
 ) -> None:

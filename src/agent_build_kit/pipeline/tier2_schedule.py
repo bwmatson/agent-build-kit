@@ -12,7 +12,13 @@ from collections.abc import Callable, Iterable
 from datetime import date, timedelta
 from pathlib import Path
 
-from agent_build_kit.config import REST_SPLIT, Tier2Schedule, tier2_schedule, tier2_splits
+from agent_build_kit.config import (
+    BASE_GROUP,
+    REST_SPLIT,
+    Tier2Schedule,
+    tier2_schedule,
+    tier2_splits,
+)
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.unit_store import UnitStore
@@ -28,10 +34,6 @@ PERIODS = {
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _TAIL = re.compile(rf"(?P<date>{_DATE.pattern})(?:-(?P<split>.+))?")
 _ARCHIVED = re.compile(rf"{_DATE.pattern}-(?P<name>.+)")
-
-
-# The suffix an older change carried for the tests of no declared split.
-_OLDER_REST = "base"
 
 
 def scheduled_name(repo: str, day: date, split: str = REST_SPLIT) -> str:
@@ -52,7 +54,7 @@ def scheduled_parts(name: str, repo: str, splits: Iterable[str]) -> tuple[date, 
     if not found:
         return None
     split = found["split"]
-    if split in (None, _OLDER_REST):
+    if split in (None, BASE_GROUP):
         split = REST_SPLIT
     try:
         day = date.fromisoformat(found["date"])

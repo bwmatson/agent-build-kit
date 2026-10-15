@@ -725,7 +725,8 @@ class TestsConfig(Frozen):
     tier2_splits: dict[str, Tier2SplitEntry] | None = None
 
 
-# The group of tier 2 tests that carry no runtime tag; reserved, so no runtime has this name.
+# The older name of `rest`, the tier 2 tests in no split; reserved, so no split has this name.
+# Deleted with the last caller that still uses it.
 BASE_GROUP = "base"
 
 
@@ -1158,6 +1159,11 @@ class WorkspaceConfig(Frozen):
         for setting, splits in maps.items():
             seen: dict[str, str] = {}
             for name, entry in splits.items():
+                if name == BASE_GROUP:
+                    raise ValueError(
+                        f"{setting}: {name!r} is reserved as the older name of `{REST_SPLIT}`; "
+                        "name the split something else"
+                    )
                 if not SPLIT_NAME.fullmatch(name):
                     raise ValueError(
                         f"{setting}: {name!r} is not a split name; use lowercase letters, "
