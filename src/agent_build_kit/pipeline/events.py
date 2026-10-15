@@ -49,7 +49,7 @@ from agent_build_kit.forges.base import cancelled_names, failing_names
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.flakes import FlakeFound, OnFlake, waiting_note
-from agent_build_kit.pipeline.landing_intent import has_intent
+from agent_build_kit.pipeline.landing_intent import clear_intent, has_intent
 from agent_build_kit.pipeline.pr_poller import (  # noqa: F401 — FAILING_CHECKS_REASON re-exported
     CONFLICT_REASON,
     FAILING_CHECKS_REASON,
@@ -274,6 +274,8 @@ def on_merged(
         # The landing and the poller both report a merge, in either order: the
         # second finds it recorded and moves, cleans and records nothing again.
         log(f"merged #{pr}: {merged.id} already recorded merged, nothing to do")
+        if landing_path is not None:
+            clear_intent(landing_path, repo=repo, pr=pr)
         return True
 
     if (
@@ -303,6 +305,8 @@ def on_merged(
                 lane=lane,
                 log=log,
             )
+        if landing_path is not None:
+            clear_intent(landing_path, repo=repo, pr=pr)
     except BranchBusy as error:
         return _deferred(f"merged #{pr}", merged, error, log)
     return True
