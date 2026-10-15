@@ -1211,6 +1211,32 @@ class WorkspaceConfig(Frozen):
 # --- locating and loading ------------------------------------------------------
 
 
+def _not_a_unit_worktree(found: Path) -> Path:
+    """`found`, unless it is the abk.yaml of a unit worktree (a linked worktree on a branch
+    shaped `<branch_prefix><change>/<n>`): that is no installation, so the pipeline worktree's
+    file stands in, or there is an error when none is live."""
+    from agent_build_kit.pipeline.planning_repo import common_dir
+    from agent_build_kit.pipeline.planning_sync import read_pipeline_marker
+    from agent_build_kit.pipeline.shell import git
+
+    tree = found.parent
+    own = git(tree, "rev-parse", "--path-format=absolute", "--git-dir", check=False)
+    common = common_dir(tree)
+    if own.returncode or common is None or Path(own.stdout.strip()).resolve() == common:
+        return found
+    branch = git(tree, "symbolic-ref", "--short", "-q", "HEAD", check=False).stdout.strip()
+    prefix = (read_base(found).get("git") or {}).get("branch_prefix", GitConfig().branch_prefix)
+    if not re.fullmatch(re.escape(prefix) + r"[^/]+/\d+", branch):
+        return found
+    live = read_pipeline_marker(tree)
+    if live is not None and (live / CONFIG_FILENAME).is_file():
+        return live.resolve() / CONFIG_FILENAME
+    raise ConfigError(
+        f"{tree} is a unit worktree, not an installation: pass --config, set {CONFIG_ENV}, "
+        f"or run `abk install-timers` so the pipeline worktree is live"
+    )
+
+
 def locate(explicit: Path | None = None, *, cwd: Path | None = None) -> Path:
     """The abk.yaml in force: `--config`, then `ABK_CONFIG`, then the nearest
     one walking up from the working directory."""
@@ -1222,7 +1248,7 @@ def locate(explicit: Path | None = None, *, cwd: Path | None = None) -> Path:
     here = (cwd or Path.cwd()).resolve()
     for candidate in (here, *here.parents):
         if (candidate / CONFIG_FILENAME).is_file():
-            return candidate / CONFIG_FILENAME
+            return _not_a_unit_worktree(candidate / CONFIG_FILENAME)
     raise ConfigError(
         f"no {CONFIG_FILENAME} found in {here} or above it; pass --config, set "
         f"{CONFIG_ENV}, or run `abk init` to create one"
