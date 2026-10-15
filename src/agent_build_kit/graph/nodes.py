@@ -1766,8 +1766,12 @@ class BuildPath:
         ]
         if not wait or not any(fixes):
             return None
+        # Only the tests that got a fix change: one the record refused (an unknown or blocked
+        # runtime) is not waited for.
         return self.park_for_fix(
-            preexisting_waiting_note([failure.test for failure in verdict.pre_existing])
+            preexisting_waiting_note(
+                [f.test for f, fix in zip(verdict.pre_existing, fixes, strict=True) if fix]
+            )
         )
 
     def satisfied(self, state: UnitRun) -> Update:
