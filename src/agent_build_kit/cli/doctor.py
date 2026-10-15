@@ -41,6 +41,7 @@ from agent_build_kit.config import (
     EnvironmentConfig,
     NotificationProvider,
     PolicyMarker,
+    RepoConfig,
     WorkspaceConfig,
 )
 from agent_build_kit.forges.transport import (
@@ -601,8 +602,10 @@ def _committed_facts(inst: Installation, toplevel: Path) -> list[Check]:
     not: read straight from the file, offline."""
     document = yaml.safe_load((inst.root / "abk.yaml").read_text()) or {}
     home = str(Path.home())
+    under_home = re.compile(rf"(?<![\w/]){re.escape(home)}(?:/|$)") if home.rstrip("/") else None
+    repos = document.get("repos") or {}
     checks = []
-    for name, entry in (document.get("repos") or {}).items():
+    for name, entry in repos.items():
         raw = entry.get("path") if isinstance(entry, dict) else None
         if raw is None:
             continue
@@ -616,15 +619,19 @@ def _committed_facts(inst: Installation, toplevel: Path) -> list[Check]:
                 )
             )
     for key, value in _strings(document):
-        if _HOME_PATH.search(value) or home in value:
+        if _HOME_PATH.search(value) or (under_home and under_home.search(value)):
             checks.append(_warn(PUBLIC_CONTENT, f"{key} holds a home-directory path", _PUBLIC_FIX))
     origin = git(inst.root, "remote", "get-url", "origin", check=False)
     named = forges.identify(origin.stdout.strip()) if origin.returncode == 0 else None
     if named is not None:
-        for name, repo in inst.config.repos.items():
+        for name, entry in repos.items():
+            try:
+                repo = RepoConfig.model_validate(entry)
+                account = forges.get(repo.forge).identity(repo).account
+            except (ValueError, KeyError):
+                continue
             if str(repo.path) == ".":
                 continue
-            account = forges.get(repo.forge).identity(repo).account
             if account.lower() != named.account.lower():
                 checks.append(
                     _warn(
@@ -636,7 +643,7 @@ def _committed_facts(inst: Installation, toplevel: Path) -> list[Check]:
     return checks
 
 
-def _local_files(inst: Installation) -> list[Check]:
+def _local_files(inst: Installation, toplevel: Path) -> list[Check]:
     """The local scrub list and the redaction copies: never committed."""
     root = inst.root
     checks = []
@@ -657,10 +664,19 @@ def _local_files(inst: Installation) -> list[Check]:
                     "add `scrub.local` to .gitignore",
                 )
             )
-    copies = {*root.glob("*.pre-redact"), *inst.state_dir.rglob("*.pre-redact")}
-    for copy in sorted(copies):
-        name = copy.relative_to(root).as_posix()
-        if not _is_ignored(root, name):
+    found = {*root.glob("*.pre-redact"), *inst.state_dir.rglob("*.pre-redact")}
+    # A copy outside the repository cannot be committed to it.
+    for copy in sorted(c for c in found if c.resolve().is_relative_to(toplevel)):
+        name = copy.resolve().relative_to(toplevel).as_posix()
+        if _is_tracked(toplevel, name):
+            checks.append(
+                _warn(
+                    PUBLIC_CONTENT,
+                    f"{name} is tracked",
+                    f"git rm --cached {name}, and add `*.pre-redact` to .gitignore",
+                )
+            )
+        elif not _is_ignored(toplevel, name):
             checks.append(
                 _warn(PUBLIC_CONTENT, f"{name} is not ignored", "add `*.pre-redact` to .gitignore")
             )
@@ -673,11 +689,12 @@ def _public_content(inst: Installation) -> list[Check]:
     top = git(inst.root, "rev-parse", "--show-toplevel", check=False)
     if top.returncode:
         return [_ok(PUBLIC_CONTENT, "not a git repository")]
+    toplevel = Path(top.stdout.strip()).resolve()
     checks = []
     tracked = _is_tracked(inst.root, "abk.yaml")
     if tracked:
-        checks += _committed_facts(inst, Path(top.stdout.strip()).resolve())
-    checks += _local_files(inst)
+        checks += _committed_facts(inst, toplevel)
+    checks += _local_files(inst, toplevel)
     if checks:
         return checks
     return [_ok(PUBLIC_CONTENT, "nothing found" if tracked else "abk.yaml is not tracked")]

@@ -89,3 +89,26 @@ def test_a_linked_worktree_with_everything_ignored_is_ok(tmp_path: Path) -> None
 
     assert [c.status for c in public_content(worktree)] == ["ok"]
     assert [c.status for c in public_content(config)] == ["ok"]
+
+
+def test_a_state_directory_outside_the_repository_holds_nothing_to_commit(
+    tmp_path: Path,
+) -> None:
+    elsewhere = tmp_path / "elsewhere"
+    config = planning(tmp_path / "plan", ignore="scrub.local\n", state_dir=str(elsewhere))
+    put(elsewhere, "units.json.pre-redact")
+
+    assert [c.status for c in public_content(config)] == ["ok"]
+
+
+def test_a_tracked_redaction_copy_says_to_untrack_it(tmp_path: Path) -> None:
+    config = planning(tmp_path / "plan", ignore=IGNORED)
+    put(config.parent, COPY)
+    git(config.parent, "add", "-f", COPY)
+    git(config.parent, "commit", "-qm", "the copy")
+
+    found = public_content(config)
+
+    assert [c.status for c in found] == ["warn"]
+    assert "git rm --cached" in found[0].fix
+    assert "units.json.pre-redact" in said(found[0])

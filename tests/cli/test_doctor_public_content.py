@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from agent_build_kit.config import RepoConfig
 from tests.cli.public_content_repo import planning, public_content, said
 from tests.forges.mock_host import MockHost, ok
@@ -12,6 +14,10 @@ from tests.forges.mock_host import MockHost, ok
 # Assembled, so that this file does not itself look like a leaked path.
 HOME = "/" + "home" + "/someone"
 HOME_FILE = {"from": "env-file", "file": f"{HOME}/.config/svc/token.env", "key": "TOKEN"}
+
+
+def env_file(path: str) -> dict[str, str]:
+    return dict(HOME_FILE, file=path)
 
 
 def inside(name: str = "app", slug: str = "example/app") -> dict[str, RepoConfig]:
@@ -138,3 +144,40 @@ def test_the_check_reaches_the_host_no_more_than_the_rest_of_doctor_does(
     assert [c.status for c in flagged] == ["warn", "warn"]
     assert [c.status for c in quiet] == ["ok"]
     assert [r.url for r in tracked_host.requests] == [r.url for r in untracked_host.requests]
+
+
+def test_a_repo_only_the_local_overlay_adds_is_not_judged(tmp_path: Path) -> None:
+    config = planning(tmp_path / "plan")
+    (config.parent / "abk.local.yaml").write_text(
+        "repos:\n  platform:\n    path: platform\n    slug: elsewhere/app\n"
+    )
+    (config.parent / "platform").mkdir()
+
+    assert [c.status for c in public_content(config)] == ["ok"]
+
+
+def test_a_home_directory_of_slash_matches_no_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: Path("/")))
+    config = planning(tmp_path / "plan", verify_env={"TOKEN": env_file("/srv/token.env")})
+
+    assert [c.status for c in public_content(config)] == ["ok"]
+
+
+def test_a_home_directory_is_matched_as_a_path_prefix_not_a_substring(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: Path("/srv/runner")))
+    config = planning(
+        tmp_path / "plan",
+        verify_env={
+            "A": env_file("/srv/runner-cache/a.env"),
+            "B": env_file("/srv/runner/b.env"),
+        },
+    )
+
+    found = public_content(config)
+
+    assert [c.status for c in found] == ["warn"]
+    assert "verify.env.B.file" in said(found[0])
