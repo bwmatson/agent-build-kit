@@ -18,9 +18,10 @@ def older_store(tmp_path) -> UnitStore:
     """A store whose one unit was parked by the release that named runtimes."""
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit(UNIT_ID)])
-    store.set_state(UNIT_ID, PLANNED, note="held", cause=Cause.RUNTIME_BLOCKED)
+    store.set_state(UNIT_ID, PLANNED, note="held", cause=Cause.SPLIT_HELD)
     raw = json.loads(store.path.read_text())
     old = raw["units"][0]
+    old["history"][-1]["cause"] = "runtime_blocked"
     old["parked_runtimes"] = ["acp", "claude_code"]
     old["parked_sha"] = "sha-1"
     old["parked_snapshot"] = "first run"

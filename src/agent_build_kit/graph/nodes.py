@@ -1321,20 +1321,20 @@ class BuildPath:
         self.runner.store.set_gated_requeue(self.unit.id, RequeueReason.RESUME)
         return update
 
-    def park_for_runtime(self, runtimes: list[str], sha: str, snapshot: str) -> Update:
-        """Hold the unit, planned, until the runtimes whose tests did not run are usable. Nothing
-        is published and nothing counts against it: those tests have not failed."""
-        blocks = self.runner.tier2_holds().held
+    def park_for_split(self, splits: list[str], sha: str, snapshot: str) -> Update:
+        """Hold the unit, planned, until the held splits whose tests did not run are released.
+        Nothing is published and nothing counts against it: those tests have not failed."""
+        held = self.runner.tier2_holds().held
         waiting = ", ".join(
-            f"{name} ({blocks[name].reason})" if name in blocks else name for name in runtimes
+            f"{name} ({held[name].reason})" if name in held else name for name in splits
         )
         update = self.hold(
             PLANNED,
-            f"tier 2 tests of {waiting} did not run: the runtime is blocked",
-            f"waiting for {', '.join(runtimes)}",
-            cause=Cause.RUNTIME_BLOCKED,
+            f"tier 2 tests of {waiting} did not run: the split is held",
+            f"waiting for tier 2 split {', '.join(splits)}",
+            cause=Cause.SPLIT_HELD,
         )
-        self.runner.store.set_parked(self.unit.id, runtimes, sha, snapshot)
+        self.runner.store.set_parked(self.unit.id, splits, sha, snapshot)
         return update
 
     def fix_checks(self, state: UnitRun) -> Update:
@@ -1735,15 +1735,15 @@ class BuildPath:
                 f"waiting for the fix change {', '.join(held)} of a failing test on the base"
             )
         before = r.store.get(unit.id)
-        # A unit parked on a runtime resumes with that group alone, on the commit it passed on.
-        resumed = bool(before.parked_runtimes) and r.head(tree) == before.parked_sha
+        # A unit parked on a split resumes with that split alone, on the commit it passed on.
+        resumed = bool(before.parked_splits) and r.head(tree) == before.parked_sha
         parts: list[str] = []
         left_out: list[str] = []
-        # The groups of a resume that ran and passed, kept if the unit parks again on others.
+        # The splits of a resume that ran and passed, kept if the unit parks again on others.
         passed: list[str] = []
         sha = ""
-        for group in before.parked_runtimes if resumed else [None]:
-            only = {} if group is None else {"only": group}
+        for split in before.parked_splits if resumed else [None]:
+            only = {} if split is None else {"only": split}
             ok, part = r.run_tier2(cwd=tree, base=base, **only)
             parts.append(part)
             result = r.tier2_result()
@@ -1756,8 +1756,8 @@ class BuildPath:
         snapshot = "\n\n".join(parts)
         if ok and left_out:
             kept = "\n\n".join([before.parked_snapshot, *passed]).strip()
-            return self.park_for_runtime(left_out, sha, kept if resumed else snapshot)
-        if before.parked_runtimes:
+            return self.park_for_split(left_out, sha, kept if resumed else snapshot)
+        if before.parked_splits:
             r.store.set_parked(unit.id)
             if ok and resumed:
                 snapshot = f"{before.parked_snapshot}\n\n{snapshot}".strip()

@@ -68,7 +68,10 @@
   configuration's `hold: true` entries and the unexpired entries of `tier2-held.json` in
   the state directory together: `hold: false` always releases a split and `hold: true`
   always holds it. `tests.runtimes_blocked` and `tests.runtimes_allowed` are gone, and a
-  leftover `tier2-blocked.json` is not read.
+  leftover `tier2-blocked.json` is not read. A unit waiting on a held split is held
+  planned with the cause `split_held` and the field `parked_splits`; a unit parked before
+  this release, with the cause `runtime_blocked` and the field `parked_runtimes`, reads as
+  parked on the same splits.
 
 - An `abk.local.yaml` beside `abk.yaml` is merged over it when the configuration loads, so
   facts about other repos and a stack can stay out of a public checkout: mappings merge key
