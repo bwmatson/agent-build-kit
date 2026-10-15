@@ -865,15 +865,38 @@ def cmd_install_timers(args: argparse.Namespace, inst: Installation | None) -> i
         return 2
 
     if args.remove:
-        change = timers.remove(inst.root, dry_run=args.dry_run)
-        for path in change.removed:
+        removal = timers.remove_in_repo(inst, dry_run=args.dry_run)
+        for path in removal.change.removed:
             print(f"{'would remove' if args.dry_run else 'removed'} {path}")
-        if not change.removed:
-            print(f"nothing installed for {inst.root}")
+        if not removal.change.removed:
+            print(f"nothing installed for {removal.worktree or inst.root}")
+        if removal.worktree is not None and not removal.worktree.is_dir():
+            print(
+                f"the marker named a planning worktree at {removal.worktree}, which is gone; "
+                "`git worktree prune` forgets it"
+            )
+        elif removal.worktree is not None:
+            print(
+                f"left the planning worktree at {removal.worktree}; "
+                f"`git worktree remove {removal.worktree}` removes it"
+            )
         return 0
 
     tools = timers.tool_dirs(inst)
-    change = timers.install(inst.root, enable=args.enable, dry_run=args.dry_run, tool_dirs=tools)
+    try:
+        installed = timers.install_in_repo(
+            inst, enable=args.enable, dry_run=args.dry_run, tool_dirs=tools
+        )
+    except timers.PlanningWorktreeRefused as refusal:
+        print(f"abk install-timers: {refusal}", file=sys.stderr)
+        return 1
+    change = installed.change
+    where = installed.worktree or inst.root
+    if installed.worktree is not None:
+        verb = ("would create" if args.dry_run else "created") if installed.created else "reused"
+        print(f"{verb} planning worktree {installed.worktree}")
+    for note in installed.notes:
+        print(f"note: {note}")
     if tools:
         print(f"units' PATH also carries: {', '.join(tools)}")
     for tool in timers.needed_tools(inst):
@@ -895,7 +918,9 @@ def cmd_install_timers(args: argparse.Namespace, inst: Installation | None) -> i
         )
 
     if not args.dry_run and (change.written or change.unchanged):
-        print(f"\nunits point at {inst.root}")
+        print(f"\nunits point at {where}")
+        if where != inst.root:
+            print(f"from this working copy, use --config {where / 'abk.yaml'}")
         if args.enable:
             print("timers enabled; `systemctl --user list-timers` shows when each next runs")
         else:

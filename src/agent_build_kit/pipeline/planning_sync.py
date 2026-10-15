@@ -103,10 +103,16 @@ def planning_mode(inst: Installation) -> PlanningMode:
     return PlanningMode.WORKING_COPY
 
 
-def _in_repo_default_branch(inst: Installation) -> str:
+def in_repo_default_branch(inst: Installation) -> str:
     """The in-repo repo's `default_branch`, as verify reads it."""
     name = in_repo_name(inst)
     return inst.repo(name).default_branch if name else default_branch_of(inst.root)
+
+
+def default_tip_ref(root: Path, default: str) -> str:
+    """The ref holding the default branch's tip: origin's when the repository has an origin,
+    else the local branch."""
+    return f"refs/remotes/origin/{default}" if has_origin(root) else f"refs/heads/{default}"
 
 
 def _stopped(reason: str) -> SyncResult:
@@ -137,14 +143,12 @@ def _sync_worktree(inst: Installation, say: Callable[[str], None]) -> SyncResult
     branch = current_branch(root)
     if branch:
         return _stopped(f"HEAD is on the branch {branch}, which is kept")
-    default = _in_repo_default_branch(inst)
+    default = in_repo_default_branch(inst)
     if has_origin(root):
         fetched = git(root, "fetch", "origin", default, check=False)
         if fetched.returncode != 0:
             return _stopped(fetched.stderr)
-        tip_ref = f"refs/remotes/origin/{default}"
-    else:
-        tip_ref = f"refs/heads/{default}"
+    tip_ref = default_tip_ref(root, default)
     tip = git(root, "rev-parse", "--verify", tip_ref, check=False)
     if tip.returncode != 0:
         return _stopped(f"{tip_ref} does not exist")

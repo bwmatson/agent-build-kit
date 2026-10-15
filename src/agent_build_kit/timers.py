@@ -32,15 +32,26 @@ import shutil
 import subprocess
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 from agent_build_kit import config, runtimes
 from agent_build_kit.init.scaffold import render_systemd
+from agent_build_kit.installation import Installation, data_home
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.planning_repo import common_dir
+from agent_build_kit.pipeline.planning_sync import (
+    PlanningMode,
+    SyncOutcome,
+    default_tip_ref,
+    in_repo_default_branch,
+    planning_mode,
+    read_pipeline_marker,
+    remove_pipeline_marker,
+    sync_planning,
+    write_pipeline_marker,
+)
+from agent_build_kit.pipeline.shell import git
 from agent_build_kit.settings import settings
-
-if TYPE_CHECKING:
-    from agent_build_kit.installation import Installation
 
 Run = Callable[..., subprocess.CompletedProcess]
 LingerState = Literal["on", "off", "unknown"]
@@ -472,6 +483,159 @@ def remove(
     _stop_and_delete(ours, run)
     run(["systemctl", "--user", "daemon-reload"], check=False)
     return UnitChange(removed=tuple(ours))
+
+
+class PlanningWorktreeRefused(Exception):
+    """A path or marker in the way of the pipeline worktree that is not a worktree of this
+    repository; the message names it."""
+
+
+class InRepoInstall(Frozen):
+    """An install for an installation whose planning repo is also a code repo.
+
+    `worktree` is the pipeline worktree the units point at, None for a separate planning repo;
+    `created` is whether this install made it; `notes` say why a worktree was left where it was.
+    """
+
+    worktree: Path | None
+    created: bool
+    change: UnitChange
+    notes: tuple[str, ...] = ()
+
+
+class InRepoRemoval(Frozen):
+    """What removing an in-repo installation did: the units gone, the worktree left where it is."""
+
+    worktree: Path | None
+    change: UnitChange
+
+
+def _worktree_of_this_repository(path: Path, common: Path) -> bool:
+    """Whether `path` is the top of a worktree of the repository with this common git directory."""
+    top = git(path, "rev-parse", "--show-toplevel", check=False)
+    return (
+        top.returncode == 0
+        and Path(top.stdout.strip()).resolve() == path.resolve()
+        and common_dir(path) == common
+    )
+
+
+def _make_worktree(inst: Installation, target: Path) -> None:
+    """A detached worktree at `target`, at the tip the sync moves it to."""
+    default = in_repo_default_branch(inst)
+    tip = default_tip_ref(inst.root, default)
+    if git(inst.root, "rev-parse", "--verify", "-q", tip, check=False).returncode != 0:
+        raise PlanningWorktreeRefused(
+            f"{tip} does not exist in {inst.root}; "
+            f"run `git fetch origin {default}` and install again"
+        )
+    target.parent.mkdir(parents=True, exist_ok=True)
+    added = git(inst.root, "worktree", "add", "-q", "--detach", str(target), tip, check=False)
+    if added.returncode != 0:
+        raise PlanningWorktreeRefused(
+            f"git could not add the worktree {target}: {' '.join(added.stderr.split())}; if it "
+            "was deleted by hand, `git worktree prune` forgets it, then install again"
+        )
+
+
+def _bring_to_tip(inst: Installation, worktree: Path) -> tuple[str, ...]:
+    """Move the worktree to the default branch's tip; what kept it where it is, as notes."""
+    if git(worktree, "status", "--porcelain", "--untracked-files=no").stdout.strip():
+        return (f"{worktree} is dirty, so it was not moved to the default branch's tip",)
+    result = sync_planning(Installation(inst.config, worktree), lambda _line: None)
+    if result.outcome == SyncOutcome.STOPPED:
+        return (f"{worktree} was not moved to the default branch's tip: {result.reason}",)
+    return ()
+
+
+def install_in_repo(
+    inst: Installation,
+    *,
+    dest: Path | None = None,
+    run: Run | None = None,
+    enable: bool = True,
+    dry_run: bool = False,
+    tool_dirs: Sequence[str] = (),
+    data_dir: Path | None = None,
+) -> InRepoInstall:
+    """`install` for any installation: from a working copy or the pipeline worktree it makes or
+    reuses the pipeline worktree and the marker and points the units at it; a separate planning
+    repo installs as `install` does. `data_dir` is where worktrees live (under the home by
+    default)."""
+    mode = planning_mode(inst)
+    if mode == PlanningMode.SEPARATE:
+        change = install(
+            inst.root, dest=dest, run=run, enable=enable, dry_run=dry_run, tool_dirs=tool_dirs
+        )
+        return InRepoInstall(worktree=None, created=False, change=change)
+
+    common = common_dir(inst.root)
+    assert common is not None
+    created = False
+    if mode == PlanningMode.PIPELINE_WORKTREE:
+        worktree = inst.root
+    else:
+        named = read_pipeline_marker(inst.root)
+        if named is not None and named.is_dir():
+            worktree = named
+        else:
+            base = data_dir or data_home()
+            worktree = base / common.parent.name / "planning"
+        if worktree.exists() and not _worktree_of_this_repository(worktree, common):
+            raise PlanningWorktreeRefused(
+                f"{worktree} exists and is not a worktree of {common.parent}; "
+                "move it away or remove it, then install again"
+            )
+        created = not worktree.exists()
+        if created and not dry_run:
+            _make_worktree(inst, worktree)
+        if not dry_run:
+            write_pipeline_marker(inst.root, worktree)
+    notes = () if dry_run else _bring_to_tip(inst, worktree)
+    if not dry_run and not (worktree / "abk.yaml").is_file():
+        notes += (
+            f"{worktree} has no abk.yaml: it is not on the default branch yet, so commit and push "
+            "it before the units can run",
+        )
+    # Units an earlier install left running in the working copy would tick beside the worktree's.
+    superseded = (
+        remove(inst.root, dest=dest, run=run, dry_run=dry_run).removed
+        if mode == PlanningMode.WORKING_COPY
+        else ()
+    )
+    change = install(
+        worktree, dest=dest, run=run, enable=enable, dry_run=dry_run, tool_dirs=tool_dirs
+    )
+    change = change.model_copy(update={"removed": (*change.removed, *superseded)})
+    return InRepoInstall(worktree=worktree, created=created, change=change, notes=notes)
+
+
+def remove_in_repo(
+    inst: Installation,
+    *,
+    dest: Path | None = None,
+    run: Run | None = None,
+    dry_run: bool = False,
+) -> InRepoRemoval:
+    """`remove` for any installation: the units and the marker go, the worktree stays."""
+    mode = planning_mode(inst)
+    if mode == PlanningMode.SEPARATE:
+        change = remove(inst.root, dest=dest, run=run, dry_run=dry_run)
+        return InRepoRemoval(worktree=None, change=change)
+    if mode == PlanningMode.PIPELINE_WORKTREE:
+        worktree = inst.root
+    else:
+        worktree = read_pipeline_marker(inst.root)
+    removed: list[Path] = []
+    if worktree is not None:
+        removed += remove(worktree, dest=dest, run=run, dry_run=dry_run).removed
+    if mode == PlanningMode.WORKING_COPY:
+        # Units an earlier install pointed at the working copy itself.
+        removed += remove(inst.root, dest=dest, run=run, dry_run=dry_run).removed
+    change = UnitChange(removed=tuple(removed))
+    if not dry_run:
+        remove_pipeline_marker(inst.root)
+    return InRepoRemoval(worktree=worktree, change=change)
 
 
 def installed_root(dest: Path | None = None, root: Path | None = None) -> Path | None:
