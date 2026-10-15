@@ -30,6 +30,7 @@ from agent_build_kit.pipeline.red_check import judge_red, split_report, wrap_rep
 from agent_build_kit.pipeline.tier2 import (
     TestFailure,
     TestTime,
+    Tier2Selection,
     clip_failure_line,
     parse_pytest_summary,
 )
@@ -459,6 +460,23 @@ class PythonUvProfile:
             expression = words[words.index("-m") + 1]
             marker = [] if _is_serial_split(expression) else ["-m", expression]
         return [*command[: program + 1], *marker, *tests, "-q"]
+
+    selector_kinds: tuple[str, ...] = ()
+
+    def expression(self, marker: str, selection: Tier2Selection) -> str:
+        """The `-m` text of `selection` over `marker`."""
+        raise NotImplementedError
+
+    def list_tests(
+        self,
+        command: list[str],
+        selection: Tier2Selection,
+        *,
+        run: Callable[..., subprocess.CompletedProcess],
+        among: list[str] | None = None,
+    ) -> list[str] | None:
+        """The identifiers `command` runs under `selection`, listed without running them."""
+        raise NotImplementedError
 
     def selected_tests(
         self,

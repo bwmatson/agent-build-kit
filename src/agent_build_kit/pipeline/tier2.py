@@ -33,7 +33,7 @@ from pydantic import Field
 
 from agent_build_kit import forges
 from agent_build_kit.budget import cut_head
-from agent_build_kit.config import BASE_GROUP, active, known_runtime_names
+from agent_build_kit.config import BASE_GROUP, Tier2Split, active, known_runtime_names
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
@@ -53,6 +53,20 @@ class Tier2Selection(Frozen):
     expression: str
     left_out: tuple[str, ...] = ()
     only: str | None = None
+    # True when every split, `rest` included, is held and nothing is selected.
+    empty: bool = False
+
+
+def build_selection(
+    marker: str,
+    splits: Collection[Tier2Split],
+    *,
+    held: Collection[str] = (),
+    only: str | None = None,
+) -> Tier2Selection:
+    """The selection of a tier 2 run over a repo's declared `splits`: leaving out the `held`
+    ones, or running `only` one (a split name or `rest`)."""
+    raise NotImplementedError
 
 
 def tier2_selection(
@@ -82,7 +96,9 @@ def tier2_selection(
     return Tier2Selection(expression=expression, left_out=left_out, only=only)
 
 
-def selection_unavailable(toolchain: object, *, dev_stack_script: bool) -> str | None:
+def selection_unavailable(
+    toolchain: object, *, dev_stack_script: bool, splits: Collection[Tier2Split] = ()
+) -> str | None:
     """Why a tier 2 run of this profile cannot leave a group out (the profile has no way to
     list a selection, or the repo runs tier 2 through its dev stack script), else None."""
     from agent_build_kit.profiles.base import ListsSelectedTests
