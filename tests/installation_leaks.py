@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from pathlib import Path
 
 import yaml
@@ -93,17 +93,18 @@ def files(root: Path) -> list[Path]:
     return [path for path in found if path.name not in SELF]
 
 
-def lines_of(path: Path):
-    yield from enumerate(path.read_text(errors="replace").splitlines(), start=1)
-
-
-def hits(root: Path, pattern: re.Pattern, *, skip: Collection[str] = ()) -> list[str]:
+def hits(
+    root: Path, found: re.Pattern | Callable[[str], object], *, skip: Collection[str] = ()
+) -> list[str]:
+    """Each line of the scanned files that a pattern matches or a predicate accepts, as
+    `path:line: clipped line`."""
+    matches = found.search if isinstance(found, re.Pattern) else found
     return [
         f"{path.relative_to(root)}:{number}: {line.strip()[:100]}"
         for path in files(root)
         if path.name not in skip
-        for number, line in lines_of(path)
-        if pattern.search(line)
+        for number, line in enumerate(path.read_text(errors="replace").splitlines(), start=1)
+        if matches(line)
     ]
 
 
@@ -124,16 +125,14 @@ def foreign_slug_owners(text: str) -> list[str]:
 def leaks(root: Path) -> list[str]:
     """Each hit under `root` as `path:line: clipped line`: home paths, non-fixture slugs,
     anecdotes and product directories in the scanned text, planning content included."""
-    found = []
-    for path in files(root):
-        for number, line in lines_of(path):
-            if (
-                any(shape.search(line) for shape in SHAPES)
-                or foreign_slug_owners(line)
-                or foreign_azure_orgs(line)
-            ):
-                found.append(f"{path.relative_to(root)}:{number}: {line.strip()[:100]}")
-    return found
+    return hits(
+        root,
+        lambda line: (
+            any(shape.search(line) for shape in SHAPES)
+            or foreign_slug_owners(line)
+            or foreign_azure_orgs(line)
+        ),
+    )
 
 
 def repo_path_leaks(root: Path) -> list[str]:
@@ -142,10 +141,13 @@ def repo_path_leaks(root: Path) -> list[str]:
     config = root / "abk.yaml"
     if not config.is_file():
         return []
-    loaded = yaml.safe_load(config.read_text()) or {}
+    loaded = yaml.safe_load(config.read_text())
+    repos = loaded.get("repos") if isinstance(loaded, dict) else None
     base = Path(os.path.abspath(root))
     found = []
-    for name, repo in (loaded.get("repos") or {}).items():
+    for name, repo in (repos if isinstance(repos, dict) else {}).items():
+        if not isinstance(repo, dict):
+            continue
         path = str(repo.get("path", "."))
         target = Path(os.path.normpath(base / Path(path).expanduser()))
         if target != base and base not in target.parents:

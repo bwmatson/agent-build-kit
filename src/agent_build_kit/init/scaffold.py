@@ -46,6 +46,7 @@ from agent_build_kit.init.environment import detect_environment, lock_patterns, 
 from agent_build_kit.init.runtime_choice import merge_values
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.changelog_convention import packaged_convention
+from agent_build_kit.pipeline.file_lock import append_missing_lines
 from agent_build_kit.pipeline.shell import git
 
 TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
@@ -606,15 +607,7 @@ LOCAL_IGNORES = ("scrub.local", "*.pre-redact")
 
 
 def _ensure_ignored(path: Path, lines: tuple[str, ...], *, written: list[Path]) -> None:
-    """Append the lines an existing ignore file lacks, once."""
-    present = set(path.read_text().splitlines())
-    missing = [line for line in lines if line not in present]
-    if not missing:
-        return
-    text = path.read_text()
-    separator = "" if not text or text.endswith("\n") else "\n"
-    path.write_text(text + separator + "\n".join(missing) + "\n")
-    if path not in written:
+    if append_missing_lines(path, lines) and path not in written:
         written.append(path)
 
 

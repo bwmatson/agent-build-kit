@@ -50,9 +50,9 @@ def test_a_home_path_in_the_store_fails_with_file_and_line(tmp_path: Path) -> No
 
 
 def test_a_home_path_in_a_run_log_under_the_state_directory_is_not_read(tmp_path: Path) -> None:
-    write(tmp_path, "runs/unit-logs/feature-1.log", HOME_LINE)
-    write(tmp_path, "runs/decisions.jsonl", HOME_LINE)
-    write(tmp_path, "abk.yaml", "repos:\n  app:\n    path: .\n    slug: example/app\n")
+    write(tmp_path, "runs/unit-logs/feature-1.json", HOME_LINE)
+    write(tmp_path, "runs/ledger.json", HOME_LINE)
+    write(tmp_path, "runs/units.json", '{"units": []}\n')
 
     assert leaks(tmp_path) == []
 
@@ -78,6 +78,13 @@ def test_a_repo_path_outside_the_checkout_fails_naming_the_key_not_the_value(
     assert len(found) == 1
     assert "app" in found[0]
     assert "sibling-x" not in found[0]
+
+
+@pytest.mark.parametrize("repos", ["repos:\n  app:\n", "repos: []\n", "repos:\n  app: .\n"])
+def test_a_repos_entry_that_is_not_a_mapping_is_skipped(tmp_path: Path, repos: str) -> None:
+    write(tmp_path, "abk.yaml", repos)
+
+    assert repo_path_leaks(tmp_path) == []
 
 
 @pytest.mark.parametrize("path", [".", "vendor/sub"])

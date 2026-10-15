@@ -18,12 +18,9 @@ from tests.installation_leaks import (
     HOME_PATH,
     HOME_PRODUCT_DIR,
     NOREPLY,
-    files,
     foreign_azure_orgs,
     foreign_slug_owners,
     hits,
-    leaks,
-    lines_of,
     repo_path_leaks,
 )
 
@@ -43,13 +40,7 @@ def test_no_home_paths_in_text() -> None:
 
 
 def test_every_github_slug_belongs_to_a_fixture_owner() -> None:
-    offending = [
-        f"{path.relative_to(ROOT)}:{number}: {line.strip()[:100]}"
-        for path in files(ROOT)
-        for number, line in lines_of(path)
-        if foreign_slug_owners(line)
-    ]
-    assert offending == []
+    assert hits(ROOT, foreign_slug_owners) == []
 
 
 @pytest.mark.parametrize(
@@ -69,13 +60,7 @@ def test_the_azure_organisation_rule_sees_a_foreign_organisation(
 
 
 def test_every_azure_organisation_belongs_to_a_fixture() -> None:
-    offending = [
-        f"{path.relative_to(ROOT)}:{number}: {line.strip()[:100]}"
-        for path in files(ROOT)
-        for number, line in lines_of(path)
-        if foreign_azure_orgs(line)
-    ]
-    assert offending == []
+    assert hits(ROOT, foreign_azure_orgs) == []
 
 
 def test_no_personal_noreply_addresses() -> None:
@@ -97,10 +82,6 @@ def test_environment_is_read_only_through_the_settings_layer(pattern: re.Pattern
     hits = [h for h in _hits(pattern) if h.split(":")[0].rsplit("/", 1)[-1] not in ENV_ALLOWED]
     hits = [h for h in hits if not h.startswith("tests/")]
     assert hits == []
-
-
-def test_planning_content_leaks_nothing() -> None:
-    assert leaks(ROOT) == []
 
 
 def test_a_tracked_config_names_no_path_outside_the_checkout() -> None:

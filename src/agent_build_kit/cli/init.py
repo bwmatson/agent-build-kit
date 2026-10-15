@@ -805,6 +805,7 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         "  4. Copy .env.example to .env and fill what this machine needs: facts about your\n"
         "     stack (an agent command, local ports, a home variable) go in the ignored .env,\n"
         "     read by `from: env-file` entries in abk.yaml, never in a committed file.\n"
+        "     A planning repo of one repo needs no other repo entries in abk.yaml.\n"
         "  5. Run `abk doctor`, then `abk install-timers`."
     )
     user = timers.current_user()

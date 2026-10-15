@@ -80,7 +80,7 @@ def test_the_output_and_the_planning_context_say_stack_facts_go_in_the_env_file(
         assert "stack" in text
         assert ".env" in text
         assert "from: env-file" in text
-    assert "no other repo entries" in context
+        assert "no other repo entries" in text
 
 
 def test_the_env_example_header_names_the_local_scrub_list(tmp_path: Path) -> None:
