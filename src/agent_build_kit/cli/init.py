@@ -753,8 +753,9 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
                 continue
             for kind in kinds_for(detection):
                 change = change_name(name, kind)
-                if (changes_dir_under(planning, "openspec") / change).exists() and not args.force:
-                    print(f"kept openspec/changes/{change}/")
+                specs_dir = config_module.active().planning.specs_dir
+                if (changes_dir_under(planning, specs_dir) / change).exists() and not args.force:
+                    print(f"kept {specs_dir}/changes/{change}/")
                     continue
                 print(f"proposing {change}…")
                 try:

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.pipeline.stack_runner import CHANGE_DIR, TESTS_PROMPT
+from agent_build_kit.pipeline.stack_runner import TESTS_PROMPT, change_dir_of
 from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW, MERGED, Member, UnitState
 from tests.cli.replan_driver import Replan, tasks_md
 from tests.factories import unit
@@ -68,7 +68,7 @@ def test_a_requeued_unit_is_not_replanned_and_its_agent_reads_the_edited_tasks_f
     assert again["feature"].status == "skipped"
     assert (after.groups, after.repo, after.tier) == (before.groups, before.repo, before.tier)
     # The prompt names the change directory, and the file there is the edited one.
-    change_dir = CHANGE_DIR.format(planning_repo=run.inst.root, change="feature")
+    change_dir = change_dir_of(run.inst.root, "feature")
     assert "{change_dir}" in TESTS_PROMPT
     assert "tasks.md" in TESTS_PROMPT
     assert "reworded" in (Path(change_dir) / "tasks.md").read_text()

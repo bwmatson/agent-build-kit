@@ -36,7 +36,8 @@ from typing import Protocol, runtime_checkable
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from agent_build_kit.budget import Section, cut_head, fit
-from agent_build_kit.config import RepoConfig
+from agent_build_kit.config import RepoConfig, active
+from agent_build_kit.installation import changes_dir_under
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.determinism_guidance import determinism_guidance
 from agent_build_kit.pipeline.file_lock import file_lock
@@ -61,11 +62,15 @@ from agent_build_kit.pipeline.units import (
     later_groups_by_change,
 )
 
+
 # The change lives in the planning repo, which the run can read because
 # `build_run` passes `--add-dir`. Named by path rather than driven by
 # `/opsx:apply`: that command exists only where OpenSpec is installed, which
 # is the planning repo, while the unit is built in the target repo's worktree.
-CHANGE_DIR = "{planning_repo}/openspec/changes/{change}"
+def change_dir_of(planning_repo: Path | str, change: str) -> Path:
+    """Where `change` lives in the planning repo, under its configured specs directory."""
+    return changes_dir_under(Path(planning_repo), active().planning.specs_dir) / change
+
 
 # Where a change's deferred follow-ups accumulate: approved alongside, not
 # worth a round, recorded here for the change's next unit and this PR's
@@ -92,7 +97,7 @@ def _follow_ups_block_end(content: str, start: int, marker: str) -> int:
 
 def unit_follow_ups(planning_repo: Path | str, change: str, unit_id: str) -> tuple[str, ...]:
     """The points unit `unit_id` of `change` last deferred, from the change's follow-ups file."""
-    path = Path(CHANGE_DIR.format(planning_repo=planning_repo, change=change)) / FOLLOW_UPS_FILE
+    path = change_dir_of(planning_repo, change) / FOLLOW_UPS_FILE
     if not path.exists():
         return ()
     content = path.read_text()
@@ -1592,7 +1597,7 @@ class UnitRunner(BaseModel):
         )
 
     def change_dir(self, change: str) -> str:
-        return CHANGE_DIR.format(planning_repo=self.planning_repo, change=change)
+        return str(change_dir_of(self.planning_repo, change))
 
     def scope(self, unit: Unit) -> tuple[str, str]:
         """What a prompt names as the unit's change directory and task groups.

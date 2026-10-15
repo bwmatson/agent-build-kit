@@ -12,6 +12,11 @@
 # dependencies keep their `rev`. Pyrefly's settings live in pyproject.toml
 # ([tool.pyrefly]), because without them it silently drops to a lenient preset.
 
+# The pipeline's state directory holds model-written logs and the unit store,
+# which the whitespace, end-of-file and size hooks would only rewrite or reject.
+# abk.yaml is outside it, so yamllint still reads it.
+exclude: ^runs/
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
