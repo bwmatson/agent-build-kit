@@ -74,19 +74,16 @@ def test_two_matching_records_are_written_once_and_a_waiting_writer_sees_both(
     seeded(store.path, "add-marker/2")
     store.upsert([new_unit("add-marker/3")])
     writes.clear()
-    waiting: list[threading.Thread] = []
+    writer = threading.Thread(target=store.record_push, args=("add-marker/3", "sha-3"))
 
     def swap_and_start_a_writer(text: str) -> str:
         # Started under the lock, so it can only run once the rewrite has been written.
-        if not waiting:
-            waiting.append(
-                threading.Thread(target=store.record_push, args=("add-marker/3", "sha-3"))
-            )
-            waiting[0].start()
+        if not writer.is_alive() and writer.ident is None:
+            writer.start()
         return swap(text)
 
     changed = store.rewrite_text(swap_and_start_a_writer)
-    waiting[0].join()
+    writer.join()
 
     assert sorted(changed) == ["add-marker/1", "add-marker/2"]
     assert len(writes) == 2  # the rewrite's one write, then the waiting writer's

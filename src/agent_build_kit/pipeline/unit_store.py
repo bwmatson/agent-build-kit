@@ -383,6 +383,9 @@ OLD_ENGINE_FIELDS = (
 _WRITTEN_EMPTY = {"resume_from": "", "classic_run": {}}
 
 
+# The text fields of a record a rewrite of its words may change (see `UnitStore.rewrite_text`).
+REWRITTEN_TEXT_FIELDS = ("feedback", "guidance", "predecessor_note", "stack_refusal")
+
 StateChanged = Callable[[StoredUnit, list[StoredUnit], bool], None]
 
 
@@ -588,8 +591,26 @@ class UnitStore:
 
     @_exclusive
     def rewrite_text(self, fn: Callable[[str], str]) -> list[str]:
-        """Apply `fn` to the text fields of every record, write once, return the ids changed."""
-        raise NotImplementedError
+        """Apply `fn` to the text fields of every record (the feedback, guidance, predecessor
+        note, stack refusal and each history note), write once, and return the ids changed.
+        Nothing is written when no text changed; no other field or timestamp is touched."""
+        stored = self._read()
+        changed = []
+        for uid, unit in stored.items():
+            update: dict[str, Any] = {
+                field: fn(getattr(unit, field)) for field in REWRITTEN_TEXT_FIELDS
+            }
+            update["history"] = tuple(
+                {**entry, "note": fn(entry["note"])} if "note" in entry else entry
+                for entry in unit.history
+            )
+            rewritten = unit.model_copy(update=update)
+            if rewritten != unit:
+                stored[uid] = rewritten
+                changed.append(uid)
+        if changed:
+            self._write(stored)
+        return changed
 
     @_exclusive
     def remove_units(self, unit_ids: Collection[str]) -> None:

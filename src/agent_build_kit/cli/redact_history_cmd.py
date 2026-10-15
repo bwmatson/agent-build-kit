@@ -25,6 +25,22 @@ HELP = "temporary: removed once every installation has run it"
 COPY_SUFFIX = ".pre-redact"
 
 
+def copy_of(path: Path) -> Path:
+    """Where the original of `path` is kept before it is rewritten."""
+    return path.with_name(path.name + COPY_SUFFIX)
+
+
+def paused_or_refused(command: str, inst: Installation, why: str) -> bool:
+    """Whether a pause is in force; when not, say that `command` refuses, for `why`."""
+    if pause_in_force(inst.state_dir):
+        return True
+    print(
+        f"{command}: refused; {why}, so pause the pipeline first (nothing was changed)",
+        file=sys.stderr,
+    )
+    return False
+
+
 def _saved_files(inst: Installation) -> list[Path]:
     state = inst.state_dir
     found = [state / "units.json", state / LEDGER_NAME]
@@ -44,7 +60,7 @@ def _rewrite(path: Path, redactor: redaction.Redactor, *, apply: bool) -> None:
         return
     print(f"{path}: {', '.join(names)}")
     if apply:
-        shutil.copy2(path, path.with_name(path.name + COPY_SUFFIX))
+        shutil.copy2(path, copy_of(path))
         atomic_write_text(path, redactor.redact(text))
 
 
@@ -58,12 +74,9 @@ def _lock_of(inst: Installation, path: Path) -> AbstractContextManager[None]:
 
 
 def cmd_redact_history(args: argparse.Namespace, inst: Installation) -> int:
-    if args.apply and not pause_in_force(inst.state_dir):
-        print(
-            "redact-history --apply: refused; a run log or transcript may be open, so pause "
-            "the pipeline first (nothing was changed)",
-            file=sys.stderr,
-        )
+    if args.apply and not paused_or_refused(
+        "redact-history --apply", inst, "a run log or transcript may be open"
+    ):
         return 1
     redactor = redaction.gather(inst)
     for path in _saved_files(inst):
