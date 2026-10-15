@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
+from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.shell import git
 
 
@@ -25,6 +26,18 @@ def common_dir(path: Path) -> Path | None:
         return None
     found = git(path, "rev-parse", "--path-format=absolute", "--git-common-dir", check=False)
     return None if found.returncode else Path(found.stdout.strip()).resolve()
+
+
+class RepositoryName(Frozen):
+    name: str
+    reason: str = ""
+
+
+def repository_name(root: Path) -> RepositoryName:
+    """What an installation in the repository `root` is in is called: the directory name of the
+    repository's main working tree. When the common git directory is not named `.git`, the root's
+    own directory name, with the reason `abk doctor` reports."""
+    raise NotImplementedError
 
 
 def git_dir(path: Path) -> Path | None:
