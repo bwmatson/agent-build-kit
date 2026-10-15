@@ -18,7 +18,7 @@ COMMAND = "uv run pytest -m local_stack -v"
 
 
 def failure(test: str, group: str = "") -> TestFailure:
-    return TestFailure(test=test, line="assert in " + test.rpartition("::")[2], group=group)
+    return TestFailure(test=test, line="assert in " + test.rpartition("::")[2], split=group)
 
 
 def snapshot_of(*tests: str, tail: str = "") -> str:

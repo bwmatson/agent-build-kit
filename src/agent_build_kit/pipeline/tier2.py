@@ -29,7 +29,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 
 from agent_build_kit import forges
 from agent_build_kit.budget import cut_head
@@ -143,9 +143,10 @@ class TestFailure(Frozen):
 
     test: str
     line: str
-    # The runtime group the test belongs to (`base` or a runtime's name), `UNKNOWN_GROUP`
-    # when it could not be found, empty for a result stored without one.
-    group: str = ""
+    # The split the test belongs to (`rest` or a declared one), `UNKNOWN_SPLIT` when it
+    # could not be found, empty for a result stored without one. Results stored before
+    # splits carry it under `group`.
+    split: str = Field(default="", validation_alias=AliasChoices("split", "group"))
 
 
 class TestTime(Frozen):
@@ -208,7 +209,7 @@ class Tier2Result(Frozen):
     output_withheld: bool = False
     # Whether the run ran no test at all because the unit added or changed no tier 2 test.
     ran_no_tests: bool = False
-    # The blocked runtimes whose tests this run would have executed and did not.
+    # The held splits whose tests this run would have executed and did not.
     parked: list[str] = Field(default_factory=list)
     # The one group this run was limited to, when it was (a resume of a parked group).
     only: str = ""
@@ -218,8 +219,8 @@ class Tier2Result(Frozen):
         return self.failed == 0
 
 
-# The group of a failed test whose runtime could not be found.
-UNKNOWN_GROUP = "unknown"
+# The split of a failed test that could not be found.
+UNKNOWN_SPLIT = "unknown"
 
 # What a result that ran no test says in place of its counts, and where a person reads it.
 NO_TEST_RAN = "no tier 2 test ran"

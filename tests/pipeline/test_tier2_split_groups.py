@@ -1,29 +1,45 @@
-"""A tier 2 run leaves the blocked runtimes out through the one expression, parks the ones
-that hold a test it would have run, never reports that as a complete pass, and names the
-runtime group of each failed test (spec: tier2-runtime-parking)."""
+"""A tier 2 run leaves the held splits out through the one selection, parks the ones that
+hold a test it would have run, never reports that as a complete pass, and names the split of
+each failed test (spec: tier2-split-runs)."""
 
 from __future__ import annotations
 
 import subprocess
 from collections.abc import Collection
+from functools import partial
 from pathlib import Path
 
-from agent_build_kit.config import ProjectConfig, Tier2Split, Tier2UnitScope, known_runtime_names
+from agent_build_kit.config import (
+    REST_SPLIT,
+    ProjectConfig,
+    Tier2Split,
+    Tier2UnitScope,
+    known_runtime_names,
+)
 from agent_build_kit.pipeline.tier2 import (
-    UNKNOWN_GROUP,
+    UNKNOWN_SPLIT,
+    TestFailure,
+    Tier2Result,
     build_selection,
     stack_lock,
 )
 from agent_build_kit.pipeline.wiring import Tier2Session
 from agent_build_kit.profiles.python_uv import PROFILE
 from tests.tier2_base_fakes import pytest_output
-from tests.tier2_scope_fakes import KIT_SPLITS, PASSED, Ran, branch, session
+from tests.tier2_scope_fakes import PASSED, Ran, branch
+from tests.tier2_scope_fakes import session as shared_session
 
 MARKER = "local_stack"
+# The repo's two declared splits, and `rest`, the tests in neither.
+SPLITS = (
+    Tier2Split(name="acp", marker="runtime_acp"),
+    Tier2Split(name="claude_code", marker="runtime_claude_code"),
+    Tier2Split(name=REST_SPLIT),
+)
 PLAIN = "tests/live/test_plain.py::test_plain"
 CLAUDE = "tests/live/test_claude.py::test_claude"
 ACP = "tests/live/test_acp.py::test_acp"
-# The runtime tag each test of the fixture repository carries; all of them have the marker.
+# The split marker each test of the fixture repository carries; all of them have the marker.
 TAGS: dict[str, tuple[str, ...]] = {PLAIN: (), CLAUDE: ("claude_code",), ACP: ("acp",)}
 FILES = {
     f"tests/live/test_{name}.py": f"def test_{name}():\n    assert True\n"
@@ -101,10 +117,11 @@ class Groups(Ran):
 
 
 def expected(held: Collection[str], *, only: str | None = None) -> str:
-    """The `-m` text of a run that leaves out `held` or runs `only` one group, as built over
-    a split for each runtime the kit knows (`base` being the `rest` split)."""
-    only = "rest" if only == "base" else only
-    return PROFILE.expression(MARKER, build_selection(MARKER, KIT_SPLITS, held=held, only=only))
+    """The `-m` text of a run that leaves out `held` or runs the split `only` alone."""
+    return PROFILE.expression(MARKER, build_selection(MARKER, SPLITS, held=held, only=only))
+
+
+session = partial(shared_session, splits=SPLITS)
 
 
 def expression_of(command: list[str]) -> str:
@@ -136,7 +153,7 @@ def test_with_acp_blocked_every_command_leaves_it_out_and_the_group_is_parked(
     tmp_path: Path,
 ) -> None:
     ran = Groups()
-    gate, repo, base = whole_run(tmp_path, ran, blocked=["acp"])
+    gate, repo, base = whole_run(tmp_path, ran, held=["acp"])
 
     ok, _ = gate.run(cwd=repo, base=base)
 
@@ -150,7 +167,7 @@ def test_with_acp_blocked_every_command_leaves_it_out_and_the_group_is_parked(
 
 def test_the_blocked_group_is_listed_under_the_opposite_expression(tmp_path: Path) -> None:
     ran = Groups()
-    gate, repo, base = whole_run(tmp_path, ran, blocked=["acp"])
+    gate, repo, base = whole_run(tmp_path, ran, held=["acp"])
 
     gate.run(cwd=repo, base=base)
 
@@ -169,7 +186,7 @@ def test_under_own_scope_the_listing_is_narrowed_to_the_units_own_tests(tmp_path
     )
     ran = Groups()
 
-    gate = session(tmp_path, ran, blocked=["acp"])
+    gate = session(tmp_path, ran, held=["acp"])
     gate.run(cwd=repo, base=base)
 
     assert gate.result is not None
@@ -186,7 +203,7 @@ def test_a_blocked_runtime_with_no_own_test_parks_nothing_and_the_run_is_complet
     # The acp test is in the repository but is not one the unit added or changed.
     repo, base = only_plain_changed(tmp_path)
     ran = Groups()
-    gate = session(tmp_path, ran, blocked=["acp"])
+    gate = session(tmp_path, ran, held=["acp"])
 
     ok, snapshot = gate.run(cwd=repo, base=base)
 
@@ -203,7 +220,7 @@ def test_a_blocked_runtime_with_no_own_test_parks_nothing_and_the_run_is_complet
 def test_a_result_with_a_parked_runtime_names_it_in_the_snapshot_and_not_as_a_pass(
     tmp_path: Path,
 ) -> None:
-    gate, repo, base = whole_run(tmp_path, Groups(), blocked=["acp"])
+    gate, repo, base = whole_run(tmp_path, Groups(), held=["acp"])
 
     _, snapshot = gate.run(cwd=repo, base=base)
 
@@ -217,7 +234,7 @@ def test_a_parked_group_with_nothing_else_to_run_runs_no_command_and_takes_no_lo
 ) -> None:
     repo, base = only_acp_changed(tmp_path)
     ran = Groups()
-    gate = session(tmp_path, ran, blocked=["acp"], timeout=0.1)
+    gate = session(tmp_path, ran, held=["acp"], timeout=0.1)
 
     with stack_lock(gate.lock, timeout=1, holder="another/1"):
         gate.run(cwd=repo, base=base)
@@ -230,7 +247,7 @@ def test_a_parked_group_with_nothing_else_to_run_runs_no_command_and_takes_no_lo
 def test_a_parametrized_parked_test_is_still_nothing_else_to_run(tmp_path: Path) -> None:
     repo, base = only_acp_changed(tmp_path)
     ran = Groups(parametrized=[ACP])
-    gate = session(tmp_path, ran, blocked=["acp"], timeout=0.1)
+    gate = session(tmp_path, ran, held=["acp"], timeout=0.1)
 
     with stack_lock(gate.lock, timeout=1, holder="another/1"):
         gate.run(cwd=repo, base=base)
@@ -247,9 +264,7 @@ def test_a_parked_test_in_a_project_is_still_nothing_else_to_run(tmp_path: Path)
         base_files={f"api/{name}": text for name, text in FILES.items()},
     )
     ran = Groups()
-    gate = session(
-        tmp_path, ran, blocked=["acp"], timeout=0.1, projects=[ProjectConfig(path="api")]
-    )
+    gate = session(tmp_path, ran, held=["acp"], timeout=0.1, projects=[ProjectConfig(path="api")])
 
     with stack_lock(gate.lock, timeout=1, holder="another/1"):
         gate.run(cwd=repo, base=base)
@@ -261,7 +276,7 @@ def test_a_parked_test_in_a_project_is_still_nothing_else_to_run(tmp_path: Path)
 
 def test_a_listing_that_fails_parks_the_group_and_says_why(tmp_path: Path) -> None:
     log: list[str] = []
-    gate, repo, base = whole_run(tmp_path, Groups(cannot_list=True), blocked=["acp"], log=log)
+    gate, repo, base = whole_run(tmp_path, Groups(cannot_list=True), held=["acp"], log=log)
 
     gate.run(cwd=repo, base=base)
 
@@ -283,19 +298,21 @@ def test_each_failed_test_carries_the_group_found_by_listing_it_under_each_tag(
     gate.run(cwd=repo, base=base)
 
     assert gate.result is not None
-    assert {f.test: f.group for f in gate.result.failures} == {
-        PLAIN: "base",
+    assert {f.test: f.split for f in gate.result.failures} == {
+        PLAIN: "rest",
         CLAUDE: "claude_code",
     }
 
 
-def test_the_failures_of_one_command_are_listed_once_per_runtime(tmp_path: Path) -> None:
+def test_the_failures_of_one_command_are_listed_once_per_declared_split(tmp_path: Path) -> None:
     ran = Groups(failing=[PLAIN, CLAUDE])
     gate, repo, base = whole_run(tmp_path, ran)
 
     gate.run(cwd=repo, base=base)
 
-    assert len(ran.listings) == len(known_runtime_names())
+    assert len(ran.listings) == len([s for s in SPLITS if s.marker])
+    assert gate.result is not None
+    assert {f.split for f in gate.result.failures} == {REST_SPLIT, "claude_code"}
 
 
 def test_a_failure_in_a_project_is_attributed_to_its_group(tmp_path: Path) -> None:
@@ -310,8 +327,8 @@ def test_a_failure_in_a_project_is_attributed_to_its_group(tmp_path: Path) -> No
     gate.run(cwd=repo, base=base)
 
     assert gate.result is not None
-    assert {f.test: f.group for f in gate.result.failures} == {
-        f"api/{PLAIN}": "base",
+    assert {f.test: f.split for f in gate.result.failures} == {
+        f"api/{PLAIN}": "rest",
         f"api/{CLAUDE}": "claude_code",
     }
 
@@ -325,7 +342,7 @@ def test_a_failure_whose_group_cannot_be_found_is_unknown_and_is_not_classified(
     gate.run(cwd=repo, base=base)
 
     assert gate.result is not None
-    assert [f.group for f in gate.result.failures] == [UNKNOWN_GROUP]
+    assert [f.split for f in gate.result.failures] == [UNKNOWN_SPLIT]
     assert gate.verdict is None or gate.verdict.pre_existing == []
     assert [where for _, where in ran.calls if where != repo] == []
 
@@ -334,7 +351,7 @@ def test_the_base_rerun_of_a_failed_test_keeps_the_expression_of_the_run(
     tmp_path: Path,
 ) -> None:
     ran = Groups(failing=[PLAIN])
-    gate, repo, base = whole_run(tmp_path, ran, blocked=["acp"])
+    gate, repo, base = whole_run(tmp_path, ran, held=["acp"])
 
     gate.run(cwd=repo, base=base)
 
@@ -354,28 +371,30 @@ def test_a_repo_running_tier_2_through_its_dev_stack_script_runs_whole_and_says_
     ran = Ran(PASSED)
     log: list[str] = []
 
-    session(tmp_path, ran, log=log, dev_stack=script, blocked=["acp"]).run(cwd=repo, base=base)
+    session(tmp_path, ran, log=log, dev_stack=script, held=["acp"]).run(cwd=repo, base=base)
 
     assert ran.commands == [[script, "up"], [script, "test"], [script, "down"]]
     [why] = [line for line in log if "cannot leave" in line]
     assert "acp" in why
 
 
-def test_a_run_limited_to_one_runtime_runs_only_that_groups_expression(tmp_path: Path) -> None:
-    ran = Groups()
+def test_a_run_limited_to_one_split_runs_only_that_splits_selection(tmp_path: Path) -> None:
+    ran = Groups(failing=[ACP])
     gate, repo, base = whole_run(tmp_path, ran, only="acp")
 
     gate.run(cwd=repo, base=base)
 
-    [command] = ran.runs
+    command = ran.runs[0]
     assert expression_of(command) == expected([], only="acp")
+    assert gate.result is not None
+    assert [f.split for f in gate.result.failures] == ["acp"]
 
 
 def test_a_held_split_is_left_out_by_the_marker_the_repo_declared_for_it(tmp_path: Path) -> None:
     splits = (Tier2Split(name="acp", marker="slow_acp"), Tier2Split(name="rest"))
     ran = Groups()
     repo, base = branch(tmp_path, SOURCE, base_files=FILES)
-    gate = session(tmp_path, ran, scope=Tier2UnitScope.FULL, blocked=["acp"], splits=splits)
+    gate = session(tmp_path, ran, scope=Tier2UnitScope.FULL, held=["acp"], splits=splits)
 
     gate.run(cwd=repo, base=base)
 
@@ -387,8 +406,8 @@ def test_a_held_split_is_left_out_by_the_marker_the_repo_declared_for_it(tmp_pat
 def test_with_every_split_held_nothing_runs_and_no_expression_is_built(tmp_path: Path) -> None:
     ran = Groups()
     log: list[str] = []
-    held = [split.name for split in KIT_SPLITS]
-    gate, repo, base = whole_run(tmp_path, ran, blocked=held, log=log)
+    held = [split.name for split in SPLITS]
+    gate, repo, base = whole_run(tmp_path, ran, held=held, log=log)
 
     ok, _ = gate.run(cwd=repo, base=base)
 
@@ -399,21 +418,73 @@ def test_with_every_split_held_nothing_runs_and_no_expression_is_built(tmp_path:
     assert any("every split is held" in line for line in log)
 
 
-def test_a_run_limited_to_the_base_group_leaves_every_runtime_out(tmp_path: Path) -> None:
-    ran = Groups()
-    gate, repo, base = whole_run(tmp_path, ran, only="base")
+def test_a_run_limited_to_rest_leaves_every_declared_split_out(tmp_path: Path) -> None:
+    ran = Groups(failing=[PLAIN])
+    gate, repo, base = whole_run(tmp_path, ran, only=REST_SPLIT)
 
     gate.run(cwd=repo, base=base)
 
+    command = ran.runs[0]
+    assert expression_of(command) == expected([], only=REST_SPLIT)
+    assert gate.result is not None
+    assert [f.split for f in gate.result.failures] == [REST_SPLIT]
+
+
+# --- a held `rest`, and a result stored with the older key -------------------------------
+
+
+def test_a_held_rest_is_parked_when_tests_belong_to_none_of_the_splits(tmp_path: Path) -> None:
+    ran = Groups()
+    gate, repo, base = whole_run(tmp_path, ran, held=[REST_SPLIT])
+
+    gate.run(cwd=repo, base=base)
+
+    assert gate.result is not None
+    assert gate.result.parked == [REST_SPLIT]
     [command] = ran.runs
-    assert expression_of(command) == expected([], only="base")
+    assert expression_of(command) == expected([REST_SPLIT])
 
 
-# --- the groups a run executes, which the open-fix gate asks -----------------------------
+def test_a_held_rest_with_no_test_in_none_of_the_splits_parks_nothing(tmp_path: Path) -> None:
+    repo, base = only_acp_changed(tmp_path)
+    ran = Groups()
+    gate = session(tmp_path, ran, held=[REST_SPLIT])
+
+    gate.run(cwd=repo, base=base)
+
+    assert gate.result is not None
+    assert gate.result.parked == []
+    assert [expression_of(command) for command in ran.runs] == [expected([REST_SPLIT])]
+
+
+def test_a_failure_stored_with_the_older_group_key_reads_it_as_its_split() -> None:
+    stored = {"test": CLAUDE, "line": "assert False", "group": "claude_code"}
+
+    assert TestFailure.model_validate(stored).split == "claude_code"
+
+
+def test_a_result_stored_with_failures_under_the_older_group_key_reads_their_splits() -> None:
+    stored = {
+        "sha": "abc1234",
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "duration_seconds": 1.0,
+        "command": "pytest",
+        "output": "",
+        "failures": [{"test": ACP, "line": "assert False", "group": "acp"}],
+    }
+
+    [failure] = Tier2Result.model_validate(stored).failures
+
+    assert failure.split == "acp"
+
+
+# --- the groups a run executes, which the open-fix gate asks --------------------
 
 
 def test_the_groups_a_run_executes_leave_out_the_blocked_runtimes(tmp_path: Path) -> None:
-    gate = session(tmp_path, Groups(), scope=Tier2UnitScope.FULL, blocked=["acp"])
+    gate = session(tmp_path, Groups(), scope=Tier2UnitScope.FULL, held=["acp"])
 
     groups = gate.runtimes()
 
@@ -462,7 +533,7 @@ def test_a_call_limited_to_a_group_that_is_still_blocked_parks_it_without_runnin
     tmp_path: Path,
 ) -> None:
     ran = Groups()
-    gate, repo, base = whole_run(tmp_path, ran, blocked=["acp"], timeout=0.1)
+    gate, repo, base = whole_run(tmp_path, ran, held=["acp"], timeout=0.1)
 
     with stack_lock(gate.lock, timeout=1, holder="another/1"):
         ok, _ = gate.run(cwd=repo, base=base, only="acp")

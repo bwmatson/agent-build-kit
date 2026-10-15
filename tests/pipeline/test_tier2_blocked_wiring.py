@@ -9,7 +9,7 @@ import pytest
 
 from agent_build_kit.pipeline import wiring
 from tests.pipeline.test_tier2_gate_wiring import runner_of
-from tests.pipeline.test_tier2_runtime_groups import (
+from tests.pipeline.test_tier2_split_groups import (
     FILES,
     MARKER,
     SOURCE,

@@ -13,7 +13,7 @@ from agent_build_kit.pipeline.tier2 import post_status
 from agent_build_kit.pipeline.unit_store import Cause
 from tests.forges.stand_in import StandInForge
 from tests.graph_driver import fresh, tick
-from tests.pipeline.test_tier2_runtime_groups import FILES, SOURCE, Groups
+from tests.pipeline.test_tier2_split_groups import FILES, SOURCE, Groups
 from tests.tier2_park_fakes import Parking, Step, holds_of
 from tests.tier2_scope_fakes import branch, session
 
@@ -22,7 +22,7 @@ def test_the_posting_refuses_a_result_with_a_parked_runtime_and_sends_nothing(
     tmp_path: Path,
 ) -> None:
     repo, base = branch(tmp_path, SOURCE, base_files=FILES)
-    gate = session(tmp_path, Groups(), scope=Tier2UnitScope.FULL, blocked=["acp"])
+    gate = session(tmp_path, Groups(), scope=Tier2UnitScope.FULL, held=["acp"])
     gate.run(cwd=repo, base=base)
     assert gate.result is not None and gate.result.parked == ["acp"]
     forge = StandInForge()
