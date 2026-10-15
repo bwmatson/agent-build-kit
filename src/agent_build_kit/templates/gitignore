@@ -21,6 +21,9 @@ runs/usage-calls.jsonl
 # rewrite; they hold the secrets and paths, wherever the state directory is.
 *.pre-redact
 
+# Structured, user-specific configuration merged over abk.yaml. Never committed.
+abk.local.yaml
+
 # Words that identify this installation, for `abk scrub-check` (one per line). Never committed:
 # a list of what must not be public would itself be the leak.
 scrub.local

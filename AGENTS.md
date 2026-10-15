@@ -25,13 +25,17 @@ The one rule specific to this repo, and the reason it can be public:
   `example/app` and `example/platform`; services are `svc-a`, `svc-b`;
   changes are `feature`, `add-marker`. `example` is the reserved fixture
   owner.
+- **A checkout naming itself is not a reference.** Note that the checkout's own entry in its
+  own `abk.yaml` is not a consumer reference: a repo with path `.` names the checkout itself,
+  so scanning the checkout for its own name is not a hit.
 - **Two checks keep it that way.** `tests/test_no_installation_leaks.py` is a
   structural check (home paths, non-fixture GitHub slugs, `word#number`
   anecdotes, product config paths, literal env keys) that runs with the
-  suite. An installation runs `abk scrub-check --target <this checkout>`
-  from its planning repo, which derives the forbidden terms from its own
-  `abk.yaml` — the term list lives there, never here. Run both before
-  merging.
+  suite; it also reads planning content (`openspec/`, the committed `abk.yaml`, the
+  tracked unit store) and fails a tracked or unignored `abk.local.yaml`. An installation
+  runs `abk scrub-check --target <this checkout>` from its planning repo, which derives
+  the forbidden terms from its own `abk.yaml` and its ignored `scrub.local` — the term list
+  lives there, never here. Run both before merging.
 - **Commits carry no `Co-Authored-By` trailer** in this repo.
 
 ## Framework code is language- and tool-independent

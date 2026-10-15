@@ -28,6 +28,7 @@ import yaml
 from agent_build_kit import forges, openspec, skills
 from agent_build_kit.config import (
     CONFIG_FILENAME,
+    OVERLAY_FILENAME,
     CredentialsConfig,
     DeployConfig,
     DeployRule,
@@ -603,8 +604,9 @@ def _write(path: Path, text: str, *, overwrite: bool, written: list[Path]) -> No
     written.append(path)
 
 
-# What an installation keeps to itself: the local scrub list and the redaction originals.
-LOCAL_IGNORES = ("scrub.local", COPY_PATTERN)
+# What an installation keeps to itself: the configuration overlay, the local scrub list and the
+# redaction originals.
+LOCAL_IGNORES = (OVERLAY_FILENAME, "scrub.local", COPY_PATTERN)
 
 
 def _ensure_ignored(path: Path, lines: tuple[str, ...], *, written: list[Path]) -> None:

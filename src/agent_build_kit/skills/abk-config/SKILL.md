@@ -286,6 +286,59 @@ notifications:                # tell a person when a unit waits on them
   # (the cmdlet names changed between releases); `abk init` offers to install it.
 ```
 
+## Where an installation's facts live
+
+The tracked `abk.yaml` of a public repo holds neither consumer facts nor user-specific values:
+no other repo's path, owner or name, no home directory, no command that belongs to one machine.
+Two ignored files in the planning root hold what you would otherwise write there, and `abk init`
+adds both to `.gitignore`.
+
+`.env` is for single values and secrets you would write in `abk.yaml` but not commit: an
+agent command, a local port, a token. `abk.yaml` keeps the entry and reads the value from the
+file through a `from: env-file` provider with generic variable names:
+
+```yaml
+verify:
+  env:
+    AGENT_COMMAND:
+      from: env-file
+      file: .env
+      key: AGENT_COMMAND
+    SERVICE_TOKEN:
+      from: env-file
+      file: .env
+      key: SERVICE_TOKEN
+```
+
+`abk.local.yaml` is for structured, user-specific configuration, merged over `abk.yaml` when
+it loads (mappings merge by key; lists, text and `null` replace). A worked example of
+abk.local.yaml, holding one user's checkout of a repo and an extra verification variable:
+
+```yaml
+repos:
+  platform:
+    path: ../platform
+verify:
+  env:
+    EXTRA_TOKEN:
+      from: env-file
+      file: .env
+      key: EXTRA_TOKEN
+```
+
+They are independent layers, and both may be used. For a fact either could carry, the loader
+reads the entry itself (which `verify.env` variable exists, and its provider) from `abk.yaml`
+merged with `abk.local.yaml`, and reads that entry's value from the file its `env-file`
+provider names, `.env` here. Nothing reads `.env` for the entry itself.
+
+A planning repo that plans only itself needs no other repo entries: its own entry, with path
+`.`, is the checkout naming itself.
+
+Words that only this installation knows go in `scrub.local`, one per line (`!word` removes a
+derived term); `abk scrub-check` reads it. `abk doctor`'s `public content` check warns when
+`abk.local.yaml` or `scrub.local` is tracked or not ignored, and when a committed `abk.yaml`
+holds a repo path outside the checkout, a home path or another account's repo.
+
 ## The Claude Code account
 
 The account the pipeline runs `claude` on is a config directory, set in the
@@ -319,6 +372,7 @@ is 1 when anything failed.
 | abk.yaml gaps (warn) | A service directory with no deploy rule, a rule whose prefix no longer exists, a dev-stack script without `dev_stack`, or a `live_written` path that is not a directory. |
 | changelog (warn) | A repo's `changelog` path names a file its checkout does not have. Not checked when `changelog: null`. |
 | notifications | `notifications.provider` is `windows` and `powershell.exe` does not list the pinned BurntToast version (the fix is the install command), or is `command` and the `show` program is not on PATH. Nothing is checked while the provider is `off`. |
+| public content (warn) | The committed `abk.yaml` holds a repo path outside the checkout, a home-directory path in a value or a repo owned by another account than the origin (the key is named, never the value); or `abk.local.yaml`, `scrub.local` or a `*.pre-redact` copy is tracked or not ignored (the fix names the line to add). Offline. |
 | skills (warn) | An installed abk skill is older than the framework; run `abk install-skills`. |
 
 ## Changing the config
