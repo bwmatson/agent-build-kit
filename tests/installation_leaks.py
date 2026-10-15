@@ -96,18 +96,24 @@ def files(root: Path) -> list[Path]:
     return [path for path in found if path.name not in SELF]
 
 
+def file_hits(root: Path, path: Path, found: re.Pattern | Callable[[str], object]) -> list[str]:
+    """Each line of one file that a pattern matches or a predicate accepts, as
+    `path:line: clipped line`, the path relative to `root`."""
+    matches = found.search if isinstance(found, re.Pattern) else found
+    return [
+        f"{path.relative_to(root)}:{number}: {line.strip()[:100]}"
+        for number, line in enumerate(path.read_text(errors="replace").splitlines(), start=1)
+        if matches(line)
+    ]
+
+
 def hits(
     root: Path, found: re.Pattern | Callable[[str], object], *, skip: Collection[str] = ()
 ) -> list[str]:
     """Each line of the scanned files that a pattern matches or a predicate accepts, as
     `path:line: clipped line`."""
-    matches = found.search if isinstance(found, re.Pattern) else found
     return [
-        f"{path.relative_to(root)}:{number}: {line.strip()[:100]}"
-        for path in files(root)
-        if path.name not in skip
-        for number, line in enumerate(path.read_text(errors="replace").splitlines(), start=1)
-        if matches(line)
+        hit for path in files(root) if path.name not in skip for hit in file_hits(root, path, found)
     ]
 
 
@@ -157,9 +163,7 @@ def overlay_leaks(root: Path) -> list[str]:
         found.append(f"{OVERLAY_FILENAME}: not ignored")
     if not tracked and ignored:
         return []
-    for number, line in enumerate(path.read_text(errors="replace").splitlines(), start=1):
-        if leaky_line(line):
-            found.append(f"{OVERLAY_FILENAME}:{number}: {line.strip()[:100]}")
+    found += file_hits(root, path, leaky_line)
     return found + repo_path_leaks(root, OVERLAY_FILENAME)
 
 

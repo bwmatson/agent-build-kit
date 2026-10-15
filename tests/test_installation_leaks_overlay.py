@@ -12,7 +12,6 @@ OVERLAY = "abk.local.yaml"
 LEAKY = (
     "verify:\n  env:\n    HOME_DIR: /home/someone/work\nrepos:\n  other:\n    path: ../sibling-x\n"
 )
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def repository(root: Path, *, ignore: str = "") -> Path:
@@ -85,7 +84,3 @@ def test_the_committed_config_is_scanned_as_before(tmp_path: Path) -> None:
 
     assert [line.split(":")[0:2] for line in leaks(root)] == [["abk.yaml", "4"]]
     assert overlay_leaks(root) == []
-
-
-def test_this_checkout_holds_no_tracked_or_unignored_overlay() -> None:
-    assert overlay_leaks(ROOT) == []

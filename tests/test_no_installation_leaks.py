@@ -21,6 +21,7 @@ from tests.installation_leaks import (
     foreign_azure_orgs,
     foreign_slug_owners,
     hits,
+    overlay_leaks,
     repo_path_leaks,
 )
 
@@ -86,3 +87,7 @@ def test_environment_is_read_only_through_the_settings_layer(pattern: re.Pattern
 
 def test_a_tracked_config_names_no_path_outside_the_checkout() -> None:
     assert repo_path_leaks(ROOT) == []
+
+
+def test_this_checkout_holds_no_tracked_or_unignored_overlay() -> None:
+    assert overlay_leaks(ROOT) == []
