@@ -10,8 +10,11 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Collection, Sequence
 from datetime import datetime
+from typing import Any
 
-from agent_build_kit.config import BASE_GROUP
+from pydantic import model_validator
+
+from agent_build_kit.config import BASE_GROUP, REST_SPLIT
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.failure_record import FailureRecord, Recorded, TestCount
@@ -34,7 +37,18 @@ class PreExisting(Recorded):
     at: datetime
     base_result: str = "failed"
     base_output: str = ""
-    runtime: str = BASE_GROUP
+    split: str = REST_SPLIT
+
+    @model_validator(mode="before")
+    @classmethod
+    def _read_older_runtime(cls, data: Any) -> Any:
+        """An entry written before splits named its group `runtime`, `base` for the untagged."""
+        if isinstance(data, dict) and "runtime" in data:
+            data = dict(data)
+            older = data.pop("runtime")
+            if "split" not in data:
+                data["split"] = REST_SPLIT if older == BASE_GROUP else older
+        return data
 
 
 PreExistingCount = TestCount
@@ -117,12 +131,12 @@ def holding_fixes(
     unit: StoredUnit,
     units: Sequence[StoredUnit],
     *,
-    runtimes: Collection[str] | None = None,
+    splits: Collection[str] | None = None,
 ) -> list[PreExisting]:
     """The recorded entries whose fix change is open, was recorded for `unit`'s repo
     (by the repo of the unit named in `units`), is not `unit`'s own change and has no
-    `Needs:` line from `unit`, and whose runtime group is among `runtimes` (None: any), the
-    groups the run executes: each holds `unit` before a full tier 2 run."""
+    `Needs:` line from `unit`, and whose split is among `splits` (None: any), the
+    splits the run executes: each holds `unit` before a full tier 2 run."""
     repo_of = {other.id: other.repo for other in units}
     waits_on = {
         need.change
@@ -135,7 +149,7 @@ def holding_fixes(
     for entry in preexisting_record(inst).latest_with_change().values():
         if (
             repo_of.get(entry.unit) == unit.repo
-            and (runtimes is None or entry.runtime in runtimes)
+            and (splits is None or entry.split in splits)
             and entry.change != unit.change
             and entry.change not in waits_on
             and (inst.changes_dir / entry.change).is_dir()
@@ -186,9 +200,7 @@ def _proposal(inst: Installation, entry: PreExisting, unit: StoredUnit, earlier:
         else ""
     )
     runtime_line = (
-        f"It belongs to the `{entry.runtime}` runtime's tests.\n\n"
-        if entry.runtime != BASE_GROUP
-        else ""
+        f"It belongs to the `{entry.split}` split's tests.\n\n" if entry.split != REST_SPLIT else ""
     )
     return (
         "## Why\n\n"

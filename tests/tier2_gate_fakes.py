@@ -15,7 +15,7 @@ from agent_build_kit.graph.state import EventKind, ResumeEvent
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.flakes import fix_change_name
-from agent_build_kit.pipeline.stack_runner import RunOutcome
+from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
 from agent_build_kit.pipeline.unit_store import RequeueReason
 from agent_build_kit.pipeline.untouched_failures import PREFIX
 from agent_build_kit.pipeline.wiring import build_on_preexisting, build_on_tier2_gate
@@ -24,7 +24,7 @@ from tests.conftest import make_installation
 from tests.factories import stored_unit
 from tests.graph_driver import fresh, tick
 from tests.runner_fakes import Recorder
-from tests.tier2_wait_fakes import OLD, OTHER_OLD, verdict_of
+from tests.tier2_wait_fakes import OLD, OTHER_OLD, Failing, snapshot_of, verdict_of
 
 GATE_CLEARED = ResumeEvent(
     kind=EventKind.REQUEUE, requeue=RequeueReason.RESUME, reason="gate cleared"
@@ -54,9 +54,9 @@ class Gate:
         self.inner = inner
         self.asked: list[str] = []
 
-    def __call__(self, unit: Any, runtimes: Any = None) -> list[str]:
+    def __call__(self, unit: Any, **run: Any) -> list[str]:
         self.asked.append(unit.id)
-        return self.inner(unit, runtimes=runtimes)
+        return self.inner(unit, **run)
 
 
 class Planning:
@@ -91,18 +91,18 @@ class Planning:
         met_by: str = "feature/1",
         repo: str = "app",
         with_unit: bool = True,
-        group: str = "",
+        split: str = "",
     ) -> str:
         """Record `test` as failing on the base, met by `met_by` of `repo`, and write its
         fix change through the code that records a failure (a unit that does not wait).
-        The fix change gets its unit in the store when `with_unit`. `group` is the runtime
-        group the failing test belongs to."""
+        The fix change gets its unit in the store when `with_unit`. `split` is the tier 2
+        split the failing test belongs to."""
         change = met_by.split("/")[0]
         if not (self.installation.changes_dir / change).exists():
             self.write_change(change)
         met = stored_unit(met_by, change=change, repo=repo, groups=(1, 2))
         self.store.upsert([met])
-        verdict = verdict_of(old=(test,), group=group)
+        verdict = verdict_of(old=(test,), group=split)
         build_on_preexisting(self.store, self.installation, log=lambda m: None)(
             met, verdict, verdict.pre_existing[0], wait=False
         )
@@ -140,6 +140,19 @@ class Planning:
             run_tier2=run_under_lock,
         )
         return tick(self.tmp_path, self.recorder, **{**wired, **more})
+
+    def fails(self, *, split: str) -> RunStatus:
+        """The unit's tier 2 run fails on `OLD` of split `split`, which the base fails too."""
+        tier2 = Failing(self.recorder.events, snapshot_of(OLD), verdict_of(old=(OLD,), group=split))
+        return self.tick(
+            run_tier2=tier2.run,
+            tier2_verdict=tier2.judged,
+            on_preexisting=build_on_preexisting(self.store, self.installation, log=lambda m: None),
+        ).status
+
+    def fix_changes(self) -> list[str]:
+        """The open changes that fix a failing test."""
+        return sorted(c for c in self.changes() if c.startswith(PREFIX))
 
     def status(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
