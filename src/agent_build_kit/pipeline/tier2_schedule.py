@@ -29,8 +29,8 @@ _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _ARCHIVED = re.compile(rf"{_DATE.pattern}-(?P<name>.+)")
 
 
-def scheduled_name(repo: str, day: date) -> str:
-    """The name of the change that runs `repo`'s suite, written on `day`."""
+def scheduled_name(repo: str, day: date, variant: str = "base") -> str:
+    """The name of the change that runs `repo`'s `variant` group of the suite, written on `day`."""
     return f"{PREFIX}-{repo}-{day.isoformat()}"
 
 
@@ -48,6 +48,12 @@ def scheduled_date(name: str, repo: str) -> date | None:
         return date.fromisoformat(tail)
     except ValueError:
         return None
+
+
+def scheduled_parts(name: str, repo: str, variants: Iterable[str]) -> tuple[date, str] | None:
+    """The date and the variant in `name` when it is a scheduled change of exactly `repo` and
+    one of `variants` (a name with no variant reads as `base`), else None."""
+    raise NotImplementedError
 
 
 def write_due(

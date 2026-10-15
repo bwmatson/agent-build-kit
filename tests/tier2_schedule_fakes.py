@@ -21,20 +21,34 @@ def ago(days: int) -> date:
 
 
 def planning(
-    root: Path, schedules: dict[str, str | bool | None] | None = None, **limits: Any
+    root: Path,
+    schedules: dict[str, str | bool | None] | None = None,
+    *,
+    tests: dict[str, Any] | None = None,
+    repo_runtimes: dict[str, list[str]] | None = None,
+    runtimes: dict[str, Any] | None = None,
+    **limits: Any,
 ) -> Installation:
     """A planning directory with one repo per key of `schedules`, each with that value as its
-    own `tests.tier2_schedule` (None: unset); `app` alone when it is not given."""
+    own `tests.tier2_schedule` (None: unset); `app` alone when it is not given. `tests` is the
+    top-level `tests` block, `repo_runtimes` gives repos their own `tests.tier2_runtimes` and
+    `runtimes` is the file's `runtimes` block."""
     schedules = {"app": None} if schedules is None else schedules
+    own = repo_runtimes or {}
     repos = {
         name: {
             "path": str(root / "checkouts" / name),
             "slug": f"example/{name}",
-            "tests": {} if value is None else {"tier2_schedule": value},
+            "tests": {
+                **({} if value is None else {"tier2_schedule": value}),
+                **({"tier2_runtimes": own[name]} if name in own else {}),
+            },
         }
         for name, value in schedules.items()
     }
-    return make_installation(root, repos=repos, global_limits=limits)
+    return make_installation(
+        root, repos=repos, global_limits=limits, tests=tests or {}, runtimes=runtimes or {}
+    )
 
 
 def store_of(inst: Installation, *tier2_repos: str, **others: str) -> UnitStore:
@@ -53,15 +67,15 @@ def store_of(inst: Installation, *tier2_repos: str, **others: str) -> UnitStore:
     return store
 
 
-def archived(inst: Installation, repo: str, written: date) -> str:
+def archived(inst: Installation, repo: str, written: date, variant: str = "base") -> str:
     """A scheduled change written on `written` and archived the same day; returns its name."""
-    name = scheduled_name(repo, written)
+    name = scheduled_name(repo, written, variant)
     (inst.changes_dir / "archive" / f"{written.isoformat()}-{name}").mkdir(parents=True)
     return name
 
 
-def open_change(inst: Installation, repo: str, written: date) -> str:
-    name = scheduled_name(repo, written)
+def open_change(inst: Installation, repo: str, written: date, variant: str = "base") -> str:
+    name = scheduled_name(repo, written, variant)
     (inst.changes_dir / name).mkdir(parents=True)
     return name
 
