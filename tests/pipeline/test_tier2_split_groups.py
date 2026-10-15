@@ -149,7 +149,7 @@ def whole_run(tmp_path: Path, ran: Groups, **kwargs) -> tuple[Tier2Session, Path
 # --- the groups that can run, and the ones parked ----------------------------------------
 
 
-def test_with_acp_blocked_every_command_leaves_it_out_and_the_group_is_parked(
+def test_with_acp_held_every_command_leaves_it_out_and_the_split_is_parked(
     tmp_path: Path,
 ) -> None:
     ran = Groups()
@@ -165,7 +165,7 @@ def test_with_acp_blocked_every_command_leaves_it_out_and_the_group_is_parked(
     assert "runtime_acp" in expression_of(command)
 
 
-def test_the_blocked_group_is_listed_under_the_opposite_expression(tmp_path: Path) -> None:
+def test_the_held_split_is_listed_under_the_opposite_expression(tmp_path: Path) -> None:
     ran = Groups()
     gate, repo, base = whole_run(tmp_path, ran, held=["acp"])
 
@@ -197,7 +197,7 @@ def test_under_own_scope_the_listing_is_narrowed_to_the_units_own_tests(tmp_path
     assert CLAUDE not in listing
 
 
-def test_a_blocked_runtime_with_no_own_test_parks_nothing_and_the_run_is_complete(
+def test_a_held_split_with_no_own_test_parks_nothing_and_the_run_is_complete(
     tmp_path: Path,
 ) -> None:
     # The acp test is in the repository but is not one the unit added or changed.
@@ -384,8 +384,9 @@ def test_a_run_limited_to_one_split_runs_only_that_splits_selection(tmp_path: Pa
 
     gate.run(cwd=repo, base=base)
 
-    command = ran.runs[0]
-    assert expression_of(command) == expected([], only="acp")
+    # The head run and the base re-run of the failed test, each under the limited selection.
+    assert len(ran.runs) == 2
+    assert [expression_of(c) for c in ran.runs] == [expected([], only="acp")] * len(ran.runs)
     assert gate.result is not None
     assert [f.split for f in gate.result.failures] == ["acp"]
 
@@ -424,8 +425,9 @@ def test_a_run_limited_to_rest_leaves_every_declared_split_out(tmp_path: Path) -
 
     gate.run(cwd=repo, base=base)
 
-    command = ran.runs[0]
-    assert expression_of(command) == expected([], only=REST_SPLIT)
+    # The head run and the base re-run of the failed test, each under the limited selection.
+    assert len(ran.runs) == 2
+    assert [expression_of(c) for c in ran.runs] == [expected([], only=REST_SPLIT)] * len(ran.runs)
     assert gate.result is not None
     assert [f.split for f in gate.result.failures] == [REST_SPLIT]
 
@@ -445,7 +447,7 @@ def test_a_held_rest_is_parked_when_tests_belong_to_none_of_the_splits(tmp_path:
     assert expression_of(command) == expected([REST_SPLIT])
 
 
-def test_a_held_rest_with_no_test_in_none_of_the_splits_parks_nothing(tmp_path: Path) -> None:
+def test_a_held_rest_parks_nothing_when_every_own_test_is_in_a_split(tmp_path: Path) -> None:
     repo, base = only_acp_changed(tmp_path)
     ran = Groups()
     gate = session(tmp_path, ran, held=[REST_SPLIT])

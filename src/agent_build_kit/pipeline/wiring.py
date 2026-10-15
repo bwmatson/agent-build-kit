@@ -2477,7 +2477,7 @@ class Tier2Session:
     def _park(
         self, scope: Tier2Scope, toolchains: Mapping[Path, ToolchainProfile]
     ) -> tuple[list[str], Tier2Scope]:
-        """The blocked runtimes holding a test this run would have executed, found by listing
+        """The held splits holding a test this run would have executed, found by listing
         without running, and the scope without its commands when the parked tests were all
         there was to run."""
         if self._only is not None or not self._held:
@@ -2559,7 +2559,7 @@ class Tier2Session:
         """Run tier 2 on `cwd`. `base` is the ref this run is against: with it, the failed
         tests of files the unit left alone are run once on it, and `verdict` says whose
         each is. Without it, or on the dev stack, nothing is classified. `only` limits the
-        run to one group, as a resume of a parked one does; a group still blocked is
+        run to one group, as a resume of a parked one does; a group still held is
         parked again without running. The result names the group it was limited to."""
         self._only = self._only_given if only is None else only
         done = self._execute(cwd=cwd, base=base)
@@ -2574,7 +2574,7 @@ class Tier2Session:
         self._output_file = None
         self._withheld = False
         if self._only is not None and self._only in self._held:
-            self._log(f"tier 2 parked {self._only}: still blocked")
+            self._log(f"tier 2 parked {self._only}: still held")
             self.result = Tier2Result(
                 sha=self._sha(cwd),
                 passed=0,
