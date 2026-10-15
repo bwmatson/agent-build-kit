@@ -692,6 +692,20 @@ def owning_project(projects: list[ProjectConfig], path: str) -> ProjectConfig | 
     return next((p for p in ordered if path.startswith(p.prefix)), None)
 
 
+def by_project(
+    projects: list[ProjectConfig], paths: list[str]
+) -> list[tuple[ProjectConfig | None, list[str]]]:
+    """`paths` (relative to the checkout) grouped by the project that owns each, in the order
+    each project first appears, as paths relative to that project. A path no project owns
+    is grouped under None and keeps its name."""
+    groups: dict[str | None, tuple[ProjectConfig | None, list[str]]] = {}
+    for path in paths:
+        owner = owning_project(projects, path)
+        _, owned = groups.setdefault(owner.path if owner else None, (owner, []))
+        owned.append(path.removeprefix(owner.prefix) if owner else path)
+    return list(groups.values())
+
+
 class AzureDevOpsConfig(Frozen):
     """Where a repo lives on Azure DevOps, decoded.
 

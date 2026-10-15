@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit import profiles
-from agent_build_kit.config import RepoConfig
+from agent_build_kit.config import RepoConfig, by_project, owning_project
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.unit_store import StoredUnit
@@ -44,10 +44,12 @@ def deploy_commands(
 
     Two conventions come before the repo's own rules: test and documentation
     paths deploy nothing, and a change inside a library member counts as a
-    change in every member that depends on it. Then the first rule whose
-    prefix matches decides; a path matching nothing deploys nothing.
+    change in every member that depends on it. Both are decided by the profile
+    of the project a path belongs to (`profile`, else the repo's, where it
+    belongs to none). Then the first rule whose prefix matches decides; a path
+    matching nothing deploys nothing.
     """
-    profile = profile or profiles.get(repo.profile)
+    fallback = profile or profiles.get(repo.profile)
     commands: list[Command] = []
 
     def add(path: str) -> None:
@@ -57,14 +59,40 @@ def deploy_commands(
                 return
 
     for path in paths:
+        project = owning_project(repo.projects, path)
+        profile = profiles.for_project(project, fallback)
+        prefix = project.prefix if project else ""
         if is_doc_path(path) or profile.is_test_path(path):
             continue
         add(path)
-        member = profile.member_of(checkout, path)
+        # Members are named relative to the project's own directory.
+        root = checkout / prefix
+        member = profile.member_of(root, path.removeprefix(prefix))
         if member is not None:
-            for dependent in profile.dependents(checkout, member):
-                add(f"{dependent}/")
+            for dependent in profile.dependents(root, member):
+                add(f"{prefix}{dependent}/")
     return commands
+
+
+def _acceptance_runs(
+    repo: RepoConfig, paths: list[str], checkout: Path, fallback: ToolchainProfile
+) -> list[tuple[ToolchainProfile, Path, list[str]]]:
+    """The live tests of the changed `paths`, as (profile, directory to run in, command):
+    each project's own profile is asked about the paths under it, from its directory; the
+    repo's profile about the rest, from the checkout root."""
+    runs = []
+    for project, group in by_project(repo.projects, paths):
+        profile = profiles.for_project(project, fallback)
+        directory = checkout / project.prefix if project else checkout
+        commands = profile.acceptance_commands(
+            directory,
+            group,
+            marker=repo.tests.tier2_marker,
+            exclude_marker=repo.tests.dev_stack_marker,
+            root_extras=repo.tests.root_extras,
+        )
+        runs += [(profile, directory, command) for command in commands]
+    return runs
 
 
 _CREDENTIALS = re.compile(r"^(?P<name>[A-Za-z_][A-Za-z0-9_]*)=\((?P<names>[^)]*)\)", re.M)
@@ -142,18 +170,12 @@ def verify_change(
     checkouts = installation.checkouts
     repos = installation.deploy_order(list(files))
     plans: dict[str, list[Command]] = {}
-    tests: dict[str, list[list[str]]] = {}
+    tests: dict[str, list[tuple[ToolchainProfile, Path, list[str]]]] = {}
     for name in repos:
         repo = installation.repo(name)
         profile = profiles.get(repo.profile)
         plans[name] = deploy_commands(repo, files[name], checkout=checkouts[name], profile=profile)
-        tests[name] = profile.acceptance_commands(
-            checkouts[name],
-            files[name],
-            marker=repo.tests.tier2_marker,
-            exclude_marker=repo.tests.dev_stack_marker,
-            root_extras=repo.tests.root_extras,
-        )
+        tests[name] = _acceptance_runs(repo, files[name], checkouts[name], profile)
 
     for name in repos:
         if not (plans[name] or tests[name]):
@@ -198,10 +220,9 @@ def verify_change(
     base_env = {**os.environ, **(env or {})} if any(tests.values()) else {}
     for name in repos:
         repo = installation.repo(name)
-        profile = profiles.get(repo.profile)
         repo_env = {**base_env, **live_credentials(repo, checkouts[name])}
-        for command in tests[name]:
-            done = run(command, cwd=checkouts[name], env=repo_env)
+        for profile, directory, command in tests[name]:
+            done = run(command, cwd=directory, env=repo_env)
             # "nothing selected" is not a failure: the change's live tests
             # may all be ones this step deliberately leaves out.
             if done.returncode not in (0, profile.no_tests_collected_exit):

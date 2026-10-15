@@ -5,8 +5,9 @@
 Each fixture is the JUnit report Vitest wrote for one tiny project in a temporary
 directory: a failing assertion beside a skipped and a passing test, a stub that throws
 `not implemented`, a test file importing a module that does not exist, a type error, and a
-passing run, a syntax error, a run that executed nothing, and a failing test file beside a
-passing one from another file. Needs network access once, for `npx` to fetch Vitest. Only the
+passing run, a syntax error, a run that executed nothing, a failing test file beside a
+passing one from another file, and a tier-2 run (a file named for its marker) that keeps its
+timings. Needs network access once, for `npx` to fetch Vitest. Only the
 temporary path, the tool's cache path, timings and host name are redacted; the header names the
 tool version and the command. Name cases on the command line to record only those.
 """
@@ -21,6 +22,8 @@ OUT = Path(__file__).resolve().parent / "vitest"
 
 COMMAND = ["npx", "--yes", "vitest", "run", "--reporter=junit", "--passWithNoTests"]
 REPORT_FILE = "report.xml"
+# Cases whose test times are the point, so the redaction leaves them.
+KEEP_TIMES = {"tier2"}
 HEADER = "import { expect, test } from 'vitest';\n"
 
 CASES = {
@@ -73,6 +76,13 @@ CASES = {
         HEADER + "test('adds', () => {\n  expect(1).toBe(2);\n});\n",
         {"h.test.ts": HEADER + "test('holds', () => {\n  expect(1).toBe(1);\n});\n"},
     ),
+    "tier2": (
+        "live.local_stack.test.ts",
+        HEADER
+        + "test('waits', async () => {\n"
+        + "  await new Promise((done) => setTimeout(done, 50));\n  expect(1).toBe(1);\n});\n"
+        + "test('answers', () => {\n  expect(2).toBe(2);\n});\n",
+    ),
     "passing": (
         "d.test.ts",
         HEADER
@@ -109,7 +119,8 @@ def record(name: str, case: tuple) -> None:
     report = report.replace(tmp, "")
     # A stack frame inside the tool's own cache names the machine's home directory.
     report = re.sub(r"(?:\.\./)+\S*?/node_modules/", "node_modules/", report)
-    report = re.sub(r'(time|timestamp|hostname)="[^"]*"', r'\1="0"', report)
+    redacted = "timestamp|hostname" if name in KEEP_TIMES else "time|timestamp|hostname"
+    report = re.sub(rf'({redacted})="[^"]*"', r'\1="0"', report)
     tool = version.replace("vitest/", "vitest ")
     header = f"<!-- tool: {tool}\n     command: {' '.join(COMMAND[2:])} --outputFile=<path> -->\n"
     (OUT / f"{name}.xml").write_text(header + report)
