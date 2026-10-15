@@ -251,6 +251,7 @@ def on_merged(
     resume: Resume = _no_thread,
     lane: RestackLane | None = None,
     cause: Cause = Cause.MERGED,
+    landing_path: Path | None = None,
     log: Log = print,
 ) -> bool:
     """Record the merge, move what was stacked on it, then clean up after it.
@@ -2208,6 +2209,7 @@ def build_dispatch(
     base_tip: Callable[[StoredUnit], str] | None = None,
     fork_point: Callable[[StoredUnit], str] | None = None,
     paused: Callable[[], bool] = lambda: False,
+    landing_path: Path | None = None,
     log: Log = print,
 ) -> Callable[..., bool]:
     """The callable `pr_poller` hands each event to.
