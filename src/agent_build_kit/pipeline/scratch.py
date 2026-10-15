@@ -15,6 +15,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from agent_build_kit.pipeline.file_lock import append_missing_lines
 from agent_build_kit.pipeline.shell import git_out
 
 SCRATCH = Path(".abk") / "out"
@@ -85,12 +86,7 @@ def ensure_scratch(worktree: Path) -> None:
     exclude = Path(
         git_out(worktree, "rev-parse", "--path-format=absolute", "--git-path", "info/exclude")
     )
-    text = exclude.read_text() if exclude.exists() else ""
-    if EXCLUDE_LINE in (line.strip() for line in text.splitlines()):
-        return
-    exclude.parent.mkdir(parents=True, exist_ok=True)
-    separator = "" if not text or text.endswith("\n") else "\n"
-    exclude.write_text(f"{text}{separator}{EXCLUDE_LINE}\n")
+    append_missing_lines(exclude, [EXCLUDE_LINE])
 
 
 def _marker(max_bytes: int) -> bytes:

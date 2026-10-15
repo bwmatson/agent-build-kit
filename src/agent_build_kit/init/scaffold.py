@@ -46,6 +46,7 @@ from agent_build_kit.init.environment import detect_environment, lock_patterns, 
 from agent_build_kit.init.runtime_choice import merge_values
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.changelog_convention import packaged_convention
+from agent_build_kit.pipeline.file_lock import append_missing_lines
 from agent_build_kit.pipeline.shell import git
 
 TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
@@ -601,6 +602,15 @@ def _write(path: Path, text: str, *, overwrite: bool, written: list[Path]) -> No
     written.append(path)
 
 
+# What an installation keeps to itself: the local scrub list and the redaction originals.
+LOCAL_IGNORES = ("scrub.local", "*.pre-redact")
+
+
+def _ensure_ignored(path: Path, lines: tuple[str, ...], *, written: list[Path]) -> None:
+    if append_missing_lines(path, lines) and path not in written:
+        written.append(path)
+
+
 def write_planning_repo(
     planning_dir: Path,
     config: WorkspaceConfig,
@@ -641,6 +651,7 @@ def write_planning_repo(
     _write(state / ".gitkeep", "", overwrite=False, written=written)
     _write(state / "units.json", '{"units": []}\n', overwrite=False, written=written)
     _write(planning / ".gitignore", template("gitignore"), overwrite=False, written=written)
+    _ensure_ignored(planning / ".gitignore", LOCAL_IGNORES, written=written)
     _write(planning / ".env.example", template("env.example"), overwrite=False, written=written)
     _write(
         planning / "CLAUDE.md",

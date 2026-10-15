@@ -7,6 +7,11 @@ Repos:
 
 {repos}
 
+Facts about this installation's stack (an agent command, local ports, a home
+variable) belong in the ignored `.env`, read through `from: env-file` entries in
+abk.yaml, never in a committed file. A planning repo of one repo needs no other
+repo entries.
+
 Conventions that hold across every repo:
 
 - Two test tiers. Tier 1 is the ordinary suite, run on every pull request in

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import fcntl
 import os
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -73,3 +73,21 @@ def _replace_through_partial(path: Path, write: Callable[[Path], object]) -> Non
     except BaseException:
         partial.unlink(missing_ok=True)
         raise
+
+
+def append_missing_lines(path: Path, lines: Sequence[str]) -> bool:
+    """Add the `lines` a text file lacks, each once, creating the file when it is missing.
+
+    Lines are compared stripped; a newline separates them from the text already there only
+    when it does not end in one. Returns whether the file was written.
+    """
+    text = path.read_text() if path.exists() else ""
+    present = {line.strip() for line in text.splitlines()}
+    missing = [line for line in dict.fromkeys(lines) if line.strip() not in present]
+    if not missing:
+        return False
+    separator = "" if not text or text.endswith("\n") else "\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    added = "\n".join(missing)
+    atomic_write_text(path, f"{text}{separator}{added}\n")
+    return True

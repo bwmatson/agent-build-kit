@@ -60,6 +60,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import shell
 from agent_build_kit.pipeline.call_record import recorded
+from agent_build_kit.pipeline.file_lock import append_missing_lines
 from agent_build_kit.pipeline.planning_repo import default_branch_of, is_repo
 from agent_build_kit.pipeline.planning_repo import restore_default_branch as _restore
 from agent_build_kit.pipeline.usage_guard import (
@@ -400,14 +401,8 @@ def _keep_raw_output_untracked(inst: Installation) -> None:
     exclude = _git(["rev-parse", "--git-path", "info/exclude"], inst.root).stdout.strip()
     if not exclude:
         return
-    path = inst.root / exclude
     entry = f"/{inst.config.tracks.raw_output_dir.strip('/')}/"
-    existing = path.read_text() if path.exists() else ""
-    if entry not in existing.splitlines():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            existing + ("" if existing.endswith("\n") or not existing else "\n") + entry + "\n"
-        )
+    append_missing_lines(inst.root / exclude, [entry])
 
 
 def record_planning(inst: Installation) -> PlanningHead | None:

@@ -20,6 +20,11 @@ runs/usage-calls.jsonl
 # The originals `abk redact-history --apply` keeps beside what it rewrites; they hold the
 # secrets (same note).
 runs/**/*.pre-redact
+*.pre-redact
+
+# Words that identify this installation, for `abk scrub-check` (one per line). Never committed:
+# a list of what must not be public would itself be the leak.
+scrub.local
 
 # Local tooling.
 __pycache__/
