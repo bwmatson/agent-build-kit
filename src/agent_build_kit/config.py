@@ -344,13 +344,13 @@ def tier2_variants(repo: RepoConfig, config: WorkspaceConfig) -> tuple[str, ...]
     """The groups a scheduled tier 2 run covers for `repo`: `base`, then the repo's own
     `tests.tier2_runtimes` when set, else the top-level `tests.tier2_runtimes`."""
     own = repo.tests.tier2_runtimes
-    return ("base", *(config.tests.tier2_runtimes if own is None else own))
+    return (BASE_GROUP, *(config.tests.tier2_runtimes if own is None else own))
 
 
 def known_runtime_names(configured: Iterable[str] = ()) -> set[str]:
     """The runtimes a test tag or a `tests` list may name: the registry's, the protocol
-    runtime's and the keys under `runtimes`."""
-    return {*runtimes.names(), known_agents.RUNTIME_NAME, *configured}
+    runtime's and the keys under `runtimes`, never the reserved name of the base group."""
+    return {*runtimes.names(), known_agents.RUNTIME_NAME, *configured} - {BASE_GROUP}
 
 
 def _unquoted_off(value: object) -> object:
@@ -608,6 +608,10 @@ class TestsConfig(Frozen):
     # The runtimes this repo's scheduled tier 2 runs besides the base group; None follows
     # the top-level `tests.tier2_runtimes`.
     tier2_runtimes: list[str] | None = None
+
+
+# The group of tier 2 tests that carry no runtime tag; reserved, so no runtime has this name.
+BASE_GROUP = "base"
 
 
 class RuntimeTestsConfig(Frozen):

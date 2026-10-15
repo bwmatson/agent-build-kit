@@ -153,6 +153,12 @@ def test_a_repo_list_naming_an_unknown_runtime_is_refused_naming_the_setting() -
     assert all(name in text for name in KNOWN)
 
 
+@pytest.mark.parametrize("setting", SETTINGS)
+def test_base_is_refused_even_when_a_runtime_is_configured_under_that_key(setting: str) -> None:
+    with pytest.raises(ValidationError, match=f"tests.{setting}"):
+        listing(setting, ["base"], configured={"base": {}})
+
+
 def test_config_show_prints_the_lists_set(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     path = tmp_path / "abk.yaml"
     path.write_text(

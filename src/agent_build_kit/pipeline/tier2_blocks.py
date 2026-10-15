@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
-from pydantic import TypeAdapter, ValidationError
+from pydantic import AwareDatetime, TypeAdapter, ValidationError
 
 from agent_build_kit.config import WorkspaceConfig, known_runtime_names
 from agent_build_kit.model import Frozen
@@ -54,8 +54,10 @@ class Blocks(Frozen):
 
 class _Entry(Frozen):
     reason: str
-    since: datetime
-    until: datetime | None = None
+    # Aware only: a naive time cannot be compared with the clock, and a file holding one
+    # reads as unreadable.
+    since: AwareDatetime
+    until: AwareDatetime | None = None
     source: str
     by: str
 

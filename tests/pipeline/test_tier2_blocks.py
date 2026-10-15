@@ -3,6 +3,7 @@ winning (spec: tier2-runtime-blocks)."""
 
 from __future__ import annotations
 
+import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -246,3 +247,37 @@ def test_a_write_leaves_no_temporary_file_behind(tmp_path: Path) -> None:
 
     assert (tmp_path / BLOCKED_FILE).is_file()
     assert [p.name for p in tmp_path.iterdir() if p.suffix in (".tmp", ".part")] == []
+
+
+def test_an_entry_with_a_time_that_has_no_offset_reads_as_an_unreadable_file(
+    tmp_path: Path,
+) -> None:
+    entry = {
+        "reason": "r",
+        "since": NOW.isoformat(),
+        "until": (NOW + timedelta(days=1)).replace(tzinfo=None).isoformat(),
+        "source": "provider",
+        "by": "x",
+    }
+    (tmp_path / BLOCKED_FILE).write_text(json.dumps({"acp": entry}))
+
+    found = read(config(), tmp_path)
+
+    assert found.blocked == {}
+    assert found.unreadable
+
+
+def test_a_deadline_with_no_offset_is_refused_before_anything_is_written(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="timezone"):
+        block(tmp_path, source="provider", until=datetime(2031, 1, 1))
+
+    assert not (tmp_path / BLOCKED_FILE).exists()
+
+
+def test_a_written_time_with_no_offset_is_refused_before_anything_is_written(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match="timezone"):
+        block(tmp_path, now=datetime(2031, 1, 1))
+
+    assert not (tmp_path / BLOCKED_FILE).exists()

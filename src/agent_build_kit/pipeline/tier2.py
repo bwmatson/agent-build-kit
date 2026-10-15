@@ -33,7 +33,7 @@ from pydantic import Field
 
 from agent_build_kit import forges
 from agent_build_kit.budget import cut_head
-from agent_build_kit.config import active, known_runtime_names
+from agent_build_kit.config import BASE_GROUP, active, known_runtime_names
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
@@ -42,8 +42,6 @@ from agent_build_kit.pipeline.workspaces import process_alive
 # Shown on the PR beside the Actions checks.
 STATUS_CONTEXT = "local/tier2"
 
-# The group of tests that carry no runtime tag.
-BASE_GROUP = "base"
 # What a runtime's tag is named: this, then the runtime's name.
 RUNTIME_TAG_PREFIX = "runtime_"
 
