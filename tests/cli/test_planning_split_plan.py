@@ -3,8 +3,10 @@
 import re
 
 import pytest
+import yaml
 
 from agent_build_kit.cli.pipeline import record_plans
+from agent_build_kit.pipeline.unit_store import UnitStore
 from tests.factories import new_unit
 from tests.planning_split_support import load, split, write_installation
 from tests.split_sources import snapshot_tree, write_change, write_spec, write_units
@@ -150,3 +152,39 @@ def test_remove_without_apply_lists_what_it_would_remove(trees, capsys):
     removing = [line for line in out.splitlines() if "remove" in line.lower()]
     assert any("one" in line for line in removing) and any("one/1" in line for line in removing)
     assert (snapshot_tree(source), snapshot_tree(destination)) == before
+
+
+def test_a_remove_lists_a_plan_record_only_for_a_change_that_has_one(trees, capsys):
+    source, destination = trees
+    installation = load(source)
+    write_change(installation, "recorded", ["app"])
+    write_change(installation, "unrecorded", ["app"])
+    record_plans(installation, {"recorded": {"hash": "h", "attempts": 0, "ok": True}})
+
+    code = split(source, "--repo", "app", "--to", str(destination), "--remove")
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert re.search(r"\b1\b", kind_line(out, "plan records"))
+    (line,) = [line for line in out.splitlines() if "would remove plan record" in line]
+    assert "unrecorded" not in line and "recorded" in line
+
+
+def test_apply_copies_and_adds_the_repos_entry_to_the_destination(trees, capsys):
+    source, destination = trees
+    populated(source)
+    before_source = snapshot_tree(source)
+    original = (destination / "abk.yaml").read_text()
+
+    code = split(source, "--repo", "app", "--to", str(destination), "--apply")
+
+    assert code == 0
+    assert "copied" in capsys.readouterr().out
+    assert (destination / "openspec" / "changes" / "one" / "proposal.md").is_file()
+    assert (destination / "openspec" / "changes" / "two" / "tasks.md").is_file()
+    stored = {unit.id for unit in UnitStore(destination / "runs" / "units.json").all()}
+    assert stored == {"one/1", "one/2", "two/1"}
+    declared = yaml.safe_load((destination / "abk.yaml").read_text())["repos"]["app"]
+    assert declared == yaml.safe_load((source / "abk.yaml").read_text())["repos"]["app"]
+    assert (destination / "abk.yaml.abk-backup").read_text() == original
+    assert snapshot_tree(source) == before_source

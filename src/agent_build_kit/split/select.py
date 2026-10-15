@@ -8,9 +8,9 @@ from collections.abc import Collection, Sequence
 from enum import StrEnum
 from pathlib import Path
 
-from agent_build_kit.config import CONFIG_FILENAME, ConfigError
+from agent_build_kit.config import CONFIG_FILENAME, ConfigError, load
 from agent_build_kit.init.scaffold import rules_version
-from agent_build_kit.installation import Installation, load_config
+from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.shell import porcelain
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
@@ -377,7 +377,7 @@ def load_destination(directory: Path, source: Installation) -> Installation:
             f"`abk init {directory}` creates one"
         )
     try:
-        destination = Installation(load_config(config), directory)
+        destination = Installation(load(config), directory)
     except ConfigError as error:
         raise SplitUsageError(f"{config} does not load: {error}") from error
     rules = destination.specs_dir / "config.yaml"

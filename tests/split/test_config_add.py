@@ -118,3 +118,23 @@ def test_a_layout_the_splice_cannot_follow_is_refused_and_nothing_is_written(
     assert source.name in str(refused.value) or destination.name in str(refused.value)
     assert destination.read_text() == destination_text
     assert sorted(p.name for p in tmp_path.iterdir()) == ["abk.yaml", "source-abk.yaml"]
+
+
+def test_a_result_that_is_not_the_old_document_plus_the_block_is_refused_at_the_check(tmp_path):
+    aliased = """\
+repos:
+  lib: &base
+    path: /x/lib
+    slug: example/lib
+  app:
+    <<: *base
+    path: /x/app
+"""
+    source, destination = files(tmp_path, aliased)
+
+    with pytest.raises(ConfigEditError) as refused:
+        add_repo_entry(source, destination, "app")
+
+    assert str(destination) in str(refused.value) and "app" in str(refused.value)
+    assert destination.read_text() == DESTINATION
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["abk.yaml", "source-abk.yaml"]

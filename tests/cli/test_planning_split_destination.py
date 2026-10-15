@@ -55,4 +55,4 @@ def test_a_missing_state_directory_is_refused(tmp_path, source, capsys):
 def test_a_destination_that_is_the_source_is_refused(source, capsys):
     assert apply(source, source / ".") == 2
 
-    assert "source" in capsys.readouterr().err
+    assert "is the source" in capsys.readouterr().err

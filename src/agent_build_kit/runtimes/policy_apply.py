@@ -515,13 +515,7 @@ def apply(
     )
     if dry_run:
         return result
-    backup = path.with_name(path.name + BACKUP_SUFFIX)
-    made = None
-    if not backup.exists():
-        shutil.copy2(path, backup)
-        made = backup
-    _replace(path, merged.text)
-    return result.model_copy(update={"backup": made})
+    return result.model_copy(update={"backup": backup_and_replace(path, merged.text)})
 
 
 class Held(Frozen):
@@ -549,6 +543,18 @@ def held(descriptor: ApplyPolicy, home: Path) -> Held | None:
         deny=tuple(str(item) for item in deny) if isinstance(deny, list) else (),
         toolset=tuple(str(item) for item in listed) if isinstance(listed, list) else None,
     )
+
+
+def backup_and_replace(path: Path, text: str) -> Path | None:
+    """Write `text` over `path`, after copying the original once to `<file>.abk-backup`;
+    the backup's path when this call made it, None when one was already there."""
+    backup = path.with_name(path.name + BACKUP_SUFFIX)
+    made = None
+    if not backup.exists():
+        shutil.copy2(path, backup)
+        made = backup
+    _replace(path, text)
+    return made
 
 
 def _replace(path: Path, text: str) -> None:

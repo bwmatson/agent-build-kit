@@ -14,7 +14,14 @@ from agent_build_kit.pipeline.work_graph import group_needs
 from agent_build_kit.split import scrubbing
 from agent_build_kit.split.select import SplitPlan, moved_files, moved_records
 
-__all__ = ["CopyRefused", "CopyReport", "Preflight", "carry_out", "preflight"]
+__all__ = [
+    "CopyRefused",
+    "CopyReport",
+    "Preflight",
+    "carry_out",
+    "moved_plan_records",
+    "preflight",
+]
 
 
 class CopyRefused(ValueError):
@@ -38,6 +45,12 @@ class CopyReport(Frozen):
     files_unchanged: int = 0
     units_imported: int = 0
     plans_written: int = 0
+
+
+def moved_plan_records(source: Installation, plan: SplitPlan) -> tuple[str, ...]:
+    """The moved changes the source holds an ok plan record for: the ones whose record moves."""
+    recorded = planned_hashes(source)
+    return tuple(name for name in plan.changes_moved if recorded.get(name, {}).get("ok"))
 
 
 def _passes(source: Installation, plan: SplitPlan, scrub: bool) -> Callable[[str], str]:
@@ -178,15 +191,13 @@ def carry_out(
     records = _records(source, plan, scrub)
     UnitStore(destination.state_dir / "units.json").import_units(records)
 
-    recorded = planned_hashes(source)
     plans = {
         name: {
             "hash": plan_digest(destination.changes_dir / name / "tasks.md"),
             "attempts": 0,
             "ok": True,
         }
-        for name in plan.changes_moved
-        if recorded.get(name, {}).get("ok")
+        for name in moved_plan_records(source, plan)
     }
     if plans:
         record_plans(destination, plans)

@@ -9,9 +9,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from agent_build_kit import settings as settings_module
-from agent_build_kit.cli.pipeline import planned_hashes
-from agent_build_kit.config import locate
+from agent_build_kit.config import CONFIG_FILENAME
 from agent_build_kit.installation import Installation
 from agent_build_kit.split import copy, scrubbing
 from agent_build_kit.split.config_edit import ConfigEditError, add_repo_entry
@@ -31,25 +29,23 @@ def _fail(message: str) -> int:
 
 
 def _counts(source: Installation, plan: SplitPlan, entries: int) -> list[str]:
-    recorded = planned_hashes(source)
-    plans = sum(1 for name in plan.changes_moved if recorded.get(name, {}).get("ok"))
     return [
         f"  changes: {len(plan.changes_moved)}",
         f"  archive entries: {len(plan.archive_moved)}",
         f"  specs: {len(plan.specs_moved)}",
         f"  units: {len(plan.units_moved)}",
-        f"  plan records: {plans}",
+        f"  plan records: {len(copy.moved_plan_records(source, plan))}",
         f"  config entries: {entries}",
     ]
 
 
-def _removals(plan: SplitPlan) -> list[str]:
+def _removals(source: Installation, plan: SplitPlan) -> list[str]:
     return [
         *(f"  would remove change {name}" for name in plan.changes_moved),
         *(f"  would remove archive entry {name}" for name in plan.archive_moved),
         *(f"  would remove spec {name}" for name in plan.specs_moved),
         *(f"  would remove unit {name}" for name in plan.units_moved),
-        *(f"  would remove plan record {name}" for name in plan.changes_moved),
+        *(f"  would remove plan record {name}" for name in copy.moved_plan_records(source, plan)),
     ]
 
 
@@ -71,8 +67,8 @@ def cmd_planning_split(args: argparse.Namespace, source: Installation) -> int:
     except SplitUsageError as error:
         return _fail(str(error))
 
-    source_config = locate(args.config or settings_module.settings.config)
-    destination_config = destination.root / "abk.yaml"
+    source_config = source.root / CONFIG_FILENAME
+    destination_config = destination.root / CONFIG_FILENAME
     refusals = [refusal.line for refusal in plan.refusals]
     entry = None
     try:
@@ -109,7 +105,7 @@ def cmd_planning_split(args: argparse.Namespace, source: Installation) -> int:
     for line in refusals:
         print(f"refused: {line}")
     if args.remove:
-        print("\n".join(_removals(plan)))
+        print("\n".join(_removals(source, plan)))
 
     if refusals:
         print("nothing was written; settle the refusals above, then run again")
