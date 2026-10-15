@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- An `abk.local.yaml` beside `abk.yaml` is merged over it when the configuration loads, so
+  facts about other repos and a stack can stay out of a public checkout: mappings merge key
+  by key, anything else (lists, text, `null`) is replaced whole. A schema error names the
+  file the failing key came from, `abk config` says which top-level keys the overlay set,
+  and `abk config --path` prints both files. No command writes the overlay.
+
 - `abk planning split --repo <key> --to <dir>` moves a repo's changes, archive entries,
   specs and unit records to another planning repo. It is a dry run unless `--apply` is
   given: the plan lists a count for each kind, every refusal and the uncommitted files it

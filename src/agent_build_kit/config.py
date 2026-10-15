@@ -37,6 +37,7 @@ from agent_build_kit.replay.models import DEFAULT_KEYED_HEADERS, UpstreamKind
 from agent_build_kit.runtimes import known_agents
 
 CONFIG_FILENAME = "abk.yaml"
+OVERLAY_FILENAME = "abk.local.yaml"
 CONFIG_ENV = "ABK_CONFIG"
 
 
@@ -1071,30 +1072,92 @@ def locate(explicit: Path | None = None, *, cwd: Path | None = None) -> Path:
 
 
 def merge_local(base: dict[str, Any], local: dict[str, Any]) -> dict[str, Any]:
-    raise NotImplementedError
+    """`base` with `local` laid over it: two mappings merge key by key, anything else in
+    `local` (a scalar, a list, a string, `null`) replaces the committed value whole."""
+    merged = dict(base)
+    for key, value in local.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = merge_local(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
 
 
-def read_base(path: Path) -> dict[str, Any]:
-    raise NotImplementedError
-
-
-def load(path: Path) -> WorkspaceConfig:
+def _read_mapping(path: Path) -> dict[str, Any] | None:
+    """The mapping the YAML file at `path` holds, or None when there is no file."""
     try:
         raw = yaml.safe_load(path.read_text()) or {}
+    except FileNotFoundError:
+        return None
     except OSError as error:
         raise ConfigError(f"cannot read {path}: {error}") from error
     except yaml.YAMLError as error:
         raise ConfigError(f"{path} is not valid YAML: {error}") from error
     if not isinstance(raw, dict):
         raise ConfigError(f"{path} must hold a mapping at the top level")
+    return raw
+
+
+def overlay_path(path: Path) -> Path:
+    """The local overlay that sits beside the abk.yaml at `path`."""
+    return path.with_name(OVERLAY_FILENAME)
+
+
+def read_base(path: Path) -> dict[str, Any]:
+    """The committed file alone, parsed, without the overlay."""
+    raw = _read_mapping(path)
+    if raw is None:
+        raise ConfigError(f"cannot read {path}: no such file")
+    return raw
+
+
+def read_overlay(path: Path) -> dict[str, Any] | None:
+    """The overlay beside the abk.yaml at `path`, or None when there is none."""
+    return _read_mapping(overlay_path(path))
+
+
+def _holds(document: object, location: tuple[int | str, ...]) -> bool:
+    for key in location:
+        if isinstance(document, dict) and key in document:
+            document = document[key]
+        elif isinstance(document, list) and isinstance(key, int) and key < len(document):
+            document = document[key]
+        else:
+            return False
+    return True
+
+
+def _files_of(
+    error: ValidationError, path: Path, base: dict[str, Any], local: dict[str, Any] | None
+) -> list[Path]:
+    """The files a failing key path comes from: each that holds it, else every file read."""
+    named: list[Path] = []
+    for found in error.errors():
+        location = tuple(found["loc"])
+        holders = [
+            file
+            for file, document in ((path, base), (overlay_path(path), local))
+            if document is not None and _holds(document, location)
+        ]
+        for file in holders or [path, *([overlay_path(path)] if local is not None else [])]:
+            if file not in named:
+                named.append(file)
+    return named
+
+
+def load(path: Path) -> WorkspaceConfig:
+    raw = read_base(path)
+    local = read_overlay(path)
+    merged = raw if local is None else merge_local(raw, local)
     try:
-        loaded = WorkspaceConfig.model_validate(raw)
+        loaded = WorkspaceConfig.model_validate(merged)
     except ValidationError as error:
         message = str(error)
-        if DEPRECATED_ROOT_KEY in raw and "global_limits" not in raw:
+        if DEPRECATED_ROOT_KEY in merged and "global_limits" not in merged:
             # Name a setting as the file spells it.
             message = re.sub(r"(?m)^global_limits\b", DEPRECATED_ROOT_KEY, message)
-        raise ConfigError(f"{path} does not match the schema:\n{message}") from error
+        files = " and ".join(str(file) for file in _files_of(error, path, raw, local))
+        raise ConfigError(f"{files} does not match the schema:\n{message}") from error
     _check_runtime(loaded, path)
     _check_forges(loaded, path)
     _check_infra(loaded, path)
