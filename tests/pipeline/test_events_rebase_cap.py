@@ -13,6 +13,7 @@ from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED, SATISFIED
 from agent_build_kit.pipeline.workspaces import BranchBusy
+from tests.factories import deep_store
 from tests.factories import stored_unit as unit
 
 
@@ -26,28 +27,6 @@ class Recorder:
     @property
     def branches(self) -> list[str]:
         return [r["branch"] for r in self.restacked]
-
-
-def deep_store(tmp_path: Path) -> UnitStore:
-    """c/2 on c/1, c/3 on c/2, and c/4 on both c/1 and c/3.
-
-    Merging c/1 leaves c/2 at depth 1 and c/4 at depth 3: c/4 is a direct
-    dependent of c/1 that sits deeper than c/2. c/9 is an unrelated unit in the
-    same repo.
-    """
-    store = UnitStore(tmp_path / "units.json")
-    store.upsert(
-        [
-            unit("c/1"),
-            unit("c/2", depends_on=("c/1",)),
-            unit("c/3", depends_on=("c/2",)),
-            unit("c/4", depends_on=("c/1", "c/3")),
-            unit("c/9"),
-        ]
-    )
-    for n in (1, 2, 3, 4, 9):
-        store.set_state(f"c/{n}", IN_REVIEW, pr=n, branch=f"spec/c/{n}")
-    return store
 
 
 def merge(store: UnitStore, pr: int, *, cap: int, recorder: Recorder, deleted: list[str]) -> None:

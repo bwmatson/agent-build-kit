@@ -10,23 +10,7 @@ from pathlib import Path
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED
-from tests.factories import stored_unit as unit
-
-
-def deep_store(path: Path) -> UnitStore:
-    """c/2 on c/1, c/3 on c/2, and c/4 on both c/1 and c/3: merging c/1 leaves c/4 too deep."""
-    store = UnitStore(path)
-    store.upsert(
-        [
-            unit("c/1"),
-            unit("c/2", depends_on=("c/1",)),
-            unit("c/3", depends_on=("c/2",)),
-            unit("c/4", depends_on=("c/1", "c/3")),
-        ]
-    )
-    for n in (1, 2, 3, 4):
-        store.set_state(f"c/{n}", IN_REVIEW, pr=n, branch=f"spec/c/{n}")
-    return store
+from tests.factories import deep_store
 
 
 def land(store: UnitStore, pr: int, cause: Cause | None) -> dict:
@@ -58,7 +42,7 @@ def land(store: UnitStore, pr: int, cause: Cause | None) -> dict:
 
 
 def test_the_unit_is_recorded_merged_with_the_cause_auto_landed(tmp_path: Path) -> None:
-    store = deep_store(tmp_path / "units.json")
+    store = deep_store(tmp_path, "units.json")
 
     land(store, 1, Cause.AUTO_LANDED)
 
@@ -69,8 +53,8 @@ def test_the_unit_is_recorded_merged_with_the_cause_auto_landed(tmp_path: Path) 
 
 
 def test_children_and_cleanup_are_as_a_person_s_merge_leaves_them(tmp_path: Path) -> None:
-    by_person = land(deep_store(tmp_path / "person.json"), 1, None)
-    by_pipeline = land(deep_store(tmp_path / "pipeline.json"), 1, Cause.AUTO_LANDED)
+    by_person = land(deep_store(tmp_path, "person.json"), 1, None)
+    by_pipeline = land(deep_store(tmp_path, "pipeline.json"), 1, Cause.AUTO_LANDED)
 
     assert by_pipeline == by_person
     assert by_pipeline["restacked"] == [("spec/c/2", "spec/c/1", "main")]
@@ -82,7 +66,7 @@ def test_children_and_cleanup_are_as_a_person_s_merge_leaves_them(tmp_path: Path
 def test_a_landing_removes_the_worktree_and_branch_once_nothing_builds_on_it(
     tmp_path: Path,
 ) -> None:
-    store = deep_store(tmp_path / "units.json")
+    store = deep_store(tmp_path, "units.json")
     store.set_state("c/2", MERGED)
     store.set_state("c/4", MERGED)
 
@@ -96,8 +80,8 @@ def test_a_landing_removes_the_worktree_and_branch_once_nothing_builds_on_it(
 def test_a_child_held_for_depth_is_released_when_a_landing_brings_it_within_the_cap(
     tmp_path: Path,
 ) -> None:
-    by_person = deep_store(tmp_path / "person.json")
-    by_pipeline = deep_store(tmp_path / "pipeline.json")
+    by_person = deep_store(tmp_path, "person.json")
+    by_pipeline = deep_store(tmp_path, "pipeline.json")
     land(by_person, 1, None)
     land(by_pipeline, 1, Cause.AUTO_LANDED)
     assert by_pipeline.get("c/4").state == HELD

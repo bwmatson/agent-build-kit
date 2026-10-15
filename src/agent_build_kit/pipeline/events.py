@@ -271,6 +271,7 @@ def on_merged(
     if merged.state == MERGED:
         # The landing and the poller both report a merge, in either order: the
         # second finds it recorded and moves, cleans and records nothing again.
+        log(f"merged #{pr}: {merged.id} already recorded merged, nothing to do")
         return True
 
     try:
