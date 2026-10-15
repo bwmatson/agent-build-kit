@@ -17,6 +17,7 @@ from agent_build_kit.forges.base import (
     DeniedRequest,
     FileChange,
     Label,
+    MergeRefused,
     PullRequest,
     RepoId,
     ReviewNote,
@@ -306,7 +307,7 @@ class LocalForge:
         return self._change(repo, add)
 
     def merge_pr(self, repo: RepoId, pr: int, *, head: str) -> str:
-        raise NotImplementedError
+        raise MergeRefused("a local pull request is merged by a person, with git")
 
     def merge_commit(self, repo: RepoId, pr: int) -> str | None:
         raise NotImplementedError
