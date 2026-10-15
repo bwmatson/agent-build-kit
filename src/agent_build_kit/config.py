@@ -632,7 +632,7 @@ class ProviderLimitsConfig(WindowLimits):
                 set(ClaudeLimitsConfig.model_fields) | set(UsageWindowConfig.model_fields)
             ) - own
             for key in data:
-                if key in GateConfig.model_fields:
+                if key in set(GateConfig.model_fields) - {"command", "provider"}:
                     raise ValueError(
                         f"gate.provider.limits.{key}: set `{key}` on `gate`, beside `provider`"
                     )

@@ -63,6 +63,14 @@ def test_a_gate_setting_under_limits_is_sent_to_the_gate(key: str) -> None:
     assert "claude_code" not in message
 
 
+@pytest.mark.parametrize("key", ["command", "provider"])
+def test_the_answer_keys_under_limits_are_unknown_not_redirected(key: str) -> None:
+    message = refusal(provider_with({key: ["probe"]}))
+
+    assert f"gate.provider.limits.{key}" in message
+    assert "beside `provider`" not in message
+
+
 def test_limits_beside_a_command_are_refused_saying_a_command_has_no_window() -> None:
     message = refusal({"command": ["probe"], "limits": {"usage_pause_pct": 60}})
 
