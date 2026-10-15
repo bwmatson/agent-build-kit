@@ -348,6 +348,11 @@ def tier2_variants(repo: RepoConfig, config: WorkspaceConfig) -> tuple[str, ...]
     return (BASE_GROUP, *(config.tests.tier2_runtimes if own is None else own))
 
 
+def tier2_splits(repo: RepoConfig, config: WorkspaceConfig) -> tuple[Tier2Split, ...]:
+    """The splits in effect for `repo`: its declared ones in declaration order, then `rest`."""
+    raise NotImplementedError
+
+
 def known_runtime_names(configured: Iterable[str] = ()) -> set[str]:
     """The runtimes a test tag or a `tests` list may name: the registry's, the protocol
     runtime's and the keys under `runtimes`, never the reserved name of the base group."""
@@ -592,6 +597,21 @@ class ReplayConfig(Frozen):
     review_after_runs: int = 5
 
 
+class Tier2SplitEntry(Frozen):
+    """One `tests.tier2_splits.<name>` entry as written: a selector and a hold."""
+
+    marker: str | None = None
+    hold: bool | None = None
+
+
+class Tier2Split(Frozen):
+    """A repo's tier 2 split: its name, its marker (None for `rest`) and its configured hold."""
+
+    name: str
+    marker: str | None = None
+    hold: bool | None = None
+
+
 class TestsConfig(Frozen):
     # Extra packages the repo-root tests (outside every workspace member) need.
     root_extras: list[str] = []
@@ -609,6 +629,8 @@ class TestsConfig(Frozen):
     # The runtimes this repo's scheduled tier 2 runs besides the base group; None follows
     # the top-level `tests.tier2_runtimes`.
     tier2_runtimes: list[str] | None = None
+    # This repo's tier 2 splits; None follows the top-level `tests.tier2_splits`.
+    tier2_splits: dict[str, Tier2SplitEntry] | None = None
 
 
 # The group of tier 2 tests that carry no runtime tag; reserved, so no runtime has this name.
@@ -622,6 +644,7 @@ class RuntimeTestsConfig(Frozen):
     runtimes_blocked: list[str] = []
     runtimes_allowed: list[str] = []
     tier2_runtimes: list[str] = []
+    tier2_splits: dict[str, Tier2SplitEntry] = {}
 
 
 # The words of a `command` template that stand for a list of arguments.
