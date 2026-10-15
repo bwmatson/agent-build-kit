@@ -557,3 +557,30 @@ def test_a_rework_killed_in_its_continuation_resumes_on_the_model_the_session_re
     assert again.resume_session == "sess-1"
     assert again.model == MODELS.implement
     assert "interrupted" in again.prompt.lower()
+
+
+def test_a_long_conflict_reaches_the_adapt_prompt_cut_at_a_line_end(tmp_path: Path) -> None:
+    distinct_models()
+    recorder = fresh(tmp_path)
+    runtime = Sessions()
+    conflict = "\n".join(f"conflict line {i:03d} {'x' * 40}" for i in range(100))
+    conflicts = iter([restacked(conflict=conflict, old_tests=())] * 2)
+
+    build(
+        tmp_path,
+        recorder,
+        base="spec/c/2",
+        branch_commits=lambda cwd, base: recorder.made,
+        restack_onto=lambda **kw: next(conflicts, None),
+        reset_to=lambda tree, onto, keep: None,
+        tests_in=lambda tree: set(),
+        tests_changed=lambda tree, ref: set(),
+        **agents(runtime),
+    )
+
+    prompt = fix_request(runtime).prompt
+    start = prompt.index("conflict line 000")
+    carried = prompt[start : prompt.index("\n\nSo this branch has been reset")]
+    assert 0 < len(carried) <= 2000
+    assert conflict.startswith(carried)
+    assert conflict[len(carried)] == "\n"
