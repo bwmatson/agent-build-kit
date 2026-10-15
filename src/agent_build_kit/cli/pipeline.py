@@ -44,7 +44,14 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.notify.build import build_notifier
 from agent_build_kit.notify.reconcile import reconcile as reconcile_notifications
 from agent_build_kit.notify.store import NotificationStore
-from agent_build_kit.pipeline import diagram, environment, network_probe, spans, usage_report
+from agent_build_kit.pipeline import (
+    diagram,
+    environment,
+    landing_intent,
+    network_probe,
+    spans,
+    usage_report,
+)
 from agent_build_kit.pipeline.archive import (
     _already_archived,
     archive_ready_changes,
@@ -3401,6 +3408,7 @@ def _dispatch(
         # A pass polls between builds, so an event may name a unit still
         # building; the handlers leave it to a later poll. See `events`.
         waiting_path=inst.state_dir / "held-waiting.json",
+        landing_path=inst.state_dir / landing_intent.LANDING,
         log=say,
     )
 

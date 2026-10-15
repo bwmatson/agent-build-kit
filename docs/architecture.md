@@ -1320,6 +1320,7 @@ The planning repo's state directory (`planning.state_dir`, default `runs/`):
 | `prs-<repo>.json` | the poller's snapshot per repo. | the next poll only records; events in the gap are missed. |
 | `own-posts.json` | ids of the pipeline's own PR comments and reviews. | a unit reworked over its own reply. |
 | `given-comments.json` | ids of a person's comments a rework addressed before its push. | the same comments reported as a second rework after the push. |
+| `landing.json` | the landings in progress: one record per pull request the pipeline is about to merge, naming the repo and unit, written before the forge is asked and removed once the merge is recorded. A merged event for a pull request with a record is recorded with the cause `auto_landed`, not as a person's merge. Replaced atomically; a record that cannot be written stops the landing. | a merge after a crash is recorded as a person's. |
 | `held-waiting.json` | the held units that have already logged that a comment is waiting on them. | the wait is logged once more. |
 | `paused.json` | the current pause, until when and why. | one usage check. |
 | `usage-ledger.jsonl` | the usage ledger: one JSON line per agent call (see below), plus `span`, `sample` and `affected` lines (a fix round's selected run: tests selected and in all, estimated seconds saved, whether the full run agreed). Gitignored. | the spend history, not the work. |
