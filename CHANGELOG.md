@@ -19,7 +19,8 @@
   turns each split's selector into what its test runner takes. `abk tier2 check [repo]`
   lists each split and `rest` with its marker and test count and exits 1 on a test in two
   splits, a marker the test runner does not register, a listing that fails or a split the
-  profile cannot apply; it runs no test and changes nothing.
+  profile cannot apply; it runs no test and changes nothing. It lists from each declared
+  project's directory under the verify environment, as a tier 2 run does.
 
 - An `abk.local.yaml` beside `abk.yaml` is merged over it when the configuration loads, so
   facts about other repos and a stack can stay out of a public checkout: mappings merge key

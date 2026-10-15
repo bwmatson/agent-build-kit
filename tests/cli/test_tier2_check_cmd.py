@@ -42,9 +42,11 @@ class Pytest:
         self.markers = markers
         self.failing = failing
         self.commands: list[list[str]] = []
+        self.kwargs: list[dict[str, Any]] = []
 
     def __call__(self, argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
         self.commands.append(argv)
+        self.kwargs.append(kwargs)
         assert "--collect-only" in argv or "--markers" in argv, f"ran a test: {argv}"
         if "--markers" in argv:
             return subprocess.CompletedProcess(argv, 0, self.markers, "")
@@ -56,17 +58,22 @@ class Pytest:
 
 
 def installation(
-    tmp_path: Path, splits: dict[str, Any] | None = SPLITS, profile: str = "python-uv"
+    tmp_path: Path,
+    splits: dict[str, Any] | None = SPLITS,
+    profile: str = "python-uv",
+    projects: list[dict[str, str]] | None = None,
 ) -> Installation:
     root = tmp_path / "planning"
     found = make_installation(
         root,
         tests={} if splits is None else {"tier2_splits": splits},
+        verify={"env": {"SVC_TOKEN": {"from": "literal", "value": "secret"}}},
         repos={
             "app": {
                 "path": str(tmp_path / "app"),
                 "slug": "example/app",
                 "profile": profile,
+                "projects": projects or [],
             },
             "platform": {"path": str(tmp_path / "platform"), "slug": "example/platform"},
         },
@@ -75,11 +82,14 @@ def installation(
         (tmp_path / name / "tests" / "integration").mkdir(parents=True)
         (tmp_path / name / "pyproject.toml").write_text(f'[project]\nname = "{name}"\n')
         (tmp_path / name / "tests" / "integration" / "test_live.py").write_text("")
+    for project in projects or []:
+        (tmp_path / "app" / project["path"]).mkdir(parents=True, exist_ok=True)
+        (tmp_path / "app" / project["path"] / "pyproject.toml").write_text("[project]\n")
     return found
 
 
 def check(
-    found: Installation, run: Pytest, capsys: pytest.CaptureFixture[str], repo: str = "app"
+    found: Installation, run: Pytest, capsys: pytest.CaptureFixture[str], repo: str | None = "app"
 ) -> tuple[int, list[str]]:
     capsys.readouterr()
     code = tier2_cmd.cmd_tier2_check(argparse.Namespace(repo=repo), found, run=run)
@@ -101,9 +111,12 @@ def test_exclusive_splits_print_one_line_each_with_marker_and_count_and_exit_zer
 
     assert code == 0
     (acp,) = [line for line in lines if "acp" in line and "claude_code" not in line]
-    assert "runtime_acp" in acp and "1" in acp
-    assert any("claude_code" in line and "runtime_claude_code" in line for line in lines)
-    assert any(line.lstrip().startswith("rest") and "1" in line for line in lines)
+    assert "runtime_acp" in acp and acp.endswith(" 1 tests")
+    assert any(
+        "claude_code" in line and "runtime_claude_code" in line and line.endswith(" 1 tests")
+        for line in lines
+    )
+    assert any(line.lstrip().startswith("rest") and line.endswith(" 1 tests") for line in lines)
 
 
 def test_a_test_in_two_splits_is_printed_with_both_names_and_exits_one(
@@ -182,3 +195,64 @@ def test_it_changes_nothing_on_disk_and_runs_no_test(
 
     assert snapshot(tmp_path) == before
     assert run.commands
+
+
+def test_every_listing_runs_in_the_checkout_under_the_verify_env(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = Pytest(CLEAN)
+
+    check(installation(tmp_path), run, capsys)
+
+    assert run.kwargs
+    assert all(call["cwd"] == tmp_path / "app" for call in run.kwargs)
+    assert all(call["env"]["SVC_TOKEN"] == "secret" for call in run.kwargs)
+
+
+def test_each_declared_project_is_listed_from_its_own_directory(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    projects = [
+        {"path": "svc-a", "profile": "python-uv"},
+        {"path": "svc-b", "profile": "python-uv"},
+    ]
+    run = Pytest(CLEAN)
+
+    code, _ = check(installation(tmp_path, projects=projects), run, capsys)
+
+    assert code == 0
+    assert {call["cwd"] for call in run.kwargs} == {
+        tmp_path / "app" / "svc-a",
+        tmp_path / "app" / "svc-b",
+    }
+
+
+def test_a_node_project_that_cannot_apply_a_marker_selector_is_reported_and_exits_one(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    projects = [
+        {"path": "svc-a", "profile": "python-uv"},
+        {"path": "web", "profile": "node-npm"},
+    ]
+
+    code, lines = check(installation(tmp_path, projects=projects), Pytest(CLEAN), capsys)
+
+    assert code == 1
+    assert any("node-npm" in line and "marker" in line and "web" in line for line in lines)
+
+
+def test_without_a_name_every_repo_is_checked_and_the_exit_code_is_the_worst(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    overlapping = Pytest({**CLEAN, f"{BASE} and runtime_claude_code": [CLAUDE, ACP]})
+    clean = Pytest(CLEAN)
+
+    def run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
+        return (overlapping if kwargs["cwd"] == tmp_path / "platform" else clean)(argv, **kwargs)
+
+    capsys.readouterr()
+    code = tier2_cmd.cmd_tier2_check(argparse.Namespace(repo=None), installation(tmp_path), run=run)
+    lines = capsys.readouterr().out.splitlines()
+
+    assert code == 1
+    assert "app:" in lines and "platform:" in lines

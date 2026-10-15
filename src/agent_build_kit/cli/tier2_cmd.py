@@ -3,16 +3,33 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from collections.abc import Callable
+from pathlib import Path
 
 from agent_build_kit import profiles
 from agent_build_kit.config import REST_SPLIT, tier2_splits
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.tier2 import selection_unavailable
 from agent_build_kit.pipeline.tier2_exclusive import check_splits
+from agent_build_kit.pipeline.wiring import tier2_work
 from agent_build_kit.profiles.base import AppliesTier2Selection
+
+
+def _run_in(
+    where: Path,
+    verify_env: dict[str, str],
+    run: Callable[..., subprocess.CompletedProcess],
+) -> Callable[..., subprocess.CompletedProcess]:
+    """`run` from `where` under the verify env, the way a tier 2 run takes its commands."""
+    env = {"env": {**os.environ, **verify_env}} if verify_env else {}
+
+    def run_in(argv: list[str], **_: object) -> subprocess.CompletedProcess:
+        return run(argv, cwd=where, **env)
+
+    return run_in
 
 
 def _check_repo(
@@ -26,20 +43,24 @@ def _check_repo(
     if not any(split.marker is not None for split in splits):
         print(f"{name}: no split is declared; every tier 2 test is in {REST_SPLIT}")
         return 0
-    toolchain = profiles.get(repo.profile)
     checkout = installation.checkouts[name]
     script = repo.dev_stack is not None and (checkout / repo.dev_stack.script).is_file()
-    why = selection_unavailable(toolchain, dev_stack_script=script, splits=splits)
-    if why is not None:
-        print(f"{name}: a declared split cannot be applied: {why}")
-        return 1
     marker = repo.tests.tier2_marker
-    # `selection_unavailable` has said the profile applies a marker selector.
-    assert isinstance(toolchain, AppliesTier2Selection)
-    checks = [
-        check_splits(toolchain, command, marker, splits, run=run)
-        for command in toolchain.tier2_commands(checkout, marker=marker)
-    ]
+    verify_env = installation.verify_env()
+    checks = []
+    for where, toolchain, commands in tier2_work(
+        checkout, repo.projects, profiles.get(repo.profile), marker
+    ):
+        why = selection_unavailable(toolchain, dev_stack_script=script, splits=splits)
+        if why is not None:
+            print(f"{name}: a declared split cannot be applied in {where}: {why}")
+            return 1
+        # `selection_unavailable` has said the profile applies a marker selector.
+        assert isinstance(toolchain, AppliesTier2Selection)
+        checks += [
+            check_splits(toolchain, command, marker, splits, run=_run_in(where, verify_env, run))
+            for command in commands
+        ]
     print(f"{name}:")
     for index, split in enumerate(splits):
         counts = [check.listings[index].tests for check in checks if check.listings]
@@ -59,11 +80,13 @@ def cmd_tier2_check(
     run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
 ) -> int:
     assert installation is not None
-    known = list(installation.repos)
-    if args.repo is not None and args.repo not in known:
-        print(f"abk: unknown repo {args.repo!r} (known: {', '.join(known)})", file=sys.stderr)
+    names = [args.repo] if args.repo else list(installation.repos)
+    try:
+        for name in names:
+            installation.repo(name)
+    except KeyError as error:
+        print(f"abk: {error.args[0]}", file=sys.stderr)
         return 2
-    names = [args.repo] if args.repo else known
     return max(_check_repo(name, installation, run) for name in names)
 
 
