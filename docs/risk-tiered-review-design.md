@@ -240,6 +240,14 @@ reviewer's classification and drivers, and the per-class history. It returns a
 tier and the reason, or a hold-and-split. It makes no model call and is tested
 by tables, including the cases that must not auto-land.
 
+It runs **after every review round**, not only at approval. Each run uses what
+is recorded at that moment, so the record is interim until the round that
+approves makes it final. That is what lets a unit that will be split be held at
+the first round that shows it, before more rework is spent on it. A gate that
+runs after review (the e2e-test before the push) is pending in an interim
+verdict, counted as met, and missing in the final one. A reviewer's escalation to
+a person comes first: a held unit has an interim verdict and no final one.
+
 ### Reviewer classification and drivers
 
 The review reply gains two fields, added without removing anything:
@@ -250,8 +258,12 @@ The review reply gains two fields, added without removing anything:
 - `drivers`: the groups or files behind a classification above the plan's
   estimate, which hold-and-split needs.
 
-`parse_verdict` keeps its rule of never raising. `needs_human` and `escalate`
-stay until the last phase, then fold into the classification.
+`parse_verdict` keeps its rule of never raising. **`needs_human` and `escalate`
+stay.** They answer a different question from the classification: how much review
+a finished unit deserves is one thing, and whether the reviewer can settle a problem
+at all, before there is a pull request worth opening, is another. A reviewer that
+cannot resolve something still hands it to a person, as it does today, and the
+classification neither clears nor sets that. A held unit has no final verdict.
 
 ### The review brief, and better git descriptions
 
@@ -385,8 +397,7 @@ The mechanism:
 - **Superseding a started unit.** A started unit's shape is fixed today:
   `UnitStore.upsert` keeps state, branch and PR, and `_STARTED` in
   `cli/pipeline.py` makes its groups count as taken. The held unit becomes
-  superseded: a new state, or `closed` with a cause and a `superseded_by`
-  field. Everything that treats a unit as in progress or as satisfying a
+  superseded: `closed` with a cause and a `superseded_by` field. Everything that treats a unit as in progress or as satisfying a
   dependency has to know the difference: `_taken_groups`, `_gone_groups`,
   `in_progress` in `units.py`, the reviewed and satisfied checks, PR closing and
   the poller's PR-to-unit map.
@@ -484,11 +495,13 @@ of a planner call each.
   history, so a class's history starts empty.
 - **Mechanics.** `abk replan` already drops the recorded plan, asks the planner
   and links `Needs:`, and `upsert` reshapes planned units and demotes ones the
-  plan drops to `unplanned`. Three additions: a **report mode** that shows what
+  plan drops to `unplanned`. Four additions: a **report mode** that shows what
   each change's units would become (tier, size, joins, dropped units) before any
   model call is spent, since `replan` today reports only the call count; a
   mechanical rewrite of `[tier1]` and `[tier2]` tags in open `tasks.md` to
-  `[unit-test]` and `[e2e-test]`; and guidance in `abk-authoring` that groups need no
+  `[unit-test]` and `[e2e-test]` (`abk tags --fix`); a move of the old settings keys
+  in `abk.yaml` to their new names, and of `max_unit_lines` to
+  `review.ceilings.full`, by `abk config --migrate`; and guidance in `abk-authoring` that groups need no
   longer be split to dodge the size ceiling, only to say what they touch so the
   planner can estimate a tier.
 - **Sizes.** Groups authored small to fit 750 lines may now be joined into
@@ -517,7 +530,7 @@ sizing, and keeps every risky change switched off until the evidence is in.
 | 7 | Hold and split, then per-tier sizing switched on | 5, 6 | yes |
 | 8 | Migration of open changes | 6, 7 | replans unstarted work |
 | 9 | e2e before merge optional | nothing | yes, behind a setting |
-| 10 | Retire `needs_human` and `escalate`; finish docs, skills and wording | all | cleanup |
+| 10 | Remove the build-out flag and `max_unit_lines`; finish docs, skills and wording | all | cleanup |
 
 ### Phase 0: vocabulary
 
@@ -538,7 +551,7 @@ all of them.
 The `review:` section and its validation, `abk doctor`'s check of it, the
 `ReviewTier` enum, the planner returning an expected review tier with its
 deterministic floor (recorded, not yet used for sizing), `pipeline/verdict.py`,
-the reviewer's two new fields, and the verdict computed and stored for every
+the reviewer's two new fields, and the verdict computed and stored after every review round, for every
 unit, with the planner-accuracy metric reading the estimate against the verdict. Nothing in the pipeline acts on it
 yet. The test that a build agent and a track can't write `abk.yaml` goes in here.
 
@@ -670,9 +683,9 @@ nothing else, so it can run in parallel with Phases 4 to 8.
 - **Rollback:** the setting.
 - **Main risk:** problems found later than they would have been.
 
-### Phase 10: retire the old fields, finish the words
+### Phase 10: remove the scaffolding, finish the words
 
-`needs_human` and `escalate` fold into the classification; the `review.enabled`
+The reviewer's `needs_human` and `escalate` stay. The `review.enabled`
 build-out flag is removed, so review by tier is simply always on; the deprecated
 `global_limits.max_unit_lines` is removed; the README, `AGENTS.md`,
 `docs/architecture.md`, `docs/configuration.md`, `docs/cli.md`, `docs/code-forges.md`,

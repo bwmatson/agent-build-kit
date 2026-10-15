@@ -287,6 +287,10 @@ Three rules apply on top of the table:
   policy, through the per-class track record, can make a class eligible for a
   lighter tier, and that decision is made before a unit exists, not during its
   review.
+  This is a rule about the rules inside one verdict. The verdict is recomputed
+  after each review round from what exists then, so a rework that removes a
+  risky path lowers the next round's tier, and a reviewer's classification in
+  one round is not carried into the next.
 
 ### Areas that never auto-land
 
@@ -362,9 +366,10 @@ configurable.
 
 ### Hold and split
 
-When the tier a unit earns is higher than the tier it was sized for, and the
-unit is over the ceiling of the tier it earned, the unit is not merged and not
-handed to a person. It goes back. (The same applies when the diff turns out
+When the tier a unit earns, at any review round, is higher than the tier it was
+sized for, and the unit is over the ceiling of the tier it earned, the unit is
+held at that round: it is not sent for more rework, not approved, not merged and
+not handed to a person. It goes back. (The same applies when the diff turns out
 larger than the ceiling of the tier it was planned for. With no `drivers`
 to pin, the re-plan is then asked only to bring each unit under its ceiling.)
 
@@ -416,6 +421,12 @@ planner is told to estimate high when in doubt.
 call, that gives the same answer for the same inputs and can be unit tested.
 Models gather evidence; the verdict reads it. A model can be wrong in a
 confident voice, so the last step must not depend on one.
+
+The verdict runs **after every review round**, on what is recorded at that
+point. Only the one the approving round makes is final; the earlier ones are
+interim, and exist so that a unit that is going to be split can be held at the
+first round that shows it. A gate that has not run yet because it runs after
+review counts as met in an interim verdict and as missing in the final one.
 
 The sketch below is an illustration of the shape, not a config format abk has
 today. Everything it reads is a fact recorded earlier in the pipeline:
@@ -493,9 +504,11 @@ Where each input comes from, and what is deliberately left out:
   of values, validated against a schema, and the verdict takes the higher of
   it and everything else, so a reviewer can only ever make a unit need more
   review. A classification above the plan's estimate must name the groups or
-  files behind it (`drivers`), which is what lets a held unit be split. This
-  replaces the reviewer's separate `needs_human` and `escalate` outputs with a
-  single scale. The criteria in the prompt are policy under principle 5: in
+  files behind it (`drivers`), which is what lets a held unit be split. The
+  reviewer's `needs_human` and `escalate` outputs stay beside it: the
+  classification says how much review a finished unit deserves, and those say
+  the reviewer cannot settle a problem and a person has to, before there is a
+  pull request to merge. The criteria in the prompt are policy under principle 5: in
   version control, changed through human review, out of the agent's reach.
 - **Size is not a risk rule.** Principle 3 says size does not decide review,
   so the verdict does not raise a unit's tier because it is large. Step 5 does
@@ -622,8 +635,9 @@ currently relies on.
 
 - **The reviewer's output has no classification yet.** It returns
   `approved`, `findings`, `needs_human` and `escalate` today. The follow-up
-  replaces the last two with a tier classification and the `drivers` behind
-  it, and must say how a missing one is treated (as full review).
+  adds a tier classification and the `drivers` behind it, keeps the other
+  fields, and must say how a missing classification is treated (as full
+  review).
 - **Tier 2 before merge becomes optional.** Today a `[tier2]` unit always runs
   it before the push. The follow-up adds the setting, and has to define what
   the verdict does with a unit whose tier 2 was deferred to `verify`.

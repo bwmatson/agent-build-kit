@@ -79,6 +79,27 @@ an ad hoc session:
   code a change is building, it still belongs in that change's tasks so the two
   land together.
 
+## Direction of travel: risk-tiered review
+
+abk is moving from "every unit is reviewed by a person" to "every unit is verified, and a person reviews what verification
+can't vouch for". The reasoning is in `docs/agent-efficient-coding-philosophy.md` and the plan, phase by phase, is in
+`docs/risk-tiered-review-design.md`. Work in flight should move toward it and not assume the old shape stays:
+
+- **Test kinds.** The two kinds of test are being renamed `unit-test` and `e2e-test` (today's tier 1 and tier 2), so that "tier"
+  can mean a review tier. Where your change leaves a name to you (a helper, a fake, a test file, a local variable), do not add a new
+  `tier1` or `tier2` spelling: use `unit_test` and `e2e`. Names a change's spec fixes (a setting, a tag, a metric) stay as the spec
+  says; the rename carries them.
+- **Size ceilings.** The single ceiling on a unit (`max_unit_lines`) is becoming a ceiling per review tier. Do not add a new place
+  that reads it; send a new size check through the one function the existing ones use, so it moves with them.
+- **Who merges.** A unit that review classifies `auto` and policy allows will be merged by the pipeline, and anything else by a
+  person. Do not write new text, comments or messages that say a human merges every pull request. The build agent still never
+  merges, and nothing here changes the hook, the command policy or `--disallowedTools`.
+- **The reviewer.** It will classify a unit (`auto`, `light`, `full`) beside `needs_human` and `escalate`, which stay. Do not code
+  against a review reply that has only the old fields, and flag in review a change that adds a new use of an old name where a new
+  one exists.
+- **The verdict.** Whether a unit needs a person will be decided by a deterministic function over recorded facts, not by a reading
+  of the diff. A change that adds a new gate or a new recorded result says what it records, so the verdict can read it.
+
 ## Layout
 
 ```
