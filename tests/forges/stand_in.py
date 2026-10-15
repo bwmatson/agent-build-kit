@@ -25,7 +25,7 @@ from agent_build_kit.forges import (
     Stack,
     StackRefused,
 )
-from agent_build_kit.forges.base import DeniedRequest, FileChange, Run
+from agent_build_kit.forges.base import DeniedRequest, FileChange, MergeRefused, Run
 from agent_build_kit.settings import Settings
 
 
@@ -35,6 +35,7 @@ class StandInForge:
     client: str | None = None
     deletes_head_branch_on_merge: bool = False
     supports_stacks: bool = False
+    merges: bool = True
     general_threads: bool = False
     denied_commands: tuple[tuple[str, ...], ...] = ()
     denied_requests: tuple[DeniedRequest, ...] = ()
@@ -63,6 +64,10 @@ class StandInForge:
         comment_error: bool = False,
         label_errors: Collection[str] = (),
         draft_error: type[Exception] | None = None,
+        merge_sha: str = "merged-sha",
+        merge_refusal: str = "",
+        merge_failures: Sequence[Exception] = (),
+        merge_lands_before_failing: bool = False,
     ) -> None:
         self.existing = existing
         self.number = number
@@ -79,6 +84,16 @@ class StandInForge:
         self.label_errors = label_errors
         # What `set_draft` raises, when it should.
         self.draft_error = draft_error
+        # The commit a merge produces, the reason it is refused with (when set), and the
+        # transient failures the next merge calls raise in turn; with
+        # `merge_lands_before_failing` the host merged before it failed.
+        self.merge_sha = merge_sha
+        self.merge_refusal = merge_refusal
+        self.merge_failures = list(merge_failures)
+        self.merge_lands_before_failing = merge_lands_before_failing
+        # Every `merge_pr` call as `(pr, head)`, and the commit each merged pull request produced.
+        self.merge_calls: list[tuple[int, str]] = []
+        self.merged: dict[int, str] = {}
         # Each pull request's draft state now. The calls themselves are in
         # `calls`: this stand-in logs calls, not host writes, so a call to the
         # state a pull request is already in is logged too.
@@ -259,6 +274,20 @@ class StandInForge:
             raise self.draft_error("the stand-in host refuses drafts")
         self.is_draft[pr] = draft
         self.calls.append(("draft" if draft else "ready", pr))
+
+    def merge_pr(self, repo: RepoId, pr: int, *, head: str) -> str:
+        self.merge_calls.append((pr, head))
+        if self.merge_refusal:
+            raise MergeRefused(self.merge_refusal)
+        if self.merge_failures:
+            if self.merge_lands_before_failing:
+                self.merged[pr] = self.merge_sha
+            raise self.merge_failures.pop(0)
+        self.merged[pr] = self.merge_sha
+        return self.merge_sha
+
+    def merge_commit(self, repo: RepoId, pr: int) -> str | None:
+        return self.merged.get(pr)
 
     def close_pr(self, repo: RepoId, pr: int) -> None:
         if self.close_error:

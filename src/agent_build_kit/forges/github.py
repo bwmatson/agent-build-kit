@@ -172,6 +172,7 @@ class GitHubForge:
     deletes_head_branch_on_merge: bool = True
     general_threads: bool = False
     supports_stacks: bool = True
+    merges: bool = False
     # Annotated, not inferred: the Protocol's attribute is read-write, so a
     # narrower literal type would not satisfy it.
     denied_commands: tuple[tuple[str, ...], ...] = (("gh", "pr", "merge"),)
@@ -768,6 +769,12 @@ class GitHubForge:
             "{ pullRequest { id isDraft } } }",
             {"id": current.node_id},
         )
+
+    def merge_pr(self, repo: RepoId, pr: int, *, head: str) -> str:
+        raise NotImplementedError
+
+    def merge_commit(self, repo: RepoId, pr: int) -> str | None:
+        raise NotImplementedError
 
     def close_pr(self, repo: RepoId, pr: int) -> None:
         """Close without merging - a satisfied unit's stale pull request.
