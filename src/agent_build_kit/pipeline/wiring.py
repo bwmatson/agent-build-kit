@@ -46,7 +46,6 @@ from agent_build_kit.config import (
     active,
     active_root,
     by_project,
-    known_runtime_names,
     models,
     owning_project,
     stack_versions_for,
@@ -1458,7 +1457,6 @@ def build_on_preexisting(
             # A failure whose split is unknown is the unit's own, and a held
             # split's failure is nobody's bug: neither is recorded or fixed.
             return None
-        runtime = BASE_GROUP if split == REST_SPLIT else split
         met = PreExisting(
             test=failure.test,
             unit=unit.id,
@@ -1466,7 +1464,7 @@ def build_on_preexisting(
             line=failure.line,
             at=datetime.now(UTC),
             base_output=verdict.base_output,
-            runtime=runtime,
+            split=split,
         )
         fix = wait_on_preexisting(installation, met, store.get(unit.id), wait=wait, say=log)
         preexisting_record(installation).append(met.model_copy(update={"change": fix or ""}))
@@ -1493,13 +1491,13 @@ def build_on_tier2_gate(
 ) -> Callable[..., list[str]]:
     """Give a unit about to run a full tier 2 run a `Needs:` line on each open fix change
     of a recorded base failure that holds it, and answer those changes (none: nothing
-    holds it). `runtimes` are the groups the run executes (None: all). Writes no change."""
+    holds it). `splits` are the splits the run executes (None: all). Writes no change."""
 
-    def on_tier2_gate(unit: Unit, runtimes: Collection[str] | None = None) -> list[str]:
+    def on_tier2_gate(unit: Unit, splits: Collection[str] | None = None) -> list[str]:
         stored = store.get(unit.id)
         held = [
             wait_on_preexisting(installation, entry, stored, wait=True, say=log)
-            for entry in holding_fixes(installation, stored, store.all(), runtimes=runtimes)
+            for entry in holding_fixes(installation, stored, store.all(), splits=splits)
         ]
         fixes = [fix for fix in held if fix]
         for fix in fixes:
@@ -2428,14 +2426,19 @@ class Tier2Session:
             dev_stack=str(self._dev_stack) if self._dev_stack else None,
         )
 
-    def runtimes(self) -> tuple[str, ...]:
-        """The groups this run executes: the group it runs alone, or the base and every
-        known runtime it does not leave out."""
-        if self._only is not None:
-            return (self._only,)
+    @property
+    def _only_split(self) -> str | None:
+        """The split this run is limited to; the older name of the untagged group is `rest`."""
+        return REST_SPLIT if self._only == BASE_GROUP else self._only
+
+    def splits(self) -> tuple[str, ...]:
+        """The splits this run executes: the one it runs alone, or every declared split it
+        does not leave out."""
+        only = self._only_split
+        if only is not None:
+            return (only,)
         left_out = set(self._selection().left_out)
-        known = sorted(known_runtime_names(active().runtimes) - left_out)
-        return (BASE_GROUP, *known)
+        return tuple(split.name for split in self._splits if split.name not in left_out)
 
     def _selection(self) -> Tier2Selection:
         """What this run selects: the whole marker when nothing is left out or the profile
@@ -2445,8 +2448,7 @@ class Tier2Session:
             self._profile, dev_stack_script=False, splits=self._splits
         ):
             return Tier2Selection(marker=self._marker)
-        only = REST_SPLIT if self._only == BASE_GROUP else self._only
-        return build_selection(self._marker, self._splits, held=self._held, only=only)
+        return build_selection(self._marker, self._splits, held=self._held, only=self._only_split)
 
     def _expression(self) -> str | None:
         """The text the test runner takes for this run's selection; None when it selects
@@ -3564,7 +3566,7 @@ def build_runner(
         tier2_runs_whole=lambda *, cwd, base: (
             tier2.scope(cwd=cwd, base=base).mode is Tier2UnitScope.FULL
         ),
-        tier2_runtimes=lambda: tier2.runtimes(),
+        tier2_splits=lambda: tier2.splits(),
         on_tier2_gate=build_on_tier2_gate(store, installation, log=log),
         push=push_in_turn,
         open_pr=build_open_pr(store=store, log=log),
