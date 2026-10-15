@@ -250,6 +250,7 @@ def on_merged(
     rebase_cap: int | None = None,
     resume: Resume = _no_thread,
     lane: RestackLane | None = None,
+    cause: Cause = Cause.MERGED,
     log: Log = print,
 ) -> bool:
     """Record the merge, move what was stacked on it, then clean up after it.

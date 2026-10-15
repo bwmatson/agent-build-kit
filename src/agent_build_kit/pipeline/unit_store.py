@@ -91,6 +91,7 @@ class Cause(StrEnum):
     ATTACHED = "attached"
     ADOPTED = "adopted"
     MERGED = "merged"
+    AUTO_LANDED = "auto_landed"
     CLOSED = "closed"
     FAILED = "failed"
     HOST_UNAVAILABLE = "host_unavailable"
