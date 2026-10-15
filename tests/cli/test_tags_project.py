@@ -41,8 +41,8 @@ def test_tags_lists_each_group_with_its_project_beside_the_repo(
 
     lines = capsys.readouterr().out.splitlines()
     assert status == 0
-    assert "  1. [app] [tier1] Add the route" in lines
-    assert "  2. [app/web] [tier1] Add the filter" in lines
+    assert "  1. [app] [unit-test] Add the route" in lines
+    assert "  2. [app/web] [unit-test] Add the filter" in lines
 
 
 def test_tags_on_an_undeclared_project_prints_the_message_with_file_and_line_and_fails(

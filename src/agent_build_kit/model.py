@@ -16,6 +16,8 @@ Two settings, both deliberate:
   dropped silently and rediscovered as a missing field.
 """
 
+from enum import StrEnum
+
 from pydantic import BaseModel, ConfigDict
 
 
@@ -23,3 +25,12 @@ class Frozen(BaseModel):
     """An immutable, validated value object."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+class TestTier(StrEnum):
+    """The kind of a test: a unit test, or an end-to-end test on the local stack."""
+
+    __test__ = False
+
+    UNIT_TEST = "unit-test"
+    E2E_TEST = "e2e-test"

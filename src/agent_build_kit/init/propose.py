@@ -121,10 +121,10 @@ THEN bullets.
 
 The heading contract, checked mechanically by `abk tags` after you finish:
 `## <n>. [<repo>] [<tier>] <title>` — <repo> is `{repo}` (the workspace \
-repos are {repos}), <tier> is tier1 or tier2, an optional third tag is \
-[contract], [narrow] or [acceptance]. Groups are numbered from 1 in build \
+repos are {repos}), <tier> is unit-test or e2e-test (the old tier1 and tier2 are still read), \
+an optional third tag is [contract], [narrow] or [acceptance]. Groups are numbered from 1 in build \
 order; each has tasks as `- [ ] <n>.<m> <task>` lines. Test tasks come before \
-implementation tasks in every group. The last group is `[tier2] [acceptance]` \
+implementation tasks in every group. The last group is `[e2e-test] [acceptance]` \
 and drives what the change built the way its consumer does — or, if there is \
 nothing to drive, `tasks.md` contains a line `Acceptance: none — <reason>`.
 

@@ -38,7 +38,8 @@ def test_a_changed_tier_is_reported_with_the_way_out_and_not_recorded(
     assert code == 1
     assert run.calls == 0
     assert "feature/1" in out
-    assert "tier2" in out
+    assert "with tier 'unit-test' but its group 1 is now 'e2e-test'" in out
+    assert "TestTier" not in out
     assert "abk requeue --restart feature/1" in out
     assert run.store.get("feature/1") == before
     assert run.records["feature"]["hash"] == stale

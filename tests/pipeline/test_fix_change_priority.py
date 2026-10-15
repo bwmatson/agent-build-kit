@@ -12,7 +12,7 @@ from tests.untouched_failure_fakes import TEST, failing
 FLAKE_TASKS = (
     "# Tasks\n\n"
     "Acceptance: none — a flaky test is made deterministic; nothing a consumer sees changes.\n\n"
-    f"## 1. [app] [tier1] Make `{TEST}` deterministic\n\n"
+    f"## 1. [app] [unit-test] Make `{TEST}` deterministic\n\n"
     "Priority: 1\n\n"
     "Done when the test passes under load every time, and under the repeat check.\n\n"
     f"- [ ] 1.1 Test: reproduce the race in `{TEST}` deterministically, without "

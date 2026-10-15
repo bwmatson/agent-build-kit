@@ -69,10 +69,10 @@ only `tasks.md`, so two facts have to be on every task-group heading — the
 repo the code lands in, and the test tier it needs:
 
 ```
-## 1. [platform] [tier1] [contract] Accept the new field, keep the old one
-## 2. [app] [tier1] Send the new field
-## 3. [app] [tier2] [acceptance] Drive the route end to end as a client
-## 4. [platform] [tier1] [narrow] Drop the old field
+## 1. [platform] [unit-test] [contract] Accept the new field, keep the old one
+## 2. [app] [unit-test] Send the new field
+## 3. [app] [e2e-test] [acceptance] Drive the route end to end as a client
+## 4. [platform] [unit-test] [narrow] Drop the old field
 ```
 
 `abk tags` (`pipeline/work_graph.py`) checks the contract; the planner
@@ -80,7 +80,7 @@ refuses a change with tag errors before spending a model call on it:
 
 - groups are numbered from 1 in build order, every group has at least one
   `- [ ] n.m` task, and `[repo]` is one of `abk.yaml`'s `repos` keys exactly;
-- `[tier1]` runs in CI with no external services; `[tier2]` needs the real
+- `[unit-test]` runs in CI with no external services; `[e2e-test]` needs the real
   stack on the developer host and is serialized behind one lock;
 - an optional third tag is a **flag**. `[contract]` marks a group that widens
   a shape the *other* repo consumes (a wire model field, an event, a tool
@@ -88,7 +88,7 @@ refuses a change with tag errors before spending a model call on it:
   exist for a window; the widening lands alone and a `[narrow]` group — which
   must be last — removes the old half. Contracts inside one repo need no flag.
   `[acceptance]` marks the group that drives what the change built the way its
-  consumer does, on the stack; it is always `tier2`, comes after every group it
+  consumer does, on the stack; it is always `e2e-test`, comes after every group it
   exercises (only `[narrow]` may follow), and gets a unit of its own. Every
   change has one or opts out with a line `Acceptance: none — <reason>`; the
   reason is what review agrees to, and the line without one is an error;
@@ -1182,7 +1182,7 @@ approved.
   same `FailureRecord` the flake record uses. `untouched_failures.ensure_fix` makes sure,
   under `preexisting.lock`, that one open `fix-failing-<slug>` change exists for the test id
   (name capped with a hash, so a flake of the same test is a different change), and writes
-  it without a model: a proposal, a design stub, one `[tier2]` group with its tests first,
+  it without a model: a proposal, a design stub, one `[e2e-test]` group with its tests first,
   `Priority: 1` and an acceptance opt-out, and a spec. A successor (`-2` and on, its spec
   MODIFIED, the proposal naming the earlier attempt) is written only once the earlier change
   is merged and archived. It reports `exists: <change>`, or `would write: <change>` then

@@ -27,7 +27,7 @@ from agent_build_kit.pipeline.flakes import (
     wait_on_fix,
 )
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
-from agent_build_kit.pipeline.work_graph import group_needs, validate_tasks
+from agent_build_kit.pipeline.work_graph import group_needs, old_test_kind_warnings, validate_tasks
 from tests.factories import stored_unit
 
 TEST = "tests/test_widget.py::test_renders_the_label"
@@ -137,7 +137,8 @@ def test_the_group_reproduces_the_race_first_and_runs_the_repeat_check(
     tasks = installation.changes_dir / str(name) / "tasks.md"
     groups, errors = validate_tasks(tasks, repos=tuple(installation.repos))
     assert errors == []
-    assert [(g.number, g.repo, g.tier) for g in groups] == [(1, "app", "tier1")]
+    assert [(g.number, g.repo, g.tier) for g in groups] == [(1, "app", "unit-test")]
+    assert old_test_kind_warnings(tasks) == []
     text = tasks.read_text()
     first, second = re.findall(r"^- \[ \] 1\.\d+ (.*)$", text, re.MULTILINE)[:2]
     assert first.startswith("Test:"), "tests first"

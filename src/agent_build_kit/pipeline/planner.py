@@ -497,11 +497,13 @@ PROMPT = """\
 You are planning units of work for a spec-driven pipeline. Return JSON only.
 
 A **unit** is one PR's worth of work in exactly ONE repo. Repos: {repos}.
-Tiers: {tiers} (tier2 needs the live local stack and is serialized).
+Tiers: {tiers} (tier2 needs the live local stack and is serialized). A group tagged
+`[unit-test]` (or the old `[tier1]`) is tier `tier1`; one tagged `[e2e-test]` (or the old
+`[tier2]`) is tier `tier2`, and a unit's tier is the tier of its groups.
 
 Rules the graph must satisfy:
 - A unit never spans repos. Every task group heading carries its own repo
-  tag — `## 2. [{example_repo}] [tier1] ...` — and that tag decides which unit
+  tag — `## 2. [{example_repo}] [unit-test] ...` — and that tag decides which unit
   the group can belong to. A unit's `groups` must ALL carry that unit's repo
   tag. Putting one repo's group in another repo's unit is the most common
   mistake here and is rejected outright.

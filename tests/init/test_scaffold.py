@@ -127,7 +127,7 @@ def test_rules_render_the_workspace_repos_and_parse_as_yaml() -> None:
     assert set(loaded["rules"]) == {"proposal", "specs", "design", "tasks"}
     tasks = "\n".join(loaded["rules"]["tasks"])
     assert "[app], [platform]" in tasks
-    assert "## 1. [app] [tier1]" in tasks
+    assert "## 1. [app] [unit-test]" in tasks
     assert "abk tags" in tasks
     assert loaded["operations"]["apply"]["guidance"]
 
