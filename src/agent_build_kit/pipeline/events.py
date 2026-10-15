@@ -255,6 +255,9 @@ def on_merged(
 ) -> bool:
     """Record the merge, move what was stacked on it, then clean up after it.
 
+    `cause` is why it merged: a person's merge, or the pipeline's own landing. A
+    unit already recorded merged changes nothing and returns True.
+
     False when the merged unit is itself being built — a rework someone
     merged over — so the poller reports the merge again once it has finished.
     """
@@ -265,6 +268,10 @@ def on_merged(
         # we don't know moves the wrong branch, so do nothing at all.
         log(f"merged #{pr}: no unit recorded for it in {repo}, ignoring")
         return True
+    if merged.state == MERGED:
+        # The landing and the poller both report a merge, in either order: the
+        # second finds it recorded and moves, cleans and records nothing again.
+        return True
 
     try:
         # First: a thread mid-node defers the event before anything is recorded.
@@ -272,6 +279,7 @@ def on_merged(
         with claim(merged):
             _record_merge(
                 merged,
+                cause=cause,
                 store=store,
                 restack=restack,
                 remove_worktree=remove_worktree or (lambda repo, branch: None),
@@ -611,6 +619,7 @@ def _remove_leaving(
 def _record_merge(
     merged: StoredUnit,
     *,
+    cause: Cause,
     store: UnitStore,
     restack: Restack,
     remove_worktree: Callable[..., None],
@@ -622,7 +631,7 @@ def _record_merge(
     lane: RestackLane | None,
     log: Log,
 ) -> None:
-    store.set_state(merged.id, MERGED, cause=Cause.MERGED)
+    store.set_state(merged.id, MERGED, cause=cause)
     log(f"merged #{merged.pr}: {merged.id}")
 
     release_children(

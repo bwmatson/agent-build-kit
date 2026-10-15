@@ -75,7 +75,8 @@ def test_children_and_cleanup_are_as_a_person_s_merge_leaves_them(tmp_path: Path
     assert by_pipeline == by_person
     assert by_pipeline["restacked"] == [("spec/c/2", "spec/c/1", "main")]
     assert by_pipeline["retargeted"] == [("c/4", "spec/c/3")]
-    assert by_pipeline["removed"] == [] and by_pipeline["deleted"] == [], "c/4 still waits on it"
+    assert by_pipeline["removed"] == ["spec/c/1"]
+    assert by_pipeline["deleted"] == [], "c/4, held for depth, still builds on its branch"
 
 
 def test_a_landing_removes_the_worktree_and_branch_once_nothing_builds_on_it(

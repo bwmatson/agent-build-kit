@@ -43,6 +43,7 @@ def test_the_causes_are_the_fixed_set_the_design_names() -> None:
         "review_escalated_class",
         "review_escalated_disagreement",
         "needs_human",
+        "auto_landed",
         "reviewer_hold",
         "requeued",
         "gated",
