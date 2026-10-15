@@ -926,6 +926,21 @@ class BuildersConfig(Frozen):
         return names
 
 
+def _alias_limits(data: dict[str, Any]) -> dict[str, Any]:
+    """`data` with the deprecated root key `limits` renamed to `global_limits`; a mapping
+    that sets both spellings is refused."""
+    if DEPRECATED_ROOT_KEY not in data:
+        return data
+    if "global_limits" in data:
+        raise ValueError(
+            f"`{DEPRECATED_ROOT_KEY}` and `global_limits` are both set; "
+            f"`{DEPRECATED_ROOT_KEY}` is the deprecated name of `global_limits`, keep one"
+        )
+    renamed = dict(data)
+    renamed["global_limits"] = renamed.pop(DEPRECATED_ROOT_KEY)
+    return renamed
+
+
 class WorkspaceConfig(Frozen):
     version: int = 1
     planning: PlanningConfig = PlanningConfig()
@@ -961,16 +976,7 @@ class WorkspaceConfig(Frozen):
     @classmethod
     def _limits_alias(cls, data: object) -> object:
         """`limits` at the root is the deprecated spelling of `global_limits`."""
-        if not isinstance(data, dict) or DEPRECATED_ROOT_KEY not in data:
-            return data
-        if "global_limits" in data:
-            raise ValueError(
-                f"`{DEPRECATED_ROOT_KEY}` and `global_limits` are both set; "
-                f"`{DEPRECATED_ROOT_KEY}` is the deprecated name of `global_limits`, keep one"
-            )
-        renamed = dict(data)
-        renamed["global_limits"] = renamed.pop(DEPRECATED_ROOT_KEY)
-        return renamed
+        return _alias_limits(data) if isinstance(data, dict) else data
 
     def generated_file_patterns(self) -> tuple[str, ...]:
         """The patterns left out of a unit's size: the configured ones and the
@@ -1158,16 +1164,12 @@ def _files_of(
 def _renamed(document: dict[str, Any] | None, file: Path) -> dict[str, Any] | None:
     """`document` with the deprecated root key renamed, so two files that spell it
     differently still merge; one file that sets both spellings is refused."""
-    if document is None or DEPRECATED_ROOT_KEY not in document:
-        return document
-    if "global_limits" in document:
-        raise ConfigError(
-            f"{file}: `{DEPRECATED_ROOT_KEY}` and `global_limits` are both set; "
-            f"`{DEPRECATED_ROOT_KEY}` is the deprecated name of `global_limits`, keep one"
-        )
-    renamed = dict(document)
-    renamed["global_limits"] = renamed.pop(DEPRECATED_ROOT_KEY)
-    return renamed
+    if document is None:
+        return None
+    try:
+        return _alias_limits(document)
+    except ValueError as error:
+        raise ConfigError(f"{file}: {error}") from error
 
 
 def load(path: Path) -> WorkspaceConfig:
