@@ -135,6 +135,13 @@ def leaks(root: Path) -> list[str]:
     )
 
 
+def overlay_leaks(root: Path) -> list[str]:
+    """Findings about `root`'s `abk.local.yaml`: that git tracks it, that it is not ignored,
+    and, for a file that is tracked or not ignored, each home path or repo path leaving the
+    checkout, with file and line. An ignored, untracked file's text is not read."""
+    raise NotImplementedError
+
+
 def repo_path_leaks(root: Path) -> list[str]:
     """One finding per `repos.<name>.path` of `root`'s committed `abk.yaml` that leaves the
     checkout, naming the repo key and never the value."""
