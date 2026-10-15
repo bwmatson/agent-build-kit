@@ -59,7 +59,7 @@ def test_a_due_repo_gets_a_change_per_declared_split_and_rest(tmp_path: Path) ->
     expected = changes_of("app", "rest", "acp", "claude_code")
     assert expected == [
         f"scheduled-tier2-app-{TODAY.isoformat()}-{split}"
-        for split in ("acp", "rest", "claude_code")
+        for split in ("acp", "claude_code", "rest")
     ]
     assert sorted(written) == expected
     assert scheduled_changes(inst) == expected
@@ -181,7 +181,7 @@ def test_a_split_whose_name_begins_another_is_not_confused(tmp_path: Path) -> No
 
     # acp_two ran yesterday, which says nothing of acp; rest is open and acp_two is not.
     assert written == changes_of("app", "acp")
-    assert said == [f"exists: {scheduled_name('app', ago(1), 'rest')}", f"wrote: {written[0]}"]
+    assert said == [f"wrote: {written[0]}", f"exists: {scheduled_name('app', ago(1), 'rest')}"]
 
 
 def test_a_repo_whose_name_begins_another_does_not_share_its_splits(tmp_path: Path) -> None:
@@ -297,9 +297,8 @@ def test_each_change_names_its_split_and_has_one_group_at_priority_3(tmp_path: P
 def test_a_held_splits_change_is_written_like_the_others_and_stays_open(
     tmp_path: Path,
 ) -> None:
-    inst = planning(
-        tmp_path, tests={**BOTH, "tier2_splits": {"acp": {"marker": "runtime_acp", "hold": True}}}
-    )
+    held = {**BOTH["tier2_splits"], "acp": {"marker": "runtime_acp", "hold": True}}
+    inst = planning(tmp_path, tests={"tier2_splits": held})
     store = store_of(inst, "app")
 
     first, _ = round_of(inst, store)
