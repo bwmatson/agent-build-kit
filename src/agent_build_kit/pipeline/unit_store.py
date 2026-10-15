@@ -31,6 +31,7 @@ from typing import Annotated, Any
 
 from pydantic import Field, ValidationError, field_validator, model_validator
 
+from agent_build_kit.budget import cut_head
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
@@ -397,7 +398,7 @@ def _exclusive(method):
 
 def guidance_excerpt(note: str) -> str:
     """What a history entry says of a person's note: its first 200 characters, or nothing."""
-    return f" — {note[:200]}" if note else ""
+    return f" — {cut_head(note, 200, 'char')}" if note else ""
 
 
 class UnitStore:

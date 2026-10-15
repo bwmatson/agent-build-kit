@@ -1566,7 +1566,7 @@ class UnitRunner(BaseModel):
                 findings=tuple(f.model_dump() for f in kept),
             )
 
-        self.log(f"review asked for changes: {' '.join(why.split())[:300]}")
+        self.log(f"review asked for changes: {cut_head(' '.join(why.split()), 300, 'char')}")
         answered = tuple(_apply_answers(earlier_rounds, verdict.earlier))
         recorded = {
             "asked": why,

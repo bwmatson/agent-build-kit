@@ -886,7 +886,9 @@ tick tries it again. A finished change with no directory is logged as withdrawn 
 marker: each returns the text unchanged when it fits and never returns more than the size.
 A head cut (keeping the start) closes any code fence or `<details>` block it leaves open;
 a tail cut (keeping the end) opens again what the dropped head left open, with lines of its
-own that it keeps within the size. `forges.base.fit_description` is a wrapper over `cut_head` with the
+own that it keeps within the size. A cut keeps whole pieces of the next finer boundary
+(paragraph, line, character) when no whole piece with content fits, so a text with content
+is never cut to nothing. `forges.base.fit_description` is a wrapper over `cut_head` with the
 description note as its marker; it is the last guard of the description builder.
 
 The description is fitted once, to `forges.description_limit()`, the lowest description

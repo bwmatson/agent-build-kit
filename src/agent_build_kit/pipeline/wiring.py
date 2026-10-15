@@ -1355,7 +1355,8 @@ def build_tier1(
             return False
         if len(tests) > active().global_limits.max_flakes_per_run:
             failures = [
-                sections.get(test, "")[-STORM_FAILURE_CHARS:] for test in tests[:STORM_FAILURES]
+                cut_tail(sections.get(test, ""), STORM_FAILURE_CHARS)
+                for test in tests[:STORM_FAILURES]
             ]
             record_storm(spans.current_unit.get()[0], tests, shlex.join(command), failures)
             _say(
@@ -1370,8 +1371,8 @@ def build_tier1(
                 Flake(
                     test=test,
                     command=shlex.join(command),
-                    output=stored[-4000:],
-                    failure=sections.get(test, "")[-FLAKE_FAILURE_CHARS:],
+                    output=cut_tail(stored, 4000),
+                    failure=cut_tail(sections.get(test, ""), FLAKE_FAILURE_CHARS),
                     at=at,
                     directory=str(where),
                 )
@@ -1571,7 +1572,7 @@ def _failure(
     bare "tier 1 failed" says nothing about which check or why, and the next fix round's
     selection needs to know which project's tests the identifiers belong to."""
     printed = redact_text(f"{result.stdout}\n{result.stderr}".strip(), where="tier-1 output")
-    printed = printed[-4000:]
+    printed = cut_tail(printed, 4000)
     header = f"$ {shlex.join(command)} (exit {result.returncode})"
     if where is not None:
         header += f"\n{failed_in(where)}"
@@ -2754,7 +2755,7 @@ class Tier2Session:
             broken=[f for f in classified.untouched if f.test not in failing],
             pre_existing=[f for f in classified.untouched if f.test in failing],
             command="; ".join(commands),
-            base_output=redact_text("\n".join(outputs)[-4000:], where="tier-2 base output"),
+            base_output=redact_text(cut_tail("\n".join(outputs), 4000), where="tier-2 base output"),
         )
 
     def _scheduled_verdict(self) -> Tier2Verdict | None:
@@ -2820,7 +2821,7 @@ class Tier2Session:
             command=f"{script} up && {script} test (then down)"
             if command == test
             else f"{script} up (failed)",
-            output=output[-4000:],
+            output=cut_tail(output, 4000),
             stack_versions=_stack_versions(self._stack_versions_command, run=self._run),
             failures=failures,
             **self._kept(),

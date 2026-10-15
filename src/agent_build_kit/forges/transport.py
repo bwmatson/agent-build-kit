@@ -13,6 +13,7 @@ from typing import Any, Literal
 import httpx
 from pydantic import BaseModel, ValidationError
 
+from agent_build_kit.budget import cut_head
 from agent_build_kit.forges.constants import GH_TOKEN_SOURCE
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.shell import (
@@ -27,6 +28,11 @@ from agent_build_kit.settings import settings
 MAX_DELAY = 60.0
 # How much of a page an error quotes.
 PAGE_EXCERPT = 200
+
+
+def page_excerpt(text: str) -> str:
+    """The head of a host's reply that an error quotes, at most `PAGE_EXCERPT` characters."""
+    return cut_head(text, PAGE_EXCERPT, "char")
 
 
 class TransportError(RuntimeError):
@@ -105,7 +111,7 @@ class Response(Frozen):
 
 def unexpected(endpoint: str, text: str) -> str:
     """What a body that is not the document expected is reported as."""
-    return f"{endpoint}: not the document expected: {text[:PAGE_EXCERPT]}"
+    return f"{endpoint}: not the document expected: {page_excerpt(text)}"
 
 
 def validated[Doc: BaseModel](model: type[Doc], data: object, endpoint: str, text: str) -> Doc:
@@ -300,7 +306,7 @@ class Transport:
         if status >= 400:
             refused: TransportError
             if status in (401, 403):
-                refused = AuthError(f"{method} {path}: {status} {who}: {reply.text[:PAGE_EXCERPT]}")
+                refused = AuthError(f"{method} {path}: {status} {who}: {page_excerpt(reply.text)}")
             elif status == 404:
                 refused = NotFound(
                     f"{method} {path}: not found {who}",
@@ -309,7 +315,7 @@ class Transport:
                 )
             else:
                 refused = TransportError(
-                    f"{method} {path}: {status} {who}: {reply.text[:PAGE_EXCERPT]}"
+                    f"{method} {path}: {status} {who}: {page_excerpt(reply.text)}"
                 )
             refused.status = status
             refused.body = reply.text
@@ -322,12 +328,12 @@ class Transport:
             # A sign-in page with a 200 is an authentication failure that looks
             # like success; it must not come back as an empty result.
             raise AuthError(
-                f"{method} {path}: expected JSON {who}, got {kind}: {reply.text[:PAGE_EXCERPT]}"
+                f"{method} {path}: expected JSON {who}, got {kind}: {page_excerpt(reply.text)}"
             )
         try:
             data = reply.json()
         except ValueError as error:
             raise HostError(
-                f"{method} {path}: unreadable JSON {who}: {reply.text[:PAGE_EXCERPT]}"
+                f"{method} {path}: unreadable JSON {who}: {page_excerpt(reply.text)}"
             ) from error
         return Response(status=status, headers=headers, data=data, text=reply.text)

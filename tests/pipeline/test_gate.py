@@ -7,6 +7,7 @@ two command templates — running the actual tools here would test uv's cache
 more than it tests the gate.
 """
 
+import shlex
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ from agent_build_kit.pipeline.gate import check_branch
 from agent_build_kit.profiles.python_uv import PROFILE as PYTHON
 from tests.factories import commit_files as commit
 from tests.factories import git, init_repo
+from tests.whole_lines import assert_tail_of_whole_lines
 
 
 @pytest.fixture
@@ -96,6 +98,31 @@ def test_lint_failing_at_the_tests_commit_blocks_the_push(repo: Path, fake_comma
     problems = check_branch(repo, "main")
 
     assert any("lint/format" in problem for problem in problems)
+
+
+def test_the_lint_output_at_the_tests_commit_is_the_end_of_it_in_whole_lines(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    printed = [f"src/module_{n:04d}.py:1:1: F401 imported but unused" for n in range(200)]
+
+    class Linting:
+        def clean_command(self) -> str:
+            return f"printf '%s\\n' {shlex.join(printed)}; exit 1"
+
+        def red_command(self, files: list[str]) -> str:
+            return f"printf '%s' {FAILED!r}; exit 1"
+
+        def __getattr__(self, name):
+            return getattr(PYTHON, name)
+
+    monkeypatch.setattr(profiles, "get", lambda name: Linting())
+    tests_first_branch(repo)
+
+    (problem,) = [p for p in check_branch(repo, "main") if "lint/format" in p]
+
+    shown = problem.splitlines()
+    assert_tail_of_whole_lines("\n".join(shown[1:]), printed, 2000)
+    assert 30 < len(shown) <= 2000 // len(printed[0]) + 2
 
 
 def test_a_cached_pass_skips_the_work(repo: Path, fake_commands, tmp_path: Path) -> None:

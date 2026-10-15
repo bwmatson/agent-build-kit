@@ -74,6 +74,38 @@ def test_conflict_resolution_runs_through_the_runtime_it_is_given(conflicting: P
     assert request.permission_mode == "allowed_tools_only"
 
 
+def test_the_diff_the_resolver_is_shown_is_whole_lines_from_the_start_of_it(
+    tmp_path: Path,
+) -> None:
+    repo = init_repo(tmp_path / "repo")
+    commit(repo, "markers.py", "markers = []\n")
+    git(repo, "checkout", "-q", "-b", "spec/c/1")
+    git(repo, "checkout", "-q", "-b", "spec/c/2")
+    local = "".join(f'local_marker_{n:04d} = "local"\n' for n in range(600))
+    main = "".join(f'main_marker_{n:04d} = "main"\n' for n in range(600))
+    commit(repo, "markers.py", local)
+    git(repo, "checkout", "-q", "main")
+    commit(repo, "markers.py", main)
+    shown: list[str] = []
+
+    def keeps_both_and_reads_the_diff(request: AgentRequest) -> None:
+        shown.append(git(repo, "diff"))
+        assert request.cwd is not None
+        (request.cwd / "markers.py").write_text(main + local)
+
+    runtime = StandInRuntime(act=keeps_both_and_reads_the_diff)
+
+    move(repo, resolve=partial(restack.claude_resolver, runtime=runtime))
+
+    (whole,) = shown
+    assert len(whole) > 8000
+    prompt = runtime.request.prompt
+    carried = prompt[prompt.index("diff --cc") : prompt.index("\n\nWork in this order")]
+    assert 7000 < len(carried) <= 8000
+    assert whole.startswith(carried), "the diff is cut from its end"
+    assert whole[len(carried)] == "\n", "the cut falls between lines"
+
+
 def test_under_claude_code_the_resolver_sends_the_command_it_sent_before(tmp_path: Path) -> None:
     fake = FakeClaude(stdout="Resolved both conflicts.")
 

@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 from agent_build_kit import claude_account, config, forges, profiles, runtimes, telemetry
+from agent_build_kit.budget import cut_head
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun
@@ -2594,7 +2595,7 @@ def _failure_reason(error: Exception) -> str:
     `REASON_LIMIT` characters."""
     text = str(error) if isinstance(error, PlannerError) else f"{type(error).__name__}: {error}"
     first = text.strip().splitlines()[0] if text.strip() else type(error).__name__
-    return redact_text(first, where="plan record")[:REASON_LIMIT]
+    return cut_head(redact_text(first, where="plan record"), REASON_LIMIT, "char")
 
 
 def _refusal(error: PlannerError) -> dict:
@@ -3239,14 +3240,16 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLane:
             store.set_state(
                 unit.id,
                 RUNNING,
-                note=f"restack onto {new_base} deferred: {str(error)[:300]}",
+                note=f"restack onto {new_base} deferred: {cut_head(str(error), 300, 'char')}",
                 cause=Cause.RESTACK_DEFERRED,
             )
         except Exception as error:  # noqa: BLE001
             store.set_state(
                 unit.id,
                 RUNNING,
-                note=f"restack onto {new_base} left for its run: {str(error)[:300]}",
+                note=(
+                    f"restack onto {new_base} left for its run: {cut_head(str(error), 300, 'char')}"
+                ),
                 cause=Cause.RESTACK_CONFLICT,
             )
 

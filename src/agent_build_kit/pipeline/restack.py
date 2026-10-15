@@ -32,6 +32,7 @@ from contextvars import ContextVar
 from pathlib import Path
 
 from agent_build_kit import runtimes
+from agent_build_kit.budget import cut_head
 from agent_build_kit.config import RepoConfig, active
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import shell
@@ -503,7 +504,7 @@ def move_branch_onto(
             replayed=REPLAYED_NOTE.format(files="\n".join(f"- {name}" for name in replayed))
             if replayed
             else "",
-            diff=git(repo, "diff", check=False).stdout[:8000],
+            diff=cut_head(git(repo, "diff", check=False).stdout, 8000),
             changelog_rule=resolver_changelog_rule(repo, files, context.repo),
             changelog=changelog_note(repo, context.repo),
         )

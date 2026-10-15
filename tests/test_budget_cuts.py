@@ -154,3 +154,78 @@ def test_a_fence_inside_a_details_block_are_both_closed() -> None:
     assert got.count("```") % 2 == 0
     assert got.count("<details") == got.count("</details>")
     assert got.rstrip().endswith("</details>")
+
+
+def test_a_tail_of_one_long_line_keeps_its_last_characters() -> None:
+    assert cut_tail("x" * 5000, 4000) == "x" * 4000
+
+
+def test_a_head_whose_first_line_is_too_long_keeps_its_first_characters() -> None:
+    assert cut_head("a" * 9000 + "\nb", 8000) == "a" * 8000
+
+
+def test_a_paragraph_too_long_to_fit_keeps_whole_lines_of_it() -> None:
+    text = lined(200)
+
+    head = cut_head(text, 500, "paragraph")
+    tail = cut_tail(text, 500, "paragraph")
+
+    assert 400 < len(head) <= 500 and head.splitlines()[0] == text.splitlines()[0]
+    assert set(head.splitlines()) <= set(text.splitlines())
+    assert 400 < len(tail) <= 500 and tail.splitlines()[-1] == text.splitlines()[-1]
+    assert set(tail.splitlines()) <= set(text.splitlines())
+
+
+def test_a_marker_does_not_stop_a_long_line_from_keeping_characters() -> None:
+    got = cut_tail("x" * 5000, 100, "line", marker="[cut]")
+
+    assert got.startswith("[cut]") and got.endswith("x" * 50)
+    assert len(got) <= 100
+
+
+def test_a_tail_of_one_long_line_and_a_newline_keeps_the_end_of_the_line() -> None:
+    got = cut_tail("x" * 5000 + "\n", 4000)
+
+    assert len(got) <= 4000
+    assert got.count("x") >= 3999
+
+
+def test_a_tail_of_one_long_line_and_two_newlines_keeps_the_end_of_the_line() -> None:
+    got = cut_tail("x" * 5000 + "\n\n", 4000)
+
+    assert len(got) <= 4000
+    assert got.count("x") >= 3998
+
+
+def test_a_head_that_starts_with_a_newline_and_a_long_line_keeps_the_start_of_the_line() -> None:
+    got = cut_head("\n" + "a" * 9000, 8000)
+
+    assert len(got) <= 8000
+    assert got.count("a") >= 7999
+
+
+def test_a_paragraph_tail_of_one_long_paragraph_and_blank_lines_keeps_its_end() -> None:
+    got = cut_tail("p" * 600 + "\n\n", 500, "paragraph")
+
+    assert len(got) <= 500
+    assert got.count("p") >= 498
+
+
+def test_a_text_of_only_blank_lines_is_still_cut_to_whole_pieces() -> None:
+    assert len(cut_tail("\n" * 50, 10)) <= 10
+
+
+def test_a_tail_whose_last_long_line_is_not_the_last_keeps_the_end_of_that_line() -> None:
+    text = "short\nE   assert " + "{1: 2}" * 2000 + "\n1 failed"
+
+    got = cut_tail(text, 4000)
+
+    assert got.endswith("1 failed")
+    assert 3900 < len(got) <= 4000
+
+
+def test_a_head_whose_second_line_is_too_long_keeps_the_start_of_that_line() -> None:
+    got = cut_head("ok\n" + "x" * 9000 + "\nrest", 8000)
+
+    assert got.startswith("ok\nxxx")
+    assert 7990 <= len(got) <= 8000

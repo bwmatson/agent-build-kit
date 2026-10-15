@@ -20,6 +20,7 @@ from langgraph.graph import END
 from langgraph.types import interrupt
 
 from agent_build_kit import claude_account, forges, profiles, telemetry
+from agent_build_kit.budget import cut_head
 from agent_build_kit.config import active, active_root, models
 from agent_build_kit.forges.base import BaseMissing
 from agent_build_kit.graph.state import (
@@ -1020,7 +1021,7 @@ class BuildPath:
             f"adapt onto {restacked.onto_unit}, the restack could not be merged ({models().rework})"
         )
         keep = f"refs/spec-driven/pre-adapt/{unit.id}"
-        tried = TRIED_NOTE.format(tried=restacked.tried[:2000]) if restacked.tried else ""
+        tried = TRIED_NOTE.format(tried=cut_head(restacked.tried, 2000)) if restacked.tried else ""
         if r.head(tree) == state.head:
             r.reset_to(tree, ref, keep)
         # Otherwise a killed run already reset the branch: resetting again would
@@ -1032,7 +1033,7 @@ class BuildPath:
                 groups=groups,
                 onto_unit=restacked.onto_unit,
                 onto_intent=restacked.onto_intent,
-                conflict=restacked.conflict[:2000],
+                conflict=cut_head(restacked.conflict, 2000),
                 tried=tried,
                 old_ref=keep,
                 old_base=restacked.old_base,
@@ -1044,7 +1045,7 @@ class BuildPath:
             follow_up=ADAPT_CONTINUATION.format(
                 onto_unit=restacked.onto_unit,
                 onto_intent=restacked.onto_intent,
-                conflict=restacked.conflict[:2000],
+                conflict=cut_head(restacked.conflict, 2000),
                 tried=tried,
                 old_ref=keep,
                 old_base=restacked.old_base,
@@ -1421,8 +1422,8 @@ class BuildPath:
                 **update,
                 **self.hold(
                     HELD,
-                    f"needs a human: {why[:300]}",
-                    f"needs a human: {why[:200]}",
+                    f"needs a human: {cut_head(why, 300, 'char')}",
+                    f"needs a human: {cut_head(why, 200, 'char')}",
                     cause=Cause.NEEDS_HUMAN,
                     held_by=HeldBy.REVIEW,
                 ),
@@ -1445,13 +1446,13 @@ class BuildPath:
                 if verdict.escalate is Escalation.CLASS
                 else Cause.REVIEW_ESCALATED_DISAGREEMENT
             )
-            reasoning = " ".join(verdict.reasoning.split())[:280]
+            reasoning = cut_head(" ".join(verdict.reasoning.split()), 280, "char")
             return {
                 **update,
                 **self.hold(
                     HELD,
                     f"escalated — {label} ({verdict.escalate}): {reasoning}",
-                    f"escalated ({verdict.escalate}): {reasoning[:200]}",
+                    f"escalated ({verdict.escalate}): {cut_head(reasoning, 200, 'char')}",
                     cause=escalated,
                     held_by=HeldBy.REVIEW,
                 ),
@@ -1930,7 +1931,8 @@ class BuildPath:
                 state, str(error), base=base, lead="base gone before its pull request"
             )
         if state.spent:
-            note = f"rounds spent with work outstanding: {' '.join(stored.feedback.split())[:300]}"
+            outstanding = cut_head(" ".join(stored.feedback.split()), 300, "char")
+            note = f"rounds spent with work outstanding: {outstanding}"
             return self.hold(
                 HELD,
                 note,

@@ -30,6 +30,7 @@ from githubkit.exception import (
 from githubkit.response import Response
 from pydantic import BaseModel, ValidationError
 
+from agent_build_kit.budget import cut_tail
 from agent_build_kit.forges.base import (
     BaseMissing,
     Check,
@@ -63,7 +64,6 @@ from agent_build_kit.forges.github_models import (
     StackDoc,
 )
 from agent_build_kit.forges.transport import (
-    PAGE_EXCERPT,
     TRANSIENT,
     AuthError,
     Credentials,
@@ -72,6 +72,7 @@ from agent_build_kit.forges.transport import (
     RateLimited,
     TransportError,
     credential_for,
+    page_excerpt,
     unexpected,
     validated,
 )
@@ -247,7 +248,7 @@ class GitHubForge:
             raise _refusal(error, credentials) from error
         except ValidationError as error:
             raise TransportError(
-                f"not the document expected: {str(error)[:PAGE_EXCERPT]}"
+                f"not the document expected: {page_excerpt(str(error))}"
             ) from error
 
     def _pages[Doc: BaseModel](
@@ -646,7 +647,7 @@ class GitHubForge:
                 lines = lines[: errors[-1] + 1]
             text = "\n".join(lines).strip()
             if text:
-                out.append(f"{job.name}:\n{text[-_LOG_CHARS:]}")
+                out.append(f"{job.name}:\n{cut_tail(text, _LOG_CHARS)}")
         return "\n\n".join(out)
 
     def _job_log(self, repo: RepoId, job: int) -> str:
@@ -818,7 +819,7 @@ def _refusal(error: GitHubException, credentials: Credentials) -> TransportError
         wait = error.retry_after.total_seconds()
         refused = RateLimited(f"{where}: rate limited", retry_after=wait)
     elif status in (401, 403):
-        refused = AuthError(f"{where}: {status} {who}: {reply.text[:PAGE_EXCERPT]}")
+        refused = AuthError(f"{where}: {status} {who}: {page_excerpt(reply.text)}")
     elif status == 404:
         refused = NotFound(
             f"{where}: not found {who}", account=credentials.owner, source=credentials.source
@@ -829,7 +830,7 @@ def _refusal(error: GitHubException, credentials: Credentials) -> TransportError
             retry_after=_seconds(reply.headers.get("retry-after")),
         )
     else:
-        refused = TransportError(f"{where}: {status} {who}: {reply.text[:PAGE_EXCERPT]}")
+        refused = TransportError(f"{where}: {status} {who}: {page_excerpt(reply.text)}")
     refused.status = status
     refused.body = reply.text
     return refused
@@ -844,18 +845,18 @@ def _body(response: Response[Any, Any]) -> Any:
     if "json" not in kind:
         # A sign-in page with a 200 is an authentication failure that looks
         # like success; it must not come back as an empty result.
-        raise AuthError(f"{where}: expected JSON, got {kind}: {response.text[:PAGE_EXCERPT]}")
+        raise AuthError(f"{where}: expected JSON, got {kind}: {page_excerpt(response.text)}")
     try:
         return response.json()
     except ValueError as error:
-        raise HostError(f"{where}: unreadable JSON: {response.text[:PAGE_EXCERPT]}") from error
+        raise HostError(f"{where}: unreadable JSON: {page_excerpt(response.text)}") from error
 
 
 def _model[Doc: BaseModel](model: type[Doc], found: object, what: str) -> Doc:
     try:
         return model.model_validate(found)
     except ValidationError as error:
-        excerpt = str(found)[:PAGE_EXCERPT]
+        excerpt = page_excerpt(str(found))
         raise TransportError(f"{what}: not the document expected: {excerpt}") from error
 
 
