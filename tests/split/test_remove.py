@@ -157,6 +157,36 @@ def test_a_directory_left_with_no_file_is_nothing_and_is_pruned(tmp_path):
     assert "  app:\n" not in (source / "abk.yaml").read_text()
 
 
+@pytest.mark.parametrize("kill_at", range(1, 9))
+def test_a_run_killed_at_any_unlink_is_finished(tmp_path, monkeypatch, kill_at):
+    source, destination = trees(tmp_path)
+    installation = populate(source)
+    argv = ("--repo", "app", "--to", str(destination), "--apply", "--remove")
+    real = Path.unlink
+    watched = (installation.changes_dir, installation.specs_dir / "specs")
+    calls = []
+
+    def dying(self, *args, **kwargs):
+        if self.is_relative_to(watched[0]) or self.is_relative_to(watched[1]):
+            calls.append(self)
+            if len(calls) == kill_at:
+                raise RuntimeError("killed")
+        return real(self, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "unlink", dying)
+        with pytest.raises(RuntimeError):
+            split(source, *argv)
+
+    assert split(source, *argv) == 0
+    assert unit_ids(installation) == ["stays/1"]
+    assert set(json.loads((installation.state_dir / "planned.json").read_text())) == {"stays"}
+    for left in ("one", "two", "archive/2025-01-01-old"):
+        assert not (installation.changes_dir / left).exists()
+    assert not (installation.specs_dir / "specs" / "capability").exists()
+    assert "  app:\n" not in (source / "abk.yaml").read_text()
+
+
 def test_a_run_killed_while_removing_files_is_finished(tmp_path, monkeypatch):
     source, destination = trees(tmp_path)
     installation = populate(source)

@@ -63,7 +63,9 @@ def _prune(directory: Path) -> None:
 
 def remove(source: Installation, plan: SplitPlan) -> RemoveReport:
     """Remove the moved unit records and plan records, then the files (a directory only when
-    empty). The records go first, then one directory at a time with its `tasks.md` last, and
+    empty). The records go first, then one directory at a time: the capability specs before
+    any change or archive entry, because a capability moves only through the changes that
+    own it and must go while they are on disk; each directory has its `tasks.md` last, and
     a directory is pruned as soon as its files are gone, so a run killed part way leaves the
     files that tell the next run what moved, and that run finishes it. A directory holding no
     file, which such a run can leave, is pruned too."""
@@ -74,9 +76,9 @@ def remove(source: Installation, plan: SplitPlan) -> RemoveReport:
         update_plans(source, lambda _: dict.fromkeys(names))
     files = moved_files(source, plan)
     for directory in (
+        *(source.specs_dir / "specs" / name for name in plan.specs_moved),
         *(source.changes_dir / name for name in plan.changes_moved),
         *(source.changes_dir / "archive" / name for name in plan.archive_moved),
-        *(source.specs_dir / "specs" / name for name in plan.specs_moved),
     ):
         inside = (path for path in files if path.is_relative_to(directory))
         for path in sorted(inside, key=lambda path: (path.name == "tasks.md", path)):
