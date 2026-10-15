@@ -13,6 +13,7 @@ from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED, SATISFIED
 from agent_build_kit.pipeline.workspaces import BranchBusy
+from tests.factories import deep_store
 from tests.factories import stored_unit as unit
 
 
@@ -26,28 +27,6 @@ class Recorder:
     @property
     def branches(self) -> list[str]:
         return [r["branch"] for r in self.restacked]
-
-
-def deep_store(tmp_path: Path) -> UnitStore:
-    """c/2 on c/1, c/3 on c/2, and c/4 on both c/1 and c/3.
-
-    Merging c/1 leaves c/2 at depth 1 and c/4 at depth 3: c/4 is a direct
-    dependent of c/1 that sits deeper than c/2. c/9 is an unrelated unit in the
-    same repo.
-    """
-    store = UnitStore(tmp_path / "units.json")
-    store.upsert(
-        [
-            unit("c/1"),
-            unit("c/2", depends_on=("c/1",)),
-            unit("c/3", depends_on=("c/2",)),
-            unit("c/4", depends_on=("c/1", "c/3")),
-            unit("c/9"),
-        ]
-    )
-    for n in (1, 2, 3, 4, 9):
-        store.set_state(f"c/{n}", IN_REVIEW, pr=n, branch=f"spec/c/{n}")
-    return store
 
 
 def merge(store: UnitStore, pr: int, *, cap: int, recorder: Recorder, deleted: list[str]) -> None:
@@ -322,7 +301,6 @@ def test_a_depth_hold_the_label_took_over_is_restacked_by_a_merge_after_its_rele
     merge(store, 1, cap=2, recorder=Recorder(), deleted=[])
     events.on_hold(4, repo="app", store=store)
     events.on_release(4, repo="app", store=store)
-    store.set_state("c/2", MERGED)
     recorder = Recorder()
 
     merge(store, 2, cap=2, recorder=recorder, deleted=[])
@@ -382,6 +360,8 @@ def test_a_busy_held_unit_stays_held_with_its_record_unchanged(tmp_path: Path) -
     store = deep_store(tmp_path)
     merge(store, 1, cap=2, recorder=Recorder(), deleted=[])
     store.set_state("c/2", MERGED)
+    store.upsert([unit("c/8")])
+    store.set_state("c/8", IN_REVIEW, pr=8, branch="spec/c/8")
     before = len(store.get("c/4").history)
     recorder = Recorder()
 
@@ -394,7 +374,7 @@ def test_a_busy_held_unit_stays_held_with_its_record_unchanged(tmp_path: Path) -
     assert len(store.get("c/4").history) == before
 
     # Found again by the next merge, once the build is done.
-    events.on_merged(9, repo="app", store=store, restack=recorder, rebase_cap=2)
+    events.on_merged(8, repo="app", store=store, restack=recorder, rebase_cap=2)
     assert recorder.branches == ["spec/c/4"]
 
 
