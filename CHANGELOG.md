@@ -52,6 +52,12 @@
   planning root; and an absolute path naming the repository's working copy is the pipeline
   worktree there. Other installations are unchanged.
 
+- From a working copy whose installation is live in a pipeline worktree, `abk status` and
+  `abk doctor` print the worktree's path and the `abk --config` command that reaches it, and
+  `abk tick`, `abk track`, `abk verify` and `abk archive` refuse with that message instead of
+  touching the working copy's own `runs/`. Naming a config with `--config` or `ABK_CONFIG`
+  runs them and says the config is not the live one. With no live installation nothing changes.
+
 - `abk doctor` has a `public content` check. It reads a tracked `abk.yaml` offline and warns
   about a repo path outside the checkout, a home-directory path in a value and a repo owned
   by another account than the planning repo's origin, naming the key and never the value. It

@@ -12,12 +12,22 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import os
 import sys
 from pathlib import Path
 
 from agent_build_kit import __version__
-from agent_build_kit.config import ConfigError
-from agent_build_kit.installation import load_installation
+from agent_build_kit.config import CONFIG_ENV, ConfigError
+from agent_build_kit.installation import Installation, load_installation
+from agent_build_kit.pipeline.planning_sync import (
+    PlanningMode,
+    live_pipeline_worktree,
+    planning_mode,
+)
+
+# Commands that write the pipeline's state: from a working copy whose installation is live in the
+# pipeline worktree they refuse, unless a config is named. `status` only says where it is.
+WRITES_STATE = frozenset({"tick", "track", "verify", "archive"})
 
 # Import order is the help order.
 COMMAND_MODULES = (
@@ -66,6 +76,22 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def live_notice(inst: Installation, command: str, *, explicit: bool) -> str | None:
+    """What to tell a person in a working copy whose installation is live in the pipeline worktree,
+    or None when this is not such a working copy."""
+    if planning_mode(inst) != PlanningMode.WORKING_COPY:
+        return None
+    live = live_pipeline_worktree(inst)
+    if live is None:
+        return None
+    if explicit:
+        return f"abk: this config is not the live installation, which is in {live}"
+    return (
+        f"abk: this installation is live in {live}; run "
+        f"`abk --config {live / 'abk.yaml'} {command}` (or set {CONFIG_ENV})"
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     needs = getattr(args, "needs_installation", True)
@@ -77,4 +103,15 @@ def main(argv: list[str] | None = None) -> int:
             if needs != "optional":
                 print(f"abk: {error}", file=sys.stderr)
                 return 2
+    if installation is not None and (args.command == "status" or args.command in WRITES_STATE):
+        explicit = args.config is not None or bool(os.environ.get(CONFIG_ENV))
+        notice = live_notice(installation, args.command, explicit=explicit)
+        if notice and not explicit and args.command == "status":
+            print(notice)
+            return 0
+        if notice and not explicit and args.command in WRITES_STATE:
+            print(notice)
+            return 2
+        if notice:
+            print(notice)
     return int(args.func(args, installation))

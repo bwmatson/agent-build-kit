@@ -1277,6 +1277,16 @@ def _grafana() -> list[Check]:
     return [_ok("grafana", f"{settings.grafana_url} ({path})")]
 
 
+def _live_installation(inst: Installation) -> list[Check]:
+    """In a working copy: which pipeline worktree the installation is live in."""
+    from agent_build_kit.cli import live_notice
+
+    notice = live_notice(inst, "doctor", explicit=False)
+    if notice is None:
+        return []
+    return [_warn("live installation", notice.removeprefix("abk: "), "use that config instead")]
+
+
 def run_doctor(
     config_path: Path | None,
     *,
@@ -1307,6 +1317,7 @@ def run_doctor(
     checks.append(_ok("worktree root", str(inst.worktree_root)))
     inst.activate()
 
+    checks += _live_installation(inst)
     checks += _repos(inst, run)
     checks += _pending_projects(inst)
     checks += _changelogs(inst)
