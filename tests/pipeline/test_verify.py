@@ -16,6 +16,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.verify import deploy_commands, live_credentials, verify_change
 from tests.conftest import make_installation
 from tests.factories import stored_unit
+from tests.whole_lines import assert_tail_of_whole_lines, long_output_lines
 
 PY = profiles.get("python-uv")
 
@@ -335,7 +336,7 @@ def test_a_failing_live_test_fails_the_change_with_what_failed(inst) -> None:
 class Chatty(Host):
     """A `Host` whose failing command prints a long output, one whole line at a time."""
 
-    PRINTED = [f"console line {n:05d} of a long output" for n in range(300)]
+    PRINTED = long_output_lines(300)
 
     def __call__(self, command, **kwargs):
         done = super().__call__(command, **kwargs)
@@ -351,8 +352,7 @@ def test_a_failing_live_test_reports_the_end_of_its_output_in_whole_lines(inst) 
 
     assert not result.passed
     shown = result.detail.splitlines()
-    assert shown[-1] == Chatty.PRINTED[-1], "the end of the output is kept"
-    assert set(shown[1:]) <= set(Chatty.PRINTED), "no line starts or ends in the middle"
+    assert_tail_of_whole_lines("\n".join(shown[1:]), Chatty.PRINTED, len(result.detail))
     assert len(shown) > 50, "a good part of the output is kept"
 
 

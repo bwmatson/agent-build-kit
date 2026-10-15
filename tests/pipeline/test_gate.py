@@ -18,6 +18,7 @@ from agent_build_kit.pipeline.gate import check_branch
 from agent_build_kit.profiles.python_uv import PROFILE as PYTHON
 from tests.factories import commit_files as commit
 from tests.factories import git, init_repo
+from tests.whole_lines import assert_tail_of_whole_lines
 
 
 @pytest.fixture
@@ -120,8 +121,7 @@ def test_the_lint_output_at_the_tests_commit_is_the_end_of_it_in_whole_lines(
     (problem,) = [p for p in check_branch(repo, "main") if "lint/format" in p]
 
     shown = problem.splitlines()
-    assert shown[-1] == printed[-1], "the end of the output is kept"
-    assert set(shown[1:]) <= set(printed), "no line starts or ends in the middle"
+    assert_tail_of_whole_lines("\n".join(shown[1:]), printed, 2000)
     assert 30 < len(shown) <= 2000 // len(printed[0]) + 2
 
 

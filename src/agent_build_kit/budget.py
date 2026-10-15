@@ -51,6 +51,17 @@ def _openers(dropped: str) -> list[str]:
     return ["<details>"] * depth + (["```"] if fenced else [])
 
 
+def _fitting_pieces(pieces: list[str], size: int, joiner: int, head: bool) -> int:
+    """How many pieces from the kept edge fit `size` together, an upper bound for the search."""
+    total = count = 0
+    for piece in pieces if head else reversed(pieces):
+        total += len(piece) + (joiner if count else 0)
+        if total > size:
+            break
+        count += 1
+    return count
+
+
 def _cut_side(text: str, size: int, boundary: Boundary, marker: str, head: bool) -> str:
     if len(text) <= size:
         return text
@@ -71,7 +82,7 @@ def _cut_side(text: str, size: int, boundary: Boundary, marker: str, head: bool)
 
     if len(build(0)) > size:
         return marker[:size]
-    low, high = 0, len(pieces)
+    low, high = 0, _fitting_pieces(pieces, size, len(joiner), head)
     while low < high:
         middle = (low + high + 1) // 2
         if len(build(middle)) <= size:
@@ -80,9 +91,13 @@ def _cut_side(text: str, size: int, boundary: Boundary, marker: str, head: bool)
             high = middle - 1
     if boundary != "char" and text.strip():
         kept_pieces = pieces[:low] if head else pieces[len(pieces) - low :]
-        if not joiner.join(kept_pieces).strip():
-            # No whole piece with content fits (empty edge pieces always do): keep whole
-            # pieces of a finer kind, and characters last.
+        first_left_out = (
+            (pieces[low] if head else pieces[len(pieces) - low - 1]) if low < len(pieces) else ""
+        )
+        if not joiner.join(kept_pieces).strip() or len(first_left_out) > size:
+            # No whole piece with content fits (empty edge pieces always do), or the first piece
+            # left out is longer than the size and could never be kept whole: keep whole pieces
+            # of a finer kind, and characters last.
             return _cut_side(text, size, _FINER[boundary], marker, head)
     return build(low)
 

@@ -28,6 +28,7 @@ from tests.pipeline.test_flake_isolation import (
 from tests.pipeline.test_flake_storm import storms
 from tests.redaction_fakes import NAME, SECRET, known
 from tests.storm_fakes import ManyFailed
+from tests.whole_lines import assert_tail_of_whole_lines, long_output_lines
 
 FAILURES = "=" * 35 + " FAILURES " + "=" * 35
 SUMMARY = "=" * 12 + " short test summary info " + "=" * 12
@@ -208,7 +209,25 @@ def test_a_long_section_is_kept_from_its_end_in_whole_lines_within_6000_characte
     assert failure.splitlines()[0].startswith("captured line"), "the cut falls between lines"
 
 
-PRINTED = [f"console line {n:05d} of a long output" for n in range(600)]
+def test_a_section_whose_last_long_line_holds_the_error_keeps_the_end_of_that_line(
+    tmp_path: Path,
+) -> None:
+    body = "begins here\n" + "x" * 20000 + "\nE   the real error\n\ntest_one.py:3: AssertionError"
+    output = (
+        f"{FAILURES}\n{section('test_a', body)}{SUMMARY}\n"
+        "FAILED test_one.py::test_a - the real error\n1 failed in 0.01s\n"
+    )
+
+    flakes = flakes_of(HookedProfile(), FirstRun(output, reruns=[0, 0]), tmp_path)
+
+    failure = flakes["test_one.py::test_a"].failure
+    assert 5900 < len(failure) <= 6000
+    assert failure.rstrip().endswith("test_one.py:3: AssertionError")
+    assert "xxxxxxxx\nE   the real error" in failure
+    assert "begins here" not in failure
+
+
+PRINTED = long_output_lines(600)
 
 
 def long_run() -> str:
@@ -219,10 +238,8 @@ def test_a_flake_keeps_the_end_of_the_first_runs_output_in_whole_lines(tmp_path:
     flakes = flakes_of(HookedProfile(), FirstRun(long_run(), reruns=[0, 0]), tmp_path)
 
     kept = flakes["test_one.py::test_plain"].output
-    original = long_run().splitlines()
-    assert 3000 < len(kept) <= 4000
-    assert kept.splitlines()[-1] == original[-1], "the end of the output is kept"
-    assert set(kept.splitlines()) <= set(original), "no line starts or ends in the middle"
+    assert len(kept) > 3000
+    assert_tail_of_whole_lines(kept, long_run().splitlines(), 4000)
 
 
 def test_a_failed_command_keeps_the_end_of_what_it_printed_in_whole_lines(tmp_path: Path) -> None:
@@ -232,9 +249,7 @@ def test_a_failed_command_keeps_the_end_of_what_it_printed_in_whole_lines(tmp_pa
     original = long_run().splitlines()
     lines = text.splitlines()
     assert lines[0].startswith("$ "), "the header names the command"
-    assert len(text) <= 4000 + 400, "the tail is cut to 4000 beside a short header"
-    assert lines[-1] == original[-1], "the end of the output is kept"
-    assert set(lines[2:]) <= set(original), "no line starts or ends in the middle"
+    assert_tail_of_whole_lines("\n".join(lines[2:]), original, 4000)
 
 
 def test_a_profile_without_the_hook_gives_the_same_flake_with_an_empty_failure(

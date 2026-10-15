@@ -213,3 +213,19 @@ def test_a_paragraph_tail_of_one_long_paragraph_and_blank_lines_keeps_its_end() 
 
 def test_a_text_of_only_blank_lines_is_still_cut_to_whole_pieces() -> None:
     assert len(cut_tail("\n" * 50, 10)) <= 10
+
+
+def test_a_tail_whose_last_long_line_is_not_the_last_keeps_the_end_of_that_line() -> None:
+    text = "short\nE   assert " + "{1: 2}" * 2000 + "\n1 failed"
+
+    got = cut_tail(text, 4000)
+
+    assert got.endswith("1 failed")
+    assert 3900 < len(got) <= 4000
+
+
+def test_a_head_whose_second_line_is_too_long_keeps_the_start_of_that_line() -> None:
+    got = cut_head("ok\n" + "x" * 9000 + "\nrest", 8000)
+
+    assert got.startswith("ok\nxxx")
+    assert 7990 <= len(got) <= 8000
