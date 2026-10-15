@@ -71,3 +71,18 @@ def test_the_output_gives_the_config_to_use_from_a_working_copy(
 
     out = capsys.readouterr().out
     assert f"--config {worktree_of(tmp_path) / 'abk.yaml'}" in out
+
+
+def test_remove_prints_the_worktree_it_left_and_the_command_that_removes_it(
+    working_copy: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    worktree = worktree_of(tmp_path)
+    assert main(["install-timers"]) == 0
+    capsys.readouterr()
+
+    assert main(["install-timers", "--remove"]) == 0
+
+    out = capsys.readouterr().out
+    assert str(worktree) in out
+    assert f"git worktree remove {worktree}" in out
+    assert worktree.is_dir()

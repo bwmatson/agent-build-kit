@@ -36,7 +36,7 @@ from typing import Literal
 
 from agent_build_kit import config, runtimes
 from agent_build_kit.init.scaffold import render_systemd
-from agent_build_kit.installation import Installation
+from agent_build_kit.installation import Installation, data_home
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.planning_repo import common_dir
 from agent_build_kit.pipeline.planning_sync import (
@@ -524,9 +524,21 @@ def _make_worktree(inst: Installation, target: Path) -> None:
     has one (the sync then fetches and moves it) and its local tip otherwise."""
     default = in_repo_default_branch(inst)
     remote = f"refs/remotes/origin/{default}"
-    known = git(inst.root, "rev-parse", "--verify", "-q", remote, check=False).returncode == 0
+    local = f"refs/heads/{default}"
+    tip = next(
+        (
+            ref
+            for ref in (remote, local)
+            if git(inst.root, "rev-parse", "--verify", "-q", ref, check=False).returncode == 0
+        ),
+        None,
+    )
+    if tip is None:
+        raise PlanningWorktreeRefused(
+            f"the default branch {default} is neither fetched nor local in {inst.root}; "
+            f"run `git fetch origin {default}` and install again"
+        )
     target.parent.mkdir(parents=True, exist_ok=True)
-    tip = remote if known else f"refs/heads/{default}"
     git(inst.root, "worktree", "add", "-q", "--detach", str(target), tip)
 
 
@@ -571,7 +583,7 @@ def install_in_repo(
         if named is not None and named.is_dir():
             worktree = named
         else:
-            base = data_dir or Path.home() / ".local" / "share"
+            base = data_dir or data_home()
             worktree = base / common.parent.name / "planning"
         if worktree.exists() and not _worktree_of_this_repository(worktree, common):
             raise PlanningWorktreeRefused(
@@ -584,6 +596,11 @@ def install_in_repo(
         if not dry_run:
             write_pipeline_marker(inst.root, worktree)
     notes = () if dry_run else _bring_to_tip(inst, worktree)
+    if not dry_run and not (worktree / "abk.yaml").is_file():
+        notes += (
+            f"{worktree} has no abk.yaml: it is not on the default branch yet, so commit and push "
+            "it before the units can run",
+        )
     change = install(
         worktree, dest=dest, run=run, enable=enable, dry_run=dry_run, tool_dirs=tool_dirs
     )

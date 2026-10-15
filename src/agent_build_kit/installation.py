@@ -34,13 +34,19 @@ def changes_dir_under(root: Path, specs_dir: str) -> Path:
     return root / Path(specs_dir).expanduser() / "changes"
 
 
+def data_home() -> Path:
+    """Where an installation keeps what lives outside its planning root: the unit worktrees and
+    the pipeline worktree."""
+    return Path.home() / ".local" / "share"
+
+
 class Installation:
     def __init__(self, config: WorkspaceConfig, root: Path) -> None:
         self.config = config
         self.root = root.resolve()
         worktree_root = settings_module.settings.worktree_root or config.planning.worktree_root
         if worktree_root is None:
-            worktree_root = Path.home() / ".local" / "share" / self.root.name / "worktrees"
+            worktree_root = data_home() / self.root.name / "worktrees"
         self.worktree_root = Path(worktree_root).expanduser().resolve()
         if self.worktree_root == self.root or self.worktree_root.is_relative_to(self.root):
             raise ConfigError(

@@ -237,3 +237,24 @@ def test_a_separate_planning_repo_installs_byte_for_byte_as_before(tmp_path: Pat
     assert result.worktree is None
     assert not data.exists()
     assert {path.name: path.read_text() for path in dest.iterdir()} == timers.render(root)
+
+
+def test_a_worktree_without_abk_yaml_says_it_is_not_on_the_default_branch(
+    machine: Machine,
+) -> None:
+    result = machine.install()
+
+    assert any("abk.yaml" in note and "default branch" in note for note in result.notes)
+
+
+def test_a_default_branch_that_is_neither_fetched_nor_local_is_refused_with_the_fix(
+    machine: Machine,
+) -> None:
+    git(machine.working_copy, "checkout", "-q", "-b", "other")
+    git(machine.working_copy, "branch", "-D", "main")
+    git(machine.working_copy, "update-ref", "-d", "refs/remotes/origin/main")
+
+    with pytest.raises(timers.PlanningWorktreeRefused, match="git fetch origin main"):
+        machine.install()
+
+    assert not machine.dest.exists()
