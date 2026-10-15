@@ -100,6 +100,10 @@ def _edit(path: Path, setting: str, name: str, *, add: bool) -> TextEdit:
     opening = _TESTS_KEY.match(_content(lines[top]))
     inline = opening.group("rest").strip() if opening else ""
     if inline and not inline.startswith("#"):
+        if inline.startswith(("&", "*")):
+            raise _refuse(path, "`tests` carries an anchor or alias")
+        if inline.startswith("!"):
+            raise _refuse(path, "`tests` carries a tag")
         kind = "a flow-style mapping" if inline.startswith("{") else "not a mapping"
         raise _refuse(path, f"`tests` is {kind}; only a block mapping can be edited")
     tests = raw.get("tests")

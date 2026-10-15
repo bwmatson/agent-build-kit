@@ -217,6 +217,8 @@ REFUSED = {
     "multi-line flow": (f"tests:\n  {BLOCKED}: [acp,\n    claude_code]\n", "multi-line"),
     "not a list": (f"tests:\n  {BLOCKED}: acp\n", "not a list"),
     "no parse": (f"tests:\n  {BLOCKED}: [acp\n  other: [\n", "parse|valid yaml"),
+    "anchored tests": (f"tests: &t\n  {BLOCKED}: [acp]\n", "anchor|alias"),
+    "tagged tests": (f"tests: !!map\n  {BLOCKED}: [acp]\n", "tag"),
     "flow tests": ("tests: " + "{" + BLOCKED + ": [acp]}\n", "flow"),
 }
 
@@ -283,3 +285,28 @@ def test_the_file_keeps_its_mode(tmp_path: Path) -> None:
     add_runtime(path, BLOCKED, "acp")
     assert stat.S_IMODE(path.stat().st_mode) == 0o640
     assert loaded(path)["tests"][BLOCKED] == ["acp"]
+
+
+# Layouts the line scan accepts but whose edit does not reload to the expected lists:
+# (text, operation, name).
+MISEDITED = {
+    "bracket in a quoted item, add": (f'tests:\n  {BLOCKED}: ["a]b"]\n', add_runtime, "x"),
+    "bracket in a quoted item, remove": (f'tests:\n  {BLOCKED}: ["a]b"]\n', remove_runtime, "a]b"),
+    "keep-chomped scalar at the end, add": (
+        "tests:\n  note: |+\n    text\n\n\nrepos: " + "{}" + "\n",
+        add_runtime,
+        "x",
+    ),
+}
+
+
+@pytest.mark.parametrize("layout", sorted(MISEDITED))
+def test_an_edit_that_does_not_reload_to_the_expected_lists_is_not_written(
+    tmp_path: Path, layout: str
+) -> None:
+    original, operation, name = MISEDITED[layout]
+    path = write(tmp_path, original)
+    with pytest.raises(ConfigTextEditError, match="expected lists"):
+        operation(path, BLOCKED, name)
+    assert path.read_bytes() == original.encode()
+    assert [p.name for p in tmp_path.iterdir()] == ["abk.yaml"]
