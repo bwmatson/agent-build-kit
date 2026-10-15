@@ -1,4 +1,4 @@
-"""`tests.runtimes_blocked`, `runtimes_allowed` and `tier2_runtimes`, at the top of the file
+"""`tests.tier2_runtimes`, at the top of the file
 and per repo (spec: tier2-runtime-blocks)."""
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from agent_build_kit.cli import main
 from agent_build_kit.config import WorkspaceConfig, dump, tier2_variants
 from agent_build_kit.runtimes import known_agents
 
-SETTINGS = ["runtimes_blocked", "runtimes_allowed", "tier2_runtimes"]
+SETTINGS = ["tier2_runtimes"]
 KNOWN = sorted({*runtimes.names(), known_agents.RUNTIME_NAME})
 
 
@@ -66,20 +66,6 @@ def test_a_bad_name_is_refused_naming_the_setting_and_the_runtimes_there_are(
     text = str(refused.value)
     assert f"tests.{setting}" in text
     assert all(name in text for name in KNOWN)
-
-
-def test_a_runtime_in_both_blocked_and_allowed_is_refused_naming_both_settings() -> None:
-    with pytest.raises(ValidationError) as refused:
-        config(runtimes_blocked=["acp"], runtimes_allowed=["acp"])
-
-    text = str(refused.value)
-    assert "tests.runtimes_blocked" in text
-    assert "tests.runtimes_allowed" in text
-
-
-def test_a_configuration_with_only_one_of_them_loads() -> None:
-    assert config(runtimes_blocked=["acp"]).tests.runtimes_allowed == []
-    assert config(runtimes_allowed=["acp"]).tests.runtimes_blocked == []
 
 
 def test_a_repo_has_no_tier2_runtimes_of_its_own_by_default() -> None:
@@ -166,8 +152,6 @@ def test_config_show_prints_the_lists_set(tmp_path: Path, capsys: pytest.Capture
             WorkspaceConfig.model_validate(
                 {
                     "tests": {
-                        "runtimes_blocked": ["acp"],
-                        "runtimes_allowed": ["claude_code"],
                         "tier2_runtimes": ["acp"],
                     },
                     "repos": {
@@ -186,8 +170,6 @@ def test_config_show_prints_the_lists_set(tmp_path: Path, capsys: pytest.Capture
 
     shown = yaml.safe_load(capsys.readouterr().out)
     assert shown["tests"] == {
-        "runtimes_blocked": ["acp"],
-        "runtimes_allowed": ["claude_code"],
         "tier2_runtimes": ["acp"],
         "tier2_splits": {},
     }

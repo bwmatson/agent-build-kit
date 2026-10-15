@@ -6,8 +6,11 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+from pydantic import AwareDatetime, TypeAdapter, ValidationError
+
 from agent_build_kit.config import Tier2Split
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 
 # The state file's name in the state directory.
 HELD_FILE = "tier2-held.json"
@@ -42,8 +45,70 @@ class Holds(Frozen):
     unknown: tuple[str, ...] = ()
 
 
+class _Entry(Frozen):
+    reason: str
+    # Aware only: a naive time cannot be compared with the clock, and a file holding one
+    # reads as unreadable.
+    since: AwareDatetime
+    until: AwareDatetime | None = None
+    source: str
+    by: str
+
+
+_ENTRIES = TypeAdapter(dict[str, _Entry])
+
+
+def _read(path: Path) -> dict[str, _Entry] | None:
+    """The file's entries; None when it cannot be read, empty when it is not there."""
+    try:
+        return _ENTRIES.validate_json(path.read_text())
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError, ValidationError):
+        return None
+
+
 def held_splits(splits: tuple[Tier2Split, ...], state_dir: Path, *, now: datetime) -> Holds:
-    raise NotImplementedError
+    """The splits held at `now`; reads, and changes nothing on disk."""
+    entries = _read(state_dir / HELD_FILE)
+    known = {split.name for split in splits}
+    held: dict[str, Hold] = {
+        split.name: Hold(
+            split=split.name,
+            reason="`hold: true` in tests.tier2_splits",
+            origins=(ORIGIN_CONFIGURATION,),
+        )
+        for split in splits
+        if split.hold is True
+    }
+    released = {split.name for split in splits if split.hold is False}
+    overridden: list[str] = []
+    unknown: list[str] = []
+    for name, entry in sorted((entries or {}).items()):
+        if name not in known:
+            unknown.append(name)
+            continue
+        if entry.until is not None and entry.until <= now:
+            continue
+        if name in released:
+            overridden.append(name)
+            continue
+        configured = held.get(name)
+        held[name] = Hold(
+            split=name,
+            reason=entry.reason,
+            origins=(*(configured.origins if configured else ()), ORIGIN_FILE),
+            since=entry.since,
+            until=entry.until,
+            source=entry.source,
+            by=entry.by,
+        )
+    return Holds(
+        held=dict(sorted(held.items())),
+        overridden=tuple(overridden),
+        unreadable=entries is None,
+        unknown=tuple(unknown),
+    )
 
 
 def write_hold(
@@ -56,8 +121,28 @@ def write_hold(
     until: datetime | None = None,
     now: datetime,
 ) -> None:
-    raise NotImplementedError
+    """Write `split`'s entry atomically under a lock, replacing an earlier one. A deadline
+    is refused (ValueError) for the source `command`."""
+    if source == SOURCE_COMMAND and until is not None:
+        raise ValueError(f"a hold with the source {SOURCE_COMMAND!r} has no deadline")
+    path = state_dir / HELD_FILE
+    entry = _Entry(reason=reason, since=now, until=until, source=source, by=by)
+    with file_lock(path.with_name(f"{path.name}.lock")):
+        # An unreadable file is replaced: nothing can read back what it held.
+        entries = _read(path) or {}
+        entries[split] = entry
+        atomic_write_text(path, _ENTRIES.dump_json(entries, indent=2).decode() + "\n")
 
 
 def remove_hold(state_dir: Path, split: str) -> bool:
-    raise NotImplementedError
+    """Remove `split`'s entry under the lock; False when there was none."""
+    path = state_dir / HELD_FILE
+    if not path.exists():
+        return False
+    with file_lock(path.with_name(f"{path.name}.lock")):
+        entries = _read(path)
+        if not entries or split not in entries:
+            return False
+        del entries[split]
+        atomic_write_text(path, _ENTRIES.dump_json(entries, indent=2).decode() + "\n")
+        return True

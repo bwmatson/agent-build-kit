@@ -123,7 +123,7 @@ from agent_build_kit.pipeline.tier2 import (
 from agent_build_kit.pipeline.tier2 import (
     post_status as tier2_post_status,
 )
-from agent_build_kit.pipeline.tier2_blocks import blocked_runtimes
+from agent_build_kit.pipeline.tier2_holds import held_splits
 from agent_build_kit.pipeline.tier2_schedule import is_scheduled
 from agent_build_kit.pipeline.tier2_times import record_test_times, with_split
 from agent_build_kit.pipeline.transcript import Transcript, transcript_dir
@@ -1448,13 +1448,12 @@ def build_on_preexisting(
         unit: Unit, verdict: Tier2Verdict, failure: TestFailure, *, wait: bool
     ) -> str | None:
         runtime = failure.group or BASE_GROUP
-        if (
-            runtime == UNKNOWN_GROUP
-            or runtime
-            in blocked_runtimes(
-                installation.config, installation.state_dir, now=datetime.now(UTC)
-            ).blocked
-        ):
+        held = held_splits(
+            tier2_splits(installation.config.repos[unit.repo], installation.config),
+            installation.state_dir,
+            now=datetime.now(UTC),
+        ).held
+        if runtime == UNKNOWN_GROUP or (REST_SPLIT if runtime == BASE_GROUP else runtime) in held:
             # A failure whose runtime is unknown is the unit's own, and a blocked
             # runtime's failure is nobody's bug: neither is recorded or fixed.
             return None
