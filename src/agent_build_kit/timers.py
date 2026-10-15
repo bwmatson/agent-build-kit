@@ -474,6 +474,59 @@ def remove(
     return UnitChange(removed=tuple(ours))
 
 
+class PlanningWorktreeRefused(Exception):
+    """A path or marker in the way of the pipeline worktree that is not a worktree of this
+    repository; the message names it."""
+
+
+class InRepoInstall(Frozen):
+    """An install for an installation whose planning repo is also a code repo.
+
+    `worktree` is the pipeline worktree the units point at, None for a separate planning repo;
+    `created` is whether this install made it; `notes` say why a worktree was left where it was.
+    """
+
+    worktree: Path | None
+    created: bool
+    change: UnitChange
+    notes: tuple[str, ...] = ()
+
+
+class InRepoRemoval(Frozen):
+    """What removing an in-repo installation did: the units gone, the worktree left where it is."""
+
+    worktree: Path | None
+    change: UnitChange
+
+
+def install_in_repo(
+    inst: Installation,
+    *,
+    dest: Path | None = None,
+    run: Run | None = None,
+    enable: bool = True,
+    dry_run: bool = False,
+    tool_dirs: Sequence[str] = (),
+    data_dir: Path | None = None,
+) -> InRepoInstall:
+    """`install` for any installation: from a working copy or the pipeline worktree it makes or
+    reuses the pipeline worktree and the marker and points the units at it; a separate planning
+    repo installs as `install` does. `data_dir` is where worktrees live (under the home by
+    default)."""
+    raise NotImplementedError
+
+
+def remove_in_repo(
+    inst: Installation,
+    *,
+    dest: Path | None = None,
+    run: Run | None = None,
+    dry_run: bool = False,
+) -> InRepoRemoval:
+    """`remove` for any installation: the units and the marker go, the worktree stays."""
+    raise NotImplementedError
+
+
 def installed_root(dest: Path | None = None, root: Path | None = None) -> Path | None:
     """The installation the units on this machine serve, or None if there are none.
 
