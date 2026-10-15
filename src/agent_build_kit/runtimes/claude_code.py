@@ -20,7 +20,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from agent_build_kit import claude_account, config
-from agent_build_kit.config import ModelsConfig
+from agent_build_kit.config import ConfigError, ModelsConfig
 from agent_build_kit.hooks.policy import hook_settings
 from agent_build_kit.pipeline.call_record import call_recorder
 from agent_build_kit.pipeline.claude_stream import (
@@ -170,19 +170,20 @@ def command() -> list[str]:
     return list(config.runtime_entry(name=NAME).command or AGENT_COMMAND)
 
 
+def _account_run_kwargs() -> dict[str, Any]:
+    """How a `claude` that is not a build is started in the account: its environment,
+    or nothing for the default account."""
+    entry = claude_account.environment_entry()
+    return {"env": child_environment(None, entry)} if entry else {}
+
+
 def refresh_login(run: Callable[..., object] = subprocess.run) -> None:
     """Have Claude Code refresh its OAuth token, with the smallest call it
     takes — see `usage_guard.refresh_login` for why the usage read needs it."""
     started = time.monotonic()
     argv = [*command(), "-p", "Reply with OK and nothing else.", "--model", "haiku"]
-    entry = claude_account.environment_entry()
     done = run(
-        argv,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=120,
-        **({"env": child_environment(None, entry)} if entry else {}),
+        argv, capture_output=True, text=True, check=False, timeout=120, **_account_run_kwargs()
     )
     # The output is discarded, so the row has no figures: a duration and the exit status.
     call_recorder(OverheadNode.LOGIN_REFRESH, say=print)(
@@ -445,24 +446,21 @@ class ClaudeCodeRuntime:
         """The account directory, where the setting came from, and whether it is logged in,
         asked of `auth status` with the account's variable; only its exit status and
         `loggedIn` are read, so no token or address of the answer is kept."""
-        account = claude_account.home()
         where = claude_account.source(env_file).value
-        entry = claude_account.environment_entry()
+        try:
+            account = claude_account.home()
+            entry = claude_account.environment_entry()
+        except ConfigError as error:
+            return [
+                AccountLine(
+                    status="FAIL", detail=str(error), fix=f"write an absolute path for {where}"
+                )
+            ]
         login = " ".join(
-            [*(f"{name}={value}" for name, value in entry.items()), *map(shlex.quote, command())]
-            + ["auth", "login"]
+            [*(f"{name}={shlex.quote(value)}" for name, value in entry.items())]
+            + [*map(shlex.quote, command()), "auth", "login"]
         )
         lines: list[AccountLine] = []
-        if entry:
-            if not account.is_dir():
-                return [
-                    AccountLine(
-                        status="FAIL", detail=f"{account} ({where}) does not exist", fix=login
-                    )
-                ]
-            summary = f"{account} ({where}) exists"
-        else:
-            summary = f"the default account {account} is in use"
         if entry and named_value("CLAUDE_CODE_OAUTH_TOKEN", env_file):
             lines.append(
                 AccountLine(
@@ -472,13 +470,17 @@ class ClaudeCodeRuntime:
                     fix="unset CLAUDE_CODE_OAUTH_TOKEN so the guard reads the account's directory",
                 )
             )
-        if _logged_in(run, entry):
-            lines.insert(0, AccountLine(status="ok", detail=f"{summary}, logged in"))
-        else:
-            lines.insert(
-                0, AccountLine(status="FAIL", detail=f"{summary}, not logged in", fix=login)
+        if entry and not account.is_dir():
+            missing = AccountLine(
+                status="FAIL", detail=f"{account} ({where}) does not exist", fix=login
             )
-        return lines
+            return [missing, *lines]
+        summary = (
+            f"{account} ({where}) exists" if entry else f"the default account {account} is in use"
+        )
+        if _logged_in(run):
+            return [AccountLine(status="ok", detail=f"{summary}, logged in"), *lines]
+        return [AccountLine(status="FAIL", detail=f"{summary}, not logged in", fix=login), *lines]
 
     def check_policy(self, cwd: Path) -> PolicyReport:
         """Answered locally: every policed run registers the hook and passes
@@ -486,7 +488,7 @@ class ClaudeCodeRuntime:
         return PolicyReport(ok=True)
 
 
-def _logged_in(run: Run, entry: dict[str, str]) -> bool:
+def _logged_in(run: Run) -> bool:
     """Whether `auth status` exits 0 with `loggedIn` true; nothing else of its answer is read."""
     try:
         done = run(
@@ -495,7 +497,7 @@ def _logged_in(run: Run, entry: dict[str, str]) -> bool:
             text=True,
             check=False,
             timeout=60,
-            **({"env": child_environment(None, entry)} if entry else {}),
+            **_account_run_kwargs(),
         )
         answer = json.loads(done.stdout)
     except (OSError, ValueError, subprocess.SubprocessError):

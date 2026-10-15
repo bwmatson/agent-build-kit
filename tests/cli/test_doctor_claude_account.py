@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 
 import pytest
 
+from agent_build_kit.cli.doctor import run_doctor
 from tests.account_settings import Configure
 from tests.cli.claude_auth_fakes import VARIABLE, FakeClaude, account_lines, in_planning_env, said
 from tests.cli.test_doctor import (  # noqa: F401 — fixture
     select_runtime,
     workspace,
 )
+from tests.factories import which_all
 
 
 def account_dir(tmp_path: Path) -> Path:
@@ -129,3 +132,49 @@ def test_the_default_account_says_so_and_asks_without_a_variable(
     assert "default" in said(checks) and ".claude" in said(checks)
     ((_, env),) = run.asked
     assert env is None or VARIABLE not in env
+
+
+def test_a_relative_value_is_a_failure_naming_it_and_the_other_checks_still_run(
+    workspace: Path,  # noqa: F811 — fixture
+    configure: Configure,
+) -> None:
+    in_planning_env(workspace, configure, dotenv={"ABK_CLAUDE_HOME": "relative/dir"})
+    run = FakeClaude()
+
+    checks = run_doctor(workspace / "abk.yaml", run=run, which=which_all)
+
+    (account,) = [c for c in checks if c.name == "runtime account"]
+    assert account.status == "FAIL"
+    assert "relative/dir" in said([account]) and "ABK_CLAUDE_HOME" in said([account])
+    assert run.asked == []
+    assert any(c.name == "runtime policy" for c in checks)
+    assert any(c.name.startswith("skills") or c.name == "rules" for c in checks)
+
+
+def test_a_directory_with_a_space_prints_a_login_command_that_splits_back(
+    workspace: Path,  # noqa: F811 — fixture
+    tmp_path: Path,
+    configure: Configure,
+) -> None:
+    directory = tmp_path / "second account"
+    directory.mkdir()
+    in_planning_env(workspace, configure, dotenv={"ABK_CLAUDE_HOME": str(directory)})
+
+    checks = account_lines(workspace, FakeClaude(status=1, logged_in=False))
+
+    (check,) = checks
+    assert shlex.split(check.fix) == [f"{VARIABLE}={directory}", "claude", "auth", "login"]
+
+
+def test_a_missing_directory_still_gets_the_token_warning(
+    workspace: Path,  # noqa: F811 — fixture
+    tmp_path: Path,
+    configure: Configure,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    in_planning_env(workspace, configure, dotenv={"ABK_CLAUDE_HOME": str(tmp_path / "never")})
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-" + "y" * 40)
+
+    checks = account_lines(workspace, FakeClaude())
+
+    assert sorted(c.status for c in checks) == ["FAIL", "warn"]

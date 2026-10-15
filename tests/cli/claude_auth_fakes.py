@@ -35,7 +35,7 @@ class FakeClaude(Answers):
 def account_lines(workspace: Path, run: Answers) -> list[Check]:
     """The checks doctor adds for the account."""
     checks = run_doctor(workspace / "abk.yaml", run=run, which=which_all)
-    return [check for check in checks if "account" in check.name]
+    return [check for check in checks if check.name == "runtime account"]
 
 
 def said(checks: list[Check]) -> str:
