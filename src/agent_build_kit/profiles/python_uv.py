@@ -511,6 +511,14 @@ class PythonUvProfile:
             if "::" in line and not line.startswith((" ", "ERROR"))
         ]
 
+    def registered_selectors(
+        self,
+        command: list[str],
+        *,
+        run: Callable[..., subprocess.CompletedProcess],
+    ) -> list[str] | None:
+        raise NotImplementedError
+
     def repeat_command(self, command: list[str], tests: list[str]) -> list[str] | None:
         """`command`, a test run, as one of exactly those node ids of `tests` that fall under
         the paths it was given to run (all of them when it was given none): its options

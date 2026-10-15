@@ -200,6 +200,22 @@ class AppliesTier2Selection(Protocol):
 
 
 @runtime_checkable
+class ListsRegisteredSelectors(Protocol):
+    """The optional hook a profile adds to say which selectors its test runner knows, for
+    `abk tier2 check`. A profile without it has no selector to check."""
+
+    def registered_selectors(
+        self,
+        command: list[str],
+        *,
+        run: Callable[..., subprocess.CompletedProcess],
+    ) -> list[str] | None:
+        """The selectors (for a marker kind, the marker names) the runner of `command`
+        registers, read from the runner itself. None when the listing fails."""
+        ...
+
+
+@runtime_checkable
 class SelectsAffectedTests(Protocol):
     """The optional hook a profile adds to name the tests a change affects. A profile
     without it behaves as one that returns None."""
