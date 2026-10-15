@@ -13,8 +13,10 @@ from __future__ import annotations
 import json
 import re
 import shlex
+import subprocess
 import sys
 import tomllib
+from collections.abc import Callable
 from pathlib import Path
 
 from agent_build_kit.config import (
@@ -153,11 +155,20 @@ def _marker_selection(repo: Path, selection: str) -> str:
     return f"({existing}) and {selection}" if existing else selection
 
 
+def _is_serial_split(expression: str, *, serial: bool | None = None) -> bool:
+    """Whether a `-m` expression is tier 1's serial/parallel split: the serial half
+    (`serial`), the parallel half (`not serial`), or either when `serial` is None."""
+    halves = {
+        True: (expression == "serial" or expression.endswith(" and serial")),
+        False: (expression == "not serial" or expression.endswith(" and not serial")),
+    }
+    return any(halves.values()) if serial is None else halves[serial]
+
+
 def _is_serial_pass(command: list[str]) -> bool:
     if "-m" not in command[:-1]:
         return False
-    expression = command[command.index("-m") + 1]
-    return expression == "serial" or expression.endswith(" and serial")
+    return _is_serial_split(command[command.index("-m") + 1], serial=True)
 
 
 def package_name(member: Path) -> str:
@@ -168,6 +179,13 @@ def package_name(member: Path) -> str:
     """
     return str(_pyproject(member).get("project", {}).get("name") or member.name)
 
+
+# What a tier 2 run adds to report on itself, not wanted in a listing of what it selects.
+# Verbosity is set absolutely for a listing, so these relative flags must not stack on it.
+_VERBOSITY_FLAGS = frozenset(["-q", "-qq", "-v", "-vv"])
+_REPORT_FLAGS = frozenset([*SUMMARY_FLAGS, *DURATION_FLAGS, *_VERBOSITY_FLAGS])
+# Pytest's exit status when the selection holds no test.
+_NO_TESTS_SELECTED = 5
 
 # The pytest options that take their value as the next word.
 _OPTIONS_WITH_VALUE = frozenset(["-n", "-m", "-k", "-p", "-c", "--maxprocesses"])
@@ -433,8 +451,48 @@ class PythonUvProfile:
         program = _pytest_program(command)
         if program is None:
             return [*command, *tests]
-        # What follows is the run's selection, workers and markers: all dropped.
-        return [*command[: program + 1], *tests, "-q"]
+        # What follows is the run's selection and workers: dropped, a tier 2 marker expression
+        # kept (tier 1's serial/parallel split is what the serial rerun replaces).
+        words = command[program + 1 :]
+        marker: list[str] = []
+        if "-m" in words[:-1]:
+            expression = words[words.index("-m") + 1]
+            marker = [] if _is_serial_split(expression) else ["-m", expression]
+        return [*command[: program + 1], *marker, *tests, "-q"]
+
+    def selected_tests(
+        self,
+        command: list[str],
+        expression: str,
+        *,
+        run: Callable[..., subprocess.CompletedProcess],
+        among: list[str] | None = None,
+    ) -> list[str] | None:
+        """The identifiers `command` runs under `expression`, listed with pytest's
+        collection, as paths from the repository root."""
+        program = _pytest_program(command)
+        if program is None:
+            return None
+        narrowed = command if among is None else self.repeat_command(command, among)
+        if narrowed is None:
+            return []
+        words = [w for w in narrowed[program + 1 :] if w not in _REPORT_FLAGS]
+        if "-m" in words:
+            words[words.index("-m") + 1] = expression
+        else:
+            words = ["-m", expression, *words]
+        argv = [*narrowed[: program + 1], *words, "--collect-only", "--verbosity=-1"]
+        result = run(argv, capture_output=True, text=True, check=False)
+        if result.returncode not in (0, _NO_TESTS_SELECTED):
+            return None
+        where = ""
+        if "--directory" in narrowed[:program]:
+            where = narrowed[narrowed.index("--directory") + 1].strip("/") + "/"
+        return [
+            f"{where}{line.strip()}"
+            for line in result.stdout.splitlines()
+            if "::" in line and not line.startswith((" ", "ERROR"))
+        ]
 
     def repeat_command(self, command: list[str], tests: list[str]) -> list[str] | None:
         """`command`, a test run, as one of exactly those node ids of `tests` that fall under

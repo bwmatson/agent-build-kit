@@ -8,6 +8,8 @@ asks the profile. A repo names its profile in abk.yaml (`profile:`).
 
 from __future__ import annotations
 
+import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -166,6 +168,28 @@ class RepeatsTests(Protocol):
         selects by, given relative to the directory the command runs in. None when none of
         them is one this command runs (a test of another project belongs to that project's
         command, in its environment)."""
+        ...
+
+
+@runtime_checkable
+class ListsSelectedTests(Protocol):
+    """The optional hook a profile adds to list, without running them, the tests a marker
+    expression selects in one of its test commands. A profile without it cannot express a
+    tier 2 selection."""
+
+    def selected_tests(
+        self,
+        command: list[str],
+        expression: str,
+        *,
+        run: Callable[..., subprocess.CompletedProcess],
+        among: list[str] | None = None,
+    ) -> list[str] | None:
+        """The identifiers `command` would run under `expression`, relative to the
+        repository root, narrowed to `among` when given. `expression` replaces the command's
+        own marker expression and is not ANDed with it: a caller wanting the marker's tests
+        of one runtime passes `<marker> and runtime_<name>`. An empty list when it selects
+        none; None when the listing fails, since that says nothing about what is selected."""
         ...
 
 
