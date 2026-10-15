@@ -98,6 +98,7 @@ class Cause(StrEnum):
     SERVICE_UNAVAILABLE = "service_unavailable"
     ENVIRONMENT = "environment"
     RUNTIME_BLOCKED = "runtime_blocked"
+    SPLIT_HELD = "split_held"
 
 
 class RequeueReason(StrEnum):
@@ -235,6 +236,7 @@ class StoredUnit(Unit):
     # What a unit held for `Cause.RUNTIME_BLOCKED` waits on: the runtimes its tier 2 run
     # parked, the commit that run passed on and the snapshot it posted.
     parked_runtimes: list[str] = []
+    parked_splits: list[str] = []
     parked_sha: str = ""
     parked_snapshot: str = ""
     # The close of a satisfied unit's pull request, kept until it is done.
