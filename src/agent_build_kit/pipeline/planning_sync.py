@@ -7,6 +7,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from agent_build_kit.config import CONFIG_ENV
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.planning_repo import (
     common_dir,
@@ -113,6 +114,22 @@ def planning_mode(inst: Installation) -> PlanningMode:
     if live is not None and live.resolve() == inst.root.resolve():
         return PlanningMode.PIPELINE_WORKTREE
     return PlanningMode.WORKING_COPY
+
+
+def live_notice(inst: Installation, command: str, *, explicit: bool) -> str | None:
+    """What to tell a person in a working copy whose installation is live in the pipeline worktree,
+    or None when this is not such a working copy."""
+    if planning_mode(inst) != PlanningMode.WORKING_COPY:
+        return None
+    live = live_pipeline_worktree(inst)
+    if live is None:
+        return None
+    if explicit:
+        return f"abk: this config is not the live installation, which is in {live}"
+    return (
+        f"abk: this installation is live in {live}; run "
+        f"`abk --config {live / 'abk.yaml'} {command}` (or set {CONFIG_ENV})"
+    )
 
 
 def in_repo_default_branch(inst: Installation) -> str:

@@ -16,8 +16,14 @@ import sys
 from pathlib import Path
 
 from agent_build_kit import __version__
+from agent_build_kit import settings as settings_module
 from agent_build_kit.config import ConfigError
 from agent_build_kit.installation import load_installation
+from agent_build_kit.pipeline.planning_sync import live_notice
+
+# Commands that write the pipeline's state: from a working copy whose installation is live in the
+# pipeline worktree they refuse, unless a config is named. `status` only says where it is.
+WRITES_STATE = frozenset({"tick", "track", "verify", "archive"})
 
 # Import order is the help order.
 COMMAND_MODULES = (
@@ -70,6 +76,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     needs = getattr(args, "needs_installation", True)
     installation = None
+    explicit = args.config is not None or settings_module.settings.config is not None
     if needs:
         try:
             installation = load_installation(args.config)
@@ -77,4 +84,10 @@ def main(argv: list[str] | None = None) -> int:
             if needs != "optional":
                 print(f"abk: {error}", file=sys.stderr)
                 return 2
+    if installation is not None and (args.command == "status" or args.command in WRITES_STATE):
+        if notice := live_notice(installation, args.command, explicit=explicit):
+            refused = not explicit and args.command != "status"
+            print(notice, file=sys.stderr if refused else sys.stdout)
+            if not explicit:
+                return 2 if refused else 0
     return int(args.func(args, installation))

@@ -69,6 +69,7 @@ from agent_build_kit.path_patterns import matches
 from agent_build_kit.pipeline.environment import matched_inputs
 from agent_build_kit.pipeline.original_copy import COPY_PATTERN
 from agent_build_kit.pipeline.pending import describe, pending_projects
+from agent_build_kit.pipeline.planning_sync import live_notice
 from agent_build_kit.pipeline.shell import git, git_out
 from agent_build_kit.profiles.base import ProfileUnsupported
 from agent_build_kit.redaction import MIN_LENGTH
@@ -1276,6 +1277,14 @@ def _grafana() -> list[Check]:
     return [_ok("grafana", f"{settings.grafana_url} ({path})")]
 
 
+def _live_installation(inst: Installation) -> list[Check]:
+    """In a working copy: which pipeline worktree the installation is live in."""
+    notice = live_notice(inst, "doctor", explicit=False)
+    if notice is None:
+        return []
+    return [_warn("live installation", notice.removeprefix("abk: "), "use that config instead")]
+
+
 def run_doctor(
     config_path: Path | None,
     *,
@@ -1306,6 +1315,7 @@ def run_doctor(
     checks.append(_ok("worktree root", str(inst.worktree_root)))
     inst.activate()
 
+    checks += _live_installation(inst)
     checks += _repos(inst, run)
     checks += _pending_projects(inst)
     checks += _changelogs(inst)
