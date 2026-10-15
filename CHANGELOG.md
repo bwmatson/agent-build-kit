@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `abk planning split --repo <key> --to <dir>` moves a repo's changes, archive entries,
+  specs and unit records to another planning repo. It is a dry run unless `--apply` is
+  given: the plan lists a count for each kind, every refusal and the uncommitted files it
+  read, and writes nothing. The destination must already be an installation (`abk init`),
+  and with `--apply` it gains the repo's entry in its `abk.yaml` by a text splice that keeps
+  comments and is checked before it is written.
+
 - Live-stack tests now name the agent runtime they drive with one tag (`runtime_claude_code`,
   `runtime_acp`); a test with none is the base and always runs. A live-stack test carrying
   two different runtime tags, or any marker that is not registered, fails collection naming

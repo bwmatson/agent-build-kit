@@ -8,6 +8,8 @@ from collections.abc import Collection, Sequence
 from enum import StrEnum
 from pathlib import Path
 
+from agent_build_kit.config import CONFIG_FILENAME, ConfigError, load
+from agent_build_kit.init.scaffold import rules_version
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.shell import porcelain
@@ -360,3 +362,33 @@ def moved_files(source: Installation, plan: SplitPlan) -> list[Path]:
         for path in directory.rglob("*")
         if path.is_file() and path.suffix != ".lock"
     )
+
+
+def load_destination(directory: Path, source: Installation) -> Installation:
+    """The installation at `directory`, which must already exist: an `abk.yaml` that loads, a
+    specs `config.yaml` with the rules stamp and a state directory. Never created here, and
+    not made the active installation; raises `SplitUsageError` naming what is missing."""
+    if directory.resolve() == source.root.resolve():
+        raise SplitUsageError(f"the destination {directory} is the source")
+    config = directory / CONFIG_FILENAME
+    if not config.is_file():
+        raise SplitUsageError(
+            f"{config} does not exist: {directory} is not an installation; "
+            f"`abk init {directory}` creates one"
+        )
+    try:
+        destination = Installation(load(config), directory)
+    except ConfigError as error:
+        raise SplitUsageError(f"{config} does not load: {error}") from error
+    rules = destination.specs_dir / "config.yaml"
+    if not rules.is_file() or rules_version(rules.read_text()) is None:
+        raise SplitUsageError(
+            f"{rules} is missing or carries no `# abk-rules:` stamp; "
+            f"`abk init {directory}` writes it"
+        )
+    if not destination.state_dir.is_dir():
+        raise SplitUsageError(
+            f"the state directory {destination.state_dir} does not exist; "
+            f"`abk init {directory}` creates it"
+        )
+    return destination

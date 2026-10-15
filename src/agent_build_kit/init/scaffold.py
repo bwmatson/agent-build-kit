@@ -172,7 +172,7 @@ def draft_config(
     )
 
 
-def _read_lines(path: Path) -> tuple[dict, list[str]]:
+def read_lines(path: Path) -> tuple[dict, list[str]]:
     """The parsed abk.yaml at `path` and its lines, the last one newline-terminated."""
     text = path.read_text()
     lines = text.splitlines(keepends=True)
@@ -202,33 +202,33 @@ def dump_with_notes(config: WorkspaceConfig) -> str:
             continue
         start, stop = 0, len(lines)
         if name is not None:
-            repos = _key_line(lines, "repos", top=True)
-            at = _key_line(
-                lines, name, start=(repos or 0) + 1, stop=_top_level_end(lines, repos or 0)
+            repos = key_line(lines, "repos", top=True)
+            at = key_line(
+                lines, name, start=(repos or 0) + 1, stop=top_level_end(lines, repos or 0)
             )
             if at is None:
                 continue
             start = at + 1
-        found = _key_line(lines, "environment", start=start, stop=stop, top=name is None)
+        found = key_line(lines, "environment", start=start, stop=stop, top=name is None)
         if found is None:
             continue
-        indent = lines[found][: _indent_of(lines[found])]
+        indent = lines[found][: indent_of(lines[found])]
         lines[found:found] = [f"{indent}# {line}\n" for line in note.splitlines()]
     return "".join(lines)
 
 
-def _child_indent(lines: list[str], at: int, parent: int) -> str:
+def child_indent(lines: list[str], at: int, parent: int) -> str:
     """The indent of the first entry under `lines[at]`, else two more than its parent's."""
     for line in lines[at + 1 :]:
         body = line.strip()
         if not body or body.startswith("#"):
             continue
-        indent = _indent_of(line)
+        indent = indent_of(line)
         return " " * indent if indent > parent else " " * (parent + 2)
     return " " * (parent + 2)
 
 
-def _key_line(
+def key_line(
     lines: list[str], key: str, *, start: int = 0, stop: int | None = None, top: bool = False
 ) -> int | None:
     """The index of the first line that is `key:` alone (a comment may follow);
@@ -241,7 +241,7 @@ def _key_line(
     return None
 
 
-def _top_level_end(lines: list[str], start: int) -> int:
+def top_level_end(lines: list[str], start: int) -> int:
     """The index of the next top-level key after `lines[start]`, or the end."""
     for index in range(start + 1, len(lines)):
         line = lines[index]
@@ -250,7 +250,7 @@ def _top_level_end(lines: list[str], start: int) -> int:
     return len(lines)
 
 
-def _block_end(lines: list[str], at: int, inside: Callable[[str], bool]) -> int:
+def block_end(lines: list[str], at: int, inside: Callable[[str], bool]) -> int:
     """The index after the block opened at `lines[at]`: its last line `inside` accepts,
     not counting the blank and comment lines that trail it, which belong to what follows."""
     end = at + 1
@@ -264,17 +264,42 @@ def _block_end(lines: list[str], at: int, inside: Callable[[str], bool]) -> int:
     return end
 
 
-def _indent_of(line: str) -> int:
+def indent_of(line: str) -> int:
     return len(line) - len(line.lstrip())
 
 
-def _key_at(lines: list[str], key: str, *, start: int, stop: int, indent: int) -> int | None:
-    """Like `_key_line`, but only a `key:` indented exactly `indent` (one nested deeper, or
+def key_at(lines: list[str], key: str, *, start: int, stop: int, indent: int) -> int | None:
+    """Like `key_line`, but only a `key:` indented exactly `indent` (one nested deeper, or
     inside a block scalar, is not the key)."""
-    at = _key_line(lines, key, start=start, stop=stop)
-    while at is not None and _indent_of(lines[at]) != indent:
-        at = _key_line(lines, key, start=at + 1, stop=stop)
+    at = key_line(lines, key, start=start, stop=stop)
+    while at is not None and indent_of(lines[at]) != indent:
+        at = key_line(lines, key, start=at + 1, stop=stop)
     return at
+
+
+def repo_block(lines: list[str], repo: str) -> tuple[int, int, int] | None:
+    """Where `repo`'s block entry under a block `repos:` is: the index of its key line, the
+    index after its last content line and the width of its indent; None when it has none
+    (no `repos:`, a flow-style repo)."""
+    repos = key_line(lines, "repos", top=True)
+    if repos is None:
+        return None
+    width = len(child_indent(lines, repos, 0))
+    at = key_at(lines, repo, start=repos + 1, stop=top_level_end(lines, repos), indent=width)
+    if at is None:
+        return None
+    return at, block_end(lines, at, lambda line: indent_of(line) > width), width
+
+
+def checked(path: Path, updated: str, expected: object) -> None:
+    """Raise `ScaffoldError` naming `path` unless the edited text `updated` parses to exactly
+    the document `expected`."""
+    try:
+        loaded = yaml.safe_load(updated)
+    except yaml.YAMLError:
+        loaded = None
+    if loaded != expected:
+        raise ScaffoldError(f"{path}: the entry did not produce a valid file; left alone")
 
 
 def add_project(path: Path, repo: str, entry: Mapping[str, str]) -> None:
@@ -282,19 +307,14 @@ def add_project(path: Path, repo: str, entry: Mapping[str, str]) -> None:
     list when the repo has none. Every other line stays as it is. A layout whose place
     cannot be found as a block (a flow-style repo or `projects: []`), or a result that does
     not parse to the file plus the entry, raises `ScaffoldError` and leaves the file alone."""
-    raw, lines = _read_lines(path)
-    repos = _key_line(lines, "repos", top=True)
+    raw, lines = read_lines(path)
     entry_raw = (raw.get("repos") or {}).get(repo)
-    if repos is None or not isinstance(entry_raw, dict):
+    block = repo_block(lines, repo)
+    if block is None or not isinstance(entry_raw, dict):
         raise ScaffoldError(f"{path}: cannot find a block entry for repo {repo!r} under `repos:`")
-    repos_end = _top_level_end(lines, repos)
-    repo_indent = _child_indent(lines, repos, 0)
-    at = _key_at(lines, repo, start=repos + 1, stop=repos_end, indent=len(repo_indent))
-    if at is None:
-        raise ScaffoldError(f"{path}: cannot find a block entry for repo {repo!r} under `repos:`")
-    repo_end = _block_end(lines, at, lambda line: _indent_of(line) > len(repo_indent))
-    child = _child_indent(lines, at, len(repo_indent))
-    projects = _key_at(lines, "projects", start=at + 1, stop=repo_end, indent=len(child))
+    at, repo_end, width = block
+    child = child_indent(lines, at, width)
+    projects = key_at(lines, "projects", start=at + 1, stop=repo_end, indent=len(child))
     if projects is None and "projects" in entry_raw:
         raise ScaffoldError(f"{path}: `projects:` of {repo!r} is not a block list; edit it by hand")
     if projects is None:
@@ -303,19 +323,19 @@ def add_project(path: Path, repo: str, entry: Mapping[str, str]) -> None:
             *_list_item(entry, child + "  "),
         ]
     else:
-        listed = _block_end(
+        listed = block_end(
             lines,
             projects,
             lambda line: (
-                _indent_of(line) > len(child)
-                or (_indent_of(line) == len(child) and line.lstrip().startswith("-"))
+                indent_of(line) > len(child)
+                or (indent_of(line) == len(child) and line.lstrip().startswith("-"))
             ),
         )
         existing = next(
             (line for line in lines[projects + 1 : listed] if line.lstrip().startswith("- ")),
             None,
         )
-        indent = " " * _indent_of(existing) if existing else child + "  "
+        indent = " " * indent_of(existing) if existing else child + "  "
         lines[listed:listed] = _list_item(entry, indent)
     updated = "".join(lines)
 
@@ -324,12 +344,7 @@ def add_project(path: Path, repo: str, entry: Mapping[str, str]) -> None:
         **entry_raw,
         "projects": [*(entry_raw.get("projects") or []), dict(entry)],
     }
-    try:
-        loaded = yaml.safe_load(updated)
-    except yaml.YAMLError:
-        loaded = None
-    if loaded != expected:
-        raise ScaffoldError(f"{path}: the entry did not produce a valid file; left alone")
+    checked(path, updated, expected)
     path.write_text(updated)
 
 
@@ -348,7 +363,7 @@ def fill_missing_environment(
     as text, a block at a time. A part whose place in the file cannot be found
     as a block (a flow-style `limits: {}`) is left for a person. Returns, for
     each part filled (or that would be), its drafted YAML."""
-    raw, lines = _read_lines(path)
+    raw, lines = read_lines(path)
     drafted_raw = yaml.safe_load(dump(drafted)) or {}
     filled: dict[str, str] = {}
 
@@ -363,14 +378,14 @@ def fill_missing_environment(
         wanted = drafted_raw.get("repos", {}).get(name, {}).get("environment")
         if not (isinstance(entry, dict) and "environment" not in entry and wanted):
             continue
-        section = _key_line(lines, "repos", top=True)
+        section = key_line(lines, "repos", top=True)
         if section is None:
             continue
-        at = _key_line(lines, str(name), start=section + 1, stop=_top_level_end(lines, section))
+        at = key_line(lines, str(name), start=section + 1, stop=top_level_end(lines, section))
         if at is None:
             continue
-        parent = _indent_of(lines[at])
-        indent = _child_indent(lines, at, parent)
+        parent = indent_of(lines[at])
+        indent = child_indent(lines, at, parent)
         note = _note(drafted.repos[name].environment) if name in drafted.repos else ""
         lines[at + 1 : at + 1] = _block("environment", wanted, indent, note)
         filled[f"repos.{name}.environment"] = "".join(_block("environment", wanted, "", note))
@@ -380,11 +395,9 @@ def fill_missing_environment(
     key = "limits" if "global_limits" not in raw and "limits" in raw else "global_limits"
     limits = raw.get(key)
     if patterns and "generated_files" not in (limits or {}):
-        at = _key_line(lines, key, top=True)
+        at = key_line(lines, key, top=True)
         if at is not None:
-            lines[at + 1 : at + 1] = _block(
-                "generated_files", patterns, _child_indent(lines, at, 0)
-            )
+            lines[at + 1 : at + 1] = _block("generated_files", patterns, child_indent(lines, at, 0))
         elif key not in raw:
             lines += _block(key, {"generated_files": patterns}, "")
         if at is not None or key not in raw:
@@ -398,14 +411,14 @@ def fill_missing_environment(
 def record_in_file(path: Path, fragment: Mapping[str, Any]) -> None:
     """Lay `fragment` over an abk.yaml that is kept: each top-level key it names is
     replaced by its merge with the file's, and every other line stays as it is."""
-    raw, lines = _read_lines(path)
+    raw, lines = read_lines(path)
     for key, value in fragment.items():
         block = _block(key, merge_values(raw.get(key), value, at=key), "")
         start = next((i for i, line in enumerate(lines) if line.startswith(f"{key}:")), None)
         if start is None:
             lines += block
         else:
-            lines[start : _top_level_end(lines, start)] = block
+            lines[start : top_level_end(lines, start)] = block
     path.write_text("".join(lines))
 
 
