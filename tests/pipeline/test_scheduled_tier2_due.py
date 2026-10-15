@@ -34,8 +34,8 @@ def round_of(inst, store, *, today=TODAY) -> tuple[list[str], list[str]]:
 # --- the name -------------------------------------------------------------------
 
 
-def test_the_name_is_the_prefix_the_repo_and_the_day() -> None:
-    assert scheduled_name("app", TODAY) == "scheduled-tier2-app-2026-03-10"
+def test_the_name_is_the_prefix_the_repo_the_day_and_the_variant() -> None:
+    assert scheduled_name("app", TODAY) == "scheduled-tier2-app-2026-03-10-base"
 
 
 @pytest.mark.parametrize(

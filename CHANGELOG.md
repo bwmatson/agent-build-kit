@@ -14,6 +14,12 @@
   two different runtime tags, or any marker that is not registered, fails collection naming
   it, so a mistyped tag can no longer silently select nothing.
 
+- The scheduled tier 2 run is now one change per variant: `scheduled-tier2-<repo>-<date>-base`
+  for the untagged tests and one `-<runtime>` change for each runtime in the repo's
+  `tests.tier2_runtimes`. Each variant is due and open on its own, so a newly listed runtime
+  runs at once while the others wait out their period. An older change with no suffix counts
+  as the base variant.
+
 - `abk.yaml` takes `tests.runtimes_blocked`, `tests.runtimes_allowed` and
   `tests.tier2_runtimes` at the top of the file, and a repo may set its own
   `tests.tier2_runtimes`. A name that is not a known runtime, `base`, a repeated name, or a

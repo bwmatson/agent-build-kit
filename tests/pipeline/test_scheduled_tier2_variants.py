@@ -201,6 +201,7 @@ def test_nothing_is_stored_but_the_change_names(tmp_path: Path) -> None:
 
     assert len(written) == 3
     assert {p.name for p in inst.state_dir.iterdir()} <= before | {"scheduled-tier2.lock"}
+    (inst.changes_dir / "archive").mkdir()
     for name in written:
         (inst.changes_dir / name).rename(inst.changes_dir / "archive" / f"2026-04-20-{name}")
     assert round_of(inst, store, today=TODAY + timedelta(days=6))[0] == []
