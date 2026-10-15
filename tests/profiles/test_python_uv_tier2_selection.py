@@ -1,5 +1,5 @@
-"""The python-uv profile's commands carry the tier 2 selection and can list what it selects
-(spec: tier2-runtime-variants)."""
+"""The python-uv profile translates a tier 2 selection, carries it in its commands and can list
+what it selects (spec: tier2-splits)."""
 
 from __future__ import annotations
 
@@ -8,15 +8,71 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from agent_build_kit.pipeline.tier2 import selection_unavailable, tier2_selection
+import pytest
+
+from agent_build_kit.config import Tier2Split
+from agent_build_kit.pipeline.tier2 import build_selection, selection_unavailable
 from agent_build_kit.profiles import node_npm
 from agent_build_kit.profiles.python_uv import PROFILE
 
 EXPECTED = "local_stack and not runtime_acp"
+SPLITS = (
+    Tier2Split(name="acp", marker="runtime_acp"),
+    Tier2Split(name="claude_code", marker="runtime_claude_code"),
+    Tier2Split(name="rest"),
+)
 
 
-def expression() -> str:
-    return tier2_selection("local_stack", ["acp"]).expression
+def selection(**kwargs: Any) -> Any:
+    return build_selection("local_stack", SPLITS, **kwargs)
+
+
+def expression(**kwargs: Any) -> str:
+    return PROFILE.expression("local_stack", selection(**({"held": ["acp"]} | kwargs)))
+
+
+def test_the_profile_reports_marker_as_its_one_selector_kind() -> None:
+    assert PROFILE.selector_kinds == ("marker",)
+
+
+def test_expression_renders_each_selection_as_the_same_m_text() -> None:
+    assert expression(held=[]) == "local_stack"
+    assert expression(held=["acp"]) == EXPECTED
+    assert expression(held=[], only="claude_code") == "local_stack and runtime_claude_code"
+    assert (
+        expression(held=[], only="rest")
+        == "local_stack and not runtime_acp and not runtime_claude_code"
+    )
+    assert expression(held=["rest"]) == "local_stack and (runtime_acp or runtime_claude_code)"
+
+
+def test_an_empty_selection_has_no_expression_and_the_error_names_the_held_splits() -> None:
+    held = selection(held=["acp", "claude_code", "rest"])
+
+    with pytest.raises(ValueError, match="acp, claude_code, rest"):
+        PROFILE.expression("local_stack", held)
+
+
+def test_an_empty_selection_cannot_be_listed() -> None:
+    held = selection(held=["acp", "claude_code", "rest"])
+    run = Runner("")
+
+    with pytest.raises(ValueError, match="acp"):
+        PROFILE.list_tests(["uv", "run", "pytest"], held, run=run)
+
+    assert run.commands == []
+
+
+def test_a_plain_command_with_no_marker_reruns_without_workers_or_paths() -> None:
+    command = ["uv", "run", "pytest", "-n", "auto", "tests/"]
+
+    assert PROFILE.serial_rerun_command(command, ["tests/test_a.py::test_a"]) == [
+        "uv",
+        "run",
+        "pytest",
+        "tests/test_a.py::test_a",
+        "-q",
+    ]
 
 
 def flat_repo(root: Path) -> Path:
@@ -39,20 +95,19 @@ def after_m(command: list[str]) -> str:
     return command[command.index("-m") + 1]
 
 
-def test_tier2_commands_carry_the_expression_for_the_root(tmp_path: Path) -> None:
+def test_tier2_commands_carry_the_rendered_expression_for_the_root(tmp_path: Path) -> None:
     (command,) = PROFILE.tier2_commands(flat_repo(tmp_path), marker=expression())
 
     assert after_m(command) == EXPECTED
 
 
-def test_tier2_commands_carry_the_expression_for_each_member(tmp_path: Path) -> None:
+def test_tier2_commands_carry_the_rendered_expression_for_each_member(tmp_path: Path) -> None:
     commands = PROFILE.tier2_commands(workspace(tmp_path), marker=expression())
 
-    assert len(commands) == 2
     assert [after_m(command) for command in commands] == [EXPECTED, EXPECTED]
 
 
-def test_acceptance_commands_carry_the_expression_and_the_dev_stack_exclusion(
+def test_acceptance_commands_carry_the_rendered_expression_and_the_dev_stack_exclusion(
     tmp_path: Path,
 ) -> None:
     repo = workspace(tmp_path)
@@ -65,7 +120,7 @@ def test_acceptance_commands_carry_the_expression_and_the_dev_stack_exclusion(
     assert [after_m(command) for command in commands] == [f"{EXPECTED} and not dev_stack"] * 2
 
 
-def test_acceptance_commands_for_the_root_carry_the_expression(tmp_path: Path) -> None:
+def test_acceptance_commands_for_the_root_carry_the_rendered_expression(tmp_path: Path) -> None:
     repo = flat_repo(tmp_path)
 
     (command,) = PROFILE.acceptance_commands(
@@ -79,7 +134,7 @@ def test_acceptance_commands_for_the_root_carry_the_expression(tmp_path: Path) -
     assert after_m(command) == EXPECTED
 
 
-def test_the_repeat_command_keeps_the_expression_under_the_ids(tmp_path: Path) -> None:
+def test_the_repeat_command_keeps_the_rendered_expression_under_the_ids(tmp_path: Path) -> None:
     (command,) = PROFILE.tier2_commands(flat_repo(tmp_path), marker=expression())
 
     again = PROFILE.repeat_command(command, ["tests/integration/test_live.py::test_a"])
@@ -89,8 +144,8 @@ def test_the_repeat_command_keeps_the_expression_under_the_ids(tmp_path: Path) -
     assert again[-1] == "tests/integration/test_live.py::test_a"
 
 
-def test_the_base_rerun_keeps_the_expression_and_drops_workers_and_paths() -> None:
-    command = ["uv", "run", "pytest", "-n", "auto", "-m", EXPECTED, "tests/integration", "-q"]
+def test_the_serial_rerun_keeps_the_rendered_expression_and_drops_workers_and_paths() -> None:
+    command = ["uv", "run", "pytest", "-n", "auto", "-m", expression(), "tests/integration", "-q"]
 
     rerun = PROFILE.serial_rerun_command(command, ["tests/integration/test_live.py::test_a"])
 
@@ -101,14 +156,6 @@ def test_the_base_rerun_keeps_the_expression_and_drops_workers_and_paths() -> No
         "-m",
         EXPECTED,
         "tests/integration/test_live.py::test_a",
-        "-q",
-    ]
-    plain = ["uv", "run", "pytest", "-n", "auto", "tests", "-q"]
-    assert PROFILE.serial_rerun_command(plain, ["tests/test_a.py::test_a"]) == [
-        "uv",
-        "run",
-        "pytest",
-        "tests/test_a.py::test_a",
         "-q",
     ]
 
@@ -133,52 +180,50 @@ LISTING = (
 )
 
 
-def test_the_listing_hook_returns_what_the_expression_selects(tmp_path: Path) -> None:
+def test_list_tests_returns_what_the_selection_selects(tmp_path: Path) -> None:
     (command,) = PROFILE.tier2_commands(flat_repo(tmp_path), marker="local_stack")
     run = Runner(LISTING)
 
-    found = PROFILE.selected_tests(command, "runtime_acp", run=run)
+    found = PROFILE.list_tests(command, selection(only="acp"), run=run)
 
     assert found == [
         "tests/integration/test_live.py::test_a",
         "tests/integration/test_live.py::TestGroup::test_b[acp]",
     ]
     (listed,) = run.commands
-    assert after_m(listed) == "runtime_acp"
+    assert after_m(listed) == "local_stack and runtime_acp"
     assert "--collect-only" in listed
 
 
-def test_the_listing_hook_gives_ids_from_the_repository_root_for_a_member(
-    tmp_path: Path,
-) -> None:
+def test_list_tests_gives_ids_from_the_repository_root_for_a_member(tmp_path: Path) -> None:
     command = PROFILE.tier2_commands(workspace(tmp_path), marker="local_stack")[0]
     run = Runner("tests/integration/test_live.py::test_a\n\n1 test collected in 0.01s\n")
 
-    found = PROFILE.selected_tests(command, "runtime_acp", run=run)
+    found = PROFILE.list_tests(command, selection(only="acp"), run=run)
 
     assert found == ["svc-a/tests/integration/test_live.py::test_a"]
 
 
-def test_the_listing_hook_narrows_to_the_given_ids(tmp_path: Path) -> None:
+def test_list_tests_narrows_to_the_given_ids(tmp_path: Path) -> None:
     (command,) = PROFILE.tier2_commands(flat_repo(tmp_path), marker="local_stack")
     run = Runner("tests/integration/test_live.py::test_a\n\n1 test collected in 0.01s\n")
 
-    found = PROFILE.selected_tests(
-        command, "runtime_acp", run=run, among=["tests/integration/test_live.py::test_a"]
+    found = PROFILE.list_tests(
+        command, selection(only="acp"), run=run, among=["tests/integration/test_live.py::test_a"]
     )
 
     assert found == ["tests/integration/test_live.py::test_a"]
     assert "tests/integration/test_live.py::test_a" in run.commands[0]
 
 
-def test_the_listing_hook_returns_nothing_selected_for_the_empty_listing(tmp_path: Path) -> None:
+def test_list_tests_returns_an_empty_list_for_the_empty_listing(tmp_path: Path) -> None:
     (command,) = PROFILE.tier2_commands(flat_repo(tmp_path), marker="local_stack")
     run = Runner("\nno tests collected in 0.01s\n", returncode=5)
 
-    assert PROFILE.selected_tests(command, "runtime_acp", run=run) == []
+    assert PROFILE.list_tests(command, selection(only="acp"), run=run) == []
 
 
-def test_the_listing_names_tests_under_a_repo_whose_addopts_are_quiet(tmp_path: Path) -> None:
+def test_list_tests_names_tests_under_a_repo_whose_addopts_are_quiet(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text(
         '[tool.pytest.ini_options]\naddopts = "-q"\nmarkers = ["local_stack", "runtime_acp"]\n'
     )
@@ -192,38 +237,67 @@ def test_the_listing_names_tests_under_a_repo_whose_addopts_are_quiet(tmp_path: 
     def run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
         return subprocess.run(argv, cwd=tmp_path, **kwargs)
 
-    found = PROFILE.selected_tests(command, "local_stack and runtime_acp", run=run)
+    found = PROFILE.list_tests(command, selection(only="acp"), run=run)
 
     assert found == ["test_live.py::test_tagged"]
 
 
-def test_the_listing_hook_returns_unknown_when_the_listing_fails(tmp_path: Path) -> None:
+def test_list_tests_returns_unknown_when_the_listing_fails(tmp_path: Path) -> None:
     (command,) = PROFILE.tier2_commands(flat_repo(tmp_path), marker="local_stack")
     run = Runner("ERROR: file or directory not found\n", returncode=4)
 
-    assert PROFILE.selected_tests(command, "runtime_acp", run=run) is None
+    assert PROFILE.list_tests(command, selection(only="acp"), run=run) is None
 
 
-def test_the_python_profile_can_express_a_selection() -> None:
-    assert selection_unavailable(PROFILE, dev_stack_script=False) is None
+WITH_ACP = (Tier2Split(name="acp", marker="runtime_acp"), Tier2Split(name="rest"))
+REST_ONLY = (Tier2Split(name="rest"),)
 
 
-def test_a_profile_without_the_hook_cannot_express_a_selection() -> None:
+def test_a_profile_that_reports_no_selector_kind_is_unable_naming_it_and_the_kind() -> None:
     class Bare:
         name = "bare"
 
-    reason = selection_unavailable(Bare(), dev_stack_script=False)
+    reason = selection_unavailable(Bare(), dev_stack_script=False, splits=WITH_ACP)
 
     assert reason is not None
     assert "bare" in reason
+    assert "marker" in reason
 
 
-def test_the_node_profile_cannot_express_a_selection() -> None:
-    assert selection_unavailable(node_npm.PROFILE, dev_stack_script=False) is not None
-
-
-def test_a_repo_that_runs_tier_2_through_its_dev_stack_script_cannot_express_one() -> None:
-    reason = selection_unavailable(PROFILE, dev_stack_script=True)
+def test_the_node_profile_is_unable_to_apply_a_marker() -> None:
+    reason = selection_unavailable(node_npm.PROFILE, dev_stack_script=False, splits=WITH_ACP)
 
     assert reason is not None
+    assert node_npm.PROFILE.name in reason
+    assert "marker" in reason
+
+
+def test_a_selector_kind_the_profile_lacks_names_the_kinds_it_supports() -> None:
+    class Globs:
+        name = "globs"
+        selector_kinds = ("path",)
+
+        def expression(self, marker: str, selection: Any) -> str:
+            return marker
+
+        def list_tests(self, command: list[str], selection: Any, **_: Any) -> list[str] | None:
+            return None
+
+    reason = selection_unavailable(Globs(), dev_stack_script=False, splits=WITH_ACP)
+
+    assert reason is not None
+    assert "globs" in reason
+    assert "marker" in reason
+    assert "path" in reason
+
+
+def test_only_a_repo_with_a_declared_split_can_be_unable() -> None:
+    # The python profile applies a marker selector; a dev stack script cannot take one.
+    assert selection_unavailable(PROFILE, dev_stack_script=False, splits=WITH_ACP) is None
+    reason = selection_unavailable(PROFILE, dev_stack_script=True, splits=WITH_ACP)
+    assert reason is not None
     assert "dev stack" in reason
+
+    for profile in (PROFILE, node_npm.PROFILE):
+        assert selection_unavailable(profile, dev_stack_script=True, splits=REST_ONLY) is None
+        assert selection_unavailable(profile, dev_stack_script=False, splits=REST_ONLY) is None

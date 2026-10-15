@@ -14,7 +14,9 @@
   the top-level map for that repo). The tests in no split are the always-declared split
   `rest`, which may carry a `hold` but no marker. A repo with no splits behaves as before,
   a bad name, a missing or repeated marker or an unknown key is refused when the file
-  loads, and `abk config --show` prints the splits.
+  loads, and `abk config --show` prints the splits. A tier 2 selection is built over a
+  repo's splits (leaving held ones out, or running one alone) and the toolchain profile
+  turns each split's selector into what its test runner takes.
 
 - An `abk.local.yaml` beside `abk.yaml` is merged over it when the configuration loads, so
   facts about other repos and a stack can stay out of a public checkout: mappings merge key

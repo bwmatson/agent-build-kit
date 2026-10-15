@@ -37,9 +37,11 @@ from agent_build_kit.config import (
     BASE_GROUP,
     CONFIG_ENV,
     CONFIG_FILENAME,
+    REST_SPLIT,
     TEMPLATE_PLACEHOLDERS,
     ProjectConfig,
     RepoConfig,
+    Tier2Split,
     Tier2UnitScope,
     active,
     active_root,
@@ -48,6 +50,7 @@ from agent_build_kit.config import (
     models,
     owning_project,
     stack_versions_for,
+    tier2_splits,
     tier2_unit_scope,
 )
 from agent_build_kit.forges import FileChange, Forge, RegistersStacks, RepoId, StackRefused
@@ -105,7 +108,6 @@ from agent_build_kit.pipeline.scratch import run_folder, selection_seed
 from agent_build_kit.pipeline.shell import git, git_out, has_origin
 from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner, Worktree
 from agent_build_kit.pipeline.tier2 import (
-    RUNTIME_TAG_PREFIX,
     UNKNOWN_GROUP,
     TestFailure,
     TestTime,
@@ -113,10 +115,10 @@ from agent_build_kit.pipeline.tier2 import (
     Tier2Result,
     Tier2Selection,
     Tier2Verdict,
+    build_selection,
     build_snapshot,
     selection_unavailable,
     stack_lock,
-    tier2_selection,
 )
 from agent_build_kit.pipeline.tier2 import (
     post_status as tier2_post_status,
@@ -157,6 +159,7 @@ from agent_build_kit.pipeline.usage_guard import (
 from agent_build_kit.pipeline.vocabulary import effective_state
 from agent_build_kit.pipeline.workspaces import BranchBusy, prepare_detached, prepare_worktree
 from agent_build_kit.profiles.base import (
+    AppliesTier2Selection,
     ProjectChecks,
     RecordsSelectionData,
     RepeatsTests,
@@ -2309,11 +2312,13 @@ class Tier2Session:
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         blocked: Collection[str] = (),
         only: str | None = None,
+        splits: Collection[Tier2Split] = (),
     ) -> None:
         self.unit = unit
         self.verdict: Tier2Verdict | None = None
         self._blocked = blocked
         self._only = only
+        self._splits = splits
         self._on_dev_stack = False
         self._projects = projects or []
         # `verify.env`: what the live-stack tests need, the same here as after
@@ -2398,6 +2403,14 @@ class Tier2Session:
     def scope(self, *, cwd: Path, base: str | None = None) -> Tier2Scope:
         """How much of tier 2 a run on `cwd` against `base` executes: the one decision `run`
         acts on and the open-fix gate asks."""
+        expression = self._expression()
+        if expression is None:
+            held = ", ".join(self._selection().left_out)
+            return Tier2Scope(
+                mode=Tier2UnitScope.OWN,
+                runs=[],
+                reason=f"tier 2 runs nothing: every split is held ({held})",
+            )
         return tier2_scope(
             cwd,
             base,
@@ -2405,7 +2418,7 @@ class Tier2Session:
             setting=self._scope,
             profile=self._profile,
             projects=self._projects,
-            marker=self._selection().expression,
+            marker=expression,
             dev_stack=str(self._dev_stack) if self._dev_stack else None,
         )
 
@@ -2419,28 +2432,39 @@ class Tier2Session:
         return (BASE_GROUP, *known)
 
     def _selection(self) -> Tier2Selection:
-        """The marker expression this run executes: the marker alone when nothing is left out
-        or the profile cannot express a selection."""
+        """What this run selects: the whole marker when nothing is left out or the profile
+        cannot express a selection, else the repo's splits less the held ones (or the one
+        that runs alone; the untagged group is `rest`)."""
         if (not self._blocked and self._only is None) or selection_unavailable(
-            self._profile, dev_stack_script=False
+            self._profile, dev_stack_script=False, splits=self._splits
         ):
-            return Tier2Selection(expression=self._marker)
-        return tier2_selection(
-            self._marker, self._blocked, only=self._only, configured=active().runtimes
-        )
+            return Tier2Selection(marker=self._marker)
+        only = REST_SPLIT if self._only == BASE_GROUP else self._only
+        return build_selection(self._marker, self._splits, held=self._blocked, only=only)
+
+    def _expression(self) -> str | None:
+        """The text the test runner takes for this run's selection; None when it selects
+        nothing, every split being held."""
+        selection = self._selection()
+        if selection.empty:
+            return None
+        if isinstance(self._profile, AppliesTier2Selection):
+            return self._profile.expression(self._marker, selection)
+        return self._marker
 
     def _lister(self, toolchain: ToolchainProfile, where: Path) -> Callable[..., list[str] | None]:
-        """`toolchain`'s listing of the tests a marker expression selects in a command run from
+        """`toolchain`'s listing of the tests a selection holds in a command run from
         `where`; None for a profile that cannot list them or a listing that fails."""
-        hook = getattr(toolchain, "selected_tests", None)
 
         def run(argv: list[str], **_: object) -> subprocess.CompletedProcess:
             return self._run(argv, cwd=where, **self._test_env)
 
         def listed(
-            command: list[str], expression: str, among: list[str] | None = None
+            command: list[str], selection: Tier2Selection, among: list[str] | None = None
         ) -> list[str] | None:
-            return None if hook is None else hook(command, expression, run=run, among=among)
+            if not isinstance(toolchain, AppliesTier2Selection):
+                return None
+            return toolchain.list_tests(command, selection, run=run, among=among)
 
         return listed
 
@@ -2454,12 +2478,12 @@ class Tier2Session:
             return [], scope
         parked: list[str] = []
         for name in sorted(self._blocked):
-            expression = tier2_selection(self._marker, [], only=name).expression
+            held = build_selection(self._marker, self._splits, only=name)
             found: list[str] | None = []
             for run in scope.runs:
                 lister = self._lister(toolchains[run.where], run.where)
                 for command in run.commands:
-                    ids = lister(command, expression)
+                    ids = lister(command, held)
                     found = None if ids is None or found is None else found + ids
                 if found is None:
                     break
@@ -2470,12 +2494,13 @@ class Tier2Session:
         if scope.mode is Tier2UnitScope.OWN and parked:
             # What is left to run is what the run's own selection holds in each command; a
             # listing that fails keeps its command, since it does not say the command is empty.
-            expression = self._selection().expression
+            selection = self._selection()
             kept = [
                 run
                 for run in scope.runs
-                if any(
-                    (ids := self._lister(toolchains[run.where], run.where)(command, expression))
+                if not selection.empty
+                and any(
+                    (ids := self._lister(toolchains[run.where], run.where)(command, selection))
                     is None
                     or ids
                     for command in run.commands
@@ -2497,8 +2522,8 @@ class Tier2Session:
         cwd: Path,
     ) -> list[TestFailure]:
         """`failures` each with its runtime group, found by one listing of a command's failed
-        tests under each runtime's tag; `unknown` where a listing could not say."""
-        known = sorted(known_runtime_names(active().runtimes))
+        tests under each declared split's selection; `unknown` where a listing could not say."""
+        named = [split for split in self._splits if split.marker is not None]
         by_command: dict[tuple[Path, tuple[str, ...]], list[str]] = {}
         for test, (where, _, command) in named_by.items():
             by_command.setdefault((where, tuple(command)), []).append(test)
@@ -2509,15 +2534,15 @@ class Tier2Session:
             prefix = f"{where.relative_to(cwd).as_posix()}/" if where != cwd else ""
             bare = {test: test.removeprefix(prefix) for test in tests}
             sure = True
-            for name in known:
-                expression = f"{self._marker} and {RUNTIME_TAG_PREFIX}{name}"
-                ids = lister(list(command), expression, list(bare.values()))
+            for split in named:
+                selection = build_selection(self._marker, self._splits, only=split.name)
+                ids = lister(list(command), selection, list(bare.values()))
                 if ids is None:
                     sure = False
                     continue
                 for test, short in bare.items():
                     if short in ids:
-                        groups.setdefault(test, name)
+                        groups.setdefault(test, split.name)
             for test in tests:
                 groups.setdefault(test, BASE_GROUP if sure else UNKNOWN_GROUP)
         return [f.model_copy(update={"group": groups.get(f.test, UNKNOWN_GROUP)}) for f in failures]
@@ -2536,7 +2561,9 @@ class Tier2Session:
             self._log(scope.reason)
         left_out = ", ".join(sorted(self._blocked))
         why = (
-            selection_unavailable(self._profile, dev_stack_script=scope.dev_stack)
+            selection_unavailable(
+                self._profile, dev_stack_script=scope.dev_stack, splits=self._splits
+            )
             if left_out
             else None
         )
@@ -3403,6 +3430,7 @@ def build_runner(
         env=installation.verify_env(),
         projects=repo.projects,
         output_dir=tier2_output_dir(root),
+        splits=tier2_splits(repo, installation.config),
     )
     planning_repo = installation.root
     # Units build in parallel, and two in one repo share its `.git`. Adding a

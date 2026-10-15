@@ -8,18 +8,19 @@ import subprocess
 from collections.abc import Collection
 from pathlib import Path
 
-from agent_build_kit.config import ProjectConfig, Tier2UnitScope, known_runtime_names
+from agent_build_kit.config import ProjectConfig, Tier2Split, Tier2UnitScope, known_runtime_names
 from agent_build_kit.pipeline.tier2 import (
     STATUS_CONTEXT,
     UNKNOWN_GROUP,
+    build_selection,
     post_status,
     stack_lock,
-    tier2_selection,
 )
 from agent_build_kit.pipeline.wiring import Tier2Session
+from agent_build_kit.profiles.python_uv import PROFILE
 from tests.forges.stand_in import StandInForge
 from tests.tier2_base_fakes import pytest_output
-from tests.tier2_scope_fakes import PASSED, Ran, branch, session
+from tests.tier2_scope_fakes import KIT_SPLITS, PASSED, Ran, branch, session
 
 MARKER = "local_stack"
 PLAIN = "tests/live/test_plain.py::test_plain"
@@ -102,6 +103,13 @@ class Groups(Ran):
         return [command for command in self.commands if "--collect-only" not in command]
 
 
+def expected(held: Collection[str], *, only: str | None = None) -> str:
+    """The `-m` text of a run that leaves out `held` or runs `only` one group, as built over
+    a split for each runtime the kit knows (`base` being the `rest` split)."""
+    only = "rest" if only == "base" else only
+    return PROFILE.expression(MARKER, build_selection(MARKER, KIT_SPLITS, held=held, only=only))
+
+
 def expression_of(command: list[str]) -> str:
     return command[command.index("-m") + 1]
 
@@ -139,7 +147,7 @@ def test_with_acp_blocked_every_command_leaves_it_out_and_the_group_is_parked(
     assert gate.result is not None
     assert gate.result.parked == ["acp"]
     [command] = ran.runs
-    assert expression_of(command) == tier2_selection(MARKER, ["acp"]).expression
+    assert expression_of(command) == expected(["acp"])
     assert "runtime_acp" in expression_of(command)
 
 
@@ -150,7 +158,7 @@ def test_the_blocked_group_is_listed_under_the_opposite_expression(tmp_path: Pat
     gate.run(cwd=repo, base=base)
 
     [listing] = ran.listings
-    assert expression_of(listing) == tier2_selection(MARKER, [], only="acp").expression
+    assert expression_of(listing) == expected([], only="acp")
 
 
 def test_under_own_scope_the_listing_is_narrowed_to_the_units_own_tests(tmp_path: Path) -> None:
@@ -169,7 +177,7 @@ def test_under_own_scope_the_listing_is_narrowed_to_the_units_own_tests(tmp_path
 
     assert gate.result is not None
     assert gate.result.parked == ["acp"]
-    acp_expression = tier2_selection(MARKER, [], only="acp").expression
+    acp_expression = expected([], only="acp")
     [listing] = [c for c in ran.listings if expression_of(c) == acp_expression]
     assert ACP in listing
     assert CLAUDE not in listing
@@ -188,9 +196,7 @@ def test_a_blocked_runtime_with_no_own_test_parks_nothing_and_the_run_is_complet
     assert ok
     assert gate.result is not None
     assert gate.result.parked == []
-    assert [expression_of(command) for command in ran.runs] == [
-        tier2_selection(MARKER, ["acp"]).expression
-    ]
+    assert [expression_of(command) for command in ran.runs] == [expected(["acp"])]
     assert "parked" not in snapshot
 
 
@@ -353,7 +359,7 @@ def test_the_base_rerun_of_a_failed_test_keeps_the_expression_of_the_run(
     gate.run(cwd=repo, base=base)
 
     [rerun] = [command for command, where in ran.calls if where != repo and "-m" in command]
-    assert expression_of(rerun) == tier2_selection(MARKER, ["acp"]).expression
+    assert expression_of(rerun) == expected(["acp"])
     assert PLAIN in rerun
 
 
@@ -382,7 +388,35 @@ def test_a_run_limited_to_one_runtime_runs_only_that_groups_expression(tmp_path:
     gate.run(cwd=repo, base=base)
 
     [command] = ran.runs
-    assert expression_of(command) == tier2_selection(MARKER, [], only="acp").expression
+    assert expression_of(command) == expected([], only="acp")
+
+
+def test_a_held_split_is_left_out_by_the_marker_the_repo_declared_for_it(tmp_path: Path) -> None:
+    splits = (Tier2Split(name="acp", marker="slow_acp"), Tier2Split(name="rest"))
+    ran = Groups()
+    repo, base = branch(tmp_path, SOURCE, base_files=FILES)
+    gate = session(tmp_path, ran, scope=Tier2UnitScope.FULL, blocked=["acp"], splits=splits)
+
+    gate.run(cwd=repo, base=base)
+
+    [command] = ran.runs
+    assert expression_of(command) == "local_stack and not slow_acp"
+    assert "runtime_acp" not in " ".join(command)
+
+
+def test_with_every_split_held_nothing_runs_and_no_expression_is_built(tmp_path: Path) -> None:
+    ran = Groups()
+    log: list[str] = []
+    held = [split.name for split in KIT_SPLITS]
+    gate, repo, base = whole_run(tmp_path, ran, blocked=held, log=log)
+
+    ok, _ = gate.run(cwd=repo, base=base)
+
+    assert ok
+    assert ran.commands == []
+    assert gate.result is not None
+    assert gate.result.ran_no_tests
+    assert any("every split is held" in line for line in log)
 
 
 def test_a_run_limited_to_the_base_group_leaves_every_runtime_out(tmp_path: Path) -> None:
@@ -392,7 +426,7 @@ def test_a_run_limited_to_the_base_group_leaves_every_runtime_out(tmp_path: Path
     gate.run(cwd=repo, base=base)
 
     [command] = ran.runs
-    assert expression_of(command) == tier2_selection(MARKER, [], only="base").expression
+    assert expression_of(command) == expected([], only="base")
 
 
 # --- the groups a run executes, which the open-fix gate asks -----------------------------

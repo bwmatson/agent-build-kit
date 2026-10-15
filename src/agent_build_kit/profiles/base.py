@@ -15,7 +15,7 @@ from typing import Protocol, runtime_checkable
 
 from agent_build_kit.config import EnvironmentConfig, RepoConfig
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.tier2 import TestFailure, TestTime
+from agent_build_kit.pipeline.tier2 import TestFailure, TestTime, Tier2Selection
 
 
 class ProfileUnsupported(NotImplementedError):
@@ -172,24 +172,30 @@ class RepeatsTests(Protocol):
 
 
 @runtime_checkable
-class ListsSelectedTests(Protocol):
-    """The optional hook a profile adds to list, without running them, the tests a marker
-    expression selects in one of its test commands. A profile without it cannot express a
-    tier 2 selection."""
+class AppliesTier2Selection(Protocol):
+    """The optional hooks a profile adds to apply a tier 2 selection: the kinds of selector
+    it can apply, the text its test runner takes for a selection, and a listing of the tests
+    a selection holds. A profile without them cannot leave a split out."""
 
-    def selected_tests(
+    selector_kinds: tuple[str, ...]
+
+    def expression(self, marker: str, selection: Tier2Selection) -> str:
+        """What the test runner takes to select `selection` over the repo's `marker`. Raises
+        ValueError for an empty selection, which selects nothing."""
+        ...
+
+    def list_tests(
         self,
         command: list[str],
-        expression: str,
+        selection: Tier2Selection,
         *,
         run: Callable[..., subprocess.CompletedProcess],
         among: list[str] | None = None,
     ) -> list[str] | None:
-        """The identifiers `command` would run under `expression`, relative to the
-        repository root, narrowed to `among` when given. `expression` replaces the command's
-        own marker expression and is not ANDed with it: a caller wanting the marker's tests
-        of one runtime passes `<marker> and runtime_<name>`. An empty list when it selects
-        none; None when the listing fails, since that says nothing about what is selected."""
+        """The identifiers `command` would run under `selection`, relative to the
+        repository root, narrowed to `among` when given. The selection replaces the command's
+        own marker expression and is not ANDed with it. An empty list when it selects none;
+        None when the listing fails, since that says nothing about what is selected."""
         ...
 
 

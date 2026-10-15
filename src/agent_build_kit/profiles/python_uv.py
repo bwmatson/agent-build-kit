@@ -30,6 +30,7 @@ from agent_build_kit.pipeline.red_check import judge_red, split_report, wrap_rep
 from agent_build_kit.pipeline.tier2 import (
     TestFailure,
     TestTime,
+    Tier2Selection,
     clip_failure_line,
     parse_pytest_summary,
 )
@@ -460,16 +461,32 @@ class PythonUvProfile:
             marker = [] if _is_serial_split(expression) else ["-m", expression]
         return [*command[: program + 1], *marker, *tests, "-q"]
 
-    def selected_tests(
+    selector_kinds: tuple[str, ...] = ("marker",)
+
+    def expression(self, marker: str, selection: Tier2Selection) -> str:
+        """The `-m` text of `selection` over `marker`; a ValueError for an empty selection,
+        which would otherwise read as every tier 2 test."""
+        if selection.empty:
+            held = ", ".join(selection.left_out)
+            raise ValueError(f"every split is held ({held}): nothing to run")
+        parts = [marker, *(f"not {tag}" for tag in selection.none_of)]
+        if len(selection.any_of) == 1:
+            parts.append(selection.any_of[0])
+        elif selection.any_of:
+            parts.append(f"({' or '.join(selection.any_of)})")
+        return " and ".join(parts)
+
+    def list_tests(
         self,
         command: list[str],
-        expression: str,
+        selection: Tier2Selection,
         *,
         run: Callable[..., subprocess.CompletedProcess],
         among: list[str] | None = None,
     ) -> list[str] | None:
-        """The identifiers `command` runs under `expression`, listed with pytest's
-        collection, as paths from the repository root."""
+        """The identifiers `command` runs under `selection`, listed with pytest's collection,
+        as paths from the repository root."""
+        expression = self.expression(selection.marker, selection)
         program = _pytest_program(command)
         if program is None:
             return None

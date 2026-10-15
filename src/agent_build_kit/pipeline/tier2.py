@@ -33,7 +33,7 @@ from pydantic import Field
 
 from agent_build_kit import forges
 from agent_build_kit.budget import cut_head
-from agent_build_kit.config import BASE_GROUP, active, known_runtime_names
+from agent_build_kit.config import REST_SPLIT, Tier2Split, active
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
@@ -42,56 +42,82 @@ from agent_build_kit.pipeline.workspaces import process_alive
 # Shown on the PR beside the Actions checks.
 STATUS_CONTEXT = "local/tier2"
 
-# What a runtime's tag is named: this, then the runtime's name.
-RUNTIME_TAG_PREFIX = "runtime_"
-
 
 class Tier2Selection(Frozen):
-    """The marker expression of one tier 2 run, the runtimes it leaves out and the group
-    it runs alone."""
+    """What one tier 2 run selects, over a repo's splits: the repo's `marker`, the selectors
+    of the splits it requires one of (`any_of`, when `rest` is left out or one split runs
+    alone) and those it leaves out (`none_of`), the splits `left_out` and the one that runs
+    `only`. `empty` is True when every split, `rest` included, is held and nothing is
+    selected. The profile renders it into what its test runner takes."""
 
-    expression: str
+    marker: str
     left_out: tuple[str, ...] = ()
     only: str | None = None
+    empty: bool = False
+    any_of: tuple[str, ...] = ()
+    none_of: tuple[str, ...] = ()
 
 
-def tier2_selection(
+def build_selection(
     marker: str,
-    blocked: Collection[str],
+    splits: Collection[Tier2Split],
     *,
+    held: Collection[str] = (),
     only: str | None = None,
-    configured: Collection[str] = (),
 ) -> Tier2Selection:
-    """The marker expression of a tier 2 run that leaves out the `blocked` runtimes, or
-    runs `only` one group (a runtime or `base`). `configured` are the keys under `runtimes`."""
-    known = known_runtime_names(configured)
-    if BASE_GROUP in blocked:
-        raise ValueError(f"{BASE_GROUP!r} is the untagged group and cannot be blocked")
-    for name in [*blocked, *([only] if only not in (None, BASE_GROUP) else [])]:
+    """The selection of a tier 2 run over a repo's declared `splits`: leaving out the `held`
+    ones, or running `only` one (a split name or `rest`)."""
+    known = [split.name for split in splits]
+    for name in [*held, *([only] if only is not None else [])]:
         if name not in known:
-            raise ValueError(f"unknown runtime {name!r} (known: {', '.join(sorted(known))})")
-    if only is not None and only in blocked:
-        raise ValueError(f"runtime {only!r} is asked for alone and also blocked")
-    left_out = tuple(sorted(set(blocked)))
-    if only == BASE_GROUP:
-        left_out = tuple(sorted(known))
-    expression = " and ".join(
-        [marker, *(f"not {RUNTIME_TAG_PREFIX}{name}" for name in left_out)]
-        + ([f"{RUNTIME_TAG_PREFIX}{only}"] if only not in (None, BASE_GROUP) else [])
+            raise ValueError(f"unknown split {name!r} (declared: {', '.join(known)})")
+    if only is not None and only in held:
+        raise ValueError(f"split {only!r} is asked for alone and also held")
+    declared = [split for split in splits if split.marker is not None]
+    markers = {split.name: split.marker for split in declared}
+    left_out = tuple(sorted(set(held)))
+    base = Tier2Selection(marker=marker)
+    if only == REST_SPLIT:
+        left_out = tuple(split.name for split in declared)
+        return base.model_copy(
+            update={
+                "left_out": left_out,
+                "only": only,
+                "none_of": tuple(markers[name] for name in left_out),
+            }
+        )
+    if only is not None:
+        return base.model_copy(update={"only": only, "any_of": (markers[only],)})
+    if REST_SPLIT in left_out:
+        kept = tuple(markers[split.name] for split in declared if split.name not in left_out)
+        return base.model_copy(update={"left_out": left_out, "any_of": kept, "empty": not kept})
+    return base.model_copy(
+        update={
+            "left_out": left_out,
+            "none_of": tuple(markers[s.name] for s in declared if s.name in left_out),
+        }
     )
-    return Tier2Selection(expression=expression, left_out=left_out, only=only)
 
 
-def selection_unavailable(toolchain: object, *, dev_stack_script: bool) -> str | None:
-    """Why a tier 2 run of this profile cannot leave a group out (the profile has no way to
-    list a selection, or the repo runs tier 2 through its dev stack script), else None."""
-    from agent_build_kit.profiles.base import ListsSelectedTests
+def selection_unavailable(
+    toolchain: object,
+    *,
+    dev_stack_script: bool,
+    splits: Collection[Tier2Split],
+) -> str | None:
+    """Why a tier 2 run of this profile cannot leave a split out, else None. A repo that
+    declares no split with a marker is never unable."""
+    from agent_build_kit.profiles.base import AppliesTier2Selection
 
     name = getattr(toolchain, "name", type(toolchain).__name__)
+    if not any(split.marker is not None for split in splits):
+        return None
     if dev_stack_script:
         return "the repo's dev stack script runs tier 2 and takes no selection"
-    if not isinstance(toolchain, ListsSelectedTests):
-        return f"the {name} profile cannot list the tests a selection holds"
+    kinds = toolchain.selector_kinds if isinstance(toolchain, AppliesTier2Selection) else ()
+    if "marker" not in kinds:
+        supported = ", ".join(kinds) or "none"
+        return f"the {name} profile cannot apply a marker selector (it supports: {supported})"
     return None
 
 
