@@ -587,6 +587,11 @@ class UnitStore:
             self._write({**stored, **added})
 
     @_exclusive
+    def rewrite_text(self, fn: Callable[[str], str]) -> list[str]:
+        """Apply `fn` to the text fields of every record, write once, return the ids changed."""
+        raise NotImplementedError
+
+    @_exclusive
     def remove_units(self, unit_ids: Collection[str]) -> None:
         """Remove the records with these ids."""
         stored = self._read()

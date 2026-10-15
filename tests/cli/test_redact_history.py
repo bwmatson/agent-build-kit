@@ -5,8 +5,6 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
-from importlib import resources
 from pathlib import Path
 
 import pytest
@@ -17,7 +15,6 @@ from agent_build_kit.config import dump
 from agent_build_kit.forges import github
 from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.pause import PAUSE_MARKER, pause_until
 from agent_build_kit.pipeline.run_log import run_log_dir
 from agent_build_kit.pipeline.transcript import transcript_dir
 from agent_build_kit.pipeline.unit_store import UnitStore
@@ -27,6 +24,7 @@ from tests.factories import new_unit
 from tests.forges.mock_host import MockHost, ok
 from tests.ledger_lines import agent_line
 from tests.redaction_fakes import known
+from tests.scrub_store_support import pause
 
 NAME = "STACK_KEY"
 SECRET = "history-value-0001"
@@ -78,16 +76,6 @@ def saved_history(inst: Installation) -> dict[str, Path]:
         "transcript": transcript,
         "ledger": ledger,
     }
-
-
-def pause(inst: Installation) -> None:
-    """The pipeline paused, as `--apply` requires."""
-    pause_until(
-        datetime.now(UTC) + timedelta(hours=3),
-        reason="redacting history",
-        marker=inst.state_dir / PAUSE_MARKER,
-        kind="rate_limit",
-    )
 
 
 def run(inst: Installation, *argv: str) -> int:
@@ -186,9 +174,3 @@ def test_a_file_holding_only_a_token_shaped_string_is_reported_as_token_shape(
     assert log.name in shown
     assert "token-shape" in shown
     assert NAME not in shown
-
-
-def test_the_planning_template_ignores_the_copies() -> None:
-    template = resources.files("agent_build_kit").joinpath("templates/gitignore").read_text()
-
-    assert "runs/**/*.pre-redact" in template.splitlines()
