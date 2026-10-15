@@ -50,6 +50,8 @@ def _landing_call(
         # The PR the create adds is last in both: the bottom one may already
         # be in a closed stack that says nothing about this create.
         return (repo, pulls[-1]), run
+    if lands == "merge_commit":
+        return (repo, args[1]), run
     # A post or a reply: the comment is found by the pipeline's marker and its body.
     reply = {"reply_to": kwargs["note_id"]} if "note_id" in kwargs else {}
     return (repo, args[1], COMMENT_MARKER, kwargs["body"]), {**reply, **run}
