@@ -10,11 +10,11 @@ jobs:
     # Decides from the changed paths whether anything outside the planning
     # paths changed. A skipped job satisfies a required check, which a
     # workflow-level path filter would leave pending.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       code: ${{ steps.scope.outputs.code }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
       - id: scope
@@ -26,13 +26,13 @@ jobs:
   pre-commit:
     # One zero-tolerance gate: ruff, ruff-format, pyrefly, yamllint. See
     # .pre-commit-config.yaml for what runs.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: "3.12"
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v10.3.0
         with:
           enable-cache: true
       - name: Install dev deps
@@ -46,13 +46,13 @@ jobs:
   test:
     needs: scope
     if: needs.scope.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: "3.12"
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v10.3.0
         with:
           enable-cache: true
       - name: Run tests
@@ -63,16 +63,16 @@ jobs:
     if: needs.scope.outputs.code == 'true'
     # The tests that run the real OpenSpec CLI through npx (pinned in
     # settings.py), so node is needed.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: "22"
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: "3.12"
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v10.3.0
         with:
           enable-cache: true
       - name: Run integration tests
