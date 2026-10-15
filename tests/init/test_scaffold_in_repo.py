@@ -20,7 +20,7 @@ STATE_LINES = {
     "*.pre-redact",
 }
 IGNORE_BLOCK = re.compile(r"# abk:planning v\w+\n(?P<lines>.*?)# /abk:planning\n", re.S)
-ORIENTATION = re.compile(r"<!-- abk:planning v\w+ -->\n.*?<!-- /abk:planning -->\n", re.S)
+ORIENTATION = re.compile(r"<!-- abk:planning v\w+ -->\r?\n.*?<!-- /abk:planning -->\r?\n", re.S)
 
 
 def in_repo_config(repo: Path) -> WorkspaceConfig:

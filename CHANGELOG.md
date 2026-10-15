@@ -11,6 +11,11 @@
   lines beside `scrub.local` and `*.pre-redact`, and the leak test fails a tracked or
   unignored overlay. The docs also cover `abk scrub-check`'s root-name condition and
   `scrub.local`, and `abk scrub-store`.
+- `abk init . --repo .` now recognises a repository that is its own planning repo. It
+  writes the repo at `.`, leaves existing files and the unit store as they are, adds the
+  state-directory ignore lines to `.gitignore` and a planning orientation to `AGENTS.md`
+  (else `CLAUDE.md`) as marker blocks that a rerun refreshes in place, commits nothing, and
+  lists what it wrote. Installing the skills lists only the files that changed.
 
 - The runner's change directory and follow-ups, and `abk init`'s check for an existing
   change, now use `planning.specs_dir` instead of a fixed `openspec`, so a specs directory

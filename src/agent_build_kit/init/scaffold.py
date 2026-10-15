@@ -141,7 +141,9 @@ def draft_config(
                 "environment": detect_environment(
                     detection.path, framework=False, profile=detection.profile
                 ),
-                "path": detection.path,
+                "path": Path(".")
+                if detection.path.expanduser().resolve() == planning_dir.expanduser().resolve()
+                else detection.path,
                 "forge": forge.name,
                 **named,
                 "default_branch": detection.default_branch,
@@ -614,6 +616,92 @@ def _ensure_ignored(path: Path, lines: tuple[str, ...], *, written: list[Path]) 
         written.append(path)
 
 
+def is_in_repo(planning: Path, config: WorkspaceConfig) -> bool:
+    """Whether the planning directory is itself one of the configured repos."""
+    root = planning.expanduser().resolve()
+    return any((root / repo.path).expanduser().resolve() == root for repo in config.repos.values())
+
+
+_IGNORE_OPEN = "# abk:planning v1"
+_IGNORE_START = re.compile(r"# abk:planning v\w+")
+_IGNORE_CLOSE = "# /abk:planning"
+_ORIENT_OPEN = "<!-- abk:planning v1 -->"
+_ORIENT_START = re.compile(r"<!-- abk:planning v\w+ -->")
+_ORIENT_CLOSE = "<!-- /abk:planning -->"
+
+
+def _state_ignores(state_dir: str) -> list[str]:
+    """The template's lines about the state directory and the redaction originals."""
+    lines = [line.strip() for line in template("gitignore").splitlines()]
+    return [
+        f"{state_dir}/{line.removeprefix('runs/')}" if line.startswith("runs/") else line
+        for line in lines
+        if line.startswith("runs/") or line == COPY_PATTERN
+    ]
+
+
+def _with_block(
+    text: str, start: re.Pattern[str], close: str, block: str, *, eol: str, blank: bool
+) -> str:
+    """`text` with `block` (ending in `eol`) in place of the one already there, else appended,
+    after a blank line when `blank`, or directly after the last line."""
+    opening = start.search(text)
+    closing = text.find(close, opening.end()) if opening else -1
+    if opening and closing >= 0:
+        end = closing + len(close)
+        if text[end : end + len(eol)] == eol:
+            end += len(eol)
+        return text[: opening.start()] + block + text[end:]
+    if not text:
+        return block
+    separator = "" if text.endswith("\n") else eol
+    return text + separator + (eol if blank else "") + block
+
+
+def _ignore_block(text: str, state_dir: str) -> str:
+    """The `.gitignore` text with the state lines it lacks in one marker block."""
+    opening = _IGNORE_START.search(text)
+    closing = text.find(_IGNORE_CLOSE, opening.end()) if opening else -1
+    outside = text
+    if opening and closing >= 0:
+        outside = text[: opening.start()] + text[closing + len(_IGNORE_CLOSE) :]
+    present = {line.strip() for line in outside.splitlines()}
+    missing = [line for line in _state_ignores(state_dir) if line not in present]
+    if not missing:
+        return text
+    block = "\n".join([_IGNORE_OPEN, *missing, _IGNORE_CLOSE]) + "\n"
+    return _with_block(text, _IGNORE_START, _IGNORE_CLOSE, block, eol="\n", blank=False)
+
+
+def _orientation(config: WorkspaceConfig) -> str:
+    planning = config.planning
+    body = template("planning-orientation.md").format(
+        specs_dir=planning.specs_dir, state_dir=planning.state_dir, graph_page=planning.graph_page
+    )
+    return f"{_ORIENT_OPEN}\n{body}{_ORIENT_CLOSE}\n"
+
+
+def _rewrite(path: Path, text: str, *, written: list[Path]) -> None:
+    """Writes `text` as `path`'s bytes when they differ."""
+    if not path.exists() or path.read_bytes() != text.encode():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(text.encode())
+        written.append(path)
+
+
+def _write_in_repo_blocks(root: Path, config: WorkspaceConfig, *, written: list[Path]) -> None:
+    ignore = root / ".gitignore"
+    text = ignore.read_bytes().decode() if ignore.exists() else ""
+    _rewrite(ignore, _ignore_block(text, config.planning.state_dir), written=written)
+
+    guidance = guidance_file(root)
+    text = guidance.read_bytes().decode() if guidance.exists() else ""
+    eol = _eol(text)
+    block = _orientation(config).replace("\n", eol)
+    updated = _with_block(text, _ORIENT_START, _ORIENT_CLOSE, block, eol=eol, blank=True)
+    _rewrite(guidance, updated, written=written)
+
+
 def write_planning_repo(
     planning_dir: Path,
     config: WorkspaceConfig,
@@ -653,15 +741,19 @@ def write_planning_repo(
     state = planning / config.planning.state_dir
     _write(state / ".gitkeep", "", overwrite=False, written=written)
     _write(state / "units.json", '{"units": []}\n', overwrite=False, written=written)
-    _write(planning / ".gitignore", template("gitignore"), overwrite=False, written=written)
-    _ensure_ignored(planning / ".gitignore", LOCAL_IGNORES, written=written)
     _write(planning / ".env.example", template("env.example"), overwrite=False, written=written)
-    _write(
-        planning / "CLAUDE.md",
-        template("planning-CLAUDE.md").format(**_repo_words(list(config.repos))),
-        overwrite=False,
-        written=written,
-    )
+    if is_in_repo(planning, config):
+        # The repo's own files: only a marker block is added to each, nothing else changes.
+        _write_in_repo_blocks(planning, config, written=written)
+    else:
+        _write(planning / ".gitignore", template("gitignore"), overwrite=False, written=written)
+        _ensure_ignored(planning / ".gitignore", LOCAL_IGNORES, written=written)
+        _write(
+            planning / "CLAUDE.md",
+            template("planning-CLAUDE.md").format(**_repo_words(list(config.repos))),
+            overwrite=False,
+            written=written,
+        )
     # No systemd units here. One carries an absolute `WorkingDirectory`, so a
     # unit written at init time names whoever ran init and is wrong for everyone
     # who clones the repo afterwards. `abk install-timers` renders them on the
@@ -712,6 +804,13 @@ def merge_attribute(attributes: str, path: str) -> str | None:
     return found
 
 
+def guidance_file(root: Path) -> Path:
+    """The repo's own guidance file: `AGENTS.md`, else `CLAUDE.md`, else `AGENTS.md` to create."""
+    return next(
+        (root / n for n in ("AGENTS.md", "CLAUDE.md") if (root / n).is_file()), root / "AGENTS.md"
+    )
+
+
 def _eol(text: str) -> str:
     return "\r\n" if "\r\n" in text else "\n"
 
@@ -731,9 +830,7 @@ def _put(path: Path, text: str, dry_run: bool) -> None:
 
 
 def _block_action(root: Path, repo: str, changelog: str, dry_run: bool) -> ConventionResult:
-    path = next(
-        (root / n for n in ("AGENTS.md", "CLAUDE.md") if (root / n).is_file()), root / "AGENTS.md"
-    )
+    path = guidance_file(root)
 
     def result(kind: Outcome, note: str = "") -> ConventionResult:
         return ConventionResult(repo=repo, action="block", path=path, result=kind, note=note)

@@ -61,7 +61,7 @@ def install(target: Path) -> tuple[list[Path], list[Path]]:
     """Copy every skill into `target/<name>/SKILL.md`.
 
     Returns (written, refused): a file whose `generatedBy` header is ours is
-    overwritten, one that exists without it is refused and left as it is.
+    overwritten when it differs, one that exists without it is refused and left as it is.
     """
     written: list[Path] = []
     refused: list[Path] = []
@@ -70,8 +70,11 @@ def install(target: Path) -> tuple[list[Path], list[Path]]:
         if destination.exists() and not inspect(destination).ours:
             refused.append(destination)
             continue
+        text = rendered(name)
+        if destination.exists() and destination.read_text() == text:
+            continue
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(rendered(name))
+        destination.write_text(text)
         written.append(destination)
     return written, refused
 
