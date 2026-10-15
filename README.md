@@ -160,6 +160,8 @@ Details, arguments and exit codes: [docs/cli.md](docs/cli.md).
 - [docs/code-forges.md](docs/code-forges.md) — the hosts a repo can live on, what each makes easy to get wrong, and how to add one.
 - [docs/init.md](docs/init.md) — what `abk init` does, step by step.
 - [docs/tracks.md](docs/tracks.md) — the scheduled health/improve/recommend/implement tracks.
+- [docs/agent-efficient-coding-philosophy.md](docs/agent-efficient-coding-philosophy.md) — where abk is heading: verify every change, have a person review by risk.
+- [docs/risk-tiered-review-design.md](docs/risk-tiered-review-design.md) — what has to change to get there, and the order to change it in.
 
 Contributing conventions are in [AGENTS.md](AGENTS.md). One rule matters
 more than the rest: this repo never names an installation — no repo names,
