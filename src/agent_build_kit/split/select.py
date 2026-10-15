@@ -101,7 +101,13 @@ class _Classified(Frozen):
 def _subdirectories(parent: Path) -> list[Path]:
     if not parent.is_dir():
         return []
-    return sorted(p for p in parent.iterdir() if p.is_dir() and p.name != "archive")
+    return sorted(p for p in parent.iterdir() if is_populated(p) and p.name != "archive")
+
+
+def is_populated(directory: Path) -> bool:
+    """Whether `directory` holds a file anywhere under it; one with only empty
+    subdirectories (what an interrupted removal leaves) is nothing."""
+    return directory.is_dir() and any(p.is_file() for p in directory.rglob("*"))
 
 
 def _checked_project(

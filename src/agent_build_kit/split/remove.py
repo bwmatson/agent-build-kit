@@ -10,7 +10,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.split import copy
-from agent_build_kit.split.select import SplitPlan, moved_files, plan_split
+from agent_build_kit.split.select import SplitPlan, is_populated, moved_files, plan_split
 
 __all__ = ["RemoveReport", "outstanding", "remove", "still_naming", "verify"]
 
@@ -63,22 +63,29 @@ def _prune(directory: Path) -> None:
 
 def remove(source: Installation, plan: SplitPlan) -> RemoveReport:
     """Remove the moved unit records and plan records, then the files (a directory only when
-    empty). The records go first and each change's `tasks.md` last, so a run killed part way
-    leaves the files that tell the next run what moved, and that run finishes it."""
+    empty). The records go first, then one directory at a time with its `tasks.md` last, and
+    a directory is pruned as soon as its files are gone, so a run killed part way leaves the
+    files that tell the next run what moved, and that run finishes it. A directory holding no
+    file, which such a run can leave, is pruned too."""
     UnitStore(source.state_dir / "units.json").remove_units(plan.units_moved)
     recorded = planned_hashes(source)
     names = [name for name in plan.changes_moved if name in recorded]
     if names:
         update_plans(source, lambda _: dict.fromkeys(names))
-    files = sorted(moved_files(source, plan), key=lambda path: (path.name == "tasks.md", path))
-    for path in files:
-        path.unlink()
+    files = moved_files(source, plan)
     for directory in (
         *(source.changes_dir / name for name in plan.changes_moved),
         *(source.changes_dir / "archive" / name for name in plan.archive_moved),
         *(source.specs_dir / "specs" / name for name in plan.specs_moved),
     ):
+        inside = (path for path in files if path.is_relative_to(directory))
+        for path in sorted(inside, key=lambda path: (path.name == "tasks.md", path)):
+            path.unlink()
         _prune(directory)
+    for parent in (source.changes_dir, source.changes_dir / "archive", source.specs_dir / "specs"):
+        for hollow in (p for p in parent.glob("*") if p.is_dir() and not is_populated(p)):
+            if hollow.name != "archive":
+                _prune(hollow)
     return RemoveReport(
         files_removed=len(files), units_removed=len(plan.units_moved), plans_removed=len(names)
     )

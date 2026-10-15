@@ -115,6 +115,48 @@ def test_a_run_killed_before_the_records_are_removed_is_finished(tmp_path, monke
     assert "  app:\n" not in (source / "abk.yaml").read_text()
 
 
+def test_a_run_killed_between_two_tasks_files_is_finished(tmp_path, monkeypatch):
+    source, destination = trees(tmp_path)
+    installation = populate(source)
+    argv = ("--repo", "app", "--to", str(destination), "--apply", "--remove")
+    real = Path.unlink
+    seen = []
+
+    def dying(self, *args, **kwargs):
+        if self.name == "tasks.md":
+            seen.append(self)
+            if len(seen) == 2:
+                raise RuntimeError("killed")
+        return real(self, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "unlink", dying)
+        with pytest.raises(RuntimeError):
+            split(source, *argv)
+
+    assert split(source, *argv) == 0
+    assert unit_ids(installation) == ["stays/1"]
+    assert set(json.loads((installation.state_dir / "planned.json").read_text())) == {"stays"}
+    for left in ("one", "two", "archive/2025-01-01-old"):
+        assert not (installation.changes_dir / left).exists()
+    assert "  app:\n" not in (source / "abk.yaml").read_text()
+
+
+def test_a_directory_left_with_no_file_is_nothing_and_is_pruned(tmp_path):
+    source, destination = trees(tmp_path)
+    installation = populate(source)
+    hollow = installation.changes_dir / "archive" / "2025-01-01-old"
+    for path in sorted(hollow.rglob("*"), reverse=True):
+        path.unlink() if path.is_file() else path.rmdir()
+    (hollow / "specs").mkdir()
+
+    code = split(source, "--repo", "app", "--to", str(destination), "--apply", "--remove")
+
+    assert code == 0
+    assert not hollow.exists()
+    assert "  app:\n" not in (source / "abk.yaml").read_text()
+
+
 def test_a_run_killed_while_removing_files_is_finished(tmp_path, monkeypatch):
     source, destination = trees(tmp_path)
     installation = populate(source)
