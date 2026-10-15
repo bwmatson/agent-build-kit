@@ -55,12 +55,6 @@ def scheduled_parts(name: str, repo: str, variants: Iterable[str]) -> tuple[date
     return (day, variant) if variant in set(variants) else None
 
 
-def scheduled_date(name: str, repo: str) -> date | None:
-    """The date in `name` when it is a base-variant scheduled change of exactly `repo`."""
-    parts = scheduled_parts(name, repo, (BASE_GROUP,))
-    return parts[0] if parts else None
-
-
 def write_due(
     inst: Installation, store: UnitStore, *, today: date, say: Callable[[str], None]
 ) -> list[str]:
@@ -145,7 +139,8 @@ def _write_change(inst: Installation, repo: str, name: str, today: date, variant
         "# Tasks\n\n"
         "Acceptance: none — the run of the suite is the check; nothing a consumer sees "
         "changes.\n\n"
-        f"## 1. [{repo}] [tier2] Run the full tier 2 suite on the default branch\n\n"
+        f"## 1. [{repo}] [tier2] Run the `{variant}` group of the full tier 2 suite "
+        "on the default branch\n\n"
         "Priority: 3\n\n"
         "Separate: a scheduled run has no code of its own and is never joined to other work.\n\n"
         f"Done when the `{variant}` group of the tier 2 marker passes on the default branch.\n\n"

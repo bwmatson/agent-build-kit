@@ -9,7 +9,7 @@ import shutil
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.pipeline.tier2_schedule import write_due
+from agent_build_kit.pipeline.tier2_schedule import scheduled_name, write_due
 from tests.tier2_schedule_fakes import TODAY, planning, store_of
 
 pytestmark = [
@@ -25,3 +25,17 @@ def test_the_written_change_passes_abk_check_and_abk_tags(tmp_path) -> None:
 
     assert cli.cmd_check(argparse.Namespace(), inst) == 0
     assert cli.cmd_tags(argparse.Namespace(all=False, change=name), inst) == 0
+
+
+def test_every_variants_change_passes_abk_check_and_abk_tags(tmp_path) -> None:
+    inst = planning(tmp_path, tests={"tier2_runtimes": ["acp", "claude_code"]})
+    (inst.specs_dir / "specs").mkdir(parents=True, exist_ok=True)
+
+    names = write_due(inst, store_of(inst, "app"), today=TODAY, say=lambda line: None)
+
+    assert sorted(names) == [
+        scheduled_name("app", TODAY, variant) for variant in ("acp", "base", "claude_code")
+    ]
+    assert cli.cmd_check(argparse.Namespace(), inst) == 0
+    for name in names:
+        assert cli.cmd_tags(argparse.Namespace(all=False, change=name), inst) == 0

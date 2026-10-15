@@ -113,7 +113,7 @@ def test_a_variant_never_run_is_due_at_once_while_the_others_wait(tmp_path: Path
     assert scheduled_changes(inst) == written
 
 
-def test_the_latest_change_of_the_variant_decides_whether_open_or_archived(
+def test_the_latest_archived_change_of_the_variant_sets_its_due_date(
     tmp_path: Path,
 ) -> None:
     inst = planning(tmp_path, tests=BOTH)

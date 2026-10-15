@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline.tier2_schedule import scheduled_date, scheduled_name, write_due
+from agent_build_kit.pipeline.tier2_schedule import scheduled_name, scheduled_parts, write_due
 from agent_build_kit.pipeline.units import UnitState
 from agent_build_kit.pipeline.untouched_failures import ensure_fix, preexisting_record
 from tests.tier2_schedule_fakes import (
@@ -41,8 +41,8 @@ def test_the_name_is_the_prefix_the_repo_the_day_and_the_variant() -> None:
 @pytest.mark.parametrize(
     ("name", "repo", "day"),
     [
-        ("scheduled-tier2-app-2026-03-10", "app", TODAY),
-        ("scheduled-tier2-app-web-2026-03-10", "app-web", TODAY),
+        ("scheduled-tier2-app-2026-03-10", "app", (TODAY, "base")),
+        ("scheduled-tier2-app-web-2026-03-10", "app-web", (TODAY, "base")),
         ("scheduled-tier2-app-web-2026-03-10", "app", None),
         ("scheduled-tier2-app-2026-03-10", "app-web", None),
         ("scheduled-tier2-app-extra", "app", None),
@@ -55,7 +55,7 @@ def test_the_name_is_the_prefix_the_repo_the_day_and_the_variant() -> None:
 def test_the_date_is_read_from_the_name_of_exactly_that_repos_change(
     name: str, repo: str, day: object
 ) -> None:
-    assert scheduled_date(name, repo) == day
+    assert scheduled_parts(name, repo, ("base",)) == day
 
 
 # --- due ------------------------------------------------------------------------
