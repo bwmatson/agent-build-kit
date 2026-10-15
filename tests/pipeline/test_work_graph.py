@@ -57,8 +57,8 @@ def test_well_formed_tasks_parse_into_groups(tmp_path: Path) -> None:
 
     assert errors == []
     assert [(g.number, g.repo, g.tier) for g in groups] == [
-        (1, "platform", "tier1"),
-        (2, "app", "tier2"),
+        (1, "platform", "unit-test"),
+        (2, "app", "e2e-test"),
     ]
     assert groups[0].title == "Register the marker"
     assert groups[0].task_count == 2
@@ -345,7 +345,7 @@ def test_the_acceptance_group_runs_on_the_stack(tmp_path: Path) -> None:
     _, errors = parse_as_written(IMPLEMENTATION + ACCEPTANCE.replace("tier2", "tier1"), tmp_path)
 
     assert len(errors) == 1
-    assert "tier2" in errors[0].message
+    assert "e2e-test" in errors[0].message
 
 
 def test_only_a_narrowing_group_may_follow_the_acceptance_group(tmp_path: Path) -> None:

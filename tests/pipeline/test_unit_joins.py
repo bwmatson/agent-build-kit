@@ -294,7 +294,7 @@ NEW_GROUP_REFUSED = {
 # another rule fails instead of passing for the wrong reason.
 NEW_GROUP_REASON = {
     "repo": "is tagged [platform]",
-    "tier": "is tagged [app] [tier2]",
+    "tier": "is tagged [app] [e2e-test]",
     "something depends on the unit": "already depends on base/1",
     "waits on other unfinished work": "also waits on other group 1",
     "narrowing group joined": "flagged [narrow]",

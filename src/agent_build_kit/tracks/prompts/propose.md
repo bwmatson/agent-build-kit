@@ -139,7 +139,7 @@ the OpenSpec schema and this workspace's rules
 the contract:
 
 ```
-## <n>. [__PROJECT__] [tier1] <title>
+## <n>. [__PROJECT__] [unit-test] <title>
 
 - [ ] <n>.1 Test: <the failing test that states the finding>
 - [ ] <n>.2 <the change that makes it pass>

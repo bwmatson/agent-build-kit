@@ -16,6 +16,7 @@ from typing import Protocol, runtime_checkable
 
 from agent_build_kit.config import active, active_root
 from agent_build_kit.installation import Installation
+from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline.failure_record import FailureRecord, Recorded, Storm, TestCount
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.unit_store import StoredUnit
@@ -267,7 +268,7 @@ def _tasks(flake: Flake, unit: StoredUnit) -> str:
         "# Tasks\n\n"
         "Acceptance: none — a flaky test is made deterministic; nothing a consumer sees "
         "changes.\n\n"
-        f"## 1. [{unit.repo}] [tier1] Make `{flake.test}` deterministic\n\n"
+        f"## 1. [{unit.repo}] [{TestTier.UNIT_TEST}] Make `{flake.test}` deterministic\n\n"
         "Priority: 1\n\n"
         "Done when the test passes under load every time, and under the repeat check.\n\n"
         f"- [ ] 1.1 Test: reproduce the race in `{flake.test}` deterministically, without "

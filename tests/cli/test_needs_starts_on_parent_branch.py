@@ -44,7 +44,7 @@ def needing(
     """A change `feature` whose one group carries `lines` as `Needs:` lines, a unit for
     it, and a unit of each other change named in `units`, in that state. A change named
     `shared` lives in the `platform` repository."""
-    text = f"# Tasks\n\n{OPT_OUT}\n## 1. [app] [tier1] The work\n\n"
+    text = f"# Tasks\n\n{OPT_OUT}\n## 1. [app] [unit-test] The work\n\n"
     text += "".join(f"Needs: {line} — a reason\n" for line in lines)
     text += "\n- [ ] 1.1 Test: it.\n- [ ] 1.2 Do it.\n"
     run = Replan(tmp_path, monkeypatch, feature=text)
@@ -180,10 +180,10 @@ def two_merged_lines(run: Replan) -> None:
     run.write(
         "feature",
         f"# Tasks\n\n{OPT_OUT}\n"
-        "## 1. [app] [tier1] One\n\n- [ ] 1.1 Test: it.\n- [ ] 1.2 Do it.\n\n"
-        "## 2. [app] [tier1] Two\n\nNeeds: base group 1 merged — they edit one file\n"
+        "## 1. [app] [unit-test] One\n\n- [ ] 1.1 Test: it.\n- [ ] 1.2 Do it.\n\n"
+        "## 2. [app] [unit-test] Two\n\nNeeds: base group 1 merged — they edit one file\n"
         "Needs: other group 1 — it adds the field\n\n- [ ] 2.1 Test: it.\n- [ ] 2.2 Do it.\n\n"
-        "## 3. [app] [tier1] Three\n\nNeeds: base group 1 merged\n\n"
+        "## 3. [app] [unit-test] Three\n\nNeeds: base group 1 merged\n\n"
         "- [ ] 3.1 Test: it.\n- [ ] 3.2 Do it.\n",
     )
 
@@ -231,8 +231,8 @@ def test_merged_on_the_changes_own_group_is_an_error_beside_the_warning_for_anot
     run.write(
         "feature",
         f"# Tasks\n\n{OPT_OUT}\n"
-        "## 1. [app] [tier1] One\n\n- [ ] 1.1 Test: it.\n- [ ] 1.2 Do it.\n\n"
-        "## 2. [app] [tier1] Two\n\nNeeds: feature group 1 merged — why\n"
+        "## 1. [app] [unit-test] One\n\n- [ ] 1.1 Test: it.\n- [ ] 1.2 Do it.\n\n"
+        "## 2. [app] [unit-test] Two\n\nNeeds: feature group 1 merged — why\n"
         "Needs: base group 1 merged — they edit one file\n\n"
         "- [ ] 2.1 Test: it.\n- [ ] 2.2 Do it.\n",
     )

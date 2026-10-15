@@ -23,14 +23,15 @@ tier it needs. They are written as tags, and `abk tags` checks them.
   reordering are errors: the number is the build order.
 - `<repo>` is one of the workspace's repo names exactly as `abk.yaml` spells
   them. A near miss (a capital, an underscore) is an error, not a guess.
-- `<tier>` is `tier1` (the ordinary suite, run in CI) or `tier2` (needs the
-  real local stack, serialized on one host).
+- `<tier>` is `unit-test` (the ordinary suite, run in CI) or `e2e-test` (needs the
+  real local stack, serialized on one host). The old `tier1` and `tier2` are still
+  read as the same kinds, with a deprecation notice from `abk tags` and `abk check`.
 - `<flag>`, optional, is `contract`, `narrow` or `acceptance` — see below.
 
 Under each heading, tasks are checkbox lines numbered within the group:
 
 ```
-## 1. [app] [tier1] Add the marker
+## 1. [app] [unit-test] Add the marker
 
 - [ ] 1.1 Test: `tests/markers/test_registry.py` asserts the marker is listed
 - [ ] 1.2 Register the marker in `src/markers/registry.py`
@@ -63,7 +64,7 @@ callers inside one repo land in the same commit; nothing needs flagging.
 
 **`[acceptance]`** marks the group that drives what the change built the way
 its consumer does — a scripted run of the tool as a real client, a request
-through the public route. It is always `tier2`, comes after every group it
+through the public route. It is always `e2e-test`, comes after every group it
 exercises (only a `[narrow]` group may follow it), and gets a unit of its
 own. Every change has one, or opts out with a line anywhere in `tasks.md`:
 
@@ -74,10 +75,10 @@ Acceptance: none — a refactor; nothing a consumer sees changes
 The reason is what review agrees to; the line without one is an error.
 
 ```
-## 1. [platform] [tier1] [contract] Accept the new field, keep the old one
-## 2. [app] [tier1] Send the new field
-## 3. [app] [tier2] [acceptance] Drive the route end to end as a client
-## 4. [platform] [tier1] [narrow] Drop the old field
+## 1. [platform] [unit-test] [contract] Accept the new field, keep the old one
+## 2. [app] [unit-test] Send the new field
+## 3. [app] [e2e-test] [acceptance] Drive the route end to end as a client
+## 4. [platform] [unit-test] [narrow] Drop the old field
 ```
 
 ## `Needs:` lines

@@ -12,7 +12,7 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.tier2_schedule import scheduled_name, write_due
-from agent_build_kit.pipeline.work_graph import validate_tasks
+from agent_build_kit.pipeline.work_graph import old_test_kind_warnings, validate_tasks
 from tests.tier2_schedule_fakes import TODAY, planning, store_of
 
 
@@ -60,8 +60,9 @@ def test_tasks_hold_one_tier_2_group_of_the_repo_with_priority_3_and_separate(
 
     assert errors == []
     [group] = groups
-    assert (group.number, group.repo, group.tier) == (1, "app", "tier2")
+    assert (group.number, group.repo, group.tier) == (1, "app", "e2e-test")
     assert group.priority == 3
+    assert old_test_kind_warnings(change / "tasks.md") == []
     assert group.separate
     assert group.task_count == 1
     assert "full tier 2 suite" in group.title.lower()

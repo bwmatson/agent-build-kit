@@ -125,7 +125,9 @@ def test_a_change_without_the_line_is_read_as_before(tmp_path: Path) -> None:
     groups, errors = read(tasks_md(None), tmp_path)
 
     assert errors == []
-    assert [(g.number, g.repo, g.tier, g.task_count) for g in groups] == [(1, "app", "tier1", 2)]
+    assert [(g.number, g.repo, g.tier, g.task_count) for g in groups] == [
+        (1, "app", "unit-test", 2)
+    ]
     assert groups[0].priority == 3
 
 

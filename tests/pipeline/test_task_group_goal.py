@@ -89,5 +89,5 @@ def test_the_tags_and_counts_are_read_as_before(tmp_path: Path) -> None:
     )
 
     (group,) = groups
-    assert (group.number, group.repo, group.tier, group.flag) == (1, "app", "tier1", "narrow")
+    assert (group.number, group.repo, group.tier, group.flag) == (1, "app", "unit-test", "narrow")
     assert (group.title, group.task_count, group.priority) == ("Serve it", 2, 2)

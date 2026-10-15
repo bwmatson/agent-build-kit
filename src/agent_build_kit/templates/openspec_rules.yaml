@@ -18,13 +18,13 @@ rules:
     - "Call out every task group whose work crosses a service boundary, and which side lands first."
     - "Name every contract widened by the change and how it is narrowed again once every consumer has moved."
   tasks:
-    - "Every task group heading is `## <n>. [<repo>] [<tier>] <title>`, where <repo> is one of {repo_tags} and <tier> is tier1 or tier2. Example: `## 1. [{example_repo}] [tier1] Add the marker`."
+    - "Every task group heading is `## <n>. [<repo>] [<tier>] <title>`, where <repo> is one of {repo_tags} and <tier> is unit-test or e2e-test (the old tier1 and tier2 are still read, with a notice). Example: `## 1. [{example_repo}] [unit-test] Add the marker`."
     - "Number groups from 1 in the order they are built."
     - "Within a group, test tasks come before implementation tasks: the tests are written and committed red first."
     - "A new test file goes where the repo's source layout says: mirroring the source folder, with integration tests under tests/integration/."
     - "A group never spans repos; work in a second repo is a second group with its own tag."
     - "A group that widens a shape another repo consumes carries a third tag `[contract]`, and the change ends with a `[narrow]` group that removes the old half."
-    - "The last group is `[tier2] [acceptance]`: it drives what the change built the way its consumer does. A change with nothing to drive says so with a line `Acceptance: none — <reason>` instead."
+    - "The last group is `[e2e-test] [acceptance]`: it drives what the change built the way its consumer does. A change with nothing to drive says so with a line `Acceptance: none — <reason>` instead."
     - "The tags are checked by `abk tags <change>` before the change is committed."
 operations:
   apply:

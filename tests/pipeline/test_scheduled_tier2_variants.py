@@ -286,7 +286,7 @@ def test_each_change_names_its_split_and_has_one_group_at_priority_3(tmp_path: P
         groups, errors = validate_tasks(change / "tasks.md", repos=tuple(inst.repos))
         assert errors == []
         [group] = groups
-        assert (group.repo, group.tier, group.priority) == ("app", "tier2", 3)
+        assert (group.repo, group.tier, group.priority) == ("app", "e2e-test", 3)
         assert group.separate
         assert any(
             line.startswith("Separate:") for line in (change / "tasks.md").read_text().splitlines()

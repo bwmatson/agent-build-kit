@@ -5,7 +5,7 @@ work. Two facts have to be on every task group for that to be possible: the
 repo the group's code lands in, and the test tier it needs. They are written
 as a tagged heading:
 
-    ## 2. [app] [tier2] Relay the archived event to the new consumer
+    ## 2. [app] [e2e-test] Relay the archived event to the new consumer
 
 `openspec/config.yaml`'s `rules:` tell the authoring model to write them that
 way, but rules are a prompt input, not a check — OpenSpec's own
@@ -26,8 +26,11 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Protocol
 
+from pydantic import field_validator
+
+from agent_build_kit.compat_names import Place, is_old_spelling, new_spelling, notice
 from agent_build_kit.config import RepoConfig, active
-from agent_build_kit.model import Frozen
+from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.units import Priority, reachable
 
 
@@ -72,8 +75,11 @@ def repo_tag(repo: str, project_path: str) -> str:
 
 
 # tier1 runs on GitHub Actions; tier2 needs the live local stack on this host
-# and is serialized behind one lock (docs/architecture.md).
+# and is serialized behind one lock (docs/architecture.md). The names a unit still stores.
 TIERS = ("tier1", "tier2")
+
+# The tags a group heading is read with: the new spellings and, with a notice, the old ones.
+TEST_KIND_TAGS = tuple(member.value for member in TestTier)
 
 # An optional third tag, for the one case a group cannot be checked without it.
 #
@@ -100,7 +106,7 @@ FLAGS = ("contract", "narrow", "acceptance")
 # with no surface to exercise, and the reason, which is what gets reviewed.
 ACCEPTANCE_OPT_OUT = re.compile(r"^Acceptance:\s*none\b\s*[—–-]*\s*(?P<reason>.*?)\s*$", re.I)
 
-# "## 2. [app] [tier2] Relay the archived event" — the tags are required, so a
+# "## 2. [app] [e2e-test] Relay the archived event" — the tags are required, so a
 # heading missing them doesn't match and is reported rather than skipped.
 GROUP_HEADING = re.compile(
     r"^##\s+(?P<number>\d+)\.\s+\[(?P<repo>[^\]]*)\]\s+\[(?P<tier>[^\]]*)\]"
@@ -187,7 +193,7 @@ class TaskGroup(Frozen):
 
     number: int
     repo: str
-    tier: str
+    tier: TestTier
     title: str
     line: int
     task_count: int
@@ -205,6 +211,11 @@ class TaskGroup(Frozen):
     priority: int = Priority.NORMAL
     # The "Done when" sentence under the heading, "" when the group has none.
     goal: str = ""
+
+    @field_validator("tier", mode="before")
+    @classmethod
+    def _read_old_spelling(cls, value: object) -> object:
+        return new_spelling(Place.VALUE, value) if isinstance(value, str) else value
 
     @property
     def tag(self) -> str:
@@ -351,7 +362,7 @@ def validate_tasks(
                     f"headings are `## <n>. [<repo>] [<tier>] <title>`, "
                     f"`[<repo>/<project>]` naming a project of the repo, "
                     f"repo one of {', '.join(repos) or '<the workspace repos>'}, "
-                    f"tier one of {', '.join(TIERS)}",
+                    f"tier one of {', '.join(TEST_KIND_TAGS)}",
                 )
             )
             continue
@@ -390,12 +401,12 @@ def validate_tasks(
             )
             continue
 
-        if tier not in TIERS:
+        if (tier := new_spelling(Place.TAG, tier)) not in TEST_KIND_TAGS:
             errors.append(
                 ValidationError(
                     line=index,
                     message=f'group {number} has unknown tier "{tier}" — '
-                    f"expected one of {', '.join(TIERS)}",
+                    f"expected one of {', '.join(TEST_KIND_TAGS)}",
                 )
             )
             continue
@@ -405,7 +416,7 @@ def validate_tasks(
                 number=number,
                 repo=repo,
                 project=project or ".",
-                tier=tier,
+                tier=TestTier(tier),
                 title=tagged.group("title"),
                 line=index,
                 task_count=0,
@@ -545,7 +556,7 @@ def _acceptance_errors(groups: list[TaskGroup], lines: list[str]) -> list[Valida
                 ValidationError(
                     line=groups[0].line,
                     message="no group is flagged [acceptance] — end the change with a "
-                    "`[tier2] [acceptance]` group that drives what it built the way its "
+                    "`[e2e-test] [acceptance]` group that drives what it built the way its "
                     "consumer does, or say why there is nothing to drive with a line "
                     "`Acceptance: none — <reason>`",
                 )
@@ -565,10 +576,10 @@ def _acceptance_errors(groups: list[TaskGroup], lines: list[str]) -> list[Valida
         ValidationError(
             line=g.line,
             message=f"group {g.number} is flagged [acceptance] but tagged [{g.tier}] — it "
-            "drives the change on the stack, so it is tier2",
+            "drives the change on the stack, so it is e2e-test",
         )
         for g in accepting
-        if g.tier != "tier2"
+        if g.tier != TestTier.E2E_TEST
     ]
     first = min(g.number for g in accepting)
     trailing = [g for g in groups if g.number > first and g.flag not in ("acceptance", "narrow")]
@@ -635,6 +646,18 @@ def merged_needs_warnings(path: Path) -> list[str]:
         for group, need in merged_needs(path)
         if not names_own_change(need, path)
     ]
+
+
+def old_test_kind_warnings(path: Path) -> list[str]:
+    """One notice per group heading of a tasks file that is tagged with an old test-kind tag,
+    as `abk tags` and `abk check` print it."""
+    warnings: list[str] = []
+    for index, text in enumerate(path.read_text().splitlines(), start=1):
+        found = GROUP_HEADING.match(text)
+        if found and is_old_spelling(Place.TAG, found["tier"]):
+            where = f"{path}:line {index}: group {found['number']}"
+            warnings.append(notice(Place.TAG, found["tier"], where))
+    return warnings
 
 
 def _group_parents(groups: list[TaskGroup]) -> dict[int, list[int]]:

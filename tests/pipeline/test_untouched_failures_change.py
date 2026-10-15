@@ -24,7 +24,7 @@ from agent_build_kit.pipeline.untouched_failures import (
     preexisting_record,
     preview,
 )
-from agent_build_kit.pipeline.work_graph import validate_tasks
+from agent_build_kit.pipeline.work_graph import old_test_kind_warnings, validate_tasks
 from tests.pipeline.test_flake_fix_change import change_with_unit, changes, code_repo, flaked
 from tests.untouched_failure_fakes import TEST, failing
 
@@ -87,7 +87,8 @@ def test_the_change_has_a_proposal_a_design_stub_and_one_tier_2_group_tests_firs
     tasks = root / "tasks.md"
     groups, errors = validate_tasks(tasks, repos=tuple(installation.repos))
     assert errors == []
-    assert [(g.number, g.repo, g.tier) for g in groups] == [(1, "app", "tier2")]
+    assert [(g.number, g.repo, g.tier) for g in groups] == [(1, "app", "e2e-test")]
+    assert old_test_kind_warnings(tasks) == []
     text = tasks.read_text()
     assert "Priority: 1" in text
     assert re.search(r"^Acceptance: none — .+", text, re.MULTILINE)

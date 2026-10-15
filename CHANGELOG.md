@@ -5,6 +5,9 @@
 - A unit now carries the review tier its plan estimated (`auto`, `light` or `full`), kept
   through a re-plan once the unit has started. A store written before this reads as no
   estimate, and nothing acts on the field yet.
+- A task group heading can be tagged `[unit-test]` or `[e2e-test]`. The old `[tier1]` and
+  `[tier2]` tags still read as the same kinds, and `abk tags` and `abk check` print a notice
+  for each one, naming the tag that replaces it and the group.
 
 - `abk scrub-store` reports, and with `--apply` on a paused pipeline replaces, the
   home-directory paths in the unit store's text (feedback, guidance, notes) with `<home>/`,

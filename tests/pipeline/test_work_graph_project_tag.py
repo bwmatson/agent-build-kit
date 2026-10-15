@@ -42,7 +42,7 @@ def test_a_flag_and_a_tier_after_the_project_tag_are_read_as_before(tmp_path: Pa
     (group,) = groups
     assert (group.project, group.tier, group.flag, group.title) == (
         "web",
-        "tier2",
+        "e2e-test",
         "acceptance",
         "Drive the page",
     )

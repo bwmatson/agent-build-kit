@@ -13,7 +13,7 @@ from datetime import datetime
 
 from agent_build_kit.config import BASE_GROUP
 from agent_build_kit.installation import Installation
-from agent_build_kit.model import Frozen
+from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.failure_record import FailureRecord, Recorded, TestCount
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.flakes import add_needs_to_unit, next_fix_name, open_fix_change
@@ -223,7 +223,7 @@ def _tasks(entry: PreExisting, unit: StoredUnit) -> str:
         "# Tasks\n\n"
         "Acceptance: none — the run of the fixed test under tier 2 is the check; nothing a "
         "consumer sees changes.\n\n"
-        f"## 1. [{unit.repo}] [tier2] Make `{entry.test}` pass on the base\n\n"
+        f"## 1. [{unit.repo}] [{TestTier.E2E_TEST}] Make `{entry.test}` pass on the base\n\n"
         "Priority: 1\n\n"
         "Done when the test passes on the base under the tier 2 marker.\n\n"
         f"- [ ] 1.1 Test: reproduce the failure of `{entry.test}` on the base "

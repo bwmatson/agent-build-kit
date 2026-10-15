@@ -20,6 +20,7 @@ from agent_build_kit.config import (
     tier2_splits,
 )
 from agent_build_kit.installation import Installation
+from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.unit_store import UnitStore
 
@@ -141,7 +142,7 @@ def _write_change(inst: Installation, repo: str, name: str, today: date, split: 
         "# Tasks\n\n"
         "Acceptance: none — the run of the suite is the check; nothing a consumer sees "
         "changes.\n\n"
-        f"## 1. [{repo}] [tier2] Run the `{split}` split of the full tier 2 suite "
+        f"## 1. [{repo}] [{TestTier.E2E_TEST}] Run the `{split}` split of the full tier 2 suite "
         "on the default branch\n\n"
         "Priority: 3\n\n"
         "Separate: a scheduled run has no code of its own and is never joined to other work.\n\n"
