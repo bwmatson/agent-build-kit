@@ -29,7 +29,7 @@ MERGES = (
     "az repos pr update --id 4 --status completed",
     "az repos pr set-vote --id 4 --vote 10",
     "az repos policy list",
-    "az rest --method patch --url https://dev.azure.com/x",
+    "az rest --method patch --url https://dev.azure.com/example",
     "az devops invoke --area git --resource pullRequests",
 )
 
