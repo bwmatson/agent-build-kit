@@ -182,3 +182,13 @@ def sync_planning(inst: Installation, say: Callable[[str], None]) -> SyncResult:
     if mode == PlanningMode.SEPARATE:
         return _sync_separate(inst, say)
     return _sync_worktree(inst, say)
+
+
+def sync_or_stop(inst: Installation, say: Callable[[str], None]) -> bool:
+    """Syncs the planning root; on a stop says the one `planning sync stopped: <reason>` line and
+    returns False, so the caller ends its run."""
+    result = sync_planning(inst, say)
+    if result.outcome == SyncOutcome.STOPPED:
+        say(f"planning sync stopped: {result.reason}")
+        return False
+    return True

@@ -105,6 +105,7 @@ from agent_build_kit.pipeline.planning_repo import (
     is_repo,
     restore_default_branch,
 )
+from agent_build_kit.pipeline.planning_sync import PlanningMode, planning_mode, sync_or_stop
 from agent_build_kit.pipeline.pr_poller import (
     HOLD_LABEL,
     Poller,
@@ -957,9 +958,12 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     window stops the tick before it spends anything on planning.
     """
     forget_logged_failures()
-    if is_repo(inst.root) and not restore_default_branch(
-        inst.root, default_branch_of(inst.root), log
-    ):
+    if planning_mode(inst) == PlanningMode.SEPARATE:
+        if is_repo(inst.root) and not restore_default_branch(
+            inst.root, default_branch_of(inst.root), log
+        ):
+            return 1
+    elif not sync_or_stop(inst, log):
         return 1
 
     # First, and silently: the timer fires every few minutes whether or not

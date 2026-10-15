@@ -61,8 +61,20 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import shell
 from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.file_lock import append_missing_lines
-from agent_build_kit.pipeline.planning_repo import default_branch_of, is_repo
+from agent_build_kit.pipeline.planning_repo import (
+    current_branch,
+    default_branch_of,
+    detach_at,
+    is_repo,
+)
 from agent_build_kit.pipeline.planning_repo import restore_default_branch as _restore
+from agent_build_kit.pipeline.planning_sync import (
+    PlanningMode,
+    in_repo_default_branch,
+    in_repo_name,
+    planning_mode,
+    sync_or_stop,
+)
 from agent_build_kit.pipeline.usage_guard import (
     current_usage,
     decide_start,
@@ -252,7 +264,11 @@ def pull(repo_dir: Path, branch: str) -> bool:
 def pull_planning(inst: Installation) -> bool:
     """The planning repo is where every phase writes and pushes its run log:
     if it cannot be brought to its latest default branch, nothing downstream
-    is safe. `planning.self_pull: false` leaves it as it is."""
+    is safe. `planning.self_pull: false` leaves it as it is. A repository that
+    is also a code repo is synced by `sync_planning` instead, which never
+    checks a branch out."""
+    if planning_mode(inst) != PlanningMode.SEPARATE:
+        return sync_or_stop(inst, log)
     if not inst.config.planning.self_pull:
         log(f"planning.self_pull is off — not pulling {inst.root}")
         return True
@@ -408,9 +424,22 @@ def _keep_raw_output_untracked(inst: Installation) -> None:
 def record_planning(inst: Installation) -> PlanningHead | None:
     """The default branch and its head, taken before a phase; None when the
     planning root is not a git repo (nothing to keep or commit)."""
+    mode = planning_mode(inst)
     if not is_repo(inst.root):
         return None
+    if mode == PlanningMode.WORKING_COPY:
+        log(
+            f"the planning root is a working copy — this phase's run logs under "
+            f"{inst.state_dir} are not committed or pushed, they are left for you"
+        )
+        return None
     _keep_raw_output_untracked(inst)
+    if mode == PlanningMode.PIPELINE_WORKTREE:
+        branch = in_repo_default_branch(inst)
+        head = _git(["rev-parse", "--verify", "-q", "HEAD"], inst.root)
+        return (
+            PlanningHead(branch=branch, head=head.stdout.strip()) if head.returncode == 0 else None
+        )
     branch = default_branch_of(inst.root)
     head = _git(["rev-parse", "--verify", "-q", branch], inst.root)
     return PlanningHead(branch=branch, head=head.stdout.strip()) if head.returncode == 0 else None
@@ -425,15 +454,32 @@ def restore_default_branch(inst: Installation, branch: str) -> bool:
 def settle_planning(inst: Installation, before: PlanningHead, project: Project, name: str) -> bool:
     """After a phase: the planning repo back on its default branch, which must
     not have been rewritten, then the phase's files committed and pushed.
-    False stops the run."""
-    if not restore_default_branch(inst, before.branch):
-        return False
-    ancestor = _git(["merge-base", "--is-ancestor", before.head, before.branch], inst.root)
+    False stops the run. In a pipeline worktree HEAD is detached: it must
+    still contain the recorded head, and a branch the phase left it on is kept
+    while HEAD goes back to the recorded head."""
+    worktree = planning_mode(inst) == PlanningMode.PIPELINE_WORKTREE
+    if worktree:
+        tip = "HEAD"
+    else:
+        tip = before.branch
+        if not restore_default_branch(inst, before.branch):
+            return False
+    ancestor = _git(["merge-base", "--is-ancestor", before.head, tip], inst.root)
     if ancestor.returncode != 0:
+        if worktree:
+            on = current_branch(inst.root)
+            log(
+                f"FATAL: HEAD in the planning worktree{f' (on {on})' if on else ''} no longer "
+                f"contains {before.head[:10]} after the {name} phase — committing nothing; "
+                "stopping the run"
+            )
+            return False
         log(
             f"FATAL: {before.branch} in the planning repo was rewritten during the {name} "
             f"phase (it was {before.head[:10]}) — committing nothing; stopping the run"
         )
+        return False
+    if worktree and not detach_at(inst.root, before.head, log):
         return False
     changes = _vet_proposed_change(inst, project) if name == "propose" else []
     commit_bookkeeping(inst, before.branch, project, name, changes)
@@ -518,14 +564,27 @@ def commit_bookkeeping(
         return
     if _git(["remote", "get-url", "origin"], inst.root).returncode != 0:
         return
-    push = _git(["push", "origin", branch], inst.root)
+    # A pipeline worktree has no branch of its own to push or pull.
+    detached = planning_mode(inst) == PlanningMode.PIPELINE_WORKTREE
+    refspec = f"HEAD:refs/heads/{branch}" if detached else branch
+    push = _git(["push", "origin", refspec], inst.root)
     if push.returncode != 0:
         # --autostash: the graph page and units.json are routinely dirty, and
         # a rebase refuses to start over unstaged changes.
-        pulled = _git(["pull", "--rebase", "--autostash", "origin", branch], inst.root)
+        if detached:
+            pulled = _git(["fetch", "origin", branch], inst.root)
+            if pulled.returncode == 0:
+                pulled = _git(["rebase", "--autostash", f"refs/remotes/origin/{branch}"], inst.root)
+                if pulled.returncode != 0:
+                    # A conflict leaves HEAD mid-rebase at origin's tip, where a push would
+                    # succeed without the commit; back to the commit, whose push is then
+                    # refused and reported.
+                    _git(["rebase", "--abort"], inst.root)
+        else:
+            pulled = _git(["pull", "--rebase", "--autostash", "origin", branch], inst.root)
         if pulled.returncode != 0:
             log(f"[{project.name}] pulling before the retry failed:\n{pulled.stderr}")
-        push = _git(["push", "origin", branch], inst.root)
+        push = _git(["push", "origin", refspec], inst.root)
     if push.returncode != 0:
         log(
             f"[{project.name}] push of the {name} bookkeeping was rejected twice — the commit "
@@ -808,9 +867,12 @@ def run_track(
         return 0
 
     failed: list[str] = []
+    mode = planning_mode(inst)
     for project in projects:
         log(f"=== {phase} for {project.name} ({project.path}, {project.repo})")
-        if not dry_run and not pull(project.path, project.default_branch):
+        if not dry_run and mode != PlanningMode.SEPARATE and project.name == in_repo_name(inst):
+            log(f"[{project.name}] is the planning repo itself — not pulled")
+        elif not dry_run and not pull(project.path, project.default_branch):
             log(f"[{project.name}] couldn't update to latest {project.default_branch} — skipping")
             failed.append(project.name)
             continue
@@ -818,7 +880,7 @@ def run_track(
         if rc != 0:
             failed.append(project.name)
         if rc == STOPPED:
-            log("the planning repo's default branch was rewritten — stopping the run")
+            log("the planning repo was moved off the recorded head — stopping the run")
             break
     log(
         f"{phase} run complete for {[p.name for p in projects]} — check "
