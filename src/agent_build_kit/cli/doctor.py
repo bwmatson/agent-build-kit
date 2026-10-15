@@ -41,6 +41,7 @@ from agent_build_kit.config import (
     EnvironmentConfig,
     NotificationProvider,
     PolicyMarker,
+    RepoConfig,
     WorkspaceConfig,
 )
 from agent_build_kit.forges.transport import (
@@ -66,7 +67,7 @@ from agent_build_kit.notify.windows import (
 from agent_build_kit.path_patterns import matches
 from agent_build_kit.pipeline.environment import matched_inputs
 from agent_build_kit.pipeline.pending import describe, pending_projects
-from agent_build_kit.pipeline.shell import git_out
+from agent_build_kit.pipeline.shell import git, git_out
 from agent_build_kit.profiles.base import ProfileUnsupported
 from agent_build_kit.redaction import MIN_LENGTH
 from agent_build_kit.redaction import active as active_redactor
@@ -560,6 +561,143 @@ def _verify_env(inst: Installation, run: Run) -> list[Check]:
             continue
         checks.append(_ok(f"verify.env {name}", "resolves"))
     return checks
+
+
+PUBLIC_CONTENT = "public content"
+# The Linux and macOS home roots and a tilde prefix, assembled so that this
+# file does not itself look like a leaked path to the leak test.
+_HOME_ROOTS = ("/" + "home" + "/", "/" + "Users" + "/")
+_HOME_PATH = re.compile(
+    rf"(?<![\w/]){re.escape('~' + '/')}|(?:{'|'.join(map(re.escape, _HOME_ROOTS))})[A-Za-z]"
+)
+_PUBLIC_FIX = (
+    "keep the value in the ignored .env (read through a `from: env-file` entry) or remove the "
+    "entry; if this repository is private, ignore this"
+)
+
+
+def _strings(node: object, key: str = "") -> list[tuple[str, str]]:
+    """Every string in a parsed document with its dotted key path."""
+    if isinstance(node, str):
+        return [(key, node)]
+    if isinstance(node, dict):
+        pairs = [(f"{key}.{name}" if key else str(name), value) for name, value in node.items()]
+    elif isinstance(node, list):
+        pairs = [(f"{key}[{index}]", value) for index, value in enumerate(node)]
+    else:
+        return []
+    return [found for name, value in pairs for found in _strings(value, name)]
+
+
+def _is_tracked(root: Path, name: str) -> bool:
+    return git(root, "ls-files", "--error-unmatch", name, check=False).returncode == 0
+
+
+def _is_ignored(root: Path, name: str) -> bool:
+    return git(root, "check-ignore", "-q", name, check=False).returncode == 0
+
+
+def _committed_facts(inst: Installation, toplevel: Path) -> list[Check]:
+    """What the tracked abk.yaml's own text says that a public repository must
+    not: read straight from the file, offline."""
+    document = yaml.safe_load((inst.root / "abk.yaml").read_text()) or {}
+    home = str(Path.home())
+    under_home = re.compile(rf"(?<![\w/]){re.escape(home)}(?:/|$)") if home.rstrip("/") else None
+    repos = document.get("repos") or {}
+    checks = []
+    for name, entry in repos.items():
+        raw = entry.get("path") if isinstance(entry, dict) else None
+        if raw is None:
+            continue
+        resolved = (inst.root / Path(str(raw)).expanduser()).resolve()
+        if not resolved.is_relative_to(toplevel):
+            checks.append(
+                _warn(
+                    PUBLIC_CONTENT,
+                    f"repos.{name}.path leaves the checkout",
+                    _PUBLIC_FIX,
+                )
+            )
+    for key, value in _strings(document):
+        if _HOME_PATH.search(value) or (under_home and under_home.search(value)):
+            checks.append(_warn(PUBLIC_CONTENT, f"{key} holds a home-directory path", _PUBLIC_FIX))
+    origin = git(inst.root, "remote", "get-url", "origin", check=False)
+    named = forges.identify(origin.stdout.strip()) if origin.returncode == 0 else None
+    if named is not None:
+        for name, entry in repos.items():
+            try:
+                repo = RepoConfig.model_validate(entry)
+                account = forges.get(repo.forge).identity(repo).account
+            except (ValueError, KeyError):
+                continue
+            if str(repo.path) == ".":
+                continue
+            if account.lower() != named.account.lower():
+                checks.append(
+                    _warn(
+                        PUBLIC_CONTENT,
+                        f"repos.{name} is owned by another account than the origin",
+                        _PUBLIC_FIX,
+                    )
+                )
+    return checks
+
+
+def _local_files(inst: Installation, toplevel: Path) -> list[Check]:
+    """The local scrub list and the redaction copies: never committed."""
+    root = inst.root
+    checks = []
+    if (root / "scrub.local").exists():
+        if _is_tracked(root, "scrub.local"):
+            checks.append(
+                _warn(
+                    PUBLIC_CONTENT,
+                    "scrub.local is tracked",
+                    "git rm --cached scrub.local, and add `scrub.local` to .gitignore",
+                )
+            )
+        elif not _is_ignored(root, "scrub.local"):
+            checks.append(
+                _warn(
+                    PUBLIC_CONTENT,
+                    "scrub.local is not ignored",
+                    "add `scrub.local` to .gitignore",
+                )
+            )
+    found = {*root.glob("*.pre-redact"), *inst.state_dir.rglob("*.pre-redact")}
+    # A copy outside the repository cannot be committed to it.
+    for copy in sorted(c for c in found if c.resolve().is_relative_to(toplevel)):
+        name = copy.resolve().relative_to(toplevel).as_posix()
+        if _is_tracked(toplevel, name):
+            checks.append(
+                _warn(
+                    PUBLIC_CONTENT,
+                    f"{name} is tracked",
+                    f"git rm --cached {name}, and add `*.pre-redact` to .gitignore",
+                )
+            )
+        elif not _is_ignored(toplevel, name):
+            checks.append(
+                _warn(PUBLIC_CONTENT, f"{name} is not ignored", "add `*.pre-redact` to .gitignore")
+            )
+    return checks
+
+
+def _public_content(inst: Installation) -> list[Check]:
+    """Facts that must not reach a public repository, found without a network
+    call: the committed abk.yaml's own text, and files that must stay ignored."""
+    top = git(inst.root, "rev-parse", "--show-toplevel", check=False)
+    if top.returncode:
+        return [_ok(PUBLIC_CONTENT, "not a git repository")]
+    toplevel = Path(top.stdout.strip()).resolve()
+    checks = []
+    tracked = _is_tracked(inst.root, "abk.yaml")
+    if tracked:
+        checks += _committed_facts(inst, toplevel)
+    checks += _local_files(inst, toplevel)
+    if checks:
+        return checks
+    return [_ok(PUBLIC_CONTENT, "nothing found" if tracked else "abk.yaml is not tracked")]
 
 
 def _missing_inputs(environment: EnvironmentConfig, root: Path) -> list[str]:
@@ -1182,6 +1320,7 @@ def run_doctor(
     checks += _notifications(inst, run, which)
     checks += _ssh_keys(inst)
     checks += _verify_env(inst, run)
+    checks += _public_content(inst)
     checks += _weak_secrets()
     checks += _environment(inst, run)
     checks.append(_rules_drift(inst))
