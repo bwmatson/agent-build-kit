@@ -34,9 +34,9 @@ def test_a_configured_specs_directory_is_where_the_change_is_named_and_the_defau
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     configured = runner_in(tmp_path / "configured", monkeypatch, specs_dir="specs")
-    default = runner_in(tmp_path / "default", monkeypatch)
-
     assert configured.change_dir("feature") == f"{tmp_path / 'configured'}/specs/changes/feature"
+
+    default = runner_in(tmp_path / "default", monkeypatch)
     assert default.change_dir("feature") == f"{tmp_path / 'default'}/openspec/changes/feature"
 
 

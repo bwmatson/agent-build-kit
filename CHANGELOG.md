@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The runner's change directory and follow-ups, and `abk init`'s check for an existing
+  change, now use `planning.specs_dir` instead of a fixed `openspec`, so a specs directory
+  with another name works. This repository's hooks skip the state directory, and its CI
+  runs the test and integration jobs only when something outside the planning paths
+  changed.
+
 - A unit can be recorded merged with the cause `auto_landed`, for a merge the pipeline makes
   itself, and goes through the same restack and cleanup as a person's merge. A merged event
   for a unit already recorded merged now changes nothing, whichever report came first.

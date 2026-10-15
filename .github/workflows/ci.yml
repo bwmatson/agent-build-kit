@@ -6,6 +6,23 @@ on:
     branches: [main]
 
 jobs:
+  scope:
+    # Decides from the changed paths whether anything outside the planning
+    # paths changed. A skipped job satisfies a required check, which a
+    # workflow-level path filter would leave pending.
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.scope.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: scope
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: python3 scripts/ci_scope.py "$BASE" "$HEAD" >> "$GITHUB_OUTPUT"
+
   pre-commit:
     # One zero-tolerance gate: ruff, ruff-format, pyrefly, yamllint. See
     # .pre-commit-config.yaml for what runs.
@@ -27,6 +44,8 @@ jobs:
         run: uv run pre-commit run --all-files --show-diff-on-failure
 
   test:
+    needs: scope
+    if: needs.scope.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,6 +59,8 @@ jobs:
         run: uv run --group dev poe test
 
   integration:
+    needs: scope
+    if: needs.scope.outputs.code == 'true'
     # The tests that run the real OpenSpec CLI through npx (pinned in
     # settings.py), so node is needed.
     runs-on: ubuntu-latest
