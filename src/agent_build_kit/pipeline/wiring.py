@@ -2430,7 +2430,6 @@ class Tier2Session:
         if self._only is not None or not self._blocked:
             return [], scope
         parked: list[str] = []
-        parked_ids: set[str] = set()
         for name in sorted(self._blocked):
             expression = tier2_selection(self._marker, [], only=name).expression
             found: list[str] | None = []
@@ -2445,34 +2444,59 @@ class Tier2Session:
                 self._log(f"tier 2 parked {name}: its tests could not be listed")
             if found is None or found:
                 parked.append(name)
-                parked_ids.update(found or [])
-        if scope.mode is Tier2UnitScope.OWN and scope.ids and parked_ids >= set(scope.ids):
-            scope = scope.model_copy(
-                update={"runs": [], "reason": f"tier 2 runs nothing: {', '.join(parked)} parked"}
-            )
+        if scope.mode is Tier2UnitScope.OWN and parked:
+            # What is left to run is what the run's own selection holds in each command; a
+            # listing that fails keeps its command, since it does not say the command is empty.
+            expression = self._selection().expression
+            kept = [
+                run
+                for run in scope.runs
+                if any(
+                    (ids := self._lister(toolchains[run.where], run.where)(command, expression))
+                    is None
+                    or ids
+                    for command in run.commands
+                )
+            ]
+            if not kept:
+                scope = scope.model_copy(
+                    update={
+                        "runs": [],
+                        "reason": f"tier 2 runs nothing: {', '.join(parked)} parked",
+                    }
+                )
         return parked, scope
 
     def _groups(
         self,
         failures: list[TestFailure],
         named_by: Mapping[str, tuple[Path, ToolchainProfile, list[str]]],
+        cwd: Path,
     ) -> list[TestFailure]:
-        """`failures` each with its runtime group, found by listing the failed test under each
-        runtime's tag; `unknown` where no listing could say."""
+        """`failures` each with its runtime group, found by one listing of a command's failed
+        tests under each runtime's tag; `unknown` where a listing could not say."""
         known = sorted(known_runtime_names(active().runtimes))
+        by_command: dict[tuple[Path, tuple[str, ...]], list[str]] = {}
+        for test, (where, _, command) in named_by.items():
+            by_command.setdefault((where, tuple(command)), []).append(test)
         groups: dict[str, str] = {}
-        for test, (where, toolchain, command) in named_by.items():
-            lister = self._lister(toolchain, where)
+        for (where, command), tests in by_command.items():
+            lister = self._lister(named_by[tests[0]][1], where)
+            # The listing runs from the project, so it names a test without the project.
+            prefix = f"{where.relative_to(cwd).as_posix()}/" if where != cwd else ""
+            bare = {test: test.removeprefix(prefix) for test in tests}
             sure = True
             for name in known:
-                ids = lister(command, f"{self._marker} and {RUNTIME_TAG_PREFIX}{name}", [test])
+                expression = f"{self._marker} and {RUNTIME_TAG_PREFIX}{name}"
+                ids = lister(list(command), expression, list(bare.values()))
                 if ids is None:
                     sure = False
-                elif test in ids:
-                    groups[test] = name
-                    break
-            else:
-                groups[test] = BASE_GROUP if sure else UNKNOWN_GROUP
+                    continue
+                for test, short in bare.items():
+                    if short in ids:
+                        groups.setdefault(test, name)
+            for test in tests:
+                groups.setdefault(test, BASE_GROUP if sure else UNKNOWN_GROUP)
         return [f.model_copy(update={"group": groups.get(f.test, UNKNOWN_GROUP)}) for f in failures]
 
     def run(self, *, cwd: Path, base: str | None = None) -> tuple[bool, str]:
@@ -2603,7 +2627,7 @@ class Tier2Session:
                     test = labelled(project, found.test)
                     failures.append(TestFailure(test=test, line=found.line))
                     named_by[test] = (at, toolchain, ran)
-            failures = self._groups(failures, named_by)
+            failures = self._groups(failures, named_by, cwd)
             # A test id is output too, and is redacted as the failures' ids are before it is
             # posted, stored or recorded.
             ids = redact_leaves([e.test for e in timed], where="tier-2 output")

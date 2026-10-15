@@ -8,7 +8,7 @@ import subprocess
 from collections.abc import Collection
 from pathlib import Path
 
-from agent_build_kit.config import Tier2UnitScope
+from agent_build_kit.config import ProjectConfig, Tier2UnitScope, known_runtime_names
 from agent_build_kit.pipeline.tier2 import (
     STATUS_CONTEXT,
     UNKNOWN_GROUP,
@@ -59,11 +59,19 @@ def selected(expression: str, among: list[str]) -> list[str]:
 class Groups(Ran):
     """A pytest-shaped runner over the fixture repository: it lists what a command's `-m`
     expression selects when asked to collect, and otherwise runs it, the tests named in
-    `failing` failing. `cannot_list` makes every listing fail."""
+    `failing` failing. `cannot_list` makes every listing fail, and a listing names the tests
+    of `parametrized` once per parameter, as pytest does."""
 
-    def __init__(self, *, failing: Collection[str] = (), cannot_list: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        failing: Collection[str] = (),
+        cannot_list: bool = False,
+        parametrized: Collection[str] = (),
+    ) -> None:
         super().__init__()
         self.failing, self.cannot_list = set(failing), cannot_list
+        self.parametrized = set(parametrized)
 
     def __call__(self, command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
         self.calls.append((command, Path(str(kwargs["cwd"]))))
@@ -71,8 +79,13 @@ class Groups(Ran):
         if "--collect-only" in command:
             if self.cannot_list:
                 return subprocess.CompletedProcess(command, 2, "", "collection failed")
+            names = [
+                f"{test}[{p}]" if test in self.parametrized else test
+                for test in chosen
+                for p in (("a", "b") if test in self.parametrized else ("",))
+            ]
             return subprocess.CompletedProcess(
-                command, 0 if chosen else 5, "".join(f"{test}\n" for test in chosen), ""
+                command, 0 if chosen else 5, "".join(f"{name}\n" for name in names), ""
             )
         failed = {test: "assert False" for test in chosen if test in self.failing}
         passed = tuple(test for test in chosen if test not in failed)
@@ -156,7 +169,8 @@ def test_under_own_scope_the_listing_is_narrowed_to_the_units_own_tests(tmp_path
 
     assert gate.result is not None
     assert gate.result.parked == ["acp"]
-    [listing] = ran.listings
+    acp_expression = tier2_selection(MARKER, [], only="acp").expression
+    [listing] = [c for c in ran.listings if expression_of(c) == acp_expression]
     assert ACP in listing
     assert CLAUDE not in listing
 
@@ -227,6 +241,38 @@ def test_a_parked_group_with_nothing_else_to_run_runs_no_command_and_takes_no_lo
     assert gate.result.parked == ["acp"]
 
 
+def test_a_parametrized_parked_test_is_still_nothing_else_to_run(tmp_path: Path) -> None:
+    repo, base = only_acp_changed(tmp_path)
+    ran = Groups(parametrized=[ACP])
+    gate = session(tmp_path, ran, blocked=["acp"], timeout=0.1)
+
+    with stack_lock(gate.lock, timeout=1, holder="another/1"):
+        gate.run(cwd=repo, base=base)
+
+    assert ran.runs == []
+    assert gate.result is not None
+    assert gate.result.parked == ["acp"]
+
+
+def test_a_parked_test_in_a_project_is_still_nothing_else_to_run(tmp_path: Path) -> None:
+    repo, base = branch(
+        tmp_path,
+        {"api/tests/live/test_acp.py": EDITED.format(name="acp")},
+        base_files={f"api/{name}": text for name, text in FILES.items()},
+    )
+    ran = Groups()
+    gate = session(
+        tmp_path, ran, blocked=["acp"], timeout=0.1, projects=[ProjectConfig(path="api")]
+    )
+
+    with stack_lock(gate.lock, timeout=1, holder="another/1"):
+        gate.run(cwd=repo, base=base)
+
+    assert ran.runs == []
+    assert gate.result is not None
+    assert gate.result.parked == ["acp"]
+
+
 def test_a_listing_that_fails_parks_the_group_and_says_why(tmp_path: Path) -> None:
     log: list[str] = []
     gate, repo, base = whole_run(tmp_path, Groups(cannot_list=True), blocked=["acp"], log=log)
@@ -254,6 +300,33 @@ def test_each_failed_test_carries_the_group_found_by_listing_it_under_each_tag(
     assert {f.test: f.group for f in gate.result.failures} == {
         PLAIN: "base",
         CLAUDE: "claude_code",
+    }
+
+
+def test_the_failures_of_one_command_are_listed_once_per_runtime(tmp_path: Path) -> None:
+    ran = Groups(failing=[PLAIN, CLAUDE])
+    gate, repo, base = whole_run(tmp_path, ran)
+
+    gate.run(cwd=repo, base=base)
+
+    assert len(ran.listings) == len(known_runtime_names())
+
+
+def test_a_failure_in_a_project_is_attributed_to_its_group(tmp_path: Path) -> None:
+    repo, base = branch(
+        tmp_path,
+        {"src/app.py": "x = 1\n"},
+        base_files={f"api/{name}": text for name, text in FILES.items()},
+    )
+    ran = Groups(failing=[PLAIN, CLAUDE])
+    gate = session(tmp_path, ran, scope=Tier2UnitScope.FULL, projects=[ProjectConfig(path="api")])
+
+    gate.run(cwd=repo, base=base)
+
+    assert gate.result is not None
+    assert {f.test: f.group for f in gate.result.failures} == {
+        f"api/{PLAIN}": "base",
+        f"api/{CLAUDE}": "claude_code",
     }
 
 

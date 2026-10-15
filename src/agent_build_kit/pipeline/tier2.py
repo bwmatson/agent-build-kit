@@ -468,7 +468,7 @@ def post_status(forge: Forge, repo: RepoId, result: Tier2Result, head: str = "")
     none.
     """
     description = (
-        f"parked, not run: {', '.join(result.parked)}"
+        f"{result.failed} failed, parked, not run: {', '.join(result.parked)}"
         if result.parked
         else NO_TEST_RAN
         if result.ran_no_tests

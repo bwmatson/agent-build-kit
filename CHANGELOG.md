@@ -22,14 +22,6 @@
   list plus the unexpired entries of `tier2-blocked.json` in the state directory, except
   that a runtime the configuration allows is never blocked and one it blocks always is.
 
-- A tier 2 run now leaves a blocked runtime's tests out and says what it did not run: the
-  blocked runtimes that hold a test the run would have executed are listed as parked on its
-  result, the snapshot and status description name them and never call the run a complete
-  pass, and a run with nothing else to run takes no lock. Each failed test is attributed to
-  its runtime group (`base`, a runtime, or unknown, which is the unit's own). A repo whose
-  tier 2 runs through its dev stack script runs whole and the log says it cannot leave the
-  runtime out.
-
 - `abk scrub-check` no longer flags the planning root's own name when it scans the planning
   root itself, and finds more of what identifies an installation: literal values and
   provider files in `verify.env`, the home user name, and the dot-directories configured
