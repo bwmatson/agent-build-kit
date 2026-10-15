@@ -508,11 +508,18 @@ def _load_cache(path: Path) -> dict:
         cached = json.loads(path.read_text())
     except (OSError, ValueError):
         return {}
-    return cached if isinstance(cached, dict) else {}
+    if not isinstance(cached, dict) or cached.get("account") != claude_account.account_key():
+        # A reading, cool-down or fallback of another account (or of none while one is in use,
+        # or of one while none is) is never served; the next write replaces it.
+        return {}
+    return cached
 
 
 def _write_cache(path: Path, body: dict) -> None:
-    """Write the cache file whole: a reader outside the lock never sees half of it."""
+    """Write the cache file whole: a reader outside the lock never sees half of it. The
+    account is recorded only when one is set."""
+    if (account := claude_account.account_key()) is not None:
+        body = {**body, "account": account}
     atomic_write_text(path, json.dumps(body, indent=2))
 
 
@@ -631,6 +638,7 @@ def read_live_usage(
                 record_call(
                     calls_file,
                     UsageCall(
+                        account=claude_account.account_key(),
                         at=asked,
                         caller=caller,
                         outcome=outcome,
@@ -710,6 +718,7 @@ def read_live_usage(
         record_call(
             calls_file,
             UsageCall(
+                account=claude_account.account_key(),
                 at=now,
                 caller=caller,
                 outcome="cache",
@@ -1299,6 +1308,7 @@ def decide_start(
         record_call(
             calls_file,
             UsageCall(
+                account=claude_account.account_key(),
                 at=now,
                 caller=_caller.get(),
                 outcome=CLAUDE_JSON,
@@ -1313,6 +1323,7 @@ def decide_start(
             record_call(
                 calls_file,
                 UsageCall(
+                    account=claude_account.account_key(),
                     at=now,
                     caller=_caller.get(),
                     outcome=CACHE,

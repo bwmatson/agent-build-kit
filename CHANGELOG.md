@@ -33,8 +33,11 @@
   `ABK_CLAUDE_HOME` (in the process environment or the installation's `.env`) to an absolute
   directory, and every `claude` abk starts, including the login refresh, runs in it. The
   sessions page lists and resumes sessions from that directory. The usage guard reads that
-  account's login and its own usage cache too, never the default account's. With neither set
-  nothing changes.
+  account's login and its own usage cache too, never the default account's. A kept usage
+  reading belongs to its account and is discarded under another, the allowance calibration
+  restarts when the account changes, `abk status` names the account in its usage line, and a
+  stored session the new account cannot find runs afresh with a line naming the account. With
+  neither set nothing changes.
 
 - A builder on a python-uv repo can now run `uv lock`, `uv sync`, `uv add` and `uv remove`,
   so a unit that changes dependencies no longer stops on a denied command. Commands that

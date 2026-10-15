@@ -40,6 +40,7 @@ class UsageCall(Frozen):
     age_seconds: int | None = None  # a cached reading's age
     session_pct: int | None = None  # the percentages an answered call read
     weekly_pct: int | None = None
+    account: str | None = None  # the account directory in use; None for the default
 
 
 class Refusal(Frozen):

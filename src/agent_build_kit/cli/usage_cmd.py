@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 from datetime import UTC, datetime, timedelta
 
+from agent_build_kit import claude_account
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.usage_allowances import (
     WINDOWS,
@@ -16,6 +17,7 @@ from agent_build_kit.pipeline.usage_allowances import (
     calibrate_pairs,
     calibrated_allowances,
     pairs,
+    since_last_change,
 )
 from agent_build_kit.pipeline.usage_calls import CALLS_NAME, read_calls
 from agent_build_kit.pipeline.usage_guard import WindowEstimate, claude_limits
@@ -46,7 +48,8 @@ def _points(value: str) -> int:
 def cmd_usage_replay(args: argparse.Namespace, inst: Installation) -> int:
     """Re-run the estimate over each usable gap of the record; writes and asks nothing."""
     limits = claude_limits()
-    calls = read_calls(inst.state_dir / CALLS_NAME)
+    # Only the readings after the last change of account, as the calibration pairs them.
+    calls = since_last_change(read_calls(inst.state_dir / CALLS_NAME), claude_account.account_key())
     ledger = read_ledger(inst.state_dir / LEDGER_NAME)
     margin = limits.usage_headroom_margin_pct if args.margin is None else args.margin
     min_gap = timedelta(minutes=limits.usage_cache_minutes)
