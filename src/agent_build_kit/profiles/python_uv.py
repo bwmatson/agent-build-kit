@@ -464,7 +464,11 @@ class PythonUvProfile:
     selector_kinds: tuple[str, ...] = ("marker",)
 
     def expression(self, marker: str, selection: Tier2Selection) -> str:
-        """The `-m` text of `selection` over `marker`."""
+        """The `-m` text of `selection` over `marker`; a ValueError for an empty selection,
+        which would otherwise read as every tier 2 test."""
+        if selection.empty:
+            held = ", ".join(selection.left_out)
+            raise ValueError(f"every split is held ({held}): nothing to run")
         parts = [marker, *(f"not {tag}" for tag in selection.none_of)]
         if len(selection.any_of) == 1:
             parts.append(selection.any_of[0])
@@ -480,20 +484,9 @@ class PythonUvProfile:
         run: Callable[..., subprocess.CompletedProcess],
         among: list[str] | None = None,
     ) -> list[str] | None:
-        """The identifiers `command` runs under `selection`, listed without running them."""
-        text = self.expression(selection.marker, selection)
-        return self.selected_tests(command, text, run=run, among=among)
-
-    def selected_tests(
-        self,
-        command: list[str],
-        expression: str,
-        *,
-        run: Callable[..., subprocess.CompletedProcess],
-        among: list[str] | None = None,
-    ) -> list[str] | None:
-        """The identifiers `command` runs under `expression`, listed with pytest's
-        collection, as paths from the repository root."""
+        """The identifiers `command` runs under `selection`, listed with pytest's collection,
+        as paths from the repository root."""
+        expression = self.expression(selection.marker, selection)
         program = _pytest_program(command)
         if program is None:
             return None

@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from agent_build_kit.config import Tier2Split
 from agent_build_kit.pipeline.tier2 import build_selection, selection_unavailable
 from agent_build_kit.profiles import node_npm
@@ -42,6 +44,35 @@ def test_expression_renders_each_selection_as_the_same_m_text() -> None:
         == "local_stack and not runtime_acp and not runtime_claude_code"
     )
     assert expression(held=["rest"]) == "local_stack and (runtime_acp or runtime_claude_code)"
+
+
+def test_an_empty_selection_has_no_expression_and_the_error_names_the_held_splits() -> None:
+    held = selection(held=["acp", "claude_code", "rest"])
+
+    with pytest.raises(ValueError, match="acp, claude_code, rest"):
+        PROFILE.expression("local_stack", held)
+
+
+def test_an_empty_selection_cannot_be_listed() -> None:
+    held = selection(held=["acp", "claude_code", "rest"])
+    run = Runner("")
+
+    with pytest.raises(ValueError, match="acp"):
+        PROFILE.list_tests(["uv", "run", "pytest"], held, run=run)
+
+    assert run.commands == []
+
+
+def test_a_plain_command_with_no_marker_reruns_without_workers_or_paths() -> None:
+    command = ["uv", "run", "pytest", "-n", "auto", "tests/"]
+
+    assert PROFILE.serial_rerun_command(command, ["tests/test_a.py::test_a"]) == [
+        "uv",
+        "run",
+        "pytest",
+        "tests/test_a.py::test_a",
+        "-q",
+    ]
 
 
 def flat_repo(root: Path) -> Path:
@@ -245,6 +276,12 @@ def test_a_selector_kind_the_profile_lacks_names_the_kinds_it_supports() -> None
     class Globs:
         name = "globs"
         selector_kinds = ("path",)
+
+        def expression(self, marker: str, selection: Any) -> str:
+            return marker
+
+        def list_tests(self, command: list[str], selection: Any, **_: Any) -> list[str] | None:
+            return None
 
     reason = selection_unavailable(Globs(), dev_stack_script=False, splits=WITH_ACP)
 

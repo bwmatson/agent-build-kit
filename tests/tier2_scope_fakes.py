@@ -8,7 +8,13 @@ from collections.abc import Callable, Collection
 from pathlib import Path
 from typing import Any
 
-from agent_build_kit.config import ProjectConfig, Tier2UnitScope
+from agent_build_kit.config import (
+    REST_SPLIT,
+    ProjectConfig,
+    Tier2Split,
+    Tier2UnitScope,
+    known_runtime_names,
+)
 from agent_build_kit.pipeline.units import Unit
 from agent_build_kit.pipeline.wiring import Tier2Session
 from agent_build_kit.profiles.python_uv import PROFILE
@@ -21,6 +27,11 @@ PASSED = "=" * 20 + " 2 passed in 0.10s " + "=" * 20 + "\n"
 NOTHING = "=" * 20 + " 3 deselected in 0.10s " + "=" * 20 + "\n"
 # The command tier 2 runs for a repo with no members, before any narrowing.
 WHOLE = PROFILE.tier2_commands(Path("."), marker="local_stack")[0]
+# A split for each runtime the kit knows, tagged `runtime_<name>`, and `rest`.
+KIT_SPLITS = (
+    *(Tier2Split(name=name, marker=f"runtime_{name}") for name in sorted(known_runtime_names())),
+    Tier2Split(name=REST_SPLIT),
+)
 
 
 def branch(
@@ -81,6 +92,7 @@ def session(
     subject: Unit | None = None,
     blocked: Collection[str] = (),
     only: str | None = None,
+    splits: Collection[Tier2Split] = KIT_SPLITS,
 ) -> Tier2Session:
     lines = log if log is not None else []
     return Tier2Session(
@@ -96,4 +108,5 @@ def session(
         profile=profile,
         blocked=blocked,
         only=only,
+        splits=splits,
     )
