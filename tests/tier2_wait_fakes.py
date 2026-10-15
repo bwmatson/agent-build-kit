@@ -17,8 +17,8 @@ OWN_OUTPUT = "OWN-OUTPUT-MARK the unit's own test fails"
 COMMAND = "uv run pytest -m local_stack -v"
 
 
-def failure(test: str) -> TestFailure:
-    return TestFailure(test=test, line="assert in " + test.rpartition("::")[2])
+def failure(test: str, group: str = "") -> TestFailure:
+    return TestFailure(test=test, line="assert in " + test.rpartition("::")[2], group=group)
 
 
 def snapshot_of(*tests: str, tail: str = "") -> str:
@@ -39,12 +39,16 @@ def snapshot_of(*tests: str, tail: str = "") -> str:
 
 
 def verdict_of(
-    *, own: tuple[str, ...] = (), broken: tuple[str, ...] = (), old: tuple[str, ...] = ()
+    *,
+    own: tuple[str, ...] = (),
+    broken: tuple[str, ...] = (),
+    old: tuple[str, ...] = (),
+    group: str = "",
 ) -> Tier2Verdict:
     return Tier2Verdict(
         own=[failure(t) for t in own],
         broken=[failure(t) for t in broken],
-        pre_existing=[failure(t) for t in old],
+        pre_existing=[failure(t, group) for t in old],
         command=COMMAND,
         base_output="\n".join("FAILED " + t + " - " + failure(t).line for t in old),
     )

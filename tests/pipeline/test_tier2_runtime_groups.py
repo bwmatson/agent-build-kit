@@ -393,3 +393,34 @@ def test_a_run_limited_to_the_base_group_leaves_every_runtime_out(tmp_path: Path
 
     [command] = ran.runs
     assert expression_of(command) == tier2_selection(MARKER, [], only="base").expression
+
+
+# --- the groups a run executes, which the open-fix gate asks -----------------------------
+
+
+def test_the_groups_a_run_executes_leave_out_the_blocked_runtimes(tmp_path: Path) -> None:
+    gate = session(tmp_path, Groups(), scope=Tier2UnitScope.FULL, blocked=["acp"])
+
+    groups = gate.runtimes()
+
+    assert groups[0] == "base"
+    assert "acp" not in groups
+    assert set(groups[1:]) == known_runtime_names() - {"acp"}
+
+
+def test_the_groups_a_run_executes_are_every_one_when_nothing_is_blocked(tmp_path: Path) -> None:
+    gate = session(tmp_path, Groups(), scope=Tier2UnitScope.FULL)
+
+    groups = gate.runtimes()
+
+    assert groups[0] == "base"
+    assert set(groups[1:]) == known_runtime_names()
+    assert "acp" in groups
+
+
+def test_a_run_limited_to_one_group_executes_only_that_group(tmp_path: Path) -> None:
+    only_acp = session(tmp_path, Groups(), scope=Tier2UnitScope.FULL, only="acp")
+    only_base = session(tmp_path, Groups(), scope=Tier2UnitScope.FULL, only="base")
+
+    assert only_acp.runtimes() == ("acp",)
+    assert only_base.runtimes() == ("base",)

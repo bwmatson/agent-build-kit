@@ -34,6 +34,11 @@
   list plus the unexpired entries of `tier2-blocked.json` in the state directory, except
   that a runtime the configuration allows is never blocked and one it blocks always is.
 
+- A tier 2 failure that also fails on the base is now recorded with the runtime it belongs
+  to (`base` for older entries), and the fix change says so. An open fix holds a full run
+  only when the run executes that runtime, so a blocked or other-runtime run is not held
+  by it. A failure whose runtime is unknown, or a blocked runtime's, is never recorded.
+
 - `abk scrub-check` no longer flags the planning root's own name when it scans the planning
   root itself, and finds more of what identifies an installation: literal values and
   provider files in `verify.env`, the home user name, and the dot-directories configured

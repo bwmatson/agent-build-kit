@@ -121,6 +121,7 @@ from agent_build_kit.pipeline.tier2 import (
 from agent_build_kit.pipeline.tier2 import (
     post_status as tier2_post_status,
 )
+from agent_build_kit.pipeline.tier2_blocks import blocked_runtimes
 from agent_build_kit.pipeline.tier2_schedule import is_scheduled
 from agent_build_kit.pipeline.tier2_times import record_test_times, with_split
 from agent_build_kit.pipeline.transcript import Transcript, transcript_dir
@@ -1443,6 +1444,17 @@ def build_on_preexisting(
     def on_preexisting(
         unit: Unit, verdict: Tier2Verdict, failure: TestFailure, *, wait: bool
     ) -> str | None:
+        runtime = failure.group or BASE_GROUP
+        if (
+            runtime == UNKNOWN_GROUP
+            or runtime
+            in blocked_runtimes(
+                installation.config, installation.state_dir, now=datetime.now(UTC)
+            ).blocked
+        ):
+            # A failure whose runtime is unknown is the unit's own, and a blocked
+            # runtime's failure is nobody's bug: neither is recorded or fixed.
+            return None
         met = PreExisting(
             test=failure.test,
             unit=unit.id,
@@ -1450,6 +1462,7 @@ def build_on_preexisting(
             line=failure.line,
             at=datetime.now(UTC),
             base_output=verdict.base_output,
+            runtime=runtime,
         )
         fix = wait_on_preexisting(installation, met, store.get(unit.id), wait=wait, say=log)
         preexisting_record(installation).append(met.model_copy(update={"change": fix or ""}))
@@ -1476,13 +1489,13 @@ def build_on_tier2_gate(
 ) -> Callable[..., list[str]]:
     """Give a unit about to run a full tier 2 run a `Needs:` line on each open fix change
     of a recorded base failure that holds it, and answer those changes (none: nothing
-    holds it). Writes no change."""
+    holds it). `runtimes` are the groups the run executes (None: all). Writes no change."""
 
-    def on_tier2_gate(unit: Unit) -> list[str]:
+    def on_tier2_gate(unit: Unit, runtimes: Collection[str] | None = None) -> list[str]:
         stored = store.get(unit.id)
         held = [
             wait_on_preexisting(installation, entry, stored, wait=True, say=log)
-            for entry in holding_fixes(installation, stored, store.all())
+            for entry in holding_fixes(installation, stored, store.all(), runtimes=runtimes)
         ]
         fixes = [fix for fix in held if fix]
         for fix in fixes:
@@ -2395,6 +2408,15 @@ class Tier2Session:
             marker=self._selection().expression,
             dev_stack=str(self._dev_stack) if self._dev_stack else None,
         )
+
+    def runtimes(self) -> tuple[str, ...]:
+        """The groups this run executes: the group it runs alone, or the base and every
+        known runtime it does not leave out."""
+        if self._only is not None:
+            return (self._only,)
+        left_out = set(self._selection().left_out)
+        known = sorted(known_runtime_names(active().runtimes) - left_out)
+        return (BASE_GROUP, *known)
 
     def _selection(self) -> Tier2Selection:
         """The marker expression this run executes: the marker alone when nothing is left out
@@ -3477,6 +3499,7 @@ def build_runner(
         tier2_runs_whole=lambda *, cwd, base: (
             tier2.scope(cwd=cwd, base=base).mode is Tier2UnitScope.FULL
         ),
+        tier2_runtimes=lambda: tier2.runtimes(),
         on_tier2_gate=build_on_tier2_gate(store, installation, log=log),
         push=push_in_turn,
         open_pr=build_open_pr(store=store, log=log),

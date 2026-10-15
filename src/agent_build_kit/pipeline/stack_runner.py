@@ -1392,7 +1392,9 @@ class UnitRunner(BaseModel):
     # Told the unit before a full tier 2 run: gives it a `Needs:` line on each open fix
     # change of a base failure that holds it and answers those changes, none when nothing
     # does. See `wiring.build_on_tier2_gate`.
-    on_tier2_gate: Callable[..., list[str]] = lambda unit: []
+    on_tier2_gate: Callable[..., list[str]] = lambda unit, runtimes=None: []
+    # The groups (`base` and runtimes) the tier 2 run executes, which the gate asks; None: all.
+    tier2_runtimes: Callable[[], tuple[str, ...] | None] = lambda: None
     push: Callable[..., str]
     open_pr: Callable[..., int]
     post_status: Callable[[str, bool], None]

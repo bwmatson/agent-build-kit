@@ -54,9 +54,9 @@ class Gate:
         self.inner = inner
         self.asked: list[str] = []
 
-    def __call__(self, unit: Any) -> list[str]:
+    def __call__(self, unit: Any, runtimes: Any = None) -> list[str]:
         self.asked.append(unit.id)
-        return self.inner(unit)
+        return self.inner(unit, runtimes=runtimes)
 
 
 class Planning:
@@ -91,16 +91,18 @@ class Planning:
         met_by: str = "feature/1",
         repo: str = "app",
         with_unit: bool = True,
+        group: str = "",
     ) -> str:
         """Record `test` as failing on the base, met by `met_by` of `repo`, and write its
         fix change through the code that records a failure (a unit that does not wait).
-        The fix change gets its unit in the store when `with_unit`."""
+        The fix change gets its unit in the store when `with_unit`. `group` is the runtime
+        group the failing test belongs to."""
         change = met_by.split("/")[0]
         if not (self.installation.changes_dir / change).exists():
             self.write_change(change)
         met = stored_unit(met_by, change=change, repo=repo, groups=(1, 2))
         self.store.upsert([met])
-        verdict = verdict_of(old=(test,))
+        verdict = verdict_of(old=(test,), group=group)
         build_on_preexisting(self.store, self.installation, log=lambda m: None)(
             met, verdict, verdict.pre_existing[0], wait=False
         )

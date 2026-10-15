@@ -8,9 +8,10 @@ change exists or would be written.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from datetime import datetime
 
+from agent_build_kit.config import BASE_GROUP
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.failure_record import FailureRecord, Recorded, TestCount
@@ -33,6 +34,7 @@ class PreExisting(Recorded):
     at: datetime
     base_result: str = "failed"
     base_output: str = ""
+    runtime: str = BASE_GROUP
 
 
 PreExistingCount = TestCount
@@ -111,11 +113,16 @@ def feedback_snapshot(snapshot: str, verdict: Tier2Verdict | None) -> str:
 
 
 def holding_fixes(
-    inst: Installation, unit: StoredUnit, units: Sequence[StoredUnit]
+    inst: Installation,
+    unit: StoredUnit,
+    units: Sequence[StoredUnit],
+    *,
+    runtimes: Collection[str] | None = None,
 ) -> list[PreExisting]:
     """The recorded entries whose fix change is open, was recorded for `unit`'s repo
     (by the repo of the unit named in `units`), is not `unit`'s own change and has no
-    `Needs:` line from `unit`: each holds `unit` before a full tier 2 run."""
+    `Needs:` line from `unit`, and whose runtime group is among `runtimes` (None: any), the
+    groups the run executes: each holds `unit` before a full tier 2 run."""
     repo_of = {other.id: other.repo for other in units}
     waits_on = {
         need.change
@@ -128,6 +135,7 @@ def holding_fixes(
     for entry in preexisting_record(inst).latest_with_change().values():
         if (
             repo_of.get(entry.unit) == unit.repo
+            and (runtimes is None or entry.runtime in runtimes)
             and entry.change != unit.change
             and entry.change not in waits_on
             and (inst.changes_dir / entry.change).is_dir()
@@ -177,11 +185,17 @@ def _proposal(inst: Installation, entry: PreExisting, unit: StoredUnit, earlier:
         if earlier
         else ""
     )
+    runtime_line = (
+        f"It belongs to the `{entry.runtime}` runtime's tests.\n\n"
+        if entry.runtime != BASE_GROUP
+        else ""
+    )
     return (
         "## Why\n\n"
         f"`{entry.test}` fails on the base as well as on the branches that meet it, so it fails "
         "units that did not touch it.\n"
         f"{again}\n"
+        f"{runtime_line}"
         f"It ran as `{entry.command}` and failed with `{entry.line}`. "
         f"On the base it {entry.base_result}, with this output:\n\n"
         f"```\n{entry.base_output.strip()}\n```\n\n"

@@ -1712,7 +1712,9 @@ class BuildPath:
         base = state.base or self.base
         self.say("tier 2 again on the moved commit" if state.moved else "tier 2")
         tree = self.tree()
-        if r.tier2_runs_whole(cwd=tree, base=base) and (held := r.on_tier2_gate(unit)):
+        if r.tier2_runs_whole(cwd=tree, base=base) and (
+            held := r.on_tier2_gate(unit, runtimes=r.tier2_runtimes())
+        ):
             return self.park_for_fix(
                 f"waiting for the fix change {', '.join(held)} of a failing test on the base"
             )
@@ -1765,8 +1767,12 @@ class BuildPath:
         ]
         if not wait or not any(fixes):
             return None
+        # Only the tests that got a fix change: one the record refused (an unknown or blocked
+        # runtime) is not waited for.
         return self.park_for_fix(
-            preexisting_waiting_note([failure.test for failure in verdict.pre_existing])
+            preexisting_waiting_note(
+                [f.test for f, fix in zip(verdict.pre_existing, fixes, strict=True) if fix]
+            )
         )
 
     def satisfied(self, state: UnitRun) -> Update:
