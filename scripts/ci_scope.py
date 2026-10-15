@@ -5,6 +5,10 @@ Usage: ci_scope.py BASE HEAD, run in the repository. Prints `code=true` or
 
 The planning paths are the specs, the pipeline's state, the two generated
 documents and `abk.yaml` (the hook job lints that on its own).
+
+This is a second copy of the planning paths the pipeline itself keeps (the specs
+directory, the state directory and the two generated pages); it stays standalone
+because the scope job runs before the environment is synced. Change the two together.
 """
 
 from __future__ import annotations
@@ -22,7 +26,8 @@ def is_planning_path(path: str) -> bool:
 
 def changed_paths(base: str, head: str) -> list[str]:
     done = subprocess.run(
-        ["git", "diff", "--name-only", base, head],
+        # No rename detection: a file moved into a planning path must list its old path too.
+        ["git", "diff", "--name-only", "--no-renames", base, head],
         capture_output=True,
         text=True,
         check=True,

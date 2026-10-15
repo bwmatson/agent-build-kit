@@ -80,13 +80,20 @@ def test_the_hook_job_always_runs_and_the_workflow_has_no_path_filter() -> None:
         assert not {"paths", "paths-ignore"} & set(triggers[event] or ())
 
 
-def scope_output(tmp_path: Path, *paths: str) -> str:
-    """What the scope script prints for a commit that touches `paths` in a new repository."""
+def scope_output(tmp_path: Path, *paths: str, moves: dict[str, str] | None = None) -> str:
+    """What the scope script prints for a commit that touches `paths`, and moves each
+    file of `moves` (a path in the first commit) to its value, in a new repository."""
     repo = init_repo(tmp_path / "repo")
     (repo / "README.md").write_text("start\n")
+    for source in moves or {}:
+        (repo / source).parent.mkdir(parents=True, exist_ok=True)
+        (repo / source).write_text("content that survives a move\n")
     git(repo, "add", "-A")
     git(repo, "commit", "-q", "-m", "base")
     base = git(repo, "rev-parse", "HEAD").strip()
+    for source, destination in (moves or {}).items():
+        (repo / destination).parent.mkdir(parents=True, exist_ok=True)
+        git(repo, "mv", source, destination)
     for path in paths:
         (repo / path).parent.mkdir(parents=True, exist_ok=True)
         (repo / path).write_text("changed\n")
@@ -130,3 +137,16 @@ def test_only_planning_paths_changed_is_no_code_change(
 )
 def test_any_other_path_changed_is_a_code_change(tmp_path: Path, paths: tuple[str, ...]) -> None:
     assert scope_output(tmp_path, *paths) == "code=true"
+
+
+@pytest.mark.parametrize(
+    "source, destination",
+    [
+        ("src/agent_build_kit/foo.py", "openspec/foo.py"),
+        ("tests/test_foo.py", "runs/test_foo.py"),
+    ],
+)
+def test_a_code_file_moved_into_a_planning_path_is_a_code_change(
+    tmp_path: Path, source: str, destination: str
+) -> None:
+    assert scope_output(tmp_path, moves={source: destination}) == "code=true"
