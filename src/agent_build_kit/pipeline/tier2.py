@@ -117,6 +117,9 @@ class TestFailure(Frozen):
 
     test: str
     line: str
+    # The runtime group the test belongs to (`base` or a runtime's name), `UNKNOWN_GROUP`
+    # when it could not be found, empty for a result stored without one.
+    group: str = ""
 
 
 class TestTime(Frozen):
@@ -179,11 +182,16 @@ class Tier2Result(Frozen):
     output_withheld: bool = False
     # Whether the run ran no test at all because the unit added or changed no tier 2 test.
     ran_no_tests: bool = False
+    # The blocked runtimes whose tests this run would have executed and did not.
+    parked: list[str] = Field(default_factory=list)
 
     @property
     def ok(self) -> bool:
         return self.failed == 0
 
+
+# The group of a failed test whose runtime could not be found.
+UNKNOWN_GROUP = "unknown"
 
 # What a result that ran no test says in place of its counts, and where a person reads it.
 NO_TEST_RAN = "no tier 2 test ran"

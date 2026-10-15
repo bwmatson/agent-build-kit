@@ -24,7 +24,7 @@ import os
 import shlex
 import subprocess
 import time
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from datetime import UTC, datetime
 from functools import partial
@@ -2286,9 +2286,13 @@ class Tier2Session:
         projects: list[ProjectConfig] | None = None,
         output_dir: Path | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
+        blocked: Collection[str] = (),
+        only: str | None = None,
     ) -> None:
         self.unit = unit
         self.verdict: Tier2Verdict | None = None
+        self._blocked = blocked
+        self._only = only
         self._on_dev_stack = False
         self._projects = projects or []
         # `verify.env`: what the live-stack tests need, the same here as after
