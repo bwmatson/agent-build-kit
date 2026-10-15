@@ -47,14 +47,24 @@ class Pytest:
     def __call__(self, argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
         self.commands.append(argv)
         self.kwargs.append(kwargs)
+        captured = kwargs.get("capture_output") is True and kwargs.get("text") is True
         assert "--collect-only" in argv or "--markers" in argv, f"ran a test: {argv}"
         if "--markers" in argv:
-            return subprocess.CompletedProcess(argv, 0, self.markers, "")
+            return self._result(argv, 0, self.markers, captured)
         expression = argv[argv.index("-m") + 1]
         if expression == self.failing:
-            return subprocess.CompletedProcess(argv, 4, "ERROR: usage\n", "")
+            return self._result(argv, 4, "ERROR: usage\n", captured)
         tests = self.listings.get(expression, [])
-        return subprocess.CompletedProcess(argv, 0 if tests else 5, "\n".join(tests) + "\n", "")
+        return self._result(argv, 0 if tests else 5, "\n".join(tests) + "\n", captured)
+
+    @staticmethod
+    def _result(
+        argv: list[str], code: int, out: str, captured: bool
+    ) -> subprocess.CompletedProcess:
+        """Like `subprocess.run`: no output unless asked for as text."""
+        return subprocess.CompletedProcess(
+            argv, code, out if captured else None, "" if captured else None
+        )
 
 
 def installation(
@@ -207,6 +217,7 @@ def test_every_listing_runs_in_the_checkout_under_the_verify_env(
     assert run.kwargs
     assert all(call["cwd"] == tmp_path / "app" for call in run.kwargs)
     assert all(call["env"]["SVC_TOKEN"] == "secret" for call in run.kwargs)
+    assert all(call["capture_output"] is True and call["text"] is True for call in run.kwargs)
 
 
 def test_each_declared_project_is_listed_from_its_own_directory(

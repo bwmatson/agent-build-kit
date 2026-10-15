@@ -8,6 +8,7 @@ import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from agent_build_kit import profiles
 from agent_build_kit.config import REST_SPLIT, tier2_splits
@@ -26,8 +27,8 @@ def _run_in(
     """`run` from `where` under the verify env, the way a tier 2 run takes its commands."""
     env = {"env": {**os.environ, **verify_env}} if verify_env else {}
 
-    def run_in(argv: list[str], **_: object) -> subprocess.CompletedProcess:
-        return run(argv, cwd=where, **env)
+    def run_in(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
+        return run(argv, **{**kwargs, "cwd": where, **env})
 
     return run_in
 
