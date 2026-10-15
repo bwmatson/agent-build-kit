@@ -28,13 +28,14 @@ def test_the_written_change_passes_abk_check_and_abk_tags(tmp_path) -> None:
 
 
 def test_every_variants_change_passes_abk_check_and_abk_tags(tmp_path) -> None:
-    inst = planning(tmp_path, tests={"tier2_runtimes": ["acp", "claude_code"]})
+    splits = {"acp": {"marker": "runtime_acp"}, "claude_code": {"marker": "runtime_claude_code"}}
+    inst = planning(tmp_path, tests={"tier2_splits": splits})
     (inst.specs_dir / "specs").mkdir(parents=True, exist_ok=True)
 
     names = write_due(inst, store_of(inst, "app"), today=TODAY, say=lambda line: None)
 
     assert sorted(names) == [
-        scheduled_name("app", TODAY, variant) for variant in ("acp", "base", "claude_code")
+        scheduled_name("app", TODAY, variant) for variant in ("acp", "claude_code", "rest")
     ]
     assert cli.cmd_check(argparse.Namespace(), inst) == 0
     for name in names:

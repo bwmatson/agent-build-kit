@@ -34,15 +34,15 @@ def round_of(inst, store, *, today=TODAY) -> tuple[list[str], list[str]]:
 # --- the name -------------------------------------------------------------------
 
 
-def test_the_name_is_the_prefix_the_repo_the_day_and_the_variant() -> None:
-    assert scheduled_name("app", TODAY) == "scheduled-tier2-app-2026-03-10-base"
+def test_the_name_is_the_prefix_the_repo_the_day_and_the_split() -> None:
+    assert scheduled_name("app", TODAY) == "scheduled-tier2-app-2026-03-10-rest"
 
 
 @pytest.mark.parametrize(
     ("name", "repo", "day"),
     [
-        ("scheduled-tier2-app-2026-03-10", "app", (TODAY, "base")),
-        ("scheduled-tier2-app-web-2026-03-10", "app-web", (TODAY, "base")),
+        ("scheduled-tier2-app-2026-03-10", "app", (TODAY, "rest")),
+        ("scheduled-tier2-app-web-2026-03-10", "app-web", (TODAY, "rest")),
         ("scheduled-tier2-app-web-2026-03-10", "app", None),
         ("scheduled-tier2-app-2026-03-10", "app-web", None),
         ("scheduled-tier2-app-extra", "app", None),
@@ -55,7 +55,7 @@ def test_the_name_is_the_prefix_the_repo_the_day_and_the_variant() -> None:
 def test_the_date_is_read_from_the_name_of_exactly_that_repos_change(
     name: str, repo: str, day: object
 ) -> None:
-    assert scheduled_parts(name, repo, ("base",)) == day
+    assert scheduled_parts(name, repo, ("rest",)) == day
 
 
 # --- due ------------------------------------------------------------------------

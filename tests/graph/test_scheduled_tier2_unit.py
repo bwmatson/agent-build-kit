@@ -147,4 +147,4 @@ def test_the_next_due_date_is_read_from_the_archived_name(tmp_path: Path) -> Non
         return write_due(run.inst, run.store, today=TODAY + timedelta(days=days), say=print)
 
     assert due(6) == []
-    assert due(7) == [f"scheduled-tier2-app-{(TODAY + timedelta(days=7)).isoformat()}-base"]
+    assert due(7) == [f"scheduled-tier2-app-{(TODAY + timedelta(days=7)).isoformat()}-rest"]

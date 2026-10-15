@@ -1,7 +1,7 @@
 """When each repo's whole tier 2 suite is due, and the change that asks for the run.
 
 The schedule is stored nowhere: the last run of a repo is the latest date in the names of its
-`scheduled-tier2-<repo>-<date>` changes, open or archived. The change is written without a
+`scheduled-tier2-<repo>-<date>-<split>` changes, open or archived. The change is written without a
 model, under a lock file, so two ticks write one.
 """
 
@@ -12,7 +12,13 @@ from collections.abc import Callable, Iterable
 from datetime import date, timedelta
 from pathlib import Path
 
-from agent_build_kit.config import BASE_GROUP, Tier2Schedule, tier2_schedule, tier2_variants
+from agent_build_kit.config import (
+    BASE_GROUP,
+    REST_SPLIT,
+    Tier2Schedule,
+    tier2_schedule,
+    tier2_splits,
+)
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.unit_store import UnitStore
@@ -26,13 +32,13 @@ PERIODS = {
 }
 
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
-_TAIL = re.compile(rf"(?P<date>{_DATE.pattern})(?:-(?P<variant>.+))?")
+_TAIL = re.compile(rf"(?P<date>{_DATE.pattern})(?:-(?P<split>.+))?")
 _ARCHIVED = re.compile(rf"{_DATE.pattern}-(?P<name>.+)")
 
 
-def scheduled_name(repo: str, day: date, variant: str = BASE_GROUP) -> str:
-    """The name of the change that runs `repo`'s `variant` group of the suite, written on `day`."""
-    return f"{PREFIX}-{repo}-{day.isoformat()}-{variant}"
+def scheduled_name(repo: str, day: date, split: str = REST_SPLIT) -> str:
+    """The name of the change that runs `repo`'s `split` of the suite, written on `day`."""
+    return f"{PREFIX}-{repo}-{day.isoformat()}-{split}"
 
 
 def is_scheduled(change: str) -> bool:
@@ -40,26 +46,28 @@ def is_scheduled(change: str) -> bool:
     return change.startswith(f"{PREFIX}-")
 
 
-def scheduled_parts(name: str, repo: str, variants: Iterable[str]) -> tuple[date, str] | None:
-    """The date and the variant in `name` when it is a scheduled change of exactly `repo` and
-    one of `variants` (a name with no variant reads as `base`), else None."""
+def scheduled_parts(name: str, repo: str, splits: Iterable[str]) -> tuple[date, str] | None:
+    """The date and the split in `name` when it is a scheduled change of exactly `repo` and
+    one of `splits` (a name with no split, or ending `-base`, reads as `rest`), else None."""
     tail = name.removeprefix(f"{PREFIX}-{repo}-")
     found = _TAIL.fullmatch(tail) if tail != name else None
     if not found:
         return None
-    variant = found["variant"] or BASE_GROUP
+    split = found["split"]
+    if split in (None, BASE_GROUP):
+        split = REST_SPLIT
     try:
         day = date.fromisoformat(found["date"])
     except ValueError:
         return None
-    return (day, variant) if variant in set(variants) else None
+    return (day, split) if split in set(splits) else None
 
 
 def write_due(
     inst: Installation, store: UnitStore, *, today: date, say: Callable[[str], None]
 ) -> list[str]:
-    """Write the change of every due repo and variant with none open, under the lock file:
-    say `wrote: <change>`, or `exists: <change>` for a variant whose change is open. Returns
+    """Write the change of every due repo and split with none open, under the lock file:
+    say `wrote: <change>`, or `exists: <change>` for a split whose change is open. Returns
     the names written."""
     tier2_repos = {unit.repo for unit in store.all() if unit.tier == "tier2"}
     written: list[str] = []
@@ -68,48 +76,42 @@ def write_due(
             schedule = tier2_schedule(config, inst.config.global_limits)
             if repo not in tier2_repos or schedule is Tier2Schedule.OFF:
                 continue
-            variants = tier2_variants(config, inst.config)
-            for variant in variants:
-                opened = _open_changes(inst, repo, variant, variants)
+            splits = [split.name for split in tier2_splits(config, inst.config)]
+            for split in splits:
+                opened = _open_changes(inst, repo, split, splits)
                 if opened:
                     say(f"exists: {min(opened)}")
                     continue
-                latest = max(_archived_dates(inst, repo, variant, variants), default=None)
+                latest = max(_archived_dates(inst, repo, split, splits), default=None)
                 if latest is not None and latest + PERIODS[schedule] > today:
                     continue
-                name = scheduled_name(repo, today, variant)
-                _write_change(inst, repo, name, today, variant)
+                name = scheduled_name(repo, today, split)
+                _write_change(inst, repo, name, today, split)
                 say(f"wrote: {name}")
                 written.append(name)
     return written
 
 
-def _open_changes(
-    inst: Installation, repo: str, variant: str, variants: Iterable[str]
-) -> list[str]:
-    parsed = (
-        (p.name, scheduled_parts(p.name, repo, variants)) for p in _children(inst.changes_dir)
-    )
-    return [name for name, parts in parsed if parts and parts[1] == variant]
+def _open_changes(inst: Installation, repo: str, split: str, splits: Iterable[str]) -> list[str]:
+    parsed = ((p.name, scheduled_parts(p.name, repo, splits)) for p in _children(inst.changes_dir))
+    return [name for name, parts in parsed if parts and parts[1] == split]
 
 
-def _archived_dates(
-    inst: Installation, repo: str, variant: str, variants: Iterable[str]
-) -> list[date]:
+def _archived_dates(inst: Installation, repo: str, split: str, splits: Iterable[str]) -> list[date]:
     found = (_ARCHIVED.fullmatch(path.name) for path in _children(inst.changes_dir / "archive"))
-    parsed = (scheduled_parts(m["name"], repo, variants) for m in found if m)
-    return [parts[0] for parts in parsed if parts and parts[1] == variant]
+    parsed = (scheduled_parts(m["name"], repo, splits) for m in found if m)
+    return [parts[0] for parts in parsed if parts and parts[1] == split]
 
 
 def _children(folder: Path) -> Iterable[Path]:
     return folder.iterdir() if folder.is_dir() else ()
 
 
-def _write_change(inst: Installation, repo: str, name: str, today: date, variant: str) -> None:
+def _write_change(inst: Installation, repo: str, name: str, today: date, split: str) -> None:
     group = (
-        "the tests of no runtime tag"
-        if variant == BASE_GROUP
-        else f"the `{variant}` runtime's tests"
+        "the tests of no declared split"
+        if split == REST_SPLIT
+        else f"the tests the `{split}` split's marker selects"
     )
     root = inst.changes_dir / name
     root.mkdir(parents=True)
@@ -117,11 +119,11 @@ def _write_change(inst: Installation, repo: str, name: str, today: date, variant
     (root / ".openspec.yaml").write_text("schema: spec-driven\nskip_specs: true\n")
     (root / "proposal.md").write_text(
         "## Why\n\n"
-        f"The `{variant}` group of the tier 2 suite of `{repo}` ({group}) is due to run on its "
+        f"The `{split}` split of the tier 2 suite of `{repo}` ({group}) is due to run on its "
         f"default branch ({today.isoformat()}). Units run only the tier 2 tests they add or "
         "change, so a break they do not touch is found here.\n\n"
         "## What Changes\n\n"
-        f"- The `{variant}` group of the tier 2 marker of `{repo}` runs whole on its default "
+        f"- The `{split}` split of the tier 2 marker of `{repo}` runs whole on its default "
         "branch; a failing test is "
         "recorded and fixed by its own change.\n\n"
         "## Impact\n\n"
@@ -129,21 +131,21 @@ def _write_change(inst: Installation, repo: str, name: str, today: date, variant
     )
     (root / "design.md").write_text(
         "## Context\n\n"
-        f"A scheduled run of the `{variant}` group of the tier 2 suite of `{repo}`; the pipeline "
+        f"A scheduled run of the `{split}` split of the tier 2 suite of `{repo}`; the pipeline "
         "writes it and "
         "builds nothing.\n\n"
         "## Decisions\n\n"
-        f"- The unit runs the `{variant}` group on the default branch and ends when it passes.\n"
+        f"- The unit runs the `{split}` split on the default branch and ends when it passes.\n"
     )
     (root / "tasks.md").write_text(
         "# Tasks\n\n"
         "Acceptance: none — the run of the suite is the check; nothing a consumer sees "
         "changes.\n\n"
-        f"## 1. [{repo}] [tier2] Run the `{variant}` group of the full tier 2 suite "
+        f"## 1. [{repo}] [tier2] Run the `{split}` split of the full tier 2 suite "
         "on the default branch\n\n"
         "Priority: 3\n\n"
         "Separate: a scheduled run has no code of its own and is never joined to other work.\n\n"
-        f"Done when the `{variant}` group of the tier 2 marker passes on the default branch.\n\n"
-        f"- [ ] 1.1 Run the `{variant}` group of the tier 2 marker on the default branch and "
+        f"Done when the `{split}` split of the tier 2 marker passes on the default branch.\n\n"
+        f"- [ ] 1.1 Run the `{split}` split of the tier 2 marker on the default branch and "
         "record any failing test\n"
     )

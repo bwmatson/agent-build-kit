@@ -347,13 +347,6 @@ def tier2_schedule(repo: RepoConfig, limits: LimitsConfig) -> Tier2Schedule:
     return repo.tests.tier2_schedule or limits.tier2_schedule
 
 
-def tier2_variants(repo: RepoConfig, config: WorkspaceConfig) -> tuple[str, ...]:
-    """The groups a scheduled tier 2 run covers for `repo`: `base`, then the repo's own
-    `tests.tier2_runtimes` when set, else the top-level `tests.tier2_runtimes`."""
-    own = repo.tests.tier2_runtimes
-    return (BASE_GROUP, *(config.tests.tier2_runtimes if own is None else own))
-
-
 def tier2_splits(repo: RepoConfig, config: WorkspaceConfig) -> tuple[Tier2Split, ...]:
     """The splits in effect for `repo`: its declared ones in declaration order, then `rest`."""
     own = repo.tests.tier2_splits
@@ -728,22 +721,26 @@ class TestsConfig(Frozen):
     dev_stack_marker: str = "dev_stack"
     # Record and replay of the calls tier-2 tests make outside the stack; None: none.
     replay: ReplayConfig | None = None
-    # The runtimes this repo's scheduled tier 2 runs besides the base group; None follows
-    # the top-level `tests.tier2_runtimes`.
-    tier2_runtimes: list[str] | None = None
     # This repo's tier 2 splits; None follows the top-level `tests.tier2_splits`.
     tier2_splits: dict[str, Tier2SplitEntry] | None = None
 
 
-# The group of tier 2 tests that carry no runtime tag; reserved, so no runtime has this name.
+# The older name of `rest`, the tier 2 tests in no split; reserved, so no split has this name.
+# Deleted with the last caller that still uses it.
 BASE_GROUP = "base"
 
 
-class RuntimeTestsConfig(Frozen):
-    """The installation-wide `tests` block: the runtimes the schedule runs and the declared
-    tier 2 splits."""
+# The runtime lists that no longer exist, each with the setting that replaces it.
+REPLACED_RUNTIME_LISTS = {
+    "runtimes_blocked": "`tests.tier2_splits.<name>.hold: true`",
+    "runtimes_allowed": "`tests.tier2_splits.<name>.hold: false`",
+    "tier2_runtimes": "a split declared under `tests.tier2_splits`",
+}
 
-    tier2_runtimes: list[str] = []
+
+class RuntimeTestsConfig(Frozen):
+    """The installation-wide `tests` block: the declared tier 2 splits."""
+
     tier2_splits: dict[str, Tier2SplitEntry] = {}
 
 
@@ -1133,29 +1130,24 @@ class WorkspaceConfig(Frozen):
                 )
         return self
 
-    @model_validator(mode="after")
-    def _tier2_runtime_lists(self) -> WorkspaceConfig:
-        """The list names known runtimes once."""
-        lists = {"tests.tier2_runtimes": self.tests.tier2_runtimes}
-        for key, repo in self.repos.items():
-            if repo.tests.tier2_runtimes is not None:
-                lists[f"repos.{key}.tests.tier2_runtimes"] = repo.tests.tier2_runtimes
-        if not any(lists.values()):
-            # Nothing to check, and the default config is built while this module loads,
-            # before the runtime registry can be imported.
-            return self
-        known = sorted(known_runtime_names(self.runtimes))
-        for setting, names in lists.items():
-            for name in names:
-                if name not in known:
-                    raise ValueError(
-                        f"{setting}: {name!r} is not a runtime; the runtimes are {', '.join(known)}"
-                    )
-            if len(set(names)) != len(names):
-                raise ValueError(
-                    f"{setting}: a runtime is named twice; the runtimes are {', '.join(known)}"
-                )
-        return self
+    @model_validator(mode="before")
+    @classmethod
+    def _runtime_lists_are_gone(cls, data: object) -> object:
+        """The runtime lists were replaced by `tests.tier2_splits`; refuse each naming the
+        setting that replaces it."""
+        if not isinstance(data, dict):
+            return data
+        blocks = {"tests": data.get("tests")}
+        for key, repo in (data.get("repos") or {}).items():
+            if isinstance(repo, dict):
+                blocks[f"repos.{key}.tests"] = repo.get("tests")
+        for where, block in blocks.items():
+            if not isinstance(block, dict):
+                continue
+            for setting, replacement in REPLACED_RUNTIME_LISTS.items():
+                if setting in block:
+                    raise ValueError(f"{where}.{setting}: replaced by {replacement}")
+        return data
 
     @model_validator(mode="after")
     def _tier2_splits_declared_well(self) -> WorkspaceConfig:
@@ -1167,6 +1159,11 @@ class WorkspaceConfig(Frozen):
         for setting, splits in maps.items():
             seen: dict[str, str] = {}
             for name, entry in splits.items():
+                if name == BASE_GROUP:
+                    raise ValueError(
+                        f"{setting}: {name!r} is reserved as the older name of `{REST_SPLIT}`; "
+                        "name the split something else"
+                    )
                 if not SPLIT_NAME.fullmatch(name):
                     raise ValueError(
                         f"{setting}: {name!r} is not a split name; use lowercase letters, "

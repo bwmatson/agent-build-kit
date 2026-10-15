@@ -66,15 +66,13 @@
   two different runtime tags, or any marker that is not registered, fails collection naming
   it, so a mistyped tag can no longer silently select nothing.
 
-- The scheduled tier 2 run is now one change per variant: `scheduled-tier2-<repo>-<date>-base`
-  for the untagged tests and one `-<runtime>` change for each runtime in the repo's
-  `tests.tier2_runtimes`. Each variant is due and open on its own, so a newly listed runtime
-  runs at once while the others wait out their period. An older change with no suffix counts
-  as the base variant.
-
-- `abk.yaml` takes `tests.tier2_runtimes` at the top of the file, and a repo may set its
-  own. A name that is not a known runtime, `base` or a repeated name is refused when the
-  file loads, and `abk config --show` prints it.
+- The scheduled tier 2 run is now one change per declared split and `rest`:
+  `scheduled-tier2-<repo>-<date>-<split>`, with `-rest` for the tests in no split. Each split
+  is due and open on its own, so a newly declared split runs at once while the others wait
+  out their period. An older change with no suffix, or ending `-base`, counts as `rest`, so
+  `base` can no longer be a split's name.
+  `tests.tier2_runtimes` (never released) is refused at load, as are `tests.runtimes_blocked`
+  and `tests.runtimes_allowed`, each naming the `tests.tier2_splits` setting that replaces it.
 
 - A tier 2 failure that also fails on the base is now recorded with the runtime it belongs
   to (`base` for older entries), and the fix change says so. An open fix holds a full run
