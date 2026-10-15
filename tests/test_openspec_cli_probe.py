@@ -18,7 +18,7 @@ def completed(status: int, stderr: str = "") -> subprocess.CompletedProcess:
 
 
 class FakeRunner:
-    def __init__(self, status: int = 0, *, stderr: str = "", raises: OSError | None = None):
+    def __init__(self, status: int = 0, *, stderr: str = "", raises: Exception | None = None):
         self.status, self.stderr, self.raises = status, stderr, raises
         self.argv: list[list[str]] = []
         self.cwd_existed: list[bool] = []
@@ -51,6 +51,14 @@ def test_probe_fails_with_the_status_and_the_last_five_lines_of_stderr(status: i
     assert str(status) in text
     assert all(f"line {n}" in text for n in range(4, 9))
     assert "line 3" not in text
+
+
+def test_probe_fails_with_the_same_message_when_the_fetch_stalls() -> None:
+    with pytest.raises(pytest.fail.Exception) as raised:
+        probe(FakeRunner(raises=subprocess.TimeoutExpired(["npx"], 45)))
+
+    assert str(raised.value).startswith(MESSAGE)
+    assert "timeout" in str(raised.value)
 
 
 def test_probe_fails_with_the_same_message_when_the_program_cannot_start() -> None:

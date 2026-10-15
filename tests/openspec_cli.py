@@ -6,6 +6,7 @@ and fails it when the status says the program was not found.
 
 from __future__ import annotations
 
+import functools
 import subprocess
 import tempfile
 from pathlib import Path
@@ -17,6 +18,8 @@ from agent_build_kit import openspec
 MESSAGE = "the OpenSpec CLI is not installed"
 NOT_FOUND = 127
 ERROR_LINES = 5
+# Under the suite's per-test limit (tests/time_limit.py), so a stalled fetch is reported here.
+PROBE_TIMEOUT = 45
 
 
 def not_installed(status: object, stderr: str) -> str:
@@ -26,8 +29,12 @@ def not_installed(status: object, stderr: str) -> str:
 
 def probe(run: openspec.Run | None = None) -> None:
     with tempfile.TemporaryDirectory() as directory:
+        runner = run or functools.partial(subprocess.run, timeout=PROBE_TIMEOUT)
         try:
-            result = openspec.run(["--version"], cwd=Path(directory), run=run)
+            result = openspec.run(["--version"], cwd=Path(directory), run=runner)
+        except subprocess.TimeoutExpired as error:
+            stderr = error.stderr.decode() if isinstance(error.stderr, bytes) else error.stderr
+            pytest.fail(not_installed("timeout", stderr or str(error)), pytrace=False)
         except OSError as error:
             pytest.fail(not_installed(type(error).__name__, str(error)), pytrace=False)
     if result.returncode != 0:

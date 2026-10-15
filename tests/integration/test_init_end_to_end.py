@@ -78,6 +78,8 @@ def test_init_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     # The runtime is named and `claude` pretended to be on the path, so the run does not
     # depend on which agents this machine has.
     monkeypatch.setattr(init_cmd, "which", lambda program: f"/fake/{program}")
+    # `abk init` runs `openspec init`; a missing CLI is reported as that, not as init failing.
+    require(openspec.run(["init", "--help"], cwd=planning))
     code = main(
         [
             *("init", str(planning), "--repo", str(app), "--yes"),
