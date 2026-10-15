@@ -802,7 +802,9 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         "  2. Set a repo-local git identity in each checkout: "
         "`git config user.email <email>` (and user.name).\n"
         "  3. Log `gh` in for every GitHub owner in abk.yaml: `gh auth login`.\n"
-        "  4. Copy .env.example to .env and fill what this machine needs.\n"
+        "  4. Copy .env.example to .env and fill what this machine needs: facts about your\n"
+        "     stack (an agent command, local ports, a home variable) go in the ignored .env,\n"
+        "     read by `from: env-file` entries in abk.yaml, never in a committed file.\n"
         "  5. Run `abk doctor`, then `abk install-timers`."
     )
     user = timers.current_user()

@@ -601,6 +601,23 @@ def _write(path: Path, text: str, *, overwrite: bool, written: list[Path]) -> No
     written.append(path)
 
 
+# What an installation keeps to itself: the local scrub list and the redaction originals.
+LOCAL_IGNORES = ("scrub.local", "*.pre-redact")
+
+
+def _ensure_ignored(path: Path, lines: tuple[str, ...], *, written: list[Path]) -> None:
+    """Append the lines an existing ignore file lacks, once."""
+    present = set(path.read_text().splitlines())
+    missing = [line for line in lines if line not in present]
+    if not missing:
+        return
+    text = path.read_text()
+    separator = "" if not text or text.endswith("\n") else "\n"
+    path.write_text(text + separator + "\n".join(missing) + "\n")
+    if path not in written:
+        written.append(path)
+
+
 def write_planning_repo(
     planning_dir: Path,
     config: WorkspaceConfig,
@@ -641,6 +658,7 @@ def write_planning_repo(
     _write(state / ".gitkeep", "", overwrite=False, written=written)
     _write(state / "units.json", '{"units": []}\n', overwrite=False, written=written)
     _write(planning / ".gitignore", template("gitignore"), overwrite=False, written=written)
+    _ensure_ignored(planning / ".gitignore", LOCAL_IGNORES, written=written)
     _write(planning / ".env.example", template("env.example"), overwrite=False, written=written)
     _write(
         planning / "CLAUDE.md",

@@ -1,96 +1,37 @@
 """This repo is a framework and never names an installation.
 
-A structural check, deliberately term-free: the words that would identify an
-installation must not appear here even as a deny list. What it looks for is
-the *shape* of a leak — a home-directory path, a GitHub slug that is not a
-fixture's, an issue-number anecdote, a product's config path, an environment
-variable read by literal name outside the settings layer. The term-based half
-of the check is `abk scrub-check`, run from an installation with the terms
-derived from its own abk.yaml.
+The scan lives in `tests/installation_leaks.py`; this runs it over this checkout.
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Collection
 from pathlib import Path
 
 import pytest
 
-from agent_build_kit.scrub_terms import TOOL_DIRS
+from tests.installation_leaks import (
+    ANECDOTE,
+    DATED_ANECDOTE,
+    ENV_ALLOWED,
+    ENV_LITERAL,
+    HOME_PATH,
+    HOME_PRODUCT_DIR,
+    NOREPLY,
+    files,
+    foreign_azure_orgs,
+    foreign_slug_owners,
+    hits,
+    leaks,
+    lines_of,
+    repo_path_leaks,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
-SCANNED = ("src", "tests", "docs", "web")
-# Installed and built files are not this repo's own text.
-SKIPPED_PARTS = {".venv", "node_modules", "dist"}
-BUILT_UI = ROOT / "src" / "agent_build_kit" / "serve" / "static"
-TEXT = {
-    ".py",
-    ".md",
-    ".yaml",
-    ".yml",
-    ".toml",
-    ".service",
-    ".timer",
-    ".tmpl",
-    ".txt",
-    ".json",
-    ".ts",
-    ".tsx",
-    ".html",
-    ".xml",
-}
-# Fixture owners, and the placeholder words a regex's own documentation uses.
-FIXTURE_OWNERS = ("example", "acme", "octo", "owner", "o")
-# Upstream projects the framework builds on and credits; not installations.
-UPSTREAM_OWNERS = ("fission-ai", "astral-sh", "facebook", "adrienverge", "pre-commit")
-# Azure DevOps organisations a fixture may use.
-FIXTURE_AZURE_ORGS = ("acme", "example", "o", "org")
-
-# A product's config directory under the home directory; the agent runtime's
-# own, and the XDG/ssh conventions, are the framework's business.
-# The tool directories are the framework's own list, shared with `abk scrub-check`.
-_TOOL_DIR_NAMES = "|".join(re.escape(d.removeprefix(".")) for d in sorted(TOOL_DIRS))
-HOME_PRODUCT_DIR = re.compile(rf'Path\.home\(\)\s*/\s*"\.(?!(?:{_TOOL_DIR_NAMES})\b)')
-HOME_PATH = re.compile(rf"(?<![\w/])~/(?!\.(?:{_TOOL_DIR_NAMES})\b)|/home/[a-z]")
-GITHUB_SLUG = re.compile(r"github\.com[:/](?P<owner>[A-Za-z0-9-]+)/[A-Za-z0-9._-]+")
-AZURE_ORG = re.compile(r"dev\.azure\.com[:/](?:v3/)?(?!v3/)(?P<org>[A-Za-z0-9._-]+)")
-NOREPLY = re.compile(r"\d+\+[A-Za-z0-9-]+@users\.noreply\.github\.com")
-ANECDOTE = re.compile(r"(?<![\w/.])[a-z][a-z0-9-]{2,}#\d{1,4}\b")
-DATED_ANECDOTE = re.compile(
-    r"\b(decided|confirmed|checked|verified|observed|happened|since)\b[^\n]{0,30}\b20\d\d-\d\d-\d\d"
-)
-ENV_LITERAL = re.compile(r'os\.environ(?:\.get)?\(?\[?\s*"[A-Z_]+"')
-ENV_ALLOWED = {"settings.py", "usage_guard.py", "config.py"}
 
 
-def _files() -> list[Path]:
-    found = []
-    for top in SCANNED:
-        for path in (ROOT / top).rglob("*"):
-            if (
-                path.is_file()
-                and path.suffix in TEXT
-                and not SKIPPED_PARTS.intersection(path.parts)
-                and path.name != "package-lock.json"
-                and BUILT_UI not in path.parents
-            ):
-                found.append(path)
-    for name in ("README.md", "CLAUDE.md", "CHANGELOG.md"):
-        if (ROOT / name).exists():
-            found.append(ROOT / name)
-    return found
-
-
-def _hits(pattern: re.Pattern, *, skip: Collection[str] = ()) -> list[str]:
-    hits = []
-    for path in _files():
-        if path.name in skip or path == Path(__file__):
-            continue
-        for number, line in enumerate(path.read_text(errors="replace").splitlines(), start=1):
-            if pattern.search(line):
-                hits.append(f"{path.relative_to(ROOT)}:{number}: {line.strip()[:100]}")
-    return hits
+def _hits(pattern: re.Pattern, *, skip=()) -> list[str]:
+    return hits(ROOT, pattern, skip=skip)
 
 
 def test_no_home_directory_product_paths() -> None:
@@ -102,24 +43,13 @@ def test_no_home_paths_in_text() -> None:
 
 
 def test_every_github_slug_belongs_to_a_fixture_owner() -> None:
-    offending = []
-    for path in _files():
-        if path == Path(__file__):
-            continue
-        for number, line in enumerate(path.read_text(errors="replace").splitlines(), start=1):
-            for match in GITHUB_SLUG.finditer(line):
-                if (
-                    match["owner"] not in FIXTURE_OWNERS
-                    and match["owner"].lower() not in UPSTREAM_OWNERS
-                ):
-                    offending.append(f"{path.relative_to(ROOT)}:{number}: {match.group(0)}")
-    assert offending == []
-
-
-def _foreign_azure_orgs(text: str) -> list[str]:
-    return [
-        match["org"] for match in AZURE_ORG.finditer(text) if match["org"] not in FIXTURE_AZURE_ORGS
+    offending = [
+        f"{path.relative_to(ROOT)}:{number}: {line.strip()[:100]}"
+        for path in files(ROOT)
+        for number, line in lines_of(path)
+        if foreign_slug_owners(line)
     ]
+    assert offending == []
 
 
 @pytest.mark.parametrize(
@@ -135,17 +65,16 @@ def _foreign_azure_orgs(text: str) -> list[str]:
 def test_the_azure_organisation_rule_sees_a_foreign_organisation(
     text: str, caught: list[str]
 ) -> None:
-    assert _foreign_azure_orgs(text) == caught
+    assert foreign_azure_orgs(text) == caught
 
 
 def test_every_azure_organisation_belongs_to_a_fixture() -> None:
-    offending = []
-    for path in _files():
-        if path == Path(__file__):
-            continue
-        for number, line in enumerate(path.read_text(errors="replace").splitlines(), start=1):
-            if _foreign_azure_orgs(line):
-                offending.append(f"{path.relative_to(ROOT)}:{number}: {line.strip()[:100]}")
+    offending = [
+        f"{path.relative_to(ROOT)}:{number}: {line.strip()[:100]}"
+        for path in files(ROOT)
+        for number, line in lines_of(path)
+        if foreign_azure_orgs(line)
+    ]
     assert offending == []
 
 
@@ -168,3 +97,11 @@ def test_environment_is_read_only_through_the_settings_layer(pattern: re.Pattern
     hits = [h for h in _hits(pattern) if h.split(":")[0].rsplit("/", 1)[-1] not in ENV_ALLOWED]
     hits = [h for h in hits if not h.startswith("tests/")]
     assert hits == []
+
+
+def test_planning_content_leaks_nothing() -> None:
+    assert leaks(ROOT) == []
+
+
+def test_a_tracked_config_names_no_path_outside_the_checkout() -> None:
+    assert repo_path_leaks(ROOT) == []

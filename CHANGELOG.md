@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `abk init` now ignores `scrub.local` and `*.pre-redact` in the planning repo's `.gitignore`
+  (appending only the lines an existing file lacks) and says, in its closing output, the
+  planning context and `.env.example`, that facts about an installation's own stack belong
+  in the ignored `.env`, read through `from: env-file` entries. The framework's own leak test
+  also reads `openspec/`, `abk.yaml` and the tracked unit store, and fails a repo path that
+  leaves the checkout.
+
 - `tests.tier2_splits` declares a repo's tier 2 splits, each a name with a `marker` and an
   optional `hold`, at the top of `abk.yaml` or under a repo's own `tests` (which replaces
   the top-level map for that repo). The tests in no split are the always-declared split
