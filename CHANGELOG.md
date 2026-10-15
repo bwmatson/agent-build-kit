@@ -14,6 +14,9 @@
   read, and writes nothing. The destination must already be an installation (`abk init`),
   and with `--apply` it gains the repo's entry in its `abk.yaml` by a text splice that keeps
   comments and is checked before it is written.
+  `--remove` (with `--apply`) verifies the copy, then removes from the source only what
+  moved, and the repo's entry when nothing there names it any more; a second run prints
+  `nothing to do` and writes nothing.
 
 - Live-stack tests now name the agent runtime they drive with one tag (`runtime_claude_code`,
   `runtime_acp`); a test with none is the base and always runs. A live-stack test carrying

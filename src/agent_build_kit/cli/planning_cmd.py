@@ -11,8 +11,8 @@ from pathlib import Path
 
 from agent_build_kit.config import CONFIG_FILENAME
 from agent_build_kit.installation import Installation
-from agent_build_kit.split import copy, scrubbing
-from agent_build_kit.split.config_edit import ConfigEditError, add_repo_entry
+from agent_build_kit.split import copy, remove, scrubbing
+from agent_build_kit.split.config_edit import ConfigEditError, add_repo_entry, remove_repo_entry
 from agent_build_kit.split.select import (
     SplitPlan,
     SplitUsageError,
@@ -52,10 +52,11 @@ def _removals(source: Installation, plan: SplitPlan) -> list[str]:
 def cmd_planning_split(args: argparse.Namespace, source: Installation) -> int:
     if args.apply and args.dry_run:
         return _fail("--dry-run and --apply cannot be given together")
-    if args.apply and args.remove:
-        return _fail("--remove with --apply is not available yet")
     try:
         destination = load_destination(Path(args.to), source)
+        if args.repo not in source.repos and args.repo in destination.repos:
+            print(f"nothing to do: {args.repo} is no longer in the source")
+            return 0
         plan = plan_split(
             source,
             args.repo,
@@ -110,6 +111,10 @@ def cmd_planning_split(args: argparse.Namespace, source: Installation) -> int:
     if refusals:
         print("nothing was written; settle the refusals above, then run again")
         return 1
+    removing = args.remove and (remove.outstanding(source, plan) or not plan.project)
+    if not (copy.outstanding(source, destination, plan, scrub=args.scrub) or entries or removing):
+        print("nothing to do")
+        return 0
     if not args.apply:
         print("nothing was written; run again with --apply to carry the plan out")
         return 0
@@ -119,6 +124,39 @@ def cmd_planning_split(args: argparse.Namespace, source: Installation) -> int:
         f"copied {report.files_copied} files ({report.files_unchanged} unchanged), "
         f"{report.units_imported} unit records, {report.plans_written} plan records"
     )
+    return _remove(source, destination, plan, args, source_config) if args.remove else 0
+
+
+def _remove(
+    source: Installation,
+    destination: Installation,
+    plan: SplitPlan,
+    args: argparse.Namespace,
+    source_config: Path,
+) -> int:
+    """Verify the copy, then take what moved out of the source, and the repo's entry with it
+    when nothing names it. Exit 1 when the copy does not verify or the entry is kept."""
+    problems = remove.verify(source, destination, plan, scrub=args.scrub)
+    if problems:
+        print("\n".join(f"verification failed: {problem}" for problem in problems))
+        print("nothing was removed from the source")
+        return 1
+    done = remove.remove(source, plan)
+    print(
+        f"removed {done.files_removed} files, {done.units_removed} unit records, "
+        f"{done.plans_removed} plan records from the source"
+    )
+    if plan.project:
+        return 0
+    if named := remove.still_naming(source, args.repo):
+        print(f"kept repo {args.repo}: still named by {', '.join(named)}")
+        return 1
+    try:
+        remove_repo_entry(source_config, args.repo)
+    except ConfigEditError as error:
+        print(f"refused: {error}")
+        return 1
+    print(f"removed repo {args.repo} from the source's abk.yaml")
     return 0
 
 

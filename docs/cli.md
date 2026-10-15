@@ -666,6 +666,37 @@ exiting 1. `--scaffold` also writes the smallest manifest the profile's detectio
 recognises under the new path (the profile supplies it) and leaves an existing manifest
 alone, saying so.
 
+### `abk planning split --repo REPO --to DIR [--project PATH] [--allow-mixed source|destination] [--spec CAPABILITY ...] [--scrub] [--remove] [--apply | --dry-run]`
+
+Moves a repo's changes, archive entries, specs and unit records from this planning repo
+to another installation. It is a dry run unless `--apply` is given (`--dry-run` spells
+the default and is a usage problem with `--apply`): the plan prints the source,
+destination and selection, a count for each of changes, archive entries, specs, units,
+plan records and config entries, each refusal as its own line, the uncommitted files it
+read, the `--scrub` counts, and a last line saying nothing was written. `--repo` names
+the repo whose changes move; `--project` moves only the groups tagged for that project of
+it. A change is moved, staying or mixed by its groups' tags; a mixed change is refused
+unless `--allow-mixed source` keeps it or `--allow-mixed destination` moves it whole. A
+spec moves with the changes that wrote it; `--spec` moves one nobody's delta touches. Units
+of moved changes move with their records; a unit in `running`, `in_review` or `held`, one
+that spans a staying change, and a dependency that would dangle are refused.
+
+`--to` must already be an installation (`abk init DIR`). Files are copied without
+overwriting a different one; `--scrub` strips installation names and home paths from the
+moved text and the records' free text, never an id or code. `--apply` also adds the repo's
+entry to the destination's `abk.yaml`.
+
+`--remove` (with `--apply`) re-reads the destination, and only if every file and record
+matches removes from the source the moved files (a directory only when empty), unit
+records, plan records and, when nothing there names it any more, the repo's entry; if
+something does, it prints `kept repo KEY: still named by ...` and exits 1. The usage
+ledger, spec snapshots, run logs and staying changes are never touched. Without
+`--remove` the source is not written at all. A second run prints `nothing to do`.
+
+Exit 0 when nothing is refused, 1 when anything is (or a copy fails verification), 2 for a
+usage problem or an installation that does not load. Order: make the destination with
+`abk init`, settle the units, read a dry run, `--apply`, then `--remove`.
+
 ### `abk policy patterns [--format glob|json|yaml-list] [--class LABEL ...] [--extra]`
 
 Prints the kit's recommended command globs, for an agent whose configuration the kit cannot

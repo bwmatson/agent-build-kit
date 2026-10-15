@@ -19,8 +19,11 @@ __all__ = [
     "CopyReport",
     "Preflight",
     "carry_out",
+    "file_contents",
     "moved_plan_records",
+    "outstanding",
     "preflight",
+    "unit_records",
 ]
 
 
@@ -57,7 +60,7 @@ def _passes(source: Installation, plan: SplitPlan, scrub: bool) -> Callable[[str
     return scrubbing.scrubber(source, plan.repo) if scrub else lambda text: text
 
 
-def _contents(source: Installation, plan: SplitPlan, scrub: bool) -> dict[Path, bytes]:
+def file_contents(source: Installation, plan: SplitPlan, scrub: bool) -> dict[Path, bytes]:
     """The bytes each moved file gets in the destination, by path under its specs directory."""
     scrub_text = _passes(source, plan, scrub)
     contents: dict[Path, bytes] = {}
@@ -68,11 +71,42 @@ def _contents(source: Installation, plan: SplitPlan, scrub: bool) -> dict[Path, 
     return contents
 
 
-def _records(source: Installation, plan: SplitPlan, scrub: bool) -> list[StoredUnit]:
+def unit_records(source: Installation, plan: SplitPlan, scrub: bool) -> list[StoredUnit]:
     """The moved unit records as they would be written."""
     scrub_text = _passes(source, plan, scrub)
     moved = moved_records(source, plan)
     return [scrubbing.scrub_record(unit, scrub_text) for unit in moved] if scrub else moved
+
+
+def _plans_to_write(source: Installation, destination: Installation, plan: SplitPlan) -> dict:
+    """The moved changes' plan records the destination does not already hold as they would be
+    written: the hash is of the text as it is in the destination."""
+    held = planned_hashes(destination)
+    wanted = {
+        name: {
+            "hash": plan_digest(destination.changes_dir / name / "tasks.md"),
+            "attempts": 0,
+            "ok": True,
+        }
+        for name in moved_plan_records(source, plan)
+    }
+    return {name: record for name, record in wanted.items() if held.get(name) != record}
+
+
+def outstanding(
+    source: Installation, destination: Installation, plan: SplitPlan, *, scrub: bool = False
+) -> bool:
+    """Whether carrying the plan out would write anything to the destination's files, unit
+    records or plan records."""
+    if any(
+        not (destination.specs_dir / relative).is_file()
+        for relative in file_contents(source, plan, scrub)
+    ):
+        return True
+    held = {unit.id for unit in UnitStore(destination.state_dir / "units.json").all()}
+    if any(unit.id not in held for unit in unit_records(source, plan, scrub)):
+        return True
+    return bool(_plans_to_write(source, destination, plan))
 
 
 def preflight(
@@ -85,14 +119,14 @@ def preflight(
 ) -> Preflight:
     """What would refuse the copy, reading both installations and writing neither."""
     errors: list[str] = []
-    for relative, data in _contents(source, plan, scrub).items():
+    for relative, data in file_contents(source, plan, scrub).items():
         target = destination.specs_dir / relative
         if target.is_file() and target.read_bytes() != data:
             errors.append(f"conflict: {relative} differs in the destination")
 
     store = UnitStore(destination.state_dir / "units.json")
     held = {unit.id: unit for unit in store.all()}
-    records = _records(source, plan, scrub)
+    records = unit_records(source, plan, scrub)
     errors += [
         f"conflict: unit {unit.id} differs in the destination"
         for unit in records
@@ -176,7 +210,7 @@ def carry_out(
     if found.errors:
         raise CopyRefused(found.errors)
 
-    contents = _contents(source, plan, scrub)
+    contents = file_contents(source, plan, scrub)
     copied = unchanged = 0
     for relative, data in contents.items():
         target = destination.specs_dir / relative
@@ -188,17 +222,10 @@ def carry_out(
         shutil.copymode(source.specs_dir / relative, target)
         copied += 1
 
-    records = _records(source, plan, scrub)
+    records = unit_records(source, plan, scrub)
     UnitStore(destination.state_dir / "units.json").import_units(records)
 
-    plans = {
-        name: {
-            "hash": plan_digest(destination.changes_dir / name / "tasks.md"),
-            "attempts": 0,
-            "ok": True,
-        }
-        for name in moved_plan_records(source, plan)
-    }
+    plans = _plans_to_write(source, destination, plan)
     if plans:
         record_plans(destination, plans)
     return CopyReport(

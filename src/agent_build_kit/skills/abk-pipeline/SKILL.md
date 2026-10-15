@@ -36,6 +36,7 @@ what the pipeline is doing, watch the pass, not a single unit.
 | `abk verify <change>` | Deploy a fully merged change and run its live (tier 2) tests, then archive it; exits 1 if it fails or passes without the change being archived. The tick does this on its own once every unit of a change has merged. |
 | `abk check` | `openspec validate --all --strict --json` on the planning repo. |
 | `abk tags <change>` / `abk tags --all` | Validate a change's task-group tags (see abk-authoring). |
+| `abk planning split --repo <key> --to <dir>` | Move a repo's changes, specs and unit records to another planning repo. Always run the dry run first (the default) and read the plan; then `--apply`, then `--apply --remove` to take what moved out of the source. Units must be settled; see `docs/cli.md`. |
 | `abk archive <change>` | `openspec archive <change> --yes`. |
 | `abk openspec -- <args>` | Any other OpenSpec command, in the planning repo. |
 
