@@ -58,6 +58,11 @@ def test_an_unknown_runtime_is_refused_naming_it() -> None:
         tier2_selection(MARKER, [], only="nonesuch")
 
 
+def test_a_runtime_asked_for_alone_and_blocked_is_refused_naming_it() -> None:
+    with pytest.raises(ValueError, match="acp"):
+        tier2_selection(MARKER, ["acp"], only="acp")
+
+
 def test_the_name_base_cannot_be_blocked() -> None:
     with pytest.raises(ValueError, match="base"):
         tier2_selection(MARKER, ["base"])

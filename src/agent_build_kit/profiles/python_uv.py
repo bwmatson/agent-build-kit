@@ -155,11 +155,20 @@ def _marker_selection(repo: Path, selection: str) -> str:
     return f"({existing}) and {selection}" if existing else selection
 
 
+def _is_serial_split(expression: str, *, serial: bool | None = None) -> bool:
+    """Whether a `-m` expression is tier 1's serial/parallel split: the serial half
+    (`serial`), the parallel half (`not serial`), or either when `serial` is None."""
+    halves = {
+        True: (expression == "serial" or expression.endswith(" and serial")),
+        False: (expression == "not serial" or expression.endswith(" and not serial")),
+    }
+    return any(halves.values()) if serial is None else halves[serial]
+
+
 def _is_serial_pass(command: list[str]) -> bool:
     if "-m" not in command[:-1]:
         return False
-    expression = command[command.index("-m") + 1]
-    return expression == "serial" or expression.endswith(" and serial")
+    return _is_serial_split(command[command.index("-m") + 1], serial=True)
 
 
 def package_name(member: Path) -> str:
@@ -172,7 +181,9 @@ def package_name(member: Path) -> str:
 
 
 # What a tier 2 run adds to report on itself, not wanted in a listing of what it selects.
-_REPORT_FLAGS = frozenset([*SUMMARY_FLAGS, *DURATION_FLAGS])
+# Verbosity is set absolutely for a listing, so these relative flags must not stack on it.
+_VERBOSITY_FLAGS = frozenset(["-q", "-qq", "-v", "-vv"])
+_REPORT_FLAGS = frozenset([*SUMMARY_FLAGS, *DURATION_FLAGS, *_VERBOSITY_FLAGS])
 # Pytest's exit status when the selection holds no test.
 _NO_TESTS_SELECTED = 5
 
@@ -446,10 +457,7 @@ class PythonUvProfile:
         marker: list[str] = []
         if "-m" in words[:-1]:
             expression = words[words.index("-m") + 1]
-            split = expression in ("serial", "not serial") or expression.endswith(
-                (" and serial", " and not serial")
-            )
-            marker = [] if split else ["-m", expression]
+            marker = [] if _is_serial_split(expression) else ["-m", expression]
         return [*command[: program + 1], *marker, *tests, "-q"]
 
     def selected_tests(
@@ -473,7 +481,7 @@ class PythonUvProfile:
             words[words.index("-m") + 1] = expression
         else:
             words = ["-m", expression, *words]
-        argv = [*narrowed[: program + 1], *words, "--collect-only", "-q"]
+        argv = [*narrowed[: program + 1], *words, "--collect-only", "--verbosity=-1"]
         result = run(argv, capture_output=True, text=True, check=False)
         if result.returncode not in (0, _NO_TESTS_SELECTED):
             return None

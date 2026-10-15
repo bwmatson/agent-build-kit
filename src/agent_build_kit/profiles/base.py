@@ -186,7 +186,9 @@ class ListsSelectedTests(Protocol):
         among: list[str] | None = None,
     ) -> list[str] | None:
         """The identifiers `command` would run under `expression`, relative to the
-        repository root, narrowed to `among` when given. An empty list when it selects
+        repository root, narrowed to `among` when given. `expression` replaces the command's
+        own marker expression and is not ANDed with it: a caller wanting the marker's tests
+        of one runtime passes `<marker> and runtime_<name>`. An empty list when it selects
         none; None when the listing fails, since that says nothing about what is selected."""
         ...
 

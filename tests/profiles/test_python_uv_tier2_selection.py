@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
+from typing import Any
 
 from agent_build_kit.pipeline.tier2 import selection_unavailable, tier2_selection
 from agent_build_kit.profiles import node_npm
@@ -174,6 +176,25 @@ def test_the_listing_hook_returns_nothing_selected_for_the_empty_listing(tmp_pat
     run = Runner("\nno tests collected in 0.01s\n", returncode=5)
 
     assert PROFILE.selected_tests(command, "runtime_acp", run=run) == []
+
+
+def test_the_listing_names_tests_under_a_repo_whose_addopts_are_quiet(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.pytest.ini_options]\naddopts = "-q"\nmarkers = ["local_stack", "runtime_acp"]\n'
+    )
+    (tmp_path / "test_live.py").write_text(
+        "import pytest\n\n"
+        "@pytest.mark.local_stack\n@pytest.mark.runtime_acp\ndef test_tagged(): ...\n\n"
+        "@pytest.mark.local_stack\ndef test_base(): ...\n"
+    )
+    command = [sys.executable, "-m", "pytest", "-m", "local_stack"]
+
+    def run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
+        return subprocess.run(argv, cwd=tmp_path, **kwargs)
+
+    found = PROFILE.selected_tests(command, "local_stack and runtime_acp", run=run)
+
+    assert found == ["test_live.py::test_tagged"]
 
 
 def test_the_listing_hook_returns_unknown_when_the_listing_fails(tmp_path: Path) -> None:

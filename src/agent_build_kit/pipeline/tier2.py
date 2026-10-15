@@ -73,6 +73,8 @@ def tier2_selection(
     for name in [*blocked, *([only] if only not in (None, BASE_GROUP) else [])]:
         if name not in known:
             raise ValueError(f"unknown runtime {name!r} (known: {', '.join(sorted(known))})")
+    if only is not None and only in blocked:
+        raise ValueError(f"runtime {only!r} is asked for alone and also blocked")
     left_out = tuple(sorted(set(blocked)))
     if only == BASE_GROUP:
         left_out = tuple(sorted(known))
