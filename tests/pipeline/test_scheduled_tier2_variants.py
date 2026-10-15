@@ -290,7 +290,9 @@ def test_each_change_names_its_variant_and_has_one_group_at_priority_3(tmp_path:
 def test_a_blocked_variants_change_is_written_like_the_others_and_stays_open(
     tmp_path: Path,
 ) -> None:
-    inst = planning(tmp_path, tests={**BOTH, "runtimes_blocked": ["acp"]})
+    inst = planning(
+        tmp_path, tests={**BOTH, "tier2_splits": {"acp": {"marker": "runtime_acp", "hold": True}}}
+    )
     store = store_of(inst, "app")
 
     first, _ = round_of(inst, store)

@@ -72,7 +72,7 @@ the same everywhere:
   `local/tier2` becomes `local/e2e-test`.
 - `Node.TIER2` becomes `Node.E2E`; `Tier2Result`, `Tier2Schedule` and their
   neighbours follow, and so do the modules `pipeline/tier2.py`,
-  `tier2_schedule.py`, `tier2_blocks.py` and `tier2_times.py`.
+  `tier2_schedule.py`, `tier2_holds.py` and `tier2_times.py`.
 - Settings `global_limits.tier2_*` and `tests.tier2_marker` become `e2e_*`.
   The `--tier2-test-time-limit` flag follows.
 - State and output: `runs/tier2.lock`, `tier2-output/`, spans, log wording.

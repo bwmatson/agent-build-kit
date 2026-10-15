@@ -123,7 +123,7 @@ from agent_build_kit.pipeline.tier2 import (
 from agent_build_kit.pipeline.tier2 import (
     post_status as tier2_post_status,
 )
-from agent_build_kit.pipeline.tier2_blocks import blocked_runtimes
+from agent_build_kit.pipeline.tier2_holds import held_splits
 from agent_build_kit.pipeline.tier2_schedule import is_scheduled
 from agent_build_kit.pipeline.tier2_times import record_test_times, with_split
 from agent_build_kit.pipeline.transcript import Transcript, transcript_dir
@@ -1448,13 +1448,12 @@ def build_on_preexisting(
         unit: Unit, verdict: Tier2Verdict, failure: TestFailure, *, wait: bool
     ) -> str | None:
         runtime = failure.group or BASE_GROUP
-        if (
-            runtime == UNKNOWN_GROUP
-            or runtime
-            in blocked_runtimes(
-                installation.config, installation.state_dir, now=datetime.now(UTC)
-            ).blocked
-        ):
+        held = held_splits(
+            tier2_splits(installation.repo(unit.repo), installation.config),
+            installation.state_dir,
+            now=datetime.now(UTC),
+        ).held
+        if runtime == UNKNOWN_GROUP or (REST_SPLIT if runtime == BASE_GROUP else runtime) in held:
             # A failure whose runtime is unknown is the unit's own, and a blocked
             # runtime's failure is nobody's bug: neither is recorded or fixed.
             return None
@@ -3446,10 +3445,10 @@ def build_runner(
     # One stamp for this thread's whole run: every call in it is one run to retention.
     record_for = (unit, transcript_dir(root), datetime.now(UTC))
     # What the unit's tier 2 leaves out, and what a parked unit says it waits for.
-    blocks = blocked_runtimes(installation.config, root, now=datetime.now(UTC))
+    holds = held_splits(tier2_splits(repo, installation.config), root, now=datetime.now(UTC))
     tier2 = Tier2Session(
         unit,
-        blocked=list(blocks.blocked),
+        blocked=list(holds.held),
         lock=installation.tier2_lock,
         log=log,
         under=dev_stack_underneath(unit, installation),
@@ -3555,7 +3554,7 @@ def build_runner(
         run_tier2=tier2.run,
         tier2_verdict=lambda: tier2.verdict,
         tier2_result=lambda: tier2.result,
-        tier2_blocks=lambda: blocks,
+        tier2_holds=lambda: holds,
         tier2_ran_no_tests=lambda: bool(tier2.result and tier2.result.ran_no_tests),
         tier2_passed_note=tier2.passed_note,
         on_preexisting=build_on_preexisting(store, installation, log=log),

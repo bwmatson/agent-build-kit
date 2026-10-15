@@ -105,7 +105,11 @@ def test_the_waiting_note_names_only_the_tests_that_got_a_fix_change(tmp_path: P
 def test_a_blocked_runtime_with_failing_tests_records_nothing_and_writes_no_fix_change(
     tmp_path: Path,
 ) -> None:
-    planning = Planning(tmp_path, whole=False, tests=dict(runtimes_blocked=["acp"]))
+    planning = Planning(
+        tmp_path,
+        whole=False,
+        tests=dict(tier2_splits={"acp": {"marker": "runtime_acp", "hold": True}}),
+    )
 
     fails(planning, group="acp")
 

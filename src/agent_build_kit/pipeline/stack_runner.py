@@ -47,7 +47,7 @@ from agent_build_kit.pipeline.reuse_guidance import reuse_guidance
 from agent_build_kit.pipeline.scratch import output_convention
 from agent_build_kit.pipeline.task_progress import mark_groups
 from agent_build_kit.pipeline.tier2 import Tier2Result, Tier2Verdict, latest_full_output
-from agent_build_kit.pipeline.tier2_blocks import Blocks
+from agent_build_kit.pipeline.tier2_holds import Holds
 from agent_build_kit.pipeline.unit_store import (
     Cause,
     Description,
@@ -1382,9 +1382,9 @@ class UnitRunner(BaseModel):
     # See `wiring.build_on_preexisting`.
     tier2_verdict: Callable[[], Tier2Verdict | None] = lambda: None
     # The result of the last tier 2 run (its commit and the runtimes it parked), and the
-    # runtimes blocked now with their reasons.
+    # splits held now with their reasons.
     tier2_result: Callable[[], Tier2Result | None] = lambda: None
-    tier2_blocks: Callable[[], Blocks] = lambda: Blocks()
+    tier2_holds: Callable[[], Holds] = lambda: Holds()
     # Whether the last tier 2 run ran no test, the unit having added or changed none.
     tier2_ran_no_tests: Callable[[], bool] = lambda: False
     # What a scheduled unit's passing run says of itself, for its note.

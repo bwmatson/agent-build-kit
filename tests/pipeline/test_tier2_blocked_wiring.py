@@ -27,7 +27,7 @@ def test_the_runner_reports_the_blocks_of_the_configuration_and_the_file(tmp_pat
         tmp_path, blocked_in_config=("claude_code",), blocked_in_file={"acp": REASON}
     )
 
-    blocked = built.tier2_blocks().blocked
+    blocked = built.tier2_holds().held
 
     assert set(blocked) == {"acp", "claude_code"}
     assert blocked["acp"].reason == REASON

@@ -1324,7 +1324,7 @@ class BuildPath:
     def park_for_runtime(self, runtimes: list[str], sha: str, snapshot: str) -> Update:
         """Hold the unit, planned, until the runtimes whose tests did not run are usable. Nothing
         is published and nothing counts against it: those tests have not failed."""
-        blocks = self.runner.tier2_blocks().blocked
+        blocks = self.runner.tier2_holds().held
         waiting = ", ".join(
             f"{name} ({blocks[name].reason})" if name in blocks else name for name in runtimes
         )

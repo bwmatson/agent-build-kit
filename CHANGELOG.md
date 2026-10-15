@@ -39,6 +39,11 @@
   `on_unknown` and the two cache settings; a gate that sets both or neither, an unknown
   provider or a non-positive budget is refused when the file loads, and `abk config --show`
   prints it.
+  turns each split's selector into what its test runner takes. The splits held now are the
+  configuration's `hold: true` entries and the unexpired entries of `tier2-held.json` in
+  the state directory together: `hold: false` always releases a split and `hold: true`
+  always holds it. `tests.runtimes_blocked` and `tests.runtimes_allowed` are gone, and a
+  leftover `tier2-blocked.json` is not read.
 
 - An `abk.local.yaml` beside `abk.yaml` is merged over it when the configuration loads, so
   facts about other repos and a stack can stay out of a public checkout: mappings merge key
@@ -67,13 +72,9 @@
   runs at once while the others wait out their period. An older change with no suffix counts
   as the base variant.
 
-- `abk.yaml` takes `tests.runtimes_blocked`, `tests.runtimes_allowed` and
-  `tests.tier2_runtimes` at the top of the file, and a repo may set its own
-  `tests.tier2_runtimes`. A name that is not a known runtime, `base`, a repeated name, or a
-  runtime in both the blocked and allowed lists is refused when the file loads, and `abk
-  config --show` prints them. Which runtimes are blocked now is the configuration's blocked
-  list plus the unexpired entries of `tier2-blocked.json` in the state directory, except
-  that a runtime the configuration allows is never blocked and one it blocks always is.
+- `abk.yaml` takes `tests.tier2_runtimes` at the top of the file, and a repo may set its
+  own. A name that is not a known runtime, `base` or a repeated name is refused when the
+  file loads, and `abk config --show` prints it.
 
 - A tier 2 failure that also fails on the base is now recorded with the runtime it belongs
   to (`base` for older entries), and the fix change says so. An open fix holds a full run

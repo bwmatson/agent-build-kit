@@ -740,11 +740,9 @@ BASE_GROUP = "base"
 
 
 class RuntimeTestsConfig(Frozen):
-    """The installation-wide `tests` block: which runtimes' tests are left out, kept in, and
-    run by the schedule."""
+    """The installation-wide `tests` block: the runtimes the schedule runs and the declared
+    tier 2 splits."""
 
-    runtimes_blocked: list[str] = []
-    runtimes_allowed: list[str] = []
     tier2_runtimes: list[str] = []
     tier2_splits: dict[str, Tier2SplitEntry] = {}
 
@@ -1137,11 +1135,8 @@ class WorkspaceConfig(Frozen):
 
     @model_validator(mode="after")
     def _tier2_runtime_lists(self) -> WorkspaceConfig:
-        """Each list names known runtimes once, and no runtime is blocked and allowed."""
-        lists = {
-            f"tests.{name}": getattr(self.tests, name)
-            for name in ("runtimes_blocked", "runtimes_allowed", "tier2_runtimes")
-        }
+        """The list names known runtimes once."""
+        lists = {"tests.tier2_runtimes": self.tests.tier2_runtimes}
         for key, repo in self.repos.items():
             if repo.tests.tier2_runtimes is not None:
                 lists[f"repos.{key}.tests.tier2_runtimes"] = repo.tests.tier2_runtimes
@@ -1160,12 +1155,6 @@ class WorkspaceConfig(Frozen):
                 raise ValueError(
                     f"{setting}: a runtime is named twice; the runtimes are {', '.join(known)}"
                 )
-        both = set(self.tests.runtimes_blocked) & set(self.tests.runtimes_allowed)
-        if both:
-            raise ValueError(
-                f"{', '.join(sorted(both))} is in both tests.runtimes_blocked and "
-                "tests.runtimes_allowed; keep it in one"
-            )
         return self
 
     @model_validator(mode="after")
