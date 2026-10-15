@@ -33,6 +33,7 @@ class PreExisting(Recorded):
     at: datetime
     base_result: str = "failed"
     base_output: str = ""
+    runtime: str = ""
 
 
 PreExistingCount = TestCount
