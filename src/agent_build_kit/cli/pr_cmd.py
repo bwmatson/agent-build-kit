@@ -13,6 +13,7 @@ from pathlib import Path
 from agent_build_kit.forges.base import RepoId
 from agent_build_kit.forges.local import LocalForge
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.planning_repo import repo_sharing
 from agent_build_kit.pipeline.shell import git
 
 
@@ -20,18 +21,8 @@ def _repo_name(args: argparse.Namespace, inst: Installation) -> str | None:
     """The repo asked for, else the one whose checkout holds the working directory."""
     if args.repo:
         return args.repo
-    here = _common_dir(Path.cwd())
-    if here is None:
-        return None
     # Through git, so a worktree of a checkout, wherever it sits, finds that checkout.
-    return next((n for n, path in inst.checkouts.items() if _common_dir(path) == here), None)
-
-
-def _common_dir(path: Path) -> Path | None:
-    if not path.is_dir():
-        return None
-    found = git(path, "rev-parse", "--path-format=absolute", "--git-common-dir", check=False)
-    return None if found.returncode else Path(found.stdout.strip()).resolve()
+    return repo_sharing(inst.checkouts, Path.cwd())
 
 
 def _number(forge: LocalForge, repo: RepoId, args: argparse.Namespace) -> int | None:
