@@ -12,7 +12,7 @@ from tests.split_gate_config import gate_of, refusal, with_gate
 def test_a_command_loads_as_an_argv_with_the_defaults() -> None:
     gate = gate_of(with_gate({"command": ["probe", "--quiet"]}))
 
-    assert list(gate.command) == ["probe", "--quiet"]
+    assert gate.command == ["probe", "--quiet"]
     assert gate.timeout_seconds == 30
     assert str(gate.on_unknown) == "allow"
 

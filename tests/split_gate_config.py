@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from agent_build_kit.config import WorkspaceConfig
+from agent_build_kit.config import GateConfig, GateProviderConfig, WorkspaceConfig
 
 PROVIDER = {"name": "modal", "budget_usd": 200}
 
@@ -25,8 +25,16 @@ def with_gate(gate: Any, *, split: str = "acp") -> WorkspaceConfig:
     )
 
 
-def gate_of(loaded: WorkspaceConfig, split: str = "acp") -> Any:
-    return loaded.tests.tier2_splits[split].gate  # type: ignore[attr-defined]
+def gate_of(loaded: WorkspaceConfig, split: str = "acp") -> GateConfig:
+    gate = loaded.tests.tier2_splits[split].gate
+    assert gate is not None
+    return gate
+
+
+def provider_of(loaded: WorkspaceConfig, split: str = "acp") -> GateProviderConfig:
+    provider = gate_of(loaded, split).provider
+    assert provider is not None
+    return provider
 
 
 def refusal(gate: Any) -> str:

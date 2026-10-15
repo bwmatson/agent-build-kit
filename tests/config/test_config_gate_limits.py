@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from agent_build_kit.config import WorkspaceConfig
-from tests.split_gate_config import PROVIDER, gate_of, refusal, with_gate
+from tests.split_gate_config import PROVIDER, gate_of, provider_of, refusal, with_gate
 
 
 def provider_with(limits: dict[str, Any]) -> dict[str, Any]:
@@ -15,7 +15,7 @@ def provider_with(limits: dict[str, Any]) -> dict[str, Any]:
 
 
 def test_the_four_window_limits_load_with_their_defaults() -> None:
-    limits = gate_of(with_gate({"provider": PROVIDER})).provider.limits
+    limits = provider_of(with_gate({"provider": PROVIDER})).limits
 
     assert limits.usage_pause_pct == 70
     assert limits.usage_pause_ceiling_pct is None
@@ -25,9 +25,9 @@ def test_the_four_window_limits_load_with_their_defaults() -> None:
 
 
 def test_set_limits_load_and_a_ceiling_below_the_pause_percent_is_refused() -> None:
-    limits = gate_of(
+    limits = provider_of(
         with_gate(provider_with({"usage_pause_pct": 60, "usage_pause_ceiling_pct": 90}))
-    ).provider.limits
+    ).limits
     assert (limits.usage_pause_pct, limits.usage_ceiling_pct) == (60, 90)
 
     message = refusal(provider_with({"usage_pause_pct": 60, "usage_pause_ceiling_pct": 50}))
@@ -52,6 +52,15 @@ def test_a_subscription_only_setting_is_refused_naming_it_and_claude_code(
 
     assert setting in message
     assert "claude_code" in message
+
+
+@pytest.mark.parametrize("key", ["usage_cache_minutes", "usage_stale_retry_minutes"])
+def test_a_gate_setting_under_limits_is_sent_to_the_gate(key: str) -> None:
+    message = refusal(provider_with({key: 5}))
+
+    assert key in message
+    assert "gate" in message
+    assert "claude_code" not in message
 
 
 def test_limits_beside_a_command_are_refused_saying_a_command_has_no_window() -> None:
@@ -89,4 +98,4 @@ def test_the_claude_code_limits_load_as_before_beside_a_gate() -> None:
     limits = loaded.runtimes["claude_code"].limits
     assert limits.session.usage_pause_pct == 60
     assert limits.weekly.usage_pause_pct == 50
-    assert gate_of(loaded).provider.name == "modal"
+    assert provider_of(loaded).name == "modal"

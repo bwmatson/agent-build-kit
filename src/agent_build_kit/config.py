@@ -632,6 +632,10 @@ class ProviderLimitsConfig(WindowLimits):
                 set(ClaudeLimitsConfig.model_fields) | set(UsageWindowConfig.model_fields)
             ) - own
             for key in data:
+                if key in GateConfig.model_fields:
+                    raise ValueError(
+                        f"gate.provider.limits.{key}: set `{key}` on `gate`, beside `provider`"
+                    )
                 if key in only_claude:
                     raise ValueError(
                         f"gate.provider.limits.{key}: belongs to runtimes.{CLAUDE_CODE}.limits, "
@@ -644,7 +648,7 @@ class GateProviderConfig(Frozen):
     """The provider whose usage a split's gate reads."""
 
     name: str
-    budget_usd: Annotated[float, Field(gt=0)]
+    budget_usd: Annotated[float, Field(gt=0, allow_inf_nan=False)]
     limits: ProviderLimitsConfig = ProviderLimitsConfig()
 
     @field_validator("name")
@@ -695,7 +699,7 @@ class GateConfig(Frozen):
 
 
 class Tier2SplitEntry(Frozen):
-    """One `tests.tier2_splits.<name>` entry as written: a selector and a hold."""
+    """One `tests.tier2_splits.<name>` entry as written: a selector, a hold and a gate."""
 
     marker: str | None = None
     hold: bool | None = None

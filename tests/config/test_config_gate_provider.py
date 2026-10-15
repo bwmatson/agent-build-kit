@@ -7,10 +7,11 @@ from typing import Any
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
 from agent_build_kit.cli import main
 from agent_build_kit.config import WorkspaceConfig, dump
-from tests.split_gate_config import PROVIDER, gate_of, refusal, with_gate
+from tests.split_gate_config import PROVIDER, provider_of, refusal, with_gate
 
 
 def test_a_provider_loads_and_config_show_prints_it(
@@ -26,7 +27,7 @@ def test_a_provider_loads_and_config_show_prints_it(
     provider = shown["tests"]["tier2_splits"]["acp"]["gate"]["provider"]
     assert provider["name"] == "modal"
     assert provider["budget_usd"] == 200
-    assert gate_of(loaded).provider.budget_usd == 200
+    assert provider_of(loaded).budget_usd == 200
 
 
 def test_an_unknown_name_is_refused_naming_the_setting_and_the_table() -> None:
@@ -36,8 +37,12 @@ def test_an_unknown_name_is_refused_naming_the_setting_and_the_table() -> None:
     assert "modal" in message
 
 
-@pytest.mark.parametrize("budget", [None, 0, -5], ids=["missing", "zero", "negative"])
-def test_a_missing_zero_or_negative_budget_is_refused_naming_it(budget: int | None) -> None:
+@pytest.mark.parametrize(
+    "budget", [None, 0, -5, float("inf")], ids=["missing", "zero", "negative", "infinite"]
+)
+def test_a_missing_zero_negative_or_infinite_budget_is_refused_naming_it(
+    budget: float | None,
+) -> None:
     provider: dict[str, Any] = {"name": "modal"}
     if budget is not None:
         provider["budget_usd"] = budget
@@ -64,11 +69,19 @@ def test_a_gate_with_both_is_refused_naming_both() -> None:
     assert "command" in message
 
 
-def test_rest_may_carry_a_gate() -> None:
-    entry = {"hold": True, "gate": {"provider": PROVIDER}}
-    loaded = WorkspaceConfig.model_validate({"tests": {"tier2_splits": {"rest": entry}}})
+def test_rest_may_carry_a_gate_alone_or_with_a_hold() -> None:
+    alone = with_gate({"provider": PROVIDER}, split="rest")
+    held = WorkspaceConfig.model_validate(
+        {"tests": {"tier2_splits": {"rest": {"hold": True, "gate": {"provider": PROVIDER}}}}}
+    )
 
-    assert gate_of(loaded, "rest").provider.name == "modal"
+    assert provider_of(alone, "rest").name == "modal"
+    assert provider_of(held, "rest").name == "modal"
+
+
+def test_an_empty_rest_is_refused_saying_hold_or_gate() -> None:
+    with pytest.raises(ValidationError, match="hold` or `gate"):
+        WorkspaceConfig.model_validate({"tests": {"tier2_splits": {"rest": {}}}})
 
 
 def test_a_workspace_with_no_gate_loads_and_dumps_unchanged() -> None:
