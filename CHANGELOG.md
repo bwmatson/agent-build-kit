@@ -7,6 +7,7 @@
   keeping the rest of each path and every other word. The original is kept once as
   `units.json.pre-redact`, and a second run finds nothing. The packaged `.gitignore` now
   ignores `*.pre-redact` wherever the state directory is.
+
 - `abk install-timers` run from a repository that is also the planning repo now creates a
   detached worktree of it outside the working copy (under the data directory, named for the
   repository), records it, and points every unit at it, so a tick never touches the branch you
