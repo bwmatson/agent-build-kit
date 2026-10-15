@@ -90,7 +90,7 @@ def session(
     timeout: float = 5,
     profile: Any = None,
     subject: Unit | None = None,
-    blocked: Collection[str] = (),
+    held: Collection[str] = (),
     only: str | None = None,
     splits: Collection[Tier2Split] = KIT_SPLITS,
 ) -> Tier2Session:
@@ -106,7 +106,7 @@ def session(
         projects=projects,
         dev_stack=dev_stack,
         profile=profile,
-        blocked=blocked,
+        held=held,
         only=only,
         splits=splits,
     )

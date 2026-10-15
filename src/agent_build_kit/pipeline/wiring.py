@@ -109,7 +109,7 @@ from agent_build_kit.pipeline.scratch import run_folder, selection_seed
 from agent_build_kit.pipeline.shell import git, git_out, has_origin
 from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner, Worktree
 from agent_build_kit.pipeline.tier2 import (
-    UNKNOWN_GROUP,
+    UNKNOWN_SPLIT,
     TestFailure,
     TestTime,
     Tier2Classification,
@@ -1448,16 +1448,17 @@ def build_on_preexisting(
     def on_preexisting(
         unit: Unit, verdict: Tier2Verdict, failure: TestFailure, *, wait: bool
     ) -> str | None:
-        runtime = failure.group or BASE_GROUP
+        split = failure.split or REST_SPLIT
         held = held_splits(
             tier2_splits(installation.repo(unit.repo), installation.config),
             installation.state_dir,
             now=datetime.now(UTC),
         ).held
-        if runtime == UNKNOWN_GROUP or (REST_SPLIT if runtime == BASE_GROUP else runtime) in held:
-            # A failure whose runtime is unknown is the unit's own, and a blocked
-            # runtime's failure is nobody's bug: neither is recorded or fixed.
+        if split == UNKNOWN_SPLIT or split in held:
+            # A failure whose split is unknown is the unit's own, and a held
+            # split's failure is nobody's bug: neither is recorded or fixed.
             return None
+        runtime = BASE_GROUP if split == REST_SPLIT else split
         met = PreExisting(
             test=failure.test,
             unit=unit.id,
@@ -2315,13 +2316,13 @@ class Tier2Session:
         projects: list[ProjectConfig] | None = None,
         output_dir: Path | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
-        blocked: Collection[str] = (),
+        held: Collection[str] = (),
         only: str | None = None,
         splits: Collection[Tier2Split] = (),
     ) -> None:
         self.unit = unit
         self.verdict: Tier2Verdict | None = None
-        self._blocked = blocked
+        self._held = held
         self._only = self._only_given = only
         self._splits = splits
         self._on_dev_stack = False
@@ -2440,12 +2441,12 @@ class Tier2Session:
         """What this run selects: the whole marker when nothing is left out or the profile
         cannot express a selection, else the repo's splits less the held ones (or the one
         that runs alone; the untagged group is `rest`)."""
-        if (not self._blocked and self._only is None) or selection_unavailable(
+        if (not self._held and self._only is None) or selection_unavailable(
             self._profile, dev_stack_script=False, splits=self._splits
         ):
             return Tier2Selection(marker=self._marker)
         only = REST_SPLIT if self._only == BASE_GROUP else self._only
-        return build_selection(self._marker, self._splits, held=self._blocked, only=only)
+        return build_selection(self._marker, self._splits, held=self._held, only=only)
 
     def _expression(self) -> str | None:
         """The text the test runner takes for this run's selection; None when it selects
@@ -2476,13 +2477,13 @@ class Tier2Session:
     def _park(
         self, scope: Tier2Scope, toolchains: Mapping[Path, ToolchainProfile]
     ) -> tuple[list[str], Tier2Scope]:
-        """The blocked runtimes holding a test this run would have executed, found by listing
+        """The held splits holding a test this run would have executed, found by listing
         without running, and the scope without its commands when the parked tests were all
         there was to run."""
-        if self._only is not None or not self._blocked:
+        if self._only is not None or not self._held:
             return [], scope
         parked: list[str] = []
-        for name in sorted(self._blocked):
+        for name in sorted(self._held):
             held = build_selection(self._marker, self._splits, only=name)
             found: list[str] | None = []
             for run in scope.runs:
@@ -2520,13 +2521,13 @@ class Tier2Session:
                 )
         return parked, scope
 
-    def _groups(
+    def _attribute(
         self,
         failures: list[TestFailure],
         named_by: Mapping[str, tuple[Path, ToolchainProfile, list[str]]],
         cwd: Path,
     ) -> list[TestFailure]:
-        """`failures` each with its runtime group, found by one listing of a command's failed
+        """`failures` each with its split, found by one listing of a command's failed
         tests under each declared split's selection; `unknown` where a listing could not say."""
         named = [split for split in self._splits if split.marker is not None]
         by_command: dict[tuple[Path, tuple[str, ...]], list[str]] = {}
@@ -2549,8 +2550,8 @@ class Tier2Session:
                     if short in ids:
                         groups.setdefault(test, split.name)
             for test in tests:
-                groups.setdefault(test, BASE_GROUP if sure else UNKNOWN_GROUP)
-        return [f.model_copy(update={"group": groups.get(f.test, UNKNOWN_GROUP)}) for f in failures]
+                groups.setdefault(test, REST_SPLIT if sure else UNKNOWN_SPLIT)
+        return [f.model_copy(update={"split": groups.get(f.test, UNKNOWN_SPLIT)}) for f in failures]
 
     def run(
         self, *, cwd: Path, base: str | None = None, only: str | None = None
@@ -2558,7 +2559,7 @@ class Tier2Session:
         """Run tier 2 on `cwd`. `base` is the ref this run is against: with it, the failed
         tests of files the unit left alone are run once on it, and `verdict` says whose
         each is. Without it, or on the dev stack, nothing is classified. `only` limits the
-        run to one group, as a resume of a parked one does; a group still blocked is
+        run to one group, as a resume of a parked one does; a group still held is
         parked again without running. The result names the group it was limited to."""
         self._only = self._only_given if only is None else only
         done = self._execute(cwd=cwd, base=base)
@@ -2572,8 +2573,8 @@ class Tier2Session:
         self._started = None
         self._output_file = None
         self._withheld = False
-        if self._only is not None and self._only in self._blocked:
-            self._log(f"tier 2 parked {self._only}: still blocked")
+        if self._only is not None and self._only in self._held:
+            self._log(f"tier 2 parked {self._only}: still held")
             self.result = Tier2Result(
                 sha=self._sha(cwd),
                 passed=0,
@@ -2589,7 +2590,7 @@ class Tier2Session:
         scope = self.scope(cwd=cwd, base=base)
         if scope.mode is Tier2UnitScope.FULL:
             self._log(scope.reason)
-        left_out = ", ".join(sorted(self._blocked))
+        left_out = ", ".join(sorted(self._held))
         why = (
             selection_unavailable(
                 self._profile, dev_stack_script=scope.dev_stack, splits=self._splits
@@ -2707,7 +2708,7 @@ class Tier2Session:
                     test = labelled(project, found.test)
                     failures.append(TestFailure(test=test, line=found.line))
                     named_by[test] = (at, toolchain, ran)
-            failures = self._groups(failures, named_by, cwd)
+            failures = self._attribute(failures, named_by, cwd)
             # A test id is output too, and is redacted as the failures' ids are before it is
             # posted, stored or recorded.
             ids = redact_leaves([e.test for e in timed], where="tier-2 output")
@@ -2770,7 +2771,7 @@ class Tier2Session:
         untouched: list[TestFailure] = []
         for failure in self.result.failures:
             path = Path(failure.test.partition("::")[0])
-            is_own = failure.group == UNKNOWN_GROUP or (
+            is_own = failure.split == UNKNOWN_SPLIT or (
                 path.as_posix() in changed or (path.parent / "conftest.py").as_posix() in changed
             )
             (own if is_own else untouched).append(failure)
@@ -3445,11 +3446,12 @@ def build_runner(
     root = installation.state_dir
     # One stamp for this thread's whole run: every call in it is one run to retention.
     record_for = (unit, transcript_dir(root), datetime.now(UTC))
+    declared = tier2_splits(repo, installation.config)
     # What the unit's tier 2 leaves out, and what a parked unit says it waits for.
-    holds = held_splits(tier2_splits(repo, installation.config), root, now=datetime.now(UTC))
+    holds = held_splits(declared, root, now=datetime.now(UTC))
     tier2 = Tier2Session(
         unit,
-        blocked=list(holds.held),
+        held=list(holds.held),
         lock=installation.tier2_lock,
         log=log,
         under=dev_stack_underneath(unit, installation),
@@ -3463,7 +3465,7 @@ def build_runner(
         env=installation.verify_env(),
         projects=repo.projects,
         output_dir=tier2_output_dir(root),
-        splits=tier2_splits(repo, installation.config),
+        splits=declared,
     )
     planning_repo = installation.root
     # Units build in parallel, and two in one repo share its `.git`. Adding a
