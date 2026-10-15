@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `abk scrub-store` reports, and with `--apply` on a paused pipeline replaces, the
+  home-directory paths in the unit store's text (feedback, guidance, notes) with `<home>/`,
+  keeping the rest of each path and every other word. The original is kept once as
+  `units.json.pre-redact`, and a second run finds nothing. The packaged `.gitignore` now
+  ignores `*.pre-redact` wherever the state directory is.
+
 - `abk doctor` has a `public content` check. It reads a tracked `abk.yaml` offline and warns
   about a repo path outside the checkout, a home-directory path in a value and a repo owned
   by another account than the planning repo's origin, naming the key and never the value. It

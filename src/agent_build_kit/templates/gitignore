@@ -17,9 +17,8 @@ runs/usage-ledger.jsonl
 runs/decisions.jsonl
 # One line per use of the usage endpoint, kept a week (same note).
 runs/usage-calls.jsonl
-# The originals `abk redact-history --apply` keeps beside what it rewrites; they hold the
-# secrets (same note).
-runs/**/*.pre-redact
+# The originals `abk redact-history --apply` and `abk scrub-store --apply` keep beside what they
+# rewrite; they hold the secrets and paths, wherever the state directory is.
 *.pre-redact
 
 # Words that identify this installation, for `abk scrub-check` (one per line). Never committed:

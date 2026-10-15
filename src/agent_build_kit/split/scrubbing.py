@@ -7,7 +7,7 @@ from pathlib import Path
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.unit_store import Description, StoredUnit
+from agent_build_kit.pipeline.unit_store import Description, StoredUnit, with_text
 from agent_build_kit.scrub_terms import REPLACEMENT, scrub_text, terms_for
 from agent_build_kit.split.select import SplitPlan, moved_files, moved_records
 
@@ -51,20 +51,7 @@ def scrub_record(unit: StoredUnit, scrub: Callable[[str], str]) -> StoredUnit:
         description = Description(
             summary=scrub(description.summary), changes=tuple(map(scrub, description.changes))
         )
-    history = tuple(
-        {**entry, "note": scrub(entry["note"])} if isinstance(entry.get("note"), str) else entry
-        for entry in unit.history
-    )
-    return unit.model_copy(
-        update={
-            "feedback": scrub(unit.feedback),
-            "guidance": scrub(unit.guidance),
-            "predecessor_note": scrub(unit.predecessor_note),
-            "stack_refusal": scrub(unit.stack_refusal),
-            "description": description,
-            "history": history,
-        }
-    )
+    return with_text(unit, scrub).model_copy(update={"description": description})
 
 
 def scrub_counts(source: Installation, plan: SplitPlan) -> ScrubCounts:

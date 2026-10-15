@@ -383,6 +383,9 @@ OLD_ENGINE_FIELDS = (
 _WRITTEN_EMPTY = {"resume_from": "", "classic_run": {}}
 
 
+# The text fields of a record a rewrite of its words may change (see `UnitStore.rewrite_text`).
+REWRITTEN_TEXT_FIELDS = ("feedback", "guidance", "predecessor_note", "stack_refusal")
+
 StateChanged = Callable[[StoredUnit, list[StoredUnit], bool], None]
 
 
@@ -400,6 +403,22 @@ def _exclusive(method):
             return method(self, *args, **kwargs)
 
     return locked
+
+
+def with_text(unit: StoredUnit, fn: Callable[[str], str]) -> StoredUnit:
+    """The record with `fn` applied to its free text (`REWRITTEN_TEXT_FIELDS` and each history
+    note); identifiers, state and timestamps are kept."""
+    return unit.model_copy(
+        update={
+            **{field: fn(getattr(unit, field)) for field in REWRITTEN_TEXT_FIELDS},
+            "history": tuple(
+                {**entry, "note": fn(entry["note"])}
+                if isinstance(entry.get("note"), str)
+                else entry
+                for entry in unit.history
+            ),
+        }
+    )
 
 
 def guidance_excerpt(note: str) -> str:
@@ -585,6 +604,22 @@ class UnitStore:
             raise ValueError(f"{self.path} holds a different record for {', '.join(conflicts)}")
         if added:
             self._write({**stored, **added})
+
+    @_exclusive
+    def rewrite_text(self, fn: Callable[[str], str]) -> list[str]:
+        """Apply `fn` to the text fields of every record (the feedback, guidance, predecessor
+        note, stack refusal and each history note), write once, and return the ids changed.
+        Nothing is written when no text changed; no other field or timestamp is touched."""
+        stored = self._read()
+        changed = []
+        for uid, unit in stored.items():
+            rewritten = with_text(unit, fn)
+            if rewritten != unit:
+                stored[uid] = rewritten
+                changed.append(uid)
+        if changed:
+            self._write(stored)
+        return changed
 
     @_exclusive
     def remove_units(self, unit_ids: Collection[str]) -> None:

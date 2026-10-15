@@ -1,7 +1,9 @@
 """The words that identify an installation, and the scrub of a text with them.
 
 `terms_for` is the only definition of the term set; `abk scrub-check` scans with it
-and anything that scrubs stored text uses it through `scrub_text`.
+and anything that scrubs stored text by those terms uses it through `scrub_text`. The
+home-directory shapes (`HOME_ROOTS`, `TILDE_HOME`) are separate: they are what a path
+is, not a term, and `abk doctor` and `abk scrub-store` both read them from here.
 """
 
 from __future__ import annotations
@@ -24,6 +26,11 @@ MIN_LITERAL_LENGTH = 4
 # The first directories below home that belong to tools, not to an installation.
 TOOL_DIRS = {".claude", ".local", ".config", ".cache", ".ssh", ".volta"}
 LOCAL_LIST = "scrub.local"
+# The names a home directory sits under (Linux, macOS) and the tilde prefix, as regex
+# fragments: `ROOT_HOME` ends at the slash before the user directory.
+HOME_ROOTS = ("home", "Users")
+ROOT_HOME = "/(?:" + "|".join(HOME_ROOTS) + ")/"
+TILDE_HOME = r"(?<![\w/])" + re.escape("~" + "/")
 
 
 def _first_below_home(path: Path) -> str | None:

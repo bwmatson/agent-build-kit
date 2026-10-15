@@ -8,21 +8,20 @@ from __future__ import annotations
 
 import argparse
 import shutil
-import sys
 from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 
 from agent_build_kit import redaction
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.file_lock import atomic_write_text
-from agent_build_kit.pipeline.pause import pause_in_force
+from agent_build_kit.pipeline.original_copy import COPY_SUFFIX, copy_of
+from agent_build_kit.pipeline.pause import paused_or_refused
 from agent_build_kit.pipeline.run_log import run_log_dir
 from agent_build_kit.pipeline.transcript import transcript_dir
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, ledger_lock
 
 HELP = "temporary: removed once every installation has run it"
-COPY_SUFFIX = ".pre-redact"
 
 
 def _saved_files(inst: Installation) -> list[Path]:
@@ -44,7 +43,7 @@ def _rewrite(path: Path, redactor: redaction.Redactor, *, apply: bool) -> None:
         return
     print(f"{path}: {', '.join(names)}")
     if apply:
-        shutil.copy2(path, path.with_name(path.name + COPY_SUFFIX))
+        shutil.copy2(path, copy_of(path))
         atomic_write_text(path, redactor.redact(text))
 
 
@@ -58,12 +57,9 @@ def _lock_of(inst: Installation, path: Path) -> AbstractContextManager[None]:
 
 
 def cmd_redact_history(args: argparse.Namespace, inst: Installation) -> int:
-    if args.apply and not pause_in_force(inst.state_dir):
-        print(
-            "redact-history --apply: refused; a run log or transcript may be open, so pause "
-            "the pipeline first (nothing was changed)",
-            file=sys.stderr,
-        )
+    if args.apply and not paused_or_refused(
+        "redact-history --apply", inst.state_dir, "a run log or transcript may be open"
+    ):
         return 1
     redactor = redaction.gather(inst)
     for path in _saved_files(inst):
