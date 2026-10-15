@@ -67,6 +67,8 @@ class Answers:
             return subprocess.CompletedProcess(argv, 1, "", "npx: command not found")
         if argv[0] == "git":
             return subprocess.run(argv, **kwargs)
+        if list(argv[-3:]) == ["auth", "status", "--json"]:
+            return subprocess.CompletedProcess(argv, 0, '{"loggedIn": true}', "")
         return subprocess.CompletedProcess(argv, 0, "", "")
 
 

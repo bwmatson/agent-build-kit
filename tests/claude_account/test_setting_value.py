@@ -9,7 +9,7 @@ import pytest
 
 from agent_build_kit import claude_account
 from agent_build_kit.config import ConfigError
-from tests.claude_account.conftest import Configure
+from tests.account_settings import Configure
 
 
 def test_a_home_relative_value_is_expanded_whether_or_not_it_exists(

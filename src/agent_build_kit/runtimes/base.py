@@ -412,6 +412,19 @@ class AsksQuestions(Protocol):
     def setup_questions(self) -> list[Question]: ...
 
 
+class AccountLine(Frozen):
+    """One line `abk doctor` prints about the account a runtime runs on."""
+
+    status: Literal["ok", "info", "warn", "FAIL"]
+    detail: str
+    fix: str = ""
+
+
+@runtime_checkable
+class ReportsAccount(Protocol):
+    def account_report(self, run: Run, env_file: Path | None) -> list[AccountLine]: ...
+
+
 @runtime_checkable
 class ListsModels(Protocol):
     def list_models(self, command: Sequence[str] | None = None) -> ModelList: ...
@@ -425,6 +438,11 @@ def candidates_of(runtime: AgentRuntime, which: Which, run: Run) -> list[Candida
 def questions_of(runtime: AgentRuntime) -> list[Question]:
     """The setup questions `runtime` declares; none for one without them."""
     return runtime.setup_questions() if isinstance(runtime, AsksQuestions) else []
+
+
+def account_report_of(runtime: AgentRuntime, run: Run, env_file: Path | None) -> list[AccountLine]:
+    """What `runtime` says of its account; no lines for a runtime without one."""
+    return runtime.account_report(run, env_file) if isinstance(runtime, ReportsAccount) else []
 
 
 def models_of(runtime: AgentRuntime, command: Sequence[str] | None = None) -> ModelList:

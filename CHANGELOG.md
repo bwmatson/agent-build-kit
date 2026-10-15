@@ -44,8 +44,12 @@
   account's login and its own usage cache too, never the default account's. A kept usage
   reading belongs to its account and is discarded under another, the allowance calibration
   restarts when the account changes, `abk status` names the account in its usage line, and a
-  stored session the new account cannot find runs afresh with a line naming the account. With
-  neither set nothing changes.
+  stored session the new account cannot find runs afresh with a line naming the account.
+  `abk install-skills --user` writes to the account's `skills` directory, and `abk doctor`
+  prints the account, which name and place supplied it, whether it exists and is logged in
+  (with the exact login command when not), and warns about a `CLAUDE_CODE_OAUTH_TOKEN` set
+  beside it. `.env.example` shows the `ABK_CLAUDE_HOME=` line, and
+  `docs/claude-code-second-account.md` is the how-to. With neither set nothing changes.
 
 - A builder on a python-uv repo can now run `uv lock`, `uv sync`, `uv add` and `uv remove`,
   so a unit that changes dependencies no longer stops on a denied command. Commands that

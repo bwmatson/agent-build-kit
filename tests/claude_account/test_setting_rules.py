@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit import claude_account
-from tests.claude_account.conftest import Configure
+from tests.account_settings import Configure
 
 A = "/accounts/a"
 B = "/accounts/b"

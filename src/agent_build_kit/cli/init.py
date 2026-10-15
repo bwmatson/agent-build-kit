@@ -24,8 +24,8 @@ from pathlib import Path
 
 import yaml
 
+from agent_build_kit import claude_account, openspec, runtimes, skills, timers
 from agent_build_kit import config as config_module
-from agent_build_kit import openspec, runtimes, skills, timers
 from agent_build_kit.cli.policy_cmd import PATTERNS_COMMAND, preview, write_recommended
 from agent_build_kit.config import (
     CONFIG_FILENAME,
@@ -819,7 +819,7 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
 def cmd_install_skills(args: argparse.Namespace, inst: Installation | None) -> int:
     targets: list[Path] = []
     if args.user:
-        targets.append(Path.home() / ".claude" / "skills")
+        targets.append(claude_account.skills_dir())
     targets += [Path(p).expanduser().resolve() / ".claude" / "skills" for p in args.repo or []]
     if not targets:
         if inst is None:

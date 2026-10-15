@@ -41,6 +41,7 @@ from tests.usage_host import Host
 
 pytest_plugins = [
     "pytester",
+    "tests.account_settings",
     "tests.fork_warning_guard",
     "tests.replay.plugin",
     "tests.runtime_tags",

@@ -578,10 +578,28 @@ resolved against whichever runtime is selected, so an override naming a model
 one runtime knows and another does not applies only while that runtime is in
 force. See [agent-runtimes.md](agent-runtimes.md).
 
-Two more are read outside the settings layer because they belong to Claude
-Code: `CLAUDE_CODE_OAUTH_TOKEN`, used by the usage guard ahead of the token
-Claude Code stores under `~/.claude`, and Claude Code's own cache in
-`~/.claude.json`, the fallback usage reading.
+`CLAUDE_CODE_OAUTH_TOKEN` is read outside the settings layer because it belongs
+to Claude Code: the usage guard uses it ahead of the token stored in the account's
+directory.
+
+### The Claude Code account
+
+The account is the Claude Code config directory, set as `CLAUDE_CONFIG_DIR` or
+`ABK_CLAUDE_HOME` in the installation's `.env` or the process environment. The two
+names are aliases of one value: `CLAUDE_CONFIG_DIR` is read first within a place, the
+process environment beats the `.env`, an empty value is unset, and a relative path is
+refused. Neither set means the default `~/.claude`. It is not an abk.yaml key: it names
+a directory that differs per user and per machine, and abk.yaml is checked in.
+
+What each command does with it: every `claude` the pipeline starts runs in the
+account's directory; the usage guard reads the credentials and `.claude.json` inside it;
+the sessions page lists and resumes its sessions; `abk install-skills --user` writes to
+its `skills` directory; `abk doctor` prints the directory, which name and place supplied
+it, whether it exists and whether it is logged in.
+
+Two installations on two accounts keep their own usage cache, record, allowances,
+ledger and timers. They share the machine, the `claude` binary and the editor
+extension's own setting. The how-to is [claude-code-second-account.md](claude-code-second-account.md).
 
 ## Reaching the config from code
 

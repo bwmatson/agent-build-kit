@@ -1,4 +1,4 @@
-"""A settings layer read from a temporary `.env` and a patched process environment."""
+"""The `configure` fixture: settings read from a temporary `.env` and a patched process."""
 
 from __future__ import annotations
 
