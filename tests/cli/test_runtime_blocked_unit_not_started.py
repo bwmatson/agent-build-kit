@@ -21,7 +21,7 @@ from tests.factories import new_unit
 def parked(store: UnitStore, inst: Installation) -> None:
     store.upsert([new_unit("second/1")])
     store.set_state(
-        "second/1", PLANNED, note="tier 2 tests of acp did not run", cause=Cause.RUNTIME_BLOCKED
+        "second/1", PLANNED, note="tier 2 tests of acp did not run", cause=Cause.SPLIT_HELD
     )
     store.set_parked("second/1", ["acp"], "sha-1", "first run")
 
@@ -34,7 +34,7 @@ def test_a_round_does_not_start_a_unit_parked_for_a_runtime(tmp_path: Path) -> N
     ready = cli.run_round(inst, store, building=(), only=frozenset(), submit=True)
 
     assert [unit.id for unit in ready] == []
-    assert store.get("second/1").parked_runtimes == ["acp"]
+    assert store.get("second/1").parked_splits == ["acp"]
 
 
 def test_a_unit_parked_for_a_runtime_reads_as_blocked(tmp_path: Path) -> None:

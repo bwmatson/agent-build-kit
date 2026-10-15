@@ -1,5 +1,5 @@
-"""A unit whose own tier 2 tests include a parked group waits for the runtime, with nothing
-published, and resumes only that group (spec: tier2-runtime-parking)."""
+"""A unit whose own tier 2 tests include a held split waits for the split, with nothing
+published, and resumes only that split (spec: tier2-split-runs)."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ REASON = "the provider is down"
 class Run:
     """A unit at tier 2 over a fake tier 2 answering `steps`, driven tick by tick."""
 
-    def __init__(self, tmp_path: Path, *steps: Step, **blocked: str) -> None:
+    def __init__(self, tmp_path: Path, *steps: Step, **held: str) -> None:
         self.tmp_path = tmp_path
         self.recorder: Recorder = fresh(tmp_path)
         self.recorder.store.upsert([unit(tier="tier2")])
@@ -39,7 +39,7 @@ class Run:
         self.parking = Parking(self.recorder.events, *steps)
         self.told = Told()
         self.bodies: list[str] = []
-        self.blocked = blocked or {"acp": REASON}
+        self.held = held or {"acp": REASON}
 
     def open_pr(self, unit: Any, *, body: str, base: str, cwd: Path, **bodies: str) -> int:
         self.bodies.append(body)
@@ -50,14 +50,15 @@ class Run:
             tier="tier2",
             run_tier2=self.parking.run,
             tier2_result=self.parking.result,
-            tier2_holds=lambda: holds_of(**self.blocked),
+            tier2_holds=lambda: holds_of(**self.held),
             on_preexisting=self.told,
             open_pr=self.open_pr,
         )
         return tick(self.tmp_path, self.recorder, **{**wired, **more})
 
     def resume(self, **more: Any) -> RunOutcome:
-        """The block lifts: the parked unit is released, then runs."""
+        """The hold lifts: the parked unit is released, then runs."""
+        assert self.stored.cause is Cause.SPLIT_HELD, "a unit waiting on its split is what resumes"
         self.tick(event=GATE_CLEARED, **more)
         return self.tick(**more)
 
@@ -66,7 +67,7 @@ class Run:
         return self.recorder.store.get("add-marker/1")
 
 
-def test_a_unit_whose_run_parked_acp_is_held_planned_with_the_runtime_and_the_reason(
+def test_a_unit_whose_run_parked_acp_is_held_planned_with_the_split_and_the_reason(
     tmp_path: Path,
 ) -> None:
     run = Run(tmp_path, Step(parked=("acp",)))
@@ -74,9 +75,9 @@ def test_a_unit_whose_run_parked_acp_is_held_planned_with_the_runtime_and_the_re
     outcome = run.tick()
 
     assert outcome.status == RunStatus.HELD
-    assert (run.stored.state, run.stored.cause) == (PLANNED, Cause.RUNTIME_BLOCKED)
+    assert (run.stored.state, run.stored.cause) == (PLANNED, Cause.SPLIT_HELD)
     assert "acp" in run.stored.note and REASON in run.stored.note
-    assert run.stored.parked_runtimes == ["acp"]
+    assert run.stored.parked_splits == ["acp"]
     assert run.stored.parked_sha == RAN, "the commit the passing run was on"
 
 
@@ -87,7 +88,7 @@ def test_a_parked_unit_publishes_nothing_and_has_no_feedback_failure_or_fix(
 
     run.tick()
 
-    assert run.stored.cause is Cause.RUNTIME_BLOCKED, "it parked, rather than doing none of this"
+    assert run.stored.cause is Cause.SPLIT_HELD, "it parked, rather than doing none of this"
     assert run.stored.feedback == ""
     assert run.told.told == [], "no failure is recorded, so no fix change is written"
     state = read_back(unit_graphs_path(tmp_path / "state"), "add-marker/1").values
@@ -97,18 +98,18 @@ def test_a_parked_unit_publishes_nothing_and_has_no_feedback_failure_or_fix(
     )
 
 
-def test_a_unit_with_no_own_test_in_the_blocked_group_is_not_held(tmp_path: Path) -> None:
+def test_a_unit_with_no_own_test_in_the_held_split_is_not_held(tmp_path: Path) -> None:
     run = Run(tmp_path, Step(parked=()))
 
     outcome = run.tick()
 
     assert run.parking.results_read == 1, "the node reads what the run parked, and finds nothing"
     assert outcome.status == "open"
-    assert run.stored.cause is not Cause.RUNTIME_BLOCKED and run.stored.parked_runtimes == []
+    assert run.stored.cause is not Cause.SPLIT_HELD and run.stored.parked_splits == []
     assert "status" in run.recorder.events
 
 
-def test_a_unit_whose_other_groups_failed_fails_as_before_and_is_not_parked(
+def test_a_unit_whose_other_splits_failed_fails_as_before_and_is_not_parked(
     tmp_path: Path,
 ) -> None:
     run = Run(tmp_path, Step(ok=False, parked=("acp",), snapshot="FAILED " + OLD))
@@ -118,10 +119,10 @@ def test_a_unit_whose_other_groups_failed_fails_as_before_and_is_not_parked(
     assert run.parking.results_read == 1, "the node read what the run parked, and did not park"
     assert outcome.status != RunStatus.HELD
     assert run.stored.feedback.startswith("tier 2 failed:")
-    assert run.stored.cause is not Cause.RUNTIME_BLOCKED and run.stored.parked_runtimes == []
+    assert run.stored.cause is not Cause.SPLIT_HELD and run.stored.parked_splits == []
 
 
-def test_a_unit_parked_on_two_runtimes_names_both(tmp_path: Path) -> None:
+def test_a_unit_parked_on_two_splits_names_both(tmp_path: Path) -> None:
     run = Run(
         tmp_path,
         Step(parked=("acp", "claude_code")),
@@ -133,13 +134,13 @@ def test_a_unit_parked_on_two_runtimes_names_both(tmp_path: Path) -> None:
 
     assert "acp" in run.stored.note and "claude_code" in run.stored.note
     assert "the provider is down" in run.stored.note and "logged out" in run.stored.note
-    assert run.stored.parked_runtimes == ["acp", "claude_code"]
+    assert run.stored.parked_splits == ["acp", "claude_code"]
 
 
 # --- the resume -------------------------------------------------------------------------
 
 
-def test_the_resumed_node_runs_only_the_parked_group_on_the_stored_commit(
+def test_the_resumed_node_runs_only_the_parked_split_on_the_stored_commit(
     tmp_path: Path,
 ) -> None:
     run = Run(tmp_path, Step(parked=("acp",)), Step(snapshot=SECOND_RUN))
@@ -164,7 +165,7 @@ def test_the_resumed_node_posts_the_first_runs_result_with_its_own_and_one_statu
     assert run.recorder.events.count("status") == 1
 
 
-def test_the_resumed_node_posts_no_status_when_the_parked_group_failed(tmp_path: Path) -> None:
+def test_the_resumed_node_posts_no_status_when_the_parked_split_failed(tmp_path: Path) -> None:
     run = Run(tmp_path, Step(parked=("acp",)), Step(ok=False, snapshot="FAILED " + OLD))
     run.tick()
 
@@ -175,7 +176,7 @@ def test_the_resumed_node_posts_no_status_when_the_parked_group_failed(tmp_path:
     assert "status" not in run.recorder.events
 
 
-def test_the_resumed_node_parks_again_when_the_group_is_still_blocked(tmp_path: Path) -> None:
+def test_the_resumed_node_parks_again_when_the_split_is_still_held(tmp_path: Path) -> None:
     run = Run(tmp_path, Step(parked=("acp",)), Step(parked=("acp",)))
     run.tick()
 
@@ -183,12 +184,12 @@ def test_the_resumed_node_parks_again_when_the_group_is_still_blocked(tmp_path: 
 
     assert run.parking.only == [None, "acp"]
     assert outcome.status == RunStatus.HELD
-    assert (run.stored.state, run.stored.cause) == (PLANNED, Cause.RUNTIME_BLOCKED)
-    assert run.stored.parked_runtimes == ["acp"] and run.stored.parked_sha == RAN
+    assert (run.stored.state, run.stored.cause) == (PLANNED, Cause.SPLIT_HELD)
+    assert run.stored.parked_splits == ["acp"] and run.stored.parked_sha == RAN
     assert not {"push", "pr", "status"} & set(run.recorder.events)
 
 
-def test_the_resumed_node_runs_the_whole_expression_when_the_head_moved(tmp_path: Path) -> None:
+def test_the_resumed_node_runs_the_whole_selection_when_the_head_moved(tmp_path: Path) -> None:
     run = Run(tmp_path, Step(parked=("acp",)), Step(snapshot=SECOND_RUN))
     run.tick()
     assert run.stored.parked_sha == RAN, "parked on a commit the head then leaves"
@@ -198,18 +199,18 @@ def test_the_resumed_node_runs_the_whole_expression_when_the_head_moved(tmp_path
     assert run.parking.only == [None, None]
 
 
-def test_the_stored_parking_is_cleared_when_the_group_passes(tmp_path: Path) -> None:
+def test_the_stored_parking_is_cleared_when_the_split_passes(tmp_path: Path) -> None:
     run = Run(tmp_path, Step(parked=("acp",)), Step(snapshot=SECOND_RUN))
     run.tick()
-    assert run.stored.parked_runtimes == ["acp"]
+    assert run.stored.parked_splits == ["acp"]
 
     run.resume()
 
-    assert run.stored.parked_runtimes == [] and run.stored.parked_sha == ""
+    assert run.stored.parked_splits == [] and run.stored.parked_sha == ""
     assert run.stored.parked_snapshot == ""
 
 
-def test_a_resume_that_parks_again_keeps_the_runs_of_the_groups_that_passed(
+def test_a_resume_that_parks_again_keeps_the_runs_of_the_splits_that_passed(
     tmp_path: Path,
 ) -> None:
     run = Run(
@@ -225,6 +226,6 @@ def test_a_resume_that_parks_again_keeps_the_runs_of_the_groups_that_passed(
     run.resume()
 
     assert run.parking.only == [None, "acp", "claude_code"]
-    assert run.stored.parked_runtimes == ["claude_code"]
+    assert run.stored.parked_splits == ["claude_code"]
     assert FIRST_RUN in run.stored.parked_snapshot and SECOND_RUN in run.stored.parked_snapshot
     assert "STILL-BLOCKED-MARK" not in run.stored.parked_snapshot

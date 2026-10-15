@@ -1,6 +1,6 @@
 """No status stands for tests that did not run: the posting refuses a result with a parked
-runtime, and a unit parked before its push has no commit on the host to carry one
-(spec: tier2-runtime-parking)."""
+split, and a unit parked before its push has no commit on the host to carry one
+(spec: tier2-split-runs)."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from tests.tier2_park_fakes import Parking, Step, holds_of
 from tests.tier2_scope_fakes import branch, session
 
 
-def test_the_posting_refuses_a_result_with_a_parked_runtime_and_sends_nothing(
+def test_the_posting_refuses_a_result_with_a_parked_split_and_sends_nothing(
     tmp_path: Path,
 ) -> None:
     repo, base = branch(tmp_path, SOURCE, base_files=FILES)
@@ -48,7 +48,7 @@ def test_a_unit_parked_before_its_push_has_no_commit_on_the_host_to_carry_a_stat
         tier2_holds=lambda: holds_of(acp="down"),
     )
 
-    assert recorder.store.get("add-marker/1").cause is Cause.RUNTIME_BLOCKED
+    assert recorder.store.get("add-marker/1").cause is Cause.SPLIT_HELD
     assert recorder.remote == [], "nothing was pushed"
     assert "status" not in recorder.events
 

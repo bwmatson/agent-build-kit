@@ -97,7 +97,7 @@ class Cause(StrEnum):
     NETWORK_UNAVAILABLE = "network_unavailable"
     SERVICE_UNAVAILABLE = "service_unavailable"
     ENVIRONMENT = "environment"
-    RUNTIME_BLOCKED = "runtime_blocked"
+    SPLIT_HELD = "split_held"
 
 
 class RequeueReason(StrEnum):
@@ -232,9 +232,9 @@ class StoredUnit(Unit):
     # How a requeue that found a dependency it waits on unmet is delivered once
     # it is met (see `Cause.GATED`); None when no requeue is waiting.
     gated_requeue: RequeueReason | None = None
-    # What a unit held for `Cause.RUNTIME_BLOCKED` waits on: the runtimes its tier 2 run
+    # What a unit held for `Cause.SPLIT_HELD` waits on: the splits its tier 2 run
     # parked, the commit that run passed on and the snapshot it posted.
-    parked_runtimes: list[str] = []
+    parked_splits: list[str] = []
     parked_sha: str = ""
     parked_snapshot: str = ""
     # The close of a satisfied unit's pull request, kept until it is done.
@@ -314,7 +314,7 @@ class StoredUnit(Unit):
         if not self.history or not self.history[-1].get("cause"):
             return None
         try:
-            return Cause(self.history[-1]["cause"])
+            return Cause(_OLDER_CAUSES.get(self.history[-1]["cause"], self.history[-1]["cause"]))
         except ValueError:
             # Written by a newer release; read as a record from before causes were kept.
             return None
@@ -333,6 +333,10 @@ class StoredUnit(Unit):
         if not isinstance(data, dict):
             return data
         item = {k: v for k, v in data.items() if k not in REMOVED_FIELDS}
+        for old, new in _OLDER_FIELDS.items():
+            if old in item:
+                item[new] = item.get(new) or item[old]
+                del item[old]
         unit_id = item.get("id", "?")
         for field in OLD_ENGINE_FIELDS:
             if field in item and item[field] == _WRITTEN_EMPTY.get(field):
@@ -366,6 +370,11 @@ class StoredUnit(Unit):
 # `merge_before` was the merge gate, removed when a `Needs` dependency began to start on
 # its parent's branch; the next write leaves the key out.
 REMOVED_FIELDS = ("merge_before",)
+
+# Names an earlier release wrote for what is now a split: the field of parked runtimes, and the
+# cause a unit parked on one carried. Read as the new names; only the new ones are written.
+_OLDER_FIELDS = {"parked_runtimes": "parked_splits"}
+_OLDER_CAUSES = {"runtime_blocked": "split_held"}
 
 # The in-run fields a unit carried before its progress moved into its thread. A store
 # that still holds one is refused: that work must be finished or requeued first.
@@ -891,11 +900,9 @@ class UnitStore:
         self._update(unit_id, gated_requeue=requeue)
 
     def set_parked(
-        self, unit_id: str, runtimes: Sequence[str] = (), sha: str = "", snapshot: str = ""
+        self, unit_id: str, splits: Sequence[str] = (), sha: str = "", snapshot: str = ""
     ) -> None:
-        self._update(
-            unit_id, parked_runtimes=list(runtimes), parked_sha=sha, parked_snapshot=snapshot
-        )
+        self._update(unit_id, parked_splits=list(splits), parked_sha=sha, parked_snapshot=snapshot)
 
     def set_needs(self, unit_id: str, needs: Sequence[str]) -> None:
         self._update(unit_id, needs=tuple(needs))
@@ -1036,7 +1043,7 @@ def backoff_remaining(unit: StoredUnit, now: datetime) -> timedelta | None:
 
 def awaits_release(unit: StoredUnit) -> bool:
     """Whether a planned unit is stopped until something releases it: a gated requeue to be
-    delivered, or tier 2 tests parked for a blocked runtime. A tick never starts one."""
-    return unit.cause is Cause.RUNTIME_BLOCKED or (
+    delivered, or tier 2 tests parked for a held split. A tick never starts one."""
+    return unit.cause is Cause.SPLIT_HELD or (
         unit.cause is Cause.GATED and unit.gated_requeue is not None
     )
