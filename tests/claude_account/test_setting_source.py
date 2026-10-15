@@ -11,7 +11,7 @@ import pytest
 from agent_build_kit import claude_account
 from agent_build_kit.claude_account import Source
 from agent_build_kit.settings import settings
-from tests.claude_account.conftest import Configure
+from tests.account_settings import Configure
 
 # A different value for each name in each place, so the value says where it came from.
 PROCESS = {"CLAUDE_CONFIG_DIR": "/p/claude", "ABK_CLAUDE_HOME": "/p/abk"}
