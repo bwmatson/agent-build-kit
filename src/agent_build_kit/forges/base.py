@@ -265,6 +265,15 @@ class StackRefused(RuntimeError):
         self.concurrent = concurrent
 
 
+class MergeRefused(RuntimeError):
+    """The host would not merge a pull request, and why: it is not mergeable, a rule
+    applies, its head moved or it is closed. Never repeated."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
 class RegistersStacks(Protocol):
     """The slice of a host that registers the chain the pipeline builds."""
 
@@ -437,6 +446,20 @@ class Forge(RegistersStacks, Protocol):
         `NotImplementedError` for a forge with no drafts.
         """
         ...
+
+    # Whether this forge merges a pull request at all; false unless a forge says so.
+    merges: bool
+
+    def merge_pr(self, repo: RepoId, pr: int, *, head: str) -> str:
+        """Squash-merge a pull request when its head is still `head`, the commit the
+        caller approved, and return the commit the merge produced. Raises `MergeRefused`
+        with the host's reason where the host will not merge."""
+        raise NotImplementedError
+
+    def merge_commit(self, repo: RepoId, pr: int) -> str | None:
+        """The commit a merged pull request produced; None while it is not merged.
+        The read that shows whether a repeated merge would merge twice."""
+        raise NotImplementedError
 
     def close_pr(self, repo: RepoId, pr: int) -> None:
         """Close without merging - a satisfied unit's stale pull request,

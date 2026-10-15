@@ -181,6 +181,7 @@ class AzureDevOpsForge:
     general_threads: bool = True
     # Azure DevOps has no first-class stacks, so the stack calls are never made.
     supports_stacks: bool = False
+    merges: bool = False
     # Annotated, not inferred: the Protocol's attribute is read-write, so a
     # narrower literal type would not satisfy it.
     denied_commands: tuple[tuple[str, ...], ...] = (
@@ -855,6 +856,12 @@ class AzureDevOpsForge:
         if self._pull_doc(repo, pr, run=run).is_draft == draft:
             return
         self._git(repo, "PATCH", f"pullrequests/{pr}", json={"isDraft": draft}, run=run)
+
+    def merge_pr(self, repo: RepoId, pr: int, *, head: str, run: Run | None = None) -> str:
+        raise NotImplementedError
+
+    def merge_commit(self, repo: RepoId, pr: int, *, run: Run | None = None) -> str | None:
+        raise NotImplementedError
 
     def close_pr(self, repo: RepoId, pr: int, *, run: Run | None = None) -> None:
         """Abandon without merging - a satisfied unit's stale pull request.

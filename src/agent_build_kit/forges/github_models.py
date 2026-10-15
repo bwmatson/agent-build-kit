@@ -33,6 +33,15 @@ class PullDoc(_Rest):
     draft: bool = False
 
 
+class MergeDoc(_Rest):
+    sha: str
+
+
+class MergedPullDoc(_Rest):
+    merged: bool = False
+    merge_commit_sha: str | None = None
+
+
 class ReviewDoc(_Rest):
     id: int
     node_id: str = ""

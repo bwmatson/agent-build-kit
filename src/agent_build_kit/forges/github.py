@@ -38,6 +38,7 @@ from agent_build_kit.forges.base import (
     DeniedRequest,
     FileChange,
     Label,
+    MergeRefused,
     PullRequest,
     RepoId,
     ReviewNote,
@@ -55,6 +56,8 @@ from agent_build_kit.forges.github_models import (
     InlineCommentDoc,
     JobsDoc,
     LabelDoc,
+    MergeDoc,
+    MergedPullDoc,
     NodeIdDoc,
     NumberDoc,
     PullConnection,
@@ -172,6 +175,7 @@ class GitHubForge:
     deletes_head_branch_on_merge: bool = True
     general_threads: bool = False
     supports_stacks: bool = True
+    merges: bool = True
     # Annotated, not inferred: the Protocol's attribute is read-write, so a
     # narrower literal type would not satisfy it.
     denied_commands: tuple[tuple[str, ...], ...] = (("gh", "pr", "merge"),)
@@ -768,6 +772,32 @@ class GitHubForge:
             "{ pullRequest { id isDraft } } }",
             {"id": current.node_id},
         )
+
+    def merge_pr(self, repo: RepoId, pr: int, *, head: str) -> str:
+        """Squash-merge, with `head` as the commit the host must still find at the head of
+        the pull request. 405 (not mergeable, a rule blocks it), 409 (the head moved) and 422
+        (a ruleset blocks it) are refusals; any other failure is the transport's."""
+        try:
+            with self._on(repo) as gh:
+                made = gh.rest.pulls.merge(
+                    repo.account,
+                    repo.name,
+                    pr,
+                    data={"merge_method": "squash", "sha": head},
+                )
+        except TRANSIENT:
+            raise
+        except TransportError as error:
+            if error.status in (405, 409, 422):
+                raise MergeRefused(_reason(error)) from error
+            raise
+        return _parse(made, MergeDoc, "PUT pulls merge").sha
+
+    def merge_commit(self, repo: RepoId, pr: int) -> str | None:
+        with self._on(repo) as gh:
+            found = gh.rest.pulls.get(repo.account, repo.name, pr)
+        pull = _parse(found, MergedPullDoc, "GET pull")
+        return pull.merge_commit_sha if pull.merged else None
 
     def close_pr(self, repo: RepoId, pr: int) -> None:
         """Close without merging - a satisfied unit's stale pull request.

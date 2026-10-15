@@ -48,6 +48,7 @@ class LocalForge:
     deletes_head_branch_on_merge: bool = False
     general_threads: bool = False
     supports_stacks: bool = False
+    merges: bool = False
     denied_commands: tuple[tuple[str, ...], ...] = ()
     denied_requests: tuple[DeniedRequest, ...] = ()
     read_commands: tuple[tuple[str, ...], ...] = (("abk", "pr", "view"), ("abk", "pr", "diff"))
@@ -303,6 +304,12 @@ class LocalForge:
             return []
 
         return self._change(repo, add)
+
+    def merge_pr(self, repo: RepoId, pr: int, *, head: str) -> str:
+        raise NotImplementedError
+
+    def merge_commit(self, repo: RepoId, pr: int) -> str | None:
+        raise NotImplementedError
 
     def close_pr(self, repo: RepoId, pr: int) -> None:
         def close(pulls: list[Stored]) -> None:

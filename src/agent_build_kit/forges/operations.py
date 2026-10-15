@@ -54,6 +54,7 @@ OPERATIONS: Mapping[str, OperationSpec] = {
     "pr_changes": _READ,
     "review_notes": _READ,
     "stack_of": _READ,
+    "merge_commit": _READ,
     "labels_on": _READ,
     "failed_check_logs": OperationSpec(kind="read", contained=True, neutral=""),
     "update_pr": _ADVISORY,
@@ -69,6 +70,7 @@ OPERATIONS: Mapping[str, OperationSpec] = {
         kind="create", lands="comment_exists", contained=True, neutral=()
     ),
     "post_reply": OperationSpec(kind="create", lands="comment_exists", contained=True, neutral=()),
+    "merge_pr": OperationSpec(kind="create", lands="merge_commit"),
     "create_stack": OperationSpec(kind="create", lands="stack_of"),
     "add_to_stack": OperationSpec(kind="create", lands="stack_of"),
     "set_draft": _ADVISORY,
