@@ -39,13 +39,23 @@ def _counts(source: Installation, plan: SplitPlan, entries: int) -> list[str]:
     ]
 
 
-def _removals(source: Installation, plan: SplitPlan) -> list[str]:
+def _entry_removal(source: Installation, plan: SplitPlan, args: argparse.Namespace) -> list[str]:
+    if plan.project:
+        return []
+    named = remove.still_naming(source, args.repo, args.allow_mixed, plan.units_moved)
+    if named:
+        return [f"  would keep repo {args.repo}: still named by {', '.join(named)}"]
+    return [f"  would remove repo {args.repo}"]
+
+
+def _removals(source: Installation, plan: SplitPlan, args: argparse.Namespace) -> list[str]:
     return [
         *(f"  would remove change {name}" for name in plan.changes_moved),
         *(f"  would remove archive entry {name}" for name in plan.archive_moved),
         *(f"  would remove spec {name}" for name in plan.specs_moved),
         *(f"  would remove unit {name}" for name in plan.units_moved),
         *(f"  would remove plan record {name}" for name in copy.moved_plan_records(source, plan)),
+        *_entry_removal(source, plan, args),
     ]
 
 
@@ -55,7 +65,10 @@ def cmd_planning_split(args: argparse.Namespace, source: Installation) -> int:
     try:
         destination = load_destination(Path(args.to), source)
         if args.repo not in source.repos and args.repo in destination.repos:
-            print(f"nothing to do: {args.repo} is no longer in the source")
+            print(f"source: {source.root}\ndestination: {destination.root}")
+            print(f"selection: repo {args.repo} (no longer in the source)\nplan:")
+            print("\n".join(_counts(source, SplitPlan(repo=args.repo), 0)))
+            print("nothing to do")
             return 0
         plan = plan_split(
             source,
@@ -106,7 +119,7 @@ def cmd_planning_split(args: argparse.Namespace, source: Installation) -> int:
     for line in refusals:
         print(f"refused: {line}")
     if args.remove:
-        print("\n".join(_removals(source, plan)))
+        print("\n".join(_removals(source, plan, args)))
 
     if refusals:
         print("nothing was written; settle the refusals above, then run again")
@@ -148,7 +161,7 @@ def _remove(
     )
     if plan.project:
         return 0
-    if named := remove.still_naming(source, args.repo):
+    if named := remove.still_naming(source, args.repo, args.allow_mixed):
         print(f"kept repo {args.repo}: still named by {', '.join(named)}")
         return 1
     try:

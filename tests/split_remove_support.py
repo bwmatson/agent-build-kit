@@ -20,8 +20,8 @@ def trees(tmp_path: Path, *, source_repos=None) -> tuple[Path, Path]:
     """A source declaring `app` (consuming `lib`, unless `source_repos` says otherwise) and
     `lib`, and a destination declaring only `lib`."""
     source, destination = tmp_path / "source", tmp_path / "destination"
-    source.mkdir()
-    destination.mkdir()
+    source.mkdir(parents=True)
+    destination.mkdir(parents=True)
     write_installation(source, *([source_repos] if source_repos else []))
     write_installation(destination, dict(lib=()))
     return source, destination

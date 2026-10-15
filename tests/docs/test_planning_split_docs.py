@@ -33,7 +33,7 @@ def test_the_reference_gives_the_exit_codes_and_the_default():
     text = entry()
     assert re.search(r"exit(s| code)", text, re.I)
     assert "dry run" in text.lower()
-    assert all(code in text for code in ("0", "1", "2"))
+    assert re.search(r"Exit 0 .*\b1\b.*\b2\b", text)
 
 
 def test_the_skill_names_the_command_and_the_dry_run_first():

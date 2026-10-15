@@ -1,7 +1,11 @@
 """`--apply --remove` takes out of the source only what was moved, after the copy is verified."""
 
 import json
+from pathlib import Path
 
+import pytest
+
+from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.split import copy
 from tests.planning_split_support import load, split
 from tests.split_remove_support import populate, trees, unit_ids
@@ -79,3 +83,49 @@ def test_nothing_else_is_removed(tmp_path):
         assert after[relative] == others[relative]
     assert snapshot_tree(installation.changes_dir / "stays") == staying
     assert unit_ids(installation) == ["stays/1"]
+
+
+def killed_once(patch, target, name):
+    """Make `target.name` raise the first time it is called, as a run killed there would."""
+    real = getattr(target, name)
+    calls = []
+
+    def dying(*args, **kwargs):
+        if not calls:
+            calls.append(1)
+            raise RuntimeError("killed")
+        return real(*args, **kwargs)
+
+    patch.setattr(target, name, dying)
+
+
+def test_a_run_killed_before_the_records_are_removed_is_finished(tmp_path, monkeypatch):
+    source, destination = trees(tmp_path)
+    installation = populate(source)
+    argv = ("--repo", "app", "--to", str(destination), "--apply", "--remove")
+    with monkeypatch.context() as patch:
+        killed_once(patch, UnitStore, "remove_units")
+        with pytest.raises(RuntimeError):
+            split(source, *argv)
+
+    assert split(source, *argv) == 0
+    assert unit_ids(installation) == ["stays/1"]
+    plans = json.loads((installation.state_dir / "planned.json").read_text())
+    assert set(plans) == {"stays"}
+    assert "  app:\n" not in (source / "abk.yaml").read_text()
+
+
+def test_a_run_killed_while_removing_files_is_finished(tmp_path, monkeypatch):
+    source, destination = trees(tmp_path)
+    installation = populate(source)
+    argv = ("--repo", "app", "--to", str(destination), "--apply", "--remove")
+    with monkeypatch.context() as patch:
+        killed_once(patch, Path, "unlink")
+        with pytest.raises(RuntimeError):
+            split(source, *argv)
+
+    assert split(source, *argv) == 0
+    assert unit_ids(installation) == ["stays/1"]
+    assert not (installation.changes_dir / "one").exists()
+    assert set(json.loads((installation.state_dir / "planned.json").read_text())) == {"stays"}
+    assert "  app:\n" not in (source / "abk.yaml").read_text()

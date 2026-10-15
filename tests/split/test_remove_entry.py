@@ -77,3 +77,16 @@ def test_a_project_split_leaves_the_entry(tmp_path):
     assert not (installation.changes_dir / "site").exists()
     assert (source / "abk.yaml").read_text() == original
     assert not (source / "abk.yaml.abk-backup").exists()
+
+
+def test_the_remove_dry_run_says_what_happens_to_the_entry(tmp_path, capsys):
+    source, destination = trees(tmp_path)
+    populate(source)
+    split(source, "--repo", "app", "--to", str(destination), "--remove")
+    assert "would remove repo app" in capsys.readouterr().out
+
+    source, destination = trees(tmp_path / "kept", source_repos=dict(app=(), lib=("app",)))
+    populate(source)
+    split(source, "--repo", "app", "--to", str(destination), "--remove")
+    (line,) = [x for x in capsys.readouterr().out.splitlines() if "would keep repo app" in x]
+    assert "lib" in line

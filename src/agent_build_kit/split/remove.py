@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from pathlib import Path
 
 from agent_build_kit.cli.pipeline import planned_hashes, update_plans
@@ -61,8 +62,15 @@ def _prune(directory: Path) -> None:
 
 
 def remove(source: Installation, plan: SplitPlan) -> RemoveReport:
-    """Remove the moved files (a directory only when empty), unit records and plan records."""
-    files = moved_files(source, plan)
+    """Remove the moved unit records and plan records, then the files (a directory only when
+    empty). The records go first and each change's `tasks.md` last, so a run killed part way
+    leaves the files that tell the next run what moved, and that run finishes it."""
+    UnitStore(source.state_dir / "units.json").remove_units(plan.units_moved)
+    recorded = planned_hashes(source)
+    names = [name for name in plan.changes_moved if name in recorded]
+    if names:
+        update_plans(source, lambda _: dict.fromkeys(names))
+    files = sorted(moved_files(source, plan), key=lambda path: (path.name == "tasks.md", path))
     for path in files:
         path.unlink()
     for directory in (
@@ -71,25 +79,26 @@ def remove(source: Installation, plan: SplitPlan) -> RemoveReport:
         *(source.specs_dir / "specs" / name for name in plan.specs_moved),
     ):
         _prune(directory)
-    UnitStore(source.state_dir / "units.json").remove_units(plan.units_moved)
-    recorded = planned_hashes(source)
-    names = [name for name in plan.changes_moved if name in recorded]
-    if names:
-        update_plans(source, lambda _: dict.fromkeys(names))
     return RemoveReport(
         files_removed=len(files), units_removed=len(plan.units_moved), plans_removed=len(names)
     )
 
 
-def still_naming(source: Installation, repo: str) -> list[str]:
+def still_naming(
+    source: Installation,
+    repo: str,
+    allow_mixed: str | None = None,
+    moving: Collection[str] = (),
+) -> list[str]:
     """What in the source, after the removal, still names `repo`: a unit, a change or archive
     entry with a group tagged for it, one that cannot be read or classified, or a repo that
-    consumes it. The entry may go only when this is empty."""
-    plan = plan_split(source, repo, None, "source")
+    consumes it. The entry may go only when this is empty. `moving` is the unit ids a run is
+    about to remove, which do not count; `allow_mixed` is the side the run gave."""
+    plan = plan_split(source, repo, None, allow_mixed)
     names = [
         f"unit {unit.id}"
         for unit in UnitStore(source.state_dir / "units.json").all()
-        if unit.repo == repo
+        if unit.repo == repo and unit.id not in moving
     ]
     names += [f"change {item.name}" for item in (*plan.changes_mixed, *plan.archive_mixed)]
     names += [
