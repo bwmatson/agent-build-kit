@@ -2212,6 +2212,18 @@ class Tier2Scope(Frozen):
     dev_stack: bool = False
 
 
+def tier2_work(
+    cwd: Path, projects: list[ProjectConfig], profile: ToolchainProfile, marker: str
+) -> list[tuple[Path, ToolchainProfile, list[list[str]]]]:
+    """Where a full tier 2 run goes in a checkout, under which toolchain, with which commands:
+    one entry per declared project (the checkout itself when none is declared), the commands
+    empty where the toolchain has none."""
+    return [
+        (where, toolchain, toolchain.tier2_commands(where, marker=marker))
+        for where, toolchain, _ in _work(cwd, "", True, projects, profile, lambda *_: [])
+    ]
+
+
 def tier2_scope(
     cwd: Path,
     base: str | None,
@@ -2229,14 +2241,10 @@ def tier2_scope(
     setting and wherever the run cannot be narrowed safely; otherwise the runs are the
     commands that take the tests the unit added or changed, and none means there is nothing
     to run."""
-    work = _work(cwd, "", True, projects, profile, lambda *_: [])
+    work = tier2_work(cwd, projects, profile, marker)
 
     def whole(why: str, dev_stack: bool = False) -> Tier2Scope:
-        runs = [
-            Tier2Run(where=where, commands=commands)
-            for where, toolchain, _ in work
-            if (commands := toolchain.tier2_commands(where, marker=marker))
-        ]
+        runs = [Tier2Run(where=where, commands=commands) for where, _, commands in work if commands]
         return Tier2Scope(
             mode=Tier2UnitScope.FULL,
             runs=runs,
@@ -2261,14 +2269,11 @@ def tier2_scope(
         return whole(f"the unit's tests could not be listed ({error})")
     runs: list[Tier2Run] = []
     ids: list[str] = []
-    for where, toolchain, _ in work:
+    for where, toolchain, commands in work:
         if not isinstance(toolchain, RepeatsTests):
             continue
         here = _ids_for(touched, cwd, where, toolchain)
-        narrowed = [
-            toolchain.repeat_command(c, here)
-            for c in toolchain.tier2_commands(where, marker=marker)
-        ]
+        narrowed = [toolchain.repeat_command(c, here) for c in commands]
         if commands := [command for command in narrowed if command is not None]:
             runs.append(Tier2Run(where=where, commands=commands))
             prefix = f"{where.relative_to(cwd).as_posix()}/" if where != cwd else ""

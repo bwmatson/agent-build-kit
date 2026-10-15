@@ -185,6 +185,8 @@ def package_name(member: Path) -> str:
 # Verbosity is set absolutely for a listing, so these relative flags must not stack on it.
 _VERBOSITY_FLAGS = frozenset(["-q", "-qq", "-v", "-vv"])
 _REPORT_FLAGS = frozenset([*SUMMARY_FLAGS, *DURATION_FLAGS, *_VERBOSITY_FLAGS])
+# A line of `pytest --markers`: `@pytest.mark.<name>(<args>): <description>`.
+_MARKER_LINE = re.compile(r"@pytest\.mark\.(?P<name>\w+)")
 # Pytest's exit status when the selection holds no test.
 _NO_TESTS_SELECTED = 5
 
@@ -509,6 +511,25 @@ class PythonUvProfile:
             f"{where}{line.strip()}"
             for line in result.stdout.splitlines()
             if "::" in line and not line.startswith((" ", "ERROR"))
+        ]
+
+    def registered_selectors(
+        self,
+        command: list[str],
+        *,
+        run: Callable[..., subprocess.CompletedProcess],
+    ) -> list[str] | None:
+        """The marker names pytest lists for `command`'s environment with `--markers`."""
+        program = _pytest_program(command)
+        if program is None:
+            return None
+        result = run([*command[: program + 1], "--markers"], capture_output=True, text=True)
+        if result.returncode != 0:
+            return None
+        return [
+            match["name"]
+            for line in result.stdout.splitlines()
+            if (match := _MARKER_LINE.match(line))
         ]
 
     def repeat_command(self, command: list[str], tests: list[str]) -> list[str] | None:
