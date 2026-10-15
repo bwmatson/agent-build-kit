@@ -14,6 +14,14 @@
   two different runtime tags, or any marker that is not registered, fails collection naming
   it, so a mistyped tag can no longer silently select nothing.
 
+- `abk.yaml` takes `tests.runtimes_blocked`, `tests.runtimes_allowed` and
+  `tests.tier2_runtimes` at the top of the file, and a repo may set its own
+  `tests.tier2_runtimes`. A name that is not a known runtime, `base`, a repeated name, or a
+  runtime in both the blocked and allowed lists is refused when the file loads, and `abk
+  config --show` prints them. Which runtimes are blocked now is the configuration's blocked
+  list plus the unexpired entries of `tier2-blocked.json` in the state directory, except
+  that a runtime the configuration allows is never blocked and one it blocks always is.
+
 - `abk scrub-check` no longer flags the planning root's own name when it scans the planning
   root itself, and finds more of what identifies an installation: literal values and
   provider files in `verify.env`, the home user name, and the dot-directories configured

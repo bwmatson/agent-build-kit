@@ -23,6 +23,7 @@ import logging
 import os
 import re
 import shlex
+from collections.abc import Iterable
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Literal
@@ -33,6 +34,7 @@ from pydantic import Field, ValidationError, ValidationInfo, field_validator, mo
 from agent_build_kit import forges, infra, path_patterns, runtimes
 from agent_build_kit.model import Frozen
 from agent_build_kit.replay.models import DEFAULT_KEYED_HEADERS, UpstreamKind
+from agent_build_kit.runtimes import known_agents
 
 CONFIG_FILENAME = "abk.yaml"
 CONFIG_ENV = "ABK_CONFIG"
@@ -338,6 +340,19 @@ def tier2_schedule(repo: RepoConfig, limits: LimitsConfig) -> Tier2Schedule:
     return repo.tests.tier2_schedule or limits.tier2_schedule
 
 
+def tier2_variants(repo: RepoConfig, config: WorkspaceConfig) -> tuple[str, ...]:
+    """The groups a scheduled tier 2 run covers for `repo`: `base`, then the repo's own
+    `tests.tier2_runtimes` when set, else the top-level `tests.tier2_runtimes`."""
+    own = repo.tests.tier2_runtimes
+    return (BASE_GROUP, *(config.tests.tier2_runtimes if own is None else own))
+
+
+def known_runtime_names(configured: Iterable[str] = ()) -> set[str]:
+    """The runtimes a test tag or a `tests` list may name: the registry's, the protocol
+    runtime's and the keys under `runtimes`, never the reserved name of the base group."""
+    return {*runtimes.names(), known_agents.RUNTIME_NAME, *configured} - {BASE_GROUP}
+
+
 def _unquoted_off(value: object) -> object:
     # YAML 1.1 reads an unquoted `off`, the documented default, as the boolean False.
     return "off" if value is False else value
@@ -590,6 +605,22 @@ class TestsConfig(Frozen):
     dev_stack_marker: str = "dev_stack"
     # Record and replay of the calls tier-2 tests make outside the stack; None: none.
     replay: ReplayConfig | None = None
+    # The runtimes this repo's scheduled tier 2 runs besides the base group; None follows
+    # the top-level `tests.tier2_runtimes`.
+    tier2_runtimes: list[str] | None = None
+
+
+# The group of tier 2 tests that carry no runtime tag; reserved, so no runtime has this name.
+BASE_GROUP = "base"
+
+
+class RuntimeTestsConfig(Frozen):
+    """The installation-wide `tests` block: which runtimes' tests are left out, kept in, and
+    run by the schedule."""
+
+    runtimes_blocked: list[str] = []
+    runtimes_allowed: list[str] = []
+    tier2_runtimes: list[str] = []
 
 
 # The words of a `command` template that stand for a list of arguments.
@@ -904,6 +935,7 @@ class WorkspaceConfig(Frozen):
     runtime: str = runtimes.DEFAULT
     # Per-runtime facts, only the selected runtime's demanded.
     runtimes: dict[str, RuntimeConfig] = {}
+    tests: RuntimeTestsConfig = RuntimeTestsConfig()
     models: ModelsConfig = ModelsConfig()
     # The workspace-wide limits; a root `limits` key is read as this one (see _limits_alias).
     global_limits: LimitsConfig = LimitsConfig()
@@ -969,6 +1001,39 @@ class WorkspaceConfig(Frozen):
                 raise ValueError(
                     "session_reuse.review: a review never continues a session; leave it false"
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _tier2_runtime_lists(self) -> WorkspaceConfig:
+        """Each list names known runtimes once, and no runtime is blocked and allowed."""
+        lists = {
+            f"tests.{name}": getattr(self.tests, name)
+            for name in ("runtimes_blocked", "runtimes_allowed", "tier2_runtimes")
+        }
+        for key, repo in self.repos.items():
+            if repo.tests.tier2_runtimes is not None:
+                lists[f"repos.{key}.tests.tier2_runtimes"] = repo.tests.tier2_runtimes
+        if not any(lists.values()):
+            # Nothing to check, and the default config is built while this module loads,
+            # before the runtime registry can be imported.
+            return self
+        known = sorted(known_runtime_names(self.runtimes))
+        for setting, names in lists.items():
+            for name in names:
+                if name not in known:
+                    raise ValueError(
+                        f"{setting}: {name!r} is not a runtime; the runtimes are {', '.join(known)}"
+                    )
+            if len(set(names)) != len(names):
+                raise ValueError(
+                    f"{setting}: a runtime is named twice; the runtimes are {', '.join(known)}"
+                )
+        both = set(self.tests.runtimes_blocked) & set(self.tests.runtimes_allowed)
+        if both:
+            raise ValueError(
+                f"{', '.join(sorted(both))} is in both tests.runtimes_blocked and "
+                "tests.runtimes_allowed; keep it in one"
+            )
         return self
 
     @model_validator(mode="after")
