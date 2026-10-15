@@ -8,7 +8,7 @@ a detached HEAD or a refused checkout.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from agent_build_kit.pipeline.shell import git
@@ -16,6 +16,25 @@ from agent_build_kit.pipeline.shell import git
 
 def is_repo(root: Path) -> bool:
     return git(root, "rev-parse", "--git-dir", check=False).returncode == 0
+
+
+def common_dir(path: Path) -> Path | None:
+    """The common git directory of the repository `path` is in, the same for every worktree of
+    it; None for a missing directory or one that is no repository."""
+    if not path.is_dir():
+        return None
+    found = git(path, "rev-parse", "--path-format=absolute", "--git-common-dir", check=False)
+    return None if found.returncode else Path(found.stdout.strip()).resolve()
+
+
+def repo_sharing(checkouts: Mapping[str, Path], path: Path) -> str | None:
+    """The name of the checkout in the same repository as `path` (any worktree of it), else None."""
+    here = common_dir(path)
+    if here is None:
+        return None
+    return next(
+        (name for name, checkout in checkouts.items() if common_dir(checkout) == here), None
+    )
 
 
 def default_branch_of(repo_dir: Path) -> str:

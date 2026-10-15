@@ -8,6 +8,7 @@ import pytest
 
 from agent_build_kit.pipeline.planning_sync import SyncOutcome, sync_planning
 from agent_build_kit.pipeline.shell import git as run_git
+from tests.conftest import make_installation
 from tests.factories import commit, commit_files, git, init_repo
 from tests.planning_worktree_support import InRepo, in_repo, installation_at, publish_elsewhere
 
@@ -80,8 +81,6 @@ def test_a_worktree_at_the_tip_is_current_and_unchanged(tmp_path: Path) -> None:
 
 def test_a_worktree_ahead_of_the_tip_is_logged_and_left(tmp_path: Path) -> None:
     setup = in_repo(tmp_path)
-    git(setup.worktree, "config", "user.email", "t@t.t")
-    git(setup.worktree, "config", "user.name", "t")
     commit(setup.worktree, "bookkeeping.md")
     before = state_of(setup.worktree)
 
@@ -106,8 +105,6 @@ def test_a_repository_with_no_origin_moves_to_the_local_default_branch(tmp_path:
 
 def test_a_diverged_worktree_is_stopped_with_both_commits_intact(tmp_path: Path) -> None:
     setup = in_repo(tmp_path)
-    git(setup.worktree, "config", "user.email", "t@t.t")
-    git(setup.worktree, "config", "user.name", "t")
     own = commit(setup.worktree, "own.md")
     publish_elsewhere(setup, {"theirs.md": "theirs\n"})
     before = state_of(setup.worktree)
@@ -215,9 +212,30 @@ def test_a_separate_root_is_put_on_the_default_branch_and_pulled(tmp_path: Path)
     publish_elsewhere(setup, {"a.txt": "a\n"})
     said = Said()
 
-    sync_planning(installation_at(planning, code), said)
+    result = sync_planning(installation_at(planning, code), said)
 
+    assert result.outcome == SyncOutcome.SYNCED
     assert git(planning, "symbolic-ref", "--short", "HEAD") == "main"
     assert (planning / "a.txt").exists()
     assert "elsewhere" in said.text
     assert git(planning, "rev-parse", "--verify", "elsewhere")
+
+
+def test_the_repo_entrys_default_branch_wins_over_origins_head(tmp_path: Path) -> None:
+    setup = in_repo(tmp_path)
+    git(setup.working_copy, "push", "-q", "origin", "main:trunk")
+    assert setup.origin is not None
+    clone = tmp_path / "clone-trunk"
+    git(tmp_path, "clone", "-q", "-b", "trunk", str(setup.origin), str(clone))
+    git(clone, "config", "user.email", "t@t.t")
+    git(clone, "config", "user.name", "t")
+    tip = commit(clone, "trunk-only.txt")
+    git(clone, "push", "-q", "origin", "trunk")
+    repos = {"app": {"path": str(setup.working_copy), "slug": "example/app"}}
+    repos["app"]["default_branch"] = "trunk"
+    inst = make_installation(setup.worktree, repos=repos)
+
+    result = sync_planning(inst, Said())
+
+    assert result.outcome == SyncOutcome.SYNCED
+    assert git(setup.worktree, "rev-parse", "HEAD") == tip

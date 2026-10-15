@@ -9,8 +9,10 @@ from pathlib import Path
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.planning_repo import (
+    common_dir,
     default_branch_of,
     is_repo,
+    repo_sharing,
     restore_default_branch,
 )
 from agent_build_kit.pipeline.shell import git, has_origin
@@ -47,11 +49,9 @@ UNFINISHED = {
 }
 
 
-def _git_path(root: Path, option: str) -> Path | None:
-    found = git(root, "rev-parse", "--path-format=absolute", option, check=False)
-    if found.returncode != 0:
-        return None
-    return Path(found.stdout.strip()).resolve()
+def _git_dir(root: Path) -> Path | None:
+    found = git(root, "rev-parse", "--path-format=absolute", "--git-dir", check=False)
+    return None if found.returncode else Path(found.stdout.strip()).resolve()
 
 
 def _one_line(text: str) -> str:
@@ -60,7 +60,7 @@ def _one_line(text: str) -> str:
 
 def marker_path(root: Path) -> Path:
     """The pipeline marker of the repository `root` is in: one file in the common git directory."""
-    common = _git_path(root, "--git-common-dir")
+    common = common_dir(root)
     if common is None:
         raise ValueError(f"{root} is not in a git repository")
     return common / MARKER_NAME
@@ -68,7 +68,7 @@ def marker_path(root: Path) -> Path:
 
 def write_pipeline_marker(root: Path, worktree: Path) -> Path:
     path = marker_path(root)
-    path.write_text(f"{worktree}\n")
+    path.write_text(f"{worktree.resolve()}\n")
     return path
 
 
@@ -92,14 +92,13 @@ def live_pipeline_worktree(inst: Installation) -> Path | None:
     return named if named is not None and named.is_dir() else None
 
 
+def in_repo_name(inst: Installation) -> str | None:
+    """The listed repo whose checkout is in the planning root's own repository."""
+    return repo_sharing(inst.checkouts, inst.root)
+
+
 def planning_mode(inst: Installation) -> PlanningMode:
-    common = _git_path(inst.root, "--git-common-dir") if inst.root.is_dir() else None
-    if common is None:
-        return PlanningMode.SEPARATE
-    if not any(
-        path.is_dir() and _git_path(path, "--git-common-dir") == common
-        for path in inst.checkouts.values()
-    ):
+    if in_repo_name(inst) is None:
         return PlanningMode.SEPARATE
     live = live_pipeline_worktree(inst)
     if live is not None and live.resolve() == inst.root.resolve():
@@ -108,13 +107,9 @@ def planning_mode(inst: Installation) -> PlanningMode:
 
 
 def _in_repo_default_branch(inst: Installation) -> str:
-    """The in-repo repo's own `default_branch` when it says otherwise, else origin's."""
-    common = _git_path(inst.root, "--git-common-dir")
-    for name, path in inst.checkouts.items():
-        branch = inst.repo(name).default_branch
-        if path.is_dir() and _git_path(path, "--git-common-dir") == common and branch != "main":
-            return branch
-    return default_branch_of(inst.root)
+    """The in-repo repo's `default_branch`, as verify reads it."""
+    name = in_repo_name(inst)
+    return inst.repo(name).default_branch if name else default_branch_of(inst.root)
 
 
 def _stopped(reason: str) -> SyncResult:
@@ -137,7 +132,7 @@ def _sync_separate(inst: Installation, say: Callable[[str], None]) -> SyncResult
 
 def _sync_worktree(inst: Installation, say: Callable[[str], None]) -> SyncResult:
     root = inst.root
-    git_dir = _git_path(root, "--git-dir")
+    git_dir = _git_dir(root)
     if git_dir is not None:
         for name, what in UNFINISHED.items():
             if (git_dir / name).exists():
