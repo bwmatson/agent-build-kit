@@ -27,6 +27,18 @@ def common_dir(path: Path) -> Path | None:
     return None if found.returncode else Path(found.stdout.strip()).resolve()
 
 
+def git_dir(path: Path) -> Path | None:
+    """The git directory of the worktree `path` is in, which differs from `common_dir` for a
+    linked worktree; None when `path` is in no repository."""
+    found = git(path, "rev-parse", "--path-format=absolute", "--git-dir", check=False)
+    return None if found.returncode else Path(found.stdout.strip()).resolve()
+
+
+def current_branch(path: Path) -> str:
+    """The short name of the branch `path` has checked out, or "" when HEAD is detached."""
+    return git(path, "symbolic-ref", "--short", "-q", "HEAD", check=False).stdout.strip()
+
+
 def repo_sharing(checkouts: Mapping[str, Path], path: Path) -> str | None:
     """The name of the checkout in the same repository as `path` (any worktree of it), else None."""
     here = common_dir(path)
@@ -49,7 +61,7 @@ def default_branch_of(repo_dir: Path) -> str:
 def restore_default_branch(root: Path, branch: str, say: Callable[[str], None]) -> bool:
     """Puts the planning repo back on `branch`, keeping any stray branch it was
     left on. False when it cannot be put back."""
-    found = git(root, "symbolic-ref", "--short", "-q", "HEAD", check=False).stdout.strip()
+    found = current_branch(root)
     if found == branch:
         return True
     where = found or "a detached HEAD"

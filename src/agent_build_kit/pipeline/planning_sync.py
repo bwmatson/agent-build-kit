@@ -10,7 +10,9 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.planning_repo import (
     common_dir,
+    current_branch,
     default_branch_of,
+    git_dir,
     is_repo,
     repo_sharing,
     restore_default_branch,
@@ -47,11 +49,6 @@ UNFINISHED = {
     "CHERRY_PICK_HEAD": "cherry-pick",
     "REVERT_HEAD": "revert",
 }
-
-
-def _git_dir(root: Path) -> Path | None:
-    found = git(root, "rev-parse", "--path-format=absolute", "--git-dir", check=False)
-    return None if found.returncode else Path(found.stdout.strip()).resolve()
 
 
 def _one_line(text: str) -> str:
@@ -132,12 +129,12 @@ def _sync_separate(inst: Installation, say: Callable[[str], None]) -> SyncResult
 
 def _sync_worktree(inst: Installation, say: Callable[[str], None]) -> SyncResult:
     root = inst.root
-    git_dir = _git_dir(root)
-    if git_dir is not None:
+    own_dir = git_dir(root)
+    if own_dir is not None:
         for name, what in UNFINISHED.items():
-            if (git_dir / name).exists():
+            if (own_dir / name).exists():
                 return _stopped(f"a {what} is unfinished in {root}")
-    branch = git(root, "symbolic-ref", "--short", "-q", "HEAD", check=False).stdout.strip()
+    branch = current_branch(root)
     if branch:
         return _stopped(f"HEAD is on the branch {branch}, which is kept")
     default = _in_repo_default_branch(inst)

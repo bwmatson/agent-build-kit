@@ -13,8 +13,7 @@ from pathlib import Path
 from agent_build_kit.forges.base import RepoId
 from agent_build_kit.forges.local import LocalForge
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.planning_repo import repo_sharing
-from agent_build_kit.pipeline.shell import git
+from agent_build_kit.pipeline.planning_repo import current_branch, repo_sharing
 
 
 def _repo_name(args: argparse.Namespace, inst: Installation) -> str | None:
@@ -29,7 +28,7 @@ def _number(forge: LocalForge, repo: RepoId, args: argparse.Namespace) -> int | 
     """The number asked for, else the open pull request of the branch checked out here."""
     if args.number is not None:
         return args.number
-    branch = git(Path.cwd(), "symbolic-ref", "--short", "-q", "HEAD", check=False).stdout.strip()
+    branch = current_branch(Path.cwd())
     return forge.find_pr(repo, head=branch) if branch else None
 
 

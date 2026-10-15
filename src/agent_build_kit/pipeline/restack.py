@@ -44,6 +44,7 @@ from agent_build_kit.pipeline.git_output import (
     untranslated_env,
 )
 from agent_build_kit.pipeline.own_tests import defined_tests_in_range, tests_in
+from agent_build_kit.pipeline.planning_repo import current_branch
 from agent_build_kit.pipeline.scratch import output_convention, run_folder
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.workspaces import prepare_detached, worktree_path
@@ -739,7 +740,7 @@ def adopt_host_head(
         log(f"{branch}: the host holds the same change at {host_head[:9]}; keeping the local head")
         return here_head
 
-    here = git(cwd, "symbolic-ref", "--short", "-q", "HEAD", check=False).stdout.strip()
+    here = current_branch(cwd)
     checked_out = here == branch
     descends = (
         bool(last_pushed)

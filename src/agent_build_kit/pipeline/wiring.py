@@ -83,6 +83,7 @@ from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.moved_base import moved_base_scope
 from agent_build_kit.pipeline.own_tests import defined_tests_in_range, tests_in
 from agent_build_kit.pipeline.pending import describe, pending_projects
+from agent_build_kit.pipeline.planning_repo import current_branch
 from agent_build_kit.pipeline.pr_replies import (
     MARKER,
     build_post_replies,
@@ -308,7 +309,7 @@ def _unit_branch(cwd: Path) -> str:
     """The unit branch `cwd` has checked out, or "" for any other work."""
     if not cwd.is_dir():
         return ""
-    here = git(cwd, "symbolic-ref", "--short", "-q", "HEAD", check=False).stdout.strip()
+    here = current_branch(cwd)
     return here if here.startswith(active().git.branch_prefix) else ""
 
 

@@ -1214,17 +1214,17 @@ class WorkspaceConfig(Frozen):
 def _not_a_unit_worktree(found: Path) -> Path:
     """`found`, unless it is the abk.yaml of a unit worktree (a linked worktree on a branch
     shaped `<branch_prefix><change>/<n>`): that is no installation, so the pipeline worktree's
-    file stands in, or there is an error when none is live."""
-    from agent_build_kit.pipeline.planning_repo import common_dir
+    file stands in, or there is an error when none is live. Any abk.yaml inside a unit worktree
+    counts, and the prefix is the committed file's: the local overlay is not consulted."""
+    from agent_build_kit.pipeline.planning_repo import common_dir, current_branch, git_dir
     from agent_build_kit.pipeline.planning_sync import read_pipeline_marker
-    from agent_build_kit.pipeline.shell import git
 
     tree = found.parent
-    own = git(tree, "rev-parse", "--path-format=absolute", "--git-dir", check=False)
+    own = git_dir(tree)
     common = common_dir(tree)
-    if own.returncode or common is None or Path(own.stdout.strip()).resolve() == common:
+    if own is None or common is None or own == common:
         return found
-    branch = git(tree, "symbolic-ref", "--short", "-q", "HEAD", check=False).stdout.strip()
+    branch = current_branch(tree)
     prefix = (read_base(found).get("git") or {}).get("branch_prefix", GitConfig().branch_prefix)
     if not re.fullmatch(re.escape(prefix) + r"[^/]+/\d+", branch):
         return found
