@@ -26,7 +26,7 @@ import shlex
 from collections.abc import Iterable
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 import yaml
 from pydantic import Field, ValidationError, ValidationInfo, field_validator, model_validator
@@ -1068,6 +1068,14 @@ def locate(explicit: Path | None = None, *, cwd: Path | None = None) -> Path:
         f"no {CONFIG_FILENAME} found in {here} or above it; pass --config, set "
         f"{CONFIG_ENV}, or run `abk init` to create one"
     )
+
+
+def merge_local(base: dict[str, Any], local: dict[str, Any]) -> dict[str, Any]:
+    raise NotImplementedError
+
+
+def read_base(path: Path) -> dict[str, Any]:
+    raise NotImplementedError
 
 
 def load(path: Path) -> WorkspaceConfig:
