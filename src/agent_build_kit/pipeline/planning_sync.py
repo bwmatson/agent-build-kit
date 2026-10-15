@@ -8,6 +8,12 @@ from pathlib import Path
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.planning_repo import (
+    default_branch_of,
+    is_repo,
+    restore_default_branch,
+)
+from agent_build_kit.pipeline.shell import git, has_origin
 
 
 class PlanningMode(StrEnum):
@@ -29,29 +35,154 @@ class SyncResult(Frozen):
     reason: str = ""
 
 
-def planning_mode(inst: Installation) -> PlanningMode:
-    raise NotImplementedError
+MARKER_NAME = "abk-pipeline-worktree"
+
+# Files a git directory holds while an operation is unfinished, and what to call it.
+UNFINISHED = {
+    "MERGE_HEAD": "merge",
+    "rebase-merge": "rebase",
+    "rebase-apply": "rebase",
+    "CHERRY_PICK_HEAD": "cherry-pick",
+    "REVERT_HEAD": "revert",
+}
+
+
+def _git_path(root: Path, option: str) -> Path | None:
+    found = git(root, "rev-parse", "--path-format=absolute", option, check=False)
+    if found.returncode != 0:
+        return None
+    return Path(found.stdout.strip()).resolve()
+
+
+def _one_line(text: str) -> str:
+    return " ".join(text.split())
 
 
 def marker_path(root: Path) -> Path:
-    raise NotImplementedError
+    """The pipeline marker of the repository `root` is in: one file in the common git directory."""
+    common = _git_path(root, "--git-common-dir")
+    if common is None:
+        raise ValueError(f"{root} is not in a git repository")
+    return common / MARKER_NAME
 
 
 def write_pipeline_marker(root: Path, worktree: Path) -> Path:
-    raise NotImplementedError
+    path = marker_path(root)
+    path.write_text(f"{worktree}\n")
+    return path
 
 
 def read_pipeline_marker(root: Path) -> Path | None:
-    raise NotImplementedError
+    """The path the marker names, whether or not it still exists; None with no marker."""
+    path = marker_path(root)
+    if not path.is_file():
+        return None
+    return Path(path.read_text().strip())
 
 
 def remove_pipeline_marker(root: Path) -> None:
-    raise NotImplementedError
+    marker_path(root).unlink(missing_ok=True)
 
 
 def live_pipeline_worktree(inst: Installation) -> Path | None:
-    raise NotImplementedError
+    """The pipeline worktree the marker names, when it exists."""
+    if not is_repo(inst.root):
+        return None
+    named = read_pipeline_marker(inst.root)
+    return named if named is not None and named.is_dir() else None
+
+
+def planning_mode(inst: Installation) -> PlanningMode:
+    common = _git_path(inst.root, "--git-common-dir") if inst.root.is_dir() else None
+    if common is None:
+        return PlanningMode.SEPARATE
+    if not any(
+        path.is_dir() and _git_path(path, "--git-common-dir") == common
+        for path in inst.checkouts.values()
+    ):
+        return PlanningMode.SEPARATE
+    live = live_pipeline_worktree(inst)
+    if live is not None and live.resolve() == inst.root.resolve():
+        return PlanningMode.PIPELINE_WORKTREE
+    return PlanningMode.WORKING_COPY
+
+
+def _in_repo_default_branch(inst: Installation) -> str:
+    """The in-repo repo's own `default_branch` when it says otherwise, else origin's."""
+    common = _git_path(inst.root, "--git-common-dir")
+    for name, path in inst.checkouts.items():
+        branch = inst.repo(name).default_branch
+        if path.is_dir() and _git_path(path, "--git-common-dir") == common and branch != "main":
+            return branch
+    return default_branch_of(inst.root)
+
+
+def _stopped(reason: str) -> SyncResult:
+    return SyncResult(outcome=SyncOutcome.STOPPED, reason=_one_line(reason))
+
+
+def _sync_separate(inst: Installation, say: Callable[[str], None]) -> SyncResult:
+    if not is_repo(inst.root):
+        return SyncResult(outcome=SyncOutcome.SKIPPED)
+    branch = default_branch_of(inst.root)
+    if not restore_default_branch(inst.root, branch, say):
+        return _stopped(f"cannot check out {branch}")
+    if not has_origin(inst.root):
+        return SyncResult(outcome=SyncOutcome.CURRENT)
+    pulled = git(inst.root, "pull", "--ff-only", "origin", branch, check=False)
+    if pulled.returncode != 0:
+        return _stopped(pulled.stderr)
+    return SyncResult(outcome=SyncOutcome.SYNCED)
+
+
+def _sync_worktree(inst: Installation, say: Callable[[str], None]) -> SyncResult:
+    root = inst.root
+    git_dir = _git_path(root, "--git-dir")
+    if git_dir is not None:
+        for name, what in UNFINISHED.items():
+            if (git_dir / name).exists():
+                return _stopped(f"a {what} is unfinished in {root}")
+    branch = git(root, "symbolic-ref", "--short", "-q", "HEAD", check=False).stdout.strip()
+    if branch:
+        return _stopped(f"HEAD is on the branch {branch}, which is kept")
+    default = _in_repo_default_branch(inst)
+    if has_origin(root):
+        fetched = git(root, "fetch", "origin", default, check=False)
+        if fetched.returncode != 0:
+            return _stopped(fetched.stderr)
+        tip_ref = f"refs/remotes/origin/{default}"
+    else:
+        tip_ref = f"refs/heads/{default}"
+    tip = git(root, "rev-parse", "--verify", tip_ref, check=False)
+    if tip.returncode != 0:
+        return _stopped(f"{tip_ref} does not exist")
+    tip_sha = tip.stdout.strip()
+    head = git(root, "rev-parse", "HEAD").stdout.strip()
+    if head == tip_sha:
+        return SyncResult(outcome=SyncOutcome.CURRENT)
+    if git(root, "merge-base", "--is-ancestor", head, tip_sha, check=False).returncode == 0:
+        merged = git(root, "merge", "--ff-only", tip_sha, check=False)
+        if merged.returncode != 0:
+            return _stopped(merged.stderr or merged.stdout)
+        say(f"planning worktree moved to {tip_ref} ({tip_sha[:10]})")
+        return SyncResult(outcome=SyncOutcome.SYNCED)
+    if git(root, "merge-base", "--is-ancestor", tip_sha, head, check=False).returncode == 0:
+        say(f"planning worktree is ahead of {tip_ref} — leaving it")
+        return SyncResult(outcome=SyncOutcome.AHEAD)
+    own = git(root, "rev-list", "--count", f"{tip_sha}..{head}").stdout.strip()
+    new = git(root, "rev-list", "--count", f"{head}..{tip_sha}").stdout.strip()
+    return _stopped(f"diverged: {own} commits of its own, {new} new")
 
 
 def sync_planning(inst: Installation, say: Callable[[str], None]) -> SyncResult:
-    raise NotImplementedError
+    """Brings the planning root to the default branch's tip before a run. Nothing is stashed,
+    reset or deleted; a `SyncOutcome.STOPPED` carries the one reason."""
+    mode = planning_mode(inst)
+    if mode == PlanningMode.WORKING_COPY:
+        return SyncResult(outcome=SyncOutcome.SKIPPED)
+    if not inst.config.planning.self_pull:
+        say(f"planning.self_pull is off — not syncing {inst.root}")
+        return SyncResult(outcome=SyncOutcome.SKIPPED)
+    if mode == PlanningMode.SEPARATE:
+        return _sync_separate(inst, say)
+    return _sync_worktree(inst, say)
