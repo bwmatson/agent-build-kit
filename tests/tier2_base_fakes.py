@@ -98,12 +98,17 @@ class Runs:
         self.events = events if events is not None else []
         self.repo, self.own, self.base_output, self.raises = repo, own, base, raises
         self.calls: list[tuple[list[str], Path]] = []
+        self.listings: list[list[str]] = []
         self.trees: list[Path] = []
         # What each base run saw checked out, read as it ran: the tree is gone afterwards.
         self.heads: list[str] = []
 
     def __call__(self, command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
         cwd = Path(str(kwargs["cwd"]))
+        if "--collect-only" in command:
+            # A listing of what a runtime's tag selects: no runtime holds a test here.
+            self.listings.append(command)
+            return subprocess.CompletedProcess(command, 5, "", "")
         self.calls.append((command, cwd))
         self.events.append("unit" if cwd == self.repo else "base")
         if cwd == self.repo:

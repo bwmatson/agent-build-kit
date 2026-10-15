@@ -4,7 +4,7 @@ each tier 2 command as pytest would, for the tests of what a tier 2 unit runs.""
 from __future__ import annotations
 
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from pathlib import Path
 from typing import Any
 
@@ -79,6 +79,8 @@ def session(
     timeout: float = 5,
     profile: Any = None,
     subject: Unit | None = None,
+    blocked: Collection[str] = (),
+    only: str | None = None,
 ) -> Tier2Session:
     lines = log if log is not None else []
     return Tier2Session(
@@ -92,4 +94,6 @@ def session(
         projects=projects,
         dev_stack=dev_stack,
         profile=profile,
+        blocked=blocked,
+        only=only,
     )

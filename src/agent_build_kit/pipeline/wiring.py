@@ -24,7 +24,7 @@ import os
 import shlex
 import subprocess
 import time
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from datetime import UTC, datetime
 from functools import partial
@@ -34,6 +34,7 @@ from typing import Any, Protocol
 from agent_build_kit import forges, infra, profiles, runtimes
 from agent_build_kit.budget import Section, cut_head, cut_tail, fit
 from agent_build_kit.config import (
+    BASE_GROUP,
     CONFIG_ENV,
     CONFIG_FILENAME,
     TEMPLATE_PLACEHOLDERS,
@@ -43,6 +44,7 @@ from agent_build_kit.config import (
     active,
     active_root,
     by_project,
+    known_runtime_names,
     models,
     owning_project,
     stack_versions_for,
@@ -103,13 +105,18 @@ from agent_build_kit.pipeline.scratch import run_folder, selection_seed
 from agent_build_kit.pipeline.shell import git, git_out, has_origin
 from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner, Worktree
 from agent_build_kit.pipeline.tier2 import (
+    RUNTIME_TAG_PREFIX,
+    UNKNOWN_GROUP,
     TestFailure,
     TestTime,
     Tier2Classification,
     Tier2Result,
+    Tier2Selection,
     Tier2Verdict,
     build_snapshot,
+    selection_unavailable,
     stack_lock,
+    tier2_selection,
 )
 from agent_build_kit.pipeline.tier2 import (
     post_status as tier2_post_status,
@@ -2286,9 +2293,13 @@ class Tier2Session:
         projects: list[ProjectConfig] | None = None,
         output_dir: Path | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
+        blocked: Collection[str] = (),
+        only: str | None = None,
     ) -> None:
         self.unit = unit
         self.verdict: Tier2Verdict | None = None
+        self._blocked = blocked
+        self._only = only
         self._on_dev_stack = False
         self._projects = projects or []
         # `verify.env`: what the live-stack tests need, the same here as after
@@ -2380,9 +2391,113 @@ class Tier2Session:
             setting=self._scope,
             profile=self._profile,
             projects=self._projects,
-            marker=self._marker,
+            marker=self._selection().expression,
             dev_stack=str(self._dev_stack) if self._dev_stack else None,
         )
+
+    def _selection(self) -> Tier2Selection:
+        """The marker expression this run executes: the marker alone when nothing is left out
+        or the profile cannot express a selection."""
+        if (not self._blocked and self._only is None) or selection_unavailable(
+            self._profile, dev_stack_script=False
+        ):
+            return Tier2Selection(expression=self._marker)
+        return tier2_selection(
+            self._marker, self._blocked, only=self._only, configured=active().runtimes
+        )
+
+    def _lister(self, toolchain: ToolchainProfile, where: Path) -> Callable[..., list[str] | None]:
+        """`toolchain`'s listing of the tests a marker expression selects in a command run from
+        `where`; None for a profile that cannot list them or a listing that fails."""
+        hook = getattr(toolchain, "selected_tests", None)
+
+        def run(argv: list[str], **_: object) -> subprocess.CompletedProcess:
+            return self._run(argv, cwd=where, **self._test_env)
+
+        def listed(
+            command: list[str], expression: str, among: list[str] | None = None
+        ) -> list[str] | None:
+            return None if hook is None else hook(command, expression, run=run, among=among)
+
+        return listed
+
+    def _park(
+        self, scope: Tier2Scope, toolchains: Mapping[Path, ToolchainProfile]
+    ) -> tuple[list[str], Tier2Scope]:
+        """The blocked runtimes holding a test this run would have executed, found by listing
+        without running, and the scope without its commands when the parked tests were all
+        there was to run."""
+        if self._only is not None or not self._blocked:
+            return [], scope
+        parked: list[str] = []
+        for name in sorted(self._blocked):
+            expression = tier2_selection(self._marker, [], only=name).expression
+            found: list[str] | None = []
+            for run in scope.runs:
+                lister = self._lister(toolchains[run.where], run.where)
+                for command in run.commands:
+                    ids = lister(command, expression)
+                    found = None if ids is None or found is None else found + ids
+                if found is None:
+                    break
+            if found is None:
+                self._log(f"tier 2 parked {name}: its tests could not be listed")
+            if found is None or found:
+                parked.append(name)
+        if scope.mode is Tier2UnitScope.OWN and parked:
+            # What is left to run is what the run's own selection holds in each command; a
+            # listing that fails keeps its command, since it does not say the command is empty.
+            expression = self._selection().expression
+            kept = [
+                run
+                for run in scope.runs
+                if any(
+                    (ids := self._lister(toolchains[run.where], run.where)(command, expression))
+                    is None
+                    or ids
+                    for command in run.commands
+                )
+            ]
+            if not kept:
+                scope = scope.model_copy(
+                    update={
+                        "runs": [],
+                        "reason": f"tier 2 runs nothing: {', '.join(parked)} parked",
+                    }
+                )
+        return parked, scope
+
+    def _groups(
+        self,
+        failures: list[TestFailure],
+        named_by: Mapping[str, tuple[Path, ToolchainProfile, list[str]]],
+        cwd: Path,
+    ) -> list[TestFailure]:
+        """`failures` each with its runtime group, found by one listing of a command's failed
+        tests under each runtime's tag; `unknown` where a listing could not say."""
+        known = sorted(known_runtime_names(active().runtimes))
+        by_command: dict[tuple[Path, tuple[str, ...]], list[str]] = {}
+        for test, (where, _, command) in named_by.items():
+            by_command.setdefault((where, tuple(command)), []).append(test)
+        groups: dict[str, str] = {}
+        for (where, command), tests in by_command.items():
+            lister = self._lister(named_by[tests[0]][1], where)
+            # The listing runs from the project, so it names a test without the project.
+            prefix = f"{where.relative_to(cwd).as_posix()}/" if where != cwd else ""
+            bare = {test: test.removeprefix(prefix) for test in tests}
+            sure = True
+            for name in known:
+                expression = f"{self._marker} and {RUNTIME_TAG_PREFIX}{name}"
+                ids = lister(list(command), expression, list(bare.values()))
+                if ids is None:
+                    sure = False
+                    continue
+                for test, short in bare.items():
+                    if short in ids:
+                        groups.setdefault(test, name)
+            for test in tests:
+                groups.setdefault(test, BASE_GROUP if sure else UNKNOWN_GROUP)
+        return [f.model_copy(update={"group": groups.get(f.test, UNKNOWN_GROUP)}) for f in failures]
 
     def run(self, *, cwd: Path, base: str | None = None) -> tuple[bool, str]:
         """Run tier 2 on `cwd`. `base` is the ref this run is against: with it, the failed
@@ -2396,8 +2511,23 @@ class Tier2Session:
         scope = self.scope(cwd=cwd, base=base)
         if scope.mode is Tier2UnitScope.FULL:
             self._log(scope.reason)
+        left_out = ", ".join(sorted(self._blocked))
+        why = (
+            selection_unavailable(self._profile, dev_stack_script=scope.dev_stack)
+            if left_out
+            else None
+        )
+        if why:
+            self._log(f"tier 2 cannot leave out {left_out}: {why}")
         if scope.dev_stack and self._dev_stack is not None:
             return self._run_on_dev_stack(cwd, self._dev_stack)
+        toolchains = {
+            where: toolchain
+            for where, toolchain, _ in _work(
+                cwd, "", True, self._projects, self._profile, lambda *_: []
+            )
+        }
+        parked, scope = self._park(scope, toolchains) if left_out and not why else ([], scope)
         if scope.mode is Tier2UnitScope.OWN and not scope.runs:
             self._log(scope.reason)
             self.result = Tier2Result(
@@ -2409,6 +2539,7 @@ class Tier2Session:
                 command="",
                 output="",
                 ran_no_tests=True,
+                parked=parked,
             )
             return True, build_snapshot(self.result)
         # The same entries tier 1 resolves, over the whole repo: tier 2 has no
@@ -2416,12 +2547,6 @@ class Tier2Session:
         # pytest collects only when it runs from that project's directory.
         for project in pending_projects(cwd, self._projects):
             self._log(describe(project))
-        toolchains = {
-            where: toolchain
-            for where, toolchain, _ in _work(
-                cwd, "", True, self._projects, self._profile, lambda *_: []
-            )
-        }
         entries = [(run.where, toolchains[run.where], run.commands) for run in scope.runs]
         sha = self._sha(cwd)
         passed = failed = skipped = 0
@@ -2502,6 +2627,7 @@ class Tier2Session:
                     test = labelled(project, found.test)
                     failures.append(TestFailure(test=test, line=found.line))
                     named_by[test] = (at, toolchain, ran)
+            failures = self._groups(failures, named_by, cwd)
             # A test id is output too, and is redacted as the failures' ids are before it is
             # posted, stored or recorded.
             ids = redact_leaves([e.test for e in timed], where="tier-2 output")
@@ -2527,6 +2653,7 @@ class Tier2Session:
                 durations=sorted(timed, key=lambda e: e.seconds, reverse=True),
                 # An own run whose selected tests the marker leaves out collected nothing.
                 ran_no_tests=scope.mode is Tier2UnitScope.OWN and not (passed or failed or skipped),
+                parked=parked,
                 **self._kept(),
             )
             record_test_times(
@@ -2563,7 +2690,7 @@ class Tier2Session:
         untouched: list[TestFailure] = []
         for failure in self.result.failures:
             path = Path(failure.test.partition("::")[0])
-            is_own = (
+            is_own = failure.group == UNKNOWN_GROUP or (
                 path.as_posix() in changed or (path.parent / "conftest.py").as_posix() in changed
             )
             (own if is_own else untouched).append(failure)
