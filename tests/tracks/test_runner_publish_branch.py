@@ -13,11 +13,14 @@ import pytest
 
 from agent_build_kit import forges
 from agent_build_kit.installation import Installation
+from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.tracks import runner
 from tests.factories import commit_files, git, init_repo
 from tests.forges.stand_in import StandInForge
 from tests.planning_worktree_support import InRepo, in_repo, installation_at
-from tests.tracks.test_runner_planning_repo import doing, log_name, phase
+from tests.runtimes.stand_in import StandInRuntime
+from tests.tracks.test_runner import project
+from tests.tracks.test_runner_planning_repo import doing, log_name, phase, write_run_log
 
 
 class Host(StandInForge):
@@ -96,3 +99,34 @@ def test_the_setting_has_no_effect_in_a_separate_root(tmp_path: Path, host: Host
     assert host.created == []
     assert git(remote, "rev-parse", "main") != before
     assert git(remote, "branch", "--list", "planning/*") == ""
+
+
+def test_a_later_phase_publishes_only_its_own_files(tmp_path: Path, host: Host) -> None:
+    setup, inst = pipeline(tmp_path, "branch")
+
+    def write(request: AgentRequest) -> None:
+        write_run_log(inst, "improve")
+
+    improve = StandInRuntime(act=write)
+
+    assert phase(inst, doing(inst)) == 0
+    assert runner.claude_phase(inst, project=project(inst), name="improve", runtime=improve) == 0
+
+    second = f"planning/{runner.RUN_ID}-app-improve"
+    published = runner.run_log(inst, project(inst), "improve").relative_to(inst.root).as_posix()
+    assert git(origin_of(setup), "show", "--name-only", "--format=", second).splitlines() == [
+        published
+    ]
+    assert len(host.created) == 2
+
+
+def test_the_setting_has_no_effect_in_a_working_copy(tmp_path: Path, host: Host) -> None:
+    setup = in_repo(tmp_path)
+    inst = installation_at(setup.working_copy, setup.working_copy, planning=dict(publish="branch"))
+    before = origin_ref(setup, "main")
+
+    assert phase(inst, doing(inst)) == 0
+
+    assert host.created == []
+    assert git(origin_of(setup), "branch", "--list", "planning/*") == ""
+    assert origin_ref(setup, "main") == before

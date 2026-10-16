@@ -10,8 +10,6 @@ import yaml
 from agent_build_kit import config
 from agent_build_kit.cli import main
 from agent_build_kit.config import RepoConfig, WorkspaceConfig, dump
-from agent_build_kit.pipeline.planning_sync import PlanningMode, planning_mode
-from tests.conftest import make_installation
 
 
 def load_text(tmp_path: Path, text: str) -> config.WorkspaceConfig:
@@ -59,11 +57,3 @@ def test_config_show_prints_it(
     assert main(["--config", str(path), "config", "--show"]) == 0
 
     assert yaml.safe_load(capsys.readouterr().out)["planning"]["publish"] == value
-
-
-def test_it_has_no_effect_on_a_separate_root(tmp_path: Path) -> None:
-    plain = make_installation(tmp_path / "plain")
-    branch = make_installation(tmp_path / "branch", planning=dict(publish="branch"))
-
-    assert planning_mode(plain) == PlanningMode.SEPARATE
-    assert planning_mode(branch) == PlanningMode.SEPARATE
