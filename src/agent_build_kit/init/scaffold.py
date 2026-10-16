@@ -147,7 +147,7 @@ def draft_config(
                     detection.path, framework=False, profile=detection.profile
                 ),
                 "path": Path(os.path.relpath(detection.path, planning_root))
-                if top == detection.path.expanduser().resolve()
+                if holds_planning(top, planning_root, detection.path)
                 else detection.path,
                 "forge": forge.name,
                 **named,
@@ -621,15 +621,19 @@ def _ensure_ignored(path: Path, lines: tuple[str, ...], *, written: list[Path]) 
         written.append(path)
 
 
+def holds_planning(top: Path | None, planning_root: Path, repo_path: Path) -> bool:
+    """Whether the repo at `repo_path` (relative to `planning_root` unless absolute) is the
+    repository whose top is `top`, the one the planning directory is in. The one rule for
+    a planning repo that is also a code repo."""
+    return top is not None and (planning_root / repo_path).expanduser().resolve() == top
+
+
 def holding_repo(planning: Path, config: WorkspaceConfig) -> Path | None:
     """The top of the repository the planning directory is in when that repository is one of
     the configured repos, else None: the planning repo is then also a code repo."""
     root = planning.expanduser().resolve()
     top = toplevel(root)
-    if top is None:
-        return None
-    paths = ((root / repo.path).expanduser().resolve() for repo in config.repos.values())
-    return top if top in paths else None
+    return top if any(holds_planning(top, root, r.path) for r in config.repos.values()) else None
 
 
 _IGNORE_OPEN = "# abk:planning v1"
@@ -669,8 +673,9 @@ def _ignore_block(text: str, state_dir: str) -> str:
     missing = [line for line in _state_ignores(state_dir) if line not in present]
     if not missing:
         return text
-    block = "\n".join([_IGNORE_OPEN, *missing, _IGNORE_CLOSE]) + "\n"
-    return splice_block(text, _IGNORE_START, _IGNORE_END, block, eol="\n", blank=False)
+    eol = _eol(text)
+    block = eol.join([_IGNORE_OPEN, *missing, _IGNORE_CLOSE]) + eol
+    return splice_block(text, _IGNORE_START, _IGNORE_END, block, eol=eol, blank=False)
 
 
 def _orientation(config: WorkspaceConfig, prefix: str) -> str:

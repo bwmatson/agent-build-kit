@@ -60,6 +60,17 @@ def test_an_existing_store_is_untouched_and_a_second_run_writes_nothing(tmp_path
     assert snapshot(repo) == after_first
 
 
+def test_a_crlf_gitignore_gets_a_crlf_block(tmp_path: Path) -> None:
+    repo = repo_with(tmp_path)
+    (repo / ".gitignore").write_bytes(b"build/\r\ndist/\r\n")
+
+    lay_out(repo)
+
+    data = (repo / ".gitignore").read_bytes()
+    assert data.startswith(b"build/\r\ndist/\r\n# abk:planning")
+    assert b"\n" not in data.replace(b"\r\n", b"")
+
+
 def test_the_gitignore_gains_one_block_of_exactly_the_missing_lines(tmp_path: Path) -> None:
     original = "# mine\n.venv/\nruns/unit-logs/\n"
     repo = repo_with(tmp_path, {".gitignore": original})

@@ -224,6 +224,17 @@ def test_mismatched_markers_are_reported_and_left_alone(tmp_path: Path, text: st
     assert block.note
 
 
+def test_a_guidance_file_that_is_not_utf8_is_skipped_and_its_bytes_kept(tmp_path: Path) -> None:
+    raw = "caf\xe9\n".encode("latin-1")
+    root = repo(tmp_path, **{"AGENTS.md": raw})
+
+    block = outcome(run(tmp_path), "block")
+
+    assert block.result == "skipped"
+    assert "not valid UTF-8" in block.note
+    assert (root / "AGENTS.md").read_bytes() == raw
+
+
 # --- 1.3 the changelog file -----------------------------------------------------
 
 

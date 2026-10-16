@@ -115,5 +115,33 @@ def test_a_second_run_writes_nothing_and_says_so(
 
     out = capsys.readouterr().out
     assert not [line for line in out.splitlines() if line.startswith("wrote ")]
-    assert "nothing written" in out
+    assert "planning repo: nothing to write" in out
     assert snapshot(repo) == before
+
+
+def test_a_separate_planning_directory_is_laid_out_and_committed_as_before(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    quiet(monkeypatch)
+    for name in ("NAME", "EMAIL"):
+        monkeypatch.setenv(f"GIT_AUTHOR_{name}", "t")
+        monkeypatch.setenv(f"GIT_COMMITTER_{name}", "t")
+    app = app_repo(tmp_path)
+    planning = tmp_path / "planning"
+    before = head(app)
+
+    assert main(["init", str(planning), "--repo", str(app), *FLAGS]) == 0
+
+    out = capsys.readouterr().out
+    assert (planning / ".git").exists()
+    config = yaml.safe_load((planning / "abk.yaml").read_text())
+    assert [entry["path"] for entry in config["repos"].values()] == [str(app)]
+    lines = out.splitlines()
+    for written in ("abk.yaml", ".gitignore", "CLAUDE.md"):
+        assert f"wrote {written}" in lines
+    assert "not committed: what was written is in this repository" not in out
+    assert "committed: abk init: workspace app" in lines
+    assert "abk init: workspace app" in git(planning, "log", "--format=%s")
+    assert head(app) == before
+    guidance = app / "AGENTS.md"
+    assert not guidance.exists() or "abk:planning" not in guidance.read_text()
