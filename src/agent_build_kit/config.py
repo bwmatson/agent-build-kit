@@ -780,6 +780,7 @@ class TestsConfig(Frozen):
     replay: ReplayConfig | None = None
     # This repo's tier 2 splits; None follows the top-level `tests.tier2_splits`.
     tier2_splits: dict[str, Tier2SplitEntry] | None = Field(None, alias="e2e_splits")
+    e2e_splits = property(lambda self: self.tier2_splits)  # abk-forward
 
 
 # The older name of `rest`, the tier 2 tests in no split; reserved, so no split has this name.
@@ -801,6 +802,7 @@ class RuntimeTestsConfig(Frozen):
     model_config = TEST_KIND_SETTINGS
 
     tier2_splits: dict[str, Tier2SplitEntry] = Field({}, alias="e2e_splits")
+    e2e_splits = property(lambda self: self.tier2_splits)  # abk-forward
 
 
 # The words of a `command` template that stand for a list of arguments.

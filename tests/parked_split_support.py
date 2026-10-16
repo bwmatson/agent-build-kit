@@ -29,10 +29,11 @@ def installation(
     acp: bool | None = True,
     claude_code: bool | None = None,
     gate: dict[str, Any] | None = None,
+    claude_code_gate: dict[str, Any] | None = None,
     **overrides: Any,
 ) -> Installation:
     """Two splits declared for every repo; `acp` and `claude_code` carry the configured `hold`
-    given (None leaves the entry without one) and `acp` the `gate` given. The state directory
+    given (None leaves the entry without one) and each the gate given for it. The state directory
     is the planning root."""
     splits: dict[str, dict[str, Any]] = {}
     for name, configured in (("acp", acp), ("claude_code", claude_code)):
@@ -41,6 +42,8 @@ def installation(
             splits[name]["hold"] = configured
     if gate is not None:
         splits["acp"]["gate"] = gate
+    if claude_code_gate is not None:
+        splits["claude_code"]["gate"] = claude_code_gate
     return make_installation(
         tmp_path,
         planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
