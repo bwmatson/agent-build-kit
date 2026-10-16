@@ -32,7 +32,7 @@ def test_the_state_a_held_unit_wrote_serialises_without_a_warning(
 ) -> None:
     updates = node_updates(held_unit(tmp_path, hold), THREAD)
 
-    state = state_from_updates([u for u in updates if u[1] in UnitRun.model_fields])
+    state = state_from_updates(updates)
 
     assert serializer_warnings(state) == []
 
