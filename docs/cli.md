@@ -344,8 +344,9 @@ written; 2 for a name that is not a split.
 Ends a hold: it removes the entry from `tier2-held.json` and the `hold` line in `abk.yaml`
 together, or neither. When a `hold: true` of the configuration or an entry of the split's gate
 still holds it afterwards, the command says so and what to change by hand. A split that is
-not held prints `nothing changed`. Exit 2 for a name that is not a split, 1 when nothing was
-released.
+not held prints `nothing changed`. Exit 0 when the split is released or was not held, 1 when
+the edit of `abk.yaml` or the state file could not be made and nothing was written, 2 for a
+name that is not a split.
 
 ### `abk tier2 status`
 

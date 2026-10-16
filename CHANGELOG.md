@@ -138,9 +138,10 @@
   split is released it runs only that split's tests on the same commit (the whole run if the
   commit moved), and posts one status after both runs passed; a status is never posted for a
   result that left a split's tests unrun. A tier 2 failure that also fails on the base is
-  recorded with its split (`rest`, a declared split or `unknown`), and the fix change says
-  so. An open fix holds a run only when the run executes that split, and a failure of a
-  held split is never recorded. A record written with the older `runtime` field reads it as
+  recorded with its split (`rest` or a declared split), and the fix change says so. An open
+  fix holds a run only when the run executes that split. A failure of a held split is never
+  recorded, and neither is one whose split cannot be found: that is the unit's own failure,
+  with its output as feedback. A record written with the older `runtime` field reads it as
   the split, with `base` read as `rest`, and a unit parked with the cause `runtime_blocked`
   and the field `parked_runtimes` reads as parked on the same splits.
 

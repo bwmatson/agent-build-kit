@@ -613,7 +613,8 @@ repos:
       tier2_splits: {}        # this repo declares none, whatever the top level says
 ```
 
-- A split name is lowercase letters, digits and underscores. Each split has a `marker`
+- A split name is lowercase letters, digits and underscores; `base`, the older name of
+  `rest`, is reserved and refused. Each split has a `marker`
   (non-empty, not shared with another split), an optional `hold` and an optional `gate`
   (the provider of its model, or a command, with its limits; `abk config --show` prints it).
   An unknown key, a missing marker or a repeated one is refused when the file loads.
