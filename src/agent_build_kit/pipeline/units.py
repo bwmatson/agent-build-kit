@@ -161,6 +161,23 @@ class Unit(Frozen):
         return any(member.change == change for member in self.members())
 
 
+class ProjectKey(Frozen):
+    """A repo's project: what the limits on units in progress and build workers count."""
+
+    repo: str
+    project: str = "."
+
+
+def project_key(unit: Unit) -> ProjectKey:
+    """The project a unit is counted in: its repo and its project."""
+    raise NotImplementedError
+
+
+def project_counts(graph: Sequence[Unit]) -> dict[ProjectKey, int]:
+    """The units in progress (`in_progress`) in each project that has any; no total is kept."""
+    raise NotImplementedError
+
+
 def branch_name(unit: Unit) -> str:
     """`spec/<change>/<n>` — deterministic, so a re-run reuses the branch.
 
@@ -857,7 +874,7 @@ def in_progress_label(unit: Unit) -> str:
     return unit.state.replace("_", " ")
 
 
-def start_room(graph: Sequence[Unit], limit: int) -> int:
+def start_room(graph: Sequence[Unit], limit: int, project: ProjectKey | None = None) -> int:
     """How many never-started units may begin before `limit` is reached."""
     return max(0, limit - sum(1 for unit in graph if in_progress(unit, graph)))
 
