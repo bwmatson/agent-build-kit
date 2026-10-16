@@ -8,6 +8,11 @@ from __future__ import annotations
 
 import re
 from enum import StrEnum
+from typing import Annotated
+
+from pydantic import BeforeValidator
+
+from agent_build_kit.model import TestTier
 
 
 class Place(StrEnum):
@@ -52,3 +57,11 @@ def notice(place: Place, old: str, where: str) -> str:
     if place is Place.TAG:
         old, new = f"[{old}]", f"[{new}]"
     return f"{where}: warning: {place.value} {old} is deprecated; use {new}"
+
+
+def _read_old_kind(value: object) -> object:
+    return new_spelling(Place.VALUE, value) if isinstance(value, str) else value
+
+
+# A test kind as a model field reads it: either spelling in, a `TestTier` out.
+TestKind = Annotated[TestTier, BeforeValidator(_read_old_kind)]

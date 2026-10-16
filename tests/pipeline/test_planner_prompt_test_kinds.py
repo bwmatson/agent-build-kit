@@ -15,8 +15,8 @@ def test_the_prompt_maps_each_tag_spelling_to_the_reply_tier(tmp_path: Path) -> 
     prompt = flat(build_prompt({"feature": tasks_with("[app] [e2e-test] Drive it")}, []))
 
     assert "[e2e-test]" in prompt
-    assert "`[unit-test]` (or the old `[tier1]`) is tier `tier1`" in prompt
-    assert "`[e2e-test]` (or the old `[tier2]`) is tier `tier2`" in prompt
+    assert "`[unit-test]` (or the old `[tier1]`) is tier `unit-test`" in prompt
+    assert "`[e2e-test]` (or the old `[tier2]`) is tier `e2e-test`" in prompt
 
 
 def test_the_prompt_example_heading_uses_the_new_tag(tmp_path: Path) -> None:

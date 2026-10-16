@@ -24,7 +24,7 @@ def test_a_provider_loads_and_config_show_prints_it(
     assert main(["--config", str(path), "config", "--show"]) == 0
 
     shown = yaml.safe_load(capsys.readouterr().out)
-    provider = shown["tests"]["tier2_splits"]["acp"]["gate"]["provider"]
+    provider = shown["tests"]["e2e_splits"]["acp"]["gate"]["provider"]
     assert provider["name"] == "modal"
     assert provider["budget_usd"] == 200
     assert provider_of(loaded).budget_usd == 200
@@ -91,6 +91,4 @@ def test_a_workspace_with_no_gate_loads_and_dumps_unchanged() -> None:
 
     assert "gate" in dump(with_gate({"provider": PROVIDER}))
     assert "gate" not in dump(plain)
-    assert yaml.safe_load(dump(plain))["tests"]["tier2_splits"] == {
-        "acp": {"marker": "runtime_acp"}
-    }
+    assert yaml.safe_load(dump(plain))["tests"]["e2e_splits"] == {"acp": {"marker": "runtime_acp"}}

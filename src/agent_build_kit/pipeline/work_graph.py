@@ -74,11 +74,9 @@ def repo_tag(repo: str, project_path: str) -> str:
     return f"[{repo}]" if path == "." else f"[{repo}/{path}]"
 
 
-# tier1 runs on GitHub Actions; tier2 needs the live local stack on this host
-# and is serialized behind one lock (docs/architecture.md). The names a unit still stores.
-TIERS = ("tier1", "tier2")
-
 # The tags a group heading is read with: the new spellings and, with a notice, the old ones.
+# A unit-test runs on the code host's checks; an e2e-test needs the live local stack on this host
+# and is serialized behind one lock (docs/architecture.md).
 TEST_KIND_TAGS = tuple(member.value for member in TestTier)
 
 # An optional third tag, for the one case a group cannot be checked without it.

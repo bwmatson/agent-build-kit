@@ -101,7 +101,7 @@ def test_tiers_do_not_split_a_unit() -> None:
     )
 
     assert len(units) == 1
-    assert units[0].tier == "tier2", "a unit needing the stack anywhere needs it overall"
+    assert units[0].tier == "e2e-test", "a unit needing the stack anywhere needs it overall"
 
 
 def test_units_depend_on_the_one_before_them_in_the_same_repo() -> None:

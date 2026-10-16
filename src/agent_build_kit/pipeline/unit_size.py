@@ -10,6 +10,7 @@ from fnmatch import fnmatchcase
 from pathlib import PurePosixPath
 from statistics import median
 
+from agent_build_kit.compat_names import TestKind
 from agent_build_kit.config import active
 from agent_build_kit.forges import FileChange
 from agent_build_kit.model import Frozen
@@ -42,7 +43,7 @@ class Kind(Frozen):
     the first flagged group a unit carries (empty when none)."""
 
     repo: str
-    tier: str
+    tier: TestKind
     flag: str = ""
 
     @property

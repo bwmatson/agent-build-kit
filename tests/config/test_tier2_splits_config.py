@@ -59,7 +59,7 @@ def test_config_show_prints_both_splits(tmp_path: Path, capsys: pytest.CaptureFi
 
     shown = yaml.safe_load(capsys.readouterr().out)
     # `--show` prints defaults too, so each entry carries its unset `hold` and `gate`.
-    assert shown["tests"]["tier2_splits"] == {
+    assert shown["tests"]["e2e_splits"] == {
         name: {**entry, "hold": None, "gate": None} for name, entry in TWO.items()
     }
     assert names(config(TWO)) == ["claude_code", "acp", "rest"]

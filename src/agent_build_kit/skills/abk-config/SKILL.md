@@ -161,14 +161,15 @@ limits:
   max_check_reruns: 2         # re-runs of a head commit's cancelled checks
   transcript_result_chars: 20000  # longest tool result a transcript keeps whole
   transcript_runs_kept: 3     # runs of one unit that keep their transcript
-  tier1_command_seconds: 3600       # longest a tier 1 command may run before it is aborted
-  tier1_abort_grace_seconds: 10    # how long an aborted command has to exit before it is killed
-  tier1_repeat_runs: 3              # times the tests a unit added or changed are run again under load (0: off)
+  # The old `tier1_*` and `tier2_*` spellings of the next keys still load, with a notice.
+  unit_test_command_seconds: 3600   # longest a tier 1 command may run before it is aborted
+  unit_test_abort_grace_seconds: 10  # how long an aborted command has to exit before it is killed
+  unit_test_repeat_runs: 3          # times the tests a unit added or changed are run again under load (0: off)
   restack_check: affected           # tier 1 after a clean move: scoped by the files the move brought in (affected) or the whole suite (full)
-  tier2_base_runs: 1                # run the untouched failed tier 2 tests once on the base (0: off)
-  tier2_unit_scope: own             # tier 2 per unit: only the tests it added or changed (own) or the whole marker (full); tests.tier2_unit_scope overrides per repo
-  tier2_lock_wait_seconds: 5400     # longest post-merge verification waits for the tier 2 lock before reporting it busy
-  tier2_durations_shown: 15         # slowest tier 2 test entries the posted result lists (0 = all)
+  e2e_base_runs: 1                  # run the untouched failed tier 2 tests once on the base (0: off)
+  e2e_unit_scope: own               # tier 2 per unit: only the tests it added or changed (own) or the whole marker (full); tests.e2e_unit_scope overrides per repo
+  e2e_lock_wait_seconds: 5400       # longest post-merge verification waits for the tier 2 lock before reporting it busy
+  e2e_durations_shown: 15           # slowest tier 2 test entries the posted result lists (0 = all)
   network_probe_timeout_seconds: 5  # longest the outage probe waits to connect to one host
   network_control_hosts: [one.one.one.one, dns.google]  # bare host names tried beside the code hosts to tell a network outage from a model service outage
   service_unavailable_attempts: 5   # times in a row a 5xx or 529 from the model service parks a unit before the next fails it
@@ -220,7 +221,7 @@ repos:                        # ordered; a task group's [repo] tag is a key here
     relationships: ""         # prose for the planner about the other repos
     tests:
       root_extras: []         # extra packages the repo-root tests need
-      tier2_marker: local_stack  # tier 2 runs in each declared project, as tier 1 does, and
+      e2e_marker: local_stack    # tier 2 runs in each declared project, as tier 1 does, and
                                  # each member from its own directory
                                  # with no path, so the member's pytest config,
                                  # `testpaths` included, decides what is collected

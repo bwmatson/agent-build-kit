@@ -23,15 +23,23 @@ import logging
 import os
 import re
 import shlex
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Literal
 
 import yaml
-from pydantic import Field, ValidationError, ValidationInfo, field_validator, model_validator
+from pydantic import (
+    ConfigDict,
+    Field,
+    ValidationError,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from agent_build_kit import forges, infra, path_patterns, runtimes
+from agent_build_kit.compat_names import Place, is_old_spelling, new_spelling, notice
 from agent_build_kit.model import Frozen
 from agent_build_kit.replay.models import DEFAULT_KEYED_HEADERS, UpstreamKind
 from agent_build_kit.runtimes import known_agents
@@ -418,7 +426,14 @@ class ContextConfig(Frozen):
     warn_share: float = 0.8
 
 
+# A block holding test-kind settings: written under the new key names (the aliases), still built
+# by the field names. The old key names are renamed to the new ones where a file is read.
+TEST_KIND_SETTINGS = ConfigDict(validate_by_name=True, serialize_by_alias=True)
+
+
 class LimitsConfig(Frozen):
+    model_config = TEST_KIND_SETTINGS
+
     # Longest chain of in-review PRs from main to a branch that a unit may
     # start building on.
     stack_depth_build_cap: int = 3
@@ -491,30 +506,32 @@ class LimitsConfig(Frozen):
     # How many runs of one unit keep their transcript.
     transcript_runs_kept: Annotated[int, Field(ge=1)] = 3
     # Longest a tier 1 command may run before it is asked to abort, in seconds.
-    tier1_command_seconds: Annotated[float, Field(gt=0)] = 3600
+    tier1_command_seconds: Annotated[float, Field(gt=0, alias="unit_test_command_seconds")] = 3600
     # How long an aborted tier 1 command has to exit before it is ended, in seconds.
-    tier1_abort_grace_seconds: Annotated[float, Field(gt=0)] = 10
+    tier1_abort_grace_seconds: Annotated[
+        float, Field(gt=0, alias="unit_test_abort_grace_seconds")
+    ] = 10
     # How many times the tests a unit added or changed are run again, under the same
     # load, after tier 1 passes; 0 turns the check off.
-    tier1_repeat_runs: Annotated[int, Field(ge=0)] = 3
+    tier1_repeat_runs: Annotated[int, Field(ge=0, alias="unit_test_repeat_runs")] = 3
     # What tier 1 runs after a clean move onto a moved base: `affected` scopes it by the
     # files the move brought in, `full` runs the whole suite as before.
     restack_check: RestackCheck = RestackCheck.AFFECTED
     # Whether the untouched tests that fail tier 2 are run once on the base, to tell a
     # failure the unit caused from one already there; 0 turns the run off. A switch, not a
     # count: one run answers the question.
-    tier2_base_runs: Annotated[int, Field(ge=0, le=1)] = 1
+    tier2_base_runs: Annotated[int, Field(ge=0, le=1, alias="e2e_base_runs")] = 1
     # How much of a repo's tier 2 marker a unit's tier 2 step runs: `own` the tests its branch
     # added or changed, `full` the whole marker. A repo's `tests.tier2_unit_scope` wins.
-    tier2_unit_scope: Tier2UnitScope = Tier2UnitScope.OWN
+    tier2_unit_scope: Tier2UnitScope = Field(Tier2UnitScope.OWN, alias="e2e_unit_scope")
     # How often a repo's whole tier 2 suite is due to run on its own; a repo's
     # `tests.tier2_schedule` wins.
-    tier2_schedule: Tier2Schedule = Tier2Schedule.WEEKLY
+    tier2_schedule: Tier2Schedule = Field(Tier2Schedule.WEEKLY, alias="e2e_schedule")
     tier2_schedule_off = field_validator("tier2_schedule", mode="before")(_unquoted_off)
     # Longest a unit waits for the tier 2 lock before its tier 2 step fails as busy, in seconds.
-    tier2_lock_wait_seconds: Annotated[int, Field(gt=0)] = 5400
+    tier2_lock_wait_seconds: Annotated[int, Field(gt=0, alias="e2e_lock_wait_seconds")] = 5400
     # How many of a tier 2 run's slowest test entries the posted result lists; 0 lists every one.
-    tier2_durations_shown: Annotated[int, Field(ge=0)] = 15
+    tier2_durations_shown: Annotated[int, Field(ge=0, alias="e2e_durations_shown")] = 15
     # Longest the connectivity probe waits to connect to one host, in seconds (a name lookup
     # waits on the system resolver instead). The probe tells a network
     # outage from a model service outage when an agent run ends on a failure to connect.
@@ -708,21 +725,23 @@ class Tier2Split(Frozen):
 
 
 class TestsConfig(Frozen):
+    model_config = TEST_KIND_SETTINGS
+
     # Extra packages the repo-root tests (outside every workspace member) need.
     root_extras: list[str] = []
     # The pytest marker on tests that need the real local stack (tier 2).
-    tier2_marker: str = "local_stack"
+    tier2_marker: str = Field("local_stack", alias="e2e_marker")
     # This repo's tier 2 scope; None follows `global_limits.tier2_unit_scope`.
-    tier2_unit_scope: Tier2UnitScope | None = None
+    tier2_unit_scope: Tier2UnitScope | None = Field(None, alias="e2e_unit_scope")
     # This repo's schedule; None follows `limits.tier2_schedule`.
-    tier2_schedule: Tier2Schedule | None = None
+    tier2_schedule: Tier2Schedule | None = Field(None, alias="e2e_schedule")
     tier2_schedule_off = field_validator("tier2_schedule", mode="before")(_unquoted_off)
     # The marker on tier-2 tests only the dev stack can run (left out of live checks).
     dev_stack_marker: str = "dev_stack"
     # Record and replay of the calls tier-2 tests make outside the stack; None: none.
     replay: ReplayConfig | None = None
     # This repo's tier 2 splits; None follows the top-level `tests.tier2_splits`.
-    tier2_splits: dict[str, Tier2SplitEntry] | None = None
+    tier2_splits: dict[str, Tier2SplitEntry] | None = Field(None, alias="e2e_splits")
 
 
 # The older name of `rest`, the tier 2 tests in no split; reserved, so no split has this name.
@@ -741,7 +760,9 @@ REPLACED_RUNTIME_LISTS = {
 class RuntimeTestsConfig(Frozen):
     """The installation-wide `tests` block: the declared tier 2 splits."""
 
-    tier2_splits: dict[str, Tier2SplitEntry] = {}
+    model_config = TEST_KIND_SETTINGS
+
+    tier2_splits: dict[str, Tier2SplitEntry] = Field({}, alias="e2e_splits")
 
 
 # The words of a `command` template that stand for a list of arguments.
@@ -1336,13 +1357,98 @@ def _files_of(
     return named
 
 
+class _SettingBlock(Frozen):
+    """A block of a document that holds test-kind settings."""
+
+    # The keys that lead to the block from the root of the document.
+    path: tuple[str, ...]
+    block: dict[str, Any]
+    # The model that reads the block.
+    model: type[Frozen]
+
+    @property
+    def where(self) -> str:
+        return ".".join(self.path)
+
+
+def _setting_blocks(document: dict[str, Any]) -> list[_SettingBlock]:
+    """The blocks of `document` that hold test-kind settings."""
+    limits_key = "global_limits" if "global_limits" in document else DEPRECATED_ROOT_KEY
+    found: list[tuple[tuple[str, ...], Any, type[Frozen]]] = [
+        ((limits_key,), document.get(limits_key), LimitsConfig),
+        (("tests",), document.get("tests"), RuntimeTestsConfig),
+    ]
+    repos = document.get("repos")
+    for name, repo in repos.items() if isinstance(repos, dict) else ():
+        if isinstance(repo, dict):
+            found.append((("repos", name, "tests"), repo.get("tests"), TestsConfig))
+    return [
+        _SettingBlock(path=path, block=block, model=model)
+        for path, block, model in found
+        if isinstance(block, dict)
+    ]
+
+
+def _with_block(document: dict[str, Any], path: tuple[str, ...], block: dict[str, Any]) -> dict:
+    """A copy of `document` with the mapping at `path` replaced by `block`."""
+    if not path:
+        return block
+    return {**document, path[0]: _with_block(document[path[0]], path[1:], block)}
+
+
+def _raw_files(path: Path) -> Iterator[tuple[Path, dict[str, Any]]]:
+    """The file at `path` and its overlay, each as it parses, for those that parse to a mapping."""
+    for file in (path, overlay_path(path)):
+        try:
+            raw = yaml.safe_load(file.read_text())
+        except (OSError, yaml.YAMLError):
+            continue
+        if isinstance(raw, dict):
+            yield file, raw
+
+
+def _old_setting_keys(block: dict[str, Any], model: type[Frozen]) -> list[str]:
+    """The keys of `block` that are old spellings of a setting `model` has."""
+    aliases = {field.alias for field in model.model_fields.values() if field.alias}
+    return [
+        key
+        for key in block
+        if isinstance(key, str)
+        and is_old_spelling(Place.SETTING, key)
+        and new_spelling(Place.SETTING, key) in aliases
+    ]
+
+
+def _read_new_settings(document: dict[str, Any]) -> dict[str, Any]:
+    """`document` with each old test-kind settings key renamed to the new one; a block that
+    sets both spellings of one setting is refused."""
+    renamed = document
+    for found in _setting_blocks(document):
+        old = _old_setting_keys(found.block, found.model)
+        if not old:
+            continue
+        for key in old:
+            new = new_spelling(Place.SETTING, key)
+            if new in found.block:
+                raise ValueError(
+                    f"{found.where}: `{key}` and `{new}` are both set; "
+                    f"`{key}` is the deprecated name of `{new}`, keep one"
+                )
+        fixed = {
+            new_spelling(Place.SETTING, k) if k in old else k: v for k, v in found.block.items()
+        }
+        renamed = _with_block(renamed, found.path, fixed)
+    return renamed
+
+
 def _renamed(document: dict[str, Any] | None, file: Path) -> dict[str, Any] | None:
-    """`document` with the deprecated root key renamed, so two files that spell it
-    differently still merge; one file that sets both spellings is refused."""
+    """`document` with the deprecated root key and the old test-kind settings keys renamed, so
+    two files that spell them differently still merge; one file that sets both spellings is
+    refused."""
     if document is None:
         return None
     try:
-        return _alias_limits(document)
+        return _read_new_settings(_alias_limits(document))
     except ValueError as error:
         raise ConfigError(f"{file}: {error}") from error
 
@@ -1360,6 +1466,10 @@ def load(path: Path) -> WorkspaceConfig:
         if any(document and DEPRECATED_ROOT_KEY in document for document in spelled):
             # Name a setting as the file spells it.
             message = re.sub(r"(?m)^global_limits\b", DEPRECATED_ROOT_KEY, message)
+        for document in spelled:
+            for found in _setting_blocks(document or {}):
+                for old in _old_setting_keys(found.block, found.model):
+                    message = re.sub(rf"\b{new_spelling(Place.SETTING, old)}\b", old, message)
         files = [str(file) for file in _files_of(error, path, raw, local)]
         verb = "does" if len(files) == 1 else "do"
         raise ConfigError(
@@ -1373,14 +1483,22 @@ def load(path: Path) -> WorkspaceConfig:
 
 def deprecations(path: Path) -> list[str]:
     """The root keys of the file at `path`, or of its overlay, that are deprecated spellings."""
-    for file in (path, overlay_path(path)):
-        try:
-            raw = yaml.safe_load(file.read_text())
-        except (OSError, yaml.YAMLError):
-            continue
-        if isinstance(raw, dict) and DEPRECATED_ROOT_KEY in raw:
+    for _, raw in _raw_files(path):
+        if DEPRECATED_ROOT_KEY in raw:
             return [DEPRECATED_ROOT_KEY]
     return []
+
+
+def old_setting_notices(path: Path) -> list[str]:
+    """One notice for each old test-kind settings key in the file at `path` or its overlay."""
+    notices: list[str] = []
+    for file, raw in _raw_files(path):
+        for found in _setting_blocks(raw):
+            notices += [
+                notice(Place.SETTING, key, f"{file}: {found.where}")
+                for key in _old_setting_keys(found.block, found.model)
+            ]
+    return notices
 
 
 def _check_infra(config: WorkspaceConfig, path: Path) -> None:

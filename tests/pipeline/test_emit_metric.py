@@ -51,7 +51,7 @@ SITES = [
         "duration",
         "abk.unit.duration",
         30.25,
-        {"repo": "app", "tier": "tier1", "outcome": "open"},
+        {"repo": "app", "tier": "unit-test", "outcome": "open"},
         "feature/1",
         "feature",
     ),

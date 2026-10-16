@@ -76,7 +76,7 @@ def test_a_unit_requeued_with_restart_takes_the_new_tags_and_the_report_ends(
     code, out = run.run(capsys, "feature", reply=answer(retagged))
 
     assert code == 0, out
-    assert run.store.get("feature/1").tier == "tier2"
+    assert run.store.get("feature/1").tier == "e2e-test"
     assert run.records["feature"]["ok"] is True
 
 

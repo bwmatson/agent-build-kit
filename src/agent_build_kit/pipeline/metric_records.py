@@ -14,9 +14,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from pydantic import ValidationError
+from pydantic import ValidationError, field_validator
 
 from agent_build_kit import telemetry
+from agent_build_kit.compat_names import Place, new_spelling
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.usage_ledger import read_lines, record_line
 
@@ -33,6 +34,15 @@ class MetricRecord(Frozen):
     attributes: dict[str, str | int] = {}
     unit: str = ""
     change: str = ""
+
+    @field_validator("attributes", mode="after")
+    @classmethod
+    def _read_old_kind(cls, attributes: dict[str, str | int]) -> dict[str, str | int]:
+        """A line written before the rename holds `tier1` or `tier2` as its `tier`."""
+        kind = attributes.get("tier")
+        if isinstance(kind, str):
+            return {**attributes, "tier": new_spelling(Place.VALUE, kind)}
+        return attributes
 
 
 def record_metric(

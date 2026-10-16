@@ -1306,6 +1306,10 @@ def run_doctor(
         _warn("config", config.deprecation_notice(key), "run `abk config --migrate`")
         for key in config.deprecations(path)
     ]
+    checks += [
+        _warn("config", old, "rename it in the file the warning names")
+        for old in config.old_setting_notices(path)
+    ]
 
     try:
         inst = Installation(loaded, path.parent)

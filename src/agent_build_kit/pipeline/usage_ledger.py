@@ -19,6 +19,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, model_validator
 
 from agent_build_kit import config, telemetry
+from agent_build_kit.compat_names import Place, new_spelling
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.redaction import redact_leaves
@@ -127,6 +128,12 @@ class UsageRecord(BaseModel):
     # when both exist, so a report can show the difference.
     reported: Usage | None = None
     outcome: str = ""
+
+    @field_validator("tier", mode="before")
+    @classmethod
+    def _read_old_kind(cls, value: object) -> object:
+        """A line written before the rename holds `tier1` or `tier2`; an empty kind stays."""
+        return new_spelling(Place.VALUE, value) if isinstance(value, str) else value
 
     @model_validator(mode="before")
     @classmethod

@@ -24,8 +24,9 @@ from typing import Self
 
 from pydantic import Field
 
+from agent_build_kit.compat_names import Place, TestKind, new_spelling
 from agent_build_kit.config import active, active_checkout
-from agent_build_kit.model import Frozen
+from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.shell import has_origin
 
 
@@ -115,7 +116,9 @@ class Unit(Frozen):
     change: str
     title: str
     repo: str
-    tier: str
+    # Stored under the key `tier` until the readers are renamed; a value from before the rename
+    # (`tier1`, `tier2`) is read as the kind it meant.
+    tier: TestKind
     project: str = "."
     depends_on: tuple[str, ...] = ()
     # Every target a `Needs:` line names, whether linked as a dependency or already reached
@@ -242,7 +245,12 @@ def plan_units(change: str, groups: list[dict], *, min_lines: int, max_lines: in
                 project=current[0].get("project", "."),
                 # A unit that needs the live stack anywhere needs it overall:
                 # tier decides how it's verified, not what belongs together.
-                tier="tier2" if any(g["tier"] == "tier2" for g in current) else "tier1",
+                tier=TestTier.E2E_TEST
+                if any(
+                    TestTier(new_spelling(Place.VALUE, g["tier"])) is TestTier.E2E_TEST
+                    for g in current
+                )
+                else TestTier.UNIT_TEST,
                 estimated_lines=sum(g["estimated_lines"] for g in current),
                 groups=tuple(g["number"] for g in current),
                 depends_on=depends_on,

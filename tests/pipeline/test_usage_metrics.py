@@ -89,7 +89,7 @@ def test_an_agent_record_adds_its_cost_and_tokens_by_role_and_model(
     assert cost.value == 1.0
     assert cost.attributes == {
         "repo": "app",
-        "tier": "tier1",
+        "tier": "unit-test",
         "node": "implement",
         "role": "implement",
         "model": "model-a",

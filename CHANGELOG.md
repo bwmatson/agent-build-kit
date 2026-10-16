@@ -31,7 +31,15 @@
 
 - A task group heading can be tagged `[unit-test]` or `[e2e-test]`. The old `[tier1]` and
   `[tier2]` tags still read as the same kinds, and `abk tags` and `abk check` print a notice
-  for each one, naming the tag that replaces it and the group.
+  for each one, naming the tag that replaces it and the group. The settings keys follow:
+  `tier1_*` read as `unit_test_*`, and `tier2_*`, `tests.tier2_marker` and `tier2_splits` as
+  `e2e_*`, `e2e_marker` and `e2e_splits`. `abk config` prints only the new keys and, with
+  `abk doctor`, notes each old key it read. The old keys keep working, with a notice, for
+  the next release and are refused in the one after. A file holding both spellings of one
+  setting is refused. A unit's kind is stored as `unit-test` or `e2e-test`; a store, plan or
+  usage ledger written with the old values still reads, and a store is written back with the
+  new ones. A unit's kind in metric labels, the diagram and calibration labels now shows the
+  new values too, for lines already in the ledger as well.
 
 - `abk scrub-store` reports, and with `--apply` on a paused pipeline replaces, the
   home-directory paths in the unit store's text (feedback, guidance, notes) with `<home>/`,
