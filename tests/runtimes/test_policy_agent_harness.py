@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from tests.runtimes.policy_agent_harness import Progress, drive
-from tests.runtimes.policy_fake_agents import alive, command, did, pids, started
+from tests.runtimes.policy_fake_agents import command, did, pids, started, still_alive
 
 COMMANDS = (
     ("git commit --no-verify -m probe", "skipping the commit gate"),
@@ -51,7 +51,7 @@ def restored_signals() -> Iterator[None]:
 
 
 def assert_cleaned_up(record: Path, scratch: Path) -> None:
-    assert not [pid for pid in pids(record) if alive(pid)], "the agent's group is not gone"
+    assert not still_alive(pids(record)), "the agent's group is not gone"
     assert list(scratch.iterdir()) == [], "the harness left a temporary directory"
 
 

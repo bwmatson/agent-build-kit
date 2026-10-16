@@ -48,7 +48,13 @@ def still_alive(
 ) -> list[int]:
     """The pids still alive after giving a kill time to take effect: `alive` is asked up to
     `attempts` times, `sleep` called between asks, and the answer is those alive at the last."""
-    raise NotImplementedError
+    left = [pid for pid in pids if alive(pid)]
+    for _ in range(attempts - 1):
+        if not left:
+            break
+        sleep(0.05)
+        left = [pid for pid in left if alive(pid)]
+    return left
 
 
 def started(record: Path) -> bool:
