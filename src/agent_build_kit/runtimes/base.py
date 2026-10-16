@@ -47,6 +47,24 @@ Role = Literal["implement", "review", "rework_review", "generic"]
 PolicyCoverage = Literal["all_calls", "agent_flagged", "none"]
 
 
+class PromptTransport(StrEnum):
+    """How a runtime carries a prompt to its agent."""
+
+    ARGUMENT = "argument"  # one element of the command line
+    STDIN = "stdin"  # the process reads it on its standard input
+    PROTOCOL = "protocol"  # a message of the agent protocol
+
+
+class PromptTooLarge(ValueError):
+    """A prompt is over the safe size of its runtime's transport; nothing was started."""
+
+
+def check_prompt_size(request: AgentRequest, transport: PromptTransport) -> bytes:
+    """The request's prompt as the UTF-8 bytes to deliver, or `PromptTooLarge` when it is over
+    the transport's safe size."""
+    raise NotImplementedError
+
+
 class ToolPolicy(Frozen):
     """What a run may touch, in abk's own terms — not a runtime's flag syntax.
 
@@ -86,6 +104,7 @@ class AgentRequest(Frozen):
 
     prompt: str
     role: Role = "generic"
+    change: str = ""  # the change the call is for, when it names one
     cwd: Path | None = None  # None for a call with no worktree (the planner's graph call)
     add_dirs: tuple[Path, ...] = ()  # readable beyond cwd; Claude Code's --add-dir
     model: str | None = None  # already resolved to this runtime's own name
