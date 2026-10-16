@@ -110,10 +110,10 @@ def test_finished_and_never_started_units_do_not_count() -> None:
     assert [in_progress(unit) for unit in idle] == [False] * len(idle)
 
 
-def test_units_in_different_repositories_count_together() -> None:
+def test_units_in_different_repositories_count_apart() -> None:
     graph = [at_review("a/1", 1, repo="app"), at_review("b/1", 2, repo="platform"), new("c/1")]
 
-    assert ready(graph, limit=2) == []
+    assert ready(graph, limit=2) == ["c/1"]
 
 
 # --- 1.2 at the limit a never-started unit does not start --------------------------

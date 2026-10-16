@@ -64,7 +64,7 @@ def isolated(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def in_review(store: UnitStore, uid: str) -> None:
-    store.upsert([stored_unit(uid, change=uid.split("/")[0], repo="platform")])
+    store.upsert([stored_unit(uid, change=uid.split("/")[0], repo="app")])
     store.set_state(uid, IN_REVIEW, pr=9, branch=f"spec/{uid}")
 
 
@@ -108,7 +108,7 @@ def test_a_started_scheduled_unit_takes_a_place_from_the_next_unit(
     del builder.scripts[UNIT], builder.ends[UNIT]
 
     assert tick(inst) == 0
-    store.upsert([stored_unit("late/1", change="late", repo="platform")])
+    store.upsert([stored_unit("late/1", change="late", repo="app")])
     assert tick(inst) == 0
 
     assert store.get(UNIT).state == IN_REVIEW

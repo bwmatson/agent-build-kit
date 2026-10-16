@@ -307,12 +307,10 @@ def test_no_more_than_the_concurrency_cap_build_at_once(
     pool has only as many workers as the cap, so an overshoot would queue
     there and never show as more than two building. Here the second unit is
     handed out but not yet `running` when the first finishes, and the pass
-    evaluates again in that gap."""
+    evaluates again in that gap. The cap applies to each project, so one repo."""
     inst = workspace(tmp_path, max_concurrent=2)
     ids = [f"many/{n}" for n in range(1, 7)]
-    builder.store.upsert(
-        [stored(uid, repo="platform" if n % 2 else "app") for n, uid in enumerate(ids)]
-    )
+    builder.store.upsert([stored(uid, repo="app") for uid in ids])
     go = threading.Event()
     for uid in ids[1:]:
         builder.before_running[uid] = lambda: go.wait(WAIT)
