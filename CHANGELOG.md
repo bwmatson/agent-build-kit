@@ -201,6 +201,24 @@
   is due and open on its own, so a newly declared split runs at once while the others wait
   out their period. An older change with no suffix, or ending `-base`, counts as `rest`, so
   `base` can no longer be a split's name.
+  `base` can no longer be a split's name. A scheduled change's unit runs only its own split,
+  waits (change open) while that split is held and resumes when it is released, and only an
+  open fix of a failing test in that split holds it; its note names the split.
+  `tests.tier2_runtimes` (never released) is refused at load, as are `tests.runtimes_blocked`
+  and `tests.runtimes_allowed`, each naming the `tests.tier2_splits` setting that replaces it.
+
+- A tier 2 failure that also fails on the base is now recorded with the runtime it belongs
+  to (`base` for older entries), and the fix change says so. An open fix holds a full run
+  only when the run executes that runtime, so a blocked or other-runtime run is not held
+  by it. A failure whose runtime is unknown, or a blocked runtime's, is never recorded.
+
+- A unit whose tier 2 run could not execute a blocked runtime's tests now waits, held
+  planned with the runtime and the reason in its note, instead of passing without them. It
+  gets no feedback, no fix round, no failure record and no status, nothing is pushed, and
+  a tick does not start it again; `abk status` shows it as blocked. When it resumes it runs
+  only that runtime's tests on the same commit (the whole run if the commit moved), and
+  posts one status after both runs passed. A commit status is never
+  posted for a result that left a runtime's tests unrun.
 
 - `abk scrub-check` no longer flags the planning root's own name when it scans the planning
   root itself, and finds more of what identifies an installation: literal values and

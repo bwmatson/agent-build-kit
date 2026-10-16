@@ -2752,8 +2752,9 @@ class Tier2Session:
         """The note of a scheduled unit whose whole run passed."""
         result = self.result
         assert result is not None, "tier 2 has not run for this unit"
+        of = f" for {self._only}" if self._only else ""
         return (
-            f"scheduled tier 2 passed: {result.passed} passed, {result.skipped} skipped "
+            f"scheduled tier 2 passed{of}: {result.passed} passed, {result.skipped} skipped "
             f"on {result.sha}"
         )
 

@@ -9,7 +9,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from agent_build_kit.config import REST_SPLIT, Tier2UnitScope
+from agent_build_kit.config import REST_SPLIT, Tier2Split, Tier2UnitScope
 from agent_build_kit.graph.state import ResumeEvent
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.stack_runner import RunOutcome
@@ -23,7 +23,7 @@ from tests.graph_driver import tick
 from tests.runner_fakes import Recorder
 from tests.tier2_park_fakes import holds_of
 from tests.tier2_schedule_fakes import TODAY, planning, store_of
-from tests.tier2_scope_fakes import Ran, branch, session
+from tests.tier2_scope_fakes import KIT_SPLITS, Ran, branch, session
 
 CHANGE = scheduled_name("app", TODAY)
 TEST_BODY = "def test_live():\n    assert True\n"
@@ -115,11 +115,12 @@ class ScheduledRun:
     ) -> None:
         self.tmp_path = tmp_path
         self.subject = scheduled_unit(split)
+        self.declared = declared or split != REST_SPLIT
         self.held: dict[str, str] = {} if held is None else held
         self.inst, self.store, stored = written_change(
             tmp_path,
             split,
-            tests=DECLARED if declared or split != REST_SPLIT else None,
+            tests=DECLARED if self.declared else None,
             **(limits or {}),
         )
         self.root = tmp_path / "trees"
@@ -135,6 +136,7 @@ class ScheduledRun:
             subject=self.subject,
             dev_stack=dev_stack,
             held=self.held.keys(),
+            splits=KIT_SPLITS if self.declared else (Tier2Split(name=REST_SPLIT),),
         )
         self.recorder = Recorder(self.store)
         if feedback:

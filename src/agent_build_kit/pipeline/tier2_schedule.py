@@ -64,6 +64,15 @@ def scheduled_parts(name: str, repo: str, splits: Iterable[str]) -> tuple[date, 
     return (day, split) if split in set(splits) else None
 
 
+def scheduled_split(name: str, repo: str) -> str:
+    """The split a scheduled change of `repo` runs, read from its name (`rest` when the name
+    carries none, or `base`)."""
+    tail = name.removeprefix(f"{PREFIX}-{repo}-")
+    found = _TAIL.fullmatch(tail)
+    split = found["split"] if found else None
+    return REST_SPLIT if split in (None, BASE_GROUP) else split
+
+
 def write_due(
     inst: Installation, store: UnitStore, *, today: date, say: Callable[[str], None]
 ) -> list[str]:
