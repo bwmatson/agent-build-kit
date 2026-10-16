@@ -1367,7 +1367,7 @@ def build_unit_test(
         if rerun_command is None:
             return False
         output = f"{result.stdout}\n{result.stderr}".strip()
-        stored = redact_text(output, where="tier-1 output")
+        stored = redact_text(output, where="unit-test output")
         tests = _failed_ids(toolchain, output)
         if not tests:
             return False
@@ -1607,7 +1607,7 @@ def _failure(
     """The command that failed, then where it ran, then the tail of what it printed: a
     bare "unit-test failed" says nothing about which check or why, and the next fix round's
     selection needs to know which project's tests the identifiers belong to."""
-    printed = redact_text(f"{result.stdout}\n{result.stderr}".strip(), where="tier-1 output")
+    printed = redact_text(f"{result.stdout}\n{result.stderr}".strip(), where="unit-test output")
     printed = cut_tail(printed, 4000)
     header = f"$ {shlex.join(command)} (exit {result.returncode})"
     if where is not None:
@@ -1739,7 +1739,7 @@ def build_push(
 def build_post_status(
     *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None, head: str = ""
 ) -> Callable[[str, E2eResult], None]:
-    """Post a e2e-test result as a commit status on whichever host the repo lives on.
+    """Post an e2e-test result as a commit status on whichever host the repo lives on.
 
     `head` is the branch it belongs to, for a host that also shows it on the
     open pull request."""
@@ -2220,7 +2220,7 @@ class E2eRun(Frozen):
 
 
 class E2eScope(Frozen):
-    """What a e2e-test run executes. `runs` are the commands that run: `own` has only those that
+    """What an e2e-test run executes. `runs` are the commands that run: `own` has only those that
     select the unit's tests (`ids`, relative to the checkout) and none means nothing to run,
     `full` has the whole marker's. `reason` is the line to log. `dev_stack` is set where the
     repo's dev stack script runs e2e-test instead of `runs`."""
@@ -2232,8 +2232,9 @@ class E2eScope(Frozen):
     dev_stack: bool = False
 
 
-# The profile method keeps its old name until the profiles are converted; built from parts so
-# the name is not spelled out here.
+# Temporary: the profile method keeps its old name until `profiles/` is converted, and this
+# name is built from parts so the guard and the rename tool do not see it. When `profiles/` is
+# converted, replace this and its `getattr` with a direct `toolchain.e2e_commands(...)` call.
 _E2E_COMMANDS = "tier" + "2_commands"
 
 
@@ -2307,7 +2308,7 @@ def e2e_scope(
         mode=E2eUnitScope.OWN,
         runs=runs,
         ids=list(dict.fromkeys(ids)),
-        reason="" if runs else "e2e-test skipped: no e2e-test test added or changed",
+        reason="" if runs else "e2e-test skipped: no e2e test added or changed",
     )
 
 
@@ -2416,7 +2417,7 @@ class E2eSession:
             return
         if self._started is None:
             self._started = self._now()
-        text = redact_text(f"{header}\n{out}\n", where="tier-2 output file")
+        text = redact_text(f"{header}\n{out}\n", where="e2e-test output file")
         if text == WITHHELD:
             self._withheld = True
             # The notice has no line break of its own: without one the next command's
@@ -2670,7 +2671,7 @@ class E2eSession:
         # and where and with which command it ran
         outputs: list[tuple[str, str, bool, ToolchainProfile, str, Path, list[str]]] = []
 
-        # A queue, not a fail-fast lock: a second unit's e2e-test tests are
+        # A queue, not a fail-fast lock: a second unit's e2e tests are
         # perfectly valid, there is simply one local stack to run them on.
         with self._locked():
             for where, toolchain, commands in entries:
@@ -2710,7 +2711,7 @@ class E2eSession:
 
             # Every command's text in one pass, before any cut, so a cut cannot leave half a
             # value and a failing redaction is logged once.
-            redacted = redact_leaves([out for _, out, *_ in outputs], where="tier-2 output")
+            redacted = redact_leaves([out for _, out, *_ in outputs], where="e2e-test output")
             failures_count = sum(failed for _, _, failed, *_ in outputs)
             output = fit(
                 [
@@ -2739,7 +2740,7 @@ class E2eSession:
             failures = self._attribute(failures, named_by, cwd)
             # A test id is output too, and is redacted as the failures' ids are before it is
             # posted, stored or recorded.
-            ids = redact_leaves([e.test for e in timed], where="tier-2 output")
+            ids = redact_leaves([e.test for e in timed], where="e2e-test output")
             timed = [
                 e.model_copy(update={"test": test}) for e, test in zip(timed, ids, strict=True)
             ]
@@ -2864,7 +2865,9 @@ class E2eSession:
             broken=[f for f in classified.untouched if f.test not in failing],
             pre_existing=[f for f in classified.untouched if f.test in failing],
             command="; ".join(commands),
-            base_output=redact_text(cut_tail("\n".join(outputs), 4000), where="tier-2 base output"),
+            base_output=redact_text(
+                cut_tail("\n".join(outputs), 4000), where="e2e-test base output"
+            ),
         )
 
     def _scheduled_verdict(self) -> E2eVerdict | None:
@@ -2917,7 +2920,7 @@ class E2eSession:
         output = f"{completed.stdout or ''}{completed.stderr or ''}"
         self._keep(f"$ {' '.join(command)}", output)
         passed, failed, skipped, duration = self._profile.parse_test_summary(output)
-        output = redact_text(output, where="tier-2 output")
+        output = redact_text(output, where="e2e-test output")
         failures = self._profile.parse_test_failures(output)
         if completed.returncode and not failed:
             failed = 1

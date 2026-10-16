@@ -279,7 +279,7 @@ def test_a_failed_redaction_logs_one_line_for_a_tier_two_of_several_commands(
     with known(broken=True):
         session.run(cwd=tmp_path)
 
-    _assert_one_failure_line(caplog, "tier-2 output")
+    _assert_one_failure_line(caplog, "e2e-test output")
 
 
 def test_a_failed_redaction_withholds_every_text_field_of_a_span(
@@ -388,4 +388,4 @@ def test_a_failed_redaction_leaves_the_tier_two_counts_and_verdict(
     # The command's own header stays; what it printed is withheld.
     assert session.result.output.endswith(f"\n{NOTICE}")
     assert SECRET not in session.result.output
-    _assert_one_failure_line(caplog, "tier-2 output")
+    _assert_one_failure_line(caplog, "e2e-test output")

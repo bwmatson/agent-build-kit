@@ -18,7 +18,7 @@ from tests.graph.test_build_path import build
 from tests.graph.test_remaining_paths import fresh
 from tests.tier2_scope_fakes import NEW, OLD, Ran, branch, session
 
-SKIPPED = "e2e-test skipped: no e2e-test test added or changed"
+SKIPPED = "e2e-test skipped: no e2e test added or changed"
 
 
 def changes_no_test(tmp_path: Path) -> tuple[Path, str]:

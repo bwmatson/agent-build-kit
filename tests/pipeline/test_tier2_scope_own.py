@@ -149,7 +149,7 @@ def test_a_unit_that_changes_no_test_is_own_with_nothing_to_run(tmp_path: Path) 
 
     assert scope.mode is Tier2UnitScope.OWN
     assert scope.ids == []
-    assert "no e2e-test test added or changed" in scope.reason
+    assert "no e2e test added or changed" in scope.reason
 
 
 def test_the_step_asks_the_scope_function_before_the_lock_and_obeys_its_answer(
@@ -230,4 +230,4 @@ def test_a_changed_test_outside_every_member_runs_nothing_and_skips_the_lock(
 
     assert ok
     assert ran.calls == []
-    assert "e2e-test skipped: no e2e-test test added or changed" in log
+    assert "e2e-test skipped: no e2e test added or changed" in log
