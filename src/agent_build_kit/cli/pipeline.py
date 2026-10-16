@@ -93,6 +93,7 @@ from agent_build_kit.pipeline.events import (
 )
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.flakes import flake_record
+from agent_build_kit.pipeline.gate_holds import evaluate_gates
 from agent_build_kit.pipeline.joins import JoinContext
 from agent_build_kit.pipeline.label_sweep import sweep_finished
 from agent_build_kit.pipeline.labels import StateLabels
@@ -1145,6 +1146,16 @@ def _step(name: str, step: Callable[..., object], *args, **kwargs) -> None:
         log(f"{name} failed — {type(error).__name__}: {error}")
 
 
+def _evaluate_gates(inst: Installation, *, dry_run: bool) -> None:
+    """Hold or release each gated split by its gate; a dry run says what it would do."""
+    for action in evaluate_gates(inst, now=spans.clock.now(), dry_run=dry_run):
+        if dry_run:
+            verb = "would lift" if action.action == "lift" else "would hold"
+            log(f"{verb}: {action.split} — {action.reason}")
+        else:
+            log(f"gate {action.action}: {action.split} — {action.reason}")
+
+
 def _bound_logs(inst: Installation) -> None:
     """Keep the decision log and the unit run logs within `retention`."""
     retention = inst.config.retention
@@ -1408,6 +1419,8 @@ def run_round(
         started = readmit.started
     spared = {*building, *started}
     _step("bounding the logs", _bound_logs, inst)
+    # Before planning and before any tier 2 selection reads the held set.
+    _step("evaluating split gates", _evaluate_gates, inst, dry_run=dry_run)
     if not dry_run:
         # No model call, so ahead of the usage guard: planning it is what the guard holds back.
         _step(
