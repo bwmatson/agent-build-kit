@@ -886,15 +886,8 @@ def in_progress_label(unit: Unit) -> str:
 def start_room(graph: Sequence[Unit], limit: int, project: ProjectKey | None = None) -> int:
     """How many never-started units may begin before `limit` is reached, in `project` (every
     unit counts when none is given)."""
-    return max(
-        0,
-        limit
-        - sum(
-            1
-            for unit in graph
-            if in_progress(unit, graph) and (project is None or project_key(unit) == project)
-        ),
-    )
+    counts = project_counts(graph)
+    return max(0, limit - (sum(counts.values()) if project is None else counts.get(project, 0)))
 
 
 def _start_rank(unit: Unit) -> int:
@@ -950,13 +943,15 @@ def ready_units(
     is not ready while that predecessor is still being built, failed or held. The
     depth cap then holds back chains that have run too far ahead of review
     without touching their siblings, and the concurrency cap limits how many
-    units are being built at once.
+    units of one project are being built at once.
 
-    `max_units_in_progress` bounds the units started and not finished, across
-    all repos (`in_progress`). A unit that has never started begins only while
-    that leaves room, and no more of them than it does; one already in
-    progress (a rework, a resume, a unit finishing its review loop) always may,
-    since running it is how the queue drains.
+    `max_units_in_progress` bounds the units started and not finished in each
+    project (repo and project, `project_key`; `in_progress`), never in total. A
+    unit that has never started begins only while that leaves room in its own
+    project, and no more of them than it does; one already in progress (a
+    rework, a resume, a unit finishing its review loop) always may, since
+    running it is how the queue drains. A ready unit of a full project, or of
+    one with no free slot, is skipped and the next ready unit is considered.
 
     Free slots go to units with an open pull request, then to those resuming
     a build, then to new ones; within each, the most urgent effective priority

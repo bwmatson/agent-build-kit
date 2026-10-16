@@ -434,12 +434,12 @@ TEST_KIND_SETTINGS = ConfigDict(validate_by_name=True, serialize_by_alias=True)
 class ProjectLimitsConfig(Frozen):
     """The scheduling settings (`project_limits`), configured once at the root for every project."""
 
-    # How many units are implemented at once, across all repos.
+    # How many units are implemented at once in one project (a repo's project).
     max_concurrent_stacks: int = 4
     # How many restacks (moving a unit's branch onto a changed base) run at once, across
     # all repos, in a lane apart from the build workers: a restack takes no build slot.
     max_concurrent_restacks: Annotated[int, Field(ge=1)] = 2
-    # How many units may be started and not finished at once, across all repos.
+    # How many units may be started and not finished at once in one project (a repo's project).
     # At it no unit that has never started does; what drains the queue
     # (finishing, rework, resuming, a further review round) still runs.
     max_units_in_progress: Annotated[int, Field(ge=1)] = 5

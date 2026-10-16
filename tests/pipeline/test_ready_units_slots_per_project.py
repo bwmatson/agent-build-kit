@@ -48,6 +48,12 @@ def test_a_project_with_busy_slots_starts_none_and_another_starts_its_free_ones(
     assert sorted(started_ids(graph, slots=4)) == ["p0/1", "p1/1", "p2/1"]
 
 
+def test_a_project_with_two_building_and_three_ready_on_four_slots_starts_two() -> None:
+    graph = [*building("b", "web", 2), *ready("r", "web", 3)]
+
+    assert len(started_ids(graph, slots=4)) == 2
+
+
 def test_a_blocked_units_place_goes_to_a_ready_unit_of_its_own_project() -> None:
     graph = [
         blocked_web_unit(),
