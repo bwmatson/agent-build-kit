@@ -23,13 +23,16 @@ class AuthenticationError(Exception):
 
 
 class RequestedImports(importlib.abc.MetaPathFinder):
-    """Records every top-level name the import system is asked for, and finds none."""
+    """Records every top-level name the import system is asked for, and refuses the library."""
 
     def __init__(self) -> None:
         self.names: set[str] = set()
 
     def find_spec(self, fullname, path=None, target=None):  # noqa: ANN001, ANN201
-        self.names.add(fullname.partition(".")[0])
+        top = fullname.partition(".")[0]
+        self.names.add(top)
+        if top == "modal":
+            raise ModuleNotFoundError(fullname)
         return None
 
 

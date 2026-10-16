@@ -29,6 +29,10 @@ abk-policy-hook = "agent_build_kit.hooks.policy:main"
 acp = [
     "agent-client-protocol==0.12.1",
 ]
+modal = [
+    "agent-build-kit[acp]",
+    "modal>=1.5,<2",
+]
 telemetry = [
     "opentelemetry-sdk>=1.35",
     "opentelemetry-exporter-otlp-proto-http>=1.35",
@@ -42,7 +46,7 @@ dev = [
     "pytest>=8.0.0",
     "pytest-xdist>=3.6.0",
     "ruff>=0.16",
-    "agent-build-kit[acp,telemetry]",
+    "agent-build-kit[modal,telemetry]",
     "ag-ui-protocol>=1.0.0",
 ]
 

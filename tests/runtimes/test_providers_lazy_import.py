@@ -23,6 +23,8 @@ import agent_build_kit
 
 failed = {}
 for found in pkgutil.walk_packages(agent_build_kit.__path__, "agent_build_kit."):
+    if found.name.endswith(".__main__"):
+        continue
     try:
         importlib.import_module(found.name)
     except Exception as error:  # noqa: BLE001
@@ -40,6 +42,7 @@ class Finder:
     def find_spec(self, name, path=None, target=None):
         if name.partition(".")[0] == "modal":
             self.asked.append(name)
+            raise ModuleNotFoundError(name)
         return None
 
 
