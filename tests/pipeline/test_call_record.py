@@ -167,7 +167,7 @@ def test_a_resumed_calls_cost_is_derived_from_the_sessions_running_total(
 def test_a_gateways_figures_replace_the_agents_and_the_agents_are_kept_beside_them(
     workspace: Installation,
 ) -> None:
-    record = call_recorder("review", unit=UNIT, tier="tier1", round=2, say=print)
+    record = call_recorder("review", unit=UNIT, tier="unit-test", round=2, say=print)
 
     record(
         finished(
@@ -182,7 +182,7 @@ def test_a_gateways_figures_replace_the_agents_and_the_agents_are_kept_beside_th
     )
 
     (row,) = rows(workspace)
-    assert (row["unit"], row["node"], row["round"], row["tier"]) == (UNIT, "review", 2, "tier1")
+    assert (row["unit"], row["node"], row["round"], row["tier"]) == (UNIT, "review", 2, "unit-test")
     assert row["usage_source"] == "gateway"
     assert row["input_tokens"] == 1000
     assert row["output_tokens"] == 100

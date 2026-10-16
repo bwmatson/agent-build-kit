@@ -25,6 +25,7 @@ import re
 from collections.abc import Callable, Mapping, Sequence
 
 from agent_build_kit import runtimes
+from agent_build_kit.compat_names import Place, new_spelling
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.call_record import recorded
@@ -42,7 +43,7 @@ from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.work_graph import (
     GROUP_HEADING,
     GROUP_NUMBER,
-    TIERS,
+    TEST_KIND_TAGS,
     TaskGroup,
     known_repos,
     split_repo_tag,
@@ -143,10 +144,10 @@ def parse_plan(
                     f"unit {raw['id']} has unknown repo {raw['repo']!r} "
                     f"(expected one of {', '.join(repos)})"
                 )
-            if raw["tier"] not in TIERS:
+            if new_spelling(Place.VALUE, str(raw["tier"])) not in TEST_KIND_TAGS:
                 raise PlannerError(
                     f"unit {raw['id']} has unknown tier {raw['tier']!r} "
-                    f"(expected one of {', '.join(TIERS)})"
+                    f"(expected one of {', '.join(TEST_KIND_TAGS)})"
                 )
             if raw["id"] in seen:
                 raise PlannerError(f"duplicate unit id {raw['id']!r}")
@@ -497,9 +498,9 @@ PROMPT = """\
 You are planning units of work for a spec-driven pipeline. Return JSON only.
 
 A **unit** is one PR's worth of work in exactly ONE repo. Repos: {repos}.
-Tiers: {tiers} (tier2 needs the live local stack and is serialized). A group tagged
-`[unit-test]` (or the old `[tier1]`) is tier `tier1`; one tagged `[e2e-test]` (or the old
-`[tier2]`) is tier `tier2`, and a unit's tier is the tier of its groups.
+Tiers: {tiers} (e2e-test needs the live local stack and is serialized). A group tagged
+`[unit-test]` (or the old `[tier1]`) is tier `unit-test`; one tagged `[e2e-test]` (or the old
+`[tier2]`) is tier `e2e-test`, and a unit's tier is the tier of its groups.
 
 Rules the graph must satisfy:
 - A unit never spans repos. Every task group heading carries its own repo
@@ -589,7 +590,7 @@ stays under that ceiling.
 
 Respond with exactly this shape and nothing else (`joins` may be empty):
 {{"units": [{{"id": "<change>/<n>", "change": "...", "title": "...",
-  "repo": "...", "tier": "tier1|tier2", "depends_on": ["<unit id>"],
+  "repo": "...", "tier": "unit-test|e2e-test", "depends_on": ["<unit id>"],
   "estimated_lines": 0, "groups": [1]}}],
   "joins": [{{"onto": "<unit id>", "change": "<the change above>",
   "groups": [1], "estimated_lines": 0}}, {{"onto": "<unit id>", "unit": "<unit id>"}}]}}
@@ -775,7 +776,7 @@ def build_prompt(
     return PROMPT.format(
         repos=", ".join(repos) or "(none configured)",
         example_repo=repos[0] if repos else "repo",
-        tiers=", ".join(TIERS),
+        tiers=", ".join(TEST_KIND_TAGS),
         min_lines=workspace.global_limits.min_unit_lines,
         max_lines=workspace.global_limits.max_unit_lines,
         relationships=relationships.strip() or "(independent)",

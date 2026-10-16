@@ -114,8 +114,8 @@ def test_config_show_prints_the_values_set(tmp_path: Path, capsys: pytest.Captur
     assert main(["--config", str(path), "config", "--show"]) == 0
 
     shown = yaml.safe_load(capsys.readouterr().out)
-    assert shown["global_limits"]["tier2_schedule"] == "monthly"
-    assert shown["repos"]["app"]["tests"]["tier2_schedule"] == "daily"
+    assert shown["global_limits"]["e2e_schedule"] == "monthly"
+    assert shown["repos"]["app"]["tests"]["e2e_schedule"] == "daily"
 
 
 def test_config_show_prints_the_default_when_nothing_is_set(
@@ -132,4 +132,4 @@ def test_config_show_prints_the_default_when_nothing_is_set(
 
     assert main(["--config", str(path), "config", "--show"]) == 0
 
-    assert yaml.safe_load(capsys.readouterr().out)["global_limits"]["tier2_schedule"] == "weekly"
+    assert yaml.safe_load(capsys.readouterr().out)["global_limits"]["e2e_schedule"] == "weekly"

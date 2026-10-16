@@ -33,6 +33,7 @@ from agent_build_kit.graph.state import (
     Verdict,
 )
 from agent_build_kit.installation import Installation, changes_dir_under
+from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline import environment, spans, spec_snapshot
 from agent_build_kit.pipeline.call_record import call_recorder
 from agent_build_kit.pipeline.changelog_convention import changelog_note
@@ -987,7 +988,7 @@ class BuildPath:
             # work on the branch to rework; before that the build starts, tests first.
             **self.standing(existing, feedback or (saved.guidance if existing else "")),
             "start": start,
-            "tier2": unit.tier == "tier2",
+            "tier2": unit.tier == TestTier.E2E_TEST,
         }
 
     def standing(self, existing: int, feedback: str) -> Update:
@@ -1995,7 +1996,7 @@ class BuildPath:
         sha = r.head(tree)
         # After the push, never before: a status for a commit the host has not
         # seen is rejected.
-        if unit.tier == "tier2":
+        if unit.tier == TestTier.E2E_TEST:
             r.post_status(sha, True)
         # What the host did not take stays owed, for the next pass to post.
         unposted = tuple(

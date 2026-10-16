@@ -94,5 +94,5 @@ def test_config_show_prints_the_values_set(tmp_path: Path, capsys: pytest.Captur
     assert main(["--config", str(path), "config", "--show"]) == 0
 
     shown = yaml.safe_load(capsys.readouterr().out)
-    assert shown["global_limits"]["tier2_unit_scope"] == "full"
-    assert shown["repos"]["app"]["tests"]["tier2_unit_scope"] == "own"
+    assert shown["global_limits"]["e2e_unit_scope"] == "full"
+    assert shown["repos"]["app"]["tests"]["e2e_unit_scope"] == "own"

@@ -26,7 +26,7 @@ from agent_build_kit.pipeline import tier2
 from tests.conftest import make_installation
 from tests.tier2_lock_fakes import SleepingTime, held, install_clock
 
-SETTING = "global_limits.tier2_lock_wait_seconds"
+SETTING = "global_limits.e2e_lock_wait_seconds"
 
 
 @pytest.fixture
@@ -36,7 +36,7 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> SleepingTime:
 
 def write_yaml(tmp_path: Path, value: str) -> Path:
     path = tmp_path / "abk.yaml"
-    path.write_text(f"global_limits:\n  tier2_lock_wait_seconds: {value}\n")
+    path.write_text(f"global_limits:\n  e2e_lock_wait_seconds: {value}\n")
     return path
 
 
@@ -110,13 +110,13 @@ def test_config_show_lists_the_wait_with_its_default_and_a_configured_value(
     path.write_text(dump(WorkspaceConfig(repos=repos)))
 
     main(["--config", str(path), "config", "--show"])
-    default = yaml.safe_load(capsys.readouterr().out)["global_limits"]["tier2_lock_wait_seconds"]
+    default = yaml.safe_load(capsys.readouterr().out)["global_limits"]["e2e_lock_wait_seconds"]
 
     configured = WorkspaceConfig(
         repos=repos, global_limits=LimitsConfig(tier2_lock_wait_seconds=120)
     )
     path.write_text(dump(configured))
     main(["--config", str(path), "config", "--show"])
-    shown = yaml.safe_load(capsys.readouterr().out)["global_limits"]["tier2_lock_wait_seconds"]
+    shown = yaml.safe_load(capsys.readouterr().out)["global_limits"]["e2e_lock_wait_seconds"]
 
     assert (default, shown) == (5400, 120)

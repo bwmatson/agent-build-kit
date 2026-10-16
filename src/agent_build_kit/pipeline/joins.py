@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from agent_build_kit.compat_names import Place, new_spelling
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.unit_size import (
     Calibration,
@@ -121,7 +120,7 @@ def check_joins(
                     raise refuse(f"group {number} is not in {change}'s tasks.md")
                 if number in built or number in claimed:
                     raise refuse(f"group {number} is already built or claimed by a unit")
-                if (group.repo, group.tier) != (onto.repo, new_spelling(Place.VALUE, onto.tier)):
+                if (group.repo, group.tier) != (onto.repo, onto.tier):
                     raise refuse(f"group {number} is tagged [{group.repo}] [{group.tier}]")
                 if group.project != onto.project:
                     raise refuse(

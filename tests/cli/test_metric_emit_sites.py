@@ -141,7 +141,7 @@ def test_a_units_duration_goes_through_the_helper(
 
     ((instrument, _, value, unit, change, attributes),) = named(emitted, "abk.unit.duration")
     assert (instrument, unit, change) == ("duration", UNIT, "add-marker")
-    assert attributes == {"repo": "app", "tier": "tier1", "outcome": "open"}
+    assert attributes == {"repo": "app", "tier": "unit-test", "outcome": "open"}
     assert value >= 0
 
 

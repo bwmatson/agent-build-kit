@@ -856,7 +856,7 @@ tier-2 lock, since both use the one live stack:
   `ssh-agent` holding `deploy.ssh_key` when `needs_ssh_agent` is set, for
   image builds that fetch a dependency over SSH;
 - **live tests as the consumer**: the `tests/integration/` files among the
-  changed paths, selected by `tests.tier2_marker` and excluding
+  changed paths, selected by `tests.e2e_marker` and excluding
   `tests.dev_stack_marker`, run per member with the process environment plus
   `verify.env` (each value resolved by its provider now) plus the repo's own
   credentials (`deploy.credentials`: names from a shell array in its dev-stack

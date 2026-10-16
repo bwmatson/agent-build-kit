@@ -32,7 +32,7 @@ def test_a_node_says_what_the_unit_is() -> None:
 
     assert "add-marker/1" in diagram
     assert "Register the marker" in diagram
-    assert "tier2" in diagram
+    assert "e2e-test" in diagram
 
 
 def test_node_ids_are_safe_for_mermaid() -> None:

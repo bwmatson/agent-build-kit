@@ -220,8 +220,8 @@ def test_the_estimate_ratio_is_actual_over_estimated_lines_per_kind(tmp_path: Pa
 
     found = {e.kind: (e.ratio, e.units) for e in report.estimates}
     assert found == {
-        "app tier1": (pytest.approx(2.0), 2),
-        "platform tier2": (pytest.approx(0.8), 1),
+        "app unit-test": (pytest.approx(2.0), 2),
+        "platform e2e-test": (pytest.approx(0.8), 1),
     }
 
 
@@ -235,7 +235,7 @@ def test_the_table_prints_the_estimate_ratio_per_kind(tmp_path: Path) -> None:
 
     table = render_waits(report)
 
-    assert "app tier1" in table
+    assert "app unit-test" in table
     assert "2.0" in table
 
 

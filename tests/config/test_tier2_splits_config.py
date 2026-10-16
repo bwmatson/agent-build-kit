@@ -59,7 +59,7 @@ def test_config_show_prints_both_splits(tmp_path: Path, capsys: pytest.CaptureFi
 
     shown = yaml.safe_load(capsys.readouterr().out)
     # `--show` prints defaults too, so each entry carries its unset `hold` and `gate`.
-    assert shown["tests"]["tier2_splits"] == {
+    assert shown["tests"]["e2e_splits"] == {
         name: {**entry, "hold": None, "gate": None} for name, entry in TWO.items()
     }
     assert names(config(TWO)) == ["claude_code", "acp", "rest"]
@@ -85,9 +85,9 @@ def test_a_bad_split_is_refused_naming_the_setting_and_the_value(
     with pytest.raises(ValidationError) as refused_own:
         config(own=splits)
 
-    assert "tests.tier2_splits" in str(refused.value)
+    assert "tests.e2e_splits" in str(refused.value)
     assert value in str(refused.value)
-    assert "repos.app.tests.tier2_splits" in str(refused_own.value)
+    assert "repos.app.tests.e2e_splits" in str(refused_own.value)
 
 
 def test_an_unknown_key_is_refused_though_the_split_without_it_loads() -> None:

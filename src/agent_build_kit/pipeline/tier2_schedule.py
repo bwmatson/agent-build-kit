@@ -70,7 +70,7 @@ def write_due(
     """Write the change of every due repo and split with none open, under the lock file:
     say `wrote: <change>`, or `exists: <change>` for a split whose change is open. Returns
     the names written."""
-    tier2_repos = {unit.repo for unit in store.all() if unit.tier == "tier2"}
+    tier2_repos = {unit.repo for unit in store.all() if unit.tier == TestTier.E2E_TEST}
     written: list[str] = []
     with file_lock(inst.state_dir / "scheduled-tier2.lock"):
         for repo, config in inst.repos.items():

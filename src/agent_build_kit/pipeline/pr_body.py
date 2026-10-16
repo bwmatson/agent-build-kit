@@ -28,6 +28,7 @@ from agent_build_kit.budget import Section, cut_head, cut_tail, fit
 from agent_build_kit.config import active
 from agent_build_kit.forges.base import fit_description
 from agent_build_kit.installation import changes_dir_under
+from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline.unit_store import Description, StoredUnit
 from agent_build_kit.pipeline.units import MERGED, Member, through_satisfied, trunk_of
 from agent_build_kit.pipeline.work_graph import TaskGroup, validate_tasks
@@ -385,7 +386,7 @@ def build_pr_body(
     why_ceiling: int = 600,
 ) -> str:
     """The full description for a unit's PR."""
-    if unit.tier == "tier2":
+    if unit.tier == TestTier.E2E_TEST:
         verification = (
             tier2_snapshot
             or "## Tier 2 results\n\n_Not recorded — this PR should not have been pushed._"

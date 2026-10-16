@@ -35,7 +35,6 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 from agent_build_kit import claude_account, config, forges, profiles, runtimes, telemetry
 from agent_build_kit.budget import cut_head
-from agent_build_kit.compat_names import Place, new_spelling
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun
@@ -2583,7 +2582,7 @@ def _tag_problems(store: UnitStore, change: str, groups: Sequence[TaskGroup]) ->
                 continue
             for number in member.groups:
                 if group := by_number.get(number):
-                    stored_tier = new_spelling(Place.VALUE, u.tier)
+                    stored_tier = str(u.tier)
                     checks += [
                         (f"its group {number}", "repo", u.repo, group.repo),
                         (f"its group {number}", "project", u.project, group.project),

@@ -161,7 +161,7 @@ def test_a_unit_reviewed_twice_is_traced_from_the_tick_to_each_agent_call(
     assert run.attributes["unit.id"] == UNIT
     assert run.attributes["change"] == "add-marker"
     assert run.attributes["repo"] == "app"
-    assert run.attributes["tier"] == "tier1"
+    assert run.attributes["tier"] == "unit-test"
     assert run.attributes["outcome"] == "open"
 
     in_run = steps(spans)
@@ -411,7 +411,7 @@ def test_a_unit_built_reviewed_twice_and_pushed_records_the_tables_instruments(
     assert attributes("abk.tick.duration") == [{"outcome"}]
     assert attributes("abk.unit.duration") == [{"repo", "tier", "outcome"}]
     unit_duration = exported.metric("abk.unit.duration")[0]
-    assert unit_duration.attributes == {"repo": "app", "tier": "tier1", "outcome": "open"}
+    assert unit_duration.attributes == {"repo": "app", "tier": "unit-test", "outcome": "open"}
 
     step_duration = exported.metric("abk.step.duration")
     assert {set(point.attributes) == {"step", "outcome"} for point in step_duration} == {True}

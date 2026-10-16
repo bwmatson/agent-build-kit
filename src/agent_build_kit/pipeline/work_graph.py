@@ -26,9 +26,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Protocol
 
-from pydantic import field_validator
-
-from agent_build_kit.compat_names import Place, is_old_spelling, new_spelling, notice
+from agent_build_kit.compat_names import Place, TestKind, is_old_spelling, new_spelling, notice
 from agent_build_kit.config import RepoConfig, active
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.units import Priority, reachable
@@ -74,11 +72,9 @@ def repo_tag(repo: str, project_path: str) -> str:
     return f"[{repo}]" if path == "." else f"[{repo}/{path}]"
 
 
-# tier1 runs on GitHub Actions; tier2 needs the live local stack on this host
-# and is serialized behind one lock (docs/architecture.md). The names a unit still stores.
-TIERS = ("tier1", "tier2")
-
 # The tags a group heading is read with: the new spellings and, with a notice, the old ones.
+# A unit-test runs on the code host's checks; an e2e-test needs the live local stack on this host
+# and is serialized behind one lock (docs/architecture.md).
 TEST_KIND_TAGS = tuple(member.value for member in TestTier)
 
 # An optional third tag, for the one case a group cannot be checked without it.
@@ -193,7 +189,7 @@ class TaskGroup(Frozen):
 
     number: int
     repo: str
-    tier: TestTier
+    tier: TestKind
     title: str
     line: int
     task_count: int
@@ -211,11 +207,6 @@ class TaskGroup(Frozen):
     priority: int = Priority.NORMAL
     # The "Done when" sentence under the heading, "" when the group has none.
     goal: str = ""
-
-    @field_validator("tier", mode="before")
-    @classmethod
-    def _read_old_spelling(cls, value: object) -> object:
-        return new_spelling(Place.VALUE, value) if isinstance(value, str) else value
 
     @property
     def tag(self) -> str:

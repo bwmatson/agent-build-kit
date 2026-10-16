@@ -118,7 +118,7 @@ def test_a_units_outcome_appends_a_record_with_its_repo_tier_and_outcome(
     ticks.tick()
 
     (outcome,) = records(ticks, "abk.unit.duration")
-    assert outcome.attributes == {"repo": "app", "tier": "tier1", "outcome": "open"}
+    assert outcome.attributes == {"repo": "app", "tier": "unit-test", "outcome": "open"}
     assert (outcome.unit, outcome.change) == (UNIT, "add-marker")
     assert outcome.value >= 0
 
