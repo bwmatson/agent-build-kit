@@ -159,6 +159,7 @@ from agent_build_kit.pipeline.tier2 import (
     lock_status_line,
     stack_lock,
 )
+from agent_build_kit.pipeline.tier2_holds import current_holds, hold_text
 from agent_build_kit.pipeline.transcript import remove_change_transcripts, transcript_dir
 from agent_build_kit.pipeline.ui_review import (
     ui_notes_of,
@@ -258,7 +259,7 @@ from agent_build_kit.pipeline.usage_guard import (
     threshold_at,
 )
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
-from agent_build_kit.pipeline.verify import Verification, VerifyRecord, verify_change
+from agent_build_kit.pipeline.verify import SplitHeld, Verification, VerifyRecord, verify_change
 from agent_build_kit.pipeline.vocabulary import (
     WaitReason,
     effective_state,
@@ -638,6 +639,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     for line in _restack_lines(inst, units):
         log(line)
     for line in [
+        *_split_wait_lines(inst, units),
         *_blocked_lines(units),
         *_failed_waiting_lines(units),
         *_second_parent_lines(units),
@@ -885,6 +887,10 @@ def verify_ready(
             log(f"verifying {change} skipped — the live stack is in use; tried again next round")
             skipped.add(change)
             continue
+        except SplitHeld as held:
+            log(f"verifying {change} skipped — {held}; tried again next round")
+            skipped.add(change)
+            continue
         except Exception as error:  # noqa: BLE001 — recorded, never silently skipped
             outcome = Verification(
                 change=change, passed=False, detail=f"{type(error).__name__}: {error}", units=merged
@@ -922,7 +928,11 @@ def cmd_verify(args: argparse.Namespace, inst: Installation) -> int:
     """Verify one change by hand — after fixing what made it fail — and
     archive it if it passes: the tick sees no work once everything merged."""
     units = store_for(inst).all()
-    outcome = verify_one(inst, args.change, units)
+    try:
+        outcome = verify_one(inst, args.change, units)
+    except SplitHeld as held:
+        print(f"{args.change}: verification skipped — {held}")
+        return 1
     VerifyRecord(inst.state_dir / "verified.json").put(outcome)
     if not outcome.passed:
         print(f"{args.change}: verification failed\n{outcome.detail}")
@@ -983,6 +993,7 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     # A dry run says what the recorded failures' fix changes are even when nothing is pending.
     if args.dry_run:
         _preview_fixes(inst)
+        _preview_split_releases(inst, store_for(inst))
     if not has_work(inst, store_for(inst)):
         return 0
 
@@ -1072,6 +1083,7 @@ def _tick_with(
         submit=True,
         refused_needs=readmission.refused,
         lane=lane,
+        dry_run=args.dry_run,
     )
     if not ready:
         held = is_paused(_paused_marker(inst))
@@ -1368,6 +1380,7 @@ def run_round(
     quiet: bool = False,
     refused_needs: set[tuple[str, str]] | None = None,
     lane: RestackLane | None = None,
+    dry_run: bool = False,
 ) -> list[Unit]:
     """One round: everything a tick does before it starts builds, safe to repeat
     beside builds in flight. Returns the units to start when `submit`.
@@ -1380,7 +1393,8 @@ def run_round(
     the reclaim and the readiness rules leave them alone; a `readmit` lets a
     sent-back unit out of what it started and carries that set itself, so
     pass one or the other; both raise `ValueError`.
-    `quiet` leaves out the guard's line saying why a build may start.
+    `quiet` leaves out the guard's line saying why a build may start; `dry_run` leaves the
+    parked units where they are.
     """
     if readmit is not None:
         if started:
@@ -1433,6 +1447,8 @@ def run_round(
     _step("following predecessors", park_dependents, inst, store)
     _step("gating sent-back units", gate_sent_back, store)
     _step("releasing gated units", release_gated, inst, store, in_flight=spared)
+    if not dry_run:
+        _step("releasing split-held units", release_split_held, inst, store, in_flight=spared)
     _step("reconciling notifications", _reconcile_notifications, inst, store)
     units = store.all()
 
@@ -1716,8 +1732,64 @@ def release_split_held(
     inst: Installation, store: UnitStore, *, in_flight: Collection[str] = ()
 ) -> None:
     """Deliver the resume a unit parked for held tier 2 splits was waiting for, once none of
-    the splits it waits on is held."""
-    raise NotImplementedError
+    the splits it waits on is held. Reads the state file and the configuration alone; a gate
+    is never asked. The delivery ends the park, so a unit is released once per hold."""
+    for unit in _releasable_split_units(inst, store.all(), in_flight):
+        try:
+            delivered = resume_thread(
+                inst,
+                unit,
+                "requeue",
+                store=store,
+                reason="resume",
+                requeue=RequeueReason.RESUME,
+            )
+        except BranchBusy:
+            continue
+        if delivered is None:
+            store.set_state(
+                unit.id,
+                PLANNED,
+                note="requeued: the held tier 2 splits are usable",
+                cause=Cause.REQUEUED,
+            )
+
+
+def _releasable_split_units(
+    inst: Installation, units: Sequence[StoredUnit], in_flight: Collection[str] = ()
+) -> list[StoredUnit]:
+    """The units parked for held tier 2 splits none of which is held now."""
+    held = current_holds(inst.config, inst.state_dir).held
+    return [
+        unit
+        for unit in units
+        if unit.state == PLANNED
+        and unit.cause is Cause.SPLIT_HELD
+        and unit.id not in in_flight
+        and not held.keys() & set(unit.parked_splits)
+    ]
+
+
+def _split_wait_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[str]:
+    """One line for each unit parked for a held tier 2 split: which, why and until when."""
+    held = current_holds(inst.config, inst.state_dir).held
+    lines = []
+    for unit in units:
+        if unit.state != PLANNED or unit.cause is not Cause.SPLIT_HELD:
+            continue
+        names = ", ".join(unit.parked_splits)
+        why = "; ".join(hold_text(held[name]) for name in unit.parked_splits if name in held)
+        lines.append(
+            f"  waiting for tier 2 split {names}: {unit.id} ({unit.repo})"
+            + (f" — {why}" if why else " — released, resumes this round")
+        )
+    return lines
+
+
+def _preview_split_releases(inst: Installation, store: UnitStore) -> None:
+    """A dry run's account of the parked units the next round would release."""
+    for unit in _releasable_split_units(inst, store.all()):
+        log(f"would release {unit.id} ({unit.repo}): the tier 2 splits it waits on are usable")
 
 
 def resumable_units(

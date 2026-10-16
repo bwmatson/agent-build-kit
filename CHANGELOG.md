@@ -133,7 +133,12 @@
   parked on the same splits. A split's `hold` can be set or removed in `abk.yaml` as text,
   at the top or in a repo's own splits, keeping every comment and other line; `rest` may
   have no entry yet, and the edit is written, after a backup, only when the file reloads to
-  the expected hold.
+  the expected hold. A tick resumes a unit parked on held splits once none of them is held
+  (from the state file and the configuration alone, once per hold); `abk status` lists it
+  as waiting for the split with the reason and deadline and counts it against no place,
+  and `abk tick --dry-run` says which it would release. Post-merge verification leaves
+  held splits out of its live tests, and is skipped for the round, with nothing deployed
+  or recorded, while a held split holds a live test among the change's files.
 
 - An `abk.local.yaml` beside `abk.yaml` is merged over it when the configuration loads, so
   facts about other repos and a stack can stay out of a public checkout: mappings merge key

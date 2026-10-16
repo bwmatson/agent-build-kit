@@ -53,7 +53,7 @@ def test_a_hold_with_no_deadline_says_so(
 def test_a_parked_unit_holds_no_place_against_the_unit_limit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    inst = installation(tmp_path, global_limits={"max_units_in_progress": 1})
+    inst = installation(tmp_path, project_limits={"max_units_in_progress": 1})
     store = store_of(inst)
     park(store)
     store.upsert([stored_unit("fresh/1", change="fresh")])
