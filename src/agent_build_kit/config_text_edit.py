@@ -84,6 +84,15 @@ def set_hold(path: Path, location: str | None, split: str, value: bool | None) -
         raise _refuse(path, f"the repo `{location}` is not in the file")
 
     splits_raw = _dig(raw, keys)
+    if location is not None and not isinstance(splits_raw, dict):
+        # A repo with no splits of its own follows the top-level ones; giving it a mapping
+        # holding one split would replace every split it inherits.
+        raise _refuse(
+            path,
+            f"the repo `{location}` has no `tests.{_SPLITS}` of its own and follows the "
+            f"top-level `tests.{_SPLITS}`; set the hold there, or declare the repo's own "
+            "splits first",
+        )
     declared = list(splits_raw) if isinstance(splits_raw, dict) else []
     if split != REST_SPLIT and split not in declared:
         where = ".".join(keys)
