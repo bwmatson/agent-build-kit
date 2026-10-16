@@ -385,6 +385,15 @@ class PolicyMarker(StrEnum):
     UNCHECKED = "unchecked"  # carried on without the check; doctor says so rather than probing
 
 
+class AccountConfig(Frozen):
+    """One Claude account by label (`runtimes.claude_code.accounts.<label>`), set per person."""
+
+    # The account's Claude Code config directory: an absolute path, never in the committed file.
+    config_dir: Path | None = None
+    limits: ClaudeLimitsConfig = ClaudeLimitsConfig()
+    max_units_in_progress: Annotated[int, Field(gt=0)] | None = None
+
+
 class RuntimeConfig(Frozen):
     """What one agent runtime needs from this installation (`runtimes.<name>`)."""
 
@@ -414,6 +423,8 @@ class RuntimeConfig(Frozen):
 
     # Claude's usage windows (`runtimes.claude_code` only): see ClaudeLimitsConfig.
     limits: ClaudeLimitsConfig = ClaudeLimitsConfig()
+    # The accounts a repo may name by label (`runtimes.claude_code` only).
+    accounts: dict[str, AccountConfig] = {}
 
 
 class ContextConfig(Frozen):
@@ -903,6 +914,8 @@ class RepoConfig(Frozen):
     # Empty for a repo on a host that names itself some other way.
     slug: str = ""
     default_branch: str = "main"
+    # The label of the Claude account this repo's units run on; see `runtimes.claude_code.accounts`.
+    account: str | None = None
     # The code host this repo lives on (forges/). Inferred by `abk init` from
     # the origin URL; set it here when the origin does not say.
     forge: str = "github"

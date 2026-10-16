@@ -17,7 +17,9 @@ from dotenv import dotenv_values
 from pydantic import AliasChoices
 
 from agent_build_kit import settings as settings_module
-from agent_build_kit.config import ConfigError
+from agent_build_kit.config import ClaudeLimitsConfig, ConfigError
+from agent_build_kit.installation import Installation
+from agent_build_kit.model import Frozen
 from agent_build_kit.settings import Settings, settings
 
 _ALIAS = Settings.model_fields["claude_home"].validation_alias
@@ -95,7 +97,7 @@ def _configured() -> Path | None:
     return path
 
 
-def home() -> Path:
+def home(account: Account | None = None) -> Path:
     return _configured() or _default()
 
 
@@ -103,26 +105,40 @@ def is_default() -> bool:
     return _configured() is None
 
 
-def environment_entry() -> dict[str, str]:
+def environment_entry(account: Account | None = None) -> dict[str, str]:
     """What a `claude` is started with to run in the account: its directory under Claude Code's
     own variable, or nothing for the default account."""
-    account = _configured()
-    return {VARIABLE: str(account)} if account else {}
+    configured = _configured()
+    return {VARIABLE: str(configured)} if configured else {}
 
 
-def credentials_path() -> Path:
+def credentials_path(account: Account | None = None) -> Path:
     return home() / ".credentials.json"
 
 
-def state_file() -> Path:
-    account = _configured()
-    return account / ".claude.json" if account else Path.home() / ".claude.json"
+def state_file(account: Account | None = None) -> Path:
+    configured = _configured()
+    return configured / ".claude.json" if configured else Path.home() / ".claude.json"
 
 
-def skills_dir() -> Path:
+def skills_dir(account: Account | None = None) -> Path:
     return home() / "skills"
 
 
-def account_key() -> str | None:
-    account = _configured()
-    return str(account) if account else None
+def account_key(account: Account | None = None) -> str | None:
+    configured = _configured()
+    return str(configured) if configured else None
+
+
+class Account(Frozen):
+    """A resolved account: the default one (no label, no directory) or a labelled one."""
+
+    label: str | None = None
+    config_dir: Path | None = None
+    limits: ClaudeLimitsConfig = ClaudeLimitsConfig()
+    slots: int | None = None
+
+
+def resolve(inst: Installation, label: str | None) -> Account:
+    """The account a repo's `account` label names on this machine."""
+    raise NotImplementedError
