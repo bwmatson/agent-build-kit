@@ -1712,6 +1712,14 @@ def release_gated(inst: Installation, store: UnitStore, *, in_flight: Collection
             )
 
 
+def release_split_held(
+    inst: Installation, store: UnitStore, *, in_flight: Collection[str] = ()
+) -> None:
+    """Deliver the resume a unit parked for held tier 2 splits was waiting for, once none of
+    the splits it waits on is held."""
+    raise NotImplementedError
+
+
 def resumable_units(
     inst: Installation,
     units: list[StoredUnit],
