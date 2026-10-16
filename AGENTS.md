@@ -2,10 +2,10 @@
 
 A framework: a spec-driven, unattended build pipeline that turns OpenSpec
 changes in a **planning repo** (which may itself be one of the code repos) into
-units of work, each one branch and one PR in one of the workspace's **code repos**, built test-first by Claude Code,
-reviewed, checked on two test tiers, verified live after merge, and archived.
-Plus the scheduled health/improve/recommend tracks. `abk` is the CLI; `abk
-init` sets an installation up.
+units of work, each one branch and one PR in one of the workspace's **code repos**,
+built test-first by Claude Code, reviewed, checked on two test tiers, verified live
+after merge, and archived. Plus the scheduled health/improve/recommend tracks. `abk`
+is the CLI; `abk init` sets an installation up.
 
 This repo is the framework only. Everything about a particular installation —
 which repos, who owns them, how they deploy, what their conventions are —

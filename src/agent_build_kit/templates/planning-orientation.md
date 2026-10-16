@@ -12,3 +12,8 @@ configuration live here beside the code, and the pipeline builds changes into it
 
 The specs and the state are written in this repository by the pipeline and by `abk`, so
 expect commits that touch only these paths.
+
+Write a change under `{prefix}{specs_dir}/changes/` in your working copy and commit it. A
+session does not edit the code to apply a change: the pipeline builds it. Ticks and tracks run
+in the pipeline worktree that `abk install-timers` makes; from the working copy the command is
+`abk --config <worktree>/abk.yaml tick`, and `abk status` prints it.

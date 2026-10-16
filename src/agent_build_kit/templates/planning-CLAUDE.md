@@ -1,7 +1,7 @@
 # Planning repo
 
 This repo holds the specs, the pipeline state and the run logs of an `abk`
-workspace that builds {repo_names}. It may also be one of those code repos.
+workspace that builds {repo_names}.
 
 What lives where:
 

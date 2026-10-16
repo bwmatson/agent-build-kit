@@ -57,10 +57,13 @@ Before a tick or track the pipeline worktree is synced to the tip of the default
 branch. A line `planning sync stopped: <reason>` means the sync could not move it
 and the run ended with exit 1; nothing was stashed or reset. The reason says what
 is in the way: `diverged` (commits made in the pipeline worktree that the default
-branch lacks), an unfinished merge, rebase, cherry-pick or revert, or a stray
-branch. To fix it, go into the pipeline worktree, finish or abandon what is
-unfinished, or move its own commits onto the default branch (or drop them), leave
-HEAD detached, and let the next tick sync again.
+branch lacks), an unfinished merge, rebase, cherry-pick or revert, a stray branch,
+a fetch from origin that failed, or a file in the pipeline worktree that differs
+from what the default branch brings (git says local changes would be overwritten).
+For that file, commit it to the default branch or remove it; to fix the others, go
+into the pipeline worktree, finish or abandon what is unfinished, or move its own
+commits onto the default branch (or drop them), leave HEAD detached, and let the
+next tick sync again.
 
 ## Where the state is
 

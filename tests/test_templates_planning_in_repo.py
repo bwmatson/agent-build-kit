@@ -40,3 +40,16 @@ def test_the_orientation_template_still_formats_with_repo_names() -> None:
     filled = flat(template.format(repo_names="app, platform"))
     assert "app, platform" in filled
     assert not SEPARATION.search(filled)
+
+
+def test_the_in_repo_orientation_says_how_to_work_in_a_working_copy() -> None:
+    template = (TEMPLATES / "planning-orientation.md").read_text()
+
+    assert placeholders(template) == {"prefix", "specs_dir", "state_dir", "graph_page"}
+    filled = flat(
+        template.format(prefix="", specs_dir="openspec", state_dir="runs", graph_page="g.md")
+    )
+    assert "pipeline worktree" in filled
+    assert "--config" in filled
+    assert "openspec/changes/" in filled
+    assert re.search(r"does not edit the code|not edit the code", filled)

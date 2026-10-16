@@ -38,8 +38,9 @@ def test_the_config_skill_lists_planning_publish() -> None:
 def test_the_pipeline_skill_says_what_a_stopped_sync_means_and_what_to_do() -> None:
     text = body("abk-pipeline")
 
-    assert re.search(r"planning sync stopped.{0,400}(diverged|means)", text)
-    assert re.search(r"planning sync stopped.{0,800}(to fix|what to do|resolve|reconcile)", text)
+    for reason in ("diverged", "unfinished", "fetch", "differs"):
+        assert re.search(rf"planning sync stopped.{{0,1200}}{reason}", text), reason
+    assert re.search(r"planning sync stopped.{0,1200}(to fix|what to do|resolve|reconcile)", text)
 
 
 def test_every_skills_version_is_raised() -> None:
