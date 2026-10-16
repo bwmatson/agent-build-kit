@@ -26,5 +26,5 @@ def test_a_scheduled_change_is_full_under_own_with_the_reason(tmp_path: Path) ->
     )
 
     assert scope.mode is Tier2UnitScope.FULL
-    assert scope.reason == "tier 2 runs whole: a scheduled run is the whole suite"
+    assert scope.reason == "e2e-test runs whole: a scheduled run is the whole suite"
     assert scope.runs

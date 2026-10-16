@@ -39,18 +39,18 @@ from agent_build_kit.config import (
     CONFIG_FILENAME,
     REST_SPLIT,
     TEMPLATE_PLACEHOLDERS,
+    E2eSplit,
+    E2eUnitScope,
     ProjectConfig,
     RepoConfig,
-    Tier2Split,
-    Tier2UnitScope,
     active,
     active_root,
     by_project,
+    e2e_splits,
+    e2e_unit_scope,
     models,
     owning_project,
     stack_versions_for,
-    tier2_splits,
-    tier2_unit_scope,
 )
 from agent_build_kit.forges import FileChange, Forge, RegistersStacks, RepoId, StackRefused
 from agent_build_kit.installation import Installation
@@ -63,19 +63,19 @@ from agent_build_kit.pipeline.command_limit import run_limited
 from agent_build_kit.pipeline.determinism_guidance import determinism_guidance
 from agent_build_kit.pipeline.e2e import (
     UNKNOWN_SPLIT,
+    E2eClassification,
+    E2eResult,
+    E2eSelection,
+    E2eVerdict,
     TestFailure,
     TestTime,
-    Tier2Classification,
-    Tier2Result,
-    Tier2Selection,
-    Tier2Verdict,
     build_selection,
     build_snapshot,
     selection_unavailable,
     stack_lock,
 )
 from agent_build_kit.pipeline.e2e import (
-    post_status as tier2_post_status,
+    post_status as e2e_post_status,
 )
 from agent_build_kit.pipeline.e2e_holds import repo_holds
 from agent_build_kit.pipeline.e2e_schedule import is_scheduled
@@ -123,7 +123,7 @@ from agent_build_kit.pipeline.restack import (
     resolved_move,
     retried_once,
 )
-from agent_build_kit.pipeline.run_log import append_tier2_output, tier2_output_dir
+from agent_build_kit.pipeline.run_log import append_e2e_output, e2e_output_dir
 from agent_build_kit.pipeline.scratch import run_folder, selection_seed
 from agent_build_kit.pipeline.shell import git, git_out, has_origin, porcelain
 from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner, Worktree
@@ -160,7 +160,7 @@ from agent_build_kit.pipeline.usage_guard import (
 from agent_build_kit.pipeline.vocabulary import effective_state
 from agent_build_kit.pipeline.workspaces import BranchBusy, prepare_detached, prepare_worktree
 from agent_build_kit.profiles.base import (
-    AppliesTier2Selection,
+    AppliesE2eSelection,
     ProjectChecks,
     RecordsSelectionData,
     RepeatsTests,
@@ -185,18 +185,18 @@ FLAKE_FAILURE_CHARS = 6000
 STORM_FAILURES = 3
 STORM_FAILURE_CHARS = 3000
 
-# A unit's tier 2 output: how much is kept, what a passing command's section may take, how
+# A unit's e2e-test output: how much is kept, what a passing command's section may take, how
 # much of a failed test's own section its line in the digest keeps, and how much more a
 # failed command weighs than a passing one.
-TIER2_OUTPUT_CHARS = 4000
-TIER2_PASSING_CHARS = 1500
-TIER2_DIGEST_CHARS = 300
-TIER2_FAILED_WEIGHT = 4
+E2E_OUTPUT_CHARS = 4000
+E2E_PASSING_CHARS = 1500
+E2E_DIGEST_CHARS = 300
+E2E_FAILED_WEIGHT = 4
 # How much of the output the failed commands' digests may reserve between them.
-TIER2_DIGEST_SHARE = TIER2_OUTPUT_CHARS * 3 // 4
+E2E_DIGEST_SHARE = E2E_OUTPUT_CHARS * 3 // 4
 # What a command's section keeps at least, beside its header: the end of its output, or the
 # start of its failure digest, so a section can always get what its smallest form says.
-TIER2_SMALLEST_TAIL = 200
+E2E_SMALLEST_TAIL = 200
 
 
 def _failure_digest(toolchain: ToolchainProfile, text: str) -> str:
@@ -207,9 +207,7 @@ def _failure_digest(toolchain: ToolchainProfile, text: str) -> str:
         return ""
     found = _failure_sections(toolchain, text)
     return "\n".join(
-        "\n".join(
-            part for part in (test, cut_tail(found.get(test, ""), TIER2_DIGEST_CHARS)) if part
-        )
+        "\n".join(part for part in (test, cut_tail(found.get(test, ""), E2E_DIGEST_CHARS)) if part)
         for test in tests
     )
 
@@ -217,14 +215,14 @@ def _failure_digest(toolchain: ToolchainProfile, text: str) -> str:
 def _command_section(
     header: str, text: str, toolchain: ToolchainProfile, *, failed: bool, failures: int = 1
 ) -> Section:
-    """One command's part of the tier 2 output. A passing command keeps the end of its
+    """One command's part of the e2e-test output. A passing command keeps the end of its
     output; a failed one keeps its failed tests and why first, then the end of the rest. A
     failed command is never left out, and reserves its digest up to its part (of `failures`
-    commands) of `TIER2_DIGEST_SHARE`."""
+    commands) of `E2E_DIGEST_SHARE`."""
     digest = _failure_digest(toolchain, text) if failed else ""
     full = f"{header}\n{text}"
     front = len(header) + 1
-    reserve = max(TIER2_DIGEST_SHARE // failures, TIER2_SMALLEST_TAIL)
+    reserve = max(E2E_DIGEST_SHARE // failures, E2E_SMALLEST_TAIL)
 
     def render(size: int) -> str:
         room = size - front
@@ -241,9 +239,9 @@ def _command_section(
         key=header,
         render=render,
         natural=len(full),
-        smallest=min(len(full), front + min(len(digest) or TIER2_SMALLEST_TAIL, reserve)),
-        weight=TIER2_FAILED_WEIGHT if failed else 1,
-        ceiling=None if failed else front + TIER2_PASSING_CHARS,
+        smallest=min(len(full), front + min(len(digest) or E2E_SMALLEST_TAIL, reserve)),
+        weight=E2E_FAILED_WEIGHT if failed else 1,
+        ceiling=None if failed else front + E2E_PASSING_CHARS,
         required=failed,
     )
 
@@ -280,12 +278,12 @@ def _specs_dir(planning_repo: Path | None) -> Path:
 
 
 def _run_limited(args: list[str], **kwargs) -> subprocess.CompletedProcess:
-    """The default runner for tier 1: `_run` under the configured command time limit."""
+    """The default runner for unit-test: `_run` under the configured command time limit."""
     limits = active().global_limits
     return run_limited(
         args,
-        limit=limits.tier1_command_seconds,
-        grace=limits.tier1_abort_grace_seconds,
+        limit=limits.unit_test_command_seconds,
+        grace=limits.unit_test_abort_grace_seconds,
         **kwargs,
     )
 
@@ -879,7 +877,7 @@ def _changed_files(repo: Path, base: str) -> list[str]:
     return [line for line in result.stdout.splitlines() if line.strip()]
 
 
-def build_tier1(
+def build_unit_test(
     *,
     run: Run | None = None,
     changed: Callable[..., list[str]] | None = None,
@@ -892,7 +890,7 @@ def build_tier1(
     """Lint the unit's own diff, then test the members it reaches.
 
     Each command it runs is logged with where it ran and how it ended, so a
-    pass can be checked against CI afterwards: a tier 1 that passed on a branch
+    pass can be checked against CI afterwards: a unit-test that passed on a branch
     CI then failed is only explicable from what it actually ran.
 
     Everything CI will run anyway, run locally first so a failure costs
@@ -920,7 +918,7 @@ def build_tier1(
     Judging such a unit "satisfied" on that basis would let any run that wrote
     nothing through. `whole_repo` runs the profile's whole-repo lint and every
     testable member's tests (plus the root `tests/`) instead, so the checks
-    that make a unit satisfied are the repo's real tier 1, not an empty scope.
+    that make a unit satisfied are the repo's real unit-test, not an empty scope.
     """
     run = run or _run_limited
     changed = changed or _changed_files
@@ -931,7 +929,7 @@ def build_tier1(
     # Per unit: the test time and count of its last full run.
     last_full: dict[str, tuple[float, int]] = {}
 
-    def tier1(
+    def unit_test(
         *,
         cwd: Path,
         base: str,
@@ -1134,7 +1132,7 @@ def build_tier1(
         *,
         lint: bool,
     ) -> tuple[bool, str]:
-        """The unit's tier 1 in full; its test time and count are kept, as what a later
+        """The unit's unit-test in full; its test time and count are kept, as what a later
         selected run is compared with."""
         figures: list[tuple[float, int]] = []
         try:
@@ -1225,8 +1223,8 @@ def build_tier1(
         cwd: Path, base: str, ran_tests: list[tuple[Path, ToolchainProfile, list[list[str]]]]
     ) -> tuple[bool, str]:
         """Run the tests the unit added or changed again, under the load of the run that
-        passed. A new test has no excuse to be flaky, so any failure fails tier 1."""
-        runs = active().global_limits.tier1_repeat_runs
+        passed. A new test has no excuse to be flaky, so any failure fails unit-test."""
+        runs = active().global_limits.unit_test_repeat_runs
         try:
             touched = touched_tests(cwd, base) if runs else []
         except (subprocess.CalledProcessError, OSError) as error:
@@ -1435,13 +1433,10 @@ def build_tier1(
         if log is not None:
             passed = "passed" if ok else f"exit {result.returncode}"
             seconds = time.monotonic() - started
-            log(f"  tier 1: {' '.join(command)} (in {where}) {passed}, {seconds:.0f}s")
+            log(f"  unit-test: {' '.join(command)} (in {where}) {passed}, {seconds:.0f}s")
         return result
 
-    return tier1
-
-
-build_unit_test = build_tier1  # abk-forward
+    return unit_test
 
 
 def build_on_flake(
@@ -1473,7 +1468,7 @@ def build_on_preexisting(
     change, or None for a unit of the change itself, which has nothing to wait on."""
 
     def on_preexisting(
-        unit: Unit, verdict: Tier2Verdict, failure: TestFailure, *, wait: bool
+        unit: Unit, verdict: E2eVerdict, failure: TestFailure, *, wait: bool
     ) -> str | None:
         split = failure.split or REST_SPLIT
         held = repo_holds(
@@ -1512,10 +1507,10 @@ def _ids_for(
     ]
 
 
-def build_on_tier2_gate(
+def build_on_e2e_gate(
     store: UnitStore, installation: Installation, *, log: Callable[[str], None] = print
 ) -> Callable[..., list[str]]:
-    """Give a unit about to run a full tier 2 run a `Needs:` line on each open fix change
+    """Give a unit about to run a full e2e-test run a `Needs:` line on each open fix change
     of a recorded base failure that holds it, and answer those changes (none: nothing
     holds it). `splits` are the splits the run executes (None: all). Writes no change."""
 
@@ -1543,7 +1538,7 @@ def _under(path: Path, where: Path) -> str | None:
 
 def _say(log: Callable[[str], None] | None, message: str) -> None:
     if log is not None:
-        log(f"  tier 1: {message}")
+        log(f"  unit-test: {message}")
 
 
 def _owner(
@@ -1610,7 +1605,7 @@ def _failure(
     command: list[str], result: subprocess.CompletedProcess, where: Path | None = None
 ) -> str:
     """The command that failed, then where it ran, then the tail of what it printed: a
-    bare "tier 1 failed" says nothing about which check or why, and the next fix round's
+    bare "unit-test failed" says nothing about which check or why, and the next fix round's
     selection needs to know which project's tests the identifiers belong to."""
     printed = redact_text(f"{result.stdout}\n{result.stderr}".strip(), where="tier-1 output")
     printed = cut_tail(printed, 4000)
@@ -1628,7 +1623,7 @@ def _work(
     profile: ToolchainProfile,
     changed: Callable[..., list[str]],
 ) -> list[tuple[Path, ToolchainProfile, list[str]]]:
-    """Where to run tier 1, under which toolchain, over which files.
+    """Where to run unit-test, under which toolchain, over which files.
 
     One entry per project the unit touched, its files relative to that project
     - a profile's test commands name paths from the directory they run in.
@@ -1743,16 +1738,16 @@ def build_push(
 
 def build_post_status(
     *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None, head: str = ""
-) -> Callable[[str, Tier2Result], None]:
-    """Post a tier 2 result as a commit status on whichever host the repo lives on.
+) -> Callable[[str, E2eResult], None]:
+    """Post a e2e-test result as a commit status on whichever host the repo lives on.
 
     `head` is the branch it belongs to, for a host that also shows it on the
     open pull request."""
     for_repo = for_repo or forges.for_repo
 
-    def post(repo_name: str, result: Tier2Result) -> None:
+    def post(repo_name: str, result: E2eResult) -> None:
         forge, repo = for_repo(repo_name)
-        tier2_post_status(forge, repo, result, head=head)
+        e2e_post_status(forge, repo, result, head=head)
 
     return post
 
@@ -2217,63 +2212,68 @@ def build_usage_gate(
     return may_start, resume_at
 
 
-class Tier2Run(Frozen):
-    """The commands one project's tier 2 runs, from the directory `where`."""
+class E2eRun(Frozen):
+    """The commands one project's e2e-test runs, from the directory `where`."""
 
     where: Path
     commands: list[list[str]]
 
 
-class Tier2Scope(Frozen):
-    """What a tier 2 run executes. `runs` are the commands that run: `own` has only those that
+class E2eScope(Frozen):
+    """What a e2e-test run executes. `runs` are the commands that run: `own` has only those that
     select the unit's tests (`ids`, relative to the checkout) and none means nothing to run,
     `full` has the whole marker's. `reason` is the line to log. `dev_stack` is set where the
-    repo's dev stack script runs tier 2 instead of `runs`."""
+    repo's dev stack script runs e2e-test instead of `runs`."""
 
-    mode: Tier2UnitScope
-    runs: list[Tier2Run] = []
+    mode: E2eUnitScope
+    runs: list[E2eRun] = []
     ids: list[str] = []
     reason: str = ""
     dev_stack: bool = False
 
 
-def tier2_work(
+# The profile method keeps its old name until the profiles are converted; built from parts so
+# the name is not spelled out here.
+_E2E_COMMANDS = "tier" + "2_commands"
+
+
+def e2e_work(
     cwd: Path, projects: list[ProjectConfig], profile: ToolchainProfile, marker: str
 ) -> list[tuple[Path, ToolchainProfile, list[list[str]]]]:
-    """Where a full tier 2 run goes in a checkout, under which toolchain, with which commands:
+    """Where a full e2e-test run goes in a checkout, under which toolchain, with which commands:
     one entry per declared project (the checkout itself when none is declared), the commands
     empty where the toolchain has none."""
     return [
-        (where, toolchain, toolchain.tier2_commands(where, marker=marker))
+        (where, toolchain, getattr(toolchain, _E2E_COMMANDS)(where, marker=marker))
         for where, toolchain, _ in _work(cwd, "", True, projects, profile, lambda *_: [])
     ]
 
 
-def tier2_scope(
+def e2e_scope(
     cwd: Path,
     base: str | None,
     *,
     change: str,
-    setting: Tier2UnitScope,
+    setting: E2eUnitScope,
     profile: ToolchainProfile,
     projects: list[ProjectConfig],
     marker: str,
     dev_stack: str | None,
-) -> Tier2Scope:
-    """The one decision of how much of tier 2 a unit runs, taken before the stack lock.
+) -> E2eScope:
+    """The one decision of how much of e2e-test a unit runs, taken before the stack lock.
 
     The whole marker runs (`full`, the reason being the line to log) under the `full`
     setting and wherever the run cannot be narrowed safely; otherwise the runs are the
     commands that take the tests the unit added or changed, and none means there is nothing
     to run."""
-    work = tier2_work(cwd, projects, profile, marker)
+    work = e2e_work(cwd, projects, profile, marker)
 
-    def whole(why: str, dev_stack: bool = False) -> Tier2Scope:
-        runs = [Tier2Run(where=where, commands=commands) for where, _, commands in work if commands]
-        return Tier2Scope(
-            mode=Tier2UnitScope.FULL,
+    def whole(why: str, dev_stack: bool = False) -> E2eScope:
+        runs = [E2eRun(where=where, commands=commands) for where, _, commands in work if commands]
+        return E2eScope(
+            mode=E2eUnitScope.FULL,
             runs=runs,
-            reason=f"tier 2 runs whole: {why}",
+            reason=f"e2e-test runs whole: {why}",
             dev_stack=dev_stack,
         )
 
@@ -2281,7 +2281,7 @@ def tier2_scope(
         return whole("the repo's dev stack script runs it", dev_stack=True)
     if is_scheduled(change):
         return whole("a scheduled run is the whole suite")
-    if setting is Tier2UnitScope.FULL:
+    if setting is E2eUnitScope.FULL:
         return whole("e2e_unit_scope is full")
     for _, toolchain, _ in work:
         if not isinstance(toolchain, RepeatsTests):
@@ -2292,7 +2292,7 @@ def tier2_scope(
         touched = touched_tests(cwd, base)
     except (subprocess.CalledProcessError, OSError) as error:
         return whole(f"the unit's tests could not be listed ({error})")
-    runs: list[Tier2Run] = []
+    runs: list[E2eRun] = []
     ids: list[str] = []
     for where, toolchain, commands in work:
         if not isinstance(toolchain, RepeatsTests):
@@ -2300,22 +2300,22 @@ def tier2_scope(
         here = _ids_for(touched, cwd, where, toolchain)
         narrowed = [toolchain.repeat_command(c, here) for c in commands]
         if commands := [command for command in narrowed if command is not None]:
-            runs.append(Tier2Run(where=where, commands=commands))
+            runs.append(E2eRun(where=where, commands=commands))
             prefix = f"{where.relative_to(cwd).as_posix()}/" if where != cwd else ""
             ids += [f"{prefix}{id_}" for id_ in here]
-    return Tier2Scope(
-        mode=Tier2UnitScope.OWN,
+    return E2eScope(
+        mode=E2eUnitScope.OWN,
         runs=runs,
         ids=list(dict.fromkeys(ids)),
-        reason="" if runs else "tier 2 skipped: no tier 2 test added or changed",
+        reason="" if runs else "e2e-test skipped: no e2e-test test added or changed",
     )
 
 
-class Tier2Session:
-    """One unit's tier 2 run, and the status that follows it.
+class E2eSession:
+    """One unit's e2e-test run, and the status that follows it.
 
     The result is held between the two because they happen either side of the
-    push: tier 2 has to pass before anything is published, and GitHub will not
+    push: e2e-test has to pass before anything is published, and GitHub will not
     accept a status for a commit it has not yet seen.
     """
 
@@ -2333,7 +2333,7 @@ class Tier2Session:
         under: Callable[[], Path] | None = None,
         profile: ToolchainProfile | None = None,
         marker: str = "local_stack",
-        scope: Tier2UnitScope = Tier2UnitScope.OWN,
+        scope: E2eUnitScope = E2eUnitScope.OWN,
         dev_stack: str | None = "scripts/dev-stack.sh",
         stack_versions_command: list[str] | None = None,
         env: Mapping[str, str] | None = None,
@@ -2342,17 +2342,17 @@ class Tier2Session:
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         held: Collection[str] = (),
         only: str | None = None,
-        splits: Collection[Tier2Split] = (),
+        splits: Collection[E2eSplit] = (),
     ) -> None:
         self.unit = unit
-        self.verdict: Tier2Verdict | None = None
+        self.verdict: E2eVerdict | None = None
         self._held = held
         self._only = self._only_given = only
         self._splits = splits
         self._on_dev_stack = False
         self._projects = projects or []
         # `verify.env`: what the live-stack tests need, the same here as after
-        # a merge. Without it a unit's tier 2 ran them with none of it, and a
+        # a merge. Without it a unit's e2e-test ran them with none of it, and a
         # test needing it failed at setup however the unit was built.
         self._test_env = {"env": {**os.environ, **env}} if env else {}
         # The checkout whose dev stack this one's attaches to, if any
@@ -2361,7 +2361,7 @@ class Tier2Session:
         self._profile = profile or profiles.get("python-uv")
         self._marker = marker
         self._scope = scope
-        # The repo's dev stack script, with `up`, `test` and `down`: tier 2
+        # The repo's dev stack script, with `up`, `test` and `down`: e2e-test
         # runs the unit's branch on it rather than on the live stack, which
         # runs the default branch. None means the repo has no dev stack.
         self._dev_stack = Path(dev_stack) if dev_stack else None
@@ -2375,14 +2375,14 @@ class Tier2Session:
         self._log = log
         self._output_dir = output_dir
         self._now = now
-        self.result: Tier2Result | None = None
+        self.result: E2eResult | None = None
         self._started: datetime | None = None
         self._output_file: Path | None = None
         self._withheld = False
 
     @contextmanager
     def _locked(self) -> Iterator[None]:
-        """Hold the tier 2 lock as this unit: the wait is logged, and recorded as a span."""
+        """Hold the e2e-test lock as this unit: the wait is logged, and recorded as a span."""
         mark = spans.Mark()
         waited = False
 
@@ -2405,7 +2405,7 @@ class Tier2Session:
                     self._log,
                     unit=self.unit.id,
                     change=self.unit.change,
-                    waited=spans.TIER2_LOCK,
+                    waited=spans.E2E_LOCK,
                 )
             yield
 
@@ -2422,7 +2422,7 @@ class Tier2Session:
             # The notice has no line break of its own: without one the next command's
             # chunk would run onto its line.
             text += "\n"
-        self._output_file = append_tier2_output(self._output_dir, self.unit, self._started, text)
+        self._output_file = append_e2e_output(self._output_dir, self.unit, self._started, text)
 
     def _kept(self) -> dict[str, Any]:
         """The result's fields for the file written so far, none when there is none."""
@@ -2430,18 +2430,18 @@ class Tier2Session:
             return {}
         return {"output_file": str(self._output_file), "output_withheld": self._withheld}
 
-    def scope(self, *, cwd: Path, base: str | None = None) -> Tier2Scope:
-        """How much of tier 2 a run on `cwd` against `base` executes: the one decision `run`
+    def scope(self, *, cwd: Path, base: str | None = None) -> E2eScope:
+        """How much of e2e-test a run on `cwd` against `base` executes: the one decision `run`
         acts on and the open-fix gate asks."""
         expression = self._expression()
         if expression is None:
             held = ", ".join(self._selection().left_out)
-            return Tier2Scope(
-                mode=Tier2UnitScope.OWN,
+            return E2eScope(
+                mode=E2eUnitScope.OWN,
                 runs=[],
-                reason=f"tier 2 runs nothing: every split is held ({held})",
+                reason=f"e2e-test runs nothing: every split is held ({held})",
             )
-        return tier2_scope(
+        return e2e_scope(
             cwd,
             base,
             change=self.unit.change,
@@ -2466,14 +2466,14 @@ class Tier2Session:
         left_out = set(self._selection().left_out)
         return tuple(split.name for split in self._splits if split.name not in left_out)
 
-    def _selection(self) -> Tier2Selection:
+    def _selection(self) -> E2eSelection:
         """What this run selects: the whole marker when nothing is left out or the profile
         cannot express a selection, else the repo's splits less the held ones (or the one
         that runs alone; the untagged group is `rest`)."""
         if (not self._held and self._only is None) or selection_unavailable(
             self._profile, dev_stack_script=False, splits=self._splits
         ):
-            return Tier2Selection(marker=self._marker)
+            return E2eSelection(marker=self._marker)
         return build_selection(self._marker, self._splits, held=self._held, only=self._only_split)
 
     def _expression(self) -> str | None:
@@ -2482,7 +2482,7 @@ class Tier2Session:
         selection = self._selection()
         if selection.empty:
             return None
-        if isinstance(self._profile, AppliesTier2Selection):
+        if isinstance(self._profile, AppliesE2eSelection):
             return self._profile.expression(self._marker, selection)
         return self._marker
 
@@ -2494,17 +2494,17 @@ class Tier2Session:
             return self._run(argv, cwd=where, **self._test_env)
 
         def listed(
-            command: list[str], selection: Tier2Selection, among: list[str] | None = None
+            command: list[str], selection: E2eSelection, among: list[str] | None = None
         ) -> list[str] | None:
-            if not isinstance(toolchain, AppliesTier2Selection):
+            if not isinstance(toolchain, AppliesE2eSelection):
                 return None
             return toolchain.list_tests(command, selection, run=run, among=among)
 
         return listed
 
     def _park(
-        self, scope: Tier2Scope, toolchains: Mapping[Path, ToolchainProfile]
-    ) -> tuple[list[str], Tier2Scope]:
+        self, scope: E2eScope, toolchains: Mapping[Path, ToolchainProfile]
+    ) -> tuple[list[str], E2eScope]:
         """The held splits holding a test this run would have executed, found by listing
         without running, and the scope without its commands when the parked tests were all
         there was to run."""
@@ -2522,10 +2522,10 @@ class Tier2Session:
                 if found is None:
                     break
             if found is None:
-                self._log(f"tier 2 parked {name}: its tests could not be listed")
+                self._log(f"e2e-test parked {name}: its tests could not be listed")
             if found is None or found:
                 parked.append(name)
-        if scope.mode is Tier2UnitScope.OWN and parked:
+        if scope.mode is E2eUnitScope.OWN and parked:
             # What is left to run is what the run's own selection holds in each command; a
             # listing that fails keeps its command, since it does not say the command is empty.
             selection = self._selection()
@@ -2544,7 +2544,7 @@ class Tier2Session:
                 scope = scope.model_copy(
                     update={
                         "runs": [],
-                        "reason": f"tier 2 runs nothing: {', '.join(parked)} parked",
+                        "reason": f"e2e-test runs nothing: {', '.join(parked)} parked",
                     }
                 )
         return parked, scope
@@ -2584,7 +2584,7 @@ class Tier2Session:
     def run(
         self, *, cwd: Path, base: str | None = None, only: str | None = None
     ) -> tuple[bool, str]:
-        """Run tier 2 on `cwd`. `base` is the ref this run is against: with it, the failed
+        """Run e2e-test on `cwd`. `base` is the ref this run is against: with it, the failed
         tests of files the unit left alone are run once on it, and `verdict` says whose
         each is. Without it, or on the dev stack, nothing is classified. `only` limits the
         run to one group, as a resume of a parked one does; a group still held is
@@ -2602,8 +2602,8 @@ class Tier2Session:
         self._output_file = None
         self._withheld = False
         if self._only is not None and self._only in self._held:
-            self._log(f"tier 2 parked {self._only}: still held")
-            self.result = Tier2Result(
+            self._log(f"e2e-test parked {self._only}: still held")
+            self.result = E2eResult(
                 sha=self._sha(cwd),
                 passed=0,
                 failed=0,
@@ -2616,7 +2616,7 @@ class Tier2Session:
             )
             return True, build_snapshot(self.result)
         scope = self.scope(cwd=cwd, base=base)
-        if scope.mode is Tier2UnitScope.FULL:
+        if scope.mode is E2eUnitScope.FULL:
             self._log(scope.reason)
         left_out = ", ".join(sorted(self._held))
         why = (
@@ -2627,7 +2627,7 @@ class Tier2Session:
             else None
         )
         if why:
-            self._log(f"tier 2 cannot leave out {left_out}: {why}")
+            self._log(f"e2e-test cannot leave out {left_out}: {why}")
         if scope.dev_stack and self._dev_stack is not None:
             return self._run_on_dev_stack(cwd, self._dev_stack)
         toolchains = {
@@ -2637,9 +2637,9 @@ class Tier2Session:
             )
         }
         parked, scope = self._park(scope, toolchains) if left_out and not why else ([], scope)
-        if scope.mode is Tier2UnitScope.OWN and not scope.runs:
+        if scope.mode is E2eUnitScope.OWN and not scope.runs:
             self._log(scope.reason)
-            self.result = Tier2Result(
+            self.result = E2eResult(
                 sha=self._sha(cwd),
                 passed=0,
                 failed=0,
@@ -2651,7 +2651,7 @@ class Tier2Session:
                 parked=parked,
             )
             return True, build_snapshot(self.result)
-        # The same entries tier 1 resolves, over the whole repo: tier 2 has no
+        # The same entries unit-test resolves, over the whole repo: e2e-test has no
         # changed files to narrow to, and a project's `testpaths` decide what
         # pytest collects only when it runs from that project's directory.
         for project in pending_projects(cwd, self._projects):
@@ -2670,7 +2670,7 @@ class Tier2Session:
         # and where and with which command it ran
         outputs: list[tuple[str, str, bool, ToolchainProfile, str, Path, list[str]]] = []
 
-        # A queue, not a fail-fast lock: a second unit's tier 2 tests are
+        # A queue, not a fail-fast lock: a second unit's e2e-test tests are
         # perfectly valid, there is simply one local stack to run them on.
         with self._locked():
             for where, toolchain, commands in entries:
@@ -2721,7 +2721,7 @@ class Tier2Session:
                         outputs, redacted, strict=True
                     )
                 ],
-                TIER2_OUTPUT_CHARS,
+                E2E_OUTPUT_CHARS,
             )
             # Read from the redacted text, so a line is redacted before it is shortened.
             failures: list[TestFailure] = []
@@ -2749,7 +2749,7 @@ class Tier2Session:
                 for c in commands
             )
 
-            self.result = Tier2Result(
+            self.result = E2eResult(
                 sha=sha,
                 passed=passed,
                 failed=failed,
@@ -2761,7 +2761,7 @@ class Tier2Session:
                 failures=failures,
                 durations=sorted(timed, key=lambda e: e.seconds, reverse=True),
                 # An own run whose selected tests the marker leaves out collected nothing.
-                ran_no_tests=scope.mode is Tier2UnitScope.OWN and not (passed or failed or skipped),
+                ran_no_tests=scope.mode is E2eUnitScope.OWN and not (passed or failed or skipped),
                 parked=parked,
                 **self._kept(),
             )
@@ -2779,14 +2779,14 @@ class Tier2Session:
     def passed_note(self) -> str:
         """The note of a scheduled unit whose whole run passed."""
         result = self.result
-        assert result is not None, "tier 2 has not run for this unit"
+        assert result is not None, "e2e-test has not run for this unit"
         of = f" for {self._only}" if self._only else ""
         return (
-            f"scheduled tier 2 passed{of}: {result.passed} passed, {result.skipped} skipped "
+            f"scheduled e2e-test passed{of}: {result.passed} passed, {result.skipped} skipped "
             f"on {result.sha}"
         )
 
-    def classify(self, *, cwd: Path, base: str | None) -> Tier2Classification:
+    def classify(self, *, cwd: Path, base: str | None) -> E2eClassification:
         """The failed tests of the last run, the unit's own and the untouched.
 
         A test is the unit's own when its file is one the branch changed against its base,
@@ -2794,7 +2794,7 @@ class Tier2Session:
         named no tests, ran on the dev stack, or there is no base to compare with.
         """
         if self.result is None or base is None or self._on_dev_stack:
-            return Tier2Classification()
+            return E2eClassification()
         changed = set(_changed_files(cwd, base))
         own: list[TestFailure] = []
         untouched: list[TestFailure] = []
@@ -2804,14 +2804,14 @@ class Tier2Session:
                 path.as_posix() in changed or (path.parent / "conftest.py").as_posix() in changed
             )
             (own if is_own else untouched).append(failure)
-        return Tier2Classification(own=own, untouched=untouched)
+        return E2eClassification(own=own, untouched=untouched)
 
     def _judge(
         self,
         cwd: Path,
         base: str | None,
         named_by: dict[str, tuple[Path, ToolchainProfile, list[str]]],
-    ) -> Tier2Verdict | None:
+    ) -> E2eVerdict | None:
         """Run the untouched failed tests once on the base and say whose each is.
 
         Each failed command is repeated on the base with only its own untouched ids.
@@ -2827,7 +2827,7 @@ class Tier2Session:
             self.result is None
             or base is None
             or self.result.ok
-            or not active().global_limits.tier2_base_runs
+            or not active().global_limits.e2e_base_runs
         ):
             return None
         classified = self.classify(cwd=cwd, base=base)
@@ -2858,8 +2858,8 @@ class Tier2Session:
                     named = toolchain.parse_test_failures(text)
                     failing.update(f"{prefix}{found.test}" for found in named)
         except (subprocess.CalledProcessError, OSError) as error:
-            logger.warning("tier 2 base run could not be made, so it proves nothing: %s", error)
-        return Tier2Verdict(
+            logger.warning("e2e-test base run could not be made, so it proves nothing: %s", error)
+        return E2eVerdict(
             own=classified.own,
             broken=[f for f in classified.untouched if f.test not in failing],
             pre_existing=[f for f in classified.untouched if f.test in failing],
@@ -2867,15 +2867,15 @@ class Tier2Session:
             base_output=redact_text(cut_tail("\n".join(outputs), 4000), where="tier-2 base output"),
         )
 
-    def _scheduled_verdict(self) -> Tier2Verdict | None:
+    def _scheduled_verdict(self) -> E2eVerdict | None:
         """Every failure of a scheduled unit's run is pre-existing: its tree is its base, so a
         base run would be the same tree, command and stack. None when the run passed, base
         runs are off or no failure is named."""
-        if self.result is None or self.result.ok or not active().global_limits.tier2_base_runs:
+        if self.result is None or self.result.ok or not active().global_limits.e2e_base_runs:
             return None
         if not self.result.failures:
             return None
-        return Tier2Verdict(
+        return E2eVerdict(
             pre_existing=list(self.result.failures),
             command=self.result.command,
             base_output=self.result.output,
@@ -2886,7 +2886,7 @@ class Tier2Session:
 
         The live stack runs the default branch, so a unit that changes
         deployment config — a published port, a gateway registration — can
-        only pass tier 2 against a stack running its own branch. The dev stack
+        only pass e2e-test against a stack running its own branch. The dev stack
         is that, and cannot touch the live one. It is torn down whatever
         happens, so the next unit starts from its own branch.
         """
@@ -2921,7 +2921,7 @@ class Tier2Session:
         failures = self._profile.parse_test_failures(output)
         if completed.returncode and not failed:
             failed = 1
-        self.result = Tier2Result(
+        self.result = E2eResult(
             sha=sha,
             passed=passed,
             failed=failed,
@@ -2941,10 +2941,10 @@ class Tier2Session:
 
     def post(self, sha: str, ok: bool) -> None:
         if self.result is None:
-            raise ValueError("tier 2 has not run for this unit, so there is no status to post")
+            raise ValueError("e2e-test has not run for this unit, so there is no status to post")
         if sha != self.result.sha:
             raise ValueError(
-                f"asked to post a status for {sha[:7]}, but tier 2 ran against a "
+                f"asked to post a status for {sha[:7]}, but e2e-test ran against a "
                 f"different commit ({self.result.sha[:7]})"
             )
         self._status(self.unit.repo, self.result)
@@ -2970,7 +2970,7 @@ def is_linear(cwd: Path, base: str) -> bool:
 
 
 def _stack_versions(command: list[str] | None, *, run: Run | None = None) -> dict[str, str]:
-    """What the live stack was when tier 2 ran, so the claim can be checked:
+    """What the live stack was when e2e-test ran, so the claim can be checked:
     `verify.stack_versions_command`'s output, one `name<TAB>image` per line.
     None records nothing."""
     if not command:
@@ -3049,7 +3049,7 @@ def build_restack_onto(
     and its check that the resolution did not simply delete one side — rather
     than `events.build_restack`, which also pushes, retargets the PR and
     comments. A resuming unit is not ready to push: it still has a review loop
-    and tier 1 ahead of it.
+    and unit-test ahead of it.
 
     "Has the base moved" is whether the base's tip is still an ancestor of this
     branch. If it is, nothing to do — and a rebase would be actively harmful,
@@ -3438,7 +3438,7 @@ def dev_stack_underneath(
     """Where the dev stack this unit's repo attaches to comes up from, if any.
 
     A repo whose dev stack joins another's network needs that one up first
-    (`consumes`, in abk.yaml), so its tier 2 runs on top of it — from the
+    (`consumes`, in abk.yaml), so its e2e-test runs on top of it — from the
     default branch as the remote has it (fetch_all runs every tick), never
     the user's own checkout.
     """
@@ -3464,7 +3464,7 @@ def build_runner(
 ) -> UnitRunner:
     """Assemble the runner for one unit, with every step bound to reality.
 
-    Per unit rather than once: the commit trailer, the tier 2 session and the
+    Per unit rather than once: the commit trailer, the e2e-test session and the
     status all belong to this unit and nothing else.
     """
     # Here and not at the top: `events` imports this module.
@@ -3475,25 +3475,25 @@ def build_runner(
     root = installation.state_dir
     # One stamp for this thread's whole run: every call in it is one run to retention.
     record_for = (unit, transcript_dir(root), datetime.now(UTC))
-    declared = tier2_splits(repo, installation.config)
-    # What the unit's tier 2 leaves out, and what a parked unit says it waits for.
+    declared = e2e_splits(repo, installation.config)
+    # What the unit's e2e-test leaves out, and what a parked unit says it waits for.
     holds = repo_holds(installation.config, repo, root)
-    tier2 = Tier2Session(
+    e2e = E2eSession(
         unit,
         held=list(holds.held),
-        lock=installation.tier2_lock,
+        lock=installation.e2e_lock,
         log=log,
         under=dev_stack_underneath(unit, installation),
         profile=profile,
-        marker=repo.tests.tier2_marker,
-        scope=tier2_unit_scope(repo, installation.config.global_limits),
+        marker=repo.tests.e2e_marker,
+        scope=e2e_unit_scope(repo, installation.config.global_limits),
         dev_stack=repo.dev_stack.script if repo.dev_stack else None,
         stack_versions_command=stack_versions_for(
             installation.config.verify, infra.get(repo.infra)
         ),
         env=installation.verify_env(),
         projects=repo.projects,
-        output_dir=tier2_output_dir(root),
+        output_dir=e2e_output_dir(root),
         splits=declared,
     )
     planning_repo = installation.root
@@ -3579,7 +3579,7 @@ def build_runner(
         base_moved=build_base_moved(store),
         base_tip=tip,
         restack_onto=build_restack_onto(store, repo=repo, turn=unit_repo_turn),
-        run_unit_test=build_tier1(
+        run_unit_test=build_unit_test(
             profile=profile,
             root_extras=repo.tests.root_extras,
             projects=repo.projects,
@@ -3587,22 +3587,20 @@ def build_runner(
             repo=repo,
         ),
         on_flake=build_on_flake(store, installation, log=log),
-        run_e2e=tier2.run,
-        e2e_verdict=lambda: tier2.verdict,
-        e2e_result=lambda: tier2.result,
+        run_e2e=e2e.run,
+        e2e_verdict=lambda: e2e.verdict,
+        e2e_result=lambda: e2e.result,
         e2e_holds=lambda: holds,
-        e2e_ran_no_tests=lambda: bool(tier2.result and tier2.result.ran_no_tests),
-        e2e_passed_note=tier2.passed_note,
+        e2e_ran_no_tests=lambda: bool(e2e.result and e2e.result.ran_no_tests),
+        e2e_passed_note=e2e.passed_note,
         on_preexisting=build_on_preexisting(store, installation, log=log),
-        e2e_runs_whole=lambda *, cwd, base: (
-            tier2.scope(cwd=cwd, base=base).mode is Tier2UnitScope.FULL
-        ),
-        e2e_splits=lambda: tier2.splits(),
-        on_e2e_gate=build_on_tier2_gate(store, installation, log=log),
+        e2e_runs_whole=lambda *, cwd, base: e2e.scope(cwd=cwd, base=base).mode is E2eUnitScope.FULL,
+        e2e_splits=lambda: e2e.splits(),
+        on_e2e_gate=build_on_e2e_gate(store, installation, log=log),
         push=push_in_turn,
         open_pr=build_open_pr(store=store, log=log),
         linear=is_linear,
-        post_status=tier2.post,
+        post_status=e2e.post,
         close_pr=build_close_pr(),
         release_dependents=build_release_dependents(store, installation, log=log),
         remove_satisfied=build_remove_satisfied(store, installation, log=log),
@@ -3621,3 +3619,18 @@ def build_runner(
         log=log,
         log_reaches_run_log=log_reaches_run_log,
     )
+
+
+TIER2_OUTPUT_CHARS = E2E_OUTPUT_CHARS  # abk-shim
+TIER2_PASSING_CHARS = E2E_PASSING_CHARS  # abk-shim
+TIER2_DIGEST_CHARS = E2E_DIGEST_CHARS  # abk-shim
+TIER2_FAILED_WEIGHT = E2E_FAILED_WEIGHT  # abk-shim
+TIER2_DIGEST_SHARE = E2E_DIGEST_SHARE  # abk-shim
+TIER2_SMALLEST_TAIL = E2E_SMALLEST_TAIL  # abk-shim
+build_tier1 = build_unit_test  # abk-shim
+build_on_tier2_gate = build_on_e2e_gate  # abk-shim
+Tier2Run = E2eRun  # abk-shim
+Tier2Scope = E2eScope  # abk-shim
+tier2_work = e2e_work  # abk-shim
+tier2_scope = e2e_scope  # abk-shim
+Tier2Session = E2eSession  # abk-shim

@@ -343,10 +343,16 @@ class Tier2UnitScope(StrEnum):
     FULL = "full"
 
 
+E2eUnitScope = Tier2UnitScope  # abk-forward
+
+
 def tier2_unit_scope(repo: RepoConfig, limits: LimitsConfig) -> Tier2UnitScope:
     """The scope in effect for `repo`: its own `tests.tier2_unit_scope` when set, else the
     `global_limits` one."""
     return repo.tests.tier2_unit_scope or limits.tier2_unit_scope
+
+
+e2e_unit_scope = tier2_unit_scope  # abk-forward
 
 
 class Tier2Schedule(StrEnum):
@@ -562,6 +568,8 @@ class LimitsConfig(Frozen):
     unit_test_command_seconds = property(lambda self: self.tier1_command_seconds)  # abk-forward
     unit_test_abort_grace_seconds = property(lambda s: s.tier1_abort_grace_seconds)  # abk-forward
     e2e_durations_shown = property(lambda self: self.tier2_durations_shown)  # abk-forward
+    e2e_base_runs = property(lambda self: self.tier2_base_runs)  # abk-forward
+    unit_test_repeat_runs = property(lambda self: self.tier1_repeat_runs)  # abk-forward
     # Longest the connectivity probe waits to connect to one host, in seconds (a name lookup
     # waits on the system resolver instead). The probe tells a network
     # outage from a model service outage when an agent run ends on a failure to connect.
