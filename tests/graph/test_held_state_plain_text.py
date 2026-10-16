@@ -12,17 +12,16 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.graph.checkpointer import unit_graphs_path
-from agent_build_kit.graph.state import UnitRun
 from agent_build_kit.pipeline.units import PLANNED
 from tests.checkpoint_types import (
     blocked_in,
     blocked_on_load,
     blocked_while_reading,
     node_updates,
+    state_from_updates,
 )
 from tests.factories import unit
 from tests.graph.checkpoint_reads import read_back
-from tests.graph.test_checkpoint_allowlist import populated
 from tests.graph.test_hold_causes import HOLD_PATHS, Held, fresh
 
 HOLDS = [h for h, _ in HOLD_PATHS]
@@ -55,10 +54,7 @@ def test_no_node_writes_a_type_the_checkpoint_blocks(tmp_path: Path, hold: Held)
 def test_a_populated_state_carrying_the_nodes_values_encodes_no_blocked_type(
     tmp_path: Path, hold: Held
 ) -> None:
-    written = {field: value for _, field, value in node_updates(held_unit(tmp_path, hold), THREAD)}
-    state = populated(UnitRun).model_copy(
-        update={k: v for k, v in written.items() if k in UnitRun.model_fields}
-    )
+    state = state_from_updates(node_updates(held_unit(tmp_path, hold), THREAD))
 
     assert blocked_on_load(state) == set()
 

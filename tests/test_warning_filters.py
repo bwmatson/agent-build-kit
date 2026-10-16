@@ -1,7 +1,11 @@
-"""A test that forks a multi-threaded process fails, and every other warning is left as it
-was (spec: test-determinism). The guard is the plugin `tests.fork_warning_guard`: CPython
-drops the exception a `filterwarnings = error` entry would raise for this warning."""
+"""A test that forks a multi-threaded process fails, a pydantic serializer warning fails, and
+every other warning is left as it was (spec: test-determinism, ci-runs-without-warnings). The
+fork guard is the plugin `tests.fork_warning_guard`: CPython drops the exception a
+`filterwarnings = error` entry would raise for that warning. The serializer guard is the
+repository's own scoped `filterwarnings` entry, read from pyproject.toml and applied to a child
+pytest."""
 
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -89,5 +93,72 @@ def test_another_deprecation_warning_is_reported_and_does_not_fail(
     pytester.makepyfile(test_other=OTHER_DEPRECATION)
 
     result = run_with_the_guard(pytester, monkeypatch)
+
+    result.assert_outcomes(passed=1, warnings=1)
+
+
+SERIALIZES = """
+from pydantic import BaseModel
+
+class Holder(BaseModel):
+    values: tuple[int, ...] = ()
+
+def test_dumps_{kind}():
+    holder = Holder.model_construct(values={value})
+    holder.model_dump()
+"""
+
+OTHER_USER_WARNING = """
+import warnings
+
+def test_warns():
+    warnings.warn("an unrelated user warning", UserWarning)
+"""
+
+
+def pydantic_entry() -> str:
+    options = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["pytest"]["ini_options"]
+    entries = [e for e in options.get("filterwarnings", []) if "Pydantic serializer warnings" in e]
+    assert len(entries) == 1, (
+        "pyproject.toml has one filterwarnings entry for the serializer warning"
+    )
+    return entries[0]
+
+
+def run_with_entry(pytester: pytest.Pytester) -> pytest.RunResult:
+    return pytester.runpytest_subprocess(
+        "-o", f"filterwarnings={pydantic_entry()}", "-p", "no:cacheprovider"
+    )
+
+
+def test_the_entry_turns_the_serializer_warning_into_an_error_scoped_by_its_message() -> None:
+    action, message, category, *_ = pydantic_entry().split(":")
+
+    assert action == "error"
+    assert "Pydantic serializer warnings" in message
+    assert category == "UserWarning"
+
+
+def test_a_test_that_serialises_a_list_in_a_tuple_field_fails(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(test_list=SERIALIZES.format(kind="list", value="[1]"))
+
+    result = run_with_entry(pytester)
+
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*Pydantic serializer warnings*"])
+
+
+def test_a_test_that_serialises_a_tuple_in_a_tuple_field_passes(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(test_tuple=SERIALIZES.format(kind="tuple", value="(1,)"))
+
+    result = run_with_entry(pytester)
+
+    result.assert_outcomes(passed=1)
+
+
+def test_any_other_user_warning_is_reported_and_does_not_fail(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(test_other=OTHER_USER_WARNING)
+
+    result = run_with_entry(pytester)
 
     result.assert_outcomes(passed=1, warnings=1)

@@ -197,6 +197,18 @@ they are, and never leave a conflict marker in the file. One change is one bulle
 across several pull requests: fold later work into the bullet that already describes it
 instead of adding another.
 
+## CI workflows
+
+`tests/test_ci_workflows.py` reads every `.github/workflows/*.yml` and fails on anything below.
+
+- **Actions** are referenced at an exact release, `owner/name@vX.Y.Z`, or at a full commit SHA, on a release that runs
+  on Node 24. A floating major, a branch, `latest` and an expression are refused. Each action is listed with its first
+  Node 24 major in the table in `tests/test_ci_workflows.py`; a new action is a deliberate entry there.
+- **Runner** is `ubuntu-24.04`, never a `*-latest` label, so a change of operating system is made on purpose.
+- **Bumping** either: read the release notes, edit the workflow and the table, then open the first run's log and check
+  for annotations and `DEP0040` lines.
+- A cache-service warning during a GitHub incident is expected and is not a failure.
+
 ## Running
 
 ```bash
