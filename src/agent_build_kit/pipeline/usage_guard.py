@@ -51,6 +51,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -58,6 +59,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
@@ -65,6 +67,8 @@ from agent_build_kit import claude_account, telemetry
 from agent_build_kit.config import (
     CLAUDE_CODE,
     ClaudeLimitsConfig,
+    GateConfig,
+    ProviderLimitsConfig,
     RuntimeConfig,
     UsageWindowConfig,
     active,
@@ -95,7 +99,8 @@ from agent_build_kit.pipeline.usage_calls import (
     record_call,
 )
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, read_ledger, spend_times
-from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited
+from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited, Run
+from agent_build_kit.runtimes.providers import ProviderReading
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 OAUTH_BETA_HEADER = "oauth-2025-04-20"
@@ -1381,3 +1386,45 @@ def _resume_to(window: Window, *, now: datetime, limits: Limits) -> datetime:
         reset = window.resets_at
         relief = reset if reset and reset > now else now + UNKNOWN_RETRY
     return min(relief, now + MAX_SCHEDULED_PAUSE)
+
+
+class GateResult(Frozen):
+    """What one split's gate said: usable, held or unknown, with the figures behind it."""
+
+    state: Literal["usable", "held", "unknown"]
+    reason: str = ""
+    used_amount: Decimal | None = None
+    used_pct: int | None = None
+    window_end: datetime | None = None
+    threshold: int | None = None
+    # When a held result stops standing without a later reading: the window's end,
+    # or one cache time on for a command.
+    until: datetime | None = None
+
+
+def provider_decision(
+    reading: ProviderReading,
+    *,
+    limits: ProviderLimitsConfig,
+    now: datetime,
+    standing: bool = False,
+) -> GateResult:
+    """Whether a provider's month leaves room, by the threshold the Claude Code windows use."""
+    raise NotImplementedError
+
+
+def gate_result(
+    split: str,
+    gate: GateConfig,
+    *,
+    now: datetime,
+    state_dir: Path,
+    root: Path,
+    standing: bool = False,
+    refresh: bool = False,
+    read: Callable[[], object] | None = None,
+    run: Run = subprocess.run,
+) -> GateResult:
+    """One split's gate evaluated from its configuration, through the per-split cache in
+    `<state_dir>/gate-usage.json` unless `refresh`."""
+    raise NotImplementedError
