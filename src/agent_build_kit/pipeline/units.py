@@ -651,6 +651,9 @@ def waiting_on(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
 # was merely interrupted.
 _WAIT_CAUSES = ("gated", "upstream_went_back")
 
+# The cause of a planned unit parked for held tier 2 splits (`Cause.SPLIT_HELD`'s value).
+SPLIT_HELD_CAUSE = "split_held"
+
 
 def blocked(unit: Unit, graph: Sequence[Unit]) -> bool:
     """Whether a planned unit waits on another unit, so it holds no place.
@@ -729,6 +732,9 @@ def later_groups_by_change(unit: Unit, graph: Sequence[Unit]) -> dict[str, tuple
 def in_progress(unit: Unit, graph: Sequence[Unit] = ()) -> bool:
     """Whether the unit has been started and not finished (docs/architecture.md).
 
+    A planned unit parked for a held tier 2 split (cause `split_held`) is not: it has
+    nothing to run until the split is released.
+
     Running, in review and failed units are; so is a planned or unplanned one
     that has a pull request, a branch or a pushed commit, since something was
     already done to it: a run records its branch when it begins, so a unit held
@@ -752,6 +758,8 @@ def in_progress(unit: Unit, graph: Sequence[Unit] = ()) -> bool:
         return not failed_waiting(unit, graph)
     if unit.state in (RUNNING, IN_REVIEW):
         return True
+    if unit.state == PLANNED and getattr(unit, "cause", None) == SPLIT_HELD_CAUSE:
+        return False
     return _worked_on(unit) and not blocked(unit, graph)
 
 

@@ -11,7 +11,6 @@ import tempfile
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 from agent_build_kit import profiles
 from agent_build_kit.config import (
@@ -25,7 +24,7 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.config_text_edit import ConfigTextEditError, TextEdit, set_hold
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.tier2 import selection_unavailable
+from agent_build_kit.pipeline.tier2 import listing_runner, selection_unavailable
 from agent_build_kit.pipeline.tier2_exclusive import check_splits
 from agent_build_kit.pipeline.tier2_holds import (
     HELD_FILE,
@@ -43,20 +42,6 @@ from agent_build_kit.profiles.base import AppliesTier2Selection
 from agent_build_kit.timers import current_user
 
 
-def _run_in(
-    where: Path,
-    verify_env: dict[str, str],
-    run: Callable[..., subprocess.CompletedProcess],
-) -> Callable[..., subprocess.CompletedProcess]:
-    """`run` from `where` under the verify env, the way a tier 2 run takes its commands."""
-    env = {"env": {**os.environ, **verify_env}} if verify_env else {}
-
-    def run_in(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
-        return run(argv, **{**kwargs, "cwd": where, **env})
-
-    return run_in
-
-
 def _check_repo(
     name: str,
     installation: Installation,
@@ -72,6 +57,7 @@ def _check_repo(
     script = repo.dev_stack is not None and (checkout / repo.dev_stack.script).is_file()
     marker = repo.tests.tier2_marker
     verify_env = installation.verify_env()
+    env = {**os.environ, **verify_env} if verify_env else None
     checks = []
     for where, toolchain, commands in tier2_work(
         checkout, repo.projects, profiles.get(repo.profile), marker
@@ -83,7 +69,7 @@ def _check_repo(
         # `selection_unavailable` has said the profile applies a marker selector.
         assert isinstance(toolchain, AppliesTier2Selection)
         checks += [
-            check_splits(toolchain, command, marker, splits, run=_run_in(where, verify_env, run))
+            check_splits(toolchain, command, marker, splits, run=listing_runner(run, where, env))
             for command in commands
         ]
     print(f"{name}:")

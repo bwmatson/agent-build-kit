@@ -8,7 +8,7 @@ from pathlib import Path
 
 from pydantic import AwareDatetime, TypeAdapter, ValidationError
 
-from agent_build_kit.config import REST_SPLIT, Tier2Split, WorkspaceConfig, tier2_splits
+from agent_build_kit.config import REST_SPLIT, RepoConfig, Tier2Split, WorkspaceConfig, tier2_splits
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 
@@ -139,6 +139,14 @@ def current_holds(
 ) -> Holds:
     """The splits held now over every repo's declarations; what `status` and `doctor` show."""
     return held_splits(declared_splits(config), state_dir, now=now or datetime.now(UTC))
+
+
+def repo_holds(
+    config: WorkspaceConfig, repo: RepoConfig, state_dir: Path, *, now: datetime | None = None
+) -> Holds:
+    """The splits held now for `repo`, over its own declarations: what its tier 2 run, its
+    parked units and its post-merge verification leave out."""
+    return held_splits(tier2_splits(repo, config), state_dir, now=now or datetime.now(UTC))
 
 
 def hold_text(hold: Hold) -> str:

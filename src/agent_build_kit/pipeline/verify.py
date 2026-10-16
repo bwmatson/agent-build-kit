@@ -24,11 +24,18 @@ from pathlib import Path
 
 from agent_build_kit import profiles
 from agent_build_kit.budget import cut_tail
-from agent_build_kit.config import RepoConfig, by_project, owning_project
+from agent_build_kit.config import RepoConfig, Tier2Split, by_project, owning_project, tier2_splits
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.tier2 import (
+    Tier2Selection,
+    build_selection,
+    listing_runner,
+    selection_unavailable,
+)
+from agent_build_kit.pipeline.tier2_holds import repo_holds
 from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.profiles.base import ToolchainProfile, is_doc_path
+from agent_build_kit.profiles.base import AppliesTier2Selection, ToolchainProfile, is_doc_path
 
 Run = Callable[..., subprocess.CompletedProcess]
 Command = tuple[str, ...]
@@ -75,25 +82,92 @@ def deploy_commands(
     return commands
 
 
+class SplitHeld(Exception):
+    """A held tier 2 split holds a live test among the change's files: the verification
+    waits for the split to be released, as it does for a busy stack."""
+
+    def __init__(self, splits: list[str]) -> None:
+        super().__init__(f"tier 2 split {', '.join(splits)} is held")
+        self.splits = splits
+
+
+def _live_selection(
+    repo: RepoConfig,
+    splits: tuple[Tier2Split, ...],
+    *,
+    held: tuple[str, ...] = (),
+    only: str | None = None,
+) -> Tier2Selection:
+    """The selection of a repo's live tests over its `splits`, less the `held` ones (or only
+    `only`) and less the tests only the dev stack runs; the profile renders it."""
+    selection = build_selection(repo.tests.tier2_marker, splits, held=held, only=only)
+    if (exclude := repo.tests.dev_stack_marker) and not selection.empty:
+        selection = selection.model_copy(update={"none_of": (exclude, *selection.none_of)})
+    return selection
+
+
 def _acceptance_runs(
-    repo: RepoConfig, paths: list[str], checkout: Path, fallback: ToolchainProfile
+    repo: RepoConfig,
+    paths: list[str],
+    checkout: Path,
+    fallback: ToolchainProfile,
+    *,
+    splits: tuple[Tier2Split, ...] = (),
+    held: tuple[str, ...] = (),
 ) -> list[tuple[ToolchainProfile, Path, list[str]]]:
     """The live tests of the changed `paths`, as (profile, directory to run in, command):
     each project's own profile is asked about the paths under it, from its directory; the
-    repo's profile about the rest, from the checkout root."""
+    repo's profile about the rest, from the checkout root. The `held` splits of `splits` are
+    left out when the profile can apply a selection."""
     runs = []
     for project, group in by_project(repo.projects, paths):
         profile = profiles.for_project(project, fallback)
         directory = checkout / project.prefix if project else checkout
+        marker, exclude = repo.tests.tier2_marker, repo.tests.dev_stack_marker
+        if (
+            held
+            and isinstance(profile, AppliesTier2Selection)
+            and not selection_unavailable(profile, dev_stack_script=False, splits=splits)
+        ):
+            selection = _live_selection(repo, splits, held=held)
+            if selection.empty:
+                continue
+            marker, exclude = profile.expression(selection.marker, selection), ""
         commands = profile.acceptance_commands(
             directory,
             group,
-            marker=repo.tests.tier2_marker,
-            exclude_marker=repo.tests.dev_stack_marker,
+            marker=marker,
+            exclude_marker=exclude,
             root_extras=repo.tests.root_extras,
         )
         runs += [(profile, directory, command) for command in commands]
     return runs
+
+
+def _held_live_tests(
+    repo: RepoConfig,
+    runs: list[tuple[ToolchainProfile, Path, list[str]]],
+    splits: tuple[Tier2Split, ...],
+    held: tuple[str, ...],
+    *,
+    run: Run,
+    env: dict[str, str],
+) -> list[str]:
+    """The `held` splits that hold a live test among the `runs` (the commands as they run
+    with nothing left out). A listing that fails says nothing about the split, so the split
+    is taken to hold a test: the verification waits rather than passing without it."""
+    found: list[str] = []
+    for profile, directory, command in runs:
+        if not isinstance(profile, AppliesTier2Selection):
+            continue
+        lister = listing_runner(run, directory, env)
+        for name in held:
+            listed = profile.list_tests(
+                command, _live_selection(repo, splits, only=name), run=lister
+            )
+            if name not in found and (listed is None or listed):
+                found.append(name)
+    return found
 
 
 _CREDENTIALS = re.compile(r"^(?P<name>[A-Za-z_][A-Za-z0-9_]*)=\((?P<names>[^)]*)\)", re.M)
@@ -172,11 +246,29 @@ def verify_change(
     repos = installation.deploy_order(list(files))
     plans: dict[str, list[Command]] = {}
     tests: dict[str, list[tuple[ToolchainProfile, Path, list[str]]]] = {}
+    waiting: list[str] = []
     for name in repos:
         repo = installation.repo(name)
         profile = profiles.get(repo.profile)
+        splits = tier2_splits(repo, installation.config)
+        holds = repo_holds(installation.config, repo, installation.state_dir).held
+        held = tuple(split.name for split in splits if split.name in holds)
         plans[name] = deploy_commands(repo, files[name], checkout=checkouts[name], profile=profile)
-        tests[name] = _acceptance_runs(repo, files[name], checkouts[name], profile)
+        tests[name] = _acceptance_runs(
+            repo, files[name], checkouts[name], profile, splits=splits, held=held
+        )
+        if held:
+            waiting += _held_live_tests(
+                repo,
+                _acceptance_runs(repo, files[name], checkouts[name], profile),
+                splits,
+                held,
+                run=run,
+                env={**os.environ, **(env or {}), **live_credentials(repo, checkouts[name])},
+            )
+    # Before anything is pulled or deployed: the verification is tried again once released.
+    if waiting:
+        raise SplitHeld(sorted(set(waiting)))
 
     for name in repos:
         if not (plans[name] or tests[name]):

@@ -41,6 +41,7 @@ from agent_build_kit.pipeline.units import (
     IN_REVIEW,
     PLANNED,
     RUNNING,
+    SPLIT_HELD_CAUSE,
     Join,
     Member,
     Priority,
@@ -98,7 +99,7 @@ class Cause(StrEnum):
     NETWORK_UNAVAILABLE = "network_unavailable"
     SERVICE_UNAVAILABLE = "service_unavailable"
     ENVIRONMENT = "environment"
-    SPLIT_HELD = "split_held"
+    SPLIT_HELD = SPLIT_HELD_CAUSE
 
 
 class RequeueReason(StrEnum):

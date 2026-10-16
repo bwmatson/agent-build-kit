@@ -23,8 +23,9 @@ from __future__ import annotations
 import fcntl
 import os
 import re
+import subprocess
 import time
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Mapping
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -97,6 +98,20 @@ def build_selection(
             "none_of": tuple(markers[s.name] for s in declared if s.name in left_out),
         }
     )
+
+
+def listing_runner(
+    run: Callable[..., subprocess.CompletedProcess],
+    directory: Path,
+    env: Mapping[str, str] | None = None,
+) -> Callable[..., subprocess.CompletedProcess]:
+    """`run` from `directory` under `env`, for a profile's listing to call with the command."""
+    extra = {"env": dict(env)} if env else {}
+
+    def run_in(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        return run(argv, **{**kwargs, "cwd": directory, **extra})
+
+    return run_in
 
 
 def selection_unavailable(

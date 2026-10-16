@@ -16,6 +16,7 @@ from tests.cli.test_wait_reasons import (  # noqa: F401
     waits_of,
 )
 from tests.factories import new_unit
+from tests.parked_split_support import installation as split_installation
 
 
 def parked(store: UnitStore, inst: Installation) -> None:
@@ -27,7 +28,7 @@ def parked(store: UnitStore, inst: Installation) -> None:
 
 
 def test_a_round_does_not_start_a_unit_parked_for_a_runtime(tmp_path: Path) -> None:
-    inst = installation(tmp_path)
+    inst = split_installation(tmp_path)
     store = UnitStore(tmp_path / "units.json")
     parked(store, inst)
 
