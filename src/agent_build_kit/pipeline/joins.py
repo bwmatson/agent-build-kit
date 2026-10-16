@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from agent_build_kit.model import Frozen
+from agent_build_kit.model import Frozen, TestTier, widest_kind
 from agent_build_kit.pipeline.unit_size import (
     Calibration,
     Kind,
@@ -93,7 +93,7 @@ def check_joins(
                 raise refuse("a unit is not joined to itself")
             if not taken.unstarted:
                 raise refuse(f"{taken.id} has started, and only a unit that has not is joined")
-            if (taken.repo, taken.tier) != (onto.repo, onto.tier):
+            if taken.repo != onto.repo or _wide(taken.tier) != _wide(onto.tier):
                 raise refuse(f"{taken.id} is in another repo or tier")
             if taken.project != onto.project:
                 raise refuse(f"{taken.id} is in another project")
@@ -108,6 +108,7 @@ def check_joins(
             ] + [uid for uid, deps in plan_depends.items() if onto.id in deps]
             members = taken.members()
             added = taken.estimated_lines
+            added_kinds = [taken.tier]
         else:
             if change is None or join.change != change:
                 raise refuse(f"{join.change or 'the groups'} are not of the change being planned")
@@ -120,7 +121,7 @@ def check_joins(
                     raise refuse(f"group {number} is not in {change}'s tasks.md")
                 if number in built or number in claimed:
                     raise refuse(f"group {number} is already built or claimed by a unit")
-                if (group.repo, group.tier) != (onto.repo, onto.tier):
+                if group.repo != onto.repo or _wide(group.tier) != _wide(onto.tier):
                     raise refuse(f"group {number} is tagged [{group.repo}] [{group.tier}]")
                 if group.project != onto.project:
                     raise refuse(
@@ -131,6 +132,7 @@ def check_joins(
                     if holder is None or (holder.id != onto.id and holder.state not in FINISHED):
                         raise refuse(f"group {number} also waits on {need[0]} group {need[1]}")
             claimed |= set(join.groups)
+            added_kinds = [by_number[number].tier for number in join.groups]
             others = [u.id for u in state.values() if onto.id in u.depends_on]
             members = (Member(change=join.change, groups=join.groups),)
             added = join.estimated_lines
@@ -160,7 +162,9 @@ def check_joins(
                 )
             )
 
-        state[onto.id] = onto.taking(members, estimated_lines=added)
+        state[onto.id] = onto.taking(members, estimated_lines=added).model_copy(
+            update={"tier": widest_kind([onto.tier, *added_kinds])}
+        )
         if taken is not None:
             del state[taken.id]
             for unit_id, unit in list(state.items()):
@@ -173,6 +177,11 @@ def check_joins(
                     plan_depends[unit_id] = tuple(
                         dict.fromkeys(onto.id if dep == taken.id else dep for dep in deps)
                     )
+
+
+def _wide(kind: TestTier) -> bool:
+    """Whether `kind` needs the live stack: a join pairs two kinds that both do, or neither."""
+    return kind == TestTier.E2E_TEST
 
 
 def _holds(unit: Unit, need: tuple[str, int]) -> bool:

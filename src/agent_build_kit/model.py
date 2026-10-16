@@ -16,6 +16,7 @@ Two settings, both deliberate:
   dropped silently and rediscovered as a missing field.
 """
 
+from collections.abc import Iterable
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
@@ -28,9 +29,18 @@ class Frozen(BaseModel):
 
 
 class TestTier(StrEnum):
-    """The kind of a test: a unit test, or an end-to-end test on the local stack."""
+    """The kind of a test, by width: a unit test, an integration test (behaviour across modules
+    or files in the ordinary suite, a label that behaves as a unit test), or an end-to-end test
+    on the local stack."""
 
     __test__ = False
 
     UNIT_TEST = "unit-test"
+    INTEGRATION_TEST = "integration-test"
     E2E_TEST = "e2e-test"
+
+
+def widest_kind(kinds: Iterable[TestTier]) -> TestTier:
+    """The widest of `kinds` by the order unit-test, integration-test, e2e-test."""
+    order = list(TestTier)
+    return max(kinds, key=order.index)

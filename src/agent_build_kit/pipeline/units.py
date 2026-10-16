@@ -26,7 +26,7 @@ from pydantic import Field
 
 from agent_build_kit.compat_names import Place, TestKind, new_spelling
 from agent_build_kit.config import active, active_checkout
-from agent_build_kit.model import Frozen, TestTier
+from agent_build_kit.model import Frozen, TestTier, widest_kind
 from agent_build_kit.pipeline.shell import has_origin
 
 
@@ -272,11 +272,9 @@ def plan_units(change: str, groups: list[dict], *, min_lines: int, max_lines: in
                 else f"{current[0]['title']} (+{len(current) - 1})",
                 repo=current[0]["repo"],
                 project=current[0].get("project", "."),
-                # A unit that needs the live stack anywhere needs it overall:
-                # tier decides how it's verified, not what belongs together.
-                tier=TestTier.E2E_TEST
-                if any(new_spelling(Place.VALUE, g["tier"]) == TestTier.E2E_TEST for g in current)
-                else TestTier.UNIT_TEST,
+                # A unit takes the widest kind of its groups: one that needs the live stack
+                # anywhere needs it overall.
+                tier=widest_kind(TestTier(new_spelling(Place.VALUE, g["tier"])) for g in current),
                 estimated_lines=sum(g["estimated_lines"] for g in current),
                 groups=tuple(g["number"] for g in current),
                 depends_on=depends_on,
