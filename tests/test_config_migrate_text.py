@@ -111,3 +111,63 @@ def test_a_global_limits_that_still_holds_one_moves_only_that() -> None:
         "repos: {}\n"
     )
     assert migrated.moved == ("max_concurrent_restacks",)
+
+
+def test_a_disjoint_project_limits_before_global_limits_gets_the_moved_setting_appended() -> None:
+    text = (
+        "project_limits:\n"
+        "  max_concurrent_stacks: 2  # two\n"
+        "\n"
+        "global_limits:\n"
+        "  min_unit_lines: 400\n"
+        "  # units\n"
+        "  max_units_in_progress: 5\n"
+        "repos: {}\n"
+    )
+
+    migrated = migrate(text)
+
+    assert migrated.text == (
+        "project_limits:\n"
+        "  max_concurrent_stacks: 2  # two\n"
+        "  # units\n"
+        "  max_units_in_progress: 5\n"
+        "\n"
+        "global_limits:\n"
+        "  min_unit_lines: 400\n"
+        "repos: {}\n"
+    )
+    assert migrated.moved == ("max_units_in_progress",)
+
+
+def test_a_disjoint_project_limits_after_the_block_gets_the_moved_setting_appended() -> None:
+    text = (
+        "limits:\n"
+        "  min_unit_lines: 400\n"
+        "  max_units_in_progress: 5\n"
+        "project_limits:\n"
+        "  max_concurrent_stacks: 2\n"
+    )
+
+    assert migrate(text).text == (
+        "global_limits:\n"
+        "  min_unit_lines: 400\n"
+        "project_limits:\n"
+        "  max_concurrent_stacks: 2\n"
+        "  max_units_in_progress: 5\n"
+    )
+
+
+def test_an_empty_project_limits_is_given_the_moved_setting() -> None:
+    text = "global_limits:\n  max_units_in_progress: 5\nproject_limits:\nrepos: {}\n"
+
+    assert migrate(text).text == (
+        "global_limits: {}\nproject_limits:\n  max_units_in_progress: 5\nrepos: {}\n"
+    )
+
+
+def test_a_bare_limits_key_is_only_renamed() -> None:
+    migrated = migrate("limits:\nrepos: {}\n")
+
+    assert migrated.text == "global_limits:\nrepos: {}\n"
+    assert migrated.moved == ()

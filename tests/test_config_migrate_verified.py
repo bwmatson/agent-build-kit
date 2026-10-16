@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 from agent_build_kit import config
@@ -52,7 +53,7 @@ def test_the_result_loads_with_the_configuration_loader(tmp_path: Path) -> None:
     assert config.deprecations(path) == []
 
 
-def test_a_result_that_would_differ_is_never_returned() -> None:
+def test_a_result_that_would_differ_is_refused() -> None:
     # The indented line above the setting belongs to the block scalar before it, not to the
     # setting, so lifting it as a comment would change the document.
     text = (
@@ -63,11 +64,8 @@ def test_a_result_that_would_differ_is_never_returned() -> None:
         "  max_units_in_progress: 5\n"
     )
 
-    try:
-        migrated = migrate(text)
-    except ConfigMigrateError:
-        return
-    assert yaml.safe_load(migrated.text) == expected_document(yaml.safe_load(text))
+    with pytest.raises(ConfigMigrateError, match="differ"):
+        migrate(text)
 
 
 def test_migrating_the_migrated_text_returns_it_unchanged() -> None:

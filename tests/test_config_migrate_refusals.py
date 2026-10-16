@@ -27,6 +27,26 @@ CASES = {
         r"max_units_in_progress|limits|<<",
         r"merge|anchor|alias",
     ),
+    "alias of a block anchored elsewhere": (
+        "base: &b\n  max_units_in_progress: 5\nlimits: *b\n",
+        r"limits",
+        r"anchor|alias",
+    ),
+    "anchored block": (
+        "limits: &l\n  max_units_in_progress: 5\n",
+        r"limits",
+        r"anchor|alias",
+    ),
+    "project_limits indented differently": (
+        "project_limits:\n    max_concurrent_stacks: 2\nlimits:\n  max_units_in_progress: 5\n",
+        r"project_limits",
+        r"indent",
+    ),
+    "project_limits in flow style": (
+        "project_limits: {max_concurrent_stacks: 2}\nlimits:\n  max_units_in_progress: 5\n",
+        r"project_limits",
+        r"flow",
+    ),
     "limits and global_limits": (
         "limits:\n  max_units_in_progress: 5\nglobal_limits:\n  min_unit_lines: 400\n",
         r"(?s)(?=.*\blimits\b)(?=.*global_limits)",

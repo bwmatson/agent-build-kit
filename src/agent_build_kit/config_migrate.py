@@ -15,12 +15,7 @@ import yaml
 
 from agent_build_kit.config import DEPRECATED_ROOT_KEY
 from agent_build_kit.model import Frozen
-from agent_build_kit.runtimes.policy_apply import (
-    _end,
-    _insert,
-    _lines,
-    _strip_comment,
-)
+from agent_build_kit.yaml_lines import insert_lines, node_end, split_lines, strip_comment
 
 __all__ = ["ConfigMigrateError", "Migrated", "migrate"]
 
@@ -68,8 +63,55 @@ def _check_line(lines: list[str], key: yaml.ScalarNode, value: yaml.Node) -> Non
     line = key.start_mark.line
     if value.start_mark.line != line or value.end_mark.line != line:
         raise _refuse(name, "its value is on more than one line, which cannot be moved by lines")
-    if _MARKED.search(_strip_comment(lines[line])):
+    if _MARKED.search(strip_comment(lines[line])):
         raise _refuse(name, "it has an anchor or an alias, which cannot be moved by lines")
+
+
+def _check_block(
+    lines: list[str], block_key: yaml.ScalarNode, moving: list[yaml.ScalarNode]
+) -> None:
+    """Refuse a block whose settings are not on its own lines: an anchor or alias on the key's
+    line, or a moved key that sits on lines the block does not own."""
+    line, col = block_key.start_mark.line, block_key.start_mark.column
+    if _MARKED.search(strip_comment(lines[line])):
+        raise _refuse(
+            block_key.value, "the block has an anchor or an alias, which cannot be edited by lines"
+        )
+    last = node_end(lines, line, col)
+    if any(not line < key.start_mark.line <= last for key in moving):
+        raise _refuse(
+            block_key.value,
+            "its settings are not written under it, so they cannot be moved by lines",
+        )
+
+
+def _check_project(
+    lines: list[str], held: tuple[yaml.ScalarNode, yaml.Node], moving: list[yaml.ScalarNode]
+) -> None:
+    """Refuse a `project_limits` the moved lines cannot be appended to: one that already holds a
+    moving setting, has an anchor or alias, is not a block of settings, or indents differently."""
+    key, value = held
+    names = {setting.value for setting in moving}
+    if isinstance(value, yaml.MappingNode):
+        for child, _ in value.value:
+            if isinstance(child, yaml.ScalarNode) and child.value in names:
+                raise _refuse(child.value, f"it is already set in {PROJECT}")
+    if _MARKED.search(strip_comment(lines[key.start_mark.line])):
+        raise _refuse(
+            PROJECT, "the block has an anchor or an alias, which cannot be edited by lines"
+        )
+    if isinstance(value, yaml.MappingNode):
+        if value.flow_style:
+            raise _refuse(PROJECT, "a flow-style block cannot be edited without rewriting the line")
+        columns = {child.start_mark.column for child, _ in value.value}
+        if columns != {setting.start_mark.column for setting in moving} or len(columns) != 1:
+            raise _refuse(PROJECT, "its settings are indented differently from the ones moved")
+    elif not (
+        isinstance(value, yaml.ScalarNode)
+        and value.tag == _NULL_TAG
+        and strip_comment(lines[key.start_mark.line]).rstrip().endswith(":")
+    ):
+        raise _refuse(PROJECT, "the block is not a mapping of settings")
 
 
 def _expected(old: dict[str, Any], source: str) -> dict[str, Any]:
@@ -79,7 +121,7 @@ def _expected(old: dict[str, Any], source: str) -> dict[str, Any]:
     renamed = {GLOBAL if key == source else key: value for key, value in old.items()}
     renamed[GLOBAL] = None if unset and not moved else block
     if moved:
-        renamed[PROJECT] = moved
+        renamed[PROJECT] = {**(old.get(PROJECT) or {}), **moved}
     return renamed
 
 
@@ -127,26 +169,25 @@ def migrate(text: str) -> Migrated:
         return Migrated(text=text)
 
     held = _pair(root, PROJECT)
-    if held is not None and moving:
-        present = held[1].value if isinstance(held[1], yaml.MappingNode) else []
-        for key, _ in present:
-            if isinstance(key, yaml.ScalarNode) and key.value in {k.value for k, _ in moving}:
-                raise _refuse(key.value, f"it is already set in {PROJECT}")
-        raise _refuse(PROJECT, f"{PROJECT} is already set, move the settings into it by hand")
     if moving and isinstance(block, yaml.CollectionNode) and block.flow_style:
         raise _refuse(
             block_key.value, "a flow-style block cannot be edited without rewriting the line"
         )
 
-    lines = _lines(text)
+    lines = split_lines(text)
     eol = "\r\n" if "\r\n" in text else "\n"
     block_line, col = block_key.start_mark.line, block_key.start_mark.column
+    if moving:
+        _check_block(lines, block_key, [key for key, _ in moving])
+        if held is not None:
+            _check_project(lines, held, [key for key, _ in moving])
     regions = []
     for key, value in moving:
         assert isinstance(key, yaml.ScalarNode)
         _check_line(lines, key, value)
         regions.append(_region(lines, key.start_mark.line, block_line))
     carried = [line.rstrip("\r\n") for first, last in regions for line in lines[first : last + 1]]
+    deleted = sum(last - first + 1 for first, last in regions)
     for first, last in reversed(regions):
         del lines[first : last + 1]
 
@@ -154,10 +195,17 @@ def migrate(text: str) -> Migrated:
     left = [
         key for key, _ in pairs if isinstance(key, yaml.ScalarNode) and key.value not in leaving
     ]
-    lines[block_line] = _renamed(lines[block_line], block_key, empty=not left)
-    if moving:
-        at = _end(lines, block_line, col) + 1
-        _insert(lines, at, [" " * col + f"{PROJECT}:", *carried], eol)
+    lines[block_line] = _renamed(lines[block_line], block_key, empty=bool(moving) and not left)
+    if moving and held is None:
+        at = node_end(lines, block_line, col) + 1
+        insert_lines(lines, at, [" " * col + f"{PROJECT}:", *carried], eol)
+    elif moving and held is not None:
+        # The block it is kept in shifts up by the lines taken out when it comes after them.
+        held_line = held[0].start_mark.line - (
+            deleted if held[0].start_mark.line > block_line else 0
+        )
+        at = node_end(lines, held_line, held[0].start_mark.column) + 1
+        insert_lines(lines, at, carried, eol)
 
     result = "".join(lines)
     if not text.endswith("\n"):
@@ -175,7 +223,7 @@ def _renamed(line: str, key: yaml.ScalarNode, *, empty: bool) -> str:
     if empty:
         colon = tail.index(":") + 1
         rest = tail[colon:]
-        if not _strip_comment(rest).strip():
+        if not strip_comment(rest).strip():
             tail = tail[:colon] + " {}" + rest
     return head + tail
 

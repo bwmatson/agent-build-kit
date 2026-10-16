@@ -29,6 +29,15 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.runtimes.known_agents import ApplyFormat, ApplyPolicy, YamlVersion
 from agent_build_kit.runtimes.recommended_policy import patterns
 from agent_build_kit.settings import named_value
+from agent_build_kit.yaml_lines import (
+    insert_lines,
+    is_content,
+    is_marker,
+    leading_spaces,
+    node_end,
+    split_lines,
+    strip_comment,
+)
 
 BACKUP_SUFFIX = ".abk-backup"
 STR_TAG = "tag:yaml.org,2002:str"
@@ -138,59 +147,13 @@ def _set_plain(tree: dict[str, Any], path: tuple[str, ...], value: list[Any]) ->
 # --- text ----------------------------------------------------------------------------------------
 
 
-def _lines(text: str) -> list[str]:
-    """The lines of `text` with their endings, split at newlines only, so the join is the text."""
-    parts = text.split("\n")
-    lines = [part + "\n" for part in parts[:-1]]
-    if parts[-1]:
-        lines.append(parts[-1])
-    return lines
-
-
-def _indent(line: str) -> int:
-    return len(line) - len(line.lstrip(" "))
-
-
-def _content(line: str) -> bool:
-    stripped = line.strip()
-    return bool(stripped) and not stripped.startswith("#")
-
-
-def _marker(line: str) -> bool:
-    return line.startswith(("---", "...")) and line[3:4] in ("", " ", "\t", "\r", "\n")
-
-
-def _end(lines: list[str], start: int, col: int, *, beside_dash: bool = False) -> int:
-    """The last content line of the node that starts on line `start` at column `col`: the last
-    non-blank, non-comment line before the first content line indented at or under `col` (a dash
-    at `col` still belongs to a mapping key's list when `beside_dash`), or a document marker, or
-    the end of the file. Comments and blank lines after it are not part of the node."""
-    last = start
-    for number in range(start + 1, len(lines)):
-        line = lines[number]
-        if not _content(line):
-            continue
-        if _marker(line):
-            break
-        if _indent(line) <= col and not (
-            beside_dash and _indent(line) == col and line.lstrip().startswith("- ")
-        ):
-            break
-        last = number
-    return last
-
-
 def _step(lines: list[str]) -> int:
     """How far the file indents a nested block: the first key whose block is nested, else two."""
-    body = [line for line in lines if _content(line) and not _marker(line)]
+    body = [line for line in lines if is_content(line) and not is_marker(line)]
     for here, after in zip(body, body[1:], strict=False):
-        if _strip_comment(here).endswith(":") and _indent(after) > _indent(here):
-            return _indent(after) - _indent(here)
+        if strip_comment(here).endswith(":") and leading_spaces(after) > leading_spaces(here):
+            return leading_spaces(after) - leading_spaces(here)
     return DEFAULT_STEP
-
-
-def _strip_comment(line: str) -> str:
-    return re.sub(r"(^|\s)#.*$", "", line.rstrip("\r\n")).rstrip()
 
 
 def _after_key(line: str, col: int, label: str, where: str) -> tuple[str, int]:
@@ -199,7 +162,7 @@ def _after_key(line: str, col: int, label: str, where: str) -> tuple[str, int]:
     if match is None:
         raise ApplyRefused(f"{label}: cannot read the line holding the key {where}")
     start = match.end()
-    rest = _strip_comment(line[start:]).strip()
+    rest = strip_comment(line[start:]).strip()
     return rest, start + (len(line[start:]) - len(line[start:].lstrip()))
 
 
@@ -306,12 +269,6 @@ def _where(
 # --- inserting -----------------------------------------------------------------------------------
 
 
-def _insert(lines: list[str], at: int, new: list[str], eol: str) -> None:
-    if at > 0 and not lines[at - 1].endswith("\n"):
-        lines[at - 1] += eol
-    lines[at:at] = [line + eol for line in new]
-
-
 def _block(indent: int, keys: tuple[str, ...], items: Iterable[str], step: int) -> list[str]:
     out = [" " * (indent + number * step) + f"{key}:" for number, key in enumerate(keys)]
     depth = indent + len(keys) * step
@@ -330,7 +287,7 @@ def _splice(
     """`text` with `items` added to the list at `path` (or, with `replace`, made its items), by
     inserting or replacing lines; every other line is untouched. Refuses what it cannot."""
     root = _parse(text, descriptor, label)
-    lines = _lines(text)
+    lines = split_lines(text)
     spot = _where(root, path, lines, label, flow=replace)
     if not items:
         return text
@@ -339,10 +296,12 @@ def _splice(
     if spot.kind == "empty":
         at = spot.line + 1
         while (
-            at < len(lines) and lines[at].strip().startswith("#") and _indent(lines[at]) > spot.col
+            at < len(lines)
+            and lines[at].strip().startswith("#")
+            and leading_spaces(lines[at]) > spot.col
         ):
             at += 1
-        _insert(lines, at, _block(spot.col + step, spot.keys, items, step), eol)
+        insert_lines(lines, at, _block(spot.col + step, spot.keys, items, step), eol)
     elif spot.kind == "missing":
         if spot.node is None:
             at, indent = len(lines), 0
@@ -350,8 +309,11 @@ def _splice(
             first, last = next(iter(spot.node)), list(spot.node)[-1]
             indent = spot.node.lc.key(first)[1]
             top = spot.node is root
-            at = _end(lines, spot.node.lc.key(last)[0], -1 if top else indent, beside_dash=True) + 1
-        _insert(lines, at, _block(indent, spot.keys, items, step), eol)
+            at = (
+                node_end(lines, spot.node.lc.key(last)[0], -1 if top else indent, beside_dash=True)
+                + 1
+            )
+        insert_lines(lines, at, _block(indent, spot.keys, items, step), eol)
     elif spot.kind == "flow":
         line = lines[spot.line]
         closing = _flow_end(line, spot.start)
@@ -381,7 +343,7 @@ def _splice_block(
         raise ApplyRefused(f"{label}: cannot read the layout of the list's entries")
     style = _style_of(lines[line], col)
     last_line = seq.lc.item(len(seq) - 1)[0]
-    end = _end(lines, last_line, _indent(prefix))
+    end = node_end(lines, last_line, leading_spaces(prefix))
     new = [prefix + _quote(descriptor, style, item) for item in items]
     if replace:
         closed = lines[end].endswith("\n")
@@ -389,7 +351,7 @@ def _splice_block(
             new[-1] + (eol if closed else "")
         ]
     else:
-        _insert(lines, end + 1, new, eol)
+        insert_lines(lines, end + 1, new, eol)
 
 
 def _flow_end(line: str, start: int) -> int | None:
