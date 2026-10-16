@@ -31,6 +31,7 @@ from agent_build_kit.pipeline.units import (
     IN_REVIEW,
     PLANNED,
     RUNNING,
+    ProjectKey,
     base_of,
     branch_name,
     local_ref,
@@ -330,3 +331,51 @@ class RestackLane:
                 self._changed.notify_all()
                 ended, self._finished = self._finished, Future()
             ended.set_result(None)
+
+
+class RestackLanes:
+    """A lane for each project, made on first use by `make` and routed to by a unit's project.
+
+    The bound of a lane is per project: two projects of one repo each run up to the cap."""
+
+    def __init__(
+        self, make: Callable[[ProjectKey], RestackLane], *, owed: Owed = lambda units: ()
+    ) -> None:
+        self._make = make
+
+    def hand_over(
+        self,
+        unit: StoredUnit,
+        work: Work | None = None,
+        *,
+        done: Callable[[bool], None] | None = None,
+    ) -> None:
+        raise NotImplementedError
+
+    def scan(self, units: list[StoredUnit]) -> None:
+        raise NotImplementedError
+
+    def drain(self) -> None:
+        raise NotImplementedError
+
+    def finished(self) -> Future[Any]:
+        raise NotImplementedError
+
+    @property
+    def running(self) -> list[str]:
+        raise NotImplementedError
+
+    @property
+    def waiting(self) -> list[str]:
+        raise NotImplementedError
+
+    def __enter__(self) -> RestackLanes:
+        return self
+
+    def __exit__(
+        self,
+        kind: type[BaseException] | None,
+        error: BaseException | None,
+        trace: TracebackType | None,
+    ) -> None:
+        self.drain()
