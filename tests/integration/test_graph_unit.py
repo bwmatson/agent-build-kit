@@ -1,6 +1,6 @@
 """One real unit built end to end through the graph, then reworked on a comment.
 
-The runtime is a real agent on this host (`ABK_ACCEPTANCE_ACP_COMMAND`) and
+The runtime is a real Claude Code agent on this host and
 `abk tick` is the real CLI run as a process, against a scratch planning repo and
 a scratch code repo with a bare remote. Only the host is faked: a fake GitHub
 server speaking the REST API, reached through `ABK_GITHUB_API_URL`, with `gh auth
@@ -20,8 +20,6 @@ suite.
 from __future__ import annotations
 
 import asyncio
-import os
-import shlex
 import shutil
 import subprocess
 import sys
@@ -38,11 +36,10 @@ from agent_build_kit.graph.unit import thread_position
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
-from agent_build_kit.pipeline.workspaces import worktree_path
-from tests.agent_home import agent_home, assert_unit_session_listed
 from tests.factories import git, init_repo, scratch_app
 from tests.forges.github_server import FakeGitHub
 from tests.forges.process_host import process_env
+from tests.runtime_scratch import RUNTIME_PARAMS, runtime_scratch
 
 pytestmark = [
     pytest.mark.local_stack,
@@ -53,7 +50,9 @@ pytestmark = [
 CHANGE = "add-marker"
 BRANCH = f"spec/{CHANGE}/1"
 UNIT_ID = f"{CHANGE}/1"
-AGENT_COMMAND = "ABK_ACCEPTANCE_ACP_COMMAND"
+# This change runs the scenario on Claude Code alone, so the file holds no ACP-only step: the
+# session listing and the ACP parameter come with the change that adds the ACP variants.
+CLAUDE_CODE = [p for p in RUNTIME_PARAMS if p.values[0] == "claude_code"]
 COMMENT = "Please add a one-line docstring to `marker()` saying what it returns."
 
 TASKS = """# Tasks
@@ -81,7 +80,6 @@ class Scratch(Frozen):
     state: Path
     host: FakeGitHub
     env: dict[str, str] = Field(repr=False)
-    command: list[str]
 
 
 @pytest.fixture(scope="module")
@@ -102,11 +100,14 @@ def scratch_ledger(scratch: Scratch) -> Path:
 
 
 @pytest.fixture(scope="module")
-def scratch(tmp_path_factory: pytest.TempPathFactory, github_host: FakeGitHub) -> Iterator[Scratch]:
-    tmp_path = tmp_path_factory.mktemp("graph-acp")
-    command = os.environ.get(AGENT_COMMAND, "")
-    if not command:
-        pytest.fail(f"{AGENT_COMMAND} names no agent: this run needs a real one on the host")
+def scratch(
+    request: pytest.FixtureRequest,
+    tmp_path_factory: pytest.TempPathFactory,
+    github_host: FakeGitHub,
+) -> Iterator[Scratch]:
+    """The scratch installation for the runtime the test is parametrized with."""
+    tmp_path = tmp_path_factory.mktemp("graph-unit")
+    runtime = runtime_scratch(request.param, tmp_path_factory, lambda command: None)
 
     remote = tmp_path / "remote.git"
     subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
@@ -131,30 +132,25 @@ def scratch(tmp_path_factory: pytest.TempPathFactory, github_host: FakeGitHub) -
     (planning / "abk.yaml").write_text(
         f"repos:\n  app:\n    path: {app}\n    slug: example/app\n"
         "    profile: python-uv\n    languages: [python]\n"
-        f"runtimes:\n  acp:\n    command: {shlex.split(command)}\n"
+        f"{runtime.runtimes_yaml}"
     )
     git(planning, "add", "-A")
     git(planning, "commit", "-q", "-m", "plan")
 
-    home = agent_home(tmp_path_factory)
     env = {
         **process_env(github_host, tmp_path / "bin", tmp_path / "gh-calls.txt"),
-        **home.env,
+        **runtime.env,
         "ABK_CONFIG": str(planning / "abk.yaml"),
         "ABK_WORKTREE_ROOT": str(tmp_path / "worktrees"),
-        "ABK_RUNTIME": "acp",
     }
-    with pytest.MonkeyPatch.context() as patch:
-        home.apply(patch)
-        yield Scratch(
-            planning=planning,
-            app=app,
-            remote=remote,
-            state=Installation(config.load(planning / "abk.yaml"), planning).state_dir,
-            host=github_host,
-            env=env,
-            command=shlex.split(command),
-        )
+    yield Scratch(
+        planning=planning,
+        app=app,
+        remote=remote,
+        state=Installation(config.load(planning / "abk.yaml"), planning).state_dir,
+        host=github_host,
+        env=env,
+    )
 
 
 def tick(scratch: Scratch) -> Ticked:
@@ -190,6 +186,7 @@ def run_log(scratch: Scratch) -> str:
     return "\n".join(path.read_text() for path in logs)
 
 
+@pytest.mark.parametrize("scratch", CLAUDE_CODE, indirect=True)
 def test_a_unit_runs_to_review_is_reworked_on_a_comment_and_its_thread_ends_at_merge(
     scratch: Scratch,
     scratch_ledger: Path,
@@ -201,9 +198,6 @@ def test_a_unit_runs_to_review_is_reworked_on_a_comment_and_its_thread_ends_at_m
     assert scratch.host.requests("POST", "/repos/example/app/pulls"), "no pull request was opened"
     # Waiting in review is a thread parked at its wait, not a finished one.
     assert thread_next(scratch) == (Node.AWAIT_REVIEW,), run_log(scratch)
-    # The rework below resumes the build's session: the agent must list it, or say why not here.
-    cwd = worktree_path(scratch.app, BRANCH, Path(scratch.env["ABK_WORKTREE_ROOT"]))
-    assert_unit_session_listed(scratch.state, UNIT_ID, scratch.command, cwd)
 
     # A tick with nothing new changes nothing: the poller records the pull
     # request's comments as seen before the reviewer writes one.
