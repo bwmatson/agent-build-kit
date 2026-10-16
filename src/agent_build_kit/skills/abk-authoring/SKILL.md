@@ -183,6 +183,12 @@ carried ones included, and keeps it once it has started. A value that is not an
 integer from 1 to 5, a second line in one place, or a line in a group that could
 not be read is an error; `abk tags` shows a priority that is not 3.
 
+## Tier 2 splits
+
+A repo's tier 2 tests may be divided by `tests.tier2_splits` in `abk.yaml`; a test belongs
+to at most one split and the rest are `rest`. Before writing an `[e2e-test]` group that adds
+a tier 2 test, run `abk tier2 check` to see that the test lands in one split only.
+
 ## Describe behaviour, not names
 
 A task describes behaviour. It names a new function, class or constant only when

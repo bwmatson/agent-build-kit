@@ -1307,6 +1307,17 @@ configured: they miss a key with no recognisable prefix and can match a harmless
 A secret split across two transcript events is not found. Text already saved is not
 rewritten by the pipeline; the temporary `abk redact-history` does it.
 
+### Tier 2 splits
+
+The held set is the `hold: true` entries of `tests.tier2_splits` together with the unexpired
+entries of `tier2-held.json` in the state directory; the configuration wins. One function
+builds a run's selection from the repo's splits, the held set and the one split to run
+alone, and every tier 2 command takes it. A run records the split of each failed test
+(`rest`, a declared split or `unknown`). A unit waiting on a held split is parked with the
+cause `split_held`. The scheduled tier 2 run is one change per split and `rest`, named
+`scheduled-tier2-<repo>-<date>-<split>`; an older change with no suffix or ending `-base`
+counts as `rest`.
+
 ## State on disk
 
 The planning repo's state directory (`planning.state_dir`, default `runs/`):

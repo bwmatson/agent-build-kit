@@ -909,6 +909,17 @@ The markers the suite uses:
   unregistered one fails collection. `dev_stack` marks a test that needs the
   repo's dev stack.
 
+### Splits and their selectors
+
+A repo's tier 2 tests are divided by `tests.tier2_splits` (see `docs/configuration.md`).
+A test is in at most one split (exclusive membership): the tests no split selects are
+`rest`, and a test selected by two splits is a finding of `abk tier2 check`, which finds it
+by listing each split's tests through the toolchain profile, not through a plugin of the
+repo. The profile reports the selector kinds it supports and turns a split's selector
+into what its test runner takes; the python profile supports the selector kind `marker`
+and turns it into the `-m` expression of the same text. A run is one selection over the
+splits: held splits are left out, and a resume or a scheduled change runs one split alone.
+
 ### This repo's own splits
 
 The kit's own tier 2 tests are split the way any installation splits its tests: the

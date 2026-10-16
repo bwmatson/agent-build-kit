@@ -320,6 +320,17 @@ predecessor. Exit 1 if any change has a problem or no `tasks.md`.
 `openspec validate --all --strict --json` in the planning repo. Prints
 OpenSpec's output; exit code is OpenSpec's.
 
+### `abk tier2 check [REPO]`
+
+Lists each tier 2 split of the repo (default: every repo) and `rest` with its marker and the
+number of tests it holds, found by listing through the profile from each declared project's
+directory under the verify environment. It reports each selector the repo's test runner does
+not know, each test selected by two splits (its identifier and both split names) and each
+listing that fails (never read as an empty split). It runs no test and changes nothing. A
+repo with no declared split passes with a line saying so. Exit 0 when it finds nothing; 1
+when it finds something or a declared split cannot be applied by the profile; 2 for a repo
+it does not know.
+
 ### `abk archive CHANGE`
 
 `openspec archive CHANGE --yes` in the planning repo, without the
