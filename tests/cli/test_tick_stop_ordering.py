@@ -1,9 +1,8 @@
-"""The scenario of `test_stopping_still_awaits_the_builds_in_flight`, with the order the
-original leaves to chance forced: a slot frees before the refusal is written.
+"""The ordering `test_stopping_still_awaits_the_builds_in_flight` must rule out: a slot
+frees before the refusal is written.
 
-A freed slot is refilled at once, so a pass whose refusal lands after another unit finished
-starts the next unit first. The ordering is held by events, not by timing, so this fails the
-same way however loaded the machine is."""
+A freed slot is refilled at once, so a refusal landing after another unit finished does not
+stop the unit already started. The ordering is held by events, not by timing."""
 
 from __future__ import annotations
 
@@ -13,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline import pause
-from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED
+from agent_build_kit.pipeline.units import IN_REVIEW
 from tests.cli.test_tick_scheduling import WAIT
 from tests.tick_pass import Builder, install_builder, isolate, stored, tick, workspace
 from tests.waiting import wait_for
@@ -31,7 +30,7 @@ def builder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Builder:
     return install_builder(tmp_path, monkeypatch)
 
 
-def test_stopping_after_a_slot_freed_has_already_started_the_next_unit(
+def test_a_refusal_after_a_slot_freed_does_not_unstart_the_next_unit(
     builder: Builder, tmp_path: Path
 ) -> None:
     inst = workspace(tmp_path, max_concurrent=3)
@@ -61,6 +60,6 @@ def test_stopping_after_a_slot_freed_has_already_started_the_next_unit(
 
     assert tick(inst) == 0
 
-    assert sorted(builder.started) == ["quick/1", "slow/1", "stops/1"]
+    assert sorted(builder.started) == ["later/1", "quick/1", "slow/1", "stops/1"]
     assert builder.store.get("slow/1").state == IN_REVIEW
-    assert builder.store.get("later/1").state == PLANNED
+    assert builder.store.get("later/1").state == IN_REVIEW

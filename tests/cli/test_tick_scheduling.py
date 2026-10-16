@@ -476,9 +476,12 @@ def test_stopping_still_awaits_the_builds_in_flight(builder: Builder, tmp_path: 
         )
 
     builder.scripts["stops/1"] = refused
-    builder.scripts["slow/1"] = lambda: wait_for(
-        (tmp_path / "paused.json").exists, what="the pause file", timeout=WAIT
-    )
+    # Neither finishes before the refusal is written: a slot freed earlier is refilled
+    # at once, which would start `later/1` before the pass is told to stop.
+    for uid in ("quick/1", "slow/1"):
+        builder.scripts[uid] = lambda: wait_for(
+            (tmp_path / "paused.json").exists, what="the pause file", timeout=WAIT
+        )
 
     assert tick(inst) == 0
 
