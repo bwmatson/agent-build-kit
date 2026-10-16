@@ -54,7 +54,7 @@ def test_skill_frontmatter(name: str) -> None:
     assert meta["name"] == name
     assert meta["description"].startswith("TRIGGER — ")
     assert " SKIP " in meta["description"]
-    assert meta["version"] == "1.0.0"
+    assert re.fullmatch(r"[0-9]+(\.[0-9]+)*", str(meta["version"]))
     assert meta["generatedBy"] == "agent-build-kit"
 
 

@@ -1,7 +1,7 @@
 ---
 name: abk-authoring
 description: TRIGGER — read before writing or editing a change's tasks.md in a planning repo, before choosing a task group's [repo] [tier] tags or [contract]/[narrow]/[acceptance] flags, or when `abk tags` reports a problem. SKIP for questions about running the pipeline (abk-pipeline) or about abk.yaml (abk-config).
-version: 1.0.0
+version: 1.1.0
 generatedBy: agent-build-kit
 ---
 
@@ -214,3 +214,11 @@ Both run in CI on the planning repo's own PR, but running them first saves a
 round trip. `abk check` covers the OpenSpec artifacts (proposal, design,
 delta specs with GIVEN/WHEN/THEN scenarios); `abk tags` covers everything on
 this page.
+
+## Writing a change in a repo that is also the planning repo
+
+Write and edit a change's artifacts in your working copy, under the specs
+directory, and commit them as planning. The pipeline builds the code in its own
+pipeline worktree, so run `abk tags` and `abk check` from the working copy as
+usual, and run `abk tick` with `abk --config <worktree>/abk.yaml tick`, which
+`abk status` prints. Do not tick boxes or edit the code to apply a change by hand.

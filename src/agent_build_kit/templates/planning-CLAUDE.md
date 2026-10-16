@@ -1,8 +1,7 @@
 # Planning repo
 
-This repo is the planning side of an `abk` workspace: the specs, the pipeline
-state and the run logs for the code repos it builds ({repo_names}). No
-application code lives here.
+This repo holds the specs, the pipeline state and the run logs of an `abk`
+workspace that builds {repo_names}.
 
 What lives where:
 

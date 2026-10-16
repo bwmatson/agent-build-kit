@@ -1,7 +1,7 @@
 ---
 name: abk-config
 description: TRIGGER — read before editing abk.yaml in a planning repo, when `abk doctor` reports a problem, or when asked where an installation fact (a repo path, a GitHub owner, a deploy command, a credential name) should live. SKIP for questions about running the pipeline (abk-pipeline) or writing a change's tasks (abk-authoring).
-version: 1.0.0
+version: 1.1.0
 generatedBy: agent-build-kit
 ---
 
@@ -48,6 +48,7 @@ planning:
   self_pull: true             # tracks pull the planning repo before running
   publish: direct             # direct | branch: push track commits to the default
                               # branch, or to a planning/... branch with a pull request
+                              # (only for a repo that is also the planning repo)
 
 openspec:
   command: null               # argv for the OpenSpec CLI; null = npx with
@@ -416,3 +417,15 @@ is 1 when anything failed.
   the commands that deploy it, or an empty `run:` if nothing does.
 - A contract between repos: `consumes` on the consumer, and a sentence in
   `relationships` on both sides, so the planner orders the work.
+
+## A repo that is also the planning repo
+
+List the repo in `abk.yaml` with the path `.`. `abk install-timers` then makes a
+pipeline worktree, outside the repository, where ticks and tracks run; edit
+`abk.yaml` in your working copy and let it reach the default branch. From the
+working copy, commands that run the pipeline need the worktree's config:
+`abk --config <worktree>/abk.yaml <command>` (`abk status` prints it).
+`planning.publish` decides where a track's planning commit goes: `direct` pushes
+it to the default branch, `branch` pushes it to a `planning/...` branch and opens
+a pull request, which suits a protected branch. `abk doctor` fails `direct` where
+the default branch is protected.
