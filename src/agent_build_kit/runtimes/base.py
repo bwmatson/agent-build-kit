@@ -60,6 +60,7 @@ class ToolPolicy(Frozen):
     specs_dir: Path | None = None  # read-only; None when this run is meant to write there
     branch_prefix: str = "spec/"
     no_commit: bool = False  # refuse `git commit` too: the person commits, not the turn
+    planning_paths: tuple[str, ...] = ()  # unwritable in the worktree: the pipeline's own
     scoped: bool = True  # False: only commit and push are refused, nothing of the unit's rules
 
 

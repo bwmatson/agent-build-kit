@@ -108,6 +108,7 @@ def _check_file_write(
     planning_state_dir: Path | None = None,
     planning_repo: Path | None = None,
     planning_change_dir: Path | None = None,
+    planning_paths: tuple[str, ...] = (),
 ) -> dict | None:
     target = (payload.get("tool_input") or {}).get("file_path") or (
         payload.get("tool_input") or {}
@@ -161,6 +162,14 @@ def _check_file_write(
             f"so it cannot tell whether writing {target} stays inside it"
         )
     if path.is_relative_to(worktree):
+        # A unit of the planning repo's own repository: the pipeline owns these paths.
+        for fenced in planning_paths:
+            if path.is_relative_to(worktree / fenced):
+                return _deny(
+                    f"{target} is a planning path ({fenced}), which the pipeline owns; "
+                    "if it needs changing, report it as `BLOCKED: <what and where>` so a "
+                    "human can make it"
+                )
         return None
     # A track run's own bookkeeping: the Markdown run logs and tracker the
     # runner commits. The rest of the planning repo, including the tick's live
@@ -204,6 +213,7 @@ def decide(
     planning_repo: Path | None = None,
     planning_state_dir: Path | None = None,
     planning_change_dir: Path | None = None,
+    planning_paths: tuple[str, ...] = (),
     protected_branches: tuple[str, ...] = (),
     no_push: bool = False,
     no_commit: bool = False,
@@ -215,7 +225,12 @@ def decide(
             return None
         if payload.get("tool_name") in FILE_TOOLS:
             return _check_file_write(
-                payload, specs, planning_state_dir, planning_repo, planning_change_dir
+                payload,
+                specs,
+                planning_state_dir,
+                planning_repo,
+                planning_change_dir,
+                planning_paths,
             )
         if payload.get("tool_name") != "Bash":
             return None
@@ -276,6 +291,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--planning-repo", type=Path, default=None)
     parser.add_argument("--planning-state-dir", type=Path, default=None)
     parser.add_argument("--planning-change-dir", type=Path, default=None)
+    parser.add_argument("--planning-paths", default="")
     parser.add_argument("--protected-branches", default="")
     parser.add_argument("--no-push", action="store_true")
     parser.add_argument("--no-commit", action="store_true")
@@ -305,6 +321,7 @@ def main(argv: list[str] | None = None) -> int:
         planning_repo=args.planning_repo,
         planning_state_dir=args.planning_state_dir,
         planning_change_dir=args.planning_change_dir,
+        planning_paths=tuple(p for p in args.planning_paths.split(",") if p),
         protected_branches=tuple(b for b in args.protected_branches.split(",") if b),
         no_push=args.no_push,
         no_commit=args.no_commit,
@@ -322,6 +339,7 @@ def hook_settings(
     planning_repo: Path | None = None,
     planning_state_dir: Path | None = None,
     planning_change_dir: Path | None = None,
+    planning_paths: tuple[str, ...] = (),
     protected_branches: tuple[str, ...] = (),
     no_push: bool = False,
     no_commit: bool = False,
@@ -339,6 +357,8 @@ def hook_settings(
     `planning_repo` is set for a track run: its branches are the pipeline's.
     `planning_state_dir` is where in it that run may write its run log.
     `planning_change_dir` is the one change a propose run may write there.
+    `planning_paths` are paths, relative to the unit's worktree, that a unit of the planning
+    repo's own repository may not write: the pipeline owns them.
     `protected_branches` are the branches repos integrate on beyond `main` and
     `master`, which a direct push is refused to; the hook is its own process and
     knows no workspace, so it has to be told.
@@ -358,6 +378,8 @@ def hook_settings(
         command += f" --planning-state-dir {planning_state_dir}"
     if planning_change_dir is not None:
         command += f" --planning-change-dir {planning_change_dir}"
+    if planning_paths:
+        command += " --planning-paths " + ",".join(planning_paths)
     if protected_branches:
         command += f" --protected-branches {','.join(protected_branches)}"
     if no_push:

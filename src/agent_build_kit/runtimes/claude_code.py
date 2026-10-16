@@ -240,6 +240,7 @@ def build_argv(request: AgentRequest) -> list[str]:
         settings = hook_settings(
             request.policy.specs_dir,
             branch_prefix=request.policy.branch_prefix,
+            planning_paths=request.policy.planning_paths,
             no_push=True,
             no_commit=request.policy.no_commit,
             refusals_only=not request.policy.scoped,
