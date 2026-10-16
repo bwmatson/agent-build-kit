@@ -41,6 +41,14 @@ def yes(reply: str, *, default: bool = False) -> bool:
     return default if not answer else answer in ("y", "yes")
 
 
+def confirmed(question: str, *, default: bool = False) -> bool:
+    """Ask `question` at the terminal and whether the reply says yes; no reply to read is a no."""
+    try:
+        return yes(input(question), default=default)
+    except EOFError:
+        return False
+
+
 class RuntimeChoiceError(Exception):
     """The choice cannot be made as asked; `abk init` exits 2 having written nothing."""
 

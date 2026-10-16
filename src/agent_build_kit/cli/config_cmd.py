@@ -4,6 +4,7 @@ default is filled in."""
 from __future__ import annotations
 
 import argparse
+import difflib
 import sys
 
 import yaml
@@ -17,10 +18,62 @@ from agent_build_kit.config import (
     overlay_path,
     read_overlay,
 )
+from agent_build_kit.config_migrate import ConfigMigrateError, migrate
+from agent_build_kit.init.runtime_choice import confirmed
 from agent_build_kit.installation import Installation, load_installation
+from agent_build_kit.runtimes.policy_apply import backup_and_replace
+
+
+def cmd_migrate(args: argparse.Namespace) -> int:
+    """Move the abk.yaml in force to the new limits blocks by text, without loading it: exit 0
+    when it wrote, was a dry run or had nothing to move, 1 when not confirmed, 2 when refused."""
+    try:
+        path = locate(args.config)
+    except ConfigError as error:
+        print(f"abk: {error}", file=sys.stderr)
+        return 2
+    try:
+        before = path.read_bytes().decode()
+        migrated = migrate(before)
+    except (ConfigMigrateError, OSError, UnicodeDecodeError) as error:
+        print(f"abk: {path}: {error}", file=sys.stderr)
+        return 2
+    if migrated.text == before:
+        print(f"{path}: nothing needed migrating")
+        return 0
+    print(
+        "".join(
+            difflib.unified_diff(
+                before.splitlines(keepends=True),
+                migrated.text.splitlines(keepends=True),
+                fromfile=str(path),
+                tofile=str(path),
+            )
+        ),
+        end="",
+    )
+    if args.dry_run:
+        return 0
+    if not (args.yes or (sys.stdin.isatty() and confirmed(f"migrate {path}? [y/N] "))):
+        print("not migrated; nothing was written")
+        return 1
+    try:
+        backup = backup_and_replace(path, migrated.text)
+    except OSError as error:
+        print(f"abk: {path}: {error}", file=sys.stderr)
+        return 2
+    if backup:
+        print(f"backed up the original to {backup}")
+    print(f"migrated {path}")
+    return 0
 
 
 def cmd_config(args: argparse.Namespace, inst: Installation | None) -> int:
+    if args.migrate:
+        return cmd_migrate(args)
+    if args.yes or args.dry_run:
+        print("abk: --yes and --dry-run need --migrate", file=sys.stderr)
+        return 2
     if args.path:
         try:
             path = locate(args.config)
@@ -60,6 +113,15 @@ def register(sub: argparse._SubParsersAction) -> None:
         "--path",
         action="store_true",
         help="the abk.yaml in force, and the overlay when there is one",
+    )
+    mode.add_argument(
+        "--migrate",
+        action="store_true",
+        help="move the abk.yaml in force to global_limits and project_limits, by text",
+    )
+    parser.add_argument("--yes", action="store_true", help="with --migrate: do not ask")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="with --migrate: print the diff, write nothing"
     )
     # `--path` has to answer for a file that will not load.
     parser.set_defaults(func=cmd_config, needs_installation="optional")
