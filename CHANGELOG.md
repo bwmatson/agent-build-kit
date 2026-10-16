@@ -314,6 +314,10 @@
   (`--yes` skips the question, `--dry-run` only prints), keeps the first original as
   `abk.yaml.abk-backup`, and exits 0 when it wrote or had nothing to do, 1 when not
   confirmed and 2 when it refuses.
+  A pass now fills each project's build workers separately, resumes a unit within its own
+  project's free workers, and gives a ready unit of a full project the full-queue wait
+  reason; the samples it writes total the limit, cap and free workers over the projects
+  with unfinished units, for reporting only.
 
 - A `Needs:` line whose target the unit already reaches through its dependencies is no longer
   linked again on every tick; the unit's `needs` names every declared target, linked or not,

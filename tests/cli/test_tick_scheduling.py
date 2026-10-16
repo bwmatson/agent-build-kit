@@ -426,7 +426,7 @@ def test_a_rate_limit_pause_recorded_by_a_build_still_running_ends_scheduling(
     stops the pass from starting the next unit, and the slow build is still
     awaited."""
     inst = workspace(tmp_path, max_concurrent=2)
-    builder.store.upsert([stored("slow/1", repo="platform"), stored("quick/1"), stored("later/1")])
+    builder.store.upsert([stored("slow/1"), stored("quick/1"), stored("later/1")])
     marker = tmp_path / "paused.json"
 
     def slow() -> str | None:
@@ -1526,10 +1526,10 @@ def test_a_unit_refused_for_usage_does_not_stop_the_pass(
     builder.store.upsert(
         [
             stored("stops/1"),
-            stored("slow/1", repo="platform"),
+            stored("slow/1"),
             stored("later/1"),
-            stored("done/1", repo="platform"),
-            stored("talk/1", repo="platform"),
+            stored("done/1"),
+            stored("talk/1"),
         ]
     )
     builder.store.set_state("done/1", IN_REVIEW, pr=90, branch="spec/done/1")
@@ -1632,7 +1632,7 @@ def test_a_window_used_up_leaves_the_paused_unit_and_the_one_behind_it_waiting(
     paused unit stays `running` and is not started again, and the unit waiting
     behind it is not started."""
     inst = workspace(tmp_path, max_concurrent=2)
-    builder.store.upsert([stored("stops/1"), stored("slow/1", repo="platform"), stored("later/1")])
+    builder.store.upsert([stored("stops/1"), stored("slow/1"), stored("later/1")])
     monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
     events: list[str] = []
     guard_log(monkeypatch, events, allows=lambda: "stopped" not in events)
@@ -1664,7 +1664,7 @@ def test_a_rate_limit_pause_still_stops_new_builds_for_the_pass(
     """Only a usage pause is the unit's. The model's own refusal says nothing
     about the usage endpoint, so it holds every start until its deadline."""
     inst = workspace(tmp_path, max_concurrent=2)
-    builder.store.upsert([stored("mid/1"), stored("slow/1", repo="platform"), stored("later/1")])
+    builder.store.upsert([stored("mid/1"), stored("slow/1"), stored("later/1")])
     monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
     marker = tmp_path / "paused.json"
     looks: list[int] = []
@@ -1737,7 +1737,7 @@ def test_a_rate_limit_pause_ends_at_its_deadline_within_the_pass(
     passed, the ready unit is submitted by the same pass, not held back by a flag the
     refusal set."""
     inst = workspace(tmp_path, max_concurrent=2)
-    builder.store.upsert([stored("mid/1"), stored("slow/1", repo="platform"), stored("later/1")])
+    builder.store.upsert([stored("mid/1"), stored("slow/1"), stored("later/1")])
     monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
     monkeypatch.setattr(pause, "resume_deadline", lambda until, **_: until)
     marker = tmp_path / "paused.json"

@@ -509,7 +509,7 @@ def test_a_resumed_unit_takes_the_free_slot_before_a_planned_one(
 ) -> None:
     inst = capped(tmp_path, 2)
     store = UnitStore(tmp_path / "units.json")
-    store.upsert([unit_of("slow/1", repo="platform"), unit_of("ready/1")])
+    store.upsert([unit_of("slow/1"), unit_of("ready/1")])
     store.set_state("slow/1", RUNNING, branch="spec/slow/1")
     resumed(monkeypatch, store, "resumed/1")
 
@@ -529,7 +529,7 @@ def test_the_cap_reached_by_runs_in_flight_starts_neither_a_planned_nor_a_resume
 ) -> None:
     inst = capped(tmp_path, 1)
     store = UnitStore(tmp_path / "units.json")
-    store.upsert([unit_of("slow/1", repo="platform"), unit_of("ready/1")])
+    store.upsert([unit_of("slow/1"), unit_of("ready/1")])
     store.set_state("slow/1", RUNNING, branch="spec/slow/1")
     resumed(monkeypatch, store, "resumed/1")
 

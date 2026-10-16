@@ -96,5 +96,6 @@ def test_the_usage_reports_idle_hours_read_the_totals_unchanged(
 
     assert samples[0]["limit"] == 2 * LIMIT, "the row does not carry the totals"
     idle = build_wait_report(ledger, ledger.with_name(DECISIONS_NAME), store.all()).idle
-    assert idle.observed_h > 0
+    # The two builds run together, so the samples may share an instant: only that nothing
+    # reads as idle is pinned.
     assert idle.idle_h == 0

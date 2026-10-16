@@ -84,7 +84,7 @@ def test_a_unit_submitted_while_every_slot_is_busy_records_the_wait_as_slot(
     clock = install(monkeypatch)
     inst = workspace_of(tmp_path)
     store = UnitStore(tmp_path / "units.json")
-    store.upsert([stored("first/1", "app"), stored("second/1", "platform")])
+    store.upsert([stored("first/1", "app"), stored("second/1", "app")])
     build = Build(store, clock, seconds=30)
     monkeypatch.setattr(cli, "build_runner", build)
 
@@ -110,9 +110,7 @@ def test_a_unit_queued_behind_another_ticks_running_build_records_the_slot_wait(
         project_limits={"max_concurrent_stacks": 2, "max_units_in_progress": 50},
     )
     store = UnitStore(tmp_path / "units.json")
-    store.upsert(
-        [stored("other/1", "app"), stored("first/1", "app"), stored("second/1", "platform")]
-    )
+    store.upsert([stored("other/1", "app"), stored("first/1", "app"), stored("second/1", "app")])
     # Another tick's build: running in the store, its branch lock held (below).
     store.set_state("other/1", RUNNING, branch="spec/other/1")
     build = Build(store, clock, seconds=30)

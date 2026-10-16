@@ -206,6 +206,7 @@ from agent_build_kit.pipeline.units import (
     SATISFIED,
     Join,
     Priority,
+    ProjectKey,
     Unit,
     UnitState,
     base_of,
@@ -1546,15 +1547,19 @@ def run_round(
     # A unit no run holds takes no slot while it waits; the runs in flight do.
     # One this pass built that an event resumed is started again, within the
     # same budget as a readmission.
-    free = max(0, inst.max_concurrent_stacks - len(in_flight | held))
+    taken = _workers_by_project(units, in_flight | held)
     # Owed a restack, or in the lane for one: a unit whose branch the lane holds is no longer
     # owed by the branch lock's reading, and a worker started for it would find it claimed.
     owed = owed_units(inst, units) | ({*lane.running, *lane.waiting} if lane else set())
-    resumable = [
-        unit
-        for unit in resumable_units(inst, units, only=only, spared=in_flight, owed=owed)
-        if readmit is None or unit.id not in started or readmit.may_resume(unit.id)
-    ][:free]
+    resumable = _within_workers(
+        inst,
+        [
+            unit
+            for unit in resumable_units(inst, units, only=only, spared=in_flight, owed=owed)
+            if readmit is None or unit.id not in started or readmit.may_resume(unit.id)
+        ],
+        taken,
+    )
     resumed = {unit.id for unit in resumable}
     evaluated, view, _excluded, for_the_lane = _evaluate_round(
         inst,
@@ -1925,22 +1930,59 @@ def _evaluate_round(
         view.append(unit)
     cap = max_concurrent or inst.max_concurrent_stacks
     for_the_lane = {unit.id for unit in view if unit.state == PLANNED and unit.id in owed}
-    # Room for the owed units too, so one that is passed over does not take a slot from another.
+    # Room for the owed units too, so one that is passed over does not take a slot from another:
+    # a project's owed units add to its own cap, and the slice below holds the others to theirs.
+    owed_most = max(
+        _workers_by_project(view, for_the_lane).values(),
+        default=0,
+    )
     ready = ready_units(
         view,
-        max_concurrent=cap + len(for_the_lane),
+        max_concurrent=cap + owed_most,
         depth_cap=inst.stack_depth_build_cap,
         max_units_in_progress=inst.max_units_in_progress if enforce_limit else None,
         excluded=excluded,
     )
-    slots = max(0, cap - sum(1 for unit in view if unit.state == RUNNING))
-    startable = [unit for unit in ready if unit.id not in for_the_lane][:slots]
+    running = _workers_by_project(view, {unit.id for unit in view if unit.state == RUNNING})
+    startable = _within_workers(
+        inst, [unit for unit in ready if unit.id not in for_the_lane], running, cap=cap
+    )
     return (
         [unit for unit in startable if unit.id not in started],
         view,
         frozenset(excluded),
         frozenset(for_the_lane),
     )
+
+
+def _workers_by_project(units: Iterable[Unit], ids: Collection[str]) -> dict[ProjectKey, int]:
+    """How many of the units named in `ids` each project has: the workers they take."""
+    taken: dict[ProjectKey, int] = {}
+    for unit in units:
+        if unit.id in ids:
+            key = project_key(unit)
+            taken[key] = taken.get(key, 0) + 1
+    return taken
+
+
+def _within_workers[U: Unit](
+    inst: Installation,
+    units: list[U],
+    taken: Mapping[ProjectKey, int],
+    *,
+    cap: int | None = None,
+) -> list[U]:
+    """The leading units that fit the free workers of their own project, in order: `cap`
+    workers each (the setting when none is given), less those in `taken`."""
+    room = cap or inst.max_concurrent_stacks
+    chosen: list[U] = []
+    added: dict[ProjectKey, int] = {}
+    for unit in units:
+        key = project_key(unit)
+        if taken.get(key, 0) + added.get(key, 0) < room:
+            added[key] = added.get(key, 0) + 1
+            chosen.append(unit)
+    return chosen
 
 
 def _queue_full_line(inst: Installation, units: list[StoredUnit]) -> str | None:
@@ -2263,7 +2305,7 @@ def _schedule(
     failed = False
     refused = False
     with ThreadPoolExecutor(
-        max_workers=inst.max_concurrent_stacks, thread_name_prefix="unit"
+        max_workers=_pool_size(inst, store.all()), thread_name_prefix="unit"
     ) as pool:
 
         def note_queued(units: list[StoredUnit], ready: list[Unit], in_flight: set[str]) -> None:
@@ -2296,7 +2338,12 @@ def _schedule(
             states = [unit.state for unit in units]
             in_flight = {unit.id for unit in building.values()}
             running = in_flight | {unit.id for unit in units if unit.state == RUNNING}
-            free = max(0, inst.max_concurrent_stacks - len(building))
+            # Totals over the projects with a unit not yet finished, for reporting only.
+            live = {
+                project_key(unit) for unit in units if unit.state not in (MERGED, CLOSED, SATISFIED)
+            }
+            building_by = _workers_by_project(units, in_flight)
+            free = sum(max(0, inst.max_concurrent_stacks - building_by.get(key, 0)) for key in live)
             spans.record_sample(
                 spans.Sample(
                     at=spans.clock.now().isoformat(),
@@ -2307,8 +2354,8 @@ def _schedule(
                     ),
                     queued=len(queued),
                     free_workers=free,
-                    limit=inst.max_units_in_progress,
-                    cap=inst.max_concurrent_stacks,
+                    limit=inst.max_units_in_progress * len(live),
+                    cap=inst.max_concurrent_stacks * len(live),
                 ),
                 log,
             )
@@ -2388,6 +2435,22 @@ def _schedule(
                 submit(ready)
             sample()
     return 1 if refused else 0
+
+
+def _live_projects(inst: Installation, units: list[StoredUnit]) -> set[ProjectKey]:
+    """The projects a repo declares, and those with a unit not yet finished."""
+    live = {ProjectKey(repo=repo) for repo in inst.repos}
+    for repo, paths in declared_projects(inst.repos).items():
+        live |= {ProjectKey(repo=repo, project=path) for path in paths}
+    return live | {
+        project_key(unit) for unit in units if unit.state not in (MERGED, CLOSED, SATISFIED)
+    }
+
+
+def _pool_size(inst: Installation, units: list[StoredUnit]) -> int:
+    """Threads for every project's build workers together; each project's own count is the only
+    limit on what starts."""
+    return inst.max_concurrent_stacks * len(_live_projects(inst, units))
 
 
 def _refresh(inst: Installation, *, store: UnitStore, lane: RestackLane | None = None) -> None:
