@@ -230,6 +230,59 @@ A **draft** pull request means the pipeline is working on it: it is made a draft
 while its unit runs and published when the unit is back in review, so a reviewer
 reads a draft as "not yet" and a ready pull request as theirs to review.
 
+## Holds and their exits
+
+`abk approve` only records a person's approval for a review round; it changes no
+state, so approving a held unit does not release it. A unit leaves `held` by one
+of the exits below, and which one depends on how it was held.
+
+| Hold (`held_by`) | Who acts | Exit | What happens next |
+|---|---|---|---|
+| The `agent-hold` label (`reviewer`) | A person | Remove the label (release) | The next poll returns the unit to `in_review`. |
+| The review loop (`review`) | A person | Decide the point, then `abk requeue` (`--rework` or `--note` where useful); or finish the pull request by hand (merge) or close it | Requeue runs the unit again from its branch; a merge or close is recorded by the next poll. |
+| A merge left it beyond the depth cap (`depth`) | Nobody | A later merge in the same repo restacks it; to move it sooner a person raises `global_limits.stack_depth_rebase_cap` or restacks the branch by hand | The unit leaves `held` when restacked. |
+| The toolchain cannot build it (`toolchain`) | A person | Build the unit by hand on its branch, or change the plan; `abk requeue` alone fixes nothing | The same failure returns until the cause is changed. |
+| Parked, `dirty_worktree` | A person | Commit or remove the changes in the worktree, then `abk requeue` | A requeue while the tree is still dirty leaves it parked. |
+| Parked, `attached` | A person | Start `abk serve` again, or `abk attach release <unit> --commit "MESSAGE"` or `--discard`, then `abk requeue` | The unit stays held until requeued. |
+
+Release applies only to a hold the `agent-hold` label made; for a review-loop
+hold the exits are requeue, merge or close. The sections under `held` above give
+the detail of each.
+
+## Why a unit is held "needs a human"
+
+Almost always this is a limit of the builder, not a decision. What the builder
+cannot do, and what a person does about it:
+
+- It cannot edit planning-repo files (`follow-ups.md`, a change's `spec.md` or
+  `tasks.md`): make the edit in the planning repo, then requeue the unit.
+- It cannot run a live or credentialed check: run the check yourself and record
+  the result, or reword the task so it needs none.
+- It cannot write a sensitive file the agent harness refuses to let it edit (a
+  hook configuration, for instance): make that edit by hand on the branch.
+- It cannot run `uv lock` where the agent's tool list lacks it: run it by hand
+  and push the lock file.
+
+## When nothing is moving
+
+- User timers only fire while the systemd user manager runs, and without
+  lingering that is only during a login session. Check `loginctl show-user
+  "$USER" --property=Linger`, run `loginctl enable-linger "$USER"` if it says
+  `no`, and reinstall with `abk install-timers`. `abk doctor` warns when
+  lingering is off.
+- A unit marked `running` with no process was cut off, by the user manager
+  stopping or by a tick killed from outside. Run a tick by hand, never under a
+  timeout: killing the pass leaves this picture. The
+  next tick that finds no process resumes the unit.
+- A full queue starves ready work: running, in review and failed units (and
+  planned ones already worked on) count against `limits.max_units_in_progress`;
+  held, blocked and merged, closed or satisfied units, and failed units waiting
+  on another, do not. A failed unit holds its slot until it is requeued and
+  finishes, or closed: free one that way.
+- Usage is read with `abk report --by role|model|change` (cost) and
+  `abk report --context` (context window use). The ledger does not record
+  what a runtime does not report.
+
 ## A change's lifecycle
 
 1. The change is authored in `openspec/changes/<change>/` and committed

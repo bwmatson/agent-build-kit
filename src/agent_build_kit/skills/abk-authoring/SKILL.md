@@ -72,7 +72,12 @@ own. Every change has one, or opts out with a line anywhere in `tasks.md`:
 Acceptance: none — a refactor; nothing a consumer sees changes
 ```
 
-The reason is what review agrees to; the line without one is an error.
+The reason is what review agrees to; the line without one is an error. Write
+`Acceptance: none — reason` and nothing else on that line: `Acceptance:` followed
+by a description of a test reads as requiring an `[acceptance]` group.
+
+In `tasks.md` the first heading is `# Title`. A `## Change:` heading leaves the
+group unreadable, and the change is not planned.
 
 ```
 ## 1. [platform] [unit-test] [contract] Accept the new field, keep the old one
@@ -94,15 +99,33 @@ The planner orders groups within a change on its own; across changes it only
 sees what is already in flight, so a dependency that must hold is written
 down and applied as code.
 
-The dependent starts on the parent's branch once the parent's pull request is
-in review (a parent in another repo must merge first). The old `merged`
-qualifier after the group number is deprecated: `abk tags` and `abk check`
-warn about it and it changes nothing, so leave it out. A `Needs:` on a group
-of the change's own is an error: groups within a change are already ordered.
+A same-repo `Needs:` starts the dependent on the parent's branch once the
+parent's pull request is in review; it does not wait for a merge. A cross-repo
+`Needs:` waits for the parent's merge. A never-started unit with two unrelated
+same-repo parents builds on one and waits for the others to merge. The old
+`merged` qualifier after the group number is deprecated: `abk tags` and
+`abk check` warn about it and it changes nothing, so leave it out. A `Needs:` on
+a group of the change's own is an error: groups within a change are already
+ordered.
+
+To make a change follow another's merge in the same repo, hold the change with a
+planning note and start it after the merge. Write the note as a hold, not as
+"wait for these to merge", which the pipeline does not read, and do not invent a
+qualifier.
 
 A `Needs:` that makes a cycle across changes (counting the order of each change's
 consecutive groups) is an error: `abk tags` and `abk check` report it under each
 change on the cycle, and the dependency is refused when linked.
+
+## Do not write a task a builder cannot do
+
+Do not write a task a builder cannot do: a record that needs live numbers, an
+edit to the change's own files (`tasks.md`, its specs), or a tuning against a
+first tier 2 run that has not happened yet. Where a gap shows only in the tier 2
+feedback, record it in the unit's fix round from that feedback instead of
+specifying it up front. Confirm a measurement's premise before specifying it: a
+task that measures a setting on a schema the setting does not affect cannot
+pass.
 
 ## `Separate:` lines
 
@@ -178,6 +201,8 @@ search for existing code first.
 abk check          # openspec validate --all --strict
 abk tags <change>  # the heading contract above
 ```
+
+`abk tags` takes a change name, not a path.
 
 Both run in CI on the planning repo's own PR, but running them first saves a
 round trip. `abk check` covers the OpenSpec artifacts (proposal, design,
