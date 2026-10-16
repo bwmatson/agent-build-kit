@@ -47,30 +47,35 @@ def is_scheduled(change: str) -> bool:
     return change.startswith(f"{PREFIX}-")
 
 
-def scheduled_parts(name: str, repo: str, splits: Iterable[str]) -> tuple[date, str] | None:
-    """The date and the split in `name` when it is a scheduled change of exactly `repo` and
-    one of `splits` (a name with no split, or ending `-base`, reads as `rest`), else None."""
+def _parts(name: str, repo: str) -> tuple[str, str] | None:
+    """The date text and the split in `name` when it is a scheduled change of exactly `repo`
+    (a name with no split, or ending `-base`, reads as `rest`), else None."""
     tail = name.removeprefix(f"{PREFIX}-{repo}-")
     found = _TAIL.fullmatch(tail) if tail != name else None
     if not found:
         return None
     split = found["split"]
-    if split in (None, BASE_GROUP):
-        split = REST_SPLIT
+    return found["date"], REST_SPLIT if split in (None, BASE_GROUP) else split
+
+
+def scheduled_parts(name: str, repo: str, splits: Iterable[str]) -> tuple[date, str] | None:
+    """The date and the split in `name` when it is a scheduled change of exactly `repo` and
+    one of `splits` (a name with no split, or ending `-base`, reads as `rest`), else None."""
+    parts = _parts(name, repo)
+    if parts is None:
+        return None
     try:
-        day = date.fromisoformat(found["date"])
+        day = date.fromisoformat(parts[0])
     except ValueError:
         return None
-    return (day, split) if split in set(splits) else None
+    return (day, parts[1]) if parts[1] in set(splits) else None
 
 
 def scheduled_split(name: str, repo: str) -> str:
     """The split a scheduled change of `repo` runs, read from its name (`rest` when the name
     carries none, or `base`)."""
-    tail = name.removeprefix(f"{PREFIX}-{repo}-")
-    found = _TAIL.fullmatch(tail)
-    split = found["split"] if found else None
-    return REST_SPLIT if split in (None, BASE_GROUP) else split
+    parts = _parts(name, repo)
+    return REST_SPLIT if parts is None else parts[1]
 
 
 def write_due(

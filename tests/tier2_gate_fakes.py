@@ -16,7 +16,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.flakes import fix_change_name
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
-from agent_build_kit.pipeline.unit_store import RequeueReason
+from agent_build_kit.pipeline.unit_store import RequeueReason, UnitStore
 from agent_build_kit.pipeline.untouched_failures import PREFIX
 from agent_build_kit.pipeline.wiring import build_on_preexisting, build_on_tier2_gate
 from agent_build_kit.pipeline.work_graph import group_needs
@@ -33,6 +33,42 @@ TWO_GROUPS = (
     "# Tasks\n\n## 1. [app] [tier2] First\n\n- [ ] 1.1 Test: it\n- [ ] 1.2 Make it\n\n"
     "## 2. [app] [tier2] Second\n\n- [ ] 2.1 Test: it\n- [ ] 2.2 Make it\n"
 )
+
+
+def write_change(installation: Installation, change: str) -> None:
+    tasks = installation.changes_dir / change / "tasks.md"
+    tasks.parent.mkdir(parents=True)
+    tasks.write_text(TWO_GROUPS)
+
+
+def open_fix(
+    store: UnitStore,
+    installation: Installation,
+    test: str = OLD,
+    *,
+    met_by: str = "feature/1",
+    repo: str = "app",
+    with_unit: bool = True,
+    split: str = "",
+) -> str:
+    """Record `test` as failing on the base, met by `met_by` of `repo`, and write its
+    fix change through the code that records a failure (a unit that does not wait).
+    The fix change gets its unit in the store when `with_unit`. `split` is the tier 2
+    split the failing test belongs to."""
+    change = met_by.split("/")[0]
+    if not (installation.changes_dir / change).exists():
+        write_change(installation, change)
+    met = stored_unit(met_by, change=change, repo=repo, groups=(1, 2))
+    store.upsert([met])
+    verdict = verdict_of(old=(test,), group=split)
+    build_on_preexisting(store, installation, log=lambda m: None)(
+        met, verdict, verdict.pre_existing[0], wait=False
+    )
+    fix = fix_change_name(test, PREFIX)
+    assert (installation.changes_dir / fix).is_dir()
+    if with_unit:
+        store.upsert([stored_unit(f"{fix}/1", change=fix, repo=repo, groups=(1,))])
+    return fix
 
 
 class Scope:
@@ -80,37 +116,11 @@ class Planning:
         self.gate = Gate(build_on_tier2_gate(self.store, self.installation, log=lambda m: None))
 
     def write_change(self, change: str) -> None:
-        tasks = self.installation.changes_dir / change / "tasks.md"
-        tasks.parent.mkdir(parents=True)
-        tasks.write_text(TWO_GROUPS)
+        write_change(self.installation, change)
 
-    def open_fix(
-        self,
-        test: str = OLD,
-        *,
-        met_by: str = "feature/1",
-        repo: str = "app",
-        with_unit: bool = True,
-        split: str = "",
-    ) -> str:
-        """Record `test` as failing on the base, met by `met_by` of `repo`, and write its
-        fix change through the code that records a failure (a unit that does not wait).
-        The fix change gets its unit in the store when `with_unit`. `split` is the tier 2
-        split the failing test belongs to."""
-        change = met_by.split("/")[0]
-        if not (self.installation.changes_dir / change).exists():
-            self.write_change(change)
-        met = stored_unit(met_by, change=change, repo=repo, groups=(1, 2))
-        self.store.upsert([met])
-        verdict = verdict_of(old=(test,), group=split)
-        build_on_preexisting(self.store, self.installation, log=lambda m: None)(
-            met, verdict, verdict.pre_existing[0], wait=False
-        )
-        fix = fix_change_name(test, PREFIX)
-        assert (self.installation.changes_dir / fix).is_dir()
-        if with_unit:
-            self.store.upsert([stored_unit(f"{fix}/1", change=fix, repo=repo, groups=(1,))])
-        return fix
+    def open_fix(self, test: str = OLD, **kwargs: Any) -> str:
+        """See `open_fix`, here over this planning repo."""
+        return open_fix(self.store, self.installation, test, **kwargs)
 
     def needs(self, change: str = "add-marker") -> dict[int, list[str]]:
         """The changes each group of `change` has a `Needs:` line on."""
