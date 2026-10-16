@@ -15,7 +15,8 @@ START = datetime(2030, 1, 1, 9, 0, tzinfo=UTC)
 
 
 class FakeClock:
-    def __init__(self) -> None:
+    def __init__(self, start: datetime = START) -> None:
+        self._start = start
         self._elapsed = 0.0
         self._lock = threading.Lock()
 
@@ -25,15 +26,15 @@ class FakeClock:
 
     def now(self) -> datetime:
         with self._lock:
-            return START + timedelta(seconds=self._elapsed)
+            return self._start + timedelta(seconds=self._elapsed)
 
     def monotonic(self) -> float:
         with self._lock:
             return 1000.0 + self._elapsed
 
 
-def install(monkeypatch: pytest.MonkeyPatch) -> FakeClock:
-    clock = FakeClock()
+def install(monkeypatch: pytest.MonkeyPatch, start: datetime = START) -> FakeClock:
+    clock = FakeClock(start)
     monkeypatch.setattr(spans, "clock", clock)
     return clock
 

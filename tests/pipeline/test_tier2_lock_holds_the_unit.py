@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -21,16 +20,17 @@ from agent_build_kit.pipeline import wiring
 from agent_build_kit.pipeline.tier2 import stack_lock
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.verify import Verification
-from agent_build_kit.pipeline.wiring import build_runner
 from tests.factories import unit
 from tests.fake_clock import span_lines
 from tests.tier2_lock_fakes import (
     STEP,
     Foreign,
+    Ran,
     SleepingTime,
     dead_pid,
     install_clock,
     record_line,
+    tier2_runner,
 )
 
 HOUR = 3600
@@ -42,35 +42,14 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> SleepingTime:
     return install_clock(monkeypatch)
 
 
-class Ran:
-    """The tests command, answered as a passing run; what the lock file said as it ran."""
-
-    def __init__(self, lock: Path) -> None:
-        self.lock = lock
-        self.record_seen: str | None = None
-
-    def __call__(self, command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
-        if self.record_seen is None:
-            self.record_seen = self.lock.read_text()
-        return subprocess.CompletedProcess(command, 0, "1 passed in 0.01s\n", "")
-
-
 def runner(
     workspace: Installation,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     log: list[str],
 ) -> tuple[wiring.UnitRunner, Ran]:
-    ran = Ran(workspace.state_dir / "tier2.lock")
-    monkeypatch.setattr(wiring, "_run", ran)
-    monkeypatch.setattr(wiring, "_head_sha", lambda cwd: "abc1234")
-    built = build_runner(
-        unit(repo="app"),
-        store=UnitStore(tmp_path / "units.json"),
-        installation=workspace,
-        log=log.append,
-    )
-    return built, ran
+    store = UnitStore(tmp_path / "units.json")
+    return tier2_runner(workspace, store, monkeypatch, log, unit(repo="app"))
 
 
 def tree(tmp_path: Path) -> Path:
