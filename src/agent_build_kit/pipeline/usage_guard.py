@@ -51,6 +51,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -58,6 +59,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
@@ -65,8 +67,10 @@ from agent_build_kit import claude_account, telemetry
 from agent_build_kit.config import (
     CLAUDE_CODE,
     ClaudeLimitsConfig,
+    GateConfig,
+    ProviderLimitsConfig,
     RuntimeConfig,
-    UsageWindowConfig,
+    WindowLimits,
     active,
     active_root,
 )
@@ -95,7 +99,18 @@ from agent_build_kit.pipeline.usage_calls import (
     record_call,
 )
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, read_ledger, spend_times
-from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited
+from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited, Run
+from agent_build_kit.runtimes.providers import (
+    GateCommandResult,
+    ProviderReading,
+    ProviderUnknown,
+    run_gate_command,
+)
+from agent_build_kit.runtimes.providers import read_usage as read_provider_usage
+
+# The one window a provider has, and the file its readings are kept in, per split.
+PROVIDER_WINDOW = "billing"
+GATE_USAGE_NAME = "gate-usage.json"
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 OAUTH_BETA_HEADER = "oauth-2025-04-20"
@@ -135,10 +150,16 @@ Fetch = Callable[[str, dict[str, str]], object]
 class Window(Frozen):
     """One usage window as the ramp sees it: how full, and when it resets."""
 
-    name: Literal["session", "weekly"]
+    name: str
     used_pct: int
     resets_at: datetime | None
     length: timedelta
+
+
+class ClaudeWindow(Window):
+    """A window of the Claude Code subscription, which only the two have."""
+
+    name: Literal["session", "weekly"]  # pyrefly: ignore[bad-override]
 
 
 class UsageReading(Frozen):
@@ -173,17 +194,17 @@ class UsageReading(Frozen):
         return self.resets_at
 
     @property
-    def windows(self) -> tuple[Window, ...]:
+    def windows(self) -> tuple[ClaudeWindow, ...]:
         """Both windows, weekly first — the order `may_start_unit` reports
         them in, so the longer window is named when both are over."""
         return (
-            Window(
+            ClaudeWindow(
                 name="weekly",
                 used_pct=self.weekly_pct,
                 resets_at=self.weekly_resets_at,
                 length=WEEKLY_WINDOW,
             ),
-            Window(
+            ClaudeWindow(
                 name="session",
                 used_pct=self.session_pct,
                 resets_at=self.resets_at,
@@ -386,7 +407,7 @@ class Limits(Frozen):
         return cls(session=_band(claude.session), weekly=_band(claude.weekly))
 
 
-def _band(window: UsageWindowConfig) -> Band:
+def _band(window: WindowLimits) -> Band:
     return Band(
         pause_pct=window.usage_pause_pct,
         ceiling_pct=window.usage_ceiling_pct,
@@ -1381,3 +1402,204 @@ def _resume_to(window: Window, *, now: datetime, limits: Limits) -> datetime:
         reset = window.resets_at
         relief = reset if reset and reset > now else now + UNKNOWN_RETRY
     return min(relief, now + MAX_SCHEDULED_PAUSE)
+
+
+class GateResult(Frozen):
+    """What one split's gate said: usable, held or unknown, with the figures behind it."""
+
+    state: Literal["usable", "held", "unknown"]
+    reason: str = ""
+    used_amount: Decimal | None = None
+    used_pct: int | None = None
+    window_end: datetime | None = None
+    threshold: int | None = None
+    # When a held result stops standing without a later reading: the window's end,
+    # or one cache time on for a command.
+    until: datetime | None = None
+
+
+def provider_decision(
+    reading: ProviderReading,
+    *,
+    limits: ProviderLimitsConfig,
+    now: datetime,
+    standing: bool = False,
+) -> GateResult:
+    """Whether a provider's month leaves room, by the threshold the Claude Code windows use.
+
+    The reading is judged as read: no allowance, estimate or staleness rule applies, and
+    it says nothing at or after the end of the window it assumed. A hold that stands lifts
+    only when the usage plus the resume buffer is at or below the threshold; one that does
+    not begins at `used >= threshold`.
+    """
+    figures = {
+        "used_amount": reading.used_amount,
+        "used_pct": reading.used_pct,
+        "window_end": reading.window_end,
+    }
+    if now >= reading.window_end:
+        return GateResult(state="unknown", reason="the reading's window has ended", **figures)
+    band = _band(limits)
+    window = Window(
+        name=PROVIDER_WINDOW,
+        used_pct=reading.used_pct,
+        resets_at=reading.window_end,
+        length=reading.window_end - reading.window_start,
+    )
+    # A provider has the one window, so its band fills both slots of `Limits`.
+    ramp = Limits(session=band, weekly=band)
+    threshold = threshold_at(window, now=now, limits=ramp)
+    if standing:
+        # The room rule is `relief_at`'s: usage plus the resume buffer, offered by the ramp.
+        relief = relief_at(window, now=now, limits=ramp)
+        held = relief is None or relief > now
+    else:
+        held = reading.used_pct >= threshold
+    note = _threshold_note(window, threshold, ramp)
+    return GateResult(
+        state="held" if held else "usable",
+        reason=f"{reading.used_pct}% used, {note}",
+        threshold=threshold,
+        until=reading.window_end if held else None,
+        **figures,
+    )
+
+
+def _gate_cache_entry(path: Path, split: str) -> dict | None:
+    entry = _load_json_object(path).get(split)
+    return entry if isinstance(entry, dict) else None
+
+
+def _gate_source(gate: GateConfig) -> list:
+    """What an answer was taken for: the provider and budget, or the command, so a cached
+    answer is never replayed under a gate that asks something else."""
+    if gate.provider is not None:
+        return ["provider", gate.provider.name, gate.provider.budget_usd]
+    return ["command", *(gate.command or [])]
+
+
+def _gate_cached_result(
+    entry: dict | None, gate: GateConfig, now: datetime
+) -> ProviderReading | ProviderUnknown | GateCommandResult | None:
+    """What the cache entry still answers, or None when it is spent, unreadable or was taken
+    for another gate."""
+    if entry is None or entry.get("source") != _gate_source(gate):
+        return None
+    try:
+        taken = datetime.fromisoformat(entry["taken_at"])
+        kind = entry["kind"]
+        answer: ProviderReading | ProviderUnknown | GateCommandResult
+        if kind == "reading":
+            answer = ProviderReading.model_validate(entry["answer"])
+        elif kind == "unknown":
+            answer = ProviderUnknown.model_validate(entry["answer"])
+        else:
+            answer = GateCommandResult.model_validate(entry["answer"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    unknown = kind == "unknown" or getattr(answer, "state", "") == "unknown"
+    life = timedelta(
+        minutes=gate.usage_stale_retry_minutes if unknown else gate.usage_cache_minutes
+    )
+    if not taken <= now < taken + life:
+        return None
+    if isinstance(answer, ProviderReading) and now >= answer.window_end:
+        return None
+    return answer
+
+
+def _gate_answer_result(
+    answer: ProviderReading | ProviderUnknown | GateCommandResult,
+    gate: GateConfig,
+    *,
+    taken: datetime,
+    now: datetime,
+    standing: bool,
+) -> GateResult:
+    if isinstance(answer, ProviderUnknown):
+        return GateResult(state="unknown", reason=answer.reason)
+    if isinstance(answer, GateCommandResult):
+        until = taken + timedelta(minutes=gate.usage_cache_minutes)
+        return GateResult(
+            state=answer.state,
+            reason=answer.reason,
+            until=until if answer.state == "held" else None,
+        )
+    provider = gate.provider
+    assert provider is not None
+    result = provider_decision(answer, limits=provider.limits, now=now, standing=standing)
+    if result.state != "held":
+        return result
+    return result.model_copy(
+        update={
+            "reason": (
+                f"{provider.name} usage {answer.used_amount:.2f} of {provider.budget_usd:g} USD, "
+                + result.reason
+            )
+        }
+    )
+
+
+def gate_result(
+    split: str,
+    gate: GateConfig,
+    *,
+    now: datetime,
+    state_dir: Path,
+    root: Path,
+    standing: bool = False,
+    refresh: bool = False,
+    read: Callable[[], object] | None = None,
+    run: Run = subprocess.run,
+) -> GateResult:
+    """One split's gate evaluated from its configuration, through the per-split cache in
+    `<state_dir>/gate-usage.json` unless `refresh`.
+
+    A good reading answers for `usage_cache_minutes` and never past its window's end, an unknown
+    result for `usage_stale_retry_minutes`; the file is written whole under a lock.
+    """
+    path = state_dir / GATE_USAGE_NAME
+    lock = path.with_name(path.name + ".lock")
+    with file_lock(lock):
+        entry = _gate_cache_entry(path, split)
+        cached = None if refresh else _gate_cached_result(entry, gate, now)
+    if cached is not None and entry is not None:
+        taken = datetime.fromisoformat(entry["taken_at"])
+        return _gate_answer_result(cached, gate, taken=taken, now=now, standing=standing)
+
+    # The lock is not held across the fetch: a provider that hangs must not keep the
+    # readers of the cache waiting.
+    if gate.provider is not None:
+        answer = read_provider_usage(
+            gate.provider.name, budget_usd=gate.provider.budget_usd, now=now, read=read
+        )
+    else:
+        assert gate.command is not None
+        answer = run_gate_command(
+            gate.command, root=root, timeout_seconds=gate.timeout_seconds, run=run
+        )
+    kind = (
+        "reading"
+        if isinstance(answer, ProviderReading)
+        else "unknown"
+        if isinstance(answer, ProviderUnknown)
+        else "command"
+    )
+    with file_lock(lock):
+        body = _load_json_object(path)
+        body[split] = {
+            "taken_at": now.isoformat(),
+            "source": _gate_source(gate),
+            "kind": kind,
+            "answer": answer.model_dump(mode="json"),
+        }
+        atomic_write_text(path, json.dumps(body, indent=2))
+    return _gate_answer_result(answer, gate, taken=now, now=now, standing=standing)
+
+
+def _load_json_object(path: Path) -> dict:
+    try:
+        body = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    return body if isinstance(body, dict) else {}

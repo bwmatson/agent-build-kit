@@ -15,24 +15,9 @@ from agent_build_kit.runtimes.providers import (
     ProviderUnknown,
     read_usage,
 )
+from tests.provider_summaries import END, START, summary
 
 NOW = datetime(2026, 10, 14, 9, 0, tzinfo=UTC)
-START = datetime(2026, 10, 1, tzinfo=UTC)
-END = datetime(2026, 11, 1, tzinfo=UTC)
-
-
-def summary(**overrides: object) -> WorkspaceBillingSummary:
-    """The library's own billing summary, built by hand."""
-    fields: dict[str, object] = {
-        "start": START,
-        "end": END,
-        "metered_cost": Decimal("173.04285316"),
-        "metered_cost_breakdown": {"object-1": Decimal("100"), "object-2": Decimal("73.04285316")},
-        "adjustments": {"credit": Decimal("30")},
-        "billed_cost": Decimal("142.99"),
-    }
-    fields.update(overrides)
-    return WorkspaceBillingSummary(**fields)  # type: ignore[bad-argument-type]
 
 
 def without(given: WorkspaceBillingSummary, field: str) -> SimpleNamespace:
