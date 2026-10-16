@@ -10,11 +10,13 @@ import pytest
 from agent_build_kit import openspec
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.flakes import wait_on_fix
+from tests.openspec_cli import require
 from tests.pipeline.test_flake_fix_change import change_with_unit, code_repo, flaked
 
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.skipif(shutil.which("npx") is None, reason="npx is not on PATH"),
+    pytest.mark.usefixtures("openspec_cli"),
 ]
 
 
@@ -25,7 +27,7 @@ def test_the_written_change_passes_openspec_validate(installation: Installation)
     name = wait_on_fix(installation, flaked(), unit)
     assert name
 
-    result = openspec.run(["validate", name, "--strict", "--json"], cwd=installation.root)
+    result = require(openspec.run(["validate", name, "--strict", "--json"], cwd=installation.root))
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert '"failed": 0' in result.stdout
