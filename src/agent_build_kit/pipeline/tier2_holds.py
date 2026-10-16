@@ -3,12 +3,12 @@ state directory together, the configuration winning (spec: tier2-holds)."""
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import AwareDatetime, TypeAdapter, ValidationError
 
-from agent_build_kit.config import Tier2Split
+from agent_build_kit.config import REST_SPLIT, Tier2Split, WorkspaceConfig, tier2_splits
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 
@@ -113,6 +113,39 @@ def held_splits(splits: tuple[Tier2Split, ...], state_dir: Path, *, now: datetim
         unreadable=entries is None,
         unknown=tuple(unknown),
     )
+
+
+def declared_splits(config: WorkspaceConfig) -> tuple[Tier2Split, ...]:
+    """Every split any repo declares, by name, and `rest` last. A split's `hold` combines its
+    declarations: true when any repo's says so, else false when any says so, else unset."""
+    holds: dict[str, list[bool | None]] = {}
+    markers: dict[str, str | None] = {}
+    for repo in config.repos.values():
+        for split in tier2_splits(repo, config):
+            holds.setdefault(split.name, []).append(split.hold)
+            markers.setdefault(split.name, split.marker)
+
+    def combined(name: str) -> Tier2Split:
+        values = holds.get(name, [])
+        hold = True if True in values else False if False in values else None
+        return Tier2Split(name=name, marker=markers.get(name), hold=hold)
+
+    named = [combined(name) for name in holds if name != REST_SPLIT]
+    return (*named, combined(REST_SPLIT))
+
+
+def current_holds(
+    config: WorkspaceConfig, state_dir: Path, *, now: datetime | None = None
+) -> Holds:
+    """The splits held now over every repo's declarations; what `status` and `doctor` show."""
+    return held_splits(declared_splits(config), state_dir, now=now or datetime.now(UTC))
+
+
+def hold_text(hold: Hold) -> str:
+    """What holds a split, in words: the reason, the deadline and where the hold is written."""
+    until = f"until {hold.until:%Y-%m-%d %H:%M} UTC" if hold.until else "no deadline"
+    source = f", source {hold.source}" if hold.source else ""
+    return f"{hold.reason} ({until}{source}, origin {' and '.join(hold.origins)})"
 
 
 def write_hold(
