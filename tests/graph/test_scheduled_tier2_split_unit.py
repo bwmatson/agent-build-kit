@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline.archive import archive_ready_changes
+from agent_build_kit.pipeline.e2e import build_selection
 from agent_build_kit.pipeline.stack_runner import RunStatus
-from agent_build_kit.pipeline.tier2 import build_selection
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import PLANNED, SATISFIED
 from agent_build_kit.profiles.python_uv import PROFILE

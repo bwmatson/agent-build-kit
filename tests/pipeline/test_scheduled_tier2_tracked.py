@@ -14,8 +14,8 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.e2e_schedule import is_scheduled, scheduled_name
 from agent_build_kit.pipeline.stack_runner import RunStatus
-from agent_build_kit.pipeline.tier2_schedule import is_scheduled, scheduled_name
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED, SATISFIED
 from agent_build_kit.pipeline.usage_guard import Decision

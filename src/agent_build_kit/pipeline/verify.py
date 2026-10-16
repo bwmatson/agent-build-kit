@@ -34,6 +34,13 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.e2e import (
+    E2eSelection,
+    build_selection,
+    listing_runner,
+    selection_unavailable,
+)
+from agent_build_kit.pipeline.e2e_holds import repo_holds
 from agent_build_kit.pipeline.planning_sync import (
     PlanningMode,
     SyncOutcome,
@@ -42,13 +49,6 @@ from agent_build_kit.pipeline.planning_sync import (
     planning_mode,
     sync_planning,
 )
-from agent_build_kit.pipeline.e2e import (
-    E2eSelection,
-    build_selection,
-    listing_runner,
-    selection_unavailable,
-)
-from agent_build_kit.pipeline.e2e_holds import repo_holds
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.profiles.base import AppliesE2eSelection, ToolchainProfile, is_doc_path
 
