@@ -81,7 +81,7 @@ class Pass:
             project_limits={"max_concurrent_stacks": 1, "max_units_in_progress": 50},
         )
         self.store = UnitStore(tmp_path / "units.json")
-        self.store.upsert([new_unit("first/1"), new_unit("second/1", repo="platform")])
+        self.store.upsert([new_unit("first/1"), new_unit("second/1")])
         self.build = Build(self.store, self.clock, seconds=30)
         monkeypatch.setattr(cli, "build_runner", self.build)
 
