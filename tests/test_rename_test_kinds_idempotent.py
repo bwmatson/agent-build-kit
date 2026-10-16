@@ -5,16 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent_build_kit import rename_test_kinds
-from tests.factories import git, init_repo
-
-
-def seed(root: Path, files: dict[str, str]) -> None:
-    for name, text in files.items():
-        path = root / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text)
-    git(root, "add", "-A")
-    git(root, "commit", "-q", "-m", "seed")
+from tests.factories import commit_files, init_repo
 
 
 def snapshot(root: Path) -> dict[str, tuple[int, str]]:
@@ -27,7 +18,9 @@ def snapshot(root: Path) -> dict[str, tuple[int, str]]:
 
 def test_a_second_run_reports_no_file_changed_and_writes_none(tmp_path: Path) -> None:
     repo = init_repo(tmp_path / "repo")
-    seed(repo, {"tier2_gate.py": "TIER2_MARKER = 1\n", "notes.md": "tier 1 and tier 2\n"})
+    commit_files(
+        repo, "seed", {"tier2_gate.py": "TIER2_MARKER = 1\n", "notes.md": "tier 1 and tier 2\n"}
+    )
     rename_test_kinds.rename_paths(repo, [repo])
     before = snapshot(repo)
 
@@ -40,8 +33,9 @@ def test_a_second_run_reports_no_file_changed_and_writes_none(tmp_path: Path) ->
 
 def test_the_compatibility_module_and_its_test_are_left_untouched(tmp_path: Path) -> None:
     repo = init_repo(tmp_path / "repo")
-    seed(
+    commit_files(
         repo,
+        "seed",
         {
             "src/agent_build_kit/compat_names.py": 'OLD = ("tier1", "tier2")\n',
             "tests/test_compat_names.py": "def test_it() -> None:\n    assert 'tier2'\n",

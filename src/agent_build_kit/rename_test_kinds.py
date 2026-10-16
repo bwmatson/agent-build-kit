@@ -13,26 +13,30 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from agent_build_kit.compat_names import KIND_FORMS
 from agent_build_kit.pipeline.shell import git
 
 # Files that hold the old spellings on purpose: the table of them, this tool, and their tests.
 _EXEMPT_NAMES = ("compat_names.py", "test_compat_names.py", "rename_test_kinds.py")
 _EXEMPT_PREFIX = "test_rename_test_kinds"
 
-# (identifier stem, file-name stem, prose form, CamelCase form) of each kind, by its number.
-_FORMS = {
-    "1": ("unit_test", "unit-test", "unit-test", "UnitTest"),
-    "2": ("e2e", "e2e", "e2e-test", "E2e"),
-}
-
 _OLD = re.compile(r"(tier|Tier|TIER)( ?)([12])")
+
+# Prose files hold a bare old spelling as a word; elsewhere a bare one is an identifier.
+_PROSE_SUFFIXES = (".md", ".rst", ".txt")
+_OPENERS = ("[", '"', "'", "`", "/")
+_CLOSERS = ("]", '"', "'", "`")
 
 
 class PathOutsideRoot(ValueError):
     """A path given to the tool lies outside the root it works under."""
 
 
-def _replace(found: re.Match[str]) -> str:
+def _camel(stem: str) -> str:
+    return "".join(part.capitalize() for part in stem.split("_"))
+
+
+def _replace(found: re.Match[str], *, prose: bool) -> str:
     text, word, space, number = found.string, found[1], found[2], found[3]
     before = text[found.start() - 1 : found.start()]
     after = text[found.end() : found.end() + 1]
@@ -43,60 +47,63 @@ def _replace(found: re.Match[str]) -> str:
             return found[0]
     elif before.isalnum() or after.isalpha():
         return found[0]
-    stem, file_stem, prose, camel = _FORMS[number]
+    forms = KIND_FORMS[f"tier{number}"]
     if space:
-        new = prose
+        new = forms.tag
     elif before in ("_", ".") or after in ("_", "."):
-        new = stem
+        new = forms.stem
     elif before == "-" or after == "-":
-        new = file_stem
+        new = forms.file_stem
+    elif word == "tier":
+        delimited = before in _OPENERS or after in _CLOSERS
+        return forms.tag if prose or delimited else forms.stem
+    elif word == "Tier":
+        return _camel(forms.stem)
     else:
-        new = camel if word == "Tier" else prose
-        return new.upper().replace("-", "_") if word == "TIER" else new
+        return forms.stem.upper()
     if word == "TIER":
         return new.upper()
     return new[0].upper() + new[1:] if word == "Tier" else new
 
 
-def _rewrite(text: str) -> str:
-    return _OLD.sub(_replace, text)
+def _rewrite(text: str, *, prose: bool = False) -> str:
+    return _OLD.sub(lambda found: _replace(found, prose=prose), text)
 
 
 def _exempt(path: Path) -> bool:
     return path.name in _EXEMPT_NAMES or path.name.startswith(_EXEMPT_PREFIX)
 
 
-def _files(paths: Sequence[Path]) -> list[Path]:
-    found: set[Path] = set()
-    for path in paths:
-        for file in [path, *path.rglob("*")] if path.is_dir() else [path]:
-            if file.is_file() and ".git" not in file.parts and not _exempt(file):
-                found.add(file)
-    return sorted(found)
+def _files(root: Path, paths: Sequence[Path]) -> list[Path]:
+    """The files git tracks under `paths`, so an ignored or untracked file is never touched."""
+    listed = git(root, "ls-files", "-z", "--", *map(str, paths)).stdout.split("\0")
+    files = (root / name for name in listed if name)
+    return sorted(file for file in files if not _exempt(file))
 
 
 def rename_paths(root: Path, paths: Sequence[Path]) -> list[Path]:
-    """Rewrite the old spellings in `paths` (files or folders under `root`) and rename the
-    files that carry one; returns the files changed, relative to `root`. Raises
-    `PathOutsideRoot`, changing nothing, when a path is outside `root`."""
+    """Rewrite the old spellings in the tracked files under `paths` (files or folders under
+    `root`) and rename the ones whose name carries one; returns the files changed, relative to
+    `root`. Raises `PathOutsideRoot`, changing nothing, when a path is outside `root`."""
     root = root.resolve()
     resolved = [Path(path).resolve() for path in paths]
     for path in resolved:
         if not path.is_relative_to(root):
             raise PathOutsideRoot(f"{path} is outside {root}")
     changed: list[Path] = []
-    for file in _files(resolved):
+    for file in _files(root, resolved):
+        raw = file.read_bytes()
         try:
-            text = file.read_text()
+            text = raw.decode()
         except UnicodeDecodeError:
-            text = None
-        new_text = None if text is None else _rewrite(text)
-        new_name = _rewrite(file.name)
-        if new_text is None or new_text == text:
-            if new_name == file.name:
-                continue
+            new_raw = raw
         else:
-            file.write_text(new_text)
+            new_raw = _rewrite(text, prose=file.suffix in _PROSE_SUFFIXES).encode()
+        new_name = _rewrite(file.name)
+        if new_raw == raw and new_name == file.name:
+            continue
+        if new_raw != raw:
+            file.write_bytes(new_raw)
         target = file
         if new_name != file.name:
             target = file.with_name(new_name)
