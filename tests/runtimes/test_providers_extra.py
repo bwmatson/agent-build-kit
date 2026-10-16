@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import dataclasses
 import shutil
 import subprocess
 import tomllib
 from pathlib import Path
 
+import pytest
 from packaging.requirements import Requirement
 
-from agent_build_kit.runtimes.providers import ProviderUnknown, read_usage
+from agent_build_kit.runtimes.providers import read_modal_summary
 
 ROOT = Path(__file__).resolve().parents[2]
 PYPROJECT = tomllib.loads((ROOT / "pyproject.toml").read_text())
@@ -60,16 +62,15 @@ def test_the_lock_lists_both_extras() -> None:
     assert {"acp", "modal"} <= set(own_lock_package()["metadata"]["provides-extras"])
 
 
-def test_the_install_hint_names_the_modal_extra_and_never_acp(
-    monkeypatch,  # noqa: ANN001
-) -> None:
-    import sys
+def test_the_library_is_importable_in_the_development_environment() -> None:
+    import importlib
 
-    monkeypatch.setitem(sys.modules, "modal", None)
-    from datetime import UTC, datetime
+    types = importlib.import_module("modal.types")
 
-    result = read_usage("modal", budget_usd=200, now=datetime(2026, 10, 14, tzinfo=UTC))
+    fields = {field.name for field in dataclasses.fields(types.WorkspaceBillingSummary)}
+    assert {"start", "end", "metered_cost"} <= fields
 
-    assert isinstance(result, ProviderUnknown)
-    assert "modal" in result.reason
-    assert "acp" not in result.reason
+
+def test_the_guard_trips_when_the_real_reading_function_is_called() -> None:
+    with pytest.raises(pytest.fail.Exception, match="a tier 1 test called the real provider"):
+        read_modal_summary()

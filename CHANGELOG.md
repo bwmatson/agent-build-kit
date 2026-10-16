@@ -2,12 +2,6 @@
 
 ## Unreleased
 
-- A new optional extra, `modal`, brings the library a split's usage gate reads a provider's
-  billing through (and the `acp` extra with it). Install the kit with that extra in the
-  environment the tick runs in; without it a reading is reported as unknown, with the
-  reason. A gate can also name a command, whose exit status and first line of output say
-  whether the split may run.
-
 - A unit built in a repo that is also the planning repo can no longer write the planning
   paths from its worktree: the specs directory, the state directory, the two generated pages
   and the top-level `abk.yaml` are refused with a `BLOCKED` message, while every other path,
@@ -192,6 +186,8 @@
   and `abk tick --dry-run` says which it would release. Post-merge verification leaves
   held splits out of its live tests, and is skipped for the round, with nothing deployed
   or recorded, while a held split holds a live test among the change's files.
+  Reading a provider's usage needs the new optional extra `modal` (which brings
+  `acp`) installed in the environment the tick runs in.
 
 - An `abk.local.yaml` beside `abk.yaml` is merged over it when the configuration loads, so
   facts about other repos and a stack can stay out of a public checkout: mappings merge key

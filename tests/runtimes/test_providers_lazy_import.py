@@ -72,12 +72,9 @@ def test_the_library_is_imported_only_by_a_reading() -> None:
     assert seen["asked_by_read"] == ["modal"]
 
 
-def test_the_extra_is_declared_with_an_upper_bound_and_the_development_group_names_it() -> None:
+def test_the_extra_is_declared_with_an_upper_bound() -> None:
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
 
     extra = [Requirement(e) for e in pyproject["project"]["optional-dependencies"]["modal"]]
     library = next(r for r in extra if r.name == "modal")
     assert any(spec.operator in ("<", "<=", "~=", "==") for spec in library.specifier)
-
-    dev = [Requirement(e) for e in pyproject["dependency-groups"]["dev"]]
-    assert any("modal" in r.extras for r in dev)

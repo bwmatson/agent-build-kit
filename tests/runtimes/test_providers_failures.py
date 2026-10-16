@@ -7,9 +7,9 @@ import logging
 import sys
 from datetime import UTC, datetime
 from decimal import Decimal
-from types import SimpleNamespace
 
 import pytest
+from modal.types import WorkspaceBillingSummary
 
 from agent_build_kit.runtimes.providers import ProviderUnknown, read_usage
 from tests.redaction_fakes import SECRET, known
@@ -89,12 +89,12 @@ def test_a_log_line_holds_no_more_than_the_parsed_figures_and_the_reason(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     breakdown = {"object-id-7f3a9c": Decimal("12.5"), "app-name-private": Decimal("1")}
-    given = SimpleNamespace(
+    given = WorkspaceBillingSummary(
         start=datetime(2026, 10, 1, tzinfo=UTC),
         end=datetime(2026, 11, 1, tzinfo=UTC),
         metered_cost=Decimal("173.04285316"),
         metered_cost_breakdown=breakdown,
-        adjustments=[{"note": "credit-note-4821"}],
+        adjustments={"credit-note-4821": Decimal("30")},
         billed_cost=Decimal("142.99"),
     )
 

@@ -7,29 +7,42 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
+from modal.types import WorkspaceBillingSummary
 
-from agent_build_kit.runtimes.providers import ProviderReading, ProviderUnknown, read_usage
+from agent_build_kit.runtimes.providers import (
+    PROVIDERS,
+    ProviderReading,
+    ProviderUnknown,
+    read_usage,
+)
 
 NOW = datetime(2026, 10, 14, 9, 0, tzinfo=UTC)
 START = datetime(2026, 10, 1, tzinfo=UTC)
 END = datetime(2026, 11, 1, tzinfo=UTC)
 
 
-def summary(**overrides: object) -> SimpleNamespace:
-    """The fields the library's billing summary carries."""
+def summary(**overrides: object) -> WorkspaceBillingSummary:
+    """The library's own billing summary, built by hand."""
     fields: dict[str, object] = {
         "start": START,
         "end": END,
         "metered_cost": Decimal("173.04285316"),
         "metered_cost_breakdown": {"object-1": Decimal("100"), "object-2": Decimal("73.04285316")},
-        "adjustments": [{"credit": Decimal("30")}],
+        "adjustments": {"credit": Decimal("30")},
         "billed_cost": Decimal("142.99"),
     }
     fields.update(overrides)
-    return SimpleNamespace(**fields)
+    return WorkspaceBillingSummary(**fields)  # type: ignore[bad-argument-type]
 
 
-def reading(given: SimpleNamespace, *, now: datetime = NOW) -> ProviderReading:
+def without(given: WorkspaceBillingSummary, field: str) -> SimpleNamespace:
+    """A summary lacking an attribute altogether, which the library's slotted dataclass
+    cannot express; the namespace carries the same fields."""
+    kept = {name: getattr(given, name) for name in given.__slots__ if name != field}
+    return SimpleNamespace(**kept)
+
+
+def reading(given: object, *, now: datetime = NOW) -> ProviderReading:
     result = read_usage("modal", budget_usd=200, now=now, read=lambda: given)
     assert isinstance(result, ProviderReading), result
     return result
@@ -52,9 +65,13 @@ def test_a_tiny_amount_rounds_up_zero_stays_zero_and_over_budget_is_not_capped(
 
 
 def test_billed_cost_adjustments_and_the_breakdown_change_nothing() -> None:
-    plain = reading(summary(billed_cost=Decimal(0), adjustments=[], metered_cost_breakdown={}))
+    plain = reading(summary(billed_cost=Decimal(0), adjustments={}, metered_cost_breakdown={}))
     busy = reading(
-        summary(billed_cost=Decimal("1"), adjustments=[1, 2], metered_cost_breakdown={1: 2})
+        summary(
+            billed_cost=Decimal("1"),
+            adjustments={"a": Decimal(2)},
+            metered_cost_breakdown={"b": Decimal(2)},
+        )
     )
 
     assert plain == busy
@@ -94,9 +111,7 @@ def test_a_clock_at_the_end_is_outside_the_window() -> None:
 def test_a_summary_without_a_start_or_an_end_falls_back_to_the_calendar_month_in_utc(
     missing: str, how: str, now: datetime, start: datetime, end: datetime
 ) -> None:
-    given = summary(**{missing: None})
-    if how == "absent":
-        delattr(given, missing)
+    given = summary(**{missing: None}) if how == "none" else without(summary(), missing)
 
     result = reading(given, now=now)
 
@@ -117,8 +132,7 @@ def test_the_fallback_month_is_the_utc_month_of_a_clock_in_another_zone() -> Non
 
 
 def test_a_missing_metered_cost_is_unknown_and_says_so() -> None:
-    given = summary()
-    del given.metered_cost
+    given = without(summary(), "metered_cost")
 
     result = read_usage("modal", budget_usd=200, now=NOW, read=lambda: given)
 
@@ -134,3 +148,48 @@ def test_a_metered_cost_that_is_not_a_non_negative_decimal_is_unknown(bad: objec
     assert "metered_cost" in result.reason
     if isinstance(bad, str | int):
         assert str(bad) in result.reason
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [
+        (datetime(1970, 1, 1, tzinfo=UTC), datetime(1970, 1, 1, tzinfo=UTC)),
+        (START, START),
+        (END, START),
+    ],
+)
+def test_an_unset_or_backwards_window_falls_back_to_the_calendar_month(
+    start: datetime, end: datetime
+) -> None:
+    result = reading(summary(start=start, end=end))
+
+    assert (result.window_start, result.window_end) == (START, END)
+
+
+@pytest.mark.parametrize("budget", [0, -5])
+def test_a_budget_that_is_not_positive_is_unknown_and_reads_nothing(budget: float) -> None:
+    def never() -> object:
+        raise AssertionError("the reader was called")
+
+    result = read_usage("modal", budget_usd=budget, now=NOW, read=never)
+
+    assert isinstance(result, ProviderUnknown)
+    assert "budget_usd" in result.reason
+
+
+def test_a_name_the_table_lacks_is_unknown_naming_the_table_and_reads_nothing() -> None:
+    def never() -> object:
+        raise AssertionError("the reader was called")
+
+    result = read_usage("other", budget_usd=200, now=NOW, read=never)
+
+    assert isinstance(result, ProviderUnknown)
+    assert "other" in result.reason
+    assert "modal" in result.reason
+
+
+def test_the_modal_row_has_a_hint_naming_the_extra_and_not_acp() -> None:
+    hint = PROVIDERS["modal"].hint
+
+    assert "`modal`" in hint
+    assert "acp" not in hint
