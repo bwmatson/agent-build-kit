@@ -755,6 +755,7 @@ def build_commit(
     gate: Callable[[Path], str] | None = None,
     repo: RepoConfig | None = None,
     base: str = "",
+    only: Sequence[str] | None = None,
 ) -> Callable[..., int]:
     """Commit whatever is staged or unstaged, reporting how many commits resulted.
 
