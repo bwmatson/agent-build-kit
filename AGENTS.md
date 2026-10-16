@@ -1,8 +1,8 @@
 # agent-build-kit
 
 A framework: a spec-driven, unattended build pipeline that turns OpenSpec
-changes in a **planning repo** into units of work, each one branch and one PR
-in one of the workspace's **code repos**, built test-first by Claude Code,
+changes in a **planning repo** (which may itself be one of the code repos) into
+units of work, each one branch and one PR in one of the workspace's **code repos**, built test-first by Claude Code,
 reviewed, checked on two test tiers, verified live after merge, and archived.
 Plus the scheduled health/improve/recommend tracks. `abk` is the CLI; `abk
 init` sets an installation up.
@@ -70,7 +70,9 @@ an ad hoc session:
   test-first on `spec/<change>/<n>` branches; a person reviews and merges the
   pull requests.
 - **An interactive session does not edit the code to make a change.** It may
-  read, diagnose, and write or revise the change that describes the work. A
+  read, diagnose, and write or revise the change that describes the work. The
+  specs and the pipeline state live in this repository, and the working copy is
+  where they are edited; the code is the part a session leaves to the pipeline. A
   session that finds a bug, wants a feature or sees a cleanup writes it up as
   a change (or a follow-up on one in flight) instead of patching the code.
 - **The one exception is the pipeline itself being unable to run** — a defect

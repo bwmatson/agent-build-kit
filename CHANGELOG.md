@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The three `abk-*` skills (now version 1.1.0), the planning orientation template, the track
+  prompts and the contributor rules say that a planning repo can be one of the code repos: the
+  specs and state live in the repository and are edited in a working copy, ticks and tracks run
+  in the pipeline worktree (`abk --config <worktree>/abk.yaml <command>` from a working copy),
+  `planning.publish` is listed, and a `planning sync stopped:` line is explained with what to do.
+
 - New setting `planning.publish` (`direct` by default, or `branch`) for a repo that is also
   the planning repo. With `branch`, a track's planning commit is pushed to a
   `planning/<run>-<project>-<phase>` branch and a pull request is opened for it, instead of

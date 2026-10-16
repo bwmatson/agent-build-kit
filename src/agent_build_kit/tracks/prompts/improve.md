@@ -10,7 +10,7 @@ file in `__PROJECT__`, do not create a branch, do not open a PR, and do not
 write a change.** Turning what you find into a change is `propose.md`'s job,
 run afterward with its own budget. This phase does
 update `__STATE_DIR__/tracked-issues.md` in the planning repo — that's
-bookkeeping, not application code.
+bookkeeping, not the code under test.
 
 ## Scope: one project per run
 

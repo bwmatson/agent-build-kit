@@ -11,7 +11,7 @@ audit. That's `improve.md`'s job, run weekly with its own budget. **Do not
 edit any file in `__PROJECT__`, do not create a branch, do not open a
 PR.** This phase only reports (it does update
 `__STATE_DIR__/tracked-issues.md` in the planning repo — that's
-bookkeeping, not application code).
+bookkeeping, not the code under test).
 
 ## Scope: one project per run
 

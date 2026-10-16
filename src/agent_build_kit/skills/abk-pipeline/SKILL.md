@@ -1,7 +1,7 @@
 ---
 name: abk-pipeline
 description: TRIGGER — read when asked what the abk pipeline is doing, why a unit or change is stuck, what `held`/`failed`/`in_review` means, or before running `abk tick`, `abk verify` or `abk archive` in a planning repo. SKIP when the question is about writing a change's tasks (abk-authoring) or about abk.yaml and `abk doctor` (abk-config).
-version: 1.0.0
+version: 1.1.0
 generatedBy: agent-build-kit
 ---
 
@@ -39,6 +39,28 @@ what the pipeline is doing, watch the pass, not a single unit.
 | `abk planning split --repo <key> --to <dir>` | Move a repo's changes, specs and unit records to another planning repo. Always run the dry run first (the default) and read the plan; then `--apply`, then `--apply --remove` to take what moved out of the source. Units must be settled; see `docs/cli.md`. |
 | `abk archive <change>` | `openspec archive <change> --yes`. |
 | `abk openspec -- <args>` | Any other OpenSpec command, in the planning repo. |
+
+## When the planning repo is also a code repo
+
+A repo can be both: `abk.yaml` lists it at `.`, and the specs, the state and the
+code live in one repository. Your **working copy** is where you work; the
+pipeline never changes its branch, files or index. The **pipeline worktree** is
+a detached worktree outside the repository, made by `abk install-timers`, where
+ticks and tracks run. `abk status` and `abk doctor` in the working copy name it
+and print `abk --config <worktree>/abk.yaml <command>`; `abk tick`, `abk track`,
+`abk verify` and `abk archive` refuse from the working copy unless that
+`--config` (or `ABK_CONFIG`) is given. Commits there are limited to the planning
+paths (the specs directory, the state directory, the two generated pages and
+`abk.yaml`).
+
+Before a tick or track the pipeline worktree is synced to the tip of the default
+branch. A line `planning sync stopped: <reason>` means the sync could not move it
+and the run ended with exit 1; nothing was stashed or reset. The reason says what
+is in the way: `diverged` (commits made in the pipeline worktree that the default
+branch lacks), an unfinished merge, rebase, cherry-pick or revert, or a stray
+branch. To fix it, go into the pipeline worktree, finish or abandon what is
+unfinished, or move its own commits onto the default branch (or drop them), leave
+HEAD detached, and let the next tick sync again.
 
 ## Where the state is
 
