@@ -234,6 +234,9 @@ def github_server() -> Iterator[FakeGitHub]:
         yield server
 
 
+SCHEDULING = ("max_units_in_progress", "max_concurrent_stacks", "max_concurrent_restacks")
+
+
 def workspace_config(root: Path, **overrides) -> WorkspaceConfig:
     """Two repos on a temporary root: `app` consumes `platform`."""
     repos = {
@@ -242,6 +245,19 @@ def workspace_config(root: Path, **overrides) -> WorkspaceConfig:
             path=root / "checkouts" / "app", slug="example/app", consumes=["platform"]
         ),
     }
+    # The scheduling settings live in `project_limits`; a test may still pass them beside the
+    # others, as `limits` or `global_limits`.
+    scheduling: dict = {}
+    for key in ("limits", "global_limits"):
+        if key in overrides:
+            block = dict(overrides[key])
+            scheduling.update({n: block.pop(n) for n in list(block) if n in SCHEDULING})
+            overrides = {**overrides, key: block}
+    if scheduling:
+        overrides = {
+            **overrides,
+            "project_limits": {**overrides.get("project_limits", {}), **scheduling},
+        }
     return WorkspaceConfig.model_validate(
         {"repos": {k: v.model_dump(mode="json") for k, v in repos.items()}, **overrides}
     )
@@ -263,8 +279,8 @@ def status_lines(
     limit: int | None = None,
 ) -> list[str]:
     """`abk status` over `units`. `upsert` drops a unit's state, branch and pull request, so
-    those are recorded after it; `limit` is `global_limits.max_units_in_progress`."""
-    limits = {} if limit is None else dict(global_limits=dict(max_units_in_progress=limit))
+    those are recorded after it; `limit` is `project_limits.max_units_in_progress`."""
+    limits = {} if limit is None else dict(project_limits=dict(max_units_in_progress=limit))
     workspace = make_installation(
         tmp_path,
         planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),

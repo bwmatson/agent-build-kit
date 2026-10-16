@@ -888,7 +888,7 @@ def limit_workspace(tmp_path: Path, limit: int) -> Installation:
     return make_installation(
         tmp_path,
         planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
-        global_limits=dict(max_units_in_progress=limit),
+        project_limits=dict(max_units_in_progress=limit),
     )
 
 

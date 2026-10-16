@@ -431,6 +431,24 @@ class ContextConfig(Frozen):
 TEST_KIND_SETTINGS = ConfigDict(validate_by_name=True, serialize_by_alias=True)
 
 
+class ProjectLimitsConfig(Frozen):
+    """The scheduling settings (`project_limits`), configured once at the root for every project."""
+
+    # How many units are implemented at once, across all repos.
+    max_concurrent_stacks: int = 4
+    # How many restacks (moving a unit's branch onto a changed base) run at once, across
+    # all repos, in a lane apart from the build workers: a restack takes no build slot.
+    max_concurrent_restacks: Annotated[int, Field(ge=1)] = 2
+    # How many units may be started and not finished at once, across all repos.
+    # At it no unit that has never started does; what drains the queue
+    # (finishing, rework, resuming, a further review round) still runs.
+    max_units_in_progress: Annotated[int, Field(ge=1)] = 5
+
+
+# The scheduling settings that moved from the limits block to `project_limits`.
+MOVED_TO_PROJECT_LIMITS = tuple(ProjectLimitsConfig.model_fields)
+
+
 class LimitsConfig(Frozen):
     model_config = TEST_KIND_SETTINGS
 
@@ -440,21 +458,12 @@ class LimitsConfig(Frozen):
     # Deepest a dependent may sit when a merge restacks it; one beyond it is
     # held until a later merge brings it within. Unset: the build cap's value.
     stack_depth_rebase_cap: int | None = None
-    # How many units are implemented at once, across all repos.
-    max_concurrent_stacks: int = 4
-    # How many restacks (moving a unit's branch onto a changed base) run at once, across
-    # all repos, in a lane apart from the build workers: a restack takes no build slot.
-    max_concurrent_restacks: Annotated[int, Field(ge=1)] = 2
     # Most tests that may fail a run's first pass and pass the serial rerun before the run
     # is recorded as one flake storm (a disturbed host), with no fix change per test.
     max_flakes_per_run: Annotated[int, Field(ge=1)] = 5
     # Seconds after a push in which a pull request with no checks yet still reads
     # `checking`: CI may not have registered.
     checks_register_seconds: int = 120
-    # How many units may be started and not finished at once, across all repos.
-    # At it no unit that has never started does; what drains the queue
-    # (finishing, rework, resuming, a further review round) still runs.
-    max_units_in_progress: Annotated[int, Field(ge=1)] = 5
     # How many pull requests of finished units a round (each tick and each refresh of a
     # pass) takes their stale state label off, so a backlog does not spend the code
     # host's rate limit at once.
@@ -1096,6 +1105,8 @@ class WorkspaceConfig(Frozen):
     models: ModelsConfig = ModelsConfig()
     # The workspace-wide limits; a root `limits` key is read as this one (see _limits_alias).
     global_limits: LimitsConfig = LimitsConfig()
+    # The scheduling settings, read once for every project.
+    project_limits: ProjectLimitsConfig = ProjectLimitsConfig()
     builders: BuildersConfig = BuildersConfig()
     context: ContextConfig = ContextConfig()
     tracks: TracksConfig = TracksConfig()
@@ -1441,6 +1452,19 @@ def _read_new_settings(document: dict[str, Any]) -> dict[str, Any]:
     return renamed
 
 
+def _refuse_moved_settings(document: dict[str, Any]) -> None:
+    """Refuse a scheduling setting left in the limits block, naming where it lives now."""
+    for key in ("global_limits", DEPRECATED_ROOT_KEY):
+        block = document.get(key)
+        if not isinstance(block, dict):
+            continue
+        for name in MOVED_TO_PROJECT_LIMITS:
+            if name in block:
+                raise ValueError(
+                    f"{key}.{name}: moved to project_limits.{name}; `abk config --migrate` moves it"
+                )
+
+
 def _renamed(document: dict[str, Any] | None, file: Path) -> dict[str, Any] | None:
     """`document` with the deprecated root key and the old test-kind settings keys renamed, so
     two files that spell them differently still merge; one file that sets both spellings is
@@ -1448,6 +1472,7 @@ def _renamed(document: dict[str, Any] | None, file: Path) -> dict[str, Any] | No
     if document is None:
         return None
     try:
+        _refuse_moved_settings(document)
         return _read_new_settings(_alias_limits(document))
     except ValueError as error:
         raise ConfigError(f"{file}: {error}") from error

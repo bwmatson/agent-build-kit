@@ -181,15 +181,15 @@ class Installation:
 
     @property
     def max_concurrent_stacks(self) -> int:
-        return self.config.global_limits.max_concurrent_stacks
+        return self.config.project_limits.max_concurrent_stacks
 
     @property
     def max_concurrent_restacks(self) -> int:
-        return self.config.global_limits.max_concurrent_restacks
+        return self.config.project_limits.max_concurrent_restacks
 
     @property
     def max_units_in_progress(self) -> int:
-        return self.config.global_limits.max_units_in_progress
+        return self.config.project_limits.max_units_in_progress
 
     @property
     def stack_depth_build_cap(self) -> int:

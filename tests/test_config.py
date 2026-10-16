@@ -15,6 +15,7 @@ from agent_build_kit.config import (
     LimitsConfig,
     NotificationProvider,
     NotificationsConfig,
+    ProjectLimitsConfig,
     WorkspaceConfig,
     load,
 )
@@ -178,15 +179,17 @@ def test_the_two_caps_are_read_independently(tmp_path: Path, build: int, rebase:
 
 
 def test_the_limit_on_units_in_progress_defaults_to_five() -> None:
-    assert LimitsConfig().max_units_in_progress == 5
+    assert ProjectLimitsConfig().max_units_in_progress == 5
 
 
 def test_the_limit_on_units_in_progress_must_be_at_least_one() -> None:
-    assert LimitsConfig.model_validate({"max_units_in_progress": 1}).max_units_in_progress == 1
+    assert (
+        ProjectLimitsConfig.model_validate({"max_units_in_progress": 1}).max_units_in_progress == 1
+    )
 
     for refused in (0, -1):
         with pytest.raises(ValidationError) as error:
-            LimitsConfig.model_validate({"max_units_in_progress": refused})
+            ProjectLimitsConfig.model_validate({"max_units_in_progress": refused})
         assert "max_units_in_progress" in str(error.value)
 
 
