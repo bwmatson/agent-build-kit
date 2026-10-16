@@ -25,9 +25,9 @@ import re
 from collections.abc import Callable, Mapping, Sequence
 
 from agent_build_kit import runtimes
-from agent_build_kit.compat_names import KIND_FORMS, Place, new_spelling
+from agent_build_kit.compat_names import Place, new_spelling, old_spelling
 from agent_build_kit.config import active
-from agent_build_kit.model import Frozen
+from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
 from agent_build_kit.pipeline.unit_size import (
@@ -54,7 +54,7 @@ from agent_build_kit.runtimes.base import AgentRuntime
 RunClaude = Callable[[str], str]
 
 # The old tag of each kind, which the prompt says a group may still carry.
-OLD_UNIT_TEST, OLD_E2E = KIND_FORMS
+OLD_UNIT_TEST, OLD_E2E = old_spelling(TestTier.UNIT_TEST), old_spelling(TestTier.E2E_TEST)
 
 JSON_BLOCK = re.compile(r"\{.*\}", re.DOTALL)
 

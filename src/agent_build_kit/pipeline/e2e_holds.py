@@ -10,9 +10,9 @@ from pathlib import Path
 
 from pydantic import AwareDatetime, TypeAdapter, ValidationError
 
-from agent_build_kit.compat_names import KIND_FORMS, Place, notice
+from agent_build_kit.compat_names import Place, notice, old_spelling
 from agent_build_kit.config import REST_SPLIT, E2eSplit, RepoConfig, WorkspaceConfig, e2e_splits
-from agent_build_kit.model import Frozen
+from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 
 # The state file's name in the state directory.
@@ -20,9 +20,7 @@ HELD_FILE = "e2e-held.json"
 
 # The name the file had under the kind's old spelling; it is moved to `HELD_FILE` when it is
 # the only one that exists.
-_OLD_HELD_FILE = next(
-    f"{old}-held.json" for old, forms in KIND_FORMS.items() if forms.file_stem == "e2e"
-)
+_OLD_HELD_FILE = f"{old_spelling(TestTier.E2E_TEST)}-held.json"
 
 logger = logging.getLogger(__name__)
 

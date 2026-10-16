@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from agent_build_kit.compat_names import Place, is_old_spelling, new_spelling, notice
+from agent_build_kit.compat_names import Place, is_old_spelling, new_spelling, notice, old_spelling
+from agent_build_kit.model import TestTier
 
 OLD_TO_NEW = [
     (Place.TAG, "tier1", "unit-test"),
@@ -43,6 +44,11 @@ def test_a_new_spelling_is_returned_unchanged(place: Place, old: str, new: str) 
 def test_a_name_the_table_does_not_hold_is_returned_unchanged() -> None:
     assert new_spelling(Place.SETTING, "max_unit_lines") == "max_unit_lines"
     assert new_spelling(Place.TAG, "integration") == "integration"
+
+
+def test_each_kind_has_the_old_name_it_was_known_by() -> None:
+    assert old_spelling(TestTier.UNIT_TEST) == "tier1"
+    assert old_spelling(TestTier.E2E_TEST) == "tier2"
 
 
 def test_the_notice_names_the_old_spelling_the_new_one_and_where_it_was_read() -> None:

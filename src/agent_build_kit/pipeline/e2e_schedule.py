@@ -13,7 +13,7 @@ from contextlib import nullcontext
 from datetime import date, timedelta
 from pathlib import Path
 
-from agent_build_kit.compat_names import KIND_FORMS
+from agent_build_kit.compat_names import old_spelling
 from agent_build_kit.config import (
     BASE_GROUP,
     REST_SPLIT,
@@ -29,9 +29,7 @@ from agent_build_kit.pipeline.unit_store import UnitStore
 PREFIX = "scheduled-e2e"
 
 # The prefix a change was written with under the kind's old spelling.
-_OLD_PREFIX = next(
-    f"scheduled-{old}" for old, forms in KIND_FORMS.items() if forms.file_stem == "e2e"
-)
+_OLD_PREFIX = f"scheduled-{old_spelling(TestTier.E2E_TEST)}"
 
 PERIODS = {
     E2eSchedule.DAILY: timedelta(days=1),
