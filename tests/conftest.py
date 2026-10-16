@@ -203,6 +203,22 @@ def no_real_gh(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def no_real_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The provider's library is importable in the development environment, and a
+    reading through it is a billing call as whoever is logged in. A test that
+    takes a reading injects its own reading function; the real one fails the test."""
+    try:
+        import modal
+    except ImportError:
+        return
+
+    def refused(*args, **kwargs):
+        pytest.fail("a tier 1 test called the real provider")
+
+    monkeypatch.setattr(modal.Workspace, "from_context", refused)
+
+
+@pytest.fixture(autouse=True)
 def no_real_github() -> Iterator[None]:
     """The registered GitHub forge answers from a stand-in host, so no caller
     of `forges.get("github")` reaches api.github.com."""

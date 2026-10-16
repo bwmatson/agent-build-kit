@@ -186,6 +186,8 @@
   and `abk tick --dry-run` says which it would release. Post-merge verification leaves
   held splits out of its live tests, and is skipped for the round, with nothing deployed
   or recorded, while a held split holds a live test among the change's files.
+  Reading a provider's usage needs the new optional extra `modal` (which brings
+  `acp`) installed in the environment the tick runs in.
 
 - An `abk.local.yaml` beside `abk.yaml` is merged over it when the configuration loads, so
   facts about other repos and a stack can stay out of a public checkout: mappings merge key
