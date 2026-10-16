@@ -458,14 +458,7 @@ def test_stopping_still_awaits_the_builds_in_flight(builder: Builder, tmp_path: 
     itself, and killing it would leave its work uncommitted, so the pass
     waits for it to finish before returning."""
     inst = workspace(tmp_path, max_concurrent=2)
-    builder.store.upsert(
-        [
-            stored("quick/1"),
-            stored("slow/1", repo="platform"),
-            stored("stops/1"),
-            stored("later/1"),
-        ]
-    )
+    builder.store.upsert([stored("stops/1"), stored("slow/1", repo="platform"), stored("later/1")])
 
     def refused() -> None:
         pause.pause_until(
@@ -476,13 +469,16 @@ def test_stopping_still_awaits_the_builds_in_flight(builder: Builder, tmp_path: 
         )
 
     builder.scripts["stops/1"] = refused
+    # The two slots are taken by these two from the start, and the slow one finishes only
+    # once the refusal is written: no slot frees earlier, so `later/1` is never offered one
+    # before the pass is told to stop.
     builder.scripts["slow/1"] = lambda: wait_for(
         (tmp_path / "paused.json").exists, what="the pause file", timeout=WAIT
     )
 
     assert tick(inst) == 0
 
-    assert sorted(builder.started) == ["quick/1", "slow/1", "stops/1"]
+    assert sorted(builder.started) == ["slow/1", "stops/1"]
     assert "slow/1" in builder.finished
     assert builder.store.get("slow/1").state == IN_REVIEW
     assert builder.store.get("later/1").state == PLANNED
