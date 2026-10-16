@@ -147,7 +147,7 @@ def real_restack(
         store=rig.store,
         root=tmp_path,
         move=move,
-        tier1=tier1 or (lambda **kwargs: (True, "")),
+        unit_test=tier1 or (lambda **kwargs: (True, "")),
         push=lambda *args, **kwargs: pushed.append("pushed") or "newsha",
         retarget=lambda *args, **kwargs: None,
         comment=lambda pr, body, **kwargs: comments.append(body) if comments is not None else None,

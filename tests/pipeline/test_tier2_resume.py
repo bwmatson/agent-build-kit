@@ -25,7 +25,7 @@ def test_a_parked_unit_is_restacked_and_runs_tier_2_again_when_the_fix_merges(
     recorder.made = 2
     tier2 = Failing(recorder.events, snapshot_of(OLD), verdict_of(old=(OLD,)))
     overrides: dict[str, Any] = dict(
-        tier="tier2", run_tier2=tier2.run, tier2_verdict=tier2.judged, on_preexisting=Told()
+        tier="tier2", run_e2e=tier2.run, e2e_verdict=tier2.judged, on_preexisting=Told()
     )
     tick(tmp_path, recorder, **overrides)
     stored = recorder.store.get("add-marker/1")
@@ -54,8 +54,8 @@ def test_a_released_unit_that_the_restack_moves_runs_tier_1_once_before_tier_2(
     moving = Moving(recorder, None, CLEAN)
     overrides: dict[str, Any] = dict(
         tier="tier2",
-        run_tier2=tier2.run,
-        tier2_verdict=tier2.judged,
+        run_e2e=tier2.run,
+        e2e_verdict=tier2.judged,
         on_preexisting=Told(),
         restack_onto=moving.restack,
         head=moving.head,
@@ -79,7 +79,7 @@ def test_the_released_unit_that_fails_tier_2_again_on_the_same_test_is_parked_ag
     tier2 = Failing(recorder.events, snapshot_of(OLD), verdict_of(old=(OLD,)), fails=2)
     told = Told()
     overrides: dict[str, Any] = dict(
-        tier="tier2", run_tier2=tier2.run, tier2_verdict=tier2.judged, on_preexisting=told
+        tier="tier2", run_e2e=tier2.run, e2e_verdict=tier2.judged, on_preexisting=told
     )
     tick(tmp_path, recorder, **overrides)
     tick(tmp_path, recorder, event=GATE_CLEARED, restack_onto=lambda **kw: None, **overrides)

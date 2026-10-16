@@ -104,7 +104,7 @@ def drive(
         return recorder.tier1(**kwargs)
 
     return tick(
-        tmp_path, recorder, event=event, run=run, run_tier1=tier1, repo_config=habitat.repo()
+        tmp_path, recorder, event=event, run=run, run_unit_test=tier1, repo_config=habitat.repo()
     )
 
 

@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 from agent_build_kit.config import Tier2UnitScope
-from agent_build_kit.pipeline.tier2 import TestFailure, Tier2Result
+from agent_build_kit.pipeline.e2e import TestFailure, Tier2Result
 from agent_build_kit.pipeline.wiring import Tier2Session
 from agent_build_kit.profiles.python_uv import PROFILE
 from tests.factories import git, init_repo, unit

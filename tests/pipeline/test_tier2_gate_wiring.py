@@ -11,9 +11,9 @@ from typing import Any
 import pytest
 
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.e2e_holds import write_hold
 from agent_build_kit.pipeline.flakes import fix_change_name
 from agent_build_kit.pipeline.stack_runner import UnitRunner
-from agent_build_kit.pipeline.tier2_holds import write_hold
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.untouched_failures import PREFIX
 from agent_build_kit.pipeline.wiring import build_on_preexisting, build_runner
@@ -108,15 +108,15 @@ def test_the_runner_says_whole_exactly_when_the_scope_decision_does(
         (repo / "scripts").mkdir()
         (repo / "scripts" / "dev-stack.sh").write_text("#!/bin/sh\n")
 
-    assert built.tier2_runs_whole(cwd=repo, base=base) is whole
+    assert built.e2e_runs_whole(cwd=repo, base=base) is whole
 
 
 def test_the_runner_says_whole_when_the_units_tests_cannot_be_listed(tmp_path: Path) -> None:
     built, _, _ = runner_of(tmp_path, scope="own")
     repo, _ = adding_a_test(tmp_path)
 
-    assert built.tier2_runs_whole(cwd=repo, base="no-such-ref") is True
-    assert built.tier2_runs_whole(cwd=repo, base=None) is True
+    assert built.e2e_runs_whole(cwd=repo, base="no-such-ref") is True
+    assert built.e2e_runs_whole(cwd=repo, base=None) is True
 
 
 def test_the_runners_gate_answers_the_open_fix_of_a_recorded_same_repo_failure(
@@ -130,7 +130,7 @@ def test_the_runners_gate_answers_the_open_fix_of_a_recorded_same_repo_failure(
         met, verdict, verdict.pre_existing[0], wait=False
     )
 
-    held = built.on_tier2_gate(stored_unit("add-marker/1", repo="app"))
+    held = built.on_e2e_gate(stored_unit("add-marker/1", repo="app"))
 
     assert held == [fix_change_name(FAILING, PREFIX)]
 
@@ -143,4 +143,4 @@ def test_a_changed_test_is_not_a_reason_to_be_whole_under_own(tmp_path: Path) ->
         base_files={"tests/live/test_old.py": OLD},
     )
 
-    assert built.tier2_runs_whole(cwd=repo, base=base) is False
+    assert built.e2e_runs_whole(cwd=repo, base=base) is False

@@ -61,17 +61,17 @@ def test_the_tier_two_snapshot_is_included_when_there_is_one() -> None:
         unit(tier="tier2"),
         graph=[unit()],
         base="main",
-        tier2_snapshot="## Tier 2 results\nall good",
+        e2e_snapshot="## e2e-test results\nall good",
     )
 
-    assert "## Tier 2 results" in body
+    assert "## e2e-test results" in body
 
 
 def test_a_tier_one_unit_says_ci_covers_it() -> None:
     """Silence about tier 2 would read as "not run" rather than "not needed"."""
     body = build_pr_body(unit(tier="tier1"), graph=[unit()], base="main")
 
-    assert "tier 1" in body.lower()
+    assert "unit-test" in body.lower()
     assert "Actions" in body
 
 

@@ -24,9 +24,9 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.config_text_edit import ConfigTextEditError, TextEdit, set_hold
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.tier2 import listing_runner, selection_unavailable
-from agent_build_kit.pipeline.tier2_exclusive import check_splits
-from agent_build_kit.pipeline.tier2_holds import (
+from agent_build_kit.pipeline.e2e import listing_runner, selection_unavailable
+from agent_build_kit.pipeline.e2e_exclusive import check_splits
+from agent_build_kit.pipeline.e2e_holds import (
     HELD_FILE,
     ORIGIN_CONFIGURATION,
     SOURCE_COMMAND,

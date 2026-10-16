@@ -14,7 +14,7 @@ from agent_build_kit import forges
 from agent_build_kit.forges.azure_devops import AzureDevOpsForge
 from agent_build_kit.forges.base import RepoId
 from agent_build_kit.forges.github import GitHubForge
-from agent_build_kit.pipeline.tier2 import Tier2Result, post_status
+from agent_build_kit.pipeline.e2e import Tier2Result, post_status
 from tests.forges import azure_answers
 from tests.forges.azure_rest_host import RestHost
 from tests.forges.github_host import GitHubHost, answer

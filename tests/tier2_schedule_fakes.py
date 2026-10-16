@@ -10,7 +10,7 @@ import pytest
 
 from agent_build_kit.config import REST_SPLIT
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.tier2_schedule import PREFIX, scheduled_name
+from agent_build_kit.pipeline.e2e_schedule import PREFIX, scheduled_name
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import Unit
 from tests.conftest import make_installation

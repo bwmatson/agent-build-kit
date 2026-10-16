@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_build_kit.config import Tier2Split
-from agent_build_kit.pipeline.tier2_exclusive import check_splits
+from agent_build_kit.pipeline.e2e_exclusive import check_splits
 from agent_build_kit.profiles.python_uv import PROFILE
 
 SPLITS = (

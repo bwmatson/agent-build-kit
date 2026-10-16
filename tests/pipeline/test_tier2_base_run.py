@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline import wiring
-from agent_build_kit.pipeline.tier2 import TestFailure
+from agent_build_kit.pipeline.e2e import TestFailure
 from agent_build_kit.profiles.python_uv import PROFILE, PythonUvProfile
 from tests.factories import git
 from tests.redaction_fakes import NAME, SECRET, known

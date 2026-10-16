@@ -11,7 +11,7 @@ from agent_build_kit.pipeline.pr_body import build_pr_body
 from tests.factories import follow_ups, output_of, snapshot
 from tests.factories import stored_unit as unit
 
-HEADINGS = ("## Assumptions", "## Tier 2 results", "## How this was built")
+HEADINGS = ("## Assumptions", "## e2e-test results", "## How this was built")
 # The notes a trimmed output carries: one above the lines kept, one in their place.
 CUT_NOTE = "_(earlier output trimmed to fit the host's description limit)_"
 GONE_NOTE = "_The full output was trimmed: it did not fit the host's description limit._"
@@ -23,7 +23,7 @@ def body_of(*, output: str, follow_ups: list[str] | None = None, limit: int | No
         u,
         graph=[u],
         base="main",
-        tier2_snapshot=snapshot(output),
+        e2e_snapshot=snapshot(output),
         follow_ups=follow_ups,
         limit=limit,
     )
@@ -114,7 +114,7 @@ def test_above_their_smallest_forms_the_follow_ups_get_twice_the_output() -> Non
     def sizes(limit: int) -> tuple[int, int]:
         body = body_of(output=output, follow_ups=items, limit=limit)
         assert len(body) <= limit
-        shown = body[body.index("## Tier 2 results") : body.index("## Left for later")]
+        shown = body[body.index("## e2e-test results") : body.index("## Left for later")]
         later = body[body.index("## Left for later") : body.index("## How this was built")]
         return len(shown), len(later)
 

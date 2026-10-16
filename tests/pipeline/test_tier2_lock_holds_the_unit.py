@@ -17,7 +17,7 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.cli.pipeline import StackBusy, verify_one
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import wiring
-from agent_build_kit.pipeline.tier2 import stack_lock
+from agent_build_kit.pipeline.e2e import stack_lock
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.verify import Verification
 from tests.factories import unit
@@ -34,7 +34,7 @@ from tests.tier2_lock_fakes import (
 )
 
 HOUR = 3600
-BUSY = "tier 2 is busy"
+BUSY = "e2e-test is busy"
 
 
 @pytest.fixture
@@ -81,7 +81,7 @@ def test_a_tier_2_run_queued_behind_a_long_holder_runs_and_returns_its_result(
     clock.release_at(2 * HOUR, other.release)
     built, ran = runner(workspace, tmp_path, monkeypatch, [])
 
-    ok, _ = built.run_tier2(cwd=tree(tmp_path))
+    ok, _ = built.run_e2e(cwd=tree(tmp_path))
 
     assert ok
     assert ran.record_seen is not None
@@ -97,7 +97,7 @@ def test_the_wait_is_logged_at_once_and_at_each_interval_with_the_holder_and_its
     log: list[str] = []
     built, _ = runner(workspace, tmp_path, monkeypatch, log)
 
-    built.run_tier2(cwd=tree(tmp_path))
+    built.run_e2e(cwd=tree(tmp_path))
 
     waiting = [line for line in log if BUSY in line]
     # at once, then after five minutes and after ten
@@ -118,9 +118,9 @@ def test_a_wait_that_ends_records_one_span_with_the_seconds_waited(
     clock.release_at(400, other.release)
     built, _ = runner(workspace, tmp_path, monkeypatch, [])
 
-    built.run_tier2(cwd=tree(tmp_path))
+    built.run_e2e(cwd=tree(tmp_path))
 
-    waited = [s for s in span_lines(workspace) if s.get("waited") == "tier2_lock"]
+    waited = [s for s in span_lines(workspace) if s.get("waited") == "e2e_lock"]
     assert len(waited) == 1
     assert waited[0]["unit"] == "add-marker/1"
     assert waited[0]["change"] == "add-marker"
@@ -157,14 +157,14 @@ def test_a_lock_taken_at_once_is_held_under_the_units_id_with_no_wait_logged_or_
     log: list[str] = []
     built, ran = runner(workspace, tmp_path, monkeypatch, log)
 
-    ok, _ = built.run_tier2(cwd=tree(tmp_path))
+    ok, _ = built.run_e2e(cwd=tree(tmp_path))
 
     assert ok
     assert ran.record_seen is not None
     assert json.loads(ran.record_seen)["unit"] == "add-marker/1"
     assert clock.elapsed() == 0
     assert not [line for line in log if BUSY in line]
-    assert [s for s in span_lines(workspace) if s.get("waited") == "tier2_lock"] == []
+    assert [s for s in span_lines(workspace) if s.get("waited") == "e2e_lock"] == []
 
 
 def test_a_free_lock_with_a_dead_holders_record_is_logged_stale_and_overwritten(
@@ -177,7 +177,7 @@ def test_a_free_lock_with_a_dead_holders_record_is_logged_stale_and_overwritten(
     log: list[str] = []
     built, ran = runner(workspace, tmp_path, monkeypatch, log)
 
-    ok, _ = built.run_tier2(cwd=tree(tmp_path))
+    ok, _ = built.run_e2e(cwd=tree(tmp_path))
 
     assert ok
     stale = [line for line in log if "stale" in line]
@@ -200,7 +200,7 @@ def test_a_held_lock_whose_recorded_process_is_gone_is_not_broken(
     log: list[str] = []
     built, ran = runner(workspace, tmp_path, monkeypatch, log)
 
-    ok, _ = built.run_tier2(cwd=tree(tmp_path))
+    ok, _ = built.run_e2e(cwd=tree(tmp_path))
 
     assert ok
     # it ran only once the holder let go, and said why it kept waiting

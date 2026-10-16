@@ -33,16 +33,16 @@ def run_log_dir(state_dir: Path) -> Path:
     return state_dir / "unit-logs"
 
 
-def tier2_output_dir(state_dir: Path) -> Path:
-    """The directory of the full output of each tier 2 run, under the state directory."""
-    return state_dir / "tier2-output"
+def e2e_output_dir(state_dir: Path) -> Path:
+    """The directory of the full output of each e2e-test run, under the state directory."""
+    return state_dir / "e2e-output"
 
 
-def append_tier2_output(directory: Path, unit: Unit, started: datetime, text: str) -> Path:
-    """Append `text` to the unit's file for the tier 2 run begun at `started`, and
+def append_e2e_output(directory: Path, unit: Unit, started: datetime, text: str) -> Path:
+    """Append `text` to the unit's file for the e2e-test run begun at `started`, and
     return it. The files of the unit beyond `RUNS_KEPT` are removed first. The file
     is a diagnostic copy, so a write that fails is dropped."""
-    path = directory / run_log_name(unit, started, "tier2")
+    path = directory / run_log_name(unit, started, "e2e-test")
     try:
         directory.mkdir(parents=True, exist_ok=True)
         _prune(directory, unit, keep=RUNS_KEPT - (0 if path.exists() else 1))
@@ -187,3 +187,7 @@ def remove_old_logs(directory: Path, ledger: Path, *, days: int, now: datetime) 
                 path.unlink(missing_ok=True)
             except OSError:
                 continue
+
+
+tier2_output_dir = e2e_output_dir  # abk-shim
+append_tier2_output = append_e2e_output  # abk-shim

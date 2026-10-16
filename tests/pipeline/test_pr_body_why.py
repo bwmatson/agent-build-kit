@@ -234,7 +234,7 @@ def tier2_body(tmp_path: Path, *, why: str, limit: int, items: int = 40, **kw) -
         u,
         graph=[u],
         base="main",
-        tier2_snapshot=snapshot(output_of(20_000)),
+        e2e_snapshot=snapshot(output_of(20_000)),
         follow_ups=follow_ups(items),
         changes_dir=tmp_path,
         limit=limit,

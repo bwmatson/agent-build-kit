@@ -4,7 +4,7 @@ entry with no split shows a dash (spec: tier2-time-is-recorded-per-test)."""
 
 from pathlib import Path
 
-from agent_build_kit.pipeline.tier2 import TestTime, Tier2Result, build_snapshot
+from agent_build_kit.pipeline.e2e import TestTime, Tier2Result, build_snapshot
 from tests.conftest import make_installation
 from tests.tier2_duration_fakes import E2E, timed
 

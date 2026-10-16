@@ -13,7 +13,7 @@ Three things it must always say:
   body says only whether the chain is linear, which the host does not.
 - **What it assumes,** since a unit stacked on unmerged work is built on
   something that may still change.
-- **How it was verified,** including the tier 2 snapshot, which no CI run can
+- **How it was verified,** including the e2e-test snapshot, which no CI run can
   reproduce.
 """
 
@@ -110,7 +110,7 @@ _OUTPUT_GONE = "_The full output was trimmed: it did not fit the host's descript
 
 
 def _output_parts(verification: str) -> tuple[str, str, str, int, int] | None:
-    """The tier 2 section split around its output: what precedes the output,
+    """The e2e-test section split around its output: what precedes the output,
     the output, what follows it, and where the details block starts and ends."""
     start = verification.find("<details>")
     end = verification.rfind("</details>")
@@ -135,7 +135,7 @@ def _fixed(key: str, text: str) -> Section:
 
 
 def _verification_section(verification: str) -> Section:
-    """The verification part. Its tier 2 output is what shrinks, by keeping the
+    """The verification part. Its e2e-test output is what shrinks, by keeping the
     tail on a line boundary; its smallest form keeps the results and says the
     output was trimmed."""
     verification = verification.rstrip("\n")
@@ -375,7 +375,7 @@ def build_pr_body(
     *,
     graph: list[StoredUnit],
     base: str,
-    tier2_snapshot: str | None = None,
+    e2e_snapshot: str | None = None,
     restack_note: str | None = None,
     open_points: str | None = None,
     follow_ups: list[str] | None = None,
@@ -388,15 +388,15 @@ def build_pr_body(
     """The full description for a unit's PR."""
     if unit.tier == TestTier.E2E_TEST:
         verification = (
-            tier2_snapshot
-            or "## Tier 2 results\n\n_Not recorded — this PR should not have been pushed._"
+            e2e_snapshot
+            or "## e2e-test results\n\n_Not recorded — this PR should not have been pushed._"
         )
     else:
         ci = forges.for_repo(unit.repo)[0].ci_name
         verification = (
             "## Verification\n\n"
-            "This is a **tier 1** unit: everything it needs is fakes, fixtures or "
-            f"throwaway containers, so {ci} runs the whole of it. No tier 2 run was required."
+            "This is a **unit-test** unit: everything it needs is fakes, fixtures or "
+            f"throwaway containers, so {ci} runs the whole of it. No e2e-test run was required."
         )
 
     # Where the host renders the stack, it shows the order and what is beneath
@@ -494,7 +494,7 @@ def satisfied_reason(unit: StoredUnit, *, graph: Sequence[StoredUnit]) -> str:
     """Why a satisfied unit's stale pull request is closing.
 
     Composed here, mechanically, rather than asked of a model: the judgement
-    that got the unit here (no commits of its own, tier 1 green at the tip) is
+    that got the unit here (no commits of its own, unit-test green at the tip) is
     already mechanical, and this is the same kind of text `build_pr_body`
     writes without a model call.
     """

@@ -61,6 +61,25 @@ from agent_build_kit.pipeline.check_failures import failed_in
 from agent_build_kit.pipeline.check_runner import worktree_at
 from agent_build_kit.pipeline.command_limit import run_limited
 from agent_build_kit.pipeline.determinism_guidance import determinism_guidance
+from agent_build_kit.pipeline.e2e import (
+    UNKNOWN_SPLIT,
+    TestFailure,
+    TestTime,
+    Tier2Classification,
+    Tier2Result,
+    Tier2Selection,
+    Tier2Verdict,
+    build_selection,
+    build_snapshot,
+    selection_unavailable,
+    stack_lock,
+)
+from agent_build_kit.pipeline.e2e import (
+    post_status as tier2_post_status,
+)
+from agent_build_kit.pipeline.e2e_holds import repo_holds
+from agent_build_kit.pipeline.e2e_schedule import is_scheduled
+from agent_build_kit.pipeline.e2e_times import record_test_times, with_split
 from agent_build_kit.pipeline.environment import (
     artifact_patterns,
     lock_paths,
@@ -108,25 +127,6 @@ from agent_build_kit.pipeline.run_log import append_tier2_output, tier2_output_d
 from agent_build_kit.pipeline.scratch import run_folder, selection_seed
 from agent_build_kit.pipeline.shell import git, git_out, has_origin, porcelain
 from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner, Worktree
-from agent_build_kit.pipeline.tier2 import (
-    UNKNOWN_SPLIT,
-    TestFailure,
-    TestTime,
-    Tier2Classification,
-    Tier2Result,
-    Tier2Selection,
-    Tier2Verdict,
-    build_selection,
-    build_snapshot,
-    selection_unavailable,
-    stack_lock,
-)
-from agent_build_kit.pipeline.tier2 import (
-    post_status as tier2_post_status,
-)
-from agent_build_kit.pipeline.tier2_holds import repo_holds
-from agent_build_kit.pipeline.tier2_schedule import is_scheduled
-from agent_build_kit.pipeline.tier2_times import record_test_times, with_split
 from agent_build_kit.pipeline.transcript import Transcript, transcript_dir
 from agent_build_kit.pipeline.ui_review import ui_notes_of, ui_reply_writer, unit_patch_of
 from agent_build_kit.pipeline.unit_size import actual_lines, over_ceiling
@@ -1441,6 +1441,9 @@ def build_tier1(
     return tier1
 
 
+build_unit_test = build_tier1  # abk-forward
+
+
 def build_on_flake(
     store: UnitStore, installation: Installation, *, log: Callable[[str], None] = print
 ) -> OnFlake:
@@ -1516,7 +1519,7 @@ def build_on_tier2_gate(
     of a recorded base failure that holds it, and answer those changes (none: nothing
     holds it). `splits` are the splits the run executes (None: all). Writes no change."""
 
-    def on_tier2_gate(unit: Unit, splits: Collection[str] | None = None) -> list[str]:
+    def on_e2e_gate(unit: Unit, splits: Collection[str] | None = None) -> list[str]:
         stored = store.get(unit.id)
         held = [
             wait_on_preexisting(installation, entry, stored, wait=True, say=log)
@@ -1527,7 +1530,7 @@ def build_on_tier2_gate(
             log(f"{unit.id}: open fix {fix} of a failing test on the base — waits")
         return fixes
 
-    return on_tier2_gate
+    return on_e2e_gate
 
 
 def _under(path: Path, where: Path) -> str | None:
@@ -3576,7 +3579,7 @@ def build_runner(
         base_moved=build_base_moved(store),
         base_tip=tip,
         restack_onto=build_restack_onto(store, repo=repo, turn=unit_repo_turn),
-        run_tier1=build_tier1(
+        run_unit_test=build_tier1(
             profile=profile,
             root_extras=repo.tests.root_extras,
             projects=repo.projects,
@@ -3584,18 +3587,18 @@ def build_runner(
             repo=repo,
         ),
         on_flake=build_on_flake(store, installation, log=log),
-        run_tier2=tier2.run,
-        tier2_verdict=lambda: tier2.verdict,
-        tier2_result=lambda: tier2.result,
-        tier2_holds=lambda: holds,
-        tier2_ran_no_tests=lambda: bool(tier2.result and tier2.result.ran_no_tests),
-        tier2_passed_note=tier2.passed_note,
+        run_e2e=tier2.run,
+        e2e_verdict=lambda: tier2.verdict,
+        e2e_result=lambda: tier2.result,
+        e2e_holds=lambda: holds,
+        e2e_ran_no_tests=lambda: bool(tier2.result and tier2.result.ran_no_tests),
+        e2e_passed_note=tier2.passed_note,
         on_preexisting=build_on_preexisting(store, installation, log=log),
-        tier2_runs_whole=lambda *, cwd, base: (
+        e2e_runs_whole=lambda *, cwd, base: (
             tier2.scope(cwd=cwd, base=base).mode is Tier2UnitScope.FULL
         ),
-        tier2_splits=lambda: tier2.splits(),
-        on_tier2_gate=build_on_tier2_gate(store, installation, log=log),
+        e2e_splits=lambda: tier2.splits(),
+        on_e2e_gate=build_on_tier2_gate(store, installation, log=log),
         push=push_in_turn,
         open_pr=build_open_pr(store=store, log=log),
         linear=is_linear,

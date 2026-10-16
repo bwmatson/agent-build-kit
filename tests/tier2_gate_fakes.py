@@ -135,7 +135,7 @@ class Planning:
         }
 
     def tick(self, **more: Any) -> RunOutcome:
-        """The unit reaches tier 2 (or is resumed there), `run_tier2` being the recorder's
+        """The unit reaches tier 2 (or is resumed there), `run_e2e` being the recorder's
         unless `more` says otherwise."""
 
         def run_under_lock(*, cwd: Path, base: str | None = None) -> tuple[bool, str]:
@@ -145,9 +145,9 @@ class Planning:
 
         wired: dict[str, Any] = dict(
             tier="tier2",
-            tier2_runs_whole=self.scope,
-            on_tier2_gate=self.gate,
-            run_tier2=run_under_lock,
+            e2e_runs_whole=self.scope,
+            on_e2e_gate=self.gate,
+            run_e2e=run_under_lock,
         )
         return tick(self.tmp_path, self.recorder, **{**wired, **more})
 
@@ -155,8 +155,8 @@ class Planning:
         """The unit's tier 2 run fails on `OLD` of split `split`, which the base fails too."""
         tier2 = Failing(self.recorder.events, snapshot_of(OLD), verdict_of(old=(OLD,), group=split))
         return self.tick(
-            run_tier2=tier2.run,
-            tier2_verdict=tier2.judged,
+            run_e2e=tier2.run,
+            e2e_verdict=tier2.judged,
             on_preexisting=build_on_preexisting(self.store, self.installation, log=lambda m: None),
         ).status
 

@@ -225,7 +225,7 @@ def derive_must_keep(repo: Path, branch: str, *, old_base: str, files: list[str]
     Used to check that a conflict resolution didn't quietly delete the unit's
     own change. Deliberately conservative: a marker that turns out to be the
     base's would fail every resolution and stall the stack, which is worse
-    than a weak guard — tier 1, tier 2 and the review pass all still run
+    than a weak guard — unit-test, e2e-test and the review pass all still run
     afterwards.
     """
     if not files:
@@ -821,7 +821,7 @@ def resolved_move(
 
     What differs between them is which commits to replay and what to do
     afterwards, and that stays with each caller: `events` pushes, retargets the
-    PR and comments; a resuming unit has a review loop and tier 1 still ahead of
+    PR and comments; a resuming unit has a review loop and unit-test still ahead of
     it and must not push yet.
     """
     move = move or move_branch_onto
@@ -913,7 +913,7 @@ def blast_radius_note(*, branch: str, old_base: str, new_base: str, reason: str)
     return (
         f"**Restacked.** `{branch}` was moved from `{old_base}` onto `{new_base}` "
         f"({reason}). Its own commits are unchanged; what sits beneath them is not. "
-        "The checks were re-run after the move, and the tier 2 snapshot above, if any, "
+        "The checks were re-run after the move, and the e2e-test snapshot above, if any, "
         "belongs to the new head commit."
     )
 
@@ -935,7 +935,7 @@ def claude_resolver(
 
     Deliberately narrow: no commit, no push, no test run. It edits the
     conflicted files and stops, and `move_branch_onto` then checks the result.
-    The runner re-runs tier 1 and tier 2 afterwards, so this produces a
+    The runner re-runs unit-test and e2e-test afterwards, so this produces a
     candidate rather than a verdict. With a `resume_session` the runtime can
     continue, the call says its `follow_up` there; otherwise it runs the full
     `prompt` in a new session.

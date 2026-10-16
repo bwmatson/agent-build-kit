@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.config import Tier2UnitScope
-from agent_build_kit.pipeline.tier2 import post_status
+from agent_build_kit.pipeline.e2e import post_status
 from agent_build_kit.pipeline.unit_store import Cause
 from tests.forges.stand_in import StandInForge
 from tests.graph_driver import fresh, tick
@@ -43,9 +43,9 @@ def test_a_unit_parked_before_its_push_has_no_commit_on_the_host_to_carry_a_stat
         tmp_path,
         recorder,
         tier="tier2",
-        run_tier2=parking.run,
-        tier2_result=parking.result,
-        tier2_holds=lambda: holds_of(acp="down"),
+        run_e2e=parking.run,
+        e2e_result=parking.result,
+        e2e_holds=lambda: holds_of(acp="down"),
     )
 
     assert recorder.store.get("add-marker/1").cause is Cause.SPLIT_HELD

@@ -247,7 +247,7 @@ def test_nothing_is_pushed_but_the_commit_review_approved(tmp_path: Path) -> Non
         recorder.made += 1
         return original(cwd=cwd)
 
-    outcome = build(tmp_path, recorder, run_tier2=tier2_that_commits)
+    outcome = build(tmp_path, recorder, run_e2e=tier2_that_commits)
 
     assert outcome.status == "failed"
     assert "push" not in recorder.events
@@ -267,7 +267,7 @@ def test_a_commit_tier_one_makes_before_the_review_is_the_commit_that_is_reviewe
         recorder.made += 1
         return original(cwd=cwd, base=base, whole_repo=whole_repo)
 
-    outcome = build(tmp_path, recorder, run_tier1=tier1_that_commits)
+    outcome = build(tmp_path, recorder, run_unit_test=tier1_that_commits)
 
     assert outcome.status == "open"
     assert recorder.store.get(unit().id).approved == recorder.head(tmp_path)

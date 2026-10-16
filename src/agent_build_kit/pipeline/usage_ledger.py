@@ -129,7 +129,7 @@ class UsageRecord(BaseModel):
     reported: Usage | None = None
     outcome: str = ""
 
-    # A line written before the rename holds `tier1` or `tier2`; an empty kind stays.
+    # A line written before the rename holds the old spelling of its kind; an empty kind stays.
     _read_old_kind = field_validator("tier", mode="before")(read_old_kind)
 
     @model_validator(mode="before")

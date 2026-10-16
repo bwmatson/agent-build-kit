@@ -34,7 +34,7 @@ def test_a_units_own_failure_writes_no_record_and_holds_no_unit(tmp_path: Path) 
     planning = Planning(tmp_path)
     tier2 = Failing(planning.recorder.events, snapshot_of(OWN), verdict_of(own=(OWN,)))
     told = build_on_preexisting(planning.store, planning.installation, log=lambda m: None)
-    planning.tick(run_tier2=tier2.run, tier2_verdict=tier2.judged, on_preexisting=told)
+    planning.tick(run_e2e=tier2.run, e2e_verdict=tier2.judged, on_preexisting=told)
     assert preexisting_record(planning.installation).entries() == []
 
     assert planning.gate(second_unit(planning)) == []
@@ -61,7 +61,7 @@ def test_a_run_that_failed_on_an_environment_outage_writes_no_record(tmp_path: P
     planning = Planning(tmp_path)
     outage = Failing(planning.recorder.events, snapshot_of(OLD), None)
     told = build_on_preexisting(planning.store, planning.installation, log=lambda m: None)
-    planning.tick(run_tier2=outage.run, tier2_verdict=outage.judged, on_preexisting=told)
+    planning.tick(run_e2e=outage.run, e2e_verdict=outage.judged, on_preexisting=told)
     assert preexisting_record(planning.installation).entries() == []
 
     assert planning.gate(second_unit(planning)) == []
@@ -92,7 +92,7 @@ def test_a_run_in_flight_when_a_record_is_written_is_classified_and_judged_as_be
         return tier2.run(**kw)
 
     told = build_on_preexisting(planning.store, planning.installation, log=lambda m: None)
-    outcome = planning.tick(run_tier2=run, tier2_verdict=tier2.judged, on_preexisting=told)
+    outcome = planning.tick(run_e2e=run, e2e_verdict=tier2.judged, on_preexisting=told)
 
     assert planning.gate.asked == ["add-marker/1"], "asked before the run, once"
     assert outcome.status == RunStatus.HELD, "parked by the failure it met, as before"

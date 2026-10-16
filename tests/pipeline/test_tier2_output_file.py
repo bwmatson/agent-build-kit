@@ -10,8 +10,8 @@ from pathlib import Path
 
 from agent_build_kit.config import ProjectConfig
 from agent_build_kit.pipeline.archive import archive_ready_changes
+from agent_build_kit.pipeline.e2e import Tier2Result
 from agent_build_kit.pipeline.run_log import RUNS_KEPT, tier2_output_dir
-from agent_build_kit.pipeline.tier2 import Tier2Result
 from agent_build_kit.pipeline.wiring import Tier2Session
 from tests.factories import stored_unit, unit
 from tests.pipeline.test_archive import FakeRunner
@@ -179,7 +179,7 @@ def test_archiving_a_change_removes_its_files_and_not_another_changes(tmp_path: 
         [stored_unit("add-marker/1", state="merged")],
         planning_repo=tmp_path,
         run=FakeRunner(),
-        tier2_outputs=tier2_output_dir(tmp_path / "state"),
+        e2e_outputs=tier2_output_dir(tmp_path / "state"),
     )
 
     assert archived == ["add-marker"]

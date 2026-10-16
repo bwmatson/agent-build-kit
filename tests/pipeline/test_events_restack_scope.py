@@ -48,7 +48,7 @@ def restacking(
         store=store,
         root=installation.root,
         move=lambda *a, **k: moved,
-        tier1=tier1,
+        unit_test=tier1,
         push=lambda *a, **k: pushed.append("pushed") or "newsha",
         retarget=lambda *a, **k: None,
         comment=lambda *a, **k: None,

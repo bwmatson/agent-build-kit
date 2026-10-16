@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import spans, tier2, wiring
+from agent_build_kit.pipeline import e2e, spans, wiring
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import Unit
 from agent_build_kit.pipeline.wiring import build_runner
@@ -54,7 +54,7 @@ class SleepingTime:
 
 def install_clock(monkeypatch: pytest.MonkeyPatch, start: datetime = START) -> SleepingTime:
     sleeping = SleepingTime(install(monkeypatch, start))
-    monkeypatch.setattr(tier2, "time", sleeping)
+    monkeypatch.setattr(e2e, "time", sleeping)
     return sleeping
 
 

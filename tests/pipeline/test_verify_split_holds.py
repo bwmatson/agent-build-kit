@@ -12,7 +12,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.tier2_holds import SOURCE_COMMAND, remove_hold, write_hold
+from agent_build_kit.pipeline.e2e_holds import SOURCE_COMMAND, remove_hold, write_hold
 from agent_build_kit.pipeline.verify import VerifyRecord, verify_change
 from tests.conftest import make_installation
 from tests.factories import stored_unit

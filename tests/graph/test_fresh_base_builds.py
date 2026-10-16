@@ -191,7 +191,7 @@ def test_tier_two_failing_after_a_clean_move_waits_with_its_output(tmp_path: Pat
     outcome = build(
         tmp_path,
         recorder,
-        run_tier2=recorder.tier2,
+        run_e2e=recorder.tier2,
         may_start=window,
         **moving.overrides(),
     )
@@ -228,7 +228,7 @@ def test_a_tier_two_unit_moved_cleanly_posts_its_status_for_the_moved_commit(
     outcome = build(
         tmp_path,
         recorder,
-        run_tier2=session.run,
+        run_e2e=session.run,
         post_status=session.post,
         push=lambda branch, *, cwd: moving.head(cwd),
         **moving.overrides(),

@@ -36,7 +36,7 @@ def test_an_own_scope_unit_with_no_tier_2_test_is_not_held_and_takes_no_lock(
         asked.append("run")
         return True, "tier 2 skipped: no tier 2 test added or changed"
 
-    outcome = planning.tick(run_tier2=skipped)
+    outcome = planning.tick(run_e2e=skipped)
 
     assert len(planning.scope.asked) == 1
     assert planning.gate.asked == []
@@ -71,7 +71,7 @@ def test_the_scope_is_asked_for_the_tree_and_base_of_the_run_before_the_gate(
         seen.append(len(planning.scope.asked))
         return planning.gate(unit, **run)
 
-    planning.tick(on_tier2_gate=gate, base="release")
+    planning.tick(on_e2e_gate=gate, base="release")
 
     assert seen == [1], "the scope function was asked first, once"
     ((tree, base),) = planning.scope.asked

@@ -3,8 +3,8 @@ feedback holds it when the cut output does not hold the first error."""
 
 from pathlib import Path
 
+from agent_build_kit.pipeline.e2e import TestFailure
 from agent_build_kit.pipeline.pr_body import build_pr_body
-from agent_build_kit.pipeline.tier2 import TestFailure
 from tests.factories import output_of, snapshot
 from tests.factories import stored_unit as unit
 from tests.tier2_failure_fakes import run_failing_tier2
@@ -17,7 +17,7 @@ FAILURES = [
 
 def _body(snap: str, limit: int | None) -> str:
     u = unit(tier="tier2", depends_on=())
-    return build_pr_body(u, graph=[u], base="main", tier2_snapshot=snap, limit=limit)
+    return build_pr_body(u, graph=[u], base="main", e2e_snapshot=snap, limit=limit)
 
 
 def test_thirty_failed_tests_are_all_listed_whole_when_the_output_is_cut() -> None:

@@ -1,4 +1,4 @@
-"""A limit on how long a tier 1 command may run.
+"""A limit on how long a unit-test command may run.
 
 A test run can finish its tests and then not exit, as when a thread nothing joins keeps
 the interpreter alive; the time limit on each test does not see that. A command past
@@ -47,7 +47,7 @@ def run_limited(
     except subprocess.TimeoutExpired:
         _signal_group(process, signal.SIGKILL)
         out, err = _drain(process)
-    note = f"\ntier 1 command timed out after {limit:g} seconds and was aborted\n"
+    note = f"\nunit-test command timed out after {limit:g} seconds and was aborted\n"
     return subprocess.CompletedProcess(args, TIMED_OUT_EXIT, out or "", (err or "") + note)
 
 

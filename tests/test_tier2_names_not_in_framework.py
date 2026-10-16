@@ -23,7 +23,7 @@ SOURCE = Path(__file__).resolve().parent.parent / "src" / "agent_build_kit"
 MODULES = (
     "pipeline/tier2.py",
     "pipeline/tier2_exclusive.py",
-    "pipeline/tier2_holds.py",
+    "pipeline/e2e_holds.py",
     "pipeline/tier2_schedule.py",
     "pipeline/tier2_times.py",
     "pipeline/untouched_failures.py",

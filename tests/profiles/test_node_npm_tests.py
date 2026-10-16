@@ -18,8 +18,8 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit import profiles
+from agent_build_kit.pipeline.e2e import TestFailure
 from agent_build_kit.pipeline.red_check import REPORT_MARK
-from agent_build_kit.pipeline.tier2 import TestFailure
 
 VITEST = Path(__file__).resolve().parents[1] / "fixtures" / "external" / "vitest"
 

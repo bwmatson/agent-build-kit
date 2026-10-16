@@ -32,8 +32,8 @@ def test_the_gate_is_given_the_splits_the_run_executes(tmp_path: Path) -> None:
     free = Planning(tmp_path / "free", whole=True)
     free.open_fix(OLD, split="acp")
 
-    held_status = held.tick(tier2_splits=lambda: ("rest", "acp")).status
-    free_status = free.tick(tier2_splits=lambda: ("rest", "claude_code")).status
+    held_status = held.tick(e2e_splits=lambda: ("rest", "acp")).status
+    free_status = free.tick(e2e_splits=lambda: ("rest", "claude_code")).status
 
     assert held_status == RunStatus.HELD
     assert not held.ran_tier2

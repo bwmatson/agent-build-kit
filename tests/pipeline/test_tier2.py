@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline.tier2 import (
+from agent_build_kit.pipeline.e2e import (
     STATUS_CONTEXT,
     Tier2Result,
     build_snapshot,

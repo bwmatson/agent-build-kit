@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline.archive import archive_ready_changes
+from agent_build_kit.pipeline.e2e_schedule import write_due
 from agent_build_kit.pipeline.stack_runner import RunStatus
-from agent_build_kit.pipeline.tier2_schedule import write_due
 from agent_build_kit.pipeline.units import SATISFIED
 from tests.factories import git
 from tests.runner_fakes import Killed
@@ -110,8 +110,8 @@ def test_a_new_runner_resumed_at_satisfied_still_has_the_note_of_the_run(tmp_pat
         raise AssertionError("tier 2 is not run again")
 
     outcome = run.tick(
-        run_tier2=refuse,
-        tier2_passed_note=lambda: "no result in a new runner",
+        run_e2e=refuse,
+        e2e_passed_note=lambda: "no result in a new runner",
         release_dependents=lambda unit: [],
     )
 
@@ -147,4 +147,4 @@ def test_the_next_due_date_is_read_from_the_archived_name(tmp_path: Path) -> Non
         return write_due(run.inst, run.store, today=TODAY + timedelta(days=days), say=print)
 
     assert due(6) == []
-    assert due(7) == [f"scheduled-tier2-app-{(TODAY + timedelta(days=7)).isoformat()}-rest"]
+    assert due(7) == [f"scheduled-e2e-app-{(TODAY + timedelta(days=7)).isoformat()}-rest"]

@@ -56,7 +56,7 @@ def test_an_azure_tier_one_body_names_no_github_service() -> None:
     body = build_pr_body(unit(tier="tier1"), graph=[unit()], base="main")
 
     assert "GitHub Actions" not in body
-    assert "tier 1" in body.lower()
+    assert "unit-test" in body.lower()
 
 
 def test_an_azure_tier_one_body_names_its_own_ci() -> None:

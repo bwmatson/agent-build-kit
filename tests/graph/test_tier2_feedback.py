@@ -42,8 +42,8 @@ def failed_run(
         tmp_path,
         recorder,
         tier="tier2",
-        run_tier2=tier2.run,
-        tier2_verdict=tier2.judged,
+        run_e2e=tier2.run,
+        e2e_verdict=tier2.judged,
         on_preexisting=Told(),
     )
     stored = recorder.store.get("add-marker/1")
@@ -57,7 +57,7 @@ def test_a_mixed_failure_saves_the_units_own_failure_line_and_names_the_pre_exis
         tmp_path, verdict=verdict_of(own=(OWN,), old=(OLD,)), tests=(OWN, OLD)
     )
 
-    assert feedback.startswith("tier 2 failed:\n## Tier 2 results")
+    assert feedback.startswith("tier 2 failed:\n## e2e-test results")
     assert OWN in feedback, "the unit's own failure is listed"
     assert "assert in test_own" in feedback
     assert feedback.count(OLD) == 1, "named once"
@@ -120,8 +120,8 @@ def test_the_prompt_made_from_the_saved_text_holds_none_of_an_untouched_tests_ou
     )
     overrides = dict(
         tier="tier2",
-        run_tier2=tier2.run,
-        tier2_verdict=tier2.judged,
+        run_e2e=tier2.run,
+        e2e_verdict=tier2.judged,
         on_preexisting=Told(),
     )
     tick(tmp_path, recorder, **overrides)

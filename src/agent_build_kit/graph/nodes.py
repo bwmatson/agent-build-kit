@@ -38,6 +38,8 @@ from agent_build_kit.pipeline import environment, spans, spec_snapshot
 from agent_build_kit.pipeline.call_record import call_recorder
 from agent_build_kit.pipeline.changelog_convention import changelog_note
 from agent_build_kit.pipeline.check_failures import failed_check
+from agent_build_kit.pipeline.e2e import NO_TEST_RAN, Tier2Verdict
+from agent_build_kit.pipeline.e2e_schedule import is_scheduled, scheduled_split
 from agent_build_kit.pipeline.events import (
     held_cause,
     held_for_its_own_reason,
@@ -83,8 +85,6 @@ from agent_build_kit.pipeline.stack_runner import (
     tests_needing_decision,
     with_response,
 )
-from agent_build_kit.pipeline.tier2 import NO_TEST_RAN, Tier2Verdict
-from agent_build_kit.pipeline.tier2_schedule import is_scheduled, scheduled_split
 from agent_build_kit.pipeline.unit_store import (
     Cause,
     ClosePending,
@@ -1265,7 +1265,7 @@ class BuildPath:
             if fault is not None:
                 ok, output = False, fault.output
             else:
-                ok, output = r.run_tier1(
+                ok, output = r.run_unit_test(
                     cwd=tree, base=self.ref(state), whole_repo=False, **self.answering(state)
                 )
         except FlakeFound as found:
@@ -1325,7 +1325,7 @@ class BuildPath:
     def park_for_split(self, splits: list[str], sha: str, snapshot: str) -> Update:
         """Hold the unit, planned, until the held splits whose tests did not run are released.
         Nothing is published and nothing counts against it: those tests have not failed."""
-        held = self.runner.tier2_holds().held
+        held = self.runner.e2e_holds().held
         waiting = ", ".join(
             f"{name} ({held[name].reason})" if name in held else name for name in splits
         )
@@ -1682,7 +1682,7 @@ class BuildPath:
             else:
                 # Only a clean move says what base it left, and so how its run is scoped.
                 moved = {"moved_from": state.moved_from} if state.moved else {}
-                ok, output = r.run_tier1(
+                ok, output = r.run_unit_test(
                     cwd=self.tree(),
                     base=self.ref(state),
                     whole_repo=state.produced_nothing,
@@ -1732,8 +1732,8 @@ class BuildPath:
         # A scheduled unit runs the one split its change is named for, and only a failing
         # test of that split holds it.
         own = scheduled_split(unit.change, unit.repo) if state.scheduled else None
-        if r.tier2_runs_whole(cwd=tree, base=base) and (
-            held := r.on_tier2_gate(unit, splits=r.tier2_splits() if own is None else (own,))
+        if r.e2e_runs_whole(cwd=tree, base=base) and (
+            held := r.on_e2e_gate(unit, splits=r.e2e_splits() if own is None else (own,))
         ):
             return self.park_for_fix(
                 f"waiting for the fix change {', '.join(held)} of a failing test on the base"
@@ -1749,9 +1749,9 @@ class BuildPath:
         for split in before.parked_splits if resumed else [None]:
             split = split or own
             only = {} if split is None else {"only": split}
-            ok, part = r.run_tier2(cwd=tree, base=base, **only)
+            ok, part = r.run_e2e(cwd=tree, base=base, **only)
             parts.append(part)
-            result = r.tier2_result()
+            result = r.e2e_result()
             left_out += result.parked if result else []
             if ok and not (result and result.parked):
                 passed.append(part)
@@ -1766,11 +1766,11 @@ class BuildPath:
             r.store.set_parked(unit.id)
             if ok and resumed:
                 snapshot = f"{before.parked_snapshot}\n\n{snapshot}".strip()
-        ran_none = ok and r.tier2_ran_no_tests()
+        ran_none = ok and r.e2e_ran_no_tests()
         self.say("tier 2 ran no test" if ran_none else f"tier 2 {'passed' if ok else 'failed'}")
         if ok:
             # Said while the run's result is at hand: `satisfied` may be resumed by a new runner.
-            note = r.tier2_passed_note() if state.scheduled else ""
+            note = r.e2e_passed_note() if state.scheduled else ""
             return {"snapshot": snapshot, "tier2_ran_none": ran_none, "scheduled_note": note}
         for line in snapshot.splitlines():
             if "**Full output:**" in line:
@@ -1778,7 +1778,7 @@ class BuildPath:
         # The tail goes to the run log too: the run log is where a failed run is read.
         for line in [line for line in snapshot.splitlines() if line.strip()][-TIER2_LOG_TAIL:]:
             self.say(line)
-        verdict = r.tier2_verdict()
+        verdict = r.e2e_verdict()
         if verdict is not None and verdict.pre_existing:
             parked = self.wait_for_preexisting(verdict)
             if parked is not None:
@@ -1958,7 +1958,7 @@ class BuildPath:
             stored,
             graph=self.graph or [stored],
             base=base,
-            tier2_snapshot=state.snapshot or None,
+            e2e_snapshot=state.snapshot or None,
             open_points=stored.feedback if state.spent else None,
             follow_ups=r.follow_ups_for(unit) or None,
             linear=r.linear(tree, local_ref(base, repo=unit.repo)),

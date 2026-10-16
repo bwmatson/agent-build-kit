@@ -67,6 +67,15 @@ from agent_build_kit.pipeline.cycles import (
     path_between,
 )
 from agent_build_kit.pipeline.drafts import StateDrafts
+from agent_build_kit.pipeline.e2e import (
+    LOCK_WAIT_SETTING,
+    NO_TEST_RAN,
+    latest_full_output,
+    lock_status_line,
+    stack_lock,
+)
+from agent_build_kit.pipeline.e2e_holds import Hold, hold_text, repo_holds
+from agent_build_kit.pipeline.e2e_schedule import any_due, write_due
 from agent_build_kit.pipeline.events import (
     Restack,
     build_base_tip,
@@ -152,15 +161,6 @@ from agent_build_kit.pipeline.stack_runner import (
     UnitOutcome,
     UnitRunner,
 )
-from agent_build_kit.pipeline.tier2 import (
-    LOCK_WAIT_SETTING,
-    NO_TEST_RAN,
-    latest_full_output,
-    lock_status_line,
-    stack_lock,
-)
-from agent_build_kit.pipeline.tier2_holds import Hold, hold_text, repo_holds
-from agent_build_kit.pipeline.tier2_schedule import any_due, write_due
 from agent_build_kit.pipeline.transcript import remove_change_transcripts, transcript_dir
 from agent_build_kit.pipeline.ui_review import (
     ui_notes_of,
@@ -946,7 +946,7 @@ def cmd_verify(args: argparse.Namespace, inst: Installation) -> int:
         may_archive=lambda change: change == args.change,
         specs_dir=inst.config.planning.specs_dir,
         run_logs=run_log_dir(inst.state_dir),
-        tier2_outputs=tier2_output_dir(inst.state_dir),
+        e2e_outputs=tier2_output_dir(inst.state_dir),
         transcripts=transcript_dir(inst.state_dir),
         usage_ledger=inst.state_dir / LEDGER_NAME,
         worktrees=_worktrees_of(inst, units),
@@ -1485,7 +1485,7 @@ def run_round(
             may_archive=may_archive,
             specs_dir=inst.config.planning.specs_dir,
             run_logs=run_log_dir(inst.state_dir),
-            tier2_outputs=tier2_output_dir(inst.state_dir),
+            e2e_outputs=tier2_output_dir(inst.state_dir),
             transcripts=transcript_dir(inst.state_dir),
             usage_ledger=inst.state_dir / LEDGER_NAME,
             worktrees=_worktrees_of(inst, units),
@@ -3456,7 +3456,7 @@ def build_stack_moves(
             posts_root=installation.state_dir,
             move=move,
             checkout=checkout,
-            tier1=tier1_of,
+            unit_test=tier1_of,
             on_flake=build_on_flake(store, installation, log=log),
             push=at_path(push_with_lease),
         ),

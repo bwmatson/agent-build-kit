@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline.tier2 import TestTime
-from agent_build_kit.pipeline.tier2_times import SPLIT_PREFIX, with_split
+from agent_build_kit.pipeline.e2e import TestTime
+from agent_build_kit.pipeline.e2e_times import SPLIT_PREFIX, with_split
 from tests import fake_clock, time_split
 
 PRELUDE = """\

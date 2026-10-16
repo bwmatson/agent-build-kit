@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from agent_build_kit.config import Tier2Split
-from agent_build_kit.pipeline.tier2 import build_selection, selection_unavailable
+from agent_build_kit.pipeline.e2e import build_selection, selection_unavailable
 from agent_build_kit.profiles import node_npm
 from agent_build_kit.profiles.python_uv import PROFILE
 

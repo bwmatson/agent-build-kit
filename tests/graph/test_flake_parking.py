@@ -80,7 +80,7 @@ def test_the_unit_is_told_of_the_flake_and_parked_gated_instead_of_failing(
     recorder = fresh(tmp_path)
     told = Told()
 
-    outcome = tick(tmp_path, recorder, run_tier1=Flaking(recorder, nth=1), on_flake=told)
+    outcome = tick(tmp_path, recorder, run_unit_test=Flaking(recorder, nth=1), on_flake=told)
 
     assert told.flakes == [("add-marker/1", TEST)]
     assert outcome.status == RunStatus.HELD
@@ -100,14 +100,14 @@ def test_the_parked_unit_runs_tier_1_again_restacked_when_the_gate_clears(
     recorder = fresh(tmp_path)
     recorder.made = 2
     tier1 = Flaking(recorder, nth=1)
-    tick(tmp_path, recorder, run_tier1=tier1, on_flake=Told())
+    tick(tmp_path, recorder, run_unit_test=tier1, on_flake=Told())
     parked = len(recorder.events)
 
     def restack(**kw: Any) -> None:
         recorder.events.append("restack")
 
-    tick(tmp_path, recorder, event=GATE_CLEARED, run_tier1=tier1, restack_onto=restack)
-    outcome = tick(tmp_path, recorder, run_tier1=tier1, restack_onto=restack)
+    tick(tmp_path, recorder, event=GATE_CLEARED, run_unit_test=tier1, restack_onto=restack)
+    outcome = tick(tmp_path, recorder, run_unit_test=tier1, restack_onto=restack)
 
     after = recorder.events[parked:]
     assert outcome.status == "open"
@@ -126,7 +126,7 @@ def test_a_flake_on_the_base_does_not_send_the_unit_back_as_a_moved_base(
     outcome = tick(
         tmp_path,
         recorder,
-        run_tier1=Flaking(recorder, nth=2),
+        run_unit_test=Flaking(recorder, nth=2),
         on_flake=told,
         **moving.overrides(),
     )
@@ -147,7 +147,7 @@ def test_a_unit_of_the_fix_change_is_not_parked_and_its_agent_is_told_the_test_s
     recorder = fresh(tmp_path)
     told = Told(fix=None)
 
-    outcome = tick(tmp_path, recorder, run_tier1=Flaking(recorder, nth=1), on_flake=told)
+    outcome = tick(tmp_path, recorder, run_unit_test=Flaking(recorder, nth=1), on_flake=told)
 
     assert told.flakes == [("add-marker/1", TEST)]
     assert outcome.status != RunStatus.HELD

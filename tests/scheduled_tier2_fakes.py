@@ -12,8 +12,8 @@ from typing import Any
 from agent_build_kit.config import REST_SPLIT, Tier2Split, Tier2UnitScope
 from agent_build_kit.graph.state import ResumeEvent
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.e2e_schedule import scheduled_name, write_due
 from agent_build_kit.pipeline.stack_runner import RunOutcome
-from agent_build_kit.pipeline.tier2_schedule import scheduled_name, write_due
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import Unit, branch_name
 from agent_build_kit.pipeline.wiring import reset_to
@@ -145,11 +145,11 @@ class ScheduledRun:
             planning_repo=self.inst.root,
             worktree=self.worktree,
             reset_to=reset_to,
-            run_tier2=self.gate.run,
-            tier2_passed_note=self.gate.passed_note,
-            tier2_verdict=lambda: self.gate.verdict,
-            tier2_result=lambda: self.gate.result,
-            tier2_holds=lambda: holds_of(**self.held),
+            run_e2e=self.gate.run,
+            e2e_passed_note=self.gate.passed_note,
+            e2e_verdict=lambda: self.gate.verdict,
+            e2e_result=lambda: self.gate.result,
+            e2e_holds=lambda: holds_of(**self.held),
             **overrides,
         )
 

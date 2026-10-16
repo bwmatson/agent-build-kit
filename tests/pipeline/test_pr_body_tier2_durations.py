@@ -1,8 +1,8 @@
 """The durations listing is never cut to fit a description: only the output is (spec:
 tier2-time-is-recorded-per-test)."""
 
+from agent_build_kit.pipeline.e2e import Tier2Result, build_snapshot
 from agent_build_kit.pipeline.pr_body import build_pr_body
-from agent_build_kit.pipeline.tier2 import Tier2Result, build_snapshot
 from tests.factories import output_of
 from tests.factories import stored_unit as unit
 from tests.tier2_duration_fakes import E2E, timed
@@ -27,7 +27,7 @@ def _snapshot(output: str) -> str:
 
 def _body(snap: str, limit: int | None) -> str:
     u = unit(tier="tier2", depends_on=())
-    return build_pr_body(u, graph=[u], base="main", tier2_snapshot=snap, limit=limit)
+    return build_pr_body(u, graph=[u], base="main", e2e_snapshot=snap, limit=limit)
 
 
 def test_twelve_entries_are_all_listed_whole_when_the_output_is_cut() -> None:

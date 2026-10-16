@@ -1296,8 +1296,8 @@ outcome and, for a failed check, its kind.
 | `abk.units` | gauge | state |
 | `abk.slots.free` | gauge | |
 | `abk.slots.idle_with_ready` | gauge | |
-| `abk.tier2.test.duration` | histogram (s) | marker, file (the test id up to `::`), phase (setup, call, teardown) |
-| `abk.tier2.test.time` | histogram (s) | marker, file, cause (agent, checks, other), role (agent time only, else empty) |
+| `abk.e2e.test.duration` | histogram (s) | marker, file (the test id up to `::`), phase (setup, call, teardown) |
+| `abk.e2e.test.time` | histogram (s) | marker, file, cause (agent, checks, other), role (agent time only, else empty) |
 | `abk.agent.cost` | counter (USD) | repo, tier, node, role, model, source (measured, estimated) |
 | `abk.node.duration` | histogram (s) | node |
 | `abk.wait.duration` | histogram (s) | bucket (slot, usage_pause, queue_full, lease, backoff, needs_person) |

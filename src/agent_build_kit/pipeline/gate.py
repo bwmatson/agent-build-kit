@@ -9,7 +9,7 @@ when:
    doesn't exist yet,
 3. the new tests in each tests commit fail, and fail honestly (`red_check`),
 4. and the branch tip is green, which the stack runner checks separately
-   because it also gates tier 2.
+   because it also gates e2e-test.
 
 Steps 2 and 3 run in a throwaway worktree at the tests commit
 (`check_runner`), and their results are cached by patch-id so a restack

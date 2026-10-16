@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_build_kit.pipeline.tier2 import TestFailure, Tier2Classification
+from agent_build_kit.pipeline.e2e import TestFailure, Tier2Classification
 from agent_build_kit.profiles.python_uv import PythonUvProfile
 from tests.tier2_base_fakes import (
     TEST_BODY,

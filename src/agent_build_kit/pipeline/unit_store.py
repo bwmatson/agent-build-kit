@@ -32,6 +32,7 @@ from typing import Annotated, Any
 from pydantic import Field, ValidationError, field_validator, model_validator
 
 from agent_build_kit.budget import cut_head
+from agent_build_kit.compat_names import Place, new_spelling
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
@@ -130,8 +131,17 @@ class FeedbackSource(StrEnum):
     REVIEW = "review"
     CI = "ci"
     CONFLICT = "conflict"
-    TIER1 = "tier1"
-    TIER2 = "tier2"
+    UNIT_TEST = "unit-test"
+    E2E = "e2e-test"
+    TIER1 = UNIT_TEST  # abk-shim
+    TIER2 = E2E  # abk-shim
+
+    @classmethod
+    def _missing_(cls, value: object) -> FeedbackSource | None:
+        """A source stored under the old spelling is the kind it meant."""
+        if isinstance(value, str) and new_spelling(Place.VALUE, value) != value:
+            return cls(new_spelling(Place.VALUE, value))
+        return None
 
 
 def feedback_source_of(rework: ReworkKind | None) -> FeedbackSource:
@@ -234,7 +244,7 @@ class StoredUnit(Unit):
     # How a requeue that found a dependency it waits on unmet is delivered once
     # it is met (see `Cause.GATED`); None when no requeue is waiting.
     gated_requeue: RequeueReason | None = None
-    # What a unit held for `Cause.SPLIT_HELD` waits on: the splits its tier 2 run
+    # What a unit held for `Cause.SPLIT_HELD` waits on: the splits its e2e-test run
     # parked, the commit that run passed on and the snapshot it posted.
     parked_splits: list[str] = []
     parked_sha: str = ""
@@ -1045,7 +1055,7 @@ def backoff_remaining(unit: StoredUnit, now: datetime) -> timedelta | None:
 
 def awaits_release(unit: StoredUnit) -> bool:
     """Whether a planned unit is stopped until something releases it: a gated requeue to be
-    delivered, or tier 2 tests parked for a held split. A tick never starts one."""
+    delivered, or e2e tests parked for a held split. A tick never starts one."""
     return unit.cause is Cause.SPLIT_HELD or (
         unit.cause is Cause.GATED and unit.gated_requeue is not None
     )

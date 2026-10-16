@@ -1,4 +1,4 @@
-"""A test that fails tier 2 on the base too: recorded, and fixed once by its own change.
+"""A test that fails e2e-test on the base too: recorded, and fixed once by its own change.
 
 A failure the base run names as failed is pre-existing: it is appended to a record, and it
 gets one change that fixes it, written without a model after a preview that says whether the
@@ -17,10 +17,10 @@ from pydantic import model_validator
 from agent_build_kit.config import BASE_GROUP, REST_SPLIT
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen, TestTier
+from agent_build_kit.pipeline.e2e import E2eVerdict
 from agent_build_kit.pipeline.failure_record import FailureRecord, Recorded, TestCount
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.flakes import add_needs_to_unit, next_fix_name, open_fix_change
-from agent_build_kit.pipeline.tier2 import Tier2Verdict
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.work_graph import group_needs
 
@@ -29,7 +29,7 @@ CAPABILITY = "failing-tests"
 
 
 class PreExisting(Recorded):
-    """One test that failed tier 2 for a unit and failed on the base as well."""
+    """One test that failed e2e-test for a unit and failed on the base as well."""
 
     unit: str
     command: str
@@ -109,7 +109,7 @@ def waiting_note(tests: list[str]) -> str:
     return f"waiting for the fix of the failing test {', '.join(tests)} on the base"
 
 
-def feedback_snapshot(snapshot: str, verdict: Tier2Verdict | None) -> str:
+def feedback_snapshot(snapshot: str, verdict: E2eVerdict | None) -> str:
     """The snapshot of a failed run as the agent is given it: without the lines and the
     output of tests that fail on the base too, which are named once as recorded. Output is
     one cut tail for every test, so the whole block is dropped whenever a pre-existing test
@@ -136,7 +136,7 @@ def holding_fixes(
     """The recorded entries whose fix change is open, was recorded for `unit`'s repo
     (by the repo of the unit named in `units`), is not `unit`'s own change and has no
     `Needs:` line from `unit`, and whose split is among `splits` (None: any), the
-    splits the run executes: each holds `unit` before a full tier 2 run."""
+    splits the run executes: each holds `unit` before a full e2e-test run."""
     repo_of = {other.id: other.repo for other in units}
     waits_on = {
         need.change
@@ -233,15 +233,15 @@ def _design(entry: PreExisting) -> str:
 def _tasks(entry: PreExisting, unit: StoredUnit) -> str:
     return (
         "# Tasks\n\n"
-        "Acceptance: none — the run of the fixed test under tier 2 is the check; nothing a "
+        "Acceptance: none — the run of the fixed test under e2e-test is the check; nothing a "
         "consumer sees changes.\n\n"
         f"## 1. [{unit.repo}] [{TestTier.E2E_TEST}] Make `{entry.test}` pass on the base\n\n"
         "Priority: 1\n\n"
-        "Done when the test passes on the base under the tier 2 marker.\n\n"
+        "Done when the test passes on the base under the e2e-test marker.\n\n"
         f"- [ ] 1.1 Test: reproduce the failure of `{entry.test}` on the base "
         "deterministically, so it fails every time before the fix.\n"
         "- [ ] 1.2 Make the test pass: decide whether the test, the code it exercises or the "
-        "environment is at fault, fix that one, and run the test alone under the tier 2 marker.\n"
+        "environment is at fault, fix that one, and run the test alone under the e2e-test marker.\n"
     )
 
 
@@ -254,6 +254,6 @@ def _spec(entry: PreExisting, *, successor: bool) -> str:
         f"### Requirement: `{entry.test}` passes on the base\n\n"
         "The test SHALL pass on the base.\n\n"
         "#### Scenario: Run on the base\n\n"
-        "- **WHEN** the test is run on the base under the tier 2 marker\n"
+        "- **WHEN** the test is run on the base under the e2e-test marker\n"
         "- **THEN** it passes\n"
     )

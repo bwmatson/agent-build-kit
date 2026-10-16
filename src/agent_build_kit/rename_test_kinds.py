@@ -24,6 +24,11 @@ _EXEMPT_PREFIX = "test_rename_test_kinds"
 # Ends each line the tool leaves behind for old importers; such lines are never rewritten.
 SHIM_MARKER = "# abk-shim"
 
+# Ends a one-line alias that gives a name its new spelling before the file defining it is
+# converted. The tool deletes such a line from any file it converts (the file then defines the
+# new name itself) and with `--remove-shims`.
+FORWARD_MARKER = "# abk-forward"
+
 _OLD = re.compile(r"(tier|Tier|TIER)( ?)([12])")
 
 # Prose files hold a bare old spelling as a word; elsewhere a bare one is an identifier.
@@ -111,15 +116,28 @@ def _rewrite_text(text: str, *, prose: bool) -> str:
     return "".join(line if SHIM_MARKER in line else _rewrite(line, prose=prose) for line in lines)
 
 
+def _drop_forward(text: str) -> str:
+    return "".join(line for line in text.splitlines(keepends=True) if FORWARD_MARKER not in line)
+
+
 def _shim_module(stem: str) -> str:
-    """The one line that makes the old module name the renamed module itself, so a patched
-    attribute, a private name and `is` all behave as they do on the new module."""
-    target = f'f"{{__package__}}.{stem}" if __package__ else "{stem}"'
-    line = f"import importlib, sys; sys.modules[__name__] = importlib.import_module({target})"
-    return f"{line}  {SHIM_MARKER}\n"
+    """The lines that make the old module name the renamed module itself, so a patched
+    attribute, a private name and `is` all behave as they do on the new module. Each carries
+    the marker and is short enough that the formatter leaves it whole."""
+    lines = (
+        "import importlib",
+        "import sys",
+        "_PKG = __package__ or None",
+        '_REL = "." if _PKG else ""',
+        f'_MOD = importlib.import_module(_REL + "{stem}", _PKG)',
+        "sys.modules[__name__] = _MOD",
+    )
+    return "".join(f"{line}  {SHIM_MARKER}\n" for line in lines)
 
 
-def _is_shim_module(text: str) -> bool:
+def is_shim_module(text: str) -> bool:
+    """Whether module source `text` is a shim the tool left: every non-blank line carries
+    the shim marker."""
     lines = [line for line in text.splitlines() if line.strip()]
     return bool(lines) and all(SHIM_MARKER in line for line in lines)
 
@@ -135,13 +153,17 @@ def _remove_shims(root: Path, files: Sequence[Path], *, dry_run: bool) -> list[P
     changed: list[Path] = []
     for file in files:
         text = _decode(file.read_bytes())
-        if text is None or SHIM_MARKER not in text:
+        if text is None or not (SHIM_MARKER in text or FORWARD_MARKER in text):
             continue
         if not dry_run:
-            if _is_shim_module(text):
+            if is_shim_module(text):
                 git(root, "rm", "-q", "-f", str(file))
             else:
-                kept = [line for line in text.splitlines(keepends=True) if SHIM_MARKER not in line]
+                kept = [
+                    line
+                    for line in text.splitlines(keepends=True)
+                    if SHIM_MARKER not in line and FORWARD_MARKER not in line
+                ]
                 file.write_text("".join(kept))
         changed.append(file.relative_to(root))
     return changed
@@ -179,9 +201,10 @@ def rename_paths(
         if text is None:
             new_text = None
             new_raw = raw
-        elif _is_shim_module(text):
+        elif is_shim_module(text):
             continue
         else:
+            text = _drop_forward(text)
             new_text = _rewrite_text(text, prose=file.suffix in _PROSE_SUFFIXES)
             if (
                 shims

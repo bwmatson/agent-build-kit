@@ -1,4 +1,4 @@
-"""Which check a failed tier 1 run was (spec: telemetry).
+"""Which check a failed unit-test run was (spec: telemetry).
 
 The metrics count a failure by its kind, never by its text, and three kinds
 cover what a person acts on: the linter or formatter (`lint`), the type
@@ -31,8 +31,8 @@ def failed_dir(output: str) -> str | None:
 
 
 def failed_check(output: str, repo: str | None = None) -> str:
-    """`lint`, `types` or `test`: what failed in `output`, a tier 1 failure of
-    `repo`. The profile of the project the failed command ran in reads it (tier 1 names
+    """`lint`, `types` or `test`: what failed in `output`, a unit-test failure of
+    `repo`. The profile of the project the failed command ran in reads it (unit-test names
     that directory under the command); the repo's profile otherwise, and the default
     profile when `repo` is unnamed."""
     entry = active().repos.get(repo) if repo else None

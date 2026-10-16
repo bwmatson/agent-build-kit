@@ -23,10 +23,10 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.graph.checkpointer import unit_graphs_path
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.archive import is_ready_to_archive
+from agent_build_kit.pipeline.e2e import stack_lock
 from agent_build_kit.pipeline.pause import is_paused
 from agent_build_kit.pipeline.planner import Plan
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
-from agent_build_kit.pipeline.tier2 import stack_lock
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED, RUNNING
 from agent_build_kit.pipeline.usage_guard import Decision

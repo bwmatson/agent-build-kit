@@ -26,11 +26,11 @@ from agent_build_kit import profiles
 from agent_build_kit.budget import cut_tail
 from agent_build_kit.config import (
     CONFIG_FILENAME,
+    E2eSplit,
     RepoConfig,
-    Tier2Split,
     by_project,
+    e2e_splits,
     owning_project,
-    tier2_splits,
 )
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
@@ -42,15 +42,15 @@ from agent_build_kit.pipeline.planning_sync import (
     planning_mode,
     sync_planning,
 )
-from agent_build_kit.pipeline.tier2 import (
-    Tier2Selection,
+from agent_build_kit.pipeline.e2e import (
+    E2eSelection,
     build_selection,
     listing_runner,
     selection_unavailable,
 )
-from agent_build_kit.pipeline.tier2_holds import repo_holds
+from agent_build_kit.pipeline.e2e_holds import repo_holds
 from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.profiles.base import AppliesTier2Selection, ToolchainProfile, is_doc_path
+from agent_build_kit.profiles.base import AppliesE2eSelection, ToolchainProfile, is_doc_path
 
 Run = Callable[..., subprocess.CompletedProcess]
 Command = tuple[str, ...]
@@ -98,24 +98,24 @@ def deploy_commands(
 
 
 class SplitHeld(Exception):
-    """A held tier 2 split holds a live test among the change's files: the verification
+    """A held e2e-test split holds a live test among the change's files: the verification
     waits for the split to be released, as it does for a busy stack."""
 
     def __init__(self, splits: list[str]) -> None:
-        super().__init__(f"tier 2 split {', '.join(splits)} is held")
+        super().__init__(f"e2e-test split {', '.join(splits)} is held")
         self.splits = splits
 
 
 def _live_selection(
     repo: RepoConfig,
-    splits: tuple[Tier2Split, ...],
+    splits: tuple[E2eSplit, ...],
     *,
     held: tuple[str, ...] = (),
     only: str | None = None,
-) -> Tier2Selection:
+) -> E2eSelection:
     """The selection of a repo's live tests over its `splits`, less the `held` ones (or only
     `only`) and less the tests only the dev stack runs; the profile renders it."""
-    selection = build_selection(repo.tests.tier2_marker, splits, held=held, only=only)
+    selection = build_selection(repo.tests.e2e_marker, splits, held=held, only=only)
     if (exclude := repo.tests.dev_stack_marker) and not selection.empty:
         selection = selection.model_copy(update={"none_of": (exclude, *selection.none_of)})
     return selection
@@ -127,7 +127,7 @@ def _acceptance_runs(
     checkout: Path,
     fallback: ToolchainProfile,
     *,
-    splits: tuple[Tier2Split, ...] = (),
+    splits: tuple[E2eSplit, ...] = (),
     held: tuple[str, ...] = (),
 ) -> list[tuple[ToolchainProfile, Path, list[str]]]:
     """The live tests of the changed `paths`, as (profile, directory to run in, command):
@@ -138,10 +138,10 @@ def _acceptance_runs(
     for project, group in by_project(repo.projects, paths):
         profile = profiles.for_project(project, fallback)
         directory = checkout / project.prefix if project else checkout
-        marker, exclude = repo.tests.tier2_marker, repo.tests.dev_stack_marker
+        marker, exclude = repo.tests.e2e_marker, repo.tests.dev_stack_marker
         if (
             held
-            and isinstance(profile, AppliesTier2Selection)
+            and isinstance(profile, AppliesE2eSelection)
             and not selection_unavailable(profile, dev_stack_script=False, splits=splits)
         ):
             selection = _live_selection(repo, splits, held=held)
@@ -162,7 +162,7 @@ def _acceptance_runs(
 def _held_live_tests(
     repo: RepoConfig,
     runs: list[tuple[ToolchainProfile, Path, list[str]]],
-    splits: tuple[Tier2Split, ...],
+    splits: tuple[E2eSplit, ...],
     held: tuple[str, ...],
     *,
     run: Run,
@@ -173,7 +173,7 @@ def _held_live_tests(
     is taken to hold a test: the verification waits rather than passing without it."""
     found: list[str] = []
     for profile, directory, command in runs:
-        if not isinstance(profile, AppliesTier2Selection):
+        if not isinstance(profile, AppliesE2eSelection):
             continue
         lister = listing_runner(run, directory, env)
         for name in held:
@@ -267,7 +267,7 @@ def verify_change(
     for name in repos:
         repo = installation.repo(name)
         profile = profiles.get(repo.profile)
-        splits = tier2_splits(repo, installation.config)
+        splits = e2e_splits(repo, installation.config)
         holds = repo_holds(installation.config, repo, installation.state_dir).held
         held = tuple(split.name for split in splits if split.name in holds)
         plans[name] = deploy_commands(repo, files[name], checkout=checkouts[name], profile=profile)

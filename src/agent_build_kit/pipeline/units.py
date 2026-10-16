@@ -65,14 +65,14 @@ FAILED = UnitState.FAILED
 HELD = UnitState.HELD
 
 # A unit whose groups needed nothing: it added no commits of its own, and what
-# was already at the tip passed tier 1. There is no diff, so no PR and nothing
+# was already at the tip passed unit-test. There is no diff, so no PR and nothing
 # to review — the work arrived by another unit building ahead of its plan.
 SATISFIED = UnitState.SATISFIED
 
 IN_FLIGHT = (RUNNING, IN_REVIEW)
 
 # What a dependent may build on. A unit is not finished when it starts — it is
-# finished when it has passed the build/review loop and tier 1 and been pushed,
+# finished when it has passed the build/review loop and unit-test and been pushed,
 # which is what `in_review` means. `IN_FLIGHT` includes `running`, so using it here
 # unblocked a dependent the moment its parent *began*, against a branch nothing
 # had reviewed and which might not exist yet. The review loop, which can send a
@@ -117,7 +117,7 @@ class Unit(Frozen):
     title: str
     repo: str
     # Stored under the key `tier` until the readers are renamed; a value from before the rename
-    # (`tier1`, `tier2`) is read as the kind it meant.
+    # (the kind's old spelling) is read as the kind it meant.
     tier: TestKind
     project: str = "."
     depends_on: tuple[str, ...] = ()
@@ -230,7 +230,7 @@ def plan_units(change: str, groups: list[dict], *, min_lines: int, max_lines: in
 
     Absorbing continues until the estimate reaches `min_lines`, because a
     chain of small groups would otherwise become a stack of trivial PRs, each
-    costing an issue, a tier 2 run, a restack and a merge. It stops early at a
+    costing an issue, an e2e-test run, a restack and a merge. It stops early at a
     fan-out point — a group other units are waiting on — since finishing that
     sooner lets them start. It never combines groups past `max_lines`: a group
     that would take the unit over it starts a unit of its own.
@@ -677,7 +677,7 @@ def waiting_on(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
 # was merely interrupted.
 _WAIT_CAUSES = ("gated", "upstream_went_back")
 
-# The cause of a planned unit parked for held tier 2 splits (`Cause.SPLIT_HELD`'s value).
+# The cause of a planned unit parked for held e2e-test splits (`Cause.SPLIT_HELD`'s value).
 SPLIT_HELD_CAUSE = "split_held"
 
 
@@ -758,7 +758,7 @@ def later_groups_by_change(unit: Unit, graph: Sequence[Unit]) -> dict[str, tuple
 def in_progress(unit: Unit, graph: Sequence[Unit] = ()) -> bool:
     """Whether the unit has been started and not finished (docs/architecture.md).
 
-    A planned unit parked for a held tier 2 split (cause `split_held`) is not: it has
+    A planned unit parked for a held e2e-test split (cause `split_held`) is not: it has
     nothing to run until the split is released.
 
     Running, in review and failed units are; so is a planned or unplanned one

@@ -80,7 +80,7 @@ def test_a_merge_event_restack_that_meets_an_outage_is_deferred_not_a_conflict(
         store=store,
         root=tmp_path,
         move=refused,
-        tier1=lambda **k: (True, ""),
+        unit_test=lambda **k: (True, ""),
         push=lambda *a, **k: "x",
         retarget=lambda *a, **k: None,
         comment=lambda *a, **k: None,
