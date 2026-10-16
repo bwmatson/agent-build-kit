@@ -3,11 +3,12 @@
 ## Unreleased
 
 - `abk verify` now works for a repo that is the planning repo, run in the pipeline worktree:
-  it accepts a HEAD detached at the default branch's tip (naming the commits a HEAD behind it
-  lacks), syncs the worktree instead of running `git pull`, and leaves the specs directory, the
-  state directory and the two generated pages out of its uncommitted-changes check. Any other
-  tracked change, including `abk.yaml`, still holds verification, and other repos are checked
-  as before.
+  it accepts a HEAD detached at the default branch's tip, brings the worktree to the tip
+  first (instead of running `git pull`) and refuses, naming the commits it still lacks, when
+  it cannot, and leaves the specs directory, the state directory and the two generated pages
+  out of its uncommitted-changes check. Any other tracked change, including `abk.yaml`, still
+  holds verification, and other repos are checked as before, except that a `git status` that
+  fails now holds verification for any repo instead of passing as clean.
 
 - Where an installation's own facts go is now written down in `docs/configuration.md`, the
   `abk-config` skill, `docs/init.md` and `docs/cli.md`: single values and secrets in the

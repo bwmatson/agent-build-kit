@@ -287,20 +287,20 @@ def verify_change(
     if waiting:
         raise SplitHeld(sorted(set(waiting)))
 
+    in_repo = (
+        in_repo_name(installation)
+        if planning_mode(installation) == PlanningMode.PIPELINE_WORKTREE
+        else None
+    )
+    # A path outside the root cannot be dirty in this tree, and git refuses it as a pathspec.
+    exempt = [
+        p for p in installation.planning_paths if p != CONFIG_FILENAME and not Path(p).is_absolute()
+    ]
     for name in repos:
         if not (plans[name] or tests[name]):
             continue
         repo = installation.repo(name)
-        planning_root = (
-            planning_mode(installation) == PlanningMode.PIPELINE_WORKTREE
-            and in_repo_name(installation) == name
-        )
-        # A path outside the root cannot be dirty in this tree, and git refuses it as a pathspec.
-        exempt = [
-            p
-            for p in installation.planning_paths
-            if p != CONFIG_FILENAME and not Path(p).is_absolute()
-        ]
+        planning_root = name == in_repo
         refused = _clean_default_branch(
             checkouts[name], run, repo, exempt if planning_root else [], detached_ok=planning_root
         )
@@ -310,6 +310,14 @@ def verify_change(
             synced = sync_planning(installation, notes.append)
             if synced.outcome == SyncOutcome.STOPPED:
                 return result(False, f"{checkouts[name]}: planning sync stopped: {synced.reason}")
+            # The sync leaves HEAD behind the tip only when it was not allowed to move it.
+            lacks = _lacked_commits(checkouts[name], run, repo.default_branch)
+            if lacks:
+                return result(
+                    False,
+                    f"{checkouts[name]}: behind {repo.default_branch}, lacking:\n{lacks}"
+                    " — left for a person to sort out",
+                )
             continue
         pulled = run(["git", "pull", "--ff-only", "-q"], cwd=checkouts[name])
         if pulled.returncode:
@@ -371,13 +379,10 @@ def _clean_default_branch(
     detached_ok: bool = False,
 ) -> str:
     """Why this checkout is not a clean default branch, or "". `exempt` paths are left out of the
-    dirty check; `detached_ok` accepts a HEAD detached at the default branch's tip."""
+    dirty check; `detached_ok` accepts a detached HEAD, whose place against the tip is the
+    caller's to settle."""
     branch = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=checkout).stdout.strip()
-    if detached_ok and branch == "HEAD":
-        lacks = _lacked_commits(checkout, run, repo.default_branch)
-        if lacks:
-            return f"behind {repo.default_branch}, lacking:\n{lacks}"
-    elif branch != repo.default_branch:
+    if branch != repo.default_branch and not (detached_ok and branch == "HEAD"):
         return f"not on {repo.default_branch} (on {branch or 'a detached HEAD'})"
     # Paths the running system itself writes into the checkout say nothing
     # about work in progress, so they are left out of the check.

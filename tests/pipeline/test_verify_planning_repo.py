@@ -148,11 +148,26 @@ def test_a_worktree_behind_the_tip_fails_naming_the_commits_it_lacks(tmp_path: P
     git(setup.worktree, "fetch", "-q", "origin")
     host = Host()
 
-    result = verify(installation(setup), host)
+    result = verify(installation(setup, planning={"self_pull": False}), host)
 
     assert not result.passed
     assert "a commit it lacks" in result.detail
     assert not host.deploys()
+
+
+def test_a_worktree_behind_a_fetched_tip_is_brought_to_it(tmp_path: Path) -> None:
+    setup = pipeline_worktree(tmp_path)
+    publish_elsewhere(setup, {"later.txt": "later\n"}, "a commit it lacks")
+    git(setup.worktree, "fetch", "-q", "origin")
+    host = Host()
+
+    result = verify(installation(setup), host)
+
+    assert result.passed, result.detail
+    assert git(setup.worktree, "rev-parse", "HEAD") == git(
+        setup.worktree, "rev-parse", "origin/main"
+    )
+    assert host.deploys() == [setup.worktree]
 
 
 def test_the_pull_is_replaced_by_the_sync(tmp_path: Path) -> None:
