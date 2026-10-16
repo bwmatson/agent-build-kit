@@ -385,6 +385,39 @@ class PolicyMarker(StrEnum):
     UNCHECKED = "unchecked"  # carried on without the check; doctor says so rather than probing
 
 
+class AccountConfig(Frozen):
+    """One Claude account by label (`runtimes.claude_code.accounts.<label>`), set per person."""
+
+    # The account's Claude Code config directory: an absolute path, never in the committed file.
+    config_dir: Path | None = None
+    limits: ClaudeLimitsConfig = ClaudeLimitsConfig()
+    max_units_in_progress: Annotated[int, Field(gt=0)] | None = None
+
+    @field_validator("config_dir")
+    @classmethod
+    def _config_dir_is_absolute(cls, value: Path | None) -> Path | None:
+        if value is not None and not value.expanduser().is_absolute():
+            raise ValueError(
+                f"{str(value)!r} is relative; write an absolute path, since a relative one "
+                "would mean a different directory under each shell and timer"
+            )
+        return value.expanduser() if value is not None else None
+
+
+def _committed_config_dirs(document: dict[str, Any]) -> list[str]:
+    """The keys of `runtimes.claude_code.accounts.<label>.config_dir` the document sets."""
+    runtimes = document.get("runtimes")
+    runtime = runtimes.get(CLAUDE_CODE) if isinstance(runtimes, dict) else None
+    accounts = runtime.get("accounts") if isinstance(runtime, dict) else None
+    if not isinstance(accounts, dict):
+        return []
+    return [
+        f"runtimes.{CLAUDE_CODE}.accounts.{label}.config_dir"
+        for label, entry in accounts.items()
+        if isinstance(entry, dict) and "config_dir" in entry
+    ]
+
+
 class RuntimeConfig(Frozen):
     """What one agent runtime needs from this installation (`runtimes.<name>`)."""
 
@@ -414,6 +447,8 @@ class RuntimeConfig(Frozen):
 
     # Claude's usage windows (`runtimes.claude_code` only): see ClaudeLimitsConfig.
     limits: ClaudeLimitsConfig = ClaudeLimitsConfig()
+    # The accounts a repo may name by label (`runtimes.claude_code` only).
+    accounts: dict[str, AccountConfig] = {}
 
 
 class ContextConfig(Frozen):
@@ -903,6 +938,8 @@ class RepoConfig(Frozen):
     # Empty for a repo on a host that names itself some other way.
     slug: str = ""
     default_branch: str = "main"
+    # The label of the Claude account this repo's units run on; see `runtimes.claude_code.accounts`.
+    account: str | None = None
     # The code host this repo lives on (forges/). Inferred by `abk init` from
     # the origin URL; set it here when the origin does not say.
     forge: str = "github"
@@ -1483,6 +1520,11 @@ def load(path: Path) -> WorkspaceConfig:
     raw = _renamed(spelled[0], path)
     local = _renamed(spelled[1], overlay_path(path))
     assert raw is not None
+    for key in _committed_config_dirs(raw):
+        raise ConfigError(
+            f"{path}: {key}: a machine path is never committed; "
+            "set it in the machine-local overlay beside this file"
+        )
     merged = raw if local is None else merge_local(raw, local)
     try:
         loaded = WorkspaceConfig.model_validate(merged)
