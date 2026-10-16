@@ -293,6 +293,7 @@ limits:
   restack_check: affected           # tier 1 after a clean move: scoped by the files the move brought in (affected) or the whole suite (full); a scoped move runs the unit's own tests and the profile's selection, and the profile selects only where `checks.affected` records data
   e2e_base_runs: 1                  # run the untouched failed tier 2 tests once on the base (0: off)
   e2e_unit_scope: own               # tier 2 per unit: only the tests it added or changed (own) or the whole marker (full); tests.e2e_unit_scope overrides per repo
+  e2e_schedule: weekly              # whole tier 2 suite on the default branch: daily | weekly | monthly | 'off' (quote it); tests.e2e_schedule overrides per repo
   e2e_lock_wait_seconds: 5400       # longest post-merge verification waits for the tier 2 lock before reporting it busy
   e2e_durations_shown: 15           # slowest tier 2 test entries the posted result lists (0 = all)
   network_probe_timeout_seconds: 5  # longest the outage probe waits to connect to one host
@@ -385,6 +386,8 @@ repos:                          # ordered: deploy order is derived from
                                 # every workspace member) need
       e2e_marker: local_stack   # the pytest marker on tests needing the real
                                 # stack (tier 2, and post-merge verify)
+      e2e_unit_scope: null      # own | full for this repo; null follows limits
+      e2e_schedule: null        # daily | weekly | monthly | 'off' for this repo; null follows limits
       dev_stack_marker: dev_stack
                                 # the marker on tier-2 tests only the dev stack
                                 # can run; left out of post-merge verify

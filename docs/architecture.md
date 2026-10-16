@@ -1235,6 +1235,30 @@ approved.
   changed file of that member is not recognised as the unit's own; and the cost of the
   clean base worktree on a large repo's own tier 2 suite was not measured.
 
+- **A unit's tier 2 run is narrowed to its own tests.** Under `tier2_unit_scope: own` (the
+  default; `limits`, with `tests.tier2_unit_scope` per repo) a unit runs only the tier 2 tests
+  its branch added or changed, selected by identifier together with the marker. A unit with
+  none runs nothing, takes no lock and says `tier 2 skipped: no tier 2 test added or changed`;
+  its status says that no tier 2 test ran. Where the run cannot be narrowed (a dev stack
+  script, a profile that cannot select by identifier, tests that cannot be listed, no base),
+  or under `full`, the whole marker runs and the log says why. A scheduled unit is always
+  `full`.
+
+- **The whole tier 2 suite runs on a schedule.** `e2e_schedule` (`daily`, `weekly` by
+  default, `monthly` or `off`; `limits`, with `tests.e2e_schedule` per repo; the old
+  `tier2_schedule` still loads) makes each round, before planning and ahead of the usage
+  guard, write `scheduled-tier2-<repo>-<date>-<split>` for each split of a repo with a tier 2
+  unit that is due, without a model call. The due date is read from the names of the split's
+  open and archived scheduled changes, so nothing else is stored, and one such change is open
+  per split at a time. `has_work` is true while a repo is due, so an
+  idle installation still reaches the round. The change's unit goes from `prepare` straight
+  to the whole-suite tier 2 step on the default branch: no tests, implement, checks, review,
+  push or pull request, and no agent call. A pass ends it satisfied with a note and the change
+  archives; a failure is recorded as pre-existing, fixed by `fix-failing-*` changes and
+  waited on as for any unit. It is counted by `max_units_in_progress`, waits for the tier 2
+  lock and starts only when the usage guard admits a unit. The `scheduled-tier2-` prefix is
+  reserved. `abk tick --dry-run` prints `would write:` or `exists:` and writes nothing.
+
 ## Telemetry
 
 With `ABK_OTEL_ENABLED` set (docs/configuration.md) a tick that has work exports traces and

@@ -79,32 +79,60 @@ def scheduled_split(name: str, repo: str) -> str:
 
 
 def write_due(
-    inst: Installation, store: UnitStore, *, today: date, say: Callable[[str], None]
+    inst: Installation,
+    store: UnitStore,
+    *,
+    today: date,
+    say: Callable[[str], None],
+    dry_run: bool = False,
+    say_existing: bool = True,
 ) -> list[str]:
-    """Write the change of every due repo and split with none open, under the lock file:
-    say `wrote: <change>`, or `exists: <change>` for a split whose change is open. Returns
-    the names written."""
-    tier2_repos = {unit.repo for unit in store.all() if unit.tier == TestTier.E2E_TEST}
+    """Write the change of every due repo and split with none open, under the lock file: say
+    `wrote: <change>`, or `exists: <change>` for a split whose change is open. A dry run writes
+    nothing and says `would write: <change>`. `say_existing` False leaves out the `exists:`
+    lines, for rounds that repeat. Returns the names written (or to be written)."""
     written: list[str] = []
     with file_lock(inst.state_dir / "scheduled-tier2.lock"):
-        for repo, config in inst.repos.items():
-            schedule = tier2_schedule(config, inst.config.global_limits)
-            if repo not in tier2_repos or schedule is Tier2Schedule.OFF:
+        for repo, split, opened in _scheduled_repos(inst, store, today):
+            if opened:
+                if say_existing:
+                    say(f"exists: {opened}")
                 continue
-            splits = [split.name for split in tier2_splits(config, inst.config)]
-            for split in splits:
-                opened = _open_changes(inst, repo, split, splits)
-                if opened:
-                    say(f"exists: {min(opened)}")
-                    continue
-                latest = max(_archived_dates(inst, repo, split, splits), default=None)
-                if latest is not None and latest + PERIODS[schedule] > today:
-                    continue
-                name = scheduled_name(repo, today, split)
+            name = scheduled_name(repo, today, split)
+            if dry_run:
+                say(f"would write: {name}")
+            else:
                 _write_change(inst, repo, name, today, split)
                 say(f"wrote: {name}")
-                written.append(name)
+            written.append(name)
     return written
+
+
+def any_due(inst: Installation, store: UnitStore, *, today: date) -> bool:
+    """Whether a split is due and has no open change: a round would write one."""
+    return any(not opened for _, _, opened in _scheduled_repos(inst, store, today))
+
+
+def _scheduled_repos(
+    inst: Installation, store: UnitStore, today: date
+) -> list[tuple[str, str, str | None]]:
+    """Each split that is open (its open change's name) or due (None), in the config's order."""
+    tier2_repos = {unit.repo for unit in store.all() if unit.tier == TestTier.E2E_TEST}
+    found: list[tuple[str, str, str | None]] = []
+    for repo, config in inst.repos.items():
+        schedule = tier2_schedule(config, inst.config.global_limits)
+        if repo not in tier2_repos or schedule is Tier2Schedule.OFF:
+            continue
+        splits = [split.name for split in tier2_splits(config, inst.config)]
+        for split in splits:
+            opened = _open_changes(inst, repo, split, splits)
+            if opened:
+                found.append((repo, split, min(opened)))
+                continue
+            latest = max(_archived_dates(inst, repo, split, splits), default=None)
+            if latest is None or latest + PERIODS[schedule] <= today:
+                found.append((repo, split, None))
+    return found
 
 
 def _open_changes(inst: Installation, repo: str, split: str, splits: Iterable[str]) -> list[str]:

@@ -7,15 +7,20 @@ from __future__ import annotations
 
 import fcntl
 import json
+import subprocess
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline import spans, tier2
-from tests.fake_clock import FakeClock, install
+from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline import spans, tier2, wiring
+from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.units import Unit
+from agent_build_kit.pipeline.wiring import build_runner
+from tests.fake_clock import START, FakeClock, install
 
 # How far each sleep of the waiting loop moves the clock on.
 STEP = 10.0
@@ -47,8 +52,8 @@ class SleepingTime:
         self.due.append((seconds, action))
 
 
-def install_clock(monkeypatch: pytest.MonkeyPatch) -> SleepingTime:
-    sleeping = SleepingTime(install(monkeypatch))
+def install_clock(monkeypatch: pytest.MonkeyPatch, start: datetime = START) -> SleepingTime:
+    sleeping = SleepingTime(install(monkeypatch, start))
     monkeypatch.setattr(tier2, "time", sleeping)
     return sleeping
 
@@ -90,3 +95,31 @@ def held(path: Path) -> Iterator[Foreign]:
         yield other
     finally:
         other.release()
+
+
+class Ran:
+    """The tests command, answered as a passing run; what the lock file said as it ran."""
+
+    def __init__(self, lock: Path) -> None:
+        self.lock = lock
+        self.record_seen: str | None = None
+
+    def __call__(self, command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        if self.record_seen is None:
+            self.record_seen = self.lock.read_text()
+        return subprocess.CompletedProcess(command, 0, "1 passed in 0.01s\n", "")
+
+
+def tier2_runner(
+    workspace: Installation,
+    store: UnitStore,
+    monkeypatch: pytest.MonkeyPatch,
+    log: list[str],
+    unit: Unit,
+) -> tuple[wiring.UnitRunner, Ran]:
+    """The runner of `unit` whose tests command is `Ran`, over the workspace's tier 2 lock."""
+    ran = Ran(workspace.state_dir / "tier2.lock")
+    monkeypatch.setattr(wiring, "_run", ran)
+    monkeypatch.setattr(wiring, "_head_sha", lambda cwd: "abc1234")
+    built = build_runner(unit, store=store, installation=workspace, log=log.append)
+    return built, ran

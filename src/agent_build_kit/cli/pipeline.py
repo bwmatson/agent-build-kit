@@ -160,6 +160,7 @@ from agent_build_kit.pipeline.tier2 import (
     stack_lock,
 )
 from agent_build_kit.pipeline.tier2_holds import Hold, hold_text, repo_holds
+from agent_build_kit.pipeline.tier2_schedule import any_due, write_due
 from agent_build_kit.pipeline.transcript import remove_change_transcripts, transcript_dir
 from agent_build_kit.pipeline.ui_review import (
     ui_notes_of,
@@ -1111,9 +1112,11 @@ def _tick_with(
 
 
 def _preview_fixes(inst: Installation) -> None:
-    """What the fix change of each recorded pre-existing failure is: written, or to be."""
+    """What the fix change of each recorded pre-existing failure is, and what scheduled tier 2
+    change is due or open: written, or to be."""
     for test in dict.fromkeys(entry.test for entry in preexisting_record(inst).entries()):
         log(preview(inst, test).line)
+    write_due(inst, store_for(inst), today=spans.clock.now().date(), say=log, dry_run=True)
 
 
 def _resume_environment_waiters(inst: Installation, store: UnitStore) -> None:
@@ -1402,6 +1405,17 @@ def run_round(
         started = readmit.started
     spared = {*building, *started}
     _step("bounding the logs", _bound_logs, inst)
+    if not dry_run:
+        # No model call, so ahead of the usage guard: planning it is what the guard holds back.
+        _step(
+            "writing scheduled tier 2 changes",
+            write_due,
+            inst,
+            store,
+            today=spans.clock.now().date(),
+            say=log,
+            say_existing=False,
+        )
     may = _may_build(inst, store, spared=spared, quiet=quiet, only=only)
     if may == "rate_limit":
         _step("reconciling notifications", _reconcile_notifications, inst, store)
@@ -3089,8 +3103,9 @@ NEEDS_TICKS = (PLANNED, RUNNING, IN_REVIEW)
 
 def has_work(inst: Installation, store: UnitStore) -> bool:
     """Whether a tick has anything to do: a unit in progress, a change
-    whose tasks.md has not been planned in its current form, or a change with
-    a satisfied unit that is ready to archive and not yet verified.
+    whose tasks.md has not been planned in its current form, a change with
+    a satisfied unit that is ready to archive and not yet verified, or a repo
+    that is due for its scheduled tier 2 run and has no such change open.
 
     The last is the one a poll cannot notice: a merge is found at the top of a
     tick and archived in it, but a unit ends satisfied inside the scheduling
@@ -3098,6 +3113,8 @@ def has_work(inst: Installation, store: UnitStore) -> bool:
     ticks busy.
     """
     units = store.all()
+    if any_due(inst, store, today=spans.clock.now().date()):
+        return True
     if any(
         unit.state in NEEDS_TICKS
         or unit.close_pending

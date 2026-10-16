@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 from agent_build_kit.config import REST_SPLIT
 from agent_build_kit.installation import Installation
@@ -13,8 +15,17 @@ from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import Unit
 from tests.conftest import make_installation
 from tests.factories import stored_unit
+from tests.fake_clock import FakeClock, install
 
 TODAY = date(2026, 3, 10)
+
+
+AT = datetime.combine(TODAY, time(9), tzinfo=UTC)
+
+
+def on_today(monkeypatch: pytest.MonkeyPatch) -> FakeClock:
+    """The clock the pipeline reads, standing at the morning of `TODAY`."""
+    return install(monkeypatch, AT)
 
 
 def ago(days: int) -> date:
@@ -27,6 +38,7 @@ def planning(
     *,
     tests: dict[str, Any] | None = None,
     repo_splits: dict[str, dict[str, Any]] | None = None,
+    project_limits: dict[str, Any] | None = None,
     **limits: Any,
 ) -> Installation:
     """A planning directory with one repo per key of `schedules`, each with that value as its
@@ -45,7 +57,13 @@ def planning(
         }
         for name, value in schedules.items()
     }
-    return make_installation(root, repos=repos, global_limits=limits, tests=tests or {})
+    return make_installation(
+        root,
+        repos=repos,
+        global_limits=limits,
+        project_limits=project_limits or {},
+        tests=tests or {},
+    )
 
 
 def store_of(inst: Installation, *tier2_repos: str, **others: str) -> UnitStore:
