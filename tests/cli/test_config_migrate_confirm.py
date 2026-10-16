@@ -6,7 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from tests.cli.config_migrate_fakes import BACKUP_SUFFIX, OLD, beside, run_migrate, write
+from agent_build_kit.cli import main
+from agent_build_kit.runtimes.policy_apply import BACKUP_SUFFIX
+from tests.cli.config_migrate_fakes import OLD, beside, run_migrate, write
 
 
 def test_a_yes_prints_the_diff_first_then_writes_and_names_the_backup(
@@ -45,7 +47,7 @@ def test_no_terminal_and_no_yes_writes_nothing_and_exits_1(
 ) -> None:
     path = write(tmp_path)
 
-    code, _ = run_migrate(capsys, monkeypatch, path, answers=None)
+    code, _ = run_migrate(capsys, monkeypatch, path, answers=None, piped="y\n")
 
     assert code == 1
     assert path.read_text() == OLD
@@ -89,3 +91,16 @@ def test_dry_run_prints_the_diff_writes_nothing_and_exits_0(
     assert "project_limits" in terminal.out
     assert path.read_text() == OLD
     assert beside(path) == []
+
+
+@pytest.mark.parametrize("flag", ["--yes", "--dry-run"])
+def test_yes_and_dry_run_need_migrate(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], flag: str
+) -> None:
+    path = write(tmp_path)
+
+    code = main(["--config", str(path), "config", flag])
+
+    assert code == 2
+    assert "need --migrate" in capsys.readouterr().err
+    assert path.read_text() == OLD

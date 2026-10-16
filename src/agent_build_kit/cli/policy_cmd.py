@@ -10,7 +10,7 @@ from pathlib import Path
 from agent_build_kit import config as config_module
 from agent_build_kit import runtimes
 from agent_build_kit.config import ConfigError, RuntimeConfig
-from agent_build_kit.init.runtime_choice import yes
+from agent_build_kit.init.runtime_choice import confirmed
 from agent_build_kit.installation import Installation, load_installation
 from agent_build_kit.runtimes import known_agents, policy_apply, policy_check
 from agent_build_kit.runtimes.known_agents import ApplyPolicy, KnownAgent, agent_for_command
@@ -227,13 +227,6 @@ def write_recommended(
     return done
 
 
-def _confirmed(question: str) -> bool:
-    try:
-        return yes(input(question))
-    except EOFError:
-        return False
-
-
 def cmd_policy_apply(args: argparse.Namespace, installation: Installation | None) -> int:
     if args.dry_run and args.yes:
         print("abk: --dry-run writes nothing, so --yes has nothing to confirm", file=sys.stderr)
@@ -282,7 +275,7 @@ def cmd_policy_apply(args: argparse.Namespace, installation: Installation | None
         )
     if shown.status == Status.UNCHANGED or args.dry_run:
         return 0
-    if not (args.yes or _confirmed(f"apply to {shown.path}? [y/N] ")):
+    if not (args.yes or confirmed(f"apply to {shown.path}? [y/N] ")):
         print("not applied; nothing was written")
         return 1
     if write_recommended(descriptor, home, extra, args.toolset) is None:

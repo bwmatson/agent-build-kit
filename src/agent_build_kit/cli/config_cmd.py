@@ -19,19 +19,9 @@ from agent_build_kit.config import (
     read_overlay,
 )
 from agent_build_kit.config_migrate import ConfigMigrateError, migrate
-from agent_build_kit.init.runtime_choice import yes
+from agent_build_kit.init.runtime_choice import confirmed
 from agent_build_kit.installation import Installation, load_installation
 from agent_build_kit.runtimes.policy_apply import backup_and_replace
-
-
-def _confirmed(question: str) -> bool:
-    """Whether the person says yes; no terminal to ask on is a no."""
-    if not sys.stdin.isatty():
-        return False
-    try:
-        return yes(input(question))
-    except EOFError:
-        return False
 
 
 def cmd_migrate(args: argparse.Namespace) -> int:
@@ -39,10 +29,14 @@ def cmd_migrate(args: argparse.Namespace) -> int:
     when it wrote, was a dry run or had nothing to move, 1 when not confirmed, 2 when refused."""
     try:
         path = locate(args.config)
+    except ConfigError as error:
+        print(f"abk: {error}", file=sys.stderr)
+        return 2
+    try:
         before = path.read_bytes().decode()
         migrated = migrate(before)
-    except (ConfigError, ConfigMigrateError, OSError, UnicodeDecodeError) as error:
-        print(f"abk: {path_name(args)}: {error}", file=sys.stderr)
+    except (ConfigMigrateError, OSError, UnicodeDecodeError) as error:
+        print(f"abk: {path}: {error}", file=sys.stderr)
         return 2
     if migrated.text == before:
         print(f"{path}: nothing needed migrating")
@@ -60,18 +54,18 @@ def cmd_migrate(args: argparse.Namespace) -> int:
     )
     if args.dry_run:
         return 0
-    if not (args.yes or _confirmed(f"migrate {path}? [y/N] ")):
+    if not (args.yes or (sys.stdin.isatty() and confirmed(f"migrate {path}? [y/N] "))):
         print("not migrated; nothing was written")
         return 1
-    backup = backup_and_replace(path, migrated.text)
+    try:
+        backup = backup_and_replace(path, migrated.text)
+    except OSError as error:
+        print(f"abk: {path}: {error}", file=sys.stderr)
+        return 2
     if backup:
         print(f"backed up the original to {backup}")
     print(f"migrated {path}")
     return 0
-
-
-def path_name(args: argparse.Namespace) -> str:
-    return str(args.config) if args.config is not None else "abk.yaml"
 
 
 def cmd_config(args: argparse.Namespace, inst: Installation | None) -> int:

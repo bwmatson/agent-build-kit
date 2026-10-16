@@ -20,7 +20,6 @@ OLD = (
     "  max_units_in_progress: 7  # busy\n"
     "  max_concurrent_stacks: 2\n"
 )
-BACKUP_SUFFIX = ".abk-backup"
 
 
 class Person(Terminal):
@@ -43,11 +42,13 @@ def run_migrate(
     path: Path,
     *argv: str,
     answers: tuple[str, ...] | None = (),
+    piped: str = "",
 ) -> tuple[int, Person]:
     """`abk config --migrate <argv>` with `answers` at the terminal, or with no terminal when
-    `answers` is None: the exit code and the terminal (its `out`, `err`, `shown` and `asked`)."""
+    `answers` is None (stdin then holds `piped`): the exit code and the terminal (its `out`,
+    `err`, `shown` and `asked`)."""
     terminal = Person(capsys, None, *(answers or ()))
-    monkeypatch.setattr(sys, "stdin", terminal if answers is not None else io.StringIO(""))
+    monkeypatch.setattr(sys, "stdin", terminal if answers is not None else io.StringIO(piped))
     code = main(["--config", str(path), "config", "--migrate", *argv])
     terminal.collect()
     return code, terminal

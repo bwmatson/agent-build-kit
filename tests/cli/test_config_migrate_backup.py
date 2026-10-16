@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from tests.cli.config_migrate_fakes import BACKUP_SUFFIX, OLD, beside, run_migrate, write
+from agent_build_kit.runtimes.policy_apply import BACKUP_SUFFIX
+from tests.cli.config_migrate_fakes import OLD, beside, run_migrate, write
 
 
 def test_the_first_write_copies_the_original_beside_the_file(
@@ -70,3 +71,21 @@ def test_the_file_is_replaced_in_one_step_by_a_temporary_in_its_directory(
     assert target == path
     assert source.parent == path.parent
     assert source != path
+
+
+def test_a_failed_write_exits_2_naming_the_file_and_leaves_it_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = write(tmp_path)
+
+    def refuse(source: object, target: object) -> None:
+        raise PermissionError("permission denied")
+
+    monkeypatch.setattr(os, "replace", refuse)
+
+    code, terminal = run_migrate(capsys, monkeypatch, path, "--yes")
+
+    assert code == 2
+    assert "permission denied" in terminal.err
+    assert str(path) in terminal.err
+    assert path.read_text() == OLD

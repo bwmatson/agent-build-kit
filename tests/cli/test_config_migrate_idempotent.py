@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from tests.cli.config_migrate_fakes import BACKUP_SUFFIX, beside, run_migrate, write
+from agent_build_kit.runtimes.policy_apply import BACKUP_SUFFIX
+from tests.cli.config_migrate_fakes import beside, run_migrate, write
 
 
 def test_a_second_run_says_nothing_needed_migrating_and_makes_no_second_backup(
