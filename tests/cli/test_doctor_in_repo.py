@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 
 from agent_build_kit import __version__
+from agent_build_kit.pipeline.planning_sync import write_pipeline_marker
 from tests.cli.in_repo_doctor import (
     UNPROTECTED,
     checks_of,
@@ -51,6 +52,18 @@ def test_a_marker_naming_a_worktree_that_is_gone_warns_naming_install_timers(
 ) -> None:
     config = in_repo(tmp_path / "app", publish="branch", guard=UNPROTECTED)
     shutil.rmtree(with_pipeline_worktree(config))
+
+    [found] = named(checks_of(config), WORKTREE)
+
+    assert found.status == "warn"
+    assert "abk install-timers" in found.fix
+
+
+def test_a_marker_naming_a_plain_directory_warns_naming_install_timers(tmp_path: Path) -> None:
+    config = in_repo(tmp_path / "app", publish="branch", guard=UNPROTECTED)
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    write_pipeline_marker(config.parent, plain)
 
     [found] = named(checks_of(config), WORKTREE)
 

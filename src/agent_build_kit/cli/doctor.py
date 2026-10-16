@@ -71,7 +71,7 @@ from agent_build_kit.path_patterns import matches
 from agent_build_kit.pipeline.environment import matched_inputs
 from agent_build_kit.pipeline.original_copy import COPY_PATTERN
 from agent_build_kit.pipeline.pending import describe, pending_projects
-from agent_build_kit.pipeline.planning_repo import is_repo
+from agent_build_kit.pipeline.planning_repo import common_dir, is_worktree_of
 from agent_build_kit.pipeline.planning_sync import (
     in_repo_name,
     live_notice,
@@ -286,6 +286,10 @@ def _forge_access(
     return checks
 
 
+# How a forge begins a `merge_guard` answer when it could not ask the host (see `Forge`).
+CANNOT_TELL = "cannot tell"
+
+
 def _guard_of(inst: Installation, name: str, run: Run) -> str:
     """What the repo's forge says about its default branch: "" when protected, else why not."""
     forge, repo = inst.forge_of(name)
@@ -293,7 +297,7 @@ def _guard_of(inst: Installation, name: str, run: Run) -> str:
     try:
         return forge.merge_guard(repo, branch=branch, run=run)
     except TransportError as error:
-        return f"cannot tell what guards {branch}: {error}"
+        return f"{CANNOT_TELL} what guards {branch}: {error}"
 
 
 def _merge_guards(inst: Installation, run: Run) -> list[Check]:
@@ -333,10 +337,15 @@ def _planning_publish(inst: Installation, run: Run) -> list[Check]:
     title = "planning publish"
     guard = _guard_of(inst, name, run)
     branch = inst.repo(name).default_branch
-    if guard.startswith("cannot tell"):
+    if guard.startswith(CANNOT_TELL):
         return [_info(title, guard)]
-    if guard or inst.config.planning.publish == PlanningPublish.BRANCH:
-        return [_ok(title, f"{inst.config.planning.publish}; {branch} is not protected against it")]
+    publish = inst.config.planning.publish
+    if guard:
+        return [_ok(title, f"{publish}; {guard}")]
+    if publish == PlanningPublish.BRANCH:
+        return [
+            _ok(title, f"branch; {branch} is protected, so abk publishes through a pull request")
+        ]
     return [
         _fail(
             title,
@@ -348,12 +357,13 @@ def _planning_publish(inst: Installation, run: Run) -> list[Check]:
 
 def _pipeline_worktree(inst: Installation) -> list[Check]:
     """In an in-repo installation: the pipeline worktree the marker names."""
-    if in_repo_name(inst) is None or not is_repo(inst.root):
+    if in_repo_name(inst) is None:
         return []
     named = read_pipeline_marker(inst.root)
     if named is None:
         return []
-    if named.is_dir():
+    common = common_dir(inst.root)
+    if common is not None and is_worktree_of(named, common):
         return [_ok("pipeline worktree", str(named))]
     return [
         _warn(

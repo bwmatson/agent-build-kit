@@ -5,8 +5,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agent_build_kit.config import RepoConfig
 from tests.cli.in_repo_doctor import (
     PROTECTED,
+    STATE_IGNORES,
     UNPROTECTED,
     UNREADABLE,
     checks_of,
@@ -14,6 +16,7 @@ from tests.cli.in_repo_doctor import (
     named,
     separate,
 )
+from tests.cli.public_content_repo import planning
 from tests.factories import init_repo
 
 CHECK = "planning publish"
@@ -44,6 +47,8 @@ def test_branch_with_a_protected_default_branch_is_ok(tmp_path: Path) -> None:
     [found] = named(checks_of(config), CHECK)
 
     assert found.status == "ok"
+    assert "is protected" in found.detail
+    assert "not protected" not in found.detail
 
 
 def test_direct_where_nothing_protects_the_default_branch_is_ok(tmp_path: Path) -> None:
@@ -72,3 +77,14 @@ def test_a_separate_installation_gets_no_such_check_where_an_in_repo_one_does(
 
     assert len(named(checks_of(in_repo_config), CHECK)) == 1
     assert named(checks_of(separate_config), CHECK) == []
+
+
+def test_a_local_forge_repo_with_the_default_publish_is_ok_not_protected(tmp_path: Path) -> None:
+    """Nothing on a server guards a local repo, so a direct push works."""
+    repos = {"app": RepoConfig(path=Path("."), forge="local", changelog=None)}
+    config = planning(tmp_path / "app", repos=repos, ignore=STATE_IGNORES)
+
+    [found] = named(checks_of(config), CHECK)
+
+    assert found.status == "ok"
+    assert "no server guards" in found.detail

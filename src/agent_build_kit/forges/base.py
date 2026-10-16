@@ -356,6 +356,9 @@ class Forge(RegistersStacks, Protocol):
         A host that answers "nothing" is answering honestly, and it is worth
         saying out loud: the command hook is then the only thing between an
         agent and its own merge.
+
+        A reason that begins "cannot tell" means the host could not be asked, which
+        is not the same as nothing guarding the branch; `abk doctor` reads it so.
         """
         ...
 

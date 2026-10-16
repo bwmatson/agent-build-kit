@@ -524,3 +524,7 @@ def test_a_listing_that_carries_the_review_is_not_given_it_twice(
     [pull] = wrapped()
     assert len(pull.conversation) == 1 == len(pull.comment_bodies)
     assert events == [("rework", ReworkKind.COMMENT)]
+
+
+def test_a_local_repo_has_no_server_guard_and_says_so() -> None:
+    assert LocalForge().merge_guard(REPO, branch="main") != ""

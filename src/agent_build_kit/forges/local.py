@@ -124,7 +124,9 @@ class LocalForge:
         return ""
 
     def merge_guard(self, repo: RepoId, *, branch: str, run: Run | None = None) -> str:
-        return ""
+        return (
+            f"no server guards {branch}: the local forge keeps pull requests in the state directory"
+        )
 
     def _checkout(self, repo: RepoId) -> Path | None:
         """Where the repo is checked out, found by identity among the active workspace's repos."""
