@@ -106,7 +106,7 @@ from agent_build_kit.pipeline.restack import (
 )
 from agent_build_kit.pipeline.run_log import append_tier2_output, tier2_output_dir
 from agent_build_kit.pipeline.scratch import run_folder, selection_seed
-from agent_build_kit.pipeline.shell import git, git_out, has_origin
+from agent_build_kit.pipeline.shell import git, git_out, has_origin, porcelain
 from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner, Worktree
 from agent_build_kit.pipeline.tier2 import (
     UNKNOWN_SPLIT,
@@ -781,6 +781,9 @@ def build_commit(
     `gate` is a check run on the staged tree before the commit, for a checkout with no
     hooks of its own: it returns what it rejected, or nothing. Its output is handled as
     a rejected commit's is.
+
+    `only` limits the commit to those pathspecs: nothing else is staged, checked or
+    committed, and what else the tree holds stays modified and unstaged.
     """
     run = run or _run
 
@@ -796,7 +799,12 @@ def build_commit(
 
         def attempt() -> subprocess.CompletedProcess | None:
             restore_unchanged_locks(repo, cwd, base or default_base)
-            run(["git", "add", "-A"], cwd=cwd)
+            if only is None:
+                run(["git", "add", "-A"], cwd=cwd)
+            elif names := [name for _, name in porcelain(cwd, *only)]:
+                # The changed paths under the pathspecs, not the pathspecs: git refuses
+                # `add` when one of them matches nothing.
+                run(["git", "add", "-A", "--", *names], cwd=cwd)
             unstage_untracked_locks(repo, cwd)
             unstage_artifacts(repo, cwd)
             if not run(["git", "diff", "--cached", "--quiet"], cwd=cwd).returncode:

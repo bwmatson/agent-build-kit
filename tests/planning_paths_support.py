@@ -39,7 +39,7 @@ echo '{_REPORT}'
 """
 
 
-def fake_openspec(directory: Path) -> str:
+def recording_openspec(directory: Path) -> str:
     """The command that passes every check and writes a line to `openspec.runs` per run."""
     script = directory / "fake-openspec"
     script.write_text(_CHECK)
@@ -66,7 +66,7 @@ def in_repo_planning(tmp_path: Path) -> tuple[Installation, InRepo]:
         setup.worktree,
         repos={"app": {"path": str(setup.working_copy), "slug": "example/app"}},
         planning={"worktree_root": str(base / "trees")},
-        openspec={"command": [fake_openspec(base)]},
+        openspec={"command": [recording_openspec(base)]},
     )
     return inst, setup
 
