@@ -42,7 +42,7 @@ from agent_build_kit import forges, infra, path_patterns, runtimes
 from agent_build_kit.compat_names import Place, is_old_spelling, new_spelling, notice
 from agent_build_kit.model import Frozen
 from agent_build_kit.replay.models import DEFAULT_KEYED_HEADERS, UpstreamKind
-from agent_build_kit.runtimes import known_agents
+from agent_build_kit.runtimes import known_agents, providers
 
 CONFIG_FILENAME = "abk.yaml"
 OVERLAY_FILENAME = "abk.local.yaml"
@@ -626,10 +626,6 @@ REST_SPLIT = "rest"
 SPLIT_NAME = re.compile(r"[a-z0-9_]+")
 
 
-# The providers a split's gate may name; the provider table replaces this list.
-GATE_PROVIDER_NAMES = ("modal",)
-
-
 class ProviderLimitsConfig(WindowLimits):
     """`gate.provider.limits`: one window's ramp, and nothing a subscription window alone has."""
 
@@ -664,10 +660,10 @@ class GateProviderConfig(Frozen):
     @field_validator("name")
     @classmethod
     def _name_in_table(cls, name: str) -> str:
-        if name not in GATE_PROVIDER_NAMES:
+        if name not in providers.names():
             raise ValueError(
                 f"gate.provider.name: {name!r} is not a provider; "
-                f"the table has {', '.join(GATE_PROVIDER_NAMES)}"
+                f"the table has {', '.join(providers.names())}"
             )
         return name
 
