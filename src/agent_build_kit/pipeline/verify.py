@@ -247,11 +247,13 @@ def verify_change(
         files.setdefault(unit.repo, [])
         files[unit.repo] += [f for f in pr_files(unit.repo, unit.pr) if f not in files[unit.repo]]
 
+    notes: list[str] = []  # what the planning sync said, kept in whatever detail results
+
     def result(passed: bool, detail: str = "", deployed: list[str] | None = None) -> Verification:
         return Verification(
             change=change,
             passed=passed,
-            detail=detail,
+            detail="\n".join([*notes, detail] if detail else notes),
             deployed=deployed or [],
             units=ids,
             at=datetime.now(UTC).isoformat(timespec="seconds"),
@@ -293,14 +295,19 @@ def verify_change(
             planning_mode(installation) == PlanningMode.PIPELINE_WORKTREE
             and in_repo_name(installation) == name
         )
-        exempt = [p for p in installation.planning_paths if p != CONFIG_FILENAME]
+        # A path outside the root cannot be dirty in this tree, and git refuses it as a pathspec.
+        exempt = [
+            p
+            for p in installation.planning_paths
+            if p != CONFIG_FILENAME and not Path(p).is_absolute()
+        ]
         refused = _clean_default_branch(
             checkouts[name], run, repo, exempt if planning_root else [], detached_ok=planning_root
         )
         if refused:
             return result(False, f"{checkouts[name]}: {refused} — left for a person to sort out")
         if planning_root:
-            synced = sync_planning(installation, lambda line: None)
+            synced = sync_planning(installation, notes.append)
             if synced.outcome == SyncOutcome.STOPPED:
                 return result(False, f"{checkouts[name]}: planning sync stopped: {synced.reason}")
             continue
@@ -376,9 +383,11 @@ def _clean_default_branch(
     # about work in progress, so they are left out of the check.
     ignored = [f":(exclude){path}" for path in [*repo.deploy.live_written, *exempt]]
     status = ["git", "status", "--porcelain", "--untracked-files=no", "--", ".", *ignored]
-    changes = run(status, cwd=checkout).stdout
-    if changes.strip():
-        return f"has uncommitted changes:\n{changes.rstrip()}"
+    checked = run(status, cwd=checkout)
+    if checked.returncode:
+        return f"git status failed:\n{_output(checked)}"
+    if checked.stdout.strip():
+        return f"has uncommitted changes:\n{checked.stdout.rstrip()}"
     return ""
 
 

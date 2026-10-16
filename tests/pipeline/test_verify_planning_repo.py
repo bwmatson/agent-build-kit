@@ -13,6 +13,7 @@ from tests.planning_worktree_support import InRepo, in_repo, publish_elsewhere
 
 TRACKED = {
     "src/main.py": "print('app')\n",
+    "tests/integration/test_live.py": "def test_live(): ...\n",
     "abk.yaml": "repos: {}\n",
     "notes/learned.md": "notes\n",
     "docs/unit_graph.md": "graph\n",
@@ -40,6 +41,9 @@ class Host:
     def deploys(self) -> list[Path]:
         return [cwd for argv, cwd in self.calls if argv[0] == "deploy"]
 
+    def live_tests(self) -> list[Path]:
+        return [cwd for argv, cwd in self.calls if "pytest" in argv]
+
     def pulls(self) -> list[Path]:
         return [cwd for argv, cwd in self.calls if argv[:2] == ("git", "pull")]
 
@@ -53,7 +57,7 @@ def pipeline_worktree(base: Path) -> InRepo:
     return setup
 
 
-def installation(setup: InRepo, **extra_repos) -> Installation:
+def installation(setup: InRepo, planning: dict | None = None, **extra_repos) -> Installation:
     repos = {
         "app": {
             "path": str(setup.working_copy),
@@ -63,10 +67,12 @@ def installation(setup: InRepo, **extra_repos) -> Installation:
         },
         **extra_repos,
     }
-    return make_installation(setup.worktree, repos=repos)
+    return make_installation(setup.worktree, repos=repos, planning=planning or {})
 
 
-def verify(inst: Installation, host: Host, *repos: str) -> Verification:
+def verify(
+    inst: Installation, host: Host, *repos: str, files: tuple[str, ...] = ("src/main.py",)
+) -> Verification:
     units = [
         stored_unit(f"feature/{n}", change="feature", repo=repo, state="merged", pr=n)
         for n, repo in enumerate(repos or ("app",), 1)
@@ -75,7 +81,7 @@ def verify(inst: Installation, host: Host, *repos: str) -> Verification:
         "feature",
         units,
         installation=inst,
-        pr_files=lambda name, pr: ["src/main.py"],
+        pr_files=lambda name, pr: list(files),
         run=host,
         env={},
     )
@@ -180,6 +186,40 @@ def test_deploy_commands_run_in_the_root(tmp_path: Path) -> None:
     verify(installation(setup), host)
 
     assert host.deploys() == [setup.worktree]
+
+
+def test_live_tests_run_in_the_root(tmp_path: Path) -> None:
+    setup = pipeline_worktree(tmp_path)
+    host = Host()
+
+    result = verify(installation(setup), host, files=("tests/integration/test_live.py",))
+
+    assert result.passed, result.detail
+    assert host.live_tests() == [setup.worktree]
+
+
+def test_a_planning_path_outside_the_root_does_not_make_a_dirty_tree_read_clean(
+    tmp_path: Path,
+) -> None:
+    setup = pipeline_worktree(tmp_path)
+    (setup.worktree / "src" / "main.py").write_text("print('edited')\n")
+    outside = tmp_path / "elsewhere" / "state"
+    host = Host()
+
+    result = verify(installation(setup, planning={"state_dir": str(outside)}), host)
+
+    assert not result.passed
+    assert "src/main.py" in result.detail
+    assert not host.deploys()
+
+
+def test_a_sync_that_did_not_update_is_said_in_the_detail(tmp_path: Path) -> None:
+    setup = pipeline_worktree(tmp_path)
+
+    result = verify(installation(setup, planning={"self_pull": False}), Host())
+
+    assert result.passed, result.detail
+    assert "self_pull" in result.detail
 
 
 def platform_repo(base: Path) -> dict:
