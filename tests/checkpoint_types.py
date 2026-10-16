@@ -19,6 +19,7 @@ from langgraph.checkpoint.serde.event_hooks import SerdeEvent, register_serde_ev
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
 from agent_build_kit.graph.checkpointer import ALLOWED_MSGPACK_MODULES
+from agent_build_kit.graph.state import UnitRun
 from tests.graph.checkpoint_reads import task_names
 
 BLOCKED_KINDS = frozenset({"msgpack_blocked", "msgpack_method_blocked"})
@@ -69,3 +70,8 @@ def blocked_in(updates: list[tuple[str, str, Any]]) -> list[str]:
         for node, field, value in updates
         for module, name in sorted(blocked_on_load(value))
     ]
+
+
+def state_from_updates(updates: list[tuple[str, str, Any]]) -> UnitRun:
+    """A fully populated `UnitRun` with the `UnitRun` fields of `updates`, validated."""
+    raise NotImplementedError
