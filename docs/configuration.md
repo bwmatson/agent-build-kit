@@ -593,6 +593,43 @@ as the `verify.env` values and the credential settings are. A value under 8 char
 not replaced, and `abk doctor` warns, by name, for such a variable and for a name that is
 not set. See "Secrets never leave as text" in `docs/architecture.md`.
 
+### `tests.tier2_splits`
+
+`tests.tier2_splits` divides a repo's tier 2 tests into named splits that can be run, held
+and scheduled apart. The key is spelled `tests.e2e_splits` under the test-kinds rename;
+`tier2_splits` still loads, with a deprecation notice, and the two are refused together.
+It sits under `tests` at the top of `abk.yaml`, or under a repo's own `tests`, where it
+replaces the top-level map for that repo.
+
+```yaml
+tests:
+  tier2_splits:
+    slow:
+      marker: slow_stack      # the selector: a marker the test runner registers
+      hold: false             # optional; true holds the split
+repos:
+  app:
+    tests:
+      tier2_splits: {}        # this repo declares none, whatever the top level says
+```
+
+- A split name is lowercase letters, digits and underscores; `base`, the older name of
+  `rest`, is reserved and refused. Each split has a `marker`
+  (non-empty, not shared with another split), an optional `hold` and an optional `gate`
+  (the provider of its model, or a command, with its limits; `abk config --show` prints it).
+  An unknown key, a missing marker or a repeated one is refused when the file loads.
+- `rest` is always declared: it is the tests in no split. It may carry `hold` but no
+  `marker`, and needs no entry. With no splits declared, a repo's splits are `rest` alone.
+- A test is in at most one split. `abk tier2 check` finds a test in two.
+- `hold: true` leaves a split out of every tier 2 run and parks the units that wait on it.
+  `abk tier2 hold` and `abk tier2 release` write `hold` in `abk.yaml` and an entry in the
+  state file `tier2-held.json` together. The configuration wins: `hold: false` always
+  releases a split and `hold: true` always holds it, whatever the file says; the file
+  decides only for a split with no `hold` set.
+- The three runtime lists this setting replaces are gone, with no alias, and are refused at
+  load with a pointer to the split setting that replaces each (`tests.e2e_splits`, the
+  spelling of the key `tier2_splits` is read as).
+
 ## Environment variables and `.env`
 
 `settings.py` reads these with pydantic-settings: from the process

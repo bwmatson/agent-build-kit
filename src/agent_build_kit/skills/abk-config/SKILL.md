@@ -287,6 +287,17 @@ notifications:                # tell a person when a unit waits on them
   # (the cmdlet names changed between releases); `abk init` offers to install it.
 ```
 
+### Tier 2 splits
+
+`tests.tier2_splits` (top level, or under a repo's own `tests`, which replaces it for that
+repo) maps a split name to a `marker`, an optional `hold` and an optional `gate`. `rest`, the
+tests in no split, is always there and may carry `hold` or `gate` but no marker. The configuration wins over the state
+file `tier2-held.json`. The three runtime lists it replaced are gone, with no alias.
+
+`abk tier2 check [repo]` lists each split and `rest` with its marker and test count, and
+exits 0 when no test is in two splits, no marker is unknown to the test runner and no
+listing fails; 1 for a finding or a split the profile cannot apply; 2 for an unknown repo. It runs no test.
+
 ## Where an installation's facts live
 
 The tracked `abk.yaml` of a public repo holds neither consumer facts nor user-specific values:

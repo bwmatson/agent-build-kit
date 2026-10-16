@@ -122,7 +122,28 @@
   hand. `abk tier2 status` shows each split as usable or held, and `abk status` lists
   the held splits, and `abk tier2 status` and `abk doctor` also show a file entry the
   configuration overrides. A split declared under a repo's own `tests` is held and released
-  there too.
+  there too. The splits held are the configuration's `hold: true` entries and the unexpired
+  entries of `tier2-held.json` in the state directory together: `hold: false` always
+  releases a split and `hold: true` always holds it. A split's `hold` can be set or removed
+  in `abk.yaml` as text, at the top or in a repo's own splits, keeping every comment and
+  other line; `rest` may have no entry yet, and the edit is written, after a backup, only
+  when the file reloads to the expected hold. The three runtime lists
+  (`tests.tier2_runtimes`, `tests.runtimes_blocked` and `tests.runtimes_allowed`) are replaced
+  by this setting; they were never released, so they are refused at load with no alias and
+  a leftover `tier2-blocked.json` is not read. A unit whose tier 2 run could not execute a
+  held split's tests waits, held planned with the cause `split_held`, the field
+  `parked_splits` and the reason "waiting for tier 2 split <name>", instead of passing
+  without them. It gets no feedback, no fix round, no failure record and no status, nothing
+  is pushed, and a tick does not start it again; `abk status` shows it as waiting. When the
+  split is released it runs only that split's tests on the same commit (the whole run if the
+  commit moved), and posts one status after both runs passed; a status is never posted for a
+  result that left a split's tests unrun. A tier 2 failure that also fails on the base is
+  recorded with its split (`rest` or a declared split), and the fix change says so. An open
+  fix holds a run only when the run executes that split. A failure of a held split is never
+  recorded, and neither is one whose split cannot be found: that is the unit's own failure,
+  with its output as feedback. A record written with the older `runtime` field reads it as
+  the split, with `base` read as `rest`, and a unit parked with the cause `runtime_blocked`
+  and the field `parked_runtimes` reads as parked on the same splits.
 
 - A tier 2 split may carry a `gate` naming the provider of its model (`provider` with a
   `name`, a `budget_usd` and window `limits`) or a `command`, with `timeout_seconds`,
@@ -172,21 +193,6 @@
   is due and open on its own, so a newly declared split runs at once while the others wait
   out their period. An older change with no suffix, or ending `-base`, counts as `rest`, so
   `base` can no longer be a split's name.
-  `tests.tier2_runtimes` (never released) is refused at load, as are `tests.runtimes_blocked`
-  and `tests.runtimes_allowed`, each naming the `tests.tier2_splits` setting that replaces it.
-
-- A tier 2 failure that also fails on the base is now recorded with the runtime it belongs
-  to (`base` for older entries), and the fix change says so. An open fix holds a full run
-  only when the run executes that runtime, so a blocked or other-runtime run is not held
-  by it. A failure whose runtime is unknown, or a blocked runtime's, is never recorded.
-
-- A unit whose tier 2 run could not execute a blocked runtime's tests now waits, held
-  planned with the runtime and the reason in its note, instead of passing without them. It
-  gets no feedback, no fix round, no failure record and no status, nothing is pushed, and
-  a tick does not start it again; `abk status` shows it as blocked. When it resumes it runs
-  only that runtime's tests on the same commit (the whole run if the commit moved), and
-  posts one status after both runs passed. A commit status is never
-  posted for a result that left a runtime's tests unrun.
 
 - `abk scrub-check` no longer flags the planning root's own name when it scans the planning
   root itself, and finds more of what identifies an installation: literal values and

@@ -320,6 +320,39 @@ predecessor. Exit 1 if any change has a problem or no `tasks.md`.
 `openspec validate --all --strict --json` in the planning repo. Prints
 OpenSpec's output; exit code is OpenSpec's.
 
+### `abk tier2 check [REPO]`
+
+Lists each tier 2 split of the repo (default: every repo) and `rest` with its marker and the
+number of tests it holds, found by listing through the profile from each declared project's
+directory under the verify environment. It reports each selector the repo's test runner does
+not know, each test selected by two splits (its identifier and both split names) and each
+listing that fails (never read as an empty split). It runs no test and changes nothing. A
+repo with no declared split passes with a line saying so. Exit 0 when it finds nothing; 1
+when it finds something or a declared split cannot be applied by the profile; 2 for a repo
+it does not know.
+
+### `abk tier2 hold SPLIT [--reason TEXT]`
+
+Holds a tier 2 split (a declared split, or `rest`) until `abk tier2 release`: units that wait on it
+park, and a run leaves it out. It sets `hold: true` in `abk.yaml` as text and writes the
+entry in `tier2-held.json` together, or neither; when the file cannot be edited that way it
+prints the line to change by hand and writes nothing. Exit 0 when held; 1 when nothing was
+written; 2 for a name that is not a split.
+
+### `abk tier2 release SPLIT`
+
+Ends a hold: it removes the entry from `tier2-held.json` and the `hold` line in `abk.yaml`
+together, or neither. When a `hold: true` of the configuration or an entry of the split's gate
+still holds it afterwards, the command says so and what to change by hand. A split that is
+not held prints `nothing changed`. Exit 0 when the split is released or was not held, 1 when
+the edit of `abk.yaml` or the state file could not be made and nothing was written, 2 for a
+name that is not a split.
+
+### `abk tier2 status`
+
+Prints each split and `rest` as `usable` or `held` (with the reason, and a file entry the
+configuration overrides) and the splits the scheduled tier 2 run covers. Changes nothing.
+
 ### `abk archive CHANGE`
 
 `openspec archive CHANGE --yes` in the planning repo, without the
