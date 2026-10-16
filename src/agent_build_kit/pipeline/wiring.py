@@ -757,7 +757,8 @@ def build_commit(
     base: str = "",
     only: Sequence[str] | None = None,
 ) -> Callable[..., int]:
-    """Commit whatever is staged or unstaged, reporting how many commits resulted.
+    """Commit what the tree holds (or, with `only`, what it holds under those pathspecs),
+    reporting how many commits resulted.
 
     The count is what tells the runner whether the implementation run produced
     anything, which decides whether a review is worth paying for.
@@ -807,11 +808,17 @@ def build_commit(
                 run(["git", "add", "-A", "--", *names], cwd=cwd)
             unstage_untracked_locks(repo, cwd)
             unstage_artifacts(repo, cwd)
-            if not run(["git", "diff", "--cached", "--quiet"], cwd=cwd).returncode:
+            # With `only`, what was staged outside the pathspecs is neither counted nor
+            # committed: it stays staged.
+            scope = ["--", *only] if only is not None else []
+            if not run(["git", "diff", "--cached", "--quiet", *scope], cwd=cwd).returncode:
                 return None  # Nothing staged: an empty commit would be a lie.
             if gate is not None and (rejected := gate(cwd)):
                 return subprocess.CompletedProcess(["gate"], 1, stdout=rejected, stderr="")
-            return run(["git", "commit", "-q", "-m", body], cwd=cwd)
+            if only is None:
+                return run(["git", "commit", "-q", "-m", body], cwd=cwd)
+            staged = run(["git", "diff", "--cached", "--name-only", *scope], cwd=cwd).stdout
+            return run(["git", "commit", "-q", "-m", body, "--", *staged.splitlines()], cwd=cwd)
 
         def head() -> str:
             return run(["git", "rev-parse", "HEAD"], cwd=cwd).stdout.strip()

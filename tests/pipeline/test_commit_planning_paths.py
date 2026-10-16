@@ -14,11 +14,14 @@ from agent_build_kit.pipeline.attach import NothingToCommit, commit_planning
 from tests.factories import git, stored_unit
 from tests.planning_paths_support import (
     CHANGE,
+    EDITED_TASKS,
     NEW_SOURCE,
+    OUTSIDE,
     SOURCE,
     edit_change_and_source,
     gate_runs,
     in_repo_planning,
+    separate_planning,
 )
 
 UNIT = stored_unit("feature/1", change="feature")
@@ -56,3 +59,15 @@ def test_only_a_source_file_modified_is_nothing_to_commit_and_no_commit_is_made(
 
     assert git(inst.root, "rev-parse", "HEAD") == before
     assert git(inst.root, "status", "--porcelain").split() == ["M", SOURCE]
+
+
+def test_a_separate_planning_repository_commits_every_file(tmp_path: Path) -> None:
+    inst = separate_planning(tmp_path)
+    (inst.root / CHANGE).write_text(EDITED_TASKS)
+    (inst.root / OUTSIDE).parent.mkdir()
+    (inst.root / OUTSIDE).write_text("notes\n")
+
+    commit_planning(inst, UNIT, "Plan it")
+
+    assert committed(inst.root) == sorted([CHANGE, OUTSIDE])
+    assert git(inst.root, "status", "--porcelain") == ""

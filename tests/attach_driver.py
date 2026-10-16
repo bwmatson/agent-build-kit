@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.workspaces import worktree_path
 from tests.factories import git, init_repo
 
@@ -42,6 +42,17 @@ def leave_lease(
     )
 
 
+def unit_worktree(installation: Installation, unit: StoredUnit) -> Path:
+    """The unit's branch checked out where the pipeline keeps it, from the repository
+    `installation` lists for the unit."""
+    assert unit.branch
+    repo = installation.checkouts[unit.repo]
+    path = worktree_path(repo, unit.branch, installation.worktree_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    git(repo, "worktree", "add", "-q", "-b", unit.branch, str(path))
+    return path
+
+
 def checked_out(installation: Installation, unit_id: str) -> Path:
     """The unit's branch in a real worktree of the `app` checkout, with one commit on it."""
     unit = UnitStore(installation.state_dir / "units.json").get(unit_id)
@@ -50,10 +61,7 @@ def checked_out(installation: Installation, unit_id: str) -> Path:
     (repo / "base.txt").write_text("base\n")
     git(repo, "add", "-A")
     git(repo, "commit", "-q", "-m", "start")
-    path = worktree_path(repo, unit.branch, installation.worktree_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    git(repo, "worktree", "add", "-q", "-b", unit.branch, str(path))
-    return path
+    return unit_worktree(installation, unit)
 
 
 def head(path: Path) -> str:

@@ -8,11 +8,8 @@ import json
 from pathlib import Path
 
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.shell import git as run_git
-from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.workspaces import worktree_path
 from tests.conftest import make_installation
-from tests.factories import git
+from tests.factories import commit_files, git, init_repo
 from tests.planning_worktree_support import InRepo, in_repo, publish_elsewhere
 
 CHANGE = "openspec/changes/feature/tasks.md"
@@ -78,11 +75,20 @@ def edit_change_and_source(root: Path) -> None:
     (root / NEW_SOURCE).write_text("new\n")
 
 
-def unit_worktree_of(inst: Installation, unit: StoredUnit) -> Path:
-    """The unit's branch checked out where the pipeline keeps it, from the repository `app`."""
-    assert unit.branch
-    checkout = inst.checkouts[unit.repo]
-    path = worktree_path(checkout, unit.branch, inst.worktree_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    run_git(checkout, "worktree", "add", "-q", "-b", unit.branch, str(path))
-    return path
+OUTSIDE = "notes/x.md"
+
+
+def separate_planning(tmp_path: Path) -> Installation:
+    """A planning repository of its own, holding `START`, whose installation lists `app` at a
+    repository elsewhere: no listed repo shares the root's repository."""
+    base = tmp_path / "setup"
+    base.mkdir(parents=True, exist_ok=True)
+    root = init_repo(base / "planning")
+    commit_files(root, "add planning", START)
+    commit_files(init_repo(base / "app"), "start", {"base.txt": "base\n"})
+    return make_installation(
+        root,
+        repos={"app": {"path": str(base / "app"), "slug": "example/app"}},
+        planning={"worktree_root": str(base / "trees")},
+        openspec={"command": [recording_openspec(base)]},
+    )

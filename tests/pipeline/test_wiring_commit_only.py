@@ -14,6 +14,12 @@ from tests.environment_fakes import FakeEnvironment, repo_config
 from tests.factories import git, init_repo
 
 LOCK = "deps.lock"
+ALL_EDITED = [
+    "abk.yaml",
+    "openspec/changes/feature/design.md",
+    "openspec/changes/feature/tasks.md",
+    "src/main.py",
+]
 
 
 @pytest.fixture
@@ -113,3 +119,49 @@ def test_the_lock_cleanup_still_runs_with_only(repo: Path, tmp_path: Path) -> No
     assert committed(repo) == ["openspec/changes/feature/tasks.md"]
     assert (repo / LOCK).read_text() == "as committed\n"
     assert git(repo, "status", "--porcelain").split() == ["M", "src/main.py"]
+
+
+def test_without_only_everything_is_staged_and_committed(repo: Path) -> None:
+    edit(repo)
+
+    made = build_commit()("msg", cwd=repo)
+
+    assert made == 1
+    assert committed(repo) == ALL_EDITED
+    assert git(repo, "status", "--porcelain") == ""
+
+
+def test_a_unit_commit_without_only_stages_everything(repo: Path) -> None:
+    edit(repo)
+
+    made = build_commit(unit_id="feature/1")("msg", cwd=repo)
+
+    assert made == 1
+    assert committed(repo) == ALL_EDITED
+    assert git(repo, "status", "--porcelain") == ""
+    assert "Unit: feature/1" in git(repo, "log", "-1", "--format=%B")
+
+
+def test_a_file_already_staged_outside_the_pathspecs_is_not_committed(repo: Path) -> None:
+    (repo / "src/main.py").write_text("edited\n")
+    git(repo, "add", "src/main.py")
+    (repo / "openspec/changes/feature/tasks.md").write_text("edited\n")
+
+    made = build_commit(only=("openspec",))("docs: plan", cwd=repo)
+
+    assert made == 1
+    assert committed(repo) == ["openspec/changes/feature/tasks.md"]
+    assert git(repo, "diff", "HEAD", "--name-only").split() == ["src/main.py"]
+    assert git(repo, "diff", "--cached", "--name-only").split() == ["src/main.py"]
+
+
+def test_only_a_file_staged_outside_the_pathspecs_is_nothing_to_commit(repo: Path) -> None:
+    (repo / "src/main.py").write_text("edited\n")
+    git(repo, "add", "src/main.py")
+    before = git(repo, "rev-parse", "HEAD")
+
+    made = build_commit(only=("openspec",))("docs: plan", cwd=repo)
+
+    assert made == 0
+    assert git(repo, "rev-parse", "HEAD") == before
+    assert git(repo, "diff", "--cached", "--name-only").split() == ["src/main.py"]

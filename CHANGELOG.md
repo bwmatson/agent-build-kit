@@ -16,6 +16,12 @@
   holds verification, and other repos are checked as before, except that a `git status` that
   fails now holds verification for any repo instead of passing as clean.
 
+- Committing planning from a planning root that shares a repository with a code repo now takes
+  only the planning paths (the specs directory, the state directory, the two generated pages
+  and `abk.yaml`). A source file modified there stays modified and unstaged, a file already
+  staged outside those paths is not committed, and the chat's count of planning changes
+  ignores source files. A separate planning repository commits and counts every file, as before.
+
 - Where an installation's own facts go is now written down in `docs/configuration.md`, the
   `abk-config` skill, `docs/init.md` and `docs/cli.md`: single values and secrets in the
   ignored `.env`, read through `from: env-file` entries; structured, user-specific
