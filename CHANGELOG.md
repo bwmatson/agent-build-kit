@@ -123,7 +123,10 @@
   leftover `tier2-blocked.json` is not read. A unit waiting on a held split is held
   planned with the cause `split_held` and the field `parked_splits`; a unit parked before
   this release, with the cause `runtime_blocked` and the field `parked_runtimes`, reads as
-  parked on the same splits.
+  parked on the same splits. A split's `hold` can be set or removed in `abk.yaml` as text,
+  at the top or in a repo's own splits, keeping every comment and other line; `rest` may
+  have no entry yet, and the edit is written, after a backup, only when the file reloads to
+  the expected hold.
 
 - An `abk.local.yaml` beside `abk.yaml` is merged over it when the configuration loads, so
   facts about other repos and a stack can stay out of a public checkout: mappings merge key
