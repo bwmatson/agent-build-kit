@@ -19,6 +19,7 @@ from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, RUNNING
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.usage_report import build_wait_report
+from agent_build_kit.pipeline.vocabulary import UNPLANNED
 from agent_build_kit.pipeline.wait_log import DECISIONS_NAME
 from tests.conftest import make_installation
 from tests.factories import new_unit
@@ -68,9 +69,11 @@ def tick_over_two_projects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             new_unit("first/1", project="web"),
             new_unit("second/1", project="api"),
             new_unit("done/1", repo="platform"),
+            new_unit("dropped/1", repo="platform", project="old"),
         ]
     )
     store.set_state("done/1", MERGED)
+    store.set_state("dropped/1", UNPLANNED)
     monkeypatch.setattr(cli, "build_runner", Build(store, clock))
     assert cli.cmd_tick(argparse.Namespace(dry_run=False), inst) == 0
     ledger = inst.state_dir / LEDGER_NAME
@@ -84,7 +87,8 @@ def test_a_sample_totals_the_limit_the_cap_and_the_free_workers_over_live_projec
     _ledger, _store, samples = tick_over_two_projects(tmp_path, monkeypatch)
 
     assert samples, "the pass wrote no sample"
-    # web and api have unfinished units; platform's one unit is merged and adds nothing.
+    # web and api have unfinished units; platform's merged unit and the project whose only unit
+    # was unplanned by a re-plan add nothing.
     assert {(s["limit"], s["cap"]) for s in samples} == {(2 * LIMIT, 2 * CAP)}
     assert samples[-1]["free_workers"] == 2 * CAP
 

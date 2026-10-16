@@ -175,10 +175,13 @@ def project_key(unit: Unit) -> ProjectKey:
 
 def project_counts(graph: Sequence[Unit]) -> dict[ProjectKey, int]:
     """The units in progress (`in_progress`) in each project that has any; no total is kept."""
-    return _counted(graph, lambda unit: in_progress(unit, graph))
+    return count_by_project(graph, lambda unit: in_progress(unit, graph))
 
 
-def _counted(graph: Sequence[Unit], counts: Callable[[Unit], bool]) -> dict[ProjectKey, int]:
+def count_by_project(
+    graph: Sequence[Unit], counts: Callable[[Unit], bool]
+) -> dict[ProjectKey, int]:
+    """How many units `counts` accepts in each project that has any."""
     totals: dict[ProjectKey, int] = {}
     for unit in graph:
         if counts(unit):
@@ -961,10 +964,10 @@ def ready_units(
     planned position. `excluded` names the units the
     round leaves out, which lend no priority to what they wait on.
     """
-    running = _counted(graph, lambda unit: unit.state == RUNNING)
+    running = count_by_project(graph, lambda unit: unit.state == RUNNING)
 
     # A unit that was blocked and no longer is draws on the room like a new one.
-    counted = _counted(
+    counted = count_by_project(
         graph, lambda unit: in_progress(unit, graph) and not _waits_for_room(unit, graph)
     )
 
