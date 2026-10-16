@@ -47,9 +47,9 @@ Work = Callable[[], None]
 Owed = Callable[[list[StoredUnit]], Collection[str]]
 Stamp = Callable[[StoredUnit], object]
 
-# The lane's record in the state directory, for `abk status` and the graph page, which are
-# not the process that runs the tick.
-RECORD_NAME = "restacks.json"
+# Each project's lane writes its record (`record_path`) in the state directory, for `abk status`
+# and the graph page, which are not the process that runs the tick. The glob also reads the
+# single record a tick of the previous version left as `restacks.json`.
 RECORD_GLOB = "restacks*.json"
 
 OWED_STATES = (PLANNED, RUNNING, IN_REVIEW)
@@ -388,8 +388,7 @@ class RestackLanes:
             keys |= set(self._lanes)
         for key in keys:
             mine = [unit for unit in units if project_key(unit) == key]
-            if key in self._lanes or any(unit.id in owed for unit in mine):
-                self._lane(key).scan_owed(mine, owed)
+            self._lane(key).scan_owed(mine, owed)
 
     def defer_until(self, unit_id: str, resume_at: datetime | None) -> None:
         for lane in self._all():
@@ -397,9 +396,11 @@ class RestackLanes:
 
     def drain(self) -> None:
         """Return once nothing is running or waiting in any lane."""
-        while any(lane.running or lane.waiting for lane in self._all()):
+        while True:
             for lane in self._all():
                 lane.drain()
+            if not any(lane.running or lane.waiting for lane in self._all()):
+                return
 
     def finished(self) -> Future[Any]:
         """A future that completes when the next restack of any lane ends; one already

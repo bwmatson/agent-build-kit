@@ -19,7 +19,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.restack_lane import RestackLane
+from agent_build_kit.pipeline.restack_lane import Lane
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING
@@ -76,15 +76,21 @@ class Scene:
         }.items():
             monkeypatch.setattr(cli, name, step)
 
-    def poll(self, inst: Installation, *, store: UnitStore, lane: RestackLane) -> None:
+    def poll(self, inst: Installation, *, store: UnitStore, lane: Lane) -> None:
         handed, self.handed = self.handed, []
         self.hand_over(lane, handed)
 
-    def hand_over(self, lane: Any, unit_ids: list[str]) -> None:
+    def hand_over(
+        self, lane: Lane, unit_ids: list[str], *, running: list[str] | None = None
+    ) -> None:
+        """Hand the units over; those in `running` (all, by default) wait for each other to
+        begin, so a unit expected to wait does not need its siblings to begin."""
+        beside = unit_ids if running is None else running
         for unit_id in unit_ids:
             self.begun[unit_id] = threading.Event()
         for unit_id in unit_ids:
-            lane.hand_over(self.store.get(unit_id), self.restack(unit_id, unit_ids))
+            others = beside if unit_id in beside else []
+            lane.hand_over(self.store.get(unit_id), self.restack(unit_id, others))
 
     def restack(self, unit_id: str, beside: list[str]) -> Callable[[], None]:
         def work() -> None:
@@ -130,7 +136,6 @@ def test_a_restack_that_ends_after_a_round_left_its_unit_out_is_followed_by_one_
 ) -> None:
     init_repo(scene.inst.checkouts["app"])
     scene.handed = ["second/1"]
-    scene.patience = OTHER_BEGINS
     restacked: list[str] = []
     stopped: list[str] = []
 
@@ -167,10 +172,13 @@ def test_a_restack_that_ends_after_a_round_left_its_unit_out_is_followed_by_one_
 def test_each_project_of_a_repo_runs_max_concurrent_restacks_from_project_limits(
     scene: Scene,
 ) -> None:
+    scene.store.upsert([new_unit("first/2", project="web")])
     with cli.build_restack_lane(scene.inst, scene.store) as lane:
-        scene.hand_over(lane, ["first/1", "second/1"])
+        scene.hand_over(lane, ["first/1", "first/2", "second/1"], running=["first/1", "second/1"])
 
         assert scene.begun["first/1"].wait(WAIT)
         assert scene.begun["second/1"].wait(WAIT)
         assert sorted(lane.running) == ["first/1", "second/1"]
+        assert lane.waiting == ["first/2"]
+        assert not scene.begun["first/2"].is_set()
         scene.release.set()

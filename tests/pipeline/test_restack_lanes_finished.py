@@ -83,3 +83,19 @@ def test_a_lane_for_a_project_nothing_has_touched_is_not_made(
     lanes.hand_over(unit_of(3, WEB))
 
     assert set(made.by_project) == {WEB}
+
+
+def test_drain_joins_the_threads_of_restacks_that_ended_before_it(
+    lanes: RestackLanes, restacks: Restacks
+) -> None:
+    lanes.hand_over(unit_of(1, WEB))
+    lanes.hand_over(unit_of(2, API))
+    restacks.release_all()
+    while lanes.running or lanes.waiting:
+        lanes.finished().result(timeout=WAIT)
+    assert lanes.running == lanes.waiting == []
+
+    lanes.drain()
+
+    assert len(restacks.threads) == 2
+    assert not any(thread.is_alive() for thread in restacks.threads)

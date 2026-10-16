@@ -65,10 +65,12 @@ class Restacks:
         self.at_once = 0
         self.most_at_once = 0
         self.everything = False
+        self.threads: list[threading.Thread] = []
 
     def __call__(self, unit: StoredUnit) -> None:
         with self.mutex:
             self.started.append(unit.id)
+            self.threads.append(threading.current_thread())
             self.at_once += 1
             self.most_at_once = max(self.most_at_once, self.at_once)
         self.begun[unit.id].set()
