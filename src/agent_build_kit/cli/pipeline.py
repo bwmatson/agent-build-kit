@@ -159,7 +159,7 @@ from agent_build_kit.pipeline.tier2 import (
     lock_status_line,
     stack_lock,
 )
-from agent_build_kit.pipeline.tier2_holds import current_holds, hold_text
+from agent_build_kit.pipeline.tier2_holds import Hold, hold_text, repo_holds
 from agent_build_kit.pipeline.transcript import remove_change_transcripts, transcript_dir
 from agent_build_kit.pipeline.ui_review import (
     ui_notes_of,
@@ -1759,26 +1759,30 @@ def _releasable_split_units(
     inst: Installation, units: Sequence[StoredUnit], in_flight: Collection[str] = ()
 ) -> list[StoredUnit]:
     """The units parked for held tier 2 splits none of which is held now."""
-    held = current_holds(inst.config, inst.state_dir).held
     return [
         unit
         for unit in units
         if unit.state == PLANNED
         and unit.cause is Cause.SPLIT_HELD
         and unit.id not in in_flight
-        and not held.keys() & set(unit.parked_splits)
+        and not _holds_of_parked(inst, unit)
     ]
+
+
+def _holds_of_parked(inst: Installation, unit: StoredUnit) -> dict[str, Hold]:
+    """The splits `unit` waits on that are held for its own repo."""
+    held = repo_holds(inst.config, inst.repo(unit.repo), inst.state_dir).held
+    return {name: held[name] for name in unit.parked_splits if name in held}
 
 
 def _split_wait_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[str]:
     """One line for each unit parked for a held tier 2 split: which, why and until when."""
-    held = current_holds(inst.config, inst.state_dir).held
     lines = []
     for unit in units:
         if unit.state != PLANNED or unit.cause is not Cause.SPLIT_HELD:
             continue
         names = ", ".join(unit.parked_splits)
-        why = "; ".join(hold_text(held[name]) for name in unit.parked_splits if name in held)
+        why = "; ".join(hold_text(hold) for hold in _holds_of_parked(inst, unit).values())
         lines.append(
             f"  waiting for tier 2 split {names}: {unit.id} ({unit.repo})"
             + (f" — {why}" if why else " — released, resumes this round")

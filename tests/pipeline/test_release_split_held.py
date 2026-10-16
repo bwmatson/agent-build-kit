@@ -14,6 +14,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.tier2_holds import remove_hold
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import PLANNED
+from tests.conftest import make_installation
 from tests.parked_split_support import (
     Deliveries,
     hold,
@@ -205,3 +206,35 @@ def test_a_unit_is_released_once_per_hold_and_not_on_every_pass(
     cli.release_split_held(inst, store)
     cli.release_split_held(inst, store)
     assert thread.delivered == [("feature/1", "requeue")] * 2, "once for each hold"
+
+
+def test_a_split_is_held_or_released_by_the_declarations_of_the_units_own_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    acp = {"marker": "runtime_acp"}
+    inst = make_installation(
+        tmp_path,
+        planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
+        tests={"e2e_splits": {"acp": acp}},
+        repos={
+            "platform": {
+                "path": str(tmp_path / "checkouts" / "platform"),
+                "slug": "example/platform",
+            },
+            "app": {
+                "path": str(tmp_path / "checkouts" / "app"),
+                "slug": "example/app",
+                "tests": {"e2e_splits": {"acp": {**acp, "hold": False}}},
+            },
+        },
+    )
+    store = store_of(inst)
+    thread = Deliveries(monkeypatch)
+    hold(inst, "acp")
+    park(store, "kept/1", repo="platform")
+    park(store, "freed/1", repo="app")
+
+    cli.release_split_held(inst, store)
+
+    assert thread.delivered == [("freed/1", "requeue")], "only the repo that releases the split"
+    assert store.get("kept/1").cause is Cause.SPLIT_HELD

@@ -245,3 +245,35 @@ def test_a_held_split_with_no_test_among_the_files_does_not_delay_the_verificati
     assert ("platform", ("scripts/deploy.sh", "svc-a")) in host.ran()
     [run] = host.pytest_runs()
     assert expression_of(run) == f"{PLAIN} and not runtime_acp"
+
+
+@pytest.mark.usefixtures("inst")
+def test_a_repo_whose_own_split_is_not_held_is_verified_although_another_repo_holds_the_name(
+    tmp_path: Path,
+) -> None:
+    """`platform` sets `hold: true` on `acp` and `app` declares it without one: the split is
+    held for `platform` alone, so `app`'s verification is not skipped and leaves nothing out."""
+    acp = {"marker": "runtime_acp"}
+    inst = make_installation(
+        tmp_path,
+        repos={
+            "platform": {
+                "path": str(tmp_path / "checkouts" / "platform"),
+                "slug": "example/platform",
+                "tests": {"e2e_splits": {"acp": {**acp, "hold": True}}},
+            },
+            "app": {
+                "path": str(tmp_path / "checkouts" / "app"),
+                "slug": "example/app",
+                "tests": {"e2e_splits": {"acp": acp}},
+            },
+        },
+    )
+    inst.state_dir.mkdir(parents=True, exist_ok=True)
+    host = Listing(acp_tests=(f"{OTHER_LIVE}::test_acp",))
+
+    result = verify(host, inst, "app")
+
+    assert result.passed, result.detail
+    [run] = host.pytest_runs()
+    assert expression_of(run) == PLAIN, "acp runs for app"

@@ -123,7 +123,7 @@ from agent_build_kit.pipeline.tier2 import (
 from agent_build_kit.pipeline.tier2 import (
     post_status as tier2_post_status,
 )
-from agent_build_kit.pipeline.tier2_holds import held_splits
+from agent_build_kit.pipeline.tier2_holds import repo_holds
 from agent_build_kit.pipeline.tier2_schedule import is_scheduled
 from agent_build_kit.pipeline.tier2_times import record_test_times, with_split
 from agent_build_kit.pipeline.transcript import Transcript, transcript_dir
@@ -1448,10 +1448,8 @@ def build_on_preexisting(
         unit: Unit, verdict: Tier2Verdict, failure: TestFailure, *, wait: bool
     ) -> str | None:
         split = failure.split or REST_SPLIT
-        held = held_splits(
-            tier2_splits(installation.repo(unit.repo), installation.config),
-            installation.state_dir,
-            now=datetime.now(UTC),
+        held = repo_holds(
+            installation.config, installation.repo(unit.repo), installation.state_dir
         ).held
         if split == UNKNOWN_SPLIT or split in held:
             # A failure whose split is unknown is the unit's own, and a held
@@ -3450,7 +3448,7 @@ def build_runner(
     record_for = (unit, transcript_dir(root), datetime.now(UTC))
     declared = tier2_splits(repo, installation.config)
     # What the unit's tier 2 leaves out, and what a parked unit says it waits for.
-    holds = held_splits(declared, root, now=datetime.now(UTC))
+    holds = repo_holds(installation.config, repo, root)
     tier2 = Tier2Session(
         unit,
         held=list(holds.held),

@@ -27,8 +27,13 @@ from agent_build_kit.budget import cut_tail
 from agent_build_kit.config import RepoConfig, Tier2Split, by_project, owning_project, tier2_splits
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.tier2 import build_selection, selection_unavailable
-from agent_build_kit.pipeline.tier2_holds import current_holds
+from agent_build_kit.pipeline.tier2 import (
+    Tier2Selection,
+    build_selection,
+    listing_runner,
+    selection_unavailable,
+)
+from agent_build_kit.pipeline.tier2_holds import repo_holds
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.profiles.base import AppliesTier2Selection, ToolchainProfile, is_doc_path
 
@@ -86,10 +91,19 @@ class SplitHeld(Exception):
         self.splits = splits
 
 
-def _base_selection(repo: RepoConfig) -> str:
-    """The expression selecting a repo's live tests, less the ones only the dev stack runs."""
-    marker, exclude = repo.tests.tier2_marker, repo.tests.dev_stack_marker
-    return f"{marker} and not {exclude}" if exclude else marker
+def _live_selection(
+    repo: RepoConfig,
+    splits: tuple[Tier2Split, ...],
+    *,
+    held: tuple[str, ...] = (),
+    only: str | None = None,
+) -> Tier2Selection:
+    """The selection of a repo's live tests over its `splits`, less the `held` ones (or only
+    `only`) and less the tests only the dev stack runs; the profile renders it."""
+    selection = build_selection(repo.tests.tier2_marker, splits, held=held, only=only)
+    if (exclude := repo.tests.dev_stack_marker) and not selection.empty:
+        selection = selection.model_copy(update={"none_of": (exclude, *selection.none_of)})
+    return selection
 
 
 def _acceptance_runs(
@@ -115,11 +129,10 @@ def _acceptance_runs(
             and isinstance(profile, AppliesTier2Selection)
             and not selection_unavailable(profile, dev_stack_script=False, splits=splits)
         ):
-            base = _base_selection(repo)
-            selection = build_selection(base, splits, held=held)
+            selection = _live_selection(repo, splits, held=held)
             if selection.empty:
                 continue
-            marker, exclude = profile.expression(base, selection), ""
+            marker, exclude = profile.expression(selection.marker, selection), ""
         commands = profile.acceptance_commands(
             directory,
             group,
@@ -129,15 +142,6 @@ def _acceptance_runs(
         )
         runs += [(profile, directory, command) for command in commands]
     return runs
-
-
-def _runs_in(run: Run, directory: Path, env: dict[str, str]) -> Run:
-    """`run` from `directory` under `env`, for a listing that passes only the command."""
-
-    def runner(argv: list[str], **_: object) -> subprocess.CompletedProcess:
-        return run(argv, cwd=directory, env=env)
-
-    return runner
 
 
 def _held_live_tests(
@@ -150,18 +154,18 @@ def _held_live_tests(
     env: dict[str, str],
 ) -> list[str]:
     """The `held` splits that hold a live test among the `runs` (the commands as they run
-    with nothing left out); a listing that fails says nothing and counts as none."""
-    base = _base_selection(repo)
+    with nothing left out). A listing that fails says nothing about the split, so the split
+    is taken to hold a test: the verification waits rather than passing without it."""
     found: list[str] = []
     for profile, directory, command in runs:
         if not isinstance(profile, AppliesTier2Selection):
             continue
-
-        lister = _runs_in(run, directory, env)
+        lister = listing_runner(run, directory, env)
         for name in held:
-            if name not in found and profile.list_tests(
-                command, build_selection(base, splits, only=name), run=lister
-            ):
+            listed = profile.list_tests(
+                command, _live_selection(repo, splits, only=name), run=lister
+            )
+            if name not in found and (listed is None or listed):
                 found.append(name)
     return found
 
@@ -242,12 +246,12 @@ def verify_change(
     repos = installation.deploy_order(list(files))
     plans: dict[str, list[Command]] = {}
     tests: dict[str, list[tuple[ToolchainProfile, Path, list[str]]]] = {}
-    holds = current_holds(installation.config, installation.state_dir).held
     waiting: list[str] = []
     for name in repos:
         repo = installation.repo(name)
         profile = profiles.get(repo.profile)
         splits = tier2_splits(repo, installation.config)
+        holds = repo_holds(installation.config, repo, installation.state_dir).held
         held = tuple(split.name for split in splits if split.name in holds)
         plans[name] = deploy_commands(repo, files[name], checkout=checkouts[name], profile=profile)
         tests[name] = _acceptance_runs(
