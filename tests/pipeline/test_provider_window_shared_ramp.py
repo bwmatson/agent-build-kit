@@ -54,12 +54,7 @@ def test_a_patched_threshold_at_changes_the_provider_result_and_the_claude_resul
 
 
 def test_a_window_may_carry_a_provider_window_name() -> None:
-    month = Window(
-        name="billing",  # type: ignore[bad-argument-type]
-        used_pct=87,
-        resets_at=END,
-        length=END - START,
-    )
+    month = Window(name="billing", used_pct=87, resets_at=END, length=END - START)
     band = Band(pause_pct=70, ceiling_pct=90)
 
     shared = threshold_at(month, now=MIDWAY, limits=Limits(session=band, weekly=band))
@@ -79,3 +74,21 @@ def test_no_allowance_estimate_or_credit_rule_is_applied_to_a_provider_reading(
     result = provider_decision(reading(87), limits=limits(), now=MIDWAY)
 
     assert (result.state, result.used_pct) == ("held", 87)
+
+
+def test_a_patched_relief_at_changes_a_standing_provider_hold_and_the_claude_resume_alike(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    standing = provider_decision(reading(80), limits=limits(), now=MIDWAY, standing=True)
+    assert standing.state == "held"
+    resume = datetime.now(UTC) + timedelta(minutes=7)
+
+    monkeypatch.setattr(usage_guard, "relief_at", lambda *args, **kwargs: MIDWAY)
+
+    lifted = provider_decision(reading(80), limits=limits(), now=MIDWAY, standing=True)
+    assert lifted.state == "usable"
+
+    monkeypatch.setattr(usage_guard, "relief_at", lambda *args, **kwargs: resume)
+    paused = may_start_unit(claude_reading(95))
+
+    assert (paused.may_start, paused.resume_at) == (False, resume)

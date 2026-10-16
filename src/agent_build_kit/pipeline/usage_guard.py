@@ -1446,12 +1446,16 @@ def provider_decision(
         resets_at=reading.window_end,
         length=reading.window_end - reading.window_start,
     )
-    threshold = threshold_at(window, now=now, limits=Limits(session=band, weekly=band))
+    # A provider has the one window, so its band fills both slots of `Limits`.
+    ramp = Limits(session=band, weekly=band)
+    threshold = threshold_at(window, now=now, limits=ramp)
     if standing:
-        held = reading.used_pct + band.resume_buffer_pct > threshold
+        # The room rule is `relief_at`'s: usage plus the resume buffer, offered by the ramp.
+        relief = relief_at(window, now=now, limits=ramp)
+        held = relief is None or relief > now
     else:
         held = reading.used_pct >= threshold
-    note = _threshold_note(window, threshold, Limits(session=band, weekly=band))
+    note = _threshold_note(window, threshold, ramp)
     return GateResult(
         state="held" if held else "usable",
         reason=f"{reading.used_pct}% used, {note}",
@@ -1466,11 +1470,20 @@ def _gate_cache_entry(path: Path, split: str) -> dict | None:
     return entry if isinstance(entry, dict) else None
 
 
+def _gate_source(gate: GateConfig) -> list:
+    """What an answer was taken for: the provider and budget, or the command, so a cached
+    answer is never replayed under a gate that asks something else."""
+    if gate.provider is not None:
+        return ["provider", gate.provider.name, gate.provider.budget_usd]
+    return ["command", *(gate.command or [])]
+
+
 def _gate_cached_result(
     entry: dict | None, gate: GateConfig, now: datetime
 ) -> ProviderReading | ProviderUnknown | GateCommandResult | None:
-    """What the cache entry still answers, or None when it is spent or unreadable."""
-    if entry is None:
+    """What the cache entry still answers, or None when it is spent, unreadable or was taken
+    for another gate."""
+    if entry is None or entry.get("source") != _gate_source(gate):
         return None
     try:
         taken = datetime.fromisoformat(entry["taken_at"])
@@ -1546,40 +1559,42 @@ def gate_result(
     result for `usage_stale_retry_minutes`; the file is written whole under a lock.
     """
     path = state_dir / GATE_USAGE_NAME
-    with file_lock(path.with_name(path.name + ".lock")):
+    lock = path.with_name(path.name + ".lock")
+    with file_lock(lock):
         entry = _gate_cache_entry(path, split)
-        answer = None if refresh else _gate_cached_result(entry, gate, now)
-        taken = now
-        if answer is not None:
-            taken = datetime.fromisoformat(entry["taken_at"])  # type: ignore[index]
-        else:
-            if gate.provider is not None:
-                answer = read_provider_usage(
-                    gate.provider.name,
-                    budget_usd=gate.provider.budget_usd,
-                    now=now,
-                    read=read,
-                )
-            else:
-                assert gate.command is not None
-                answer = run_gate_command(
-                    gate.command, root=root, timeout_seconds=gate.timeout_seconds, run=run
-                )
-            kind = (
-                "reading"
-                if isinstance(answer, ProviderReading)
-                else "unknown"
-                if isinstance(answer, ProviderUnknown)
-                else "command"
-            )
-            body = _load_json_object(path)
-            body[split] = {
-                "taken_at": now.isoformat(),
-                "kind": kind,
-                "answer": answer.model_dump(mode="json"),
-            }
-            atomic_write_text(path, json.dumps(body, indent=2))
-    return _gate_answer_result(answer, gate, taken=taken, now=now, standing=standing)
+        cached = None if refresh else _gate_cached_result(entry, gate, now)
+    if cached is not None and entry is not None:
+        taken = datetime.fromisoformat(entry["taken_at"])
+        return _gate_answer_result(cached, gate, taken=taken, now=now, standing=standing)
+
+    # The lock is not held across the fetch: a provider that hangs must not keep the
+    # readers of the cache waiting.
+    if gate.provider is not None:
+        answer = read_provider_usage(
+            gate.provider.name, budget_usd=gate.provider.budget_usd, now=now, read=read
+        )
+    else:
+        assert gate.command is not None
+        answer = run_gate_command(
+            gate.command, root=root, timeout_seconds=gate.timeout_seconds, run=run
+        )
+    kind = (
+        "reading"
+        if isinstance(answer, ProviderReading)
+        else "unknown"
+        if isinstance(answer, ProviderUnknown)
+        else "command"
+    )
+    with file_lock(lock):
+        body = _load_json_object(path)
+        body[split] = {
+            "taken_at": now.isoformat(),
+            "source": _gate_source(gate),
+            "kind": kind,
+            "answer": answer.model_dump(mode="json"),
+        }
+        atomic_write_text(path, json.dumps(body, indent=2))
+    return _gate_answer_result(answer, gate, taken=now, now=now, standing=standing)
 
 
 def _load_json_object(path: Path) -> dict:

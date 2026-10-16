@@ -200,3 +200,56 @@ def test_a_corrupt_or_missing_cache_file_reads_as_no_reading(
     result = evaluate(tmp_path, provider)
 
     assert (provider.asked, result.used_pct) == (1, 50)
+
+
+def test_a_provider_reading_is_not_replayed_to_a_command_gate(tmp_path: Path) -> None:
+    evaluate(tmp_path, Provider("100"))
+    runs: list[list[str]] = []
+
+    def run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        runs.append(argv)
+        return subprocess.CompletedProcess(argv, 3, stdout="quota spent\n", stderr="")
+
+    result = gate_result(
+        "acp",
+        GateConfig(command=["probe"]),
+        now=T0 + minutes(1),
+        state_dir=tmp_path,
+        root=tmp_path,
+        run=run,
+    )
+
+    assert (len(runs), result.state, result.reason) == (1, "held", "quota spent")
+
+
+def test_a_raised_budget_is_judged_afresh_without_a_refresh(tmp_path: Path) -> None:
+    spent = "173.04285316"
+    first = evaluate(tmp_path, Provider(spent), config=gate(budget=200))
+    again = Provider(spent)
+
+    raised = gate_result(
+        "acp",
+        gate(budget=400),
+        now=T0 + minutes(1),
+        state_dir=tmp_path,
+        root=tmp_path,
+        standing=True,
+        read=again,
+    )
+
+    assert first.used_pct == 87
+    assert (again.asked, raised.used_pct, raised.state) == (1, 44, "usable")
+
+
+def test_a_command_result_is_not_replayed_to_a_provider_gate(tmp_path: Path) -> None:
+    def run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    gate_result(
+        "acp", GateConfig(command=["probe"]), now=T0, state_dir=tmp_path, root=tmp_path, run=run
+    )
+    provider = Provider("100")
+
+    result = evaluate(tmp_path, provider, at=T0 + minutes(1))
+
+    assert (provider.asked, result.used_pct) == (1, 50)
