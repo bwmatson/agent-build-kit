@@ -845,7 +845,7 @@ def cmd_install_skills(args: argparse.Namespace, inst: Installation | None) -> i
         targets += [path / ".claude" / "skills" for path in inst.checkouts.values()]
 
     refused_any = False
-    for target in targets:
+    for target in dict.fromkeys(path.resolve() for path in targets):
         written, refused = skills.install(target)
         for path in written:
             print(f"wrote {path}")

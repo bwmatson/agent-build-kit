@@ -665,12 +665,17 @@ def _read_text(path: Path) -> str:
         raise ScaffoldError(f"{path} is not valid UTF-8; add the abk block to it by hand") from None
 
 
+def missing_state_ignores(text: str, state_dir: str) -> list[str]:
+    """The state-directory lines the template ignores that `text` lacks."""
+    present = {line.strip() for line in text.splitlines()}
+    return [line for line in _state_ignores(state_dir) if line not in present]
+
+
 def _ignore_block(text: str, state_dir: str) -> str:
     """The `.gitignore` text with the state lines it lacks in one marker block."""
     span = find_block(text, _IGNORE_START, _IGNORE_END)
     outside = text if span is None else text[: span[0]] + text[span[1] :]
-    present = {line.strip() for line in outside.splitlines()}
-    missing = [line for line in _state_ignores(state_dir) if line not in present]
+    missing = missing_state_ignores(outside, state_dir)
     if not missing:
         return text
     eol = _eol(text)

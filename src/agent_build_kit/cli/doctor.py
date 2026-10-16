@@ -41,6 +41,7 @@ from agent_build_kit.config import (
     ConfigError,
     EnvironmentConfig,
     NotificationProvider,
+    PlanningPublish,
     PolicyMarker,
     RepoConfig,
     WorkspaceConfig,
@@ -56,6 +57,7 @@ from agent_build_kit.init.scaffold import (
     RULES_CHANGES,
     RULES_VERSION,
     merge_attribute,
+    missing_state_ignores,
     rules_version,
 )
 from agent_build_kit.installation import Installation, _resolve, load_config
@@ -69,7 +71,12 @@ from agent_build_kit.path_patterns import matches
 from agent_build_kit.pipeline.environment import matched_inputs
 from agent_build_kit.pipeline.original_copy import COPY_PATTERN
 from agent_build_kit.pipeline.pending import describe, pending_projects
-from agent_build_kit.pipeline.planning_sync import live_notice
+from agent_build_kit.pipeline.planning_repo import common_dir, is_worktree_of
+from agent_build_kit.pipeline.planning_sync import (
+    in_repo_name,
+    live_notice,
+    read_pipeline_marker,
+)
 from agent_build_kit.pipeline.shell import git, git_out
 from agent_build_kit.pipeline.tier2_holds import HELD_FILE, current_holds, hold_text
 from agent_build_kit.profiles.base import ProfileUnsupported
@@ -279,6 +286,20 @@ def _forge_access(
     return checks
 
 
+# How a forge begins a `merge_guard` answer when it could not ask the host (see `Forge`).
+CANNOT_TELL = "cannot tell"
+
+
+def _guard_of(inst: Installation, name: str, run: Run) -> str:
+    """What the repo's forge says about its default branch: "" when protected, else why not."""
+    forge, repo = inst.forge_of(name)
+    branch = inst.repo(name).default_branch
+    try:
+        return forge.merge_guard(repo, branch=branch, run=run)
+    except TransportError as error:
+        return f"{CANNOT_TELL} what guards {branch}: {error}"
+
+
 def _merge_guards(inst: Installation, run: Run) -> list[Check]:
     """What stops a merge on each repo's default branch.
 
@@ -291,12 +312,8 @@ def _merge_guards(inst: Installation, run: Run) -> list[Check]:
     """
     checks = []
     for name in sorted(inst.repos):
-        forge, repo = inst.forge_of(name)
         branch = inst.repo(name).default_branch
-        try:
-            unguarded = forge.merge_guard(repo, branch=branch, run=run)
-        except TransportError as error:
-            unguarded = f"cannot tell what guards {branch}: {error}"
+        unguarded = _guard_of(inst, name, run)
         title = f"merge guard {name}"
         if unguarded:
             checks.append(
@@ -310,6 +327,69 @@ def _merge_guards(inst: Installation, run: Run) -> list[Check]:
         else:
             checks.append(_ok(title, f"{branch} is protected"))
     return checks
+
+
+def _planning_publish(inst: Installation, run: Run) -> list[Check]:
+    """In an in-repo installation: `direct` cannot push to a protected default branch."""
+    name = in_repo_name(inst)
+    if name is None:
+        return []
+    title = "planning publish"
+    guard = _guard_of(inst, name, run)
+    branch = inst.repo(name).default_branch
+    if guard.startswith(CANNOT_TELL):
+        return [_info(title, guard)]
+    publish = inst.config.planning.publish
+    if guard:
+        return [_ok(title, f"{publish}; {guard}")]
+    if publish == PlanningPublish.BRANCH:
+        return [
+            _ok(title, f"branch; {branch} is protected, so abk publishes through a pull request")
+        ]
+    return [
+        _fail(
+            title,
+            f"{branch} is protected and planning.publish is direct, so abk's commits cannot land",
+            "set `planning.publish: branch` in abk.yaml",
+        )
+    ]
+
+
+def _pipeline_worktree(inst: Installation) -> list[Check]:
+    """In an in-repo installation: the pipeline worktree the marker names."""
+    if in_repo_name(inst) is None:
+        return []
+    named = read_pipeline_marker(inst.root)
+    if named is None:
+        return []
+    common = common_dir(inst.root)
+    if common is not None and is_worktree_of(named, common):
+        return [_ok("pipeline worktree", str(named))]
+    return [
+        _warn(
+            "pipeline worktree",
+            f"the marker names {named}, which does not exist",
+            "abk install-timers",
+        )
+    ]
+
+
+def _state_ignores(inst: Installation) -> list[Check]:
+    """In an in-repo installation: the root's `.gitignore` must ignore the state files."""
+    if in_repo_name(inst) is None:
+        return []
+    ignore = inst.root / ".gitignore"
+    text = ignore.read_text() if ignore.is_file() else ""
+    missing = missing_state_ignores(text, inst.config.planning.state_dir)
+    if not missing:
+        return [_ok("state ignores", str(ignore))]
+    return [
+        _warn(
+            "state ignores",
+            f"{ignore} lacks: {', '.join(missing)}",
+            "abk init (adds the lines in a marked block)",
+        )
+    ]
 
 
 def _linger(run: Run) -> list[Check]:
@@ -1188,7 +1268,10 @@ def _runtime(inst: Installation, which: Which, run: Run) -> list[Check]:
 
 def _skills(inst: Installation) -> list[Check]:
     checks = []
-    targets = {"planning": inst.root, **inst.checkouts}
+    targets: dict[str, Path] = {}
+    for name, root in {"planning": inst.root, **inst.checkouts}.items():
+        if root.resolve() not in {path.resolve() for path in targets.values()}:
+            targets[name] = root
     for name, root in targets.items():
         stale = skills.stale(root / ".claude" / "skills")
         if stale:
@@ -1362,6 +1445,9 @@ def run_doctor(
     checks += _cassettes(inst)
     checks += _forge_access(inst, run, transport=transport)
     checks += _merge_guards(inst, run)
+    checks += _planning_publish(inst, run)
+    checks += _pipeline_worktree(inst)
+    checks += _state_ignores(inst)
     checks += _timers(inst, run, units, which)
     checks += _toolchain(inst, run, which)
     checks += _runtime(inst, which, run)
