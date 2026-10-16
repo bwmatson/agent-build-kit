@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A unit built in a repo that is also the planning repo can no longer write the planning
+  paths from its worktree: the specs directory, the state directory, the two generated pages
+  and the top-level `abk.yaml` are refused with a `BLOCKED` message, while every other path,
+  including an `abk.yaml` nested in a fixture, stays writable. Units of other repos are
+  unaffected.
+
 - `abk verify` now works for a repo that is the planning repo, run in the pipeline worktree:
   it accepts a HEAD detached at the default branch's tip, brings the worktree to the tip
   first (instead of running `git pull`) and refuses, naming the commits it still lacks, when
