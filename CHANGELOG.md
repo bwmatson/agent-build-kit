@@ -286,7 +286,11 @@
   (`max_units_in_progress`, `max_concurrent_stacks`, `max_concurrent_restacks`) now live in
   a new root block, `project_limits`, set once for every project; left under `global_limits`
   or `limits` they fail the load, naming the key and `abk config --migrate`. `abk config
-  --path` runs even when the file does not load.
+  --path` runs even when the file does not load. `abk config --migrate` makes the move for
+  you by editing the file's text, so comments and spacing stay: it prints the diff and asks
+  (`--yes` skips the question, `--dry-run` only prints), keeps the first original as
+  `abk.yaml.abk-backup`, and exits 0 when it wrote or had nothing to do, 1 when not
+  confirmed and 2 when it refuses.
 
 - A `Needs:` line whose target the unit already reaches through its dependencies is no longer
   linked again on every tick; the unit's `needs` names every declared target, linked or not,
