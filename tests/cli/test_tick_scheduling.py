@@ -458,7 +458,7 @@ def test_stopping_still_awaits_the_builds_in_flight(builder: Builder, tmp_path: 
     itself, and killing it would leave its work uncommitted, so the pass
     waits for it to finish before returning."""
     inst = workspace(tmp_path, max_concurrent=2)
-    builder.store.upsert([stored("stops/1"), stored("slow/1", repo="platform"), stored("later/1")])
+    builder.store.upsert([stored("stops/1"), stored("slow/1"), stored("later/1")])
 
     def refused() -> None:
         pause.pause_until(
