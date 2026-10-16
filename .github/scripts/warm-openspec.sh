@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Fetches the pinned OpenSpec CLI into npx's cache before the integration tests,
-# with a bounded retry, and proves the binary starts. Usage: warm-openspec.sh <spec>
+# with a bounded retry, and proves the binary starts. Needs GNU `timeout`.
+# Usage: warm-openspec.sh <package>@<version>
 set -e
 
-spec="$1"
+spec="${1:?usage: warm-openspec.sh <package>@<version>}"
 attempts=3
 delay="${OPENSPEC_RETRY_DELAY:-10}"
 cache="${npm_config_cache:-$HOME/.npm}"

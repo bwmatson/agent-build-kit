@@ -4,16 +4,16 @@
 from __future__ import annotations
 
 import os
+import shutil
 import stat
 import subprocess
 from pathlib import Path
 
 import pytest
-import yaml
 
 from agent_build_kit.openspec import PACKAGE
 from agent_build_kit.settings import settings
-from tests.ci_workflows import WORKFLOWS
+from tests.ci_workflows import WORKFLOWS, ci_jobs
 
 ROOT = WORKFLOWS.parent.parent
 SCRIPT = ROOT / ".github" / "scripts" / "warm-openspec.sh"
@@ -36,12 +36,8 @@ exit 0
 """
 
 
-def jobs() -> dict[str, dict]:
-    return yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]
-
-
 def steps_of(job: str) -> list[dict]:
-    return jobs()[job]["steps"]
+    return ci_jobs()[job]["steps"]
 
 
 def warm_steps(job: str) -> list[dict]:
@@ -58,7 +54,7 @@ class Fetch:
         self.calls = root / "calls.log"
         self.stale = root / "stale.log"
 
-    def run(self, failures: int) -> subprocess.CompletedProcess[str]:
+    def run(self, failures: int, spec: str = SPEC) -> subprocess.CompletedProcess[str]:
         bin_dir = self.root / "bin"
         bin_dir.mkdir()
         npx = bin_dir / "npx"
@@ -67,7 +63,7 @@ class Fetch:
         home = self.root / "home"
         home.mkdir()
         return subprocess.run(
-            ["bash", "-e", str(SCRIPT), SPEC],
+            ["bash", "-e", str(SCRIPT), spec],
             capture_output=True,
             text=True,
             check=False,
@@ -97,6 +93,8 @@ class Fetch:
 
 @pytest.fixture
 def fetch(tmp_path: Path) -> Fetch:
+    if shutil.which("timeout") is None:
+        pytest.skip("the script needs GNU timeout")
     return Fetch(tmp_path)
 
 
@@ -117,9 +115,16 @@ def test_the_integration_job_warms_openspec_between_uv_setup_and_the_tests() -> 
 
 def test_neither_the_workflow_nor_the_script_spells_the_pin() -> None:
     assert warm_steps("integration")
-    for text in ((WORKFLOWS / "ci.yml").read_text(), SCRIPT.read_text()):
-        assert PACKAGE not in text
-        assert settings.openspec_version not in text
+    hits = [
+        f"{name}:{number}: {line}"
+        for name, text in (
+            ("ci.yml", (WORKFLOWS / "ci.yml").read_text()),
+            (SCRIPT.name, SCRIPT.read_text()),
+        )
+        for number, line in enumerate(text.splitlines(), 1)
+        if PACKAGE in line or settings.openspec_version in line
+    ]
+    assert hits == []
 
 
 def test_a_fetch_that_fails_twice_then_succeeds_ends_with_status_0_after_3_calls(
@@ -143,6 +148,26 @@ def test_a_fetch_that_always_fails_ends_with_status_1_after_3_calls_and_says_so(
     assert fetch.stale_calls() == 0
 
 
+def test_the_step_command_prints_the_spec_from_the_kits_settings() -> None:
+    (step,) = warm_steps("integration")
+    command = step["run"].replace("bash " + SCRIPT_PATH, "echo")
+
+    result = subprocess.run(
+        ["bash", "-c", command], capture_output=True, text=True, check=False, cwd=ROOT
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == f"{PACKAGE}@{settings.openspec_version}"
+
+
+def test_an_empty_spec_is_refused_before_any_npx_call(fetch: Fetch) -> None:
+    result = fetch.run(failures=0, spec="")
+
+    assert result.returncode != 0
+    assert "usage" in result.stderr
+    assert fetch.calls_made() == []
+
+
 def test_a_fetch_that_succeeds_at_once_is_called_once(fetch: Fetch) -> None:
     result = fetch.run(failures=0)
 
@@ -161,7 +186,7 @@ def test_each_call_passes_yes_the_spec_and_version(fetch: Fetch) -> None:
 
 def test_the_other_jobs_have_no_warm_up_step() -> None:
     assert warm_steps("integration")
-    others = [name for name in jobs() if name != "integration"]
+    others = [name for name in ci_jobs() if name != "integration"]
 
     assert others
     assert all(warm_steps(name) == [] for name in others)
