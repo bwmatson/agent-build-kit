@@ -12,6 +12,7 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.consequences import Consequence, consequences_of
 from agent_build_kit.pipeline.environment import repo_artifacts
 from agent_build_kit.pipeline.lease import Leases, lease_dir
+from agent_build_kit.pipeline.planning_sync import in_repo_name
 from agent_build_kit.pipeline.shell import git_out
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import base_of, local_ref
@@ -154,6 +155,16 @@ def planning_gate(inst: Installation, change: str) -> Callable[[Path], str]:
     return gate
 
 
+def planning_only(inst: Installation) -> tuple[str, ...] | None:
+    """The pathspecs a planning commit is limited to: the planning paths when the root is in a
+    repository a listed repo shares, since its tree also holds that repo's source. None in a
+    separate planning repository, where everything in it is planning. A path outside the root
+    cannot be dirty in this tree, and git refuses it as a pathspec."""
+    if in_repo_name(inst) is None:
+        return None
+    return tuple(p for p in inst.planning_paths if not Path(p).is_absolute())
+
+
 def commit_planning(
     inst: Installation, unit: StoredUnit, message: str, *, fix: Callable[..., str] | None = None
 ) -> PlanningCommit:
@@ -165,7 +176,9 @@ def commit_planning(
     from agent_build_kit.pipeline.wiring import build_commit
 
     before = git_out(inst.root, "rev-parse", "HEAD")
-    if not build_commit(fix=fix, gate=planning_gate(inst, unit.change))(message, cwd=inst.root):
+    if not build_commit(fix=fix, gate=planning_gate(inst, unit.change), only=planning_only(inst))(
+        message, cwd=inst.root
+    ):
         raise NothingToCommit("nothing to commit")
     after = git_out(inst.root, "rev-parse", "HEAD")
     # What the lease still holds is what the checkouts it still covers hold: the planning

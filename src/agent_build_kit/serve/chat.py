@@ -338,7 +338,11 @@ class Chat:
         planned = 0
         if free:
             try:
-                planned = len(changed_paths(self.installation.root))
+                planned = len(
+                    changed_paths(
+                        self.installation.root, only=attach.planning_only(self.installation) or ()
+                    )
+                )
             except Exception:  # noqa: BLE001 — the planning checkout may not be a repository
                 pass
         covered = ("worktree", "planning") if planned else ("worktree",)

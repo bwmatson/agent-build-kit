@@ -138,21 +138,27 @@ def worktree_path(repo: Path, branch: str, root: Path) -> Path:
 
 
 def _uncommitted(
-    path: Path, locks: Sequence[str] = (), artifacts: Sequence[str] = ()
+    path: Path,
+    locks: Sequence[str] = (),
+    artifacts: Sequence[str] = (),
+    only: Sequence[str] = (),
 ) -> list[tuple[str, str]]:
     """The worktree's changes without the pipeline's own: a path in `locks`, and an untracked
     path an `artifacts` pattern matches."""
     return [
         (code, name)
-        for code, name in porcelain(path)
+        for code, name in porcelain(path, *only)
         if not matches_any(locks, name) and not (code == "??" and matches_any(artifacts, name))
     ]
 
 
-def changed_paths(path: Path, artifacts: Sequence[str] = ()) -> tuple[str, ...]:
+def changed_paths(
+    path: Path, artifacts: Sequence[str] = (), only: Sequence[str] = ()
+) -> tuple[str, ...]:
     """The paths a worktree holds uncommitted, every untracked file named; what an
-    `artifacts` pattern matches and is untracked is the pipeline's own and left out."""
-    return tuple(name for _, name in _uncommitted(path, artifacts=artifacts))
+    `artifacts` pattern matches and is untracked is the pipeline's own and left out. With
+    `only`, just the paths under those pathspecs."""
+    return tuple(name for _, name in _uncommitted(path, artifacts=artifacts, only=only))
 
 
 def discard_changes(path: Path, artifacts: Sequence[str] = ()) -> None:
