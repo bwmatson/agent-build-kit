@@ -1385,10 +1385,13 @@ A planning repo is **separate** from the code repos, or it is one of them (a rep
 
 - **separate**: no repo shares the root's git repository. The pipeline keeps it on its
   default branch (a stray branch is kept and reported; a rewritten default branch stops
-  the run; a tick checks the default branch out and pulls it), as before.
+  the run). A tick checks the default branch out before reading state; the tracks also
+  pull it with `--ff-only`, as before.
 - **working copy**: where a person works. The pipeline never changes its branch, files
-  or index; `abk tick`, `abk track`, `abk verify` and `abk archive` refuse there once a
-  pipeline worktree is live, and `abk status` names it.
+  or index. When a pipeline worktree is live, `abk status` and `abk doctor` there name its
+  path and print `abk --config <worktree>/abk.yaml <command>`, and `abk tick`, `abk track`,
+  `abk verify` and `abk archive` refuse (exit 2) unless a config is named with `--config`
+  or `ABK_CONFIG`. With no live worktree they run as before.
 - **pipeline worktree**: a detached worktree outside the repository, made by
   `abk install-timers`. The path is recorded in the marker `abk-pipeline-worktree` in the
   common git directory, which every worktree shares and which is not in the tree.
@@ -1398,7 +1401,8 @@ Before a tick or track the pipeline worktree is synced to the tip of the default
 (`origin/<default>`, else the local branch): equal is current, behind is a fast-forward,
 ahead is logged and the run goes on. An unfinished merge, rebase, cherry-pick or revert,
 a stray branch, a divergence or a merge git refuses stops the run with one
-`planning sync stopped: <reason>` line and exit 1. Nothing is stashed, reset or deleted.
+`planning sync stopped: <reason>` line and exit 1. Nothing is stashed or reset; a file is removed only when the incoming commits hold it
+byte for byte (a published planning file that has landed).
 
 What is committed is limited to the planning paths (specs directory, state directory,
 the two pages and `abk.yaml`): planning commits are path-limited, verify's dirty check

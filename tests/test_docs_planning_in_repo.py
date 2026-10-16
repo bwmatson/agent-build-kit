@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.prompt_text import flat
+
 ROOT = Path(__file__).resolve().parents[1]
 CONFIGURATION = ROOT / "docs" / "configuration.md"
 DOCUMENTS = [
@@ -20,15 +22,11 @@ DOCUMENTS = [
 MARKER = "abk-pipeline-worktree"
 
 
-def squashed(path: Path) -> str:
-    return " ".join(path.read_text().split())
-
-
 @pytest.mark.parametrize("path", DOCUMENTS, ids=lambda p: p.name)
 def test_the_document_names_the_publish_setting_the_pipeline_worktree_and_the_marker(
     path: Path,
 ) -> None:
-    text = squashed(path)
+    text = flat(path.read_text())
     missing = [
         term for term in ("planning.publish", "pipeline worktree", MARKER) if term not in text
     ]
@@ -44,6 +42,6 @@ def test_configuration_lists_publish_beside_self_pull_with_its_values_and_defaul
     self_pull = re.search(r"^\s*self_pull:", text, re.M)
     assert self_pull
     assert abs(text[: publish.start()].count("\n") - text[: self_pull.start()].count("\n")) <= 4
-    prose = squashed(CONFIGURATION)
+    prose = flat(CONFIGURATION.read_text())
     assert "`planning.publish`" in prose
     assert "default" in prose.split("`planning.publish`", 1)[1][:600].lower()

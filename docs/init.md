@@ -198,7 +198,8 @@ and a planning orientation to `AGENTS.md` (else `CLAUDE.md`) as marker blocks
 refreshed in place on a rerun, and nothing is committed. `abk install-timers` then creates the pipeline worktree
 (a detached worktree outside the repository, recorded in the marker
 `abk-pipeline-worktree` in the common git directory) and renders the units to run
-there, and says so when an installation is already live. `planning.publish` (`direct` or
+there; when the marker already names a worktree it reuses it, printing
+`reused planning worktree <path>`. `planning.publish` (`direct` or
 `branch`) decides where the tracks' planning commits go. Finally the next steps: review `abk.yaml`
 (fill each `deploy.rules[].run`, `description`, `relationships`; replace any
 `todo-owner/` slug), set a repo-local git identity in each checkout, log `gh`
