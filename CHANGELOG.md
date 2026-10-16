@@ -7,7 +7,9 @@
   `planning/<run>-<project>-<phase>` branch and a pull request is opened for it, instead of
   pushing to the default branch, which suits a protected branch. The pipeline worktree is put
   back so the next sync fast-forwards, and the sync clears a published file only when it is
-  identical to what landed.
+  identical to what landed. `abk doctor` fails `direct` where the default branch is protected,
+  reports the pipeline worktree, warns when `.gitignore` lacks the state lines, and lists a
+  skills directory once when the root and the repo are the same directory.
 
 - A unit built in a repo that is also the planning repo can no longer write the planning
   paths from its worktree: the specs directory, the state directory, the two generated pages
