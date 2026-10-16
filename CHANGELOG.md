@@ -101,6 +101,12 @@
   and `abk.yaml`). A source file modified there stays modified and unstaged, a file already
   staged outside those paths is not committed, and the chat's count of planning changes
   ignores source files. A separate planning repository commits and counts every file, as before.
+- A repo can name a Claude account by label (`repos.<name>.account`), and each person gives
+  the label a directory in `abk.local.yaml` under `runtimes.claude_code.accounts.<label>`
+  (`config_dir`, `limits`, `max_units_in_progress`). A `config_dir` in the committed
+  `abk.yaml`, or a relative one, is refused; a label with no directory on a machine falls
+  back to the default account. `abk doctor` prints a note for such a label and an error with
+  the login command for a directory that is missing or not logged in.
 
 - Where an installation's own facts go is now written down in `docs/configuration.md`, the
   `abk-config` skill, `docs/init.md` and `docs/cli.md`: single values and secrets in the
