@@ -236,13 +236,18 @@ reads a draft as "not yet" and a ready pull request as theirs to review.
 state, so approving a held unit does not release it. A unit leaves `held` by one
 of the exits below, and which one depends on how it was held.
 
-| Hold | Who acts | Exit | What happens next |
+| Hold (`held_by`) | Who acts | Exit | What happens next |
 |---|---|---|---|
-| The `agent-hold` label | A person | Remove the label (release) | The next poll returns the unit to `in_review`. |
-| Any hold the label did not make (`held_by` `review`, `depth` or `toolchain`) | A person | `abk requeue`, merge the pull request by hand, or close it | Requeue runs the unit again from its branch; a merge or close is recorded by the next poll. |
+| The `agent-hold` label (`reviewer`) | A person | Remove the label (release) | The next poll returns the unit to `in_review`. |
+| The review loop (`review`) | A person | Decide the point, then `abk requeue` (`--rework` or `--note` where useful); or finish the pull request by hand (merge) or close it | Requeue runs the unit again from its branch; a merge or close is recorded by the next poll. |
+| A merge left it beyond the depth cap (`depth`) | Nobody | A later merge in the same repo restacks it; to move it sooner a person raises `global_limits.stack_depth_rebase_cap` or restacks the branch by hand | The unit leaves `held` when restacked. |
+| The toolchain cannot build it (`toolchain`) | A person | Build the unit by hand on its branch, or change the plan; `abk requeue` alone fixes nothing | The same failure returns until the cause is changed. |
+| Parked, `dirty_worktree` | A person | Commit or remove the changes in the worktree, then `abk requeue` | A requeue while the tree is still dirty leaves it parked. |
+| Parked, `attached` | A person | Start `abk serve` again, or `abk attach release <unit> --commit "MESSAGE"` or `--discard`, then `abk requeue` | The unit stays held until requeued. |
 
-Release applies only to a hold the `agent-hold` label made; for every other hold
-the exits are requeue, merge or close.
+Release applies only to a hold the `agent-hold` label made; for a review-loop
+hold the exits are requeue, merge or close. The sections under `held` above give
+the detail of each.
 
 ## Why a unit is held "needs a human"
 
