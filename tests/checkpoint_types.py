@@ -21,6 +21,7 @@ from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from agent_build_kit.graph.checkpointer import ALLOWED_MSGPACK_MODULES
 from agent_build_kit.graph.state import UnitRun
 from tests.graph.checkpoint_reads import task_names
+from tests.graph.test_checkpoint_allowlist import populated
 
 BLOCKED_KINDS = frozenset({"msgpack_blocked", "msgpack_method_blocked"})
 
@@ -74,4 +75,7 @@ def blocked_in(updates: list[tuple[str, str, Any]]) -> list[str]:
 
 def state_from_updates(updates: list[tuple[str, str, Any]]) -> UnitRun:
     """A fully populated `UnitRun` with the `UnitRun` fields of `updates`, validated."""
-    raise NotImplementedError
+    base = populated(UnitRun)
+    fields = {name: getattr(base, name) for name in UnitRun.model_fields}
+    written = {field: value for _, field, value in updates if field in UnitRun.model_fields}
+    return UnitRun.model_validate({**fields, **written})

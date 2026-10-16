@@ -82,6 +82,8 @@ testpaths = ["tests"]
 # So `from tests.factories import ...` resolves without tests/ being a package
 # (test directories carry no __init__.py; basenames stay unique instead).
 pythonpath = ["."]
+# A list held in a tuple field fails the test that serialises it; other warnings are only reported.
+filterwarnings = ["error:Pydantic serializer warnings:UserWarning"]
 markers = [
     "integration: needs node (npx) and the network for the real OpenSpec CLI; excluded by default, run with `pytest -m integration`",
     "local_stack: drives the real CLI against a real agent on this host, bills on demand and takes minutes; excluded by default, run with `pytest -m local_stack`",
