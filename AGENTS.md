@@ -211,6 +211,9 @@ uv run poe web-check         # web/: prettier --check, eslint, tsc, vitest (`poe
 uv run poe web-build         # builds the web UI into the package, where `abk serve` serves it
 ```
 
+In CI the integration job fetches the pinned OpenSpec CLI once, with a bounded retry
+(`.github/scripts/warm-openspec.sh`), before its tests run.
+
 ## Releasing
 
 Bump `__version__` in `src/agent_build_kit/__init__.py`, add a `CHANGELOG.md`

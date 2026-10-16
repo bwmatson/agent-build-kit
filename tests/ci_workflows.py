@@ -7,6 +7,12 @@ import yaml
 
 WORKFLOWS = Path(__file__).resolve().parent.parent / ".github" / "workflows"
 
+
+def ci_jobs() -> dict[str, dict]:
+    """The jobs of the repository's ci.yml, as parsed."""
+    return yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]
+
+
 # The first major of each action that runs on Node 24.
 FIRST_NODE_24_MAJOR: dict[str, int] = {
     "actions/checkout": 5,

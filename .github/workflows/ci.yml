@@ -75,5 +75,14 @@ jobs:
       - uses: astral-sh/setup-uv@v10.3.0
         with:
           enable-cache: true
+      - name: Fetch the pinned OpenSpec CLI
+        # One retried fetch here, so a failed download is one clear failure
+        # before any test. The pin is read from the kit's settings.
+        timeout-minutes: 10
+        run: >-
+          bash .github/scripts/warm-openspec.sh "$(uv run --group dev python -c
+          'from agent_build_kit.openspec import PACKAGE;
+          from agent_build_kit.settings import settings;
+          print(f"{PACKAGE}@{settings.openspec_version}")')"
       - name: Run integration tests
         run: uv run --group dev pytest -m integration
