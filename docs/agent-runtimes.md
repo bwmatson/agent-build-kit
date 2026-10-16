@@ -909,6 +909,25 @@ The markers the suite uses:
   unregistered one fails collection. `dev_stack` marks a test that needs the
   repo's dev stack.
 
+### This repo's own splits
+
+The kit's own tier 2 tests are split the way any installation splits its tests: the
+`abk.yaml` an installation writes for the kit's repo declares one split per runtime.
+
+```yaml
+tests:
+  tier2_splits:
+    acp:
+      marker: runtime_acp
+    claude_code:
+      marker: runtime_claude_code
+```
+
+The names `acp` and `claude_code` and the `runtime_` markers are this repo's choice; an
+installation may name its splits anything. The repo's own collection plugin (at most one
+runtime tag per live-stack test) is a repo-local convenience, not something the framework
+uses. A test keeps the example and the markers registered in `pyproject.toml` in step.
+
 ## Record and replay of external calls
 
 A tier-2 test that asks for the `replay` fixture (`tests/replay/plugin.py`) is given a
