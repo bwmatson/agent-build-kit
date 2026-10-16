@@ -26,6 +26,7 @@
   with another name works. This repository's hooks skip the state directory, and its CI
   runs the test and integration jobs only when something outside the planning paths
   changed.
+
 - The shipped skills now explain how a hold ends (what `abk approve` does and does not do, and
   which exit fits which hold), why a unit is held "needs a human", what to check when nothing
   is moving (lingering, units marked running with no process, never running a tick under a
