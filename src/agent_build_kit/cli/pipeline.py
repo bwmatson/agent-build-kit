@@ -217,6 +217,7 @@ from agent_build_kit.pipeline.units import (
     in_progress,
     in_progress_label,
     local_ref,
+    project_key,
     ready_units,
     second_parent_wait,
     stack_age_source,
@@ -4890,7 +4891,8 @@ def _planned_wait(
         return Wait(reason=WaitReason.USAGE_PAUSE)
     if unit.id in startable:
         return Wait(reason=WaitReason.READY)
-    if not in_progress(unit, view) and not start_room(view, inst.max_units_in_progress):
+    room = start_room(view, inst.max_units_in_progress, project_key(unit))
+    if not in_progress(unit, view) and not room:
         return Wait(reason=WaitReason.QUEUE_FULL)
     return Wait(reason=WaitReason.SLOT)
 

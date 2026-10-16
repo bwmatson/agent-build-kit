@@ -161,6 +161,32 @@ class Unit(Frozen):
         return any(member.change == change for member in self.members())
 
 
+class ProjectKey(Frozen):
+    """A repo's project: what the limits on units in progress and build workers count."""
+
+    repo: str
+    project: str = "."
+
+
+def project_key(unit: Unit) -> ProjectKey:
+    """The project a unit is counted in: its repo and its project."""
+    return ProjectKey(repo=unit.repo, project=unit.project)
+
+
+def project_counts(graph: Sequence[Unit]) -> dict[ProjectKey, int]:
+    """The units in progress (`in_progress`) in each project that has any; no total is kept."""
+    return _counted(graph, lambda unit: in_progress(unit, graph))
+
+
+def _counted(graph: Sequence[Unit], counts: Callable[[Unit], bool]) -> dict[ProjectKey, int]:
+    totals: dict[ProjectKey, int] = {}
+    for unit in graph:
+        if counts(unit):
+            key = project_key(unit)
+            totals[key] = totals.get(key, 0) + 1
+    return totals
+
+
 def branch_name(unit: Unit) -> str:
     """`spec/<change>/<n>` — deterministic, so a re-run reuses the branch.
 
@@ -857,9 +883,11 @@ def in_progress_label(unit: Unit) -> str:
     return unit.state.replace("_", " ")
 
 
-def start_room(graph: Sequence[Unit], limit: int) -> int:
-    """How many never-started units may begin before `limit` is reached."""
-    return max(0, limit - sum(1 for unit in graph if in_progress(unit, graph)))
+def start_room(graph: Sequence[Unit], limit: int, project: ProjectKey | None = None) -> int:
+    """How many never-started units may begin before `limit` is reached, in `project` (every
+    unit counts when none is given)."""
+    counts = project_counts(graph)
+    return max(0, limit - (sum(counts.values()) if project is None else counts.get(project, 0)))
 
 
 def _start_rank(unit: Unit) -> int:
@@ -915,13 +943,15 @@ def ready_units(
     is not ready while that predecessor is still being built, failed or held. The
     depth cap then holds back chains that have run too far ahead of review
     without touching their siblings, and the concurrency cap limits how many
-    units are being built at once.
+    units of one project are being built at once.
 
-    `max_units_in_progress` bounds the units started and not finished, across
-    all repos (`in_progress`). A unit that has never started begins only while
-    that leaves room, and no more of them than it does; one already in
-    progress (a rework, a resume, a unit finishing its review loop) always may,
-    since running it is how the queue drains.
+    `max_units_in_progress` bounds the units started and not finished in each
+    project (repo and project, `project_key`; `in_progress`), never in total. A
+    unit that has never started begins only while that leaves room in its own
+    project, and no more of them than it does; one already in progress (a
+    rework, a resume, a unit finishing its review loop) always may, since
+    running it is how the queue drains. A ready unit of a full project, or of
+    one with no free slot, is skipped and the next ready unit is considered.
 
     Free slots go to units with an open pull request, then to those resuming
     a build, then to new ones; within each, the most urgent effective priority
@@ -931,22 +961,11 @@ def ready_units(
     planned position. `excluded` names the units the
     round leaves out, which lend no priority to what they wait on.
     """
-    running = sum(1 for unit in graph if unit.state == RUNNING)
-    slots = max(0, max_concurrent - running)
-    if not slots:
-        return []
+    running = _counted(graph, lambda unit: unit.state == RUNNING)
 
     # A unit that was blocked and no longer is draws on the room like a new one.
-    room = (
-        None
-        if max_units_in_progress is None
-        else max(
-            0,
-            max_units_in_progress
-            - sum(
-                1 for unit in graph if in_progress(unit, graph) and not _waits_for_room(unit, graph)
-            ),
-        )
+    counted = _counted(
+        graph, lambda unit: in_progress(unit, graph) and not _waits_for_room(unit, graph)
     )
 
     ready: list[Unit] = []
@@ -970,12 +989,18 @@ def ready_units(
     )
 
     started: list[Unit] = []
+    taken: dict[ProjectKey, int] = {}
+    drawn: dict[ProjectKey, int] = {}
     for unit in [*handoff, *rest]:
-        if len(started) == slots:
-            break
-        if room is not None and (not in_progress(unit, graph) or _waits_for_room(unit, graph)):
-            if not room:
+        key = project_key(unit)
+        if running.get(key, 0) + taken.get(key, 0) >= max_concurrent:
+            continue
+        if max_units_in_progress is not None and (
+            not in_progress(unit, graph) or _waits_for_room(unit, graph)
+        ):
+            if counted.get(key, 0) + drawn.get(key, 0) >= max_units_in_progress:
                 continue
-            room -= 1
+            drawn[key] = drawn.get(key, 0) + 1
+        taken[key] = taken.get(key, 0) + 1
         started.append(unit)
     return started
