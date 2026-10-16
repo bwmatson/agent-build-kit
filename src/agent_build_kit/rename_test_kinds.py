@@ -8,6 +8,7 @@ each spelling it finds.
 from __future__ import annotations
 
 import argparse
+import ast
 import re
 import sys
 from collections.abc import Sequence
@@ -19,6 +20,9 @@ from agent_build_kit.pipeline.shell import git
 # Files that hold the old spellings on purpose: the table of them, this tool, and their tests.
 _EXEMPT_NAMES = ("compat_names.py", "test_compat_names.py", "rename_test_kinds.py")
 _EXEMPT_PREFIX = "test_rename_test_kinds"
+
+# Ends each line the tool leaves behind for old importers; such lines are never rewritten.
+SHIM_MARKER = "# abk-shim"
 
 _OLD = re.compile(r"(tier|Tier|TIER)( ?)([12])")
 
@@ -81,6 +85,60 @@ def _files(root: Path, paths: Sequence[Path]) -> list[Path]:
     return sorted(file for file in files if not _exempt(file))
 
 
+def _shim_names(text: str) -> list[str]:
+    """The top-level classes, functions and variables of module source `text` whose name
+    carries an old spelling."""
+    names: list[str] = []
+    for node in ast.parse(text).body:
+        if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            names.append(node.name)
+        elif isinstance(node, ast.Assign):
+            names.extend(t.id for t in node.targets if isinstance(t, ast.Name))
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            names.append(node.target.id)
+    return [name for name in names if _rewrite(name) != name]
+
+
+def _aliases(text: str) -> str:
+    return "".join(
+        f"{name} = {_rewrite(name)}  {SHIM_MARKER}\n" for name in dict.fromkeys(_shim_names(text))
+    )
+
+
+def _rewrite_text(text: str, *, prose: bool) -> str:
+    """Rewrite `text` line by line, leaving the lines that mark a shim as they are."""
+    lines = text.splitlines(keepends=True)
+    return "".join(line if SHIM_MARKER in line else _rewrite(line, prose=prose) for line in lines)
+
+
+def _is_shim_module(text: str) -> bool:
+    lines = [line for line in text.splitlines() if line.strip()]
+    return bool(lines) and all(SHIM_MARKER in line for line in lines)
+
+
+def _decode(raw: bytes) -> str | None:
+    try:
+        return raw.decode()
+    except UnicodeDecodeError:
+        return None
+
+
+def _remove_shims(root: Path, files: Sequence[Path], *, dry_run: bool) -> list[Path]:
+    changed: list[Path] = []
+    for file in files:
+        text = _decode(file.read_bytes())
+        if text is None or SHIM_MARKER not in text:
+            continue
+        if not dry_run:
+            if _is_shim_module(text):
+                git(root, "rm", "-q", "-f", str(file))
+            else:
+                kept = [line for line in text.splitlines(keepends=True) if SHIM_MARKER not in line]
+                file.write_text("".join(kept))
+        changed.append(file.relative_to(root))
+    return changed
+
+
 def rename_paths(
     root: Path,
     paths: Sequence[Path],
@@ -91,32 +149,48 @@ def rename_paths(
 ) -> list[Path]:
     """Rewrite the old spellings in the tracked files under `paths` (files or folders under
     `root`) and rename the ones whose name carries one; returns the files changed, relative to
-    `root`. Raises `PathOutsideRoot`, changing nothing, when a path is outside `root`."""
-    if shims or remove_shims or dry_run:
-        raise NotImplementedError
+    `root`. With `shims`, a renamed Python module is left behind as a one-line re-export and each
+    renamed top-level name stays bound under its old name; `remove_shims` deletes those instead
+    of renaming anything. `dry_run` only lists what would change. Raises `PathOutsideRoot`,
+    changing nothing, when a path is outside `root`."""
     root = root.resolve()
     resolved = [Path(path).resolve() for path in paths]
     for path in resolved:
         if not path.is_relative_to(root):
             raise PathOutsideRoot(f"{path} is outside {root}")
+    files = _files(root, resolved)
+    if remove_shims:
+        return _remove_shims(root, files, dry_run=dry_run)
     changed: list[Path] = []
-    for file in _files(root, resolved):
+    for file in files:
         raw = file.read_bytes()
-        try:
-            text = raw.decode()
-        except UnicodeDecodeError:
+        text = _decode(raw)
+        if text is None:
+            new_text = None
             new_raw = raw
+        elif _is_shim_module(text):
+            continue
         else:
-            new_raw = _rewrite(text, prose=file.suffix in _PROSE_SUFFIXES).encode()
+            new_text = _rewrite_text(text, prose=file.suffix in _PROSE_SUFFIXES)
+            if (
+                shims
+                and file.suffix == ".py"
+                and (new_text != text or file.name != _rewrite(file.name))
+            ):
+                new_text += _aliases(text)
+            new_raw = new_text.encode()
         new_name = _rewrite(file.name)
         if new_raw == raw and new_name == file.name:
             continue
-        if new_raw != raw:
-            file.write_bytes(new_raw)
-        target = file
-        if new_name != file.name:
-            target = file.with_name(new_name)
-            git(root, "mv", str(file), str(target))
+        target = file.with_name(new_name)
+        if not dry_run:
+            if new_raw != raw:
+                file.write_bytes(new_raw)
+            if new_name != file.name:
+                git(root, "mv", str(file), str(target))
+                if shims and file.suffix == ".py":
+                    file.write_text(f"from .{target.stem} import *  {SHIM_MARKER}\n")
+                    git(root, "add", str(file))
         changed.append(target.relative_to(root))
     return changed
 
@@ -126,11 +200,12 @@ def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
     line. `root` is the framework repository unless given. Returns 2 for a refused path."""
     parser = argparse.ArgumentParser(prog="rename_test_kinds", description=__doc__)
     parser.add_argument("--paths", nargs="+", type=Path, required=True)
+    parser.add_argument("--root", type=Path)
     parser.add_argument("--shims", action="store_true")
     parser.add_argument("--remove-shims", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
-    base = root if root is not None else Path(__file__).resolve().parents[2]
+    base = args.root or root or Path(__file__).resolve().parents[2]
     try:
         changed = rename_paths(
             base,
