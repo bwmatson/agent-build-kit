@@ -2,7 +2,8 @@
 
 `abk tick` is the real CLI run as a process against a scratch planning repo and
 a scratch code repo with a bare remote, with a real agent on this host
-(`ABK_ACCEPTANCE_ACP_COMMAND`) and telemetry switched on through the settings a
+(`ABK_ACCEPTANCE_ACP_COMMAND` for the ACP runtime, the host's own Claude login for
+`claude_code`) and telemetry switched on through the settings a
 person would set. Only GitHub is faked: a fake server speaking the REST API,
 reached through `ABK_GITHUB_API_URL`, with `gh auth token` the one command left as
 a script.
@@ -16,6 +17,8 @@ by metric name. The dev instance must be up; its published ports are named by:
 - `ABK_ACCEPTANCE_TRACES_URL`        the trace store's base URL (search API)
 - `ABK_ACCEPTANCE_METRICS_URL`       the metrics store's base URL (query API)
 
+The fixture unit is built once for each of `claude_code` and `acp`, one runtime tag
+per parameter, and the trace and series checks hold on both.
 Every run is told apart in the stores by a service name of its own, so a store
 that already holds earlier runs does not answer for this one.
 
@@ -28,7 +31,6 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
 import shutil
 import socket
 import subprocess
@@ -47,6 +49,7 @@ from agent_build_kit.model import Frozen
 from tests.factories import git, init_repo, scratch_app
 from tests.forges.github_server import FakeGitHub
 from tests.forges.process_host import process_env
+from tests.runtime_scratch import AGENT_COMMAND, RUNTIME_PARAMS, runtime_scratch
 
 pytestmark = [
     pytest.mark.local_stack,
@@ -57,7 +60,6 @@ pytestmark = [
 CHANGE = "add-marker"
 BRANCH = f"spec/{CHANGE}/1"
 UNIT_ID = f"{CHANGE}/1"
-AGENT_COMMAND = "ABK_ACCEPTANCE_ACP_COMMAND"
 TRACES_ENDPOINT = "ABK_ACCEPTANCE_TRACES_ENDPOINT"
 METRICS_ENDPOINT = "ABK_ACCEPTANCE_METRICS_ENDPOINT"
 TRACES_URL = "ABK_ACCEPTANCE_TRACES_URL"
@@ -67,6 +69,12 @@ METRICS_URL = "ABK_ACCEPTANCE_METRICS_URL"
 INGEST_WAIT = 90.0
 # How long a store that should hold nothing is given to prove it.
 QUIET_WAIT = 20.0
+
+# Why the dead-collector check runs on Claude alone: the exporter is the kit's own and sits
+# above the runtime, so an ACP variant would exercise the same code and add no coverage.
+DEAD_COLLECTOR_REASON = (
+    "the exporter does not depend on the runtime; an ACP variant adds no coverage"
+)
 
 TASKS = """# Tasks
 
@@ -101,10 +109,23 @@ def closed_endpoint() -> str:
     return f"http://127.0.0.1:{port}"
 
 
-def run_tick(tmp_path: Path, *, traces: str, metrics: str, service: str | None = None) -> Ticked:
-    """Build the fixture unit in one tick with telemetry on, pointed at `traces`
-    and `metrics`, under a service name of its own."""
-    command = require_env(AGENT_COMMAND)
+def agent_starts(command: list[str]) -> None:
+    if shutil.which(command[0]) is None:
+        pytest.fail(f"{AGENT_COMMAND} names {command[0]!r}, which is not on PATH")
+
+
+def run_tick(
+    tmp_path: Path,
+    runtime: str,
+    tmp_path_factory: pytest.TempPathFactory,
+    *,
+    traces: str,
+    metrics: str,
+    service: str | None = None,
+) -> Ticked:
+    """Build the fixture unit in one tick on `runtime` with telemetry on, pointed at
+    `traces` and `metrics`, under a service name of its own."""
+    scratch = runtime_scratch(runtime, tmp_path_factory, agent_starts)
     service = service or f"abk-acceptance-{uuid.uuid4().hex[:12]}"
 
     remote = tmp_path / "remote.git"
@@ -130,7 +151,7 @@ def run_tick(tmp_path: Path, *, traces: str, metrics: str, service: str | None =
     (planning / "abk.yaml").write_text(
         f"repos:\n  app:\n    path: {app}\n    slug: example/app\n"
         "    profile: python-uv\n    languages: [python]\n"
-        f"runtimes:\n  acp:\n    command: {shlex.split(command)}\n"
+        f"{scratch.runtimes_yaml}"
     )
     git(planning, "add", "-A")
     git(planning, "commit", "-q", "-m", "plan")
@@ -138,9 +159,9 @@ def run_tick(tmp_path: Path, *, traces: str, metrics: str, service: str | None =
     with FakeGitHub(first_number=7) as host:
         env = {
             **process_env(host, tmp_path / "bin", tmp_path / "gh-calls.txt"),
+            **scratch.env,
             "ABK_CONFIG": str(planning / "abk.yaml"),
             "ABK_WORKTREE_ROOT": str(tmp_path / "worktrees"),
-            "ABK_RUNTIME": "acp",
             "ABK_OTEL_ENABLED": "1",
             "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": traces,
             "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": metrics,
@@ -223,11 +244,15 @@ def series_of(service: str, metric: str) -> list[dict[str, str]]:
     return found.get("data", [])
 
 
-@pytest.fixture(scope="module")
-def stack_tick(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Ticked]:
-    """One tick, pointed at the dev stack's intake."""
+@pytest.fixture(scope="module", params=RUNTIME_PARAMS)
+def stack_tick(
+    request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[Ticked]:
+    """One tick on the parameter's runtime, pointed at the dev stack's intake."""
     yield run_tick(
         tmp_path_factory.mktemp("telemetry-stack"),
+        request.param,
+        tmp_path_factory,
         traces=require_env(TRACES_ENDPOINT),
         metrics=require_env(METRICS_ENDPOINT),
     )
@@ -279,17 +304,25 @@ def test_a_ticks_duration_series_are_in_the_metrics_store_without_a_unit_id(
         assert CHANGE not in series.values(), series
 
 
+@pytest.mark.runtime_claude_code
 def test_a_tick_with_the_endpoint_pointing_at_nothing_finishes_and_writes_nothing(
-    tmp_path: Path, stack_tick: Ticked
+    tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
 ) -> None:
+    """Claude alone: DEAD_COLLECTOR_REASON."""
     dead = closed_endpoint()
     # The stack must be up for "nothing was written" to mean anything.
     require_env(TRACES_URL)
     require_env(METRICS_URL)
 
-    ticked = run_tick(tmp_path, traces=f"{dead}/v1/traces", metrics=f"{dead}/v1/metrics")
+    ticked = run_tick(
+        tmp_path,
+        "claude_code",
+        tmp_path_factory,
+        traces=f"{dead}/v1/traces",
+        metrics=f"{dead}/v1/metrics",
+    )
 
-    assert ticked.returncode == stack_tick.returncode == 0, ticked.output
+    assert ticked.returncode == 0, ticked.output
     assert ticked.pushed, f"the unit was not built with the collector down\n{ticked.output}"
 
     # Guards against the exporter falling back to the SDK's default endpoint
