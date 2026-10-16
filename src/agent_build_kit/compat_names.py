@@ -7,12 +7,14 @@ Reading goes through here and writing never does: an old spelling found in a hea
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Annotated
 
 from pydantic import BeforeValidator
 
-from agent_build_kit.model import TestTier
+from agent_build_kit.model import Frozen, TestTier
 
 
 class Place(StrEnum):
@@ -25,11 +27,21 @@ class Place(StrEnum):
     METRIC = "metric"
 
 
-# The two kinds: what each old name means, as a tag or a stored value, and as the stem of a
-# setting, a metric or a state-file name.
-_KIND_OF_TAG = {"tier1": "unit-test", "tier2": "e2e-test"}
-_STEM = {"tier1": "unit_test", "tier2": "e2e"}
-_FILE_STEM = {"tier1": "unit-test", "tier2": "e2e"}
+class KindForms(Frozen):
+    """The current spellings of one test kind, by where each is written."""
+
+    stem: str  # the part of an identifier, setting or metric name: `e2e_gate`
+    file_stem: str  # the part of a state-file or directory name: `e2e-output`
+    tag: str  # a tag or stored value: `e2e-test`
+
+
+# The two kinds, by the old name each had: the one table the readers and the rename tool share.
+KIND_FORMS: Mapping[str, KindForms] = MappingProxyType(
+    {
+        "tier1": KindForms(stem="unit_test", file_stem="unit-test", tag="unit-test"),
+        "tier2": KindForms(stem="e2e", file_stem="e2e", tag="e2e-test"),
+    }
+)
 
 _OLD_STEM = re.compile(r"(?<![a-z0-9])(tier[12])(?=_)")
 _OLD_FILE_STEM = re.compile(r"(?<![a-z0-9])(tier[12])(?![a-z0-9])")
@@ -39,11 +51,11 @@ def new_spelling(place: Place, name: str) -> str:
     """`name` as the current spelling in `place`; a current spelling comes back unchanged."""
     match place:
         case Place.TAG | Place.VALUE:
-            return _KIND_OF_TAG.get(name, name)
+            return KIND_FORMS[name].tag if name in KIND_FORMS else name
         case Place.SETTING | Place.METRIC:
-            return _OLD_STEM.sub(lambda found: _STEM[found[1]], name)
+            return _OLD_STEM.sub(lambda found: KIND_FORMS[found[1]].stem, name)
         case Place.STATE_FILE:
-            return _OLD_FILE_STEM.sub(lambda found: _FILE_STEM[found[1]], name)
+            return _OLD_FILE_STEM.sub(lambda found: KIND_FORMS[found[1]].file_stem, name)
 
 
 def is_old_spelling(place: Place, name: str) -> bool:
