@@ -1235,8 +1235,9 @@ approved.
   changed file of that member is not recognised as the unit's own; and the cost of the
   clean base worktree on a large repo's own tier 2 suite was not measured.
 
-- **A unit's tier 2 run is narrowed to its own tests.** Under `tier2_unit_scope: own` (the
-  default; `limits`, with `tests.tier2_unit_scope` per repo) a unit runs only the tier 2 tests
+- **A unit's tier 2 run is narrowed to its own tests.** Under `e2e_unit_scope: own` (the
+  default; `limits`, with `tests.e2e_unit_scope` per repo; the old `tier2_unit_scope` still
+  loads) a unit runs only the tier 2 tests
   its branch added or changed, selected by identifier together with the marker. A unit with
   none runs nothing, takes no lock and says `tier 2 skipped: no tier 2 test added or changed`;
   its status says that no tier 2 test ran. Where the run cannot be narrowed (a dev stack

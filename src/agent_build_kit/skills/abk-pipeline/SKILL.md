@@ -212,7 +212,7 @@ parked the same way, before the lock and any test, while a recorded fix change i
 open (the fix's own units and units already waiting on it run); it resumes once the fix is
 in review. `abk status` ends each `pre-existing:` line with how many units wait on its fix.
 
-Under `tier2_unit_scope: own` (the default) a unit's tier 2 run covers only the tier 2 tests
+Under `e2e_unit_scope: own` (the default; per repo `tests.e2e_unit_scope`) a unit's tier 2 run covers only the tier 2 tests
 its branch added or changed, selected by identifier and the marker; with none it runs and locks
 nothing and says `tier 2 skipped: no tier 2 test added or changed`. It runs the whole marker
 where it cannot narrow, or under `full`; a scheduled unit is always `full`.

@@ -347,12 +347,20 @@
   or two writers at once never leave a half-written file or a stray temporary behind. A log
   trimmed to its size limit now has any byte that is not valid text replaced rather than kept.
 
-- `limits.tier2_schedule` (`daily`, `weekly` by default, `monthly` or `off`), overridable per
-  repo as `tests.tier2_schedule`, says how often a repo's whole tier 2 suite is due, read from
-  the dates in the names of its `scheduled-tier2-<repo>-<date>` changes. Each tick now
-  writes that change, with one tier 2 group and no model call, for a due repo with none open,
-  ahead of the usage guard and before planning; a due repo keeps the tick from returning idle,
-  and `abk tick --dry-run` says `would write: <change>` or `exists: <change>`.
+- A tier 2 unit now runs only the tier 2 tests its branch added or changed, instead of the
+  whole marker, and runs nothing, without taking the stack lock, when it has none; the log
+  and the posted status then say that no tier 2 test ran. Where the run cannot be narrowed
+  (a dev stack script, a toolchain that cannot select tests by identifier, tests that cannot
+  be listed, no base) the whole marker runs and the log says why. The new
+  `limits.e2e_unit_scope` (`own`, the default, or `full`), overridable per repo as
+  `tests.e2e_unit_scope`, restores the whole marker. The whole suite instead runs on a
+  schedule: `limits.e2e_schedule` (`daily`, `weekly` by default, `monthly` or `off`),
+  overridable per repo as `tests.e2e_schedule`, says how often it is due, read from the dates
+  in the names of the `scheduled-tier2-<repo>-<date>-<split>` changes. Each tick writes that
+  change, with one tier 2 group and no model call, for each due split with none open, ahead
+  of the usage guard and before planning; a due split keeps the tick from returning idle, and
+  `abk tick --dry-run` says `would write: <change>` or `exists: <change>`. The `tier2_*`
+  spellings of both settings still load.
 
 - The tier 2 lock test and the killed-process resume test no longer sleep to order or wait
   for their actors: they wait on signals and on the shared wait helper, and both files
@@ -410,14 +418,6 @@
   `abk.yaml` before it exists, keeping the file's comments and key order, and refuses a
   duplicate path, an unknown profile or an undeclared repo. `--scaffold` also writes the
   smallest manifest the profile recognises, and never overwrites one.
-
-- A tier 2 unit now runs only the tier 2 tests its branch added or changed, instead of the
-  whole marker, and runs nothing, without taking the stack lock, when it has none; the log
-  and the posted status then say that no tier 2 test ran. Where the run cannot be narrowed
-  (a dev stack script, a toolchain that cannot select tests by identifier, tests that cannot
-  be listed, no base) the whole marker runs and the log says why. The new
-  `limits.tier2_unit_scope` (`own`, the default, or `full`), overridable per repo as
-  `tests.tier2_unit_scope`, restores the whole marker.
 
 - A unit whose base moved is now restacked in a lane of its own, at once, instead of
   waiting for a build slot or for the next tick. The restacks run beside the builds, in the

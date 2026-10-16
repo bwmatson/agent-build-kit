@@ -993,7 +993,7 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     # usage read, not a GitHub call, not a log line each time, not a span.
     # A dry run says what the recorded failures' fix changes are even when nothing is pending.
     if args.dry_run:
-        _preview_fixes(inst)
+        _preview_changes(inst)
         _preview_split_releases(inst, store_for(inst))
     if not has_work(inst, store_for(inst)):
         return 0
@@ -1111,7 +1111,7 @@ def _tick_with(
     return _schedule(inst, ready, store=store, only=only, readmission=readmission, lane=lane)
 
 
-def _preview_fixes(inst: Installation) -> None:
+def _preview_changes(inst: Installation) -> None:
     """What the fix change of each recorded pre-existing failure is, and what scheduled tier 2
     change is due or open: written, or to be."""
     for test in dict.fromkeys(entry.test for entry in preexisting_record(inst).entries()):

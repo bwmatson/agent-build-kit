@@ -15,38 +15,32 @@ from agent_build_kit.pipeline.tier2_schedule import scheduled_name
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import MERGED
 from agent_build_kit.pipeline.usage_guard import Decision
+from tests import tick_pass
 from tests.factories import stored_unit
+from tests.tick_pass import isolate
 from tests.tier2_schedule_fakes import TODAY, on_today, open_change, planning, scheduled_changes
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
 
 class Calls:
-    """What a tick asked of the planner and of the usage window."""
+    """What a tick asked of the planner."""
 
     def __init__(self) -> None:
         self.plans = 0
-        self.usage_reads = 0
 
 
 @pytest.fixture
 def calls(monkeypatch: pytest.MonkeyPatch) -> Calls:
     on_today(monkeypatch)
+    isolate(monkeypatch)
     seen = Calls()
 
     def plan(inst: Installation, **kwargs: object) -> None:
         seen.plans += 1
 
-    def usage() -> None:
-        seen.usage_reads += 1
-
-    monkeypatch.setattr(cli, "poll_all", lambda inst, **kwargs: None)
-    monkeypatch.setattr(cli, "fetch_all", lambda inst: None)
     monkeypatch.setattr(cli, "plan_all", plan)
-    monkeypatch.setattr(cli, "has_identity", lambda inst, repo: True)
     monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: False)
-    monkeypatch.setattr(cli, "current_usage", usage)
-    monkeypatch.setattr(cli, "may_start_unit", lambda r, **_: Decision(may_start=True, reason="ok"))
     return seen
 
 
@@ -60,7 +54,9 @@ def installation(tmp_path: Path, schedule: str | None = None) -> tuple[Installat
 
 
 def tick(inst: Installation, *, dry_run: bool = False) -> int:
-    return cli.cmd_tick(argparse.Namespace(dry_run=dry_run, only=None), inst)
+    if dry_run:
+        return cli.cmd_tick(argparse.Namespace(dry_run=True, only=None), inst)
+    return tick_pass.tick(inst)
 
 
 def planning_directory(inst: Installation, store: UnitStore) -> tuple[dict[str, bytes], list]:
@@ -90,6 +86,7 @@ def test_a_dry_run_says_it_would_write_the_change_of_a_due_repo_and_writes_nothi
     assert not any("exists: " in line for line in lines)
     assert planning_directory(inst, store) == before
     assert scheduled_changes(inst) == []
+    assert not (inst.state_dir / "scheduled-tier2.lock").exists(), "a dry run takes no lock file"
 
 
 def test_a_dry_run_says_the_open_change_exists_and_writes_nothing(

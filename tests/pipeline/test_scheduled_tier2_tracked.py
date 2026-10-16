@@ -14,12 +14,13 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
+from agent_build_kit.pipeline.stack_runner import RunStatus
 from agent_build_kit.pipeline.tier2_schedule import is_scheduled, scheduled_name
-from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED, SATISFIED
 from agent_build_kit.pipeline.usage_guard import Decision
 from tests.factories import stored_unit
+from tests.tick_pass import Builder, isolate, tick
 from tests.tier2_lock_fakes import Foreign, install_clock, tier2_runner
 from tests.tier2_schedule_fakes import AT, TODAY, on_today, planning, scheduled_changes
 
@@ -30,30 +31,20 @@ NAME = scheduled_name("app", TODAY)
 UNIT = f"{NAME}/1"
 
 
-class Builder:
-    """Stands in for `build_runner`: a unit that starts ends satisfied, as a passing run does."""
-
-    def __init__(self) -> None:
-        self.store: UnitStore
-        self.started: list[str] = []
-
-    def __call__(self, unit: object, **kwargs: object) -> Builder:
-        return self
-
-    def run(self, unit: StoredUnit, *, base: object, graph: object) -> RunOutcome:
-        self.started.append(unit.id)
-        self.store.set_state(unit.id, SATISFIED, note="scheduled tier 2 passed")
-        return RunOutcome(status=RunStatus.SATISFIED, detail=unit.id)
-
-
-def installation(tmp_path: Path, builder: Builder, **limits: int) -> tuple[Installation, UnitStore]:
-    """`app`, due, and `platform`, scheduled `off`; `app` has a tier 2 unit that has merged."""
+def installation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **limits: int
+) -> tuple[Installation, UnitStore, Builder]:
+    """`app`, due, and `platform`, scheduled `off`; `app` has a tier 2 unit that has merged.
+    The builder ends the scheduled unit satisfied, as a passing run does."""
     inst = planning(tmp_path, {"app": None, "platform": "off"}, project_limits=limits)
     store = UnitStore(inst.state_dir / "units.json")
-    builder.store = store
     store.upsert([stored_unit("app-work/1", change="app-work", repo="app", tier="tier2")])
     store.set_state("app-work/1", MERGED, pr=1)
-    return inst, store
+    builder = Builder(store)
+    builder.scripts[UNIT] = lambda: RunStatus.SATISFIED
+    builder.ends[UNIT] = (SATISFIED, None, "scheduled tier 2 passed")
+    monkeypatch.setattr(cli, "build_runner", builder)
+    return inst, store, builder
 
 
 def plan_scheduled(inst: Installation, *, store: UnitStore, **kwargs: object) -> None:
@@ -64,25 +55,12 @@ def plan_scheduled(inst: Installation, *, store: UnitStore, **kwargs: object) ->
             store.upsert([stored_unit(f"{name}/1", change=name, repo="app", tier="tier2")])
 
 
-@pytest.fixture
-def builder(monkeypatch: pytest.MonkeyPatch) -> Builder:
+@pytest.fixture(autouse=True)
+def isolated(monkeypatch: pytest.MonkeyPatch) -> None:
     on_today(monkeypatch)
-    fake = Builder()
-    monkeypatch.setattr(cli, "build_runner", fake)
-    monkeypatch.setattr(cli, "poll_all", lambda inst, **kwargs: None)
-    monkeypatch.setattr(cli, "fetch_all", lambda inst: None)
+    isolate(monkeypatch)
     monkeypatch.setattr(cli, "plan_all", plan_scheduled)
-    monkeypatch.setattr(cli, "has_identity", lambda inst, repo: True)
     monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: False)
-    monkeypatch.setattr(cli, "verify_ready", lambda inst, units, **kwargs: lambda change: True)
-    monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: [])
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
-    monkeypatch.setattr(cli, "may_start_unit", lambda r, **_: Decision(may_start=True, reason="ok"))
-    return fake
-
-
-def tick(inst: Installation) -> int:
-    return cli.cmd_tick(argparse.Namespace(dry_run=False, only=None), inst)
 
 
 def in_review(store: UnitStore, uid: str) -> None:
@@ -91,9 +69,9 @@ def in_review(store: UnitStore, uid: str) -> None:
 
 
 def test_the_scheduled_unit_is_listed_by_status_with_its_change_and_state(
-    tmp_path: Path, builder: Builder, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    inst, store = installation(tmp_path, builder, max_units_in_progress=1)
+    inst, store, _ = installation(tmp_path, monkeypatch, max_units_in_progress=1)
     in_review(store, "other/1")
 
     assert tick(inst) == 0
@@ -106,9 +84,9 @@ def test_the_scheduled_unit_is_listed_by_status_with_its_change_and_state(
 
 
 def test_the_limit_counts_the_scheduled_unit_and_holds_it_until_a_place_is_free(
-    tmp_path: Path, builder: Builder
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    inst, store = installation(tmp_path, builder, max_units_in_progress=1)
+    inst, store, builder = installation(tmp_path, monkeypatch, max_units_in_progress=1)
     in_review(store, "other/1")
 
     assert tick(inst) == 0
@@ -123,15 +101,11 @@ def test_the_limit_counts_the_scheduled_unit_and_holds_it_until_a_place_is_free(
 
 
 def test_a_started_scheduled_unit_takes_a_place_from_the_next_unit(
-    tmp_path: Path, builder: Builder, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    inst, store = installation(tmp_path, builder, max_units_in_progress=1)
-
-    def opens_a_pull_request(unit: StoredUnit, **kwargs: object) -> RunOutcome:
-        store.set_state(unit.id, IN_REVIEW, pr=3)
-        return RunOutcome(status=RunStatus.OPEN, detail=unit.id, pr=3)
-
-    monkeypatch.setattr(builder, "run", opens_a_pull_request)
+    inst, store, builder = installation(tmp_path, monkeypatch, max_units_in_progress=1)
+    # The builder's default outcome leaves the unit open (in review): a state that counts.
+    del builder.scripts[UNIT], builder.ends[UNIT]
 
     assert tick(inst) == 0
     store.upsert([stored_unit("late/1", change="late", repo="platform")])
@@ -142,9 +116,9 @@ def test_a_started_scheduled_unit_takes_a_place_from_the_next_unit(
 
 
 def test_a_scheduled_unit_waits_for_a_held_tier_2_lock_without_failing(
-    tmp_path: Path, builder: Builder, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    inst, store = installation(tmp_path, builder)
+    inst, store, _ = installation(tmp_path, monkeypatch)
     assert tick(inst) == 0
     clock = install_clock(monkeypatch, AT)
     other = Foreign(inst.state_dir / "tier2.lock")
@@ -162,9 +136,9 @@ def test_a_scheduled_unit_waits_for_a_held_tier_2_lock_without_failing(
 
 
 def test_a_usage_refusal_delays_the_scheduled_unit_until_the_guard_admits_a_unit(
-    tmp_path: Path, builder: Builder, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    inst, store = installation(tmp_path, builder)
+    inst, store, builder = installation(tmp_path, monkeypatch)
     monkeypatch.setattr(
         cli, "may_start_unit", lambda r, **_: Decision(may_start=False, reason="session at 88%")
     )

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Iterable
+from contextlib import nullcontext
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -92,7 +93,8 @@ def write_due(
     nothing and says `would write: <change>`. `say_existing` False leaves out the `exists:`
     lines, for rounds that repeat. Returns the names written (or to be written)."""
     written: list[str] = []
-    with file_lock(inst.state_dir / "scheduled-tier2.lock"):
+    # A dry run writes nothing, not even the lock file.
+    with nullcontext() if dry_run else file_lock(inst.state_dir / "scheduled-tier2.lock"):
         for repo, split, opened in _scheduled_repos(inst, store, today):
             if opened:
                 if say_existing:
