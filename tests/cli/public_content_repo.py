@@ -26,6 +26,7 @@ def planning(
     ignore: str = "",
     repository: bool = True,
     state_dir: str | None = None,
+    publish: str | None = None,
 ) -> Path:
     """A planning root holding `abk.yaml` (tracked, or only written) and a
     `.gitignore`; the path of `abk.yaml`. A repo entry defaults to the checkout."""
@@ -33,7 +34,8 @@ def planning(
     if repos is None:
         repos = {"app": RepoConfig(path=Path("."), slug="example/app", changelog=None)}
     data = WorkspaceConfig(repos=repos).model_dump(by_alias=True, mode="json")
-    extra = {"planning": {"state_dir": state_dir}} if state_dir else {}
+    chosen = {"state_dir": state_dir, "publish": publish}
+    extra = {"planning": {k: v for k, v in chosen.items() if v}} if state_dir or publish else {}
     config = WorkspaceConfig.model_validate({**data, **extra, "verify": {"env": verify_env or {}}})
     (root / "abk.yaml").write_text(dump(config))
     (root / ".gitignore").write_text(ignore)
