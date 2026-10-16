@@ -83,6 +83,7 @@ from agent_build_kit.pipeline.moved_base import moved_base_scope
 from agent_build_kit.pipeline.own_tests import defined_tests_in_range, tests_in
 from agent_build_kit.pipeline.pending import describe, pending_projects
 from agent_build_kit.pipeline.planning_repo import current_branch
+from agent_build_kit.pipeline.planning_sync import in_repo_name
 from agent_build_kit.pipeline.pr_replies import (
     MARKER,
     build_post_replies,
@@ -370,6 +371,7 @@ def build_run(
     record_for: tuple[Unit, Path, datetime] | None = None,
     runtime: AgentRuntime | None = None,
     role: Role = "implement",
+    planning_paths: tuple[str, ...] = (),
 ) -> Callable[..., str]:
     """A scoped agent run inside a unit's worktree, policed by the hook and
     the deny list the runtime applies for a `ToolPolicy`.
@@ -473,7 +475,11 @@ def build_run(
             # A call may narrow what it is granted (the restack's resolution, in a paused rebase).
             allowed_tools=tools or allowed_tools or BASE_TOOLS,
             permission_mode=permission_mode,
-            policy=ToolPolicy(specs_dir=specs, branch_prefix=active().git.branch_prefix),
+            policy=ToolPolicy(
+                specs_dir=specs,
+                branch_prefix=active().git.branch_prefix,
+                planning_paths=planning_paths,
+            ),
             on_event=journal or log or print,
             on_transcript=transcript,
             on_record=recorder.record if recorder else None,
@@ -3500,6 +3506,10 @@ def build_runner(
         journal=journal,
         transcript=transcript,
         record_for=record_for,
+        # A unit of the repository the planning root lives in leaves the pipeline's paths be.
+        planning_paths=(
+            installation.planning_paths if in_repo_name(installation) == unit.repo else ()
+        ),
     )
     gate_may_start, gate_resume_at = build_usage_gate()
     return UnitRunner(

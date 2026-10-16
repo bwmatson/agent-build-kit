@@ -220,6 +220,12 @@ def _commands_of(raw_input: Any, content: Any, title: str | None) -> tuple[str, 
 
 # The raw-input fields an agent's file tools name their target in, for an
 # agent whose tool calls carry no `locations`.
+# Said where a write is refused: a unit of the planning repo's repository may not write the
+# planning paths (`ToolPolicy.planning_paths`), which the pipeline owns.
+PLANNING_NOTE = (
+    "; the planning paths (specs, state, generated pages, abk.yaml) are the pipeline's: "
+    "report `BLOCKED: <what and where>` if one needs changing"
+)
 PATH_FIELDS = ("path", "file_path", "filePath", "file")
 
 
@@ -534,6 +540,12 @@ class _Session:
             policy.specs_dir.resolve()
             if policy is not None and policy.specs_dir is not None
             else None
+        )
+        # Paths in the worktree the pipeline owns (a unit of the planning repo's repository).
+        self._fenced = (
+            tuple(self._worktree / path for path in policy.planning_paths)
+            if policy is not None and self._worktree is not None
+            else ()
         )
         # What may be read besides the worktree: the specs and the run's
         # extra directories.
@@ -876,7 +888,7 @@ class _Session:
                 return Verdict(
                     allowed=False,
                     reason=f"{path} is outside the worktree"
-                    + ("" if reading else " or in the read-only specs directory"),
+                    + ("" if reading else f" or in the read-only specs directory{PLANNING_NOTE}"),
                 )
         return Verdict(allowed=True)
 
@@ -913,6 +925,8 @@ class _Session:
         if not candidate.is_relative_to(self._worktree):
             return None
         if self._specs is not None and candidate.is_relative_to(self._specs):
+            return None
+        if any(candidate.is_relative_to(fenced) for fenced in self._fenced):
             return None
         return candidate
 
@@ -1085,7 +1099,10 @@ class _Session:
         target = self._resolve_target(path)
         if target is None:
             raise RequestError.invalid_params(
-                {"reason": f"{path} is outside the worktree or the read-only specs directory"}
+                {
+                    "reason": f"{path} is outside the worktree or in the read-only specs "
+                    f"directory{PLANNING_NOTE}"
+                }
             )
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content)
