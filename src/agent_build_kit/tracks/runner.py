@@ -54,6 +54,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit import forges, runtimes
+from agent_build_kit.config import PlanningPublish
 from agent_build_kit.forges.transport import TransportError
 from agent_build_kit.init.propose import validation_errors
 from agent_build_kit.installation import Installation
@@ -558,6 +559,7 @@ def commit_bookkeeping(
     if _git(["diff", "--cached", "--quiet", "--", *paths], inst.root).returncode == 0:
         return
     message = f"track: {RUN_ID} {project.name} {name}"
+    earlier = _git(["rev-parse", "HEAD"], inst.root).stdout.strip()
     committed = _git(["commit", "-q", "-m", message, "--", *paths], inst.root)
     if committed.returncode != 0:
         log(f"[{project.name}] committing the {name} bookkeeping failed:\n{committed.stderr}")
@@ -566,6 +568,9 @@ def commit_bookkeeping(
         return
     # A pipeline worktree has no branch of its own to push or pull.
     detached = planning_mode(inst) == PlanningMode.PIPELINE_WORKTREE
+    if detached and inst.config.planning.publish == PlanningPublish.BRANCH:
+        _publish_branch(inst, branch, project, name, message, earlier)
+        return
     refspec = f"HEAD:refs/heads/{branch}" if detached else branch
     push = _git(["push", "origin", refspec], inst.root)
     if push.returncode != 0:
@@ -590,6 +595,40 @@ def commit_bookkeeping(
             f"[{project.name}] push of the {name} bookkeeping was rejected twice — the commit "
             f"is kept in {inst.root}:\n{push.stderr}"
         )
+
+
+def _publish_branch(
+    inst: Installation, base: str, project: Project, name: str, message: str, earlier: str
+) -> None:
+    """`planning.publish: branch`: pushes the phase's commit to
+    `planning/<run id>-<project>-<phase>` and opens a pull request to `base`, then puts HEAD back
+    at `earlier` with the files left in the worktree, so the next sync is a fast-forward. A
+    refused push keeps the commit."""
+    head = f"planning/{RUN_ID}-{project.name}-{name}"
+    push = _git(["push", "origin", f"HEAD:refs/heads/{head}"], inst.root)
+    if push.returncode != 0:
+        log(
+            f"[{project.name}] push of the {name} bookkeeping to {head} was rejected:\n"
+            f"{push.stderr}"
+        )
+        return
+    _git(["reset", "-q", earlier], inst.root)
+    repo_name = in_repo_name(inst)
+    if repo_name is None:
+        return
+    try:
+        forge, repo = inst.forge_of(repo_name)
+        number = forge.create_pr(
+            repo,
+            head=head,
+            base=base,
+            title=message,
+            body=f"The {name} phase's bookkeeping for {project.name}, published by abk.",
+        )
+    except RuntimeError as error:
+        log(f"[{project.name}] opening a pull request for {head} failed: {error}")
+        return
+    log(f"[{project.name}] published the {name} bookkeeping as pull request {number} from {head}")
 
 
 def _print_dry_run(

@@ -87,7 +87,8 @@ def test_the_setting_has_no_effect_in_a_separate_root(tmp_path: Path, host: Host
     commit_files(planning, "start", {"one.md": "one\n"})
     git(planning, "remote", "add", "origin", str(remote))
     git(planning, "push", "-q", "-u", "origin", "main")
-    inst = installation_at(planning, planning, planning=dict(publish="branch"))
+    code = init_repo(tmp_path / "code")
+    inst = installation_at(planning, code, planning=dict(publish="branch"))
     before = git(remote, "rev-parse", "main")
 
     assert phase(inst, doing(inst)) == 0

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- New setting `planning.publish` (`direct` by default, or `branch`) for a repo that is also
+  the planning repo. With `branch`, a track's planning commit is pushed to a
+  `planning/<run>-<project>-<phase>` branch and a pull request is opened for it, instead of
+  pushing to the default branch, which suits a protected branch. The pipeline worktree is put
+  back so the next sync fast-forwards, and the sync clears a published file only when it is
+  identical to what landed.
+
 - A unit built in a repo that is also the planning repo can no longer write the planning
   paths from its worktree: the specs directory, the state directory, the two generated pages
   and the top-level `abk.yaml` are refused with a `BLOCKED` message, while every other path,

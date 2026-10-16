@@ -117,6 +117,11 @@ class DraftedEnvironment(EnvironmentConfig):
 # --- planning repo -----------------------------------------------------------
 
 
+class PlanningPublish(StrEnum):
+    DIRECT = "direct"
+    BRANCH = "branch"
+
+
 class PlanningConfig(Frozen):
     # Relative to the planning root unless absolute.
     state_dir: str = "runs"
@@ -131,6 +136,10 @@ class PlanningConfig(Frozen):
     # The tracks pull the planning repo before running, so their run logs land
     # on the latest main.
     self_pull: bool = True
+    # Where abk's own planning commits in a pipeline worktree go: pushed to the default branch
+    # (`direct`), or to a `planning/...` branch with a pull request (`branch`). No effect in a
+    # separate planning repo or a working copy.
+    publish: PlanningPublish = PlanningPublish.DIRECT
 
 
 class OpenSpecConfig(Frozen):

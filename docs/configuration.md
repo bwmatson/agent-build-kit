@@ -57,6 +57,10 @@ planning:
                                 # ~/.local/share/<planning dir name>/worktrees.
   self_pull: true               # the tracks pull the planning repo's default
                                 # branch before running.
+  publish: direct               # direct | branch. In a pipeline worktree, where the
+                                # tracks' planning commits go: pushed to the default
+                                # branch, or to planning/<run>-<project>-<phase> with
+                                # a pull request. No effect elsewhere.
 
 openspec:
   command: null                 # argv for the OpenSpec CLI. null = npx --yes

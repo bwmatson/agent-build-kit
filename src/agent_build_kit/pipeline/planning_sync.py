@@ -162,6 +162,27 @@ def _sync_separate(inst: Installation, say: Callable[[str], None]) -> SyncResult
     return SyncResult(outcome=SyncOutcome.SYNCED)
 
 
+def _clear_landed_files(root: Path, head: str, tip: str) -> None:
+    """Before a fast-forward, removes an untracked file or restores a modified one that the
+    incoming commits add or change, when its content is byte for byte what they hold: it is a
+    file `planning.publish: branch` published, and it has landed. Any other file is left for the
+    merge, which refuses over it."""
+    incoming = git(root, "diff", "--name-only", "-z", "--no-renames", head, tip, check=False)
+    for path in filter(None, incoming.stdout.split("\0")):
+        local = root / path
+        if not local.is_file():
+            continue
+        landed = git(root, "rev-parse", "--verify", "-q", f"{tip}:{path}", check=False)
+        if landed.returncode != 0:
+            continue
+        if git(root, "hash-object", "--", path).stdout != landed.stdout:
+            continue
+        if git(root, "ls-files", "--error-unmatch", "--", path, check=False).returncode == 0:
+            git(root, "checkout", "-q", "--", path, check=False)
+        else:
+            local.unlink()
+
+
 def _sync_worktree(inst: Installation, say: Callable[[str], None]) -> SyncResult:
     root = inst.root
     own_dir = git_dir(root)
@@ -186,6 +207,7 @@ def _sync_worktree(inst: Installation, say: Callable[[str], None]) -> SyncResult
     if head == tip_sha:
         return SyncResult(outcome=SyncOutcome.CURRENT)
     if git(root, "merge-base", "--is-ancestor", head, tip_sha, check=False).returncode == 0:
+        _clear_landed_files(root, head, tip_sha)
         merged = git(root, "merge", "--ff-only", tip_sha, check=False)
         if merged.returncode != 0:
             return _stopped(merged.stderr or merged.stdout)
