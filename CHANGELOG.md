@@ -333,7 +333,9 @@
   you by editing the file's text, so comments and spacing stay: it prints the diff and asks
   (`--yes` skips the question, `--dry-run` only prints), keeps the first original as
   `abk.yaml.abk-backup`, and exits 0 when it wrote or had nothing to do, 1 when not
-  confirmed and 2 when it refuses.
+  confirmed and 2 when it refuses. The restack lane is now one lane for each project, each
+  with `project_limits.max_concurrent_restacks` workers and its own queue, so a busy project
+  no longer holds back another project's restacks; the status still totals them.
   A pass now fills each project's build workers separately, resumes a unit within its own
   project's free workers, and gives a ready unit of a full project the full-queue wait
   reason; the samples it writes total the limit, cap and free workers over the projects

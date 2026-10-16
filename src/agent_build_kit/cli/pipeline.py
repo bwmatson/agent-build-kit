@@ -142,10 +142,12 @@ from agent_build_kit.pipeline.restack import (
     resolved_move,
 )
 from agent_build_kit.pipeline.restack_lane import (
-    RECORD_NAME,
+    Lane,
     RestackLane,
+    RestackLanes,
     lane_record,
     owed_units,
+    record_path,
 )
 from agent_build_kit.pipeline.run_log import (
     RunLog,
@@ -1075,7 +1077,7 @@ def _tick_with(
     inst: Installation,
     tick: _Tick,
     store: UnitStore,
-    lane: RestackLane,
+    lane: Lane,
     only: frozenset[str],
 ) -> int:
     readmission = _Readmission()
@@ -1396,7 +1398,7 @@ def run_round(
     readmit: _Readmission | None = None,
     quiet: bool = False,
     refused_needs: set[tuple[str, str]] | None = None,
-    lane: RestackLane | None = None,
+    lane: Lane | None = None,
     dry_run: bool = False,
 ) -> list[Unit]:
     """One round: everything a tick does before it starts builds, safe to repeat
@@ -2280,7 +2282,7 @@ def _schedule(
     store: UnitStore,
     only: frozenset[str],
     readmission: _Readmission,
-    lane: RestackLane,
+    lane: Lane,
 ) -> int:
     """Keep the build slots full until nothing more is ready.
 
@@ -2457,7 +2459,7 @@ def _pool_size(inst: Installation, units: list[StoredUnit]) -> int:
     return inst.max_concurrent_stacks * len(_live_projects(inst, units))
 
 
-def _refresh(inst: Installation, *, store: UnitStore, lane: RestackLane | None = None) -> None:
+def _refresh(inst: Installation, *, store: UnitStore, lane: Lane | None = None) -> None:
     """Fetch and poll, as the top of the tick does: a merge only a poll
     reveals may release a dependent, and review feedback should not wait for
     a pass that now lasts as long as its longest build.
@@ -3305,7 +3307,7 @@ class StackMoves(TypedDict):
     retarget: Callable[[StoredUnit, str], None]
     rebase_cap: int | None
     resume: Callable[..., bool]
-    lane: RestackLane | None
+    lane: Lane | None
 
 
 def gated_resolver(
@@ -3357,12 +3359,12 @@ def build_turned_move(
     return move
 
 
-def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLane:
-    """The tick's lane: `project_limits.max_concurrent_restacks` workers apart from the build
-    workers, moving a unit onto the base it has when its move starts."""
+def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
+    """The tick's lanes, one for each project: each has `project_limits.max_concurrent_restacks`
+    workers apart from the build workers, moving a unit onto the base it has when it starts."""
 
     def refused(unit_id: str, resume_at: datetime | None) -> None:
-        lane.defer_until(unit_id, resume_at)
+        lanes.defer_until(unit_id, resume_at)
 
     moves = build_stack_moves(store, inst, gated=True, refused=refused)
     move = build_turned_move(inst, gated=True, refused=refused)
@@ -3451,25 +3453,27 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLane:
         ]
         return heads[0], heads[1]
 
-    lane = RestackLane(
-        inst.max_concurrent_restacks,
-        move=move_unit,
-        claim=moves["claim"],
-        owed=lambda units: owed_units(inst, units),
-        stamp=stamp,
-        paused=lambda: pause_in_force(inst.state_dir),
-        record=inst.state_dir / RECORD_NAME,
-        base=lambda owed: base_of(owed, store.all()),
-        log=log,
-    )
-    return lane
+    def make(key: ProjectKey) -> RestackLane:
+        return RestackLane(
+            inst.max_concurrent_restacks,
+            move=move_unit,
+            claim=moves["claim"],
+            stamp=stamp,
+            paused=lambda: pause_in_force(inst.state_dir),
+            record=record_path(inst.state_dir, key),
+            base=lambda owed: base_of(owed, store.all()),
+            log=log,
+        )
+
+    lanes = RestackLanes(make, owed=lambda units: owed_units(inst, units))
+    return lanes
 
 
 def build_stack_moves(
     store: UnitStore,
     installation: Installation,
     *,
-    lane: RestackLane | None = None,
+    lane: Lane | None = None,
     gated: bool = False,
     refused: Callable[[str, datetime | None], None] | None = None,
 ) -> StackMoves:
@@ -3554,7 +3558,7 @@ def _dispatch(
     store: UnitStore,
     say: Callable[[str], None] = log,
     *,
-    lane: RestackLane | None = None,
+    lane: Lane | None = None,
 ) -> Callable[..., bool]:
     """What each poller event is handed to, every write to a repo's `.git` in
     that repo's turn. Also how a merge the poll has not reported yet is recorded."""
@@ -3615,7 +3619,7 @@ def _ui_review_of(
     return ReviewStore(inst.state_dir / "reviews").read(unit.id) if unit else None
 
 
-def poll_all(inst: Installation, *, store: UnitStore, lane: RestackLane | None = None) -> None:
+def poll_all(inst: Installation, *, store: UnitStore, lane: Lane | None = None) -> None:
     """Ask GitHub what changed in each repo, and act on it.
 
     One poller per repo, each with its own recorded state, so a failure in one

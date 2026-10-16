@@ -18,7 +18,7 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.graph.nodes import WAITS
 from agent_build_kit.graph.state import Node
 from agent_build_kit.pipeline.restack import Moved
-from agent_build_kit.pipeline.restack_lane import RestackLane
+from agent_build_kit.pipeline.restack_lane import Lane
 from agent_build_kit.pipeline.stack_runner import Restacked
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import PLANNED, RUNNING
@@ -37,7 +37,7 @@ class Scene:
     def __init__(self, graph: Setup, tmp_path: Path) -> None:
         self.graph = graph
         self.calls: list[bool] = []
-        self.lane: RestackLane | None = None
+        self.lane: Lane | None = None
         graph.tick()
         graph.store.upsert([stored_unit(OTHER, depends_on=(UNIT,))])
         graph.tick()
