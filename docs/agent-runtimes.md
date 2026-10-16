@@ -876,12 +876,12 @@ The markers the suite uses:
   the other alone. A failure names the limit passed: "test exceeded the time
   limit of 60 seconds", or "test exceeded the tier-2 time limit of 1800
   seconds".
-- The same build run (`tests/integration/test_acp_build_unit.py`) also checks
+- The same build run (`tests/integration/test_build_unit.py`) also checks
   the usage report: `abk report --unit` for the built unit has one agent record
   per agent call in its run log, and its tokens and agent time equal the sums of
   the unit's usage-ledger records, with each figure's source named in the JSON
   and the table. It needs nothing beyond the agent above. Run with `uv run
-  pytest -m local_stack tests/integration/test_acp_build_unit.py`.
+  pytest -m local_stack tests/integration/test_build_unit.py`.
 - The telemetry acceptance run (`tests/integration/test_telemetry_stack.py`,
   also `local_stack`) ticks a fixture unit with `ABK_OTEL_ENABLED` on and reads
   the trace and the duration series back from the shared stack's stores. It

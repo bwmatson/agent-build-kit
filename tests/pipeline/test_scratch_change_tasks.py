@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent_build_kit.pipeline import work_graph
-from tests.integration.test_acp_build_unit import TASKS
+from tests.integration.test_build_unit import TASKS
 
 
 def test_the_tier2_scratch_change_passes_the_authoring_contract(tmp_path: Path) -> None:
