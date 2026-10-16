@@ -68,9 +68,9 @@ class PromptTooLarge(ValueError):
     """A prompt is over the safe size of its runtime's transport; nothing was started."""
 
 
-def check_prompt_size(request: AgentRequest, transport: PromptTransport) -> bytes:
-    """The request's prompt as the UTF-8 bytes to deliver, or `PromptTooLarge` when it is over
-    the transport's safe size."""
+def check_prompt_size(request: AgentRequest, transport: PromptTransport) -> int:
+    """The request's prompt size in bytes of UTF-8, or `PromptTooLarge` when it is over the
+    transport's safe size."""
     data = request.prompt.encode()
     limit = SAFE_PROMPT_BYTES[transport]
     if len(data) > limit:
@@ -79,7 +79,7 @@ def check_prompt_size(request: AgentRequest, transport: PromptTransport) -> byte
             f"the {request.role} prompt{named} is {len(data)} bytes; "
             f"the {transport} transport carries at most {limit}"
         )
-    return data
+    return len(data)
 
 
 class ToolPolicy(Frozen):
@@ -320,6 +320,9 @@ class AgentRuntime(Protocol):
     # may still add `request.env` to its agent's environment without it, as
     # Claude Code does for `ABK_OUT`.
     passes_env: bool
+    # How this runtime carries a prompt to its agent; `check_prompt_size` holds a request to
+    # that transport's safe size.
+    prompt_transport: PromptTransport
     # The facts this runtime cannot run without, by their key in its
     # `runtimes.<name>` entry in abk.yaml (`command`, ...): a selection that
     # leaves one out fails at load. Empty for a runtime abk can default.

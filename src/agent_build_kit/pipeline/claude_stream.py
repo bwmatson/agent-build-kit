@@ -141,7 +141,7 @@ def stream_run(
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=stderr,
-            text=True,
+            encoding="utf-8",
             bufsize=1,
             env=env,
         ) as process:
@@ -158,7 +158,8 @@ def stream_run(
                         on_event(event)
                     except Exception:  # noqa: BLE001, S110
                         pass  # A log line is never worth failing the run over.
-        feeder.join()
+            # Joined before the `with` closes the pipe, so only the feeder closes stdin.
+            feeder.join()
         stderr.seek(0)
         return subprocess.CompletedProcess(args, process.returncode, "".join(lines), stderr.read())
 

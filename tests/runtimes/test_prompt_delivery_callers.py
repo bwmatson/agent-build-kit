@@ -10,7 +10,7 @@ from pathlib import Path
 from agent_build_kit.pipeline.planner import plan_round
 from agent_build_kit.pipeline.restack import claude_resolver
 from agent_build_kit.pipeline.wiring import REVIEW_PROMPT, build_run_review
-from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
+from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime, refresh_login
 from agent_build_kit.tracks import runner
 from tests.conftest import make_installation
 from tests.tracks.test_runner import described_installation, project
@@ -82,3 +82,17 @@ def test_the_planner_request_carries_its_prompt_as_input(tmp_path: Path) -> None
     assert given
     assert "add-marker" in given
     executor.assert_carried(given)
+
+
+def test_the_login_refresh_keeps_its_fixed_prompt_as_an_argument() -> None:
+    calls: list[tuple[list[str], dict]] = []
+
+    def run(argv: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
+        calls.append((argv, kwargs))
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    refresh_login(run=run)
+
+    ((argv, kwargs),) = calls
+    assert argv[argv.index("-p") + 1] == "Reply with OK and nothing else."
+    assert "input" not in kwargs

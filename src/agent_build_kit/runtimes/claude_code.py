@@ -124,7 +124,13 @@ def spawn(
     if on_event is not None:
         return stream_run(argv, cwd=cwd, on_event=on_event, env=merged, input=input)
     return subprocess.run(
-        argv, cwd=cwd, capture_output=True, text=True, check=False, env=merged, input=input
+        argv,
+        cwd=cwd,
+        capture_output=True,
+        encoding="utf-8",
+        check=False,
+        env=merged,
+        input=input,
     )
 
 
@@ -323,7 +329,7 @@ class ClaudeCodeRuntime:
         return traced(self.name, request, lambda: self._run(request))
 
     def _run(self, request: AgentRequest) -> AgentResult:
-        prompt = check_prompt_size(request, self.prompt_transport).decode()
+        check_prompt_size(request, self.prompt_transport)
         execute = self._execute or spawn
         # Only when there is something to add: an injected `execute` written
         # before the environment was passed does not take the argument.
@@ -335,7 +341,7 @@ class ClaudeCodeRuntime:
             build_argv(request),
             cwd=request.cwd,
             on_event=_progress(request),
-            input=prompt,
+            input=request.prompt,
             **extra,
         )
         outcome = self._finish(request, result)

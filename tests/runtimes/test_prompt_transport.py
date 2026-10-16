@@ -33,7 +33,7 @@ def first_line(error: pytest.ExceptionInfo[PromptTooLarge]) -> str:
 def test_a_prompt_of_exactly_the_safe_size_is_delivered_and_one_byte_more_is_refused(
     transport: PromptTransport, limit: int
 ) -> None:
-    assert len(check_prompt_size(AgentRequest(prompt="x" * limit), transport)) == limit
+    assert check_prompt_size(AgentRequest(prompt="x" * limit), transport) == limit
 
     with pytest.raises(PromptTooLarge):
         check_prompt_size(AgentRequest(prompt="x" * (limit + 1)), transport)
@@ -47,8 +47,7 @@ def test_the_size_is_counted_in_utf_8_bytes() -> None:
 
     assert re.search(r"100,?002 bytes", first_line(refused))
     assert (
-        check_prompt_size(AgentRequest(prompt=prompt[:50_000]), PromptTransport.ARGUMENT)
-        == prompt[:50_000].encode()
+        check_prompt_size(AgentRequest(prompt=prompt[:50_000]), PromptTransport.ARGUMENT) == 100_000
     )
 
 
