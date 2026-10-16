@@ -658,8 +658,8 @@ def _print_dry_run(
     )
     print("\n".join(lines[:DRY_RUN_PROMPT_LINES]))
     if isinstance(runtime, ClaudeCodeRuntime):
-        print(f"--- [{project.name}] {name}: command (prompt elided)")
-        print(shlex.join(build_argv(request.model_copy(update={"prompt": "<prompt>"}))))
+        print(f"--- [{project.name}] {name}: command (the prompt goes on standard input)")
+        print(shlex.join(build_argv(request)))
     else:
         print(f"--- [{project.name}] {name}: {runtime.name} request (prompt elided)")
         print(request.model_dump(exclude={"prompt", "on_event"}))

@@ -156,7 +156,9 @@ def run_claude(tmp_path: Path, execute: Any, **request: Any) -> None:
 def test_the_runtime_hands_the_environment_to_execute_only_when_set(tmp_path: Path) -> None:
     seen: list[dict[str, Any]] = []
 
-    def execute(argv: list[str], *, cwd: Path | None = None, on_event=None, **extra: Any):
+    def execute(
+        argv: list[str], *, cwd: Path | None = None, on_event=None, input=None, **extra: Any
+    ):
         seen.append(extra)
         return subprocess.CompletedProcess(argv, 0, finished_build(tmp_path, "done"), "")
 
@@ -172,7 +174,7 @@ def test_the_runtime_hands_the_environment_to_execute_only_when_set(tmp_path: Pa
 
 
 def test_an_execute_written_without_the_argument_still_works(tmp_path: Path) -> None:
-    def execute(argv: list[str], *, cwd: Path | None = None, on_event=None):
+    def execute(argv: list[str], *, cwd: Path | None = None, on_event=None, input=None):
         return subprocess.CompletedProcess(argv, 0, finished_build(tmp_path, "done"), "")
 
     run_claude(tmp_path, execute)

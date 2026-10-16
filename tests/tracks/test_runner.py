@@ -265,8 +265,8 @@ def test_read_status_only_accepts_the_documented_words(tmp_path) -> None:
 def test_discovery_failure_still_runs_propose(inst) -> None:
     phases: list[str] = []
 
-    def fake(argv, *, cwd=None, on_event=None) -> subprocess.CompletedProcess:
-        prompt = argv[argv.index("-p") + 1]
+    def fake(argv, *, cwd=None, on_event=None, input="") -> subprocess.CompletedProcess:
+        prompt = input
         name = "improve" if "improve phase" in prompt.splitlines()[0] else "propose"
         phases.append(name)
         return subprocess.CompletedProcess(argv, 1 if name == "improve" else 0, "{}", "")
@@ -518,7 +518,7 @@ def test_dry_run_prints_prompts_and_commands_without_running_claude(
     assert "# Mission: propose phase — project `app`" in out
     assert "claude -p" in out
     assert f"--add-dir {inst.root}" in out
-    assert "'<prompt>'" in out
+    assert "the prompt goes on standard input" in out
     assert not PLACEHOLDER.findall(out)
     assert not (inst.root / inst.config.tracks.raw_output_dir).exists()
 

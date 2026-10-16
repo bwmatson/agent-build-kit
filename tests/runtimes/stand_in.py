@@ -14,7 +14,7 @@ from pathlib import Path
 
 from agent_build_kit.config import ModelsConfig
 from agent_build_kit.runtimes import AgentRequest, AgentResult, AgentRuntime, PolicyReport
-from agent_build_kit.runtimes.base import PolicyCoverage
+from agent_build_kit.runtimes.base import PolicyCoverage, PromptTransport
 
 
 class StandInRuntime:
@@ -26,6 +26,7 @@ class StandInRuntime:
     supports_streaming: bool = False
     supports_session_resume: bool = False
     passes_env: bool = False
+    prompt_transport: PromptTransport = PromptTransport.PROTOCOL
     requires: tuple[str, ...] = ()
     agent_command: tuple[str, ...] = ()
     default_models: ModelsConfig = ModelsConfig()

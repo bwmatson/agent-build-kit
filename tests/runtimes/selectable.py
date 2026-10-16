@@ -18,7 +18,7 @@ from agent_build_kit import runtimes
 from agent_build_kit.config import ModelsConfig
 from agent_build_kit.pipeline.command_spellings import SpellingName, probe_rows
 from agent_build_kit.runtimes import AgentRequest, AgentResult, AgentRuntime, PolicyReport
-from agent_build_kit.runtimes.base import PolicyCoverage, SpellingResult
+from agent_build_kit.runtimes.base import PolicyCoverage, PromptTransport, SpellingResult
 
 
 class SelectableRuntime:
@@ -27,6 +27,7 @@ class SelectableRuntime:
     supports_streaming: bool = False
     supports_session_resume: bool = False
     passes_env: bool = False
+    prompt_transport: PromptTransport = PromptTransport.PROTOCOL
 
     def __init__(
         self,

@@ -52,7 +52,7 @@ BARE_FLAGS = {"-p", "--verbose"}
 def flags(argv: list[str], prompt: str) -> dict[str, str | None]:
     """The flags an invocation carries and each one's value, the prompt aside."""
     assert argv[0] == "claude"
-    assert argv.count(prompt) == 1, "the prompt is passed exactly once"
+    assert prompt not in argv, "the prompt travels on standard input, not in the argument list"
     rest = [token for token in argv[1:] if token != prompt]
     carried: dict[str, str | None] = {}
     tokens = iter(rest)

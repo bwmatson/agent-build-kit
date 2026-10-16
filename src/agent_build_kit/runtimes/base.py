@@ -47,6 +47,41 @@ Role = Literal["implement", "review", "rework_review", "generic"]
 PolicyCoverage = Literal["all_calls", "agent_flagged", "none"]
 
 
+class PromptTransport(StrEnum):
+    """How a runtime carries a prompt to its agent."""
+
+    ARGUMENT = "argument"  # one element of the command line
+    STDIN = "stdin"  # the process reads it on its standard input
+    PROTOCOL = "protocol"  # a message of the agent protocol
+
+
+# The most bytes of UTF-8 a prompt may be on each transport: under the single-argument cap with
+# room for the other arguments, and a bound on the prompt (not the pipe) for the others.
+SAFE_PROMPT_BYTES: dict[PromptTransport, int] = {
+    PromptTransport.ARGUMENT: 100_000,
+    PromptTransport.STDIN: 2_000_000,
+    PromptTransport.PROTOCOL: 2_000_000,
+}
+
+
+class PromptTooLarge(ValueError):
+    """A prompt is over the safe size of its runtime's transport; nothing was started."""
+
+
+def check_prompt_size(request: AgentRequest, transport: PromptTransport) -> int:
+    """The request's prompt size in bytes of UTF-8, or `PromptTooLarge` when it is over the
+    transport's safe size."""
+    data = request.prompt.encode()
+    limit = SAFE_PROMPT_BYTES[transport]
+    if len(data) > limit:
+        named = f" for {request.change}" if request.change else ""
+        raise PromptTooLarge(
+            f"the {request.role} prompt{named} is {len(data)} bytes; "
+            f"the {transport} transport carries at most {limit}"
+        )
+    return len(data)
+
+
 class ToolPolicy(Frozen):
     """What a run may touch, in abk's own terms — not a runtime's flag syntax.
 
@@ -86,6 +121,7 @@ class AgentRequest(Frozen):
 
     prompt: str
     role: Role = "generic"
+    change: str = ""  # the change the call is for, when it names one
     cwd: Path | None = None  # None for a call with no worktree (the planner's graph call)
     add_dirs: tuple[Path, ...] = ()  # readable beyond cwd; Claude Code's --add-dir
     model: str | None = None  # already resolved to this runtime's own name
@@ -284,6 +320,9 @@ class AgentRuntime(Protocol):
     # may still add `request.env` to its agent's environment without it, as
     # Claude Code does for `ABK_OUT`.
     passes_env: bool
+    # How this runtime carries a prompt to its agent; `check_prompt_size` holds a request to
+    # that transport's safe size.
+    prompt_transport: PromptTransport
     # The facts this runtime cannot run without, by their key in its
     # `runtimes.<name>` entry in abk.yaml (`command`, ...): a selection that
     # leaves one out fails at load. Empty for a runtime abk can default.

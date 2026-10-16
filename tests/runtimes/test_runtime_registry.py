@@ -21,7 +21,7 @@ from agent_build_kit.runtimes import (
     PolicyReport,
     UsageStatus,
 )
-from agent_build_kit.runtimes.base import PolicyCoverage
+from agent_build_kit.runtimes.base import PolicyCoverage, PromptTransport
 
 
 class _Double:
@@ -34,6 +34,7 @@ class _Double:
     supports_streaming = False
     supports_session_resume = False
     passes_env = False
+    prompt_transport = PromptTransport.PROTOCOL
     requires: tuple[str, ...] = ()
     agent_command: tuple[str, ...] = ()
     default_models = ModelsConfig()

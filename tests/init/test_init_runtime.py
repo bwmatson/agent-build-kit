@@ -84,7 +84,7 @@ def test_under_claude_code_research_sends_the_command_it_sent_before(tmp_path: P
         today=TODAY,
     )
 
-    prompt = fake.argv[fake.argv.index("-p") + 1]
+    prompt = fake.prompt
     assert flags(fake.argv, prompt) == {
         "-p": None,
         "--allowedTools": RESEARCH_TOOLS,
@@ -137,10 +137,12 @@ def test_with_no_runtime_given_research_uses_the_active_one(tmp_path: Path) -> N
 class WritesTheChange(FakeClaude):
     """The CLI, having written the change into the planning repo it ran in."""
 
-    def __call__(self, argv, *, cwd=None, on_event=None) -> subprocess.CompletedProcess[str]:
+    def __call__(
+        self, argv, *, cwd=None, on_event=None, input=None
+    ) -> subprocess.CompletedProcess[str]:
         assert cwd is not None
         write_change(cwd, "app-testing-infrastructure")
-        return super().__call__(argv, cwd=cwd, on_event=on_event)
+        return super().__call__(argv, cwd=cwd, on_event=on_event, input=input)
 
 
 def _propose(planning: Path, app: Path, **kwargs) -> str:
@@ -184,7 +186,7 @@ def test_under_claude_code_propose_sends_the_command_it_sent_before(
 
     _propose(planning, app, runtime=ClaudeCodeRuntime(execute=fake))
 
-    prompt = fake.argv[fake.argv.index("-p") + 1]
+    prompt = fake.prompt
     carried = flags(fake.argv, prompt)
     assert json.loads(carried.pop("--settings") or "") == hook(None)
     assert carried == {
