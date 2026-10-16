@@ -9,6 +9,7 @@ import sys
 import yaml
 
 from agent_build_kit.config import (
+    ConfigError,
     deprecation_notice,
     deprecations,
     locate,
@@ -16,16 +17,26 @@ from agent_build_kit.config import (
     overlay_path,
     read_overlay,
 )
-from agent_build_kit.installation import Installation
+from agent_build_kit.installation import Installation, load_installation
 
 
-def cmd_config(args: argparse.Namespace, inst: Installation) -> int:
+def cmd_config(args: argparse.Namespace, inst: Installation | None) -> int:
     if args.path:
-        path = locate(args.config)
+        try:
+            path = locate(args.config)
+        except ConfigError as error:
+            print(f"abk: {error}", file=sys.stderr)
+            return 2
         print(path)
         if overlay_path(path).is_file():
             print(overlay_path(path))
         return 0
+    if inst is None:
+        try:
+            inst = load_installation(args.config)
+        except ConfigError as error:
+            print(f"abk: {error}", file=sys.stderr)
+            return 2
     path = locate(args.config)
     for key in deprecations(path):
         print(deprecation_notice(key), file=sys.stderr)
@@ -50,4 +61,5 @@ def register(sub: argparse._SubParsersAction) -> None:
         action="store_true",
         help="the abk.yaml in force, and the overlay when there is one",
     )
-    parser.set_defaults(func=cmd_config)
+    # `--path` has to answer for a file that will not load.
+    parser.set_defaults(func=cmd_config, needs_installation="optional")

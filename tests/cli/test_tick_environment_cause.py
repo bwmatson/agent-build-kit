@@ -39,7 +39,7 @@ def managed(
     inst = make_installation(
         tmp_path,
         planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
-        limits={
+        project_limits={
             "max_concurrent_stacks": max_concurrent,
             "max_units_in_progress": in_progress_limit,
         },

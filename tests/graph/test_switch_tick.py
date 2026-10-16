@@ -44,7 +44,7 @@ def tick(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Tick:
     inst = make_installation(
         tmp_path,
         planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
-        limits={"max_concurrent_stacks": 1},
+        project_limits={"max_concurrent_stacks": 1},
     )
     recorder = fresh(tmp_path)
 

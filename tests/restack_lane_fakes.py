@@ -98,7 +98,9 @@ def lane_over(
     return RestackLane(cap, move=move, claim=build_claim(locks), owed=owed)
 
 
-def repo_behind(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **limits: int) -> Installation:
+def repo_behind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **project_limits: int
+) -> Installation:
     """`spec/feature/3` was cut from `main` before `main` moved: it does not hold its base."""
     inst = make_installation(
         tmp_path,
@@ -106,7 +108,7 @@ def repo_behind(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **limits: int) 
             "state_dir": ".",
             "worktree_root": str(tmp_path.with_name(tmp_path.name + "-trees")),
         },
-        limits=limits,
+        project_limits=project_limits,
     )
     repo = init_repo(inst.checkouts["app"])
     (repo / "a.txt").write_text("a\n")

@@ -1,4 +1,4 @@
-"""`global_limits.max_concurrent_restacks`: how many restacks the lane runs at once."""
+"""`project_limits.max_concurrent_restacks`: how many restacks the lane runs at once."""
 
 from __future__ import annotations
 
@@ -7,12 +7,12 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from agent_build_kit.config import LimitsConfig
+from agent_build_kit.config import ProjectLimitsConfig
 
 
 def limits(**values: Any) -> Any:
     """The limits as the configuration file gives them, read through the schema."""
-    return LimitsConfig.model_validate(values)
+    return ProjectLimitsConfig.model_validate(values)
 
 
 def test_two_restacks_run_at_once_by_default() -> None:

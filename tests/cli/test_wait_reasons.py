@@ -109,11 +109,15 @@ def isolated(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "may_start_unit", lambda r: Decision(may_start=True, reason="plenty"))
 
 
-def installation(tmp_path: Path, **limits: int) -> Installation:
+def installation(tmp_path: Path, **project_limits: int) -> Installation:
     return make_installation(
         tmp_path,
         planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
-        limits={"max_concurrent_stacks": 2, "max_units_in_progress": 50, **limits},
+        project_limits={
+            "max_concurrent_stacks": 2,
+            "max_units_in_progress": 50,
+            **project_limits,
+        },
     )
 
 

@@ -239,7 +239,11 @@
   and `abk doctor` warn that it is deprecated and point to `abk config --migrate`; a file with
   both keys is an error. `abk init` writes the generated-file patterns under `global_limits`
   and extends an existing `limits` block in place when there is no `global_limits`.
-  `runtimes.<name>.limits` is unchanged.
+  `runtimes.<name>.limits` is unchanged. The three scheduling settings
+  (`max_units_in_progress`, `max_concurrent_stacks`, `max_concurrent_restacks`) now live in
+  a new root block, `project_limits`, set once for every project; left under `global_limits`
+  or `limits` they fail the load, naming the key and `abk config --migrate`. `abk config
+  --path` runs even when the file does not load.
 
 - A `Needs:` line whose target the unit already reaches through its dependencies is no longer
   linked again on every tick; the unit's `needs` names every declared target, linked or not,

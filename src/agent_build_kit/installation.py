@@ -181,15 +181,18 @@ class Installation:
 
     @property
     def max_concurrent_stacks(self) -> int:
-        return self.config.global_limits.max_concurrent_stacks
+        """Build workers of one project (`project_limits`), not of the workspace."""
+        return self.config.project_limits.max_concurrent_stacks
 
     @property
     def max_concurrent_restacks(self) -> int:
-        return self.config.global_limits.max_concurrent_restacks
+        """Restack workers in the lane of one project (`project_limits`)."""
+        return self.config.project_limits.max_concurrent_restacks
 
     @property
     def max_units_in_progress(self) -> int:
-        return self.config.global_limits.max_units_in_progress
+        """Units started and not finished in one project (`project_limits`)."""
+        return self.config.project_limits.max_units_in_progress
 
     @property
     def stack_depth_build_cap(self) -> int:

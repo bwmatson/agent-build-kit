@@ -1841,7 +1841,7 @@ def test_status_says_when_the_queue_is_full(
     workspace_inst = make_installation(
         tmp_path,
         planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
-        global_limits=dict(max_units_in_progress=2),
+        project_limits=dict(max_units_in_progress=2),
     )
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored(f"c{n}/1", change=f"c{n}") for n in (1, 2, 3)])
@@ -1862,7 +1862,7 @@ def test_status_names_a_failed_unit_holding_a_place(
     workspace_inst = make_installation(
         tmp_path,
         planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
-        global_limits=dict(max_units_in_progress=2),
+        project_limits=dict(max_units_in_progress=2),
     )
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored("one/1", change="one"), stored("two/1", change="two")])
@@ -1883,7 +1883,7 @@ def test_status_names_reworks_and_resumes_by_why_they_count(
     workspace_inst = make_installation(
         tmp_path,
         planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
-        global_limits=dict(max_units_in_progress=2),
+        project_limits=dict(max_units_in_progress=2),
     )
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored("one/1", change="one"), stored("two/1", change="two")])
@@ -1904,7 +1904,7 @@ def test_status_is_silent_about_the_queue_below_the_limit(
     workspace_inst = make_installation(
         tmp_path,
         planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
-        global_limits=dict(max_units_in_progress=2),
+        project_limits=dict(max_units_in_progress=2),
     )
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored("one/1", change="one")])

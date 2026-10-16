@@ -58,7 +58,7 @@ class Scene:
                 "state_dir": ".",
                 "worktree_root": str(tmp_path.with_name(tmp_path.name + "-trees")),
             },
-            limits={"max_concurrent_stacks": 2, "max_units_in_progress": 50},
+            project_limits={"max_concurrent_stacks": 2, "max_units_in_progress": 50},
         )
         self.store = UnitStore(tmp_path / "units.json")
         self.store.upsert([new_unit("first/1"), new_unit("second/1")])

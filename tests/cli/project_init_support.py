@@ -25,7 +25,7 @@ repos:
     slug: example/platform
 
 # Limits keep a tick small.
-limits:
+project_limits:
   max_concurrent_stacks: 2  # kept low
 """
 
