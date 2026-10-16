@@ -84,7 +84,7 @@ from agent_build_kit.pipeline.stack_runner import (
     with_response,
 )
 from agent_build_kit.pipeline.tier2 import NO_TEST_RAN, Tier2Verdict
-from agent_build_kit.pipeline.tier2_schedule import is_scheduled
+from agent_build_kit.pipeline.tier2_schedule import is_scheduled, scheduled_split
 from agent_build_kit.pipeline.unit_store import (
     Cause,
     ClosePending,
@@ -1729,8 +1729,11 @@ class BuildPath:
         base = state.base or self.base
         self.say("tier 2 again on the moved commit" if state.moved else "tier 2")
         tree = self.tree()
+        # A scheduled unit runs the one split its change is named for, and only a failing
+        # test of that split holds it.
+        own = scheduled_split(unit.change, unit.repo) if state.scheduled else None
         if r.tier2_runs_whole(cwd=tree, base=base) and (
-            held := r.on_tier2_gate(unit, splits=r.tier2_splits())
+            held := r.on_tier2_gate(unit, splits=r.tier2_splits() if own is None else (own,))
         ):
             return self.park_for_fix(
                 f"waiting for the fix change {', '.join(held)} of a failing test on the base"
@@ -1744,6 +1747,7 @@ class BuildPath:
         passed: list[str] = []
         sha = ""
         for split in before.parked_splits if resumed else [None]:
+            split = split or own
             only = {} if split is None else {"only": split}
             ok, part = r.run_tier2(cwd=tree, base=base, **only)
             parts.append(part)

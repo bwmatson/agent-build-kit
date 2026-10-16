@@ -9,7 +9,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from agent_build_kit.config import Tier2UnitScope
+from agent_build_kit.config import REST_SPLIT, Tier2Split, Tier2UnitScope
 from agent_build_kit.graph.state import ResumeEvent
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.stack_runner import RunOutcome
@@ -21,16 +21,27 @@ from agent_build_kit.pipeline.workspaces import prepare_worktree, worktree_path
 from tests.factories import git, stored_unit, unit
 from tests.graph_driver import tick
 from tests.runner_fakes import Recorder
+from tests.tier2_park_fakes import holds_of
 from tests.tier2_schedule_fakes import TODAY, planning, store_of
-from tests.tier2_scope_fakes import Ran, branch, session
+from tests.tier2_scope_fakes import KIT_SPLITS, Ran, branch, session
 
 CHANGE = scheduled_name("app", TODAY)
 TEST_BODY = "def test_live():\n    assert True\n"
 SUMMARY = "=" * 20 + " 2 passed, 1 skipped in 0.10s " + "=" * 20 + "\n"
 
 
-def scheduled_unit() -> Unit:
-    return unit(f"{CHANGE}/1", change=CHANGE, tier="tier2", title="Run the full tier 2 suite")
+# The two splits a repo declares in the tests that run a split of its own.
+DECLARED = {
+    "tier2_splits": {
+        "acp": {"marker": "runtime_acp"},
+        "claude_code": {"marker": "runtime_claude_code"},
+    }
+}
+
+
+def scheduled_unit(split: str = REST_SPLIT) -> Unit:
+    change = scheduled_name("app", TODAY, split)
+    return unit(f"{change}/1", change=change, tier="tier2", title="Run the full tier 2 suite")
 
 
 def default_branch(repo: Path, *, dev_stack: str | None = None) -> tuple[Path, str]:
@@ -42,13 +53,22 @@ def default_branch(repo: Path, *, dev_stack: str | None = None) -> tuple[Path, s
     return branch(repo.parent, None, base_files=files, repo=repo)
 
 
-def written_change(tmp_path: Path, **limits: Any) -> tuple[Installation, UnitStore, StoredUnit]:
-    """A planning directory in which the round's write step has written the scheduled change
-    of `app`, and a store holding its unit as the planner makes it."""
-    inst = planning(tmp_path / "plan", **limits)
+def written_change(
+    tmp_path: Path,
+    split: str = REST_SPLIT,
+    *,
+    tests: dict[str, Any] | None = None,
+    **limits: Any,
+) -> tuple[Installation, UnitStore, StoredUnit]:
+    """A planning directory in which the round's write step has written the scheduled changes
+    of `app` (`tests` declares its splits), and a store holding the unit of `split`'s as the
+    planner makes it."""
+    inst = planning(tmp_path / "plan", tests=tests, **limits)
     store = store_of(inst, "app")
-    assert write_due(inst, store, today=TODAY, say=lambda line: None) == [CHANGE]
-    stored = stored_unit(f"{CHANGE}/1", change=CHANGE, tier="tier2", groups=(1,))
+    written = write_due(inst, store, today=TODAY, say=lambda line: None)
+    change = scheduled_unit(split).change
+    assert change in written
+    stored = stored_unit(f"{change}/1", change=change, tier="tier2", groups=(1,))
     store.upsert([stored])
     return inst, store, stored
 
@@ -72,7 +92,10 @@ archiving = archiving_on(TODAY)
 
 class ScheduledRun:
     """The scheduled unit of a written change on the graph, over the default branch, with the
-    tier 2 runner `make_ran(tree)` answers and a real tier 2 session in between. `tree` is where
+    tier 2 runner `make_ran(tree)` answers and a real tier 2 session in between. The unit is that
+    of the change of `split`, whose repo declares its splits when `declared` or `split` is not
+    `rest`; `held` maps the splits held now to their reasons, and may be emptied to release
+    them. `tree` is where
     the unit's worktree is made, by the real `prepare_worktree`, which keeps the branch between
     runs as the pipeline's does. `tick` runs or resumes its thread, as a tick does."""
 
@@ -85,13 +108,24 @@ class ScheduledRun:
         feedback: str = "",
         limits: dict[str, Any] | None = None,
         dev_stack: str | None = None,
+        split: str = REST_SPLIT,
+        declared: bool = False,
+        held: dict[str, str] | None = None,
         **overrides: Any,
     ) -> None:
         self.tmp_path = tmp_path
-        self.inst, self.store, stored = written_change(tmp_path, **(limits or {}))
+        self.subject = scheduled_unit(split)
+        self.declared = declared or split != REST_SPLIT
+        self.held: dict[str, str] = {} if held is None else held
+        self.inst, self.store, stored = written_change(
+            tmp_path,
+            split,
+            tests=DECLARED if self.declared else None,
+            **(limits or {}),
+        )
         self.root = tmp_path / "trees"
         self.repo, self.base = default_branch(self.inst.checkouts["app"], dev_stack=dev_stack)
-        self.tree = worktree_path(self.repo, branch_name(scheduled_unit()), self.root)
+        self.tree = worktree_path(self.repo, branch_name(self.subject), self.root)
         self.ran = make_ran(self.tree)
         self.log: list[str] = []
         self.gate = session(
@@ -99,8 +133,10 @@ class ScheduledRun:
             self.ran,
             scope=scope,
             log=self.log,
-            subject=scheduled_unit(),
+            subject=self.subject,
             dev_stack=dev_stack,
+            held=self.held.keys(),
+            splits=KIT_SPLITS if self.declared else (Tier2Split(name=REST_SPLIT),),
         )
         self.recorder = Recorder(self.store)
         if feedback:
@@ -112,6 +148,8 @@ class ScheduledRun:
             run_tier2=self.gate.run,
             tier2_passed_note=self.gate.passed_note,
             tier2_verdict=lambda: self.gate.verdict,
+            tier2_result=lambda: self.gate.result,
+            tier2_holds=lambda: holds_of(**self.held),
             **overrides,
         )
 
@@ -131,10 +169,10 @@ class ScheduledRun:
             self.recorder,
             event=event,
             tier="tier2",
-            subject=scheduled_unit(),
+            subject=self.subject,
             **{**self.overrides, **more},
         )
 
     @property
     def stored(self) -> StoredUnit:
-        return self.store.get(scheduled_unit().id)
+        return self.store.get(self.subject.id)
