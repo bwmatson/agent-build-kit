@@ -3,7 +3,7 @@ state directory together, the configuration winning (spec: tier2-holds)."""
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import AwareDatetime, TypeAdapter, ValidationError
@@ -116,14 +116,29 @@ def held_splits(splits: tuple[Tier2Split, ...], state_dir: Path, *, now: datetim
 
 
 def declared_splits(config: WorkspaceConfig) -> tuple[Tier2Split, ...]:
-    """Every split any repo declares, by name, the first declaration of a name winning, and
-    `rest` last."""
-    found: dict[str, Tier2Split] = {}
+    """Every split any repo declares, by name, and `rest` last. A split's `hold` combines its
+    declarations: true when any repo's says so, else false when any says so, else unset."""
+    holds: dict[str, list[bool | None]] = {}
+    markers: dict[str, str | None] = {}
     for repo in config.repos.values():
         for split in tier2_splits(repo, config):
-            found.setdefault(split.name, split)
-    named = [split for name, split in found.items() if name != REST_SPLIT]
-    return (*named, found.get(REST_SPLIT, Tier2Split(name=REST_SPLIT)))
+            holds.setdefault(split.name, []).append(split.hold)
+            markers.setdefault(split.name, split.marker)
+
+    def combined(name: str) -> Tier2Split:
+        values = holds.get(name, [])
+        hold = True if True in values else False if False in values else None
+        return Tier2Split(name=name, marker=markers.get(name), hold=hold)
+
+    named = [combined(name) for name in holds if name != REST_SPLIT]
+    return (*named, combined(REST_SPLIT))
+
+
+def current_holds(
+    config: WorkspaceConfig, state_dir: Path, *, now: datetime | None = None
+) -> Holds:
+    """The splits held now over every repo's declarations; what `status` and `doctor` show."""
+    return held_splits(declared_splits(config), state_dir, now=now or datetime.now(UTC))
 
 
 def hold_text(hold: Hold) -> str:

@@ -28,18 +28,33 @@ SPLITS_ACP_RELEASED = SPLITS.replace(
 )
 
 
-def planning(tmp_path: Path, tests: str = SPLITS) -> Path:
+def own_splits(acp: str) -> str:
+    """A repo's own `tests` block (indented to sit under a repo) declaring `acp` as `acp`."""
+    return f"    tests:\n      e2e_splits:\n        acp:\n          marker: runtime_acp\n{acp}"
+
+
+def planning(
+    tmp_path: Path, tests: str = SPLITS, app_tests: str = "", platform_tests: str | None = None
+) -> Path:
     """The path of an `abk.yaml` whose state directory is its own folder; `tests` is the text of
-    its `tests` block."""
+    its `tests` block, `app_tests` that of the repo `app`'s own, and a repo `platform` is there
+    when `platform_tests` is given."""
     root = tmp_path / "planning"
     root.mkdir()
+    platform = (
+        ""
+        if platform_tests is None
+        else f"  platform:\n    path: {tmp_path / 'platform'}\n    slug: example/platform\n"
+        + platform_tests
+    )
     (root / "abk.yaml").write_text(
         "version: 1\n"
         "planning:\n"
         "  state_dir: .\n"
         f"  worktree_root: {tmp_path / 'trees'}\n"
         "repos:\n"
-        f"  app: {{path: {tmp_path / 'app'}, slug: example/app}}\n" + tests
+        f"  app:\n    path: {tmp_path / 'app'}\n    slug: example/app\n{app_tests}"
+        f"{platform}" + tests
     )
     return root / "abk.yaml"
 

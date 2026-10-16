@@ -17,12 +17,13 @@ from agent_build_kit import profiles
 from agent_build_kit.config import (
     REST_SPLIT,
     Tier2Schedule,
+    WorkspaceConfig,
     load,
     locate,
     tier2_schedule,
     tier2_splits,
 )
-from agent_build_kit.config_text_edit import ConfigTextEditError, set_hold
+from agent_build_kit.config_text_edit import ConfigTextEditError, TextEdit, set_hold
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.tier2 import selection_unavailable
 from agent_build_kit.pipeline.tier2_exclusive import check_splits
@@ -31,8 +32,8 @@ from agent_build_kit.pipeline.tier2_holds import (
     ORIGIN_CONFIGURATION,
     SOURCE_COMMAND,
     SOURCE_GATE,
+    current_holds,
     declared_splits,
-    held_splits,
     hold_text,
     remove_hold,
     write_hold,
@@ -114,28 +115,73 @@ def cmd_tier2_check(
     return max(_check_repo(name, installation, run) for name in names)
 
 
-def _refuse_edit(path: Path, split: str, adding: bool, error: Exception) -> int:
-    by_hand = (
-        f"add `hold: true` to `{split}` under `tests.e2e_splits` in {path}"
-        if adding
-        else f"remove the `hold: true` line of `{split}` under `tests.e2e_splits` in {path}"
-    )
+def _places(config: WorkspaceConfig, split: str) -> list[str | None]:
+    """Where `split` is declared: None for the top-level `tests.e2e_splits` (always for `rest`),
+    and the name of each repo whose own `tests.e2e_splits` declares it."""
+    places: list[str | None] = []
+    if split == REST_SPLIT or split in config.tests.tier2_splits:
+        places.append(None)
+    places += [
+        name
+        for name, repo in config.repos.items()
+        if repo.tests.tier2_splits is not None
+        and (split == REST_SPLIT or split in repo.tests.tier2_splits)
+    ]
+    return places
+
+
+def _where(place: str | None) -> str:
+    return "tests.e2e_splits" if place is None else f"repos.{place}.tests.e2e_splits"
+
+
+def _refuse_edit(
+    path: Path, split: str, places: list[str | None], adding: bool, error: Exception
+) -> int:
+    action = "add `hold: true` to" if adding else "remove the `hold: true` line of"
     print(f"abk: nothing was written. {error}", file=sys.stderr)
-    print(f"abk: to do it by hand, {by_hand}", file=sys.stderr)
+    for place in places:
+        print(
+            f"abk: to do it by hand, {action} `{split}` under `{_where(place)}` in {path}",
+            file=sys.stderr,
+        )
     return 1
 
 
-def _editable(path: Path, split: str) -> None:
-    """Raise ConfigTextEditError when `split`'s `hold` cannot be edited in `path`, changing
-    nothing: the edit is tried on a copy first, so that the state file is not written for a
-    configuration that cannot follow it."""
+def _editable(path: Path, split: str, places: list[str | None]) -> None:
+    """Raise ConfigTextEditError when `split`'s `hold` cannot be edited at every place in
+    `path`, changing nothing: the edits are tried on a copy first, so that the state file is
+    not written for a configuration that cannot follow it."""
     with tempfile.TemporaryDirectory() as scratch:
         trial = Path(scratch) / path.name
         try:
             shutil.copy2(path, trial)
         except OSError as error:
             raise ConfigTextEditError(f"{path}: cannot edit it as text: {error}") from error
-        set_hold(trial, None, split, True)
+        for place in places:
+            set_hold(trial, place, split, True)
+
+
+def _edit_all(
+    path: Path, split: str, places: list[str | None], value: bool | None
+) -> tuple[list[TextEdit], Callable[[], None]]:
+    """Set `hold` of `split` at every place; the edits made and a function putting the file
+    back as it was, backup included. When an edit refuses, the earlier ones are undone."""
+    original = path.read_bytes()
+    edits: list[TextEdit] = []
+
+    def undo() -> None:
+        path.write_bytes(original)
+        for edit in edits:
+            if edit.backup is not None:
+                edit.backup.unlink(missing_ok=True)
+
+    try:
+        for place in places:
+            edits.append(set_hold(path, place, split, value))
+    except ConfigTextEditError:
+        undo()
+        raise
+    return edits, undo
 
 
 def _known_split(args: argparse.Namespace, installation: Installation) -> bool:
@@ -151,12 +197,12 @@ def cmd_tier2_hold(args: argparse.Namespace, installation: Installation | None) 
     if not _known_split(args, installation):
         return 2
     path = locate(args.config)
-    prior = next(s.hold for s in declared_splits(installation.config) if s.name == args.split)
+    places = _places(installation.config, args.split)
     try:
-        _editable(path, args.split)
-        edit = set_hold(path, None, args.split, True)
+        _editable(path, args.split, places)
+        edits, undo = _edit_all(path, args.split, places, True)
     except ConfigTextEditError as error:
-        return _refuse_edit(path, args.split, True, error)
+        return _refuse_edit(path, args.split, places, True, error)
     try:
         write_hold(
             installation.state_dir,
@@ -167,10 +213,12 @@ def cmd_tier2_hold(args: argparse.Namespace, installation: Installation | None) 
             now=datetime.now(UTC),
         )
     except OSError as error:
-        set_hold(path, None, args.split, prior)
+        undo()
         print(f"abk: nothing was held: the state file cannot be written ({error})", file=sys.stderr)
         return 1
-    print(f"{edit.summary or 'configuration unchanged'}; wrote the entry for {args.split}")
+    for edit in edits:
+        print(edit.summary)
+    print(f"wrote the entry for {args.split}")
     return 0
 
 
@@ -180,29 +228,32 @@ def cmd_tier2_release(args: argparse.Namespace, installation: Installation | Non
         return 2
     now = datetime.now(UTC)
     state = installation.state_dir
-    before = held_splits(declared_splits(installation.config), state, now=now)
+    before = current_holds(installation.config, state, now=now)
     if args.split not in before.held and args.split not in before.overridden:
         print(f"{args.split} is not held; nothing changed")
         return 0
     path = locate(args.config)
+    places = _places(installation.config, args.split)
     try:
-        _editable(path, args.split)
+        _editable(path, args.split, places)
+        edits, undo = _edit_all(path, args.split, places, None)
     except ConfigTextEditError as error:
-        return _refuse_edit(path, args.split, False, error)
+        return _refuse_edit(path, args.split, places, False, error)
     entry = before.held.get(args.split)
     # A gate's entry is its own to write and end.
     if entry is None or entry.source != SOURCE_GATE:
         try:
             remove_hold(state, args.split)
-        except ValueError as error:
+        except (ValueError, OSError) as error:
+            undo()
             print(f"abk: nothing was released. {error}", file=sys.stderr)
             return 1
-    try:
-        set_hold(path, None, args.split, None)
-    except ConfigTextEditError as error:
-        return _refuse_edit(path, args.split, False, error)
-    print(f"released {args.split}")
-    after = held_splits(declared_splits(load(path)), state, now=now).held.get(args.split)
+    for edit in edits:
+        if edit.changed:
+            print(edit.summary)
+    after = current_holds(load(path), state, now=now).held.get(args.split)
+    if after is None:
+        print(f"released {args.split}")
     if after is not None and ORIGIN_CONFIGURATION in after.origins:
         print(
             f"{args.split} is still held by a `hold: true` in {path} that this command "
@@ -219,7 +270,7 @@ def cmd_tier2_release(args: argparse.Namespace, installation: Installation | Non
 def cmd_tier2_status(args: argparse.Namespace, installation: Installation | None) -> int:
     assert installation is not None
     splits = declared_splits(installation.config)
-    holds = held_splits(splits, installation.state_dir, now=datetime.now(UTC))
+    holds = current_holds(installation.config, installation.state_dir)
     if holds.unreadable:
         print(f"{HELD_FILE} cannot be read; nothing in it counts")
     for split in splits:
@@ -246,9 +297,7 @@ def cmd_tier2_status(args: argparse.Namespace, installation: Installation | None
 
 def held_status_lines(installation: Installation) -> list[str]:
     """One line for each split held now, for `abk status`."""
-    holds = held_splits(
-        declared_splits(installation.config), installation.state_dir, now=datetime.now(UTC)
-    )
+    holds = current_holds(installation.config, installation.state_dir)
     return [f"tier 2 split {name}: held, {hold_text(hold)}" for name, hold in holds.held.items()]
 
 

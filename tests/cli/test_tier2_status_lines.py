@@ -13,7 +13,13 @@ from agent_build_kit.cli.doctor import Check, run_doctor
 from agent_build_kit.pipeline.tier2_holds import HELD_FILE
 from agent_build_kit.pipeline.unit_store import UnitStore
 from tests.cli.test_doctor import Answers
-from tests.cli.tier2_hold_fakes import SPLITS_ACP_RELEASED, abk, gate_entry, planning
+from tests.cli.tier2_hold_fakes import (
+    SPLITS_ACP_RELEASED,
+    abk,
+    gate_entry,
+    own_splits,
+    planning,
+)
 from tests.factories import init_repo, stored_unit, which_all
 
 
@@ -91,6 +97,18 @@ def test_abk_status_prints_one_line_per_held_split_and_none_when_nothing_is_held
     assert abk(config, capsys, "tier2", "release", "acp")[0] == 0
     (config.parent / HELD_FILE).unlink()
     assert not [line for line in abk(config, capsys, "status")[1] if "tier 2 split" in line]
+
+
+def test_a_hold_in_one_repos_own_declaration_shows_in_both_status_commands(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(pipeline_cli, "current_usage", lambda: None)
+    config = planning(tmp_path, platform_tests=own_splits("          hold: true\n"))
+    UnitStore(config.parent / "units.json").upsert([stored_unit("one/1", change="one")])
+
+    assert "held" in line_of(tier2_status(config, capsys), "acp")
+    held = [line for line in abk(config, capsys, "status")[1] if "tier 2 split" in line]
+    assert len(held) == 1 and "acp" in held[0]
 
 
 def doctor(config: Path) -> list[Check]:

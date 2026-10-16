@@ -113,8 +113,10 @@
   <split> [--reason TEXT]` holds a split until `abk tier2 release <split>`: it sets `hold:
   true` in `abk.yaml` as text and writes the `tier2-held.json` entry together, or neither
   when the file cannot be edited that way, in which case it prints the line to change by
-  hand. `abk tier2 status` shows each split as usable or held, and `abk status` and `abk
-  doctor` show the held splits and a file entry the configuration overrides.
+  hand. `abk tier2 status` shows each split as usable or held, and `abk status` lists
+  the held splits, and `abk tier2 status` and `abk doctor` also show a file entry the
+  configuration overrides. A split declared under a repo's own `tests` is held and released
+  there too.
 
 - A tier 2 split may carry a `gate` naming the provider of its model (`provider` with a
   `name`, a `budget_usd` and window `limits`) or a `command`, with `timeout_seconds`,

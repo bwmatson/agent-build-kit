@@ -17,7 +17,6 @@ import shutil
 import socket
 import subprocess
 import tomllib
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
@@ -72,7 +71,7 @@ from agent_build_kit.pipeline.original_copy import COPY_PATTERN
 from agent_build_kit.pipeline.pending import describe, pending_projects
 from agent_build_kit.pipeline.planning_sync import live_notice
 from agent_build_kit.pipeline.shell import git, git_out
-from agent_build_kit.pipeline.tier2_holds import HELD_FILE, declared_splits, held_splits, hold_text
+from agent_build_kit.pipeline.tier2_holds import HELD_FILE, current_holds, hold_text
 from agent_build_kit.profiles.base import ProfileUnsupported
 from agent_build_kit.redaction import MIN_LENGTH
 from agent_build_kit.redaction import active as active_redactor
@@ -1289,7 +1288,7 @@ def _live_installation(inst: Installation) -> list[Check]:
 
 def _tier2_holds(inst: Installation) -> list[Check]:
     """The held tier 2 splits as information, and what is wrong with the file or its entries."""
-    holds = held_splits(declared_splits(inst.config), inst.state_dir, now=datetime.now(UTC))
+    holds = current_holds(inst.config, inst.state_dir)
     if holds.unreadable:
         return [
             _fail(

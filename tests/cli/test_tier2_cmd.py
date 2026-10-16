@@ -18,6 +18,7 @@ from tests.cli.tier2_hold_fakes import (
     abk,
     gate_entry,
     held_entries,
+    own_splits,
     planning,
 )
 
@@ -213,3 +214,82 @@ def test_an_unwritable_configuration_writes_neither_place(
     assert "hold: true" in said(out, err)
     assert not (config.parent / HELD_FILE).exists()
     assert "hold: true" not in config.read_text()
+
+
+APP_RELEASED = own_splits("          hold: false\n")
+
+
+def app_hold(config: Path, split: str = "acp") -> bool | None:
+    own = load(config).repos["app"].tests.tier2_splits
+    assert own is not None
+    return own[split].hold
+
+
+def test_hold_and_release_reach_a_repos_own_declaration_as_well_as_the_top_level(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = planning(tmp_path, app_tests=APP_RELEASED)
+    before = config.read_text()
+
+    assert abk(config, capsys, "tier2", "hold", "acp")[0] == 0
+
+    assert hold_of(config, "acp") is True
+    assert app_hold(config) is True
+    assert "hold: false" not in config.read_text()
+
+    code, _, _ = abk(config, capsys, "tier2", "release", "acp")
+
+    assert code == 0
+    assert held_entries(config) == {}
+    assert config.read_text() == before.replace("          hold: false\n", "")
+
+
+def test_a_split_declared_only_under_a_repo_can_be_held_and_released(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = planning(tmp_path, "", app_tests=own_splits(""))
+    before = config.read_text()
+
+    code, _, err = abk(config, capsys, "tier2", "hold", "acp")
+
+    assert code == 0, err
+    assert app_hold(config) is True
+    assert "acp" in held_entries(config)
+
+    assert abk(config, capsys, "tier2", "release", "acp")[0] == 0
+    assert app_hold(config) is None
+    assert held_entries(config) == {}
+    assert config.read_text() == before
+
+
+def test_a_refusal_at_one_place_writes_nothing_and_names_each_place(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    own = own_splits("").replace("        acp:\n", "        acp: &shared\n")
+    config = planning(tmp_path, app_tests=own)
+    before = config.read_text()
+
+    code, out, err = abk(config, capsys, "tier2", "hold", "acp")
+
+    assert code not in (0, 2)
+    assert "repos.app.tests.e2e_splits" in said(out, err)
+    assert config.read_text() == before
+    assert not (config.parent / HELD_FILE).exists()
+    assert not list(config.parent.glob("*.abk-backup"))
+
+
+def test_release_puts_the_configuration_back_when_the_state_file_cannot_be_changed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    held = SPLITS.replace("marker: runtime_acp", "marker: runtime_acp\n      hold: true")
+    config = planning(tmp_path, held)
+    (config.parent / HELD_FILE).write_text("{not json")
+    before = config.read_text()
+
+    code, out, err = abk(config, capsys, "tier2", "release", "acp")
+
+    assert code not in (0, 2)
+    assert "nothing was released" in said(out, err)
+    assert config.read_text() == before
+    assert (config.parent / HELD_FILE).read_text() == "{not json"
+    assert not list(config.parent.glob("*.abk-backup"))
