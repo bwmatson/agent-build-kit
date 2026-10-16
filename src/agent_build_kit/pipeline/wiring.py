@@ -784,7 +784,8 @@ def build_commit(
     a rejected commit's is.
 
     `only` limits the commit to those pathspecs: nothing else is staged, checked or
-    committed, and what else the tree holds stays modified and unstaged.
+    committed, and what else the tree holds is left as it was: modified files stay modified,
+    and staged ones stay staged.
     """
     run = run or _run
 
@@ -817,7 +818,9 @@ def build_commit(
                 return subprocess.CompletedProcess(["gate"], 1, stdout=rejected, stderr="")
             if only is None:
                 return run(["git", "commit", "-q", "-m", body], cwd=cwd)
-            staged = run(["git", "diff", "--cached", "--name-only", *scope], cwd=cwd).stdout
+            staged = run(
+                ["git", "diff", "--cached", "--name-only", "--no-renames", *scope], cwd=cwd
+            ).stdout
             return run(["git", "commit", "-q", "-m", body, "--", *staged.splitlines()], cwd=cwd)
 
         def head() -> str:

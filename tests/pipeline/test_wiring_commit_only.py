@@ -165,3 +165,16 @@ def test_only_a_file_staged_outside_the_pathspecs_is_nothing_to_commit(repo: Pat
     assert made == 0
     assert git(repo, "rev-parse", "HEAD") == before
     assert git(repo, "diff", "--cached", "--name-only").split() == ["src/main.py"]
+
+
+def test_a_rename_under_the_pathspecs_commits_the_deletion_and_the_addition(repo: Path) -> None:
+    old, new = "openspec/changes/feature/tasks.md", "openspec/changes/feature/notes/tasks.md"
+    (repo / "openspec/changes/feature/notes").mkdir()
+    (repo / old).rename(repo / new)
+
+    made = build_commit(only=("openspec",))("docs: plan", cwd=repo)
+
+    assert made == 1
+    shown = git(repo, "show", "--name-status", "--no-renames", "--format=", "HEAD")
+    assert sorted(line.split() for line in shown.splitlines()) == [["A", new], ["D", old]]
+    assert "openspec" not in git(repo, "status", "--porcelain")
