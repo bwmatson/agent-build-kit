@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -371,15 +372,15 @@ def hook_settings(
     """
     command = f"{sys.executable} -m agent_build_kit.hooks.policy --branch-prefix {branch_prefix}"
     if specs is not None:
-        command += f" --specs {specs}"
+        command += f" --specs {shlex.quote(str(specs))}"
     if planning_repo is not None:
-        command += f" --planning-repo {planning_repo}"
+        command += f" --planning-repo {shlex.quote(str(planning_repo))}"
     if planning_state_dir is not None:
-        command += f" --planning-state-dir {planning_state_dir}"
+        command += f" --planning-state-dir {shlex.quote(str(planning_state_dir))}"
     if planning_change_dir is not None:
-        command += f" --planning-change-dir {planning_change_dir}"
+        command += f" --planning-change-dir {shlex.quote(str(planning_change_dir))}"
     if planning_paths:
-        command += " --planning-paths " + ",".join(planning_paths)
+        command += " --planning-paths " + shlex.quote(",".join(planning_paths))
     if protected_branches:
         command += f" --protected-branches {','.join(protected_branches)}"
     if no_push:

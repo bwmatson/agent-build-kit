@@ -2,6 +2,7 @@
 specs, the state, the two generated pages and the top-level configuration, and a unit's agent
 reports `BLOCKED` where one needs changing. Every other path stays writable."""
 
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -133,6 +134,12 @@ def test_the_hook_is_told_the_planning_paths() -> None:
     command = command_of(hook_settings(None, planning_paths=PLANNING_PATHS))
 
     assert "--planning-paths openspec,runs,docs/unit_graph.md,docs/unit_cost.md,abk.yaml" in command
+
+
+def test_a_path_with_a_space_stays_one_argument() -> None:
+    command = command_of(hook_settings(None, planning_paths=("docs/unit graph.md", "runs")))
+
+    assert shlex.split(command)[-1] == "docs/unit graph.md,runs"
 
 
 def test_no_planning_paths_means_no_flag() -> None:
