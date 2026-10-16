@@ -48,12 +48,12 @@ def test_retagging_the_wider_group_reports_a_difference_naming_the_unit(
     assert "feature/1" in capsys.readouterr().out
 
 
-def joined_unit_of(run: Replan) -> None:
+def joined_unit_of(run: Replan, own: int = 1) -> None:
     """A started `integration-test` unit of `base`: its own `unit-test` group, and `feature`'s
-    `integration-test` group joined onto it."""
+    `integration-test` group joined onto it. `own` is the number of the unit's own group."""
     joined = (Member(change="feature", groups=(1,)),)
     run.store.upsert(
-        [unit("base/1", change="base", tier="integration-test", groups=(1,), joined=joined)]
+        [unit("base/1", change="base", tier="integration-test", groups=(own,), joined=joined)]
     )
     run.store.set_state("base/1", FAILED, branch="spec/base/1")
     run.record("base")
@@ -90,3 +90,22 @@ def test_retagging_the_joined_group_narrows_the_unit_and_is_reported(
 
     assert results["feature"].status == "refused"
     assert "base/1" in capsys.readouterr().out
+
+
+def test_the_widest_group_of_another_change_is_named_with_its_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = Replan(
+        tmp_path,
+        monkeypatch,
+        base=tagged_md("unit-test", "unit-test"),
+        feature=tagged_md("integration-test"),
+    )
+    joined_unit_of(run, own=2)
+    run.write("feature", tagged_md("unit-test"))
+    capsys.readouterr()
+
+    results = cli.plan_all(run.inst, store=run.store, only={"feature"})
+
+    assert results["feature"].status == "refused"
+    assert "but its group 2 of base is now 'unit-test'" in capsys.readouterr().out

@@ -2756,7 +2756,7 @@ def _tag_problems(
         if u.state in (FAILED, HELD):
             way_out += f", or `abk requeue --restart {u.id}` rebuilds it from the new tags"
         checks: list[tuple[str, str, str, str]] = []
-        carried_kinds: list[tuple[int, TestTier]] = []
+        carried_kinds: list[tuple[str, int, TestTier]] = []
         here = False
         for member in u.members():
             known = (
@@ -2766,7 +2766,7 @@ def _tag_problems(
             )
             for number in member.groups:
                 if group := known.get(number):
-                    carried_kinds.append((number, group.tier))
+                    carried_kinds.append((member.change, number, group.tier))
                 if member.change != change:
                     continue
                 if group := by_number.get(number):
@@ -2776,10 +2776,12 @@ def _tag_problems(
                         (f"its group {number}", "project", u.project, group.project),
                     ]
         if here:
-            widest = widest_kind(kind for _, kind in carried_kinds)
-            # Named by the first group of that kind, the one that sets the unit's.
-            first = next(number for number, kind in carried_kinds if kind == widest)
-            checks.append((f"its group {first}", "tier", str(u.tier), str(widest)))
+            widest = widest_kind(kind for _, _, kind in carried_kinds)
+            # Named by the first group of that kind, the one that sets the unit's; a group
+            # of another change is named with its change, since its number means nothing here.
+            owner, first, _ = next(c for c in carried_kinds if c[2] == widest)
+            named = f"its group {first}" + ("" if owner == change else f" of {owner}")
+            checks.append((named, "tier", str(u.tier), str(widest)))
         # The flag is the unit's own first flagged group (see `plan_kind`). A record
         # from before flags were kept stores none, which says nothing about the group.
         if u.change == change and u.flag:
@@ -3161,7 +3163,7 @@ def _write_join(
             for branch in branches:
                 held.enter_context(branch_lock(branch, root=inst.state_dir / "locks"))
             kinds = [g.tier for g in task_groups if g.number in join.groups]
-            estimates = store.join(join, kinds)
+            estimates = store.join(join, group_kinds=kinds)
     except (BranchBusy, KeyError):
         return False
     if estimates is None:

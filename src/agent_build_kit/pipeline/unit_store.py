@@ -672,7 +672,7 @@ class UnitStore:
         return dropped
 
     @_exclusive
-    def join(self, join: Join, group_kinds: Sequence[TestTier] = ()) -> tuple[int, int] | None:
+    def join(self, join: Join, *, group_kinds: Sequence[TestTier]) -> tuple[int, int] | None:
         """Apply a planned join, or return `None` and change nothing.
 
         Both units are read again here, because either may have started since
