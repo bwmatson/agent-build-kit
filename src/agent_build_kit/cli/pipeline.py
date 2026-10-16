@@ -3186,7 +3186,7 @@ def build_turned_move(
 
 
 def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLane:
-    """The tick's lane: `global_limits.max_concurrent_restacks` workers apart from the build
+    """The tick's lane: `project_limits.max_concurrent_restacks` workers apart from the build
     workers, moving a unit onto the base it has when its move starts."""
 
     def refused(unit_id: str, resume_at: datetime | None) -> None:

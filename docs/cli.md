@@ -31,9 +31,9 @@ to it now (`usage_pause_pct` in the `session` / `weekly` section of
 window's reset nears, when one is set) or unknown; `git fetch --prune origin` in every repo; poll each repo's host; plan changes whose `tasks.md` changed; apply
 `Needs:` lines; verify and archive fully merged changes; then resume the units a killed
 run or a usage pause left `running` from their threads and build the ready
-units, up to `global_limits.max_concurrent_stacks` at once. No unit that has never
+units, up to `project_limits.max_concurrent_stacks` at once. No unit that has never
 started does while the units in progress across all repos are at
-`global_limits.max_units_in_progress`, and a pass starts no more than fit under it;
+`project_limits.max_units_in_progress`, and a pass starts no more than fit under it;
 the tick log and `abk status` then say "queue is full: N units in progress,
 limit M" followed by the count in each state. Free slots
 go to open-PR work first (reworks, restacks), then resuming builds, then new

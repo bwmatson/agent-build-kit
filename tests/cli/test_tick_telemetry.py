@@ -96,7 +96,7 @@ def ticks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, exported: Collector) 
     inst = make_installation(
         tmp_path,
         planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
-        limits={"max_concurrent_stacks": 2},
+        project_limits={"max_concurrent_stacks": 2},
     )
     recorder = fresh(tmp_path)
     options: dict[str, Any] = {}

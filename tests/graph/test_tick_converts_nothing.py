@@ -26,7 +26,7 @@ def test_a_tick_logs_no_move_onto_a_thread(
     inst = make_installation(
         tmp_path,
         planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
-        limits={"max_concurrent_stacks": 1},
+        project_limits={"max_concurrent_stacks": 1},
     )
     recorder = fresh(tmp_path)
 

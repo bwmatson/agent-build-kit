@@ -1127,8 +1127,12 @@ class WorkspaceConfig(Frozen):
     @model_validator(mode="before")
     @classmethod
     def _limits_alias(cls, data: object) -> object:
-        """`limits` at the root is the deprecated spelling of `global_limits`."""
-        return _alias_limits(data) if isinstance(data, dict) else data
+        """`limits` at the root is the deprecated spelling of `global_limits`; a scheduling
+        setting left in either is refused with the pointer to `project_limits`."""
+        if not isinstance(data, dict):
+            return data
+        _refuse_moved_settings(data)
+        return _alias_limits(data)
 
     def generated_file_patterns(self) -> tuple[str, ...]:
         """The patterns left out of a unit's size: the configured ones and the

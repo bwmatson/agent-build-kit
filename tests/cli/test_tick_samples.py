@@ -78,7 +78,7 @@ class Pass:
         self.inst: Installation = make_installation(
             tmp_path,
             planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
-            limits={"max_concurrent_stacks": 1, "max_units_in_progress": 50},
+            project_limits={"max_concurrent_stacks": 1, "max_units_in_progress": 50},
         )
         self.store = UnitStore(tmp_path / "units.json")
         self.store.upsert([new_unit("first/1"), new_unit("second/1", repo="platform")])

@@ -74,7 +74,7 @@ def workspace_of(tmp_path: Path) -> Installation:
     return make_installation(
         tmp_path,
         planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
-        limits={"max_concurrent_stacks": 1, "max_units_in_progress": 50},
+        project_limits={"max_concurrent_stacks": 1, "max_units_in_progress": 50},
     )
 
 
@@ -107,7 +107,7 @@ def test_a_unit_queued_behind_another_ticks_running_build_records_the_slot_wait(
     inst = make_installation(
         tmp_path,
         planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
-        limits={"max_concurrent_stacks": 2, "max_units_in_progress": 50},
+        project_limits={"max_concurrent_stacks": 2, "max_units_in_progress": 50},
     )
     store = UnitStore(tmp_path / "units.json")
     store.upsert(

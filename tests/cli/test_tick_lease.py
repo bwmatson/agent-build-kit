@@ -71,7 +71,7 @@ def inst(tmp_path: Path) -> Installation:
     return make_installation(
         tmp_path,
         planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
-        limits={"max_units_in_progress": 50},
+        project_limits={"max_units_in_progress": 50},
     )
 
 

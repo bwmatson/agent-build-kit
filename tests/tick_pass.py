@@ -54,11 +54,8 @@ def workspace(tmp_path: Path, *, max_concurrent: int = 4, depth_cap: int = 3) ->
     return make_installation(
         tmp_path,
         planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
-        limits={
-            "max_concurrent_stacks": max_concurrent,
-            "stack_depth_build_cap": depth_cap,
-            "max_units_in_progress": 50,  # these tests are about the other caps
-        },
+        limits={"stack_depth_build_cap": depth_cap},
+        project_limits={"max_concurrent_stacks": max_concurrent, "max_units_in_progress": 50},
     )
 
 

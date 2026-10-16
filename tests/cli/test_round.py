@@ -58,11 +58,8 @@ def inst(tmp_path: Path) -> Installation:
     return make_installation(
         tmp_path,
         planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
-        limits={
-            "max_concurrent_stacks": 4,
-            "stack_depth_build_cap": 3,
-            "max_units_in_progress": 50,
-        },
+        limits={"stack_depth_build_cap": 3},
+        project_limits={"max_concurrent_stacks": 4, "max_units_in_progress": 50},
     )
 
 
@@ -471,11 +468,8 @@ def capped(tmp_path: Path, slots: int) -> Installation:
     return make_installation(
         tmp_path,
         planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
-        limits={
-            "max_concurrent_stacks": slots,
-            "stack_depth_build_cap": 3,
-            "max_units_in_progress": 50,
-        },
+        limits={"stack_depth_build_cap": 3},
+        project_limits={"max_concurrent_stacks": slots, "max_units_in_progress": 50},
     )
 
 

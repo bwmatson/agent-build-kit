@@ -67,7 +67,7 @@ def inst(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Installation:
     made = make_installation(
         tmp_path,
         planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
-        limits={"max_concurrent_stacks": 2, "max_units_in_progress": 50},
+        project_limits={"max_concurrent_stacks": 2, "max_units_in_progress": 50},
     )
     (made.root / "abk.yaml").write_text(dump(made.config))
     monkeypatch.chdir(made.root)

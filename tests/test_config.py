@@ -201,7 +201,7 @@ def test_the_open_pr_ceiling_is_no_longer_accepted() -> None:
 
 def test_the_installation_reads_the_limit_on_units_in_progress(tmp_path: Path) -> None:
     assert make_installation(tmp_path / "default").max_units_in_progress == 5
-    inst = make_installation(tmp_path / "set", limits={"max_units_in_progress": 2})
+    inst = make_installation(tmp_path / "set", project_limits={"max_units_in_progress": 2})
     assert inst.max_units_in_progress == 2
 
 

@@ -22,7 +22,11 @@ from agent_build_kit.installation import Installation, load_installation
 
 def cmd_config(args: argparse.Namespace, inst: Installation | None) -> int:
     if args.path:
-        path = locate(args.config)
+        try:
+            path = locate(args.config)
+        except ConfigError as error:
+            print(f"abk: {error}", file=sys.stderr)
+            return 2
         print(path)
         if overlay_path(path).is_file():
             print(overlay_path(path))

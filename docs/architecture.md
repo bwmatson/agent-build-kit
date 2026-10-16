@@ -221,8 +221,8 @@ one of them: it builds on the deepest and waits for the rest (see "Open parents"
 looked through to what it was built on: same-repo, the dependent waits on and
 stacks on that predecessor; cross-repo, it counts once that predecessor has
 merged. `global_limits.stack_depth_build_cap` holds
-back chains of open PRs; `global_limits.max_concurrent_stacks` bounds units being
-built. `global_limits.max_units_in_progress` bounds the units started and not finished
+back chains of open PRs; `project_limits.max_concurrent_stacks` bounds units being
+built. `project_limits.max_units_in_progress` bounds the units started and not finished
 across repos: running, in review or failed, and any planned or unplanned unit
 that a run has started: one with a recorded branch, a pushed or approved commit or a pull request. Merged, closed and satisfied
 units, held units (set aside until a person releases them), and units that
@@ -242,7 +242,7 @@ pass it. A blocked unit that had work gives its place to a ready, never-run prer
 it waits on: before the classes below, one prerequisite starts for each blocked unit's
 place (one unit for each place; several by effective priority, then effective age),
 within the limit and `max_concurrent_stacks`. A restack takes none of these: the merge, release
-and depth handlers hand each moved child to the restack lane (`global_limits.max_concurrent_restacks`
+and depth handlers hand each moved child to the restack lane (`project_limits.max_concurrent_restacks`
 workers apart from the build workers) instead of restacking inline, and the lane asks the usage
 guard before its conflict resolver. Free slots then go to
 units with an open pull request, then to those resuming a build, then to new

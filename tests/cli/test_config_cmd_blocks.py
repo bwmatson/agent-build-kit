@@ -51,3 +51,15 @@ def test_show_exits_2_with_the_load_error_and_the_pointer_while_path_still_runs(
     assert "abk config --migrate" in err
     assert located == 0
     assert capsys.readouterr().out.strip() == str(path)
+
+
+def test_path_without_any_abk_yaml_exits_2_naming_what_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ABK_CONFIG", raising=False)
+
+    code = main(["config", "--path"])
+
+    assert code == 2
+    assert "no abk.yaml found" in capsys.readouterr().err

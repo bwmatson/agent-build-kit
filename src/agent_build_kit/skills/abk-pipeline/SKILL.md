@@ -235,9 +235,9 @@ reads a draft as "not yet" and a ready pull request as theirs to review.
 1. The change is authored in `openspec/changes/<change>/` and committed
    (`abk check` and `abk tags` first).
 2. The next tick's planner reads its `tasks.md` and adds units to the graph.
-3. Units build in dependency order, at most `global_limits.max_concurrent_stacks`
+3. Units build in dependency order, at most `project_limits.max_concurrent_stacks`
    at a time. No unit that has never started starts while the units in
-   progress across all repos are at `global_limits.max_units_in_progress`, and a pass
+   progress across all repos are at `project_limits.max_units_in_progress`, and a pass
    starts no more new units than fit under it: the rest stay `planned`, and
    the tick log and `abk status` say "queue is full: N units in progress,
    limit M" with the count in each state, then "N blocked not counted" and a
