@@ -108,8 +108,8 @@ def home(account: Account | None = None) -> Path:
     return _directory(account) or _default()
 
 
-def is_default() -> bool:
-    return _configured() is None
+def is_default(account: Account | None = None) -> bool:
+    return _directory(account) is None
 
 
 def environment_entry(account: Account | None = None) -> dict[str, str]:
@@ -143,7 +143,7 @@ class Account(Frozen):
     label: str | None = None
     config_dir: Path | None = None
     limits: ClaudeLimitsConfig = ClaudeLimitsConfig()
-    slots: int | None = None
+    max_units_in_progress: int | None = None
 
 
 def resolve(inst: Installation, label: str | None) -> Account:
@@ -157,5 +157,5 @@ def resolve(inst: Installation, label: str | None) -> Account:
         label=label,
         config_dir=named.config_dir,
         limits=named.limits,
-        slots=named.max_units_in_progress,
+        max_units_in_progress=named.max_units_in_progress,
     )

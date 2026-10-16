@@ -97,7 +97,7 @@ def test_a_label_with_a_config_dir_resolves_to_that_account(tmp_path: Path) -> N
     assert account.label == "kit"
     assert account.config_dir == directory
     assert account.limits.weekly.usage_pause_pct == 40
-    assert account.slots == 2
+    assert account.max_units_in_progress == 2
 
 
 def test_a_labelled_account_answers_every_function_from_its_directory(tmp_path: Path) -> None:

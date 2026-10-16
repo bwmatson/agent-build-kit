@@ -1459,7 +1459,8 @@ def run_doctor(
     checks += _timers(inst, run, units, which)
     checks += _toolchain(inst, run, which)
     checks += _runtime(inst, which, run)
-    checks += _labelled_accounts(inst, run)
+    if config.runtime_name(inst.config) == config.CLAUDE_CODE:
+        checks += _labelled_accounts(inst, run)
     checks += _notifications(inst, run, which)
     checks += _ssh_keys(inst)
     checks += _verify_env(inst, run)

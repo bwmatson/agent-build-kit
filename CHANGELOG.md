@@ -105,7 +105,8 @@
   the label a directory in `abk.local.yaml` under `runtimes.claude_code.accounts.<label>`
   (`config_dir`, `limits`, `max_units_in_progress`). A `config_dir` in the committed
   `abk.yaml`, or a relative one, is refused; a label with no directory on a machine falls
-  back to the default account. `abk doctor` prints a note for such a label and an error with
+  back to the default account. A label only takes effect once runs use it; until then units
+  still run on the default account. `abk doctor` prints a note for such a label and an error with
   the login command for a directory that is missing or not logged in.
 
 - Where an installation's own facts go is now written down in `docs/configuration.md`, the
