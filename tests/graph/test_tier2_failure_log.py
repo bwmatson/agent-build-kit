@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_build_kit.pipeline.tier2 import Tier2Result, build_snapshot
+from agent_build_kit.pipeline.e2e import Tier2Result, build_snapshot
 from tests.tier2_failure_fakes import run_failing_tier2
 
 TAIL = [

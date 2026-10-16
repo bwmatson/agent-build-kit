@@ -69,7 +69,7 @@ def test_a_failing_pipeline_command_with_a_check_that_fails_then_spends_no_fix_r
         env.break_it()
         return False, "error: executable `ruff` was not found"
 
-    outcome = tick(tmp_path, recorder, run_tier1=breaks_the_environment)
+    outcome = tick(tmp_path, recorder, run_unit_test=breaks_the_environment)
 
     assert outcome.status == RunStatus.FAILED
     stored = recorder.store.get(UNIT)

@@ -3,7 +3,7 @@ the saved feedback."""
 
 from pathlib import Path
 
-from agent_build_kit.pipeline.tier2 import Tier2Result
+from agent_build_kit.pipeline.e2e import Tier2Result
 from tests.redaction_fakes import NAME, SECRET, known
 from tests.tier2_failure_fakes import gate, run_failing_tier2, run_returning
 

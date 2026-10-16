@@ -10,7 +10,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as pipeline_cli
 from agent_build_kit.cli.doctor import Check, run_doctor
-from agent_build_kit.pipeline.tier2_holds import HELD_FILE
+from agent_build_kit.pipeline.e2e_holds import HELD_FILE
 from agent_build_kit.pipeline.unit_store import UnitStore
 from tests.cli.test_doctor import Answers
 from tests.cli.tier2_hold_fakes import (

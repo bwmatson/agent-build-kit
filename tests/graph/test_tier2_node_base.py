@@ -37,7 +37,7 @@ def test_an_untouched_failing_test_is_rerun_on_the_base_the_node_runs_against(
         recorder,
         base=base_sha,
         worktree=lambda *args, **kwargs: repo,
-        run_tier2=gate.run,
+        run_e2e=gate.run,
     )
 
     assert runs.on_base == [PROFILE.serial_rerun_command(runs.on_unit[0], [FAILED])]

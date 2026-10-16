@@ -313,7 +313,7 @@ def test_a_dirty_tree_at_a_node_that_runs_no_agent_parks_the_unit(tmp_path: Path
         raise Killed("power loss")
 
     with pytest.raises(Killed):
-        tick(tmp_path, recorder, **habitat.overrides(), run_tier1=killed_checks)
+        tick(tmp_path, recorder, **habitat.overrides(), run_unit_test=killed_checks)
     assert position(tmp_path).next == (Node.CHECKS,)
     edit_by_hand(habitat)
 

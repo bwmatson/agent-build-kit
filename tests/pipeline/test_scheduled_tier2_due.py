@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline.tier2_schedule import scheduled_name, scheduled_parts, write_due
+from agent_build_kit.pipeline.e2e_schedule import scheduled_name, scheduled_parts, write_due
 from agent_build_kit.pipeline.units import UnitState
 from agent_build_kit.pipeline.untouched_failures import ensure_fix, preexisting_record
 from tests.tier2_schedule_fakes import (
@@ -35,7 +35,7 @@ def round_of(inst, store, *, today=TODAY) -> tuple[list[str], list[str]]:
 
 
 def test_the_name_is_the_prefix_the_repo_the_day_and_the_split() -> None:
-    assert scheduled_name("app", TODAY) == "scheduled-tier2-app-2026-03-10-rest"
+    assert scheduled_name("app", TODAY) == "scheduled-e2e-app-2026-03-10-rest"
 
 
 @pytest.mark.parametrize(
@@ -277,7 +277,7 @@ def test_the_date_is_read_from_the_name_and_nothing_is_stored(tmp_path: Path) ->
 
     [name] = round_of(inst, store)[0]
 
-    assert {p.name for p in inst.state_dir.iterdir()} <= before | {"scheduled-tier2.lock"}
+    assert {p.name for p in inst.state_dir.iterdir()} <= before | {"scheduled-e2e.lock"}
     # Archived on a later day than it was written: the date in the name is the one that counts.
     (inst.changes_dir / "archive").mkdir()
     (inst.changes_dir / name).rename(inst.changes_dir / "archive" / f"2026-04-20-{name}")

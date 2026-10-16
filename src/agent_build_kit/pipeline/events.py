@@ -96,7 +96,7 @@ from agent_build_kit.pipeline.units import (
     through_satisfied,
     trunk_of,
 )
-from agent_build_kit.pipeline.wiring import build_tier1, moving_onto, own_work_starts_after
+from agent_build_kit.pipeline.wiring import build_unit_test, moving_onto, own_work_starts_after
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock, worktree_path
 from agent_build_kit.pipeline.workspaces import remove_worktree as drop_worktree
 from agent_build_kit.runtimes.base import (
@@ -992,7 +992,7 @@ def build_fetch_check_logs(
 
     The poller already sends a unit back when a check starts failing, but the
     rework used to get only "failing checks: <name>" — and when the failure is
-    a test tier 1 never ran, nothing local can say why. Which logs those are,
+    a test the unit-test step never ran, nothing local can say why. Which logs those are,
     and how to reach them, is the forge's business.
     """
     for_repo = for_repo or forges.for_repo
@@ -1438,7 +1438,7 @@ def on_conflict(
         """The stack move and what it came to, under the unit's branch claim."""
         try:
             # The commit the branch sits on, so the move replays what is the unit's and
-            # tier 1 and the comment can say what the move brought in.
+            # unit-test and the comment can say what the move brought in.
             outcome = restack(
                 branch=branch_name(current),
                 old_base=fork_point(current),
@@ -1775,7 +1775,7 @@ def build_restack(
     store: UnitStore,
     root: Path,
     move: Callable[..., Moved] | None = None,
-    tier1: Callable[..., tuple[bool, str]] | None = None,
+    unit_test: Callable[..., tuple[bool, str]] | None = None,
     push: Callable[..., str] | None = None,
     retarget: Callable[..., None] | None = None,
     comment: Callable[..., None] | None = None,
@@ -1802,7 +1802,7 @@ def build_restack(
     instead, and the runner pushes once it passes.
     """
     move = move or resolved_move
-    tier1 = tier1 or _default_tier1
+    unit_test = unit_test or _default_unit_test
     push = push or _default_push
     retarget = retarget or _default_retarget
     comment = comment or partial(_default_comment, posts_root=posts_root)
@@ -2031,7 +2031,7 @@ def build_restack(
                 else nullcontext(cwd)
             )
             with checks_in as checks_cwd:
-                passed, output = tier1(
+                passed, output = unit_test(
                     cwd=checks_cwd,
                     base=local_ref(new_base, repo=child.repo),
                     moved_from=old_base,
@@ -2099,8 +2099,8 @@ def build_restack(
     return restack
 
 
-def _default_tier1(*, cwd: Path, base: str, moved_from: str | None = None) -> tuple[bool, str]:
-    return build_tier1()(cwd=cwd, base=base, moved_from=moved_from)
+def _default_unit_test(*, cwd: Path, base: str, moved_from: str | None = None) -> tuple[bool, str]:
+    return build_unit_test()(cwd=cwd, base=base, moved_from=moved_from)
 
 
 def _default_push(repo: Path, branch: str, *, last_pushed: str | None) -> str:
@@ -2332,3 +2332,6 @@ def build_dispatch(
         return True
 
     return dispatch
+
+
+_default_tier1 = _default_unit_test  # abk-shim

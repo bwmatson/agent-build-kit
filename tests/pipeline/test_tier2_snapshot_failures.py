@@ -1,6 +1,6 @@
 """The snapshot lists every failed test above the `<details>` block."""
 
-from agent_build_kit.pipeline.tier2 import TestFailure, Tier2Result, build_snapshot
+from agent_build_kit.pipeline.e2e import TestFailure, Tier2Result, build_snapshot
 
 FAILURES = [
     TestFailure(test=f"tests/live/test_a.py::test_{n}", line=f"KeyError: 'PORT{n}'")

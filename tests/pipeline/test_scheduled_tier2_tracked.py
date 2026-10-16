@@ -14,8 +14,8 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.e2e_schedule import is_scheduled, scheduled_name
 from agent_build_kit.pipeline.stack_runner import RunStatus
-from agent_build_kit.pipeline.tier2_schedule import is_scheduled, scheduled_name
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED, SATISFIED
 from agent_build_kit.pipeline.usage_guard import Decision
@@ -128,11 +128,11 @@ def test_a_scheduled_unit_waits_for_a_held_tier_2_lock_without_failing(
     tree = tmp_path / "tree"
     tree.mkdir()
 
-    ok, _ = runner.run_tier2(cwd=tree)
+    ok, _ = runner.run_e2e(cwd=tree)
 
     assert ok and ran.record_seen is not None, "it ran when the lock was free"
     assert clock.elapsed() >= 2 * HOUR
-    assert any("tier 2 is busy" in line for line in log)
+    assert any("e2e-test is busy" in line for line in log)
 
 
 def test_a_usage_refusal_delays_the_scheduled_unit_until_the_guard_admits_a_unit(

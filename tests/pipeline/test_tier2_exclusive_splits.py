@@ -8,7 +8,7 @@ import subprocess
 from typing import Any
 
 from agent_build_kit.config import Tier2Split
-from agent_build_kit.pipeline.tier2_exclusive import check_splits
+from agent_build_kit.pipeline.e2e_exclusive import check_splits
 
 SPLITS = (
     Tier2Split(name="acp", marker="runtime_acp"),

@@ -72,13 +72,13 @@ def edited_in_tier1(recorder: Recorder, edit: Callable[[], object]) -> Callable[
     recorder.tier1_results = [(False, FAILING), (True, "")]
     first = [True]
 
-    def run_tier1(**kw: Any) -> tuple[bool, str]:
+    def run_unit_test(**kw: Any) -> tuple[bool, str]:
         if first:
             first.clear()
             edit()
         return recorder.tier1(**kw)
 
-    return run_tier1
+    return run_unit_test
 
 
 class EditedAtReview(Sessions):
@@ -100,7 +100,7 @@ def resumed_fix(tmp_path: Path, edit: Callable[[], object]) -> str:
     write_spec(tmp_path)
     recorder = fresh(tmp_path)
     runtime = Sessions()
-    tick(tmp_path, recorder, run_tier1=edited_in_tier1(recorder, edit), **agents(runtime))
+    tick(tmp_path, recorder, run_unit_test=edited_in_tier1(recorder, edit), **agents(runtime))
     fix = runtime.built[2]
     assert fix.resume_session == "sess-1" and FAILING in fix.prompt
     return fix.prompt
@@ -225,7 +225,7 @@ def test_a_fresh_session_is_given_no_section_for_the_spec_that_changed(tmp_path:
     tick(
         tmp_path,
         recorder,
-        run_tier1=edited_in_tier1(recorder, lambda: add_task(tasks)),
+        run_unit_test=edited_in_tier1(recorder, lambda: add_task(tasks)),
         **agents(runtime),
     )
 

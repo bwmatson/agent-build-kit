@@ -67,15 +67,15 @@ def test_an_unconverted_file_still_imports_the_old_names_after_a_shimmed_run(rep
     assert "imported" in result.stdout
 
 
-def test_the_renamed_module_is_real_and_the_old_module_is_a_one_line_re_export(
+def test_the_renamed_module_is_real_and_the_old_module_is_a_re_export(
     repo: Path,
 ) -> None:
     rename_test_kinds.rename_paths(repo, [repo / "pkg"], shims=True)
 
     assert "class E2eResult" in (repo / "pkg/e2e_gate.py").read_text()
-    shim = (repo / "pkg/tier2_gate.py").read_text().strip().splitlines()
-    assert len(shim) == 1
-    assert "e2e_gate" in shim[0]
+    shim = (repo / "pkg/tier2_gate.py").read_text()
+    assert "e2e_gate" in shim
+    assert rename_test_kinds.is_shim_module(shim)
 
 
 def test_remove_shims_deletes_the_aliases_and_the_shim_modules(repo: Path) -> None:

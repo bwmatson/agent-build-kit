@@ -38,7 +38,7 @@ class MetricRecord(Frozen):
     @field_validator("attributes", mode="after")
     @classmethod
     def _read_old_kind(cls, attributes: dict[str, str | int]) -> dict[str, str | int]:
-        """A line written before the rename holds `tier1` or `tier2` as its `tier`."""
+        """A line written before the rename holds the old spelling of its kind as its `tier`."""
         kind = attributes.get("tier")
         if isinstance(kind, str):
             return {**attributes, "tier": new_spelling(Place.VALUE, kind)}

@@ -30,8 +30,8 @@ def drive(tmp_path: Path, repo: Path, base: str, gate, told: Told | None = None)
         recorder,
         base=base,
         worktree=lambda *args, **kwargs: repo,
-        run_tier2=gate.run,
-        tier2_verdict=lambda: gate.verdict,
+        run_e2e=gate.run,
+        e2e_verdict=lambda: gate.verdict,
         on_preexisting=told,
     )
     return recorder, outcome, told

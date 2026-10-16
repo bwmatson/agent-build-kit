@@ -98,8 +98,8 @@ def _run(command: list[str], root: Path) -> tuple[bool, str]:
     try:
         result = run_limited(
             command,
-            limit=limits.tier1_command_seconds,
-            grace=limits.tier1_abort_grace_seconds,
+            limit=limits.unit_test_command_seconds,
+            grace=limits.unit_test_abort_grace_seconds,
             cwd=root,
         )
     except OSError as error:

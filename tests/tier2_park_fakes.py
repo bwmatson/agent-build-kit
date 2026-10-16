@@ -8,8 +8,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit.graph.state import EventKind, ResumeEvent
-from agent_build_kit.pipeline.tier2 import Tier2Result
-from agent_build_kit.pipeline.tier2_holds import ORIGIN_FILE, Hold, Holds
+from agent_build_kit.pipeline.e2e import Tier2Result
+from agent_build_kit.pipeline.e2e_holds import ORIGIN_FILE, Hold, Holds
 from agent_build_kit.pipeline.unit_store import RequeueReason
 
 GATE_CLEARED = ResumeEvent(

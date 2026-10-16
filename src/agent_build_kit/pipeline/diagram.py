@@ -69,7 +69,7 @@ def _node_id(unit_id: str) -> str:
 
 # States that are still going somewhere, or stuck until someone looks.
 # Everything else is history. Failed is here because it is the state that most
-# needs seeing: left out, a unit vanishes from the graph on failing tier 2,
+# needs seeing: left out, a unit vanishes from the graph on failing e2e-test,
 # and takes a merged parent with it when it was the only unit built on it.
 ACTIVE = (PLANNED, RUNNING, IN_REVIEW, HELD, "failed")
 

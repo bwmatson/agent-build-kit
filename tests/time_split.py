@@ -21,7 +21,7 @@ from typing import Any
 
 import pytest
 
-from agent_build_kit.pipeline.tier2_times import SPLIT_PREFIX
+from agent_build_kit.pipeline.e2e_times import SPLIT_PREFIX
 
 clock = time
 

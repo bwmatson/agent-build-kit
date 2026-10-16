@@ -1,6 +1,6 @@
 """A flaky test: told from a failure by running it alone, recorded, and fixed once.
 
-When tier 1 fails on tests, the failed tests are run again serially. A test that fails
+When unit-test fails on tests, the failed tests are run again serially. A test that fails
 again is a failure. One that passes both reruns is a flake: it is recorded, it gets one
 change that makes it deterministic, and every unit that met it waits on that change.
 """
@@ -42,9 +42,9 @@ class Flake(Recorded):
     # The test's own section of the first run's output: its traceback and captured output.
     failure: str = ""
     at: datetime
-    # Set by whoever records it: tier 1 does not know which unit it ran for.
+    # Set by whoever records it: unit-test does not know which unit it ran for.
     unit: str = ""
-    # Where tier 1 ran it (a project below the repo root, or the root), which its
+    # Where unit-test ran it (a project below the repo root, or the root), which its
     # identifier is relative to; empty when unknown.
     directory: str = ""
 
@@ -55,7 +55,7 @@ def waiting_note(tests: list[str]) -> str:
 
 
 class FlakeFound(Exception):
-    """Raised by tier 1 when every failed test passed both serial reruns: the unit is not
+    """Raised by unit-test when every failed test passed both serial reruns: the unit is not
     failed for them, it waits for their fix. `scoped` marks a flake met in a moved base's
     scoped run, which is recorded without the unit waiting."""
 
@@ -294,7 +294,7 @@ def _spec(flake: Flake, *, successor: bool) -> str:
 
 def _modules_of(inst: Installation, repo: str, flake: Flake) -> list[str]:
     """The files of the code repo that the test file imports, found from its imports. The
-    identifier is relative to the directory tier 1 ran in, else to the checkout's root."""
+    identifier is relative to the directory unit-test ran in, else to the checkout's root."""
     checkout = inst.checkouts.get(repo)
     if checkout is None:
         return []

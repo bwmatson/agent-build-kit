@@ -15,7 +15,7 @@ from typing import Protocol, runtime_checkable
 
 from agent_build_kit.config import EnvironmentConfig, RepoConfig
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.tier2 import TestFailure, TestTime, Tier2Selection
+from agent_build_kit.pipeline.e2e import TestFailure, TestTime, Tier2Selection
 
 
 class ProfileUnsupported(NotImplementedError):
@@ -197,6 +197,9 @@ class AppliesTier2Selection(Protocol):
         own marker expression and is not ANDed with it. An empty list when it selects none;
         None when the listing fails, since that says nothing about what is selected."""
         ...
+
+
+AppliesE2eSelection = AppliesTier2Selection  # abk-forward
 
 
 @runtime_checkable

@@ -25,6 +25,7 @@ import tree_sitter_typescript
 from tree_sitter import Language, Node, Parser
 
 from agent_build_kit.config import EnvironmentConfig, RepoConfig
+from agent_build_kit.pipeline.e2e import TestFailure, TestTime, clip_failure_line
 from agent_build_kit.pipeline.red_check import (
     UNRECOGNISED_FAILURE,
     parse_report,
@@ -32,7 +33,6 @@ from agent_build_kit.pipeline.red_check import (
     split_report,
     wrap_report_command,
 )
-from agent_build_kit.pipeline.tier2 import TestFailure, TestTime, clip_failure_line
 from agent_build_kit.profiles import node_environment
 from agent_build_kit.profiles.base import PromptWords, is_doc_path
 

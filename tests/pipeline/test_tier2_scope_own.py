@@ -10,7 +10,7 @@ import pytest
 
 from agent_build_kit.config import ProjectConfig, Tier2UnitScope
 from agent_build_kit.pipeline import wiring
-from agent_build_kit.pipeline.tier2 import stack_lock
+from agent_build_kit.pipeline.e2e import stack_lock
 from agent_build_kit.pipeline.wiring import Tier2Run, Tier2Scope, tier2_scope
 from agent_build_kit.profiles.python_uv import PROFILE
 from tests.tier2_scope_fakes import (
@@ -71,7 +71,7 @@ def test_a_changed_test_without_the_marker_is_not_run_and_collecting_nothing_is_
     assert gate.result is not None
     assert gate.result.ran_no_tests
     assert gate.result.passed == gate.result.failed == 0
-    assert "no tier 2 test ran" in snapshot
+    assert "no e2e-test ran" in snapshot
 
 
 def test_each_projects_command_carries_ids_relative_to_that_project(tmp_path: Path) -> None:

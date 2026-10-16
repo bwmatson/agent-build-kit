@@ -68,6 +68,7 @@ from agent_build_kit.notify.windows import (
     MODULE_CHECK_COMMAND,
 )
 from agent_build_kit.path_patterns import matches
+from agent_build_kit.pipeline.e2e_holds import HELD_FILE, current_holds, hold_text
 from agent_build_kit.pipeline.environment import matched_inputs
 from agent_build_kit.pipeline.original_copy import COPY_PATTERN
 from agent_build_kit.pipeline.pending import describe, pending_projects
@@ -78,7 +79,6 @@ from agent_build_kit.pipeline.planning_sync import (
     read_pipeline_marker,
 )
 from agent_build_kit.pipeline.shell import git, git_out
-from agent_build_kit.pipeline.tier2_holds import HELD_FILE, current_holds, hold_text
 from agent_build_kit.profiles.base import ProfileUnsupported
 from agent_build_kit.redaction import MIN_LENGTH
 from agent_build_kit.redaction import active as active_redactor

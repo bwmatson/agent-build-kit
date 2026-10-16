@@ -827,8 +827,8 @@ def test_a_parent_merging_while_its_child_builds_moves_the_child_before_its_pr(
             restack_onto=lambda *, tree, branch, base, unit, resolve=True, resolver=None: (
                 moved_onto.append((unit.id, base))
             ),
-            run_tier1=lambda *, cwd, base, whole_repo=False: (True, ""),
-            run_tier2=lambda *, cwd, base=None: (True, ""),
+            run_unit_test=lambda *, cwd, base, whole_repo=False: (True, ""),
+            run_e2e=lambda *, cwd, base=None: (True, ""),
             push=lambda branch, *, cwd: "pushed",
             open_pr=open_pr,
             post_status=lambda sha, ok: None,

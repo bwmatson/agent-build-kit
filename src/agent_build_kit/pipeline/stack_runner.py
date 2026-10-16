@@ -11,8 +11,8 @@ order is the guarantee (docs/architecture.md):
    only evidence the tests ever failed.
 3. **Review, but only if there were commits.** Reviewing an empty branch
    spends a model call to say nothing.
-4. **Tier 1, then tier 2.** In that order: no point occupying the single local
-   stack to re-confirm a failure tier 1 already found.
+4. **Unit-test, then e2e-test.** In that order: no point occupying the single local
+   stack to re-confirm a failure unit-test already found.
 5. **Push, then post the status.** GitHub only accepts a status for a commit
    it already has.
 6. **Record the outcome.** A failed unit is marked failed rather than left
@@ -40,6 +40,8 @@ from agent_build_kit.config import RepoConfig, active
 from agent_build_kit.installation import changes_dir_under
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.determinism_guidance import determinism_guidance
+from agent_build_kit.pipeline.e2e import E2eResult, E2eVerdict, latest_full_output
+from agent_build_kit.pipeline.e2e_holds import Holds
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.flakes import OnFlake
 from agent_build_kit.pipeline.lease import Leases
@@ -47,8 +49,6 @@ from agent_build_kit.pipeline.pr_replies import last_json, parse_answer
 from agent_build_kit.pipeline.reuse_guidance import reuse_guidance
 from agent_build_kit.pipeline.scratch import output_convention
 from agent_build_kit.pipeline.task_progress import mark_groups
-from agent_build_kit.pipeline.tier2 import Tier2Result, Tier2Verdict, latest_full_output
-from agent_build_kit.pipeline.tier2_holds import Holds
 from agent_build_kit.pipeline.unit_store import (
     Cause,
     Description,
@@ -113,7 +113,7 @@ def unit_follow_ups(planning_repo: Path | str, change: str, unit_id: str) -> tup
 # carries a lease on the commit it last published, so a push from anywhere
 # else makes it fail as a stale remote.
 PIPELINE_PUSHES_NOTE = """\
-The pipeline pushes this branch, after review and tier 1; you never do. Run no
+The pipeline pushes this branch, after review and unit-test; you never do. Run no
 `git push`, to any remote or branch, however it is spelled.
 """
 
@@ -159,26 +159,26 @@ WHOLE_ASK = "(No failure was saved for this unit: the person's instruction above
 
 
 class ChecksTemplate(PromptTemplate):
-    """A checks prompt with a `{rerun}` place, which is tier 1's sentence (`tier1`) unless a
-    caller fills it, so a tier 1 failure renders as it always did."""
+    """A checks prompt with a `{rerun}` place, which is unit-test's sentence (`unit_test`) unless a
+    caller fills it, so a unit-test failure renders as it always did."""
 
-    tier1: str
+    unit_test: str
 
-    def __new__(cls, text: str, tier1: str) -> ChecksTemplate:
+    def __new__(cls, text: str, unit_test: str) -> ChecksTemplate:
         made = super().__new__(cls, text)
-        made.tier1 = tier1
+        made.unit_test = unit_test
         return made
 
     def format(self, *args: object, **fields: object) -> str:
-        return super().format(*args, **{"rerun": self.tier1, **fields})
+        return super().format(*args, **{"rerun": self.unit_test, **fields})
 
     def advice(self, feedback: str, source: FeedbackSource) -> str:
-        """What the prompt says about seeing the whole output: for tier 1 this template's
-        own sentence, to run the checks; for tier 2, which a builder cannot rerun, the file
+        """What the prompt says about seeing the whole output: for unit-test this template's
+        own sentence, to run the checks; for e2e-test, which a builder cannot rerun, the file
         holding the latest run's full output when the saved failure names one that was not
         withheld."""
-        if source is not FeedbackSource.TIER2:
-            return self.tier1
+        if source is not FeedbackSource.E2E:
+            return self.unit_test
         cut = "The output above is cut short, and you cannot rerun the live tests."
         path, withheld = latest_full_output(feedback)
         if not path or withheld:
@@ -244,7 +244,7 @@ new tests, which must fail. A test that passes now is not testing the
 behaviour this group adds. Do not write the implementation.
 The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
-the unit has passed review, tier 1 and been pushed.
+the unit has passed review, unit-test and been pushed.
 """
     + "{changelog}"
     + PIPELINE_PUSHES_NOTE
@@ -285,7 +285,7 @@ group(s) {groups}:
     + """\
 The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
-the unit has passed review, tier 1 and been pushed.
+the unit has passed review, unit-test and been pushed.
 """
     + "{changelog}"
     + PIPELINE_PUSHES_NOTE
@@ -294,9 +294,9 @@ the unit has passed review, tier 1 and been pushed.
     + NO_REWRITE_NOTE
 )
 
-# What tier 1's output is saved under, for people reading it: which step it came
+# What unit-test's output is saved under, for people reading it: which step it came
 # from is the feedback's source, never this text.
-TIER1_FAILED = "tier 1 failed:"
+UNIT_TEST_FAILED = "unit-test failed:"
 
 
 CHECKS_PROMPT = ChecksTemplate(
@@ -319,10 +319,10 @@ when all of them pass. Beyond fixing the checks, keep the change to what the
 task groups ask for.
 The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
-the unit has passed review, tier 1 and been pushed.
+the unit has passed review, unit-test and been pushed.
 """
     + REUSE_NOTE,
-    tier1="The output may be cut short; run the checks\nyourself to see all of it.",
+    unit_test="The output may be cut short; run the checks\nyourself to see all of it.",
 )
 
 
@@ -628,7 +628,7 @@ Write them for the reviewer reading the pushed PR. Say what changed in the
 code and why, or answer the question. Leave out whether anything is committed
 or pushed — by the time they are read it is, and each reply is signed with the
 commit it describes — and leave out your own verification (lint, types, test
-counts); tier 1 runs before anything is pushed.
+counts); unit-test runs before anything is pushed.
 """
 
 REWORK_PROMPT = PromptTemplate(
@@ -645,7 +645,7 @@ REWORK_PROMPT = PromptTemplate(
     + """\
 The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
-the unit has passed review, tier 1 and been pushed.
+the unit has passed review, unit-test and been pushed.
 """
     + "{changelog}"
     + PIPELINE_PUSHES_NOTE
@@ -667,7 +667,7 @@ your summary says so. Run
 linting, formatting, types and the tests before you finish.
 The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
-the unit has passed review, tier 1 and been pushed.
+the unit has passed review, unit-test and been pushed.
 """
     + "{changelog}"
     + PIPELINE_PUSHES_NOTE
@@ -824,7 +824,7 @@ not only what was missing:
 # The agent may have compacted what it remembers, so each points it back at the worktree.
 CONTINUATION_READONLY = """\
 The change's files stay read-only for you. The pipeline records a task as done once
-the unit has passed review, tier 1 and been pushed.
+the unit has passed review, unit-test and been pushed.
 """
 
 IMPLEMENTATION_CONTINUATION = (
@@ -858,7 +858,7 @@ Run linting, formatting, types and the tests again, and finish only when all of
 them pass.
 """
     + CONTINUATION_READONLY,
-    tier1=(
+    unit_test=(
         "Run the checks yourself first: the output above may be cut short, and what you\n"
         "remember of the earlier work may not be exact."
     ),
@@ -1373,38 +1373,38 @@ class UnitRunner(BaseModel):
     # Called with `resolve=False` before a push: then a conflict is reported as
     # `Restacked.conflict` with the branch left where it was, and no agent runs.
     restack_onto: Callable[..., Restacked | None]
-    run_tier1: Callable[..., tuple[bool, str]]
-    # Told the unit and each flake when tier 1 raises `FlakeFound`: records it, and with
+    run_unit_test: Callable[..., tuple[bool, str]]
+    # Told the unit and each flake when unit-test raises `FlakeFound`: records it, and with
     # `wait` has the unit wait on its fix (with it false the change is ensured and no
     # `Needs:` line is added), and answers that change, or None when there is nothing for
     # the unit to wait on (it builds the fix). See `wiring.build_on_flake`.
     on_flake: OnFlake = lambda unit, flake, *, wait=True: None
-    run_tier2: Callable[..., tuple[bool, str]]
-    # What the last tier 2 run found of whose each failed test is (None when nothing was
+    run_e2e: Callable[..., tuple[bool, str]]
+    # What the last e2e-test run found of whose each failed test is (None when nothing was
     # classified), and what to do with each test that failed on the base too: told the
     # unit, the verdict, the test and whether the unit waits on the fix, it records the
     # failure and answers the change that fixes it (None for a unit of that change).
     # See `wiring.build_on_preexisting`.
-    tier2_verdict: Callable[[], Tier2Verdict | None] = lambda: None
-    # The result of the last tier 2 run (its commit and the runtimes it parked), and the
+    e2e_verdict: Callable[[], E2eVerdict | None] = lambda: None
+    # The result of the last e2e-test run (its commit and the runtimes it parked), and the
     # splits held now with their reasons.
-    tier2_result: Callable[[], Tier2Result | None] = lambda: None
-    tier2_holds: Callable[[], Holds] = lambda: Holds()
-    # Whether the last tier 2 run ran no test, the unit having added or changed none.
-    tier2_ran_no_tests: Callable[[], bool] = lambda: False
+    e2e_result: Callable[[], E2eResult | None] = lambda: None
+    e2e_holds: Callable[[], Holds] = lambda: Holds()
+    # Whether the last e2e-test run ran no test, the unit having added or changed none.
+    e2e_ran_no_tests: Callable[[], bool] = lambda: False
     # What a scheduled unit's passing run says of itself, for its note.
-    tier2_passed_note: Callable[[], str] = lambda: "scheduled tier 2 passed"
+    e2e_passed_note: Callable[[], str] = lambda: "scheduled e2e-test passed"
     on_preexisting: Callable[..., str | None] = lambda unit, verdict, failure, *, wait: None
-    # Whether the tier 2 run about to be made executes the whole marker (the one scope
-    # function `Tier2Session.run` decides by), given the worktree and the base; only such a
-    # run is held by an open fix. See `wiring.build_on_tier2_gate`.
-    tier2_runs_whole: Callable[..., bool] = lambda *, cwd, base: False
-    # Told the unit before a full tier 2 run: gives it a `Needs:` line on each open fix
+    # Whether the e2e-test run about to be made executes the whole marker (the one scope
+    # function `E2eSession.run` decides by), given the worktree and the base; only such a
+    # run is held by an open fix. See `wiring.build_on_e2e_gate`.
+    e2e_runs_whole: Callable[..., bool] = lambda *, cwd, base: False
+    # Told the unit before a full e2e-test run: gives it a `Needs:` line on each open fix
     # change of a base failure that holds it and answers those changes, none when nothing
-    # does. See `wiring.build_on_tier2_gate`.
-    on_tier2_gate: Callable[..., list[str]] = lambda unit, splits=None: []
-    # The splits the tier 2 run executes, which the gate asks; None: all.
-    tier2_splits: Callable[[], tuple[str, ...] | None] = lambda: None
+    # does. See `wiring.build_on_e2e_gate`.
+    on_e2e_gate: Callable[..., list[str]] = lambda unit, splits=None: []
+    # The splits the e2e-test run executes, which the gate asks; None: all.
+    e2e_splits: Callable[[], tuple[str, ...] | None] = lambda: None
     push: Callable[..., str]
     open_pr: Callable[..., int]
     post_status: Callable[[str, bool], None]
@@ -1682,3 +1682,6 @@ class UnitRunner(BaseModel):
         self.store.set_state(unit.id, UnitState.FAILED, note=detail, cause=cause)
         self.mark_tasks(unit, done=False)
         return RunOutcome(status=RunStatus.FAILED, detail=detail)
+
+
+TIER1_FAILED = UNIT_TEST_FAILED  # abk-shim

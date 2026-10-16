@@ -358,10 +358,16 @@ class Tier2Schedule(StrEnum):
     OFF = "off"
 
 
+E2eSchedule = Tier2Schedule  # abk-forward
+
+
 def tier2_schedule(repo: RepoConfig, limits: LimitsConfig) -> Tier2Schedule:
     """The schedule in effect for `repo`: its own `tests.tier2_schedule` when set, else the
     `limits` one."""
     return repo.tests.tier2_schedule or limits.tier2_schedule
+
+
+e2e_schedule = tier2_schedule  # abk-forward
 
 
 def tier2_splits(repo: RepoConfig, config: WorkspaceConfig) -> tuple[Tier2Split, ...]:
@@ -375,6 +381,9 @@ def tier2_splits(repo: RepoConfig, config: WorkspaceConfig) -> tuple[Tier2Split,
     ]
     rest = declared.get(REST_SPLIT, Tier2SplitEntry())
     return (*named, Tier2Split(name=REST_SPLIT, hold=rest.hold))
+
+
+e2e_splits = tier2_splits  # abk-forward
 
 
 def known_runtime_names(configured: Iterable[str] = ()) -> set[str]:
@@ -550,6 +559,9 @@ class LimitsConfig(Frozen):
     tier2_lock_wait_seconds: Annotated[int, Field(gt=0, alias="e2e_lock_wait_seconds")] = 5400
     # How many of a tier 2 run's slowest test entries the posted result lists; 0 lists every one.
     tier2_durations_shown: Annotated[int, Field(ge=0, alias="e2e_durations_shown")] = 15
+    unit_test_command_seconds = property(lambda self: self.tier1_command_seconds)  # abk-forward
+    unit_test_abort_grace_seconds = property(lambda s: s.tier1_abort_grace_seconds)  # abk-forward
+    e2e_durations_shown = property(lambda self: self.tier2_durations_shown)  # abk-forward
     # Longest the connectivity probe waits to connect to one host, in seconds (a name lookup
     # waits on the system resolver instead). The probe tells a network
     # outage from a model service outage when an agent run ends on a failure to connect.
@@ -738,6 +750,9 @@ class Tier2Split(Frozen):
     hold: bool | None = None
 
 
+E2eSplit = Tier2Split  # abk-forward
+
+
 class TestsConfig(Frozen):
     model_config = TEST_KIND_SETTINGS
 
@@ -745,6 +760,7 @@ class TestsConfig(Frozen):
     root_extras: list[str] = []
     # The pytest marker on tests that need the real local stack (tier 2).
     tier2_marker: str = Field("local_stack", alias="e2e_marker")
+    e2e_marker = property(lambda self: self.tier2_marker)  # abk-forward
     # This repo's tier 2 scope; None follows `global_limits.tier2_unit_scope`.
     tier2_unit_scope: Tier2UnitScope | None = Field(None, alias="e2e_unit_scope")
     # This repo's schedule; None follows `limits.tier2_schedule`.

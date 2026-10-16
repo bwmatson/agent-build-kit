@@ -6,7 +6,7 @@ before any review; when the review loop then fails it and the work is never
 pushed, the file still says it was finished. Now agents may
 not write to the planning repo at all (the policy hook refuses it), and a
 unit's groups are ticked when it reaches `in_review` — through the build/review
-loop, tier 1 and the push — and unticked if it fails.
+loop, unit-test and the push — and unticked if it fails.
 """
 
 from __future__ import annotations

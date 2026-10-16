@@ -119,7 +119,7 @@ class World:
             repos={"app": self.repo},
             store=self.store,
             root=self.trees,
-            tier1=lambda **k: (True, ""),
+            unit_test=lambda **k: (True, ""),
             comment=lambda *a, **k: None,
             **kwargs,
         )

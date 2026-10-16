@@ -300,7 +300,7 @@ def _check_push(tokens: list[str], branch: str, protected: Collection[str] = ())
 
 
 PUSH_REASON = (
-    "the pipeline pushes a unit's branch once review, tier 1 and the approved-commit check "
+    "the pipeline pushes a unit's branch once review, unit-test and the approved-commit check "
     "have passed — the agent never pushes, so leave it to the pipeline"
 )
 

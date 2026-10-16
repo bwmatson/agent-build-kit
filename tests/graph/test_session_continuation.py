@@ -305,7 +305,7 @@ def bumping(recorder: Recorder, *, moves: bool) -> Callable[..., tuple[bool, str
     """Tier 1 as the recorder runs it, then a commit lands that no node made."""
     first = True
 
-    def run_tier1(**kw: Any) -> tuple[bool, str]:
+    def run_unit_test(**kw: Any) -> tuple[bool, str]:
         nonlocal first
         result = recorder.tier1(**kw)
         if moves and first:
@@ -313,7 +313,7 @@ def bumping(recorder: Recorder, *, moves: bool) -> Callable[..., tuple[bool, str
         first = False
         return result
 
-    return run_tier1
+    return run_unit_test
 
 
 def continuation(tmp_path: Path, *, moves: bool) -> str:
@@ -323,7 +323,7 @@ def continuation(tmp_path: Path, *, moves: bool) -> str:
     recorder = fresh(where)
     failing_checks(recorder)
     runtime = Sessions()
-    tick(where, recorder, run_tier1=bumping(recorder, moves=moves), **agents(runtime))
+    tick(where, recorder, run_unit_test=bumping(recorder, moves=moves), **agents(runtime))
     fix = fix_request(runtime)
     assert fix.resume_session == "sess-1"
     return fix.prompt

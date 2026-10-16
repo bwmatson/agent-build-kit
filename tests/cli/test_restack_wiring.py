@@ -68,7 +68,7 @@ def test_a_restacked_branch_is_checked_with_the_changelog_check_when_its_repo_ha
     installation = workspace(tmp_path, app_changelog="CHANGELOG.md")
     given, ran = restack_wiring(tmp_path, monkeypatch, installation)
 
-    passed, _ = given["tier1"](cwd=installation.checkouts["app"], base="origin/main")
+    passed, _ = given["unit_test"](cwd=installation.checkouts["app"], base="origin/main")
 
     assert passed
     assert [c for c in ran if is_changelog_check(c)]
@@ -81,7 +81,7 @@ def test_a_restacked_branch_in_its_worktree_is_checked_as_its_repo(
     given, ran = restack_wiring(tmp_path, monkeypatch, installation)
     worktree = installation.worktree_root / "app" / "spec_feature_1"
 
-    given["tier1"](cwd=worktree, base="origin/main")
+    given["unit_test"](cwd=worktree, base="origin/main")
 
     assert [c for c in ran if is_changelog_check(c)]
 
@@ -92,7 +92,7 @@ def test_a_restacked_branch_gets_no_changelog_check_when_its_repo_has_it_off(
     installation = workspace(tmp_path, app_changelog=None)
     given, ran = restack_wiring(tmp_path, monkeypatch, installation)
 
-    given["tier1"](cwd=installation.checkouts["app"], base="origin/main")
+    given["unit_test"](cwd=installation.checkouts["app"], base="origin/main")
 
     assert ran
     assert not [c for c in ran if is_changelog_check(c)]
@@ -104,7 +104,7 @@ def test_the_restacks_tier_one_is_the_setting_of_the_repo_the_branch_is_in(
     installation = workspace(tmp_path, app_changelog=None)
     given, ran = restack_wiring(tmp_path, monkeypatch, installation)
 
-    given["tier1"](cwd=installation.checkouts["platform"], base="origin/main")
+    given["unit_test"](cwd=installation.checkouts["platform"], base="origin/main")
 
     assert [c for c in ran if is_changelog_check(c)]
 
@@ -153,7 +153,7 @@ def test_the_restacks_tier_one_logs_what_a_move_after_a_release_was_checked_by(
     monkeypatch.setattr(cli, "log", lambda message, **kwargs: logged.append(message))
     given, _ = restack_wiring(tmp_path, monkeypatch, installation)
 
-    passed, _ = given["tier1"](cwd=repo, base="main", moved_from=old_base)
+    passed, _ = given["unit_test"](cwd=repo, base="main", moved_from=old_base)
 
     assert passed
     assert len([line for line in logged if "moved base:" in line]) == 1

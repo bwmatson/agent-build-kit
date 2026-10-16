@@ -12,7 +12,7 @@ from threading import Barrier
 import pytest
 
 from agent_build_kit.config import Tier2Split
-from agent_build_kit.pipeline.tier2_holds import (
+from agent_build_kit.pipeline.e2e_holds import (
     HELD_FILE,
     ORIGIN_CONFIGURATION,
     ORIGIN_FILE,
@@ -361,3 +361,31 @@ def test_a_written_time_with_no_offset_is_refused_before_anything_is_written(
         hold(tmp_path, now=datetime(2031, 1, 1))
 
     assert not (tmp_path / HELD_FILE).exists()
+
+
+OLD_HELD_FILE = "tier2-held.json"
+
+
+def test_a_hold_left_in_the_file_under_the_old_name_still_holds(tmp_path: Path) -> None:
+    hold(tmp_path)
+    (tmp_path / HELD_FILE).rename(tmp_path / OLD_HELD_FILE)
+
+    assert set(read(splits(), tmp_path).held) == {"acp"}
+    assert (tmp_path / HELD_FILE).is_file()
+    assert not (tmp_path / OLD_HELD_FILE).exists()
+
+
+def test_a_hold_under_the_old_name_is_released_by_remove_hold(tmp_path: Path) -> None:
+    hold(tmp_path)
+    (tmp_path / HELD_FILE).rename(tmp_path / OLD_HELD_FILE)
+
+    assert remove_hold(tmp_path, "acp") is True
+    assert read(splits(), tmp_path).held == {}
+
+
+def test_the_new_file_wins_when_both_exist(tmp_path: Path) -> None:
+    hold(tmp_path, "claude_code")
+    (tmp_path / OLD_HELD_FILE).write_text("{}")
+
+    assert set(read(splits(), tmp_path).held) == {"claude_code"}
+    assert (tmp_path / OLD_HELD_FILE).exists()

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.tier2_schedule import (
+from agent_build_kit.pipeline.e2e_schedule import (
     PREFIX,
     scheduled_name,
     scheduled_parts,
@@ -58,8 +58,7 @@ def test_a_due_repo_gets_a_change_per_declared_split_and_rest(tmp_path: Path) ->
 
     expected = changes_of("app", "rest", "acp", "claude_code")
     assert expected == [
-        f"scheduled-tier2-app-{TODAY.isoformat()}-{split}"
-        for split in ("acp", "claude_code", "rest")
+        f"scheduled-e2e-app-{TODAY.isoformat()}-{split}" for split in ("acp", "claude_code", "rest")
     ]
     assert sorted(written) == expected
     assert scheduled_changes(inst) == expected
@@ -68,7 +67,7 @@ def test_a_due_repo_gets_a_change_per_declared_split_and_rest(tmp_path: Path) ->
 def test_a_repo_declaring_no_split_gets_only_the_rest_change(tmp_path: Path) -> None:
     inst, written = written_changes(tmp_path)
 
-    assert written == [f"scheduled-tier2-app-{TODAY.isoformat()}-rest"]
+    assert written == [f"scheduled-e2e-app-{TODAY.isoformat()}-rest"]
     assert scheduled_changes(inst) == written
 
 
@@ -207,7 +206,7 @@ def test_nothing_is_stored_but_the_change_names(tmp_path: Path) -> None:
     written, _ = round_of(inst, store)
 
     assert len(written) == 3
-    assert {p.name for p in inst.state_dir.iterdir()} <= before | {"scheduled-tier2.lock"}
+    assert {p.name for p in inst.state_dir.iterdir()} <= before | {"scheduled-e2e.lock"}
     (inst.changes_dir / "archive").mkdir()
     for name in written:
         (inst.changes_dir / name).rename(inst.changes_dir / "archive" / f"2026-04-20-{name}")

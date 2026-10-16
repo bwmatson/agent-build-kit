@@ -13,7 +13,7 @@ from tests.tier2_failure_fakes import checkout
 PASSED = "3 passed in 4.00s"
 
 
-def run_tier2(
+def run_e2e(
     tmp_path: Path, root: Path, projects: list[ProjectConfig]
 ) -> tuple[bool, list[Path], list[str]]:
     where: list[Path] = []
@@ -41,9 +41,7 @@ def test_only_the_active_projects_tests_run_and_the_pending_one_is_reported(
 ) -> None:
     root = checkout(tmp_path, "api")
 
-    ok, where, log = run_tier2(
-        tmp_path, root, [ProjectConfig(path="api"), ProjectConfig(path="web")]
-    )
+    ok, where, log = run_e2e(tmp_path, root, [ProjectConfig(path="api"), ProjectConfig(path="web")])
 
     assert ok
     assert where
@@ -54,7 +52,7 @@ def test_only_the_active_projects_tests_run_and_the_pending_one_is_reported(
 def test_a_repo_of_only_pending_projects_runs_nothing_and_passes(tmp_path: Path) -> None:
     root = checkout(tmp_path)
 
-    ok, where, log = run_tier2(tmp_path, root, [ProjectConfig(path="web")])
+    ok, where, log = run_e2e(tmp_path, root, [ProjectConfig(path="web")])
 
     assert ok
     assert where == []

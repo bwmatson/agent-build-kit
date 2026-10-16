@@ -168,7 +168,7 @@ def tier_one_commands(tmp_path: Path, workspace: Installation, clock: FakeClock,
 
     recorder = fresh(tmp_path)
     tier1 = build_tier1(run=run, changed=lambda *a: ["tests/test_x.py"])
-    tick(tmp_path, recorder, run_tier1=tier1, **overrides)
+    tick(tmp_path, recorder, run_unit_test=tier1, **overrides)
     return [s for s in span_lines(workspace) if s.get("command")]
 
 
@@ -208,7 +208,7 @@ def test_a_tier_one_command_that_raises_still_leaves_an_error_span(
     recorder = fresh(tmp_path)
     tier1 = build_tier1(run=run, changed=lambda *a: ["tests/test_x.py"])
     with pytest.raises(TimeoutError):
-        tick(tmp_path, recorder, run_tier1=tier1)
+        tick(tmp_path, recorder, run_unit_test=tier1)
 
     (span,) = [s for s in span_lines(workspace) if s.get("command")]
     assert span["outcome"] == "error"

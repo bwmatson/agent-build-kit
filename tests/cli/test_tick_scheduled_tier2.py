@@ -11,7 +11,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.tier2_schedule import scheduled_name
+from agent_build_kit.pipeline.e2e_schedule import scheduled_name
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import MERGED
 from agent_build_kit.pipeline.usage_guard import Decision
@@ -77,6 +77,7 @@ def test_a_dry_run_says_it_would_write_the_change_of_a_due_repo_and_writes_nothi
 ) -> None:
     inst, store = installation(tmp_path)
     before = planning_directory(inst, store)
+    locks = {p.name for p in inst.state_dir.glob("*.lock")}
     capsys.readouterr()
 
     assert tick(inst, dry_run=True) == 0
@@ -86,7 +87,8 @@ def test_a_dry_run_says_it_would_write_the_change_of_a_due_repo_and_writes_nothi
     assert not any("exists: " in line for line in lines)
     assert planning_directory(inst, store) == before
     assert scheduled_changes(inst) == []
-    assert not (inst.state_dir / "scheduled-tier2.lock").exists(), "a dry run takes no lock file"
+    taken = {p.name for p in inst.state_dir.glob("*.lock")} - locks
+    assert not [name for name in taken if "scheduled" in name], "a dry run takes no lock file"
 
 
 def test_a_dry_run_says_the_open_change_exists_and_writes_nothing(

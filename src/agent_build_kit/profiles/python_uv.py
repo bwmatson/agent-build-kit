@@ -26,14 +26,14 @@ from agent_build_kit.config import (
     RepoConfig,
 )
 from agent_build_kit.pipeline.commit_order import stub_violations as _stub_violations
-from agent_build_kit.pipeline.red_check import judge_red, split_report, wrap_report_command
-from agent_build_kit.pipeline.tier2 import (
+from agent_build_kit.pipeline.e2e import (
     TestFailure,
     TestTime,
     Tier2Selection,
     clip_failure_line,
     parse_pytest_summary,
 )
+from agent_build_kit.pipeline.red_check import judge_red, split_report, wrap_report_command
 from agent_build_kit.profiles.base import PromptWords, is_doc_path
 
 # pytest's exit status when every test was deselected: "nothing to run here",

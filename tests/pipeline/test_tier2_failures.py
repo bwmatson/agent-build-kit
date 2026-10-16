@@ -4,7 +4,7 @@ short summary, and the gate merges those of every project."""
 from pathlib import Path
 
 from agent_build_kit.config import ProjectConfig
-from agent_build_kit.pipeline.tier2 import TestFailure
+from agent_build_kit.pipeline.e2e import TestFailure
 from agent_build_kit.profiles.node_npm import PROFILE as NODE
 from agent_build_kit.profiles.python_uv import PROFILE as PYTHON
 from tests.tier2_failure_fakes import (

@@ -27,7 +27,7 @@ def test_the_runner_reports_the_blocks_of_the_configuration_and_the_file(tmp_pat
         tmp_path, blocked_in_config=("claude_code",), blocked_in_file={"acp": REASON}
     )
 
-    blocked = built.tier2_holds().held
+    blocked = built.e2e_holds().held
 
     assert set(blocked) == {"acp", "claude_code"}
     assert blocked["acp"].reason == REASON
@@ -42,11 +42,11 @@ def test_a_run_through_the_runner_leaves_the_blocked_runtime_out_and_reports_it_
     built, _, _ = runner_of(tmp_path, scope="full", blocked_in_file={"acp": REASON})
     repo, base = branch(tmp_path, SOURCE, base_files=FILES)
 
-    ok, _ = built.run_tier2(cwd=repo, base=base)
+    ok, _ = built.run_e2e(cwd=repo, base=base)
 
     assert ok
     assert {expression_of(command) for command in ran.runs} == {expected(["acp"])}
-    result = built.tier2_result()
+    result = built.e2e_result()
     assert result is not None and result.parked == ["acp"]
 
 
@@ -58,8 +58,8 @@ def test_a_run_through_the_runner_with_nothing_blocked_parks_nothing(
     built, _, _ = runner_of(tmp_path, scope="full")
     repo, base = branch(tmp_path, SOURCE, base_files=FILES)
 
-    built.run_tier2(cwd=repo, base=base)
+    built.run_e2e(cwd=repo, base=base)
 
     assert {expression_of(command) for command in ran.runs} == {MARKER}
-    result = built.tier2_result()
+    result = built.e2e_result()
     assert result is not None and result.parked == []

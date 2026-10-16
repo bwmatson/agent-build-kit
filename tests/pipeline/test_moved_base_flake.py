@@ -280,11 +280,11 @@ def moved_build(
     where = room(tmp_path, name)
     recorder = fresh(where, **options)
     moving = Moving(recorder, restacked(old_base=OLD_BASE))
-    more = {} if tier2 is None else {"run_tier2": tier2(recorder)}
+    more = {} if tier2 is None else {"run_e2e": tier2(recorder)}
     return recorder, build(
         where,
         recorder,
-        run_tier1=Raising(recorder, scoped=scoped),
+        run_unit_test=Raising(recorder, scoped=scoped),
         on_flake=told,
         **more,
         **moving.overrides(),
@@ -399,7 +399,7 @@ def restacking(
         store=store,
         root=installation.root,
         move=lambda *a, **k: Moved(sha="newsha"),
-        tier1=tier1,
+        unit_test=tier1,
         on_flake=build_on_flake(store, installation, log=lambda message: None),
         push=lambda *a, **k: pushed.append("pushed") or "newsha",
         retarget=lambda *a, **k: None,

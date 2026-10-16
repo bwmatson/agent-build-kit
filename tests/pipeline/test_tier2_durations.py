@@ -11,7 +11,7 @@ from pathlib import Path
 
 from agent_build_kit.config import ProjectConfig
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.tier2 import TestTime, build_snapshot
+from agent_build_kit.pipeline.e2e import TestTime, build_snapshot
 from agent_build_kit.profiles import node_npm
 from agent_build_kit.profiles.python_uv import PROFILE as PYTHON_UV
 from tests.redaction_fakes import NAME, SECRET, known
@@ -19,7 +19,7 @@ from tests.tier2_duration_fakes import (
     E2E,
     durations_output,
     recorded_times,
-    run_tier2,
+    run_e2e,
     sixteen_tests,
     time_line,
 )
@@ -161,7 +161,7 @@ def test_a_test_id_is_redacted_in_the_result_the_listing_and_the_ledger(
     output = durations_output((30.0, "call", test), lines=(split,))
 
     with known():
-        result = run_tier2(tmp_path, output)
+        result = run_e2e(tmp_path, output)
     snapshot = build_snapshot(result)
 
     masked = f"{E2E}::test_auth[[redacted:{NAME}]]"

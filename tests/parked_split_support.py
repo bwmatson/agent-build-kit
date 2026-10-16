@@ -12,7 +12,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.tier2_holds import SOURCE_COMMAND, SOURCE_GATE, write_hold
+from agent_build_kit.pipeline.e2e_holds import SOURCE_COMMAND, SOURCE_GATE, write_hold
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import PLANNED
 from agent_build_kit.pipeline.usage_guard import Decision

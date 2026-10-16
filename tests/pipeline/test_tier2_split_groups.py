@@ -15,7 +15,7 @@ from agent_build_kit.config import (
     Tier2Split,
     Tier2UnitScope,
 )
-from agent_build_kit.pipeline.tier2 import (
+from agent_build_kit.pipeline.e2e import (
     UNKNOWN_SPLIT,
     TestFailure,
     Tier2Result,

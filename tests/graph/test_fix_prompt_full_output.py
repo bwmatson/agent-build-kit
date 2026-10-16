@@ -13,8 +13,8 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.graph.state import EventKind, ResumeEvent
+from agent_build_kit.pipeline.e2e import Tier2Result, build_snapshot
 from agent_build_kit.pipeline.stack_runner import CHECKS_CONTINUATION, CHECKS_PROMPT
-from agent_build_kit.pipeline.tier2 import Tier2Result, build_snapshot
 from agent_build_kit.pipeline.unit_store import FeedbackSource, RequeueReason
 from tests.factories import unit
 from tests.graph.agent_fakes import distinct_models

@@ -17,8 +17,8 @@ from typing import Any
 from agent_build_kit import openspec
 from agent_build_kit.config import RepoConfig, dump
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.e2e import TestFailure, Tier2Result, build_snapshot
 from agent_build_kit.pipeline.shell import git_out as git
-from agent_build_kit.pipeline.tier2 import TestFailure, Tier2Result, build_snapshot
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, Unit, ready_units
 from agent_build_kit.pipeline.wiring import build_commit

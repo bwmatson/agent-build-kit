@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.config import load
-from agent_build_kit.pipeline.tier2_holds import HELD_FILE
+from agent_build_kit.pipeline.e2e_holds import HELD_FILE
 from tests.cli.tier2_hold_fakes import (
     SPLITS,
     SPLITS_ACP_RELEASED,

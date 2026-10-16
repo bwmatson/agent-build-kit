@@ -22,7 +22,7 @@ from agent_build_kit.config import (
     dump,
     load,
 )
-from agent_build_kit.pipeline import tier2
+from agent_build_kit.pipeline import e2e
 from tests.conftest import make_installation
 from tests.tier2_lock_fakes import SleepingTime, held, install_clock
 
@@ -96,7 +96,7 @@ def test_stack_lock_names_the_setting_it_is_given(tmp_path: Path, clock: Sleepin
     lock = tmp_path / "tier2.lock"
 
     with held(lock), pytest.raises(TimeoutError) as busy:
-        with tier2.stack_lock(lock, timeout=2, setting=SETTING):
+        with e2e.stack_lock(lock, timeout=2, setting=SETTING):
             pass
 
     assert f"waited 2s for {lock} ({SETTING})" in str(busy.value)

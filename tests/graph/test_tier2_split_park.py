@@ -48,9 +48,9 @@ class Run:
     def tick(self, **more: Any) -> RunOutcome:
         wired: dict[str, Any] = dict(
             tier="tier2",
-            run_tier2=self.parking.run,
-            tier2_result=self.parking.result,
-            tier2_holds=lambda: holds_of(**self.held),
+            run_e2e=self.parking.run,
+            e2e_result=self.parking.result,
+            e2e_holds=lambda: holds_of(**self.held),
             on_preexisting=self.told,
             open_pr=self.open_pr,
         )

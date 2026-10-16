@@ -46,8 +46,8 @@ def run(tmp_path: Path, *, own=(), broken=(), old=(), told: Told | None = None):
         tmp_path,
         recorder,
         tier="tier2",
-        run_tier2=tier2.run,
-        tier2_verdict=tier2.judged,
+        run_e2e=tier2.run,
+        e2e_verdict=tier2.judged,
         on_preexisting=told,
     )
     return recorder, outcome, told, tier2

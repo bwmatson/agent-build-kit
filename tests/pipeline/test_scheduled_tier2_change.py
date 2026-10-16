@@ -11,7 +11,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.tier2_schedule import scheduled_name, write_due
+from agent_build_kit.pipeline.e2e_schedule import scheduled_name, write_due
 from agent_build_kit.pipeline.work_graph import old_test_kind_warnings, validate_tasks
 from tests.tier2_schedule_fakes import TODAY, planning, store_of
 
@@ -65,7 +65,7 @@ def test_tasks_hold_one_tier_2_group_of_the_repo_with_priority_3_and_separate(
     assert old_test_kind_warnings(change / "tasks.md") == []
     assert group.separate
     assert group.task_count == 1
-    assert "full tier 2 suite" in group.title.lower()
+    assert "full e2e-test suite" in group.title.lower()
     assert "default branch" in group.title.lower()
     text = (change / "tasks.md").read_text()
     assert any(line.startswith("Separate:") for line in text.splitlines())

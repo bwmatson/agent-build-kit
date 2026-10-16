@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from agent_build_kit.cli import main
-from agent_build_kit.pipeline.tier2_holds import HELD_FILE, SOURCE_GATE, write_hold
+from agent_build_kit.pipeline.e2e_holds import HELD_FILE, SOURCE_GATE, write_hold
 
 SPLITS = """\
 tests:

@@ -25,9 +25,9 @@ import re
 from collections.abc import Callable, Mapping, Sequence
 
 from agent_build_kit import runtimes
-from agent_build_kit.compat_names import Place, new_spelling
+from agent_build_kit.compat_names import Place, new_spelling, old_spelling
 from agent_build_kit.config import active
-from agent_build_kit.model import Frozen
+from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
 from agent_build_kit.pipeline.unit_size import (
@@ -52,6 +52,9 @@ from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.base import AgentRuntime
 
 RunClaude = Callable[[str], str]
+
+# The old tag of each kind, which the prompt says a group may still carry.
+OLD_UNIT_TEST, OLD_E2E = old_spelling(TestTier.UNIT_TEST), old_spelling(TestTier.E2E_TEST)
 
 JSON_BLOCK = re.compile(r"\{.*\}", re.DOTALL)
 
@@ -499,8 +502,9 @@ You are planning units of work for a spec-driven pipeline. Return JSON only.
 
 A **unit** is one PR's worth of work in exactly ONE repo. Repos: {repos}.
 Tiers: {tiers} (e2e-test needs the live local stack and is serialized). A group tagged
-`[unit-test]` (or the old `[tier1]`) is tier `unit-test`; one tagged `[e2e-test]` (or the old
-`[tier2]`) is tier `e2e-test`, and a unit's tier is the tier of its groups.
+`[unit-test]` (or the old `[{old_unit_test}]`) is tier
+`unit-test`; one tagged `[e2e-test]` (or the old `[{old_e2e}]`) is tier `e2e-test`, and a
+unit's tier is the tier of its groups.
 
 Rules the graph must satisfy:
 - A unit never spans repos. Every task group heading carries its own repo
@@ -777,6 +781,8 @@ def build_prompt(
         repos=", ".join(repos) or "(none configured)",
         example_repo=repos[0] if repos else "repo",
         tiers=", ".join(TEST_KIND_TAGS),
+        old_unit_test=OLD_UNIT_TEST,
+        old_e2e=OLD_E2E,
         min_lines=workspace.global_limits.min_unit_lines,
         max_lines=workspace.global_limits.max_unit_lines,
         relationships=relationships.strip() or "(independent)",

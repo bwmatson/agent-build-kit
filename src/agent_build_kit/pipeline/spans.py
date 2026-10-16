@@ -18,7 +18,7 @@ from agent_build_kit.pipeline.usage_ledger import record_line
 
 SLOT = "slot"
 USAGE_PAUSE = "usage_pause"
-TIER2_LOCK = "tier2_lock"
+E2E_LOCK = "e2e_lock"
 
 
 class Clock(Protocol):
@@ -42,7 +42,7 @@ class SystemClock:
 clock: Clock = SystemClock()
 
 # The unit, change, node and round whose step is running, for what runs inside
-# it (a tier 1 command) and cannot be told them otherwise.
+# it (a unit-test command) and cannot be told them otherwise.
 current_unit: ContextVar[tuple[str, str, str, int]] = ContextVar(
     "span_unit", default=("", "", "", 0)
 )
@@ -50,8 +50,8 @@ current_unit: ContextVar[tuple[str, str, str, int]] = ContextVar(
 
 class Span(Frozen):
     """A `span` line of the ledger: a stretch of a unit's time. `waited` names
-    the bucket of a stretch spent waiting (`slot`, `usage_pause`, `tier2_lock`) and is empty
-    for work; `command` names the tier 1 command a stretch ran."""
+    the bucket of a stretch spent waiting (`slot`, `usage_pause`, `e2e_lock`) and is empty
+    for work; `command` names the unit-test command a stretch ran."""
 
     kind: str = "span"
     at: str
@@ -159,9 +159,12 @@ def record_affected(run: AffectedRun, say: Callable[[str], None]) -> None:
 
 def export_span(span: Span) -> None:
     """Add a span's time to the metrics: a wait under its bucket, work under its
-    node. A tier 1 command's span is inside its node's, so it adds nothing."""
+    node. A unit-test command's span is inside its node's, so it adds nothing."""
     seconds = span.duration_ms / 1000
     if span.waited:
         telemetry.duration("abk.wait.duration", seconds, bucket=span.waited)
     elif not span.command:
         telemetry.duration("abk.node.duration", seconds, node=span.node)
+
+
+TIER2_LOCK = E2E_LOCK  # abk-shim

@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.tier2 import TestTime, Tier2Result
+from agent_build_kit.pipeline.e2e import TestTime, Tier2Result
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from tests.tier2_failure_fakes import checkout, gate, run_returning
 
@@ -74,7 +74,7 @@ def time_line(
     return f"ABK-TIME {json.dumps(body)}"
 
 
-def run_tier2(tmp_path: Path, output: str, name: str = "first") -> Tier2Result:
+def run_e2e(tmp_path: Path, output: str, name: str = "first") -> Tier2Result:
     """The result of a tier 2 gate whose one command exits 0 printing `output`, run in a
     checkout of its own under `tmp_path`."""
 

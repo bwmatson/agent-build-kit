@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit import profiles
+from agent_build_kit.pipeline.e2e import TestTime
 from agent_build_kit.pipeline.red_check import REPORT_MARK
-from agent_build_kit.pipeline.tier2 import TestTime
 from tests.node_npx_fake import VITEST
 from tests.node_workspace import touch, workspace
 

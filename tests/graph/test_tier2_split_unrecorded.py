@@ -40,8 +40,8 @@ def test_the_waiting_note_names_only_the_tests_that_got_a_fix_change(tmp_path: P
     tier2 = Failing(planning.recorder.events, snapshot_of(OLD, OTHER_OLD), verdict)
 
     planning.tick(
-        run_tier2=tier2.run,
-        tier2_verdict=tier2.judged,
+        run_e2e=tier2.run,
+        e2e_verdict=tier2.judged,
         on_preexisting=build_on_preexisting(
             planning.store, planning.installation, log=lambda m: None
         ),

@@ -58,6 +58,11 @@ def new_spelling(place: Place, name: str) -> str:
             return _OLD_FILE_STEM.sub(lambda found: KIND_FORMS[found[1]].file_stem, name)
 
 
+def old_spelling(kind: TestTier) -> str:
+    """The old name of `kind`: `tier1` for the unit-test kind, `tier2` for the e2e-test kind."""
+    return next(old for old, forms in KIND_FORMS.items() if forms.tag == kind.value)
+
+
 def is_old_spelling(place: Place, name: str) -> bool:
     """Whether `name` is an old spelling in `place`."""
     return new_spelling(place, name) != name

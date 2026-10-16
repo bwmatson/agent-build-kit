@@ -10,7 +10,7 @@ import pytest
 
 from agent_build_kit import openspec
 from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.pipeline.tier2_schedule import scheduled_name, write_due
+from agent_build_kit.pipeline.e2e_schedule import scheduled_name, write_due
 from tests.openspec_cli import require
 from tests.tier2_schedule_fakes import TODAY, planning, store_of
 

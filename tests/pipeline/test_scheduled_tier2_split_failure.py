@@ -26,8 +26,8 @@ def gated(run: ScheduledRun) -> ScheduledRun:
     """The run with the record of failures, and the gate the scheduled unit waits at."""
     return wired(
         run,
-        on_tier2_gate=build_on_tier2_gate(run.store, run.inst, log=run.log.append),
-        tier2_runs_whole=lambda *, cwd, base: True,
+        on_e2e_gate=build_on_tier2_gate(run.store, run.inst, log=run.log.append),
+        e2e_runs_whole=lambda *, cwd, base: True,
     )
 
 

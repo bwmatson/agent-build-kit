@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_build_kit.pipeline.tier2 import TestFailure, Tier2Result, Tier2Verdict, build_snapshot
+from agent_build_kit.pipeline.e2e import TestFailure, Tier2Result, Tier2Verdict, build_snapshot
 from agent_build_kit.pipeline.units import Unit
 
 OWN = "tests/live/test_own.py::test_own"

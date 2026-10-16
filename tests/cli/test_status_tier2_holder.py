@@ -13,7 +13,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import tier2
+from agent_build_kit.pipeline import e2e
 from agent_build_kit.pipeline.unit_store import UnitStore
 from tests.conftest import make_installation
 from tests.factories import stored_unit
@@ -37,7 +37,7 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Installation:
 def tier2_lines(workspace: Installation, capsys: pytest.CaptureFixture[str]) -> list[str]:
     assert cli.cmd_status(argparse.Namespace(), workspace) == 0
     unstamped = [re.sub(r"^\[[^\]]*\] ", "", line) for line in capsys.readouterr().out.splitlines()]
-    return [line for line in unstamped if line.startswith("tier 2")]
+    return [line for line in unstamped if line.startswith("e2e-test")]
 
 
 def test_status_names_the_holder_and_how_long_it_has_held_the_lock(
@@ -52,7 +52,7 @@ def test_status_names_the_holder_and_how_long_it_has_held_the_lock(
         holder.release()
 
     assert len(lines) == 1
-    assert lines[0].startswith("tier 2: held by other/1 for 40m")
+    assert lines[0].startswith("e2e-test: held by other/1 for 40m")
 
 
 def test_status_shows_a_stale_record_of_a_free_lock_as_stale_and_leaves_the_file(
@@ -122,6 +122,6 @@ def test_reading_the_status_leaves_the_lock_free_for_the_next_holder(
 
     assert tier2_lines(workspace, capsys), "the status read the lock"
 
-    with tier2.stack_lock(lock, timeout=0.0, holder="two/1"):
-        record = tier2.read_lock_record(lock.read_text())
+    with e2e.stack_lock(lock, timeout=0.0, holder="two/1"):
+        record = e2e.read_lock_record(lock.read_text())
     assert record is not None and record.unit == "two/1"

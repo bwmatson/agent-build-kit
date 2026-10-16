@@ -14,9 +14,9 @@ import pytest
 from agent_build_kit import config
 from agent_build_kit.cli.pipeline import log
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.e2e import Tier2Result, build_snapshot
 from agent_build_kit.pipeline.run_log import RunLog
 from agent_build_kit.pipeline.spans import Span
-from agent_build_kit.pipeline.tier2 import Tier2Result, build_snapshot
 from agent_build_kit.pipeline.transcript import Transcript, TranscriptEvent
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.usage_ledger import (
