@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 from agent_build_kit import claude_account, config, forges, profiles, runtimes, telemetry
 from agent_build_kit.budget import cut_head
+from agent_build_kit.cli.tier2_cmd import held_status_lines
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun
@@ -566,6 +567,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             log(interval_line(current_cache_interval(inst.state_dir / CALLS_NAME)))
 
     if line := lock_status_line(inst.tier2_lock):
+        log(line)
+    for line in held_status_lines(inst):
         log(line)
 
     for change, record in planned_hashes(inst).items():

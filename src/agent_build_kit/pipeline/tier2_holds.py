@@ -8,7 +8,7 @@ from pathlib import Path
 
 from pydantic import AwareDatetime, TypeAdapter, ValidationError
 
-from agent_build_kit.config import Tier2Split
+from agent_build_kit.config import REST_SPLIT, Tier2Split, WorkspaceConfig, tier2_splits
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 
@@ -113,6 +113,24 @@ def held_splits(splits: tuple[Tier2Split, ...], state_dir: Path, *, now: datetim
         unreadable=entries is None,
         unknown=tuple(unknown),
     )
+
+
+def declared_splits(config: WorkspaceConfig) -> tuple[Tier2Split, ...]:
+    """Every split any repo declares, by name, the first declaration of a name winning, and
+    `rest` last."""
+    found: dict[str, Tier2Split] = {}
+    for repo in config.repos.values():
+        for split in tier2_splits(repo, config):
+            found.setdefault(split.name, split)
+    named = [split for name, split in found.items() if name != REST_SPLIT]
+    return (*named, found.get(REST_SPLIT, Tier2Split(name=REST_SPLIT)))
+
+
+def hold_text(hold: Hold) -> str:
+    """What holds a split, in words: the reason, the deadline and where the hold is written."""
+    until = f"until {hold.until:%Y-%m-%d %H:%M} UTC" if hold.until else "no deadline"
+    source = f", source {hold.source}" if hold.source else ""
+    return f"{hold.reason} ({until}{source}, origin {' and '.join(hold.origins)})"
 
 
 def write_hold(
