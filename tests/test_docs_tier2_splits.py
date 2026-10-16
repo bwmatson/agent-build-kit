@@ -36,9 +36,11 @@ def test_the_configuration_document_names_the_split_setting(name: str) -> None:
 
 def test_the_configuration_document_describes_the_repo_override() -> None:
     text = squashed(DOCS / "configuration.md")
-    assert re.search(
-        r"tier2_splits[^.]*(repo|override)|(repo|override)[^.]*tier2_splits", text, re.I
+    assert re.search(r"under a repo's own `?tests`?[^.]*replaces", text)
+    blocks = re.findall(
+        r"```ya?ml\n(.*?)```", (DOCS / "configuration.md").read_text(encoding="utf-8"), re.S
     )
+    assert any("repos:" in block and "tier2_splits" in block for block in blocks)
 
 
 def test_the_command_document_gives_the_check_and_its_exit_codes() -> None:

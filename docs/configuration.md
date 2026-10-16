@@ -596,8 +596,10 @@ not set. See "Secrets never leave as text" in `docs/architecture.md`.
 ### `tests.tier2_splits`
 
 `tests.tier2_splits` divides a repo's tier 2 tests into named splits that can be run, held
-and scheduled apart. It sits under `tests` at the top of `abk.yaml`, or under a repo's own
-`tests`, where it replaces the top-level map for that repo.
+and scheduled apart. The key is spelled `tests.e2e_splits` under the test-kinds rename;
+`tier2_splits` still loads, with a deprecation notice, and the two are refused together.
+It sits under `tests` at the top of `abk.yaml`, or under a repo's own `tests`, where it
+replaces the top-level map for that repo.
 
 ```yaml
 tests:
@@ -612,8 +614,9 @@ repos:
 ```
 
 - A split name is lowercase letters, digits and underscores. Each split has a `marker`
-  (non-empty, not shared with another split) and an optional `hold`. An unknown key, a
-  missing marker or a repeated one is refused when the file loads.
+  (non-empty, not shared with another split), an optional `hold` and an optional `gate`
+  (the provider of its model, or a command, with its limits; `abk config --show` prints it).
+  An unknown key, a missing marker or a repeated one is refused when the file loads.
 - `rest` is always declared: it is the tests in no split. It may carry `hold` but no
   `marker`, and needs no entry. With no splits declared, a repo's splits are `rest` alone.
 - A test is in at most one split. `abk tier2 check` finds a test in two.
@@ -623,7 +626,8 @@ repos:
   releases a split and `hold: true` always holds it, whatever the file says; the file
   decides only for a split with no `hold` set.
 - The three runtime lists this setting replaces are gone, with no alias, and are refused at
-  load with a pointer to `tier2_splits`.
+  load with a pointer to the split setting that replaces each (`tests.e2e_splits`, the
+  spelling of the key `tier2_splits` is read as).
 
 ## Environment variables and `.env`
 
