@@ -585,6 +585,8 @@ class UnitStore:
                     update={
                         "joined": existing.joined,
                         "estimated_lines": existing.estimated_lines,
+                        # Nor is the kind a joined group widened it to.
+                        "tier": widest_kind([fresh.tier, existing.tier]),
                     }
                 )
             if existing:

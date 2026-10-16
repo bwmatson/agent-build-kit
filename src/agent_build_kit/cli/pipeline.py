@@ -712,7 +712,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             log(f"  attached: {held.unit_id}{where} — a chat is open with {files} changed")
 
     for unit in units:
-        if unit.tier == TestTier.INTEGRATION_TEST:
+        if unit.tier == TestTier.INTEGRATION_TEST and unit.state not in (MERGED, CLOSED, UNPLANNED):
             log(f"  {unit.id} ({unit.repo}) is {unit.tier}")
         if unit.state == HELD and unit.held_by == HeldBy.REVIEW and unit.pr:
             since = _conflicting(inst, unit, conflicting).get(unit.pr)
@@ -2737,10 +2737,16 @@ def _carrying_unstarted(store: UnitStore, change: str) -> list[str]:
     ]
 
 
-def _tag_problems(store: UnitStore, change: str, groups: Sequence[TaskGroup]) -> list[str]:
+def _tag_problems(
+    store: UnitStore,
+    change: str,
+    groups: Sequence[TaskGroup],
+    catalog: Mapping[str, Sequence[TaskGroup]],
+) -> list[str]:
     """Where a started unit's stored repo, project, tier or flag differs from the tags of a group
-    of `change` it carries, its own or joined. Each line names the unit, the group and
-    the way out; none when they agree."""
+    of `change` it carries, its own or joined. The stored tier is compared with the widest kind
+    among all the groups the unit carries, of every change in `catalog`. Each line names the
+    unit, the group and the way out; none when they agree."""
     by_number = {g.number: g for g in groups}
     lines: list[str] = []
     for u in store.all():
@@ -2751,24 +2757,29 @@ def _tag_problems(store: UnitStore, change: str, groups: Sequence[TaskGroup]) ->
             way_out += f", or `abk requeue --restart {u.id}` rebuilds it from the new tags"
         checks: list[tuple[str, str, str, str]] = []
         carried_kinds: list[tuple[int, TestTier]] = []
+        here = False
         for member in u.members():
-            if member.change != change:
-                continue
+            known = (
+                by_number
+                if member.change == change
+                else {g.number: g for g in catalog.get(member.change, ())}
+            )
             for number in member.groups:
-                if group := by_number.get(number):
+                if group := known.get(number):
                     carried_kinds.append((number, group.tier))
+                if member.change != change:
+                    continue
+                if group := by_number.get(number):
+                    here = True
                     checks += [
                         (f"its group {number}", "repo", u.repo, group.repo),
                         (f"its group {number}", "project", u.project, group.project),
                     ]
-        if carried_kinds:
+        if here:
             widest = widest_kind(kind for _, kind in carried_kinds)
             # Named by the first group of that kind, the one that sets the unit's.
             first = next(number for number, kind in carried_kinds if kind == widest)
-            # A unit joined onto another change's may be wider than this change's groups
-            # alone say; only its own change's groups, or a wider group, show a difference.
-            if u.change == change or widest_kind([widest, u.tier]) != u.tier:
-                checks.append((f"its group {first}", "tier", str(u.tier), str(widest)))
+            checks.append((f"its group {first}", "tier", str(u.tier), str(widest)))
         # The flag is the unit's own first flagged group (see `plan_kind`). A record
         # from before flags were kept stores none, which says nothing about the group.
         if u.change == change and u.flag:
@@ -2912,7 +2923,7 @@ def plan_all(
         # tags it copied at plan time can disagree with the file.
         built = _taken_groups(store, change)
         if task_groups and built >= {g.number for g in task_groups}:
-            problems = _tag_problems(store, change, task_groups)
+            problems = _tag_problems(store, change, task_groups, _task_catalog(inst))
             for line in problems:
                 log(f"{change}: {line}")
             if problems:

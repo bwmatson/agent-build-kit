@@ -12,19 +12,11 @@ from agent_build_kit import openspec
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline.work_graph import TaskGroup, ValidationError, validate_tasks
-from tests.cli.replan_driver import OPT_OUT, Replan
-
-
-def tasks_tagged(*tags: str) -> str:
-    text = f"# Tasks\n\n{OPT_OUT}\n"
-    for number, tag in enumerate(tags, start=1):
-        text += f"## {number}. [app] [{tag}] Group {number}\n\n- [ ] {number}.1 Test: it.\n"
-        text += f"- [ ] {number}.2 Do it.\n\n"
-    return text
+from tests.cli.replan_driver import Replan, tagged_md
 
 
 def read(tmp_path: Path, *tags: str) -> tuple[list[TaskGroup], list[ValidationError]]:
-    (tmp_path / "tasks.md").write_text(tasks_tagged(*tags))
+    (tmp_path / "tasks.md").write_text(tagged_md(*tags))
     return validate_tasks(tmp_path / "tasks.md")
 
 
@@ -55,7 +47,7 @@ def test_an_unknown_tag_is_refused_listing_the_new_spellings(tmp_path: Path) -> 
 def test_tags_prints_a_notice_for_each_old_tag_with_the_new_tag_and_the_group(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run = Replan(tmp_path, monkeypatch, feature=tasks_tagged("tier1", "tier2", "tier2"))
+    run = Replan(tmp_path, monkeypatch, feature=tagged_md("tier1", "tier2", "tier2"))
 
     status = cli.cmd_tags(argparse.Namespace(change="feature", all=False), run.inst)
 
@@ -70,7 +62,7 @@ def test_tags_prints_a_notice_for_each_old_tag_with_the_new_tag_and_the_group(
 def test_tags_prints_the_new_spellings_for_both_kinds(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run = Replan(tmp_path, monkeypatch, feature=tasks_tagged("unit-test", "e2e-test"))
+    run = Replan(tmp_path, monkeypatch, feature=tagged_md("unit-test", "e2e-test"))
 
     status = cli.cmd_tags(argparse.Namespace(change="feature", all=False), run.inst)
 
@@ -84,7 +76,7 @@ def test_tags_prints_the_new_spellings_for_both_kinds(
 def test_check_prints_a_notice_for_each_old_tag_and_none_for_a_new_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run = Replan(tmp_path, monkeypatch, feature=tasks_tagged("tier1", "e2e-test", "tier2"))
+    run = Replan(tmp_path, monkeypatch, feature=tagged_md("tier1", "e2e-test", "tier2"))
     monkeypatch.setattr(openspec, "check", lambda root: (True, "all valid\n"))
 
     status = cli.cmd_check(argparse.Namespace(), run.inst)

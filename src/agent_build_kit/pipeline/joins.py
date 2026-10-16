@@ -93,7 +93,7 @@ def check_joins(
                 raise refuse("a unit is not joined to itself")
             if not taken.unstarted:
                 raise refuse(f"{taken.id} has started, and only a unit that has not is joined")
-            if taken.repo != onto.repo or _wide(taken.tier) != _wide(onto.tier):
+            if taken.repo != onto.repo or _needs_stack(taken.tier) != _needs_stack(onto.tier):
                 raise refuse(f"{taken.id} is in another repo or tier")
             if taken.project != onto.project:
                 raise refuse(f"{taken.id} is in another project")
@@ -121,7 +121,7 @@ def check_joins(
                     raise refuse(f"group {number} is not in {change}'s tasks.md")
                 if number in built or number in claimed:
                     raise refuse(f"group {number} is already built or claimed by a unit")
-                if group.repo != onto.repo or _wide(group.tier) != _wide(onto.tier):
+                if group.repo != onto.repo or _needs_stack(group.tier) != _needs_stack(onto.tier):
                     raise refuse(f"group {number} is tagged [{group.repo}] [{group.tier}]")
                 if group.project != onto.project:
                     raise refuse(
@@ -179,7 +179,7 @@ def check_joins(
                     )
 
 
-def _wide(kind: TestTier) -> bool:
+def _needs_stack(kind: TestTier) -> bool:
     """Whether `kind` needs the live stack: a join pairs two kinds that both do, or neither."""
     return kind == TestTier.E2E_TEST
 

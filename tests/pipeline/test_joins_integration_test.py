@@ -72,9 +72,9 @@ def test_a_unit_joins_a_unit_unless_one_of_them_is_e2e_test(
 def test_an_e2e_test_group_or_unit_is_refused_with_each_of_the_others(
     group_kind: str, onto_kind: str
 ) -> None:
-    with pytest.raises(JoinRefused):
+    with pytest.raises(JoinRefused, match=r"is tagged \[app\]"):
         check_group(group_kind, onto_kind)
-    with pytest.raises(JoinRefused):
+    with pytest.raises(JoinRefused, match="another repo or tier"):
         check_unit(group_kind, onto_kind)
 
 
@@ -122,6 +122,24 @@ def test_the_survivor_of_a_unit_join_takes_the_widest_kind(
     code, out = run.run(
         capsys, "other", reply=answer(dict(planned("other/1", (1,)), tier=UNIT), joins=[join])
     )
+
+    assert code == 0, out
+    assert run.store.get("base/1").tier == INTEGRATION
+
+
+def test_a_replan_of_the_receiving_change_keeps_the_kind_a_joined_group_widened(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = Replan(tmp_path, monkeypatch, base=tagged_md(UNIT), feature=tagged_md(INTEGRATION))
+    run.store.upsert([stored_unit("base/1", change="base", tier=UNIT, groups=(1,))])
+    run.record("base")
+    join = dict(onto="base/1", change="feature", groups=[1], estimated_lines=80)
+    code, out = run.run(capsys, "feature", reply=answer(joins=[join]))
+    assert code == 0, out
+    assert run.store.get("base/1").tier == INTEGRATION
+
+    run.write("base", tagged_md(UNIT).replace("Group 1", "Group one"))
+    code, out = run.run(capsys, "base", reply=answer(dict(planned("base/1", (1,)), tier=UNIT)))
 
     assert code == 0, out
     assert run.store.get("base/1").tier == INTEGRATION
