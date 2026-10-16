@@ -23,6 +23,8 @@ import json
 import os
 import subprocess
 import sys
+import time
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +41,20 @@ def alive(pid: int) -> bool:
     except FileNotFoundError:
         return False
     return stat.rsplit(")", 1)[1].split()[0] != "Z"
+
+
+def still_alive(
+    pids: Sequence[int], *, sleep: Callable[[float], None] = time.sleep, attempts: int = 200
+) -> list[int]:
+    """The pids still alive after giving a kill time to take effect: `alive` is asked up to
+    `attempts` times, `sleep` called between asks, and the answer is those alive at the last."""
+    left = [pid for pid in pids if alive(pid)]
+    for _ in range(attempts - 1):
+        if not left:
+            break
+        sleep(0.05)
+        left = [pid for pid in left if alive(pid)]
+    return left
 
 
 def started(record: Path) -> bool:
