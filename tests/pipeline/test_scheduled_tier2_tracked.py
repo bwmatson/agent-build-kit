@@ -42,7 +42,7 @@ def installation(
     store.set_state("app-work/1", MERGED, pr=1)
     builder = Builder(store)
     builder.scripts[UNIT] = lambda: RunStatus.SATISFIED
-    builder.ends[UNIT] = (SATISFIED, None, "scheduled tier 2 passed")
+    builder.ends[UNIT] = (SATISFIED, None, "scheduled e2e-test passed")
     monkeypatch.setattr(cli, "build_runner", builder)
     return inst, store, builder
 

@@ -49,7 +49,7 @@ def test_a_repo_with_a_dev_stack_script_runs_it_as_before_and_logs_why(tmp_path:
 
     script = "scripts/dev-stack.sh"
     assert ran.commands == [[script, "up"], [script, "test"], [script, "down"]]
-    assert "tier 2 runs whole: the repo's dev stack script runs it" in log
+    assert "e2e-test runs whole: the repo's dev stack script runs it" in log
 
 
 def test_a_profile_that_cannot_select_by_identifier_runs_the_whole_marker_and_names_itself(

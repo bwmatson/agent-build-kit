@@ -51,7 +51,7 @@ def test_a_pass_ends_the_unit_satisfied_with_a_note_naming_the_split_and_the_cou
     run.tick()
 
     assert run.stored.state == SATISFIED
-    assert run.stored.note.startswith("scheduled tier 2 passed")
+    assert run.stored.note.startswith("scheduled e2e-test passed")
     assert split in run.stored.note
     assert "2 passed, 1 skipped" in run.stored.note
     for other in set(SPLITS) - {split}:

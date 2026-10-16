@@ -99,6 +99,8 @@ class Installation:
     def tier2_lock(self) -> Path:
         return self.state_dir / "tier2.lock"
 
+    e2e_lock = tier2_lock  # abk-forward
+
     @property
     def graph_page(self) -> Path:
         return self._under_root(self.config.planning.graph_page)

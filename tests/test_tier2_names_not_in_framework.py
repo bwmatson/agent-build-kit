@@ -34,7 +34,7 @@ CLASSES = (
     ("profiles/base.py", "ToolchainProfile"),
     ("profiles/base.py", "AppliesTier2Selection"),
     ("profiles/base.py", "ListsRegisteredSelectors"),
-    ("pipeline/wiring.py", "Tier2Session"),
+    ("pipeline/wiring.py", "E2eSession"),
 )
 # The provider table's own module is exempt; it is not in the lists above.
 PROVIDER_TABLE = "runtimes/providers.py"

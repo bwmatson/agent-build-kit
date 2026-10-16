@@ -6,7 +6,7 @@ runs may work the same branch at once (docs/architecture.md).
 Two rules, both borrowed from sandcastle's worktree handling, decide most of
 the behaviour here:
 
-- **Locks fail fast.** Tier 2's lock is a queue, because a second unit's tests
+- **Locks fail fast.** E2e-test's lock is a queue, because a second unit's tests
   are valid and simply can't run yet. This one isn't: two runs on one branch
   means the scheduler handed the same unit out twice. Waiting would hide that
   bug; failing surfaces it.
@@ -53,7 +53,7 @@ def _lock_path(branch: str, root: Path) -> Path:
 
 def process_alive(pid: int) -> bool:
     """Whether a process with this id exists: another user's counts as alive. Branch locks
-    and the tier 2 lock both judge a recorded holder by it."""
+    and the e2e-test lock both judge a recorded holder by it."""
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -244,7 +244,7 @@ def prepare_detached(repo: Path, name: str, *, ref: str, root: Path) -> Path:
     """A checkout of `ref` on no branch, created or moved to where `ref` is now.
 
     For running something *from* main rather than building on it: a
-    consumer's dev stack attaches to its platform's, which tier 2 brings up
+    consumer's dev stack attaches to its platform's, which e2e-test brings up
     from the platform's main, not from the user's own checkout and whatever
     is on it. Nothing is ever committed here, so moving it discards nothing.
     """

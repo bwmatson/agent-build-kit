@@ -34,7 +34,7 @@ def test_an_own_scope_unit_with_no_tier_2_test_is_not_held_and_takes_no_lock(
 
     def skipped(*, cwd: Path, base: str | None = None) -> tuple[bool, str]:
         asked.append("run")
-        return True, "tier 2 skipped: no tier 2 test added or changed"
+        return True, "e2e-test skipped: no e2e test added or changed"
 
     outcome = planning.tick(run_e2e=skipped)
 

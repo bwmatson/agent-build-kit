@@ -65,7 +65,7 @@ def test_a_pass_ends_the_unit_satisfied_with_the_counts_and_the_commit_and_ticks
     stored = run.stored
     assert outcome.status == RunStatus.SATISFIED
     assert stored.state == SATISFIED
-    assert stored.note == "scheduled tier 2 passed for rest: 2 passed, 1 skipped on abc1234"
+    assert stored.note == "scheduled e2e-test passed for rest: 2 passed, 1 skipped on abc1234"
     assert stored.pr is None and "pr" not in run.recorder.events
     assert stored.feedback == ""
     tasks = (run.inst.changes_dir / CHANGE / "tasks.md").read_text()
@@ -116,7 +116,7 @@ def test_a_new_runner_resumed_at_satisfied_still_has_the_note_of_the_run(tmp_pat
     )
 
     assert outcome.status == RunStatus.SATISFIED
-    assert run.stored.note == "scheduled tier 2 passed for rest: 2 passed, 1 skipped on abc1234"
+    assert run.stored.note == "scheduled e2e-test passed for rest: 2 passed, 1 skipped on abc1234"
 
 
 def test_a_satisfied_scheduled_units_change_is_archived_by_the_existing_path(

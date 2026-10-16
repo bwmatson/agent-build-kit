@@ -23,17 +23,11 @@ from agent_build_kit.rename_test_kinds import (
 OLD_SPELLING = re.compile(r"tier ?[12]", re.IGNORECASE)
 
 PIPELINE = Path(agent_build_kit.__file__).parent / "pipeline"
-PIPELINE_FIRST, PIPELINE_LAST = "archive.py", "verify.py"
-
 OLD_PIPELINE_MODULES = ("tier2", "tier2_exclusive", "tier2_holds", "tier2_schedule", "tier2_times")
 
 
 def converted_pipeline_files() -> list[Path]:
-    return [
-        path
-        for path in sorted(PIPELINE.glob("*.py"))
-        if PIPELINE_FIRST <= path.name <= PIPELINE_LAST
-    ]
+    return sorted(PIPELINE.glob("*.py"))
 
 
 def test_no_converted_pipeline_file_carries_an_old_spelling() -> None:
