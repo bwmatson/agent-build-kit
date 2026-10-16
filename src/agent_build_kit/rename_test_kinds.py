@@ -81,10 +81,19 @@ def _files(root: Path, paths: Sequence[Path]) -> list[Path]:
     return sorted(file for file in files if not _exempt(file))
 
 
-def rename_paths(root: Path, paths: Sequence[Path]) -> list[Path]:
+def rename_paths(
+    root: Path,
+    paths: Sequence[Path],
+    *,
+    shims: bool = False,
+    remove_shims: bool = False,
+    dry_run: bool = False,
+) -> list[Path]:
     """Rewrite the old spellings in the tracked files under `paths` (files or folders under
     `root`) and rename the ones whose name carries one; returns the files changed, relative to
     `root`. Raises `PathOutsideRoot`, changing nothing, when a path is outside `root`."""
+    if shims or remove_shims or dry_run:
+        raise NotImplementedError
     root = root.resolve()
     resolved = [Path(path).resolve() for path in paths]
     for path in resolved:
@@ -117,10 +126,19 @@ def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
     line. `root` is the framework repository unless given. Returns 2 for a refused path."""
     parser = argparse.ArgumentParser(prog="rename_test_kinds", description=__doc__)
     parser.add_argument("--paths", nargs="+", type=Path, required=True)
+    parser.add_argument("--shims", action="store_true")
+    parser.add_argument("--remove-shims", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     base = root if root is not None else Path(__file__).resolve().parents[2]
     try:
-        changed = rename_paths(base, args.paths)
+        changed = rename_paths(
+            base,
+            args.paths,
+            shims=args.shims,
+            remove_shims=args.remove_shims,
+            dry_run=args.dry_run,
+        )
     except PathOutsideRoot as error:
         print(error, file=sys.stderr)
         return 2
