@@ -195,7 +195,11 @@ is, and the reason is printed. When the planning directory is one of the repos
 (`abk init . --repo .`), init is in-repo: the repo is written at `.`, existing files
 are left byte for byte, the state-directory ignore lines are added to `.gitignore`
 and a planning orientation to `AGENTS.md` (else `CLAUDE.md`) as marker blocks
-refreshed in place on a rerun, and nothing is committed. Finally the next steps: review `abk.yaml`
+refreshed in place on a rerun, and nothing is committed. `abk install-timers` then creates the pipeline worktree
+(a detached worktree outside the repository, recorded in the marker
+`abk-pipeline-worktree` in the common git directory) and renders the units to run
+there, and says so when an installation is already live. `planning.publish` (`direct` or
+`branch`) decides where the tracks' planning commits go. Finally the next steps: review `abk.yaml`
 (fill each `deploy.rules[].run`, `description`, `relationships`; replace any
 `todo-owner/` slug), set a repo-local git identity in each checkout, log `gh`
 in for every owner, copy `.env.example` to `.env`, run `abk doctor`, install

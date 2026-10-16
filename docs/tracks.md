@@ -19,7 +19,7 @@ later find it already done.
 | `health` | daily | logs, resources, LLM observability, pipeline state, secrets — "is something actually wrong right now" | a run log with a `**Status:**` line; `propose` straight away on `ATTENTION`/`URGENT` |
 | `improve` | weekly | lint and types, dependency staleness, README drift, convention adherence — "this could be better" | a run log; then `propose` |
 | `recommend` | weekly, another day | test coverage gaps, technical debt, architecture opportunities (the one with web access), cost/performance — bigger-picture, mostly for a human | a run log; then `propose` for the rare bounded finding |
-| `propose` | after the above, or on demand | the run logs' "Actionable candidates" and `tracked-issues.md` | one OpenSpec change of up to `tracks.propose_max_issues` task groups, committed to the planning repo's default branch if it validates |
+| `propose` | after the above, or on demand | the run logs' "Actionable candidates" and `tracked-issues.md` | one OpenSpec change of up to `tracks.propose_max_issues` task groups, committed to the planning repo (published as `planning.publish` says) if it validates |
 
 ## The per-repo flow
 
@@ -28,9 +28,16 @@ later find it already done.
 1. **Headroom.** The usage guard's `may_start_unit` decides; with none the run
    logs why and exits 0. The next timer is the retry, as it is for the
    five-minute tick.
-2. **Pull the planning repo** to its default branch (`git checkout`, `git
-   pull --ff-only origin`), since every phase writes and pushes its run log
-   there. `planning.self_pull: false` skips this. A failed pull is fatal.
+2. **Sync the planning repo**, since every phase writes and pushes its run log
+   there. A separate planning repo is checked out on its default branch and
+   pulled with `--ff-only`. When the planning repo is also a code repo, the
+   pipeline worktree (the detached worktree `abk install-timers` made, recorded in the
+   marker `abk-pipeline-worktree`) is fast-forwarded to the tip of the default
+   branch instead, and a working copy is not touched. `planning.self_pull: false`
+   skips this. A failed pull or a stopped sync (`planning sync stopped: <reason>`) is fatal.
+   After each phase the run log and `tracked-issues.md` are committed by path, and
+   `planning.publish` decides where: `direct` pushes the default branch, `branch`
+   pushes `planning/<run>-<project>-<phase>` and opens a pull request.
 3. **Eligible repos**: each `abk.yaml` repo (or only `--project NAME`) whose
    checkout is a git repo, whose `origin` is a remote some forge recognises
    and names the same repo `abk.yaml` does, and whose host answers for it

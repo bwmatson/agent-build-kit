@@ -33,7 +33,12 @@ will be chosen later. The `python-uv` toolchain profile is implemented; the
 
 - The **planning repo** holds the specs (an OpenSpec store), `abk.yaml`
   (everything about this installation: repos, owners, deploy rules, limits)
-  and the pipeline's state. No application code lives there.
+  and the pipeline's state. It is usually a repo of its own, but it can be one of
+  the code repos (`abk init . --repo .`): the pipeline then works in a **pipeline
+  worktree** that `abk install-timers` makes (recorded in the marker
+  `abk-pipeline-worktree` in the git directory), your working copy is left alone, and
+  `planning.publish` says whether planning commits go to the default branch or to a
+  pull request.
 - The **code repos** are ordinary checkouts. Each unit gets its own git
   worktree outside every repo; the agent writes there and nowhere else.
 - **Claude Code** is the runtime for every agent step, always headless

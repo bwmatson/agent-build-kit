@@ -510,6 +510,26 @@ notifications:                  # tell a person when a unit waits on them (off b
                                 # it, `abk doctor` checks that version is listed).
 ```
 
+### `planning.self_pull` and `planning.publish`
+
+When a repo in `abk.yaml` is the planning root's own repository (`path: .`), the
+root plays one of three roles: **separate** (no repo shares it), **working copy**
+(where a person works; the pipeline never changes its branch, files or index) and
+the **pipeline worktree**, a detached worktree `abk install-timers` makes outside
+the repository and records in the marker `abk-pipeline-worktree` in the
+repository's common git directory. Both settings apply to the pipeline worktree
+only.
+
+- `planning.self_pull` (default `true`): before a tick or a track the pipeline
+  worktree is synced to the tip of the default branch by fast-forward. It stops,
+  with one `planning sync stopped: <reason>` line, on an unfinished merge or
+  rebase, a stray branch or a divergence, and never stashes, resets or deletes.
+  `false` skips the sync.
+- `planning.publish` (default `direct`; `direct` | `branch`): where the tracks'
+  planning commits go. `direct` pushes them to the default branch. `branch` pushes
+  `planning/<run>-<project>-<phase>` and opens a pull request, for a default
+  branch that is protected. Archive is not affected: the tick commits nothing.
+
 ### Env providers
 
 `verify.env` maps a variable name to a provider, discriminated by `from`.

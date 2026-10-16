@@ -1374,11 +1374,39 @@ The tick commits nothing. The template `.gitignore` excludes only the locks,
 logs) and the usage ledger; `units.json`, the tracks' run logs
 and the graph page (`planning.graph_page`, rewritten on every store write) are
 meant to be committed by the operator, and the pipeline commits the tracks' run
-logs and `tracked-issues.md` by path after each phase, and keeps the planning repo on its
-default branch (a stray branch is kept and reported; a rewritten default branch stops the run;
-a tick checks the default branch out before reading state). Unit worktrees live under the worktree
+logs and `tracked-issues.md` by path after each phase. Unit worktrees live under the worktree
 root — `~/.local/share/<planning dir>/worktrees` unless configured — and the
 planning repo's `.env` holds machine-local settings.
+
+#### The three roles of a planning root
+
+A planning repo is **separate** from the code repos, or it is one of them (a repo in
+`abk.yaml` at path `.`). `planning_mode` tells which of three roles a root has:
+
+- **separate**: no repo shares the root's git repository. The pipeline keeps it on its
+  default branch (a stray branch is kept and reported; a rewritten default branch stops
+  the run; a tick checks the default branch out and pulls it), as before.
+- **working copy**: where a person works. The pipeline never changes its branch, files
+  or index; `abk tick`, `abk track`, `abk verify` and `abk archive` refuse there once a
+  pipeline worktree is live, and `abk status` names it.
+- **pipeline worktree**: a detached worktree outside the repository, made by
+  `abk install-timers`. The path is recorded in the marker `abk-pipeline-worktree` in the
+  common git directory, which every worktree shares and which is not in the tree.
+  `--remove` removes the marker and leaves the worktree.
+
+Before a tick or track the pipeline worktree is synced to the tip of the default branch
+(`origin/<default>`, else the local branch): equal is current, behind is a fast-forward,
+ahead is logged and the run goes on. An unfinished merge, rebase, cherry-pick or revert,
+a stray branch, a divergence or a merge git refuses stops the run with one
+`planning sync stopped: <reason>` line and exit 1. Nothing is stashed, reset or deleted.
+
+What is committed is limited to the planning paths (specs directory, state directory,
+the two pages and `abk.yaml`): planning commits are path-limited, verify's dirty check
+excludes the planning paths and refuses on anything else, and a unit worktree's file
+tools may not write them (the fence). `locate` answers with the pipeline worktree's
+`abk.yaml` when run from a unit worktree. `planning.publish` decides whether the
+tracks' commits are pushed to the default branch (`direct`) or to a
+`planning/...` branch with a pull request (`branch`).
 
 ### The usage ledger
 
