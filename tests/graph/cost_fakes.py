@@ -45,6 +45,7 @@ class Metered(FakeClaude):
         cwd: Path | None = None,
         on_event: Callable[[dict], None] | None = None,
         env: dict[str, str] | None = None,
+        input: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
         self.count += 1
         *events, closing = (

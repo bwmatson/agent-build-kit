@@ -314,6 +314,15 @@ def refused(cwd: Path, message: str, *, api_error_status: int | None = None) -> 
     )
 
 
+class Invocation(list[str]):
+    """The argument list a `claude` was started with, and the prompt it was given on its
+    standard input."""
+
+    def __init__(self, argv: list[str], prompt: str | None) -> None:
+        super().__init__(argv)
+        self.prompt = prompt
+
+
 class FakeClaude:
     """Records each invocation and answers as the CLI would have."""
 
@@ -321,8 +330,9 @@ class FakeClaude:
         self.stdout = stdout
         self.returncode = returncode
         self.stderr = stderr
-        self.calls: list[tuple[list[str], Path | None]] = []
+        self.calls: list[tuple[Invocation, Path | None]] = []
         self.envs: list[dict[str, str] | None] = []
+        self.inputs: list[str | None] = []
 
     def __call__(
         self,
@@ -331,9 +341,11 @@ class FakeClaude:
         cwd: Path | None = None,
         on_event: Callable[[dict], None] | None = None,
         env: dict[str, str] | None = None,
+        input: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        self.calls.append((list(argv), cwd))
+        self.calls.append((Invocation(argv, input), cwd))
         self.envs.append(env)
+        self.inputs.append(input)
         if on_event is not None:
             for line in self.stdout.splitlines():
                 try:
@@ -343,6 +355,13 @@ class FakeClaude:
                 if isinstance(event, dict):
                     on_event(event)
         return subprocess.CompletedProcess(argv, self.returncode, self.stdout, self.stderr)
+
+    @property
+    def prompt(self) -> str:
+        """The prompt of the one invocation: what the process was given on standard input."""
+        assert len(self.inputs) == 1, f"expected one claude invocation, got {len(self.inputs)}"
+        assert self.inputs[0] is not None
+        return self.inputs[0]
 
     @property
     def argv(self) -> list[str]:

@@ -27,7 +27,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from tests.attach_driver import changed_files, checked_out, head
 from tests.chat_serving import claude_session_file, record_session, turn, use_claude
-from tests.runtimes.claude_cli import FakeClaude, finished_build, replied
+from tests.runtimes.claude_cli import FakeClaude, Invocation, finished_build, replied
 from tests.serving import seed_pipeline
 
 pytestmark = pytest.mark.serial
@@ -83,9 +83,10 @@ def tree(inst: Installation) -> Path:
     return checked_out(inst, UNIT)
 
 
-def everything_sent(argv: list[str]) -> str:
-    """The whole command line of a turn: the context may ride in the prompt or beside it."""
-    return "\n".join(argv)
+def everything_sent(argv: Invocation) -> str:
+    """The whole of a turn: its command line and the prompt on its standard input; the
+    context may ride in the prompt or beside it."""
+    return "\n".join([*argv, argv.prompt or ""])
 
 
 # --- what a turn is given -----------------------------------------------------------------------

@@ -17,9 +17,10 @@ from __future__ import annotations
 import json
 import subprocess
 import tempfile
+import threading
 from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import IO, Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -122,8 +123,10 @@ def stream_run(
     cwd: Path | None,
     on_event: Callable[[dict], None],
     env: dict[str, str] | None = None,
+    input: str = "",
 ) -> subprocess.CompletedProcess[str]:
-    """Run `args`, calling `on_event` for each JSON line as it is printed.
+    """Run `args` with `input` on its standard input, calling `on_event` for each JSON line
+    as it is printed.
 
     Returns what `subprocess.run` would have: every line of stdout, so the
     refusal check and `final_text` read it exactly as before.
@@ -133,9 +136,20 @@ def stream_run(
     # the child, which would then never finish the stdout this loop is reading.
     with tempfile.TemporaryFile("w+") as stderr:
         with subprocess.Popen(
-            args, cwd=cwd, stdout=subprocess.PIPE, stderr=stderr, text=True, bufsize=1, env=env
+            args,
+            cwd=cwd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=stderr,
+            text=True,
+            bufsize=1,
+            env=env,
         ) as process:
-            assert process.stdout is not None
+            assert process.stdout is not None and process.stdin is not None
+            # From a thread, so a prompt larger than the pipe cannot block before the output
+            # is read; closed when written, so the process sees the end of its input.
+            feeder = threading.Thread(target=_feed, args=(process.stdin, input))
+            feeder.start()
             for line in process.stdout:
                 lines.append(line)
                 event = _parse(line)
@@ -144,8 +158,18 @@ def stream_run(
                         on_event(event)
                     except Exception:  # noqa: BLE001, S110
                         pass  # A log line is never worth failing the run over.
+        feeder.join()
         stderr.seek(0)
         return subprocess.CompletedProcess(args, process.returncode, "".join(lines), stderr.read())
+
+
+def _feed(pipe: IO[str], text: str) -> None:
+    """Write `text` to a child's standard input and close it; a child that exits early is fine."""
+    try:
+        with pipe:
+            pipe.write(text)
+    except OSError:
+        pass
 
 
 def final_text(stdout: str) -> str:

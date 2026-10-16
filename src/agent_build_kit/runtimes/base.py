@@ -55,6 +55,15 @@ class PromptTransport(StrEnum):
     PROTOCOL = "protocol"  # a message of the agent protocol
 
 
+# The most bytes of UTF-8 a prompt may be on each transport: under the single-argument cap with
+# room for the other arguments, and a bound on the prompt (not the pipe) for the others.
+SAFE_PROMPT_BYTES: dict[PromptTransport, int] = {
+    PromptTransport.ARGUMENT: 100_000,
+    PromptTransport.STDIN: 2_000_000,
+    PromptTransport.PROTOCOL: 2_000_000,
+}
+
+
 class PromptTooLarge(ValueError):
     """A prompt is over the safe size of its runtime's transport; nothing was started."""
 
@@ -62,7 +71,15 @@ class PromptTooLarge(ValueError):
 def check_prompt_size(request: AgentRequest, transport: PromptTransport) -> bytes:
     """The request's prompt as the UTF-8 bytes to deliver, or `PromptTooLarge` when it is over
     the transport's safe size."""
-    raise NotImplementedError
+    data = request.prompt.encode()
+    limit = SAFE_PROMPT_BYTES[transport]
+    if len(data) > limit:
+        named = f" for {request.change}" if request.change else ""
+        raise PromptTooLarge(
+            f"the {request.role} prompt{named} is {len(data)} bytes; "
+            f"the {transport} transport carries at most {limit}"
+        )
+    return data
 
 
 class ToolPolicy(Frozen):

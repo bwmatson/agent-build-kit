@@ -106,7 +106,7 @@ class Fixes(FakeClaude):
 
     def __call__(self, argv, **kwargs):  # type: ignore[no-untyped-def]
         cwd = Path(kwargs["cwd"])
-        for name, text in self.fixed(prompt_of(argv)).items():
+        for name, text in self.fixed(kwargs["input"]).items():
             (cwd / name).write_text(text)
         return super().__call__(argv, **kwargs)
 

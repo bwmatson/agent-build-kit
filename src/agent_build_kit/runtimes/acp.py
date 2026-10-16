@@ -117,12 +117,14 @@ from agent_build_kit.runtimes.base import (
     PermissionChoice,
     PolicyCoverage,
     PolicyReport,
+    PromptTransport,
     Question,
     QuestionKind,
     Run,
     SessionUnavailable,
     ToolPolicy,
     Which,
+    check_prompt_size,
     child_environment,
     validate_argv,
 )
@@ -1258,6 +1260,8 @@ class AcpRuntime:
     supports_streaming: bool = True
     supports_session_resume: bool = True
     passes_env: bool = True
+    # The prompt is a `session/prompt` message.
+    prompt_transport: PromptTransport = PromptTransport.PROTOCOL
     # There is no default agent to spawn.
     requires: tuple[str, ...] = ("command",)
     agent_command: tuple[str, ...] = ()
@@ -1283,6 +1287,7 @@ class AcpRuntime:
         return traced(NAME, request, lambda: self._call(request))
 
     def _call(self, request: AgentRequest) -> AgentResult:
+        check_prompt_size(request, self.prompt_transport)
         result = self._attempt(request)
         if request.on_result is not None:
             request.on_result(result)

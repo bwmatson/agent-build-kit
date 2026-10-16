@@ -63,7 +63,7 @@ from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from agent_build_kit.serve.server import create_app
 from tests.factories import unit
 from tests.runtimes.acp_agent import EARLIER_TURN
-from tests.runtimes.claude_cli import FakeClaude
+from tests.runtimes.claude_cli import FakeClaude, Invocation
 from tests.waiting import wait_for
 
 WAIT = 15
@@ -253,8 +253,10 @@ def use_claude(
     return fake
 
 
-def prompt_of(argv: list[str]) -> str:
-    return argv[argv.index("-p") + 1]
+def prompt_of(argv: Invocation) -> str:
+    """The prompt a recorded `claude` invocation was given on its standard input."""
+    assert argv.prompt is not None
+    return argv.prompt
 
 
 class BlockingClaude(FakeClaude):

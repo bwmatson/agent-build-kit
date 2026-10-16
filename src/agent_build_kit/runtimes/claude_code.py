@@ -56,6 +56,7 @@ from agent_build_kit.runtimes.base import (
     PermissionMode,
     PolicyCoverage,
     PolicyReport,
+    PromptTransport,
     Question,
     QuestionKind,
     Run,
@@ -63,6 +64,7 @@ from agent_build_kit.runtimes.base import (
     SessionUnavailable,
     UsageStatus,
     Which,
+    check_prompt_size,
     child_environment,
     validate_argv,
 )
@@ -72,9 +74,9 @@ from agent_build_kit.runtimes.traced import traced
 from agent_build_kit.settings import named_value
 from agent_build_kit.usage import Context, ContextBasis, context_of
 
-# (argv, *, cwd, on_event) -> the finished process: `claude_stream.stream_run`'s
-# shape. `on_event` is called with each JSON event as it is printed, and is
-# None for a run that is not streamed.
+# (argv, *, cwd, on_event, input) -> the finished process: `claude_stream.stream_run`'s
+# shape. `input` is the prompt, written to the process's standard input. `on_event` is called
+# with each JSON event as it is printed, and is None for a run that is not streamed.
 Execute = Callable[..., subprocess.CompletedProcess[str]]
 
 # A usage reading, or None when there is none: `usage_guard`'s readers.
@@ -113,13 +115,17 @@ def spawn(
     on_event: Callable[[dict], None] | None = None,
     env: dict[str, str] | None = None,
     environment: dict[str, str] | None = None,
+    input: str = "",
 ) -> subprocess.CompletedProcess[str]:
     """The real `claude` process: streamed when there is someone to tell. `env`
-    is added to `environment` when given, else to this process's own."""
+    is added to `environment` when given, else to this process's own. `input` is
+    the prompt, on its standard input."""
     merged = child_environment(environment, env or {})
     if on_event is not None:
-        return stream_run(argv, cwd=cwd, on_event=on_event, env=merged)
-    return subprocess.run(argv, cwd=cwd, capture_output=True, text=True, check=False, env=merged)
+        return stream_run(argv, cwd=cwd, on_event=on_event, env=merged, input=input)
+    return subprocess.run(
+        argv, cwd=cwd, capture_output=True, text=True, check=False, env=merged, input=input
+    )
 
 
 NAME = "claude_code"
@@ -224,7 +230,7 @@ NO_ATTRIBUTION: dict = {"attribution": {"commit": "", "pr": ""}, "includeCoAutho
 
 
 def build_argv(request: AgentRequest) -> list[str]:
-    argv = [*command(), "-p", request.prompt]
+    argv = [*command(), "-p"]
     if request.worktree:
         argv += ["--worktree", request.worktree]
     for directory in request.add_dirs:
@@ -293,6 +299,8 @@ class ClaudeCodeRuntime:
     # `request.env` is added to `claude`'s environment, but the gateway's key is
     # still not offered to it: that is a decision about the gateway, not the run.
     passes_env: bool = False
+    # `claude -p` with no prompt argument reads it from standard input.
+    prompt_transport: PromptTransport = PromptTransport.STDIN
     # `claude` on PATH is all it needs.
     requires: tuple[str, ...] = ()
     agent_command: tuple[str, ...] = AGENT_COMMAND
@@ -315,6 +323,7 @@ class ClaudeCodeRuntime:
         return traced(self.name, request, lambda: self._run(request))
 
     def _run(self, request: AgentRequest) -> AgentResult:
+        prompt = check_prompt_size(request, self.prompt_transport).decode()
         execute = self._execute or spawn
         # Only when there is something to add: an injected `execute` written
         # before the environment was passed does not take the argument.
@@ -322,7 +331,13 @@ class ClaudeCodeRuntime:
         extra: dict[str, Any] = {"env": env} if env else {}
         if request.environment is not None:
             extra["environment"] = request.environment
-        result = execute(build_argv(request), cwd=request.cwd, on_event=_progress(request), **extra)
+        result = execute(
+            build_argv(request),
+            cwd=request.cwd,
+            on_event=_progress(request),
+            input=prompt,
+            **extra,
+        )
         outcome = self._finish(request, result)
         if request.on_result is not None:
             request.on_result(outcome)
@@ -581,12 +596,15 @@ def _progress(request: AgentRequest) -> Callable[[dict], None] | None:
 def through(run: Callable[..., subprocess.CompletedProcess[str]]) -> ClaudeCodeRuntime:
     """This adapter with `run(argv, *, cwd)` in place of the process: the
     shape a call site's own injection point took before the runtime seam,
-    which never streamed, kept so a caller handing one in still sees the
-    exact argv. `run` is called as `run(argv, *, cwd, env=...)` when there is an
-    environment to add (an account is set, or the request has entries), so it
-    must accept `env`."""
+    which never streamed. `run` is given the argv as it was when the prompt was an
+    argument (the prompt after `-p`), so a caller handing one in sees the exact argv, and it
+    is called as `run(argv, *, cwd, env=...)` when there is an environment to add (an account
+    is set, or the request has entries), so it must accept `env`."""
 
-    def execute(argv: list[str], *, cwd: Path | None = None, on_event=None, env=None):
+    def execute(argv: list[str], *, cwd: Path | None = None, on_event=None, env=None, input=None):
+        if input is not None:
+            at = len(command()) + 1  # just after `-p`
+            argv = [*argv[:at], input, *argv[at:]]
         return run(argv, cwd=cwd, **({"env": env} if env else {}))
 
     return ClaudeCodeRuntime(execute=execute)
