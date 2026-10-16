@@ -2,8 +2,7 @@
 
 `abk tick` is the real CLI run as a process against a scratch planning repo and
 a scratch code repo with a bare remote, with a real agent on this host
-(`ABK_ACCEPTANCE_ACP_COMMAND` for the ACP runtime, the host's own Claude login for
-`claude_code`) and telemetry switched on through the settings a
+(the host's own Claude login) and telemetry switched on through the settings a
 person would set. Only GitHub is faked: a fake server speaking the REST API,
 reached through `ABK_GITHUB_API_URL`, with `gh auth token` the one command left as
 a script.
@@ -17,8 +16,8 @@ by metric name. The dev instance must be up; its published ports are named by:
 - `ABK_ACCEPTANCE_TRACES_URL`        the trace store's base URL (search API)
 - `ABK_ACCEPTANCE_METRICS_URL`       the metrics store's base URL (query API)
 
-The fixture unit is built once for each of `claude_code` and `acp`, one runtime tag
-per parameter, and the trace and series checks hold on both.
+The fixture unit is built once, for `claude_code`, under that runtime's one tag. The
+`acp` parameters are added by a separate change.
 Every run is told apart in the stores by a service name of its own, so a store
 that already holds earlier runs does not answer for this one.
 
@@ -49,7 +48,7 @@ from agent_build_kit.model import Frozen
 from tests.factories import git, init_repo, scratch_app
 from tests.forges.github_server import FakeGitHub
 from tests.forges.process_host import process_env
-from tests.runtime_scratch import AGENT_COMMAND, RUNTIME_PARAMS, runtime_scratch
+from tests.runtime_scratch import AGENT_COMMAND, runtime_scratch
 
 pytestmark = [
     pytest.mark.local_stack,
@@ -71,9 +70,9 @@ INGEST_WAIT = 90.0
 QUIET_WAIT = 20.0
 
 # Why the dead-collector check runs on Claude alone: the exporter is the kit's own and sits
-# above the runtime, so an ACP variant would exercise the same code and add no coverage.
+# above the runtime, so a build on a second runtime would exercise the same code.
 DEAD_COLLECTOR_REASON = (
-    "the exporter does not depend on the runtime; an ACP variant adds no coverage"
+    "the exporter does not depend on the agent; a build on a second runtime adds no coverage"
 )
 
 TASKS = """# Tasks
@@ -244,7 +243,9 @@ def series_of(service: str, metric: str) -> list[dict[str, str]]:
     return found.get("data", [])
 
 
-@pytest.fixture(scope="module", params=RUNTIME_PARAMS)
+@pytest.fixture(
+    scope="module", params=[pytest.param("claude_code", marks=pytest.mark.runtime_claude_code)]
+)
 def stack_tick(
     request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
 ) -> Iterator[Ticked]:
