@@ -108,6 +108,14 @@ class Installation:
         return self._under_root(self.config.planning.usage_page)
 
     @property
+    def planning_paths(self) -> tuple[str, ...]:
+        """The specs directory, the state directory, the graph page, the usage page and the
+        configuration file, relative to the root (a path outside it stays absolute)."""
+        paths = (self.specs_dir, self.state_dir, self.graph_page, self.usage_page)
+        named = [p.relative_to(self.root) if p.is_relative_to(self.root) else p for p in paths]
+        return (*(str(p) for p in named), config_module.CONFIG_FILENAME)
+
+    @property
     def env_file(self) -> Path:
         return env_file_for(self.root)
 
