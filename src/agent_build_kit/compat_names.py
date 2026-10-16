@@ -59,9 +59,11 @@ def notice(place: Place, old: str, where: str) -> str:
     return f"{where}: warning: {place.value} {old} is deprecated; use {new}"
 
 
-def _read_old_kind(value: object) -> object:
+def read_old_kind(value: object) -> object:
+    """A test kind as read from a stored value or a heading: an old spelling becomes the new
+    one; anything that is not a string (an empty kind, a `TestTier`) comes back unchanged."""
     return new_spelling(Place.VALUE, value) if isinstance(value, str) else value
 
 
 # A test kind as a model field reads it: either spelling in, a `TestTier` out.
-TestKind = Annotated[TestTier, BeforeValidator(_read_old_kind)]
+TestKind = Annotated[TestTier, BeforeValidator(read_old_kind)]

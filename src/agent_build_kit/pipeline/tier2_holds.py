@@ -79,7 +79,7 @@ def held_splits(splits: tuple[Tier2Split, ...], state_dir: Path, *, now: datetim
     held: dict[str, Hold] = {
         split.name: Hold(
             split=split.name,
-            reason="`hold: true` in tests.tier2_splits",
+            reason="`hold: true` in tests.e2e_splits",
             origins=(ORIGIN_CONFIGURATION,),
         )
         for split in splits

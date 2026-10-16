@@ -26,7 +26,7 @@ from agent_build_kit.pipeline import tier2
 from tests.conftest import make_installation
 from tests.tier2_lock_fakes import SleepingTime, held, install_clock
 
-SETTING = "global_limits.tier2_lock_wait_seconds"
+SETTING = "global_limits.e2e_lock_wait_seconds"
 
 
 @pytest.fixture
@@ -36,7 +36,7 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> SleepingTime:
 
 def write_yaml(tmp_path: Path, value: str) -> Path:
     path = tmp_path / "abk.yaml"
-    path.write_text(f"global_limits:\n  tier2_lock_wait_seconds: {value}\n")
+    path.write_text(f"global_limits:\n  e2e_lock_wait_seconds: {value}\n")
     return path
 
 

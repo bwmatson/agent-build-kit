@@ -85,9 +85,9 @@ def test_a_bad_split_is_refused_naming_the_setting_and_the_value(
     with pytest.raises(ValidationError) as refused_own:
         config(own=splits)
 
-    assert "tests.tier2_splits" in str(refused.value)
+    assert "tests.e2e_splits" in str(refused.value)
     assert value in str(refused.value)
-    assert "repos.app.tests.tier2_splits" in str(refused_own.value)
+    assert "repos.app.tests.e2e_splits" in str(refused_own.value)
 
 
 def test_an_unknown_key_is_refused_though_the_split_without_it_loads() -> None:

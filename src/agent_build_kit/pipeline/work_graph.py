@@ -26,9 +26,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Protocol
 
-from pydantic import field_validator
-
-from agent_build_kit.compat_names import Place, is_old_spelling, new_spelling, notice
+from agent_build_kit.compat_names import Place, TestKind, is_old_spelling, new_spelling, notice
 from agent_build_kit.config import RepoConfig, active
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.units import Priority, reachable
@@ -191,7 +189,7 @@ class TaskGroup(Frozen):
 
     number: int
     repo: str
-    tier: TestTier
+    tier: TestKind
     title: str
     line: int
     task_count: int
@@ -209,11 +207,6 @@ class TaskGroup(Frozen):
     priority: int = Priority.NORMAL
     # The "Done when" sentence under the heading, "" when the group has none.
     goal: str = ""
-
-    @field_validator("tier", mode="before")
-    @classmethod
-    def _read_old_spelling(cls, value: object) -> object:
-        return new_spelling(Place.VALUE, value) if isinstance(value, str) else value
 
     @property
     def tag(self) -> str:

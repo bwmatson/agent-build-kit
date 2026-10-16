@@ -246,10 +246,7 @@ def plan_units(change: str, groups: list[dict], *, min_lines: int, max_lines: in
                 # A unit that needs the live stack anywhere needs it overall:
                 # tier decides how it's verified, not what belongs together.
                 tier=TestTier.E2E_TEST
-                if any(
-                    TestTier(new_spelling(Place.VALUE, g["tier"])) is TestTier.E2E_TEST
-                    for g in current
-                )
+                if any(new_spelling(Place.VALUE, g["tier"]) == TestTier.E2E_TEST for g in current)
                 else TestTier.UNIT_TEST,
                 estimated_lines=sum(g["estimated_lines"] for g in current),
                 groups=tuple(g["number"] for g in current),

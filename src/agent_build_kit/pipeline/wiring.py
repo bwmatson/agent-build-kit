@@ -2256,7 +2256,7 @@ def tier2_scope(
     if is_scheduled(change):
         return whole("a scheduled run is the whole suite")
     if setting is Tier2UnitScope.FULL:
-        return whole("tier2_unit_scope is full")
+        return whole("e2e_unit_scope is full")
     for _, toolchain, _ in work:
         if not isinstance(toolchain, RepeatsTests):
             return whole(f"the {toolchain.name} profile cannot select tests by identifier")

@@ -709,7 +709,7 @@ class GateConfig(Frozen):
 
 
 class Tier2SplitEntry(Frozen):
-    """One `tests.tier2_splits.<name>` entry as written: a selector, a hold and a gate."""
+    """One `tests.e2e_splits.<name>` entry as written: a selector, a hold and a gate."""
 
     marker: str | None = None
     hold: bool | None = None
@@ -751,9 +751,9 @@ BASE_GROUP = "base"
 
 # The runtime lists that no longer exist, each with the setting that replaces it.
 REPLACED_RUNTIME_LISTS = {
-    "runtimes_blocked": "`tests.tier2_splits.<name>.hold: true`",
-    "runtimes_allowed": "`tests.tier2_splits.<name>.hold: false`",
-    "tier2_runtimes": "a split declared under `tests.tier2_splits`",
+    "runtimes_blocked": "`tests.e2e_splits.<name>.hold: true`",
+    "runtimes_allowed": "`tests.e2e_splits.<name>.hold: false`",
+    "tier2_runtimes": "a split declared under `tests.e2e_splits`",
 }
 
 
@@ -1154,7 +1154,7 @@ class WorkspaceConfig(Frozen):
     @model_validator(mode="before")
     @classmethod
     def _runtime_lists_are_gone(cls, data: object) -> object:
-        """The runtime lists were replaced by `tests.tier2_splits`; refuse each naming the
+        """The runtime lists were replaced by `tests.e2e_splits`; refuse each naming the
         setting that replaces it."""
         if not isinstance(data, dict):
             return data
@@ -1173,10 +1173,10 @@ class WorkspaceConfig(Frozen):
     @model_validator(mode="after")
     def _tier2_splits_declared_well(self) -> WorkspaceConfig:
         """Each split has a valid name and one marker no other split has; `rest` has none."""
-        maps = {"tests.tier2_splits": self.tests.tier2_splits}
+        maps = {"tests.e2e_splits": self.tests.tier2_splits}
         for key, repo in self.repos.items():
             if repo.tests.tier2_splits is not None:
-                maps[f"repos.{key}.tests.tier2_splits"] = repo.tests.tier2_splits
+                maps[f"repos.{key}.tests.e2e_splits"] = repo.tests.tier2_splits
         for setting, splits in maps.items():
             seen: dict[str, str] = {}
             for name, entry in splits.items():
