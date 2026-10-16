@@ -17,6 +17,7 @@ the schema name, so replacing it loses nothing.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import textwrap
 from collections.abc import Callable, Mapping, Sequence
@@ -49,6 +50,7 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.changelog_convention import packaged_convention
 from agent_build_kit.pipeline.file_lock import append_missing_lines
 from agent_build_kit.pipeline.original_copy import COPY_PATTERN
+from agent_build_kit.pipeline.planning_repo import toplevel
 from agent_build_kit.pipeline.shell import git
 
 TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
@@ -113,6 +115,9 @@ def draft_config(
         if unknown:
             raise ScaffoldError(f"{name} consumes {', '.join(unknown)}, which is not a repo here")
 
+    # A repo that holds the planning directory is named relative to it: `.` or `..`.
+    planning_root = planning_dir.expanduser().resolve()
+    top = toplevel(planning_root)
     repos: dict[str, RepoConfig] = {}
     for name in _ordered(list(detections), consumes):
         detection = detections[name]
@@ -141,7 +146,9 @@ def draft_config(
                 "environment": detect_environment(
                     detection.path, framework=False, profile=detection.profile
                 ),
-                "path": detection.path,
+                "path": Path(os.path.relpath(detection.path, planning_root))
+                if holds_planning(top, planning_root, detection.path)
+                else detection.path,
                 "forge": forge.name,
                 **named,
                 "default_branch": detection.default_branch,
@@ -614,6 +621,103 @@ def _ensure_ignored(path: Path, lines: tuple[str, ...], *, written: list[Path]) 
         written.append(path)
 
 
+def holds_planning(top: Path | None, planning_root: Path, repo_path: Path) -> bool:
+    """Whether the repo at `repo_path` (relative to `planning_root` unless absolute) is the
+    repository whose top is `top`, the one the planning directory is in. The one rule for
+    a planning repo that is also a code repo."""
+    return top is not None and (planning_root / repo_path).expanduser().resolve() == top
+
+
+def holding_repo(planning: Path, config: WorkspaceConfig) -> Path | None:
+    """The top of the repository the planning directory is in when that repository is one of
+    the configured repos, else None: the planning repo is then also a code repo."""
+    root = planning.expanduser().resolve()
+    top = toplevel(root)
+    return top if any(holds_planning(top, root, r.path) for r in config.repos.values()) else None
+
+
+_IGNORE_OPEN = "# abk:planning v1"
+_IGNORE_CLOSE = "# /abk:planning"
+_IGNORE_START = re.compile(r"# abk:planning v\w+")
+_IGNORE_END = re.compile(re.escape(_IGNORE_CLOSE))
+_ORIENT_OPEN = "<!-- abk:planning v1 -->"
+_ORIENT_CLOSE = "<!-- /abk:planning -->"
+_ORIENT_START = re.compile(r"<!-- abk:planning v\w+ -->")
+_ORIENT_END = re.compile(re.escape(_ORIENT_CLOSE))
+
+
+def _state_ignores(state_dir: str) -> list[str]:
+    """The template's lines about the state directory and the redaction originals."""
+    lines = [line.strip() for line in template("gitignore").splitlines()]
+    return [
+        f"{state_dir}/{line.removeprefix('runs/')}" if line.startswith("runs/") else line
+        for line in lines
+        if line.startswith("runs/") or line == COPY_PATTERN
+    ]
+
+
+def _read_text(path: Path) -> str:
+    """The file's text, byte for byte; a file that is not UTF-8 is a `ScaffoldError`, since
+    writing it back would change its bytes."""
+    try:
+        return path.read_bytes().decode()
+    except UnicodeDecodeError:
+        raise ScaffoldError(f"{path} is not valid UTF-8; add the abk block to it by hand") from None
+
+
+def _ignore_block(text: str, state_dir: str) -> str:
+    """The `.gitignore` text with the state lines it lacks in one marker block."""
+    span = find_block(text, _IGNORE_START, _IGNORE_END)
+    outside = text if span is None else text[: span[0]] + text[span[1] :]
+    present = {line.strip() for line in outside.splitlines()}
+    missing = [line for line in _state_ignores(state_dir) if line not in present]
+    if not missing:
+        return text
+    eol = _eol(text)
+    block = eol.join([_IGNORE_OPEN, *missing, _IGNORE_CLOSE]) + eol
+    return splice_block(text, _IGNORE_START, _IGNORE_END, block, eol=eol, blank=False)
+
+
+def _orientation(config: WorkspaceConfig, prefix: str) -> str:
+    planning = config.planning
+    body = template("planning-orientation.md").format(
+        prefix=prefix,
+        specs_dir=planning.specs_dir,
+        state_dir=planning.state_dir,
+        graph_page=planning.graph_page,
+    )
+    return f"{_ORIENT_OPEN}\n{body}{_ORIENT_CLOSE}\n"
+
+
+def _rewrite(path: Path, text: str, *, written: list[Path]) -> None:
+    """Writes `text` as `path`'s bytes when they differ."""
+    if not path.exists() or path.read_bytes() != text.encode():
+        _put(path, text, False)
+        written.append(path)
+
+
+def _in_repo_blocks(planning: Path, top: Path, config: WorkspaceConfig) -> list[tuple[Path, str]]:
+    """The two files init adds a marker block to, with their new text: the planning directory's
+    `.gitignore` and the repository's guidance file. Raises `ScaffoldError` before anything is
+    written when a file cannot take its block."""
+    ignore = planning / ".gitignore"
+    guidance = guidance_file(top)
+    try:
+        ignore_text = _read_text(ignore) if ignore.exists() else ""
+        text = _read_text(guidance) if guidance.exists() else ""
+        eol = _eol(text)
+        prefix = "" if planning == top else f"{planning.relative_to(top).as_posix()}/"
+        block = _orientation(config, prefix).replace("\n", eol)
+        return [
+            (ignore, _ignore_block(ignore_text, config.planning.state_dir)),
+            (guidance, splice_block(text, _ORIENT_START, _ORIENT_END, block, eol=eol)),
+        ]
+    except MarkersError:
+        raise ScaffoldError(
+            f"mismatched abk:planning markers in {ignore} or {guidance}; fix them by hand"
+        ) from None
+
+
 def write_planning_repo(
     planning_dir: Path,
     config: WorkspaceConfig,
@@ -626,7 +730,10 @@ def write_planning_repo(
     planning.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
 
-    if not (planning / ".git").exists():
+    top = holding_repo(planning, config)
+    blocks = _in_repo_blocks(planning, top, config) if top else []
+
+    if top is None and not (planning / ".git").exists():
         result = git(planning, "init", "-q", "-b", "main", check=False)
         if result.returncode:
             raise ScaffoldError(f"git init failed in {planning}: {result.stderr.strip()}")
@@ -653,15 +760,20 @@ def write_planning_repo(
     state = planning / config.planning.state_dir
     _write(state / ".gitkeep", "", overwrite=False, written=written)
     _write(state / "units.json", '{"units": []}\n', overwrite=False, written=written)
-    _write(planning / ".gitignore", template("gitignore"), overwrite=False, written=written)
-    _ensure_ignored(planning / ".gitignore", LOCAL_IGNORES, written=written)
     _write(planning / ".env.example", template("env.example"), overwrite=False, written=written)
-    _write(
-        planning / "CLAUDE.md",
-        template("planning-CLAUDE.md").format(**_repo_words(list(config.repos))),
-        overwrite=False,
-        written=written,
-    )
+    if top:
+        # The repo's own files: only a marker block is added to each, nothing else changes.
+        for path, text in blocks:
+            _rewrite(path, text, written=written)
+    else:
+        _write(planning / ".gitignore", template("gitignore"), overwrite=False, written=written)
+        _ensure_ignored(planning / ".gitignore", LOCAL_IGNORES, written=written)
+        _write(
+            planning / "CLAUDE.md",
+            template("planning-CLAUDE.md").format(**_repo_words(list(config.repos))),
+            overwrite=False,
+            written=written,
+        )
     # No systemd units here. One carries an absolute `WorkingDirectory`, so a
     # unit written at init time names whoever ran init and is wrong for everyone
     # who clones the repo afterwards. `abk install-timers` renders them on the
@@ -712,6 +824,49 @@ def merge_attribute(attributes: str, path: str) -> str | None:
     return found
 
 
+class MarkersError(ValueError):
+    """A file holds an opening marker without a closing one after it, or the reverse."""
+
+
+def find_block(text: str, start: re.Pattern[str], end: re.Pattern[str]) -> tuple[int, int] | None:
+    """The span of the one marker-bracketed block in `text`, None when there is none; raises
+    `MarkersError` for markers that do not pair up."""
+    opens, closes = list(start.finditer(text)), list(end.finditer(text))
+    if len(opens) != len(closes) or (opens and opens[0].start() > closes[0].start()):
+        raise MarkersError("mismatched markers")
+    return (opens[0].start(), closes[0].end()) if opens else None
+
+
+def splice_block(
+    text: str,
+    start: re.Pattern[str],
+    end: re.Pattern[str],
+    block: str,
+    *,
+    eol: str,
+    blank: bool = True,
+) -> str:
+    """`text` with `block` (ending in `eol`) in place of the block already there, else appended,
+    after a blank line when `blank`, or directly after the last line."""
+    span = find_block(text, start, end)
+    if span:
+        first, last = span
+        if text[last : last + len(eol)] == eol:
+            last += len(eol)
+        return text[:first] + block + text[last:]
+    if not text:
+        return block
+    separator = "" if text.endswith("\n") else eol
+    return text + separator + (eol if blank else "") + block
+
+
+def guidance_file(root: Path) -> Path:
+    """The repo's own guidance file: `AGENTS.md`, else `CLAUDE.md`, else `AGENTS.md` to create."""
+    return next(
+        (root / n for n in ("AGENTS.md", "CLAUDE.md") if (root / n).is_file()), root / "AGENTS.md"
+    )
+
+
 def _eol(text: str) -> str:
     return "\r\n" if "\r\n" in text else "\n"
 
@@ -731,9 +886,7 @@ def _put(path: Path, text: str, dry_run: bool) -> None:
 
 
 def _block_action(root: Path, repo: str, changelog: str, dry_run: bool) -> ConventionResult:
-    path = next(
-        (root / n for n in ("AGENTS.md", "CLAUDE.md") if (root / n).is_file()), root / "AGENTS.md"
-    )
+    path = guidance_file(root)
 
     def result(kind: Outcome, note: str = "") -> ConventionResult:
         return ConventionResult(repo=repo, action="block", path=path, result=kind, note=note)
@@ -741,28 +894,21 @@ def _block_action(root: Path, repo: str, changelog: str, dry_run: bool) -> Conve
     if not path.is_file():
         _put(path, _block_text(changelog, "\n"), dry_run)
         return result("created")
-    text = path.read_bytes().decode(errors="replace")
-    eol = _eol(text)
-    opens = list(_BLOCK_START.finditer(text))
-    closes = list(_BLOCK_END.finditer(text))
-    if len(opens) != len(closes) or (opens and opens[0].start() > closes[0].start()):
+    try:
+        text = _read_text(path)
+        eol = _eol(text)
+        updated = splice_block(text, _BLOCK_START, _BLOCK_END, _block_text(changelog, eol), eol=eol)
+    except MarkersError:
         return result("skipped", "mismatched abk:changelog markers; fix them by hand")
-    block = _block_text(changelog, eol)
-    if opens:
-        start, end = opens[0].start(), closes[0].end()
-        if text[end : end + len(eol)] == eol:
-            end += len(eol)
-        if text[start:end] == block:
-            return result("unchanged")
-        _put(path, text[:start] + block + text[end:], dry_run)
-        return result("updated")
-    if re.search(r"^## changelog", text, re.IGNORECASE | re.MULTILINE):
+    except ScaffoldError as error:
+        return result("skipped", str(error))
+    if updated == text:
+        return result("unchanged")
+    if not _BLOCK_START.search(text) and re.search(
+        r"^## changelog", text, re.IGNORECASE | re.MULTILINE
+    ):
         return result("skipped", f"{path.name} has its own Changelog section")
-    if not text:
-        separator = ""
-    else:
-        separator = eol if text.endswith("\n") else eol * 2
-    _put(path, f"{text}{separator}{block}", dry_run)
+    _put(path, updated, dry_run)
     return result("updated")
 
 

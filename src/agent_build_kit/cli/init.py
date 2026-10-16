@@ -62,6 +62,7 @@ from agent_build_kit.init.scaffold import (
     ScaffoldError,
     draft_config,
     fill_missing_environment,
+    holding_repo,
     record_in_file,
     update_rules,
     write_code_repo_conventions,
@@ -708,7 +709,10 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         print(f"abk init: {error}", file=sys.stderr)
         return 1
     for path in written:
-        print(f"wrote {path.relative_to(planning)}")
+        print(f"wrote {path.relative_to(planning, walk_up=True)}")
+    if not written:
+        print("planning repo: nothing to write")
+    in_repo = holding_repo(planning, config) is not None
     if (planning / "abk.yaml") not in written:
         print("kept abk.yaml (use --force to overwrite)")
         for what in fill_missing_environment(planning / CONFIG_FILENAME, config):
@@ -788,7 +792,9 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         else:
             print(f"registered OpenSpec store {args.register_store}")
 
-    if clean_before:
+    if in_repo:
+        print("not committed: what was written is in this repository, for you to commit")
+    elif clean_before:
         reason = _commit(planning, names)
         if reason:
             print(f"not committed: {reason}")

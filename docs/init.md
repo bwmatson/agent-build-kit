@@ -191,7 +191,11 @@ to finish by hand, and init exits 1 at the end.
 `--register-store ID` runs `openspec store register --id ID --yes` on the
 planning repo. Then, if the planning repo's tree was clean *before* init ran,
 everything is committed as `abk init: workspace <names>`; otherwise nothing
-is, and the reason is printed. Finally the next steps: review `abk.yaml`
+is, and the reason is printed. When the planning directory is one of the repos
+(`abk init . --repo .`), init is in-repo: the repo is written at `.`, existing files
+are left byte for byte, the state-directory ignore lines are added to `.gitignore`
+and a planning orientation to `AGENTS.md` (else `CLAUDE.md`) as marker blocks
+refreshed in place on a rerun, and nothing is committed. Finally the next steps: review `abk.yaml`
 (fill each `deploy.rules[].run`, `description`, `relationships`; replace any
 `todo-owner/` slug), set a repo-local git identity in each checkout, log `gh`
 in for every owner, copy `.env.example` to `.env`, run `abk doctor`, install
