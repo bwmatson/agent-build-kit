@@ -17,7 +17,7 @@ from dotenv import dotenv_values
 from pydantic import AliasChoices
 
 from agent_build_kit import settings as settings_module
-from agent_build_kit.config import ClaudeLimitsConfig, ConfigError
+from agent_build_kit.config import CLAUDE_CODE, ClaudeLimitsConfig, ConfigError, runtime_entry
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.settings import Settings, settings
@@ -97,8 +97,15 @@ def _configured() -> Path | None:
     return path
 
 
+def _directory(account: Account | None) -> Path | None:
+    """The directory of `account`, else the one the setting names; None for the default account."""
+    if account is not None and account.config_dir is not None:
+        return account.config_dir
+    return _configured()
+
+
 def home(account: Account | None = None) -> Path:
-    return _configured() or _default()
+    return _directory(account) or _default()
 
 
 def is_default() -> bool:
@@ -108,25 +115,25 @@ def is_default() -> bool:
 def environment_entry(account: Account | None = None) -> dict[str, str]:
     """What a `claude` is started with to run in the account: its directory under Claude Code's
     own variable, or nothing for the default account."""
-    configured = _configured()
+    configured = _directory(account)
     return {VARIABLE: str(configured)} if configured else {}
 
 
 def credentials_path(account: Account | None = None) -> Path:
-    return home() / ".credentials.json"
+    return home(account) / ".credentials.json"
 
 
 def state_file(account: Account | None = None) -> Path:
-    configured = _configured()
+    configured = _directory(account)
     return configured / ".claude.json" if configured else Path.home() / ".claude.json"
 
 
 def skills_dir(account: Account | None = None) -> Path:
-    return home() / "skills"
+    return home(account) / "skills"
 
 
 def account_key(account: Account | None = None) -> str | None:
-    configured = _configured()
+    configured = _directory(account)
     return str(configured) if configured else None
 
 
@@ -140,5 +147,15 @@ class Account(Frozen):
 
 
 def resolve(inst: Installation, label: str | None) -> Account:
-    """The account a repo's `account` label names on this machine."""
-    raise NotImplementedError
+    """The account a repo's `account` label names on this machine: the labelled one when it has
+    a `config_dir`, else the default account."""
+    entry = runtime_entry(inst.config, name=CLAUDE_CODE)
+    named = entry.accounts.get(label) if label is not None else None
+    if named is None or named.config_dir is None:
+        return Account(limits=entry.limits)
+    return Account(
+        label=label,
+        config_dir=named.config_dir,
+        limits=named.limits,
+        slots=named.max_units_in_progress,
+    )

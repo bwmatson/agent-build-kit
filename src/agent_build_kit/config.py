@@ -393,6 +393,30 @@ class AccountConfig(Frozen):
     limits: ClaudeLimitsConfig = ClaudeLimitsConfig()
     max_units_in_progress: Annotated[int, Field(gt=0)] | None = None
 
+    @field_validator("config_dir")
+    @classmethod
+    def _config_dir_is_absolute(cls, value: Path | None) -> Path | None:
+        if value is not None and not value.expanduser().is_absolute():
+            raise ValueError(
+                f"{str(value)!r} is relative; write an absolute path, since a relative one "
+                "would mean a different directory under each shell and timer"
+            )
+        return value.expanduser() if value is not None else None
+
+
+def _committed_config_dirs(document: dict[str, Any]) -> list[str]:
+    """The keys of `runtimes.claude_code.accounts.<label>.config_dir` the document sets."""
+    runtimes = document.get("runtimes")
+    runtime = runtimes.get(CLAUDE_CODE) if isinstance(runtimes, dict) else None
+    accounts = runtime.get("accounts") if isinstance(runtime, dict) else None
+    if not isinstance(accounts, dict):
+        return []
+    return [
+        f"runtimes.{CLAUDE_CODE}.accounts.{label}.config_dir"
+        for label, entry in accounts.items()
+        if isinstance(entry, dict) and "config_dir" in entry
+    ]
+
 
 class RuntimeConfig(Frozen):
     """What one agent runtime needs from this installation (`runtimes.<name>`)."""
@@ -1496,6 +1520,11 @@ def load(path: Path) -> WorkspaceConfig:
     raw = _renamed(spelled[0], path)
     local = _renamed(spelled[1], overlay_path(path))
     assert raw is not None
+    for key in _committed_config_dirs(raw):
+        raise ConfigError(
+            f"{path}: {key}: a machine path is never committed; "
+            "set it in the machine-local overlay beside this file"
+        )
     merged = raw if local is None else merge_local(raw, local)
     try:
         loaded = WorkspaceConfig.model_validate(merged)

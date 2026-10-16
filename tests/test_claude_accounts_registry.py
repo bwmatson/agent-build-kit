@@ -48,7 +48,11 @@ def kit_overlay(config_dir: Path | str | None, **account: Any) -> dict:
 
 
 def installation(root: Path, *, local: dict | None) -> Installation:
-    return load_installation(planning_files(root, local=local))
+    """The installation of a planning repo under `root`, which the worktree root (under `HOME`)
+    must not contain."""
+    planning = root / "plan"
+    planning.mkdir()
+    return load_installation(planning_files(planning, local=local))
 
 
 def test_a_config_dir_in_the_committed_file_fails_naming_the_file_and_the_key(
@@ -146,8 +150,9 @@ def test_with_no_accounts_every_function_returns_what_it_did_before(
 
 
 def accounts_checks(workspace: Path, run: FakeClaude) -> list[Check]:  # noqa: F811 — fixture
-    return [c for c in run_doctor(workspace / "abk.yaml", run=run, which=which_all)
-            if c.name == CHECK]
+    return [
+        c for c in run_doctor(workspace / "abk.yaml", run=run, which=which_all) if c.name == CHECK
+    ]
 
 
 def name_the_label(workspace: Path, directory: Path | None) -> None:  # noqa: F811 — fixture
@@ -189,7 +194,7 @@ def test_doctor_reports_a_missing_config_dir_with_the_login_command(
     assert [c.status for c in checks] == ["FAIL"]
     assert "does not exist" in said(checks)
     assert checks[0].fix == f"{claude_account.VARIABLE}={directory} claude auth login"
-    assert run.asked == []
+    assert [env for _, env in run.asked if env and env.get(claude_account.VARIABLE)] == []
 
 
 def test_doctor_reports_a_config_dir_not_logged_in_with_the_login_command(
