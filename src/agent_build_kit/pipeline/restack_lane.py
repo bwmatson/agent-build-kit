@@ -10,6 +10,7 @@ git state.
 from __future__ import annotations
 
 import contextvars
+import hashlib
 import json
 import os
 import threading
@@ -35,6 +36,7 @@ from agent_build_kit.pipeline.units import (
     base_of,
     branch_name,
     local_ref,
+    project_key,
     waiting_on,
 )
 from agent_build_kit.pipeline.wiring import is_ancestor
@@ -48,6 +50,7 @@ Stamp = Callable[[StoredUnit], object]
 # The lane's record in the state directory, for `abk status` and the graph page, which are
 # not the process that runs the tick.
 RECORD_NAME = "restacks.json"
+RECORD_GLOB = "restacks*.json"
 
 OWED_STATES = (PLANNED, RUNNING, IN_REVIEW)
 OWED_CAUSES = (Cause.BASE_CHANGED, Cause.RESTACK_DEFERRED)
@@ -106,17 +109,25 @@ def owed_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
     }
 
 
+def record_path(state_dir: Path, key: ProjectKey) -> Path:
+    """Where the lane of a project says what it holds, beside the other lanes' records."""
+    name = f"{key.repo}/{key.project}".encode()
+    return state_dir / f"restacks-{hashlib.sha256(name).hexdigest()[:12]}.json"
+
+
 def lane_record(state_dir: Path) -> list[dict[str, str]]:
-    """What the lane of a live tick holds: each unit's `unit`, `base`, `status` (running or
+    """What the lanes of a live tick hold: each unit's `unit`, `base`, `status` (running or
     waiting) and `since`. A record whose process has gone is not trusted: nothing is held."""
-    try:
-        record = json.loads((state_dir / RECORD_NAME).read_text())
-        pid, units = record["pid"], record["units"]
-    except (OSError, ValueError, KeyError, TypeError):
-        return []
-    if not isinstance(pid, int) or not process_alive(pid):
-        return []
-    return [entry for entry in units if isinstance(entry, dict)]
+    held: list[dict[str, str]] = []
+    for path in sorted(state_dir.glob(RECORD_GLOB)):
+        try:
+            record = json.loads(path.read_text())
+            pid, units = record["pid"], record["units"]
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if isinstance(pid, int) and process_alive(pid):
+            held.extend(entry for entry in units if isinstance(entry, dict))
+    return held
 
 
 class _Entry:
@@ -126,7 +137,8 @@ class _Entry:
 
 
 class RestackLane:
-    """A pool of `cap` workers and a first-seen queue with one entry per unit."""
+    """A pool of `cap` workers and a first-seen queue with one entry per unit. The bound is
+    per project: `RestackLanes` holds one lane for each project of the workspace."""
 
     def __init__(
         self,
@@ -184,6 +196,10 @@ class RestackLane:
 
     def scan(self, units: list[StoredUnit]) -> None:
         """Hand over every unit the lane's `owed` names that is not already queued."""
+        self.scan_owed(units, set(self._owed(units)))
+
+    def scan_owed(self, units: list[StoredUnit], owed: Collection[str]) -> None:
+        """Hand over each of `units` that `owed` names and that is not already queued."""
         if self._paused():
             self._was_paused = True
         elif self._was_paused:
@@ -192,7 +208,6 @@ class RestackLane:
             with self._changed:
                 self._tried.clear()
                 self._until.clear()
-        owed = set(self._owed(units))
         for unit in units:
             if unit.id in owed and not self._unchanged_since_tried(unit):
                 self.hand_over(unit)
@@ -336,12 +351,25 @@ class RestackLane:
 class RestackLanes:
     """A lane for each project, made on first use by `make` and routed to by a unit's project.
 
-    The bound of a lane is per project: two projects of one repo each run up to the cap."""
+    The bound of a lane is per project: two projects of one repo each run up to the cap, and a
+    full lane never holds back a restack of another project."""
 
     def __init__(
         self, make: Callable[[ProjectKey], RestackLane], *, owed: Owed = lambda units: ()
     ) -> None:
-        self._make = make
+        self._make, self._owed = make, owed
+        self._guard = threading.Lock()
+        self._lanes: dict[ProjectKey, RestackLane] = {}
+
+    def _lane(self, key: ProjectKey) -> RestackLane:
+        with self._guard:
+            if key not in self._lanes:
+                self._lanes[key] = self._make(key)
+            return self._lanes[key]
+
+    def _all(self) -> list[RestackLane]:
+        with self._guard:
+            return list(self._lanes.values())
 
     def hand_over(
         self,
@@ -350,24 +378,54 @@ class RestackLanes:
         *,
         done: Callable[[bool], None] | None = None,
     ) -> None:
-        raise NotImplementedError
+        self._lane(project_key(unit)).hand_over(unit, work, done=done)
 
     def scan(self, units: list[StoredUnit]) -> None:
-        raise NotImplementedError
+        """Hand each owed unit to the lane of its project, making that lane if need be."""
+        owed = set(self._owed(units))
+        keys = {project_key(unit) for unit in units if unit.id in owed}
+        with self._guard:
+            keys |= set(self._lanes)
+        for key in keys:
+            mine = [unit for unit in units if project_key(unit) == key]
+            if key in self._lanes or any(unit.id in owed for unit in mine):
+                self._lane(key).scan_owed(mine, owed)
+
+    def defer_until(self, unit_id: str, resume_at: datetime | None) -> None:
+        for lane in self._all():
+            lane.defer_until(unit_id, resume_at)
 
     def drain(self) -> None:
-        raise NotImplementedError
+        """Return once nothing is running or waiting in any lane."""
+        while any(lane.running or lane.waiting for lane in self._all()):
+            for lane in self._all():
+                lane.drain()
 
     def finished(self) -> Future[Any]:
-        raise NotImplementedError
+        """A future that completes when the next restack of any lane ends; one already
+        complete when no lane has work."""
+        ends: Future[Any] = Future()
+        pending = [future for lane in self._all() if not (future := lane.finished()).done()]
+        if not pending:
+            ends.set_result(None)
+            return ends
+
+        def settle(_: Future[Any]) -> None:
+            with self._guard:
+                if not ends.done():
+                    ends.set_result(None)
+
+        for future in pending:
+            future.add_done_callback(settle)
+        return ends
 
     @property
     def running(self) -> list[str]:
-        raise NotImplementedError
+        return [unit for lane in self._all() for unit in lane.running]
 
     @property
     def waiting(self) -> list[str]:
-        raise NotImplementedError
+        return [unit for lane in self._all() for unit in lane.waiting]
 
     def __enter__(self) -> RestackLanes:
         return self
@@ -379,3 +437,6 @@ class RestackLanes:
         trace: TracebackType | None,
     ) -> None:
         self.drain()
+
+
+Lane = RestackLane | RestackLanes

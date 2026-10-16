@@ -20,7 +20,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.pause import PAUSE_MARKER, pause_until
-from agent_build_kit.pipeline.restack_lane import RestackLane
+from agent_build_kit.pipeline.restack_lane import Lane
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import PLANNED
 from tests.conftest import make_installation
@@ -41,10 +41,10 @@ class Scene:
         self.moves = Restacks()
         monkeypatch.setattr(cli, "current_usage", lambda: None)
 
-    def lane(self) -> RestackLane:
+    def lane(self) -> Lane:
         return cli.build_restack_lane(self.inst, self.store)
 
-    def hand_over(self, lane: RestackLane) -> None:
+    def hand_over(self, lane: Lane) -> None:
         """Every unit to the lane: the first two start and the rest wait."""
         for unit in self.store.all():
             lane.hand_over(unit, partial(self.moves, unit))

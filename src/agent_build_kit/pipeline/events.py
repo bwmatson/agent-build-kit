@@ -107,7 +107,7 @@ from agent_build_kit.runtimes.base import (
 )
 
 if TYPE_CHECKING:
-    from agent_build_kit.pipeline.restack_lane import RestackLane
+    from agent_build_kit.pipeline.restack_lane import Lane
 
 Log = Callable[[str], None]
 
@@ -250,7 +250,7 @@ def on_merged(
     retarget: Callable[[StoredUnit, str], None] | None = None,
     rebase_cap: int | None = None,
     resume: Resume = _no_thread,
-    lane: RestackLane | None = None,
+    lane: Lane | None = None,
     cause: Cause = Cause.MERGED,
     landing_path: Path | None = None,
     log: Log = print,
@@ -324,7 +324,7 @@ def release_children(
     rebase_cap: int | None = None,
     resume: Resume = _no_thread,
     settled: Callable[[StoredUnit, str], bool] = lambda child, base: False,
-    lane: RestackLane | None = None,
+    lane: Lane | None = None,
     log: Log = print,
 ) -> list[str]:
     """Move what is stacked on a unit that has left the stack — merged or
@@ -644,7 +644,7 @@ def _record_merge(
     retarget: Callable[[StoredUnit, str], None],
     rebase_cap: int | None,
     resume: Resume,
-    lane: RestackLane | None,
+    lane: Lane | None,
     log: Log,
 ) -> None:
     store.set_state(merged.id, MERGED, cause=cause)
@@ -698,7 +698,7 @@ def _reconsider_held(
     restack: Restack,
     claim: Claim,
     rebase_cap: int,
-    lane: RestackLane | None = None,
+    lane: Lane | None = None,
     hand: Callable[[StoredUnit, Callable[[], None]], None] | None = None,
     log: Log,
 ) -> list[str]:
@@ -748,7 +748,7 @@ def reconsider_depth_hold(
     restack: Restack,
     claim: Claim,
     rebase_cap: int,
-    lane: RestackLane | None = None,
+    lane: Lane | None = None,
     hand: Callable[[StoredUnit, Callable[[], None]], None] | None = None,
     log: Log,
 ) -> bool:
@@ -1176,7 +1176,7 @@ def on_release(
     restack: Restack | None = None,
     rebase_cap: int | None = None,
     resume: Resume = _no_thread,
-    lane: RestackLane | None = None,
+    lane: Lane | None = None,
     log: Log = print,
 ) -> bool:
     """The hold label has come off: a unit it held goes back to waiting for review.
@@ -1364,7 +1364,7 @@ def on_conflict(
     paused: Callable[[], bool] = lambda: False,
     claim: Claim = _unclaimed,
     resume: Resume = _no_thread,
-    lane: RestackLane | None = None,
+    lane: Lane | None = None,
     log: Log = print,
 ) -> bool:
     """A conflict that stands after a unit's own push: make the next attempt, if there is one.
@@ -2219,7 +2219,7 @@ def build_dispatch(
     rebase_cap: int | None = None,
     waiting_path: Path | None = None,
     resume: Resume = _no_thread,
-    lane: RestackLane | None = None,
+    lane: Lane | None = None,
     base_tip: Callable[[StoredUnit], str] | None = None,
     fork_point: Callable[[StoredUnit], str] | None = None,
     paused: Callable[[], bool] = lambda: False,
