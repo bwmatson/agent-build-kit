@@ -49,11 +49,12 @@ import re
 import shlex
 import shutil
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit import forges, runtimes
+from agent_build_kit.config import PlanningPublish
 from agent_build_kit.forges.transport import TransportError
 from agent_build_kit.init.propose import validation_errors
 from agent_build_kit.installation import Installation
@@ -409,6 +410,17 @@ class PlanningHead(Frozen):
 
     branch: str
     head: str
+    # Under `planning.publish: branch` the files an earlier phase published stay in the worktree,
+    # uncommitted: path -> content hash of the state Markdown already dirty before the phase.
+    dirty: dict[str, str] = {}
+
+
+def _dirty_notes(inst: Installation) -> dict[str, str]:
+    """The state Markdown that is modified or untracked now, with its content hash."""
+    notes = f":(glob){inst.state_dir.relative_to(inst.root).as_posix()}/**/*.md"
+    listed = _git(["ls-files", "-m", "-o", "--exclude-standard", "--", notes], inst.root)
+    hashes = {path: _git(["hash-object", "--", path], inst.root) for path in listed.stdout.split()}
+    return {path: out.stdout.strip() for path, out in hashes.items() if out.returncode == 0}
 
 
 def _keep_raw_output_untracked(inst: Installation) -> None:
@@ -437,9 +449,10 @@ def record_planning(inst: Installation) -> PlanningHead | None:
     if mode == PlanningMode.PIPELINE_WORKTREE:
         branch = in_repo_default_branch(inst)
         head = _git(["rev-parse", "--verify", "-q", "HEAD"], inst.root)
-        return (
-            PlanningHead(branch=branch, head=head.stdout.strip()) if head.returncode == 0 else None
-        )
+        if head.returncode != 0:
+            return None
+        dirty = _dirty_notes(inst) if inst.config.planning.publish == PlanningPublish.BRANCH else {}
+        return PlanningHead(branch=branch, head=head.stdout.strip(), dirty=dirty)
     branch = default_branch_of(inst.root)
     head = _git(["rev-parse", "--verify", "-q", branch], inst.root)
     return PlanningHead(branch=branch, head=head.stdout.strip()) if head.returncode == 0 else None
@@ -482,7 +495,7 @@ def settle_planning(inst: Installation, before: PlanningHead, project: Project, 
     if worktree and not detach_at(inst.root, before.head, log):
         return False
     changes = _vet_proposed_change(inst, project) if name == "propose" else []
-    commit_bookkeeping(inst, before.branch, project, name, changes)
+    commit_bookkeeping(inst, before.branch, project, name, changes, before.dirty)
     return True
 
 
@@ -545,19 +558,25 @@ def commit_bookkeeping(
     project: Project,
     name: str,
     changes: Sequence[str] = (),
+    already: Mapping[str, str] = {},
 ) -> None:
     """Commits and pushes the phase's Markdown under the state directory: run
     logs and `tracked-issues.md`, plus any change the phase wrote (already
     vetted). The rest of that directory is the tick's live state, which the
     operator commits and a tick may be rewriting right now.
-    A rejected push is retried once after a fast-forward; a second rejection
-    is reported and the commit stays."""
+    `already` is the content of state files dirty before the phase (published by
+    an earlier one, awaiting its pull request): those left as they were are not
+    this phase's. A rejected push is retried once after a fast-forward; a second
+    rejection is reported and the commit stays."""
     notes = f":(glob){inst.state_dir.relative_to(inst.root).as_posix()}/**/*.md"
-    paths = [notes, *changes]
+    now = _dirty_notes(inst) if already else {}
+    untouched = [f":(exclude){path}" for path, hashed in already.items() if now.get(path) == hashed]
+    paths = [notes, *changes, *untouched]
     _git(["add", "-A", "--", *paths], inst.root)
     if _git(["diff", "--cached", "--quiet", "--", *paths], inst.root).returncode == 0:
         return
     message = f"track: {RUN_ID} {project.name} {name}"
+    earlier = _git(["rev-parse", "HEAD"], inst.root).stdout.strip()
     committed = _git(["commit", "-q", "-m", message, "--", *paths], inst.root)
     if committed.returncode != 0:
         log(f"[{project.name}] committing the {name} bookkeeping failed:\n{committed.stderr}")
@@ -566,6 +585,9 @@ def commit_bookkeeping(
         return
     # A pipeline worktree has no branch of its own to push or pull.
     detached = planning_mode(inst) == PlanningMode.PIPELINE_WORKTREE
+    if detached and inst.config.planning.publish == PlanningPublish.BRANCH:
+        _publish_branch(inst, branch, project, name, message, earlier)
+        return
     refspec = f"HEAD:refs/heads/{branch}" if detached else branch
     push = _git(["push", "origin", refspec], inst.root)
     if push.returncode != 0:
@@ -590,6 +612,41 @@ def commit_bookkeeping(
             f"[{project.name}] push of the {name} bookkeeping was rejected twice — the commit "
             f"is kept in {inst.root}:\n{push.stderr}"
         )
+
+
+def _publish_branch(
+    inst: Installation, base: str, project: Project, name: str, message: str, earlier: str
+) -> None:
+    """`planning.publish: branch`: pushes the phase's commit to
+    `planning/<run id>-<project>-<phase>` and opens a pull request to `base`, then puts HEAD back
+    at `earlier` with the files left in the worktree, so the next sync is a fast-forward. A
+    refused push keeps the commit."""
+    head = f"planning/{RUN_ID}-{project.name}-{name}"
+    push = _git(["push", "origin", f"HEAD:refs/heads/{head}"], inst.root)
+    if push.returncode != 0:
+        log(
+            f"[{project.name}] push of the {name} bookkeeping to {head} was rejected:\n"
+            f"{push.stderr}"
+        )
+        return
+    _git(["reset", "-q", earlier], inst.root)
+    repo_name = in_repo_name(inst)
+    if repo_name is None:
+        log(f"[{project.name}] pushed {head} with no pull request: the planning repo is not a repo")
+        return
+    try:
+        forge, repo = inst.forge_of(repo_name)
+        number = forge.create_pr(
+            repo,
+            head=head,
+            base=base,
+            title=message,
+            body=f"The {name} phase's bookkeeping for {project.name}, published by abk.",
+        )
+    except RuntimeError as error:
+        log(f"[{project.name}] opening a pull request for {head} failed: {error}")
+        return
+    log(f"[{project.name}] published the {name} bookkeeping as pull request {number} from {head}")
 
 
 def _print_dry_run(

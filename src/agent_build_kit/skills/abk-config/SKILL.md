@@ -46,6 +46,8 @@ planning:
                               # planning repo; null = a per-user data dir
                               # named after the planning directory
   self_pull: true             # tracks pull the planning repo before running
+  publish: direct             # direct | branch: push track commits to the default
+                              # branch, or to a planning/... branch with a pull request
 
 openspec:
   command: null               # argv for the OpenSpec CLI; null = npx with
