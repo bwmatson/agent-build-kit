@@ -1,8 +1,6 @@
-"""The ordering `test_stopping_still_awaits_the_builds_in_flight` must rule out: a slot
-frees before the refusal is written.
-
-A freed slot is refilled at once, so a refusal landing after another unit finished does not
-stop the unit already started. The ordering is held by events, not by timing."""
+"""Once a build has started it runs to completion, even when another build records the
+model's refusal after it started. A freed slot is refilled at once, so the unit started into
+it is not undone. The ordering is held by events, not by timing."""
 
 from __future__ import annotations
 
@@ -14,10 +12,23 @@ import pytest
 from agent_build_kit.pipeline import pause
 from agent_build_kit.pipeline.units import IN_REVIEW
 from tests.cli.test_tick_scheduling import WAIT
-from tests.tick_pass import Builder, install_builder, isolate, stored, tick, workspace
+from tests.tick_pass import (
+    Builder,
+    install_builder,
+    isolate,
+    stored,
+    tick,
+    warm_unit_graphs,
+    workspace,
+)
 from tests.waiting import wait_for
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
+
+
+@pytest.fixture(autouse=True)
+def warmed(tmp_path: Path) -> None:
+    warm_unit_graphs(tmp_path)
 
 
 @pytest.fixture(autouse=True)
