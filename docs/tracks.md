@@ -9,7 +9,7 @@ three scheduled ones.
 
 **A track never edits a repo or opens a pull request.** `propose` writes a
 change in the planning repo; if it validates, the runner commits it to the
-planning repo's default branch, and the pipeline's tick plans and builds it
+planning repo and publishes it as `planning.publish` says, and the pipeline's tick plans and builds it
 like any other change — units, a review loop, the test tiers. Work a track
 wrote straight into a repo would go around all of that, and the tick would
 later find it already done.
@@ -19,7 +19,7 @@ later find it already done.
 | `health` | daily | logs, resources, LLM observability, pipeline state, secrets — "is something actually wrong right now" | a run log with a `**Status:**` line; `propose` straight away on `ATTENTION`/`URGENT` |
 | `improve` | weekly | lint and types, dependency staleness, README drift, convention adherence — "this could be better" | a run log; then `propose` |
 | `recommend` | weekly, another day | test coverage gaps, technical debt, architecture opportunities (the one with web access), cost/performance — bigger-picture, mostly for a human | a run log; then `propose` for the rare bounded finding |
-| `propose` | after the above, or on demand | the run logs' "Actionable candidates" and `tracked-issues.md` | one OpenSpec change of up to `tracks.propose_max_issues` task groups, committed to the planning repo's default branch if it validates |
+| `propose` | after the above, or on demand | the run logs' "Actionable candidates" and `tracked-issues.md` | one OpenSpec change of up to `tracks.propose_max_issues` task groups, committed to the planning repo (published as `planning.publish` says) if it validates |
 
 ## The per-repo flow
 
@@ -28,9 +28,16 @@ later find it already done.
 1. **Headroom.** The usage guard's `may_start_unit` decides; with none the run
    logs why and exits 0. The next timer is the retry, as it is for the
    five-minute tick.
-2. **Pull the planning repo** to its default branch (`git checkout`, `git
-   pull --ff-only origin`), since every phase writes and pushes its run log
-   there. `planning.self_pull: false` skips this. A failed pull is fatal.
+2. **Sync the planning repo**, since every phase writes and pushes its run log
+   there. A separate planning repo is checked out on its default branch and
+   pulled with `--ff-only`. When the planning repo is also a code repo, the
+   pipeline worktree (the detached worktree `abk install-timers` made, recorded in the
+   marker `abk-pipeline-worktree`) is fast-forwarded to the tip of the default
+   branch instead, and a working copy is not touched. `planning.self_pull: false`
+   skips this. A failed pull or a stopped sync (`planning sync stopped: <reason>`) is fatal.
+   After each phase the run log and `tracked-issues.md` are committed by path, and
+   `planning.publish` decides where: `direct` pushes the default branch, `branch`
+   pushes `planning/<run>-<project>-<phase>` and opens a pull request.
 3. **Eligible repos**: each `abk.yaml` repo (or only `--project NAME`) whose
    checkout is a git repo, whose `origin` is a remote some forge recognises
    and names the same repo `abk.yaml` does, and whose host answers for it
@@ -113,14 +120,22 @@ well-evidenced, bounded ones, writes one change with a task group per issue
 marks the source candidate `[proposed — <change>]`. After every phase the
 runner — not the agent — commits the Markdown under the state directory (the
 run log and tracker edits; never the tick's live state there), and after
-`propose` the change it wrote, to the planning repo's default branch and
-pushes. A push the remote rejected is retried once
-after a fast-forward; a second rejection is logged and the commit is kept. If
-the agent left the planning repo on another branch, the runner checks the
+`propose` the change it wrote, to the planning repo and publishes it. In a
+separate planning repo that is the default branch: a push the remote rejected is
+retried once after a fast-forward; a second rejection is logged and the commit is
+kept. If the agent left the planning repo on another branch, the runner checks the
 default branch out again, keeps the stray branch, and logs its name; if the
 default branch was rewritten, the run stops and nothing is committed. A tick
 also checks the default branch out, and logs the branch it found, before it
-reads state.
+reads state. In a pipeline worktree HEAD is detached and no branch is checked out:
+with `planning.publish: direct` the commit is pushed to `HEAD:refs/heads/<default>`,
+a rejection is answered by one fetch and a rebase onto `origin/<default>` and a
+second push (a conflict aborts and keeps the commit), and a branch the agent left
+HEAD on is kept, named, and HEAD put back at the recorded head. With `branch` the
+commit is pushed to `planning/<run>-<project>-<phase>`, a pull request to the
+default branch is opened, HEAD is put back, and the published files are left in
+place for the next sync to clear once the pull request lands. A tick there syncs
+the worktree instead of checking a branch out.
 
 `--focus` on `propose` biases which entries are read first: a track name
 resolves to that track's most recent run log for the repo; a run-id prefix
