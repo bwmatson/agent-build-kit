@@ -24,9 +24,24 @@ from pathlib import Path
 
 from agent_build_kit import profiles
 from agent_build_kit.budget import cut_tail
-from agent_build_kit.config import RepoConfig, Tier2Split, by_project, owning_project, tier2_splits
+from agent_build_kit.config import (
+    CONFIG_FILENAME,
+    RepoConfig,
+    Tier2Split,
+    by_project,
+    owning_project,
+    tier2_splits,
+)
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.planning_sync import (
+    PlanningMode,
+    SyncOutcome,
+    default_tip_ref,
+    in_repo_name,
+    planning_mode,
+    sync_planning,
+)
 from agent_build_kit.pipeline.tier2 import (
     Tier2Selection,
     build_selection,
@@ -274,9 +289,21 @@ def verify_change(
         if not (plans[name] or tests[name]):
             continue
         repo = installation.repo(name)
-        refused = _clean_default_branch(checkouts[name], run, repo)
+        planning_root = (
+            planning_mode(installation) == PlanningMode.PIPELINE_WORKTREE
+            and in_repo_name(installation) == name
+        )
+        exempt = [p for p in installation.planning_paths if p != CONFIG_FILENAME]
+        refused = _clean_default_branch(
+            checkouts[name], run, repo, exempt if planning_root else [], detached_ok=planning_root
+        )
         if refused:
             return result(False, f"{checkouts[name]}: {refused} — left for a person to sort out")
+        if planning_root:
+            synced = sync_planning(installation, lambda line: None)
+            if synced.outcome == SyncOutcome.STOPPED:
+                return result(False, f"{checkouts[name]}: planning sync stopped: {synced.reason}")
+            continue
         pulled = run(["git", "pull", "--ff-only", "-q"], cwd=checkouts[name])
         if pulled.returncode:
             return result(False, f"{checkouts[name]}: git pull failed\n{_output(pulled)}")
@@ -328,18 +355,37 @@ def verify_change(
     return result(True, deployed=deployed)
 
 
-def _clean_default_branch(checkout: Path, run: Run, repo: RepoConfig) -> str:
+def _clean_default_branch(
+    checkout: Path,
+    run: Run,
+    repo: RepoConfig,
+    exempt: Iterable[str] = (),
+    *,
+    detached_ok: bool = False,
+) -> str:
+    """Why this checkout is not a clean default branch, or "". `exempt` paths are left out of the
+    dirty check; `detached_ok` accepts a HEAD detached at the default branch's tip."""
     branch = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=checkout).stdout.strip()
-    if branch != repo.default_branch:
+    if detached_ok and branch == "HEAD":
+        lacks = _lacked_commits(checkout, run, repo.default_branch)
+        if lacks:
+            return f"behind {repo.default_branch}, lacking:\n{lacks}"
+    elif branch != repo.default_branch:
         return f"not on {repo.default_branch} (on {branch or 'a detached HEAD'})"
     # Paths the running system itself writes into the checkout say nothing
     # about work in progress, so they are left out of the check.
-    ignored = [f":(exclude){path}" for path in repo.deploy.live_written]
+    ignored = [f":(exclude){path}" for path in [*repo.deploy.live_written, *exempt]]
     status = ["git", "status", "--porcelain", "--untracked-files=no", "--", ".", *ignored]
     changes = run(status, cwd=checkout).stdout
     if changes.strip():
         return f"has uncommitted changes:\n{changes.rstrip()}"
     return ""
+
+
+def _lacked_commits(checkout: Path, run: Run, default: str) -> str:
+    """The commits of the default branch's tip that a detached HEAD lacks, one per line."""
+    tip = default_tip_ref(checkout, default)
+    return run(["git", "log", "--oneline", f"HEAD..{tip}"], cwd=checkout).stdout.strip()
 
 
 def _output(done: subprocess.CompletedProcess) -> str:
