@@ -7,7 +7,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
-from agent_build_kit.config import GateConfig
+from agent_build_kit.config import E2eSplit, GateConfig
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.e2e_holds import (
@@ -63,11 +63,15 @@ def evaluate_gates(
     if not gates:
         return []
     state = installation.state_dir
-    splits = declared_splits(installation.config)
-    current = held_splits(splits, state, now=now).held
+    configured_hold = {
+        split.name for split in declared_splits(installation.config) if split.hold is True
+    }
+    # The file's own entries, read with no configured `hold` so that a hand-set entry on a split
+    # the configuration releases (or one no repo declares) is seen and left alone.
+    unconfigured = tuple(E2eSplit(name=name) for name in gates)
+    current = held_splits(unconfigured, state, now=now).held
     # Entries that ran out still say a gate wrote them, so a rewrite is a renewal.
-    written = held_splits(splits, state, now=datetime.min.replace(tzinfo=UTC)).held
-    configured_hold = {split.name for split in splits if split.hold is True}
+    written = held_splits(unconfigured, state, now=datetime.min.replace(tzinfo=UTC)).held
     actions: list[GateAction] = []
     for name, gate in gates.items():
         existing = current.get(name)
@@ -86,6 +90,7 @@ def evaluate_gates(
             refresh=refresh,
             read=read,
             run=run,
+            persist=not dry_run,
         )
         until = result.until
         reason = result.reason
@@ -94,6 +99,9 @@ def evaluate_gates(
                 continue
             reason = f"usage unknown: {result.reason}"
             until = now + timedelta(minutes=gate.usage_stale_retry_minutes)
+            if existing is not None and existing.until is not None:
+                # A standing hold is never shortened by an unreadable result.
+                until = max(existing.until, until)
         elif result.state == "usable":
             if standing:
                 if not dry_run:

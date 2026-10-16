@@ -8,8 +8,8 @@
   in the pipeline worktree (`abk --config <worktree>/abk.yaml <command>` from a working copy),
   `planning.publish` is listed, and a `planning sync stopped:` line is explained with what to do.
 - Each tick round now evaluates every tier 2 split that has a `gate` and keeps the result
-  in the held set with source `gate`: a split over its threshold is held until the window
-  ends, lifted when there is room, and a hold set by hand or by `hold: true` is never
+  in the held set with source `gate`: a split over its threshold is held until the
+  provider's window ends (for a gate command, one cache time from its reading), lifted when there is room, and a hold set by hand or by `hold: true` is never
   changed. An unreadable gate writes nothing unless `on_unknown: hold`. `abk tick
   --dry-run` reports `would hold` or `would lift` and writes nothing.
 

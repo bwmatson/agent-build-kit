@@ -21,9 +21,8 @@ from agent_build_kit.pipeline.e2e_holds import SOURCE_GATE, repo_holds, write_ho
 from agent_build_kit.pipeline.pause import is_paused
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import RUNNING
-from tests.conftest import make_installation
 from tests.factories import stored_unit
-from tests.parked_split_support import stub_round
+from tests.parked_split_support import installation, stub_round
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -59,15 +58,12 @@ class Probe:
 
 def installed(tmp_path: Path, gates: dict[str, Probe], **overrides: Any) -> Installation:
     """`acp` and `claude_code` declared; those named in `gates` carry a command gate."""
-    splits: dict[str, dict[str, Any]] = {}
-    for name in ("acp", "claude_code"):
-        splits[name] = {"marker": f"runtime_{name}"}
-        if name in gates:
-            splits[name]["gate"] = {"command": gates[name].argv}
-    return make_installation(
+    command = {name: {"command": probe.argv} for name, probe in gates.items()}
+    return installation(
         tmp_path,
-        planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
-        tests={"e2e_splits": splits},
+        acp=None,
+        gate=command.get("acp"),
+        claude_code_gate=command.get("claude_code"),
         **overrides,
     )
 
@@ -175,7 +171,9 @@ def test_a_dry_run_says_what_it_would_hold_and_writes_nothing(
     assert "would hold: acp" in out
     assert "quota spent" in out
     assert held_now(inst) == {}
-    assert not any(path.name.startswith("e2e-held") for path in inst.state_dir.iterdir())
+    written = {path.name for path in inst.state_dir.iterdir()}
+    assert not any(name.startswith("e2e-held") for name in written)
+    assert "gate-usage.json" not in written
 
 
 def test_a_dry_run_says_what_it_would_lift_and_leaves_the_entry(

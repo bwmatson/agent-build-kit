@@ -3,6 +3,7 @@ evaluation (spec: split-gate-usage)."""
 
 from __future__ import annotations
 
+import json
 from datetime import timedelta
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from tests.gate_hold_support import (
     END_OF_MONTH,
     LATER,
     NOW,
+    PROVIDER_GATE,
     command_exiting,
     evaluate,
     gated,
@@ -152,3 +154,32 @@ def test_a_gate_hold_released_by_hand_is_written_again_after_the_cache_time(
     entry = held(inst, now=after_cache)
     assert entry is not None
     assert entry.source == SOURCE_GATE
+
+
+def test_a_hand_hold_on_a_hold_false_split_is_not_replaced_by_the_gate(tmp_path: Path) -> None:
+    inst = installation(tmp_path, acp=False, gate=COMMAND_GATE)
+    write_hold(
+        inst.state_dir, "acp", reason="by hand", source=SOURCE_COMMAND, by="someone", now=NOW
+    )
+
+    evaluate(inst, run=command_exiting(3, "quota spent"))
+
+    entries = json.loads((inst.state_dir / HELD_FILE).read_text())
+    assert (entries["acp"]["source"], entries["acp"]["reason"], entries["acp"]["by"]) == (
+        SOURCE_COMMAND,
+        "by hand",
+        "someone",
+    )
+
+
+def test_a_gate_entry_on_a_hold_false_split_is_lifted_by_a_reading_with_room(
+    tmp_path: Path,
+) -> None:
+    inst = installation(tmp_path, acp=False, gate=PROVIDER_GATE)
+    evaluate(inst, read=spent(87))
+    assert "acp" in json.loads((inst.state_dir / HELD_FILE).read_text())
+
+    actions = evaluate(inst, now=LATER, read=spent(40))
+
+    assert [(a.split, a.action) for a in actions] == [("acp", "lift")]
+    assert "acp" not in json.loads((inst.state_dir / HELD_FILE).read_text())

@@ -75,6 +75,17 @@ def test_under_hold_each_unknown_round_renews_the_entry(tmp_path: Path) -> None:
     assert entry.until == later + RETRY
 
 
+def test_under_hold_an_unknown_result_does_not_shorten_a_standing_hold(tmp_path: Path) -> None:
+    inst = gated(tmp_path, HOLDING)
+    evaluate(inst, read=spent(87))
+
+    evaluate(inst, now=LATER, read=unreadable)
+
+    entry = held(inst, now=LATER)
+    assert entry is not None
+    assert entry.until == END_OF_MONTH
+
+
 def test_under_hold_the_first_good_reading_replaces_the_unknown_entry(tmp_path: Path) -> None:
     inst = gated(tmp_path, HOLDING)
     evaluate(inst, read=unreadable)

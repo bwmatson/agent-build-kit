@@ -1549,6 +1549,7 @@ def gate_result(
     root: Path,
     standing: bool = False,
     refresh: bool = False,
+    persist: bool = True,
     read: Callable[[], object] | None = None,
     run: Run = subprocess.run,
 ) -> GateResult:
@@ -1556,7 +1557,8 @@ def gate_result(
     `<state_dir>/gate-usage.json` unless `refresh`.
 
     A good reading answers for `usage_cache_minutes` and never past its window's end, an unknown
-    result for `usage_stale_retry_minutes`; the file is written whole under a lock.
+    result for `usage_stale_retry_minutes`; the file is written whole under a lock, and not at all
+    with `persist=False` (a dry run).
     """
     path = state_dir / GATE_USAGE_NAME
     lock = path.with_name(path.name + ".lock")
@@ -1585,6 +1587,8 @@ def gate_result(
         if isinstance(answer, ProviderUnknown)
         else "command"
     )
+    if not persist:
+        return _gate_answer_result(answer, gate, taken=now, now=now, standing=standing)
     with file_lock(lock):
         body = _load_json_object(path)
         body[split] = {
