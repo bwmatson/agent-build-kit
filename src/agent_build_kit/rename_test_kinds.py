@@ -111,6 +111,14 @@ def _rewrite_text(text: str, *, prose: bool) -> str:
     return "".join(line if SHIM_MARKER in line else _rewrite(line, prose=prose) for line in lines)
 
 
+def _shim_module(stem: str) -> str:
+    """The one line that makes the old module name the renamed module itself, so a patched
+    attribute, a private name and `is` all behave as they do on the new module."""
+    target = f'f"{{__package__}}.{stem}" if __package__ else "{stem}"'
+    line = f"import importlib, sys; sys.modules[__name__] = importlib.import_module({target})"
+    return f"{line}  {SHIM_MARKER}\n"
+
+
 def _is_shim_module(text: str) -> bool:
     lines = [line for line in text.splitlines() if line.strip()]
     return bool(lines) and all(SHIM_MARKER in line for line in lines)
@@ -149,10 +157,13 @@ def rename_paths(
 ) -> list[Path]:
     """Rewrite the old spellings in the tracked files under `paths` (files or folders under
     `root`) and rename the ones whose name carries one; returns the files changed, relative to
-    `root`. With `shims`, a renamed Python module is left behind as a one-line re-export and each
-    renamed top-level name stays bound under its old name; `remove_shims` deletes those instead
+    `root`. With `shims`, a renamed Python module is left behind as a one-line module that is
+    the renamed module itself, and each renamed top-level name stays bound under its old name;
+    `remove_shims` deletes those instead
     of renaming anything. `dry_run` only lists what would change. Raises `PathOutsideRoot`,
     changing nothing, when a path is outside `root`."""
+    if shims and remove_shims:
+        raise ValueError("shims and remove_shims cannot both be set")
     root = root.resolve()
     resolved = [Path(path).resolve() for path in paths]
     for path in resolved:
@@ -183,26 +194,33 @@ def rename_paths(
         if new_raw == raw and new_name == file.name:
             continue
         target = file.with_name(new_name)
+        shims_module = shims and new_name != file.name and file.suffix == ".py"
         if not dry_run:
             if new_raw != raw:
                 file.write_bytes(new_raw)
             if new_name != file.name:
                 git(root, "mv", str(file), str(target))
-                if shims and file.suffix == ".py":
-                    file.write_text(f"from .{target.stem} import *  {SHIM_MARKER}\n")
+                if shims_module:
+                    file.write_text(_shim_module(target.stem))
                     git(root, "add", str(file))
         changed.append(target.relative_to(root))
+        if shims_module:
+            changed.append(file.relative_to(root))
     return changed
 
 
 def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
     """The command line: `--paths` names what to rewrite; each changed file is printed, one per
-    line. `root` is the framework repository unless given. Returns 2 for a refused path."""
+    line. `--root` is the repository to work under and overrides the `root` argument, which is
+    itself the framework repository unless given. `--shims` leaves the old module and names
+    importable, `--remove-shims` deletes them (the two exclude each other), and `--dry-run` only
+    lists what would change. Returns 2 for a refused path."""
     parser = argparse.ArgumentParser(prog="rename_test_kinds", description=__doc__)
     parser.add_argument("--paths", nargs="+", type=Path, required=True)
     parser.add_argument("--root", type=Path)
-    parser.add_argument("--shims", action="store_true")
-    parser.add_argument("--remove-shims", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--shims", action="store_true")
+    mode.add_argument("--remove-shims", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     base = args.root or root or Path(__file__).resolve().parents[2]
