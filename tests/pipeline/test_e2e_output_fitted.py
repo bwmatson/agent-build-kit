@@ -1,4 +1,4 @@
-"""A unit's tier 2 output keeps the failed tests and why they failed.
+"""A unit's e2e-test output keeps the failed tests and why they failed.
 
 The output is one section per command, a failed command weighing more than a
 passing one. Within a failed command, the identifier and the error lines of each
@@ -14,10 +14,10 @@ from pathlib import Path
 from typing import Any
 
 from agent_build_kit.config import ProjectConfig
-from agent_build_kit.pipeline.wiring import Tier2Session
+from agent_build_kit.pipeline.wiring import E2eSession
 from agent_build_kit.profiles.python_uv import PythonUvProfile
+from tests.e2e_failure_fakes import checkout
 from tests.factories import unit
-from tests.tier2_failure_fakes import checkout
 
 FAILED = 7
 BUDGET = 4_000
@@ -79,9 +79,9 @@ def runner(answers: dict[str, tuple[int, str]]):
     return run
 
 
-def session(tmp_path: Path, run, **kwargs: Any) -> Tier2Session:
-    return Tier2Session(
-        unit(tier="tier2"),
+def session(tmp_path: Path, run, **kwargs: Any) -> E2eSession:
+    return E2eSession(
+        unit(tier="e2e-test"),
         lock=tmp_path / "t2.lock",
         timeout=5,
         run=run,

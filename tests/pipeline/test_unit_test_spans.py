@@ -1,4 +1,4 @@
-"""Each tier 1 command's duration is a `span` line in the usage ledger, under
+"""Each unit-test command's duration is a `span` line in the usage ledger, under
 its command (spec: unit-time-accounting). The command runner is the faked
 boundary; the clock is a fake one it advances."""
 
@@ -10,11 +10,11 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.wiring import build_tier1
+from agent_build_kit.pipeline.wiring import build_unit_test
 from tests.fake_clock import FakeClock, install, span_lines
 
 
-def test_a_tier_one_command_that_runs_for_45_seconds_is_recorded_under_its_command(
+def test_a_unit_test_command_that_runs_for_45_seconds_is_recorded_under_its_command(
     tmp_path: Path, workspace: Installation, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     clock: FakeClock = install(monkeypatch)
@@ -29,7 +29,9 @@ def test_a_tier_one_command_that_runs_for_45_seconds_is_recorded_under_its_comma
     (repo / "tests").mkdir(parents=True)
     (repo / "pyproject.toml").write_text("[project]\nname = 'x'\n")
 
-    passed, _ = build_tier1(run=run, changed=lambda *a: ["tests/test_x.py"])(cwd=repo, base="main")
+    passed, _ = build_unit_test(run=run, changed=lambda *a: ["tests/test_x.py"])(
+        cwd=repo, base="main"
+    )
 
     assert passed
     assert len(ran) >= 2

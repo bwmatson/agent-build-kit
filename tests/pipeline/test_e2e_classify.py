@@ -1,13 +1,13 @@
-"""A failed tier 2 test is the unit's own when its file is one the branch changed, and
-untouched otherwise (spec: tier2-failures). Nothing is run to say so."""
+"""A failed e2e test is the unit's own when its file is one the branch changed, and
+untouched otherwise (spec: e2e-failures). Nothing is run to say so."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from agent_build_kit.pipeline.e2e import TestFailure, Tier2Classification
+from agent_build_kit.pipeline.e2e import E2eClassification, TestFailure
 from agent_build_kit.profiles.python_uv import PythonUvProfile
-from tests.tier2_base_fakes import (
+from tests.e2e_base_fakes import (
     TEST_BODY,
     Runs,
     branch,
@@ -21,7 +21,7 @@ FAR = "tests/far/test_far.py::test_far"
 BESIDE = "tests/live/test_beside.py::test_beside"
 
 
-def classified(tmp_path: Path, changed: dict[str, str], *tests: str) -> Tier2Classification:
+def classified(tmp_path: Path, changed: dict[str, str], *tests: str) -> E2eClassification:
     repo, base = branch(tmp_path, changed, base_files={"tests/live/test_beside.py": TEST_BODY})
     runs = Runs(repo, "")
     gate = session(tmp_path, runs)
@@ -66,7 +66,7 @@ def test_a_failure_with_no_readable_ids_classifies_nothing(tmp_path: Path) -> No
     ok, _ = gate.run(cwd=repo, base=base)
 
     assert not ok
-    assert gate.classify(cwd=repo, base=base) == Tier2Classification()
+    assert gate.classify(cwd=repo, base=base) == E2eClassification()
     assert gate.verdict is None
     assert runs.on_base == []
 
@@ -82,7 +82,7 @@ def test_a_profile_without_the_hook_classifies_nothing(tmp_path: Path) -> None:
 
     gate.run(cwd=repo, base=base)
 
-    assert gate.classify(cwd=repo, base=base) == Tier2Classification()
+    assert gate.classify(cwd=repo, base=base) == E2eClassification()
     assert runs.on_base == []
 
 
@@ -98,6 +98,6 @@ def test_a_dev_stack_run_classifies_nothing(tmp_path: Path) -> None:
 
     assert not ok
     assert gate.result is not None and gate.result.failures
-    assert gate.classify(cwd=repo, base=base) == Tier2Classification()
+    assert gate.classify(cwd=repo, base=base) == E2eClassification()
     assert gate.verdict is None
     assert runs.on_base == []

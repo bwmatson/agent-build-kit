@@ -1,19 +1,19 @@
 """A test is in at most one split: the check lists each split and `rest` through the profile
 and names a test selected by two, an unknown selector and a listing that failed (spec:
-tier2-splits)."""
+e2e-splits)."""
 
 from __future__ import annotations
 
 import subprocess
 from typing import Any
 
-from agent_build_kit.config import Tier2Split
+from agent_build_kit.config import E2eSplit
 from agent_build_kit.pipeline.e2e_exclusive import check_splits
 
 SPLITS = (
-    Tier2Split(name="acp", marker="runtime_acp"),
-    Tier2Split(name="claude_code", marker="runtime_claude_code"),
-    Tier2Split(name="rest"),
+    E2eSplit(name="acp", marker="runtime_acp"),
+    E2eSplit(name="claude_code", marker="runtime_claude_code"),
+    E2eSplit(name="rest"),
 )
 COMMAND = ["uv", "run", "pytest", "-m", "local_stack"]
 A = "tests/integration/test_live.py::test_a"
@@ -102,7 +102,7 @@ def test_each_split_and_rest_is_listed_alone() -> None:
 def test_a_repo_with_no_declared_split_has_nothing_to_check() -> None:
     profile = FakeProfile({})
 
-    result = check(profile, (Tier2Split(name="rest"),))
+    result = check(profile, (E2eSplit(name="rest"),))
 
     assert result.findings == ()
     assert profile.asked == []

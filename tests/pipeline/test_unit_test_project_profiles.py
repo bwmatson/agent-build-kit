@@ -1,4 +1,4 @@
-"""Tier 1 judges each project by its own toolchain (spec: node-npm-lint-and-test).
+"""Unit-test judges each project by its own toolchain (spec: node-npm-lint-and-test).
 
 A python repo with a project of another profile: the extra checks, the reading of a failure
 and the tools a build run may use come from the profile of the project the work belongs to.
@@ -18,7 +18,7 @@ import pytest
 from agent_build_kit import forges, profiles
 from agent_build_kit.config import ProjectConfig, RepoConfig
 from agent_build_kit.pipeline.check_failures import failed_check
-from agent_build_kit.pipeline.wiring import allowed_tools, build_tier1
+from agent_build_kit.pipeline.wiring import allowed_tools, build_unit_test
 from tests.conftest import make_installation
 from tests.project_profile_fakes import API, WEB, Api, Root, Web
 
@@ -57,7 +57,7 @@ def install_app(
     make_installation(tmp_path / "meta", repos={"app": app})
 
 
-def tier1(
+def unit_test(
     tmp_path: Path,
     commands: Commands,
     changed: list[str],
@@ -68,7 +68,7 @@ def tier1(
     for project in held:
         # A project whose directory is absent is pending, and nothing runs in it.
         (tmp_path / project.path).mkdir(parents=True, exist_ok=True)
-    run = build_tier1(
+    run = build_unit_test(
         run=commands,
         changed=lambda *a: changed,
         profile=profiles.get(profile),
@@ -83,7 +83,7 @@ def test_a_change_in_a_project_runs_that_projects_checks_in_its_directory(
 ) -> None:
     commands = Commands()
 
-    passed, _ = tier1(tmp_path, commands, ["web/src/a.ts"])
+    passed, _ = unit_test(tmp_path, commands, ["web/src/a.ts"])
 
     assert passed
     assert ("web-types", tmp_path / "web") in commands.ran
@@ -95,7 +95,7 @@ def test_each_touched_project_runs_its_own_checks_in_its_own_directory(
 ) -> None:
     commands = Commands()
 
-    tier1(tmp_path, commands, ["web/src/a.ts", "api/app.py"])
+    unit_test(tmp_path, commands, ["web/src/a.ts", "api/app.py"])
 
     assert ("web-types", tmp_path / "web") in commands.ran
     assert ("api-extra", tmp_path / "api") in commands.ran
@@ -105,7 +105,7 @@ def test_a_failed_project_check_is_classified_by_that_projects_profile(tmp_path:
     install_app(tmp_path)
     commands = Commands(**{"web-types": (1, "error in a.ts")})
 
-    passed, output = tier1(tmp_path, commands, ["web/src/a.ts"])
+    passed, output = unit_test(tmp_path, commands, ["web/src/a.ts"])
 
     assert not passed
     assert failed_check(output, "app") == "types"
@@ -115,7 +115,7 @@ def test_a_failure_in_another_project_is_read_by_that_projects_profile(tmp_path:
     install_app(tmp_path)
     commands = Commands(**{"api-extra": (1, "boom")})
 
-    passed, output = tier1(tmp_path, commands, ["api/app.py"])
+    passed, output = unit_test(tmp_path, commands, ["api/app.py"])
 
     assert not passed
     assert failed_check(output, "app") == "test"
@@ -133,7 +133,7 @@ def test_the_repo_profiles_checks_still_run_at_the_root_when_only_a_project_chan
 ) -> None:
     commands = Commands()
 
-    tier1(tmp_path, commands, ["web/src/a.ts", "CHANGELOG.md"], [WEB], "fake-root")
+    unit_test(tmp_path, commands, ["web/src/a.ts", "CHANGELOG.md"], [WEB], "fake-root")
 
     assert commands.ran.count(("root-extra", tmp_path)) == 1
     assert ("web-types", tmp_path / "web") in commands.ran
@@ -142,7 +142,7 @@ def test_the_repo_profiles_checks_still_run_at_the_root_when_only_a_project_chan
 def test_the_repo_profiles_checks_run_when_no_project_holds_the_change(tmp_path: Path) -> None:
     commands = Commands()
 
-    tier1(tmp_path, commands, ["CHANGELOG.md"], [WEB], "fake-root")
+    unit_test(tmp_path, commands, ["CHANGELOG.md"], [WEB], "fake-root")
 
     assert ("root-extra", tmp_path) in commands.ran
 
@@ -152,7 +152,7 @@ def test_a_repo_without_projects_runs_its_profiles_checks_once_at_the_root(
 ) -> None:
     commands = Commands()
 
-    passed, _ = tier1(tmp_path, commands, ["app.py"], [], "fake-root")
+    passed, _ = unit_test(tmp_path, commands, ["app.py"], [], "fake-root")
 
     assert passed
     assert commands.ran.count(("root-extra", tmp_path)) == 1
@@ -164,7 +164,7 @@ def test_a_repo_without_projects_reports_a_failed_check_without_a_directory_line
     install_app(tmp_path, [], "fake-root")
     commands = Commands(**{"root-extra": (1, "boom")})
 
-    passed, output = tier1(tmp_path, commands, ["app.py"], [], "fake-root")
+    passed, output = unit_test(tmp_path, commands, ["app.py"], [], "fake-root")
 
     assert not passed
     assert "(in " not in output
@@ -194,7 +194,7 @@ def test_a_project_using_the_repos_own_profile_is_checked_in_its_directory(
 ) -> None:
     commands = Commands()
 
-    tier1(tmp_path, commands, ["web/src/a.ts"], [WEB], "fake-web")
+    unit_test(tmp_path, commands, ["web/src/a.ts"], [WEB], "fake-web")
 
     assert ("web-types", tmp_path / "web") in commands.ran
     assert ("web-types", tmp_path) not in commands.ran
@@ -206,7 +206,7 @@ def test_a_repo_without_projects_runs_its_project_checks_once_at_the_root(
     install_app(tmp_path, [], "fake-web")
     commands = Commands(**{"web-types": (1, "error")})
 
-    passed, output = tier1(tmp_path, commands, ["a.ts"], [], "fake-web")
+    passed, output = unit_test(tmp_path, commands, ["a.ts"], [], "fake-web")
 
     assert not passed
     assert commands.ran.count(("web-types", tmp_path)) == 1
@@ -219,7 +219,7 @@ def test_a_checkout_wide_check_of_the_repo_profile_runs_at_the_root_only(
     commands = Commands()
     svc = ProjectConfig(path="svc", profile="fake-root")
 
-    tier1(tmp_path, commands, ["svc/a.py"], [svc], "fake-root")
+    unit_test(tmp_path, commands, ["svc/a.py"], [svc], "fake-root")
 
     assert [where for word, where in commands.ran if word == "root-extra"] == [tmp_path]
 
@@ -231,7 +231,7 @@ def test_a_failed_check_of_a_root_project_is_classified_by_that_projects_profile
     install_app(tmp_path, [root_project], "fake-root")
     commands = Commands(**{"api-extra": (1, "boom")})
 
-    passed, output = tier1(tmp_path, commands, ["src/a.py"], [root_project], "fake-root")
+    passed, output = unit_test(tmp_path, commands, ["src/a.py"], [root_project], "fake-root")
 
     assert not passed
     # The repo profile would say `types`; the root project's profile says `test`.
@@ -240,7 +240,7 @@ def test_a_failed_check_of_a_root_project_is_classified_by_that_projects_profile
 
 def test_a_project_absent_from_the_checkout_runs_none_of_its_checks(tmp_path: Path) -> None:
     commands = Commands()
-    run = build_tier1(
+    run = build_unit_test(
         run=commands,
         changed=lambda *a: ["web/src/a.ts"],
         profile=profiles.get("python-uv"),
@@ -252,3 +252,6 @@ def test_a_project_absent_from_the_checkout_runs_none_of_its_checks(tmp_path: Pa
 
     assert passed
     assert "web-types" not in commands.words()
+
+
+tier1 = unit_test  # abk-shim

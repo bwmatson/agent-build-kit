@@ -1,5 +1,5 @@
-"""A unit queued behind the tier 2 lock waits for as long as it takes, says who it waits
-for, and the lock names its holder (spec: tier2-lock-wait-holds-the-unit).
+"""A unit queued behind the e2e-test lock waits for as long as it takes, says who it waits
+for, and the lock names its holder (spec: e2e-lock-wait-holds-the-unit).
 
 The lock is held through `flock` from another file handle, and the clock the wait reads
 moves only as the waiter sleeps, so no test waits."""
@@ -20,18 +20,18 @@ from agent_build_kit.pipeline import wiring
 from agent_build_kit.pipeline.e2e import stack_lock
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.verify import Verification
-from tests.factories import unit
-from tests.fake_clock import span_lines
-from tests.tier2_lock_fakes import (
+from tests.e2e_lock_fakes import (
     STEP,
     Foreign,
     Ran,
     SleepingTime,
     dead_pid,
+    e2e_runner,
     install_clock,
     record_line,
-    tier2_runner,
 )
+from tests.factories import unit
+from tests.fake_clock import span_lines
 
 HOUR = 3600
 BUSY = "e2e-test is busy"
@@ -49,7 +49,7 @@ def runner(
     log: list[str],
 ) -> tuple[wiring.UnitRunner, Ran]:
     store = UnitStore(tmp_path / "units.json")
-    return tier2_runner(workspace, store, monkeypatch, log, unit(repo="app"))
+    return e2e_runner(workspace, store, monkeypatch, log, unit(repo="app"))
 
 
 def tree(tmp_path: Path) -> Path:
@@ -73,7 +73,7 @@ def test_a_wait_without_a_deadline_outlasts_the_old_hour(
     assert clock.elapsed() >= 2 * HOUR
 
 
-def test_a_tier_2_run_queued_behind_a_long_holder_runs_and_returns_its_result(
+def test_an_e2e_run_queued_behind_a_long_holder_runs_and_returns_its_result(
     workspace: Installation, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clock: SleepingTime
 ) -> None:
     lock = workspace.state_dir / "e2e.lock"

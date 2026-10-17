@@ -1,5 +1,5 @@
-"""A tier 2 result records the time of every phase of every test (spec:
-tier2-time-is-recorded-per-test).
+"""An e2e-test result records the time of every phase of every test (spec:
+e2e-time-is-recorded-per-test).
 
 The profile reads pytest's `slowest durations` section; the gate merges what each
 project's command printed, labelled with the project and slowest first. The runner is
@@ -14,8 +14,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.e2e import TestTime, build_snapshot
 from agent_build_kit.profiles import node_npm
 from agent_build_kit.profiles.python_uv import PROFILE as PYTHON_UV
-from tests.redaction_fakes import NAME, SECRET, known
-from tests.tier2_duration_fakes import (
+from tests.e2e_duration_fakes import (
     E2E,
     durations_output,
     recorded_times,
@@ -23,7 +22,8 @@ from tests.tier2_duration_fakes import (
     sixteen_tests,
     time_line,
 )
-from tests.tier2_failure_fakes import NO_SUMMARY, NODE_OUTPUT, checkout, gate, run_returning
+from tests.e2e_failure_fakes import NO_SUMMARY, NODE_OUTPUT, checkout, gate, run_returning
+from tests.redaction_fakes import NAME, SECRET, known
 
 NINE_MINUTES = 540.0
 FOURTEEN_MINUTES = 840.0

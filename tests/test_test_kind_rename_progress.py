@@ -62,6 +62,8 @@ PIPELINE_TESTS = TESTS / "pipeline"
 PIPELINE_TEST_RANGES = (
     ("test_call_record", "test_planner_cycle_rule"),
     ("test_planner_project_check", "test_task_progress"),
+    ("test_e2e", "test_e2e_scope_own"),
+    ("test_unit_test_affected", "test_unit_test_spans"),
 )
 
 
