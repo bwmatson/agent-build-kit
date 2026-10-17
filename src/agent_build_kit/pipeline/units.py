@@ -82,9 +82,10 @@ REVIEWED = (IN_REVIEW, MERGED, SATISFIED)
 
 
 class Priority(IntEnum):
-    """How urgent a unit is: 1 the most, 5 the least. A value between the named
-    ones is still valid and sorts as its integer."""
+    """How urgent a unit is: 0 the most (the emergency lane), 5 the least. A value
+    between the named ones is still valid and sorts as its integer."""
 
+    EMERGENCY = 0
     FIX = 1
     HIGH = 2
     NORMAL = 3
@@ -131,7 +132,7 @@ class Unit(Frozen):
     issue: int | None = None
     groups: tuple[int, ...] = ()
     joined: tuple[Member, ...] = ()
-    priority: int = Field(default=Priority.NORMAL, ge=Priority.FIX, le=Priority.NICE_TO_HAVE)
+    priority: int = Field(default=Priority.NORMAL, ge=Priority.EMERGENCY, le=Priority.NICE_TO_HAVE)
 
     def members(self) -> tuple[Member, ...]:
         """Every change's groups this unit builds: its own first, then carried ones."""
@@ -902,28 +903,37 @@ def _start_rank(unit: Unit) -> int:
     return 1 if _worked_on(unit) else 2
 
 
-def _start_key(unit: Unit, graph: Sequence[Unit], excluded: Collection[str]) -> tuple[int, ...]:
-    """The sort key of a ready unit; the sort is stable, so ties keep planned order."""
+def _start_key(
+    unit: Unit, graph: Sequence[Unit], excluded: Collection[str], handed_off: Collection[str]
+) -> tuple[int, ...]:
+    """The sort key of a ready unit; the sort is stable, so ties keep planned order.
+
+    New units go by effective priority, then handoff units before the others of
+    equal priority, then effective age.
+    """
     rank = _start_rank(unit)
     urgency = effective_priority(unit, graph, excluded)
     if rank < 2:
         return (rank, urgency)
-    return (rank, urgency, effective_age(unit, graph, excluded))
+    return (rank, urgency, 0 if unit.id in handed_off else 1, effective_age(unit, graph, excluded))
 
 
-def _handoff(ready: Sequence[Unit], graph: Sequence[Unit], excluded: Collection[str]) -> list[Unit]:
+def handoff_units(
+    ready: Sequence[Unit], graph: Sequence[Unit], excluded: Collection[str]
+) -> list[Unit]:
     """The ready units that take the places of blocked units, in the order to start them.
 
     Each blocked unit that has work and would otherwise count frees one place,
     and each place goes to one ready unit that has never run and that the blocked
     unit waits on; one that several blocked units wait on takes one place. Several
-    are ordered by effective priority, then effective age.
+    are ordered by effective priority, then effective age. `ready_units` sorts
+    them among the other ready units, ahead of those of equal priority only.
     """
     freed = {unit.id for unit in uncounted(graph)}
     chosen: list[Unit] = []
     for unit in sorted(
         (unit for unit in ready if _start_rank(unit) == 2),
-        key=lambda unit: _start_key(unit, graph, excluded),
+        key=lambda unit: _start_key(unit, graph, excluded, ()),
     ):
         waiters = [w.id for w in waiting_on_me(unit, graph, excluded) if w.id in freed]
         if waiters:
@@ -961,10 +971,11 @@ def ready_units(
     Free slots go to units with an open pull request, then to those resuming
     a build, then to new ones; within each, the most urgent effective priority
     first, then the order they were planned. New ones, between equal priorities,
-    go by effective age (the earliest planned
-    position among the unit and every unit waiting on it), then their own
-    planned position. `excluded` names the units the
-    round leaves out, which lend no priority to what they wait on.
+    put handoff units (`handoff_units`) first, then go by effective age (the
+    earliest planned position among the unit and every unit waiting on it), then
+    their own planned position. A handoff unit never goes ahead of a more urgent
+    one; it still takes the place a blocked unit frees when nothing more urgent can.
+    `excluded` names the units the round leaves out, which lend no priority to what they wait on.
     """
     running = count_by_project(graph, lambda unit: unit.state == RUNNING)
 
@@ -986,17 +997,13 @@ def ready_units(
 
         ready.append(unit)
 
-    handoff = _handoff(ready, graph, excluded)
-    chosen = {unit.id for unit in handoff}
-    rest = sorted(
-        (unit for unit in ready if unit.id not in chosen),
-        key=lambda unit: _start_key(unit, graph, excluded),
-    )
+    handed_off = {unit.id for unit in handoff_units(ready, graph, excluded)}
+    ordered = sorted(ready, key=lambda unit: _start_key(unit, graph, excluded, handed_off))
 
     started: list[Unit] = []
     taken: dict[ProjectKey, int] = {}
     drawn: dict[ProjectKey, int] = {}
-    for unit in [*handoff, *rest]:
+    for unit in ordered:
         key = project_key(unit)
         if running.get(key, 0) + taken.get(key, 0) >= max_concurrent:
             continue

@@ -131,7 +131,7 @@ move cannot settle leaves the unit `planned` with `restack_conflict`, for its ow
 
 ## Priority
 
-A unit carries a priority from 1 (most urgent) to 5, 3 unless a `Priority:` line
+A unit carries a priority from 0 (emergency) to 5, 3 unless a `Priority:` line
 says otherwise. It is the most urgent of the groups the unit builds and is kept
 once the unit has started. A unit's effective priority is the most urgent among
 itself and every unit that waits on it, directly or through a chain, in any
@@ -139,10 +139,13 @@ repo; merged, closed and satisfied units, and units the round leaves out, do not
 count.
 
 Within each class of start (open pull request, resumed build, never run) ready
-units start by effective priority, then in the order they were planned. `abk
+units start by effective priority, then in the order they were planned; among units
+that have never run, a handoff unit (one that takes the place a blocked unit frees)
+breaks a tie of equal priority and goes ahead of the others, then effective age. Priority 0
+starts first but bypasses no limit. `abk
 status` lists the units whose priority is not 3 and the ready queue in that
 order, each unit with its reason: `planned order`, its own priority, or the
-priority it takes from the unit that waits on it. The graph page adds
+priority it takes from the unit that waits on it, and marks a handoff unit `(handoff)`. The graph page adds
 `priority N` to the node of a unit whose priority is not 3.
 
 ## The graph

@@ -206,7 +206,7 @@ a running pass loses no update.
 
 ### 3. Building a unit
 
-Each unit has a priority, 1 (most urgent) to 5, 3 by default, set by the planner
+Each unit has a priority, 0 (emergency) to 5, 3 by default, set by the planner
 in code from the `Priority:` lines of the groups it builds: the most urgent of
 them, carried groups included. A started unit keeps the priority it started
 with, and the store leaves the default out of a unit's record. `waiting_on_me`
@@ -241,15 +241,16 @@ A failed unit that waits on another unit (`waiting_on`) does not count while it 
 either; it stays failed, is never requeued by the pipeline, and counts again when the wait
 ends. A rework, resume, restack, review round, push and a unit paused by a usage pause or interrupted still run, so the count can
 pass it. A blocked unit that had work gives its place to a ready, never-run prerequisite
-it waits on: before the classes below, one prerequisite starts for each blocked unit's
-place (one unit for each place; several by effective priority, then effective age),
+it waits on (a handoff unit): one prerequisite starts for each blocked unit's
+place (one unit for each place; several by effective priority, then effective age; it
+starts among the new units by the order below, so it never goes ahead of a more urgent one),
 within the limit and `max_concurrent_stacks`. A restack takes none of these: the merge, release
 and depth handlers hand each moved child to the restack lane (`project_limits.max_concurrent_restacks`
 workers apart from the build workers) instead of restacking inline, and the lane asks the usage
 guard before its conflict resolver. Free slots then go to
 units with an open pull request, then to those resuming a build, then to new
-ones. The first two go in planned order; new ones go by effective priority, then by
-effective age (the earliest planned position among the unit and every unit waiting on it, in
+ones. The first two go in planned order; new ones go by effective priority, then handoff
+units before the others of equal priority, then by effective age (the earliest planned position among the unit and every unit waiting on it, in
 any repo), then by planned position. Ready units build in parallel threads, each
 under a branch lock (`runs/locks/`) that fails fast: two runs on one branch is
 a scheduling bug, not a queue.

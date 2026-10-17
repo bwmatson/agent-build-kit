@@ -172,7 +172,7 @@ def test_a_ready_prerequisite_takes_the_place_of_the_blocked_unit_at_the_limit()
     assert chosen(graph, limit=2) == ["base/1"]
 
 
-def test_the_handoff_comes_ahead_of_work_resuming_a_build() -> None:
+def test_work_resuming_a_build_still_comes_ahead_of_the_handoff() -> None:
     graph = [
         review("busy/1"),
         worked("paused/1"),
@@ -180,7 +180,7 @@ def test_the_handoff_comes_ahead_of_work_resuming_a_build() -> None:
         new("base/1"),
     ]
 
-    assert chosen(graph, limit=3, slots=1)[0] == "base/1"
+    assert chosen(graph, limit=3, slots=1)[0] == "paused/1"
 
 
 def test_the_prerequisite_of_a_unit_that_never_started_gets_no_handoff() -> None:

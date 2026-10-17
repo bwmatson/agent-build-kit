@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Among units that have never run, the start order is now effective priority first, then
+  handoff units (the ones that take the place a blocked unit frees) before the others of
+  equal priority, so a handoff unit no longer outranks a more urgent unit; it still takes
+  the freed place when nothing more urgent can start. `abk status` marks such a unit in the
+  ready queue with `(handoff)`. New `Priority: 0`, an emergency lane: the scale is 0 to 5,
+  0 starts before 1 (and its prerequisites with it) but bypasses no limit and stops no
+  running unit.
+
 - A prompt no longer travels as a command-line argument to Claude Code: it is written to the
   agent's standard input, so a large prompt (a long plan, a big diff) no longer fails with
   `Argument list too long`. A prompt over the safe size of its runtime's transport (100,000

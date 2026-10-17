@@ -174,10 +174,10 @@ SEPARATE_LINE = re.compile(r"^Separate:\s*(?P<reason>.*?)\s*$", re.I)
 # group of its change. The reason is what review agrees to.
 INDEPENDENT_LINE = re.compile(r"^Independent:\s*(?P<reason>.*?)\s*$", re.I)
 
-# "Priority: 2", inside a group: how urgent its unit is, 1 (most) to 5, 3 when
+# "Priority: 2", inside a group: how urgent its unit is, 0 (emergency) to 5, 3 when
 # unsaid. Above the first group it is the default for the change's groups.
 PRIORITY_LINE = re.compile(r"^Priority:\s*(?P<value>.*?)\s*$", re.I)
-PRIORITY_VALUE = re.compile(r"[1-5]")
+PRIORITY_VALUE = re.compile(r"[0-5]")
 
 # "- [ ] 1.1 Do the thing" / "- [x] 1.1 Done". Checked and unchecked both count:
 # this asks whether a group has tasks at all, not how far along it is.
@@ -203,7 +203,7 @@ class TaskGroup(Frozen):
     # An `Independent: <reason>` line in the group: it depends on no earlier
     # group of its change.
     independent: bool = False
-    # 1 (most urgent) to 5, from a `Priority:` line in the group or above the first.
+    # 0 (emergency) to 5, from a `Priority:` line in the group or above the first.
     priority: int = Priority.NORMAL
     # The "Done when" sentence under the heading, "" when the group has none.
     goal: str = ""
@@ -291,7 +291,7 @@ def validate_tasks(
                         ValidationError(
                             line=index,
                             message=f'`Priority:` is "{found["value"]}", expected an integer '
-                            "from 1 (most urgent) to 5",
+                            "from 0 (emergency) to 5",
                         )
                     )
                 elif (default_priority if current is None else priorities.get(current)) is None:
