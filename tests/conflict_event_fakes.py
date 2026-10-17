@@ -127,6 +127,19 @@ class ConflictRig:
         return self.dispatch()("rework", PR, repo="app", reason=reason, pull=None, rework=kind)
 
 
+class FakeLane:
+    """A restack lane that only records what it is handed, to run when the test says: the
+    unit and the work, which is None for a unit handed over to be run as the lane runs it."""
+
+    def __init__(self) -> None:
+        self.handed: list[tuple[StoredUnit, Callable[[], None] | None]] = []
+
+    def hand_over(
+        self, unit: StoredUnit, work: Callable[[], None] | None = None, **kwargs: object
+    ) -> None:
+        self.handed.append((unit, work))
+
+
 def real_restack(
     rig: ConflictRig,
     tmp_path: Path,
