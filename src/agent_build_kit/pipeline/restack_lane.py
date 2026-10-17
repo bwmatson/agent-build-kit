@@ -257,6 +257,19 @@ def hold_if_spent(
     return True
 
 
+def lane_runs_owed(inst: Installation, units: list[StoredUnit]) -> set[str]:
+    """The units owed a moved-base run that the lane's scan takes: not one it handed back, which a
+    build worker takes from its step until its base moves again, and not one whose base tip
+    cannot be read, which no run can be an attempt at."""
+    by_id = {unit.id: unit for unit in units}
+    return {
+        unit_id
+        for unit_id in moved_base_units(inst, units)
+        if by_id[unit_id].cause is not Cause.RESTACK_HANDED_BACK
+        and base_tip(inst, by_id[unit_id], units)
+    }
+
+
 def owed_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
     """The ids of the units owed a restack, read from the repositories' branches, of those
     whose run the lane was making when it was interrupted, and of those owed a moved-base run."""
@@ -282,7 +295,7 @@ def owed_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
         for unit in units
         if owed_a_restack(unit, units, holds_base=holds_base, held=held, leased=leased)
         or (in_a_lane_run(unit) and not leased(unit) and not held(unit))
-    } | moved_base_units(inst, units)
+    } | lane_runs_owed(inst, units)
 
 
 def record_path(state_dir: Path, key: ProjectKey) -> Path:
