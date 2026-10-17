@@ -9,6 +9,7 @@ the thread that calls it. What is read is which thread and which lock the run ha
 from __future__ import annotations
 
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -17,14 +18,16 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.pause import pause_in_force
 from agent_build_kit.pipeline.restack_lane import RestackLanes
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW, PLANNED, branch_name
+from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW, PLANNED, RUNNING, branch_name
 from agent_build_kit.pipeline.usage_guard import RateLimited
-from agent_build_kit.pipeline.workspaces import branch_held
+from agent_build_kit.pipeline.workspaces import branch_held, branch_lock
 from agent_build_kit.profiles.base import ProfileUnsupported
+from agent_build_kit.runtimes import AgentRateLimited
 from tests.conftest import make_installation
 from tests.factories import git, init_repo, new_unit
 
@@ -64,6 +67,7 @@ class Scene:
         self.ran: list[str] = []
         self.threads: list[str] = []
         self.held: list[bool] = []
+        self.flagged: list[bool] = []
         self.moves: list[str] = []
         self.ends: Any = lambda unit: RunOutcome(status=RunStatus.OPEN, detail=unit.id, pr=9)
         for name, step in {
@@ -86,6 +90,7 @@ class Scene:
         self.ran.append(unit.id)
         self.threads.append(threading.current_thread().name)
         self.held.append(branch_held(branch_name(unit), root=self.inst.state_dir / "locks"))
+        self.flagged.append(self.store.get(unit.id).moved_base_run)
         return self.ends(unit)
 
     def lane_moves(self) -> RestackLanes:
@@ -179,3 +184,76 @@ def test_a_run_that_cannot_go_on_is_held_for_a_person(scene: Scene) -> None:
 
     stored = scene.store.get(MOVED)
     assert (stored.state, stored.cause) == (HELD, Cause.TOOLCHAIN)
+
+
+def test_a_run_is_flagged_the_lanes_while_it_goes(scene: Scene) -> None:
+    scene.lane_moves()
+
+    assert scene.flagged == [True]
+
+
+def test_a_run_that_finds_its_branch_held_is_not_made_and_the_unit_is_not_flagged(
+    scene: Scene,
+) -> None:
+    scene.store.set_state(MOVED, PLANNED, cause=Cause.RESTACK_CONFLICT, branch=f"spec/{MOVED}")
+
+    with branch_lock(f"spec/{MOVED}", root=scene.inst.state_dir / "locks"):
+        with cli.build_restack_lane(scene.inst, scene.store) as lanes:
+            lanes.hand_over(scene.store.get(MOVED), claimed=False)
+
+    assert scene.ran == []
+    assert scene.store.get(MOVED).moved_base_run is False
+
+
+def test_a_run_whose_unit_a_tab_holds_is_not_made_and_the_unit_is_not_flagged(
+    scene: Scene,
+) -> None:
+    scene.store.set_state(MOVED, PLANNED, cause=Cause.RESTACK_CONFLICT, branch=f"spec/{MOVED}")
+    assert Leases(lease_dir(scene.inst.state_dir)).take(MOVED, "tab:a")
+
+    with cli.build_restack_lane(scene.inst, scene.store) as lanes:
+        lanes.hand_over(scene.store.get(MOVED), claimed=False)
+
+    assert scene.ran == []
+    assert scene.store.get(MOVED).moved_base_run is False
+
+
+def test_a_refusal_the_move_met_does_not_drop_the_run_the_unit_is_later_owed(
+    scene: Scene, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refusing(inst: Installation, *, gated: bool, refused: Any) -> Any:
+        def move(path: Path, *args: Any, **kwargs: Any) -> None:
+            refused(kwargs["moving_unit"], None)
+            raise AgentRateLimited("usage limit reached")
+
+        return move
+
+    monkeypatch.setattr(cli, "build_turned_move", refusing)
+    scene.store.set_state(MOVED, RUNNING, branch=f"spec/{MOVED}", cause=Cause.BASE_CHANGED)
+    with cli.build_restack_lane(scene.inst, scene.store) as lanes:
+        lanes.hand_over(scene.store.get(MOVED))
+        lanes.drain()
+        assert scene.ran == [], "the refused move is left deferred, and no run follows it"
+
+        scene.store.set_moved_base_run(MOVED, True)
+        lanes.hand_over(scene.store.get(MOVED), claimed=False)
+
+    assert scene.ran == [MOVED]
+
+
+def test_a_run_in_the_lane_asks_the_build_pool_for_no_worker(
+    scene: Scene, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Counting(ThreadPoolExecutor):
+        submitted = 0
+
+        def submit(self, *args: Any, **kwargs: Any) -> Any:
+            Counting.submitted += 1
+            return super().submit(*args, **kwargs)
+
+    monkeypatch.setattr(cli, "ThreadPoolExecutor", Counting)
+
+    scene.lane_moves()
+
+    assert scene.ran == [MOVED]
+    assert Counting.submitted == 0

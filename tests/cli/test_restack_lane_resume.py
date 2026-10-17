@@ -115,3 +115,20 @@ def test_a_flag_left_by_a_killed_process_is_resumed_by_the_next_scan_in_the_lane
 
     assert scene.ran == [UNIT]
     assert scene.threads == ["restack"]
+
+
+def test_a_lane_that_met_the_held_branch_runs_the_flagged_unit_when_it_is_free(
+    scene: Scene,
+) -> None:
+    scene.flag()
+
+    with cli.build_restack_lane(scene.inst, scene.store) as lanes:
+        with branch_lock(BRANCH, root=scene.inst.state_dir / "locks"):
+            lanes.hand_over(scene.store.get(UNIT), claimed=False)
+            lanes.drain()
+        assert scene.ran == []
+
+        lanes.scan(scene.store.all())
+        lanes.drain()
+
+    assert scene.ran == [UNIT]

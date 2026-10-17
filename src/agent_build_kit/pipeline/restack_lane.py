@@ -426,18 +426,20 @@ class RestackLane:
         unit = entry.unit
         ran = False
         try:
-            try:
-                if entry.claimed:
-                    with self._claim(unit):
+            if entry.claimed:
+                with self._claim(unit):
+                    try:
                         rest = entry.work()
-                else:
-                    rest = entry.work()
-                # What remains is the unit's run: it holds this worker, not the claim.
-                if rest is not None:
-                    rest()
-                ran = True
-            finally:
-                self._note_attempt(unit)
+                    finally:
+                        self._note_attempt(unit)
+            else:
+                # A run takes its own branch lock and may find it held: that is no attempt
+                # for a later scan to wait out.
+                rest = entry.work()
+            # What remains is the unit's run: it holds this worker, not the claim.
+            if rest is not None:
+                rest()
+            ran = True
         except BranchBusy as error:
             self._log(f"{unit.id}: restack left for later, its branch is held ({error})")
         except Exception as error:  # noqa: BLE001 — one restack never ends the lane

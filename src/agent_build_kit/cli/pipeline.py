@@ -3577,13 +3577,14 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
                 # The guard refused the move's agent: the lane moves it again when it allows.
                 refusals.discard(unit_id)
                 return
-            store.set_moved_base_run(unit_id, True)
-            build_unit(inst, store.get(unit_id), store=store)
+            # The run flags itself once it holds the branch and the unit is runnable.
+            build_unit(inst, store.get(unit_id), store=store, moved_base_run=True)
 
         return run
 
     def move_unit(owed: StoredUnit) -> Rest | None:
         unit = store.get(owed.id)
+        refusals.discard(unit.id)  # A refusal belongs to the one move that met it.
         if in_a_lane_run(unit):
             return run_of(unit.id)  # An interrupted run: its thread resumes at its node.
         graph = store.all()
@@ -3607,7 +3608,8 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
                 return run_of(unit.id)
             return None
         if has_thread(inst, unit.id):
-            # Parked at `prepare`: it makes the move, here, and a worker runs what follows.
+            # Parked at `prepare`: the lane makes the move here, and its worker goes on into
+            # the unit's run (`run_of`).
             ended = advance_thread_through_prepare(inst, unit, store=store)
             if ended is not None:
                 if ended.conflict:
@@ -3618,10 +3620,10 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
                         cause=Cause.RESTACK_CONFLICT,
                     )
                 return run_of(unit.id)
-        # A thread parked at `prepare`, until its run drives the thread through `prepare`: in a
-        # worktree of its own it has the branch checked out, where the branch cannot be moved,
-        # so the move is left for its run. Without one the branch is moved in a temporary
-        # worktree, and a move that cannot be made is left for its run too.
+        # A unit with no thread to move through `prepare`: in a worktree of its own it has the
+        # branch checked out, where the branch cannot be moved, so the move is left for its
+        # run. Without one the branch is moved in a temporary worktree, and a move that
+        # cannot be made is left for its run too.
         if worktree_path(repo, branch, inst.worktree_root).exists():
             store.set_state(
                 unit.id,
@@ -3958,7 +3960,12 @@ def _outage_cause(inst: Installation, error: NetworkUnavailable) -> Cause | None
 
 
 def build_unit(
-    inst: Installation, unit: Unit, *, store: UnitStore, queued: spans.Mark | None = None
+    inst: Installation,
+    unit: Unit,
+    *,
+    store: UnitStore,
+    queued: spans.Mark | None = None,
+    moved_base_run: bool = False,
 ) -> bool:
     """`_build_unit` as a `unit` span below the tick's, with the run's duration.
 
@@ -3986,7 +3993,13 @@ def build_unit(
     ) as span:
         try:
             return _build_unit(
-                inst, unit, store=store, run=run, trace=telemetry.reference(span), queued=queued
+                inst,
+                unit,
+                store=store,
+                run=run,
+                trace=telemetry.reference(span),
+                queued=queued,
+                moved_base_run=moved_base_run,
             )
         except BaseException:
             telemetry.failed(span)
@@ -4016,6 +4029,7 @@ def _build_unit(
     run: _Run,
     trace: str = "",
     queued: spans.Mark | None = None,
+    moved_base_run: bool = False,
 ) -> bool:
     """Start the unit's thread, or resume the one a killed or paused run left,
     and run it to a wait or the end. Returns False only when the model refused
@@ -4111,6 +4125,9 @@ def _build_unit(
                 if Leases(lease_dir(inst.state_dir)).holder(unit.id) is not None:
                     end("skipped, a tab holds its lease", UnitOutcome.SKIPPED)
                     return True
+                if moved_base_run:
+                    # The lane's run: flagged only now that it holds the branch and may go on.
+                    store.set_moved_base_run(unit.id, True)
                 # A step recorded by an earlier run belongs to that run. A parked unit
                 # resumes at its node, which never passes `prepare`, so it is marked
                 # running here.
