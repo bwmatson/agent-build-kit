@@ -11,8 +11,10 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.pipeline.unit_store import Cause
-from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED
+from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline import emergency_lane
+from agent_build_kit.pipeline.unit_store import Cause, StoredUnit
+from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED, UnitState
 from agent_build_kit.pipeline.vocabulary import WaitReason
 from tests.emergency_lane_support import build, fresh, lane_workspace, seeded, started_by_round
 from tests.factories import stored_unit
@@ -112,3 +114,40 @@ def test_a_unit_owed_a_restack_is_admitted_whatever_the_emergency_lane_holds(
     assert asked[owed].reason is WaitReason.READY
     assert asked["zero/2"].reason is WaitReason.QUEUE_FULL
     assert started_by_round(inst, store, building=in_flight) == []
+
+
+def owed_in_app(inst: Installation, tmp_path: Path, others: list[tuple[StoredUnit, UnitState]]):
+    """A workspace of two projects: `app` has a planned unit owed a restack, `platform` the
+    given `others`."""
+    owed = "feature/3"
+    units = [(stored_unit(owed, change="feature", branch="spec/feature/3"), PLANNED), *others]
+    store = seeded(inst, tmp_path, units)
+    store.set_state(owed, PLANNED, branch="spec/feature/3", cause=Cause.BASE_CHANGED)
+    return store
+
+
+def test_an_owed_unit_in_another_project_lends_no_worker_to_a_priority_zero_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst = repo_behind(tmp_path, monkeypatch, emergency_extra=1)
+    names = [f"plat{n}/1" for n in range(4)]
+    others = [build(uid, repo="platform") for uid in names]
+    others.append(fresh("zero/1", priority=0, repo="platform"))
+    store = owed_in_app(inst, tmp_path, others)
+
+    assert started_by_round(inst, store, building=names) == ["zero/1"]
+    assert emergency_lane.lane_units(inst.state_dir) == {"zero/1"}
+
+
+def test_an_owed_unit_in_another_project_lends_no_worker_to_an_ordinary_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst = repo_behind(tmp_path, monkeypatch, emergency_extra=1)
+    names = [f"plat{n}/1" for n in range(3)]
+    others = [build(uid, repo="platform") for uid in names]
+    others.append(build("lane/1", repo="platform", priority=0))
+    others.append(fresh("one/1", priority=1, repo="platform"))
+    store = owed_in_app(inst, tmp_path, others)
+    emergency_lane.enter(inst.state_dir, store.get("lane/1"))
+
+    assert started_by_round(inst, store, building=[*names, "lane/1"]) == []

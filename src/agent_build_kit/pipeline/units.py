@@ -16,7 +16,7 @@ cannot be named here. Given plain `Unit`s they would see no pull request and no 
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Iterable, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from datetime import datetime
 from enum import IntEnum, StrEnum
 from pathlib import Path
@@ -963,6 +963,7 @@ def ready_units(
     excluded: Collection[str] = frozenset(),
     emergency_extra: int = 0,
     in_lane: Collection[str] = frozenset(),
+    extra_workers: Mapping[ProjectKey, int] | None = None,
 ) -> list[Unit]:
     """The planned units that may start right now, in the order to start them.
 
@@ -997,6 +998,7 @@ def ready_units(
     `emergency_extra`. It takes no place or worker from the count of the units after it, and
     the lane's units count as in progress and running for the units that have never started,
     so ordinary starts wait; a unit already started is held to the workers without them.
+    `extra_workers` adds workers to `max_concurrent` for the projects it names and no other.
     """
     running = count_by_project(graph, lambda unit: unit.state == RUNNING)
 
@@ -1034,7 +1036,8 @@ def ready_units(
         draws = max_units_in_progress is not None and new
         # A unit already started is held to the workers the lane's units leave.
         busy = running.get(key, 0) - (0 if new else lane_running.get(key, 0))
-        if busy + taken.get(key, 0) >= max_concurrent or (
+        room = max_concurrent + (extra_workers or {}).get(key, 0)
+        if busy + taken.get(key, 0) >= room or (
             draws and counted.get(key, 0) + drawn.get(key, 0) >= (max_units_in_progress or 0)
         ):
             if lane_use.get(key, 0) < emergency_extra and emergency_start(unit, graph, excluded):

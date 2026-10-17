@@ -78,32 +78,43 @@ def run_blocked_pass(
     tmp_path: Path, builder: Builder, monkeypatch: pytest.MonkeyPatch, *, extra: int
 ) -> tuple[list[int], list[frozenset[str]]]:
     """Four blocking builds fill the workers; a priority-0 unit then turns up. Returns the
-    builds in flight whenever the priority-0 unit's own build ran (or, when it was never
-    started, at the moment the test gave up waiting for it) and the lane records seen then."""
+    builds in flight whenever the priority-0 unit's own build ran (or, with the lane off, when
+    a round left it out) and the lane records seen then."""
     inst = lane_workspace(tmp_path, extra=extra)
     names = [f"block{n}/1" for n in range(4)]
     builder.store.upsert([stored(uid) for uid in names])
     release = threading.Event()
     in_flight: list[int] = []
     records: list[frozenset[str]] = []
-    polls: list[int] = []
+
+    def running_count() -> int:
+        return len([u for u in builder.store.all() if u.state == RUNNING])
 
     def poll(inst, **kwargs) -> None:
-        polls.append(1)
         if len(builder.started) >= 4 and "zero/1" not in {u.id for u in builder.store.all()}:
             builder.store.upsert([stored("zero/1", priority=0)])
-        # The extra refreshes a pass that never starts the unit needs before giving up on it.
-        if len(polls) > 12 and not release.is_set():
-            in_flight.append(len([u for u in builder.store.all() if u.state == RUNNING]))
+
+    run_round = cli.run_round
+
+    def watched_round(inst, store, **kwargs):
+        ready = run_round(inst, store, **kwargs)
+        # With the lane off, a round that has the unit in the store and does not hand it out is
+        # the decision under test: nothing more is waited for.
+        left_out = "zero/1" in {u.id for u in store.all()} and "zero/1" not in {u.id for u in ready}
+        if extra == 0 and left_out and not release.is_set():
+            wait_for(lambda: running_count() == 4, what="four running builds", timeout=WAIT)
+            in_flight.append(running_count())
             records.append(emergency_lane.lane_units(inst.state_dir))
             release.set()
+        return ready
 
     def lane_build() -> None:
-        in_flight.append(len([u for u in builder.store.all() if u.state == RUNNING]))
+        in_flight.append(running_count())
         records.append(emergency_lane.lane_units(inst.state_dir))
         release.set()
 
     monkeypatch.setattr(cli, "poll_all", poll)
+    monkeypatch.setattr(cli, "run_round", watched_round)
     for uid in names:
         builder.scripts[uid] = lambda: wait_for(release.is_set, what="the release", timeout=WAIT)
     builder.scripts["zero/1"] = lane_build

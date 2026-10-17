@@ -2056,17 +2056,15 @@ def _evaluate_round(
     for_the_lane = {unit.id for unit in view if unit.state == PLANNED and unit.id in owed}
     # Room for the owed units too, so one that is passed over does not take a slot from another:
     # a project's owed units add to its own cap, and the slice below holds the others to theirs.
-    owed_most = max(
-        count_by_project(view, lambda unit: unit.id in for_the_lane).values(),
-        default=0,
-    )
+    owed_by = count_by_project(view, lambda unit: unit.id in for_the_lane)
     extra = inst.emergency_extra if emergency_extra is None else emergency_extra
     lane = emergency_lane.lane_units(inst.state_dir)
 
     def ready_with(extra: int) -> list[Unit]:
         return ready_units(
             view,
-            max_concurrent=cap + owed_most,
+            max_concurrent=cap,
+            extra_workers=owed_by,
             depth_cap=inst.stack_depth_build_cap,
             max_units_in_progress=inst.max_units_in_progress if enforce_limit else None,
             excluded=excluded,

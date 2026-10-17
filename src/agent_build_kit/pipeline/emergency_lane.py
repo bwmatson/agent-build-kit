@@ -7,8 +7,8 @@ submitted, read as the lane use, and pruned of units that are no longer in progr
 
 from __future__ import annotations
 
+import hashlib
 import json
-import re
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -23,9 +23,8 @@ def lane_dir(state_dir: Path) -> Path:
 
 def _record(state_dir: Path, unit: Unit) -> Path:
     key = project_key(unit)
-    return lane_dir(state_dir) / (
-        re.sub(r"[^A-Za-z0-9._-]+", "_", f"{key.repo}__{key.project}") + ".json"
-    )
+    name = f"{key.repo}/{key.project}".encode()
+    return lane_dir(state_dir) / f"{hashlib.sha256(name).hexdigest()[:12]}.json"
 
 
 def _read(path: Path) -> list[str]:
