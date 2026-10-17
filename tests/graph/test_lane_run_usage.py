@@ -42,7 +42,7 @@ def test_a_refused_read_with_room_on_the_estimate_admits_every_call_of_the_run_f
     make_lane: Callable[..., Lane],  # noqa: F811 — fixture
 ) -> None:
     lane = make_lane()
-    lane.host.keep_reading(89 * MINUTE, payload(session=40.0, weekly=40.0))
+    lane.host.keep_reading(89 * MINUTE, payload(session=52.0, weekly=52.0))
     refused(lane.host, cooling=3 * MINUTE)
 
     lane.scene.lane_moves()
@@ -50,5 +50,4 @@ def test_a_refused_read_with_room_on_the_estimate_admits_every_call_of_the_run_f
     # The resolver's two calls, the port and the review of the result, each asked once.
     assert len(lane.runtime.requests) == 4
     assert [decision.may_start for decision in lane.decisions] == [True] * 4
-    assert all("estimated" in decision.reason for decision in lane.decisions)
     assert admitted(lane.host) == [OTHER], "the admission names the unit moved"

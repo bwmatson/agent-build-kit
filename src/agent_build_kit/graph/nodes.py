@@ -1126,6 +1126,11 @@ class BuildPath:
 
         def resolve(prompt: str, *, cwd: Path, follow_up: str = "") -> None:
             nonlocal held
+            # Asked like every other agent call, not left to the runtime's own refusal.
+            with starting(self.unit.id):
+                allowed, why = self.runner.may_start()
+            if not allowed:
+                raise AgentRateLimited(why, resets_at=self.runner.resume_at())
             node, self._node = self._node, Node.RESTACK.value
             try:
                 self.agent(

@@ -32,11 +32,11 @@ def paused_at_the_port(make_lane: Callable[..., Lane]) -> Lane:  # noqa: F811 â€
     return lane
 
 
-def stops_at_the_port(lane: Lane) -> None:
+def stops_at_the_port(lane: Lane, attempts: int = 0) -> None:
     stored = lane.graph.store.get(OTHER)
     assert (stored.state, stored.moved_base_run) == (RUNNING, True)
     assert lane.graph.next(OTHER) == (Node.ADAPT,), "its thread stands at the port"
-    assert stored.conflict_attempts == 1
+    assert stored.conflict_attempts == attempts
 
 
 def test_a_pause_at_the_port_leaves_the_unit_running_and_flagged_with_its_thread_there(
@@ -86,7 +86,7 @@ def test_the_lane_waits_for_the_guards_resume_at_and_then_resumes_at_the_port_as
     assert lane.decisions[asked].may_start
     stored = graph.store.get(OTHER)
     assert stored.state == IN_REVIEW, "the run went on from the port"
-    assert stored.conflict_attempts == 1, "the resumed run is the same attempt"
+    assert stored.conflict_attempts == 1, "the resumed run is counted once, as it starts"
     assert len(lane.runtime.requests) > RESOLVER_CALLS
 
 
@@ -98,5 +98,5 @@ def test_a_runtimes_own_refusal_at_the_port_does_the_same(
 
     lane.scene.lane_moves()
 
-    stops_at_the_port(lane)
+    stops_at_the_port(lane, attempts=1)  # the port's call began
     assert lane.scene.offered() == []
