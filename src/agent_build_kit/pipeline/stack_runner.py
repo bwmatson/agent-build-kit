@@ -1303,7 +1303,8 @@ class RunOutcome(Frozen):
     pr: int | None = None
     pause: PauseInfo | None = None
     # Set when the restack lane stopped the run before a step that is not moved-base work:
-    # the note for the unit, which a build worker takes up from that step.
+    # the note for the unit, which a build worker takes up from that step. `status` means
+    # nothing then: a caller checks `handed_back` first.
     handed_back: str = ""
 
 

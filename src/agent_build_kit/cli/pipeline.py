@@ -4201,10 +4201,13 @@ def _build_unit(
                 if moved_base_run:
                     # The lane's run: flagged only now that it holds the branch and may go on.
                     store.set_moved_base_run(unit.id, True)
-                # A step recorded by an earlier run belongs to that run. A parked unit
-                # resumes at its node, which never passes `prepare`, so it is marked
-                # running here.
-                if unit.state == PLANNED and unit.cause in PARKED_CAUSES:
+                # A step recorded by an earlier run belongs to that run. A parked unit, or one
+                # the restack lane handed back, resumes at its node, which never passes
+                # `prepare`, so it is marked running here.
+                if unit.state == PLANNED and unit.cause in (
+                    *PARKED_CAUSES,
+                    Cause.RESTACK_HANDED_BACK,
+                ):
                     store.set_state(unit.id, RUNNING, branch=unit.branch or None)
                 store.record_step(unit.id, "")
                 if queued is not None:

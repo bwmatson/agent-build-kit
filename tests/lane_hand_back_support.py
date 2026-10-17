@@ -8,7 +8,6 @@ tests to the push.
 
 from __future__ import annotations
 
-import threading
 from pathlib import Path
 from typing import Any
 
@@ -33,20 +32,6 @@ def resolved_move(scene: Scene) -> None:
         build_restack_onto(scene.graph.store, move=resolving)
     )
     adapting(scene)
-
-
-def move_threads(scene: Scene) -> list[str]:
-    """Wrap the scene's move so each call notes the name of the thread it ran on; the lane's
-    workers are named `restack`."""
-    names: list[str] = []
-    moving = scene.graph.options["restack_onto"]
-
-    def restack(**kwargs: Any) -> Any:
-        names.append(threading.current_thread().name)
-        return moving(**kwargs)
-
-    scene.graph.options["restack_onto"] = restack
-    return names
 
 
 def handed_back_at(scene: Scene, step: Node) -> None:
