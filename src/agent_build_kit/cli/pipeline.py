@@ -653,10 +653,10 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         log(line)
     for line in [
         *_split_wait_lines(inst, units),
-        *_blocked_lines(inst, units),
-        *_failed_waiting_lines(inst, units),
+        *_blocked_lines(units),
+        *_failed_waiting_lines(units),
         *_wait_ended_lines(inst, units),
-        *_second_parent_lines(inst, units),
+        *_second_parent_lines(units),
     ]:
         log(line)
 
@@ -2113,7 +2113,7 @@ def _queue_full_by_project(inst: Installation, units: list[StoredUnit]) -> dict[
             f"queue is full: {name}{len(held)} units in progress, "
             f"limit {inst.max_units_in_progress} ({states})"
         )
-        waiting = _blocked_lines(inst, units, key)
+        waiting = _blocked_lines(units, key)
         if waiting:
             line += f"; {len(waiting)} blocked not counted"
         if failed := [u for u in failed_waiting_units(units) if project_key(u) == key]:
@@ -2163,9 +2163,7 @@ def _deadlocked_unit_lines(units: list[StoredUnit]) -> list[str]:
     return ["cannot start:", *lines]
 
 
-def _blocked_lines(
-    inst: Installation, units: list[StoredUnit], project: ProjectKey | None = None
-) -> list[str]:
+def _blocked_lines(units: list[StoredUnit], project: ProjectKey | None = None) -> list[str]:
     """One line for each blocked unit that has work and so is not counted, with what it waits on;
     only those of `project` when one is given."""
     lines = []
@@ -2177,7 +2175,7 @@ def _blocked_lines(
     return lines
 
 
-def _second_parent_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
+def _second_parent_lines(units: list[StoredUnit]) -> list[str]:
     """One line for each unit that has never started and waits for a second open parent."""
     return [
         f"  {unit.id} ({unit_label(unit)}) {wait}"
@@ -2186,7 +2184,7 @@ def _second_parent_lines(inst: Installation, units: list[StoredUnit]) -> list[st
     ]
 
 
-def _failed_waiting_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
+def _failed_waiting_lines(units: list[StoredUnit]) -> list[str]:
     """One line for each failed unit that waits on another unit, with what it waits on."""
     return [
         f"  failed, waiting on {', '.join(parent.id for parent in waiting_on(unit, units))}: "
@@ -2331,7 +2329,7 @@ def _nothing_started_reason(
         for key, line in full_projects.items():
             if key in held_back:
                 lines.append(f"{line}; no new unit starts until one finishes or is closed")
-                lines.extend(_blocked_lines(inst, units, key))
+                lines.extend(_blocked_lines(units, key))
         if lines:
             return "\n".join(lines)
     failed = [line for unit in units if unit.state == FAILED and (line := _blocked_by(unit, units))]
