@@ -1,4 +1,4 @@
-"""Editing a split's `hold` in `abk.yaml` as text (spec: tier2-splits-replace-runtime-tags)."""
+"""Editing a split's `hold` in `abk.yaml` as text (spec: e2e-splits-replace-runtime-tags)."""
 
 from __future__ import annotations
 
@@ -250,11 +250,11 @@ def test_hold_on_rest_creates_a_missing_e2e_splits_mapping(tmp_path: Path) -> No
 
 
 def test_a_file_written_with_the_old_key_is_edited_under_that_key(tmp_path: Path) -> None:
-    original = "tests:\n  tier2_splits:\n    acp:\n      marker: runtime_acp\n"
+    original = "tests:\n  e2e_splits:\n    acp:\n      marker: runtime_acp\n"
     path = write(tmp_path, original)
     set_hold(path, None, "acp", True)
     expected = {"acp": {"marker": "runtime_acp", "hold": True}}
-    assert loaded(path)["tests"] == {"tier2_splits": expected}
+    assert loaded(path)["tests"] == {"e2e_splits": expected}
 
 
 def test_hold_on_rest_creates_a_missing_tests_mapping(tmp_path: Path) -> None:

@@ -295,7 +295,7 @@ def test_an_exclusive_label_replaces_the_rest_of_its_family() -> None:
 
 def post(host: RestHost, *, ok: bool = True, head: str = HEAD, description: str = "4 passed"):
     forge(host).post_status(
-        REPO, sha="abc123", ok=ok, context="local/tier2", description=description, head=head
+        REPO, sha="abc123", ok=ok, context="local/e2e-test", description=description, head=head
     )
 
 
@@ -308,7 +308,7 @@ def test_a_result_is_posted_on_the_commit_and_on_the_open_pull_request() -> None
     expected = {
         "state": "succeeded",
         "description": "4 passed",
-        "context": {"genre": "local", "name": "tier2"},
+        "context": {"genre": "local", "name": "e2e-test"},
     }
     assert (commit.method, commit.route, commit.body) == (
         "POST",

@@ -259,8 +259,8 @@ def test_an_evaluation_with_no_build_to_ask_about_is_a_failure() -> None:
 
 
 def test_the_newest_status_of_each_genre_and_name_is_the_one_in_force() -> None:
-    older = {"id": 1, "state": "failed", "context": {"genre": "local", "name": "tier2"}}
-    newer = {"id": 2, "state": "succeeded", "context": {"genre": "local", "name": "tier2"}}
+    older = {"id": 1, "state": "failed", "context": {"genre": "local", "name": "e2e-test"}}
+    newer = {"id": 2, "state": "succeeded", "context": {"genre": "local", "name": "e2e-test"}}
     still = {"id": 3, "state": "error", "context": {"genre": "ci", "name": "lint"}}
     pending = {"id": 4, "state": "pending", "context": {"genre": "ci", "name": "deploy"}}
 

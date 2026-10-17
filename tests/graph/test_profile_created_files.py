@@ -2,7 +2,7 @@
 section (spec: pipeline-environment).
 
 A unit is built in a real git worktree with the real commit step; only the agent, the review
-and tier 1 are stand-ins. The profile's commands are not run, so the test puts the file they
+and unit-test are stand-ins. The profile's commands are not run, so the test puts the file they
 create into the worktree between the ticks. The unit is built in one tick and asked for a
 rework in the next, as a person's comment does, so the worktree check runs over what the
 first tick left.
@@ -51,7 +51,7 @@ def reworked(tmp_path: Path, habitat: Habitat, recorder: Recorder) -> RunOutcome
 
 def test_an_untracked_file_the_profile_names_does_not_hold_the_rework(tmp_path: Path) -> None:
     habitat, recorder = built(tmp_path)
-    (habitat.tree / LOCK).write_text("created by a tier 1 command\n")
+    (habitat.tree / LOCK).write_text("created by a unit-test command\n")
 
     outcome = reworked(tmp_path, habitat, recorder)
 
@@ -67,7 +67,7 @@ def test_another_uncommitted_file_still_holds_the_unit_and_is_the_only_one_named
     tmp_path: Path,
 ) -> None:
     habitat, recorder = built(tmp_path)
-    (habitat.tree / LOCK).write_text("created by a tier 1 command\n")
+    (habitat.tree / LOCK).write_text("created by a unit-test command\n")
     (habitat.tree / STRAY).write_text("mine\n")
     asked = len(habitat.runtime.requests)
 

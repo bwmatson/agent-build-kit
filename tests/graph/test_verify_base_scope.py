@@ -22,7 +22,7 @@ OLD_BASE = "old-base-sha"
 LINE = "moved base:"
 
 
-def test_a_clean_move_passes_the_base_it_left_to_tier_1(tmp_path: Path) -> None:
+def test_a_clean_move_passes_the_base_it_left_to_unit_test(tmp_path: Path) -> None:
     recorder = fresh(tmp_path)
     moving = Moving(recorder, restacked(old_base=OLD_BASE))
 
@@ -32,7 +32,7 @@ def test_a_clean_move_passes_the_base_it_left_to_tier_1(tmp_path: Path) -> None:
     assert recorder.unit_test_moved_from == [None, OLD_BASE], "the first check is not a moved base"
 
 
-def test_a_resolved_move_goes_to_rebase_and_its_tier_1_is_not_a_moved_base_check(
+def test_a_resolved_move_goes_to_rebase_and_its_unit_test_is_not_a_moved_base_check(
     tmp_path: Path,
 ) -> None:
     recorder = fresh(tmp_path)
@@ -45,7 +45,7 @@ def test_a_resolved_move_goes_to_rebase_and_its_tier_1_is_not_a_moved_base_check
     assert recorder.unit_test_moved_from == [None, OLD_BASE]
 
 
-def test_a_conflicting_move_goes_to_rebase_and_its_old_base_never_reaches_tier_1(
+def test_a_conflicting_move_goes_to_rebase_and_its_old_base_never_reaches_unit_test(
     tmp_path: Path,
 ) -> None:
     recorder = fresh(tmp_path)
@@ -57,7 +57,7 @@ def test_a_conflicting_move_goes_to_rebase_and_its_old_base_never_reaches_tier_1
     assert recorder.unit_test_moved_from == [None, OLD_BASE]
 
 
-def test_a_tier_two_unit_still_runs_tier_2_after_its_scoped_tier_1(tmp_path: Path) -> None:
+def test_an_e2e_unit_still_runs_e2e_after_its_scoped_unit_test(tmp_path: Path) -> None:
     recorder = fresh(tmp_path, tier="e2e-test")
     moving = Moving(recorder, restacked(old_base=OLD_BASE))
 

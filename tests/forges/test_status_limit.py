@@ -14,7 +14,7 @@ from agent_build_kit import forges
 from agent_build_kit.forges.azure_devops import AzureDevOpsForge
 from agent_build_kit.forges.base import RepoId
 from agent_build_kit.forges.github import GitHubForge
-from agent_build_kit.pipeline.e2e import Tier2Result, post_status
+from agent_build_kit.pipeline.e2e import E2eResult, post_status
 from tests.forges import azure_answers
 from tests.forges.azure_rest_host import RestHost
 from tests.forges.github_host import GitHubHost, answer
@@ -25,8 +25,8 @@ GITHUB_REPO = RepoId(forge="github", account="example", name="app")
 STATUS_ROUTE = ("POST", "/repos/example/app/statuses/abc1234def")
 
 
-def result() -> Tier2Result:
-    return Tier2Result(
+def result() -> E2eResult:
+    return E2eResult(
         sha="abc1234def",
         passed=4,
         failed=0,
@@ -73,7 +73,7 @@ def test_github_sends_the_status_description_it_was_given() -> None:
     host = GitHubHost(routes={STATUS_ROUTE: answer({"id": 1, "state": "success"}, 201)})
 
     GitHubForge(http=host).post_status(
-        GITHUB_REPO, sha="abc1234def", ok=True, context="local/tier2", description="x" * 200
+        GITHUB_REPO, sha="abc1234def", ok=True, context="local/e2e-test", description="x" * 200
     )
 
     [call] = host.calls(*STATUS_ROUTE)
@@ -88,7 +88,7 @@ def test_azure_sends_the_status_description_it_was_given() -> None:
         AZURE_REPO,
         sha="abc123",
         ok=True,
-        context="local/tier2",
+        context="local/e2e-test",
         description="x" * 1_200,
         head="spec/add-marker/1",
     )

@@ -1,4 +1,4 @@
-"""`tests.tier2_splits.<name>.gate.provider` (spec: split-gate-usage)."""
+"""`tests.e2e_splits.<name>.gate.provider` (spec: split-gate-usage)."""
 
 from __future__ import annotations
 
@@ -72,7 +72,7 @@ def test_a_gate_with_both_is_refused_naming_both() -> None:
 def test_rest_may_carry_a_gate_alone_or_with_a_hold() -> None:
     alone = with_gate({"provider": PROVIDER}, split="rest")
     held = WorkspaceConfig.model_validate(
-        {"tests": {"tier2_splits": {"rest": {"hold": True, "gate": {"provider": PROVIDER}}}}}
+        {"tests": {"e2e_splits": {"rest": {"hold": True, "gate": {"provider": PROVIDER}}}}}
     )
 
     assert provider_of(alone, "rest").name == "modal"
@@ -81,12 +81,12 @@ def test_rest_may_carry_a_gate_alone_or_with_a_hold() -> None:
 
 def test_an_empty_rest_is_refused_saying_hold_or_gate() -> None:
     with pytest.raises(ValidationError, match="hold` or `gate"):
-        WorkspaceConfig.model_validate({"tests": {"tier2_splits": {"rest": {}}}})
+        WorkspaceConfig.model_validate({"tests": {"e2e_splits": {"rest": {}}}})
 
 
 def test_a_workspace_with_no_gate_loads_and_dumps_unchanged() -> None:
     plain = WorkspaceConfig.model_validate(
-        {"tests": {"tier2_splits": {"acp": {"marker": "runtime_acp"}}}}
+        {"tests": {"e2e_splits": {"acp": {"marker": "runtime_acp"}}}}
     )
 
     assert "gate" in dump(with_gate({"provider": PROVIDER}))

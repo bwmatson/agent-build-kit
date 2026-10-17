@@ -36,7 +36,7 @@ CASES = {
 }
 
 
-# A run with several kinds of failure, whose console output (not its report) is what tier 1
+# A run with several kinds of failure, whose console output (not its report) is what unit-test
 # keeps: a plain test, a method in a class, one parametrised case, one whose fixture raises, and
 # a test in a second file, among passing tests.
 CONSOLE_FILES = {
@@ -75,7 +75,7 @@ LONG_TITLE_PARAMS = (
 def record_console(
     files: dict[str, str] = CONSOLE_FILES, out: str = "console_failures.txt"
 ) -> None:
-    """`out`: pytest's own console output for `files`, as the tail tier 1 keeps it, with only
+    """`out`: pytest's own console output for `files`, as the tail unit-test keeps it, with only
     the temporary path and timings redacted."""
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)

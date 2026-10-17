@@ -82,7 +82,7 @@ def requeue(guidance: str = NOTE) -> ResumeEvent:
 
 
 @pytest.mark.parametrize(
-    "source", [FeedbackSource.TIER1, FeedbackSource.REVIEW], ids=["checks", "review"]
+    "source", [FeedbackSource.UNIT_TEST, FeedbackSource.REVIEW], ids=["checks", "review"]
 )
 def test_a_reworked_unit_is_handed_the_note_ahead_of_its_saved_feedback(
     tmp_path: Path, source: FeedbackSource

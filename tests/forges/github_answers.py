@@ -39,10 +39,10 @@ def check_run(
 
 STATUS_CONTEXT = {
     "__typename": "StatusContext",
-    "context": "local/tier2",
+    "context": "local/e2e-test",
     "state": "FAILURE",
     "targetUrl": None,
-    "description": "tier 2 failed",
+    "description": "e2e-test failed",
     "createdAt": "2026-09-28T09:21:00Z",
 }
 

@@ -99,7 +99,7 @@ def test_the_claude_code_limits_load_as_before_beside_a_gate() -> None:
     loaded = WorkspaceConfig.model_validate(
         {
             "runtimes": {"claude_code": {"limits": sections}},
-            "tests": {"tier2_splits": {"acp": {"marker": "runtime_acp", "gate": gate}}},
+            "tests": {"e2e_splits": {"acp": {"marker": "runtime_acp", "gate": gate}}},
         }
     )
 

@@ -285,7 +285,7 @@ def test_labels_drafts_statuses_and_checks_change_nothing(forge: LocalForge) -> 
     forge.set_exclusive_label(REPO, number, label, family=["needs-rework", "approved"])
     forge.remove_label(REPO, number, "approved")
     forge.set_draft(REPO, number, True)
-    forge.post_status(REPO, sha="a" * 40, ok=False, context="tier1", description="failed")
+    forge.post_status(REPO, sha="a" * 40, ok=False, context="unit-test", description="failed")
     forge.rerun_checks(REPO, before)
     forge.delete_remote_branch(REPO, HEAD)
 

@@ -324,7 +324,7 @@ def test_the_files_of_a_pull_request_read_without_error(
 def test_a_status_posted_through_the_forge_is_held_by_the_server(
     github_server: FakeGitHub, forge: GitHubForge
 ) -> None:
-    forge.post_status(REPO, sha="abc123", ok=True, context="abk/tier2", description="passed")
+    forge.post_status(REPO, sha="abc123", ok=True, context="abk/e2e-test", description="passed")
 
-    assert github_server.statuses() == [("abc123", "abk/tier2", "success")]
+    assert github_server.statuses() == [("abc123", "abk/e2e-test", "success")]
     assert github_server.unrouted() == []

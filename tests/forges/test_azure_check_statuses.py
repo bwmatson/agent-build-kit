@@ -71,13 +71,13 @@ def test_a_status_that_does_not_apply_is_omitted() -> None:
 
 
 def test_several_postings_for_one_context_are_one_check_and_the_latest_wins() -> None:
-    older = posted(1, "failed", "tier2", genre="local")
-    newer = posted(3, "pending", "tier2", genre="local")
-    middle = posted(2, "succeeded", "tier2", genre="local")
+    older = posted(1, "failed", "e2e-test", genre="local")
+    newer = posted(3, "pending", "e2e-test", genre="local")
+    middle = posted(2, "succeeded", "e2e-test", genre="local")
 
     pull = one(statuses={162: [middle, newer, older]})
 
-    assert [(c.name, c.status) for c in pull.checks] == [("local/tier2", CheckStatus.PENDING)]
+    assert [(c.name, c.status) for c in pull.checks] == [("local/e2e-test", CheckStatus.PENDING)]
 
 
 def test_a_status_carries_its_target_as_the_link() -> None:

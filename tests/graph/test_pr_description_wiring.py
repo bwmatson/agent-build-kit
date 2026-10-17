@@ -26,7 +26,7 @@ def write_change(planning: Path) -> None:
         f"# Proposal\n\n## Why\n\n{REASON}\n\n## What Changes\n\n- x\n"
     )
     (change / "tasks.md").write_text(
-        f"# Tasks\n\nAcceptance: none — a fixture\n\n## 1. [app] [tier1] Serve\n\n{GOAL}\n\n"
+        f"# Tasks\n\nAcceptance: none — a fixture\n\n## 1. [app] [unit-test] Serve\n\n{GOAL}\n\n"
         "- [ ] 1.1 Test: it answers.\n- [ ] 1.2 Do it.\n"
     )
 
