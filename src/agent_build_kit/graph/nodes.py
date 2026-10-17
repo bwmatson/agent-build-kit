@@ -319,6 +319,9 @@ class BuildPath:
                     )
                     # The node is done, and with it the session it was in.
                     done: Update = {
+                        # A thread saved before the field was renamed comes back with it unset,
+                        # and a resume may skip `prepare`, the only other place that sets it.
+                        **self._restored_e2e(state, update),
                         **update,
                         **self._sessions_after(node, state, update),
                         "session_id": "",
@@ -382,6 +385,12 @@ class BuildPath:
                     )
 
         return run
+
+    def _restored_e2e(self, state: UnitRun, update: Update) -> Update:
+        """The `e2e` flag from the unit's kind, when the thread lacks it."""
+        if state.e2e or "e2e" in update or self.unit.tier != TestTier.E2E_TEST:
+            return {}
+        return {"e2e": True}
 
     def record_step(self, node: Node) -> None:
         """Name `node` as the step the unit is failing in; never raises."""
@@ -2064,9 +2073,7 @@ class BuildPath:
         ):
             # A person has the unit: nothing automatic touches it again.
             return {"event": None}
-        # A thread saved before the field was renamed comes back with it unset, and the paths
-        # from here skip `prepare`, the only other place that sets it.
-        update: Update = {"event": event, "e2e": state.e2e or unit.tier == TestTier.E2E_TEST}
+        update: Update = {"event": event}
         if event.kind is EventKind.REWORK:
             r.store.set_feedback(
                 unit.id,

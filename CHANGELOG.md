@@ -141,7 +141,8 @@
   `local/e2e-test`, and the command is `abk e2e-test` (`abk tier2` still works, with a
   notice). The graph node is `e2e-test`, the metrics are named `abk.e2e.*`, and the rules
   `abk init` writes and the propose prompts name three kinds of test: `unit-test`,
-  `integration-test` and `e2e-test`, with `[acceptance]` for `e2e-test` only.
+  `integration-test` and `e2e-test`, with `[acceptance]` for `e2e-test` only. Upgrade while no tick is running: a unit whose
+  tick was stopped inside its unit-test or e2e-test step reads back as finished.
 
 - `abk scrub-store` reports, and with `--apply` on a paused pipeline replaces, the
   home-directory paths in the unit store's text (feedback, guidance, notes) with `<home>/`,
