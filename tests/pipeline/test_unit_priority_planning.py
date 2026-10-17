@@ -32,7 +32,7 @@ def tasks_md(*priorities: int | None, default: int | None = None) -> str:
     text = f"# Tasks\n\n{OPT_OUT}\n"
     text += f"Priority: {default}\n\n" if default is not None else ""
     for number, value in enumerate(priorities, start=1):
-        text += f"## {number}. [app] [tier1] Group {number}\n\n"
+        text += f"## {number}. [app] [unit-test] Group {number}\n\n"
         text += f"Priority: {value}\n\n" if value is not None else ""
         text += f"- [ ] {number}.1 Test: it.\n- [ ] {number}.2 Do it.\n\n"
     return text
@@ -44,7 +44,7 @@ def planned(uid: str, groups: tuple[int, ...]) -> dict:
         "change": uid.split("/")[0],
         "title": "A unit",
         "repo": "app",
-        "tier": "tier1",
+        "tier": "unit-test",
         "depends_on": [],
         "estimated_lines": 80,
         "groups": list(groups),

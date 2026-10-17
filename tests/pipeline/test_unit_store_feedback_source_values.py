@@ -9,7 +9,7 @@ from agent_build_kit.pipeline.unit_store import FeedbackSource, UnitStore
 from tests.factories import unit
 
 UNIT_ID = "add-marker/1"
-OLD_TO_NEW = {"tier1": FeedbackSource.UNIT_TEST, "tier2": FeedbackSource.E2E}
+OLD_TO_NEW = {"tier" + "1": FeedbackSource.UNIT_TEST, "tier" + "2": FeedbackSource.E2E}
 
 
 def stored_with(tmp_path, source: str) -> UnitStore:

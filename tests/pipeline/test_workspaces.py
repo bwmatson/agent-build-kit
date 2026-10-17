@@ -5,7 +5,7 @@ ever work the same branch (docs/architecture.md).
 
 Two rules shape this, both learned from sandcastle's worktree handling:
 
-- **Locks fail fast.** Unlike tier 2, which is a queue, two runs on one branch
+- **Locks fail fast.** Unlike e2e-test, which is a queue, two runs on one branch
   means the scheduler handed the same unit out twice. Waiting would hide the
   bug; failing surfaces it.
 - **Agent work is never discarded.** A worktree is reused if it exists, and a
@@ -166,7 +166,7 @@ def _head(tree: Path) -> str:
 
 
 def test_a_detached_checkout_sits_at_its_ref_on_no_branch(repo: Path, tmp_path: Path) -> None:
-    # app's dev stack attaches to platform's, which tier 2 brings up from
+    # app's dev stack attaches to platform's, which e2e-test brings up from
     # main — not from whatever the user's own checkout has on it.
     tree = prepare_detached(repo, "_dev_stack_base", ref="main", root=tmp_path / "trees")
 

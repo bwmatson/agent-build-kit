@@ -1,6 +1,6 @@
 """The snapshot lists every failed test above the `<details>` block."""
 
-from agent_build_kit.pipeline.e2e import TestFailure, Tier2Result, build_snapshot
+from agent_build_kit.pipeline.e2e import E2eResult, TestFailure, build_snapshot
 
 FAILURES = [
     TestFailure(test=f"tests/live/test_a.py::test_{n}", line=f"KeyError: 'PORT{n}'")
@@ -8,8 +8,8 @@ FAILURES = [
 ]
 
 
-def _result(failures: list[TestFailure]) -> Tier2Result:
-    return Tier2Result(
+def _result(failures: list[TestFailure]) -> E2eResult:
+    return E2eResult(
         sha="abcdef0123",
         passed=2,
         failed=len(failures),
@@ -40,10 +40,10 @@ def test_a_pass_shows_no_listing() -> None:
 def test_a_stored_result_without_the_new_fields_still_loads() -> None:
     stored = _result([]).model_dump_json(exclude={"failures"})
 
-    loaded = Tier2Result.model_validate_json(stored)
+    loaded = E2eResult.model_validate_json(stored)
 
     assert loaded.failures == []
     assert "**Failed:**" not in build_snapshot(loaded)
-    again = Tier2Result.model_validate_json(_result(FAILURES).model_dump_json())
+    again = E2eResult.model_validate_json(_result(FAILURES).model_dump_json())
     assert again.failures == FAILURES
     assert f"`{FAILURES[0].test}` - {FAILURES[0].line}" in build_snapshot(again)

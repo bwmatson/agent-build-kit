@@ -1,4 +1,4 @@
-"""The tails tier 2 keeps of a long output are cut by the shared tail cut: at most
+"""The tails e2e-test keeps of a long output are cut by the shared tail cut: at most
 4000 characters, the end of the output kept, and every line whole.
 
 The runner is the faked boundary; it answers with plain console text.
@@ -9,10 +9,10 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from agent_build_kit.pipeline.wiring import Tier2Session
+from agent_build_kit.pipeline.wiring import E2eSession
+from tests.e2e_base_fakes import Runs, branch, pytest_output, session
+from tests.e2e_failure_fakes import checkout
 from tests.factories import unit
-from tests.tier2_base_fakes import Runs, branch, pytest_output, session
-from tests.tier2_failure_fakes import checkout
 from tests.whole_lines import assert_tail_of_whole_lines, long_output_lines
 
 BUDGET = 4000
@@ -31,8 +31,8 @@ def test_the_dev_stack_output_is_a_tail_of_whole_lines(tmp_path: Path) -> None:
         out = f"{LONG}\n2 passed in 1.00s" if command[-1] == "test" else ""
         return subprocess.CompletedProcess(command, 0, out, "")
 
-    gate = Tier2Session(
-        unit(tier="tier2"),
+    gate = E2eSession(
+        unit(tier="e2e-test"),
         lock=tmp_path / "t2.lock",
         timeout=5,
         run=run,
@@ -70,8 +70,8 @@ def test_the_dev_stack_output_of_one_long_line_and_a_newline_keeps_the_end_of_it
         out = f"{line}\n" if command[-1] == "test" else ""
         return subprocess.CompletedProcess(command, 0, out, "")
 
-    gate = Tier2Session(
-        unit(tier="tier2"),
+    gate = E2eSession(
+        unit(tier="e2e-test"),
         lock=tmp_path / "t2.lock",
         timeout=5,
         run=run,

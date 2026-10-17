@@ -51,7 +51,7 @@ pytestmark = pytest.mark.usefixtures("scripted_engine")
 
 
 def group(**overrides: Any) -> dict[str, Any]:
-    return {"repo": "app", "tier": "tier1", "flag": "", "extra": "", **overrides}
+    return {"repo": "app", "tier": "unit-test", "flag": "", "extra": "", **overrides}
 
 
 def tasks_md(*groups: dict[str, Any]) -> str:
@@ -78,7 +78,7 @@ def new_unit(uid: str = "feature/1", groups: tuple[int, ...] = (1,), **overrides
         "change": uid.split("/")[0],
         "title": "A unit",
         "repo": "app",
-        "tier": "tier1",
+        "tier": "unit-test",
         "depends_on": [],
         "estimated_lines": 80,
         "groups": list(groups),
@@ -204,7 +204,7 @@ def onto_base(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **v: Any) -> Run:
             change="base",
             groups=(1,),
             estimated_lines=100,
-            tier=v.get("base_tier", "tier1"),
+            tier=v.get("base_tier", "unit-test"),
         )
     ]
     if v.get("dependent"):
@@ -264,7 +264,7 @@ def test_a_finished_dependency_does_not_stop_a_join(
 
 NEW_GROUP_REFUSED = {
     "repo": {"feature_group": {"repo": "platform"}},
-    "tier": {"feature_group": {"tier": "tier2"}},
+    "tier": {"feature_group": {"tier": "e2e-test"}},
     "something depends on the unit": {"dependent": True},
     "waits on other unfinished work": {
         "other": "planned",
@@ -274,13 +274,13 @@ NEW_GROUP_REFUSED = {
     "narrowing group joined onto": {"base_group": {"flag": "narrow"}},
     "contract group joined onto": {"base_groups": [group(flag="contract"), group(flag="narrow")]},
     "acceptance group joined": {
-        "feature_group": {"tier": "tier2", "flag": "acceptance"},
-        "base_tier": "tier2",
+        "feature_group": {"tier": "e2e-test", "flag": "acceptance"},
+        "base_tier": "e2e-test",
     },
     "acceptance group joined onto": {
-        "base_group": {"tier": "tier2", "flag": "acceptance"},
-        "base_tier": "tier2",
-        "feature_group": {"tier": "tier2"},
+        "base_group": {"tier": "e2e-test", "flag": "acceptance"},
+        "base_tier": "e2e-test",
+        "feature_group": {"tier": "e2e-test"},
     },
     "over the ceiling": {"estimate": 950},
     "joined group is separate": {"feature_group": {"extra": "Separate: reviewed alone"}},
@@ -386,7 +386,7 @@ def chain(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **v: Any) -> Run:
             groups=(1,),
             estimated_lines=100,
             repo=v.get("a_repo", "app"),
-            tier=v.get("a_tier", "tier1"),
+            tier=v.get("a_tier", "unit-test"),
         ),
         stored_unit(
             "b/1",
@@ -394,7 +394,7 @@ def chain(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **v: Any) -> Run:
             groups=v.get("b_groups", (1,)),
             estimated_lines=v.get("b_estimate", 120),
             repo=v.get("b_repo", "app"),
-            tier=v.get("b_tier", "tier1"),
+            tier=v.get("b_tier", "unit-test"),
             depends_on=tuple(b_depends),
         ),
     ]
@@ -477,23 +477,23 @@ def test_a_finished_unit_the_later_also_waited_on_does_not_stop_the_join(
 
 CHAIN_REFUSED = {
     "repo": {"b_repo": "platform", "b_group": {"repo": "platform"}},
-    "tier": {"b_tier": "tier2", "b_group": {"tier": "tier2"}},
+    "tier": {"b_tier": "e2e-test", "b_group": {"tier": "e2e-test"}},
     "something else depends on the earlier": {"dependent": True},
     "the later waits on other unfinished work": {"other": "planned"},
     "earlier narrowing": {"a_group": {"flag": "narrow"}},
     "later narrowing": {"b_group": {"flag": "narrow"}},
     "earlier contract": {"a_groups": [group(flag="contract"), group(flag="narrow")]},
     "earlier acceptance": {
-        "a_group": {"tier": "tier2", "flag": "acceptance"},
-        "a_tier": "tier2",
-        "b_tier": "tier2",
-        "b_group": {"tier": "tier2"},
+        "a_group": {"tier": "e2e-test", "flag": "acceptance"},
+        "a_tier": "e2e-test",
+        "b_tier": "e2e-test",
+        "b_group": {"tier": "e2e-test"},
     },
     "later acceptance": {
-        "b_group": {"tier": "tier2", "flag": "acceptance"},
-        "a_tier": "tier2",
-        "b_tier": "tier2",
-        "a_group": {"tier": "tier2"},
+        "b_group": {"tier": "e2e-test", "flag": "acceptance"},
+        "a_tier": "e2e-test",
+        "b_tier": "e2e-test",
+        "a_group": {"tier": "e2e-test"},
     },
     "over the ceiling": {"b_estimate": 950},
     "earlier separate": {"a_group": {"extra": "Separate: reviewed alone"}},

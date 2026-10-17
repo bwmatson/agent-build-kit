@@ -11,7 +11,7 @@ def group(number: int, project: str = ".", lines: int = 200, **kw) -> dict:
         "number": number,
         "repo": "app",
         "project": project,
-        "tier": "tier1",
+        "tier": "unit-test",
         "title": f"group {number}",
         "estimated_lines": lines,
         "fans_out": kw.get("fans_out", False),

@@ -26,7 +26,7 @@ from agent_build_kit.pipeline.units import (
 from tests.factories import unit
 
 
-def group(number: int, repo: str = "app", tier: str = "tier1", lines: int = 200, **kw) -> dict:
+def group(number: int, repo: str = "app", tier: str = "unit-test", lines: int = 200, **kw) -> dict:
     return {
         "number": number,
         "repo": repo,
@@ -95,7 +95,7 @@ def test_tiers_do_not_split_a_unit() -> None:
     """Test tier decides how a unit is verified, not what belongs together."""
     units = plan_units(
         "add-marker",
-        [group(1, tier="tier1", lines=200), group(2, tier="tier2", lines=200)],
+        [group(1, tier="unit-test", lines=200), group(2, tier="e2e-test", lines=200)],
         min_lines=300,
         max_lines=1000,
     )
@@ -325,7 +325,7 @@ def test_a_unit_that_is_not_planned_is_never_rescheduled(state: str) -> None:
 
 def test_a_dependent_waits_for_its_parent_to_finish_reviewing() -> None:
     """A unit is not done when it starts building — it is done when it has
-    passed the build/review loop, tier 1, and been pushed. `IN_FLIGHT` includes
+    passed the build/review loop, unit-test, and been pushed. `IN_FLIGHT` includes
     RUNNING, so a dependent was unblocked the moment its parent *began*, and
     would have based itself on a branch that had not been reviewed and might
     not exist yet. The review loop makes that window much wider."""
@@ -340,7 +340,7 @@ def test_a_dependent_waits_for_its_parent_to_finish_reviewing() -> None:
 
 
 def test_a_dependent_starts_once_its_parent_is_open() -> None:
-    """Open means the loop finished, tier 1 passed and the branch is pushed —
+    """Open means the loop finished, unit-test passed and the branch is pushed —
     which is exactly when there is something to stack on."""
     graph = [unit("c/1", state=IN_REVIEW), unit("c/2", depends_on=("c/1",))]
 
@@ -536,7 +536,7 @@ def test_an_acceptance_group_depends_on_every_earlier_unit() -> None:
             group(1),
             indep(2, repo="platform"),
             group(3),
-            {**group(4, tier="tier2"), "flag": "acceptance"},
+            {**group(4, tier="e2e-test"), "flag": "acceptance"},
         ],
         min_lines=100,
         max_lines=1000,

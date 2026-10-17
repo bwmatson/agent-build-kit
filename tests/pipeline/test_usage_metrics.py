@@ -203,7 +203,7 @@ def test_with_telemetry_off_the_ledger_is_written_and_nothing_is_exported(
     assert {r.session_id for r in read_ledger(ledger)} == {"off-1", "on-1"}
 
 
-def test_a_tier_1_command_span_adds_no_time_of_its_own(
+def test_a_unit_test_command_span_adds_no_time_of_its_own(
     workspace: Installation, exported: Collector
 ) -> None:
     record_span_of(2.0, node="implement", command="test")

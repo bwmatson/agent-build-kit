@@ -1,5 +1,5 @@
-"""Post-merge verification takes the tier 2 selection, leaves the held splits out and waits for
-a held split that holds a live test among the change's files (spec: tier2-runtime-parking)."""
+"""Post-merge verification takes the e2e-test selection, leaves the held splits out and waits for
+a held split that holds a live test among the change's files (spec: e2e-runtime-parking)."""
 
 from __future__ import annotations
 

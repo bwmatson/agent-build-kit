@@ -39,7 +39,7 @@ def unit_test_events(recorder: Recorder) -> list[str]:
 
 
 @pytest.mark.parametrize("commits", [1, 0], ids=["checks before review", "unit-test for no work"])
-def test_a_failing_check_fails_the_unit_with_the_environment_cause_before_tier_1(
+def test_a_failing_check_fails_the_unit_with_the_environment_cause_before_unit_test(
     tmp_path: Path, commits: int
 ) -> None:
     env = managed(tmp_path)

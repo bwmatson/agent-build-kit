@@ -640,6 +640,3 @@ def thread_state(tmp_path: Path) -> Any:
 async def seed(tmp_path: Path, state: Any) -> None:
     async with open_checkpointer(unit_graphs_path(tmp_path / "state")) as saver:
         await seed_thread(saver, state, as_node=Node.AWAIT_REVIEW)
-
-
-test_a_tier2_unit_moved_onto_a_new_base_still_reads_comments_before_it_pushes = ()

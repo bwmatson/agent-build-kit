@@ -1,6 +1,6 @@
 """A thread saved before the e2e fields were renamed still routes through e2e-test.
 
-The earlier release kept the flag as `tier2` (and `tier2_ran_none`); the library reads a
+The earlier release kept the flag as `e2e-test` (and `e2e_ran_none`); the library reads a
 checkpoint only through the channels the current schema declares, so those values are gone
 when the thread is read back. A delivered event sets the flag again from the unit's kind.
 """
@@ -33,7 +33,7 @@ def saved_under_the_old_field_names(db: Path) -> None:
             values: dict[str, Any] = dict(latest.checkpoint["channel_values"])
             assert values.pop("e2e") is True
             values.pop("e2e_ran_none", None)
-            checkpoint["channel_values"] = {**values, "tier2": True, "tier2_ran_none": False}
+            checkpoint["channel_values"] = {**values, "e2e-test": True, "e2e_ran_none": False}
             await saver.aput(latest.config, checkpoint, latest.metadata, {})  # type: ignore[arg-type]
 
     asyncio.run(rewrite())

@@ -25,12 +25,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 WELL_FORMED = """# Tasks
 
-## 1. [platform] [tier1] Register the marker
+## 1. [platform] [unit-test] Register the marker
 
 - [ ] 1.1 Test: default selection deselects it.
 - [ ] 1.2 Register it in pytest config.
 
-## 2. [app] [tier2] Relay the event
+## 2. [app] [e2e-test] Relay the event
 
 - [ ] 2.1 Test: the consumer sees the event.
 - [ ] 2.2 Publish it.
@@ -73,7 +73,7 @@ def test_missing_tags_are_reported_with_the_group_named(tmp_path: Path) -> None:
 
 
 def test_a_tier_tag_alone_is_not_enough(tmp_path: Path) -> None:
-    _, errors = parse("# Tasks\n\n## 1. [tier1] Do it\n\n- [ ] 1.1 Do it.\n", tmp_path)
+    _, errors = parse("# Tasks\n\n## 1. [unit-test] Do it\n\n- [ ] 1.1 Do it.\n", tmp_path)
 
     assert len(errors) == 1
 
@@ -85,7 +85,9 @@ def test_unknown_repos_are_rejected(repo: str, tmp_path: Path) -> None:
     A near-miss of `app` or `platform` would otherwise reach the runner and
     fail there, after the change had already been reviewed and merged.
     """
-    _, errors = parse(f"# Tasks\n\n## 1. [{repo}] [tier1] Do it\n\n- [ ] 1.1 Do it.\n", tmp_path)
+    _, errors = parse(
+        f"# Tasks\n\n## 1. [{repo}] [unit-test] Do it\n\n- [ ] 1.1 Do it.\n", tmp_path
+    )
 
     assert len(errors) == 1
     assert "repo" in errors[0].message
@@ -104,8 +106,8 @@ def test_groups_must_be_numbered_from_one_in_order(tmp_path: Path) -> None:
     author's intent, and the mismatch would be silent."""
     _, errors = parse(
         "# Tasks\n\n"
-        "## 1. [app] [tier1] First\n\n- [ ] 1.1 Do it.\n\n"
-        "## 3. [app] [tier1] Third\n\n- [ ] 3.1 Do it.\n",
+        "## 1. [app] [unit-test] First\n\n- [ ] 1.1 Do it.\n\n"
+        "## 3. [app] [unit-test] Third\n\n- [ ] 3.1 Do it.\n",
         tmp_path,
     )
 
@@ -114,7 +116,7 @@ def test_groups_must_be_numbered_from_one_in_order(tmp_path: Path) -> None:
 
 
 def test_an_empty_group_is_rejected(tmp_path: Path) -> None:
-    _, errors = parse("# Tasks\n\n## 1. [app] [tier1] Nothing here\n", tmp_path)
+    _, errors = parse("# Tasks\n\n## 1. [app] [unit-test] Nothing here\n", tmp_path)
 
     assert len(errors) == 1
     assert "no tasks" in errors[0].message
@@ -132,7 +134,7 @@ def test_all_bad_groups_are_reported_not_just_the_first(tmp_path: Path) -> None:
     _, errors = parse(
         "# Tasks\n\n"
         "## 1. Untagged\n\n- [ ] 1.1 Do it.\n\n"
-        "## 2. [nope] [tier1] Bad repo\n\n- [ ] 2.1 Do it.\n",
+        "## 2. [nope] [unit-test] Bad repo\n\n- [ ] 2.1 Do it.\n",
         tmp_path,
     )
 
@@ -157,17 +159,17 @@ def test_every_fixture_change_passes() -> None:
 
 CONTRACT_TASKS = """# Tasks
 
-## 1. [platform] [tier1] [contract] Add the new field
+## 1. [platform] [unit-test] [contract] Add the new field
 
 - [ ] 1.1 Test: the new field is accepted.
 - [ ] 1.2 Add it alongside the old one.
 
-## 2. [app] [tier1] Consume the new field
+## 2. [app] [unit-test] Consume the new field
 
 - [ ] 2.1 Test: the consumer reads it.
 - [ ] 2.2 Bump the pinned SHA and re-lock.
 
-## 3. [platform] [tier1] [narrow] Remove the old field
+## 3. [platform] [unit-test] [narrow] Remove the old field
 
 - [ ] 3.1 Test: the old field is gone.
 - [ ] 3.2 Remove it.
@@ -197,11 +199,11 @@ def test_the_narrowing_group_has_to_come_last(tmp_path: Path) -> None:
     """A narrowing group with migration work after it removes the old shape
     while something still depends on it."""
     reordered = CONTRACT_TASKS.replace(
-        "## 2. [app] [tier1] Consume the new field",
-        "## 2. [platform] [tier1] [narrow] Remove the old field",
+        "## 2. [app] [unit-test] Consume the new field",
+        "## 2. [platform] [unit-test] [narrow] Remove the old field",
     ).replace(
-        "## 3. [platform] [tier1] [narrow] Remove the old field",
-        "## 3. [app] [tier1] Consume the new field",
+        "## 3. [platform] [unit-test] [narrow] Remove the old field",
+        "## 3. [app] [unit-test] Consume the new field",
     )
 
     _, errors = parse(reordered, tmp_path)
@@ -218,12 +220,12 @@ def test_a_change_touching_no_contract_needs_no_narrowing(tmp_path: Path) -> Non
     assert [g.flag for g in groups] == ["", ""]
 
 
-@pytest.mark.parametrize("flag", ["contracts", "narrowing", "tier1", ""])
+@pytest.mark.parametrize("flag", ["contracts", "narrowing", "unit-test", ""])
 def test_an_unknown_flag_is_rejected(flag: str, tmp_path: Path) -> None:
     """A near-miss would read as no flag at all, so a widening group would
     silently stop requiring its narrowing group."""
     _, errors = parse(
-        f"# Tasks\n\n## 1. [app] [tier1] [{flag}] Do it\n\n- [ ] 1.1 Do it.\n", tmp_path
+        f"# Tasks\n\n## 1. [app] [unit-test] [{flag}] Do it\n\n- [ ] 1.1 Do it.\n", tmp_path
     )
 
     assert len(errors) == 1
@@ -233,9 +235,9 @@ def test_an_unknown_flag_is_rejected(flag: str, tmp_path: Path) -> None:
 def test_needs_lines_are_read_per_group(tmp_path: Path) -> None:
     tasks = tmp_path / "tasks.md"
     tasks.write_text(
-        "## 5. [platform] [tier1] A\n- [ ] 5.1 x\n\n"
-        "## 6. [platform] [tier2] B\n"
-        "Needs: sample-change group 2 — tier 2 runs against the dev stack.\n"
+        "## 5. [platform] [unit-test] A\n- [ ] 5.1 x\n\n"
+        "## 6. [platform] [e2e-test] B\n"
+        "Needs: sample-change group 2 — e2e-test runs against the dev stack.\n"
         "Needs: other-change group 1\n- [ ] 6.1 y\n"
     )
 
@@ -248,7 +250,7 @@ def test_needs_lines_are_read_per_group(tmp_path: Path) -> None:
 def test_a_merged_qualifier_is_read_with_its_reason(tmp_path: Path) -> None:
     tasks = tmp_path / "tasks.md"
     tasks.write_text(
-        "## 3. [app] [tier1] A\n"
+        "## 3. [app] [unit-test] A\n"
         "Needs: sample-change group 4 merged — it is still reshaping what this wraps\n"
         "Needs: other-change group 1 — why\n- [ ] 3.1 x\n"
     )
@@ -270,7 +272,7 @@ def test_a_merged_qualifier_is_read_with_its_reason(tmp_path: Path) -> None:
 def test_merged_after_the_dash_is_part_of_the_reason(tmp_path: Path) -> None:
     tasks = tmp_path / "tasks.md"
     tasks.write_text(
-        "## 1. [app] [tier1] A\nNeeds: sample-change group 2 — merged later\n- [ ] 1.1 x\n"
+        "## 1. [app] [unit-test] A\nNeeds: sample-change group 2 — merged later\n- [ ] 1.1 x\n"
     )
 
     (need,) = group_needs(tasks)[1]
@@ -283,8 +285,9 @@ def test_a_merged_need_on_its_own_change_is_reported(tmp_path: Path) -> None:
     change = tmp_path / "feature"
     change.mkdir()
     (change / "tasks.md").write_text(
-        "# Tasks\n\n## 1. [app] [tier1] A\n\n- [ ] 1.1 x\n\n"
-        "## 2. [app] [tier1] B\n\nNeeds: feature group 1 merged — why\n\n- [ ] 2.1 y\n" + OPT_OUT
+        "# Tasks\n\n## 1. [app] [unit-test] A\n\n- [ ] 1.1 x\n\n"
+        "## 2. [app] [unit-test] B\n\nNeeds: feature group 1 merged — why\n\n- [ ] 2.1 y\n"
+        + OPT_OUT
     )
 
     _, errors = validate_tasks(change / "tasks.md")
@@ -301,14 +304,14 @@ def test_a_merged_need_on_its_own_change_is_reported(tmp_path: Path) -> None:
 
 IMPLEMENTATION = """# Tasks
 
-## 1. [platform] [tier1] Add the tool
+## 1. [platform] [unit-test] Add the tool
 
 - [ ] 1.1 Test: the tool answers.
 - [ ] 1.2 Add it.
 """
 
 ACCEPTANCE = """
-## 2. [platform] [tier2] [acceptance] Drive the tool as an agent does
+## 2. [platform] [e2e-test] [acceptance] Drive the tool as an agent does
 
 - [ ] 2.1 Test: an MCP client clicks a field, types, and reads the value back.
 """
@@ -342,14 +345,16 @@ def test_opting_out_needs_a_reason(tmp_path: Path) -> None:
 
 
 def test_the_acceptance_group_runs_on_the_stack(tmp_path: Path) -> None:
-    _, errors = parse_as_written(IMPLEMENTATION + ACCEPTANCE.replace("tier2", "tier1"), tmp_path)
+    _, errors = parse_as_written(
+        IMPLEMENTATION + ACCEPTANCE.replace("e2e-test", "unit-test"), tmp_path
+    )
 
     assert len(errors) == 1
     assert "e2e-test" in errors[0].message
 
 
 def test_only_a_narrowing_group_may_follow_the_acceptance_group(tmp_path: Path) -> None:
-    after = "\n## 3. [platform] [tier1] More work\n\n- [ ] 3.1 Do it.\n"
+    after = "\n## 3. [platform] [unit-test] More work\n\n- [ ] 3.1 Do it.\n"
 
     _, errors = parse_as_written(IMPLEMENTATION + ACCEPTANCE + after, tmp_path)
 
@@ -359,9 +364,9 @@ def test_only_a_narrowing_group_may_follow_the_acceptance_group(tmp_path: Path) 
 
 def test_a_widening_change_accepts_then_narrows(tmp_path: Path) -> None:
     text = (
-        "# Tasks\n\n## 1. [platform] [tier1] [contract] Add the field\n\n- [ ] 1.1 x\n"
+        "# Tasks\n\n## 1. [platform] [unit-test] [contract] Add the field\n\n- [ ] 1.1 x\n"
         + ACCEPTANCE
-        + "\n## 3. [platform] [tier1] [narrow] Drop the old field\n\n- [ ] 3.1 y\n"
+        + "\n## 3. [platform] [unit-test] [narrow] Drop the old field\n\n- [ ] 3.1 y\n"
     )
 
     groups, errors = parse_as_written(text, tmp_path)
@@ -375,10 +380,10 @@ def test_a_widening_change_accepts_then_narrows(tmp_path: Path) -> None:
 
 def test_a_separate_line_marks_only_its_own_group(tmp_path: Path) -> None:
     groups, errors = parse(
-        "## 1. [app] [tier1] A\n"
+        "## 1. [app] [unit-test] A\n"
         "Separate: reviewed and reverted on its own\n"
         "- [ ] 1.1 x\n\n"
-        "## 2. [app] [tier1] B\n- [ ] 2.1 y\n",
+        "## 2. [app] [unit-test] B\n- [ ] 2.1 y\n",
         tmp_path,
     )
 
@@ -387,7 +392,7 @@ def test_a_separate_line_marks_only_its_own_group(tmp_path: Path) -> None:
 
 
 def test_a_separate_line_without_a_reason_is_rejected(tmp_path: Path) -> None:
-    _, errors = parse("## 1. [app] [tier1] A\nSeparate:\n- [ ] 1.1 x\n", tmp_path)
+    _, errors = parse("## 1. [app] [unit-test] A\nSeparate:\n- [ ] 1.1 x\n", tmp_path)
 
     assert len(errors) == 1
     assert "Separate" in errors[0].message
@@ -399,8 +404,8 @@ def test_a_separate_line_without_a_reason_is_rejected(tmp_path: Path) -> None:
 
 def test_an_independent_line_marks_only_its_own_group(tmp_path: Path) -> None:
     groups, errors = parse(
-        "## 1. [app] [tier1] A\n- [ ] 1.1 x\n\n"
-        "## 2. [platform] [tier1] B\n"
+        "## 1. [app] [unit-test] A\n- [ ] 1.1 x\n\n"
+        "## 2. [platform] [unit-test] B\n"
         "Independent: only adds a receiver\n"
         "- [ ] 2.1 y\n",
         tmp_path,
@@ -412,8 +417,8 @@ def test_an_independent_line_marks_only_its_own_group(tmp_path: Path) -> None:
 
 def test_an_independent_line_without_a_reason_is_rejected(tmp_path: Path) -> None:
     _, errors = parse(
-        "## 1. [app] [tier1] A\n- [ ] 1.1 x\n\n"
-        "## 2. [platform] [tier1] B\nIndependent:\n- [ ] 2.1 y\n",
+        "## 1. [app] [unit-test] A\n- [ ] 1.1 x\n\n"
+        "## 2. [platform] [unit-test] B\nIndependent:\n- [ ] 2.1 y\n",
         tmp_path,
     )
 
@@ -425,7 +430,7 @@ def test_an_independent_line_without_a_reason_is_rejected(tmp_path: Path) -> Non
 
 def test_the_first_group_cannot_be_independent(tmp_path: Path) -> None:
     _, errors = parse(
-        "## 1. [app] [tier1] A\nIndependent: nothing before it\n- [ ] 1.1 x\n", tmp_path
+        "## 1. [app] [unit-test] A\nIndependent: nothing before it\n- [ ] 1.1 x\n", tmp_path
     )
 
     assert len(errors) == 1
@@ -435,13 +440,13 @@ def test_the_first_group_cannot_be_independent(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("flag", ["contract", "narrow", "acceptance"])
 def test_an_independent_group_cannot_carry_a_flag(flag: str, tmp_path: Path) -> None:
-    tier = "tier2" if flag == "acceptance" else "tier1"
+    tier = "e2e-test" if flag == "acceptance" else "unit-test"
     text = (
-        "## 1. [app] [tier1] A\n- [ ] 1.1 x\n\n"
+        "## 1. [app] [unit-test] A\n- [ ] 1.1 x\n\n"
         f"## 2. [platform] [{tier}] [{flag}] B\nIndependent: a reason\n- [ ] 2.1 y\n"
     )
     if flag == "contract":
-        text += "\n## 3. [platform] [tier1] [narrow] C\n- [ ] 3.1 z\n"
+        text += "\n## 3. [platform] [unit-test] [narrow] C\n- [ ] 3.1 z\n"
 
     _, errors = parse(text, tmp_path)
 

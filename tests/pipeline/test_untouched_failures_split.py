@@ -1,5 +1,5 @@
-"""A failure that is on the base too belongs to a tier 2 split, and the open-fix gate holds
-only a run that would execute that split (spec: tier2-failures)."""
+"""A failure that is on the base too belongs to a e2e-test split, and the open-fix gate holds
+only a run that would execute that split (spec: e2e-failures)."""
 
 from __future__ import annotations
 
@@ -7,10 +7,10 @@ import json
 from pathlib import Path
 
 from agent_build_kit.pipeline.untouched_failures import preexisting_record
-from agent_build_kit.pipeline.wiring import build_on_preexisting, build_on_tier2_gate
+from agent_build_kit.pipeline.wiring import build_on_e2e_gate, build_on_preexisting
+from tests.e2e_gate_fakes import Planning
+from tests.e2e_wait_fakes import OLD, verdict_of
 from tests.factories import stored_unit
-from tests.tier2_gate_fakes import Planning
-from tests.tier2_wait_fakes import OLD, verdict_of
 from tests.untouched_failure_fakes import failing
 
 ACP = "acp"
@@ -23,7 +23,7 @@ WITHOUT_ACP = ("rest", "claude_code")
 
 def gate_for(planning: Planning, splits: tuple[str, ...], unit: str = "add-marker/1") -> list[str]:
     """What the gate answers for `unit` about to run the splits `splits`."""
-    gate = build_on_tier2_gate(planning.store, planning.installation, log=lambda m: None)
+    gate = build_on_e2e_gate(planning.store, planning.installation, log=lambda m: None)
     return gate(planning.store.get(unit), splits=splits)
 
 

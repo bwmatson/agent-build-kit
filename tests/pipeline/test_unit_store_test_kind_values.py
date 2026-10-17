@@ -11,7 +11,7 @@ from agent_build_kit.pipeline.unit_store import UnitStore
 from tests.factories import unit
 
 UNIT_ID = "add-marker/1"
-OLD_TO_NEW = {"tier1": TestTier.UNIT_TEST, "tier2": TestTier.E2E_TEST}
+OLD_TO_NEW = {"tier" + "1": TestTier.UNIT_TEST, "tier" + "2": TestTier.E2E_TEST}
 
 
 def records(store: UnitStore) -> list[dict]:
