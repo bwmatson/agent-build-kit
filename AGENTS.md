@@ -147,6 +147,12 @@ docs/              architecture, configuration, cli, toolchain-profiles, agent-r
   others: `poe test` runs it in a serial pass after the parallel one, and
   `pytest <file>` runs without workers. Test directories carry no `__init__.py`, so test file
   basenames must be unique.
+- **A new live test uses the shared tick.** It runs `abk tick` with `run_tick` and reads a unit's
+  branch with `commits_on_unit_branch`, both from `tests/scratch_tick.py`, and puts the tick's
+  output in the message of an assertion about the tick or a unit's state. It never defines its
+  own tick result or runs `git log main..` itself. Its scratch is a fixture named `scratch`, or
+  is passed to `register_scratch`, so a failure prints the `SCRATCH STATE` section
+  (`tests/scratch_dump.py`).
 - **The habitat test.** `tests/integration/test_worktree_gate.py` commits a
   trivially correct file in a real git worktree of a fixture repository
   through the repository's own gate. It protects the worktree, the real

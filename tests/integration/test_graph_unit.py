@@ -22,7 +22,6 @@ from __future__ import annotations
 import asyncio
 import shutil
 import subprocess
-import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -40,6 +39,7 @@ from tests.factories import git, init_repo, scratch_app
 from tests.forges.github_server import FakeGitHub
 from tests.forges.process_host import process_env
 from tests.runtime_scratch import RUNTIME_PARAMS, runtime_scratch
+from tests.scratch_tick import commits_on_unit_branch, run_tick
 
 pytestmark = [
     pytest.mark.local_stack,
@@ -64,11 +64,6 @@ TASKS = """# Tasks
 
 Acceptance: none — a single function whose own test is its proof
 """
-
-
-class Ticked(Frozen):
-    returncode: int
-    output: str
 
 
 class Scratch(Frozen):
@@ -153,18 +148,6 @@ def scratch(
     )
 
 
-def tick(scratch: Scratch) -> Ticked:
-    run = subprocess.run(
-        [str(Path(sys.executable).parent / "abk"), "tick"],
-        cwd=scratch.planning,
-        env=scratch.env,
-        capture_output=True,
-        text=True,
-        timeout=3600,
-    )
-    return Ticked(returncode=run.returncode, output=run.stdout + run.stderr)
-
-
 def thread_next(scratch: Scratch) -> tuple[Node, ...] | None:
     """Where the unit's thread stands in the checkpoint store: the nodes still
     to run, or None when there is no thread."""
@@ -177,10 +160,6 @@ def thread_next(scratch: Scratch) -> tuple[Node, ...] | None:
     return asyncio.run(look())
 
 
-def commits_on_branch(scratch: Scratch) -> list[str]:
-    return git(scratch.remote, "log", "--format=%H", f"main..{BRANCH}").split()
-
-
 def run_log(scratch: Scratch) -> str:
     logs = sorted((scratch.state / "unit-logs").glob(f"{CHANGE}-01-*.log"))
     return "\n".join(path.read_text() for path in logs)
@@ -191,25 +170,26 @@ def test_a_unit_runs_to_review_is_reworked_on_a_comment_and_its_thread_ends_at_m
     scratch: Scratch,
     scratch_ledger: Path,
 ) -> None:
-    built = tick(scratch)
+    built = run_tick(scratch)
     assert built.returncode == 0, built.output
-    first = commits_on_branch(scratch)
-    assert first, f"{BRANCH} never reached the remote\n{built.output}\n{run_log(scratch)}"
-    assert scratch.host.requests("POST", "/repos/example/app/pulls"), "no pull request was opened"
+    first = commits_on_unit_branch(scratch, BRANCH, built)
+    assert scratch.host.requests("POST", "/repos/example/app/pulls"), (
+        f"no pull request was opened\n{built.output}"
+    )
     # Waiting in review is a thread parked at its wait, not a finished one.
-    assert thread_next(scratch) == (Node.AWAIT_REVIEW,), run_log(scratch)
+    assert thread_next(scratch) == (Node.AWAIT_REVIEW,), f"{run_log(scratch)}\n{built.output}"
 
     # A tick with nothing new changes nothing: the poller records the pull
     # request's comments as seen before the reviewer writes one.
-    quiet = tick(scratch)
+    quiet = run_tick(scratch)
     assert quiet.returncode == 0, quiet.output
-    assert commits_on_branch(scratch) == first
-    assert thread_next(scratch) == (Node.AWAIT_REVIEW,)
+    assert commits_on_unit_branch(scratch, BRANCH, quiet) == first, quiet.output
+    assert thread_next(scratch) == (Node.AWAIT_REVIEW,), quiet.output
 
     comment = scratch.host.add_review(7, "COMMENTED", "", inline=("src/app/marker.py", 1, COMMENT))
-    reworked = tick(scratch)
+    reworked = run_tick(scratch)
     assert reworked.returncode == 0, reworked.output
-    second = commits_on_branch(scratch)
+    second = commits_on_unit_branch(scratch, BRANCH, reworked)
     assert len(second) > len(first), f"no rework was pushed\n{reworked.output}\n{run_log(scratch)}"
     assert set(first) <= set(second), "the rework rewrote what was already pushed"
     # Only the comment asks for a docstring: the rework that read it wrote one.
@@ -218,11 +198,11 @@ def test_a_unit_runs_to_review_is_reworked_on_a_comment_and_its_thread_ends_at_m
     # The agent answered in the comment's own thread, not under the review.
     thread = scratch.host.review_comments(7)
     assert any(c.get("in_reply_to_id") == comment for c in thread), (
-        f"no reply in the comment's thread\n{thread}\n{run_log(scratch)}"
+        f"no reply in the comment's thread\n{thread}\n{run_log(scratch)}\n{reworked.output}"
     )
-    assert thread_next(scratch) == (Node.AWAIT_REVIEW,), run_log(scratch)
+    assert thread_next(scratch) == (Node.AWAIT_REVIEW,), f"{run_log(scratch)}\n{reworked.output}"
 
     scratch.host.merge(7)
-    merged = tick(scratch)
+    merged = run_tick(scratch)
     assert merged.returncode == 0, merged.output
-    assert thread_next(scratch) is None, "the thread outlived the merge"
+    assert thread_next(scratch) is None, f"the thread outlived the merge\n{merged.output}"

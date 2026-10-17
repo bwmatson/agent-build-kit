@@ -63,6 +63,7 @@ class TickResult(Frozen):
 
 
 _TICKS: dict[Path, deque[TickResult]] = {}
+_REGISTERED: list[Scratch] = []
 
 
 def run_tick(scratch: Scratch, *, timeout: float = 3600) -> TickResult:
@@ -116,14 +117,20 @@ def scratch_env_summary(env: Mapping[str, str]) -> list[str]:
     ]
 
 
-def _attempt(source: str, read: Callable[[], str]) -> str:
+def unavailable(source: str, error: Exception) -> str:
+    """The one line a diagnostic shows for a source it could not read."""
+    return f"{source} unavailable: {type(error).__name__}"
+
+
+def attempt(source: str, read: Callable[[], str]) -> str:
+    """`read()`, or the one line naming why `source` could not be read."""
     try:
         return read()
     except Exception as error:  # noqa: BLE001 — a diagnostic never hides the others
-        return f"{source} unavailable: {type(error).__name__}"
+        return unavailable(source, error)
 
 
-def _waits(scratch: Scratch) -> dict[str, str]:
+def waits_of(scratch: Scratch) -> dict[str, str]:
     """Each unit's latest wait reason from the decision log, with what it waits on."""
     latest: dict[str, str] = {}
     for line in (scratch.state / DECISIONS_NAME).read_text().splitlines():
@@ -136,7 +143,7 @@ def _waits(scratch: Scratch) -> dict[str, str]:
     return latest
 
 
-def _pause(scratch: Scratch) -> tuple[str, str]:
+def pause_of(scratch: Scratch) -> tuple[str, str]:
     """The pause marker's status (`absent`, `present` or `unreadable`) and what to show of it."""
     marker = scratch.state / PAUSE_MARKER
     try:
@@ -144,7 +151,7 @@ def _pause(scratch: Scratch) -> tuple[str, str]:
             return "absent", "absent"
         return "present", marker.read_text().strip()
     except Exception as error:  # noqa: BLE001 — a diagnostic never hides the others
-        return "unreadable", f"{marker.name} unavailable: {type(error).__name__}"
+        return "unreadable", unavailable(marker.name, error)
 
 
 def _run_log(scratch: Scratch) -> str:
@@ -166,18 +173,17 @@ def _pushes(scratch: Scratch) -> list[str]:
 
 
 def _failure(scratch: Scratch, branch: str, tick: TickResult | None) -> str:
-    unit = "/".join(branch.split("/")[-2:])
-    marker, pause = _pause(scratch)
-    wait = _attempt(DECISIONS_NAME, lambda: _waits(scratch).get(unit, "has no recorded wait"))
-    ran = f"tick exited {tick.returncode}" if tick else "no tick was run"
+    from tests.scratch_dump import cause_hints
+
+    _, pause = pause_of(scratch)
     sections = [
-        f"cause hints: {ran}; {branch} is not on the remote; pause marker {marker}; {unit}: {wait}",
+        cause_hints(scratch, branch, tick),
         "--- tick output ---\n" + (tick.output if tick else "no tick was run"),
         "--- wait reasons ---\n"
-        + _attempt(DECISIONS_NAME, lambda: json.dumps(_waits(scratch), indent=1)),
-        "--- run log ---\n" + _attempt("run log", lambda: _run_log(scratch)),
+        + attempt(DECISIONS_NAME, lambda: json.dumps(waits_of(scratch), indent=1)),
+        "--- run log ---\n" + attempt("run log", lambda: _run_log(scratch)),
         "--- pause marker ---\n" + pause,
-        _attempt("push history", lambda: who_pushed(scratch.remote, branch, _pushes(scratch))),
+        attempt("push history", lambda: who_pushed(scratch.remote, branch, _pushes(scratch))),
     ]
     return "\n".join(sections)
 
@@ -191,11 +197,23 @@ def commits_on_unit_branch(
     try:
         return git(scratch.remote, "log", "--format=%H", f"main..{branch}").split()
     except subprocess.CalledProcessError:
-        remembered = ticks_of(scratch)
-        pytest.fail(_failure(scratch, branch, tick or (remembered[-1] if remembered else None)))
+        pass
+    # Outside the handler, so the failure is not shown chained to a git error.
+    remembered = ticks_of(scratch)
+    pytest.fail(_failure(scratch, branch, tick or (remembered[-1] if remembered else None)))
 
 
 def register_scratch(scratch: Scratch) -> None:
     """Make `scratch` the one the failure dump of the running test reads, for a test that builds
     its scratch inside a helper and so has none as a fixture argument."""
-    raise NotImplementedError
+    _REGISTERED.append(scratch)
+
+
+def registered_scratches() -> tuple[Scratch, ...]:
+    """The scratches registered since `forget_registered` was last called."""
+    return tuple(_REGISTERED)
+
+
+def forget_registered() -> None:
+    """Start a test with no registered scratch."""
+    _REGISTERED.clear()

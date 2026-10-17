@@ -23,8 +23,6 @@ import shlex
 import shutil
 import subprocess
 import sys
-import threading
-import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -43,6 +41,7 @@ from tests.factories import git, init_repo, scratch_app
 from tests.factories import who_pushed as reflog_and_pushes
 from tests.forges.github_server import FakeGitHub
 from tests.forges.process_host import process_env
+from tests.scratch_tick import TickResult, commits_on_unit_branch, run_tick
 
 pytestmark = [
     pytest.mark.local_stack,
@@ -74,15 +73,6 @@ FORBIDDEN_TRY = (
     "`git commit --amend --no-edit` once and report what happened; the task is "
     "not complete without that attempt. Then carry on with the work."
 )
-
-
-class Ticked(Frozen):
-    """One `abk tick`, with when each line of its output arrived."""
-
-    returncode: int
-    lines: list[tuple[float, str]]
-    started: float
-    ended: float
 
 
 class Scratch(Frozen):
@@ -175,34 +165,9 @@ def scratch(tmp_path_factory: pytest.TempPathFactory, github_host: FakeGitHub) -
         )
 
 
-def tick(scratch: Scratch) -> Ticked:
-    """`abk tick` as a process, stamping each output line as it arrives."""
-    started = time.monotonic()
-    lines: list[tuple[float, str]] = []
-    process = subprocess.Popen(
-        [str(Path(sys.executable).parent / "abk"), "tick"],
-        cwd=scratch.planning,
-        env=scratch.env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-
-    def read() -> None:
-        assert process.stdout is not None
-        for line in process.stdout:
-            lines.append((time.monotonic(), line.rstrip("\n")))
-
-    reader = threading.Thread(target=read)
-    reader.start()
-    returncode = process.wait(timeout=3600)
-    reader.join()
-    return Ticked(returncode=returncode, lines=lines, started=started, ended=time.monotonic())
-
-
 @pytest.fixture(scope="module")
-def built(scratch: Scratch, scratch_ledger: Path) -> tuple[Scratch, Ticked]:
-    ticked = tick(scratch)
+def built(scratch: Scratch, scratch_ledger: Path) -> tuple[Scratch, TickResult]:
+    ticked = run_tick(scratch)
     # A later step resumes this session: the agent must list it, or say why not here.
     if ticked.returncode == 0:
         cwd = worktree_path(scratch.app, BRANCH, Path(scratch.env["ABK_WORKTREE_ROOT"]))
@@ -210,30 +175,19 @@ def built(scratch: Scratch, scratch_ledger: Path) -> tuple[Scratch, Ticked]:
     return scratch, ticked
 
 
-def output_of(ticked: Ticked) -> str:
-    return "\n".join(line for _, line in ticked.lines)
-
-
-def pushed_commits(scratch: Scratch, ticked: Ticked) -> list[tuple[str, list[str]]]:
+def pushed_commits(scratch: Scratch, ticked: TickResult) -> list[tuple[str, list[str]]]:
     """The branch on the remote, oldest first: each commit's subject and the
-    paths it touched. A branch that never arrived fails with the tick's own
-    output, so the failure says where the run stopped."""
-    try:
-        out = git(
-            scratch.remote, "log", "--reverse", "--name-only", "--format=@@%s", f"main..{BRANCH}"
-        )
-    except subprocess.CalledProcessError:
-        pytest.fail(
-            f"{BRANCH} is not on the remote; the tick exited {ticked.returncode}.\n"
-            f"--- tick output ---\n{output_of(ticked)}\n--- run log ---\n{run_log(scratch)}\n"
-            f"{who_pushed(scratch)}"
-        )
+    paths it touched. A branch that never arrived fails with cause hints, the
+    tick's own output and the scratch's state, so the failure says where the run stopped."""
+    ids = commits_on_unit_branch(scratch, BRANCH, ticked)
     commits: list[tuple[str, list[str]]] = []
-    for line in out.splitlines():
-        if line.startswith("@@"):
-            commits.append((line[2:], []))
-        elif line:
-            commits[-1][1].append(line)
+    for sha in reversed(ids):
+        shown = git(scratch.remote, "show", "--name-only", "--format=@@%s", sha)
+        for line in shown.splitlines():
+            if line.startswith("@@"):
+                commits.append((line[2:], []))
+            elif line:
+                commits[-1][1].append(line)
     return commits
 
 
@@ -259,12 +213,12 @@ def run_log(scratch: Scratch) -> str:
 
 
 def test_the_unit_is_built_reviewed_and_pushed_through_the_runtime(
-    built: tuple[Scratch, Ticked],
+    built: tuple[Scratch, TickResult],
 ) -> None:
     scratch, ticked = built
 
-    assert ticked.returncode == 0, f"{output_of(ticked)}\n{who_pushed(scratch)}"
-    assert "runtime acp has no usage window" in output_of(ticked), output_of(ticked)
+    assert ticked.returncode == 0, f"{ticked.output}\n{who_pushed(scratch)}"
+    assert "runtime acp has no usage window" in ticked.output, ticked.output
     commits = pushed_commits(scratch, ticked)
 
     def found() -> str:
@@ -297,11 +251,11 @@ def test_the_unit_is_built_reviewed_and_pushed_through_the_runtime(
 
 
 def test_the_pipeline_alone_pushed_and_only_what_review_approved(
-    built: tuple[Scratch, Ticked],
+    built: tuple[Scratch, TickResult],
 ) -> None:
     scratch, ticked = built
 
-    assert ticked.returncode == 0, f"{output_of(ticked)}\n{who_pushed(scratch)}"
+    assert ticked.returncode == 0, f"{ticked.output}\n{who_pushed(scratch)}"
     pushed_commits(scratch, ticked)
     log = run_log(scratch)
     tip = git(scratch.remote, "rev-parse", BRANCH).strip()
@@ -311,20 +265,26 @@ def test_the_pipeline_alone_pushed_and_only_what_review_approved(
     pipeline_pushed = re.findall(rf" pushed {re.escape(BRANCH)} at ([0-9a-f]+)", log)
     reflog = git(scratch.remote, "reflog", "show", f"refs/heads/{BRANCH}", "--format=%H").split()
     assert pipeline_pushed, log
-    assert len(reflog) == len(pipeline_pushed), who_pushed(scratch)
+    assert len(reflog) == len(pipeline_pushed), f"{who_pushed(scratch)}\n{ticked.output}"
     for sha in reflog:
-        assert any(sha.startswith(seen) for seen in pipeline_pushed), who_pushed(scratch)
-    assert tip[:9] in approved, f"the branch is at {tip[:9]}, review approved {approved}"
+        assert any(sha.startswith(seen) for seen in pipeline_pushed), (
+            f"{who_pushed(scratch)}\n{ticked.output}"
+        )
+    assert tip[:9] in approved, (
+        f"the branch is at {tip[:9]}, review approved {approved}\n{ticked.output}"
+    )
     # None rewritten away: each commit the pipeline pushed is still in the
     # history of the tip.
     for sha in reflog:
         merged = subprocess.run(
             ["git", "merge-base", "--is-ancestor", sha, tip], cwd=scratch.remote, check=False
         )
-        assert merged.returncode == 0, f"{sha[:9]} was pushed and is no longer in the branch"
+        assert merged.returncode == 0, (
+            f"{sha[:9]} was pushed and is no longer in the branch\n{ticked.output}"
+        )
 
 
-def test_progress_is_visible_while_the_run_works(built: tuple[Scratch, Ticked]) -> None:
+def test_progress_is_visible_while_the_run_works(built: tuple[Scratch, TickResult]) -> None:
     _, ticked = built
 
     # The graph's own lines are `<unit id>: <node>: <message>`; the agent's
@@ -340,11 +300,11 @@ def test_progress_is_visible_while_the_run_works(built: tuple[Scratch, Ticked]) 
     first = next(
         (n for n, (_, _, node) in enumerate(steps) if node in (Node.TESTS, Node.IMPLEMENT)), None
     )
-    assert first is not None, output_of(ticked)
+    assert first is not None, ticked.output
     # The node's own lines (`started`, its step) belong to it: the window ends
     # where the next node's first line begins.
     after = next((s for s in steps[first:] if s[2] != steps[first][2]), None)
-    assert after is not None, output_of(ticked)
+    assert after is not None, ticked.output
     window = ticked.lines[steps[first][1] + 1 : after[1]]
     arrivals = [at for at, line in window if progress.match(line)]
     next_step = after[0]
@@ -354,16 +314,18 @@ def test_progress_is_visible_while_the_run_works(built: tuple[Scratch, Ticked]) 
 
 
 def test_a_forbidden_command_is_refused_and_the_refusal_names_its_layer(
-    built: tuple[Scratch, Ticked],
+    built: tuple[Scratch, TickResult],
 ) -> None:
     scratch, ticked = built
 
-    assert ticked.returncode == 0
+    assert ticked.returncode == 0, ticked.output
     log = run_log(scratch)
     refusals = [line for line in log.splitlines() if "refused" in line and "amend" in line]
     # The attempt must reach a layer abk can see, and that layer must be named.
     # An agent that never attempts the amend fails here, by design.
-    assert refusals, f"no refusal of the amend was logged; the agent never attempted it:\n{log}"
+    assert refusals, (
+        f"no refusal of the amend was logged; the agent never attempted it:\n{log}\n{ticked.output}"
+    )
     for line in refusals:
         assert any(
             layer in line
@@ -372,11 +334,11 @@ def test_a_forbidden_command_is_refused_and_the_refusal_names_its_layer(
                 "by the agent's own configuration",
                 "by the agent's own policy",
             )
-        ), line
+        ), f"{line}\n{ticked.output}"
     # Nothing on the branch was rewritten: main is still an ancestor of it.
     pushed_commits(scratch, ticked)
     main = git(scratch.remote, "rev-parse", "main").strip()
-    assert git(scratch.remote, "merge-base", "main", BRANCH).strip() == main
+    assert git(scratch.remote, "merge-base", "main", BRANCH).strip() == main, ticked.output
 
 
 # A run log line that begins an agent call names its model in brackets; these
@@ -413,28 +375,28 @@ def summed(values: list[int | None]) -> int | None:
 
 
 def test_the_report_has_one_agent_record_per_call_in_the_run_log(
-    built: tuple[Scratch, Ticked],
+    built: tuple[Scratch, TickResult],
 ) -> None:
     scratch, ticked = built
 
-    assert ticked.returncode == 0, output_of(ticked)
+    assert ticked.returncode == 0, ticked.output
     pushed_commits(scratch, ticked)
     log = run_log(scratch)
     calls = [line for line in log.splitlines() if AGENT_STEP.search(line)]
-    assert calls, f"the run log shows no agent call:\n{log}"
+    assert calls, f"the run log shows no agent call:\n{log}\n{ticked.output}"
     report = json.loads(abk_report(scratch, "--by", "node", "--json", "--include-estimates"))
     assert calls_of(report["total"]) == len(calls), f"{report['rows']}\n{calls}"
     assert sum(calls_of(row) for row in report["rows"]) == len(calls)
 
 
 def test_the_report_totals_equal_the_ledger_and_name_each_figures_source(
-    built: tuple[Scratch, Ticked],
+    built: tuple[Scratch, TickResult],
 ) -> None:
     scratch, ticked = built
 
-    assert ticked.returncode == 0, output_of(ticked)
+    assert ticked.returncode == 0, ticked.output
     records = [r for r in read_ledger(scratch.state / LEDGER_NAME) if r.unit == UNIT_ID]
-    assert records, "the ledger holds no record of the unit's calls"
+    assert records, f"the ledger holds no record of the unit's calls\n{ticked.output}"
     report = json.loads(abk_report(scratch, "--by", "unit", "--json", "--include-estimates"))
     [row] = report["rows"]
     assert row["key"] == UNIT_ID

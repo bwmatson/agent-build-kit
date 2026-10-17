@@ -228,5 +228,8 @@ def without_section(outlines: Sequence[str]) -> list[str]:
             inside = False
         if inside or re.match(r"^(plugins|rootdir|configfile):", line):
             continue
-        kept.append(re.sub(r" in \d+\.\d+s.*=", " =", line))
+        line = re.sub(r" in \d+\.\d+s.*=", " =", line)
+        line = re.sub(r"0x[0-9a-f]+", "0x", line)
+        # Each run has a temporary directory of its own, numbered by run.
+        kept.append(re.sub(r"\d+", "N", line) if "PosixPath(" in line else line)
     return kept

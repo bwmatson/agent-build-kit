@@ -10,7 +10,9 @@
   line for each planned, held or failed unit with its wait reason and what it waits on
   (at most 10, then `(+M more)`), so an idle tick no longer has to be explained from the
   decision log. Live tests also gain a shared tick helper and a branch check that fails
-  with the tick's output and the scratch installation's state.
+  with the tick's output and the scratch installation's state; a failed live test prints
+  a bounded, redacted `SCRATCH STATE` section (units, wait reasons, pause, remote heads,
+  log tails, host requests) after its traceback.
 
 - Among units that have never run, the start order is now effective priority first, then
   handoff units (the ones that take the place a blocked unit frees) before the others of

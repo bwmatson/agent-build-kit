@@ -1346,6 +1346,37 @@ cause `split_held`. The scheduled tier 2 run is one change per split and `rest`,
 `scheduled-tier2-<repo>-<date>-<split>`; an older change with no suffix or ending `-base`
 counts as `rest`.
 
+### A failed live test says what its scratch tick did
+
+A live test (`local_stack`, under `tests/integration/`) runs `abk tick` through
+`tests/scratch_tick.py` and reads a unit's branch through its `commits_on_unit_branch`.
+`run_tick` stamps each output line as it arrives and remembers the last three ticks of a
+scratch. A branch that never reached the remote fails with a first line `cause hints:`
+(the tick's return code, the pause marker, whether the branch exists, the unit's wait
+reason), then the tick's output, the wait reasons, the run log tail, the pause marker and
+who pushed, not with a git error.
+
+`tests/scratch_dump.py`, listed in `tests/conftest.py` beside `tests.time_split`, adds a
+`SCRATCH STATE` section to the report of a failed or errored `local_stack` test (setup,
+call or teardown) that has a scratch: a fixture argument named `scratch`, or one passed to
+`register_scratch`. It is the last part of that test's failure block and opens with the
+same `cause hints:` line. It holds, each within a cap: the last tick's output (last 6000
+characters), the wait reason and the summary of each unit (20 lines of 200 characters),
+the pause marker (1000 characters), the leases (10 lines), the remote's heads (30 lines),
+the tails of the decision log, the usage ledger and the run log (15 lines of 300
+characters), the fake host's requests (30 lines) and the tick's environment (40 names;
+a name that looks like a secret is listed without its value). One dump is at most 20 480
+characters and a session's dumps 61 440; after that a failure gets one line saying its
+dump was left out. The text goes through the redactor, and the values of secret-looking
+environment names are registered first; if redaction fails the dump is replaced by one
+line saying it was withheld. A source that cannot be read is one line,
+`scratch state unavailable: <ExceptionType>`; the hook never changes a test's outcome,
+runs only `git` with a 10 second timeout, and writes nothing in the scratch.
+
+The e2e-test result carries only the last 4000 characters of the run, so the dump reaches
+a reader through the full output file the result names (`Full output:`), where it is
+redacted and bounded already; the result itself carries the `cause hints:` line.
+
 ## State on disk
 
 The planning repo's state directory (`planning.state_dir`, default `runs/`):
