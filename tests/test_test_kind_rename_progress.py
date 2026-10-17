@@ -22,7 +22,8 @@ from agent_build_kit.rename_test_kinds import (
 
 OLD_SPELLING = re.compile(r"tier ?[12]", re.IGNORECASE)
 
-PIPELINE = Path(agent_build_kit.__file__).parent / "pipeline"
+SOURCE = Path(agent_build_kit.__file__).parent
+PIPELINE = SOURCE / "pipeline"
 OLD_PIPELINE_MODULES = ("tier2", "tier2_exclusive", "tier2_holds", "tier2_schedule", "tier2_times")
 
 
@@ -30,10 +31,20 @@ def converted_pipeline_files() -> list[Path]:
     return sorted(PIPELINE.glob("*.py"))
 
 
+def converted_files() -> list[Path]:
+    """The pipeline package, `cli/`, `config.py` and `forges/`."""
+    return [
+        *converted_pipeline_files(),
+        *sorted((SOURCE / "cli").rglob("*.py")),
+        SOURCE / "config.py",
+        *sorted((SOURCE / "forges").rglob("*.py")),
+    ]
+
+
 def test_no_converted_pipeline_file_carries_an_old_spelling() -> None:
     offenders = [
-        f"{path.name}:{number}"
-        for path in converted_pipeline_files()
+        f"{path.relative_to(SOURCE)}:{number}"
+        for path in converted_files()
         if not is_shim_module(path.read_text())
         for number, line in enumerate(path.read_text().splitlines(), start=1)
         if OLD_SPELLING.search(line) and SHIM_MARKER not in line and FORWARD_MARKER not in line
@@ -55,7 +66,7 @@ def test_each_old_pipeline_module_name_gives_the_objects_of_the_renamed_one(old:
 def test_the_tool_has_nothing_left_to_change_in_the_converted_files() -> None:
     root = PIPELINE.parents[2]
 
-    changed = rename_paths(root, converted_pipeline_files(), shims=True, dry_run=True)
+    changed = rename_paths(root, converted_files(), shims=True, dry_run=True)
 
     assert changed == []
 
