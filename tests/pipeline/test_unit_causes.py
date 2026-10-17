@@ -36,6 +36,7 @@ def test_the_causes_are_the_fixed_set_the_design_names() -> None:
     assert {cause.value for cause in Cause} == {
         "rework",
         "base_changed",
+        "restack_handed_back",
         "upstream_went_back",
         "usage",
         "depth",

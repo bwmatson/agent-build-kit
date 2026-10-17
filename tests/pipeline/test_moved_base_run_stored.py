@@ -51,7 +51,7 @@ def test_a_record_stored_without_the_flag_reads_false_and_is_written_back_with_i
 
     assert UnitStore(store.path).get(UNIT).moved_base_run is False
 
-    UnitStore(store.path).set_priority(UNIT, 3)
+    UnitStore(store.path).set_feedback(UNIT, "x")
 
     assert record(store)["moved_base_run"] is False
 
@@ -59,8 +59,8 @@ def test_a_record_stored_without_the_flag_reads_false_and_is_written_back_with_i
 def test_the_flag_is_kept_by_the_stores_other_writes(tmp_path: Path) -> None:
     store = flagged(tmp_path)
 
-    store.set_priority(UNIT, 3)
     store.set_feedback(UNIT, "x")
+    store.record_step(UNIT, "prepare")
 
     assert UnitStore(store.path).get(UNIT).moved_base_run is True
 

@@ -2226,8 +2226,9 @@ REBUILDS_PER_PASS = 2
 # back for rework by a poll, or held by its own build because the branch it builds
 # on changed. Resuming restacks the unit onto its new base before anything else, so
 # that cause is gone by the time it runs again — unlike an unfinished upstream or a
-# full usage window, which a rerun would only meet again.
-READMITTED_CAUSES = frozenset({Cause.REWORK, Cause.BASE_CHANGED})
+# full usage window, which a rerun would only meet again. `RESTACK_HANDED_BACK` is a
+# moved-base run the restack lane gave back to a build worker.
+READMITTED_CAUSES = frozenset({Cause.REWORK, Cause.BASE_CHANGED, Cause.RESTACK_HANDED_BACK})
 
 
 def _sent_back(
