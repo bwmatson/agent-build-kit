@@ -19,7 +19,7 @@ from __future__ import annotations
 import argparse
 import re
 import subprocess
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 
 import pytest
@@ -285,20 +285,30 @@ def status_lines(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    units: list[StoredUnit],
+    units: Sequence[StoredUnit] = (),
     *,
     limit: int | None = None,
+    repos: dict[str, dict] | None = None,
+    record: Callable[[UnitStore], None] | None = None,
 ) -> list[str]:
-    """`abk status` over `units`. `upsert` drops a unit's state, branch and pull request, so
-    those are recorded after it; `limit` is `project_limits.max_units_in_progress`."""
-    limits = {} if limit is None else dict(project_limits=dict(max_units_in_progress=limit))
+    """`abk status` over `units`, or over what `record` puts in the store when a test needs
+    notes and causes. `upsert` drops a unit's state, branch and pull request, so those are
+    recorded after it; `limit` is `project_limits.max_units_in_progress` and `repos` the
+    workspace's repos."""
+    overrides: dict[str, object] = (
+        {} if limit is None else dict(project_limits=dict(max_units_in_progress=limit))
+    )
+    if repos is not None:
+        overrides["repos"] = repos
     workspace = make_installation(
         tmp_path,
         planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
-        **limits,
+        **overrides,
     )
     store = UnitStore(tmp_path / "units.json")
-    store.upsert(units)
+    if record is not None:
+        record(store)
+    store.upsert(list(units))
     for unit in units:
         if unit.state != "planned" or unit.branch:
             store.set_state(unit.id, unit.state, branch=unit.branch, pr=unit.pr)

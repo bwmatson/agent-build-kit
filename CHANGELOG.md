@@ -383,7 +383,13 @@
   A pass now fills each project's build workers separately, resumes a unit within its own
   project's free workers, and gives a ready unit of a full project the full-queue wait
   reason; the samples it writes total the limit, cap and free workers over the projects
-  with unfinished units, for reporting only.
+  with unfinished units, for reporting only. `abk status` prints a `queue is full` line for
+  each project at its limit (`queue is full: app/web: 9 units in progress, limit 9 (...)`),
+  each counting only its own blocked and failed-waiting units; the reason a pass started
+  nothing names only the full projects that hold a ready unit back, with their own blocked
+  units; and a unit of a project beside its repo's root is shown as `(repo/project)` in
+  every status line that names it. A workspace with
+  one project reads as before.
 
 - A `Needs:` line whose target the unit already reaches through its dependencies is no longer
   linked again on every tick; the unit's `needs` names every declared target, linked or not,
