@@ -124,3 +124,13 @@ def test_a_running_pass_lets_a_handed_back_unit_in_and_still_refuses_the_causes_
 
     assert builder.started.count("back/1") == 2
     assert builder.started.count("usage/1") == 1
+
+
+def test_a_replan_keeps_the_flag_of_a_running_unit(tmp_path: Path) -> None:
+    store = flagged(tmp_path)
+
+    store.upsert([new_unit(UNIT)])
+
+    kept = UnitStore(store.path).get(UNIT)
+    assert kept.moved_base_run is True
+    assert kept.state == RUNNING

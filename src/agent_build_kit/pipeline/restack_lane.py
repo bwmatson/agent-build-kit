@@ -14,7 +14,7 @@ import hashlib
 import json
 import os
 import threading
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Mapping
 from concurrent.futures import Future
 from datetime import datetime
 from pathlib import Path
@@ -39,7 +39,7 @@ from agent_build_kit.pipeline.units import (
     project_key,
     waiting_on,
 )
-from agent_build_kit.pipeline.wiring import is_ancestor
+from agent_build_kit.pipeline.wiring import branch_commits, is_ancestor
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_held, process_alive
 
 Move = Callable[[StoredUnit], None]
@@ -81,6 +81,16 @@ def owed_a_restack(
 
 def _branch_of(unit: StoredUnit) -> str:
     return unit.branch or branch_name(unit)
+
+
+def _branch_head(checkouts: Mapping[str, Path], unit: StoredUnit) -> str:
+    """The commit the unit's branch is at, empty when the checkout or the branch is missing."""
+    repo = checkouts[unit.repo]
+    if not repo.is_dir():
+        return ""
+    return git(
+        repo, "rev-parse", "--verify", "--quiet", _branch_of(unit), check=False
+    ).stdout.strip()
 
 
 def _answered(unit: StoredUnit, head: str) -> bool:
@@ -129,31 +139,21 @@ def clear_answered_feedback(store: UnitStore, unit: StoredUnit, head: str) -> No
 def moved_base_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
     """The ids of the units owed a moved-base run, read from the repositories' branches."""
     leases = Leases(lease_dir(inst.state_dir))
-    checkouts = inst.checkouts
-
-    def usable(unit: StoredUnit) -> bool:
-        return checkouts[unit.repo].is_dir() and bool(head_of(unit))
+    heads: dict[str, str] = {}
 
     def head_of(unit: StoredUnit) -> str:
-        repo = checkouts[unit.repo]
-        if not repo.is_dir():
-            return ""
-        return git(
-            repo, "rev-parse", "--verify", "--quiet", _branch_of(unit), check=False
-        ).stdout.strip()
+        if unit.id not in heads:
+            heads[unit.id] = _branch_head(inst.checkouts, unit)
+        return heads[unit.id]
 
     def has_commits(unit: StoredUnit) -> bool:
-        if not usable(unit):
+        if not head_of(unit):
             return False
         base = local_ref(base_of(unit, units), repo=unit.repo)
-        ahead = git(
-            checkouts[unit.repo],
-            "rev-list",
-            "--count",
-            f"{base}..{_branch_of(unit)}",
-            check=False,
-        )
-        return ahead.returncode == 0 and int(ahead.stdout.strip() or 0) > 0
+        try:
+            return branch_commits(inst.checkouts[unit.repo], base, _branch_of(unit)) > 0
+        except Exception:  # noqa: BLE001 — an unresolvable ref is no commits, for a scan
+            return False
 
     return {
         unit.id
@@ -177,10 +177,7 @@ def owed_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
     def holds_base(unit: StoredUnit) -> bool:
         repo = checkouts[unit.repo]
         branch = _branch_of(unit)
-        if (
-            not repo.is_dir()
-            or git(repo, "rev-parse", "--verify", "--quiet", branch, check=False).returncode
-        ):
+        if not _branch_head(checkouts, unit):
             return True  # No branch yet: there is nothing to move.
         base = local_ref(base_of(unit, units), repo=unit.repo)
         return is_ancestor(repo, base, branch)

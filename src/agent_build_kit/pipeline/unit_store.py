@@ -568,6 +568,7 @@ class UnitStore:
                 stack_refusal=existing.stack_refusal if existing else "",
                 held_by=existing.held_by if existing else HeldBy.NONE,
                 held_base=existing.held_base if existing else "",
+                moved_base_run=existing.moved_base_run if existing else False,
                 history=existing.history if existing else ({"state": PLANNED, "at": _now()},),
             )
             if existing and not existing.unstarted:

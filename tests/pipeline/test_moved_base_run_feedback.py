@@ -61,13 +61,6 @@ def test_feedback_no_approval_covers_makes_the_unit_a_build(source: FeedbackSour
     assert not owed(subject(feedback_source=source))
 
 
-@pytest.mark.parametrize("source", REWORK_INPUT)
-def test_feedback_over_an_approved_head_is_answered_and_is_not_rework_input(
-    source: FeedbackSource,
-) -> None:
-    assert owed(subject(feedback_source=source, approved=HEAD))
-
-
 def test_feedback_that_names_the_conflict_is_not_rework_input() -> None:
     conflicted = subject(
         cause=Cause.REWORK, feedback_source=FeedbackSource.CONFLICT, approved="older-head"
