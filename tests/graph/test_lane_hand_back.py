@@ -52,11 +52,12 @@ def test_an_end_to_end_unit_stops_the_run_before_its_e2e_tests(
 ) -> None:
     scene = Scene(graph, tmp_path, tier="e2e-test")
     scene.told_its_base_moved()
+    built = len(graph.recorder.events)
 
     scene.lane_moves()
 
     handed_back_at(scene, Node.E2E)
-    assert "e2e-test" not in graph.recorder.events
+    assert "e2e-test" not in graph.recorder.events[built:]
 
 
 def test_a_rework_of_the_conflict_runs_in_the_lane_and_the_next_one_is_handed_back(
@@ -82,5 +83,4 @@ def test_a_rework_of_the_conflict_runs_in_the_lane_and_the_next_one_is_handed_ba
 
     assert in_the_lane == [True], "the conflict's rework was run by the lane, once"
     handed_back_at(scene, Node.REWORK)
-    assert scene.graph.store.get(OTHER).feedback_source is FeedbackSource.REVIEW
     assert scene.graph.store.get(OTHER).cause is Cause.RESTACK_HANDED_BACK

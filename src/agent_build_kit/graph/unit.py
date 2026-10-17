@@ -18,13 +18,18 @@ from langgraph.types import Command, StateSnapshot
 from agent_build_kit.graph.build import BUILD_NODES, compile_build_path
 from agent_build_kit.graph.nodes import WAITS, BuildPath
 from agent_build_kit.graph.run import run_thread
-from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun
+from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun, Verdict
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.metric_records import emit_metric
 from agent_build_kit.pipeline.run_log import RunLog
 from agent_build_kit.pipeline.stack_runner import PauseInfo, RunOutcome, RunStatus, UnitRunner
-from agent_build_kit.pipeline.unit_store import StoredUnit, awaits_release, feedback_source_of
+from agent_build_kit.pipeline.unit_store import (
+    FeedbackSource,
+    StoredUnit,
+    awaits_release,
+    feedback_source_of,
+)
 from agent_build_kit.pipeline.units import FAILED, HELD, Unit, branch_name
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock
 
@@ -306,6 +311,52 @@ async def advance_through_prepare(
     return _position(await compiled.aget_state(_config(unit.id))).state
 
 
+# The steps outside a moved-base run: the lane stops before them and hands the unit back.
+OUTSIDE_A_MOVED_BASE_RUN = (Node.REWORK, Node.FIX_CHECKS, Node.E2E, Node.TESTS, Node.IMPLEMENT)
+
+
+def _hand_back_note(step: Node, source: FeedbackSource, *, asked: bool) -> str:
+    """Why the lane gives the unit back before `step`; `asked` is that the review has just
+    answered with changes."""
+    match step:
+        case Node.REWORK if asked or source is FeedbackSource.REVIEW:
+            why = "review asked for changes beyond the conflict"
+        case Node.REWORK:
+            why = f"there is {source.value or 'other'} feedback beyond the conflict to rework"
+        case Node.FIX_CHECKS:
+            why = "checks failed after the move"
+        case Node.E2E:
+            why = "the end-to-end tests are not part of a moved-base run"
+        case _:
+            why = "it is new work, not a moved base"
+    return f"{step.value}: {why}"
+
+
+async def _run_in_lane(
+    compiled: CompiledStateGraph, runner: UnitRunner, unit: Unit, start: dict[str, Any] | None
+) -> str:
+    """Run the thread, stopping before each step outside a moved-base run. A rework of the
+    conflict's feedback is run through; at any other such step the run stops, and the note
+    naming it is returned (empty when the run reached a wait or the end)."""
+    outside = list(OUTSIDE_A_MOVED_BASE_RUN)
+    run_first = True
+    while True:
+        where = _position(await compiled.aget_state(_config(unit.id)))
+        stopped = bool(where.next) and not where.pause and set(where.next) & set(outside)
+        if stopped and not (run_first and start is not None):
+            step = where.next[0]
+            source = (await asyncio.to_thread(runner.store.get, unit.id)).feedback_source
+            asked = where.state is not None and where.state.verdict not in (None, Verdict.APPROVED)
+            if not (step is Node.REWORK and source is FeedbackSource.CONFLICT and not asked):
+                return _hand_back_note(step, source, asked=asked)
+            # The conflict's own rework: resumed through; the thread no longer waits before it.
+        await run_thread(compiled, start if run_first else None, unit.id, interrupt_before=outside)
+        run_first = False
+        where = _position(await compiled.aget_state(_config(unit.id)))
+        if where.pause or not set(where.next) & set(outside):
+            return ""
+
+
 async def run_unit(
     runner: UnitRunner,
     unit: Unit,
@@ -315,10 +366,15 @@ async def run_unit(
     saver: BaseCheckpointSaver,
     run_log: RunLog | None = None,
     tracer: Tracer | None = None,
+    lane: bool = False,
 ) -> RunOutcome:
     """Start the unit's thread, or resume it where a killed or paused run left
     it, over the callables `runner` carries, and return what `UnitRunner.run`
     would.
+
+    With `lane`, the run is the restack lane's: it stops before a step that is not
+    moved-base work and returns an outcome whose `handed_back` is the note for the unit,
+    its thread left positioned at that step.
 
     The caller holds the unit's branch lock for the whole run, as the tick
     does; the nodes do not take it."""
@@ -339,7 +395,11 @@ async def run_unit(
         if interrupted
         else UnitRun(unit_id=unit.id, change=unit.change, groups=unit.groups).model_dump()
     )
-    await run_thread(compiled, start, unit.id)
+    if lane:
+        if note := await _run_in_lane(compiled, runner, unit, start):
+            return RunOutcome(status=RunStatus.OPEN, detail=note, handed_back=note)
+    else:
+        await run_thread(compiled, start, unit.id)
     outcome = await _outcome(compiled, unit.id)
     if outcome.status != RunStatus.PAUSED:
         # A paused run has more rounds to come; this is the count of one that ended.

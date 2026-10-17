@@ -2,8 +2,8 @@
 lane makes and whose run then meets a step that is not moved-base work.
 
 The scene is `test_restack_lane_prepare`'s. `resolved_move` makes the move change the diff, so the
-run goes on into a review of the result; without it the move is clean and the run goes from tier 1
-to the push.
+run goes on into a review of the result; without it the move is clean and the run goes from the unit
+tests to the push.
 """
 
 from __future__ import annotations

@@ -1302,6 +1302,9 @@ class RunOutcome(Frozen):
     detail: str
     pr: int | None = None
     pause: PauseInfo | None = None
+    # Set when the restack lane stopped the run before a step that is not moved-base work:
+    # the note for the unit, which a build worker takes up from that step.
+    handed_back: str = ""
 
 
 class Weighed(Frozen):

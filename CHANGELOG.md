@@ -32,7 +32,10 @@
 - A unit whose only reason to run is that its base moved now runs its whole moved-base run in
   the restack lane: after a move that leaves a conflict or a deferral, the lane's worker goes on
   into the unit's run, holding one lane worker and no build worker. A run the process lost or a
-  usage pause interrupted is resumed by the lane, not offered to a build worker.
+  usage pause interrupted is resumed by the lane, not offered to a build worker. The lane
+  never does ordinary work: a run stops before a rework that answers a reviewer, a fix of
+  failing checks or the end-to-end tests, leaves the unit planned with a note naming the step,
+  and a build worker takes it from there.
 
 - A prompt no longer travels as a command-line argument to Claude Code: it is written to the
   agent's standard input, so a large prompt (a long plan, a big diff) no longer fails with
