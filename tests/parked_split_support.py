@@ -74,7 +74,7 @@ def park(
     *,
     repo: str = "app",
 ) -> None:
-    """`uid` as a run leaves it when its e2e-test tests of `splits` did not run: planned, with the
+    """`uid` as a run leaves it when its e2e tests of `splits` did not run: planned, with the
     cause `split_held`, a branch, and the splits and commit the run was on."""
     store.upsert([stored_unit(uid, change=uid.partition("/")[0], repo=repo)])
     store.set_state(

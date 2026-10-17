@@ -10,7 +10,7 @@ tests, the clean and red commands, judging a red run, and `.test`/`.spec` files 
 The stub check (`throw new Error("not implemented")` as the permitted body) and the files the
 commands create are implemented too.
 npm workspace members (the `workspaces` field, globs expanded) are tested one command each
-in their own directory, and a e2e-test test is a file named `<name>.<marker>.test.<ext>`.
+in their own directory, and an e2e test is a file named `<name>.<marker>.test.<ext>`.
 """
 
 from __future__ import annotations

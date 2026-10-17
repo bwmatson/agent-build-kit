@@ -134,7 +134,7 @@ class UnitRun(Frozen):
     start: str = (
         ""  # the base's tip when `prepare` began, which a held unit checks the base against
     )
-    e2e: bool = False  # the unit is a e2e-test unit
+    e2e: bool = False  # the unit is an e2e-test unit
     scheduled: bool = False  # the unit is a scheduled run of the whole suite
     scheduled_note: str = ""  # what its passing run says of itself, once e2e-test has passed
     conflict: Restacked | None = None  # a restack that could not be merged, for `adapt` to port

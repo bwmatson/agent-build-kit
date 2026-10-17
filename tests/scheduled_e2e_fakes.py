@@ -45,7 +45,7 @@ def scheduled_unit(split: str = REST_SPLIT) -> Unit:
 
 
 def default_branch(repo: Path, *, dev_stack: str | None = None) -> tuple[Path, str]:
-    """A repo on its default branch with a e2e-test test, and the dev stack script `dev_stack`
+    """A repo on its default branch with an e2e test, and the dev stack script `dev_stack`
     if given; the tree is its base. Returns the repo and the base's sha."""
     files = {"tests/live/test_live.py": TEST_BODY}
     if dev_stack:

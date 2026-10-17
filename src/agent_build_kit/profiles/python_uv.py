@@ -37,7 +37,7 @@ from agent_build_kit.pipeline.red_check import judge_red, split_report, wrap_rep
 from agent_build_kit.profiles.base import PromptWords, is_doc_path
 
 # pytest's exit status when every test was deselected: "nothing to run here",
-# not a failure — most members carry no tier-2 tests.
+# not a failure — most members carry no e2e tests.
 NO_TESTS_COLLECTED = 5
 
 _TEST_FILE = re.compile(r"^(test_.*|.*_test|conftest)\.py$")
@@ -181,7 +181,7 @@ def package_name(member: Path) -> str:
     return str(_pyproject(member).get("project", {}).get("name") or member.name)
 
 
-# What a e2e-test run adds to report on itself, not wanted in a listing of what it selects.
+# What an e2e-test run adds to report on itself, not wanted in a listing of what it selects.
 # Verbosity is set absolutely for a listing, so these relative flags must not stack on it.
 _VERBOSITY_FLAGS = frozenset(["-q", "-qq", "-v", "-vv"])
 _REPORT_FLAGS = frozenset([*SUMMARY_FLAGS, *DURATION_FLAGS, *_VERBOSITY_FLAGS])
@@ -454,7 +454,7 @@ class PythonUvProfile:
         program = _pytest_program(command)
         if program is None:
             return [*command, *tests]
-        # What follows is the run's selection and workers: dropped, a e2e-test marker expression
+        # What follows is the run's selection and workers: dropped, an e2e-test marker expression
         # kept (unit-test's serial/parallel split is what the serial rerun replaces).
         words = command[program + 1 :]
         marker: list[str] = []
@@ -467,7 +467,7 @@ class PythonUvProfile:
 
     def expression(self, marker: str, selection: E2eSelection) -> str:
         """The `-m` text of `selection` over `marker`; a ValueError for an empty selection,
-        which would otherwise read as every e2e-test test."""
+        which would otherwise read as every e2e test."""
         if selection.empty:
             held = ", ".join(selection.left_out)
             raise ValueError(f"every split is held ({held}): nothing to run")

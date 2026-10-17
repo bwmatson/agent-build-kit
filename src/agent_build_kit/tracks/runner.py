@@ -11,7 +11,7 @@ without failing the run.
 **A track never edits a repo or opens a pull request.** `propose` writes what it
 found as an OpenSpec change in the planning repo; the runner commits it to the
 default branch if it validates, and the pipeline's tick then plans and builds
-it, with a review loop and the test tiers around every unit. Work written by a
+it, with a review loop and the kinds of test around every unit. Work written by a
 track directly would go around all of that, and the tick would later find it
 already done.
 

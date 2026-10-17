@@ -1,4 +1,4 @@
-"""A unit whose own e2e-test tests include a held split waits for the split, with nothing
+"""A unit whose own e2e tests include a held split waits for the split, with nothing
 published, and resumes only that split (spec: e2e-split-runs)."""
 
 from __future__ import annotations

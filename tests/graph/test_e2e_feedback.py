@@ -1,4 +1,4 @@
-"""The feedback saved on a e2e-test failure holds the unit's own failures and names the
+"""The feedback saved on an e2e-test failure holds the unit's own failures and names the
 pre-existing ones once; no untouched test's output reaches the agent (spec: e2e-failures)."""
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ def failed_run(
     tail: str = TAIL,
     tests: tuple[str, ...] = (),
 ):
-    """A e2e-test that failed `tests` with `verdict` and `tail` as its output; the unit's
+    """An e2e-test that failed `tests` with `verdict` and `tail` as its output; the unit's
     stored feedback and its source afterwards."""
     recorder = fresh(tmp_path)
     if feedback:

@@ -2064,7 +2064,9 @@ class BuildPath:
         ):
             # A person has the unit: nothing automatic touches it again.
             return {"event": None}
-        update: Update = {"event": event}
+        # A thread saved before the field was renamed comes back with it unset, and the paths
+        # from here skip `prepare`, the only other place that sets it.
+        update: Update = {"event": event, "e2e": state.e2e or unit.tier == TestTier.E2E_TEST}
         if event.kind is EventKind.REWORK:
             r.store.set_feedback(
                 unit.id,

@@ -1,4 +1,4 @@
-"""A planning directory, a unit store and repos with schedules, for the scheduled e2e-test tests."""
+"""A planning directory, a unit store and repos with schedules, for the scheduled e2e tests."""
 
 from __future__ import annotations
 

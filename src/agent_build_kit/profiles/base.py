@@ -173,7 +173,7 @@ class RepeatsTests(Protocol):
 
 @runtime_checkable
 class AppliesE2eSelection(Protocol):
-    """The optional hooks a profile adds to apply a e2e-test selection: the kinds of selector
+    """The optional hooks a profile adds to apply an e2e-test selection: the kinds of selector
     it can apply, the text its test runner takes for a selection, and a listing of the tests
     a selection holds. A profile without them cannot leave a split out."""
 
@@ -202,7 +202,7 @@ class AppliesE2eSelection(Protocol):
 @runtime_checkable
 class ListsRegisteredSelectors(Protocol):
     """The optional hook a profile adds to say which selectors its test runner knows, for
-    `abk e2e check`. A profile without it has no selector to check."""
+    `abk e2e-test check`. A profile without it has no selector to check."""
 
     def registered_selectors(
         self,

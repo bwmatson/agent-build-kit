@@ -153,7 +153,7 @@ def gate(tmp_path: Path, run, *, root: Path | None = None, **kwargs) -> E2eSessi
 
 
 def run_failing_e2e(tmp_path: Path, snapshot: str) -> tuple[str, Path]:
-    """Run a e2e-test unit whose e2e-test fails with `snapshot`: the feedback the unit
+    """Run an e2e-test unit whose e2e-test fails with `snapshot`: the feedback the unit
     holds afterwards, and the directory of its run logs."""
     logs = tmp_path / "unit-logs"
     tier_two = unit(tier="e2e-test")

@@ -20,7 +20,7 @@ from agent_build_kit.rename_test_kinds import (
     rename_paths,
 )
 
-OLD_SPELLING = re.compile(r"tier ?[12]", re.IGNORECASE)
+OLD_SPELLING = re.compile(r"tier[-_ ]?[12]", re.IGNORECASE)
 
 SOURCE = Path(agent_build_kit.__file__).parent
 PIPELINE = SOURCE / "pipeline"
@@ -94,7 +94,7 @@ def converted_files() -> list[Path]:
 
 def test_no_converted_pipeline_file_carries_an_old_spelling() -> None:
     offenders = [
-        f"{path.relative_to(SOURCE)}:{number}"
+        f"{path.relative_to(ROOT)}:{number}"
         for path in converted_files()
         if not is_shim_module(path.read_text())
         for number, line in enumerate(path.read_text().splitlines(), start=1)

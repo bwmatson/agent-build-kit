@@ -1,4 +1,4 @@
-"""A e2e-test unit that adds or changes no e2e-test test runs no command, never takes the stack
+"""An e2e-test unit that adds or changes no e2e test runs no command, never takes the stack
 lock, says so, and goes on as a unit whose e2e-test passed (spec: e2e-scope)."""
 
 from __future__ import annotations

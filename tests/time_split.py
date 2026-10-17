@@ -1,4 +1,4 @@
-"""A pytest plugin that splits a e2e-test test's time by agent role, checks and the rest.
+"""A pytest plugin that splits an e2e-test test's time by agent role, checks and the rest.
 
 For each phase (setup, call, teardown) of a `local_stack` test that requests the
 `scratch_ledger` fixture, a path to the scratch installation's usage ledger, the plugin reads

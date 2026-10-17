@@ -51,6 +51,13 @@ def test_integration_test_is_said_not_to_be_the_marker_or_the_folder(name: str) 
 
 
 @pytest.mark.parametrize("name", TEXTS)
+def test_no_sentence_lists_only_two_kinds(name: str) -> None:
+    two = [s for s in sentences(name) if "unit-test or e2e-test" in s or "unit-test, e2e-test" in s]
+
+    assert two == []
+
+
+@pytest.mark.parametrize("name", TEXTS)
 def test_acceptance_is_said_to_be_e2e_test_only(name: str) -> None:
     carrying = [s for s in sentences(name) if "[acceptance]" in s]
 

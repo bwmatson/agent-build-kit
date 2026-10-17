@@ -1,5 +1,5 @@
-"""A repository whose branch adds and changes e2e-test tests, and a runner that answers
-each e2e-test command as pytest would, for the tests of what a e2e-test unit runs."""
+"""A repository whose branch adds and changes e2e tests, and a runner that answers
+each e2e-test command as pytest would, for the tests of what an e2e-test unit runs."""
 
 from __future__ import annotations
 

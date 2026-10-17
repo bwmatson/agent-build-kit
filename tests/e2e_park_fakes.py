@@ -1,4 +1,4 @@
-"""A e2e-test whose runs park blocked runtimes, for the tests of what the node does with a
+"""An e2e-test whose runs park blocked runtimes, for the tests of what the node does with a
 result that did not run every group (spec: e2e-runtime-parking)."""
 
 from __future__ import annotations

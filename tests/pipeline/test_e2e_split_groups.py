@@ -1,4 +1,4 @@
-"""A e2e-test run leaves the held splits out through the one selection, parks the ones that
+"""An e2e-test run leaves the held splits out through the one selection, parks the ones that
 hold a test it would have run, never reports that as a complete pass, and names the split of
 each failed test (spec: e2e-split-runs)."""
 

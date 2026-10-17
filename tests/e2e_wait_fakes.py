@@ -1,4 +1,4 @@
-"""A e2e-test that fails with a verdict, for the tests of what the node does with one."""
+"""An e2e-test that fails with a verdict, for the tests of what the node does with one."""
 
 from __future__ import annotations
 

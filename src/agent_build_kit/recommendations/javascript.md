@@ -42,7 +42,7 @@ check that a repo follows it.
   **Verify:** every `tsconfig.json` has `"strict": true`; `npx tsc --build
   --noEmit` (or `tsc --noEmit` per package) exits 0.
 
-## Test layout & tiers
+## Test layout & kinds of test
 
 - **Rule:** one test runner across the workspace; tests live beside the code
   they test as `*.test.ts` or under `__tests__/`, and tests needing a real

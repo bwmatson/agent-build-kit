@@ -1,4 +1,4 @@
-"""The python-uv profile translates a e2e-test selection, carries it in its commands and can list
+"""The python-uv profile translates an e2e-test selection, carries it in its commands and can list
 what it selects (spec: e2e-splits)."""
 
 from __future__ import annotations

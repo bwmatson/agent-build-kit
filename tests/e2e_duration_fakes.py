@@ -1,5 +1,5 @@
 """Pytest output as the e2e-test command prints it with durations, for the tests of how
-a e2e-test result records the time of each test."""
+an e2e-test result records the time of each test."""
 
 from __future__ import annotations
 
@@ -75,7 +75,7 @@ def time_line(
 
 
 def run_e2e(tmp_path: Path, output: str, name: str = "first") -> E2eResult:
-    """The result of a e2e-test gate whose one command exits 0 printing `output`, run in a
+    """The result of an e2e-test gate whose one command exits 0 printing `output`, run in a
     checkout of its own under `tmp_path`."""
 
     where = tmp_path / name

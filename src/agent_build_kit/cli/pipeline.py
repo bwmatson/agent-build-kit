@@ -2023,7 +2023,7 @@ def _evaluate_round(
             or (only and unit.id not in only)
             # Someone is chatting with it: it goes back to the tick when the lease is released.
             or leases.holder(unit.id) is not None
-            # A requeue is still to be delivered to its thread, or its e2e-test tests wait for a
+            # A requeue is still to be delivered to its thread, or its e2e tests wait for a
             # runtime: starting the unit as a planned build would drop the mode it was
             # requeued with, or build it all again.
             or awaits_release(unit)
@@ -2368,7 +2368,7 @@ def _refuse_unconfigured(inst: Installation, ready: list[Unit]) -> bool:
 
 # How often a pass looks at GitHub while builds are running, matching the tick
 # timer's cadence. Waiting for a completion alone left a pass with one long
-# build — a e2e-test run, a slow review — blind for its whole length, and the
+# build — an e2e-test run, a slow review — blind for its whole length, and the
 # timer cannot start a second tick while this one is running.
 REFRESH_SECONDS = 300.0
 

@@ -1,4 +1,4 @@
-"""The node records a failure of a e2e-test split with its split, and gives the open-fix gate the
+"""The node records a failure of an e2e-test split with its split, and gives the open-fix gate the
 splits the run executes (spec: e2e-failures)."""
 
 from __future__ import annotations

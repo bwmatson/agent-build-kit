@@ -29,7 +29,7 @@ SECTIONS = (
     "Formatting",
     "Linting",
     "Types",
-    "Test layout & tiers",
+    "Test layout & kinds of test",
     "Packaging & workspaces",
     "Configuration & types conventions",
     "Pre-commit",
