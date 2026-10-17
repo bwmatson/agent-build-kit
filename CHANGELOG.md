@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The unit graph page draws a repo that has several projects with a nested subgraph for
+  each project that has a unit in view, and the legend says so. A repo with one project
+  is drawn exactly as before.
+
 - A tick that builds nothing now says why: after `nothing ready to build` it prints a
   line for each planned, held or failed unit with its wait reason and what it waits on
   (at most 10, then `(+M more)`), so an idle tick no longer has to be explained from the

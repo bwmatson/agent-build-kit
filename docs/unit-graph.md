@@ -99,6 +99,11 @@ line falls where a unit ends:
 
 ### Who holds what
 
+- **The graph page** draws one subgraph for each repo. A repo with several projects
+  (those it declares and those of its units in view) nests one subgraph inside it for
+  each project that has a unit in view, titled with the project's path and `.` for the
+  root; a repo with one project is drawn flat, as before. An edge between two projects
+  of one repo is plain, since it is within the repo.
 - **`runs/units.json`** stays the scheduling record. It holds each unit's
   identity, change, repo, tier, dependencies, state, branch, pull request and
   history. It is versioned beside the specs, the unit graph page is drawn from

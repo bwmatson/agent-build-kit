@@ -12,6 +12,8 @@ Two drawing decisions carry most of the meaning:
 - **Cross-repo edges are dashed,** because they are the slow ones. A same-repo
   dependent starts as soon as its parent has a branch; a cross-repo dependent
   waits for a merge, a pinned-SHA bump and a re-lock.
+- **Nested by project** within a repo that has several, because the limits count each
+  project on its own. A repo with one project is drawn flat.
 
 Rewritten on every change to the unit store (see `cli._store`), so it is
 current whenever a tick is running — it used to be written only on request,
@@ -67,6 +69,11 @@ def _node_id(unit_id: str) -> str:
     return re.sub(r"[^A-Za-z0-9]", "_", unit_id)
 
 
+def _project_id(repo: str, project: str) -> str:
+    """A nested subgraph's id; the `__project__` infix keeps it apart from a repo's or a unit's."""
+    return f"{_node_id(repo)}__project__{_node_id(project)}"
+
+
 # States that are still going somewhere, or stuck until someone looks.
 # Everything else is history. Failed is here because it is the state that most
 # needs seeing: left out, a unit vanishes from the graph on failing e2e-test,
@@ -106,11 +113,9 @@ def render_mermaid(
     """Draw `units`. `graph` is the whole store when `units` is a subset of it:
     whether a unit is blocked depends on parents that may not be drawn. `restacking` names
     the base of each unit the restack lane holds."""
-    if projects is not None:
-        raise NotImplementedError
     graph = graph if graph is not None else units
     index = {unit.id: unit for unit in units}
-    ordered = sorted(units, key=lambda unit: (unit.repo, unit.id))
+    ordered = sorted(units, key=lambda unit: (unit.repo, unit.project, unit.id))
 
     lines = ["flowchart LR"]
 
@@ -119,7 +124,15 @@ def render_mermaid(
 
     for repo in sorted({unit.repo for unit in units}):
         lines.append(f"    subgraph {repo}")
-        for unit in [u for u in ordered if u.repo == repo]:
+        in_repo = [u for u in ordered if u.repo == repo]
+        nested = len({u.project for u in in_repo} | set((projects or {}).get(repo, ()))) > 1
+        current: str | None = None
+        for unit in in_repo:
+            if nested and unit.project != current:
+                if current is not None:
+                    lines.append("        end")
+                current = unit.project
+                lines.append(f'        subgraph {_project_id(repo, current)}["{current}"]')
             state = effective_state(unit, graph, checks_of=checks_of, paused=paused)
             pr = f" · PR #{unit.pr}" if unit.pr else ""
             name = STATES[state].name
@@ -134,7 +147,10 @@ def render_mermaid(
             urgency = f" · priority {unit.priority}" if unit.priority != Priority.NORMAL else ""
             waiting = _waiting(unit)
             label = f"{head}<small>{unit.tier} · {name}{waiting}{pr}{urgency}</small>"
-            lines.append(f'        {_node_id(unit.id)}["{label}"]')
+            indent = "            " if nested else "        "
+            lines.append(f'{indent}{_node_id(unit.id)}["{label}"]')
+        if nested:
+            lines.append("        end")
         lines.append("    end")
 
     for unit in ordered:
@@ -214,6 +230,9 @@ edit by hand.
 ```
 
 ## Legend
+
+A repo with several projects is drawn with a subgraph for each project that has a unit in
+view, titled with the project's path (`.` for the root).
 
 - **planned** — ready to start when a slot and the depth cap allow.
 - **blocked** — waiting on a dependency. A cross-repo dependency (dashed
