@@ -24,6 +24,10 @@
   prerequisite was closed are left alone; the last shows `wait ended: ... closed, requeue to
   retry` in `abk status`, which also counts the units resumed this way today. The new
   `global_limits.wait_end_requeue` is `auto` (default), `resume`, `rework` or `off`.
+- A unit whose only reason to run is that its base moved now runs its whole moved-base run in
+  the restack lane: after a move that leaves a conflict or a deferral, the lane's worker goes on
+  into the unit's run, holding one lane worker and no build worker. A run the process lost or a
+  usage pause interrupted is resumed by the lane, not offered to a build worker.
 
 - A prompt no longer travels as a command-line argument to Claude Code: it is written to the
   agent's standard input, so a large prompt (a long plan, a big diff) no longer fails with

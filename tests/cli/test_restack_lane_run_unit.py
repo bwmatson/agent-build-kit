@@ -118,7 +118,7 @@ def test_a_clean_move_of_an_approved_head_ends_with_the_move_and_makes_no_run(
 ) -> None:
     scene.lane_moves()
 
-    assert sorted(scene.moves) == [CLEAN, MOVED]
+    assert sorted(scene.moves) == [MOVED, CLEAN]
     assert CLEAN not in scene.ran
     assert scene.store.get(CLEAN).state == IN_REVIEW
     assert scene.ran == [MOVED], "only the move that left its unit planned goes on into a run"

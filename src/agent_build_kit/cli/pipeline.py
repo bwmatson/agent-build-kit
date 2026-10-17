@@ -143,8 +143,10 @@ from agent_build_kit.pipeline.restack import (
 )
 from agent_build_kit.pipeline.restack_lane import (
     Lane,
+    Rest,
     RestackLane,
     RestackLanes,
+    in_a_lane_run,
     lane_record,
     owed_units,
     record_path,
@@ -3557,14 +3559,33 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
     """The tick's lanes, one for each project: each has `project_limits.max_concurrent_restacks`
     workers apart from the build workers, moving a unit onto the base it has when it starts."""
 
+    refusals: set[str] = set()
+
     def refused(unit_id: str, resume_at: datetime | None) -> None:
+        refusals.add(unit_id)
         lanes.defer_until(unit_id, resume_at)
 
     moves = build_stack_moves(store, inst, gated=True, refused=refused)
     move = build_turned_move(inst, gated=True, refused=refused)
 
-    def move_unit(owed: StoredUnit) -> None:
+    def run_of(unit_id: str) -> Rest:
+        """What remains of a moved-base run once the move is made: the unit's own run, here in
+        the lane's worker, flagged as the lane's so a build worker never resumes it."""
+
+        def run() -> None:
+            if unit_id in refusals:
+                # The guard refused the move's agent: the lane moves it again when it allows.
+                refusals.discard(unit_id)
+                return
+            store.set_moved_base_run(unit_id, True)
+            build_unit(inst, store.get(unit_id), store=store)
+
+        return run
+
+    def move_unit(owed: StoredUnit) -> Rest | None:
         unit = store.get(owed.id)
+        if in_a_lane_run(unit):
+            return run_of(unit.id)  # An interrupted run: its thread resumes at its node.
         graph = store.all()
         repo = inst.checkouts[unit.repo]
         branch = unit.branch or branch_name(unit)
@@ -3578,7 +3599,13 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
             moves["restack"](
                 branch=branch, old_base=old_base, new_base=new_base, child=unit, parent=parent
             )
-            return
+            left = store.get(unit.id)
+            if left.state == PLANNED and left.cause in (
+                Cause.RESTACK_CONFLICT,
+                Cause.RESTACK_DEFERRED,
+            ):
+                return run_of(unit.id)
+            return None
         if has_thread(inst, unit.id):
             # Parked at `prepare`: it makes the move, here, and a worker runs what follows.
             ended = advance_thread_through_prepare(inst, unit, store=store)
@@ -3590,7 +3617,7 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
                         note=f"restack onto {new_base} left for its run: its port",
                         cause=Cause.RESTACK_CONFLICT,
                     )
-                return
+                return run_of(unit.id)
         # A thread parked at `prepare`, until its run drives the thread through `prepare`: in a
         # worktree of its own it has the branch checked out, where the branch cannot be moved,
         # so the move is left for its run. Without one the branch is moved in a temporary
@@ -3603,7 +3630,7 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
                 "its worktree has the branch checked out",
                 cause=Cause.RESTACK_CONFLICT,
             )
-            return
+            return None
         try:
             move(
                 repo,
@@ -3656,6 +3683,7 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
             paused=lambda: pause_in_force(inst.state_dir),
             record=record_path(inst.state_dir, key),
             base=lambda owed: base_of(owed, store.all()),
+            runs=in_a_lane_run,
             log=log,
         )
 
