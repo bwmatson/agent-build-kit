@@ -50,6 +50,8 @@ class LocalForge:
     general_threads: bool = False
     supports_stacks: bool = False
     merges: bool = False
+    # Pull requests are kept here, so whatever `origin` is serves; it need not name this forge.
+    any_remote: bool = True
     denied_commands: tuple[tuple[str, ...], ...] = ()
     denied_requests: tuple[DeniedRequest, ...] = ()
     read_commands: tuple[tuple[str, ...], ...] = (("abk", "pr", "view"), ("abk", "pr", "diff"))
@@ -219,6 +221,18 @@ class LocalForge:
     def create_pr(self, repo: RepoId, *, head: str, base: str, title: str, body: str) -> int:
         checkout = self._checkout(repo)
         tip = _seen(checkout, {"head": head, "base": base})[0] if checkout else ""
+        # Where the branch left the trunk, kept so the files it changed survive a fast-forward.
+        fork = (
+            git(
+                checkout,
+                "merge-base",
+                build_ref(checkout, base),
+                tip,
+                check=False,
+            ).stdout.strip()
+            if checkout and tip
+            else ""
+        )
 
         def add(pulls: list[Stored]) -> int:
             number = max((int(str(p["number"])) for p in pulls), default=0) + 1
@@ -231,6 +245,7 @@ class LocalForge:
                     "body": body,
                     "state": "open",
                     **({"tip": tip} if tip else {}),
+                    **({"fork": fork} if fork else {}),
                 }
             )
             return number
@@ -278,7 +293,14 @@ class LocalForge:
         return with_ui_review(lambda: pulls, review_of=review_of)()
 
     def pr_files(self, repo: RepoId, pr: int) -> list[str]:
-        return []
+        pull = self.record(repo, pr)
+        checkout = self._checkout(repo)
+        if pull is None or checkout is None or not pull.get("fork") or not pull.get("tip"):
+            return []
+        shown = git(
+            checkout, "diff", "--name-only", str(pull["fork"]), str(pull["tip"]), check=False
+        )
+        return [] if shown.returncode else shown.stdout.splitlines()
 
     def pr_changes(self, repo: RepoId, pr: int) -> list[FileChange]:
         return []

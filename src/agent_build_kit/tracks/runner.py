@@ -222,11 +222,15 @@ def eligible_projects(inst: Installation, only: str | None = None) -> list[Proje
         if remote.returncode != 0:
             log(f"skip {name}: no `origin` remote (nothing to pull from or open PRs against)")
             continue
+        forge = forges.get(repo.forge)
+        declared = forge.identity(repo)
         origin = forges.identify(remote.stdout.strip())
+        # A forge that keeps its pull requests locally names no remote, so any origin serves.
+        if origin is None and getattr(forge, "any_remote", False):
+            origin = declared
         if origin is None:
             log(f"skip {name}: no forge recognises origin {remote.stdout.strip()!r}")
             continue
-        declared = forges.get(repo.forge).identity(repo)
         if forges.key(origin).lower() != forges.key(declared).lower():
             log(
                 f"skip {name}: origin is {forges.key(origin)} "

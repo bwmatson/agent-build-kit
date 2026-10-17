@@ -314,14 +314,17 @@ def test_verify_passes_with_only_planning_paths_dirty_refuses_a_source_edit_and_
     scratch: Scratch, installed: Ran, openspec_cli: None
 ) -> None:
     assert installed.returncode == 0, installed.output
-    publish_elsewhere(
-        scratch.setup, {**change_files("landed", done=True), "src/landed.py": "x = 1\n"}, "landed"
-    )
-    git(scratch.worktree, "fetch", "-q", "origin")
-    git(scratch.worktree, "merge", "-q", "--ff-only", "origin/main")
-    store = UnitStore(scratch.worktree / "runs" / "units.json")
+    # The unit's branch and pull request, then its work landing on the default branch.
+    worktree = scratch.worktree
+    landed = {**change_files("landed", done=True), "src/landed.py": "x = 1\n"}
+    commit_files(worktree, "landed", landed)
+    git(worktree, "branch", "spec/landed/1", "HEAD")
+    forge, repo = installation_of(worktree).forge_of("app")
+    number = forge.create_pr(repo, head="spec/landed/1", base="main", title="landed", body="")
+    git(worktree, "push", "-q", "origin", "HEAD:main")
+    store = UnitStore(worktree / "runs" / "units.json")
     store.upsert([stored_unit("landed/1", change="landed", repo="app")])
-    store.set_state("landed/1", MERGED, pr=1, branch="spec/landed/1")
+    store.set_state("landed/1", MERGED, pr=number, branch="spec/landed/1")
     # The store, a state file and the graph page are dirty: all planning paths.
     (scratch.worktree / "runs" / "verified.note").write_text("state\n")
     (scratch.worktree / "docs" / "unit_graph.md").write_text("graph, regenerated\n")
