@@ -1100,7 +1100,7 @@ def _tick_with(
         if held and held.kind == "rate_limit":
             tick.outcome = "paused"
             return 0
-        log(_nothing_started_reason(inst, store.all(), only=only))
+        log(_nothing_started_reason(inst, store.all(), only=only, paused=held is not None))
         tick.outcome = "idle"
         return 0
 
@@ -2173,10 +2173,11 @@ def _blocked_by(unit: StoredUnit, units: list[StoredUnit]) -> str:
 
 
 def _nothing_started_reason(
-    inst: Installation, units: list[StoredUnit], *, only: frozenset[str]
+    inst: Installation, units: list[StoredUnit], *, only: frozenset[str], paused: bool = False
 ) -> str:
     """Why a pass starts nothing: the limit, when lifting it would start a
-    unit, and otherwise that nothing is ready. A deadlock comes first."""
+    unit, and otherwise that nothing is ready, with a line for each candidate unit
+    unless a pause is in force, which the pause line already tells. A deadlock comes first."""
     cycles = deadlocks(units)
     if cycles:
         return "nothing can start: " + "; ".join(
@@ -2198,7 +2199,50 @@ def _nothing_started_reason(
     failed = [line for unit in units if unit.state == FAILED and (line := _blocked_by(unit, units))]
     if failed:
         return "nothing can start: " + "; ".join(failed)
-    return "nothing ready to build"
+    if paused:
+        return "nothing ready to build"
+    return "\n".join(["nothing ready to build", *_candidate_lines(inst, units, only=only)])
+
+
+# How many candidate units a tick that builds nothing names.
+NOTHING_READY_UNITS = 10
+
+# The reasons a person can act on soonest: they come first among the lines.
+_ACTIONABLE_REASONS = frozenset(
+    {WaitReason.READY, WaitReason.SLOT, WaitReason.LEASE, WaitReason.BACKOFF}
+)
+
+
+def _candidate_lines(
+    inst: Installation, units: list[StoredUnit], *, only: frozenset[str]
+) -> list[str]:
+    """One line for each planned, held or failed unit with its wait reason and what it waits
+    on, at most `NOTHING_READY_UNITS`, then how many were left out. A report line never fails
+    a tick: when the reasons cannot be computed, one line names the error."""
+    try:
+        waits = wait_reasons(
+            inst,
+            units,
+            started=set(),
+            building=set(),
+            only=only,
+            idle=_idle_units(inst, units, ()),
+        )
+        candidates = [
+            (unit, waits[unit.id])
+            for unit in units
+            if unit.state in (PLANNED, HELD, FAILED) and unit.id in waits
+        ]
+    except Exception as error:  # noqa: BLE001 — a report line never fails a tick
+        return [f"  (the reasons could not be worked out: {type(error).__name__}: {error})"]
+    candidates.sort(key=lambda found: found[1].reason not in _ACTIONABLE_REASONS)
+    lines = []
+    for unit, why in candidates[:NOTHING_READY_UNITS]:
+        waiting = f", waits on {', '.join(why.waits_on)}" if why.waits_on else ""
+        lines.append(f"  {unit.id} ({unit.repo}): {why.reason.value}{waiting}")
+    if len(candidates) > NOTHING_READY_UNITS:
+        lines.append(f"  (+{len(candidates) - NOTHING_READY_UNITS} more)")
+    return lines
 
 
 def _refuse_unconfigured(inst: Installation, ready: list[Unit]) -> bool:
