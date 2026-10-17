@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline.unit_store import KEEP, PARK_BACKOFF, Cause, UnitStore, backoff_ends
-from agent_build_kit.pipeline.units import PLANNED
+from agent_build_kit.pipeline.units import PLANNED, RUNNING
 from tests import fake_clock
 from tests.factories import unit
 
@@ -51,7 +51,8 @@ def test_cause_since_is_when_the_cause_was_set_not_when_it_was_carried(
 
 def test_cause_since_is_none_without_a_cause(store: UnitStore) -> None:
     assert store.get(UNIT).cause_since is None
-    store.set_state(UNIT, PLANNED, cause=Cause.REQUEUED)
+    park(store)
+    store.set_state(UNIT, RUNNING)
     assert store.get(UNIT).cause_since is None
 
 

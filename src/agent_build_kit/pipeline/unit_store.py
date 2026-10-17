@@ -72,7 +72,8 @@ class HeldBy(StrEnum):
 class Cause(StrEnum):
     """Why a unit's state last changed out of running; what the pass, the
     readmission rule and the diagram decide from. A record written before
-    causes were kept has none."""
+    causes were kept has none. A cause is standing (`STANDING_CAUSES`: it lasts until
+    a state change passes another) or an event (`EVENT_CAUSES`: a transition that is over)."""
 
     REWORK = "rework"
     BASE_CHANGED = "base_changed"
@@ -111,9 +112,21 @@ class Keep:
 
 KEEP = Keep()
 
-# The two kinds of cause, which together are exactly the members of `Cause`.
-STANDING_CAUSES: frozenset[Cause] = frozenset()
-EVENT_CAUSES: frozenset[Cause] = frozenset()
+# The two kinds of cause, which together are exactly the members of `Cause`. A standing cause
+# names a situation that lasts until a state change passes another cause; an event cause names
+# a transition that has happened and is over, and ends a standing one when it is recorded.
+EVENT_CAUSES: frozenset[Cause] = frozenset(
+    {
+        Cause.REQUEUED,
+        Cause.RELEASED,
+        Cause.ADOPTED,
+        Cause.MERGED,
+        Cause.AUTO_LANDED,
+        Cause.CLOSED,
+        Cause.FAILED,
+    }
+)
+STANDING_CAUSES: frozenset[Cause] = frozenset(Cause) - EVENT_CAUSES
 
 
 class RequeueReason(StrEnum):
@@ -355,8 +368,19 @@ class StoredUnit(Unit):
 
     @property
     def cause_since(self) -> datetime | None:
-        """When the entry that set the current cause was written, or `None` without one."""
-        raise NotImplementedError
+        """When the entry that set the current cause was written, or `None` without one.
+
+        Entries a carry wrote are skipped: they repeat a cause, they do not set it. A second
+        parking is not a carry, so it counts."""
+        if self.cause is None:
+            return None
+        for entry in reversed(self.history):
+            if not entry.get("carried"):
+                try:
+                    return datetime.fromisoformat(str(entry.get("at", "")))
+                except ValueError:
+                    return None
+        return None
 
     @model_validator(mode="before")
     @classmethod
@@ -597,6 +621,16 @@ class UnitStore:
                 parked_sha=existing.parked_sha if existing else "",
                 parked_snapshot=existing.parked_snapshot if existing else "",
                 parked_attempts=existing.parked_attempts if existing else 0,
+                # Runtime state, not shape: a replan must not drop what a run left.
+                service_attempts=existing.service_attempts if existing else 0,
+                gated_requeue=existing.gated_requeue if existing else None,
+                waited_on=existing.waited_on if existing else (),
+                wait_ended=existing.wait_ended if existing else "",
+                close_pending=existing.close_pending if existing else None,
+                step=existing.step if existing else "",
+                guidance=existing.guidance if existing else "",
+                ready_at=existing.ready_at if existing else None,
+                first_human_activity_at=existing.first_human_activity_at if existing else None,
                 moved_base_run=existing.moved_base_run if existing else False,
                 moved_base_uncounted=existing.moved_base_uncounted if existing else False,
                 history=existing.history if existing else ({"state": PLANNED, "at": _now()},),
@@ -631,7 +665,7 @@ class UnitStore:
                 # `planned`, could never build it — nor anything depending on
                 # it, which stalls every unit behind it.
                 if existing.state == UNPLANNED:
-                    fresh = _with_state(fresh, PLANNED)
+                    fresh = _with_state(fresh, PLANNED, KEEP)
                 else:
                     fresh = fresh.model_copy(update={"state": existing.state})
             stored[unit.id] = fresh
@@ -651,7 +685,7 @@ class UnitStore:
                 if unit.state != PLANNED:
                     continue
                 if unit.change == change and unit_id not in planned_ids:
-                    stored[unit_id] = _with_state(unit, UNPLANNED)
+                    stored[unit_id] = _with_state(unit, UNPLANNED, KEEP)
 
         self._write(stored)
 
@@ -700,7 +734,7 @@ class UnitStore:
             if unit.state == PLANNED and unit.unstarted and unit.change not in changes
         ]
         for unit_id in dropped:
-            stored[unit_id] = _with_state(stored[unit_id], UNPLANNED)
+            stored[unit_id] = _with_state(stored[unit_id], UNPLANNED, KEEP)
         if dropped:
             self._write(stored)
         return dropped
@@ -735,7 +769,7 @@ class UnitStore:
         )
         stored[onto.id] = grown.model_copy(
             update={
-                "history": (*onto.history, {"state": onto.state, "at": _now(), "note": "joined"}),
+                "history": (*onto.history, _entry(onto, onto.state, KEEP, "joined")),
             }
         )
         if taken is not None:
@@ -814,11 +848,11 @@ class UnitStore:
         cause: Cause | None | Keep,
         held_base: str,
     ) -> tuple[StoredUnit, list[StoredUnit], bool]:
-        if isinstance(cause, Keep):
-            raise NotImplementedError
         state = UnitState(state)
         stored = self._read()
         unit = stored[unit_id]
+        # Resolved first: a carried parking keeps its step, and is not another parking.
+        resolved = _resolve(unit, cause)
         opened = pr is not None and pr != unit.pr
         stored[unit_id] = unit.model_copy(
             update={
@@ -832,23 +866,17 @@ class UnitStore:
                 "held_base": held_base if state == HELD else "",
                 # The step belongs to the failure or parking it describes (recorded just
                 # before it); any other state forgets it.
-                "step": unit.step if state == FAILED or cause in PARKED_CAUSES else "",
+                "step": unit.step if state == FAILED or resolved in PARKED_CAUSES else "",
                 # Parked again, or the count of parkings in a row starts over.
                 "parked_attempts": unit.parked_attempts + 1
-                if cause in PARKED_CAUSES
+                if not isinstance(cause, Keep) and cause in PARKED_CAUSES
                 else 0
                 if state in (IN_REVIEW, FAILED)
                 else unit.parked_attempts,
                 "service_attempts": 0 if state in (IN_REVIEW, FAILED) else unit.service_attempts,
-                "history": (
-                    *unit.history,
-                    {
-                        "state": state,
-                        "at": _now(),
-                        **({"note": note} if note else {}),
-                        **({"cause": cause.value} if cause else {}),
-                    },
-                ),
+                # A gate is closed in the write that changes the cause.
+                "gated_requeue": unit.gated_requeue if resolved is Cause.GATED else None,
+                "history": (*unit.history, _entry(unit, state, cause, note)),
             }
         )
         self._write(stored)
@@ -1047,7 +1075,34 @@ def _record(unit: StoredUnit) -> dict:
     return record
 
 
-def _with_state(unit: StoredUnit, state: UnitState) -> StoredUnit:
+def _resolve(unit: StoredUnit, cause: Cause | None | Keep) -> Cause | None:
+    """The cause an entry records: `KEEP` is the unit's own cause when it is standing, and
+    none when it is an event cause or there is none."""
+    if isinstance(cause, Keep):
+        return unit.cause if unit.cause in STANDING_CAUSES else None
+    return cause
+
+
+def _entry(unit: StoredUnit, state: UnitState, cause: Cause | None | Keep, note: str = "") -> dict:
+    """The history entry for `unit` changing to `state`. With `KEEP` it repeats the standing
+    cause and the previous note (unless one is given) and is marked `carried`, so
+    `cause_since` and a reader of the history can tell a carry from the cause being set."""
+    resolved = _resolve(unit, cause)
+    carried = isinstance(cause, Keep) and resolved is not None
+    if carried and not note and unit.history:
+        note = str(unit.history[-1].get("note", ""))
+    return {
+        "state": state,
+        "at": _now(),
+        **({"note": note} if note else {}),
+        **({"cause": resolved.value} if resolved else {}),
+        **({"carried": True} if carried else {}),
+    }
+
+
+def _with_state(
+    unit: StoredUnit, state: UnitState, cause: Cause | None | Keep = None
+) -> StoredUnit:
     """Change a unit's state and record that it happened.
 
     `upsert` used to write `unplanned` straight onto the model, so the one
@@ -1056,7 +1111,7 @@ def _with_state(unit: StoredUnit, state: UnitState) -> StoredUnit:
     """
     state = UnitState(state)
     return unit.model_copy(
-        update={"state": state, "history": (*unit.history, {"state": state, "at": _now()})}
+        update={"state": state, "history": (*unit.history, _entry(unit, state, cause))}
     )
 
 
@@ -1097,9 +1152,8 @@ def backoff_ends(unit: StoredUnit) -> datetime | None:
     None when it is not parked."""
     if unit.state != PLANNED or unit.cause not in PARKED_CAUSES:
         return None
-    try:
-        parked = datetime.fromisoformat(str(unit.history[-1].get("at", "")))
-    except ValueError:
+    parked = unit.cause_since
+    if parked is None:
         return None
     return parked + PARK_BACKOFF[min(max(unit.parked_attempts, 1), len(PARK_BACKOFF)) - 1]
 

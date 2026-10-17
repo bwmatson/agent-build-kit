@@ -1790,13 +1790,15 @@ def release_gated(inst: Installation, store: UnitStore, *, in_flight: Collection
             delivered = resume_thread(inst, unit, "requeue", store=store, reason=mode, requeue=why)
         except BranchBusy:
             continue
-        store.set_gated_requeue(unit.id, None)
         if delivered is None:
             if why is RequeueReason.RESTART:
                 store.set_feedback(unit.id, "")
+            # One write: it records the new cause and clears the requeue with it.
             store.set_state(
                 unit.id, PLANNED, note=f"requeued: gate cleared ({mode})", cause=Cause.REQUEUED
             )
+        else:
+            store.set_gated_requeue(unit.id, None)
 
 
 def requeue_wait_ended(
@@ -2537,7 +2539,8 @@ def _sent_back(
             continue
         if len(unit.history) <= at:
             continue
-        last = unit.history[-1]
+        # Keyed on when the cause was set, so a carried entry does not log the skip again.
+        since = str(unit.cause_since)
         if unit.state == PLANNED and unit.cause in READMITTED_CAUSES:
             out.add(unit.id)
         elif (
@@ -2551,9 +2554,9 @@ def _sent_back(
             and unit.cause is not None
             # Readmitted by a later round once its backoff is over.
             and unit.cause not in PARKED_CAUSES
-            and (unit.id, str(last.get("at"))) not in skipped
+            and (unit.id, since) not in skipped
         ):
-            skipped.add((unit.id, str(last.get("at"))))
+            skipped.add((unit.id, since))
             log(f"{unit.id}: not started again in this pass, stopped for {unit.cause.value}")
     return out
 
