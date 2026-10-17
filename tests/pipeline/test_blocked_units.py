@@ -20,16 +20,12 @@ from agent_build_kit.pipeline.units import (
 )
 from agent_build_kit.pipeline.vocabulary import effective_state
 from tests.factories import new_unit as new
+from tests.factories import worked_unit as worked
 
 
 def caused(cause: Cause) -> dict:
     """The history a state change records, which is where a unit's cause is read from."""
     return {"history": ({"state": "planned", "at": "2026-09-23T09:00", "cause": cause.value},)}
-
-
-def worked(uid: str, **kw):
-    """A planned unit a run began and stopped: it has recorded its branch."""
-    return new(uid, branch=f"spec/{uid}", **kw)
 
 
 def review(uid: str, pr: int = 1, **kw):

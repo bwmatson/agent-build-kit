@@ -8,11 +8,7 @@ accounting is the one `test_blocked_units.py` pins.
 
 from tests.factories import new_unit as new
 from tests.factories import started_ids
-
-
-def worked(uid: str, **kw):
-    """A planned unit a run began and stopped: it has recorded its branch."""
-    return new(uid, branch=f"spec/{uid}", **kw)
+from tests.factories import worked_unit as worked
 
 
 def chosen(graph, *, limit: int = 9, slots: int = 9) -> list[str]:

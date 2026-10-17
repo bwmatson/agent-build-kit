@@ -2,22 +2,12 @@
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
 
-from tests.conftest import status_lines
+from tests.conftest import ready_queue, status_lines
 from tests.factories import stored_unit
-
-QUEUE_LINE = re.compile(r"\d+\. \S+ \(\S+\) — .*")
-
-
-def queue(lines: list[str]) -> list[str]:
-    """The numbered lines of the ready queue, without the log timestamp."""
-    heading = next(i for i, line in enumerate(lines) if "ready queue" in line.lower())
-    found = (QUEUE_LINE.search(line) for line in lines[heading + 1 :])
-    return [match.group(0) for match in found if match]
 
 
 def test_status_lists_a_priority_zero_unit_first_with_its_reason_and_only_then(
@@ -39,7 +29,7 @@ def test_status_lists_a_priority_zero_unit_first_with_its_reason_and_only_then(
     normal = status_lines(tmp_path / "normal", monkeypatch, capsys, [stored_unit("plain/1")])
 
     assert any("priority:" in line and "zero/1 0" in line for line in lines)
-    assert queue(lines)[0] == "1. zero/1 (app) — priority 0"
+    assert ready_queue(lines)[0] == "1. zero/1 (app) — priority 0"
     assert not any("priority:" in line for line in normal)
 
 
@@ -57,4 +47,4 @@ def test_status_says_a_prerequisite_of_a_priority_zero_unit_takes_priority_zero(
         ],
     )
 
-    assert queue(lines)[0] == "1. base/1 (app) — priority 0, from zero/1"
+    assert ready_queue(lines)[0] == "1. base/1 (app) — priority 0, from zero/1"

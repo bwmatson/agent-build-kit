@@ -21,15 +21,11 @@ from agent_build_kit.pipeline.units import (
     start_room,
 )
 from tests.factories import new_unit as new
+from tests.factories import worked_unit as worked
 
 
 def review(uid: str, pr: int = 1, **kw):
     return new(uid, state=IN_REVIEW, pr=pr, **kw)
-
-
-def worked(uid: str, **kw):
-    """A planned unit a run began and stopped: it has recorded its branch."""
-    return new(uid, branch=f"spec/{uid}", **kw)
 
 
 def reworked(uid: str, pr: int, **kw):

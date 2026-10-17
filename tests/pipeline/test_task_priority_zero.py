@@ -53,7 +53,9 @@ def test_a_second_default_after_a_zero_default_is_reported_at_the_second(tmp_pat
 
 
 def test_a_zero_in_a_group_the_reader_cannot_parse_is_the_existing_error(tmp_path: Path) -> None:
-    text = tasks_md("2") + "## 2. [no-such-repo] [tier1] Group 2\n\nPriority: 0\n\n- [ ] 2.1 x\n"
+    text = (
+        tasks_md("2") + "## 2. [no-such-repo] [unit-test] Group 2\n\nPriority: 0\n\n- [ ] 2.1 x\n"
+    )
     line = text.splitlines().index("Priority: 0") + 1
 
     _, errors = read(text, tmp_path)

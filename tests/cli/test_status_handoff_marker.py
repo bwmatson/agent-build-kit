@@ -2,22 +2,12 @@
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
 
-from tests.conftest import status_lines
+from tests.conftest import ready_queue, status_lines
 from tests.factories import stored_unit
-
-QUEUE_LINE = re.compile(r"\d+\. \S+ \(\S+\) — .*")
-
-
-def queue_after_heading(lines: list[str]) -> list[str]:
-    """The numbered lines of the ready queue, without the log timestamp."""
-    heading = next(i for i, line in enumerate(lines) if "ready queue" in line.lower())
-    found = (QUEUE_LINE.search(line) for line in lines[heading + 1 :])
-    return ["  " + match.group(0) for match in found if match]
 
 
 def test_status_marks_a_handoff_unit_and_only_while_a_unit_is_blocked(
@@ -33,14 +23,14 @@ def test_status_marks_a_handoff_unit_and_only_while_a_unit_is_blocked(
     (tmp_path / "blocked").mkdir()
     (tmp_path / "plain").mkdir()
 
-    with_blocked = queue_after_heading(
+    with_blocked = ready_queue(
         status_lines(tmp_path / "blocked", monkeypatch, capsys, [*units, blocked])
     )
-    without = queue_after_heading(status_lines(tmp_path / "plain", monkeypatch, capsys, units))
+    without = ready_queue(status_lines(tmp_path / "plain", monkeypatch, capsys, units))
 
     assert with_blocked == [
-        "  1. urgent/1 (app) — priority 1",
-        "  2. prerequisite/1 (app) — priority 2 (handoff)",
+        "1. urgent/1 (app) — priority 1",
+        "2. prerequisite/1 (app) — priority 2 (handoff)",
     ]
     assert without
     assert not any("(handoff)" in line for line in without)

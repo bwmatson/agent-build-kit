@@ -40,6 +40,7 @@ __all__ = [
     "started_ids",
     "stored_unit",
     "unit",
+    "worked_unit",
 ]
 
 _DEFAULTS: dict[str, Any] = {
@@ -88,6 +89,11 @@ def deep_store(directory: Path, name: str = "units.json") -> UnitStore:
 def new_unit(uid: str, **overrides) -> StoredUnit:
     """A unit of the change named by the id's prefix, so each id is its own change."""
     return stored_unit(uid, change=uid.split("/")[0], **overrides)
+
+
+def worked_unit(uid: str, **overrides) -> StoredUnit:
+    """A planned unit a run began and stopped: it has recorded its branch."""
+    return new_unit(uid, branch=f"spec/{uid}", **overrides)
 
 
 def started_ids(graph, *, slots: int = 1, **kw) -> list[str]:

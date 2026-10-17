@@ -14,11 +14,7 @@ from agent_build_kit.pipeline.units import (
 )
 from tests.factories import new_unit as new
 from tests.factories import started_ids
-
-
-def worked(uid: str, **kw):
-    """A planned unit a run began and stopped: it has recorded its branch."""
-    return new(uid, branch=f"spec/{uid}", **kw)
+from tests.factories import worked_unit as worked
 
 
 def test_a_later_planned_priority_zero_unit_starts_before_an_earlier_priority_one() -> None:
@@ -100,7 +96,7 @@ def test_a_running_unit_is_not_stopped_by_a_priority_zero_unit_becoming_ready() 
     graph = [new("run/1", state=RUNNING, priority=5), new("zero/1", priority=0)]
 
     assert started_ids(graph, slots=2) == ["zero/1"]
-    assert graph[0].state == RUNNING
+    assert started_ids(graph, slots=1) == []
 
 
 def test_a_freed_place_goes_to_the_prerequisite_of_a_priority_zero_unit_first() -> None:

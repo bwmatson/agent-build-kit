@@ -176,11 +176,11 @@ Priority: 2
 ```
 
 The scale is 0 to 5, 0 the most urgent, and 3 for a group that says nothing:
-0 (emergency) is the emergency lane. 0 is for work that must go before all urgent work, such as a fix that
-unblocks every priority-1 change; it is rare, starts first, and bypasses no limit.
-1 a bug fix or a fix for a fault in the pipeline itself, 2 high priority (it
-unblocks other work), 3 normal, 4 can wait, 5 nice to have. The framework reads
-only the number. A unit takes the most urgent priority of the groups it builds,
+0 the emergency lane, 1 a bug fix or a fix for a fault in the pipeline itself, 2
+high priority (it unblocks other work), 3 normal, 4 can wait, 5 nice to have. 0 is
+for work that must go before all urgent work, such as a fix that unblocks every
+priority-1 change; it is rare, starts first, and bypasses no limit. The framework
+reads only the number. A unit takes the most urgent priority of the groups it builds,
 carried ones included, and keeps it once it has started. A value that is not an
 integer from 0 to 5, a second line in one place, or a line in a group that could
 not be read is an error; `abk tags` shows a priority that is not 3.
