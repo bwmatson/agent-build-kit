@@ -17,13 +17,12 @@ EXCUSED = INVERTED.replace(
     '"depends_on": ["feature/1"]',
     '"depends_on": ["feature/1"], "needs_less_urgent": {"feature/1": "it adds the helper"}',
 )
-ACCEPTED = answer(planned("feature/1", (1,)), planned("feature/2", (2,)))
 
 
 def tasks_md(first: int = 3, second: int = 1) -> str:
     text = f"# Tasks\n\n{OPT_OUT}\n"
     for number, value in ((1, first), (2, second)):
-        text += f"## {number}. [app] [tier1] Group {number}\n\nPriority: {value}\n\n"
+        text += f"## {number}. [app] [unit-test] Group {number}\n\nPriority: {value}\n\n"
         text += f"- [ ] {number}.1 Test: it.\n- [ ] {number}.2 Do it.\n\n"
     return text
 
@@ -142,4 +141,3 @@ def test_a_later_accepted_plan_clears_the_reason(
     assert code == 0
     assert run.records["feature"]["ok"] is True
     assert "reason" not in run.records["feature"]
-    assert ACCEPTED

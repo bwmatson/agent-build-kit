@@ -104,8 +104,26 @@ def test_two_refused_edges_are_both_named_with_the_first_on_the_first_line() -> 
 
     message = refusal(output, (3, 4, 1, 1))
 
-    assert "app/3" in message.splitlines()[0] and "app/1" in message.splitlines()[0]
+    first = message.splitlines()[0]
+    assert "app/3" in first and "app/1" in first
+    assert first.endswith("(and 1 more)")
     assert "app/4" in message and "app/2" in message
+
+
+def test_a_single_refused_edge_carries_no_count() -> None:
+    assert "more)" not in refusal(in_one_change())
+
+
+def test_the_override_is_keyed_by_the_change_being_planned() -> None:
+    target = stored_unit("other/1", change="other", groups=(1,), priority=3)
+    context = JoinContext(stored=(target,), catalog={"other": tuple(groups_at(5))})
+    stray = unit_of("app/2", 2) | {"change": "other"}
+    output = reply(unit_of("app/1", 1, "other/1"), stray)
+
+    with pytest.raises(PlannerError) as refused:
+        parse(output, (1, 1), known={"other/1"}, context=context, change="app")
+
+    assert "other/1 (priority 5)" in str(refused.value)
 
 
 def stored_target(state: UnitState | None, *, priority: int = 3) -> JoinContext:

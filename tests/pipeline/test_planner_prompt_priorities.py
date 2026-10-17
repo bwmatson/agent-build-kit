@@ -135,3 +135,10 @@ def test_the_rule_names_no_field_the_schema_does_not_list() -> None:
 
     named = set(re.findall(r"`(\w+)`", rule_of(prompt)))
     assert named <= set(re.findall(r'"(\w+)"', schema_of(prompt)))
+
+
+def test_the_prompt_states_when_to_depend_once() -> None:
+    flat_prompt = flat(build_prompt({}, []))
+
+    assert flat_prompt.count("Depend on a unit") == 1
+    assert "Depend on a unit if" not in flat_prompt

@@ -175,7 +175,7 @@ def parse_plan(
         joins = _read_joins(payload.get("joins"))
         _check_dependencies(units, known or set())
         if groups is not None:
-            _check_priority_edges(units, excuses, groups, context)
+            _check_priority_edges(units, excuses, groups, context, change)
             carried = {number for join in joins if not join.unit for number in join.groups}
             _check_groups(units, groups, built or set(), carried)
             check_flagged_groups(units, groups)
@@ -527,6 +527,7 @@ def _check_priority_edges(
     excuses: Mapping[str, Mapping[str, str]],
     groups: Sequence[TaskGroup],
     context: JoinContext | None,
+    change: str | None,
 ) -> None:
     """Refuse a dependency on a less urgent unit that has not started, unless it is excused.
 
@@ -535,7 +536,8 @@ def _check_priority_edges(
     wait on it is already there.
     """
     catalog: dict[str, Sequence[TaskGroup]] = dict(context.catalog) if context else {}
-    catalog |= {unit.change: groups for unit in units}
+    # The groups are those of the change being planned, whatever its units name.
+    catalog |= {name: groups for name in ({change} if change else {u.change for u in units})}
     stored = {unit.id: unit for unit in context.stored} if context else {}
     planned = {unit.id: unit for unit in units}
     refused: list[str] = []
@@ -557,6 +559,9 @@ def _check_priority_edges(
                     f"the edge, or give the reason in `needs_less_urgent`"
                 )
     if refused:
+        # The first line is all a plan record keeps, so it says how many edges follow.
+        if len(refused) > 1:
+            refused[0] += f" (and {len(refused) - 1} more)"
         raise PlannerError("\n".join(refused))
 
 
@@ -601,12 +606,11 @@ Rules the graph must satisfy:
 - Dependencies in the same repo may be in_review — the unit stacks on them.
   A cross-repo dependency means the dependent waits for a merge, so state it
   and keep the order right.
-- Depend on a unit if it introduces code this one needs, if the two touch
-  overlapping files or modules, or if this one relies on an API shape the
-  other establishes.
-- Depend on a unit only for code it introduces that this one needs. Do not make a
-  more urgent unit depend on a less urgent one merely because the groups are adjacent,
-  and do not chain independent groups. A unit takes the most urgent priority of its
+- Depend on a unit only for code it introduces that this one needs, for overlapping
+  files or modules the two touch, or for an API shape the other establishes; those are
+  the only reasons. Groups being next to each other is not one: do not make a more
+  urgent unit depend on a less urgent one merely because the groups are adjacent, and
+  do not chain independent groups. A unit takes the most urgent priority of its
   groups. A group's priority is shown on its heading, and a unit's below.
 - A unit may list in `needs_less_urgent` a dependency it must keep on a less urgent unit
   that has not started, each with the reason; a plan with such a dependency and no
