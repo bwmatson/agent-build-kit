@@ -409,8 +409,9 @@ class RestackLane:
                 self.hand_over(unit, claimed=not self._runs(unit))
 
     def defer_until(self, unit_id: str, resume_at: datetime | None) -> None:
-        """The usage guard refused the unit's resolver and expects to allow it from `resume_at`:
-        `scan` does not hand the unit over again before then, and does once it has passed."""
+        """The usage guard refused an agent call of the unit's move or run and expects to allow it
+        from `resume_at`: `scan` does not hand the unit over again before then, and does once it
+        has passed."""
         if resume_at is not None:
             with self._changed:
                 self._until[unit_id] = resume_at

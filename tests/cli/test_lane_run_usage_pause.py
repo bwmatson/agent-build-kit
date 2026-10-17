@@ -90,13 +90,37 @@ def test_the_lane_waits_for_the_guards_resume_at_and_then_resumes_at_the_port_as
     assert len(lane.runtime.requests) > RESOLVER_CALLS
 
 
-def test_a_runtimes_own_refusal_at_the_port_does_the_same(
+def test_a_runtimes_own_refusal_at_the_port_waits_for_its_time_and_resumes_at_the_port(
     make_lane: Callable[..., Lane],  # noqa: F811 — fixture
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    lane = make_lane(refusing_from=RESOLVER_CALLS + 1)
+    clock = Moving()
+    monkeypatch.setattr(spans, "clock", clock)
+    resets_at = clock.now() + timedelta(minutes=20)
+    lane = make_lane(refusing_from=RESOLVER_CALLS + 1, resets_at=resets_at)
     lane.open()
+    graph = lane.graph
 
-    lane.scene.lane_moves()
+    with cli.build_restack_lane(graph.inst, graph.store) as running:
+        lane.scene.lane = running
+        running.scan(graph.store.all())
+        running.drain()
+        stops_at_the_port(lane, attempts=1)  # the port's call began
+        assert lane.scene.offered() == []
+        requested = len(lane.runtime.requests)
 
-    stops_at_the_port(lane, attempts=1)  # the port's call began
-    assert lane.scene.offered() == []
+        # The runtime would answer now, and the pause marker is lifted, but its time has not
+        # come: no agent is called.
+        lane.runtime.refusing_from = 0
+        clear_pause(graph.inst.state_dir / PAUSE_MARKER)
+        running.scan(graph.store.all())
+        running.drain()
+        assert len(lane.runtime.requests) == requested, "retried before the runtime's time"
+
+        clock.set(resets_at + timedelta(seconds=1))
+        running.scan(graph.store.all())
+        running.drain()
+
+    assert len(lane.runtime.requests) > requested, "resumed at the port"
+    assert lane.decisions[-1].may_start, "asking the guard again"
+    assert graph.store.get(OTHER).state == IN_REVIEW

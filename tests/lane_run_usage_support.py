@@ -10,7 +10,7 @@ run asks the guard for each of the resolver's two calls, the port and the review
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -44,15 +44,17 @@ class Windowed(Sessions):
         verdicts: Sequence[str] = (),
         after: Callable[[int], None] = lambda number: None,
         refusing_from: int = 0,
+        resets_at: datetime | None = None,
     ) -> None:
         super().__init__(verdicts=verdicts)
         self.after = after
         self.refusing_from = refusing_from
+        self.resets_at = resets_at
 
     def run(self, request: AgentRequest) -> AgentResult:
         if self.refusing_from and len(self.requests) + 1 >= self.refusing_from:
             self.requests.append(request)
-            raise AgentRateLimited("the model is at its limit")
+            raise AgentRateLimited("the model is at its limit", resets_at=self.resets_at)
         result = super().run(request)
         self.after(len(self.requests))
         return result
@@ -68,6 +70,8 @@ class Lane:
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
         runtime: Windowed,
+        *,
+        conflict: bool = True,
     ) -> None:
         distinct_models()
         self.graph = graph
@@ -80,10 +84,11 @@ class Lane:
         self.decisions: list[usage_guard.Decision] = asked_of_the_guard(monkeypatch)
         may_start, resume_at = build_usage_gate()
         graph.options.update(agents(runtime), may_start=may_start, resume_at=resume_at)
-        graph.options["restack_onto"] = self.scene.restack(Failing())
-        graph.options["reset_to"] = lambda tree, onto, keep: None
-        graph.options["tests_in"] = lambda tree: {MISSING}
-        graph.options["tests_changed"] = lambda tree, ref: set()
+        if conflict:
+            graph.options["restack_onto"] = self.scene.restack(Failing())
+            graph.options["reset_to"] = lambda tree, onto, keep: None
+            graph.options["tests_in"] = lambda tree: {MISSING}
+            graph.options["tests_changed"] = lambda tree, ref: set()
         self.scene.told_its_base_moved()
 
     def shut(self) -> None:
@@ -97,11 +102,17 @@ class Lane:
 @pytest.fixture
 def make_lane(host: Host, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[..., Lane]:
     """The lane's scene over a tick set up after the usage host, so the installation's
-    configuration is the one in force; `Windowed` arguments say what the runtime does."""
+    configuration is the one in force; `Windowed` arguments say what the runtime does, and
+    `conflict=False` makes the move apply cleanly."""
 
-    def make(**runtime: Any) -> Lane:
+    def make(*, conflict: bool = True, **runtime: Any) -> Lane:
         return Lane(
-            make_setup(tmp_path, monkeypatch), host, monkeypatch, tmp_path, Windowed(**runtime)
+            make_setup(tmp_path, monkeypatch),
+            host,
+            monkeypatch,
+            tmp_path,
+            Windowed(**runtime),
+            conflict=conflict,
         )
 
     return make

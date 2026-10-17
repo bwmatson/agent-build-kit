@@ -268,6 +268,7 @@ from agent_build_kit.pipeline.usage_guard import (
     Limits,
     RateLimited,
     UsageReading,
+    ask_before_call,
     claude_limits,
     current_cache_interval,
     current_usage,
@@ -278,7 +279,6 @@ from agent_build_kit.pipeline.usage_guard import (
     may_start_unit,
     reading_as,
     refreshed_usage,
-    starting,
     threshold_at,
 )
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
@@ -3597,13 +3597,12 @@ def gated_resolver(
 
     class Gated(ConflictSession):
         def __call__(self, prompt: str, *, cwd: Path, follow_up: str = "") -> None:
-            with starting(unit_id):
-                allowed, reason = may_start()
-            if not allowed:
-                again = resume_at()
+            try:
+                ask_before_call(unit_id, may_start, resume_at)
+            except AgentRateLimited as error:
                 if refused is not None:
-                    refused(unit_id, again)
-                raise AgentRateLimited(reason, resets_at=again)
+                    refused(unit_id, error.resets_at)
+                raise
             super().__call__(prompt, cwd=cwd, follow_up=follow_up)
 
     return Gated()
@@ -4326,6 +4325,8 @@ def _build_unit(
             if when is None and runtimes.active().supports_usage_tracking:
                 reading = held_usage()
                 when = reading.resets_at if reading else None
+            if on_pause is not None:
+                on_pause(error.resets_at)
 
             state = pause_until(
                 when,

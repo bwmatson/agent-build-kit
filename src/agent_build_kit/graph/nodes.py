@@ -109,7 +109,7 @@ from agent_build_kit.pipeline.units import (
 )
 from agent_build_kit.pipeline.untouched_failures import feedback_snapshot
 from agent_build_kit.pipeline.untouched_failures import waiting_note as preexisting_waiting_note
-from agent_build_kit.pipeline.usage_guard import starting
+from agent_build_kit.pipeline.usage_guard import ask_before_call, starting
 from agent_build_kit.pipeline.usage_ledger import (
     session_cumulative,
 )
@@ -1127,10 +1127,7 @@ class BuildPath:
         def resolve(prompt: str, *, cwd: Path, follow_up: str = "") -> None:
             nonlocal held
             # Asked like every other agent call, not left to the runtime's own refusal.
-            with starting(self.unit.id):
-                allowed, why = self.runner.may_start()
-            if not allowed:
-                raise AgentRateLimited(why, resets_at=self.runner.resume_at())
+            ask_before_call(self.unit.id, self.runner.may_start, self.runner.resume_at)
             node, self._node = self._node, Node.RESTACK.value
             try:
                 self.agent(

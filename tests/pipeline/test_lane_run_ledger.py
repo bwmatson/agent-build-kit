@@ -50,3 +50,16 @@ def test_the_review_in_the_lane_writes_a_worker_reviews_rows_with_the_review_mod
     # The node's own model, as in a worker: a review of a ported result is a re-review.
     assert (review.unit, review.model) == (OTHER, MODELS.rework_review)
     assert len(lane.decisions) == len(lane.runtime.requests)
+
+
+def test_a_clean_move_in_the_lane_writes_no_restack_or_port_row(
+    make_lane: Callable[..., Lane],  # noqa: F811 — fixture
+) -> None:
+    lane = make_lane(conflict=False)
+    lane.open()
+
+    lane.scene.lane_moves()
+
+    # The review of the result is the run's own; the move called no resolver and no port.
+    assert rows_of(lane, "restack") == [] and rows_of(lane, "adapt") == []
+    assert [row.node for row in rows_of(lane, "review")] != [], "the run went on to its review"
