@@ -50,7 +50,7 @@ def test_assumptions_take_the_trunk_they_are_told() -> None:
     assert "already in `dev`" in text
 
 
-def test_an_azure_tier_one_body_names_no_github_service() -> None:
+def test_an_azure_unit_test_body_names_no_github_service() -> None:
     repo_with(**AZURE)
 
     body = build_pr_body(unit(tier="unit-test"), graph=[unit()], base="main")
@@ -59,7 +59,7 @@ def test_an_azure_tier_one_body_names_no_github_service() -> None:
     assert "unit-test" in body.lower()
 
 
-def test_an_azure_tier_one_body_names_its_own_ci() -> None:
+def test_an_azure_unit_test_body_names_its_own_ci() -> None:
     """The name comes from the forge, so a host's body says its own."""
     from agent_build_kit.forges.azure_devops import FORGE
 
@@ -71,7 +71,7 @@ def test_an_azure_tier_one_body_names_its_own_ci() -> None:
     assert FORGE.ci_name in body
 
 
-def test_a_github_tier_one_body_is_unchanged() -> None:
+def test_a_github_unit_test_body_is_unchanged() -> None:
     body = build_pr_body(unit(tier="unit-test"), graph=[unit()], base="main")
 
     assert "so GitHub Actions runs the whole of it" in body

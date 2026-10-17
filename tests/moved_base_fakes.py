@@ -5,9 +5,11 @@ a file under `tests/` is read as a test the unit added."""
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
+from agent_build_kit.installation import Installation
 from agent_build_kit.profiles.python_uv import PythonUvProfile
 from tests.factories import git, init_repo
 
@@ -39,6 +41,12 @@ def commit(repo: Path, files: dict[str, str], message: str) -> None:
         (repo / name).write_text(text)
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", message, "--allow-empty")
+
+
+def affected_lines(workspace: Installation) -> list[dict]:
+    path = workspace.state_dir / "usage-ledger.jsonl"
+    lines = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+    return [line for line in lines if line.get("kind") == "affected"]
 
 
 def moved(

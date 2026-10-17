@@ -7,7 +7,6 @@ and the time it took on a fake clock; the profile is the real python-uv one.
 
 from __future__ import annotations
 
-import json
 import subprocess
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -23,6 +22,7 @@ from agent_build_kit.pipeline.usage_ledger import forget_told
 from agent_build_kit.pipeline.wiring import build_tier1
 from agent_build_kit.profiles.python_uv import PythonUvProfile
 from tests.fake_clock import FakeClock, install
+from tests.moved_base_fakes import affected_lines
 
 ID = "tests/test_a.py::test_one"
 FAILED_OUTPUT = f"FAILED {ID} - assert 1 == 2"
@@ -98,12 +98,6 @@ def tier1_for(
         repo=RepoConfig(path=repo, changelog=None, checks={"affected": {"mode": mode}}),
         log=log.append if log is not None else None,
     )
-
-
-def affected_lines(workspace: Installation) -> list[dict]:
-    path = workspace.state_dir / "usage-ledger.jsonl"
-    lines = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
-    return [line for line in lines if line.get("kind") == "affected"]
 
 
 def test_the_first_full_run_records_the_seed_data_in_the_units_worktree(

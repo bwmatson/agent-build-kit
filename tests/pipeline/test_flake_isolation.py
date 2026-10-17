@@ -1,4 +1,4 @@
-"""A failed unit-test test is run again alone, twice, to tell a flake from a failure
+"""A failed test in the unit-test run is run again alone, twice, to tell a flake from a failure
 (spec: flaky-tests).
 
 The profile's pytest hooks read the output of a real pytest run, recorded under

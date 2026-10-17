@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agent_build_kit.compat_names import old_spelling
+from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline.planner import build_prompt
 from tests.project_workspace import app_with_projects, tasks_with
 from tests.prompt_text import flat
 
-# The old tag spellings are what the prompt still names; built in pieces so the rename guard
-# does not take them for leftovers.
-OLD_UNIT = "tier" + "1"
-OLD_E2E = "tier" + "2"
+OLD_UNIT = old_spelling(TestTier.UNIT_TEST)
+OLD_E2E = old_spelling(TestTier.E2E_TEST)
 
 
 def test_the_prompt_maps_each_tag_spelling_to_the_reply_tier(tmp_path: Path) -> None:

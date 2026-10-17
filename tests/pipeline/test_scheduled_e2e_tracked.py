@@ -34,7 +34,7 @@ UNIT = f"{NAME}/1"
 def installation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **limits: int
 ) -> tuple[Installation, UnitStore, Builder]:
-    """`app`, due, and `platform`, scheduled `off`; `app` has a e2e-test unit that has merged.
+    """`app`, due, and `platform`, scheduled `off`; `app` has an e2e-test unit that has merged.
     The builder ends the scheduled unit satisfied, as a passing run does."""
     inst = planning(tmp_path, {"app": None, "platform": "off"}, project_limits=limits)
     store = UnitStore(inst.state_dir / "units.json")

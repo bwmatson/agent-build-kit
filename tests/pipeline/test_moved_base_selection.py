@@ -10,7 +10,6 @@ words, so the order of what ran reads as a list.
 
 from __future__ import annotations
 
-import importlib
 import subprocess
 import sys
 from pathlib import Path
@@ -21,13 +20,7 @@ from agent_build_kit.config import ProjectConfig, RepoConfig
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.wiring import build_unit_test
 from tests.conftest import make_installation
-from tests.moved_base_fakes import Profile, moved
-
-# The module that owns this helper is renamed by a later slice of the test-kind rename; its old
-# name is built in pieces so the guard does not take it for a leftover.
-affected_lines = importlib.import_module(
-    "tests.pipeline.test_" + "tier" + "1_affected_python"
-).affected_lines
+from tests.moved_base_fakes import Profile, affected_lines, moved
 
 LINE = "moved base:"
 OWN_TEST = "def test_six():\n    assert True\n"

@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from agent_build_kit.compat_names import old_spelling
+from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline.e2e_schedule import (
     any_due,
     is_scheduled,
@@ -11,9 +13,12 @@ from agent_build_kit.pipeline.e2e_schedule import (
 )
 from tests.e2e_schedule_fakes import TODAY, planning, store_of
 
+OLD = old_spelling(TestTier.E2E_TEST)
+OLD_PREFIX = f"scheduled-{OLD}"
+
 
 def test_the_old_and_the_new_prefix_both_mark_a_scheduled_change() -> None:
-    assert is_scheduled("scheduled-e2e-app-2026-03-10-rest")
+    assert is_scheduled(f"{OLD_PREFIX}-app-2026-03-10-rest")
     assert is_scheduled("scheduled-e2e-app-2026-03-10-rest")
 
 
@@ -22,30 +27,33 @@ def test_an_ordinary_change_is_not_scheduled() -> None:
 
 
 def test_the_old_name_gives_the_same_date_and_split_as_the_new_one() -> None:
-    old = scheduled_parts("scheduled-e2e-app-2026-03-10-acp", "app", ("acp", "rest"))
+    old = scheduled_parts(f"{OLD_PREFIX}-app-2026-03-10-acp", "app", ("acp", "rest"))
     new = scheduled_parts("scheduled-e2e-app-2026-03-10-acp", "app", ("acp", "rest"))
 
     assert old == new == (TODAY, "acp")
 
 
 def test_a_repo_whose_name_holds_an_old_spelling_reads_back_as_written() -> None:
-    name = scheduled_name("e2e-api", TODAY, "rest")
+    repo = f"{OLD}-api"
+    name = scheduled_name(repo, TODAY, "rest")
 
-    assert scheduled_parts(name, "e2e-api", ("rest",)) == (TODAY, "rest")
+    assert scheduled_parts(name, repo, ("rest",)) == (TODAY, "rest")
     assert is_scheduled(name)
 
 
 def test_the_old_prefix_over_such_a_repo_reads_the_same() -> None:
-    name = f"scheduled-e2e-e2e-api-{TODAY.isoformat()}-rest"
+    repo = f"{OLD}-api"
+    name = f"{OLD_PREFIX}-{repo}-{TODAY.isoformat()}-rest"
 
-    assert scheduled_parts(name, "e2e-api", ("rest",)) == (TODAY, "rest")
+    assert scheduled_parts(name, repo, ("rest",)) == (TODAY, "rest")
     assert is_scheduled(name)
 
 
 def test_a_split_whose_name_holds_an_old_spelling_is_kept() -> None:
-    name = scheduled_name("app", TODAY, "unit-test")
+    split = old_spelling(TestTier.UNIT_TEST)
+    name = scheduled_name("app", TODAY, split)
 
-    assert scheduled_parts(name, "app", ("unit-test", "rest")) == (TODAY, "unit-test")
+    assert scheduled_parts(name, "app", (split, "rest")) == (TODAY, split)
 
 
 def test_an_open_old_named_change_makes_a_round_say_it_exists_and_write_nothing(
@@ -53,7 +61,7 @@ def test_an_open_old_named_change_makes_a_round_say_it_exists_and_write_nothing(
 ) -> None:
     inst = planning(tmp_path)
     store = store_of(inst, "app")
-    old = f"scheduled-e2e-app-{TODAY.isoformat()}-rest"
+    old = f"{OLD_PREFIX}-app-{TODAY.isoformat()}-rest"
     (inst.changes_dir / old).mkdir(parents=True)
     said: list[str] = []
 
@@ -69,7 +77,7 @@ def test_an_archived_old_named_change_dated_today_leaves_the_split_not_due(
 ) -> None:
     inst = planning(tmp_path)
     store = store_of(inst, "app")
-    old = f"scheduled-e2e-app-{TODAY.isoformat()}-rest"
+    old = f"{OLD_PREFIX}-app-{TODAY.isoformat()}-rest"
     (inst.changes_dir / "archive" / f"{TODAY.isoformat()}-{old}").mkdir(parents=True)
 
     assert write_due(inst, store, today=TODAY, say=lambda line: None) == []
