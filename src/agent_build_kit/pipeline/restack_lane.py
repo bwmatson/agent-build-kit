@@ -14,7 +14,7 @@ import hashlib
 import json
 import os
 import threading
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Mapping
 from concurrent.futures import Future
 from datetime import datetime
 from pathlib import Path
@@ -27,7 +27,7 @@ from agent_build_kit.pipeline.events import Claim
 from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.shell import git
-from agent_build_kit.pipeline.unit_store import Cause, StoredUnit
+from agent_build_kit.pipeline.unit_store import Cause, FeedbackSource, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     IN_REVIEW,
     PLANNED,
@@ -39,7 +39,7 @@ from agent_build_kit.pipeline.units import (
     project_key,
     waiting_on,
 )
-from agent_build_kit.pipeline.wiring import is_ancestor
+from agent_build_kit.pipeline.wiring import branch_commits, is_ancestor
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_held, process_alive
 
 Move = Callable[[StoredUnit], None]
@@ -54,6 +54,8 @@ RECORD_GLOB = "restacks*.json"
 
 OWED_STATES = (PLANNED, RUNNING, IN_REVIEW)
 OWED_CAUSES = (Cause.BASE_CHANGED, Cause.RESTACK_DEFERRED)
+# The causes of a unit owed a moved-base run: a restack is owed for the first two only.
+MOVED_BASE_CAUSES = (*OWED_CAUSES, Cause.RESTACK_CONFLICT, Cause.RESTACK_HANDED_BACK)
 
 
 def owed_a_restack(
@@ -77,21 +79,105 @@ def owed_a_restack(
     )
 
 
+def _branch_of(unit: StoredUnit) -> str:
+    return unit.branch or branch_name(unit)
+
+
+def _branch_head(checkouts: Mapping[str, Path], unit: StoredUnit) -> str:
+    """The commit the unit's branch is at, empty when the checkout or the branch is missing."""
+    repo = checkouts[unit.repo]
+    if not repo.is_dir():
+        return ""
+    return git(
+        repo, "rev-parse", "--verify", "--quiet", _branch_of(unit), check=False
+    ).stdout.strip()
+
+
+def _answered(unit: StoredUnit, head: str) -> bool:
+    """Whether review has approved the branch's head, so saved feedback has been answered."""
+    return bool(unit.approved) and unit.approved == head
+
+
+def _rework_input(unit: StoredUnit) -> bool:
+    """Whether the unit's saved feedback is something other than the conflict's."""
+    return bool(unit.feedback) and unit.feedback_source is not FeedbackSource.CONFLICT
+
+
+def owed_a_moved_base_run(
+    unit: StoredUnit,
+    graph: list[StoredUnit],
+    *,
+    has_commits: Callable[[StoredUnit], bool],
+    head: Callable[[StoredUnit], str],
+    held: Callable[[StoredUnit], bool],
+    leased: Callable[[StoredUnit], bool],
+) -> bool:
+    """Whether `unit` is owed a moved-base run: it has commits, nothing holds it or it waits
+    on, its cause is a moved base or a conflict sent back, and it has no rework input of
+    its own (feedback that review has approved over is answered, the conflict's is not input)."""
+    sent_back_by_conflict = (
+        unit.cause is Cause.REWORK and unit.feedback_source is FeedbackSource.CONFLICT
+    )
+    return (
+        unit.state in (PLANNED, IN_REVIEW)
+        and (unit.cause in MOVED_BASE_CAUSES or sent_back_by_conflict)
+        and not waiting_on(unit, graph)
+        and not leased(unit)
+        and not held(unit)
+        and has_commits(unit)
+        and not (_rework_input(unit) and not _answered(unit, head(unit)))
+    )
+
+
+def clear_answered_feedback(store: UnitStore, unit: StoredUnit, head: str) -> None:
+    """As a moved-base run starts, drop the feedback review has approved over, so `prepare`
+    does not route to `rework` for it."""
+    if _rework_input(unit) and _answered(unit, head):
+        store.set_feedback(unit.id, "")
+
+
+def moved_base_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
+    """The ids of the units owed a moved-base run, read from the repositories' branches."""
+    leases = Leases(lease_dir(inst.state_dir))
+    heads: dict[str, str] = {}
+
+    def head_of(unit: StoredUnit) -> str:
+        if unit.id not in heads:
+            heads[unit.id] = _branch_head(inst.checkouts, unit)
+        return heads[unit.id]
+
+    def has_commits(unit: StoredUnit) -> bool:
+        if not head_of(unit):
+            return False
+        base = local_ref(base_of(unit, units), repo=unit.repo)
+        try:
+            return branch_commits(inst.checkouts[unit.repo], base, _branch_of(unit)) > 0
+        except Exception:  # noqa: BLE001 — an unresolvable ref is no commits, for a scan
+            return False
+
+    return {
+        unit.id
+        for unit in units
+        if owed_a_moved_base_run(
+            unit,
+            units,
+            has_commits=has_commits,
+            head=head_of,
+            held=lambda unit: branch_held(_branch_of(unit), root=inst.state_dir / "locks"),
+            leased=lambda unit: leases.holder(unit.id) is not None,
+        )
+    }
+
+
 def owed_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
     """The ids of the units owed a restack, read from the repositories' branches."""
     leases = Leases(lease_dir(inst.state_dir))
     checkouts = inst.checkouts
 
-    def branch_of(unit: StoredUnit) -> str:
-        return unit.branch or branch_name(unit)
-
     def holds_base(unit: StoredUnit) -> bool:
         repo = checkouts[unit.repo]
-        branch = branch_of(unit)
-        if (
-            not repo.is_dir()
-            or git(repo, "rev-parse", "--verify", "--quiet", branch, check=False).returncode
-        ):
+        branch = _branch_of(unit)
+        if not _branch_head(checkouts, unit):
             return True  # No branch yet: there is nothing to move.
         base = local_ref(base_of(unit, units), repo=unit.repo)
         return is_ancestor(repo, base, branch)
@@ -103,7 +189,7 @@ def owed_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
             unit,
             units,
             holds_base=holds_base,
-            held=lambda unit: branch_held(branch_of(unit), root=inst.state_dir / "locks"),
+            held=lambda unit: branch_held(_branch_of(unit), root=inst.state_dir / "locks"),
             leased=lambda unit: leases.holder(unit.id) is not None,
         )
     }

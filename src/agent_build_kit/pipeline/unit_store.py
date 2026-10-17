@@ -89,6 +89,7 @@ class Cause(StrEnum):
     RELEASED = "released"
     RESTACK_CONFLICT = "restack_conflict"
     RESTACK_DEFERRED = "restack_deferred"
+    RESTACK_HANDED_BACK = "restack_handed_back"
     DIRTY_WORKTREE = "dirty_worktree"
     ATTACHED = "attached"
     ADOPTED = "adopted"
@@ -237,6 +238,8 @@ class StoredUnit(Unit):
     # stack; empty when it did, or was never asked. Advisory: nothing reads it
     # to decide anything.
     stack_refusal: str = ""
+    # Whether the restack lane is making this unit's whole run (see `moved_base_units`).
+    moved_base_run: bool = False
     # Why the unit is held (see `HeldBy`).
     held_by: HeldBy = HeldBy.NONE
     # The branch a unit held for depth is still on.
@@ -565,6 +568,7 @@ class UnitStore:
                 stack_refusal=existing.stack_refusal if existing else "",
                 held_by=existing.held_by if existing else HeldBy.NONE,
                 held_base=existing.held_base if existing else "",
+                moved_base_run=existing.moved_base_run if existing else False,
                 history=existing.history if existing else ({"state": PLANNED, "at": _now()},),
             )
             if existing and not existing.unstarted:
@@ -790,6 +794,8 @@ class UnitStore:
                 "pr": pr if pr is not None else unit.pr,
                 "branch": branch if branch is not None else unit.branch,
                 "held_by": held_by if state == HELD else HeldBy.NONE,
+                # The lane's run of the unit lasts while it is running.
+                "moved_base_run": unit.moved_base_run and state == RUNNING,
                 "held_base": held_base if state == HELD else "",
                 # The step belongs to the failure or parking it describes (recorded just
                 # before it); any other state forgets it.
@@ -883,6 +889,10 @@ class UnitStore:
             feedback_from_person=from_person and bool(feedback),
             feedback_source=source if feedback else FeedbackSource.NONE,
         )
+
+    def set_moved_base_run(self, unit_id: str, flag: bool) -> None:
+        """Whether the restack lane is making the unit's whole run."""
+        self._update(unit_id, moved_base_run=flag)
 
     def set_guidance(self, unit_id: str, guidance: str) -> None:
         """A person's note for the next prompt, or `""` once a run has acted on it."""
