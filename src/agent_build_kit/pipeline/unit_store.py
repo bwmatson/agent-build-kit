@@ -572,6 +572,11 @@ class UnitStore:
                 stack_refusal=existing.stack_refusal if existing else "",
                 held_by=existing.held_by if existing else HeldBy.NONE,
                 held_base=existing.held_base if existing else "",
+                # What a parked unit waits on survives a replan and a demotion.
+                parked_splits=existing.parked_splits if existing else [],
+                parked_sha=existing.parked_sha if existing else "",
+                parked_snapshot=existing.parked_snapshot if existing else "",
+                parked_attempts=existing.parked_attempts if existing else 0,
                 moved_base_run=existing.moved_base_run if existing else False,
                 history=existing.history if existing else ({"state": PLANNED, "at": _now()},),
             )

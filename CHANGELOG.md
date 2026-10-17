@@ -5,6 +5,10 @@
 - The unit graph page draws a repo that has several projects with a nested subgraph for
   each project that has a unit in view, and the legend says so. A repo with one project
   is drawn exactly as before.
+- A unit parked on a held tier 2 split, planned or unplanned, no longer takes one of the
+  places under `max_units_in_progress` whatever its cause field says, and `abk status` lists
+  it as parked. A replan now keeps what a unit is parked on, so it can no longer be released
+  while the split is still held. A parked unit the plan dropped is left alone on release.
 
 - A tick that builds nothing now says why: after `nothing ready to build` it prints a
   line for each planned, held or failed unit with its wait reason and what it waits on
