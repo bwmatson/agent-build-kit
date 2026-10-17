@@ -81,7 +81,7 @@ Before the seam, each of these built its own `claude` argv:
 | Site | What it ran | What was Claude-Code-specific about it |
 |---|---|---|
 | `pipeline/wiring.py` `build_run`/`build_run_review` | build, review, rework-review | `--add-dir`, `--settings` (hook), `--allowedTools`/`--disallowedTools`, `--permission-mode acceptEdits`, `--model`, streamed via `--output-format stream-json` |
-| `pipeline/planner.py` | the planning graph call | plain `claude -p ... --output-format stream-json --verbose` (a recorded call streams, for its usage); no `--permission-mode`, no cwd, no tool policy, no injected executor shared with anything else |
+| `pipeline/planner.py` | the planning graph call | a plain `claude` call that reads the prompt on standard input, with `--output-format stream-json --verbose` (a recorded call streams, for its usage); no `--permission-mode`, no cwd, no tool policy, no injected executor shared with anything else |
 | `pipeline/restack.py` `claude_resolver` | conflict resolution edit | `--allowedTools` only — no `--permission-mode` (it edits because its tool list says so), no model, no commit — a narrower Claude Code call than the others, built independently |
 | `tracks/runner.py` | health/improve/recommend/implement tracks | `--worktree`, `--add-dir`, `--permission-mode acceptEdits`, `--allowedTools`/`--disallowedTools`, `--model`, `--output-format stream-json --verbose` |
 | `init/research.py` `research` | writes the toolchain recommendations doc | `--allowedTools` (web access), `--output-format stream-json --verbose`; no `--permission-mode` |
@@ -100,7 +100,7 @@ one unless a test injects another:
 | Site | Where its request is built |
 |---|---|
 | build, review, rework-review | `pipeline/wiring.py` `build_run` (`build_run_review` wraps it); `runtime=` injects. `build_run` takes the model per call, and the graph nodes pick it: the implement model for `tests`, `implement` and `fix_checks` (the model the build session began on), the rework model for `rework`, `restack` and `adapt`; a node that continues a session runs on the model that session recorded |
-| the planning graph call | `pipeline/planner.py` `_ask`; `plan_round(runtime=...)` injects |
+| the planning graph call | `pipeline/planner.py` `_ask`; `plan_round(runtime=...)` injects; a prompt over the transport's safe size fails the planning attempt, naming the size of each part |
 | conflict resolution | in a run, `prepare`'s restack resolves through `build_run` as node `restack`, in the build session, on the rework model (or the model the session recorded); the stack-move handler uses `pipeline/restack.py` `claude_resolver` (`runtime=` injects), whose second call continues the first call's session; a refusal is re-raised by `move_branch_onto` rather than read as a conflict |
 | the scheduled tracks | `tracks/runner.py` `claude_phase`; `runtime=` injects (through `run_track`, each track and `claude_phase`), and a refusal is logged and fails the phase rather than raising |
 | research | `init/research.py` `research` |
@@ -109,6 +109,19 @@ one unless a test injects another:
 
 `init/claude_call.py` now only resolves which runtime an init step uses
 (`runtime_for`) and turns a failed result into an error (`succeeded`).
+
+## How a prompt reaches the agent
+
+A runtime declares a `prompt_transport`, one of three: `argument` (one element of the
+command line), `stdin` (the process reads it on its standard input) or `protocol` (a message of
+the agent protocol). Claude Code declares `stdin` and never puts the prompt in its argument
+list; ACP declares `protocol`. One check in `runtimes/base.py` (`check_prompt_size`) holds every
+request to the safe size of its transport, counted in bytes of UTF-8: 100,000 for `argument`,
+2,000,000 for `stdin` and `protocol`. A prompt over it fails before any process starts, with a
+message naming the call, the size, the limit and the transport. A command set as
+`runtimes.claude_code.command` must pass its standard input on to `claude`, or the prompt
+never arrives. Fixed one-line probes (the login refresh, the doctor's reply check) keep their
+short prompt as an argument.
 
 ## The protocol
 

@@ -2951,11 +2951,16 @@ def plan_all(
         # never merge, but their groups are as done as a merged unit's.
         # Planned units of other changes too: the unstarted ones are what the
         # planner may join this change's groups to, or join to each other.
+        # Merged and satisfied units of other changes are in the trunk and cannot affect a
+        # plan: they are counted in one line, not listed.
+        landed = {MERGED, SATISFIED}
         context = [
             in_flight_item(u)
             for u in store.all()
-            if u.state in _STARTED or (u.state == PLANNED and u.change != change)
+            if (u.state in _STARTED and (u.state not in landed or u.change == change))
+            or (u.state == PLANNED and u.change != change)
         ]
+        omitted = sum(1 for u in store.all() if u.state in landed and u.change != change)
         # Once a round: the plan check, the prompt and the figures stored all use one set.
         units = store.all()
         ratios = calibrations(units)
@@ -2981,6 +2986,7 @@ def plan_all(
                 },
                 changes={change: tasks.read_text()},
                 in_flight=context,
+                omitted=omitted,
                 groups=task_groups,
                 built=built,
                 # Units the store already has: a dependency naming one of

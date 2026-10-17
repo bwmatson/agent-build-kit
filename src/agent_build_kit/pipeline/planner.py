@@ -49,7 +49,7 @@ from agent_build_kit.pipeline.work_graph import (
     split_repo_tag,
 )
 from agent_build_kit.runtimes import AgentRequest
-from agent_build_kit.runtimes.base import AgentRuntime
+from agent_build_kit.runtimes.base import AgentRuntime, PromptTooLarge, check_prompt_size
 
 RunClaude = Callable[[str], str]
 
@@ -760,14 +760,34 @@ def build_prompt(
     in_flight: list[dict],
     calibrations: Mapping[Kind, Calibration] | None = None,
     examples: Mapping[Kind, Sequence[StoredUnit]] | None = None,
+    omitted: int = 0,
 ) -> str:
+    return _prompt_and_parts(changes, in_flight, calibrations, examples, omitted)[0]
+
+
+def omitted_line(count: int) -> str:
+    """The one line that stands for the landed units of other changes left out of the list."""
+    return f"{count} merged or satisfied units of other changes are in the trunk and omitted"
+
+
+def _prompt_and_parts(
+    changes: dict[str, str],
+    in_flight: list[dict],
+    calibrations: Mapping[Kind, Calibration] | None,
+    examples: Mapping[Kind, Sequence[StoredUnit]] | None,
+    omitted: int,
+) -> tuple[str, dict[str, int]]:
+    """The prompt, and the size in bytes of the parts a person can cut."""
     changes_text = (
         "\n\n".join(
             f"### {name}\n{_mark_built(name, tasks, in_flight)}" for name, tasks in changes.items()
         )
         or "(none)"
     )
-    in_flight_text = "\n".join(_in_flight_line(item) for item in in_flight) or "(none)"
+    lines = [_in_flight_line(item) for item in in_flight]
+    if omitted:
+        lines.append(omitted_line(omitted))
+    in_flight_text = "\n".join(lines) or "(none)"
 
     workspace = active()
     repos = list(workspace.repos)
@@ -779,7 +799,9 @@ def build_prompt(
     for name, repo in workspace.repos.items():
         if repo.consumes:
             relationships += f"\n\n{name} consumes {', '.join(repo.consumes)}."
-    return PROMPT.format(
+    relationships = relationships.strip() or "(independent)"
+    calibration = _calibration_section(calibrations, examples)
+    prompt = PROMPT.format(
         repos=", ".join(repos) or "(none configured)",
         example_repo=repos[0] if repos else "repo",
         tiers=", ".join(TEST_KIND_TAGS),
@@ -787,26 +809,44 @@ def build_prompt(
         old_e2e=OLD_E2E,
         min_lines=workspace.global_limits.min_unit_lines,
         max_lines=workspace.global_limits.max_unit_lines,
-        relationships=relationships.strip() or "(independent)",
-        calibration=_calibration_section(calibrations, examples),
+        relationships=relationships,
+        calibration=calibration,
         join_raw=_join_raw(calibrations, examples),
         changes=changes_text,
         in_flight=in_flight_text,
     )
+    parts = {
+        "tasks.md": len(changes_text.encode()),
+        "relationships": len(relationships.encode()),
+        "calibration": len(calibration.encode()),
+        "in-flight list": len(in_flight_text.encode()),
+    }
+    return prompt, {"template": len(prompt.encode()) - sum(parts.values()), **parts}
 
 
-def _ask(prompt: str, runtime: AgentRuntime | None, change: str = "") -> str:
+def _ask(
+    prompt: str,
+    runtime: AgentRuntime | None,
+    change: str = "",
+    parts: Mapping[str, int] | None = None,
+) -> str:
     """The graph call: no worktree and no tools, answered from the prompt
     alone. A refusal raises as it does for any run; any other failed run
-    fails the attempt on what the runtime said, never read as a plan."""
+    fails the attempt on what the runtime said, never read as a plan. A prompt over the
+    runtime's safe size fails before the request is made, naming the size of each part."""
     agent = runtime or runtimes.active()
     request = recorded(
-        AgentRequest(prompt=prompt, permission_mode="allowed_tools_only"),
+        AgentRequest(prompt=prompt, permission_mode="allowed_tools_only", change=change),
         agent,
         node=OverheadNode.PLAN,
         change=change,
         say=print,
     )
+    try:
+        check_prompt_size(request, agent.prompt_transport)
+    except PromptTooLarge as error:
+        sizes = "".join(f"\n  {name}: {size} bytes" for name, size in (parts or {}).items())
+        raise PlannerError(f"{error}{sizes}") from error
     result = agent.run(request)
     if not result.ok:
         raise PlannerError(f"the graph call failed: {result.error}")
@@ -825,6 +865,7 @@ def plan_round(
     examples: Mapping[Kind, Sequence[StoredUnit]] | None = None,
     run_claude: RunClaude | None = None,
     runtime: AgentRuntime | None = None,
+    omitted: int = 0,
 ) -> Plan:
     """Ask for a graph and return it, or raise `PlannerError`.
 
@@ -832,9 +873,11 @@ def plan_round(
     Joins the planner proposes are checked against `context` and returned with
     the units; a caller that passes no `context` accepts none.
     """
-    prompt = build_prompt(changes, in_flight, calibrations, examples)
+    prompt, parts = _prompt_and_parts(changes, in_flight, calibrations, examples, omitted)
     answer = (
-        run_claude(prompt) if run_claude else _ask(prompt, runtime, change=next(iter(changes), ""))
+        run_claude(prompt)
+        if run_claude
+        else _ask(prompt, runtime, change=next(iter(changes), ""), parts=parts)
     )
     return parse_plan(
         answer,
