@@ -295,7 +295,7 @@ def status_lines(
     notes and causes. `upsert` drops a unit's state, branch and pull request, so those are
     recorded after it; `limit` is `project_limits.max_units_in_progress` and `repos` the
     workspace's repos."""
-    overrides: dict = (
+    overrides: dict[str, object] = (
         {} if limit is None else dict(project_limits=dict(max_units_in_progress=limit))
     )
     if repos is not None:
