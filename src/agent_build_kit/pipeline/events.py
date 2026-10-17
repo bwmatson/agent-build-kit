@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import json
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -1516,14 +1516,22 @@ def _read_base_tip(base_tip: Callable[[StoredUnit], str], unit: StoredUnit, log:
         return None
 
 
+def read_base_tip(
+    checkouts: Mapping[str, Path], unit: StoredUnit, units: Sequence[StoredUnit]
+) -> str:
+    """The commit of the unit's own base, the trunk's remote ref for a unit built on it and
+    its parent's branch for a stacked one, in the unit's repo checkout; raises when it cannot
+    be read. The one reading of a tip, so the conflict handler's attempts and the restack
+    lane's are counted at the same commit."""
+    base = local_ref(base_of(unit, units), repo=unit.repo)
+    return git(checkouts[unit.repo], "rev-parse", base).stdout.strip()
+
+
 def build_base_tip(store: UnitStore, checkouts: dict[str, Path]) -> Callable[[StoredUnit], str]:
-    """What `on_conflict` reads as a unit's base tip: the commit of the unit's own base, the
-    trunk's remote ref for a unit built on it and its parent's branch for a stacked one, in
-    the unit's repo checkout."""
+    """What `on_conflict` reads as a unit's base tip (see `read_base_tip`)."""
 
     def base_tip(unit: StoredUnit) -> str:
-        base = local_ref(base_of(unit, store.all()), repo=unit.repo)
-        return git(checkouts[unit.repo], "rev-parse", base).stdout.strip()
+        return read_base_tip(checkouts, unit, store.all())
 
     return base_tip
 
@@ -1575,6 +1583,14 @@ def _hold_conflict(
     why = "the last move changed nothing" if unchanged else "the host still reports a conflict"
     phrase = conflict_phrase(unit, base_of(unit, store.all()), since)
     note = f"{phrase} (base tip {tip[:12]}): {why}"
+    hold_for_conflict(unit, store, note, log, label=f"conflict #{unit.pr}")
+
+
+def hold_for_conflict(
+    unit: StoredUnit, store: UnitStore, note: str, log: Log, *, label: str
+) -> None:
+    """Hold, for a person, a unit whose attempts at a conflict did not settle it (freed by
+    `abk release`): the one hold of the conflict handler and the restack lane."""
     store.set_state(
         unit.id,
         HELD,
@@ -1584,7 +1600,7 @@ def _hold_conflict(
         pr=unit.pr,
         branch=unit.branch,
     )
-    log(f"conflict #{unit.pr}: {unit.id} held — {note}")
+    log(f"{label}: {unit.id} held — {note}")
 
 
 def on_rerun_checks(

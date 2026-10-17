@@ -21,13 +21,19 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any
 
+from agent_build_kit.config import active
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
-from agent_build_kit.pipeline.events import Claim
+from agent_build_kit.pipeline.events import Claim, hold_for_conflict, read_base_tip
 from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.shell import git
-from agent_build_kit.pipeline.unit_store import Cause, FeedbackSource, StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import (
+    Cause,
+    FeedbackSource,
+    StoredUnit,
+    UnitStore,
+)
 from agent_build_kit.pipeline.units import (
     IN_REVIEW,
     PLANNED,
@@ -177,9 +183,96 @@ def moved_base_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
     }
 
 
+def base_tip(inst: Installation, unit: StoredUnit, units: list[StoredUnit]) -> str:
+    """The commit the unit's base is at (the conflict handler's reading), empty when it cannot
+    be read: the lane starts no run at a tip it cannot name."""
+    try:
+        return read_base_tip(inst.checkouts, unit, units)
+    except Exception:  # noqa: BLE001 — an unreadable base is an empty tip, for the caller
+        return ""
+
+
+def attempts_at(unit: StoredUnit, tip: str) -> int:
+    """How many attempts, the conflict handler's and the lane's, were made at base tip `tip`."""
+    return unit.conflict_attempts if tip and unit.conflict_tip == tip else 0
+
+
+def record_run_attempt(store: UnitStore, unit: StoredUnit, tip: str) -> None:
+    """That a moved-base run starts: one more attempt at `tip`, with the head pushed now."""
+    store.record_conflict_attempt(
+        unit.id,
+        tip=tip,
+        head=unit.pushed or "",
+        attempts=attempts_at(unit, tip) + 1,
+        at=spans.clock.now(),
+    )
+
+
+def forget_run_attempt(store: UnitStore, before: StoredUnit) -> None:
+    """That the run just recorded never got going: the unit's record is as `before` had it, and
+    the run's resume is the attempt."""
+    if before.conflict_attempts and before.conflict_at is not None:
+        store.record_conflict_attempt(
+            before.id,
+            tip=before.conflict_tip,
+            head=before.conflict_head,
+            attempts=before.conflict_attempts,
+            at=before.conflict_at,
+        )
+    else:
+        store.clear_conflict_attempts(before.id)
+    store.set_moved_base_uncounted(before.id, True)
+
+
+def _last_ended(unit: StoredUnit) -> str:
+    """How the unit's last run ended: the latest record in its history that a run wrote, not
+    the unit's being owed one again (`base_changed`) nor its being started (`running`)."""
+    for entry in reversed(unit.history):
+        cause = Cause(entry["cause"]) if entry.get("cause") else None
+        if entry["state"] != RUNNING and cause is not Cause.BASE_CHANGED:
+            ended = str(entry["state"])
+            return f"{ended} for {cause.value.replace('_', ' ')}" if cause else ended
+    return str(unit.state)
+
+
+def hold_if_spent(
+    inst: Installation,
+    store: UnitStore,
+    unit: StoredUnit,
+    units: list[StoredUnit],
+    log: Callable[[str], None] = print,
+) -> bool:
+    """Hold, for a person, a unit whose attempts at its base's tip are spent, as the conflict
+    handler does; whether it was held. A new tip starts the count at zero."""
+    tip = base_tip(inst, unit, units)
+    done = attempts_at(unit, tip)
+    if done < active().global_limits.max_review_rounds:
+        return False
+    base = base_of(unit, units)
+    note = (
+        f"restack held: {done} attempts at {base}'s tip {tip[:12]} did not settle it; "
+        f"the last ended {_last_ended(unit)}"
+    )
+    hold_for_conflict(unit, store, note, log, label="restack")
+    return True
+
+
+def lane_runs_owed(inst: Installation, units: list[StoredUnit]) -> set[str]:
+    """The units owed a moved-base run that the lane's scan takes: not one it handed back, which a
+    build worker takes from its step until its base moves again, and not one whose base tip
+    cannot be read, which no run can be an attempt at."""
+    by_id = {unit.id: unit for unit in units}
+    return {
+        unit_id
+        for unit_id in moved_base_units(inst, units)
+        if by_id[unit_id].cause is not Cause.RESTACK_HANDED_BACK
+        and base_tip(inst, by_id[unit_id], units)
+    }
+
+
 def owed_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
-    """The ids of the units owed a restack, read from the repositories' branches, and of those
-    whose run the lane was making when it was interrupted."""
+    """The ids of the units owed a restack, read from the repositories' branches, of those
+    whose run the lane was making when it was interrupted, and of those owed a moved-base run."""
     leases = Leases(lease_dir(inst.state_dir))
     checkouts = inst.checkouts
 
@@ -202,7 +295,7 @@ def owed_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
         for unit in units
         if owed_a_restack(unit, units, holds_base=holds_base, held=held, leased=leased)
         or (in_a_lane_run(unit) and not leased(unit) and not held(unit))
-    }
+    } | lane_runs_owed(inst, units)
 
 
 def record_path(state_dir: Path, key: ProjectKey) -> Path:

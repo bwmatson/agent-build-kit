@@ -240,6 +240,9 @@ class StoredUnit(Unit):
     stack_refusal: str = ""
     # Whether the restack lane is making this unit's whole run (see `moved_base_units`).
     moved_base_run: bool = False
+    # Whether that run began and no attempt at its base's tip is recorded for it, because it
+    # stopped before its first agent call: its resume is then the attempt.
+    moved_base_uncounted: bool = False
     # Why the unit is held (see `HeldBy`).
     held_by: HeldBy = HeldBy.NONE
     # The branch a unit held for depth is still on.
@@ -578,6 +581,7 @@ class UnitStore:
                 parked_snapshot=existing.parked_snapshot if existing else "",
                 parked_attempts=existing.parked_attempts if existing else 0,
                 moved_base_run=existing.moved_base_run if existing else False,
+                moved_base_uncounted=existing.moved_base_uncounted if existing else False,
                 history=existing.history if existing else ({"state": PLANNED, "at": _now()},),
             )
             if existing and not existing.unstarted:
@@ -805,6 +809,7 @@ class UnitStore:
                 "held_by": held_by if state == HELD else HeldBy.NONE,
                 # The lane's run of the unit lasts while it is running.
                 "moved_base_run": unit.moved_base_run and state == RUNNING,
+                "moved_base_uncounted": unit.moved_base_uncounted and state == RUNNING,
                 "held_base": held_base if state == HELD else "",
                 # The step belongs to the failure or parking it describes (recorded just
                 # before it); any other state forgets it.
@@ -902,6 +907,10 @@ class UnitStore:
     def set_moved_base_run(self, unit_id: str, flag: bool) -> None:
         """Whether the restack lane is making the unit's whole run."""
         self._update(unit_id, moved_base_run=flag)
+
+    def set_moved_base_uncounted(self, unit_id: str, flag: bool) -> None:
+        """Whether the lane's run of the unit began with no attempt recorded for it."""
+        self._update(unit_id, moved_base_uncounted=flag)
 
     def set_guidance(self, unit_id: str, guidance: str) -> None:
         """A person's note for the next prompt, or `""` once a run has acted on it."""

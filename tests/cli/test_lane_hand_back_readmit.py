@@ -42,3 +42,18 @@ def test_a_pass_starts_a_handed_back_unit_in_a_build_worker_and_the_lane_does_no
     after = graph.store.get(OTHER)
     assert (after.approved, after.pr, after.pushed) == (before.approved, before.pr, before.pushed)
     assert after.state not in (FAILED, HELD)
+
+
+def test_a_unit_handed_back_with_no_feedback_is_not_the_lanes_and_a_build_worker_takes_it(
+    graph: Setup, tmp_path: Path
+) -> None:
+    scene = Scene(graph, tmp_path, tier="e2e-test")
+    scene.told_its_base_moved()
+
+    scene.lane_moves()
+
+    handed_back_at(scene, Node.E2E)
+    assert not graph.store.get(OTHER).feedback, "nothing of its own to rework"
+    assert OTHER not in cli.owed_units(graph.inst, graph.store.all())
+    ready = cli.run_round(graph.inst, graph.store, building=(), only=frozenset(), submit=True)
+    assert [unit.id for unit in ready] == [OTHER]

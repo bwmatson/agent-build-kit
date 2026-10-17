@@ -42,7 +42,10 @@
   usage pause interrupted is resumed by the lane, not offered to a build worker. The lane
   never does ordinary work: a run stops before a rework that answers a reviewer, a fix of
   failing checks or the end-to-end tests, leaves the unit planned with a note naming the step,
-  and a build worker takes it from there.
+  and a build worker takes it from there. Each run the lane starts counts as one attempt at
+  the tip of the unit's base, together with the attempts made for a conflicting pull request;
+  a unit whose attempts at one tip reach `max_review_rounds` is held for a person with a note
+  naming the base, the tip and how the last run ended, and a new tip starts the count again.
 
 - A prompt no longer travels as a command-line argument to Claude Code: it is written to the
   agent's standard input, so a large prompt (a long plan, a big diff) no longer fails with
