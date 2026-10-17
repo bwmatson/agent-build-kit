@@ -206,6 +206,12 @@ class Installation:
         return self.config.project_limits.max_units_in_progress
 
     @property
+    def emergency_extra(self) -> int:
+        """Priority-0 units that may start past the normal limits at once in one project
+        (`project_limits`); 0 is off."""
+        return self.config.project_limits.emergency_extra
+
+    @property
     def stack_depth_build_cap(self) -> int:
         return self.config.global_limits.stack_depth_build_cap
 

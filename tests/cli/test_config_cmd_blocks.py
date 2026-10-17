@@ -31,6 +31,7 @@ def test_both_blocks_are_printed_with_their_defaults(
         "max_units_in_progress": 5,
         "max_concurrent_stacks": 4,
         "max_concurrent_restacks": 2,
+        "emergency_extra": 1,
     }
     assert "max_review_rounds" in shown["global_limits"]
     assert "max_units_in_progress" not in shown["global_limits"]

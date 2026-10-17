@@ -16,7 +16,7 @@ cannot be named here. Given plain `Unit`s they would see no pull request and no 
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Iterable, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from datetime import datetime
 from enum import IntEnum, StrEnum
 from pathlib import Path
@@ -944,6 +944,16 @@ def handoff_units(
     return chosen
 
 
+def emergency_start(unit: Unit, graph: Sequence[Unit], excluded: Collection[str]) -> bool:
+    """Whether a planned unit may start in the emergency lane: it has never started, or waits
+    for room as a new unit does (`_waits_for_room`), and its effective priority is 0, its
+    own or lent by a unit that waits on it. A unit already in progress (a rework, a resume)
+    is not: it draws on no place, and keeps to the workers."""
+    return (not in_progress(unit, graph) or _waits_for_room(unit, graph)) and effective_priority(
+        unit, graph, excluded
+    ) == 0
+
+
 def ready_units(
     graph: Sequence[Unit],
     *,
@@ -951,6 +961,9 @@ def ready_units(
     depth_cap: int,
     max_units_in_progress: int | None = None,
     excluded: Collection[str] = frozenset(),
+    emergency_extra: int = 0,
+    in_lane: Collection[str] = frozenset(),
+    extra_workers: Mapping[ProjectKey, int] | None = None,
 ) -> list[Unit]:
     """The planned units that may start right now, in the order to start them.
 
@@ -978,6 +991,14 @@ def ready_units(
     their own planned position. A handoff unit never goes ahead of a more urgent
     one; it still takes the place a blocked unit frees when nothing more urgent can.
     `excluded` names the units the round leaves out, which lend no priority to what they wait on.
+
+    A unit that could start (`emergency_start`) with priority 0 starts even where the project
+    is full, in places or in workers, while the units of the project's emergency lane
+    (`in_lane`, the ids; one still in progress uses the lane) number fewer than
+    `emergency_extra`. It takes no place or worker from the count of the units after it, and
+    the lane's units count as in progress and running for the units that have never started,
+    so ordinary starts wait; a unit already started is held to the workers without them.
+    `extra_workers` adds workers to `max_concurrent` for the projects it names and no other.
     """
     running = count_by_project(graph, lambda unit: unit.state == RUNNING)
 
@@ -1002,18 +1023,28 @@ def ready_units(
     handed_off = {unit.id for unit in handoff_units(ready, graph, excluded)}
     ordered = sorted(ready, key=lambda unit: _start_key(unit, graph, excluded, handed_off))
 
+    lane_use = count_by_project(graph, lambda unit: unit.id in in_lane and in_progress(unit, graph))
+    lane_running = count_by_project(
+        graph, lambda unit: unit.id in in_lane and unit.state == RUNNING
+    )
     started: list[Unit] = []
     taken: dict[ProjectKey, int] = {}
     drawn: dict[ProjectKey, int] = {}
     for unit in ordered:
         key = project_key(unit)
-        if running.get(key, 0) + taken.get(key, 0) >= max_concurrent:
-            continue
-        if max_units_in_progress is not None and (
-            not in_progress(unit, graph) or _waits_for_room(unit, graph)
+        new = not in_progress(unit, graph) or _waits_for_room(unit, graph)
+        draws = max_units_in_progress is not None and new
+        # A unit already started is held to the workers the lane's units leave.
+        busy = running.get(key, 0) - (0 if new else lane_running.get(key, 0))
+        room = max_concurrent + (extra_workers or {}).get(key, 0)
+        if busy + taken.get(key, 0) >= room or (
+            draws and counted.get(key, 0) + drawn.get(key, 0) >= (max_units_in_progress or 0)
         ):
-            if counted.get(key, 0) + drawn.get(key, 0) >= max_units_in_progress:
-                continue
+            if lane_use.get(key, 0) < emergency_extra and emergency_start(unit, graph, excluded):
+                lane_use[key] = lane_use.get(key, 0) + 1
+                started.append(unit)
+            continue
+        if draws:
             drawn[key] = drawn.get(key, 0) + 1
         taken[key] = taken.get(key, 0) + 1
         started.append(unit)

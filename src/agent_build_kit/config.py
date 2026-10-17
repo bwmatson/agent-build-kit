@@ -484,9 +484,16 @@ class ProjectLimitsConfig(Frozen):
     # (finishing, rework, resuming, a further review round) still runs.
     max_units_in_progress: Annotated[int, Field(ge=1)] = 5
 
+    # The cap on priority-0 units started past the normal limits at once; 0 is off.
+    emergency_extra: Annotated[int, Field(ge=0)] = 1
+
 
 # The scheduling settings that moved from the limits block to `project_limits`.
-MOVED_TO_PROJECT_LIMITS = tuple(ProjectLimitsConfig.model_fields)
+MOVED_TO_PROJECT_LIMITS = (
+    "max_units_in_progress",
+    "max_concurrent_stacks",
+    "max_concurrent_restacks",
+)
 
 
 class WaitEndRequeue(StrEnum):
@@ -1510,6 +1517,13 @@ def _refuse_moved_settings(document: dict[str, Any]) -> None:
             if name in block:
                 raise ValueError(
                     f"{key}.{name}: moved to project_limits.{name}; `abk config --migrate` moves it"
+                )
+        # A project setting that never lived there: refused with where it belongs, and no
+        # migration to offer.
+        for name in ProjectLimitsConfig.model_fields.keys() - set(MOVED_TO_PROJECT_LIMITS):
+            if name in block:
+                raise ValueError(
+                    f"{key}.{name}: a project setting, set it in project_limits.{name}"
                 )
 
 

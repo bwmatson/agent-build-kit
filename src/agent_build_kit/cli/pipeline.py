@@ -46,6 +46,7 @@ from agent_build_kit.notify.reconcile import reconcile as reconcile_notification
 from agent_build_kit.notify.store import NotificationStore
 from agent_build_kit.pipeline import (
     diagram,
+    emergency_lane,
     environment,
     landing_intent,
     network_probe,
@@ -222,6 +223,7 @@ from agent_build_kit.pipeline.units import (
     dependency_wait,
     depth_of,
     effective_priority,
+    emergency_start,
     failed_waiting_units,
     group_names,
     handoff_units,
@@ -1575,7 +1577,17 @@ def run_round(
     # One this pass built that an event resumed is started again, within the
     # same budget as a readmission.
     workers = in_flight | held
-    taken = count_by_project(units, lambda unit: unit.id in workers)
+    # The emergency lane's units take no worker of the project's own: a rework or a resume
+    # is held to the workers the lane leaves. A unit in flight is in progress for the record.
+    emergency_lane.prune(
+        inst.state_dir,
+        [
+            unit.model_copy(update={"state": RUNNING}) if unit.id in in_flight else unit
+            for unit in units
+        ],
+    )
+    in_the_lane = emergency_lane.lane_units(inst.state_dir)
+    taken = count_by_project(units, lambda unit: unit.id in workers and unit.id not in in_the_lane)
     # Owed a restack, or in the lane for one: a unit whose branch the lane holds is no longer
     # owed by the branch lock's reading, and a worker started for it would find it claimed.
     owed = owed_units(inst, units) | ({*lane.running, *lane.waiting} if lane else set())
@@ -1589,7 +1601,7 @@ def run_round(
         cap=inst.max_concurrent_stacks,
     )
     resumed = {unit.id for unit in resumable}
-    evaluated, view, _excluded, for_the_lane = _evaluate_round(
+    evaluated, view, _excluded, for_the_lane, lane_starts = _evaluate_round(
         inst,
         units,
         started=set(started),
@@ -1599,6 +1611,9 @@ def run_round(
         owed=owed,
     )
     ready = [*resumable, *evaluated]
+    for unit in evaluated:
+        if unit.id in lane_starts:
+            emergency_lane.enter(inst.state_dir, unit)
     if readmit:
         readmit.charge(ready)
     _record_waits(
@@ -1964,7 +1979,7 @@ def _evaluate(
     idle: Collection[str] = (),
 ) -> list[Unit]:
     """What this pass may start now: `_evaluate_round` without the view it chose from."""
-    ready, _view, _excluded, _for_the_lane = _evaluate_round(
+    ready, _view, _excluded, _for_the_lane, _emergency = _evaluate_round(
         inst,
         units,
         started=started,
@@ -1988,9 +2003,13 @@ def _evaluate_round(
     max_concurrent: int | None = None,
     idle: Collection[str] = (),
     owed: Collection[str] | None = None,
-) -> tuple[list[Unit], list[Unit], frozenset[str], frozenset[str]]:
-    """What this pass may start now, the graph it chose from, the units it left out, and
-    the planned units owed a restack, which wait for the lane's move and for nothing else.
+    emergency_extra: int | None = None,
+) -> tuple[list[Unit], list[Unit], frozenset[str], frozenset[str], frozenset[str]]:
+    """What this pass may start now, the graph it chose from, the units it left out, the
+    planned units owed a restack, which wait for the lane's move and for nothing else, and
+    those of the starts that are the emergency lane's (`emergency_extra`, the project
+    setting when not given): a priority-0 unit started past the places and the workers,
+    which the worker slice does not hold to them.
 
     A unit owed a restack is moved by the lane before a worker builds it, so it is never
     in what may start. It is left in the graph as it is, so every count and every wait
@@ -2039,26 +2058,42 @@ def _evaluate_round(
     for_the_lane = {unit.id for unit in view if unit.state == PLANNED and unit.id in owed}
     # Room for the owed units too, so one that is passed over does not take a slot from another:
     # a project's owed units add to its own cap, and the slice below holds the others to theirs.
-    owed_most = max(
-        count_by_project(view, lambda unit: unit.id in for_the_lane).values(),
-        default=0,
-    )
-    ready = ready_units(
-        view,
-        max_concurrent=cap + owed_most,
-        depth_cap=inst.stack_depth_build_cap,
-        max_units_in_progress=inst.max_units_in_progress if enforce_limit else None,
-        excluded=excluded,
-    )
-    running = count_by_project(view, lambda unit: unit.state == RUNNING)
+    owed_by = count_by_project(view, lambda unit: unit.id in for_the_lane)
+    extra = inst.emergency_extra if emergency_extra is None else emergency_extra
+    lane = emergency_lane.lane_units(inst.state_dir)
+
+    def ready_with(extra: int) -> list[Unit]:
+        return ready_units(
+            view,
+            max_concurrent=cap,
+            extra_workers=owed_by,
+            depth_cap=inst.stack_depth_build_cap,
+            max_units_in_progress=inst.max_units_in_progress if enforce_limit else None,
+            excluded=excluded,
+            emergency_extra=extra,
+            in_lane=lane,
+        )
+
+    ready = ready_with(extra)
+    # What the lane adds to the starts the normal limits give; only a unit that may use it can.
+    in_the_lane: frozenset[str] = frozenset()
+    if any(emergency_start(unit, view, excluded) for unit in ready):
+        normal = {unit.id for unit in ready_with(0)}
+        in_the_lane = frozenset(unit.id for unit in ready if unit.id not in normal)
+    # The lane's units take no worker of the project's own, as in `ready_units`.
+    running = count_by_project(view, lambda unit: unit.state == RUNNING and unit.id not in lane)
     startable = _within_workers(
-        [unit for unit in ready if unit.id not in for_the_lane], running, cap=cap
+        [unit for unit in ready if unit.id not in for_the_lane],
+        running,
+        cap=cap,
+        in_the_lane=in_the_lane,
     )
     return (
         [unit for unit in startable if unit.id not in started],
         view,
         frozenset(excluded),
         frozenset(for_the_lane),
+        in_the_lane,
     )
 
 
@@ -2072,14 +2107,18 @@ def _within_workers[U: Unit](
     taken: Mapping[ProjectKey, int],
     *,
     cap: int,
+    in_the_lane: Collection[str] = (),
 ) -> list[U]:
     """The leading units that fit the free workers of their own project, in order: `cap`
-    workers each, less those in `taken`."""
+    workers each, less those in `taken`. A unit in `in_the_lane` (`_evaluate_round`) is
+    admitted whatever the workers and takes none."""
     chosen: list[U] = []
     added: dict[ProjectKey, int] = {}
     for unit in units:
         key = project_key(unit)
-        if taken.get(key, 0) + added.get(key, 0) < cap:
+        if unit.id in in_the_lane:
+            chosen.append(unit)
+        elif taken.get(key, 0) + added.get(key, 0) < cap:
             added[key] = added.get(key, 0) + 1
             chosen.append(unit)
     return chosen
@@ -2201,7 +2240,7 @@ def _wait_ended_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
 def _ready_queue_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
     """The ready queue in the order the scheduler starts it, with why each unit is where it is."""
     attached = {held.unit_id for held in Leases(lease_dir(inst.state_dir)).attachments()}
-    ready, view, excluded, _for_the_lane = _evaluate_round(
+    ready, view, excluded, _for_the_lane, _emergency = _evaluate_round(
         inst,
         units,
         started=attached,
@@ -2242,7 +2281,7 @@ def _log_ready(
     """
     log(f"ready: {', '.join(unit.id for unit in ready)}")
     units = store.all()
-    queue, view, excluded, _for_the_lane = _evaluate_round(
+    queue, view, excluded, _for_the_lane, _emergency = _evaluate_round(
         inst,
         units,
         started=set(),
@@ -2617,7 +2656,7 @@ def _live_projects(inst: Installation, units: list[StoredUnit]) -> set[ProjectKe
 def _pool_size(inst: Installation, units: list[StoredUnit]) -> int:
     """Threads for every project's build workers together; each project's own count is the only
     limit on what starts."""
-    return inst.max_concurrent_stacks * len(_live_projects(inst, units))
+    return (inst.max_concurrent_stacks + inst.emergency_extra) * len(_live_projects(inst, units))
 
 
 def _refresh(inst: Installation, *, store: UnitStore, lane: Lane | None = None) -> None:
@@ -5144,7 +5183,7 @@ def wait_reasons(
 
     Decided from the facts `_evaluate_round` decides on, so what starts is unchanged:
     a unit it would start is `ready`, one it leaves out is told by what holds it."""
-    ready, view, _excluded, for_the_lane = _evaluate_round(
+    ready, view, _excluded, for_the_lane, _emergency = _evaluate_round(
         inst,
         units,
         started=started,
