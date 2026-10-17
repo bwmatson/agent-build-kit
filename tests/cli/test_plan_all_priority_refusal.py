@@ -8,7 +8,9 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
+from tests.cli.plan_outage_fakes import raises, service
 from tests.cli.replan_driver import OPT_OUT, Replan, answer, planned
+from tests.fake_clock import install
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -128,6 +130,24 @@ def test_a_failed_call_leaves_nothing_to_feed_back(
 
     assert reason
     assert reason not in run.runtime.requests[-1].prompt
+
+
+def test_an_outage_after_a_refusal_leaves_nothing_to_feed_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    install(monkeypatch)
+    run = refused(tmp_path, monkeypatch, capsys)
+    reason = run.records["feature"]["reason"]
+    run.runtime.act = raises(service())
+    assert cli.plan_all(run.inst, store=run.store)["feature"].status == "waiting"
+
+    run.runtime.act = None
+    run.run(capsys, "feature", reply=INVERTED)
+
+    prompt = run.runtime.requests[-1].prompt
+    assert reason
+    assert reason not in prompt
+    assert "Your previous plan was refused" not in prompt
 
 
 def test_a_later_accepted_plan_clears_the_reason(
