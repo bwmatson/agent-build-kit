@@ -13,9 +13,8 @@ tracks (health, improve, recommend) keep watch on the repos in between.
 ## Status
 
 Early. No licence has been granted yet: all rights reserved, and a licence
-will be chosen later. The `python-uv` toolchain profile is implemented; the
-`node-npm` profile is declared but not implemented (see
-[docs/toolchain-profiles.md](docs/toolchain-profiles.md)).
+will be chosen later. Both toolchain profiles, `python-uv` and `node-npm`, are
+implemented (see [docs/toolchain-profiles.md](docs/toolchain-profiles.md)).
 
 ## The shape
 
@@ -165,7 +164,7 @@ Details, arguments and exit codes: [docs/cli.md](docs/cli.md).
 - [docs/architecture.md](docs/architecture.md) — the whole flow, the guards, the state on disk, and why it is shaped this way.
 - [docs/configuration.md](docs/configuration.md) — every `abk.yaml` field with its default, env providers, environment variables.
 - [docs/cli.md](docs/cli.md) — every subcommand.
-- [docs/toolchain-profiles.md](docs/toolchain-profiles.md) — what a profile is, what `python-uv` runs, what `node-npm` still needs.
+- [docs/toolchain-profiles.md](docs/toolchain-profiles.md) — what a profile is, what `python-uv` runs, what `node-npm` runs.
 - [docs/code-forges.md](docs/code-forges.md) — the hosts a repo can live on, what each makes easy to get wrong, and how to add one.
 - [docs/init.md](docs/init.md) — what `abk init` does, step by step.
 - [docs/tracks.md](docs/tracks.md) — the scheduled health/improve/recommend/implement tracks.

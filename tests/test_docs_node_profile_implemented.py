@@ -12,7 +12,9 @@ DOCS = [
     ROOT / "docs" / "configuration.md",
     ROOT / "src" / "agent_build_kit" / "skills" / "abk-config" / "SKILL.md",
 ]
-UNIMPLEMENTED = re.compile(r"declared(?:,|\s+but|\s+and)?\s+(?:and\s+)?not\s+(?:yet\s+)?implemented")
+UNIMPLEMENTED = re.compile(
+    r"declared(?:,|\s+but|\s+and)?\s+(?:and\s+)?not\s+(?:yet\s+)?implemented"
+)
 
 
 def node_section() -> str:

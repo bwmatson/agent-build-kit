@@ -2,7 +2,7 @@
 
 `abk init` detects such repos and writes their specs (research and proposal
 are language-agnostic); `abk tick` holds a unit that reaches a method that raises
-`ProfileUnsupported`, with a log line saying so. Implemented, by method of
+`ProfileUnsupported`, which this profile does not. Implemented, by method of
 `profiles.base.ToolchainProfile`: `npx oxlint` and `npx oxfmt --check` as the lint,
 `npx tsc --noEmit` as the project check, `npx vitest run` with a JUnit report for the
 tests, the clean and red commands, judging a red run, and `.test`/`.spec` files and

@@ -236,7 +236,10 @@ repos:                        # ordered; a task group's [repo] tag is a key here
     relationships: ""         # prose for the planner about the other repos
     tests:
       root_extras: []         # extra packages the repo-root tests need
-      e2e_marker: local_stack    # e2e-test runs in each declared project, as unit-test does, and
+      e2e_marker: local_stack    # for a node project the marker is a file-name segment:
+                                 # `<name>.local_stack.test.ts[x]` (`<name>.<marker>.test.<ext>`)
+                                 # is e2e-test; unmarked `.test.` files are unit-test
+                                 # e2e-test runs in each declared project, as unit-test does, and
                                  # each member from its own directory
                                  # with no path, so the member's pytest config,
                                  # `testpaths` included, decides what is collected
