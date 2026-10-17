@@ -15,7 +15,7 @@ import pytest
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.stack_runner import RunStatus
-from agent_build_kit.pipeline.wiring import build_tier1
+from agent_build_kit.pipeline.wiring import build_unit_test
 from tests.factories import unit
 from tests.fake_clock import START, FakeClock, install, span_lines
 from tests.graph_driver import fresh, tick
@@ -167,8 +167,8 @@ def tier_one_commands(tmp_path: Path, workspace: Installation, clock: FakeClock,
         return subprocess.CompletedProcess(command, 0, "", "")
 
     recorder = fresh(tmp_path)
-    tier1 = build_tier1(run=run, changed=lambda *a: ["tests/test_x.py"])
-    tick(tmp_path, recorder, run_unit_test=tier1, **overrides)
+    unit_test = build_unit_test(run=run, changed=lambda *a: ["tests/test_x.py"])
+    tick(tmp_path, recorder, run_unit_test=unit_test, **overrides)
     return [s for s in span_lines(workspace) if s.get("command")]
 
 
@@ -190,7 +190,7 @@ def test_a_tier_one_command_run_by_the_tier_one_node_carries_that_node(
 
     assert commands
     assert {(s["unit"], s["change"], s["node"], s["round"]) for s in commands} == {
-        ("add-marker/1", unit().change, "tier1", 0)
+        ("add-marker/1", unit().change, "unit-test", 0)
     }
 
 
@@ -206,9 +206,9 @@ def test_a_tier_one_command_that_raises_still_leaves_an_error_span(
         raise TimeoutError("hung")
 
     recorder = fresh(tmp_path)
-    tier1 = build_tier1(run=run, changed=lambda *a: ["tests/test_x.py"])
+    unit_test = build_unit_test(run=run, changed=lambda *a: ["tests/test_x.py"])
     with pytest.raises(TimeoutError):
-        tick(tmp_path, recorder, run_unit_test=tier1)
+        tick(tmp_path, recorder, run_unit_test=unit_test)
 
     (span,) = [s for s in span_lines(workspace) if s.get("command")]
     assert span["outcome"] == "error"

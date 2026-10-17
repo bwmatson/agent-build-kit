@@ -27,7 +27,7 @@ from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, RUNNING, SATISFIED, UnitState
 from agent_build_kit.pipeline.wiring import (
-    Tier2Session,
+    E2eSession,
     branch_commits,
     build_base_moved,
     build_close_pr,
@@ -36,7 +36,7 @@ from agent_build_kit.pipeline.wiring import (
     build_push,
     build_run,
     build_run_review,
-    build_tier1,
+    build_unit_test,
     build_upstream_incomplete,
     head_reachable,
     is_linear,
@@ -147,7 +147,7 @@ def test_tier_one_runs_lint_types_and_tests(tmp_path: Path) -> None:
     (repo / "tests").mkdir(parents=True)
     (repo / "pyproject.toml").write_text("[project]\nname = 'x'\n")
 
-    build_tier1(run=recorder, changed=lambda *a: ["tests/test_x.py"])(cwd=repo, base="main")
+    build_unit_test(run=recorder, changed=lambda *a: ["tests/test_x.py"])(cwd=repo, base="main")
 
     commands = " ".join(" ".join(c) for c in recorder.commands)
     assert "pre-commit" in commands
@@ -157,7 +157,7 @@ def test_tier_one_runs_lint_types_and_tests(tmp_path: Path) -> None:
 def test_tier_one_fails_if_any_step_fails(tmp_path: Path) -> None:
     recorder = Recorder(returncode=1)
 
-    passed, _ = build_tier1(run=recorder, changed=lambda *a: [])(cwd=tmp_path, base="main")
+    passed, _ = build_unit_test(run=recorder, changed=lambda *a: [])(cwd=tmp_path, base="main")
     assert passed is False
 
 
@@ -481,7 +481,9 @@ def test_lint_is_scoped_to_what_the_unit_changed(tmp_path: Path) -> None:
     recorder = Recorder()
     repo = workspace(tmp_path, ["shared"], with_tests=["shared"])
 
-    build_tier1(run=recorder, changed=lambda *a: ["shared/tests/test_x.py"])(cwd=repo, base="main")
+    build_unit_test(run=recorder, changed=lambda *a: ["shared/tests/test_x.py"])(
+        cwd=repo, base="main"
+    )
 
     lint = " ".join(recorder.commands[0])
     assert "--all-files" not in lint
@@ -499,7 +501,7 @@ def test_tests_run_per_workspace_member_the_unit_touched(tmp_path: Path) -> None
         calls.append((command, kwargs.get("cwd")))
         return subprocess.CompletedProcess(command, 0, "", "")
 
-    build_tier1(run=run, changed=lambda *a: ["shared/tests/test_x.py"])(cwd=repo, base="main")
+    build_unit_test(run=run, changed=lambda *a: ["shared/tests/test_x.py"])(cwd=repo, base="main")
 
     tested = [c for c, _ in calls if "pytest" in c]
     assert tested == [["uv", "run", "--package", "shared", "--isolated", "pytest", "shared", "-q"]]
@@ -515,7 +517,7 @@ def test_a_root_change_tests_every_member(tmp_path: Path) -> None:
         calls.append((command, kwargs.get("cwd")))
         return subprocess.CompletedProcess(command, 0, "", "")
 
-    build_tier1(run=run, changed=lambda *a: ["pyproject.toml"])(cwd=repo, base="main")
+    build_unit_test(run=run, changed=lambda *a: ["pyproject.toml"])(cwd=repo, base="main")
 
     tested = sorted(c[c.index("--package") + 1] for c, _ in calls if "pytest" in c)
     assert tested == ["shared", "svc-b"]
@@ -533,7 +535,7 @@ def test_a_plain_repo_still_runs_pytest_at_the_root(tmp_path: Path) -> None:
         calls.append((command, kwargs.get("cwd")))
         return subprocess.CompletedProcess(command, 0, "", "")
 
-    build_tier1(run=run, changed=lambda *a: ["tests/test_x.py"])(cwd=repo, base="main")
+    build_unit_test(run=run, changed=lambda *a: ["tests/test_x.py"])(cwd=repo, base="main")
 
     assert [c for c, _ in calls if "pytest" in c] == [["uv", "run", "pytest", "-q"]]
 
@@ -541,7 +543,7 @@ def test_a_plain_repo_still_runs_pytest_at_the_root(tmp_path: Path) -> None:
 def test_whole_repo_mode_lints_and_tests_everything_regardless_of_the_diff(
     tmp_path: Path,
 ) -> None:
-    """A unit that produced no commits of its own has no diff to scope tier 1
+    """A unit that produced no commits of its own has no diff to scope unit-test
     to: `changed` returning `[]` would otherwise lint an empty range and test
     no member at all, which is an empty-scope pass rather than proof anything
     actually works. `whole_repo=True` has to run a real lint and one test
@@ -553,7 +555,7 @@ def test_whole_repo_mode_lints_and_tests_everything_regardless_of_the_diff(
         calls.append((command, kwargs.get("cwd")))
         return subprocess.CompletedProcess(command, 0, "", "")
 
-    build_tier1(run=run, changed=lambda *a: [])(cwd=repo, base="main", whole_repo=True)
+    build_unit_test(run=run, changed=lambda *a: [])(cwd=repo, base="main", whole_repo=True)
 
     lint = [c for c, _ in calls if "pre-commit" in c][0]
     assert "--all-files" in lint
@@ -572,7 +574,9 @@ def test_whole_repo_mode_still_fails_on_a_failing_member(tmp_path: Path) -> None
     def run(command, **kwargs):
         return subprocess.CompletedProcess(command, 1 if "pytest" in command else 0, "", "")
 
-    passed, _ = build_tier1(run=run, changed=lambda *a: [])(cwd=repo, base="main", whole_repo=True)
+    passed, _ = build_unit_test(run=run, changed=lambda *a: [])(
+        cwd=repo, base="main", whole_repo=True
+    )
 
     assert passed is False
 
@@ -581,7 +585,9 @@ def test_a_failing_member_fails_the_unit(tmp_path: Path) -> None:
     repo = workspace(tmp_path, ["shared"], with_tests=["shared"])
     failing = Recorder(returncode=1)
 
-    passed, _ = build_tier1(run=failing, changed=lambda *a: ["shared/x.py"])(cwd=repo, base="main")
+    passed, _ = build_unit_test(run=failing, changed=lambda *a: ["shared/x.py"])(
+        cwd=repo, base="main"
+    )
     assert passed is False
 
 
@@ -589,7 +595,7 @@ def test_a_failure_names_the_command_that_failed_and_what_it_printed(tmp_path: P
     def run(command, **kwargs):
         return subprocess.CompletedProcess(command, 1, "", "pre-commit: not found")
 
-    passed, output = build_tier1(run=run, changed=lambda *a: [])(cwd=tmp_path, base="main")
+    passed, output = build_unit_test(run=run, changed=lambda *a: [])(cwd=tmp_path, base="main")
 
     assert passed is False
     assert output.startswith("$ uv run pre-commit run --from-ref main --to-ref HEAD")
@@ -607,7 +613,7 @@ def test_a_root_documentation_change_does_not_fan_out(tmp_path: Path) -> None:
         calls.append((command, kwargs.get("cwd")))
         return subprocess.CompletedProcess(command, 0, "", "")
 
-    build_tier1(run=run, changed=lambda *a: ["CLAUDE.md", "svc-a/tests/test_x.py"])(
+    build_unit_test(run=run, changed=lambda *a: ["CLAUDE.md", "svc-a/tests/test_x.py"])(
         cwd=repo, base="main"
     )
 
@@ -620,7 +626,7 @@ def test_tier_one_reports_what_failed_not_just_that_it_did(tmp_path: Path) -> No
     repo = workspace(tmp_path, ["shared"], with_tests=["shared"])
     failing = Recorder(returncode=1, stdout="E   ImportError: cannot import name 'geo'")
 
-    passed, output = build_tier1(run=failing, changed=lambda *a: ["shared/x.py"])(
+    passed, output = build_unit_test(run=failing, changed=lambda *a: ["shared/x.py"])(
         cwd=repo, base="main"
     )
 
@@ -666,7 +672,7 @@ def test_worktrees_live_outside_the_planning_repo(tmp_path: Path) -> None:
 
 def test_a_member_is_named_by_its_package_not_its_directory(tmp_path: Path) -> None:
     """`uv run --package` takes the package name. A `shared/` directory that
-    declares `app-shared` fails tier 1 with "The workspace does not have a
+    declares `app-shared` fails unit-test with "The workspace does not have a
     member shared"; a workspace whose members with tests happen to have
     matching names only works by luck."""
     calls: list[list[str]] = []
@@ -681,7 +687,7 @@ def test_a_member_is_named_by_its_package_not_its_directory(tmp_path: Path) -> N
         calls.append(command)
         return subprocess.CompletedProcess(command, 0, "", "")
 
-    build_tier1(run=run, changed=lambda *a: ["shared/x.py"])(cwd=repo, base="main")
+    build_unit_test(run=run, changed=lambda *a: ["shared/x.py"])(cwd=repo, base="main")
 
     tested = next(c for c in calls if "pytest" in c)
     assert tested[tested.index("--package") + 1] == "app-shared", "the package"
@@ -689,7 +695,7 @@ def test_a_member_is_named_by_its_package_not_its_directory(tmp_path: Path) -> N
 
 
 def test_a_member_with_no_declared_name_falls_back_to_its_directory(tmp_path: Path) -> None:
-    """An unparseable or nameless member should not take tier 1 down with it."""
+    """An unparseable or nameless member should not take unit-test down with it."""
     calls: list[list[str]] = []
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -701,7 +707,7 @@ def test_a_member_with_no_declared_name_falls_back_to_its_directory(tmp_path: Pa
         calls.append(command)
         return subprocess.CompletedProcess(command, 0, "", "")
 
-    build_tier1(run=run, changed=lambda *a: ["odd/x.py"])(cwd=repo, base="main")
+    build_unit_test(run=run, changed=lambda *a: ["odd/x.py"])(cwd=repo, base="main")
 
     tested = next(c for c in calls if "pytest" in c)
     assert tested[tested.index("--package") + 1] == "odd"
@@ -1070,7 +1076,7 @@ def test_tier_two_runs_each_member_on_its_own_as_tier_one_does(tmp_path: Path) -
     no path, so the member's own pytest configuration decides what is collected."""
     from agent_build_kit.profiles.python_uv import PROFILE
 
-    commands = PROFILE.tier2_commands(_workspace(tmp_path), marker="local_stack")
+    commands = PROFILE.e2e_commands(_workspace(tmp_path), marker="local_stack")
 
     assert len(commands) == 2
     for command, member, package in zip(
@@ -1090,7 +1096,7 @@ def test_tier_two_runs_only_the_members_that_have_tests(tmp_path: Path) -> None:
     repo = _workspace(tmp_path)
     (repo / "svc-b" / "tests").rmdir()
 
-    commands = PROFILE.tier2_commands(repo, marker="local_stack")
+    commands = PROFILE.e2e_commands(repo, marker="local_stack")
 
     assert len(commands) == 1
     assert commands[0][commands[0].index("--directory") + 1] == "svc-a"
@@ -1099,13 +1105,13 @@ def test_tier_two_runs_only_the_members_that_have_tests(tmp_path: Path) -> None:
 def test_tier_two_without_members_runs_once_from_the_root(tmp_path: Path) -> None:
     from agent_build_kit.profiles.python_uv import PROFILE
 
-    (command,) = PROFILE.tier2_commands(tmp_path, marker="local_stack")
+    (command,) = PROFILE.e2e_commands(tmp_path, marker="local_stack")
     assert command[:6] == ["uv", "run", "pytest", "-m", "local_stack", "-vv"]
 
 
 def _tier_two_with_stack_versions(
     tmp_path: Path, error: Exception | None, *, stdout: str = "", returncode: int = 0
-) -> tuple[Tier2Session, list[str]]:
+) -> tuple[E2eSession, list[str]]:
     """A session whose stack-versions command is run by a runner at the process
     boundary: it raises what `subprocess.run` raises for a missing executable."""
     ran: list[str] = []
@@ -1118,8 +1124,8 @@ def _tier_two_with_stack_versions(
             return subprocess.CompletedProcess(command, returncode, stdout, "")
         return subprocess.CompletedProcess(command, 0, "3 passed in 4.00s", "")
 
-    session = Tier2Session(
-        unit(tier="tier2"),
+    session = E2eSession(
+        unit(tier="e2e-test"),
         lock=tmp_path / "t2.lock",
         timeout=5,
         run=run,
@@ -1172,8 +1178,8 @@ def test_a_member_with_no_live_stack_tests_does_not_fail_tier_two(tmp_path: Path
             subprocess.CompletedProcess([], 5, "12 deselected in 0.10s", ""),
         ]
     )
-    session = Tier2Session(
-        unit(tier="tier2"),
+    session = E2eSession(
+        unit(tier="e2e-test"),
         lock=tmp_path / "t2.lock",
         timeout=5,
         run=lambda command, **k: next(outcomes),
@@ -1193,8 +1199,8 @@ def test_a_failing_member_fails_tier_two_and_says_why(tmp_path: Path) -> None:
             subprocess.CompletedProcess([], 5, "deselected", ""),
         ]
     )
-    session = Tier2Session(
-        unit(tier="tier2"),
+    session = E2eSession(
+        unit(tier="e2e-test"),
         lock=tmp_path / "t2.lock",
         timeout=5,
         run=lambda command, **k: next(outcomes),
@@ -1208,7 +1214,7 @@ def test_a_failing_member_fails_tier_two_and_says_why(tmp_path: Path) -> None:
 
 
 def test_tier_one_runs_the_repo_root_tests_ci_runs(tmp_path: Path) -> None:
-    """A root tests/ belongs to no member, so tier 1 would skip it and CI
+    """A root tests/ belongs to no member, so unit-test would skip it and CI
     would be the first to fail."""
     from agent_build_kit.profiles.python_uv import PROFILE
 
@@ -1247,8 +1253,8 @@ def test_tier_two_deploys_the_branch_onto_the_dev_stack_when_the_repo_has_one(
         stdout = "5 passed in 6.00s" if command[-1] == "test" else ""
         return subprocess.CompletedProcess(command, 0, stdout, "")
 
-    session = Tier2Session(
-        unit(tier="tier2"),
+    session = E2eSession(
+        unit(tier="e2e-test"),
         lock=tmp_path / "t2.lock",
         timeout=5,
         run=run,
@@ -1270,8 +1276,8 @@ def test_the_dev_stack_comes_down_even_when_it_fails_to_come_up(tmp_path: Path) 
         failed = command[-1] == "up"
         return subprocess.CompletedProcess(command, 1 if failed else 0, "", "build failed")
 
-    session = Tier2Session(
-        unit(tier="tier2"),
+    session = E2eSession(
+        unit(tier="e2e-test"),
         lock=tmp_path / "t2.lock",
         timeout=5,
         run=run,
@@ -1291,7 +1297,7 @@ def _dev_stack(path: Path) -> Path:
 
 def test_a_dev_stack_that_attaches_to_another_comes_up_on_top_of_it(tmp_path: Path) -> None:
     """app's dev stack joins platform's dev network and needs its event
-    bus, so an app unit's tier 2 brings platform's up first — and takes it
+    bus, so an app unit's e2e-test brings platform's up first — and takes it
     down last, whatever happens in between."""
     base, tree = _dev_stack(tmp_path / "base"), _dev_stack(tmp_path / "tree")
     calls: list[tuple[str, str]] = []
@@ -1301,8 +1307,8 @@ def test_a_dev_stack_that_attaches_to_another_comes_up_on_top_of_it(tmp_path: Pa
         stdout = "3 passed in 1.00s" if command[-1] == "test" else ""
         return subprocess.CompletedProcess(command, 0, stdout, "")
 
-    session = Tier2Session(
-        unit(tier="tier2"),
+    session = E2eSession(
+        unit(tier="e2e-test"),
         lock=tmp_path / "t2.lock",
         timeout=5,
         run=run,
@@ -1332,8 +1338,8 @@ def test_when_the_stack_underneath_fails_to_come_up_nothing_is_built_on_it(
         failed = Path(cwd).name == "base" and command[-1] == "up"
         return subprocess.CompletedProcess(command, int(failed), "", "event bus unhealthy")
 
-    session = Tier2Session(
-        unit(tier="tier2"),
+    session = E2eSession(
+        unit(tier="e2e-test"),
         lock=tmp_path / "t2.lock",
         timeout=5,
         run=run,
@@ -1528,7 +1534,7 @@ def test_branch_commits_counts_what_the_branch_adds(tmp_path: Path) -> None:
     assert branch_commits(repo, "main") == 1
 
 
-# --- tier 1 in a repo whose projects are not at its root ----------------------------
+# --- unit-test in a repo whose projects are not at its root ----------------------------
 
 
 def recorder():
@@ -1547,13 +1553,13 @@ def test_a_nested_project_s_checks_run_inside_it(tmp_path: Path) -> None:
     dies on tooling rather than on its own work."""
     (tmp_path / "pipelines" / "poc").mkdir(parents=True)
     run, calls = recorder()
-    tier1 = build_tier1(
+    unit_test = build_unit_test(
         run=run,
         changed=lambda cwd, base: ["pipelines/poc/functions/a.py"],
         projects=[ProjectConfig(path="pipelines/poc", languages=["python"], profile="python-uv")],
     )
 
-    passed, _ = tier1(cwd=tmp_path, base="origin/dev")
+    passed, _ = unit_test(cwd=tmp_path, base="origin/dev")
 
     assert passed
     assert calls, "something ran"
@@ -1565,7 +1571,7 @@ def test_each_project_is_checked_where_it_lives(tmp_path: Path) -> None:
     each is checked in its own directory."""
     (tmp_path / "poc" / "tools").mkdir(parents=True)
     run, calls = recorder()
-    tier1 = build_tier1(
+    unit_test = build_unit_test(
         run=run,
         changed=lambda cwd, base: ["poc/functions/a.py", "poc/tools/b.py"],
         projects=[
@@ -1574,7 +1580,7 @@ def test_each_project_is_checked_where_it_lives(tmp_path: Path) -> None:
         ],
     )
 
-    tier1(cwd=tmp_path, base="origin/dev")
+    unit_test(cwd=tmp_path, base="origin/dev")
 
     where = {at for _, at in calls}
     assert tmp_path / "poc" in where
@@ -1596,21 +1602,21 @@ def test_a_project_whose_toolchain_is_unimplemented_holds_the_unit(
     monkeypatch.setattr(toolchain, "test_commands", unbuilt)
     (tmp_path / "web").mkdir()
     run, _ = recorder()
-    tier1 = build_tier1(
+    unit_test = build_unit_test(
         run=run,
         changed=lambda cwd, base: ["web/src/b.ts"],
         projects=[ProjectConfig(path="web", languages=["typescript"], profile="unbuilt")],
     )
 
     with profiles.registered(toolchain), pytest.raises(NotImplementedError):
-        tier1(cwd=tmp_path, base="origin/dev")
+        unit_test(cwd=tmp_path, base="origin/dev")
 
 
 def test_a_file_belongs_to_the_deepest_project_that_holds_it(tmp_path: Path) -> None:
     """`poc/web/src/b.ts` is inside `poc` too; the web app is what owns it."""
     (tmp_path / "poc" / "web").mkdir(parents=True)
     run, calls = recorder()
-    tier1 = build_tier1(
+    unit_test = build_unit_test(
         run=run,
         changed=lambda cwd, base: ["poc/web/src/b.ts"],
         projects=[
@@ -1619,7 +1625,7 @@ def test_a_file_belongs_to_the_deepest_project_that_holds_it(tmp_path: Path) -> 
         ],
     )
 
-    tier1(cwd=tmp_path, base="origin/dev")
+    unit_test(cwd=tmp_path, base="origin/dev")
 
     assert {at for _, at in calls} == {tmp_path / "poc" / "web"}
 
@@ -1628,9 +1634,9 @@ def test_a_repo_that_declares_no_projects_behaves_as_before(tmp_path: Path) -> N
     """Every installation written before projects existed keeps working, and
     its checks keep running at the repo root."""
     run, calls = recorder()
-    tier1 = build_tier1(run=run, changed=lambda cwd, base: ["src/a.py"])
+    unit_test = build_unit_test(run=run, changed=lambda cwd, base: ["src/a.py"])
 
-    tier1(cwd=tmp_path, base="origin/main")
+    unit_test(cwd=tmp_path, base="origin/main")
 
     assert {at for _, at in calls} == {tmp_path}
 
@@ -1645,13 +1651,13 @@ def test_a_file_outside_every_project_never_gets_a_run_at_the_repo_root(tmp_path
     a root run to add."""
     (tmp_path / "poc").mkdir()
     run, calls = recorder()
-    tier1 = build_tier1(
+    unit_test = build_unit_test(
         run=run,
         changed=lambda cwd, base: ["poc/tests/test_a.py", "docs/guide.md"],
         projects=[ProjectConfig(path="poc", languages=["python"], profile="python-uv")],
     )
 
-    passed, _ = tier1(cwd=tmp_path, base="origin/dev")
+    passed, _ = unit_test(cwd=tmp_path, base="origin/dev")
 
     assert passed
     assert {at for _, at in calls} == {tmp_path / "poc"}, "only where the toolchain lives"
@@ -1665,13 +1671,13 @@ def test_a_diff_of_nothing_but_outside_files_still_runs_the_declared_toolchain(
     hooks (whitespace, line endings, whatever the config says) actually live."""
     (tmp_path / "poc").mkdir()
     run, calls = recorder()
-    tier1 = build_tier1(
+    unit_test = build_unit_test(
         run=run,
         changed=lambda cwd, base: ["README.md"],
         projects=[ProjectConfig(path="poc", languages=["python"], profile="python-uv")],
     )
 
-    passed, _ = tier1(cwd=tmp_path, base="origin/dev")
+    passed, _ = unit_test(cwd=tmp_path, base="origin/dev")
 
     assert passed
     assert calls, "something ran"
@@ -1681,13 +1687,13 @@ def test_a_diff_of_nothing_but_outside_files_still_runs_the_declared_toolchain(
 def test_an_empty_diff_in_a_repo_with_projects_runs_them_not_the_root(tmp_path: Path) -> None:
     (tmp_path / "poc").mkdir()
     run, calls = recorder()
-    tier1 = build_tier1(
+    unit_test = build_unit_test(
         run=run,
         changed=lambda cwd, base: [],
         projects=[ProjectConfig(path="poc", languages=["python"], profile="python-uv")],
     )
 
-    tier1(cwd=tmp_path, base="origin/dev")
+    unit_test(cwd=tmp_path, base="origin/dev")
 
     assert {at for _, at in calls} == {tmp_path / "poc"}
 
@@ -1699,7 +1705,7 @@ def test_a_failing_project_stops_the_unit(tmp_path: Path) -> None:
         code = 1 if "tools" in str(cwd) else 0
         return subprocess.CompletedProcess(command, code, "", "a real failure")
 
-    tier1 = build_tier1(
+    unit_test = build_unit_test(
         run=run,
         changed=lambda cwd, base: ["poc/a.py", "poc/tools/b.py"],
         projects=[
@@ -1708,14 +1714,14 @@ def test_a_failing_project_stops_the_unit(tmp_path: Path) -> None:
         ],
     )
 
-    passed, output = tier1(cwd=tmp_path, base="origin/dev")
+    passed, output = unit_test(cwd=tmp_path, base="origin/dev")
 
     assert not passed
     assert "a real failure" in output
 
 
 def test_tier_two_runs_the_live_stack_tests_with_the_verify_env(tmp_path: Path) -> None:
-    """The live-stack tests need what `verify.env` provides in a unit's tier 2
+    """The live-stack tests need what `verify.env` provides in a unit's e2e-test
     as much as after its merge; without it an acceptance test failed at setup
     however the unit was built."""
     seen: list[dict] = []
@@ -1724,8 +1730,8 @@ def test_tier_two_runs_the_live_stack_tests_with_the_verify_env(tmp_path: Path) 
         seen.append(kwargs.get("env") or {})
         return subprocess.CompletedProcess([], 0, "1 passed in 1.00s", "")
 
-    session = Tier2Session(
-        unit(tier="tier2"),
+    session = E2eSession(
+        unit(tier="e2e-test"),
         lock=tmp_path / "t2.lock",
         timeout=5,
         run=run,
@@ -1741,14 +1747,14 @@ def test_tier_two_runs_the_live_stack_tests_with_the_verify_env(tmp_path: Path) 
 
 
 def test_tier_one_logs_each_command_it_ran_and_how_it_ended(tmp_path: Path) -> None:
-    """A tier 1 that passed on a branch CI then failed can only be explained
+    """A unit-test that passed on a branch CI then failed can only be explained
     from what it ran: which commands, where, with what result."""
     seen: list[str] = []
     repo = tmp_path / "plain"
     (repo / "tests").mkdir(parents=True)
     (repo / "pyproject.toml").write_text("[project]\nname = 'x'\n")
 
-    build_tier1(run=Recorder(), changed=lambda *a: ["tests/test_x.py"], log=seen.append)(
+    build_unit_test(run=Recorder(), changed=lambda *a: ["tests/test_x.py"], log=seen.append)(
         cwd=repo, base="main"
     )
 
@@ -1759,7 +1765,7 @@ def test_tier_one_logs_each_command_it_ran_and_how_it_ended(tmp_path: Path) -> N
 def test_tier_one_logs_the_command_that_failed_and_stops_there(tmp_path: Path) -> None:
     seen: list[str] = []
 
-    build_tier1(run=Recorder(returncode=2), changed=lambda *a: [], log=seen.append)(
+    build_unit_test(run=Recorder(returncode=2), changed=lambda *a: [], log=seen.append)(
         cwd=tmp_path, base="main"
     )
 

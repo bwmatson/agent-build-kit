@@ -1,5 +1,5 @@
-"""Units parked for a held tier 2 split, and the delivery that resumes them (spec:
-tier2-runtime-parking): one installation that declares the splits, a unit parked on them and a
+"""Units parked for a held e2e-test split, and the delivery that resumes them (spec:
+e2e-runtime-parking): one installation that declares the splits, a unit parked on them and a
 stand-in for the thread a resume is delivered to."""
 
 from __future__ import annotations
@@ -74,17 +74,17 @@ def park(
     *,
     repo: str = "app",
 ) -> None:
-    """`uid` as a run leaves it when its tier 2 tests of `splits` did not run: planned, with the
+    """`uid` as a run leaves it when its e2e tests of `splits` did not run: planned, with the
     cause `split_held`, a branch, and the splits and commit the run was on."""
     store.upsert([stored_unit(uid, change=uid.partition("/")[0], repo=repo)])
     store.set_state(
         uid,
         PLANNED,
         branch=f"spec/{uid}",
-        note=f"tier 2 tests of {', '.join(splits)} did not run: the split is held",
+        note=f"e2e-test tests of {', '.join(splits)} did not run: the split is held",
         cause=Cause.SPLIT_HELD,
     )
-    store.set_parked(uid, splits, "abc1234", "tier 2 passed the other groups")
+    store.set_parked(uid, splits, "abc1234", "e2e-test passed the other groups")
 
 
 def hold(inst: Installation, split: str = "acp", *, until: datetime | None = None) -> None:

@@ -2233,12 +2233,6 @@ class E2eScope(Frozen):
     dev_stack: bool = False
 
 
-# Temporary: the profile method keeps its old name until `profiles/` is converted, and this
-# name is built from parts so the guard and the rename tool do not see it. When `profiles/` is
-# converted, replace this and its `getattr` with a direct `toolchain.e2e_commands(...)` call.
-_E2E_COMMANDS = "tier" + "2_commands"
-
-
 def e2e_work(
     cwd: Path, projects: list[ProjectConfig], profile: ToolchainProfile, marker: str
 ) -> list[tuple[Path, ToolchainProfile, list[list[str]]]]:
@@ -2246,7 +2240,7 @@ def e2e_work(
     one entry per declared project (the checkout itself when none is declared), the commands
     empty where the toolchain has none."""
     return [
-        (where, toolchain, getattr(toolchain, _E2E_COMMANDS)(where, marker=marker))
+        (where, toolchain, toolchain.e2e_commands(where, marker=marker))
         for where, toolchain, _ in _work(cwd, "", True, projects, profile, lambda *_: [])
     ]
 

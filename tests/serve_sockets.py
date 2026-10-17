@@ -1,4 +1,4 @@
-"""The guard against a socket in a tier 1 test under `tests/serve`.
+"""The guard against a socket in a unit-test test under `tests/serve`.
 
 A module that is not marked `integration` (a module-level `pytestmark` naming
 `pytest.mark.integration`) must not, found by parsing it (strings and comments never count):

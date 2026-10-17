@@ -40,7 +40,7 @@ def killed_in(tmp_path: Path, step: str, **hands: Any) -> tuple[Habitat, Recorde
     if step == "rework":
         recorder.verdicts = [rejecting("rename it")]
     if step == "fix_checks":
-        recorder.tier1_results = [(False, "E501 line too long")]
+        recorder.unit_test_results = [(False, "E501 line too long")]
     with pytest.raises(type(runtime.dies)):
         tick(tmp_path, recorder, **habitat.overrides())
     return habitat, recorder

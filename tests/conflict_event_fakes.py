@@ -134,11 +134,11 @@ def real_restack(
     move: Callable[..., Moved],
     pushed: list[str],
     diff_changes: bool = False,
-    tier1: Callable[..., tuple[bool, str]] | None = None,
+    unit_test: Callable[..., tuple[bool, str]] | None = None,
     comments: list[str] | None = None,
 ) -> events.Restack:
     """The stack move as `build_restack` does it, over a unit approved at `approved`, with the
-    git, tier 1 and the host stood in for: `pushed` collects what it pushes and `comments` the
+    git, unit-test and the host stood in for: `pushed` collects what it pushes and `comments` the
     bodies it posts."""
     rig.store.record_approval(UNIT, "approved")
     diffs = iter(range(100))
@@ -147,7 +147,7 @@ def real_restack(
         store=rig.store,
         root=tmp_path,
         move=move,
-        unit_test=tier1 or (lambda **kwargs: (True, "")),
+        unit_test=unit_test or (lambda **kwargs: (True, "")),
         push=lambda *args, **kwargs: pushed.append("pushed") or "newsha",
         retarget=lambda *args, **kwargs: None,
         comment=lambda pr, body, **kwargs: comments.append(body) if comments is not None else None,

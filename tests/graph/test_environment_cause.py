@@ -2,7 +2,7 @@
 runs, and a unit's own failure never takes it (spec: pipeline-environment).
 
 The environment's `check` is a real child process (`tests/environment_fakes.py`);
-tier 1 is faked where the runner binds it, as in the other graph tests.
+unit-test is faked where the runner binds it, as in the other graph tests.
 """
 
 from __future__ import annotations
@@ -34,11 +34,11 @@ def managed(tmp_path: Path) -> FakeEnvironment:
     return env
 
 
-def tier1_events(recorder: Recorder) -> list[str]:
-    return [event for event in recorder.events if event.startswith("tier1")]
+def unit_test_events(recorder: Recorder) -> list[str]:
+    return [event for event in recorder.events if event.startswith("unit-test")]
 
 
-@pytest.mark.parametrize("commits", [1, 0], ids=["checks before review", "tier 1 for no work"])
+@pytest.mark.parametrize("commits", [1, 0], ids=["checks before review", "unit-test for no work"])
 def test_a_failing_check_fails_the_unit_with_the_environment_cause_before_tier_1(
     tmp_path: Path, commits: int
 ) -> None:
@@ -52,12 +52,12 @@ def test_a_failing_check_fails_the_unit_with_the_environment_cause_before_tier_1
     stored = recorder.store.get(UNIT)
     assert (stored.state, stored.cause) == (FAILED, Cause.ENVIRONMENT)
     assert stored.feedback == "", "nothing for an agent to fix is saved"
-    assert tier1_events(recorder) == [], "tier 1 was not run on a broken environment"
+    assert unit_test_events(recorder) == [], "unit-test was not run on a broken environment"
     assert "claude:fix_checks" not in recorder.events
     assert "review" not in recorder.events
 
 
-@pytest.mark.parametrize("commits", [1, 0], ids=["checks before review", "tier 1 for no work"])
+@pytest.mark.parametrize("commits", [1, 0], ids=["checks before review", "unit-test for no work"])
 def test_a_failing_pipeline_command_with_a_check_that_fails_then_spends_no_fix_round(
     tmp_path: Path, commits: int
 ) -> None:
@@ -65,7 +65,7 @@ def test_a_failing_pipeline_command_with_a_check_that_fails_then_spends_no_fix_r
     recorder = fresh(tmp_path, commits_from_impl=commits)
 
     def breaks_the_environment(*, cwd: Path, base: str = "main", whole_repo: bool = False):
-        recorder.events.append("tier1")
+        recorder.events.append("unit-test")
         env.break_it()
         return False, "error: executable `ruff` was not found"
 
@@ -76,7 +76,7 @@ def test_a_failing_pipeline_command_with_a_check_that_fails_then_spends_no_fix_r
     assert (stored.state, stored.cause) == (FAILED, Cause.ENVIRONMENT)
     assert stored.feedback == ""
     assert "claude:fix_checks" not in recorder.events
-    assert recorder.events.count("tier1") == 1
+    assert recorder.events.count("unit-test") == 1
 
 
 def test_a_units_own_import_error_with_a_passing_check_goes_to_the_fix_round(
@@ -84,7 +84,7 @@ def test_a_units_own_import_error_with_a_passing_check_goes_to_the_fix_round(
 ) -> None:
     env = managed(tmp_path)
     recorder = fresh(tmp_path)
-    recorder.tier1_results = [
+    recorder.unit_test_results = [
         (False, "ImportError: cannot import name 'widget' from 'app'"),
         (True, ""),
     ]
@@ -114,7 +114,7 @@ def test_a_resumed_unit_that_meets_a_failing_check_again_returns_to_the_cause_wi
     stored = recorder.store.get(UNIT)
     assert (stored.state, stored.cause) == (FAILED, Cause.ENVIRONMENT)
     assert len(recorder.prompts) == prompts, "no agent ran for the second failure"
-    assert tier1_events(recorder) == []
+    assert unit_test_events(recorder) == []
 
     env.mend()
     tick(tmp_path, recorder, event=RESUME)

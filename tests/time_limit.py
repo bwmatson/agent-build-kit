@@ -50,7 +50,7 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 def e2e_limit(config: pytest.Config) -> float:
-    """The limit of an e2e-test test: the new flag, else the old one, else the default."""
+    """The limit of an e2e test: the new flag, else the old one, else the default."""
     for flag in (NEW_FLAG, OLD_FLAG):
         if (value := config.getoption(flag)) is not None:
             return value

@@ -22,7 +22,7 @@ ORDER = (
     Node.IMPLEMENT,
     Node.CHECKS,
     Node.REVIEW,
-    Node.TIER1,
+    Node.UNIT_TEST,
     Node.VERIFY_BASE,
     Node.PUSH,
     Node.OPEN_PR,

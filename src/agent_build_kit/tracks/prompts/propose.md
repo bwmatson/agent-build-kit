@@ -146,8 +146,11 @@ the contract:
 ```
 
 - Every group heading names the repo exactly as `abk.yaml` spells it and the
-  tier it needs; `tier1` is the ordinary suite, `tier2` needs the real local
-  stack.
+  kind of test it needs, of three: `unit-test` is the ordinary suite, run anywhere;
+  `integration-test` covers behaviour across modules in the ordinary suite with no
+  live stack, and is not the `integration` marker or `tests/integration/`;
+  `e2e-test` needs the real local stack. The `[acceptance]` tag is for `e2e-test`
+  only.
 - Test tasks come before implementation tasks — a unit's first commit is its
   failing tests.
 - A group never spans repos. A finding whose fix needs another repo is not

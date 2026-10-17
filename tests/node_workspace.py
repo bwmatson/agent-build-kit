@@ -1,5 +1,5 @@
-"""An npm workspace built from manifests only, for the node profile's member, tier-1 and
-tier-2 tests."""
+"""An npm workspace built from manifests only, for the node profile's member, unit-test and
+e2e tests."""
 
 from __future__ import annotations
 

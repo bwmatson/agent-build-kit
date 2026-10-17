@@ -15,7 +15,7 @@ from typing import Protocol, runtime_checkable
 
 from agent_build_kit.config import EnvironmentConfig, RepoConfig
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.e2e import TestFailure, TestTime, Tier2Selection
+from agent_build_kit.pipeline.e2e import E2eSelection, TestFailure, TestTime
 
 
 class ProfileUnsupported(NotImplementedError):
@@ -55,7 +55,7 @@ class ProjectScaffold(Protocol):
 
 @runtime_checkable
 class ProjectChecks(Protocol):
-    """The optional hook a profile adds for tier 1 commands about one project, such as a
+    """The optional hook a profile adds for unit-test commands about one project, such as a
     type check, which cannot be scoped to files. A profile without it counts as returning
     an empty list."""
 
@@ -103,17 +103,17 @@ class ToolchainProfile(Protocol):
     def tolerates_exit(self, command: list[str], returncode: int) -> bool: ...
 
     def failure_kind(self, output: str) -> str:
-        """`lint`, `types` or `test`: which check a failed tier 1 command was,
+        """`lint`, `types` or `test`: which check a failed unit-test command was,
         from the `$ command (exit N)` header and output the pipeline keeps."""
         ...
 
     def extra_checks(self, repo: RepoConfig) -> list[list[str]]:
-        """Further tier 1 commands about the checkout as a whole (a changelog), beyond lint
-        and tests. Tier 1 runs the repo profile's once, in the checkout root. What is about
+        """Further unit-test commands about the checkout as a whole (a changelog), beyond lint
+        and tests. Unit-test runs the repo profile's once, in the checkout root. What is about
         one project is `ProjectChecks`."""
         ...
 
-    def tier2_commands(self, repo: Path, *, marker: str) -> list[list[str]]: ...
+    def e2e_commands(self, repo: Path, *, marker: str) -> list[list[str]]: ...
 
     def acceptance_commands(
         self,
@@ -172,14 +172,14 @@ class RepeatsTests(Protocol):
 
 
 @runtime_checkable
-class AppliesTier2Selection(Protocol):
-    """The optional hooks a profile adds to apply a tier 2 selection: the kinds of selector
+class AppliesE2eSelection(Protocol):
+    """The optional hooks a profile adds to apply an e2e-test selection: the kinds of selector
     it can apply, the text its test runner takes for a selection, and a listing of the tests
     a selection holds. A profile without them cannot leave a split out."""
 
     selector_kinds: tuple[str, ...]
 
-    def expression(self, marker: str, selection: Tier2Selection) -> str:
+    def expression(self, marker: str, selection: E2eSelection) -> str:
         """What the test runner takes to select `selection` over the repo's `marker`. Raises
         ValueError for an empty selection, which selects nothing."""
         ...
@@ -187,7 +187,7 @@ class AppliesTier2Selection(Protocol):
     def list_tests(
         self,
         command: list[str],
-        selection: Tier2Selection,
+        selection: E2eSelection,
         *,
         run: Callable[..., subprocess.CompletedProcess],
         among: list[str] | None = None,
@@ -199,13 +199,10 @@ class AppliesTier2Selection(Protocol):
         ...
 
 
-AppliesE2eSelection = AppliesTier2Selection  # abk-forward
-
-
 @runtime_checkable
 class ListsRegisteredSelectors(Protocol):
     """The optional hook a profile adds to say which selectors its test runner knows, for
-    `abk tier2 check`. A profile without it has no selector to check."""
+    `abk e2e-test check`. A profile without it has no selector to check."""
 
     def registered_selectors(
         self,
@@ -263,3 +260,6 @@ def is_doc_path(path: str) -> bool:
     first = path.split("/", 1)[0]
     name = path.rsplit("/", 1)[-1]
     return path.endswith(DOC_SUFFIXES) or first == "docs" or name.upper().startswith("LICENSE")
+
+
+AppliesTier2Selection = AppliesE2eSelection  # abk-shim

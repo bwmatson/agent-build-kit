@@ -164,7 +164,7 @@ def test_a_parked_unit_keeps_its_branch_thread_feedback_and_round_counts(
     monkeypatch.setattr(cli, "emit_metric", record)
     store = fresh_store(tmp_path)
     recorder = Recorder(store)
-    recorder.tier1_results = [
+    recorder.unit_test_results = [
         (True, ""),
         (False, "E501 line too long"),
         (False, "E302 blank lines"),

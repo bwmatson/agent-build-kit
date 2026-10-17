@@ -14,7 +14,7 @@ import pytest
 from agent_build_kit import config
 from agent_build_kit.cli.pipeline import log
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.e2e import Tier2Result, build_snapshot
+from agent_build_kit.pipeline.e2e import E2eResult, build_snapshot
 from agent_build_kit.pipeline.run_log import RunLog
 from agent_build_kit.pipeline.spans import Span
 from agent_build_kit.pipeline.transcript import Transcript, TranscriptEvent
@@ -27,10 +27,10 @@ from agent_build_kit.pipeline.usage_ledger import (
     record_call,
     record_line,
 )
-from agent_build_kit.pipeline.wiring import Tier2Session, build_tier1
+from agent_build_kit.pipeline.wiring import E2eSession, build_unit_test
+from tests.e2e_failure_fakes import gate, run_failing_e2e, run_returning
 from tests.factories import stored_unit, unit
 from tests.redaction_fakes import FAILURE_MESSAGE, NAME, NOTICE, SECRET, known
-from tests.tier2_failure_fakes import gate, run_failing_tier2, run_returning
 
 REPLACED = f"[redacted:{NAME}]"
 START = datetime(2026, 9, 23, 22, 44, 5, tzinfo=UTC)
@@ -73,7 +73,7 @@ def _ledger_path() -> Path:
     return Installation(config.active(), root).state_dir / LEDGER_NAME
 
 
-def _tier_two(tmp_path: Path, output: str) -> Tier2Session:
+def _tier_two(tmp_path: Path, output: str) -> E2eSession:
     return gate(tmp_path, run_returning(output), root=tmp_path)
 
 
@@ -82,15 +82,15 @@ def test_saved_feedback_holds_the_replacement(tmp_path: Path) -> None:
     store.upsert([stored_unit()])
 
     with known():
-        store.set_feedback("add-marker/1", f"tier 2 failed with {SECRET} in the output")
+        store.set_feedback("add-marker/1", f"e2e-test failed with {SECRET} in the output")
 
-    assert store.get("add-marker/1").feedback == f"tier 2 failed with {REPLACED} in the output"
+    assert store.get("add-marker/1").feedback == f"e2e-test failed with {REPLACED} in the output"
     assert SECRET not in (tmp_path / "units.json").read_text()
 
 
 def test_a_failing_tier_two_is_saved_and_said_without_the_value(tmp_path: Path) -> None:
     snapshot = build_snapshot(
-        Tier2Result(
+        E2eResult(
             sha="abcdef1234567",
             passed=0,
             failed=1,
@@ -102,7 +102,7 @@ def test_a_failing_tier_two_is_saved_and_said_without_the_value(tmp_path: Path) 
     )
 
     with known():
-        feedback, logs = run_failing_tier2(tmp_path, snapshot)
+        feedback, logs = run_failing_e2e(tmp_path, snapshot)
 
     assert SECRET not in feedback
     assert REPLACED in feedback
@@ -177,7 +177,7 @@ def test_tier_one_output_holds_the_replacement(tmp_path: Path) -> None:
         return subprocess.CompletedProcess(command, 1, f"FAILED with {SECRET}", "")
 
     with known():
-        passed, output = build_tier1(run=failing, changed=lambda *a: ["tests/test_x.py"])(
+        passed, output = build_unit_test(run=failing, changed=lambda *a: ["tests/test_x.py"])(
             cwd=tmp_path, base="main"
         )
 
@@ -266,8 +266,8 @@ def test_a_failed_redaction_logs_one_line_for_a_tier_two_of_several_commands(
     for member in ("svc-a", "svc-b"):
         (tmp_path / member / "tests").mkdir(parents=True)
         (tmp_path / member / "pyproject.toml").write_text(f'[project]\nname = "{member}"\n')
-    session = Tier2Session(
-        unit(tier="tier2"),
+    session = E2eSession(
+        unit(tier="e2e-test"),
         lock=tmp_path / "t2.lock",
         timeout=5,
         run=lambda command, **kw: subprocess.CompletedProcess(
@@ -338,8 +338,8 @@ def test_a_passing_tier_two_command_is_redacted_before_its_output_is_cut(
 ) -> None:
     (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n")
     out = "1 passed in 0.10s\n" + "x" * 100 + SECRET + "y" * 1490
-    session = Tier2Session(
-        unit(tier="tier2"),
+    session = E2eSession(
+        unit(tier="e2e-test"),
         lock=tmp_path / "t2.lock",
         timeout=5,
         run=lambda command, **kw: subprocess.CompletedProcess(command, 0, out, ""),

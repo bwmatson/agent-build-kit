@@ -72,5 +72,5 @@ def test_the_library_is_importable_in_the_development_environment() -> None:
 
 
 def test_the_guard_trips_when_the_real_reading_function_is_called() -> None:
-    with pytest.raises(pytest.fail.Exception, match="a tier 1 test called the real provider"):
+    with pytest.raises(pytest.fail.Exception, match="a unit-test test called the real provider"):
         read_modal_summary()

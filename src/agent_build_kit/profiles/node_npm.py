@@ -10,7 +10,7 @@ tests, the clean and red commands, judging a red run, and `.test`/`.spec` files 
 The stub check (`throw new Error("not implemented")` as the permitted body) and the files the
 commands create are implemented too.
 npm workspace members (the `workspaces` field, globs expanded) are tested one command each
-in their own directory, and a tier 2 test is a file named `<name>.<marker>.test.<ext>`.
+in their own directory, and an e2e test is a file named `<name>.<marker>.test.<ext>`.
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ _TEST_COMMAND = ["sh", "-c", _TESTS]
 # The same in the directory `$1`, for a workspace member; the report path is absolute, so the
 # change of directory does not hide it.
 _MEMBER_TESTS = wrap_report_command(f'cd "$1" && {_RUN}', "--outputFile")
-# Tier 2 and acceptance: in `$1`, the rest are Vitest's filters, which match by substring of
+# E2e-test and acceptance: in `$1`, the rest are Vitest's filters, which match by substring of
 # a file's path.
 _FILTERED = wrap_report_command(f'cd "$1" && shift && {_RUN} "$@"', "--outputFile")
 _TEST_SCRIPTS = (_TESTS, _MEMBER_TESTS, _FILTERED)
@@ -230,7 +230,7 @@ class NodeNpmProfile:
         """The type check, over the whole project: `tsc` cannot be scoped to files."""
         return [["npx", _TYPE_CHECK, "--noEmit"]]
 
-    def tier2_commands(self, repo: Path, *, marker: str) -> list[list[str]]:
+    def e2e_commands(self, repo: Path, *, marker: str) -> list[list[str]]:
         """The files named for `marker`, in each member of a workspace or else the project."""
         return [
             ["sh", "-c", _FILTERED, "sh", member, f".{marker}.test."]

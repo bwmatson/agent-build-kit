@@ -1,4 +1,4 @@
-"""Tier 1 stand-ins for a run whose first test command storms and a later one does not.
+"""Unit-test stand-ins for a run whose first test command storms and a later one does not.
 
 Kept out of the test module, and the profile hook `test_commands` assigned, not defined: a
 scan of a test file for changed test names would take a `def test_commands` for a test.

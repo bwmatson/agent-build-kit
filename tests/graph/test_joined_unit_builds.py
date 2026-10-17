@@ -45,7 +45,8 @@ def tasks(tmp_path: Path, change: str, groups: tuple[int, ...]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         "".join(
-            f"## {g}. [app] [tier1] G{g}\n- [ ] {g}.1 Test: a\n- [ ] {g}.2 Do a\n" for g in groups
+            f"## {g}. [app] [unit-test] G{g}\n- [ ] {g}.1 Test: a\n- [ ] {g}.2 Do a\n"
+            for g in groups
         )
     )
     return path
@@ -147,7 +148,7 @@ def test_a_failed_joined_unit_unticks_every_change_it_carries(tmp_path: Path) ->
     for path in (mine, theirs):
         path.write_text(path.read_text().replace("- [ ]", "- [x]"))  # a build agent's doing
 
-    _, outcome = build_joined(tmp_path, carrying(groups=(2,)), tier1_ok=False)
+    _, outcome = build_joined(tmp_path, carrying(groups=(2,)), unit_test_ok=False)
 
     assert outcome.status == "failed"
     assert ticked(mine) == set()

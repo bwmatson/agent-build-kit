@@ -104,7 +104,7 @@ def agents(runtime: Sessions) -> dict[str, Any]:
 
 
 def failing_checks(recorder: Recorder) -> None:
-    recorder.tier1_results = [(False, FAILING), (True, "")]
+    recorder.unit_test_results = [(False, FAILING), (True, "")]
 
 
 def logged(recorder: Recorder) -> str:
@@ -302,12 +302,12 @@ def test_review_never_resumes_in_a_second_round_or_from_a_build_session(tmp_path
 
 
 def bumping(recorder: Recorder, *, moves: bool) -> Callable[..., tuple[bool, str]]:
-    """Tier 1 as the recorder runs it, then a commit lands that no node made."""
+    """Unit-test as the recorder runs it, then a commit lands that no node made."""
     first = True
 
     def run_unit_test(**kw: Any) -> tuple[bool, str]:
         nonlocal first
-        result = recorder.tier1(**kw)
+        result = recorder.unit_test(**kw)
         if moves and first:
             recorder.made += 1
         first = False

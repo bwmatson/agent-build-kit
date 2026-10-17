@@ -591,7 +591,7 @@ class LimitsConfig(TestKindSettings):
     e2e_schedule_off = field_validator("e2e_schedule", mode="before")(_unquoted_off)
     # Longest a unit waits for the e2e-test lock before its e2e-test step fails as busy, in seconds.
     e2e_lock_wait_seconds: Annotated[int, Field(gt=0, alias="e2e_lock_wait_seconds")] = 5400
-    # How many of a e2e-test run's slowest test entries the posted result lists; 0 lists every one.
+    # How many of an e2e-test run's slowest test entries the posted result lists; 0 lists every one.
     e2e_durations_shown: Annotated[int, Field(ge=0, alias="e2e_durations_shown")] = 15
     # Longest the connectivity probe waits to connect to one host, in seconds (a name lookup
     # waits on the system resolver instead). The probe tells a network
@@ -791,15 +791,15 @@ class TestsConfig(TestKindSettings):
     # This repo's schedule; None follows `limits.e2e_schedule`.
     e2e_schedule: E2eSchedule | None = Field(None, alias="e2e_schedule")
     e2e_schedule_off = field_validator("e2e_schedule", mode="before")(_unquoted_off)
-    # The marker on e2e-test tests only the dev stack can run (left out of live checks).
+    # The marker on e2e tests only the dev stack can run (left out of live checks).
     dev_stack_marker: str = "dev_stack"
-    # Record and replay of the calls e2e-test tests make outside the stack; None: none.
+    # Record and replay of the calls e2e tests make outside the stack; None: none.
     replay: ReplayConfig | None = None
     # This repo's e2e-test splits; None follows the top-level `tests.e2e_splits`.
     e2e_splits: dict[str, E2eSplitEntry] | None = Field(None, alias="e2e_splits")
 
 
-# The older name of `rest`, the e2e-test tests in no split; reserved, so no split has this name.
+# The older name of `rest`, the e2e tests in no split; reserved, so no split has this name.
 # Deleted with the last caller that still uses it.
 BASE_GROUP = "base"
 

@@ -17,7 +17,7 @@ import pytest
 from agent_build_kit.graph.state import Node
 from agent_build_kit.pipeline.stack_runner import PauseInfo, Restacked, RunStatus
 from agent_build_kit.pipeline.units import IN_REVIEW
-from agent_build_kit.pipeline.wiring import Tier2Session
+from agent_build_kit.pipeline.wiring import E2eSession
 from tests.factories import unit
 from tests.graph.test_build_path import build, restacked
 from tests.graph.test_remaining_paths import fresh
@@ -125,7 +125,7 @@ def test_a_clean_move_before_the_push_is_checked_again_without_another_review_or
     outcome = build(tmp_path, recorder, **moving.overrides())
 
     assert outcome.status == "open"
-    assert recorder.events.count("tier1") == 2
+    assert recorder.events.count("unit-test") == 2
     assert recorder.events.count("review") == 1, "no review round is spent on a clean move"
     assert len(recorder.prompts) == 2, "no agent is called for it"
     assert recorder.events.index("moved") < recorder.events.index("push")
@@ -153,7 +153,7 @@ def test_a_move_with_resolution_is_checked_and_reviewed_again_before_anything_is
     assert recorder.events.count("review") == 2, "read again, not passed on the old approval"
     assert pushed == [MOVED], "only the commit the second review approved was pushed"
     after = recorder.events[recorder.events.index("moved") :]
-    assert after.index("tier1") < after.index("review") < after.index("push")
+    assert after.index("unit-test") < after.index("review") < after.index("push")
     assert recorder.store.get("add-marker/1").approved == MOVED
 
 
@@ -162,7 +162,7 @@ def test_tier_one_failing_after_a_clean_move_waits_for_the_usage_window_before_i
 ) -> None:
     recorder = fresh(tmp_path)
     moving = Moving(recorder, CLEAN)
-    recorder.tier1_results = [(True, ""), (False, "FAILED test_a - trunk renamed the helper")]
+    recorder.unit_test_results = [(True, ""), (False, "FAILED test_a - trunk renamed the helper")]
 
     def window() -> tuple[bool, str]:
         failed = "trunk renamed the helper" in recorder.store.get("add-marker/1").feedback
@@ -179,10 +179,10 @@ def test_tier_one_failing_after_a_clean_move_waits_for_the_usage_window_before_i
 
 
 def test_tier_two_failing_after_a_clean_move_waits_with_its_output(tmp_path: Path) -> None:
-    recorder = fresh(tmp_path, tier="tier2")
+    recorder = fresh(tmp_path, tier="e2e-test")
     moving = Moving(recorder, CLEAN)
     answers = iter([(True, "## before"), (False, "FAILED live_test - trunk renamed the route")])
-    recorder.tier2 = lambda *, cwd, base=None: next(answers)  # type: ignore[method-assign]
+    recorder.e2e = lambda *, cwd, base=None: next(answers)  # type: ignore[method-assign]
 
     def window() -> tuple[bool, str]:
         failed = "trunk renamed the route" in recorder.store.get("add-marker/1").feedback
@@ -191,7 +191,7 @@ def test_tier_two_failing_after_a_clean_move_waits_with_its_output(tmp_path: Pat
     outcome = build(
         tmp_path,
         recorder,
-        run_e2e=recorder.tier2,
+        run_e2e=recorder.e2e,
         may_start=window,
         **moving.overrides(),
     )
@@ -204,7 +204,7 @@ def test_tier_two_failing_after_a_clean_move_waits_with_its_output(tmp_path: Pat
 def test_a_tier_two_unit_moved_cleanly_posts_its_status_for_the_moved_commit(
     tmp_path: Path,
 ) -> None:
-    recorder = fresh(tmp_path, tier="tier2")
+    recorder = fresh(tmp_path, tier="e2e-test")
     moving = Moving(recorder, CLEAN)
     (tmp_path / "tree" / "scripts").mkdir(parents=True)
     (tmp_path / "tree" / "scripts" / "dev-stack.sh").write_text("#!/bin/sh\n")
@@ -216,8 +216,8 @@ def test_a_tier_two_unit_moved_cleanly_posts_its_status_for_the_moved_commit(
         return subprocess.CompletedProcess(command, 0, "5 passed in 1.00s", "")
 
     # The real session: it refuses a status for a commit it did not run against.
-    session = Tier2Session(
-        unit(tier="tier2"),
+    session = E2eSession(
+        unit(tier="e2e-test"),
         lock=tmp_path / "t2.lock",
         timeout=5,
         run=run,
@@ -236,7 +236,7 @@ def test_a_tier_two_unit_moved_cleanly_posts_its_status_for_the_moved_commit(
 
     assert outcome.status == "open"
     assert recorder.store.get("add-marker/1").state == IN_REVIEW
-    assert ran.count("test") == 2, "tier 2 ran before the move and again after it"
+    assert ran.count("test") == 2, "e2e-test ran before the move and again after it"
     assert statuses == [MOVED], "the status is for the commit that was pushed and re-tested"
 
 

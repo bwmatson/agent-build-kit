@@ -19,14 +19,14 @@ def with_gate(gate: Any, *, split: str = "acp") -> WorkspaceConfig:
         entry["marker"] = f"runtime_{split}"
     return WorkspaceConfig.model_validate(
         {
-            "tests": {"tier2_splits": {split: entry}},
+            "tests": {"e2e_splits": {split: entry}},
             "repos": {"app": {"path": "/work/app", "slug": "example/app"}},
         }
     )
 
 
 def gate_of(loaded: WorkspaceConfig, split: str = "acp") -> GateConfig:
-    gate = loaded.tests.tier2_splits[split].gate
+    gate = loaded.tests.e2e_splits[split].gate
     assert gate is not None
     return gate
 

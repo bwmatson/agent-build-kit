@@ -27,7 +27,7 @@ def sample(
     *,
     at: int,
     repo: str = "app",
-    tier: str = "tier1",
+    tier: str = "unit-test",
     flag: str = "",
     estimate: int = 100,
     actual: int | None = None,
@@ -73,7 +73,7 @@ def tasks_md(*flags: str) -> str:
     text = f"# Tasks\n\n{OPT_OUT}\n"
     for number, flag in enumerate(flags, start=1):
         tag = f" [{flag}]" if flag else ""
-        text += f"## {number}. [app] [tier1]{tag} Group {number}\n\n"
+        text += f"## {number}. [app] [unit-test]{tag} Group {number}\n\n"
         text += f"- [ ] {number}.1 Test: it.\n- [ ] {number}.2 Do it.\n\n"
     return text
 
@@ -102,7 +102,7 @@ def new_unit(uid: str, groups: list[int], estimate: int, **extra: Any) -> dict:
         "change": "feature",
         "title": "A unit",
         "repo": "app",
-        "tier": "tier1",
+        "tier": "unit-test",
         "depends_on": [],
         "estimated_lines": estimate,
         "groups": groups,

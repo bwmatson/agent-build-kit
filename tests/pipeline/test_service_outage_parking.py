@@ -92,7 +92,7 @@ def test_the_status_that_parks_the_unit_is_not_counted_as_a_failed_run(
     monkeypatch.setattr(cli, "emit_metric", record)
     store = fresh_store(tmp_path)
     recorder = Recorder(store)
-    recorder.tier1_results = [
+    recorder.unit_test_results = [
         (True, ""),
         (False, "E501 line too long"),
         (False, "E302 blank lines"),
@@ -143,7 +143,7 @@ def test_a_completed_step_ends_the_row(
         park_once(tmp_path, monkeypatch, store, overloaded())
     assert store.get(UNIT).service_attempts == 2
     recorder = Recorder(store)
-    recorder.tier1_results = [(False, "E501 line too long")]
+    recorder.unit_test_results = [(False, "E501 line too long")]
 
     def down_in_the_fix(prompt: str, **kwargs: Any) -> str:
         if step_of(prompt) == "fix_checks":

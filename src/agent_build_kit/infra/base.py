@@ -18,6 +18,6 @@ class InfraProfile(Protocol):
     @property
     def detect_markers(self) -> tuple[str, ...]: ...
 
-    # What lists the live stack beside a tier 2 result; None for no such stack.
+    # What lists the live stack beside an e2e-test result; None for no such stack.
     @property
     def stack_versions_command(self) -> tuple[str, ...] | None: ...

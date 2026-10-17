@@ -38,7 +38,7 @@ from agent_build_kit.pipeline import environment, spans, spec_snapshot
 from agent_build_kit.pipeline.call_record import call_recorder
 from agent_build_kit.pipeline.changelog_convention import changelog_note
 from agent_build_kit.pipeline.check_failures import failed_check
-from agent_build_kit.pipeline.e2e import NO_TEST_RAN, Tier2Verdict
+from agent_build_kit.pipeline.e2e import NO_TEST_RAN, E2eVerdict
 from agent_build_kit.pipeline.e2e_schedule import is_scheduled, scheduled_split
 from agent_build_kit.pipeline.events import (
     held_cause,
@@ -70,8 +70,8 @@ from agent_build_kit.pipeline.stack_runner import (
     REWORK_CONTINUATION,
     REWORK_PROMPT,
     TESTS_PROMPT,
-    TIER1_FAILED,
     TRIED_NOTE,
+    UNIT_TEST_FAILED,
     WHOLE_ASK,
     Escalation,
     Restacked,
@@ -140,14 +140,14 @@ FRESH: Update = {
     "checks_ok": False,
     "produced_nothing": False,
     "snapshot": "",
-    "tier2_ran_none": False,
+    "e2e_ran_none": False,
 }
 
 # Paths of uncommitted work named in a prompt or a hold; the rest are counted.
 LEFTOVER_PATHS_SHOWN = 40
 
-# Lines of a failing tier 2's report written to the run log.
-TIER2_LOG_TAIL = 40
+# Lines of a failing e2e-test's report written to the run log.
+E2E_LOG_TAIL = 40
 
 # The nodes a unit is held before, at the boundary, when its upstream went back
 # for rework or its base moved: the ones that start work or leave the machine.
@@ -234,8 +234,8 @@ class BuildPath:
             Node.REVIEW: self.review,
             Node.REWORK: self.rework,
             Node.ADAPT: self.adapt,
-            Node.TIER1: self.tier1,
-            Node.TIER2: self.tier2,
+            Node.UNIT_TEST: self.unit_test,
+            Node.E2E: self.e2e,
             Node.VERIFY_BASE: self.verify_base,
             Node.NEW_COMMENTS: self.new_comments,
             Node.PUSH: self.push,
@@ -265,7 +265,7 @@ class BuildPath:
         match source:
             case FeedbackSource.CONFLICT:
                 return "conflict"
-            case FeedbackSource.CI | FeedbackSource.TIER1 | FeedbackSource.TIER2:
+            case FeedbackSource.CI | FeedbackSource.UNIT_TEST | FeedbackSource.E2E:
                 return "check"
             case _:
                 return "review"
@@ -319,6 +319,9 @@ class BuildPath:
                     )
                     # The node is done, and with it the session it was in.
                     done: Update = {
+                        # A thread saved before the field was renamed comes back with it unset,
+                        # and a resume may skip `prepare`, the only other place that sets it.
+                        **self._restored_e2e(state, update),
                         **update,
                         **self._sessions_after(node, state, update),
                         "session_id": "",
@@ -382,6 +385,12 @@ class BuildPath:
                     )
 
         return run
+
+    def _restored_e2e(self, state: UnitRun, update: Update) -> Update:
+        """The `e2e` flag from the unit's kind, when the thread lacks it."""
+        if state.e2e or "e2e" in update or self.unit.tier != TestTier.E2E_TEST:
+            return {}
+        return {"e2e": True}
 
     def record_step(self, node: Node) -> None:
         """Name `node` as the step the unit is failing in; never raises."""
@@ -458,9 +467,9 @@ class BuildPath:
         # Between steps, never inside one: a held unit has finished the step it was in.
         gated = (
             node in GATED
-            or (node is Node.TIER1 and state.produced_nothing and not state.moved)
+            or (node is Node.UNIT_TEST and state.produced_nothing and not state.moved)
             or (node is Node.PUSH and state.spent)
-            or (node is Node.TIER2 and not state.moved)
+            or (node is Node.E2E and not state.moved)
         )
         if gated and (found := self.upstream_changed(state)):
             cause, why = found
@@ -804,7 +813,7 @@ class BuildPath:
         return session_cumulative(session_id)
 
     def record_check_failure(self, output: str, round: int) -> None:
-        """Count a failed tier 1 run of this unit, and keep it as a local metric record."""
+        """Count a failed unit-test run of this unit, and keep it as a local metric record."""
         try:
             check = failed_check(output, self.unit.repo)
         except Exception:  # noqa: BLE001 — a record is never a run's to lose
@@ -845,7 +854,7 @@ class BuildPath:
         for an agent to fix."""
         self.say(output)
         return {
-            **self.stop("the environment is unhealthy, so tier 1 cannot run"),
+            **self.stop("the environment is unhealthy, so unit-test cannot run"),
             "blocked_by_environment": True,
         }
 
@@ -914,8 +923,8 @@ class BuildPath:
             r.fetch_quietly(unit)
             r.reset_to(tree, ref, f"refs/spec-driven/pre-scheduled/{unit.id}")
             start = r.base_tip(tree, ref)
-            self.say(f"scheduled run on {base}: straight to tier 2")
-            return {**FRESH, **remembered, "start": start, "tier2": True, "scheduled": True}
+            self.say(f"scheduled run on {base}: straight to e2e-test")
+            return {**FRESH, **remembered, "start": start, "e2e": True, "scheduled": True}
         existing = r.branch_commits(tree, ref)
         self.say(
             f"on {base}, {existing} commit(s) on the branch"
@@ -988,7 +997,7 @@ class BuildPath:
             # work on the branch to rework; before that the build starts, tests first.
             **self.standing(existing, feedback or (saved.guidance if existing else "")),
             "start": start,
-            "tier2": unit.tier == TestTier.E2E_TEST,
+            "e2e": unit.tier == TestTier.E2E_TEST,
         }
 
     def standing(self, existing: int, feedback: str) -> Update:
@@ -1252,7 +1261,7 @@ class BuildPath:
         }
 
     def checks(self, state: UnitRun) -> Update:
-        """Tier 1 on the committed branch, before a reviewer is asked."""
+        """Unit-test on the committed branch, before a reviewer is asked."""
         r, unit = self.runner, self.unit
         tree = self.tree()
         self.say("checks before review")
@@ -1277,7 +1286,7 @@ class BuildPath:
         self.say(f"checks {'passed' if ok else 'failed'}")
         head = r.head(tree)
         if ok:
-            if r.store.get(unit.id).feedback_source is FeedbackSource.TIER1:
+            if r.store.get(unit.id).feedback_source is FeedbackSource.UNIT_TEST:
                 # Fixed: left saved, a resume would redo a fix already on the branch.
                 r.store.set_feedback(unit.id, "")
             return {"checks_ok": True, "head": head}
@@ -1285,7 +1294,7 @@ class BuildPath:
         self.record_check_failure(output, state.fix_rounds + 1)
         # Kept before anything can stop the run, so a retry addresses this output.
         r.store.set_feedback(
-            unit.id, f"{TIER1_FAILED}\n{output}".strip(), source=FeedbackSource.TIER1
+            unit.id, f"{UNIT_TEST_FAILED}\n{output}".strip(), source=FeedbackSource.UNIT_TEST
         )
         budget = active().global_limits.max_check_rounds
         if budget is not None and state.fix_rounds >= budget:
@@ -1300,15 +1309,15 @@ class BuildPath:
         """The failed check a fix has just answered, for the run to select its tests by;
         nothing for the first check, a unit that has not failed, or a rework."""
         stored = self.runner.store.get(self.unit.id)
-        if state.fix_rounds and stored.feedback_source is FeedbackSource.TIER1:
+        if state.fix_rounds and stored.feedback_source is FeedbackSource.UNIT_TEST:
             return {"failed_output": stored.feedback}
         return {}
 
     def wait_for_fix(self, found: FlakeFound) -> Update | None:
-        """Tier 1 failed only on tests that passed alone: the unit is not failed for them.
-        It waits, gated, for the change that fixes them, and runs tier 1 again once that
+        """Unit-test failed only on tests that passed alone: the unit is not failed for them.
+        It waits, gated, for the change that fixes them, and runs unit-test again once that
         has merged. None when there is nothing to wait on, because the unit builds that
-        fix: the flake is then a tier 1 failure the unit's agent is told of."""
+        fix: the flake is then a unit-test failure the unit's agent is told of."""
         r, unit = self.runner, self.unit
         fixes = [r.on_flake(unit, flake) for flake in found.flakes]
         if not any(fixes):
@@ -1331,8 +1340,8 @@ class BuildPath:
         )
         update = self.hold(
             PLANNED,
-            f"tier 2 tests of {waiting} did not run: the split is held",
-            f"waiting for tier 2 split {', '.join(splits)}",
+            f"e2e-test tests of {waiting} did not run: the split is held",
+            f"waiting for e2e-test split {', '.join(splits)}",
             cause=Cause.SPLIT_HELD,
         )
         self.runner.store.set_parked(self.unit.id, splits, sha, snapshot)
@@ -1495,7 +1504,7 @@ class BuildPath:
         feedback = redact_text(
             stored.feedback or (WHOLE_ASK if guidance else ""), where="rework prompt"
         )
-        failed_check = stored.feedback_source in (FeedbackSource.TIER1, FeedbackSource.TIER2)
+        failed_check = stored.feedback_source in (FeedbackSource.UNIT_TEST, FeedbackSource.E2E)
         in_loop = state.verdict is Verdict.CHANGES
         note = person_guidance(guidance)
         kept: Update = {}
@@ -1666,11 +1675,11 @@ class BuildPath:
             "head": r.head(self.tree()),
         }
 
-    def tier1(self, state: UnitRun) -> Update:
+    def unit_test(self, state: UnitRun) -> Update:
         """For a unit that produced nothing, and for a branch moved cleanly onto a new base."""
         r, unit = self.runner, self.unit
         base = state.base or self.base
-        self.say("tier 1")
+        self.say("unit-test")
         if (broken := self.environment_problem()) is not None:
             return self.blocked(broken)
         fault = self.worktree_fault(state)
@@ -1693,7 +1702,7 @@ class BuildPath:
                 # The move did not cause it: recorded, and the unit goes on without waiting.
                 fixes = [r.on_flake(unit, flake, wait=False) for flake in found.flakes]
                 # A unit of the flake's own fix change has no fix to lean on: the flake is
-                # a tier 1 failure its agent is told of.
+                # a unit-test failure its agent is told of.
                 ok, output = (True, "") if all(fixes) else (False, found.flakes[0].output)
             elif (parked := self.wait_for_fix(found)) is not None:
                 return parked
@@ -1701,16 +1710,16 @@ class BuildPath:
                 ok, output = False, found.flakes[0].output
         if not ok and (broken := self.environment_problem()) is not None:
             return self.blocked(broken)
-        self.say(f"tier 1 {'passed' if ok else 'failed'}")
+        self.say(f"unit-test {'passed' if ok else 'failed'}")
         if not ok:
             self.say(output)
             self.record_check_failure(output, 0)
             r.store.set_feedback(
-                unit.id, f"{TIER1_FAILED}\n{output}".strip(), source=FeedbackSource.TIER1
+                unit.id, f"{UNIT_TEST_FAILED}\n{output}".strip(), source=FeedbackSource.UNIT_TEST
             )
             if state.moved:
-                return self.rebase(state, f"tier 1 failed on {base}", base=base)
-            return self.stop("tier 1 failed")
+                return self.rebase(state, f"unit-test failed on {base}", base=base)
+            return self.stop("unit-test failed")
         if (
             state.moved
             and not state.produced_nothing
@@ -1724,10 +1733,10 @@ class BuildPath:
             )
         return {}
 
-    def tier2(self, state: UnitRun) -> Update:
+    def e2e(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit
         base = state.base or self.base
-        self.say("tier 2 again on the moved commit" if state.moved else "tier 2")
+        self.say("e2e-test again on the moved commit" if state.moved else "e2e-test")
         tree = self.tree()
         # A scheduled unit runs the one split its change is named for, and only a failing
         # test of that split holds it.
@@ -1767,16 +1776,16 @@ class BuildPath:
             if ok and resumed:
                 snapshot = f"{before.parked_snapshot}\n\n{snapshot}".strip()
         ran_none = ok and r.e2e_ran_no_tests()
-        self.say("tier 2 ran no test" if ran_none else f"tier 2 {'passed' if ok else 'failed'}")
+        self.say("e2e-test ran no test" if ran_none else f"e2e-test {'passed' if ok else 'failed'}")
         if ok:
             # Said while the run's result is at hand: `satisfied` may be resumed by a new runner.
             note = r.e2e_passed_note() if state.scheduled else ""
-            return {"snapshot": snapshot, "tier2_ran_none": ran_none, "scheduled_note": note}
+            return {"snapshot": snapshot, "e2e_ran_none": ran_none, "scheduled_note": note}
         for line in snapshot.splitlines():
             if "**Full output:**" in line:
                 self.say(line.strip("- ").replace("**", ""))
         # The tail goes to the run log too: the run log is where a failed run is read.
-        for line in [line for line in snapshot.splitlines() if line.strip()][-TIER2_LOG_TAIL:]:
+        for line in [line for line in snapshot.splitlines() if line.strip()][-E2E_LOG_TAIL:]:
             self.say(line)
         verdict = r.e2e_verdict()
         if verdict is not None and verdict.pre_existing:
@@ -1784,27 +1793,27 @@ class BuildPath:
             if parked is not None:
                 return parked
         snapshot = feedback_snapshot(snapshot, verdict)
-        # Kept, as tier 1's is: a failure that leaves no trace has to be reproduced by hand.
+        # Kept, as unit-test's is: a failure that leaves no trace has to be reproduced by hand.
         if state.moved:
             r.store.set_feedback(
-                unit.id, f"tier 2 failed:\n{snapshot}".strip(), source=FeedbackSource.TIER2
+                unit.id, f"e2e-test failed:\n{snapshot}".strip(), source=FeedbackSource.E2E
             )
-            return self.rebase(state, f"tier 2 failed on {base}", base=base)
+            return self.rebase(state, f"e2e-test failed on {base}", base=base)
         stored = r.store.get(unit.id)
-        # Words a person left stay theirs: tier 2's output is added to them, not
+        # Words a person left stay theirs: e2e-test's output is added to them, not
         # the other way round.
         review = stored.feedback_source is FeedbackSource.REVIEW
         r.store.set_feedback(
             unit.id,
-            f"{stored.feedback}\n\ntier 2 failed:\n{snapshot}".strip(),
+            f"{stored.feedback}\n\ne2e-test failed:\n{snapshot}".strip(),
             from_person=stored.feedback_from_person,
-            source=FeedbackSource.REVIEW if review else FeedbackSource.TIER2,
+            source=FeedbackSource.REVIEW if review else FeedbackSource.E2E,
         )
-        return self.stop("tier 2 failed")
+        return self.stop("e2e-test failed")
 
-    def wait_for_preexisting(self, verdict: Tier2Verdict) -> Update | None:
+    def wait_for_preexisting(self, verdict: E2eVerdict) -> Update | None:
         """Tests that fail on the base too are recorded and each gets its fix change. A unit
-        with nothing else failing then waits, gated, for those fixes and runs tier 2 again
+        with nothing else failing then waits, gated, for those fixes and runs e2e-test again
         once they have merged. None when it does not wait: it has a failure of its own to
         fix, or it builds the fix itself."""
         r, unit = self.runner, self.unit
@@ -1827,8 +1836,8 @@ class BuildPath:
         the work its groups called for arrived another way. Judged on the branch
         and the checks, never on a step's report of itself."""
         r, unit = self.runner, self.unit
-        why = state.scheduled_note or "already implemented; tier 1 passed"
-        self.say(why if state.scheduled_note else "nothing to add and tier 1 passes — satisfied")
+        why = state.scheduled_note or "already implemented; unit-test passed"
+        self.say(why if state.scheduled_note else "nothing to add and unit-test passes — satisfied")
         r.store.set_state(unit.id, SATISFIED, note=why)
         # A satisfied unit is done: nothing here should look like a build in progress.
         if r.store.get(unit.id).predecessor_note:
@@ -1902,7 +1911,7 @@ class BuildPath:
         if moved is not None:
             if moved.conflict or moved.resolved:
                 return self.rebase(state, f"moving onto {base} needed resolution", base=base)
-            self.say(f"moved onto {base} cleanly; tier 1 again")
+            self.say(f"moved onto {base} cleanly; unit-test again")
         return {
             "base": base,
             "moved": moved is not None,
@@ -2020,9 +2029,7 @@ class BuildPath:
             r.record_given(unit.repo, pr, list(state.given_comments))
         if state.had_feedback:
             r.store.set_feedback(unit.id, "")
-        r.store.set_state(
-            unit.id, IN_REVIEW, pr=pr, note=NO_TEST_RAN if state.tier2_ran_none else ""
-        )
+        r.store.set_state(unit.id, IN_REVIEW, pr=pr, note=NO_TEST_RAN if state.e2e_ran_none else "")
         if r.store.get(unit.id).predecessor_note:
             r.store.set_predecessor_note(unit.id, "")
         # Done means through the loop, verified and pushed.
@@ -2294,7 +2301,7 @@ def after_prepare(state: UnitRun) -> Node:
     if stop := halted(state):
         return stop
     if state.scheduled:
-        return Node.TIER2
+        return Node.E2E
     if state.conflict:
         return Node.ADAPT
     if state.pushed_head and (
@@ -2309,7 +2316,7 @@ def after_prepare(state: UnitRun) -> Node:
         return Node.TESTS
     if state.head_approved:
         # Review approved exactly this commit: nothing was written since.
-        return Node.TIER2 if state.tier2 else Node.VERIFY_BASE
+        return Node.E2E if state.e2e else Node.VERIFY_BASE
     return Node.CHECKS
 
 
@@ -2318,7 +2325,7 @@ def after_tests(state: UnitRun) -> Node:
 
 
 def after_implement(state: UnitRun) -> Node:
-    return halted(state) or (Node.TIER1 if state.produced_nothing else Node.CHECKS)
+    return halted(state) or (Node.UNIT_TEST if state.produced_nothing else Node.CHECKS)
 
 
 def after_checks(state: UnitRun) -> Node:
@@ -2336,14 +2343,14 @@ def after_review(state: UnitRun) -> Node:
         return Node.PUSH
     if state.verdict is not Verdict.APPROVED:
         return Node.REWORK
-    return Node.TIER2 if state.tier2 else Node.VERIFY_BASE
+    return Node.E2E if state.e2e else Node.VERIFY_BASE
 
 
 def after_rework(state: UnitRun) -> Node:
-    return halted(state) or (Node.TIER1 if state.produced_nothing else Node.CHECKS)
+    return halted(state) or (Node.UNIT_TEST if state.produced_nothing else Node.CHECKS)
 
 
-def after_tier1(state: UnitRun) -> Node:
+def after_unit_test(state: UnitRun) -> Node:
     if stop := halted(state):
         return stop
     if state.restack:
@@ -2352,11 +2359,11 @@ def after_tier1(state: UnitRun) -> Node:
         return Node.SATISFIED
     if state.moved:
         # verify_base already moved the unit onto the base: nothing left to check there.
-        return Node.TIER2 if state.tier2 else Node.NEW_COMMENTS
+        return Node.E2E if state.e2e else Node.NEW_COMMENTS
     return Node.VERIFY_BASE
 
 
-def after_tier2(state: UnitRun) -> Node:
+def after_e2e(state: UnitRun) -> Node:
     if stop := halted(state):
         return stop
     if state.restack:
@@ -2371,7 +2378,7 @@ def after_verify_base(state: UnitRun) -> Node:
         return stop
     if state.restack:
         return Node.PREPARE
-    return Node.TIER1 if state.moved else Node.NEW_COMMENTS
+    return Node.UNIT_TEST if state.moved else Node.NEW_COMMENTS
 
 
 def after_new_comments(state: UnitRun) -> Node:
@@ -2434,7 +2441,7 @@ PREPARED: tuple[Target, ...] = (
     Node.REWORK,
     Node.CHECKS,
     Node.TESTS,
-    Node.TIER2,
+    Node.E2E,
     Node.VERIFY_BASE,
     Node.OPEN_PR,
 )
@@ -2448,28 +2455,28 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
         PREPARED,
     ),
     Node.TESTS: (after_tests, (Node.HELD, Node.FAILED, Node.IMPLEMENT)),
-    Node.IMPLEMENT: (after_implement, (Node.HELD, Node.TIER1, Node.CHECKS)),
+    Node.IMPLEMENT: (after_implement, (Node.HELD, Node.UNIT_TEST, Node.CHECKS)),
     Node.CHECKS: (after_checks, (Node.HELD, Node.FAILED, Node.REVIEW, Node.FIX_CHECKS)),
     Node.FIX_CHECKS: (after_fix_checks, (Node.HELD, Node.FAILED, Node.CHECKS)),
     Node.REVIEW: (
         after_review,
-        (Node.HELD, Node.FAILED, Node.PUSH, Node.TIER2, Node.VERIFY_BASE, Node.REWORK),
+        (Node.HELD, Node.FAILED, Node.PUSH, Node.E2E, Node.VERIFY_BASE, Node.REWORK),
     ),
-    Node.REWORK: (after_rework, (Node.HELD, Node.TIER1, Node.CHECKS)),
-    Node.TIER1: (
-        after_tier1,
+    Node.REWORK: (after_rework, (Node.HELD, Node.UNIT_TEST, Node.CHECKS)),
+    Node.UNIT_TEST: (
+        after_unit_test,
         (
             Node.HELD,
             Node.FAILED,
             Node.PREPARE,
             Node.SATISFIED,
-            Node.TIER2,
+            Node.E2E,
             Node.VERIFY_BASE,
             Node.NEW_COMMENTS,
         ),
     ),
-    Node.TIER2: (
-        after_tier2,
+    Node.E2E: (
+        after_e2e,
         (
             Node.HELD,
             Node.FAILED,
@@ -2481,7 +2488,7 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
     ),
     Node.VERIFY_BASE: (
         after_verify_base,
-        (Node.HELD, Node.FAILED, Node.PREPARE, Node.TIER1, Node.NEW_COMMENTS),
+        (Node.HELD, Node.FAILED, Node.PREPARE, Node.UNIT_TEST, Node.NEW_COMMENTS),
     ),
     Node.NEW_COMMENTS: (after_new_comments, (Node.HELD, Node.FAILED, Node.REWORK, Node.PUSH)),
     Node.PUSH: (after_push, (Node.HELD, Node.FAILED, Node.OPEN_PR)),
@@ -2495,3 +2502,6 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
         (Node.PREPARE, Node.CHECKS, Node.AWAIT_REVIEW, Node.HELD, END, *sorted(PARKABLE)),
     ),
 }
+TIER2_LOG_TAIL = E2E_LOG_TAIL  # abk-shim
+after_tier1 = after_unit_test  # abk-shim
+after_tier2 = after_e2e  # abk-shim

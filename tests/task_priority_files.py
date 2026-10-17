@@ -14,7 +14,7 @@ def tasks_md(*priorities: str | None, head: str = "") -> str:
     (none for a group without the line); `head` is written above the first group."""
     text = f"# Tasks\n\n{OPT_OUT}{head}\n"
     for number, value in enumerate(priorities, start=1):
-        text += f"## {number}. [app] [tier1] Group {number}\n\n"
+        text += f"## {number}. [app] [unit-test] Group {number}\n\n"
         text += f"Priority: {value}\n\n" if value is not None else ""
         text += f"- [ ] {number}.1 Test: it.\n- [ ] {number}.2 Do it.\n\n"
     return text

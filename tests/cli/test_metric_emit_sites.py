@@ -150,7 +150,7 @@ def test_the_review_rounds_of_a_unit_go_through_the_helper(
     emitted: list[Emitted],
 ) -> None:
     ticks.recorder.verdicts = [rejecting("rename the lock")]
-    ticks.recorder.tier1_results = [(False, FAILING), (True, "")]
+    ticks.recorder.unit_test_results = [(False, FAILING), (True, "")]
     ticks.agents()
 
     ticks.tick()

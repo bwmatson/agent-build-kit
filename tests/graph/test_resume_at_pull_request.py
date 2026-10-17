@@ -1,5 +1,5 @@
 """A unit whose approved commit is its pushed head, resumed after a failure of the
-pull request step, goes straight to that step: tier 2 does not run again, nothing is
+pull request step, goes straight to that step: e2e-test does not run again, nothing is
 reviewed, and saved feedback is not reworked. A unit whose head moved still takes the
 checks path."""
 
@@ -26,7 +26,7 @@ HEAD = "sha-1"
 UNIT = unit().id
 
 
-def pushed(tmp_path: Path, *, tier: str = "tier1", approved: str = HEAD) -> Recorder:
+def pushed(tmp_path: Path, *, tier: str = "unit-test", approved: str = HEAD) -> Recorder:
     """A unit whose pull request step failed after its work was approved and
     pushed: one commit on the branch, with `approved` and the remote at `HEAD`."""
     store = UnitStore(tmp_path / "units.json")
@@ -40,13 +40,13 @@ def pushed(tmp_path: Path, *, tier: str = "tier1", approved: str = HEAD) -> Reco
 
 
 def test_a_tier_two_unit_does_not_run_tier_two_again(tmp_path: Path) -> None:
-    recorder = pushed(tmp_path, tier="tier2")
+    recorder = pushed(tmp_path, tier="e2e-test")
 
     outcome = build(tmp_path, recorder)
 
     assert outcome.status == "open"
     assert recorder.pr_opens == 1
-    assert "tier2" not in recorder.events
+    assert "e2e-test" not in recorder.events
     assert "review" not in recorder.events
 
 
@@ -69,7 +69,7 @@ def test_a_unit_whose_head_moved_still_takes_the_checks_path(tmp_path: Path) -> 
 
     build(tmp_path, recorder)
 
-    assert recorder.events.index("tier1") < recorder.events.index("review")
+    assert recorder.events.index("unit-test") < recorder.events.index("review")
 
 
 def owed_replies(tmp_path: Path, *, feedback: str = "") -> tuple[Recorder, list[str]]:
@@ -122,8 +122,8 @@ def test_a_stop_in_the_graph_fails_the_unit_with_its_reason_and_step(
 ) -> None:
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
-    recorder = Recorder(store, tier1_ok=False)
-    recorder.tier1_output = "E   ImportError: cannot import name 'geo'"
+    recorder = Recorder(store, unit_test_ok=False)
+    recorder.unit_test_output = "E   ImportError: cannot import name 'geo'"
 
     build(tmp_path, recorder)
 

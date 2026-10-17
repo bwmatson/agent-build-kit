@@ -29,7 +29,7 @@ EXPECTED: dict[str, tuple[str, str | None, str, str]] = {
     "feature/3": ("blocked", None, "", ""),
     "feature/4": ("planned", None, "", ""),
     "feature/5": ("held", "review_escalated_class", "review", "escalated: a class of bug"),
-    "feature/6": ("failed", "failed", "", "tier 1 failed"),
+    "feature/6": ("failed", "failed", "", "unit-test failed"),
     "feature/7": ("running", None, "", ""),
     "feature/8": ("satisfied", None, "", ""),
     "feature/9": ("closed", "closed", "", "closed unmerged"),
@@ -70,7 +70,7 @@ def seed_pipeline(installation: Installation) -> UnitStore:
         held_by=HeldBy.REVIEW,
         cause=Cause.REVIEW_ESCALATED_CLASS,
     )
-    store.set_state("feature/6", FAILED, note="tier 1 failed", cause=Cause.FAILED)
+    store.set_state("feature/6", FAILED, note="unit-test failed", cause=Cause.FAILED)
     store.set_state("feature/7", RUNNING, branch="spec/feature/7")
     store.set_state("feature/8", SATISFIED)
     store.set_state("feature/9", CLOSED, note="closed unmerged", cause=Cause.CLOSED)

@@ -42,7 +42,7 @@ def write_change(
     (directory / "proposal.md").write_text(f"# {name}\n")
     if tasks:
         sections = [
-            f"## {number}. [{tag}] [tier1] Group {number}\n\n- [ ] {number}.1 Test: it\n"
+            f"## {number}. [{tag}] [unit-test] Group {number}\n\n- [ ] {number}.1 Test: it\n"
             for number, tag in enumerate(tags, start=1)
         ]
         (directory / "tasks.md").write_text("# Tasks\n\n" + "\n".join(sections))

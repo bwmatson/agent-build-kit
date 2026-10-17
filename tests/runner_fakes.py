@@ -24,18 +24,18 @@ class Killed(BaseException):
 class Recorder:
     """Stands in for every side effect, recording what happened in order."""
 
-    tier1_output: str = ""
+    unit_test_output: str = ""
 
     def __init__(
         self,
         store: UnitStore,
         *,
         commits_from_impl: int = 1,
-        tier1_ok: bool = True,
+        unit_test_ok: bool = True,
         kill_after: str = "",
         push_raises: Exception | None = None,
         rework_answer: str = "done",
-        tier2_ok: bool = True,
+        e2e_ok: bool = True,
         close_error: str = "",
     ):
         self.store = store
@@ -44,19 +44,19 @@ class Recorder:
         self.logged: list[str] = []
         self.verdicts: list[str] = []
         self.commits_from_impl = commits_from_impl
-        self.tier1_ok = tier1_ok
+        self.unit_test_ok = unit_test_ok
         self.kill_after = kill_after
         self.push_raises = push_raises
         self.rework_answer = rework_answer  # what the builder says of a review's ask
-        self.tier2_ok = tier2_ok
-        self.tier2_output = "## Tier 2 results\nfine"
+        self.e2e_ok = e2e_ok
+        self.e2e_output = "## E2e-test results\nfine"
         self.close_error = close_error
         self.closed: list[tuple[str, int, str]] = []  # (unit, pull request, reason)
-        # Answers for successive tier 1 runs, in order; once spent, `tier1_ok`.
-        self.tier1_results: list[tuple[bool, str]] = []
-        # The failed output each tier 1 run was given to select tests by ("" when none).
-        self.tier1_failed_outputs: list[str] = []
-        self.tier1_moved_from: list[str | None] = []
+        # Answers for successive unit-test runs, in order; once spent, `unit_test_ok`.
+        self.unit_test_results: list[tuple[bool, str]] = []
+        # The failed output each unit-test run was given to select tests by ("" when none).
+        self.unit_test_failed_outputs: list[str] = []
+        self.unit_test_moved_from: list[str | None] = []
         self.made = 0
         self.remote: list[str] = []  # every distinct head the remote has been given
         self.prs: dict[str, int] = {}  # branch -> pull request, as the forge holds them
@@ -116,7 +116,7 @@ class Recorder:
     def head(self, cwd: Path) -> str:
         return f"sha-{self.made}"
 
-    def tier1(
+    def unit_test(
         self,
         *,
         cwd: Path,
@@ -125,16 +125,16 @@ class Recorder:
         failed_output: str = "",
         moved_from: str | None = None,
     ) -> tuple[bool, str]:
-        self.events.append("tier1:whole_repo" if whole_repo else "tier1")
-        self.tier1_failed_outputs.append(failed_output)
-        self.tier1_moved_from.append(moved_from)
-        if self.tier1_results:
-            return self.tier1_results.pop(0)
-        return self.tier1_ok, self.tier1_output
+        self.events.append("unit-test:whole_repo" if whole_repo else "unit-test")
+        self.unit_test_failed_outputs.append(failed_output)
+        self.unit_test_moved_from.append(moved_from)
+        if self.unit_test_results:
+            return self.unit_test_results.pop(0)
+        return self.unit_test_ok, self.unit_test_output
 
-    def tier2(self, *, cwd: Path, base: str | None = None) -> tuple[bool, str]:
-        self.events.append("tier2")
-        return self.tier2_ok, self.tier2_output
+    def e2e(self, *, cwd: Path, base: str | None = None) -> tuple[bool, str]:
+        self.events.append("e2e-test")
+        return self.e2e_ok, self.e2e_output
 
     def push(self, branch: str, *, cwd: Path) -> str:
         if self.push_raises:
@@ -194,8 +194,8 @@ def make_runner(
         head=recorder.head,
         upstream_incomplete=lambda u: None,
         restack_onto=lambda **kw: None,
-        run_unit_test=recorder.tier1,
-        run_e2e=recorder.tier2,
+        run_unit_test=recorder.unit_test,
+        run_e2e=recorder.e2e,
         push=recorder.push,
         open_pr=recorder.open_pr,
         post_status=recorder.post_status,

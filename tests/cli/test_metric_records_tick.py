@@ -95,7 +95,7 @@ def test_a_unit_reviewed_twice_appends_its_rounds_and_a_check_failure(
     ticks: Ticks,  # noqa: F811
 ) -> None:
     ticks.recorder.verdicts = [rejecting("rename the lock")]
-    ticks.recorder.tier1_results = [(False, FAILING), (True, "")]
+    ticks.recorder.unit_test_results = [(False, FAILING), (True, "")]
     ticks.agents()
 
     ticks.tick()
@@ -124,8 +124,8 @@ def test_a_units_outcome_appends_a_record_with_its_repo_tier_and_outcome(
 
 
 def test_a_failed_unit_appends_the_failed_outcome(ticks: Ticks) -> None:  # noqa: F811
-    ticks.recorder.tier1_ok = False
-    ticks.recorder.tier1_output = "E   ImportError: cannot import 'geo'"
+    ticks.recorder.unit_test_ok = False
+    ticks.recorder.unit_test_output = "E   ImportError: cannot import 'geo'"
     ticks.agents()
 
     ticks.tick()
@@ -142,7 +142,7 @@ def test_durations_and_counts_in_the_records_equal_the_exported_figures(
     collector: Collector,
 ) -> None:
     ticks.recorder.verdicts = [rejecting("rename the lock")]
-    ticks.recorder.tier1_results = [(False, FAILING), (True, "")]
+    ticks.recorder.unit_test_results = [(False, FAILING), (True, "")]
     ticks.agents()
 
     assert ticks.tick() == 0

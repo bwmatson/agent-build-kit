@@ -1,6 +1,6 @@
 """A conflicting unit's first attempt is the stack move; any other is the conflict rework.
 
-The stack move is `build_restack`'s, over a fake git, tier 1 and host, so its outcomes are the
+The stack move is `build_restack`'s, over a fake git, unit-test and host, so its outcomes are the
 merge handler's own.
 """
 
@@ -182,7 +182,7 @@ def test_a_move_that_fails_is_the_attempt_and_is_not_made_again(
         tmp_path,
         move=lambda *a, **k: moves.append("move") or Moved(sha="n"),
         pushed=[],
-        tier1=lambda **kwargs: (False, "boom"),
+        unit_test=lambda **kwargs: (False, "boom"),
     )
 
     assert rig.conflict() is True
@@ -215,7 +215,7 @@ def test_the_move_tells_tier_1_and_the_comment_which_base_it_left(
     moved_from: list[str] = []
     comments: list[str] = []
 
-    def tier1(**kwargs):
+    def unit_test(**kwargs):
         moved_from.append(kwargs["moved_from"])
         return True, ""
 
@@ -224,7 +224,7 @@ def test_the_move_tells_tier_1_and_the_comment_which_base_it_left(
         tmp_path,
         move=lambda *a, **k: Moved(sha="n"),
         pushed=[],
-        tier1=tier1,
+        unit_test=unit_test,
         comments=comments,
     )
 

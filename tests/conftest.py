@@ -214,7 +214,7 @@ def no_real_provider(monkeypatch: pytest.MonkeyPatch) -> None:
         return
 
     def refused(*args, **kwargs):
-        pytest.fail("a tier 1 test called the real provider")
+        pytest.fail("a unit-test test called the real provider")
 
     monkeypatch.setattr(modal.Workspace, "from_context", refused)
 

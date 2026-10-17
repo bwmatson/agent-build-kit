@@ -294,12 +294,12 @@ def test_a_merged_parent_leaves_a_held_childs_thread_and_state_alone(graph: Setu
 def _ended_failed_after_review(graph: Setup) -> None:
     """A unit in review whose rework run ends in `failed`, its PR still open."""
     graph.tick()
-    graph.recorder.tier1_ok = False
+    graph.recorder.unit_test_ok = False
     assert graph.poll(("rework", {"reason": "changes requested"})) == [True]
     graph.tick()
     assert graph.store.get(UNIT).state == FAILED
     assert graph.next() == ()
-    graph.recorder.tier1_ok = True
+    graph.recorder.unit_test_ok = True
 
 
 def test_a_hold_for_a_unit_whose_thread_ended_failed_holds_it(graph: Setup) -> None:
@@ -365,7 +365,7 @@ def _gated_after_a_raise(graph: Setup, flags: dict[str, bool]) -> list[dict[str,
     folder = graph.inst.root / "openspec" / "changes" / "add-marker"
     folder.mkdir(parents=True)
     (folder / "tasks.md").write_text(
-        "# Tasks\n\n## 1. [app] [tier1] The work\n\n"
+        "# Tasks\n\n## 1. [app] [unit-test] The work\n\n"
         "Needs: dep group 1 — it reshapes the runtime\n\n- [ ] 1.1 Test: it\n"
     )
     graph.store.set_feedback(UNIT, "the commit step blew up")

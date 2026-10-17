@@ -27,9 +27,9 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.pipeline.commit_order import stub_violations as _stub_violations
 from agent_build_kit.pipeline.e2e import (
+    E2eSelection,
     TestFailure,
     TestTime,
-    Tier2Selection,
     clip_failure_line,
     parse_pytest_summary,
 )
@@ -37,7 +37,7 @@ from agent_build_kit.pipeline.red_check import judge_red, split_report, wrap_rep
 from agent_build_kit.profiles.base import PromptWords, is_doc_path
 
 # pytest's exit status when every test was deselected: "nothing to run here",
-# not a failure — most members carry no tier-2 tests.
+# not a failure — most members carry no e2e tests.
 NO_TESTS_COLLECTED = 5
 
 _TEST_FILE = re.compile(r"^(test_.*|.*_test|conftest)\.py$")
@@ -157,7 +157,7 @@ def _marker_selection(repo: Path, selection: str) -> str:
 
 
 def _is_serial_split(expression: str, *, serial: bool | None = None) -> bool:
-    """Whether a `-m` expression is tier 1's serial/parallel split: the serial half
+    """Whether a `-m` expression is unit-test's serial/parallel split: the serial half
     (`serial`), the parallel half (`not serial`), or either when `serial` is None."""
     halves = {
         True: (expression == "serial" or expression.endswith(" and serial")),
@@ -175,13 +175,13 @@ def _is_serial_pass(command: list[str]) -> bool:
 def package_name(member: Path) -> str:
     """What a workspace member calls itself, falling back to its directory.
 
-    A member with no parseable name should not take tier 1 down with it — the
+    A member with no parseable name should not take unit-test down with it — the
     directory name is right often enough to be worth trying.
     """
     return str(_pyproject(member).get("project", {}).get("name") or member.name)
 
 
-# What a tier 2 run adds to report on itself, not wanted in a listing of what it selects.
+# What an e2e-test run adds to report on itself, not wanted in a listing of what it selects.
 # Verbosity is set absolutely for a listing, so these relative flags must not stack on it.
 _VERBOSITY_FLAGS = frozenset(["-q", "-qq", "-v", "-vv"])
 _REPORT_FLAGS = frozenset([*SUMMARY_FLAGS, *DURATION_FLAGS, *_VERBOSITY_FLAGS])
@@ -394,7 +394,7 @@ class PythonUvProfile:
         ]
 
     def tolerates_exit(self, command: list[str], returncode: int) -> bool:
-        """Whether a tier 1 command's exit status is a pass. The serial pass
+        """Whether a unit-test command's exit status is a pass. The serial pass
         collects nothing in a repo with no `serial` tests, which is not a failure."""
         if returncode == 0:
             return True
@@ -415,7 +415,7 @@ class PythonUvProfile:
         return "types" if failed & TYPE_HOOKS else "lint"
 
     def failed_tests(self, output: str) -> list[str]:
-        """The identifiers of the tests that failed or errored, read from a failed tier 1
+        """The identifiers of the tests that failed or errored, read from a failed unit-test
         command's output; empty when it was not a test run."""
         found = _FAILED_TEST.findall(output)
         return list(dict.fromkeys(found))
@@ -454,8 +454,8 @@ class PythonUvProfile:
         program = _pytest_program(command)
         if program is None:
             return [*command, *tests]
-        # What follows is the run's selection and workers: dropped, a tier 2 marker expression
-        # kept (tier 1's serial/parallel split is what the serial rerun replaces).
+        # What follows is the run's selection and workers: dropped, an e2e-test marker expression
+        # kept (unit-test's serial/parallel split is what the serial rerun replaces).
         words = command[program + 1 :]
         marker: list[str] = []
         if "-m" in words[:-1]:
@@ -465,9 +465,9 @@ class PythonUvProfile:
 
     selector_kinds: tuple[str, ...] = ("marker",)
 
-    def expression(self, marker: str, selection: Tier2Selection) -> str:
+    def expression(self, marker: str, selection: E2eSelection) -> str:
         """The `-m` text of `selection` over `marker`; a ValueError for an empty selection,
-        which would otherwise read as every tier 2 test."""
+        which would otherwise read as every e2e test."""
         if selection.empty:
             held = ", ".join(selection.left_out)
             raise ValueError(f"every split is held ({held}): nothing to run")
@@ -481,7 +481,7 @@ class PythonUvProfile:
     def list_tests(
         self,
         command: list[str],
-        selection: Tier2Selection,
+        selection: E2eSelection,
         *,
         run: Callable[..., subprocess.CompletedProcess],
         among: list[str] | None = None,
@@ -694,7 +694,7 @@ class PythonUvProfile:
             return []
         return [[sys.executable, "-m", "agent_build_kit", "changelog", "check", repo.changelog]]
 
-    def tier2_commands(self, repo: Path, *, marker: str) -> list[list[str]]:
+    def e2e_commands(self, repo: Path, *, marker: str) -> list[list[str]]:
         """The live-stack tests, every member with tests, one at a time: a
         unit that needs the live stack is asserting how the stack behaves, and
         any member's live tests say so."""

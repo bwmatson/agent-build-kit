@@ -80,7 +80,7 @@ class Scene:
         arrives: list[list[ReviewNote]] | None = None,
         own: Collection[str] = (),
         top_level: list[list[tuple[str, str]]] | None = None,
-        tier: str = "tier1",
+        tier: str = "unit-test",
         conversation: tuple[str, ...] = ("c1",),
     ) -> None:
         self.tmp_path = tmp_path
@@ -317,7 +317,7 @@ def test_a_comment_added_during_a_rework_whose_branch_moved_onto_a_new_base_is_s
 
     scene.rework()
 
-    assert "tier1" in scene.since, "the clean move was checked again"
+    assert "unit-test" in scene.since, "the clean move was checked again"
     assert scene.agent_runs == 2
     assert "and drop this one too" in scene.recorder.prompts[-1]
     assert scene.pushes == 1
@@ -412,20 +412,20 @@ def test_the_pull_request_is_looked_up_by_the_units_branch(tmp_path: Path) -> No
     assert set(scene.host.prefixes) == {branch_name(unit())}
 
 
-def test_a_tier2_unit_moved_onto_a_new_base_still_reads_comments_before_it_pushes(
+def test_a_e2e_unit_moved_onto_a_new_base_still_reads_comments_before_it_pushes(
     tmp_path: Path,
 ) -> None:
     scene = Scene(
         tmp_path,
         delivered=[note("n1", "remove this line")],
         arrives=[[note("n3", "and drop this one too", line=12)]],
-        tier="tier2",
+        tier="e2e-test",
     )
     scene.move_base_once()
 
     scene.rework()
 
-    assert "tier2" in scene.since
+    assert "e2e-test" in scene.since
     assert scene.agent_runs == 2
     assert "and drop this one too" in scene.recorder.prompts[-1]
     assert scene.pushes == 1
@@ -547,8 +547,8 @@ def test_a_failing_checks_rework_does_not_hide_a_comment_it_was_never_given_from
     comment_arrives(scene, "c5", "please also add a docstring")
     event = ResumeEvent(
         kind=EventKind.REWORK,
-        reason=f"{FAILING_CHECKS_REASON}: tier1",
-        feedback=f"{FAILING_CHECKS_REASON}: tier1\n\nboom",
+        reason=f"{FAILING_CHECKS_REASON}: unit-test",
+        feedback=f"{FAILING_CHECKS_REASON}: unit_test\n\nboom",
         from_person=False,
     )
     tick(tmp_path, scene.recorder, event=event, **scene.overrides)
@@ -595,8 +595,8 @@ def test_a_note_arriving_during_a_rework_on_a_pull_request_with_no_comments_is_a
     scene = Scene(tmp_path, conversation=(), arrives=[[note("n1", "please rename this")]])
     event = ResumeEvent(
         kind=EventKind.REWORK,
-        reason=f"{FAILING_CHECKS_REASON}: tier1",
-        feedback=f"{FAILING_CHECKS_REASON}: tier1\n\nboom",
+        reason=f"{FAILING_CHECKS_REASON}: unit-test",
+        feedback=f"{FAILING_CHECKS_REASON}: unit_test\n\nboom",
         from_person=False,
     )
     scene.before = list(scene.recorder.events)
@@ -640,3 +640,6 @@ def thread_state(tmp_path: Path) -> Any:
 async def seed(tmp_path: Path, state: Any) -> None:
     async with open_checkpointer(unit_graphs_path(tmp_path / "state")) as saver:
         await seed_thread(saver, state, as_node=Node.AWAIT_REVIEW)
+
+
+test_a_tier2_unit_moved_onto_a_new_base_still_reads_comments_before_it_pushes = ()

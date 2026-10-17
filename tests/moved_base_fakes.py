@@ -1,4 +1,4 @@
-"""Stand-ins for the tier 1 runner's toolchain and command runner, over a moved base.
+"""Stand-ins for the unit-test runner's toolchain and command runner, over a moved base.
 
 The profile's `test_commands` is bound by assignment: a function named `test_*` defined in
 a file under `tests/` is read as a test the unit added."""

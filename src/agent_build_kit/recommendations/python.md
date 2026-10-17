@@ -54,7 +54,7 @@ check that a repo follows it.
   **Verify:** `.pre-commit-config.yaml` has no hook repository for these
   tools; `uv run pre-commit run pyrefly-check --all-files` exits 0 after `uv sync`.
 
-## Test layout & tiers
+## Test layout & kinds of test
 
 - **Rule:** pytest with three markers — `integration` (needs a real
   datastore), `local_stack` (needs the real local stack) and `dev_stack`
@@ -62,7 +62,7 @@ check that a repo follows it.
   **Tool:** pytest ≥ 8, `[tool.pytest.ini_options]` with `markers` and
   `addopts = "-m 'not integration and not local_stack and not dev_stack'"`.
   **Why:** a bare `pytest` must pass anywhere, including CI with no services;
-  the marked tiers are run on purpose with `pytest -m <marker>`.
+  the marked kinds of test are run on purpose with `pytest -m <marker>`.
   **Verify:** the three markers are declared; `pytest` on a fresh checkout
   with no services passes.
 
@@ -72,7 +72,7 @@ check that a repo follows it.
   file that mixes marked and unmarked tests is split.
   **Tool:** convention, checked in review.
   **Why:** an agent looking for the tests of `src/x/y.py` finds them in
-  `tests/x/` without a search, and the tier split is visible from the path.
+  `tests/x/` without a search, and the split by kind of test is visible from the path.
   **Verify:** every `tests/**/test_*.py` has a source folder it mirrors; no
   marker appears in a file outside `tests/integration/`.
 
@@ -147,7 +147,7 @@ check that a repo follows it.
 
 ## CI
 
-- **Rule:** tier 1 runs on GitHub Actions on every pull request and on
+- **Rule:** unit-test runs on GitHub Actions on every pull request and on
   pushes to the default branch: one pre-commit job, and one test job per
   workspace member; `uv lock --check` guards the lockfile.
   **Tool:** GitHub Actions with `astral-sh/setup-uv` and `actions/setup-python`.

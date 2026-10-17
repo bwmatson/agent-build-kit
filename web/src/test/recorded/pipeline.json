@@ -73,7 +73,7 @@
       "state": "failed",
       "cause": "failed",
       "held_by": "",
-      "note": "tier 1 failed",
+      "note": "unit-test failed",
       "branch": "",
       "pr": null,
       "status": "failed"
