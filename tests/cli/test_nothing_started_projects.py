@@ -61,7 +61,7 @@ def test_the_reason_names_the_full_project_that_holds_a_ready_unit_back_and_no_o
     assert builder.store.get("ready/1").state == PLANNED
     assert builder.store.get("web1/1").state == IN_REVIEW
     assert "queue is full: app/web: 2 units in progress, limit 2 (2 in review)" in out
-    assert "no new unit starts until one finishes or is closed" in out
+    assert "no ordinary unit starts until the occupancy is below the limits" in out
     assert "blocked: webblocked/1 (app/web) waits on webheld/1" in out
     assert "app/api" not in out
 

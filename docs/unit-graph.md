@@ -147,7 +147,8 @@ Within each class of start (open pull request, resumed build, never run) ready
 units start by effective priority, then in the order they were planned; among units
 that have never run, a handoff unit (one that takes the place a blocked unit frees)
 breaks a tie of equal priority and goes ahead of the others, then effective age. Priority 0
-starts first but bypasses no limit. `abk
+starts first, and as soon as it is ready: it uses the project's emergency lane
+(`project_limits.emergency_extra`) past the places and workers, and ordinary starts wait for it. `abk
 status` lists the units whose priority is not 3 and the ready queue in that
 order, each unit with its reason: `planned order`, its own priority, or the
 priority it takes from the unit that waits on it, and marks a handoff unit `(handoff)`. The graph page adds

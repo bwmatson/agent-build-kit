@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A priority-0 unit now starts as soon as it is ready, in an emergency lane of its own
+  (`project_limits.emergency_extra`, 1 by default, 0 turns it off) past the places and
+  workers of its project. Ordinary starts wait while it runs, and it never delays a unit
+  that is finishing. `abk status` shows `emergency room N/M used by <unit>`, says on a full
+  queue that a priority-0 unit may still start, and marks such a unit in the ready queue.
+
 - The unit graph page draws a repo that has several projects with a nested subgraph for
   each project that has a unit in view, and the legend says so. A repo with one project
   is drawn exactly as before.

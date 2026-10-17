@@ -32,7 +32,10 @@ def test_the_queue_line_leaves_a_waiting_failed_unit_out_and_says_how_many_are_n
     queue = next(line for line in lines if "queue is full" in line)
     assert "3 units in progress" in queue
     assert "(1 failed, 1 in review, 1 running)" in queue
-    assert queue.endswith("1 failed waiting not counted")
+    assert queue.endswith(
+        "1 failed waiting not counted"
+        "; a priority-0 unit may still start while the emergency lane has room"
+    )
 
 
 def test_the_failed_waiting_count_follows_the_blocked_count(

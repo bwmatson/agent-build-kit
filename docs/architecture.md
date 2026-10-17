@@ -207,6 +207,12 @@ a running pass loses no update.
 
 ### 3. Building a unit
 
+A priority-0 unit starts as soon as it is ready, in its own emergency lane with its own cap
+(`project_limits.emergency_extra`, 1 by default, 0 turns the lane off): the places and workers
+of the project may be full. It counts toward the occupancy, so ordinary starts wait until the
+occupancy falls below the limits, and it never delays a unit that is finishing: a rework, a
+resume, a review round and a push keep the workers they had.
+
 Each unit has a priority, 0 (emergency) to 5, 3 by default, set by the planner
 in code from the `Priority:` lines of the groups it builds: the most urgent of
 them, carried groups included. A started unit keeps the priority it started

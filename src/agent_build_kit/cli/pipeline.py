@@ -657,7 +657,12 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     conflicted: dict[str, set[int]] = {}
     conflicting: dict[str, dict[int, datetime]] = {}
 
-    for line in _queue_full_by_project(inst, units).values():
+    lane_use = _lane_use(inst, units)
+    for key, line in _queue_full_by_project(inst, units).items():
+        if len(lane_use.get(key, ())) < inst.emergency_extra:
+            line += "; a priority-0 unit may still start while the emergency lane has room"
+        log(line)
+    for line in _emergency_room_lines(inst, units):
         log(line)
     for line in _restack_lines(inst, units):
         log(line)
@@ -2177,6 +2182,28 @@ def _queue_full_by_project(inst: Installation, units: list[StoredUnit]) -> dict[
     return lines
 
 
+def _lane_use(inst: Installation, units: list[StoredUnit]) -> dict[ProjectKey, list[StoredUnit]]:
+    """The units of each project that use its emergency lane: recorded in it and in progress."""
+    recorded = emergency_lane.lane_units(inst.state_dir)
+    using: dict[ProjectKey, list[StoredUnit]] = {}
+    for unit in units:
+        if unit.id in recorded and in_progress(unit, units):
+            using.setdefault(project_key(unit), []).append(unit)
+    return using
+
+
+def _emergency_room_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
+    """One line for each project whose emergency lane is in use, naming its units; the project
+    is named when the workspace has more than one."""
+    named = len(_live_projects(inst, units)) > 1
+    return [
+        f"emergency room {len(using)}/{inst.emergency_extra} used by "
+        f"{', '.join(unit.id for unit in using)}" + (f" ({unit_label(using[0])})" if named else "")
+        for _key, using in sorted(_lane_use(inst, units).items(), key=lambda item: item[0].repo)
+        if inst.emergency_extra
+    ]
+
+
 def _deadlock_lines(units: list[StoredUnit]) -> list[str]:
     """One line for each cycle of units waiting on each other, which can never start."""
     return [
@@ -2284,6 +2311,8 @@ def _ready_queue_lines(inst: Installation, units: list[StoredUnit]) -> list[str]
         enforce_limit=False,
         max_concurrent=len(units),
     )
+    # With the real limits, the starts that only the emergency lane makes possible.
+    *_, lane_only = _evaluate_round(inst, units, started=attached, building=set(), only=frozenset())
     if not ready:
         return []
     lines = ["ready queue (start order):"]
@@ -2300,6 +2329,7 @@ def _ready_queue_lines(inst: Installation, units: list[StoredUnit]) -> list[str]
         else:
             why = "planned order"
         marker = " (handoff)" if unit.id in handed_off else ""
+        marker += " (emergency room)" if unit.id in lane_only else ""
         lines.append(f"  {place}. {unit.id} ({unit_label(unit)}) — {why}{marker}")
     return lines
 
@@ -2383,7 +2413,9 @@ def _nothing_started_reason(
         lines = []
         for key, line in full_projects.items():
             if key in held_back:
-                lines.append(f"{line}; no new unit starts until one finishes or is closed")
+                lines.append(
+                    f"{line}; {_WAIT_FOR_ROOM if inst.emergency_extra else _WAIT_FOR_ROOM_OFF}"
+                )
                 lines.extend(_blocked_lines(units, key))
         if lines:
             return "\n".join(lines)
@@ -2394,6 +2426,12 @@ def _nothing_started_reason(
         return "nothing ready to build"
     return "\n".join(["nothing ready to build", *_candidate_lines(inst, units, only=only)])
 
+
+_WAIT_FOR_ROOM_OFF = "no new unit starts until one finishes or is closed"
+_WAIT_FOR_ROOM = (
+    "no ordinary unit starts until the occupancy is below the limits, "
+    "except a ready priority-0 unit while the lane has room"
+)
 
 # How many candidate units a tick that builds nothing names.
 NOTHING_READY_UNITS = 10
@@ -2610,6 +2648,9 @@ def _schedule(
             )
             telemetry.level("abk.slots.free", free)
             telemetry.level("abk.slots.idle_with_ready", min(free, len(queued)))
+            telemetry.level(
+                "abk.slots.emergency_used", len(emergency_lane.lane_units(inst.state_dir) & running)
+            )
             telemetry.level("abk.restacks.running", len(lane.running))
             telemetry.level("abk.restacks.waiting", len(lane.waiting))
 

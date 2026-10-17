@@ -137,6 +137,7 @@ project_limits:
   max_concurrent_stacks: 4    # units implemented at once, in each project
   max_concurrent_restacks: 2  # branches moved onto a changed base at once, in each project; no build slot taken
   max_units_in_progress: 5    # started, unfinished units (>= 1) in each project, not counting blocked or failed-waiting ones; at it no never-started unit starts
+  emergency_extra: 1          # the emergency lane cap, in each project: priority-0 units that may start past the limits above (default 1; 0 is off)
 
 # `limits:` is the deprecated root name of `global_limits:`. A scheduling setting left in either
 # fails the load; `abk config --migrate [--yes] [--dry-run]` moves it by text (diff first, one backup).

@@ -35,7 +35,9 @@ units, up to `project_limits.max_concurrent_stacks` at once in each project. No 
 started does while the units in progress in its project are at
 `project_limits.max_units_in_progress`, and a pass starts no more than fit under it;
 the tick log and `abk status` then say "queue is full: N units in progress,
-limit M" followed by the count in each state. There is one such line for each project at its
+limit M" followed by the count in each state, and, while the project's emergency lane
+(`project_limits.emergency_extra`) has room, that a priority-0 unit may still start; a unit in
+the lane is shown as `emergency room N/M used by <unit>`. There is one such line for each project at its
 limit, and a workspace with several projects names the project in it
 (`queue is full: app/web: 9 units in progress, limit 9 (...)`); each line lists only its own
 project's blocked and failed-waiting units, and the reason a pass started nothing names only
