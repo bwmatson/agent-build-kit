@@ -3,11 +3,8 @@ with units in given states, and a round run over them."""
 
 from __future__ import annotations
 
-import argparse
 from collections.abc import Collection, Sequence
 from pathlib import Path
-
-import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
@@ -16,6 +13,7 @@ from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING, UnitState
 from tests.conftest import make_installation
 from tests.factories import new_unit
+from tests.project_workspace import repos_declaring
 
 
 def lane_workspace(
@@ -80,11 +78,8 @@ def started_by_round(
     return [unit.id for unit in ready]
 
 
-def status_output(
-    inst: Installation, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> list[str]:
-    """The lines `abk status` prints over `inst`."""
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
-    capsys.readouterr()
-    assert cli.cmd_status(argparse.Namespace(), inst) == 0
-    return capsys.readouterr().out.splitlines()
+def app_only_repos(root: Path) -> dict:
+    """The `repos` of a workspace with one project: `app`, without `platform`."""
+    repos = repos_declaring(root)
+    del repos["platform"]
+    return repos

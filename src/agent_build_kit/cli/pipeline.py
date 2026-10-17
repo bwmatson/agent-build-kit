@@ -662,7 +662,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         if len(lane_use.get(key, ())) < inst.emergency_extra:
             line += "; a priority-0 unit may still start while the emergency lane has room"
         log(line)
-    for line in _emergency_room_lines(inst, units):
+    for line in _emergency_room_lines(inst, units, lane_use):
         log(line)
     for line in _restack_lines(inst, units):
         log(line)
@@ -1593,13 +1593,7 @@ def run_round(
     workers = in_flight | held
     # The emergency lane's units take no worker of the project's own: a rework or a resume
     # is held to the workers the lane leaves. A unit in flight is in progress for the record.
-    emergency_lane.prune(
-        inst.state_dir,
-        [
-            unit.model_copy(update={"state": RUNNING}) if unit.id in in_flight else unit
-            for unit in units
-        ],
-    )
+    emergency_lane.prune(inst.state_dir, _with_builds_running(units, in_flight))
     in_the_lane = emergency_lane.lane_units(inst.state_dir)
     taken = count_by_project(units, lambda unit: unit.id in workers and unit.id not in in_the_lane)
     # Owed a restack, or in the lane for one: a unit whose branch the lane holds is no longer
@@ -2182,24 +2176,34 @@ def _queue_full_by_project(inst: Installation, units: list[StoredUnit]) -> dict[
     return lines
 
 
+def _with_builds_running(units: list[StoredUnit], in_flight: Collection[str]) -> list[StoredUnit]:
+    """`units` with each build in flight shown as running, as the stored state lags the pass."""
+    return [
+        unit.model_copy(update={"state": RUNNING}) if unit.id in in_flight else unit
+        for unit in units
+    ]
+
+
 def _lane_use(inst: Installation, units: list[StoredUnit]) -> dict[ProjectKey, list[StoredUnit]]:
     """The units of each project that use its emergency lane: recorded in it and in progress."""
-    recorded = emergency_lane.lane_units(inst.state_dir)
     using: dict[ProjectKey, list[StoredUnit]] = {}
-    for unit in units:
-        if unit.id in recorded and in_progress(unit, units):
-            using.setdefault(project_key(unit), []).append(unit)
+    for unit in emergency_lane.users(inst.state_dir, units):
+        using.setdefault(project_key(unit), []).append(unit)
     return using
 
 
-def _emergency_room_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
+def _emergency_room_lines(
+    inst: Installation, units: list[StoredUnit], lane_use: dict[ProjectKey, list[StoredUnit]]
+) -> list[str]:
     """One line for each project whose emergency lane is in use, naming its units; the project
     is named when the workspace has more than one."""
     named = len(_live_projects(inst, units)) > 1
     return [
         f"emergency room {len(using)}/{inst.emergency_extra} used by "
         f"{', '.join(unit.id for unit in using)}" + (f" ({unit_label(using[0])})" if named else "")
-        for _key, using in sorted(_lane_use(inst, units).items(), key=lambda item: item[0].repo)
+        for _key, using in sorted(
+            lane_use.items(), key=lambda item: (item[0].repo, item[0].project)
+        )
         if inst.emergency_extra
     ]
 
@@ -2649,7 +2653,8 @@ def _schedule(
             telemetry.level("abk.slots.free", free)
             telemetry.level("abk.slots.idle_with_ready", min(free, len(queued)))
             telemetry.level(
-                "abk.slots.emergency_used", len(emergency_lane.lane_units(inst.state_dir) & running)
+                "abk.slots.emergency_used",
+                len(emergency_lane.users(inst.state_dir, _with_builds_running(units, in_flight))),
             )
             telemetry.level("abk.restacks.running", len(lane.running))
             telemetry.level("abk.restacks.waiting", len(lane.waiting))

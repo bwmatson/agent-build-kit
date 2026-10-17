@@ -57,9 +57,15 @@ def enter(state_dir: Path, unit: Unit) -> None:
         _write(path, [*ids, unit.id])
 
 
+def users[U: Unit](state_dir: Path, units: Sequence[U]) -> list[U]:
+    """The units of `units` that use a lane: recorded in one and still in progress."""
+    recorded = lane_units(state_dir)
+    return [unit for unit in units if unit.id in recorded and in_progress(unit, units)]
+
+
 def prune(state_dir: Path, units: Sequence[Unit]) -> None:
     """Drop from the records each unit that is not in progress in `units`, or is not there."""
-    live = {unit.id for unit in units if in_progress(unit, units)}
+    live = {unit.id for unit in users(state_dir, units)}
     for path in lane_dir(state_dir).glob("*.json"):
         ids = _read(path)
         kept = [unit_id for unit_id in ids if unit_id in live]

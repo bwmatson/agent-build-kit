@@ -11,8 +11,8 @@ import pytest
 
 from agent_build_kit.pipeline.units import IN_REVIEW
 from tests.cli.test_tick_scheduling import open_pr
-from tests.conftest import ready_queue
-from tests.emergency_lane_support import build, fresh, lane_workspace, seeded, status_output
+from tests.conftest import ready_queue, run_status
+from tests.emergency_lane_support import build, fresh, lane_workspace, seeded
 from tests.project_workspace import repos_declaring
 from tests.tick_pass import Builder, install_builder, isolate, stored, tick, warm_unit_graphs
 
@@ -47,7 +47,7 @@ def test_only_a_unit_that_starts_in_the_lane_alone_carries_the_marker(
         ],
     )
 
-    queue = ready_queue(status_output(inst, monkeypatch, capsys))
+    queue = ready_queue(run_status(inst, monkeypatch, capsys))
 
     # The marker follows the reason; a priority-1 unit and a priority-0 unit that fits the
     # normal limits carry none.

@@ -313,8 +313,16 @@ def status_lines(
     for unit in units:
         if unit.state != "planned" or unit.branch:
             store.set_state(unit.id, unit.state, branch=unit.branch, pr=unit.pr)
+    return run_status(workspace, monkeypatch, capsys)
+
+
+def run_status(
+    inst: Installation, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> list[str]:
+    """The lines `abk status` prints over `inst`, with no usage reading."""
     monkeypatch.setattr(pipeline_cli, "current_usage", lambda: None)
-    assert pipeline_cli.cmd_status(argparse.Namespace(), workspace) == 0
+    capsys.readouterr()
+    assert pipeline_cli.cmd_status(argparse.Namespace(), inst) == 0
     return capsys.readouterr().out.splitlines()
 
 

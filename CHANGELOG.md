@@ -30,8 +30,8 @@
   equal priority, so a handoff unit no longer outranks a more urgent unit; it still takes
   the freed place when nothing more urgent can start. `abk status` marks such a unit in the
   ready queue with `(handoff)`. New `Priority: 0`, an emergency lane: the scale is 0 to 5,
-  0 starts before 1 (and its prerequisites with it) but bypasses no limit and stops no
-  running unit.
+  0 starts before 1 (and its prerequisites with it) and stops no running
+  unit; it starts in its own lane (see the emergency-lane entry above).
 
 - A failed unit that waited on another unit is now requeued once, by the pipeline, when its
   wait ends, instead of sitting failed until someone runs `abk requeue`. The mode comes from

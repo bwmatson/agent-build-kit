@@ -13,9 +13,10 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.pipeline import emergency_lane
+from agent_build_kit.pipeline.units import IN_REVIEW
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
-from tests.emergency_lane_support import lane_workspace
-from tests.project_workspace import repos_declaring
+from tests.emergency_lane_support import app_only_repos, lane_workspace
 from tests.tick_pass import Builder, install_builder, isolate, stored, tick, warm_unit_graphs
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
@@ -55,12 +56,6 @@ def gauge(monkeypatch: pytest.MonkeyPatch) -> tuple[list[int], threading.Event]:
     return values, in_use
 
 
-def single_project(tmp_path: Path):
-    repos = repos_declaring(tmp_path)
-    del repos["platform"]
-    return lane_workspace(tmp_path, repos=repos)
-
-
 def samples(directory: Path) -> list[dict]:
     lines = [json.loads(line) for line in (directory / LEDGER_NAME).read_text().splitlines()]
     return [line for line in lines if line.get("kind") == "sample"]
@@ -73,7 +68,7 @@ def test_the_row_after_a_start_in_the_lane_counts_it_running_and_the_gauge_is_on
     gauge: tuple[list[int], threading.Event],
 ) -> None:
     values, in_use = gauge
-    inst = single_project(tmp_path)
+    inst = lane_workspace(tmp_path, repos=app_only_repos(tmp_path))
     names = [f"block{n}/1" for n in range(4)]
     builder.store.upsert([stored(uid) for uid in names])
 
@@ -102,10 +97,26 @@ def test_the_gauge_is_zero_when_no_unit_is_in_the_lane(
     builder: Builder, tmp_path: Path, gauge: tuple[list[int], threading.Event]
 ) -> None:
     values, _ = gauge
-    inst = single_project(tmp_path)
+    inst = lane_workspace(tmp_path, repos=app_only_repos(tmp_path))
     builder.store.upsert([stored("one/1"), stored("two/1")])
 
     assert tick(inst) == 0
 
     assert values
     assert set(values) == {0}
+
+
+def test_the_gauge_counts_a_lane_unit_that_is_in_review(
+    builder: Builder, tmp_path: Path, gauge: tuple[list[int], threading.Event]
+) -> None:
+    values, _ = gauge
+    inst = lane_workspace(tmp_path, repos=app_only_repos(tmp_path))
+    builder.store.upsert([stored("zero/1", priority=0), stored("one/1")])
+    builder.store.set_state("zero/1", IN_REVIEW, pr=1, branch="spec/zero/1")
+    emergency_lane.enter(inst.state_dir, builder.store.get("zero/1"))
+
+    assert tick(inst) == 0
+
+    # The unit holds the lane for as long as it is in progress, review included.
+    assert values
+    assert set(values) == {1}
