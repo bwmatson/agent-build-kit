@@ -16,6 +16,8 @@ from typing import Protocol
 import pytest
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.pause import PAUSE_MARKER
+from agent_build_kit.pipeline.wait_log import DECISIONS_NAME, ENDED
 from agent_build_kit.redaction import redact_text
 from tests.factories import git, who_pushed
 
@@ -124,16 +126,25 @@ def _attempt(source: str, read: Callable[[], str]) -> str:
 def _waits(scratch: Scratch) -> dict[str, str]:
     """Each unit's latest wait reason from the decision log, with what it waits on."""
     latest: dict[str, str] = {}
-    for line in (scratch.state / "decisions.jsonl").read_text().splitlines():
+    for line in (scratch.state / DECISIONS_NAME).read_text().splitlines():
         record = json.loads(line)
+        if record["reason"] == ENDED:
+            latest.pop(record["unit"], None)
+            continue
         waiting = f", waits on {', '.join(record['waits_on'])}" if record.get("waits_on") else ""
         latest[record["unit"]] = f"{record['reason']}{waiting}"
-    return {unit: wait for unit, wait in latest.items() if not wait.startswith("none")}
+    return latest
 
 
-def _pause(scratch: Scratch) -> str:
-    marker = scratch.state / "paused.json"
-    return marker.read_text().strip() if marker.exists() else "absent"
+def _pause(scratch: Scratch) -> tuple[str, str]:
+    """The pause marker's status (`absent`, `present` or `unreadable`) and what to show of it."""
+    marker = scratch.state / PAUSE_MARKER
+    try:
+        if not marker.exists():
+            return "absent", "absent"
+        return "present", marker.read_text().strip()
+    except Exception as error:  # noqa: BLE001 — a diagnostic never hides the others
+        return "unreadable", f"{marker.name} unavailable: {type(error).__name__}"
 
 
 def _run_log(scratch: Scratch) -> str:
@@ -156,17 +167,14 @@ def _pushes(scratch: Scratch) -> list[str]:
 
 def _failure(scratch: Scratch, branch: str, tick: TickResult | None) -> str:
     unit = "/".join(branch.split("/")[-2:])
-    pause = _attempt("paused.json", lambda: _pause(scratch))
-    marker = (
-        "absent" if pause == "absent" else "unreadable" if "unavailable" in pause else "present"
-    )
-    wait = _attempt("decisions.jsonl", lambda: _waits(scratch).get(unit, "has no recorded wait"))
+    marker, pause = _pause(scratch)
+    wait = _attempt(DECISIONS_NAME, lambda: _waits(scratch).get(unit, "has no recorded wait"))
     ran = f"tick exited {tick.returncode}" if tick else "no tick was run"
     sections = [
         f"cause hints: {ran}; {branch} is not on the remote; pause marker {marker}; {unit}: {wait}",
         "--- tick output ---\n" + (tick.output if tick else "no tick was run"),
         "--- wait reasons ---\n"
-        + _attempt("decisions.jsonl", lambda: json.dumps(_waits(scratch), indent=1)),
+        + _attempt(DECISIONS_NAME, lambda: json.dumps(_waits(scratch), indent=1)),
         "--- run log ---\n" + _attempt("run log", lambda: _run_log(scratch)),
         "--- pause marker ---\n" + pause,
         _attempt("push history", lambda: who_pushed(scratch.remote, branch, _pushes(scratch))),

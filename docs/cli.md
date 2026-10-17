@@ -80,8 +80,8 @@ global identity) — which can come mid-pass, after other units have already
 been built, since each readiness check can reach a new repo. A unit that fails
 is recorded `failed`, not an exit status.
 
-A tick that starts nothing, and is not held by a usage pause, a deadlock or a full
-queue, prints `nothing ready to build` and then one line for each planned, held or failed
+A tick that starts nothing, and is not held by a usage pause, a deadlock, a full queue or
+a failed unit that others wait on (each of which prints its own report), prints `nothing ready to build` and then one line for each planned, held or failed
 unit: `  <unit> (<repo>): <reason>`, with `, waits on <units>` when it waits on others. The
 reasons are those `abk status` and the decision log give. Units a person can act on
 soonest (`ready`, `slot`, `lease`, `backoff`) come first; at most 10 are shown, then
