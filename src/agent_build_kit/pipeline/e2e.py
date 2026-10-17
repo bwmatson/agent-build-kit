@@ -332,15 +332,13 @@ def stack_lock(
     on_stale: Callable[[str], None] | None = None,
 ):
     """`hold_lock` on `path`; when `path` is the lock file, a lock held under the old name is
-    waited for and honoured until released. The old file is removed once taken, so later
-    locks take only the current one."""
+    waited for and honoured until released."""
     old = path.with_name(_OLD_LOCK_FILE)
     with ExitStack() as held:
         if path.name == E2E_LOCK_FILE and old.exists():
             held.enter_context(
                 hold_lock(old, timeout, setting, holder=holder, on_wait=on_wait, on_stale=on_stale)
             )
-            old.unlink(missing_ok=True)
         held.enter_context(
             hold_lock(path, timeout, setting, holder=holder, on_wait=on_wait, on_stale=on_stale)
         )
