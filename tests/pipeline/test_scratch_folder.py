@@ -3,7 +3,7 @@
 The folder is `<worktree>/.abk/out/<run>/`: git never sees it (the worktree's
 local exclude file names it, no tracked ignore file changes), a run's files are
 its own and are gone when it ends, and nothing one agent wrote reaches another
-agent or stands in for tier 1's own run (spec: command-output-to-files).
+agent or stands in for unit-test's own run (spec: command-output-to-files).
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from agent_build_kit.pipeline.wiring import (
     build_commit,
     build_run,
     build_run_review,
-    build_tier1,
+    build_unit_test,
 )
 from agent_build_kit.pipeline.workspaces import prepare_worktree
 from agent_build_kit.runtimes import AgentInterrupted, AgentRateLimited, AgentRequest
@@ -345,7 +345,7 @@ def test_the_reviewer_is_told_to_run_its_own_commands() -> None:
     assert "own commands" in prompt
 
 
-def test_tier_1_runs_the_suite_itself_whatever_an_agent_left(tree: Path) -> None:
+def test_unit_test_runs_the_suite_itself_whatever_an_agent_left(tree: Path) -> None:
     left = scratch(tree) / "run-1"
     left.mkdir()
     (left / "suite.exit").write_text("0\n")
@@ -358,10 +358,12 @@ def test_tier_1_runs_the_suite_itself_whatever_an_agent_left(tree: Path) -> None
         ran.append(command)
         return subprocess.CompletedProcess(command, 0, "", "")
 
-    passed, _ = build_tier1(run=run, changed=lambda *a: ["tests/test_x.py"])(cwd=tree, base="main")
+    passed, _ = build_unit_test(run=run, changed=lambda *a: ["tests/test_x.py"])(
+        cwd=tree, base="main"
+    )
 
     assert passed
     assert any("pytest" in " ".join(command) for command in ran)
     assert list(scratch(tree).iterdir()) == [left], (
-        "tier 1 neither reads nor clears an agent's folder"
+        "unit-test neither reads nor clears an agent's folder"
     )

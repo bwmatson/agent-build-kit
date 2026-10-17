@@ -19,17 +19,18 @@ from agent_build_kit.pipeline.work_graph import TaskGroup
 from tests.calibration_support import limits
 from tests.factories import stored_unit
 
-APP = Kind(repo="app", tier="tier1")
+APP = Kind(repo="app", tier="unit-test")
 RATIO_1_5 = {APP: Calibration(ratio=1.5, samples=20)}
 GROUPS = [
-    TaskGroup(number=n, repo="app", tier="tier1", title=title, line=3 + 6 * n, task_count=2)
+    TaskGroup(number=n, repo="app", tier="unit-test", title=title, line=3 + 6 * n, task_count=2)
     for n, title in enumerate("ABC", start=1)
 ]
 
 
 def graph(*units: dict) -> str:
     body = [
-        {"change": "c", "title": "A unit", "repo": "app", "tier": "tier1", **unit} for unit in units
+        {"change": "c", "title": "A unit", "repo": "app", "tier": "unit-test", **unit}
+        for unit in units
     ]
     return json.dumps({"units": body})
 
@@ -82,8 +83,8 @@ def test_a_unit_over_the_ceiling_with_no_calibration_is_rejected_as_it_was() -> 
 
 def refusal(found: dict | None, *, added: int = 250) -> str:
     base = stored_unit("base/1", change="base", groups=(1,), estimated_lines=300)
-    group = TaskGroup(number=1, repo="app", tier="tier1", title="A", line=3, task_count=2)
-    other = TaskGroup(number=1, repo="app", tier="tier1", title="B", line=3, task_count=2)
+    group = TaskGroup(number=1, repo="app", tier="unit-test", title="A", line=3, task_count=2)
+    other = TaskGroup(number=1, repo="app", tier="unit-test", title="B", line=3, task_count=2)
     with pytest.raises(JoinRefused, match="ceiling") as refused:
         check_joins(
             [Join(onto="base/1", change="feature", groups=(1,), estimated_lines=added)],

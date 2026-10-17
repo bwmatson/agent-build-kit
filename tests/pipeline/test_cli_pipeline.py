@@ -269,7 +269,7 @@ def stored(uid: str = "add-marker/1", **overrides) -> StoredUnit:
         "change": "add-marker",
         "title": "Register the marker",
         "repo": "app",
-        "tier": "tier1",
+        "tier": "unit-test",
         "depends_on": (),
         "estimated_lines": 140,
         "groups": (1,),
@@ -683,7 +683,7 @@ TASKS = """# Tasks
 
 Acceptance: none — a fixture about planning, not about the acceptance group
 
-## 1. [app] [tier1] Register the marker
+## 1. [app] [unit-test] Register the marker
 
 - [ ] 1.1 Test: it selects only marked tests.
 - [ ] 1.2 Register it.
@@ -694,7 +694,7 @@ Acceptance: none — a fixture about planning, not about the acceptance group
 TASKS_WITH_A_SECOND_GROUP = (
     TASKS
     + """
-## 2. [app] [tier1] Use the marker
+## 2. [app] [unit-test] Use the marker
 
 - [ ] 2.1 Test: it is used.
 - [ ] 2.2 Use it.
@@ -744,7 +744,7 @@ def test_an_edited_change_is_planned_again(tmp_path: Path, monkeypatch) -> None:
     store = UnitStore(tmp_path / "units.json")
 
     real_plan_all(inst, store=store)
-    (path / "tasks.md").write_text(TASKS + "\n## 2. [app] [tier1] More\n\n- [ ] 2.1 Do it.\n")
+    (path / "tasks.md").write_text(TASKS + "\n## 2. [app] [unit-test] More\n\n- [ ] 2.1 Do it.\n")
     real_plan_all(inst, store=store)
 
     assert len(calls) == 2
@@ -827,13 +827,15 @@ def test_editing_the_change_starts_the_attempts_over(tmp_path: Path, monkeypatch
         real_plan_all(inst, store=store)
     before = len(calls)
 
-    (path / "tasks.md").write_text(TASKS + "\n## 2. [app] [tier1] More\n\n- [ ] 2.1 Do it.\n")
+    (path / "tasks.md").write_text(TASKS + "\n## 2. [app] [unit-test] More\n\n- [ ] 2.1 Do it.\n")
     real_plan_all(inst, store=store)
 
     assert len(calls) == before + 1
 
 
-TWO_GROUPS = TASKS + "\n## 2. [app] [tier1] Use the marker\n\n- [ ] 2.1 Test: a\n- [ ] 2.2 Do a\n"
+TWO_GROUPS = (
+    TASKS + "\n## 2. [app] [unit-test] Use the marker\n\n- [ ] 2.1 Test: a\n- [ ] 2.2 Do a\n"
+)
 
 
 def plan_output(*units: dict) -> str:
@@ -843,7 +845,7 @@ def plan_output(*units: dict) -> str:
             "change": "add-marker",
             "title": "Register the marker",
             "repo": "app",
-            "tier": "tier1",
+            "tier": "unit-test",
             "depends_on": [],
             **unit,
         }
@@ -1108,8 +1110,8 @@ def _needs_tasks(root: Path) -> None:
     change = root / "openspec" / "changes" / "feature"
     change.mkdir(parents=True)
     (change / "tasks.md").write_text(
-        "# Tasks\n\n## 6. [platform] [tier2] Reachable\n\n"
-        "Needs: sample-change group 2 — tier 2 runs against the dev stack.\n\n"
+        "# Tasks\n\n## 6. [platform] [e2e-test] Reachable\n\n"
+        "Needs: sample-change group 2 — e2e-test runs against the dev stack.\n\n"
         "- [ ] 6.1 Test: reachable\n"
     )
 
@@ -1142,9 +1144,9 @@ def test_a_merged_needs_line_is_recorded_as_a_plain_dependency(
     change = tmp_path / "openspec" / "changes" / "feature"
     change.mkdir(parents=True)
     (change / "tasks.md").write_text(
-        "# Tasks\n\n## 6. [platform] [tier2] Reachable\n\n"
+        "# Tasks\n\n## 6. [platform] [e2e-test] Reachable\n\n"
         "Needs: sample-change group 2 merged — it reshapes the runtime\n"
-        "Needs: other-change group 1 — tier 2 runs against it\n\n"
+        "Needs: other-change group 1 — e2e-test runs against it\n\n"
         "- [ ] 6.1 Test: reachable\n"
     )
     store = UnitStore(tmp_path / "units.json")
@@ -1168,10 +1170,12 @@ def test_adding_a_needs_line_does_not_re_plan_the_change(tmp_path: Path) -> None
     """A re-plan is a model call that can reshuffle units already built; a
     Needs: line only adds a dependency, which link_needs applies itself."""
     tasks = tmp_path / "tasks.md"
-    tasks.write_text("## 1. [app] [tier1] G\n- [ ] 1.1 Do it\n")
+    tasks.write_text("## 1. [app] [unit-test] G\n- [ ] 1.1 Do it\n")
     before = cli.specification(tasks)
 
-    tasks.write_text("## 1. [app] [tier1] G\nNeeds: sample-change group 2 — why\n- [ ] 1.1 Do it\n")
+    tasks.write_text(
+        "## 1. [app] [unit-test] G\nNeeds: sample-change group 2 — why\n- [ ] 1.1 Do it\n"
+    )
 
     assert cli.specification(tasks) == before
 
@@ -1218,7 +1222,7 @@ def test_a_satisfied_unit_with_a_close_still_to_make_keeps_the_ticks_coming(
 def test_a_change_not_yet_planned_is_work(tmp_path: Path) -> None:
     change = tmp_path / "openspec" / "changes" / "new-one"
     change.mkdir(parents=True)
-    (change / "tasks.md").write_text("## 1. [app] [tier1] G\n- [ ] 1.1 x\n")
+    (change / "tasks.md").write_text("## 1. [app] [unit-test] G\n- [ ] 1.1 x\n")
 
     assert cli.has_work(inst, UnitStore(tmp_path / "units.json"))
 
@@ -1493,7 +1497,7 @@ def test_a_failed_units_record_names_its_run_log(
         monkeypatch,
         {
             "add-marker/1": RuntimeError("git exploded"),
-            "add-marker/2": RunOutcome(status="failed", detail="tier 1 failed"),
+            "add-marker/2": RunOutcome(status="failed", detail="unit-test failed"),
         },
     )
 
@@ -1504,7 +1508,7 @@ def test_a_failed_units_record_names_its_run_log(
     assert store.get("add-marker/1").run_log == first.name
     assert "git exploded" in first.read_text()
     assert store.get("add-marker/2").run_log == second.name
-    assert "tier 1 failed" in second.read_text()
+    assert "unit-test failed" in second.read_text()
 
 
 def test_the_pass_still_prints_every_line_as_before(
@@ -1723,9 +1727,9 @@ def test_the_file_closes_with_a_returned_failure(
 ) -> None:
     UnitStore(tmp_path / "units.json").upsert([stored()])
 
-    lines = _tick_one(monkeypatch, RunOutcome(status="failed", detail="tier 1 failed"))
+    lines = _tick_one(monkeypatch, RunOutcome(status="failed", detail="unit-test failed"))
 
-    assert _closing(lines) == "outcome: failed \u2014 tier 1 failed"
+    assert _closing(lines) == "outcome: failed \u2014 unit-test failed"
 
 
 def test_the_file_closes_with_a_raised_error(

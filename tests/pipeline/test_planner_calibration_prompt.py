@@ -40,7 +40,7 @@ def prompt_for(units: list[StoredUnit], *, shown: bool = True) -> str:
         return '{"units": []}'
 
     plan_round(
-        changes={"c": "## 1. [app] [tier1] x\n"},
+        changes={"c": "## 1. [app] [unit-test] x\n"},
         in_flight=[],
         calibrations=found,
         examples=examples,
@@ -61,7 +61,7 @@ def joining_of(prompt: str) -> str:
 
 
 def landed(count: int, *, repo: str, ratio_of: tuple[int, int] = (400, 650), **kw) -> list:
-    """`count` merged units of a repo's tier-1 kind, each landing at the same ratio."""
+    """`count` merged units of a repo's unit-test kind, each landing at the same ratio."""
     estimate, actual = ratio_of
     return [
         sample(0, at=at, repo=repo, estimate=estimate, actual=actual, **kw) for at in range(count)

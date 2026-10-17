@@ -13,7 +13,7 @@ from tests.cli.replan_driver import answer, planned
 from tests.runtimes.stand_in import StandInRuntime
 
 PARTS = ("template", r"tasks\.md", "relationships", "calibration", "in-flight")
-TASKS = "# Tasks\n\n## 1. [app] [tier1] Group one\n\n- [ ] 1.1 Test: it.\n"
+TASKS = "# Tasks\n\n## 1. [app] [unit-test] Group one\n\n- [ ] 1.1 Test: it.\n"
 
 
 def sized(size: int) -> tuple[StandInRuntime, str]:

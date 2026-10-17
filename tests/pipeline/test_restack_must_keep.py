@@ -8,7 +8,7 @@ moving branch's own diff — the lines it added that the base doesn't have.
 The derivation has to be conservative in a specific direction. A marker that
 is really the base's (not distinctive) would fail every resolution and stall
 the pipeline; that is worse than a marker too weak to catch a bad one, because
-the checks afterwards — tier 1, tier 2, review — still have to pass.
+the checks afterwards — unit-test, e2e-test, review — still have to pass.
 """
 
 from pathlib import Path
@@ -82,7 +82,7 @@ def test_the_marker_list_is_capped(repo: Path) -> None:
 
 def test_a_branch_that_added_nothing_distinctive_yields_no_markers(repo: Path) -> None:
     """Whitespace and one-token lines only. The check then doesn't fire, and
-    tier 1, tier 2 and the review pass are what catch a bad resolution."""
+    unit-test, e2e-test and the review pass are what catch a bad resolution."""
     commit(repo, "markers.py", "markers = []\n\n)\n")
 
     assert derive_must_keep(repo, "spec/c/1", old_base="main", files=["markers.py"]) == []

@@ -150,7 +150,7 @@ def test_a_parked_unit_resumes_at_its_step_once_the_host_is_back(
     recorder = build_once(tmp_path, monkeypatch, store, open_pr=open_pr_over(up))
 
     assert len(up.calls("POST", PULLS)) == 1
-    for step in ("push", "tier1", "tier2", "review"):
+    for step in ("push", "unit-test", "e2e-test", "review"):
         assert step not in recorder.events
     assert not [event for event in recorder.events if event.startswith("claude:")]
     stored = store.get(UNIT)

@@ -53,7 +53,7 @@ def test_assumptions_take_the_trunk_they_are_told() -> None:
 def test_an_azure_tier_one_body_names_no_github_service() -> None:
     repo_with(**AZURE)
 
-    body = build_pr_body(unit(tier="tier1"), graph=[unit()], base="main")
+    body = build_pr_body(unit(tier="unit-test"), graph=[unit()], base="main")
 
     assert "GitHub Actions" not in body
     assert "unit-test" in body.lower()
@@ -65,13 +65,13 @@ def test_an_azure_tier_one_body_names_its_own_ci() -> None:
 
     repo_with(**AZURE)
 
-    body = build_pr_body(unit(tier="tier1"), graph=[unit()], base="main")
+    body = build_pr_body(unit(tier="unit-test"), graph=[unit()], base="main")
 
     assert FORGE.ci_name
     assert FORGE.ci_name in body
 
 
 def test_a_github_tier_one_body_is_unchanged() -> None:
-    body = build_pr_body(unit(tier="tier1"), graph=[unit()], base="main")
+    body = build_pr_body(unit(tier="unit-test"), graph=[unit()], base="main")
 
     assert "so GitHub Actions runs the whole of it" in body

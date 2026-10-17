@@ -38,7 +38,7 @@ def test_a_unit_recorded_without_carried_groups_loads_and_is_its_own_member() ->
             "change": "add-marker",
             "title": "Register the marker",
             "repo": "app",
-            "tier": "tier1",
+            "tier": "unit-test",
             "groups": [1, 2],
         }
     )
@@ -83,7 +83,8 @@ def _tasks(tmp_path: Path, change: str, groups: tuple[int, ...]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         "".join(
-            f"## {g}. [app] [tier1] G{g}\n- [ ] {g}.1 Test: a\n- [ ] {g}.2 Do a\n" for g in groups
+            f"## {g}. [app] [unit-test] G{g}\n- [ ] {g}.1 Test: a\n- [ ] {g}.2 Do a\n"
+            for g in groups
         )
     )
     return path
@@ -234,7 +235,7 @@ def test_a_needs_line_naming_a_carried_group_resolves_to_the_carrying_unit(
     change = tmp_path / "openspec" / "changes" / "feature"
     change.mkdir(parents=True)
     (change / "tasks.md").write_text(
-        "# Tasks\n\n## 6. [platform] [tier2] Reachable\n\n"
+        "# Tasks\n\n## 6. [platform] [e2e-test] Reachable\n\n"
         "Needs: sample-change group 7 — the marker exists.\n\n"
         "- [ ] 6.1 Test: reachable\n"
     )
@@ -258,7 +259,7 @@ def test_a_needs_line_on_a_carried_group_reaches_the_carrying_unit(tmp_path: Pat
     change = tmp_path / "openspec" / "changes" / "sample-change"
     change.mkdir(parents=True)
     (change / "tasks.md").write_text(
-        "# Tasks\n\n## 7. [app] [tier1] Carried\n\n"
+        "# Tasks\n\n## 7. [app] [unit-test] Carried\n\n"
         "Needs: feature group 6 — the platform side.\n\n"
         "- [ ] 7.1 Test: carried\n"
     )

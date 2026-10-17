@@ -304,7 +304,7 @@ def test_a_scoped_flake_met_by_a_unit_of_the_fix_change_is_a_failure_for_its_age
     assert any("assert 'a' == 'b'" in prompt for prompt in recorder.prompts)
 
 
-def test_a_tier_2_failure_after_a_scoped_flake_is_not_isolated_and_holds_the_unit(
+def test_a_e2e_failure_after_a_scoped_flake_is_not_isolated_and_holds_the_unit(
     tmp_path: Path,
 ) -> None:
     told = Told()
@@ -365,7 +365,7 @@ def test_a_flake_of_a_full_run_still_parks_the_unit_beside_a_scoped_one_that_doe
     assert (stored.state, stored.cause) == (PLANNED, Cause.GATED)
 
 
-def test_a_tier_two_unit_runs_tier_2_after_a_scoped_flake_and_is_told_of_it_once(
+def test_a_tier_two_unit_runs_e2e_after_a_scoped_flake_and_is_told_of_it_once(
     tmp_path: Path,
 ) -> None:
     told = Told()

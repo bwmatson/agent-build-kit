@@ -1,4 +1,4 @@
-"""A child restacked after its parent merged, whose tier 1 meets a flake, is recorded and
+"""A child restacked after its parent merged, whose unit-test meets a flake, is recorded and
 parked to wait on the fix instead of being left unmoved (spec: flaky-tests)."""
 
 from __future__ import annotations

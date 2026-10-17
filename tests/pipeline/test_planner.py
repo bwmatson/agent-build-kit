@@ -26,7 +26,7 @@ GOOD = {
             "change": "add-marker",
             "title": "Register the marker",
             "repo": "platform",
-            "tier": "tier1",
+            "tier": "unit-test",
             "depends_on": [],
             "estimated_lines": 120,
             "groups": [1],
@@ -36,7 +36,7 @@ GOOD = {
             "change": "add-marker",
             "title": "Register it in app",
             "repo": "app",
-            "tier": "tier1",
+            "tier": "unit-test",
             "depends_on": ["add-marker/1"],
             "estimated_lines": 140,
             "groups": [2],
@@ -136,7 +136,7 @@ def test_the_prompt_carries_the_changes_and_the_work_in_flight() -> None:
         return json.dumps(GOOD)
 
     plan_round(
-        changes={"add-marker": "## 1. [platform] [tier1] Register the marker\n"},
+        changes={"add-marker": "## 1. [platform] [unit-test] Register the marker\n"},
         in_flight=[
             {"id": "other/1", "repo": "app", "branch": "spec/other/1", "state": "in_review"}
         ],
@@ -154,7 +154,7 @@ def test_the_prompt_states_the_rules_the_graph_must_satisfy() -> None:
     captured: dict = {}
 
     plan_round(
-        changes={"add-marker": "## 1. [app] [tier1] x\n"},
+        changes={"add-marker": "## 1. [app] [unit-test] x\n"},
         in_flight=[],
         run_claude=lambda prompt: captured.setdefault("prompt", prompt) and json.dumps(GOOD),
     )
@@ -174,9 +174,9 @@ def test_an_empty_plan_is_allowed() -> None:
 
 
 GROUPS = [
-    TaskGroup(number=1, repo="platform", tier="tier1", title="A", line=3, task_count=2),
-    TaskGroup(number=2, repo="app", tier="tier1", title="B", line=9, task_count=2),
-    TaskGroup(number=3, repo="app", tier="tier1", title="C", line=15, task_count=1),
+    TaskGroup(number=1, repo="platform", tier="unit-test", title="A", line=3, task_count=2),
+    TaskGroup(number=2, repo="app", tier="unit-test", title="B", line=9, task_count=2),
+    TaskGroup(number=3, repo="app", tier="unit-test", title="C", line=15, task_count=1),
 ]
 
 
@@ -190,7 +190,7 @@ def planned(**overrides) -> dict:
         "change": "c",
         "title": "A unit",
         "repo": "app",
-        "tier": "tier1",
+        "tier": "unit-test",
         "groups": [2],
         **overrides,
     }
@@ -308,12 +308,12 @@ def test_a_dependency_on_nothing_at_all_is_still_caught() -> None:
 # --- the acceptance group (docs/architecture.md) ---
 
 ACCEPTING = [
-    TaskGroup(number=1, repo="platform", tier="tier1", title="A", line=3, task_count=2),
-    TaskGroup(number=2, repo="platform", tier="tier1", title="B", line=9, task_count=2),
+    TaskGroup(number=1, repo="platform", tier="unit-test", title="A", line=3, task_count=2),
+    TaskGroup(number=2, repo="platform", tier="unit-test", title="B", line=9, task_count=2),
     TaskGroup(
         number=3,
         repo="platform",
-        tier="tier2",
+        tier="e2e-test",
         title="Drive it",
         line=15,
         task_count=1,
@@ -330,11 +330,11 @@ def test_the_acceptance_group_is_a_unit_of_its_own() -> None:
     """It exercises what the rest built; folded into an implementation unit,
     it would be written and reviewed against a surface that is half there."""
     output = graph_json(
-        [si(id="c/1", groups=[1, 2]), si(id="c/2", groups=[3], tier="tier2", depends_on=["c/1"])]
+        [si(id="c/1", groups=[1, 2]), si(id="c/2", groups=[3], tier="e2e-test", depends_on=["c/1"])]
     )
     assert [u.id for u in parse_graph(output, groups=ACCEPTING)] == ["c/1", "c/2"]
 
-    folded = graph_json([si(id="c/1", groups=[1]), si(id="c/2", groups=[2, 3], tier="tier2")])
+    folded = graph_json([si(id="c/1", groups=[1]), si(id="c/2", groups=[2, 3], tier="e2e-test")])
     with pytest.raises(PlannerError, match="acceptance"):
         parse_graph(folded, groups=ACCEPTING)
 
@@ -344,7 +344,7 @@ def test_the_acceptance_unit_waits_for_every_unit_it_exercises() -> None:
         [
             si(id="c/1", groups=[1]),
             si(id="c/2", groups=[2], depends_on=["c/1"]),
-            si(id="c/3", groups=[3], tier="tier2", depends_on=["c/1"]),
+            si(id="c/3", groups=[3], tier="e2e-test", depends_on=["c/1"]),
         ]
     )
 
@@ -357,7 +357,7 @@ def test_waiting_through_another_unit_is_enough() -> None:
         [
             si(id="c/1", groups=[1]),
             si(id="c/2", groups=[2], depends_on=["c/1"]),
-            si(id="c/3", groups=[3], tier="tier2", depends_on=["c/2"]),
+            si(id="c/3", groups=[3], tier="e2e-test", depends_on=["c/2"]),
         ]
     )
 
@@ -365,7 +365,7 @@ def test_waiting_through_another_unit_is_enough() -> None:
 
 
 def test_groups_already_merged_need_no_edge() -> None:
-    output = graph_json([si(id="c/3", groups=[3], tier="tier2")])
+    output = graph_json([si(id="c/3", groups=[3], tier="e2e-test")])
 
     assert parse_graph(output, groups=ACCEPTING, built={1, 2})[0].id == "c/3"
 
@@ -374,7 +374,7 @@ def test_the_prompt_says_how_to_place_the_acceptance_group() -> None:
     captured: dict = {}
 
     plan_round(
-        changes={"add-marker": "## 1. [app] [tier1] x\n"},
+        changes={"add-marker": "## 1. [app] [unit-test] x\n"},
         in_flight=[],
         run_claude=lambda prompt: captured.setdefault("prompt", prompt) and json.dumps(GOOD),
     )
@@ -385,12 +385,12 @@ def test_the_prompt_says_how_to_place_the_acceptance_group() -> None:
 # --- the independent group ---
 
 INDEPENDENT = [
-    TaskGroup(number=1, repo="app", tier="tier1", title="A", line=3, task_count=2),
-    TaskGroup(number=2, repo="app", tier="tier1", title="B", line=9, task_count=2),
+    TaskGroup(number=1, repo="app", tier="unit-test", title="A", line=3, task_count=2),
+    TaskGroup(number=2, repo="app", tier="unit-test", title="B", line=9, task_count=2),
     TaskGroup(
         number=3,
         repo="app",
-        tier="tier1",
+        tier="unit-test",
         title="Receiver",
         line=15,
         task_count=1,
@@ -432,12 +432,16 @@ def test_an_independent_group_is_not_combined_with_another() -> None:
 
 
 NARROWING = [
-    TaskGroup(number=1, repo="app", tier="tier1", title="A", line=3, task_count=2, flag="contract"),
-    TaskGroup(number=2, repo="app", tier="tier1", title="B", line=9, task_count=2),
     TaskGroup(
-        number=3, repo="app", tier="tier1", title="C", line=15, task_count=1, independent=True
+        number=1, repo="app", tier="unit-test", title="A", line=3, task_count=2, flag="contract"
     ),
-    TaskGroup(number=4, repo="app", tier="tier1", title="D", line=21, task_count=1, flag="narrow"),
+    TaskGroup(number=2, repo="app", tier="unit-test", title="B", line=9, task_count=2),
+    TaskGroup(
+        number=3, repo="app", tier="unit-test", title="C", line=15, task_count=1, independent=True
+    ),
+    TaskGroup(
+        number=4, repo="app", tier="unit-test", title="D", line=21, task_count=1, flag="narrow"
+    ),
 ]
 
 
@@ -473,15 +477,15 @@ def test_a_narrowing_unit_need_not_wait_for_an_independent_group_already_merged(
 
 
 ACCEPTING_INDEPENDENT = [
-    TaskGroup(number=1, repo="app", tier="tier1", title="A", line=3, task_count=2),
+    TaskGroup(number=1, repo="app", tier="unit-test", title="A", line=3, task_count=2),
     TaskGroup(
-        number=2, repo="app", tier="tier1", title="B", line=9, task_count=2, independent=True
+        number=2, repo="app", tier="unit-test", title="B", line=9, task_count=2, independent=True
     ),
-    TaskGroup(number=3, repo="app", tier="tier1", title="C", line=15, task_count=1),
+    TaskGroup(number=3, repo="app", tier="unit-test", title="C", line=15, task_count=1),
     TaskGroup(
         number=4,
         repo="app",
-        tier="tier2",
+        tier="e2e-test",
         title="Drive it",
         line=21,
         task_count=1,
@@ -496,7 +500,7 @@ def accepting_plan(acceptance_depends_on: list[str]) -> str:
             planned(id="c/1", groups=[1]),
             planned(id="c/2", groups=[2]),
             planned(id="c/3", groups=[3], depends_on=["c/1"]),
-            planned(id="c/4", groups=[4], tier="tier2", depends_on=acceptance_depends_on),
+            planned(id="c/4", groups=[4], tier="e2e-test", depends_on=acceptance_depends_on),
         ]
     )
 
@@ -513,7 +517,7 @@ def test_the_prompt_says_how_to_place_an_independent_group() -> None:
     captured: dict = {}
 
     plan_round(
-        changes={"add-marker": "## 1. [app] [tier1] x\n"},
+        changes={"add-marker": "## 1. [app] [unit-test] x\n"},
         in_flight=[],
         run_claude=lambda prompt: captured.setdefault("prompt", prompt) and json.dumps(GOOD),
     )
@@ -531,7 +535,7 @@ def test_the_prompt_tells_the_planner_the_ceiling() -> None:
     captured: dict = {}
 
     plan_round(
-        changes={"add-marker": "## 1. [app] [tier1] x\n"},
+        changes={"add-marker": "## 1. [app] [unit-test] x\n"},
         in_flight=[],
         run_claude=lambda prompt: captured.setdefault("prompt", prompt) and json.dumps(GOOD),
     )
@@ -542,7 +546,7 @@ def test_the_prompt_tells_the_planner_the_ceiling() -> None:
 def prompt_for_defaults() -> str:
     captured: dict = {}
     plan_round(
-        changes={"add-marker": "## 1. [app] [tier1] x\n"},
+        changes={"add-marker": "## 1. [app] [unit-test] x\n"},
         in_flight=[],
         run_claude=lambda prompt: captured.setdefault("prompt", prompt) and json.dumps(GOOD),
     )

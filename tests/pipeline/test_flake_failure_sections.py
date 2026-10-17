@@ -1,7 +1,7 @@
 """A flake keeps the failing test's own section of the first run's output, and a storm keeps
 the first three (spec: flake-failure).
 
-The profile reads the recorded pytest output under `tests/fixtures/external/pytest/`; tier 1
+The profile reads the recorded pytest output under `tests/fixtures/external/pytest/`; unit-test
 runs over a fake runner that answers with such output (see `test_flake_isolation`).
 """
 
@@ -14,7 +14,7 @@ from typing import cast
 import pytest
 
 from agent_build_kit.pipeline.flakes import Flake, FlakeFound, flake_record
-from agent_build_kit.pipeline.wiring import build_tier1
+from agent_build_kit.pipeline.wiring import build_unit_test
 from agent_build_kit.profiles.base import ToolchainProfile
 from agent_build_kit.profiles.python_uv import PythonUvProfile
 from tests.conftest import make_installation
@@ -76,10 +76,10 @@ class StormSections(ManyFailed):
         return {f"test_one.py::test_case_{n:03}": storm_section(n) for n in range(97)}
 
 
-def tier1(
+def unit_test(
     profile: object, runs: Runs, tmp_path: Path, log: list[str] | None = None
 ) -> tuple[bool, str]:
-    return build_tier1(
+    return build_unit_test(
         profile=cast(ToolchainProfile, profile),
         run=runs,
         changed=lambda *a: ["tests/test_one.py"],
@@ -89,7 +89,7 @@ def tier1(
 
 def flakes_of(profile: object, runs: Runs, tmp_path: Path) -> dict[str, Flake]:
     with pytest.raises(FlakeFound) as found:
-        tier1(profile, runs, tmp_path)
+        unit_test(profile, runs, tmp_path)
     return {flake.test: flake for flake in found.value.flakes}
 
 
@@ -243,7 +243,7 @@ def test_a_flake_keeps_the_end_of_the_first_runs_output_in_whole_lines(tmp_path:
 
 
 def test_a_failed_command_keeps_the_end_of_what_it_printed_in_whole_lines(tmp_path: Path) -> None:
-    passed, text = tier1(HookedProfile(), FirstRun(long_run(), reruns=[0, 1]), tmp_path)
+    passed, text = unit_test(HookedProfile(), FirstRun(long_run(), reruns=[0, 1]), tmp_path)
 
     assert not passed
     original = long_run().splitlines()
@@ -274,7 +274,7 @@ def test_ninety_seven_flakes_record_and_log_three_sections_cut_to_3000(tmp_path:
     installation = make_installation(tmp_path)
     logged: list[str] = []
 
-    passed, _ = tier1(StormSections(), Runs(reruns=[0, 0]), tmp_path, logged)
+    passed, _ = unit_test(StormSections(), Runs(reruns=[0, 0]), tmp_path, logged)
 
     assert passed
     (storm,) = storms(installation)
@@ -297,9 +297,12 @@ def test_a_failed_command_whose_output_is_one_long_line_keeps_the_end_of_it(
 ) -> None:
     line = "".join(f"{n:04d}" for n in range(1250))
 
-    passed, text = tier1(HookedProfile(), FirstRun(line, reruns=[0, 1]), tmp_path)
+    passed, text = unit_test(HookedProfile(), FirstRun(line, reruns=[0, 1]), tmp_path)
 
     assert not passed
     header, _, kept = text.rpartition("\n")
     assert header.startswith("$ ")
     assert kept == line[-4000:]
+
+
+tier1 = unit_test  # abk-shim

@@ -227,7 +227,7 @@ def test_a_unit_whose_commit_was_rejected_carries_the_gates_output_on_its_record
                 change="add-marker",
                 title="A",
                 repo="app",
-                tier="tier1",
+                tier="unit-test",
                 groups=(1,),
             )
         ]

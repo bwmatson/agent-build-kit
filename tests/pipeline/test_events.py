@@ -184,7 +184,7 @@ def test_rework_is_recorded_against_the_unit(store: UnitStore) -> None:
 
 def test_rework_records_its_cause_whatever_the_reason_says(store: UnitStore) -> None:
     """What the running pass reads to let the unit back in, instead of the note."""
-    events.on_rework(1, repo="app", reason="failing checks: tier1", store=store)
+    events.on_rework(1, repo="app", reason="failing checks: unit-test", store=store)
 
     assert store.get("add-marker/1").history[-1].get("cause") == Cause.REWORK
 
@@ -236,7 +236,7 @@ def test_a_restack_reruns_the_checks_before_it_pushes(tmp_path: Path) -> None:
         store=store,
         root=tmp_path,
         move=lambda *a, **k: order.append("move") or Moved(sha="newsha"),
-        unit_test=lambda **k: (order.append("tier1"), (True, ""))[1],
+        unit_test=lambda **k: (order.append("unit-test"), (True, ""))[1],
         push=lambda *a, **k: order.append("push") or "newsha",
         retarget=lambda *a, **k: order.append("retarget"),
         comment=lambda *a, **k: order.append("comment"),
@@ -252,7 +252,7 @@ def test_a_restack_reruns_the_checks_before_it_pushes(tmp_path: Path) -> None:
         parent=unit("c/1", pr=1, branch="spec/c/1"),
     )
 
-    assert order == ["retarget", "move", "tier1", "push", "comment"]
+    assert order == ["retarget", "move", "unit-test", "push", "comment"]
 
 
 def test_a_restack_that_breaks_the_branch_is_not_pushed(tmp_path: Path) -> None:
@@ -419,7 +419,7 @@ def test_a_branch_the_host_moved_is_re_reviewed_before_anything_is_pushed(
         store=store,
         root=tmp_path,
         move=lambda *a, **k: order.append("move") or Moved(sha="newsha"),
-        unit_test=lambda **k: (order.append("tier1"), (True, ""))[1],
+        unit_test=lambda **k: (order.append("unit-test"), (True, ""))[1],
         push=lambda *a, **k: order.append("push") or "newsha",
         retarget=lambda *a, **k: None,
         comment=lambda *a, **k: None,
@@ -631,9 +631,11 @@ def test_a_reworked_unit_goes_back_in_the_queue(store: UnitStore) -> None:
 
 def test_feedback_with_no_comment_still_says_why(store: UnitStore) -> None:
     """A failing check dispatches rework too, and its reason is all there is."""
-    events.on_rework(1, repo="app", reason="failing checks: tier1", pull=bare_pull(), store=store)
+    events.on_rework(
+        1, repo="app", reason="failing checks: unit-test", pull=bare_pull(), store=store
+    )
 
-    assert "failing checks: tier1" in store.get("add-marker/1").feedback
+    assert "failing checks: unit-test" in store.get("add-marker/1").feedback
 
 
 def test_a_deferred_rework_fetches_nothing(store: UnitStore) -> None:
@@ -651,7 +653,7 @@ def test_a_deferred_rework_fetches_nothing(store: UnitStore) -> None:
         fetched.append("checks")
         return "log"
 
-    for reason in ("new comment", f"{events.FAILING_CHECKS_REASON}: tier1"):
+    for reason in ("new comment", f"{events.FAILING_CHECKS_REASON}: unit-test"):
         taken = events.on_rework(
             1,
             repo="app",
@@ -887,13 +889,13 @@ def test_rework_falls_back_to_the_reason_when_there_are_no_words(store: UnitStor
     events.on_rework(
         1,
         repo="app",
-        reason="failing checks: tier1",
+        reason="failing checks: unit-test",
         pull=bare_pull(),
         store=store,
         fetch_review=lambda number: events.Review(),
     )
 
-    assert "failing checks: tier1" in store.get("add-marker/1").feedback
+    assert "failing checks: unit-test" in store.get("add-marker/1").feedback
 
 
 def test_outdated_review_comments_are_not_replayed(store: UnitStore) -> None:

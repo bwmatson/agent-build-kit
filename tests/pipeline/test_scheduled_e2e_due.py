@@ -1,6 +1,6 @@
-"""Whether a repo's whole tier 2 suite is due is read from the dates in the names of its
+"""Whether a repo's whole e2e-test suite is due is read from the dates in the names of its
 scheduled changes, open or archived, with the repo's schedule in effect; a round writes one
-change for a due repo with none open (spec: tier2-schedule)."""
+change for a due repo with none open (spec: e2e-schedule)."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import pytest
 from agent_build_kit.pipeline.e2e_schedule import scheduled_name, scheduled_parts, write_due
 from agent_build_kit.pipeline.units import UnitState
 from agent_build_kit.pipeline.untouched_failures import ensure_fix, preexisting_record
-from tests.tier2_schedule_fakes import (
+from tests.e2e_schedule_fakes import (
     TODAY,
     ago,
     archived,
@@ -41,15 +41,15 @@ def test_the_name_is_the_prefix_the_repo_the_day_and_the_split() -> None:
 @pytest.mark.parametrize(
     ("name", "repo", "day"),
     [
-        ("scheduled-tier2-app-2026-03-10", "app", (TODAY, "rest")),
-        ("scheduled-tier2-app-web-2026-03-10", "app-web", (TODAY, "rest")),
-        ("scheduled-tier2-app-web-2026-03-10", "app", None),
-        ("scheduled-tier2-app-2026-03-10", "app-web", None),
-        ("scheduled-tier2-app-extra", "app", None),
-        ("scheduled-tier2-app-2026-13-40", "app", None),
-        ("scheduled-tier2-app-2026-03-10-again", "app", None),
+        ("scheduled-e2e-app-2026-03-10", "app", (TODAY, "rest")),
+        ("scheduled-e2e-app-web-2026-03-10", "app-web", (TODAY, "rest")),
+        ("scheduled-e2e-app-web-2026-03-10", "app", None),
+        ("scheduled-e2e-app-2026-03-10", "app-web", None),
+        ("scheduled-e2e-app-extra", "app", None),
+        ("scheduled-e2e-app-2026-13-40", "app", None),
+        ("scheduled-e2e-app-2026-03-10-again", "app", None),
         ("fix-failing-app-2026-03-10", "app", None),
-        ("scheduled-tier2-app", "app", None),
+        ("scheduled-e2e-app", "app", None),
     ],
 )
 def test_the_date_is_read_from_the_name_of_exactly_that_repos_change(
@@ -79,7 +79,7 @@ def test_a_repo_is_due_a_period_after_its_latest_change_whether_archived_or_open
 ) -> None:
     for kind in (archived, open_change):
         root = tmp_path / kind.__name__
-        inst = planning(root, tier2_schedule=schedule)
+        inst = planning(root, e2e_schedule=schedule)
         store = store_of(inst, "app")
         kind(inst, "app", ago(age))
         before = scheduled_changes(inst)
@@ -122,7 +122,7 @@ def test_a_repo_with_no_earlier_change_is_due_at_once(tmp_path: Path) -> None:
     assert f"wrote: {written[0]}" in said
 
 
-def test_a_repo_with_no_tier_2_unit_gets_none(tmp_path: Path) -> None:
+def test_a_repo_with_no_e2e_unit_gets_none(tmp_path: Path) -> None:
     inst = planning(tmp_path, {"app": None, "platform": None})
     store = store_of(inst, "app", platform="platform")
 
@@ -165,7 +165,7 @@ def test_the_shorter_name_does_not_stand_for_the_longer_repo(tmp_path: Path) -> 
 
 
 def test_two_repos_with_different_schedules_each_follow_their_own(tmp_path: Path) -> None:
-    inst = planning(tmp_path, {"app": "off", "platform": "daily"}, tier2_schedule="weekly")
+    inst = planning(tmp_path, {"app": "off", "platform": "daily"}, e2e_schedule="weekly")
     store = store_of(inst, "app", "platform")
     archived(inst, "app", ago(30))
     archived(inst, "platform", ago(1))
@@ -182,7 +182,7 @@ def test_two_repos_with_different_schedules_each_follow_their_own(tmp_path: Path
 
 
 def test_the_repos_value_wins_over_limits_in_both_directions(tmp_path: Path) -> None:
-    inst = planning(tmp_path, {"app": "monthly", "platform": "daily"}, tier2_schedule="weekly")
+    inst = planning(tmp_path, {"app": "monthly", "platform": "daily"}, e2e_schedule="weekly")
     store = store_of(inst, "app", "platform")
     archived(inst, "app", ago(8))
     archived(inst, "platform", ago(1))
@@ -195,7 +195,7 @@ def test_off_writes_nothing_for_its_repo_across_any_number_of_rounds(
     tmp_path: Path, where: str
 ) -> None:
     inst = (
-        planning(tmp_path, tier2_schedule="off")
+        planning(tmp_path, e2e_schedule="off")
         if where == "limits"
         else planning(tmp_path, {"app": "off"})
     )

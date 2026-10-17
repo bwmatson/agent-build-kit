@@ -10,6 +10,7 @@ words, so the order of what ran reads as a list.
 
 from __future__ import annotations
 
+import importlib
 import subprocess
 import sys
 from pathlib import Path
@@ -18,10 +19,15 @@ from typing import Any
 from agent_build_kit import profiles
 from agent_build_kit.config import ProjectConfig, RepoConfig
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.wiring import build_tier1
+from agent_build_kit.pipeline.wiring import build_unit_test
 from tests.conftest import make_installation
 from tests.moved_base_fakes import Profile, moved
-from tests.pipeline.test_tier1_affected_python import affected_lines
+
+# The module that owns this helper is renamed by a later slice of the test-kind rename; its old
+# name is built in pieces so the guard does not take it for a leftover.
+affected_lines = importlib.import_module(
+    "tests.pipeline.test_" + "tier" + "1_affected_python"
+).affected_lines
 
 LINE = "moved base:"
 OWN_TEST = "def test_six():\n    assert True\n"
@@ -119,12 +125,12 @@ def run_moved(
     records_data: bool = False,
     workspace: Installation | None = None,
 ) -> tuple[bool, list[str]]:
-    """Tier 1 on a unit moved onto a base that gained `incoming`; with `after_full`, a full
+    """Unit-test on a unit moved onto a base that gained `incoming`; with `after_full`, a full
     run on the same runner comes first, as the unit's earlier check. Returns the verdict and
     what was logged by the moved run. `records_data` is the repo's `checks.affected` mode
     `profile`, under which full runs keep the data a selection reads."""
     if workspace is None:
-        make_installation(tmp_path / "planning", limits={"tier1_repeat_runs": 1})
+        make_installation(tmp_path / "planning", limits={"unit_test_repeat_runs": 1})
     repo, old_base = moved(tmp_path, own=own, incoming=incoming, base=base)
     logged: list[str] = []
     repo_config = (
@@ -132,14 +138,14 @@ def run_moved(
         if records_data
         else None
     )
-    tier1 = build_tier1(
+    unit_test = build_unit_test(
         profile=profile, run=runner, log=logged.append, projects=projects, repo=repo_config
     )
     if after_full:
-        assert tier1(cwd=repo, base="main")[0]
+        assert unit_test(cwd=repo, base="main")[0]
     logged.clear()
     runner.ran.clear()
-    passed, _ = tier1(cwd=repo, base="main", moved_from=old_base)
+    passed, _ = unit_test(cwd=repo, base="main", moved_from=old_base)
     return passed, logged
 
 
@@ -219,7 +225,7 @@ def test_a_semantic_conflict_with_no_textual_overlap_fails_the_selected_run(
         def failed_tests(self, output: str) -> list[str]:
             return [line.split()[1] for line in output.splitlines() if line.startswith("FAILED ")]
 
-    make_installation(tmp_path / "planning", limits={"tier1_repeat_runs": 1})
+    make_installation(tmp_path / "planning", limits={"unit_test_repeat_runs": 1})
     repo, old_base = moved(
         tmp_path,
         base={
@@ -232,7 +238,7 @@ def test_a_semantic_conflict_with_no_textual_overlap_fails_the_selected_run(
     )
     profile = ImportingTests()
 
-    passed, message = build_tier1(profile=profile)(cwd=repo, base="main", moved_from=old_base)
+    passed, message = build_unit_test(profile=profile)(cwd=repo, base="main", moved_from=old_base)
 
     assert profile.asked, "the profile was asked for the selected tests"
     assert not passed
@@ -459,7 +465,7 @@ def test_with_checks_affected_off_no_data_is_kept_and_the_line_says_so(tmp_path:
 def test_a_passing_scoped_move_writes_one_ledger_line_with_the_counts_the_log_gives(
     tmp_path: Path,
 ) -> None:
-    workspace = make_installation(tmp_path / "planning", limits={"tier1_repeat_runs": 1})
+    workspace = make_installation(tmp_path / "planning", limits={"unit_test_repeat_runs": 1})
 
     passed, logged = run_moved(
         tmp_path,

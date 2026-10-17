@@ -1,8 +1,8 @@
-"""A failed tier 1 test is run again alone, twice, to tell a flake from a failure
+"""A failed unit-test test is run again alone, twice, to tell a flake from a failure
 (spec: flaky-tests).
 
 The profile's pytest hooks read the output of a real pytest run, recorded under
-`tests/fixtures/external/pytest/`. Tier 1 itself runs through a fake runner that answers
+`tests/fixtures/external/pytest/`. Unit-test itself runs through a fake runner that answers
 with that output, since what a runner returns is a process's exit status and text.
 """
 
@@ -16,7 +16,7 @@ from typing import cast
 import pytest
 
 from agent_build_kit.pipeline.flakes import FlakeFound
-from agent_build_kit.pipeline.wiring import build_tier1
+from agent_build_kit.pipeline.wiring import build_unit_test
 from agent_build_kit.profiles.base import ToolchainProfile
 from agent_build_kit.profiles.python_uv import PythonUvProfile
 
@@ -124,7 +124,7 @@ def test_the_serial_command_for_the_root_tests_keeps_every_with_extra() -> None:
     ]
 
 
-# --- tier 1 --------------------------------------------------------------------
+# --- unit-test --------------------------------------------------------------------
 
 
 class HookedProfile(PythonUvProfile):
@@ -177,8 +177,8 @@ class Runs:
         return [c for c in self.commands if any("::" in argument for argument in c)]
 
 
-def tier1(profile: object, runs: Runs, tmp_path: Path) -> tuple[bool, str]:
-    return build_tier1(
+def unit_test(profile: object, runs: Runs, tmp_path: Path) -> tuple[bool, str]:
+    return build_unit_test(
         profile=cast(ToolchainProfile, profile), run=runs, changed=lambda *a: ["tests/test_one.py"]
     )(cwd=tmp_path, base="main")
 
@@ -189,7 +189,7 @@ def test_failed_tests_that_pass_both_serial_reruns_are_a_flake_not_a_failure(
     runs = Runs(reruns=[0, 0])
 
     with pytest.raises(FlakeFound) as found:
-        tier1(HookedProfile(), runs, tmp_path)
+        unit_test(HookedProfile(), runs, tmp_path)
 
     flakes = found.value.flakes
     assert [flake.test for flake in flakes] == FAILED
@@ -206,7 +206,7 @@ def test_failed_tests_that_pass_both_serial_reruns_are_a_flake_not_a_failure(
 def test_a_test_that_fails_again_alone_fails_the_unit_as_before(tmp_path: Path) -> None:
     runs = Runs(reruns=[0, 1])
 
-    passed, message = tier1(HookedProfile(), runs, tmp_path)
+    passed, message = unit_test(HookedProfile(), runs, tmp_path)
 
     assert not passed
     assert len(runs.serial_runs) == 2, "both reruns were made before it was judged"
@@ -217,7 +217,7 @@ def test_a_test_that_fails_again_alone_fails_the_unit_as_before(tmp_path: Path) 
 def test_a_test_that_fails_its_first_rerun_fails_the_unit_as_before(tmp_path: Path) -> None:
     runs = Runs(reruns=[1, 0])
 
-    passed, message = tier1(HookedProfile(), runs, tmp_path)
+    passed, message = unit_test(HookedProfile(), runs, tmp_path)
 
     assert not passed
     assert runs.serial_runs, "the failed tests were run again before it was judged"
@@ -227,7 +227,7 @@ def test_a_test_that_fails_its_first_rerun_fails_the_unit_as_before(tmp_path: Pa
 def test_a_profile_without_the_hooks_fails_the_unit_as_before(tmp_path: Path) -> None:
     runs = Runs(reruns=[0, 0])
 
-    passed, message = tier1(WithoutHooks(), runs, tmp_path)
+    passed, message = unit_test(WithoutHooks(), runs, tmp_path)
 
     assert not passed
     assert message.startswith("$ uv run pytest -n auto -q (exit 1)")
@@ -237,8 +237,11 @@ def test_a_profile_without_the_hooks_fails_the_unit_as_before(tmp_path: Path) ->
 def test_a_lint_failure_is_never_run_again(tmp_path: Path) -> None:
     runs = Runs(reruns=[0, 0], lint_exit=1)
 
-    passed, message = tier1(HookedProfile(), runs, tmp_path)
+    passed, message = unit_test(HookedProfile(), runs, tmp_path)
 
     assert not passed
     assert message.startswith("$ lint (exit 1)")
     assert runs.serial_runs == []
+
+
+tier1 = unit_test  # abk-shim

@@ -208,7 +208,7 @@ def test_a_base_tip_that_cannot_be_read_ends_the_event_without_raising(
     assert rig.stored().conflict_attempts == 0
 
 
-def test_the_move_tells_tier_1_and_the_comment_which_base_it_left(
+def test_the_move_tells_unit_test_and_the_comment_which_base_it_left(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rig = ConflictRig(tmp_path, monkeypatch)

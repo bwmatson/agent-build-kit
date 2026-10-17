@@ -49,7 +49,7 @@ def test_an_overlay_provider_is_resolved_and_redacted(tmp_path: Path) -> None:
     assert inst.verify_env() == {"STACK_KEY": VALUE}
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored_unit()])
-    store.set_feedback("add-marker/1", f"tier 2 failed with {VALUE} in the output")
+    store.set_feedback("add-marker/1", f"e2e-test failed with {VALUE} in the output")
     stored = store.get("add-marker/1").feedback
     assert VALUE not in stored
     assert "[redacted:STACK_KEY]" in stored

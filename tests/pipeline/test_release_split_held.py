@@ -1,5 +1,5 @@
-"""A pass step resumes a unit parked for held tier 2 splits once none of them is held, through
-the delivery gated units use and once per hold (spec: tier2-runtime-parking)."""
+"""A pass step resumes a unit parked for held e2e-test splits once none of them is held, through
+the delivery gated units use and once per hold (spec: e2e-runtime-parking)."""
 
 from __future__ import annotations
 

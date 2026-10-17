@@ -20,7 +20,7 @@ from tests.runtimes.claude_cli import FakeClaude
 from tests.runtimes.stand_in import StandInRuntime
 from tests.runtimes.test_claude_code_argv import flags
 
-CHANGES = {"add-marker": "## 1. [app] [tier1] Register the marker\n"}
+CHANGES = {"add-marker": "## 1. [app] [unit-test] Register the marker\n"}
 IN_FLIGHT = [{"id": "other/1", "repo": "app", "branch": "spec/other/1", "state": "in_review"}]
 PLAN = {
     "units": [
@@ -29,7 +29,7 @@ PLAN = {
             "change": "add-marker",
             "title": "Register the marker",
             "repo": "app",
-            "tier": "tier1",
+            "tier": "unit-test",
             "depends_on": [],
             "estimated_lines": 120,
             "groups": [1],

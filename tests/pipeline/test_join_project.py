@@ -13,7 +13,13 @@ from tests.factories import stored_unit
 
 def tagged(project: str) -> TaskGroup:
     return TaskGroup(
-        number=1, repo="app", project=project, tier="tier1", title="A group", line=3, task_count=2
+        number=1,
+        repo="app",
+        project=project,
+        tier="unit-test",
+        title="A group",
+        line=3,
+        task_count=2,
     )
 
 

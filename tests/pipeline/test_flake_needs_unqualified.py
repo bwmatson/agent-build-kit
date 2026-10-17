@@ -12,7 +12,7 @@ from tests.factories import stored_unit
 
 TEST = "tests/test_widget.py::test_renders_the_label"
 TASKS = (
-    "# Tasks\n\n## 1. [app] [tier1] Do the work\n\n"
+    "# Tasks\n\n## 1. [app] [unit-test] Do the work\n\n"
     "- [ ] 1.1 Test: it works\n- [ ] 1.2 Make it work\n"
 )
 

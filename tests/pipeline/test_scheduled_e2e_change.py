@@ -1,5 +1,5 @@
-"""The change a round writes for a due repo is fixed text with one tier 2 group, no spec, no
-model and no git (spec: tier2-schedule)."""
+"""The change a round writes for a due repo is fixed text with one e2e-test group, no spec, no
+model and no git (spec: e2e-schedule)."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.e2e_schedule import scheduled_name, write_due
 from agent_build_kit.pipeline.work_graph import old_test_kind_warnings, validate_tasks
-from tests.tier2_schedule_fakes import TODAY, planning, store_of
+from tests.e2e_schedule_fakes import TODAY, planning, store_of
 
 
 def written_change(tmp_path: Path, repo: str = "app") -> tuple[Installation, Path]:
@@ -51,7 +51,7 @@ def test_tasks_say_acceptance_none_with_a_reason(tmp_path: Path) -> None:
     assert line.removeprefix("Acceptance: none").strip(" —-:"), "the reason follows"
 
 
-def test_tasks_hold_one_tier_2_group_of_the_repo_with_priority_3_and_separate(
+def test_tasks_hold_one_e2e_group_of_the_repo_with_priority_3_and_separate(
     tmp_path: Path,
 ) -> None:
     inst, change = written_change(tmp_path)
