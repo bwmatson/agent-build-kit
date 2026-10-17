@@ -229,7 +229,8 @@ edit by hand.
   branch and PR; or a merge left it beyond the rebase cap. Nothing automatic
   touches it, but a later merge restacks the depth case.
 - **failed** — stopped on something it could not get past; its feedback says
-  what. Nothing retries it until someone requeues it.
+  what. It is retried when someone requeues it, or once by the pipeline when a wait on
+  another unit ends.
 - **closed** / **unplanned** — stopped, or dropped from the latest plan while
   still on record.
 

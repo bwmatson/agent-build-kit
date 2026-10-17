@@ -247,6 +247,10 @@ class StoredUnit(Unit):
     # How a requeue that found a dependency it waits on unmet is delivered once
     # it is met (see `Cause.GATED`); None when no requeue is waiting.
     gated_requeue: RequeueReason | None = None
+    # The units a failed unit was recorded waiting on, until the requeue when that wait ended.
+    waited_on: tuple[str, ...] = ()
+    # What a unit left failed when its wait ended says to a person, until a requeue.
+    wait_ended: str = ""
     # What a unit held for `Cause.SPLIT_HELD` waits on: the splits its e2e-test run
     # parked, the commit that run passed on and the snapshot it posted.
     parked_splits: list[str] = []
@@ -924,6 +928,12 @@ class UnitStore:
 
     def set_dependencies(self, unit_id: str, depends_on: Sequence[str]) -> None:
         self._update(unit_id, depends_on=tuple(depends_on))
+
+    def set_waited_on(self, unit_id: str, waited_on: Sequence[str]) -> None:
+        self._update(unit_id, waited_on=tuple(waited_on))
+
+    def set_wait_ended(self, unit_id: str, wait_ended: str) -> None:
+        self._update(unit_id, wait_ended=wait_ended)
 
     def set_gated_requeue(self, unit_id: str, requeue: RequeueReason | None) -> None:
         self._update(unit_id, gated_requeue=requeue)

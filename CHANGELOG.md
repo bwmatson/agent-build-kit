@@ -16,6 +16,15 @@
   0 starts before 1 (and its prerequisites with it) but bypasses no limit and stops no
   running unit.
 
+- A failed unit that waited on another unit is now requeued once, by the pipeline, when its
+  wait ends, instead of sitting failed until someone runs `abk requeue`. The mode comes from
+  the unit's record: a saved unit-test or e2e-test failure is reworked, anything else (an
+  environmental cause, no saved failure, a review, CI or conflict failure) is resumed, and a
+  person's note is kept as guidance. A held unit, a plain failure and a unit whose
+  prerequisite was closed are left alone; the last shows `wait ended: ... closed, requeue to
+  retry` in `abk status`, which also counts the units resumed this way today. The new
+  `global_limits.wait_end_requeue` is `auto` (default), `resume`, `rework` or `off`.
+
 - A prompt no longer travels as a command-line argument to Claude Code: it is written to the
   agent's standard input, so a large prompt (a long plan, a big diff) no longer fails with
   `Argument list too long`. A prompt over the safe size of its runtime's transport (100,000
