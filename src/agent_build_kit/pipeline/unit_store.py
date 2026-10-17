@@ -694,11 +694,13 @@ class UnitStore:
         else:
             members, added = (Member(change=join.change, groups=join.groups),), join.estimated_lines
         before = onto.estimated_lines
-        grown = onto.taking(members, estimated_lines=added)
-        kinds = [onto.tier, *group_kinds, *([taken.tier] if taken is not None else [])]
+        grown = onto.taking(
+            members,
+            estimated_lines=added,
+            kinds=[*group_kinds, *([taken.tier] if taken is not None else [])],
+        )
         stored[onto.id] = grown.model_copy(
             update={
-                "tier": widest_kind(kinds),
                 "history": (*onto.history, {"state": onto.state, "at": _now(), "note": "joined"}),
             }
         )

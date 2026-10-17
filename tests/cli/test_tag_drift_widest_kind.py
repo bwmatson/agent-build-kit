@@ -60,6 +60,23 @@ def joined_unit_of(run: Replan, own: int = 1) -> None:
     run.record("feature")
 
 
+def test_a_missing_group_leaves_the_stored_kind_uncompared(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = Replan(
+        tmp_path, monkeypatch, base=tagged_md("unit-test"), feature=tagged_md("integration-test")
+    )
+    joined_unit_of(run)
+    (run.inst.changes_dir / "feature" / "tasks.md").unlink()
+    run.write("base", tagged_md("unit-test").replace("Group 1", "Group one"))
+    capsys.readouterr()
+
+    results = cli.plan_all(run.inst, store=run.store, only={"base"})
+
+    assert results["base"].status != "refused"
+    assert "base/1" not in capsys.readouterr().out
+
+
 def test_a_unit_widened_by_a_joined_group_agrees_with_its_groups_across_changes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

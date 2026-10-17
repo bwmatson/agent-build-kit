@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from agent_build_kit.model import Frozen, TestTier, widest_kind
+from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.unit_size import (
     Calibration,
     Kind,
@@ -162,9 +162,7 @@ def check_joins(
                 )
             )
 
-        state[onto.id] = onto.taking(members, estimated_lines=added).model_copy(
-            update={"tier": widest_kind([onto.tier, *added_kinds])}
-        )
+        state[onto.id] = onto.taking(members, estimated_lines=added, kinds=added_kinds)
         if taken is not None:
             del state[taken.id]
             for unit_id, unit in list(state.items()):

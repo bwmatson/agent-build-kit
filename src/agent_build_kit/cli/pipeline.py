@@ -2758,6 +2758,7 @@ def _tag_problems(
         checks: list[tuple[str, str, str, str]] = []
         carried_kinds: list[tuple[str, int, TestTier]] = []
         here = False
+        all_found = True
         for member in u.members():
             known = (
                 by_number
@@ -2767,6 +2768,8 @@ def _tag_problems(
             for number in member.groups:
                 if group := known.get(number):
                     carried_kinds.append((member.change, number, group.tier))
+                else:
+                    all_found = False
                 if member.change != change:
                     continue
                 if group := by_number.get(number):
@@ -2775,7 +2778,9 @@ def _tag_problems(
                         (f"its group {number}", "repo", u.repo, group.repo),
                         (f"its group {number}", "project", u.project, group.project),
                     ]
-        if here:
+        # With a group missing (its change archived, or the group removed) the widest kind
+        # cannot be known, so the stored tier is not compared.
+        if here and all_found:
             widest = widest_kind(kind for _, _, kind in carried_kinds)
             # Named by the first group of that kind, the one that sets the unit's; a group
             # of another change is named with its change, since its number means nothing here.

@@ -137,10 +137,13 @@ class Unit(Frozen):
         """Every change's groups this unit builds: its own first, then carried ones."""
         return (Member(change=self.change, groups=self.groups), *self.joined)
 
-    def taking(self, taken: Sequence[Member], *, estimated_lines: int) -> Self:
-        """This unit with `taken` built after its own members, and its estimate
-        grown by `estimated_lines`. Work of the change the unit already ends
-        on extends that member rather than starting another."""
+    def taking(
+        self, taken: Sequence[Member], *, estimated_lines: int, kinds: Iterable[TestTier] = ()
+    ) -> Self:
+        """This unit with `taken` built after its own members, its estimate grown by
+        `estimated_lines` and its kind the widest of its own and `kinds`, those of the work
+        taken. Work of the change the unit already ends on extends that member rather than
+        starting another."""
         members = list(self.members())
         for member in taken:
             if members[-1].change == member.change:
@@ -153,6 +156,7 @@ class Unit(Frozen):
                 "groups": members[0].groups,
                 "joined": tuple(members[1:]),
                 "estimated_lines": self.estimated_lines + estimated_lines,
+                "tier": widest_kind([self.tier, *kinds]),
             }
         )
 
