@@ -1,5 +1,5 @@
 """The runner `build_runner` assembles asks the real scope decision whether a run executes the
-whole marker, and carries the real open-fix gate (spec: tier2-waits-on-open-base-failure-fixes)."""
+whole marker, and carries the real open-fix gate (spec: e2e-waits-on-open-base-failure-fixes)."""
 
 from __future__ import annotations
 
@@ -18,12 +18,12 @@ from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.untouched_failures import PREFIX
 from agent_build_kit.pipeline.wiring import build_on_preexisting, build_runner
 from tests.conftest import make_installation
+from tests.e2e_scope_fakes import CHANGED, NEW, OLD, branch
+from tests.e2e_wait_fakes import OLD as FAILING
+from tests.e2e_wait_fakes import verdict_of
 from tests.factories import stored_unit
-from tests.tier2_scope_fakes import CHANGED, NEW, OLD, branch
-from tests.tier2_wait_fakes import OLD as FAILING
-from tests.tier2_wait_fakes import verdict_of
 
-TASKS = "# Tasks\n\n## 1. [app] [tier2] Work\n\n- [ ] 1.1 Test: it\n- [ ] 1.2 Make it\n"
+TASKS = "# Tasks\n\n## 1. [app] [e2e-test] Work\n\n- [ ] 1.1 Test: it\n- [ ] 1.2 Make it\n"
 
 
 def runner_of(
@@ -43,9 +43,9 @@ def runner_of(
     installation = make_installation(
         tmp_path / "planning",
         repos={"app": app},
-        limits={"tier2_unit_scope": scope},
+        limits={"e2e_unit_scope": scope},
         tests={
-            "tier2_splits": {
+            "e2e_splits": {
                 name: {
                     "marker": f"runtime_{name}",
                     "hold": True if name in blocked_in_config else None,

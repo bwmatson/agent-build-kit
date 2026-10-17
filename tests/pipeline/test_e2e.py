@@ -1,11 +1,11 @@
-"""The tier 2 gate: the real local stack, one run at a time.
+"""The e2e-test gate: the real local stack, one run at a time.
 
-Tier 2 tests need the gateway, the database, the event bus, the browser and
+E2e-test tests need the gateway, the database, the event bus, the browser and
 the router as they actually run on this host, on fixed ports. There is one
-of each, so two tier 2 runs at once would interfere — they queue behind a
+of each, so two e2e-test runs at once would interfere — they queue behind a
 single lock, whatever the concurrency setting says (docs/architecture.md).
 
-The result gates the push: tier 2 passes, then the branch is pushed, then the
+The result gates the push: e2e-test passes, then the branch is pushed, then the
 status is posted on the commit that was tested. That order matters — GitHub
 only accepts a status for a commit it already has.
 """
@@ -17,7 +17,7 @@ import pytest
 
 from agent_build_kit.pipeline.e2e import (
     STATUS_CONTEXT,
-    Tier2Result,
+    E2eResult,
     build_snapshot,
     post_status,
     stack_lock,
@@ -26,9 +26,9 @@ from tests.forges.stand_in import StandInForge
 
 
 def test_a_second_run_waits_for_the_first(tmp_path: Path) -> None:
-    """Not fail-fast, unlike the per-branch locks: tier 2 is a queue, because
+    """Not fail-fast, unlike the per-branch locks: e2e-test is a queue, because
     the second unit's tests are just as valid, they simply can't run yet."""
-    lock = tmp_path / "tier2.lock"
+    lock = tmp_path / "e2e.lock"
     order: list[str] = []
     holding = threading.Event()
     second_blocked = threading.Event()
@@ -57,7 +57,7 @@ def test_a_second_run_waits_for_the_first(tmp_path: Path) -> None:
 def test_waiting_too_long_gives_up_rather_than_hanging(tmp_path: Path) -> None:
     """An unattended run that blocks forever is indistinguishable from a
     crashed one, and holds its worktree the whole time."""
-    lock = tmp_path / "tier2.lock"
+    lock = tmp_path / "e2e.lock"
 
     with stack_lock(lock, timeout=5):
         with pytest.raises(TimeoutError):
@@ -67,7 +67,7 @@ def test_waiting_too_long_gives_up_rather_than_hanging(tmp_path: Path) -> None:
 
 def test_the_lock_is_released_when_a_run_blows_up(tmp_path: Path) -> None:
     """One crashed run must not wedge the tier for everything after it."""
-    lock = tmp_path / "tier2.lock"
+    lock = tmp_path / "e2e.lock"
 
     with pytest.raises(ValueError):  # noqa: PT012 — the raise is the point
         with stack_lock(lock, timeout=5):
@@ -77,7 +77,7 @@ def test_the_lock_is_released_when_a_run_blows_up(tmp_path: Path) -> None:
         pass
 
 
-def result(**overrides) -> Tier2Result:
+def result(**overrides) -> E2eResult:
     defaults: dict = {
         "sha": "abc1234def",
         "passed": 4,
@@ -88,7 +88,7 @@ def result(**overrides) -> Tier2Result:
         "output": "4 passed, 1 skipped in 12.50s",
         "stack_versions": {"platform": "9f2a1c0", "model alias": "local"},
     }
-    return Tier2Result(**{**defaults, **overrides})
+    return E2eResult(**{**defaults, **overrides})
 
 
 def test_the_snapshot_says_what_ran_and_against_what() -> None:
@@ -113,7 +113,7 @@ def test_the_snapshot_folds_the_full_output_away() -> None:
 
 
 def test_a_failing_run_is_not_a_snapshot_to_publish() -> None:
-    """Tier 2 gates the push, so a failure means nothing is pushed and there
+    """E2e-test gates the push, so a failure means nothing is pushed and there
     is nothing to attach a snapshot to."""
     assert not result(failed=2).ok
     assert result().ok

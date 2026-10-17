@@ -6,24 +6,24 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit.config import ProjectConfig
-from agent_build_kit.pipeline.run_log import tier2_output_dir
-from agent_build_kit.pipeline.wiring import Tier2Session
+from agent_build_kit.pipeline.run_log import e2e_output_dir
+from agent_build_kit.pipeline.wiring import E2eSession
+from tests.e2e_failure_fakes import checkout, run_returning
 from tests.factories import unit
 from tests.redaction_fakes import NAME, NOTICE, SECRET, known
-from tests.tier2_failure_fakes import checkout, run_returning
 
 OUTPUT = f"FAILED tests/t.py::test_a - key {SECRET}\ntoken={SECRET}\n1 failed in 1s\n"
 
 
-def _run(tmp_path: Path, *, broken: bool = False) -> tuple[Tier2Session, str]:
+def _run(tmp_path: Path, *, broken: bool = False) -> tuple[E2eSession, str]:
     root = checkout(tmp_path)
-    session = Tier2Session(
-        unit(tier="tier2"),
+    session = E2eSession(
+        unit(tier="e2e-test"),
         lock=tmp_path / "t2.lock",
         timeout=5,
         run=run_returning(OUTPUT),
         sha=lambda cwd: "abc1234",
-        output_dir=tier2_output_dir(tmp_path / "state"),
+        output_dir=e2e_output_dir(tmp_path / "state"),
         now=lambda: datetime(2026, 10, 11, tzinfo=UTC),
     )
     with known(broken=broken):
@@ -55,14 +55,14 @@ def test_a_raising_redaction_leaves_the_notice_and_says_so_without_changing_the_
 
 def test_each_commands_withheld_notice_stays_on_its_own_line(tmp_path: Path) -> None:
     root = checkout(tmp_path, "api", "web")
-    session = Tier2Session(
-        unit(tier="tier2"),
+    session = E2eSession(
+        unit(tier="e2e-test"),
         lock=tmp_path / "t2.lock",
         timeout=5,
         run=run_returning(OUTPUT),
         sha=lambda cwd: "abc1234",
         projects=[ProjectConfig(path="api"), ProjectConfig(path="web")],
-        output_dir=tier2_output_dir(tmp_path / "state"),
+        output_dir=e2e_output_dir(tmp_path / "state"),
         now=lambda: datetime(2026, 10, 11, tzinfo=UTC),
     )
     with known(broken=True):

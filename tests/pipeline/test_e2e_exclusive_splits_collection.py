@@ -1,5 +1,5 @@
 """A test carrying the markers of two splits is found by listing alone, with no plugin of the
-repo loaded (spec: tier2-splits, "No plugin of the repo")."""
+repo loaded (spec: e2e-splits, "No plugin of the repo")."""
 
 from __future__ import annotations
 
@@ -8,14 +8,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from agent_build_kit.config import Tier2Split
+from agent_build_kit.config import E2eSplit
 from agent_build_kit.pipeline.e2e_exclusive import check_splits
 from agent_build_kit.profiles.python_uv import PROFILE
 
 SPLITS = (
-    Tier2Split(name="acp", marker="runtime_acp"),
-    Tier2Split(name="claude_code", marker="runtime_claude_code"),
-    Tier2Split(name="rest"),
+    E2eSplit(name="acp", marker="runtime_acp"),
+    E2eSplit(name="claude_code", marker="runtime_claude_code"),
+    E2eSplit(name="rest"),
 )
 COMMAND = [sys.executable, "-m", "pytest", "-m", "local_stack"]
 

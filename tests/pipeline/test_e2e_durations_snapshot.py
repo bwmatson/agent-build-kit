@@ -1,16 +1,16 @@
-"""The "Tier 2 results" section lists the time of each test: the three slowest entries
-lead, the listing is cut to `global_limits.tier2_durations_shown` with every entry kept, and an
-entry with no split shows a dash (spec: tier2-time-is-recorded-per-test)."""
+"""The "E2e-test results" section lists the time of each test: the three slowest entries
+lead, the listing is cut to `global_limits.e2e_durations_shown` with every entry kept, and an
+entry with no split shows a dash (spec: e2e-time-is-recorded-per-test)."""
 
 from pathlib import Path
 
-from agent_build_kit.pipeline.e2e import TestTime, Tier2Result, build_snapshot
+from agent_build_kit.pipeline.e2e import E2eResult, TestTime, build_snapshot
 from tests.conftest import make_installation
-from tests.tier2_duration_fakes import E2E, timed
+from tests.e2e_duration_fakes import E2E, timed
 
 
-def _result(*durations: TestTime) -> Tier2Result:
-    return Tier2Result(
+def _result(*durations: TestTime) -> E2eResult:
+    return E2eResult(
         sha="abcdef0123",
         passed=3,
         failed=0,
@@ -77,7 +77,7 @@ def test_the_listing_is_slowest_first_whatever_the_order_given() -> None:
 def test_the_listing_is_cut_to_the_configured_number_and_all_entries_are_kept(
     tmp_path: Path,
 ) -> None:
-    make_installation(tmp_path, limits={"tier2_durations_shown": 5})
+    make_installation(tmp_path, limits={"e2e_durations_shown": 5})
     result = _result(*_entries(12))
 
     snapshot = build_snapshot(result)
@@ -88,7 +88,7 @@ def test_the_listing_is_cut_to_the_configured_number_and_all_entries_are_kept(
 
 
 def test_zero_lists_every_entry(tmp_path: Path) -> None:
-    make_installation(tmp_path, limits={"tier2_durations_shown": 0})
+    make_installation(tmp_path, limits={"e2e_durations_shown": 0})
 
     snapshot = build_snapshot(_result(*_entries(40)))
 
@@ -125,7 +125,7 @@ def test_an_entry_shows_its_split_and_one_without_shows_a_dash() -> None:
 def test_a_result_with_no_durations_has_no_listing_and_a_stored_one_still_loads() -> None:
     stored = _result().model_dump(mode="json", exclude={"durations"})
 
-    loaded = Tier2Result.model_validate(stored)
+    loaded = E2eResult.model_validate(stored)
 
     assert loaded.durations == []
     assert "Slowest" not in build_snapshot(loaded)

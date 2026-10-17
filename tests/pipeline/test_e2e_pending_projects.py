@@ -1,4 +1,4 @@
-"""Tier 2 runs only the active projects and reports a pending one (spec: project-init)."""
+"""E2e-test runs only the active projects and reports a pending one (spec: project-init)."""
 
 from __future__ import annotations
 
@@ -6,9 +6,9 @@ import subprocess
 from pathlib import Path
 
 from agent_build_kit.config import ProjectConfig
-from agent_build_kit.pipeline.wiring import Tier2Session
+from agent_build_kit.pipeline.wiring import E2eSession
+from tests.e2e_failure_fakes import checkout
 from tests.factories import unit
-from tests.tier2_failure_fakes import checkout
 
 PASSED = "3 passed in 4.00s"
 
@@ -23,8 +23,8 @@ def run_e2e(
         where.append(Path(kwargs["cwd"]))
         return subprocess.CompletedProcess(command, 0, PASSED, "")
 
-    session = Tier2Session(
-        unit(tier="tier2"),
+    session = E2eSession(
+        unit(tier="e2e-test"),
         lock=tmp_path / "t2.lock",
         timeout=5,
         run=run,

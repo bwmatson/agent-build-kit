@@ -1,6 +1,6 @@
-"""Under `own` a tier 2 unit runs the tests its branch added or changed, selected by
+"""Under `own` a e2e-test unit runs the tests its branch added or changed, selected by
 identifier with the marker kept, one command per project that has one; the scope is one
-function's decision, taken before the stack lock (spec: tier2-scope)."""
+function's decision, taken before the stack lock (spec: e2e-scope)."""
 
 from __future__ import annotations
 
@@ -8,12 +8,12 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.config import ProjectConfig, Tier2UnitScope
+from agent_build_kit.config import E2eUnitScope, ProjectConfig
 from agent_build_kit.pipeline import wiring
 from agent_build_kit.pipeline.e2e import stack_lock
-from agent_build_kit.pipeline.wiring import Tier2Run, Tier2Scope, tier2_scope
+from agent_build_kit.pipeline.wiring import E2eRun, E2eScope, e2e_scope
 from agent_build_kit.profiles.python_uv import PROFILE
-from tests.tier2_scope_fakes import (
+from tests.e2e_scope_fakes import (
     CHANGED,
     NEW,
     NOTHING,
@@ -109,10 +109,8 @@ def test_a_project_with_none_of_the_ids_runs_nothing(tmp_path: Path) -> None:
 # --- one decision, taken before the lock ------------------------------------------------
 
 
-def decide(
-    repo: Path, base: str | None, setting: Tier2UnitScope = Tier2UnitScope.OWN
-) -> Tier2Scope:
-    return tier2_scope(
+def decide(repo: Path, base: str | None, setting: E2eUnitScope = E2eUnitScope.OWN) -> E2eScope:
+    return e2e_scope(
         repo,
         base,
         change="add-marker",
@@ -129,16 +127,16 @@ def test_the_scope_function_names_own_with_the_identifiers(tmp_path: Path) -> No
 
     scope = decide(repo, base)
 
-    assert scope.mode is Tier2UnitScope.OWN
+    assert scope.mode is E2eUnitScope.OWN
     assert sorted(scope.ids) == OWN_IDS
 
 
 def test_the_scope_function_names_full_with_the_reason(tmp_path: Path) -> None:
     repo, base = adds_one_and_changes_one(tmp_path)
 
-    scope = decide(repo, base, Tier2UnitScope.FULL)
+    scope = decide(repo, base, E2eUnitScope.FULL)
 
-    assert scope.mode is Tier2UnitScope.FULL
+    assert scope.mode is E2eUnitScope.FULL
     assert scope.reason
 
 
@@ -147,7 +145,7 @@ def test_a_unit_that_changes_no_test_is_own_with_nothing_to_run(tmp_path: Path) 
 
     scope = decide(repo, base)
 
-    assert scope.mode is Tier2UnitScope.OWN
+    assert scope.mode is E2eUnitScope.OWN
     assert scope.ids == []
     assert "no e2e test added or changed" in scope.reason
 
@@ -159,15 +157,15 @@ def test_the_step_asks_the_scope_function_before_the_lock_and_obeys_its_answer(
     asked: list[tuple[Path, str | None]] = []
     lock_held_when_asked: list[bool] = []
     chosen = "tests/live/test_fake.py::test_fake"
-    answer = Tier2Scope(
-        mode=Tier2UnitScope.OWN,
+    answer = E2eScope(
+        mode=E2eUnitScope.OWN,
         ids=[chosen],
-        runs=[Tier2Run(where=repo, commands=[[*WHOLE, chosen]])],
+        runs=[E2eRun(where=repo, commands=[[*WHOLE, chosen]])],
     )
     ran = Ran()
     gate = session(tmp_path, ran)
 
-    def decided(cwd: Path, base: str | None, **kwargs: object) -> Tier2Scope:
+    def decided(cwd: Path, base: str | None, **kwargs: object) -> E2eScope:
         asked.append((cwd, base))
         lock_held_when_asked.append(gate.lock.exists() and bool(gate.lock.read_text()))
         return answer

@@ -1,4 +1,4 @@
-"""A tier 1 command that does not finish fails tier 1 with where it was waiting
+"""A unit-test command that does not finish fails unit-test with where it was waiting
 (spec: flaky-tests).
 
 The commands are real child processes run by the default runner: a run whose tests
@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 from agent_build_kit.config import LimitsConfig
-from agent_build_kit.pipeline.wiring import build_tier1
+from agent_build_kit.pipeline.wiring import build_unit_test
 from agent_build_kit.profiles.python_uv import PythonUvProfile
 from tests.conftest import make_installation
 
@@ -66,24 +66,24 @@ class ScriptProfile(PythonUvProfile):
         return [[sys.executable, "-c", self.script]]
 
 
-def tier1(tmp_path: Path, script: str, **limits: float) -> tuple[bool, str]:
+def unit_test(tmp_path: Path, script: str, **limits: float) -> tuple[bool, str]:
     make_installation(tmp_path / "planning", limits=limits)
     repo = tmp_path / "repo"
     repo.mkdir()
-    return build_tier1(profile=ScriptProfile(script), changed=lambda *a: ["tests/test_x.py"])(
+    return build_unit_test(profile=ScriptProfile(script), changed=lambda *a: ["tests/test_x.py"])(
         cwd=repo, base="main"
     )
 
 
 def test_the_limit_defaults_to_far_more_than_a_suite_takes() -> None:
-    assert LimitsConfig().tier1_command_seconds >= 1800
+    assert LimitsConfig().unit_test_command_seconds >= 1800
 
 
 def test_a_run_that_passes_and_does_not_exit_fails_naming_the_command_and_the_time(
     tmp_path: Path,
 ) -> None:
-    passed, message = tier1(
-        tmp_path, HANGS_AT_EXIT, tier1_command_seconds=3, tier1_abort_grace_seconds=5
+    passed, message = unit_test(
+        tmp_path, HANGS_AT_EXIT, unit_test_command_seconds=3, unit_test_abort_grace_seconds=5
     )
 
     assert not passed
@@ -94,8 +94,8 @@ def test_a_run_that_passes_and_does_not_exit_fails_naming_the_command_and_the_ti
 
 
 def test_a_command_that_ignores_the_abort_is_ended_after_the_grace(tmp_path: Path) -> None:
-    passed, message = tier1(
-        tmp_path, IGNORES_THE_ABORT, tier1_command_seconds=2, tier1_abort_grace_seconds=1
+    passed, message = unit_test(
+        tmp_path, IGNORES_THE_ABORT, unit_test_command_seconds=2, unit_test_abort_grace_seconds=1
     )
 
     assert not passed
@@ -105,8 +105,8 @@ def test_a_command_that_ignores_the_abort_is_ended_after_the_grace(tmp_path: Pat
 
 
 def test_a_command_that_finishes_in_time_is_not_signalled(tmp_path: Path) -> None:
-    passed, message = tier1(
-        tmp_path, FINISHES, tier1_command_seconds=60, tier1_abort_grace_seconds=1
+    passed, message = unit_test(
+        tmp_path, FINISHES, unit_test_command_seconds=60, unit_test_abort_grace_seconds=1
     )
 
     assert passed, message
@@ -130,12 +130,12 @@ threading.Event().wait(30)
 """
 
 
-def test_a_detached_descendant_holding_the_output_does_not_hold_tier_1(tmp_path: Path) -> None:
+def test_a_detached_descendant_holding_the_output_does_not_hold_unit_test(tmp_path: Path) -> None:
     release = tmp_path / "release"
     script = DETACHED_HOLDER.replace("sys.argv[1]", repr(str(release)))
     try:
-        passed, message = tier1(
-            tmp_path, script, tier1_command_seconds=1, tier1_abort_grace_seconds=1
+        passed, message = unit_test(
+            tmp_path, script, unit_test_command_seconds=1, unit_test_abort_grace_seconds=1
         )
     finally:
         release.write_text("")
@@ -143,3 +143,6 @@ def test_a_detached_descendant_holding_the_output_does_not_hold_tier_1(tmp_path:
     assert not passed
     assert "1 seconds" in message
     assert "12 tests passed" in message
+
+
+tier1 = unit_test  # abk-shim

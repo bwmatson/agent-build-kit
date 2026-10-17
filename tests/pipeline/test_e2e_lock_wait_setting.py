@@ -1,5 +1,5 @@
-"""How long a unit waits for the tier 2 lock is `global_limits.tier2_lock_wait_seconds`
-(spec: tier2-lock-wait-is-configurable).
+"""How long a unit waits for the e2e-test lock is `global_limits.e2e_lock_wait_seconds`
+(spec: e2e-lock-wait-is-configurable).
 
 The lock is held through `flock` on the lock file, as another process would hold it, and
 the clock the wait reads is replaced, so no test sleeps.
@@ -24,7 +24,7 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.pipeline import e2e
 from tests.conftest import make_installation
-from tests.tier2_lock_fakes import SleepingTime, held, install_clock
+from tests.e2e_lock_fakes import SleepingTime, held, install_clock
 
 SETTING = "global_limits.e2e_lock_wait_seconds"
 
@@ -44,8 +44,8 @@ def test_the_wait_defaults_to_ninety_minutes(tmp_path: Path) -> None:
     path = tmp_path / "abk.yaml"
     path.write_text("{}\n")
 
-    assert load(path).global_limits.tier2_lock_wait_seconds == 5400
-    assert LimitsConfig().tier2_lock_wait_seconds == 5400
+    assert load(path).global_limits.e2e_lock_wait_seconds == 5400
+    assert LimitsConfig().e2e_lock_wait_seconds == 5400
 
 
 @pytest.mark.parametrize("value", ["0", "-5", "90.5", "soon"])
@@ -61,7 +61,7 @@ def test_a_value_that_cannot_be_a_wait_fails_to_load_naming_the_key(
 def test_verify_one_uses_the_configured_wait_unless_given_its_own(
     tmp_path: Path, clock: SleepingTime
 ) -> None:
-    inst = make_installation(tmp_path, limits={"tier2_lock_wait_seconds": 9})
+    inst = make_installation(tmp_path, limits={"e2e_lock_wait_seconds": 9})
     waited = []
 
     with held(inst.state_dir / "e2e.lock"):
@@ -77,7 +77,7 @@ def test_verify_one_uses_the_configured_wait_unless_given_its_own(
 def test_the_busy_message_names_the_setting_only_for_the_configured_wait(
     tmp_path: Path, clock: SleepingTime
 ) -> None:
-    inst = make_installation(tmp_path, limits={"tier2_lock_wait_seconds": 2})
+    inst = make_installation(tmp_path, limits={"e2e_lock_wait_seconds": 2})
     messages = []
 
     with held(inst.state_dir / "e2e.lock"):

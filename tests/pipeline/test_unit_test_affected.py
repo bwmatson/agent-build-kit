@@ -1,10 +1,11 @@
-"""The tier 1 runner's selected-then-full flow in a fix round (spec: affected-tests-in-fix-rounds).
+"""The unit-test runner's selected-then-full flow in a fix round
+(spec: affected-tests-in-fix-rounds).
 
 The command runner is the faked boundary: it sees the argv and directory of every command
 and answers with an exit status and output. The profile is a python-uv one whose commands
 are named words, so the order of what ran reads as a list.
 
-The check cache needs no test here: tier 1 never writes it, and the gate that does never
+The check cache needs no test here: unit-test never writes it, and the gate that does never
 receives `failed_output`, so only full results are ever cached.
 """
 
@@ -21,7 +22,7 @@ from pydantic import ValidationError
 
 from agent_build_kit.config import AffectedConfig, ProjectConfig, RepoConfig
 from agent_build_kit.pipeline.flakes import FlakeFound
-from agent_build_kit.pipeline.wiring import build_tier1
+from agent_build_kit.pipeline.wiring import build_unit_test
 from agent_build_kit.profiles.python_uv import PythonUvProfile
 from tests.conftest import make_installation
 
@@ -106,7 +107,7 @@ def fix_round(
     failed_output: str = FAILED_OUTPUT,
     changed: list[str] = CHANGED,
 ) -> tuple[bool, str]:
-    tier1 = build_tier1(
+    unit_test = build_unit_test(
         run=commands,
         changed=lambda *a: changed,
         profile=profile or Profile([["selected"]]),
@@ -114,7 +115,7 @@ def fix_round(
         projects=projects,
         log=log.append if log is not None else None,
     )
-    return tier1(cwd=tmp_path, base="main", failed_output=failed_output)
+    return unit_test(cwd=tmp_path, base="main", failed_output=failed_output)
 
 
 def test_the_mode_defaults_to_off_and_a_command_mode_needs_its_template() -> None:
@@ -183,17 +184,17 @@ def test_the_template_expands_each_placeholder_to_separate_arguments_in_the_proj
     assert commands.directories[commands.ran.index(selected[0])] == tmp_path / "svc"
 
 
-def test_a_template_command_runs_under_the_tier_1_command_time_limit(tmp_path: Path) -> None:
-    make_installation(tmp_path / "planning", global_limits=dict(tier1_command_seconds=2))
+def test_a_template_command_runs_under_the_unit_test_command_time_limit(tmp_path: Path) -> None:
+    make_installation(tmp_path / "planning", global_limits=dict(unit_test_command_seconds=2))
     hangs = "import time; print('selecting', flush=True); time.sleep(30)"
     template = shlex.join([sys.executable, "-c", hangs])
-    tier1 = build_tier1(
+    unit_test = build_unit_test(
         changed=lambda *a: CHANGED,
         profile=Profile(lint=[sys.executable, "-c", "pass"]),
         repo=repo_config(tmp_path, "command", template),
     )
 
-    passed, message = tier1(cwd=tmp_path, base="main", failed_output=FAILED_OUTPUT)
+    passed, message = unit_test(cwd=tmp_path, base="main", failed_output=FAILED_OUTPUT)
 
     assert not passed
     assert "2 seconds" in message
@@ -288,14 +289,14 @@ def test_a_check_with_no_failure_to_answer_runs_in_full(tmp_path: Path, failed_o
 def test_the_whole_repo_run_is_never_selected(tmp_path: Path) -> None:
     commands = Commands()
     profile = Profile([["selected"]])
-    tier1 = build_tier1(
+    unit_test = build_unit_test(
         run=commands,
         changed=lambda *a: CHANGED,
         profile=profile,
         repo=repo_config(tmp_path),
     )
 
-    tier1(cwd=tmp_path, base="main", whole_repo=True, failed_output=FAILED_OUTPUT)
+    unit_test(cwd=tmp_path, base="main", whole_repo=True, failed_output=FAILED_OUTPUT)
 
     assert "selected" not in commands.words()
     assert profile.asked == []

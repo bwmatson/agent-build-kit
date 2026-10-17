@@ -1,5 +1,5 @@
-"""The runner `build_runner` assembles runs tier 2 with the blocked runtimes left out, and
-hands the node the run's result and the blocks (spec: tier2-runtime-parking)."""
+"""The runner `build_runner` assembles runs e2e-test with the blocked runtimes left out, and
+hands the node the run's result and the blocks (spec: e2e-runtime-parking)."""
 
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline import wiring
+from tests.e2e_scope_fakes import branch
+from tests.pipeline.test_e2e_gate_wiring import runner_of
 from tests.pipeline.test_e2e_split_groups import (
     FILES,
     MARKER,
@@ -16,8 +18,6 @@ from tests.pipeline.test_e2e_split_groups import (
     expected,
     expression_of,
 )
-from tests.pipeline.test_tier2_gate_wiring import runner_of
-from tests.tier2_scope_fakes import branch
 
 REASON = "the provider is down"
 

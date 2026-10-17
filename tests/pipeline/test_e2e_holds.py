@@ -1,5 +1,5 @@
 """The splits held now: the configuration and the state file together, the configuration
-winning (spec: tier2-holds)."""
+winning (spec: e2e-holds)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,9 @@ from threading import Barrier
 
 import pytest
 
-from agent_build_kit.config import Tier2Split
+from agent_build_kit.compat_names import old_spelling
+from agent_build_kit.config import E2eSplit
+from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline.e2e_holds import (
     HELD_FILE,
     ORIGIN_CONFIGURATION,
@@ -26,17 +28,17 @@ from agent_build_kit.pipeline.e2e_holds import (
 NOW = datetime(2030, 1, 1, 9, 0, tzinfo=UTC)
 
 
-def splits(**holds: bool | None) -> tuple[Tier2Split, ...]:
+def splits(**holds: bool | None) -> tuple[E2eSplit, ...]:
     """`acp` and `claude_code` declared with the given `hold`s, then `rest`; a `rest` key sets
     the hold of `rest`."""
     return (
-        Tier2Split(name="acp", marker="runtime_acp", hold=holds.get("acp")),
-        Tier2Split(name="claude_code", marker="runtime_claude_code", hold=holds.get("claude_code")),
-        Tier2Split(name="rest", hold=holds.get("rest")),
+        E2eSplit(name="acp", marker="runtime_acp", hold=holds.get("acp")),
+        E2eSplit(name="claude_code", marker="runtime_claude_code", hold=holds.get("claude_code")),
+        E2eSplit(name="rest", hold=holds.get("rest")),
     )
 
 
-def read(declared: tuple[Tier2Split, ...], state: Path, *, now: datetime = NOW) -> Holds:
+def read(declared: tuple[E2eSplit, ...], state: Path, *, now: datetime = NOW) -> Holds:
     return held_splits(declared, state, now=now)
 
 
@@ -253,7 +255,7 @@ def test_an_entry_for_a_split_nothing_declares_is_ignored_and_reported(tmp_path:
 def test_the_known_names_are_the_declared_splits_and_rest(tmp_path: Path) -> None:
     hold(tmp_path, "claude_code")
 
-    found = read((Tier2Split(name="rest"),), tmp_path)
+    found = read((E2eSplit(name="rest"),), tmp_path)
 
     assert found.held == {}
     assert found.unknown == ("claude_code",)
@@ -313,7 +315,9 @@ def test_removing_from_a_file_that_cannot_be_read_raises_and_leaves_it(tmp_path:
 
 def test_a_leftover_blocked_file_is_never_read(tmp_path: Path) -> None:
     entry = {"reason": "r", "since": NOW.isoformat(), "source": "command", "by": "x"}
-    (tmp_path / "tier2-blocked.json").write_text(json.dumps({"acp": entry}))
+    (tmp_path / f"{old_spelling(TestTier.E2E_TEST)}-blocked.json").write_text(
+        json.dumps({"acp": entry})
+    )
 
     found = read(splits(), tmp_path)
 
@@ -363,7 +367,7 @@ def test_a_written_time_with_no_offset_is_refused_before_anything_is_written(
     assert not (tmp_path / HELD_FILE).exists()
 
 
-OLD_HELD_FILE = "tier2-held.json"
+OLD_HELD_FILE = f"{old_spelling(TestTier.E2E_TEST)}-held.json"
 
 
 def test_a_hold_left_in_the_file_under_the_old_name_still_holds(tmp_path: Path) -> None:
