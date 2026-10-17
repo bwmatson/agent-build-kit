@@ -147,6 +147,8 @@ def tracked_rig(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, host: Host) -> 
     """The conflicting repository of `Rig`, its child owed a restack onto `main`, over an agent
     with a usage window and the usage endpoint's cache in the installation's state directory."""
     rig = Rig(tmp_path, monkeypatch)
+    # These tests read the move; the unit's run that follows it in the lane is read elsewhere.
+    monkeypatch.setattr(cli, "build_unit", lambda *args, **kwargs: True)
     rig.runtime = Tracking
     rig.prepared()  # the agent the lane's resolver reaches
     host.keep_in(rig.installation.state_dir)

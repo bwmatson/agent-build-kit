@@ -21,7 +21,7 @@ from agent_build_kit.pipeline.restack import Moved
 from agent_build_kit.pipeline.restack_lane import Lane
 from agent_build_kit.pipeline.stack_runner import Restacked
 from agent_build_kit.pipeline.unit_store import Cause
-from agent_build_kit.pipeline.units import PLANNED, RUNNING
+from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING
 from agent_build_kit.pipeline.wiring import build_restack_onto
 from tests.factories import git, init_repo, stored_unit
 from tests.restack_turn_fakes import commit_file, extra_commit
@@ -87,6 +87,13 @@ def scene(graph: Setup, tmp_path: Path) -> Scene:
     return Scene(graph, tmp_path)
 
 
+def adapting(scene: Scene) -> None:
+    """The edges the run's port and accounting reach, which the lane's run goes on into."""
+    scene.graph.options["reset_to"] = lambda tree, onto, keep: None
+    scene.graph.options["tests_in"] = lambda tree: set()
+    scene.graph.options["tests_changed"] = lambda tree, ref: set()
+
+
 def test_the_lane_resumes_the_thread_through_prepare_and_leaves_it_at_the_next_node(
     scene: Scene,
 ) -> None:
@@ -95,21 +102,22 @@ def test_the_lane_resumes_the_thread_through_prepare_and_leaves_it_at_the_next_n
 
     scene.lane_moves()
 
-    assert scene.calls == [True], "prepare's move ran in the lane, not in a build worker"
+    assert scene.calls and all(scene.calls), "the move ran in the lane, not in a build worker"
     assert git(scene.repo, "merge-base", "--is-ancestor", "main", BRANCH) == ""
     ahead = scene.graph.next(OTHER)
-    assert ahead and Node.PREPARE not in ahead and not set(ahead) & WAITS
-    assert scene.offered() == [OTHER], "a worker starts it for what follows"
+    assert ahead and Node.PREPARE not in ahead and set(ahead) <= WAITS
+    assert scene.offered() == [], "the lane's worker ran what follows, so none is left"
 
 
-def test_a_clean_move_of_an_approved_head_keeps_the_approval(scene: Scene) -> None:
+def test_a_clean_move_of_an_approved_head_goes_on_to_the_push_approved(scene: Scene) -> None:
     scene.told_its_base_moved()
 
     scene.lane_moves()
 
-    moved = git(scene.repo, "rev-parse", BRANCH)
-    assert moved != scene.head
-    assert scene.graph.store.get(OTHER).approved == moved
+    assert git(scene.repo, "rev-parse", BRANCH) != scene.head
+    stored = scene.graph.store.get(OTHER)
+    assert stored.state == IN_REVIEW, "the lane's run went on to the push"
+    assert stored.approved
 
 
 def test_a_resolved_move_writes_the_predecessor_note_and_leaves_the_head_unapproved(
@@ -122,17 +130,27 @@ def test_a_resolved_move_writes_the_predecessor_note_and_leaves_the_head_unappro
     scene.graph.options["restack_onto"] = scene.restack(
         build_restack_onto(scene.graph.store, move=resolving)
     )
+    seen: list[tuple[str, str]] = []
+    adapting(scene)
+
+    def unit_test(**kwargs: Any) -> tuple[bool, str]:
+        unit = scene.graph.store.get(OTHER)
+        seen.append((unit.predecessor_note, unit.approved))
+        return scene.graph.recorder.tier1(**kwargs)
+
+    scene.graph.options["run_unit_test"] = unit_test
     scene.told_its_base_moved()
 
     scene.lane_moves()
 
-    stored = scene.graph.store.get(OTHER)
-    assert "a.txt" in stored.predecessor_note
-    assert stored.approved != git(scene.repo, "rev-parse", BRANCH)
-    assert scene.calls == [True]
+    assert seen, "the lane's run went on past the resolved move"
+    note, approved = seen[0]
+    assert "a.txt" in note
+    assert approved != git(scene.repo, "rev-parse", BRANCH)
+    assert scene.calls and all(scene.calls)
 
 
-def test_a_conflict_the_first_two_steps_cannot_settle_leaves_the_unit_planned_for_its_run(
+def test_a_conflict_the_first_two_steps_cannot_settle_leaves_the_branch_to_the_lanes_run(
     scene: Scene,
 ) -> None:
     def conflicts(**kwargs: Any) -> Restacked:
@@ -142,11 +160,12 @@ def test_a_conflict_the_first_two_steps_cannot_settle_leaves_the_unit_planned_fo
         )
 
     scene.graph.options["restack_onto"] = conflicts
+    adapting(scene)
     scene.told_its_base_moved()
 
     scene.lane_moves()
 
-    stored = scene.graph.store.get(OTHER)
-    assert (stored.state, stored.cause) == (PLANNED, Cause.RESTACK_CONFLICT)
     assert git(scene.repo, "rev-parse", BRANCH) == scene.head
-    assert scene.calls == [True]
+    assert len(scene.calls) >= 2 and all(scene.calls), "the run's prepare met it in the lane too"
+    stored = scene.graph.store.get(OTHER)
+    assert stored.state == PLANNED, "a second conflict waits for a later pass"

@@ -42,8 +42,11 @@ from agent_build_kit.pipeline.units import (
 from agent_build_kit.pipeline.wiring import branch_commits, is_ancestor
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_held, process_alive
 
-Move = Callable[[StoredUnit], None]
-Work = Callable[[], None]
+# A move, or a run's work, returns what remains to run in the same worker once the unit's
+# branch claim is released: the unit's own run, which takes the branch lock itself.
+Rest = Callable[[], None]
+Move = Callable[[StoredUnit], Rest | None]
+Work = Callable[[], Rest | None]
 Owed = Callable[[list[StoredUnit]], Collection[str]]
 Stamp = Callable[[StoredUnit], object]
 
@@ -56,6 +59,11 @@ OWED_STATES = (PLANNED, RUNNING, IN_REVIEW)
 OWED_CAUSES = (Cause.BASE_CHANGED, Cause.RESTACK_DEFERRED)
 # The causes of a unit owed a moved-base run: a restack is owed for the first two only.
 MOVED_BASE_CAUSES = (*OWED_CAUSES, Cause.RESTACK_CONFLICT, Cause.RESTACK_HANDED_BACK)
+
+
+def in_a_lane_run(unit: StoredUnit) -> bool:
+    """Whether the lane is making the unit's whole run, so it is the lane's to resume."""
+    return unit.state == RUNNING and unit.moved_base_run
 
 
 def owed_a_restack(
@@ -170,7 +178,8 @@ def moved_base_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
 
 
 def owed_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
-    """The ids of the units owed a restack, read from the repositories' branches."""
+    """The ids of the units owed a restack, read from the repositories' branches, and of those
+    whose run the lane was making when it was interrupted."""
     leases = Leases(lease_dir(inst.state_dir))
     checkouts = inst.checkouts
 
@@ -182,16 +191,17 @@ def owed_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
         base = local_ref(base_of(unit, units), repo=unit.repo)
         return is_ancestor(repo, base, branch)
 
+    def held(unit: StoredUnit) -> bool:
+        return branch_held(_branch_of(unit), root=inst.state_dir / "locks")
+
+    def leased(unit: StoredUnit) -> bool:
+        return leases.holder(unit.id) is not None
+
     return {
         unit.id
         for unit in units
-        if owed_a_restack(
-            unit,
-            units,
-            holds_base=holds_base,
-            held=lambda unit: branch_held(_branch_of(unit), root=inst.state_dir / "locks"),
-            leased=lambda unit: leases.holder(unit.id) is not None,
-        )
+        if owed_a_restack(unit, units, holds_base=holds_base, held=held, leased=leased)
+        or (in_a_lane_run(unit) and not leased(unit) and not held(unit))
     }
 
 
@@ -217,8 +227,10 @@ def lane_record(state_dir: Path) -> list[dict[str, str]]:
 
 
 class _Entry:
-    def __init__(self, unit: StoredUnit, work: Work, done: list[Callable[[bool], None]]) -> None:
-        self.unit, self.work, self.done = unit, work, done
+    def __init__(
+        self, unit: StoredUnit, work: Work, done: list[Callable[[bool], None]], claimed: bool
+    ) -> None:
+        self.unit, self.work, self.done, self.claimed = unit, work, done, claimed
         self.since = spans.clock.now().isoformat()
 
 
@@ -237,15 +249,18 @@ class RestackLane:
         paused: Callable[[], bool] = lambda: False,
         record: Path | None = None,
         base: Callable[[StoredUnit], str] = lambda unit: "",
+        runs: Callable[[StoredUnit], bool] = lambda unit: False,
         log: Callable[[str], None] = print,
     ) -> None:
         """`stamp` reads what a restack of the unit depends on (its branch head and base).
         A unit whose attempt left it as it was is not handed over again by `scan` until
         the stamp changes: a deferred move is not retried on a loop of its own, only when a
         usage pause that stood has ended. `record` is where the lane says what it holds, each
-        unit with the `base` it moves onto."""
+        unit with the `base` it moves onto. `runs` says of a unit that the lane is making its whole
+        run, which the scan hands over with no claim: the run takes the branch lock itself."""
         self._cap, self._move, self._claim, self._owed, self._log = cap, move, claim, owed, log
         self._stamp, self._paused, self._record, self._base = stamp, paused, record, base
+        self._runs = runs
         self._was_paused = False
         self._until: dict[str, datetime] = {}
         self._tried: dict[str, object] = {}
@@ -261,12 +276,14 @@ class RestackLane:
         work: Work | None = None,
         *,
         done: Callable[[bool], None] | None = None,
+        claimed: bool = True,
     ) -> None:
         """Queue `unit`'s restack once and start it before returning when a worker is free.
 
         `work` is what runs under the unit's branch claim (the lane's `move` of the unit
         when none is given); `done` runs after it with whether the work ran to the end, or
-        with False when the unit could not be claimed."""
+        with False when the unit could not be claimed. With `claimed` false the entry owns no
+        claim: the work takes the branch lock itself, as a unit's run does."""
         with self._changed:
             seen = [*self._queue, *self._running.values()]
             known = next((entry for entry in seen if entry.unit.id == unit.id), None)
@@ -275,7 +292,7 @@ class RestackLane:
                     known.done.append(done)
                 return
             self._queue.append(
-                _Entry(unit, work or (lambda: self._move(unit)), [done] if done else [])
+                _Entry(unit, work or (lambda: self._move(unit)), [done] if done else [], claimed)
             )
             self._start()
             self._write()
@@ -296,7 +313,7 @@ class RestackLane:
                 self._until.clear()
         for unit in units:
             if unit.id in owed and not self._unchanged_since_tried(unit):
-                self.hand_over(unit)
+                self.hand_over(unit, claimed=not self._runs(unit))
 
     def defer_until(self, unit_id: str, resume_at: datetime | None) -> None:
         """The usage guard refused the unit's resolver and expects to allow it from `resume_at`:
@@ -405,16 +422,39 @@ class RestackLane:
         with self._changed:
             self._tried[unit.id] = stamp
 
+    def _go_on(self, entry: _Entry, rest: Rest) -> None:
+        """Make the unit's run. One that went ahead is noted like a move, so a scan leaves it
+        until its stamp changes; one that met a held branch (`BranchBusy`) is not, and is
+        tried again."""
+        try:
+            rest()
+        except BranchBusy:
+            raise
+        except BaseException:
+            self._note_unclaimed(entry)
+            raise
+        self._note_unclaimed(entry)
+
+    def _note_unclaimed(self, entry: _Entry) -> None:
+        if not entry.claimed:
+            self._note_attempt(entry.unit)
+
     def _run(self, entry: _Entry) -> None:
         unit = entry.unit
         ran = False
         try:
-            with self._claim(unit):
-                try:
-                    entry.work()
-                    ran = True
-                finally:
-                    self._note_attempt(unit)
+            if entry.claimed:
+                with self._claim(unit):
+                    try:
+                        rest = entry.work()
+                    finally:
+                        self._note_attempt(unit)
+            else:
+                rest = entry.work()
+            # What remains is the unit's run: it holds this worker, not the claim.
+            if rest is not None:
+                self._go_on(entry, rest)
+            ran = True
         except BranchBusy as error:
             self._log(f"{unit.id}: restack left for later, its branch is held ({error})")
         except Exception as error:  # noqa: BLE001 — one restack never ends the lane
@@ -463,8 +503,9 @@ class RestackLanes:
         work: Work | None = None,
         *,
         done: Callable[[bool], None] | None = None,
+        claimed: bool = True,
     ) -> None:
-        self._lane(project_key(unit)).hand_over(unit, work, done=done)
+        self._lane(project_key(unit)).hand_over(unit, work, done=done, claimed=claimed)
 
     def scan(self, units: list[StoredUnit]) -> None:
         """Hand each owed unit to the lane of its project, making that lane if need be."""
