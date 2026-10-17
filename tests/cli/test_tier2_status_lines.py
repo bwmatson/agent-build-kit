@@ -89,14 +89,14 @@ def test_abk_status_prints_one_line_per_held_split_and_none_when_nothing_is_held
     until = in_two_days()
     gate_entry(config, "claude_code", until)
 
-    held = [line for line in abk(config, capsys, "status")[1] if "tier 2 split" in line]
+    held = [line for line in abk(config, capsys, "status")[1] if "e2e-test split" in line]
     assert len(held) == 2
     assert "acp" in held[0] and "out of budget" in held[0]
     assert "claude_code" in held[1] and f"{until:%Y-%m-%d}" in held[1]
 
     assert abk(config, capsys, "tier2", "release", "acp")[0] == 0
     (config.parent / HELD_FILE).unlink()
-    assert not [line for line in abk(config, capsys, "status")[1] if "tier 2 split" in line]
+    assert not [line for line in abk(config, capsys, "status")[1] if "e2e-test split" in line]
 
 
 def test_a_hold_in_one_repos_own_declaration_shows_in_both_status_commands(
@@ -107,7 +107,7 @@ def test_a_hold_in_one_repos_own_declaration_shows_in_both_status_commands(
     UnitStore(config.parent / "units.json").upsert([stored_unit("one/1", change="one")])
 
     assert "held" in line_of(tier2_status(config, capsys), "acp")
-    held = [line for line in abk(config, capsys, "status")[1] if "tier 2 split" in line]
+    held = [line for line in abk(config, capsys, "status")[1] if "e2e-test split" in line]
     assert len(held) == 1 and "acp" in held[0]
 
 
@@ -143,6 +143,7 @@ def test_doctor_warns_that_the_configuration_releases_what_the_file_holds(
     assert conflict.status == "warn"
     assert "acp" in conflict.detail
     assert "configuration wins" in conflict.detail + conflict.fix
+    assert "abk e2e-test release" in conflict.fix
 
 
 def test_doctor_fails_an_unreadable_file(tmp_path: Path) -> None:
@@ -152,6 +153,7 @@ def test_doctor_fails_an_unreadable_file(tmp_path: Path) -> None:
     (unreadable,) = about(doctor(config), HELD_FILE)
 
     assert unreadable.status == "FAIL"
+    assert "abk e2e-test hold" in unreadable.fix
 
 
 def test_doctor_warns_of_an_entry_naming_an_undeclared_split(tmp_path: Path) -> None:
@@ -161,3 +163,4 @@ def test_doctor_warns_of_an_entry_naming_an_undeclared_split(tmp_path: Path) -> 
     (unknown,) = about(doctor(config), "gone")
 
     assert unknown.status == "warn"
+    assert "abk e2e-test release" in unknown.fix

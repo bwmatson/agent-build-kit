@@ -728,7 +728,7 @@ class AzureDevOpsForge:
         person reading the pull request will see it. That one follows the
         branch, and each result replaces the last of its context.
 
-        Azure splits a context into a genre and a name, so `local/tier2`
+        Azure splits a context into a genre and a name, so `local/e2e-test`
         becomes both; a context with no slash keeps abk's own genre.
         """
         genre, _, name = context.rpartition("/")

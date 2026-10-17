@@ -35,7 +35,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 from agent_build_kit import claude_account, config, forges, profiles, runtimes, telemetry
 from agent_build_kit.budget import cut_head
-from agent_build_kit.cli.tier2_cmd import held_status_lines
+from agent_build_kit.cli.e2e_cmd import held_status_lines
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun
@@ -151,10 +151,10 @@ from agent_build_kit.pipeline.restack_lane import (
 )
 from agent_build_kit.pipeline.run_log import (
     RunLog,
+    e2e_output_dir,
     remove_change_logs,
     remove_old_logs,
     run_log_dir,
-    tier2_output_dir,
 )
 from agent_build_kit.pipeline.shell import git, has_origin
 from agent_build_kit.pipeline.stack_runner import (
@@ -279,7 +279,7 @@ from agent_build_kit.pipeline.wiring import (
     build_on_flake,
     build_resume_at,
     build_runner,
-    build_tier1,
+    build_unit_test,
     build_usage_gate,
     follow_predecessors,
     moving_onto,
@@ -505,8 +505,8 @@ def _status_reading(args: argparse.Namespace) -> UsageReading | None:
     return held_usage()
 
 
-def _tier2_output(unit: StoredUnit) -> str:
-    """The file holding the full output of the unit's last tier 2 run."""
+def _e2e_output(unit: StoredUnit) -> str:
+    """The file holding the full output of the unit's last e2e-test run."""
     return latest_full_output(unit.feedback)[0]
 
 
@@ -574,7 +574,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         if runtime.supports_usage_tracking:
             log(interval_line(current_cache_interval(inst.state_dir / CALLS_NAME)))
 
-    if line := lock_status_line(inst.tier2_lock):
+    if line := lock_status_line(inst.e2e_lock):
         log(line)
     for line in held_status_lines(inst):
         log(line)
@@ -725,8 +725,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             log(f"  waiting for the environment: {unit.id} ({unit.repo}) at {step} — {unit.note}")
         elif unit.state == FAILED:
             log(f"  failed: {unit.id} ({unit.repo}) at {step} — {unit.note}")
-            if kept := _tier2_output(unit):
-                log(f"  full tier 2 output: {unit.id} ({unit.repo}) — {kept}")
+            if kept := _e2e_output(unit):
+                log(f"  full e2e-test output: {unit.id} ({unit.repo}) — {kept}")
             if blocked := _blocked_by(unit, units):
                 log(f"  {blocked}")
         if (left := backoff_remaining(unit, spans.clock.now())) is not None:
@@ -827,16 +827,16 @@ def verify_one(
     inst: Installation, change: str, units: list, *, wait: float | None = None
 ) -> Verification:
     """Deploy one merged change and run its live tests — under the stack
-    lock, since both touch the one live stack tier 2 also uses. Waits
-    `global_limits.tier2_lock_wait_seconds` for the lock, or `wait` seconds when given,
+    lock, since both touch the one live stack e2e-test also uses. Waits
+    `global_limits.e2e_lock_wait_seconds` for the lock, or `wait` seconds when given,
     then raises `StackBusy`."""
     # A wait the caller chose is its own; only the configured one names the setting.
-    timeout = inst.config.global_limits.tier2_lock_wait_seconds if wait is None else wait
+    timeout = inst.config.global_limits.e2e_lock_wait_seconds if wait is None else wait
     setting = LOCK_WAIT_SETTING if wait is None else None
     with ExitStack() as held:
         try:
             held.enter_context(
-                stack_lock(inst.tier2_lock, timeout, setting, holder=f"verify {change}")
+                stack_lock(inst.e2e_lock, timeout, setting, holder=f"verify {change}")
             )
         except TimeoutError as error:
             raise StackBusy(str(error)) from error
@@ -953,7 +953,7 @@ def cmd_verify(args: argparse.Namespace, inst: Installation) -> int:
         may_archive=lambda change: change == args.change,
         specs_dir=inst.config.planning.specs_dir,
         run_logs=run_log_dir(inst.state_dir),
-        e2e_outputs=tier2_output_dir(inst.state_dir),
+        e2e_outputs=e2e_output_dir(inst.state_dir),
         transcripts=transcript_dir(inst.state_dir),
         usage_ledger=inst.state_dir / LEDGER_NAME,
         worktrees=_worktrees_of(inst, units),
@@ -1120,7 +1120,7 @@ def _tick_with(
 
 
 def _preview_changes(inst: Installation) -> None:
-    """What the fix change of each recorded pre-existing failure is, and what scheduled tier 2
+    """What the fix change of each recorded pre-existing failure is, and what scheduled e2e-test
     change is due or open: written, or to be."""
     for test in dict.fromkeys(entry.test for entry in preexisting_record(inst).entries()):
         log(preview(inst, test).line)
@@ -1423,12 +1423,12 @@ def run_round(
         started = readmit.started
     spared = {*building, *started}
     _step("bounding the logs", _bound_logs, inst)
-    # Before planning and before any tier 2 selection reads the held set.
+    # Before planning and before any e2e-test selection reads the held set.
     _step("evaluating split gates", _evaluate_gates, inst, dry_run=dry_run)
     if not dry_run:
         # No model call, so ahead of the usage guard: planning it is what the guard holds back.
         _step(
-            "writing scheduled tier 2 changes",
+            "writing scheduled e2e-test changes",
             write_due,
             inst,
             store,
@@ -1504,7 +1504,7 @@ def run_round(
             may_archive=may_archive,
             specs_dir=inst.config.planning.specs_dir,
             run_logs=run_log_dir(inst.state_dir),
-            e2e_outputs=tier2_output_dir(inst.state_dir),
+            e2e_outputs=e2e_output_dir(inst.state_dir),
             transcripts=transcript_dir(inst.state_dir),
             usage_ledger=inst.state_dir / LEDGER_NAME,
             worktrees=_worktrees_of(inst, units),
@@ -1770,7 +1770,7 @@ def release_gated(inst: Installation, store: UnitStore, *, in_flight: Collection
 def release_split_held(
     inst: Installation, store: UnitStore, *, in_flight: Collection[str] = ()
 ) -> None:
-    """Deliver the resume a unit parked for held tier 2 splits was waiting for, once none of
+    """Deliver the resume a unit parked for held e2e-test splits was waiting for, once none of
     the splits it waits on is held. Reads the state file and the configuration alone; a gate
     is never asked. The delivery ends the park, so a unit is released once per hold."""
     for unit in _releasable_split_units(inst, store.all(), in_flight):
@@ -1789,7 +1789,7 @@ def release_split_held(
             store.set_state(
                 unit.id,
                 PLANNED,
-                note="requeued: the held tier 2 splits are usable",
+                note="requeued: the held e2e-test splits are usable",
                 cause=Cause.REQUEUED,
             )
 
@@ -1797,7 +1797,7 @@ def release_split_held(
 def _releasable_split_units(
     inst: Installation, units: Sequence[StoredUnit], in_flight: Collection[str] = ()
 ) -> list[StoredUnit]:
-    """The units parked for held tier 2 splits none of which is held now."""
+    """The units parked for held e2e-test splits none of which is held now."""
     return [
         unit
         for unit in units
@@ -1815,7 +1815,7 @@ def _holds_of_parked(inst: Installation, unit: StoredUnit) -> dict[str, Hold]:
 
 
 def _split_wait_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[str]:
-    """One line for each unit parked for a held tier 2 split: which, why and until when."""
+    """One line for each unit parked for a held e2e-test split: which, why and until when."""
     lines = []
     for unit in units:
         if unit.state != PLANNED or unit.cause is not Cause.SPLIT_HELD:
@@ -1823,7 +1823,7 @@ def _split_wait_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[s
         names = ", ".join(unit.parked_splits)
         why = "; ".join(hold_text(hold) for hold in _holds_of_parked(inst, unit).values())
         lines.append(
-            f"  waiting for tier 2 split {names}: {unit.id} ({unit.repo})"
+            f"  waiting for e2e-test split {names}: {unit.id} ({unit.repo})"
             + (f" — {why}" if why else " — released, resumes this round")
         )
     return lines
@@ -1832,7 +1832,7 @@ def _split_wait_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[s
 def _preview_split_releases(inst: Installation, store: UnitStore) -> None:
     """A dry run's account of the parked units the next round would release."""
     for unit in _releasable_split_units(inst, store.all()):
-        log(f"would release {unit.id} ({unit.repo}): the tier 2 splits it waits on are usable")
+        log(f"would release {unit.id} ({unit.repo}): the e2e-test splits it waits on are usable")
 
 
 def resumable_units(
@@ -1937,7 +1937,7 @@ def _evaluate_round(
             or (only and unit.id not in only)
             # Someone is chatting with it: it goes back to the tick when the lease is released.
             or leases.holder(unit.id) is not None
-            # A requeue is still to be delivered to its thread, or its tier 2 tests wait for a
+            # A requeue is still to be delivered to its thread, or its e2e-test tests wait for a
             # runtime: starting the unit as a planned build would drop the mode it was
             # requeued with, or build it all again.
             or awaits_release(unit)
@@ -2212,7 +2212,7 @@ def _refuse_unconfigured(inst: Installation, ready: list[Unit]) -> bool:
 
 # How often a pass looks at GitHub while builds are running, matching the tick
 # timer's cadence. Waiting for a completion alone left a pass with one long
-# build — a tier 2 run, a slow review — blind for its whole length, and the
+# build — a e2e-test run, a slow review — blind for its whole length, and the
 # timer cannot start a second tick while this one is running.
 REFRESH_SECONDS = 300.0
 
@@ -3213,7 +3213,7 @@ def has_work(inst: Installation, store: UnitStore) -> bool:
     """Whether a tick has anything to do: a unit in progress, a change
     whose tasks.md has not been planned in its current form, a change with
     a satisfied unit that is ready to archive and not yet verified, or a repo
-    that is due for its scheduled tier 2 run and has no such change open.
+    that is due for its scheduled e2e-test run and has no such change open.
 
     The last is the one a poll cannot notice: a merge is found at the top of a
     tick and archived in it, but a unit ends satisfied inside the scheduling
@@ -3543,12 +3543,12 @@ def build_stack_moves(
             path, branch, turn=partial(repo_turn, installation, names[path]), **kwargs
         )
 
-    def tier1_of(*, cwd: Path, base: str, moved_from: str | None = None) -> tuple[bool, str]:
-        """Tier 1 as the repo whose checkout, or worktree of it, `cwd` is builds it."""
+    def unit_test_of(*, cwd: Path, base: str, moved_from: str | None = None) -> tuple[bool, str]:
+        """Unit-test as the repo whose checkout, or worktree of it, `cwd` is builds it."""
         for name, path in checkouts.items():
             if cwd == path or cwd.parent == installation.worktree_root / path.name:
                 repo = installation.repo(name)
-                return build_tier1(
+                return build_unit_test(
                     profile=profiles.get(repo.profile),
                     root_extras=repo.tests.root_extras,
                     projects=repo.projects,
@@ -3565,7 +3565,7 @@ def build_stack_moves(
             posts_root=installation.state_dir,
             move=move,
             checkout=checkout,
-            unit_test=tier1_of,
+            unit_test=unit_test_of,
             on_flake=build_on_flake(store, installation, log=log),
             push=at_path(push_with_lease),
         ),
@@ -3673,7 +3673,7 @@ def poll_all(inst: Installation, *, store: UnitStore, lane: Lane | None = None) 
     in the repo's own checkout, and a build's worktree add or push must not
     land in the middle of it. So a conflicted restack keeps that repo's builds
     waiting at worktree add or push until its resolver finishes. Only the
-    restack's tier 1 run happens outside the turn: it writes nothing to
+    restack's unit-test run happens outside the turn: it writes nothing to
     `.git`, and holding the turn through it would keep every build in the
     repo waiting on a test run as well.
     """
@@ -4366,7 +4366,7 @@ def cmd_archive(args: argparse.Namespace, inst: Installation) -> int:
 
     print(openspec.archive(args.change, cwd=inst.root), end="")
     remove_change_logs(run_log_dir(inst.state_dir), args.change)
-    remove_change_logs(tier2_output_dir(inst.state_dir), args.change)
+    remove_change_logs(e2e_output_dir(inst.state_dir), args.change)
     remove_change_transcripts(transcript_dir(inst.state_dir), args.change)
     return 0
 
@@ -4383,11 +4383,11 @@ def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
     """Give a failed or held unit another go.
 
     Three different things, and the command says which. By default the unit
-    resumes where it stopped: a unit that failed its tier 1 check because the
+    resumes where it stopped: a unit that failed its unit-test check because the
     toolchain was missing has its work on the branch, and redoing the agent's
     step would only spend the usage window to arrive at the same branch.
     `--rework` keeps the work and hands the agent the failure: a unit that
-    failed tier 1 on real errors (a type check, a lint rule, a test) saved the
+    failed unit-test on real errors (a type check, a lint rule, a test) saved the
     output, but a resume at `verify` runs the check again and meets the same
     errors, without the agent ever seeing them. `--restart` throws the attempt
     away — the review rounds so far and the failure it was handed — for a
@@ -5045,3 +5045,8 @@ def _record_waits(
                 store.mark_ready(unit_id)
     except Exception as error:  # noqa: BLE001 — a record is never a pass's to lose
         log(f"the decision log is not recording ({type(error).__name__}: {error})")
+
+
+_tier2_output = _e2e_output  # abk-shim
+build_tier1 = build_unit_test  # abk-shim
+tier2_output_dir = e2e_output_dir  # abk-shim

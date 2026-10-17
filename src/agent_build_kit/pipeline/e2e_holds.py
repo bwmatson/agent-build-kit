@@ -3,14 +3,12 @@ state directory together, the configuration winning (spec: e2e-holds)."""
 
 from __future__ import annotations
 
-import contextlib
-import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import AwareDatetime, TypeAdapter, ValidationError
 
-from agent_build_kit.compat_names import Place, notice, old_spelling
+from agent_build_kit.compat_names import moved_to_current_name, old_spelling
 from agent_build_kit.config import REST_SPLIT, E2eSplit, RepoConfig, WorkspaceConfig, e2e_splits
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
@@ -22,20 +20,11 @@ HELD_FILE = "e2e-held.json"
 # the only one that exists.
 _OLD_HELD_FILE = f"{old_spelling(TestTier.E2E_TEST)}-held.json"
 
-logger = logging.getLogger(__name__)
-
 
 def held_path(state_dir: Path) -> Path:
     """The state file's path; a file left under the old name is moved to the current one first,
-    with a notice, so a hold made before the rename still holds."""
-    path = state_dir / HELD_FILE
-    old = state_dir / _OLD_HELD_FILE
-    if not path.exists() and old.exists():
-        # A second process may have moved it first; the file is there either way.
-        with contextlib.suppress(FileNotFoundError):
-            old.rename(path)
-            logger.warning(notice(Place.STATE_FILE, _OLD_HELD_FILE, str(state_dir)))
-    return path
+    so a hold made before the rename still holds."""
+    return moved_to_current_name(state_dir, HELD_FILE, _OLD_HELD_FILE)
 
 
 # Where a hold comes from.

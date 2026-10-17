@@ -44,7 +44,7 @@ def test_status_names_the_holder_and_how_long_it_has_held_the_lock(
     workspace: Installation, capsys: pytest.CaptureFixture[str]
 ) -> None:
     holder = Foreign(
-        workspace.state_dir / "tier2.lock", "other/1", pid=os.getpid(), age=FORTY_MINUTES
+        workspace.state_dir / "e2e.lock", "other/1", pid=os.getpid(), age=FORTY_MINUTES
     )
     try:
         lines = tier2_lines(workspace, capsys)
@@ -58,7 +58,7 @@ def test_status_names_the_holder_and_how_long_it_has_held_the_lock(
 def test_status_shows_a_stale_record_of_a_free_lock_as_stale_and_leaves_the_file(
     workspace: Installation, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    lock = workspace.state_dir / "tier2.lock"
+    lock = workspace.state_dir / "e2e.lock"
     lock.write_text(record_line("other/1", dead_pid(), FORTY_MINUTES))
     before = lock.read_text()
 
@@ -73,7 +73,7 @@ def test_status_shows_a_stale_record_of_a_free_lock_as_stale_and_leaves_the_file
 def test_status_shows_no_tier_2_line_once_the_lock_is_free_and_empty(
     workspace: Installation, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    lock = workspace.state_dir / "tier2.lock"
+    lock = workspace.state_dir / "e2e.lock"
     holder = Foreign(lock, "other/1", pid=os.getpid())
     try:
         assert tier2_lines(workspace, capsys), "held: a line"
@@ -89,7 +89,7 @@ def test_status_shows_no_tier_2_line_once_the_lock_is_free_and_empty(
 def test_status_says_a_held_locks_recorded_process_is_gone(
     workspace: Installation, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    holder = Foreign(workspace.state_dir / "tier2.lock", "other/1", pid=dead_pid())
+    holder = Foreign(workspace.state_dir / "e2e.lock", "other/1", pid=dead_pid())
     try:
         lines = tier2_lines(workspace, capsys)
     finally:
@@ -104,7 +104,7 @@ def test_status_says_a_held_locks_recorded_process_is_gone(
 def test_status_says_a_held_lock_with_no_record_yet_is_held(
     workspace: Installation, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    lock = workspace.state_dir / "tier2.lock"
+    lock = workspace.state_dir / "e2e.lock"
     lock.write_text("")
     with lock.open("r+") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
@@ -117,7 +117,7 @@ def test_status_says_a_held_lock_with_no_record_yet_is_held(
 def test_reading_the_status_leaves_the_lock_free_for_the_next_holder(
     workspace: Installation, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    lock = workspace.state_dir / "tier2.lock"
+    lock = workspace.state_dir / "e2e.lock"
     lock.write_text(record_line("other/1", dead_pid()))
 
     assert tier2_lines(workspace, capsys), "the status read the lock"

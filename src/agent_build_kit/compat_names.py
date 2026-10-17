@@ -6,9 +6,12 @@ Reading goes through here and writing never does: an old spelling found in a hea
 
 from __future__ import annotations
 
+import contextlib
+import logging
 import re
 from collections.abc import Mapping
 from enum import StrEnum
+from pathlib import Path
 from types import MappingProxyType
 from typing import Annotated
 
@@ -84,3 +87,20 @@ def read_old_kind(value: object) -> object:
 
 # A test kind as a model field reads it: either spelling in, a `TestTier` out.
 TestKind = Annotated[TestTier, BeforeValidator(read_old_kind)]
+
+
+logger = logging.getLogger(__name__)
+
+
+def moved_to_current_name(directory: Path, name: str, old: str) -> Path:
+    """The path of the state file or directory `name` in `directory`. One left under the old
+    name `old` is moved to the current one first, with a notice, when it is the only one that
+    exists."""
+    path = directory / name
+    left = directory / old
+    if not path.exists() and left.exists():
+        # A second process may have moved it first; it is there either way.
+        with contextlib.suppress(FileNotFoundError):
+            left.rename(path)
+            logger.warning(notice(Place.STATE_FILE, old, str(directory)))
+    return path

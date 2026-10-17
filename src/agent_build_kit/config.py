@@ -39,8 +39,8 @@ from pydantic import (
 )
 
 from agent_build_kit import forges, infra, path_patterns, runtimes
-from agent_build_kit.compat_names import Place, is_old_spelling, new_spelling, notice
-from agent_build_kit.model import Frozen
+from agent_build_kit.compat_names import Place, is_old_spelling, new_spelling, notice, old_spelling
+from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.replay.models import DEFAULT_KEYED_HEADERS, UpstreamKind
 from agent_build_kit.runtimes import known_agents, providers
 
@@ -330,33 +330,27 @@ class ClaudeLimitsConfig(Frozen):
 
 
 class RestackCheck(StrEnum):
-    """How much of tier 1 a clean move of a unit's branch onto a moved base runs."""
+    """How much of unit-test a clean move of a unit's branch onto a moved base runs."""
 
     AFFECTED = "affected"
     FULL = "full"
 
 
-class Tier2UnitScope(StrEnum):
-    """How much of a repo's tier 2 marker a unit's tier 2 step runs."""
+class E2eUnitScope(StrEnum):
+    """How much of a repo's e2e-test marker a unit's e2e-test step runs."""
 
     OWN = "own"
     FULL = "full"
 
 
-E2eUnitScope = Tier2UnitScope  # abk-forward
-
-
-def tier2_unit_scope(repo: RepoConfig, limits: LimitsConfig) -> Tier2UnitScope:
-    """The scope in effect for `repo`: its own `tests.tier2_unit_scope` when set, else the
+def e2e_unit_scope(repo: RepoConfig, limits: LimitsConfig) -> E2eUnitScope:
+    """The scope in effect for `repo`: its own `tests.e2e_unit_scope` when set, else the
     `global_limits` one."""
-    return repo.tests.tier2_unit_scope or limits.tier2_unit_scope
+    return repo.tests.e2e_unit_scope or limits.e2e_unit_scope
 
 
-e2e_unit_scope = tier2_unit_scope  # abk-forward
-
-
-class Tier2Schedule(StrEnum):
-    """How often a repo's whole tier 2 suite is due to run on its own."""
+class E2eSchedule(StrEnum):
+    """How often a repo's whole e2e-test suite is due to run on its own."""
 
     DAILY = "daily"
     WEEKLY = "weekly"
@@ -364,32 +358,23 @@ class Tier2Schedule(StrEnum):
     OFF = "off"
 
 
-E2eSchedule = Tier2Schedule  # abk-forward
-
-
-def tier2_schedule(repo: RepoConfig, limits: LimitsConfig) -> Tier2Schedule:
-    """The schedule in effect for `repo`: its own `tests.tier2_schedule` when set, else the
+def e2e_schedule(repo: RepoConfig, limits: LimitsConfig) -> E2eSchedule:
+    """The schedule in effect for `repo`: its own `tests.e2e_schedule` when set, else the
     `limits` one."""
-    return repo.tests.tier2_schedule or limits.tier2_schedule
+    return repo.tests.e2e_schedule or limits.e2e_schedule
 
 
-e2e_schedule = tier2_schedule  # abk-forward
-
-
-def tier2_splits(repo: RepoConfig, config: WorkspaceConfig) -> tuple[Tier2Split, ...]:
+def e2e_splits(repo: RepoConfig, config: WorkspaceConfig) -> tuple[E2eSplit, ...]:
     """The splits in effect for `repo`: its declared ones in declaration order, then `rest`."""
-    own = repo.tests.tier2_splits
-    declared = config.tests.tier2_splits if own is None else own
+    own = repo.tests.e2e_splits
+    declared = config.tests.e2e_splits if own is None else own
     named = [
-        Tier2Split(name=name, marker=entry.marker, hold=entry.hold)
+        E2eSplit(name=name, marker=entry.marker, hold=entry.hold)
         for name, entry in declared.items()
         if name != REST_SPLIT
     ]
-    rest = declared.get(REST_SPLIT, Tier2SplitEntry())
-    return (*named, Tier2Split(name=REST_SPLIT, hold=rest.hold))
-
-
-e2e_splits = tier2_splits  # abk-forward
+    rest = declared.get(REST_SPLIT, E2eSplitEntry())
+    return (*named, E2eSplit(name=REST_SPLIT, hold=rest.hold))
 
 
 def known_runtime_names(configured: Iterable[str] = ()) -> set[str]:
@@ -455,6 +440,37 @@ class ContextConfig(Frozen):
 TEST_KIND_SETTINGS = ConfigDict(validate_by_name=True, serialize_by_alias=True)
 
 
+class TestKindSettings(Frozen):
+    """A block of settings named for a test kind. A setting's old name still builds the block
+    and still reads, as its new one, until the aliases are removed."""
+
+    model_config = TEST_KIND_SETTINGS
+    __test__ = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _read_old_names(cls, data: Any) -> Any:  # abk-shim
+        if not isinstance(data, dict):
+            return data
+        renamed = {k: new_spelling(Place.SETTING, k) if isinstance(k, str) else k for k in data}
+        for key, new in renamed.items():
+            if new != key and new in data:
+                raise ValueError(
+                    f"`{key}` and `{new}` are both set; `{key}` is the deprecated name of "
+                    f"`{new}`, keep one"
+                )
+        return {
+            (renamed[k] if renamed[k] in cls.model_fields and k not in cls.model_fields else k): v
+            for k, v in data.items()
+        }
+
+    def __getattr__(self, name: str) -> Any:  # abk-shim
+        new = new_spelling(Place.SETTING, name)
+        if new != name and new in type(self).model_fields:
+            return getattr(self, new)
+        return super().__getattr__(name)  # type: ignore[misc]
+
+
 class ProjectLimitsConfig(Frozen):
     """The scheduling settings (`project_limits`), configured once at the root for every project."""
 
@@ -473,9 +489,7 @@ class ProjectLimitsConfig(Frozen):
 MOVED_TO_PROJECT_LIMITS = tuple(ProjectLimitsConfig.model_fields)
 
 
-class LimitsConfig(Frozen):
-    model_config = TEST_KIND_SETTINGS
-
+class LimitsConfig(TestKindSettings):
     # Longest chain of in-review PRs from main to a branch that a unit may
     # start building on.
     stack_depth_build_cap: int = 3
@@ -538,38 +552,35 @@ class LimitsConfig(Frozen):
     transcript_result_chars: Annotated[int, Field(ge=1)] = 20000
     # How many runs of one unit keep their transcript.
     transcript_runs_kept: Annotated[int, Field(ge=1)] = 3
-    # Longest a tier 1 command may run before it is asked to abort, in seconds.
-    tier1_command_seconds: Annotated[float, Field(gt=0, alias="unit_test_command_seconds")] = 3600
-    # How long an aborted tier 1 command has to exit before it is ended, in seconds.
-    tier1_abort_grace_seconds: Annotated[
+    # Longest a unit-test command may run before it is asked to abort, in seconds.
+    unit_test_command_seconds: Annotated[float, Field(gt=0, alias="unit_test_command_seconds")] = (
+        3600
+    )
+    # How long an aborted unit-test command has to exit before it is ended, in seconds.
+    unit_test_abort_grace_seconds: Annotated[
         float, Field(gt=0, alias="unit_test_abort_grace_seconds")
     ] = 10
     # How many times the tests a unit added or changed are run again, under the same
-    # load, after tier 1 passes; 0 turns the check off.
-    tier1_repeat_runs: Annotated[int, Field(ge=0, alias="unit_test_repeat_runs")] = 3
-    # What tier 1 runs after a clean move onto a moved base: `affected` scopes it by the
+    # load, after unit-test passes; 0 turns the check off.
+    unit_test_repeat_runs: Annotated[int, Field(ge=0, alias="unit_test_repeat_runs")] = 3
+    # What unit-test runs after a clean move onto a moved base: `affected` scopes it by the
     # files the move brought in, `full` runs the whole suite as before.
     restack_check: RestackCheck = RestackCheck.AFFECTED
-    # Whether the untouched tests that fail tier 2 are run once on the base, to tell a
+    # Whether the untouched tests that fail e2e-test are run once on the base, to tell a
     # failure the unit caused from one already there; 0 turns the run off. A switch, not a
     # count: one run answers the question.
-    tier2_base_runs: Annotated[int, Field(ge=0, le=1, alias="e2e_base_runs")] = 1
-    # How much of a repo's tier 2 marker a unit's tier 2 step runs: `own` the tests its branch
-    # added or changed, `full` the whole marker. A repo's `tests.tier2_unit_scope` wins.
-    tier2_unit_scope: Tier2UnitScope = Field(Tier2UnitScope.OWN, alias="e2e_unit_scope")
-    # How often a repo's whole tier 2 suite is due to run on its own; a repo's
-    # `tests.tier2_schedule` wins.
-    tier2_schedule: Tier2Schedule = Field(Tier2Schedule.WEEKLY, alias="e2e_schedule")
-    tier2_schedule_off = field_validator("tier2_schedule", mode="before")(_unquoted_off)
-    # Longest a unit waits for the tier 2 lock before its tier 2 step fails as busy, in seconds.
-    tier2_lock_wait_seconds: Annotated[int, Field(gt=0, alias="e2e_lock_wait_seconds")] = 5400
-    # How many of a tier 2 run's slowest test entries the posted result lists; 0 lists every one.
-    tier2_durations_shown: Annotated[int, Field(ge=0, alias="e2e_durations_shown")] = 15
-    unit_test_command_seconds = property(lambda self: self.tier1_command_seconds)  # abk-forward
-    unit_test_abort_grace_seconds = property(lambda s: s.tier1_abort_grace_seconds)  # abk-forward
-    e2e_durations_shown = property(lambda self: self.tier2_durations_shown)  # abk-forward
-    e2e_base_runs = property(lambda self: self.tier2_base_runs)  # abk-forward
-    unit_test_repeat_runs = property(lambda self: self.tier1_repeat_runs)  # abk-forward
+    e2e_base_runs: Annotated[int, Field(ge=0, le=1, alias="e2e_base_runs")] = 1
+    # How much of a repo's e2e-test marker a unit's e2e-test step runs: `own` the tests its branch
+    # added or changed, `full` the whole marker. A repo's `tests.e2e_unit_scope` wins.
+    e2e_unit_scope: E2eUnitScope = Field(E2eUnitScope.OWN, alias="e2e_unit_scope")
+    # How often a repo's whole e2e-test suite is due to run on its own; a repo's
+    # `tests.e2e_schedule` wins.
+    e2e_schedule: E2eSchedule = Field(E2eSchedule.WEEKLY, alias="e2e_schedule")
+    e2e_schedule_off = field_validator("e2e_schedule", mode="before")(_unquoted_off)
+    # Longest a unit waits for the e2e-test lock before its e2e-test step fails as busy, in seconds.
+    e2e_lock_wait_seconds: Annotated[int, Field(gt=0, alias="e2e_lock_wait_seconds")] = 5400
+    # How many of a e2e-test run's slowest test entries the posted result lists; 0 lists every one.
+    e2e_durations_shown: Annotated[int, Field(ge=0, alias="e2e_durations_shown")] = 15
     # Longest the connectivity probe waits to connect to one host, in seconds (a name lookup
     # waits on the system resolver instead). The probe tells a network
     # outage from a model service outage when an agent run ends on a failure to connect.
@@ -742,7 +753,7 @@ class GateConfig(Frozen):
         return self
 
 
-class Tier2SplitEntry(Frozen):
+class E2eSplitEntry(Frozen):
     """One `tests.e2e_splits.<name>` entry as written: a selector, a hold and a gate."""
 
     marker: str | None = None
@@ -750,40 +761,33 @@ class Tier2SplitEntry(Frozen):
     gate: GateConfig | None = None
 
 
-class Tier2Split(Frozen):
-    """A repo's tier 2 split: its name, its marker (None for `rest`) and its configured hold."""
+class E2eSplit(Frozen):
+    """A repo's e2e-test split: its name, its marker (None for `rest`) and its configured hold."""
 
     name: str
     marker: str | None = None
     hold: bool | None = None
 
 
-E2eSplit = Tier2Split  # abk-forward
-
-
-class TestsConfig(Frozen):
-    model_config = TEST_KIND_SETTINGS
-
+class TestsConfig(TestKindSettings):
     # Extra packages the repo-root tests (outside every workspace member) need.
     root_extras: list[str] = []
-    # The pytest marker on tests that need the real local stack (tier 2).
-    tier2_marker: str = Field("local_stack", alias="e2e_marker")
-    e2e_marker = property(lambda self: self.tier2_marker)  # abk-forward
-    # This repo's tier 2 scope; None follows `global_limits.tier2_unit_scope`.
-    tier2_unit_scope: Tier2UnitScope | None = Field(None, alias="e2e_unit_scope")
-    # This repo's schedule; None follows `limits.tier2_schedule`.
-    tier2_schedule: Tier2Schedule | None = Field(None, alias="e2e_schedule")
-    tier2_schedule_off = field_validator("tier2_schedule", mode="before")(_unquoted_off)
-    # The marker on tier-2 tests only the dev stack can run (left out of live checks).
+    # The pytest marker on tests that need the real local stack (e2e-test).
+    e2e_marker: str = Field("local_stack", alias="e2e_marker")
+    # This repo's e2e-test scope; None follows `global_limits.e2e_unit_scope`.
+    e2e_unit_scope: E2eUnitScope | None = Field(None, alias="e2e_unit_scope")
+    # This repo's schedule; None follows `limits.e2e_schedule`.
+    e2e_schedule: E2eSchedule | None = Field(None, alias="e2e_schedule")
+    e2e_schedule_off = field_validator("e2e_schedule", mode="before")(_unquoted_off)
+    # The marker on e2e-test tests only the dev stack can run (left out of live checks).
     dev_stack_marker: str = "dev_stack"
-    # Record and replay of the calls tier-2 tests make outside the stack; None: none.
+    # Record and replay of the calls e2e-test tests make outside the stack; None: none.
     replay: ReplayConfig | None = None
-    # This repo's tier 2 splits; None follows the top-level `tests.tier2_splits`.
-    tier2_splits: dict[str, Tier2SplitEntry] | None = Field(None, alias="e2e_splits")
-    e2e_splits = property(lambda self: self.tier2_splits)  # abk-forward
+    # This repo's e2e-test splits; None follows the top-level `tests.e2e_splits`.
+    e2e_splits: dict[str, E2eSplitEntry] | None = Field(None, alias="e2e_splits")
 
 
-# The older name of `rest`, the tier 2 tests in no split; reserved, so no split has this name.
+# The older name of `rest`, the e2e-test tests in no split; reserved, so no split has this name.
 # Deleted with the last caller that still uses it.
 BASE_GROUP = "base"
 
@@ -792,17 +796,14 @@ BASE_GROUP = "base"
 REPLACED_RUNTIME_LISTS = {
     "runtimes_blocked": "`tests.e2e_splits.<name>.hold: true`",
     "runtimes_allowed": "`tests.e2e_splits.<name>.hold: false`",
-    "tier2_runtimes": "a split declared under `tests.e2e_splits`",
+    f"{old_spelling(TestTier.E2E_TEST)}_runtimes": "a split declared under `tests.e2e_splits`",
 }
 
 
-class RuntimeTestsConfig(Frozen):
-    """The installation-wide `tests` block: the declared tier 2 splits."""
+class RuntimeTestsConfig(TestKindSettings):
+    """The installation-wide `tests` block: the declared e2e-test splits."""
 
-    model_config = TEST_KIND_SETTINGS
-
-    tier2_splits: dict[str, Tier2SplitEntry] = Field({}, alias="e2e_splits")
-    e2e_splits = property(lambda self: self.tier2_splits)  # abk-forward
+    e2e_splits: dict[str, E2eSplitEntry] = Field({}, alias="e2e_splits")
 
 
 # The words of a `command` template that stand for a list of arguments.
@@ -837,7 +838,7 @@ class ChecksConfig(Frozen):
 
 
 class DevStackConfig(Frozen):
-    # A script with `up`, `test` and `down` subcommands. Tier 2 runs a unit's
+    # A script with `up`, `test` and `down` subcommands. E2e-test runs a unit's
     # branch on it instead of the live stack.
     script: str = "scripts/dev-stack.sh"
 
@@ -1005,7 +1006,7 @@ Provider = Annotated[
 
 
 class VerifyConfig(Frozen):
-    # Recorded beside a tier-2 result so a reviewer can see what the stack
+    # Recorded beside an e2e-test result so a reviewer can see what the stack
     # was. "profile" (not set) asks the repo's profile; None records nothing.
     stack_versions_command: list[str] | Literal["profile"] | None = "profile"
     # Environment handed to the live-stack tests, each value resolved by a
@@ -1217,12 +1218,12 @@ class WorkspaceConfig(Frozen):
         return data
 
     @model_validator(mode="after")
-    def _tier2_splits_declared_well(self) -> WorkspaceConfig:
+    def _e2e_splits_declared_well(self) -> WorkspaceConfig:
         """Each split has a valid name and one marker no other split has; `rest` has none."""
-        maps = {"tests.e2e_splits": self.tests.tier2_splits}
+        maps = {"tests.e2e_splits": self.tests.e2e_splits}
         for key, repo in self.repos.items():
-            if repo.tests.tier2_splits is not None:
-                maps[f"repos.{key}.tests.e2e_splits"] = repo.tests.tier2_splits
+            if repo.tests.e2e_splits is not None:
+                maps[f"repos.{key}.tests.e2e_splits"] = repo.tests.e2e_splits
         for setting, splits in maps.items():
             seen: dict[str, str] = {}
             for name, entry in splits.items():
@@ -1692,3 +1693,12 @@ def models() -> ModelsConfig:
         review=pick("review", settings.review_model),
         rework_review=pick("rework_review", settings.rework_review_model),
     )
+
+
+Tier2UnitScope = E2eUnitScope  # abk-shim
+tier2_unit_scope = e2e_unit_scope  # abk-shim
+Tier2Schedule = E2eSchedule  # abk-shim
+tier2_schedule = e2e_schedule  # abk-shim
+tier2_splits = e2e_splits  # abk-shim
+Tier2SplitEntry = E2eSplitEntry  # abk-shim
+Tier2Split = E2eSplit  # abk-shim

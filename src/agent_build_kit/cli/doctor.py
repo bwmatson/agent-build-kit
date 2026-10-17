@@ -1369,34 +1369,34 @@ def _live_installation(inst: Installation) -> list[Check]:
     return [_warn("live installation", notice.removeprefix("abk: "), "use that config instead")]
 
 
-def _tier2_holds(inst: Installation) -> list[Check]:
-    """The held tier 2 splits as information, and what is wrong with the file or its entries."""
+def _e2e_holds(inst: Installation) -> list[Check]:
+    """The held e2e-test splits as information, and what is wrong with the file or its entries."""
     holds = current_holds(inst.config, inst.state_dir)
     if holds.unreadable:
         return [
             _fail(
-                "tier 2 holds",
+                "e2e-test holds",
                 f"{inst.state_dir / HELD_FILE} cannot be read, so it holds nothing",
-                "fix the file, or remove it and hold again with `abk tier2 hold`",
+                "fix the file, or remove it and hold again with `abk e2e-test hold`",
             )
         ]
     checks = [
-        _info("tier 2 holds", f"{name} is held: {hold_text(hold)}")
+        _info("e2e-test holds", f"{name} is held: {hold_text(hold)}")
         for name, hold in holds.held.items()
     ]
     checks += [
         _warn(
-            "tier 2 holds",
+            "e2e-test holds",
             f"{name}: the file holds it but the configuration releases it (`hold: false`)",
-            "the configuration wins; remove `hold: false`, or `abk tier2 release` it",
+            "the configuration wins; remove `hold: false`, or `abk e2e-test release` it",
         )
         for name in holds.overridden
     ]
     checks += [
         _warn(
-            "tier 2 holds",
+            "e2e-test holds",
             f"{HELD_FILE} has an entry for `{name}`, which no repo declares",
-            "`abk tier2 release` it, or declare the split",
+            "`abk e2e-test release` it, or declare the split",
         )
         for name in holds.unknown
     ]
@@ -1439,7 +1439,7 @@ def run_doctor(
 
     checks += _live_installation(inst)
     checks += _repos(inst, run)
-    checks += _tier2_holds(inst)
+    checks += _e2e_holds(inst)
     checks += _pending_projects(inst)
     checks += _changelogs(inst)
     checks += _cassettes(inst)
@@ -1482,3 +1482,6 @@ def cmd_doctor(args: argparse.Namespace, _inst: Installation | None) -> int:
 def register(sub: argparse._SubParsersAction) -> None:
     parser = sub.add_parser("doctor", help="check this installation is runnable")
     parser.set_defaults(func=cmd_doctor, needs_installation=False)
+
+
+_tier2_holds = _e2e_holds  # abk-shim

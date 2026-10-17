@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from agent_build_kit.cli import tier2_cmd
+from agent_build_kit.cli import e2e_cmd
 from agent_build_kit.installation import Installation
 from tests.cli.policy_static_cli import snapshot
 from tests.conftest import make_installation
@@ -102,7 +102,7 @@ def check(
     found: Installation, run: Pytest, capsys: pytest.CaptureFixture[str], repo: str | None = "app"
 ) -> tuple[int, list[str]]:
     capsys.readouterr()
-    code = tier2_cmd.cmd_tier2_check(argparse.Namespace(repo=repo), found, run=run)
+    code = e2e_cmd.cmd_e2e_check(argparse.Namespace(repo=repo), found, run=run)
     shown = capsys.readouterr()
     return code, (shown.out + shown.err).splitlines()
 
@@ -262,7 +262,7 @@ def test_without_a_name_every_repo_is_checked_and_the_exit_code_is_the_worst(
         return (overlapping if kwargs["cwd"] == tmp_path / "platform" else clean)(argv, **kwargs)
 
     capsys.readouterr()
-    code = tier2_cmd.cmd_tier2_check(argparse.Namespace(repo=None), installation(tmp_path), run=run)
+    code = e2e_cmd.cmd_e2e_check(argparse.Namespace(repo=None), installation(tmp_path), run=run)
     lines = capsys.readouterr().out.splitlines()
 
     assert code == 1

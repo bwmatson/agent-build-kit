@@ -48,7 +48,7 @@ def cmd_review(args: argparse.Namespace, inst: Installation) -> int:
 
 
 def register(sub: argparse._SubParsersAction) -> None:
-    parser = sub.add_parser("replay", help="the recorded calls of tier-2 tests (review)")
+    parser = sub.add_parser("replay", help="the recorded calls of e2e-test tests (review)")
     actions = parser.add_subparsers(dest="action", required=True)
     command = actions.add_parser(
         "review", help="list the recordings waiting for review; decide with --keep or --delete"

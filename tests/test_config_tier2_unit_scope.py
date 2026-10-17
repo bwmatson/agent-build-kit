@@ -57,7 +57,7 @@ def test_a_repo_without_a_value_follows_limits() -> None:
 def test_any_other_value_in_limits_is_refused_naming_the_setting_and_both_values(
     value: str,
 ) -> None:
-    with pytest.raises(ValidationError, match="tier2_unit_scope") as refused:
+    with pytest.raises(ValidationError, match="e2e_unit_scope") as refused:
         limits(tier2_unit_scope=value)
 
     assert "Extra inputs" not in str(refused.value)
@@ -68,7 +68,7 @@ def test_any_other_value_in_limits_is_refused_naming_the_setting_and_both_values
 def test_any_other_value_on_a_repo_is_refused_naming_the_setting_and_both_values(
     value: str,
 ) -> None:
-    with pytest.raises(ValidationError, match="tier2_unit_scope") as refused:
+    with pytest.raises(ValidationError, match="e2e_unit_scope") as refused:
         repo(tier2_unit_scope=value)
 
     assert "Extra inputs" not in str(refused.value)

@@ -64,7 +64,7 @@ def test_verify_one_uses_the_configured_wait_unless_given_its_own(
     inst = make_installation(tmp_path, limits={"tier2_lock_wait_seconds": 9})
     waited = []
 
-    with held(inst.state_dir / "tier2.lock"):
+    with held(inst.state_dir / "e2e.lock"):
         for options in ({}, {"wait": 1}):
             with pytest.raises(StackBusy) as busy:
                 verify_one(inst, "add-marker", [], **options)
@@ -80,7 +80,7 @@ def test_the_busy_message_names_the_setting_only_for_the_configured_wait(
     inst = make_installation(tmp_path, limits={"tier2_lock_wait_seconds": 2})
     messages = []
 
-    with held(inst.state_dir / "tier2.lock"):
+    with held(inst.state_dir / "e2e.lock"):
         for options in ({}, {"wait": 0}):
             with pytest.raises(StackBusy) as busy:
                 verify_one(inst, "add-marker", [], **options)
@@ -93,7 +93,7 @@ def test_the_busy_message_names_the_setting_only_for_the_configured_wait(
 
 
 def test_stack_lock_names_the_setting_it_is_given(tmp_path: Path, clock: SleepingTime) -> None:
-    lock = tmp_path / "tier2.lock"
+    lock = tmp_path / "e2e.lock"
 
     with held(lock), pytest.raises(TimeoutError) as busy:
         with e2e.stack_lock(lock, timeout=2, setting=SETTING):
@@ -112,9 +112,7 @@ def test_config_show_lists_the_wait_with_its_default_and_a_configured_value(
     main(["--config", str(path), "config", "--show"])
     default = yaml.safe_load(capsys.readouterr().out)["global_limits"]["e2e_lock_wait_seconds"]
 
-    configured = WorkspaceConfig(
-        repos=repos, global_limits=LimitsConfig(tier2_lock_wait_seconds=120)
-    )
+    configured = WorkspaceConfig(repos=repos, global_limits=LimitsConfig(e2e_lock_wait_seconds=120))
     path.write_text(dump(configured))
     main(["--config", str(path), "config", "--show"])
     shown = yaml.safe_load(capsys.readouterr().out)["global_limits"]["e2e_lock_wait_seconds"]

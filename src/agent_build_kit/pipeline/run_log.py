@@ -12,6 +12,8 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from agent_build_kit.compat_names import moved_to_current_name, old_spelling
+from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline.units import Unit, unit_number
 from agent_build_kit.redaction import redact_text
 
@@ -28,14 +30,21 @@ _STAMP = r"\d{8}-\d{6}-"
 _UNIT_LOG = re.compile(rf"(?P<change>.+)-(?P<number>\d{{2,}})-{_STAMP}")
 
 
+_OUTPUT_DIR = "e2e-output"
+
+# The name the directory had under the kind's old spelling.
+_OLD_OUTPUT_DIR = f"{old_spelling(TestTier.E2E_TEST)}-output"
+
+
 def run_log_dir(state_dir: Path) -> Path:
     """The directory of its own, under the state directory."""
     return state_dir / "unit-logs"
 
 
 def e2e_output_dir(state_dir: Path) -> Path:
-    """The directory of the full output of each e2e-test run, under the state directory."""
-    return state_dir / "e2e-output"
+    """The directory of the full output of each e2e-test run, under the state directory. One
+    left under the old name is moved to the current one first."""
+    return moved_to_current_name(state_dir, _OUTPUT_DIR, _OLD_OUTPUT_DIR)
 
 
 def append_e2e_output(directory: Path, unit: Unit, started: datetime, text: str) -> Path:

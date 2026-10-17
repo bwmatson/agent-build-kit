@@ -58,7 +58,7 @@ def test_an_unquoted_off_read_as_false_means_off() -> None:
 
 
 def test_true_is_not_a_schedule() -> None:
-    with pytest.raises(ValidationError, match="tier2_schedule") as refused:
+    with pytest.raises(ValidationError, match="e2e_schedule") as refused:
         limits(tier2_schedule=True)
 
     assert "Extra inputs" not in str(refused.value)
@@ -77,7 +77,7 @@ def test_a_repo_without_a_value_follows_limits() -> None:
 def test_any_other_value_in_limits_is_refused_naming_the_setting_and_the_four(
     value: str,
 ) -> None:
-    with pytest.raises(ValidationError, match="tier2_schedule") as refused:
+    with pytest.raises(ValidationError, match="e2e_schedule") as refused:
         limits(tier2_schedule=value)
 
     assert "Extra inputs" not in str(refused.value)
@@ -88,7 +88,7 @@ def test_any_other_value_in_limits_is_refused_naming_the_setting_and_the_four(
 def test_any_other_value_on_a_repo_is_refused_naming_the_setting_and_the_four(
     value: str,
 ) -> None:
-    with pytest.raises(ValidationError, match="tier2_schedule") as refused:
+    with pytest.raises(ValidationError, match="e2e_schedule") as refused:
         repo(tier2_schedule=value)
 
     assert "Extra inputs" not in str(refused.value)

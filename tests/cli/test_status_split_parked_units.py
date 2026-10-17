@@ -32,7 +32,7 @@ def test_status_lists_a_parked_unit_with_the_split_the_reason_and_the_deadline(
 
     lines = status(inst, monkeypatch, capsys)
 
-    [waiting] = [line for line in lines if "waiting for tier 2 split acp" in line]
+    [waiting] = [line for line in lines if "waiting for e2e-test split acp" in line]
     assert "feature/1" in waiting and "(app)" in waiting
     assert "the usage window is spent" in waiting, "the reason of the hold"
     assert f"{deadline:%Y-%m-%d %H:%M}" in waiting, "and its deadline"
@@ -46,7 +46,7 @@ def test_a_hold_with_no_deadline_says_so(
 
     lines = status(inst, monkeypatch, capsys)
 
-    [waiting] = [line for line in lines if "waiting for tier 2 split acp" in line]
+    [waiting] = [line for line in lines if "waiting for e2e-test split acp" in line]
     assert "no deadline" in waiting
 
 
@@ -60,7 +60,7 @@ def test_a_parked_unit_holds_no_place_against_the_unit_limit(
 
     lines = status(inst, monkeypatch, capsys)
 
-    assert any("waiting for tier 2 split acp" in line for line in lines)
+    assert any("waiting for e2e-test split acp" in line for line in lines)
     assert not any("queue is full" in line for line in lines), "the one place is free"
 
 

@@ -26,7 +26,7 @@ import re
 import subprocess
 import time
 from collections.abc import Callable, Collection, Mapping
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -34,9 +34,10 @@ from pydantic import AliasChoices, Field
 
 from agent_build_kit import forges
 from agent_build_kit.budget import cut_head
+from agent_build_kit.compat_names import old_spelling
 from agent_build_kit.config import REST_SPLIT, E2eSplit, active
 from agent_build_kit.forges import Forge, RepoId
-from agent_build_kit.model import Frozen
+from agent_build_kit.model import E2E_LOCK_FILE, Frozen, TestTier
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.workspaces import process_alive
 
@@ -315,8 +316,37 @@ def _waiting_message(record: LockRecord | None, waited: float) -> str:
     return message
 
 
+# The name it had under the kind's old spelling. A process still holding that file keeps the
+# stack, so the lock is taken on it first while it exists.
+_OLD_LOCK_FILE = f"{old_spelling(TestTier.E2E_TEST)}.lock"
+
+
 @contextmanager
 def stack_lock(
+    path: Path,
+    timeout: float | None = None,
+    setting: str | None = None,
+    *,
+    holder: str = "",
+    on_wait: Callable[[str], None] | None = None,
+    on_stale: Callable[[str], None] | None = None,
+):
+    """`hold_lock` on `path`; when `path` is the lock file, a lock held under the old name is
+    waited for and honoured until released."""
+    old = path.with_name(_OLD_LOCK_FILE)
+    with ExitStack() as held:
+        if path.name == E2E_LOCK_FILE and old.exists():
+            held.enter_context(
+                hold_lock(old, timeout, setting, holder=holder, on_wait=on_wait, on_stale=on_stale)
+            )
+        held.enter_context(
+            hold_lock(path, timeout, setting, holder=holder, on_wait=on_wait, on_stale=on_stale)
+        )
+        yield
+
+
+@contextmanager
+def hold_lock(
     path: Path,
     timeout: float | None = None,
     setting: str | None = None,
