@@ -16,6 +16,7 @@ from agent_build_kit.pipeline.stack_runner import Restacked
 from agent_build_kit.pipeline.unit_store import FeedbackSource, ReworkKind
 from tests.factories import unit
 from tests.graph.test_build_path import once, restacked
+from tests.graph.test_session_continuation import Sessions, agents
 from tests.graph_driver import FakeTracer, fresh, position, tick
 from tests.runner_fakes import Recorder
 
@@ -95,7 +96,7 @@ def test_a_move_the_resolver_settles_clears_the_conflict_and_calls_no_rework_age
             kw["resolver"](ORDER, cwd=kw["tree"])
         return moved
 
-    names = run(tmp_path, recorder, restack_onto=settling)
+    names = run(tmp_path, recorder, restack_onto=settling, **agents(Sessions()))
 
     assert "rework" not in names and "adapt" not in names
     assert recorder.store.get(unit().id).feedback == ""

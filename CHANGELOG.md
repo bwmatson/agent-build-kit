@@ -68,6 +68,10 @@
   Every agent call of a run in the lane, including the conflict resolver of its own move, asks
   the usage guard first; a refusal aborts the move or interrupts the run where it stands, and
   the lane tries it again once the guard allows, not on a timer.
+  A pull request reported as conflicting now starts its run at the move, whether or not the
+  unit has a thread: when the move settles the conflict no rework agent is asked, and when it
+  cannot, the port runs first and the rework only for what is left. The conflict handlers hand
+  such a unit to the lane at once instead of waiting for a build worker.
 
 - A prompt no longer travels as a command-line argument to Claude Code: it is written to the
   agent's standard input, so a large prompt (a long plan, a big diff) no longer fails with

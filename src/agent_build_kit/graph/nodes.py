@@ -968,6 +968,15 @@ class BuildPath:
                 )
                 return {**FRESH, **remembered, **self.stop(why)}
             if restacked is not None:
+                if (
+                    not restacked.conflict
+                    and saved.feedback_source is FeedbackSource.CONFLICT
+                    and state.event is not None
+                    and state.event.feedback_source is FeedbackSource.CONFLICT
+                ):
+                    # The move settled the conflict the feedback names: nothing to rework.
+                    r.store.set_feedback(unit.id, "")
+                    feedback = ""
                 if restacked.conflict:
                     return {
                         **FRESH,
@@ -2077,6 +2086,13 @@ class BuildPath:
             return {"event": None}
         update: Update = {"event": event}
         if event.kind is EventKind.REWORK:
+            held = r.store.get(unit.id)
+            answered = bool(held.approved) and held.approved == state.head
+            own_input = bool(held.feedback) and held.feedback_source is not FeedbackSource.CONFLICT
+            if event.feedback_source is FeedbackSource.CONFLICT and (answered or not own_input):
+                # A moved-base run starts at the move, which may settle the conflict before
+                # any rework agent is asked: the router takes it for a moved base.
+                update["event"] = event.model_copy(update={"kind": EventKind.BASE_MOVED})
             r.store.set_feedback(
                 unit.id,
                 event.feedback or event.reason,
