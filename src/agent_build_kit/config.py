@@ -484,6 +484,10 @@ class ProjectLimitsConfig(Frozen):
     # (finishing, rework, resuming, a further review round) still runs.
     max_units_in_progress: Annotated[int, Field(ge=1)] = 5
 
+    @property
+    def emergency_extra(self) -> int:
+        raise NotImplementedError
+
 
 # The scheduling settings that moved from the limits block to `project_limits`.
 MOVED_TO_PROJECT_LIMITS = tuple(ProjectLimitsConfig.model_fields)

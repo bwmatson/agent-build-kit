@@ -951,6 +951,8 @@ def ready_units(
     depth_cap: int,
     max_units_in_progress: int | None = None,
     excluded: Collection[str] = frozenset(),
+    emergency_extra: int = 0,
+    in_lane: Collection[str] = frozenset(),
 ) -> list[Unit]:
     """The planned units that may start right now, in the order to start them.
 

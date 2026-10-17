@@ -206,6 +206,10 @@ class Installation:
         return self.config.project_limits.max_units_in_progress
 
     @property
+    def emergency_extra(self) -> int:
+        raise NotImplementedError
+
+    @property
     def stack_depth_build_cap(self) -> int:
         return self.config.global_limits.stack_depth_build_cap
 
