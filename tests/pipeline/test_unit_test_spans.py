@@ -14,7 +14,7 @@ from agent_build_kit.pipeline.wiring import build_unit_test
 from tests.fake_clock import FakeClock, install, span_lines
 
 
-def test_a_tier_one_command_that_runs_for_45_seconds_is_recorded_under_its_command(
+def test_a_unit_test_command_that_runs_for_45_seconds_is_recorded_under_its_command(
     tmp_path: Path, workspace: Installation, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     clock: FakeClock = install(monkeypatch)

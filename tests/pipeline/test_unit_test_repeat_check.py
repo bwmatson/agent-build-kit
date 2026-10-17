@@ -37,10 +37,12 @@ class Profile(PythonUvProfile):
     def lint_command(self, base: str) -> list[str]:
         return LINT
 
-    def test_commands(
+    def _commands(
         self, repo: Path, changed: list[str], *, root_extras: list[str]
     ) -> list[list[str]]:
         return [RUN]
+
+    test_commands = _commands
 
 
 class Runs:
@@ -92,10 +94,12 @@ class NodeProfile(Profile):
 
     no_tests_collected_exit = 0
 
-    def test_commands(
+    def _commands(
         self, repo: Path, changed: list[str], *, root_extras: list[str]
     ) -> list[list[str]]:
         return [NPM_TEST]
+
+    test_commands = _commands
 
     def repeat_command(self, command: list[str], tests: list[str]) -> list[str]:
         return [*command, "--", *tests]
@@ -110,10 +114,12 @@ MEMBERS = [
 class WorkspaceProfile(Profile):
     """A workspace of two members, each with its own test command."""
 
-    def test_commands(
+    def _commands(
         self, repo: Path, changed: list[str], *, root_extras: list[str]
     ) -> list[list[str]]:
         return MEMBERS
+
+    test_commands = _commands
 
 
 class WithoutRepeat:

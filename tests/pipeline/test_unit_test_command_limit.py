@@ -60,10 +60,12 @@ class ScriptProfile(PythonUvProfile):
     def lint_command(self, base: str) -> list[str]:
         return [sys.executable, "-c", "pass"]
 
-    def test_commands(
+    def _commands(
         self, repo: Path, changed: list[str], *, root_extras: list[str]
     ) -> list[list[str]]:
         return [[sys.executable, "-c", self.script]]
+
+    test_commands = _commands
 
 
 def unit_test(tmp_path: Path, script: str, **limits: float) -> tuple[bool, str]:

@@ -45,10 +45,12 @@ class Profile(PythonUvProfile):
     def lint_command(self, base: str) -> list[str]:
         return self.lint
 
-    def test_commands(
+    def _commands(
         self, repo: Path, changed: list[str], *, root_extras: list[str]
     ) -> list[list[str]]:
         return [["full-tests"]]
+
+    test_commands = _commands
 
     def affected_test_commands(
         self,
