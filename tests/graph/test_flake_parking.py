@@ -94,7 +94,7 @@ def test_the_unit_is_told_of_the_flake_and_parked_gated_instead_of_failing(
     assert not {"review", "push", "pr"} & set(recorder.events)
 
 
-def test_the_parked_unit_runs_tier_1_again_restacked_when_the_gate_clears(
+def test_the_parked_unit_runs_unit_test_again_restacked_when_the_gate_clears(
     tmp_path: Path,
 ) -> None:
     recorder = fresh(tmp_path)

@@ -1,5 +1,5 @@
 """A pre-existing failure is appended to a record in the state directory and listed by
-`abk status` (spec: tier2-failures)."""
+`abk status` (spec: e2e-failures)."""
 
 from __future__ import annotations
 

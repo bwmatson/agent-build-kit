@@ -20,9 +20,9 @@ def test_a_project_tag_a_nested_project_and_a_plain_tag_are_read_as_their_projec
 
     groups, errors = read(
         tmp_path,
-        "[app/web] [tier1] Add the filter",
-        "[app/services/api] [tier1] Add the route",
-        "[app] [tier1] Add the marker",
+        "[app/web] [unit-test] Add the filter",
+        "[app/services/api] [unit-test] Add the route",
+        "[app] [unit-test] Add the marker",
     )
 
     assert errors == []
@@ -36,7 +36,7 @@ def test_a_project_tag_a_nested_project_and_a_plain_tag_are_read_as_their_projec
 def test_a_flag_and_a_tier_after_the_project_tag_are_read_as_before(tmp_path: Path) -> None:
     app_with_projects(tmp_path / "planning", "web")
 
-    groups, errors = read(tmp_path, "[app/web] [tier2] [acceptance] Drive the page")
+    groups, errors = read(tmp_path, "[app/web] [e2e-test] [acceptance] Drive the page")
 
     assert errors == []
     (group,) = groups
@@ -53,7 +53,9 @@ def test_a_project_tag_leaves_the_groups_number_title_and_task_count_as_they_are
 ) -> None:
     app_with_projects(tmp_path / "planning", "web")
 
-    groups, errors = read(tmp_path, "[app] [tier1] First", "[app/web] [tier1] Add the filter")
+    groups, errors = read(
+        tmp_path, "[app] [unit-test] First", "[app/web] [unit-test] Add the filter"
+    )
 
     assert errors == []
     assert [(g.number, g.title, g.task_count) for g in groups] == [
@@ -66,7 +68,7 @@ def test_a_declared_repo_named_with_a_slash_is_read_whole(tmp_path: Path) -> Non
     app_with_projects(tmp_path / "planning", "web", repo="team/app")
 
     groups, errors = read(
-        tmp_path, "[team/app] [tier1] Whole repo", "[team/app/web] [tier1] Its web project"
+        tmp_path, "[team/app] [unit-test] Whole repo", "[team/app/web] [unit-test] Its web project"
     )
 
     assert errors == []

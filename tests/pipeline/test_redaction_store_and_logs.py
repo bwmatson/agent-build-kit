@@ -259,7 +259,7 @@ def test_a_failed_redaction_keeps_the_figures_of_a_ledger_record(
     _assert_one_failure_line(caplog, "ledger")
 
 
-def test_a_failed_redaction_logs_one_line_for_a_e2e_of_several_commands(
+def test_a_failed_redaction_logs_one_line_for_an_e2e_of_several_commands(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     (tmp_path / "pyproject.toml").write_text('[tool.uv.workspace]\nmembers = ["svc-a", "svc-b"]\n')

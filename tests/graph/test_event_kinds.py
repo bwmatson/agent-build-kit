@@ -87,7 +87,7 @@ def test_every_other_requeue_keeps_the_saved_failure_even_when_its_text_says_res
     assert recorder.store.get(UNIT).feedback == STALE
 
 
-@pytest.mark.parametrize("source", [FeedbackSource.TIER1, FeedbackSource.TIER2])
+@pytest.mark.parametrize("source", [FeedbackSource.UNIT_TEST, FeedbackSource.E2E])
 def test_feedback_from_the_checks_gets_the_fix_the_checks_prompt_by_its_source(
     tmp_path: Path, source: FeedbackSource
 ) -> None:
@@ -125,7 +125,7 @@ def test_a_person_s_words_that_begin_like_a_check_failure_are_review_feedback(
             kind=EventKind.REWORK,
             rework=ReworkKind.COMMENT,
             reason="new comment",
-            feedback="tier 1 failed: you forgot the import, please add it",
+            feedback="unit-test failed: you forgot the import, please add it",
             from_person=True,
             feedback_source=FeedbackSource.REVIEW,
         ),

@@ -1,5 +1,5 @@
 """One change fixes a pre-existing failing test, previewed before it is written
-(spec: tier2-failures)."""
+(spec: e2e-failures)."""
 
 from __future__ import annotations
 
@@ -67,7 +67,7 @@ def test_a_long_id_is_capped_with_a_hash_of_the_whole() -> None:
     assert re.search(r"-[0-9a-f]{8}$", first)
 
 
-def test_the_change_has_a_proposal_a_design_stub_and_one_tier_2_group_tests_first(
+def test_the_change_has_a_proposal_a_design_stub_and_one_e2e_group_tests_first(
     installation: Installation,
 ) -> None:
     code_repo(installation)

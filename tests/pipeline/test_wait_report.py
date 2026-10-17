@@ -210,7 +210,7 @@ def test_the_estimate_ratio_is_actual_over_estimated_lines_per_kind(tmp_path: Pa
     units = [
         sized("a/1", 100, 150),
         sized("b/1", 200, 450),
-        sized("c/1", 100, 80, repo="platform", tier="tier2"),
+        sized("c/1", 100, 80, repo="platform", tier="e2e-test"),
         sized("d/1", 100, None),
     ]
 

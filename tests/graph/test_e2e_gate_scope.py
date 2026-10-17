@@ -25,7 +25,7 @@ def test_an_own_scope_run_of_a_unit_with_a_test_of_its_own_is_not_held_and_reads
     assert planning.needs() == {}
 
 
-def test_an_own_scope_unit_with_no_tier_2_test_is_not_held_and_takes_no_lock(
+def test_an_own_scope_unit_with_no_e2e_test_is_not_held_and_takes_no_lock(
     tmp_path: Path,
 ) -> None:
     planning = Planning(tmp_path, whole=False)

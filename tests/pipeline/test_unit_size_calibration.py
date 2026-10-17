@@ -44,7 +44,7 @@ from tests.calibration_support import (
 from tests.conftest import make_installation
 from tests.factories import stored_unit
 
-APP = Kind(repo="app", tier="tier1")
+APP = Kind(repo="app", tier="unit-test")
 # --- the ratio ---------------------------------------------------------------
 
 
@@ -135,64 +135,66 @@ def test_kinds_get_their_ratios_from_their_own_samples() -> None:
     limits(calibration_shrink=0)
     units = [
         *run_of([2.0] * 3),
-        *run_of([3.0] * 3, tier="tier2"),
+        *run_of([3.0] * 3, tier="e2e-test"),
         *run_of([1.5] * 3, repo="platform"),
         *run_of([2.5] * 3, flag="contract"),
     ]
 
     assert calibration(units, APP) == pytest.approx(2.0)
-    assert calibration(units, Kind(repo="app", tier="tier2")) == pytest.approx(3.0)
-    assert calibration(units, Kind(repo="platform", tier="tier1")) == pytest.approx(1.5)
-    assert calibration(units, Kind(repo="app", tier="tier1", flag="contract")) == pytest.approx(2.5)
-    assert calibration(units, Kind(repo="app", tier="tier1", flag="narrow")) == 1.0
+    assert calibration(units, Kind(repo="app", tier="e2e-test")) == pytest.approx(3.0)
+    assert calibration(units, Kind(repo="platform", tier="unit-test")) == pytest.approx(1.5)
+    assert calibration(units, Kind(repo="app", tier="unit-test", flag="contract")) == pytest.approx(
+        2.5
+    )
+    assert calibration(units, Kind(repo="app", tier="unit-test", flag="narrow")) == 1.0
 
 
 def test_a_units_kind_is_its_repo_tier_and_flag() -> None:
-    unit = stored_unit("feature/1", repo="platform", tier="tier2", flag="narrow")
+    unit = stored_unit("feature/1", repo="platform", tier="e2e-test", flag="narrow")
 
-    assert kind_of(unit) == Kind(repo="platform", tier="tier2", flag="narrow")
-    assert kind_of(stored_unit("feature/2")) == Kind(repo="app", tier="tier1", flag="")
+    assert kind_of(unit) == Kind(repo="platform", tier="e2e-test", flag="narrow")
+    assert kind_of(stored_unit("feature/2")) == Kind(repo="app", tier="unit-test", flag="")
 
 
 def test_calibrations_lists_each_kind_with_its_ratio_and_sample_count() -> None:
     limits(calibration_shrink=0)
-    units = [*run_of([2.0] * 4), *run_of([3.0] * 3, tier="tier2")]
+    units = [*run_of([2.0] * 4), *run_of([3.0] * 3, tier="e2e-test")]
 
     found = calibrations(units)
 
     assert found[APP].ratio == pytest.approx(2.0)
     assert found[APP].samples == 4
-    assert found[Kind(repo="app", tier="tier2")].samples == 3
+    assert found[Kind(repo="app", tier="e2e-test")].samples == 3
 
 
-# The twenty newest tier-1 samples of the design's worked example, estimate then landed size,
-# oldest first, and the tier-2 pair.
-TIER1 = [
+# The twenty newest unit-test samples of the design's worked example, estimate then landed size,
+# oldest first, and the e2e-test pair.
+UNIT_TEST = [
     (600, 1115), (700, 1175), (450, 853), (550, 551), (450, 719),
     (600, 641), (500, 776), (600, 5198), (600, 1000), (400, 386),
     (350, 424), (300, 715), (250, 176), (650, 2053), (450, 510),
     (450, 712), (600, 1222), (450, 1016), (550, 791), (700, 1906),
 ]  # fmt: skip
-TIER2 = [(650, 479), (250, 116)]
+E2E = [(650, 479), (250, 116)]
 
 
-def test_the_worked_example_gives_1_51_at_tier_one_and_one_at_tier_two() -> None:
+def test_the_worked_example_gives_1_51_at_unit_test_and_one_at_e2e() -> None:
     limits()
     older = [sample(1.0, at=at) for at in range(-11, 0)]
     newest = [
         sample(0, at=at, estimate=estimate, actual=landed)
-        for at, (estimate, landed) in enumerate(TIER1)
+        for at, (estimate, landed) in enumerate(UNIT_TEST)
     ]
-    tier2 = [
-        sample(0, at=at, tier="tier2", estimate=estimate, actual=landed)
-        for at, (estimate, landed) in enumerate(TIER2)
+    e2e = [
+        sample(0, at=at, tier="e2e-test", estimate=estimate, actual=landed)
+        for at, (estimate, landed) in enumerate(E2E)
     ]
 
-    units = [*older, *newest, *tier2]
+    units = [*older, *newest, *e2e]
 
     assert sample_count(units, APP) == 20
     assert calibration(units, APP) == pytest.approx(1.5058, abs=2e-3)
-    assert calibration(units, Kind(repo="app", tier="tier2")) == 1.0
+    assert calibration(units, Kind(repo="app", tier="e2e-test")) == 1.0
 
 
 def test_with_calibration_off_every_ratio_is_one() -> None:
@@ -205,15 +207,16 @@ def test_with_calibration_off_every_ratio_is_one() -> None:
 # --- the plan check ----------------------------------------------------------
 
 GROUPS = [
-    TaskGroup(number=1, repo="app", tier="tier1", title="A", line=3, task_count=2),
-    TaskGroup(number=2, repo="app", tier="tier1", title="B", line=9, task_count=2),
+    TaskGroup(number=1, repo="app", tier="unit-test", title="A", line=3, task_count=2),
+    TaskGroup(number=2, repo="app", tier="unit-test", title="B", line=9, task_count=2),
 ]
 RATIO_1_5 = {APP: Calibration(ratio=1.5, samples=20)}
 
 
 def graph(*units: dict) -> str:
     body = [
-        {"change": "c", "title": "A unit", "repo": "app", "tier": "tier1", **unit} for unit in units
+        {"change": "c", "title": "A unit", "repo": "app", "tier": "unit-test", **unit}
+        for unit in units
     ]
     return json.dumps({"units": body})
 
@@ -257,7 +260,7 @@ def test_a_single_group_over_the_ceiling_only_after_calibration_is_too_large() -
 def test_another_kinds_ratio_does_not_apply() -> None:
     limits(max_unit_lines=750)
     output = graph({"id": "c/1", "groups": [1, 2], "estimated_lines": 600})
-    other = {Kind(repo="app", tier="tier2"): Calibration(ratio=1.5, samples=20)}
+    other = {Kind(repo="app", tier="e2e-test"): Calibration(ratio=1.5, samples=20)}
 
     assert parse_plan(output, groups=GROUPS, calibrations=other).units
 
@@ -275,7 +278,7 @@ def test_with_calibration_off_the_raw_estimate_is_checked() -> None:
 def prompt_with(found: dict[Kind, Calibration] | None) -> str:
     captured: dict = {}
     plan_round(
-        changes={"c": "## 1. [app] [tier1] x\n"},
+        changes={"c": "## 1. [app] [unit-test] x\n"},
         in_flight=[],
         calibrations=found,
         run_claude=lambda prompt: captured.setdefault("prompt", prompt) and '{"units": []}',
@@ -287,8 +290,8 @@ def test_the_prompt_lists_each_kind_above_one_with_its_ratio_and_samples() -> No
     limits()
     found = {
         APP: Calibration(ratio=1.51, samples=20),
-        Kind(repo="app", tier="tier2"): Calibration(ratio=1.0, samples=2),
-        Kind(repo="platform", tier="tier1", flag="contract"): Calibration(ratio=2.2, samples=6),
+        Kind(repo="app", tier="e2e-test"): Calibration(ratio=1.0, samples=2),
+        Kind(repo="platform", tier="unit-test", flag="contract"): Calibration(ratio=2.2, samples=6),
     }
 
     prompt = prompt_with(found)
@@ -297,7 +300,7 @@ def test_the_prompt_lists_each_kind_above_one_with_its_ratio_and_samples() -> No
     assert "2.2" in prompt and "contract" in prompt
     assert "raw" in prompt
     assert "multipl" in prompt
-    assert "tier2" not in prompt.split("raw", 1)[1].split("Changes ready", 1)[0]
+    assert "e2e-test" not in prompt.split("raw", 1)[1].split("Changes ready", 1)[0]
 
 
 def test_the_prompt_carries_no_ratios_when_none_is_above_one_or_calibration_is_off() -> None:
@@ -390,19 +393,21 @@ def test_a_unit_carrying_an_unflagged_group_first_takes_the_flag_of_its_flagged_
 def test_the_plan_check_uses_the_ratio_of_the_first_flagged_group_a_unit_carries() -> None:
     limits(max_unit_lines=750)
     groups = [
-        TaskGroup(number=1, repo="app", tier="tier1", title="A", line=3, task_count=2),
+        TaskGroup(number=1, repo="app", tier="unit-test", title="A", line=3, task_count=2),
         TaskGroup(
-            number=2, repo="app", tier="tier1", title="B", line=9, task_count=2, flag="contract"
+            number=2, repo="app", tier="unit-test", title="B", line=9, task_count=2, flag="contract"
         ),
         TaskGroup(
-            number=3, repo="app", tier="tier1", title="C", line=15, task_count=2, flag="narrow"
+            number=3, repo="app", tier="unit-test", title="C", line=15, task_count=2, flag="narrow"
         ),
     ]
     output = graph(
         {"id": "c/1", "groups": [1, 2], "estimated_lines": 400},
         {"id": "c/2", "groups": [3], "estimated_lines": 100, "depends_on": ["c/1"]},
     )
-    contract = {Kind(repo="app", tier="tier1", flag="contract"): Calibration(ratio=2.0, samples=9)}
+    contract = {
+        Kind(repo="app", tier="unit-test", flag="contract"): Calibration(ratio=2.0, samples=9)
+    }
     plain = {APP: Calibration(ratio=2.0, samples=9)}
 
     with pytest.raises(PlannerError, match="ceiling"):
@@ -563,7 +568,7 @@ def test_a_store_written_before_the_fields_existed_loads_without_them(tmp_path: 
 
     assert unit.flag == ""
     assert unit.calibrated_lines is None
-    assert kind_of(unit) == Kind(repo="app", tier="tier1", flag="")
+    assert kind_of(unit) == Kind(repo="app", tier="unit-test", flag="")
 
 
 @pytest.mark.parametrize("bad", [0, -5, 1.5, "903"])

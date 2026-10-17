@@ -13,7 +13,7 @@ from agent_build_kit.pipeline.unit_size import Kind, largest_raw, recent_example
 from agent_build_kit.pipeline.units import IN_REVIEW
 from tests.calibration_support import sample
 
-APP = Kind(repo="app", tier="tier1")
+APP = Kind(repo="app", tier="unit-test")
 
 
 @pytest.mark.parametrize(
@@ -66,7 +66,7 @@ def test_a_unit_with_nothing_to_compare_or_not_merged_is_not_an_example() -> Non
 
 def test_only_units_of_the_kind_are_examples() -> None:
     units = [
-        sample(1.5, at=5, uid="other-tier/1", tier="tier2"),
+        sample(1.5, at=5, uid="other-tier/1", tier="e2e-test"),
         sample(1.5, at=4, uid="other-repo/1", repo="platform"),
         sample(1.5, at=3, uid="flagged/1", flag="contract"),
         sample(1.5, at=1, uid="mine/1"),

@@ -42,7 +42,7 @@ def test_a_second_unit_is_parked_gated_on_the_open_fix_before_any_lock_or_test(
     assert fix in stored.note or OLD in stored.note, "a person sees what it waits on"
 
 
-def test_a_unit_that_has_not_reached_tier_2_has_no_line_until_it_arrives(tmp_path: Path) -> None:
+def test_a_unit_that_has_not_reached_e2e_has_no_line_until_it_arrives(tmp_path: Path) -> None:
     planning = Planning(tmp_path)
     tasks = planning.installation.changes_dir / "add-marker" / "tasks.md"
     before = (planning.store.get("add-marker/1"), tasks.read_text())
@@ -117,7 +117,7 @@ def test_the_unit_resumes_once_the_fix_is_in_review_and_is_not_parked_again(
     assert planning.gate.asked, "the gate was asked and let the unit through"
 
 
-def test_a_unit_of_the_fix_change_itself_runs_tier_2_with_no_new_line(tmp_path: Path) -> None:
+def test_a_unit_of_the_fix_change_itself_runs_e2e_with_no_new_line(tmp_path: Path) -> None:
     planning = Planning(tmp_path)
     fix = planning.open_fix()
     planning.store.upsert([stored_unit("add-marker/1", change=fix, groups=(1,))])
@@ -129,7 +129,7 @@ def test_a_unit_of_the_fix_change_itself_runs_tier_2_with_no_new_line(tmp_path: 
     assert planning.needs(fix) == {}
 
 
-def test_a_unit_with_a_line_on_the_fix_runs_tier_2_and_gains_no_second_one(
+def test_a_unit_with_a_line_on_the_fix_runs_e2e_and_gains_no_second_one(
     tmp_path: Path,
 ) -> None:
     planning = Planning(tmp_path)
@@ -146,7 +146,7 @@ def test_a_unit_with_a_line_on_the_fix_runs_tier_2_and_gains_no_second_one(
     assert planning.needs() == before == {1: [fix], 2: [fix]}
 
 
-def test_a_unit_of_another_repo_runs_tier_2_with_no_line(tmp_path: Path) -> None:
+def test_a_unit_of_another_repo_runs_e2e_with_no_line(tmp_path: Path) -> None:
     planning = Planning(tmp_path, repo="platform")
     planning.open_fix(repo="app")
 

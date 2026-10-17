@@ -1,6 +1,6 @@
-"""Where a unit's tier 2 cannot be narrowed safely, or `full` is asked for, the whole marker
+"""Where a unit's e2e-test cannot be narrowed safely, or `full` is asked for, the whole marker
 runs and the log says why; failing to narrow is never read as having no test of its own
-(spec: tier2-scope)."""
+(spec: e2e-scope)."""
 
 from __future__ import annotations
 
@@ -9,12 +9,12 @@ from typing import Any
 
 import pytest
 
-from agent_build_kit.config import Tier2UnitScope
+from agent_build_kit.config import E2eUnitScope
 from agent_build_kit.pipeline import wiring
 from agent_build_kit.profiles.python_uv import PROFILE
-from tests.tier2_scope_fakes import NEW, OLD, WHOLE, Ran, branch, session
+from tests.e2e_scope_fakes import NEW, OLD, WHOLE, Ran, branch, session
 
-SKIPPED = "tier 2 skipped"
+SKIPPED = "e2e-test skipped"
 
 
 class Unselecting:
@@ -109,7 +109,7 @@ def test_under_full_the_whole_marker_runs_for_a_unit_that_added_one_test(tmp_pat
 
     log: list[str] = []
 
-    session(tmp_path, ran, log=log, scope=Tier2UnitScope.FULL).run(cwd=repo, base=base)
+    session(tmp_path, ran, log=log, scope=E2eUnitScope.FULL).run(cwd=repo, base=base)
 
     assert ran.commands == [WHOLE]
     assert any("runs whole" in line and "full" in line for line in log)

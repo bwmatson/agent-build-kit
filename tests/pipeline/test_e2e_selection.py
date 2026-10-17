@@ -1,18 +1,18 @@
-"""The one builder of the tier 2 selection over a repo's declared splits (spec: tier2-splits)."""
+"""The one builder of the e2e-test selection over a repo's declared splits (spec: e2e-splits)."""
 
 from __future__ import annotations
 
 import pytest
 
-from agent_build_kit.config import Tier2Split
+from agent_build_kit.config import E2eSplit
 from agent_build_kit.pipeline.e2e import build_selection
 from agent_build_kit.profiles.python_uv import PROFILE
 
 MARKER = "local_stack"
 SPLITS = (
-    Tier2Split(name="acp", marker="runtime_acp"),
-    Tier2Split(name="claude_code", marker="runtime_claude_code"),
-    Tier2Split(name="rest"),
+    E2eSplit(name="acp", marker="runtime_acp"),
+    E2eSplit(name="claude_code", marker="runtime_claude_code"),
+    E2eSplit(name="rest"),
 )
 
 
@@ -75,7 +75,7 @@ def test_every_split_held_selects_nothing_and_says_so() -> None:
 
 
 def test_a_repo_with_no_declared_split_has_rest_alone() -> None:
-    selection = build_selection(MARKER, (Tier2Split(name="rest"),))
+    selection = build_selection(MARKER, (E2eSplit(name="rest"),))
 
     assert PROFILE.expression(MARKER, selection) == MARKER
 

@@ -1,5 +1,5 @@
 """A unit parked before splits existed reads as parked on its splits, and new writes use only the
-new names (spec: tier2-split-runs)."""
+new names (spec: e2e-split-runs)."""
 
 import json
 

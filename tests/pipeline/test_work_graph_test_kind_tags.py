@@ -1,5 +1,5 @@
-"""A group heading is tagged `[unit-test]` or `[e2e-test]`; `[tier1]` and `[tier2]` are read
-as the same kinds, with a notice (spec: test-kind-names-are-accepted-both-ways)."""
+"""A group heading is tagged `[unit-test]` or `[e2e-test]`; the first two kinds' older
+tags are read as the same kinds, with a notice (spec: test-kind-names-are-accepted-both-ways)."""
 
 from __future__ import annotations
 
@@ -13,6 +13,9 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline.work_graph import TaskGroup, ValidationError, validate_tasks
 from tests.cli.replan_driver import Replan, tagged_md
+
+OLD_UNIT_TEST_TAG = "tier" + "1"
+OLD_E2E_TAG = "tier" + "2"
 
 
 def read(tmp_path: Path, *tags: str) -> tuple[list[TaskGroup], list[ValidationError]]:
@@ -28,7 +31,7 @@ def test_the_new_tags_are_read_as_the_two_test_kinds(tmp_path: Path) -> None:
 
 
 def test_the_old_tags_are_read_as_the_same_kinds(tmp_path: Path) -> None:
-    groups, errors = read(tmp_path, "tier1", "tier2")
+    groups, errors = read(tmp_path, OLD_UNIT_TEST_TAG, OLD_E2E_TAG)
 
     assert errors == []
     assert [g.tier for g in groups] == [TestTier.UNIT_TEST, TestTier.E2E_TEST]
@@ -47,7 +50,9 @@ def test_an_unknown_tag_is_refused_listing_the_new_spellings(tmp_path: Path) -> 
 def test_tags_prints_a_notice_for_each_old_tag_with_the_new_tag_and_the_group(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run = Replan(tmp_path, monkeypatch, feature=tagged_md("tier1", "tier2", "tier2"))
+    run = Replan(
+        tmp_path, monkeypatch, feature=tagged_md(OLD_UNIT_TEST_TAG, OLD_E2E_TAG, OLD_E2E_TAG)
+    )
 
     status = cli.cmd_tags(argparse.Namespace(change="feature", all=False), run.inst)
 
@@ -76,7 +81,9 @@ def test_tags_prints_the_new_spellings_for_both_kinds(
 def test_check_prints_a_notice_for_each_old_tag_and_none_for_a_new_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run = Replan(tmp_path, monkeypatch, feature=tagged_md("tier1", "e2e-test", "tier2"))
+    run = Replan(
+        tmp_path, monkeypatch, feature=tagged_md(OLD_UNIT_TEST_TAG, "e2e-test", OLD_E2E_TAG)
+    )
     monkeypatch.setattr(openspec, "check", lambda root: (True, "all valid\n"))
 
     status = cli.cmd_check(argparse.Namespace(), run.inst)

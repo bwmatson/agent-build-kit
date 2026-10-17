@@ -125,7 +125,7 @@ def test_only_the_approved_commit_is_pushed(tmp_path: Path) -> None:
     assert recorder.store.get(unit().id).approved == recorder.head(tmp_path)
 
 
-def test_a_failing_tier_one_fails_the_unit_and_leaves_no_pull_request(tmp_path: Path) -> None:
+def test_a_failing_unit_test_fails_the_unit_and_leaves_no_pull_request(tmp_path: Path) -> None:
     recorder = fresh(tmp_path, unit_test_ok=False)
     recorder.unit_test_output = "E   ImportError: cannot import name 'geo' from 'src'"
 
@@ -566,7 +566,7 @@ def test_a_unit_with_nothing_anywhere_still_fails(tmp_path: Path) -> None:
     )
 
 
-def test_a_unit_retried_after_tier_one_takes_the_rework_path(tmp_path: Path) -> None:
+def test_a_unit_retried_after_unit_test_takes_the_rework_path(tmp_path: Path) -> None:
     """One scoped run against the recorded failure, not the tests-then-
     implementation pair against a branch that already has both."""
     recorder = fresh(tmp_path)

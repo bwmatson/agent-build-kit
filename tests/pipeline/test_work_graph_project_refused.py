@@ -18,7 +18,7 @@ def test_an_undeclared_project_is_refused_naming_the_group_project_repo_and_decl
 ) -> None:
     app_with_projects(tmp_path / "planning", "web", "services/api")
 
-    (message,) = messages_of(tmp_path, "[app/mobile] [tier1] Add the screen")
+    (message,) = messages_of(tmp_path, "[app/mobile] [unit-test] Add the screen")
 
     assert "group 1" in message
     assert "mobile" in message
@@ -30,7 +30,7 @@ def test_an_undeclared_project_is_refused_naming_the_group_project_repo_and_decl
 def test_a_repo_with_only_its_root_says_so_and_how_the_root_is_tagged(tmp_path: Path) -> None:
     app_with_projects(tmp_path / "planning")
 
-    (message,) = messages_of(tmp_path, "[app/web] [tier1] Add the filter")
+    (message,) = messages_of(tmp_path, "[app/web] [unit-test] Add the filter")
 
     assert "only its root project" in message
     assert "[app]" in message
@@ -39,7 +39,7 @@ def test_a_repo_with_only_its_root_says_so_and_how_the_root_is_tagged(tmp_path: 
 def test_the_root_project_is_never_written_in_a_tag(tmp_path: Path) -> None:
     app_with_projects(tmp_path / "planning", "web")
 
-    (message,) = messages_of(tmp_path, "[app/.] [tier1] Add the marker")
+    (message,) = messages_of(tmp_path, "[app/.] [unit-test] Add the marker")
 
     assert "root project is the untagged one" in message
 
@@ -49,7 +49,7 @@ def test_an_unknown_repo_gets_the_unknown_repo_message_and_not_a_project_one(
 ) -> None:
     app_with_projects(tmp_path / "planning", "web")
 
-    (message,) = messages_of(tmp_path, "[nothing/web] [tier1] Add the filter")
+    (message,) = messages_of(tmp_path, "[nothing/web] [unit-test] Add the filter")
 
     assert 'unknown repo "nothing"' in message
     assert "platform" in message
@@ -61,10 +61,10 @@ def test_every_problem_is_collected_not_the_first(tmp_path: Path) -> None:
 
     messages = messages_of(
         tmp_path,
-        "[app/mobile] [tier1] One",
-        "[app/web] [tier1] Fine",
-        "[app/.] [tier1] Two",
-        "[nothing] [tier1] Three",
+        "[app/mobile] [unit-test] One",
+        "[app/web] [unit-test] Fine",
+        "[app/.] [unit-test] Two",
+        "[nothing] [unit-test] Three",
     )
 
     # A refused group is not parsed, so the numbering check adds its own message.

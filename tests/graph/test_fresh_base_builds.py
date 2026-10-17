@@ -157,7 +157,7 @@ def test_a_move_with_resolution_is_checked_and_reviewed_again_before_anything_is
     assert recorder.store.get("add-marker/1").approved == MOVED
 
 
-def test_tier_one_failing_after_a_clean_move_waits_for_the_usage_window_before_its_rework(
+def test_unit_test_failing_after_a_clean_move_waits_for_the_usage_window_before_its_rework(
     tmp_path: Path,
 ) -> None:
     recorder = fresh(tmp_path)
@@ -178,7 +178,7 @@ def test_tier_one_failing_after_a_clean_move_waits_for_the_usage_window_before_i
     assert "trunk renamed the helper" in recorder.store.get("add-marker/1").feedback
 
 
-def test_tier_two_failing_after_a_clean_move_waits_with_its_output(tmp_path: Path) -> None:
+def test_e2e_failing_after_a_clean_move_waits_with_its_output(tmp_path: Path) -> None:
     recorder = fresh(tmp_path, tier="e2e-test")
     moving = Moving(recorder, CLEAN)
     answers = iter([(True, "## before"), (False, "FAILED live_test - trunk renamed the route")])
@@ -201,7 +201,7 @@ def test_tier_two_failing_after_a_clean_move_waits_with_its_output(tmp_path: Pat
     assert "trunk renamed the route" in recorder.store.get("add-marker/1").feedback
 
 
-def test_a_tier_two_unit_moved_cleanly_posts_its_status_for_the_moved_commit(
+def test_an_e2e_unit_moved_cleanly_posts_its_status_for_the_moved_commit(
     tmp_path: Path,
 ) -> None:
     recorder = fresh(tmp_path, tier="e2e-test")

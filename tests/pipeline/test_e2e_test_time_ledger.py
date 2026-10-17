@@ -1,5 +1,5 @@
-"""A tier 2 run writes one `test_time` row of the usage ledger for each entry it timed,
-which the ledger's reader skips (spec: tier2-time-is-recorded-per-test).
+"""An e2e-test run writes one `test_time` row of the usage ledger for each entry it timed,
+which the ledger's reader skips (spec: e2e-time-is-recorded-per-test).
 
 The gate runs over a fake runner that answers with what pytest prints; the ledger is the
 active installation's own.
@@ -11,7 +11,7 @@ import pytest
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, read_ledger
-from tests.tier2_duration_fakes import (
+from tests.e2e_duration_fakes import (
     E2E,
     durations_output,
     recorded_times,

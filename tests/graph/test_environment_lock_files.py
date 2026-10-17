@@ -4,7 +4,7 @@
 A unit is built in a real git worktree with the real commit step, in a repository whose
 `sync` is a real child process that writes the lock file named in its lock inputs, a
 different one each time (`tests/environment_fakes.py`). Only the agent, the review and
-tier 1 are stand-ins. The unit is built in one tick and asked for a rework in the next, as
+unit-test are stand-ins. The unit is built in one tick and asked for a rework in the next, as
 a person's comment does, so that the worktree check runs over what the first tick left.
 """
 

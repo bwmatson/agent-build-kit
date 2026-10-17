@@ -139,7 +139,7 @@ def test_a_commit_message_says_which_unit_it_belongs_to(tmp_path: Path) -> None:
     assert "add-marker/1" in body
 
 
-def test_tier_one_runs_lint_types_and_tests(tmp_path: Path) -> None:
+def test_unit_test_runs_lint_types_and_tests(tmp_path: Path) -> None:
     """All three, because the branch tip has to be green on all three before a
     reviewer is asked to look."""
     recorder = Recorder()
@@ -154,7 +154,7 @@ def test_tier_one_runs_lint_types_and_tests(tmp_path: Path) -> None:
     assert "pytest" in commands
 
 
-def test_tier_one_fails_if_any_step_fails(tmp_path: Path) -> None:
+def test_unit_test_fails_if_any_step_fails(tmp_path: Path) -> None:
     recorder = Recorder(returncode=1)
 
     passed, _ = build_unit_test(run=recorder, changed=lambda *a: [])(cwd=tmp_path, base="main")
@@ -621,7 +621,7 @@ def test_a_root_documentation_change_does_not_fan_out(tmp_path: Path) -> None:
     assert tested == ["svc-a"], "only the member the unit actually touched"
 
 
-def test_tier_one_reports_what_failed_not_just_that_it_did(tmp_path: Path) -> None:
+def test_unit_test_reports_what_failed_not_just_that_it_did(tmp_path: Path) -> None:
     """The output is what a retry needs; without it the unit is rebuilt blind."""
     repo = workspace(tmp_path, ["shared"], with_tests=["shared"])
     failing = Recorder(returncode=1, stdout="E   ImportError: cannot import name 'geo'")
@@ -1070,7 +1070,7 @@ def _workspace(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def test_tier_two_runs_each_member_on_its_own_as_tier_one_does(tmp_path: Path) -> None:
+def test_e2e_runs_each_member_on_its_own_as_unit_test_does(tmp_path: Path) -> None:
     """A rooted run puts every member's `src` in one environment, so
     collection fails before a test runs. Each runs from its own directory with
     no path, so the member's own pytest configuration decides what is collected."""
@@ -1090,7 +1090,7 @@ def test_tier_two_runs_each_member_on_its_own_as_tier_one_does(tmp_path: Path) -
         assert after_pytest[:3] == ["-m", "local_stack", "-vv"]
 
 
-def test_tier_two_runs_only_the_members_that_have_tests(tmp_path: Path) -> None:
+def test_e2e_runs_only_the_members_that_have_tests(tmp_path: Path) -> None:
     from agent_build_kit.profiles.python_uv import PROFILE
 
     repo = _workspace(tmp_path)
@@ -1102,14 +1102,14 @@ def test_tier_two_runs_only_the_members_that_have_tests(tmp_path: Path) -> None:
     assert commands[0][commands[0].index("--directory") + 1] == "svc-a"
 
 
-def test_tier_two_without_members_runs_once_from_the_root(tmp_path: Path) -> None:
+def test_e2e_without_members_runs_once_from_the_root(tmp_path: Path) -> None:
     from agent_build_kit.profiles.python_uv import PROFILE
 
     (command,) = PROFILE.e2e_commands(tmp_path, marker="local_stack")
     assert command[:6] == ["uv", "run", "pytest", "-m", "local_stack", "-vv"]
 
 
-def _tier_two_with_stack_versions(
+def _e2e_with_stack_versions(
     tmp_path: Path, error: Exception | None, *, stdout: str = "", returncode: int = 0
 ) -> tuple[E2eSession, list[str]]:
     """A session whose stack-versions command is run by a runner at the process
@@ -1145,7 +1145,7 @@ def _tier_two_with_stack_versions(
 def test_a_stack_versions_command_that_cannot_start_records_nothing(
     tmp_path: Path, error: Exception, caplog: pytest.LogCaptureFixture
 ) -> None:
-    session, ran = _tier_two_with_stack_versions(tmp_path, error)
+    session, ran = _e2e_with_stack_versions(tmp_path, error)
 
     ok, _ = session.run(cwd=_workspace(tmp_path))
 
@@ -1160,7 +1160,7 @@ def test_a_stack_versions_command_that_cannot_start_records_nothing(
 def test_a_stack_versions_command_that_fails_with_no_output_is_unchanged(
     tmp_path: Path,
 ) -> None:
-    session, _ = _tier_two_with_stack_versions(tmp_path, None, returncode=1)
+    session, _ = _e2e_with_stack_versions(tmp_path, None, returncode=1)
 
     ok, _ = session.run(cwd=_workspace(tmp_path))
 
@@ -1169,7 +1169,7 @@ def test_a_stack_versions_command_that_fails_with_no_output_is_unchanged(
     assert session.result.stack_versions == {}
 
 
-def test_a_member_with_no_live_stack_tests_does_not_fail_tier_two(tmp_path: Path) -> None:
+def test_a_member_with_no_live_stack_tests_does_not_fail_e2e(tmp_path: Path) -> None:
     """pytest exits 5 when every test is deselected — most members, for
     `-m local_stack`. That is nothing to run, not a failure."""
     outcomes = iter(
@@ -1192,7 +1192,7 @@ def test_a_member_with_no_live_stack_tests_does_not_fail_tier_two(tmp_path: Path
     assert "3 passed" in snapshot
 
 
-def test_a_failing_member_fails_tier_two_and_says_why(tmp_path: Path) -> None:
+def test_a_failing_member_fails_e2e_and_says_why(tmp_path: Path) -> None:
     outcomes = iter(
         [
             subprocess.CompletedProcess([], 1, "", "ERROR collecting tests: ImportError"),
@@ -1213,7 +1213,7 @@ def test_a_failing_member_fails_tier_two_and_says_why(tmp_path: Path) -> None:
     assert "ImportError" in snapshot
 
 
-def test_tier_one_runs_the_repo_root_tests_ci_runs(tmp_path: Path) -> None:
+def test_unit_test_runs_the_repo_root_tests_ci_runs(tmp_path: Path) -> None:
     """A root tests/ belongs to no member, so unit-test would skip it and CI
     would be the first to fail."""
     from agent_build_kit.profiles.python_uv import PROFILE
@@ -1238,7 +1238,7 @@ def test_tier_one_runs_the_repo_root_tests_ci_runs(tmp_path: Path) -> None:
     ] in commands
 
 
-def test_tier_two_deploys_the_branch_onto_the_dev_stack_when_the_repo_has_one(
+def test_e2e_deploys_the_branch_onto_the_dev_stack_when_the_repo_has_one(
     tmp_path: Path,
 ) -> None:
     """The live stack runs main: a unit's deployment-config tests could only
@@ -1353,7 +1353,7 @@ def test_when_the_stack_underneath_fails_to_come_up_nothing_is_built_on_it(
     assert "event bus unhealthy" in snapshot
 
 
-def test_an_app_unit_s_tier_two_runs_on_platform_s_dev_stack(tmp_path: Path) -> None:
+def test_an_app_unit_s_e2e_runs_on_platform_s_dev_stack(tmp_path: Path) -> None:
     from agent_build_kit.pipeline.wiring import dev_stack_underneath
 
     inst = make_installation(
@@ -1720,7 +1720,7 @@ def test_a_failing_project_stops_the_unit(tmp_path: Path) -> None:
     assert "a real failure" in output
 
 
-def test_tier_two_runs_the_live_stack_tests_with_the_verify_env(tmp_path: Path) -> None:
+def test_e2e_runs_the_live_stack_tests_with_the_verify_env(tmp_path: Path) -> None:
     """The live-stack tests need what `verify.env` provides in a unit's e2e-test
     as much as after its merge; without it an acceptance test failed at setup
     however the unit was built."""
@@ -1746,7 +1746,7 @@ def test_tier_two_runs_the_live_stack_tests_with_the_verify_env(tmp_path: Path) 
     assert all("PATH" in env for env in seen)
 
 
-def test_tier_one_logs_each_command_it_ran_and_how_it_ended(tmp_path: Path) -> None:
+def test_unit_test_logs_each_command_it_ran_and_how_it_ended(tmp_path: Path) -> None:
     """A unit-test that passed on a branch CI then failed can only be explained
     from what it ran: which commands, where, with what result."""
     seen: list[str] = []
@@ -1762,7 +1762,7 @@ def test_tier_one_logs_each_command_it_ran_and_how_it_ended(tmp_path: Path) -> N
     assert any("pytest" in line and "passed" in line for line in seen)
 
 
-def test_tier_one_logs_the_command_that_failed_and_stops_there(tmp_path: Path) -> None:
+def test_unit_test_logs_the_command_that_failed_and_stops_there(tmp_path: Path) -> None:
     seen: list[str] = []
 
     build_unit_test(run=Recorder(returncode=2), changed=lambda *a: [], log=seen.append)(
