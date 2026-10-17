@@ -34,12 +34,12 @@ class Scene:
     """`add-marker/2` was built on `add-marker/1`, which merged; its branch is checked out in
     the repository, still on the old trunk, and its head is approved."""
 
-    def __init__(self, graph: Setup, tmp_path: Path) -> None:
+    def __init__(self, graph: Setup, tmp_path: Path, **unit_fields: Any) -> None:
         self.graph = graph
         self.calls: list[bool] = []
         self.lane: Lane | None = None
         graph.tick()
-        graph.store.upsert([stored_unit(OTHER, depends_on=(UNIT,))])
+        graph.store.upsert([stored_unit(OTHER, depends_on=(UNIT,), **unit_fields)])
         graph.tick()
         self.repo = init_repo(graph.inst.checkouts["app"])
         commit_file(self.repo, "a.txt", "a\n")
