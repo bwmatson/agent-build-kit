@@ -7,7 +7,6 @@ through the same process boundary a configured gate does."""
 from __future__ import annotations
 
 import argparse
-import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -22,39 +21,15 @@ from agent_build_kit.pipeline.pause import is_paused
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import RUNNING
 from tests.factories import stored_unit
+from tests.gate_hold_support import Probe
 from tests.parked_split_support import installation, stub_round
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
-
-SCRIPT = """\
-import sys
-from pathlib import Path
-
-with Path(sys.argv[1]).open("a") as runs:
-    runs.write("run\\n")
-print("quota spent")
-sys.exit(int(sys.argv[2]))
-"""
 
 TASKS = (
     "# Tasks\n\n## 1. [app] [unit-test] Register the marker\n\n"
     "- [ ] 1.1 Test: it\n- [ ] 1.2 Make it\n"
 )
-
-
-class Probe:
-    """A gate command that exits `code` printing `quota spent`, and counts how often it ran."""
-
-    def __init__(self, directory: Path, name: str, code: int) -> None:
-        directory.mkdir(parents=True, exist_ok=True)
-        script = directory / f"{name}.py"
-        script.write_text(SCRIPT)
-        self.counter = directory / f"{name}.runs"
-        self.argv = [sys.executable, str(script), str(self.counter), str(code)]
-
-    @property
-    def runs(self) -> int:
-        return len(self.counter.read_text().splitlines()) if self.counter.exists() else 0
 
 
 def installed(tmp_path: Path, gates: dict[str, Probe], **overrides: Any) -> Installation:

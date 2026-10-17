@@ -4,6 +4,7 @@ a gate, readings built to order, and the held set as the e2e-test selection read
 from __future__ import annotations
 
 import subprocess
+import sys
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -65,3 +66,29 @@ def holds(inst: Installation, *, now: datetime = NOW) -> Holds:
 
 def held(inst: Installation, split: str = "acp", *, now: datetime = NOW) -> Hold | None:
     return holds(inst, now=now).held.get(split)
+
+
+SCRIPT = """\
+import sys
+from pathlib import Path
+
+with Path(sys.argv[1]).open("a") as runs:
+    runs.write("run\\n")
+print("quota spent")
+sys.exit(int(sys.argv[2]))
+"""
+
+
+class Probe:
+    """A gate command that exits `code` printing `quota spent`, and counts how often it ran."""
+
+    def __init__(self, directory: Path, name: str, code: int) -> None:
+        directory.mkdir(parents=True, exist_ok=True)
+        script = directory / f"{name}.py"
+        script.write_text(SCRIPT)
+        self.counter = directory / f"{name}.runs"
+        self.argv = [sys.executable, str(script), str(self.counter), str(code)]
+
+    @property
+    def runs(self) -> int:
+        return len(self.counter.read_text().splitlines()) if self.counter.exists() else 0
