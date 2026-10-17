@@ -362,7 +362,7 @@ def test_the_base_rerun_of_a_failed_test_keeps_the_expression_of_the_run(
 # --- a repo that cannot leave a runtime out, and a run of one group ----------------------
 
 
-def test_a_repo_running_tier_2_through_its_dev_stack_script_runs_whole_and_says_so(
+def test_a_repo_running_e2e_through_its_dev_stack_script_runs_whole_and_says_so(
     tmp_path: Path,
 ) -> None:
     script = "scripts/dev-stack.sh"

@@ -58,6 +58,11 @@ OLD_HELPER_FAKES = (
     "tier2_scope_fakes",
     "tier2_wait_fakes",
 )
+PIPELINE_TESTS = TESTS / "pipeline"
+PIPELINE_TEST_RANGES = (
+    ("test_call_record", "test_planner_cycle_rule"),
+    ("test_planner_project_check", "test_task_progress"),
+)
 
 
 def text_files(folder: Path) -> list[Path]:
@@ -80,6 +85,15 @@ def helper_files() -> list[Path]:
     return [p for p in helpers if FIRST_HELPER <= p.stem <= LAST_HELPER]
 
 
+def pipeline_test_files() -> list[Path]:
+    """The tests under `tests/pipeline` in the converted name ranges, by current file name."""
+    return sorted(
+        p
+        for p in PIPELINE_TESTS.glob("test_*.py")
+        if any(first <= p.stem <= last for first, last in PIPELINE_TEST_RANGES)
+    )
+
+
 def converted_files() -> list[Path]:
     """The pipeline package, the converted source directories, `web/src` and the test helpers."""
     return [
@@ -89,6 +103,7 @@ def converted_files() -> list[Path]:
         *(p for name in SOURCE_DIRECTORIES for p in text_files(SOURCE / name)),
         *text_files(WEB_SOURCE),
         *helper_files(),
+        *pipeline_test_files(),
     ]
 
 
@@ -143,3 +158,9 @@ def test_each_old_fake_module_name_gives_the_objects_of_the_renamed_one(old: str
     shimmed = importlib.import_module(f"tests.{old}")
 
     assert shimmed is renamed
+
+
+def test_no_converted_pipeline_test_file_is_named_for_an_old_spelling() -> None:
+    offenders = [p.name for p in pipeline_test_files() if OLD_SPELLING.search(p.name)]
+
+    assert offenders == []

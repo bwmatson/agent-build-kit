@@ -161,7 +161,7 @@ def test_being_refused_pauses_the_tick_rather_than_failing_the_unit(
 
     inst = make_installation(tmp_path, planning={"state_dir": "."})
     store = UnitStore(tmp_path / "units.json")
-    store.upsert([Unit(id="c/1", change="c", title="A", repo="app", tier="tier1", groups=(1,))])
+    store.upsert([Unit(id="c/1", change="c", title="A", repo="app", tier="unit-test", groups=(1,))])
 
     when = datetime.now(UTC) + timedelta(hours=2)
 

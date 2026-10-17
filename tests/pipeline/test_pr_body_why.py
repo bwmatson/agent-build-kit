@@ -23,7 +23,7 @@ def write_change(
     changes: Path, change: str = "add-marker", *, why: str | None, goals: tuple[str, ...] = (GOAL,)
 ) -> None:
     """A change on disk: a proposal (with a Why section when `why` is given) and
-    a tasks.md with one tier 1 group for each goal."""
+    a tasks.md with one unit-test group for each goal."""
     root = changes / change
     root.mkdir(parents=True, exist_ok=True)
     if why is not None:
@@ -31,7 +31,7 @@ def write_change(
             f"# Proposal\n\n## Why\n\n{why}\n\n## What Changes\n\n- Something else entirely.\n"
         )
     groups = "".join(
-        f"## {number}. [app] [tier1] Group {number}\n\n{goal}\n\n"
+        f"## {number}. [app] [unit-test] Group {number}\n\n{goal}\n\n"
         f"- [ ] {number}.1 Test: it.\n- [ ] {number}.2 Do it.\n\n"
         for number, goal in enumerate(goals, start=1)
     )
@@ -173,18 +173,18 @@ def test_how_this_was_built_is_one_line(tmp_path: Path) -> None:
 BARE_DOCS = (
     "docs/architecture.md: mention that a merge-time restack meeting a flake records it and "
     "parks the child gated, not pushed, and that the fix change's own unit treats the flake "
-    "as a tier 1 failure."
+    "as a unit-test failure."
 )
 LOCATED_DOCS = (
     "docs/architecture.md:815 — The flake paragraph describes only the unit's node calling "
     "`on_flake`. It does not mention the merge-time restack path."
 )
 BARE_UNRELATED = (
-    "Skip the flake rerun when the tier 1 command hit the group-1 time limit (TIMED_OUT_EXIT), "
+    "Skip the flake rerun when the unit-test command hit the group-1 time limit (TIMED_OUT_EXIT), "
     "with a test, so a timeout can never be reported as a flake."
 )
 LOCATED_OTHER = (
-    "src/agent_build_kit/pipeline/wiring.py:737 — `isolate` also runs on a tier 1 command "
+    "src/agent_build_kit/pipeline/wiring.py:737 — `isolate` also runs on a unit-test command "
     "that hit the command time limit."
 )
 
@@ -227,9 +227,9 @@ def test_a_joined_why_that_is_short_leaves_its_room_to_the_longer_one(tmp_path: 
     assert len(longer) > 0.75 * len(shown), "the short Why holds no room it does not need"
 
 
-def tier2_body(tmp_path: Path, *, why: str, limit: int, items: int = 40, **kw) -> str:
+def e2e_body(tmp_path: Path, *, why: str, limit: int, items: int = 40, **kw) -> str:
     write_change(tmp_path, why=why)
-    u = unit(tier="tier2", depends_on=())
+    u = unit(tier="e2e-test", depends_on=())
     return build_pr_body(
         u,
         graph=[u],
@@ -247,7 +247,7 @@ def test_over_the_limit_the_output_and_follow_ups_give_way_before_the_goal_and_w
 ) -> None:
     why = paragraphs(2, 150)
 
-    body = tier2_body(tmp_path, why=why, limit=3_000)
+    body = e2e_body(tmp_path, why=why, limit=3_000)
 
     assert len(body) <= 3_000
     assert why in body
@@ -271,7 +271,7 @@ def test_below_the_smallest_forms_the_goal_is_kept_and_the_why_is_cut_smallest(
     why = paragraphs(3, 300)
     limit = len(body_of(None)) + len(GOAL) + 200
 
-    body = tier2_body(tmp_path, why=why, limit=limit)
+    body = e2e_body(tmp_path, why=why, limit=limit)
 
     assert len(body) <= limit
     assert GOAL in body
@@ -283,7 +283,7 @@ def test_a_short_why_passes_the_room_it_does_not_use_on(tmp_path: Path) -> None:
     items = follow_ups(60)
 
     def shown(name: str, why: str) -> int:
-        body = tier2_body(tmp_path / name, why=why, limit=3_000, items=60)
+        body = e2e_body(tmp_path / name, why=why, limit=3_000, items=60)
         assert len(body) <= 3_000
         return sum(f"- {item}" in body for item in items)
 
@@ -291,3 +291,6 @@ def test_a_short_why_passes_the_room_it_does_not_use_on(tmp_path: Path) -> None:
     long = shown("long", paragraphs(6, 300))
 
     assert short > long, "what the short Why leaves unused goes to the others"
+
+
+tier2_body = e2e_body  # abk-shim

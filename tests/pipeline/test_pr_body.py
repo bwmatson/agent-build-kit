@@ -56,9 +56,9 @@ def test_a_stacked_unit_warns_against_merging_first() -> None:
     assert "merge" in line.lower()
 
 
-def test_the_tier_two_snapshot_is_included_when_there_is_one() -> None:
+def test_the_e2e_snapshot_is_included_when_there_is_one() -> None:
     body = build_pr_body(
-        unit(tier="tier2"),
+        unit(tier="e2e-test"),
         graph=[unit()],
         base="main",
         e2e_snapshot="## e2e-test results\nall good",
@@ -67,9 +67,9 @@ def test_the_tier_two_snapshot_is_included_when_there_is_one() -> None:
     assert "## e2e-test results" in body
 
 
-def test_a_tier_one_unit_says_ci_covers_it() -> None:
-    """Silence about tier 2 would read as "not run" rather than "not needed"."""
-    body = build_pr_body(unit(tier="tier1"), graph=[unit()], base="main")
+def test_a_unit_test_unit_says_ci_covers_it() -> None:
+    """Silence about e2e-test would read as "not run" rather than "not needed"."""
+    body = build_pr_body(unit(tier="unit-test"), graph=[unit()], base="main")
 
     assert "unit-test" in body.lower()
     assert "Actions" in body

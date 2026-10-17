@@ -18,7 +18,7 @@ def tagged(number: int, project: str = ".") -> TaskGroup:
         number=number,
         repo="app",
         project=project,
-        tier="tier1",
+        tier="unit-test",
         title=f"Group {number}",
         line=3 * number,
         task_count=2,
@@ -26,7 +26,14 @@ def tagged(number: int, project: str = ".") -> TaskGroup:
 
 
 def reply(**unit: object) -> str:
-    body = {"id": "c/1", "change": "c", "title": "A unit", "repo": "app", "tier": "tier1", **unit}
+    body = {
+        "id": "c/1",
+        "change": "c",
+        "title": "A unit",
+        "repo": "app",
+        "tier": "unit-test",
+        **unit,
+    }
     return json.dumps({"units": [body]})
 
 
@@ -58,9 +65,9 @@ def test_a_unit_without_a_project_takes_the_project_of_its_groups() -> None:
     output = json.dumps(
         {
             "units": [
-                {"id": "c/1", "change": "c", "title": "Root", "repo": "app", "tier": "tier1"}
+                {"id": "c/1", "change": "c", "title": "Root", "repo": "app", "tier": "unit-test"}
                 | {"groups": [1]},
-                {"id": "c/2", "change": "c", "title": "Web", "repo": "app", "tier": "tier1"}
+                {"id": "c/2", "change": "c", "title": "Web", "repo": "app", "tier": "unit-test"}
                 | {"groups": [2, 3], "depends_on": ["c/1"]},
             ]
         }
@@ -76,4 +83,4 @@ def test_the_calibration_kind_of_a_unit_is_unchanged_by_its_project() -> None:
     (unit,) = parse_plan(reply(groups=[1], project="web"), groups=groups).units
 
     assert unit.project == "web"
-    assert plan_kind(unit, groups) == Kind(repo="app", tier="tier1")
+    assert plan_kind(unit, groups) == Kind(repo="app", tier="unit-test")

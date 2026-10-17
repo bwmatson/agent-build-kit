@@ -5,11 +5,11 @@ from pathlib import Path
 from agent_build_kit.pipeline.task_progress import mark_groups
 
 TASKS = """\
-## 1. [platform] [tier1] First
+## 1. [platform] [unit-test] First
 - [x] 1.1 Test: one
 - [ ] 1.2 Do one
 
-## 2. [platform] [tier1] Second
+## 2. [platform] [unit-test] Second
 - [ ] 2.1 Test: two, which mentions 1.2 in passing
 - [ ] 2.10 Do two
 - [ ] 12.1 Not group 1 or 2

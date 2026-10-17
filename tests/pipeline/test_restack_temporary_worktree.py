@@ -158,14 +158,14 @@ def test_the_checks_of_a_branch_with_no_worktree_run_on_a_checkout_at_the_moved_
     seen: list[tuple[Path, str]] = []
     pushed: list[str] = []
 
-    def tier1(**kwargs: Any):
+    def unit_test(**kwargs: Any):
         def run(*, cwd: Path, base: str, moved_from: str | None = None) -> tuple[bool, str]:
             seen.append((cwd, sh(cwd, "rev-parse", "HEAD")))
             return True, ""
 
         return run
 
-    monkeypatch.setattr(cli, "build_unit_test", tier1)
+    monkeypatch.setattr(cli, "build_unit_test", unit_test)
     monkeypatch.setattr(
         cli,
         "push_with_lease",

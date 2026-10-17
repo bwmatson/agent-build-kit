@@ -1,5 +1,5 @@
 """A due repo gets one scheduled change per declared split and `rest`; the due check and the open
-check are per repo and split, read from the change names alone (spec: tier2-split-runs)."""
+check are per repo and split, read from the change names alone (spec: e2e-split-runs)."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from agent_build_kit.pipeline.e2e_schedule import (
     write_due,
 )
 from agent_build_kit.pipeline.work_graph import validate_tasks
-from tests.tier2_schedule_fakes import (
+from tests.e2e_schedule_fakes import (
     TODAY,
     ago,
     archived,
@@ -28,7 +28,7 @@ from tests.tier2_schedule_fakes import (
 )
 
 BOTH = {
-    "tier2_splits": {
+    "e2e_splits": {
         "acp": {"marker": "runtime_acp"},
         "claude_code": {"marker": "runtime_claude_code"},
     }
@@ -87,7 +87,7 @@ def test_a_repos_own_splits_are_used_instead_of_the_top_level_map(tmp_path: Path
     inst = planning(
         tmp_path,
         {"app": None, "platform": None},
-        tests={"tier2_splits": {"acp": {"marker": "runtime_acp"}}},
+        tests={"e2e_splits": {"acp": {"marker": "runtime_acp"}}},
         repo_splits={"app": {"claude_code": {"marker": "runtime_claude_code"}}, "platform": {}},
     )
     store = store_of(inst, "app", "platform")
@@ -143,18 +143,18 @@ def test_a_name_with_no_suffix_or_ending_base_reads_as_rest(tmp_path: Path) -> N
 
 def test_the_date_and_split_are_read_from_the_name_of_exactly_that_repo_and_split() -> None:
     cases = [
-        ("scheduled-tier2-app-2026-03-10", "app", (TODAY, "rest")),
-        ("scheduled-tier2-app-2026-03-10-base", "app", (TODAY, "rest")),
-        ("scheduled-tier2-app-2026-03-10-rest", "app", (TODAY, "rest")),
-        ("scheduled-tier2-app-2026-03-10-acp", "app", (TODAY, "acp")),
-        ("scheduled-tier2-app-2026-03-10-claude_code", "app", (TODAY, "claude_code")),
-        ("scheduled-tier2-app-web-2026-03-10-acp", "app-web", (TODAY, "acp")),
-        ("scheduled-tier2-app-web-2026-03-10", "app-web", (TODAY, "rest")),
-        ("scheduled-tier2-app-web-2026-03-10-acp", "app", None),
-        ("scheduled-tier2-app-2026-03-10-acp", "app-web", None),
-        ("scheduled-tier2-app-2026-03-10-acp_two", "app", None),
-        ("scheduled-tier2-app-2026-03-10-other", "app", None),
-        ("scheduled-tier2-app-2026-13-40-acp", "app", None),
+        ("scheduled-e2e-app-2026-03-10", "app", (TODAY, "rest")),
+        ("scheduled-e2e-app-2026-03-10-base", "app", (TODAY, "rest")),
+        ("scheduled-e2e-app-2026-03-10-rest", "app", (TODAY, "rest")),
+        ("scheduled-e2e-app-2026-03-10-acp", "app", (TODAY, "acp")),
+        ("scheduled-e2e-app-2026-03-10-claude_code", "app", (TODAY, "claude_code")),
+        ("scheduled-e2e-app-web-2026-03-10-acp", "app-web", (TODAY, "acp")),
+        ("scheduled-e2e-app-web-2026-03-10", "app-web", (TODAY, "rest")),
+        ("scheduled-e2e-app-web-2026-03-10-acp", "app", None),
+        ("scheduled-e2e-app-2026-03-10-acp", "app-web", None),
+        ("scheduled-e2e-app-2026-03-10-acp_two", "app", None),
+        ("scheduled-e2e-app-2026-03-10-other", "app", None),
+        ("scheduled-e2e-app-2026-13-40-acp", "app", None),
         ("fix-failing-app-2026-03-10-acp", "app", None),
     ]
 
@@ -166,7 +166,7 @@ def test_a_split_whose_name_begins_another_is_not_confused(tmp_path: Path) -> No
     inst = planning(
         tmp_path,
         tests={
-            "tier2_splits": {
+            "e2e_splits": {
                 "acp": {"marker": "runtime_acp"},
                 "acp_two": {"marker": "runtime_acp_two"},
             }
@@ -187,7 +187,7 @@ def test_a_repo_whose_name_begins_another_does_not_share_its_splits(tmp_path: Pa
     inst = planning(
         tmp_path,
         {"app": None, "app-web": None},
-        tests={"tier2_splits": {"acp": {"marker": "runtime_acp"}}},
+        tests={"e2e_splits": {"acp": {"marker": "runtime_acp"}}},
     )
     store = store_of(inst, "app", "app-web")
     archived(inst, "app-web", ago(1), "rest")
@@ -296,8 +296,8 @@ def test_each_change_names_its_split_and_has_one_group_at_priority_3(tmp_path: P
 def test_a_held_splits_change_is_written_like_the_others_and_stays_open(
     tmp_path: Path,
 ) -> None:
-    held = {**BOTH["tier2_splits"], "acp": {"marker": "runtime_acp", "hold": True}}
-    inst = planning(tmp_path, tests={"tier2_splits": held})
+    held = {**BOTH["e2e_splits"], "acp": {"marker": "runtime_acp", "hold": True}}
+    inst = planning(tmp_path, tests={"e2e_splits": held})
     store = store_of(inst, "app")
 
     first, _ = round_of(inst, store)

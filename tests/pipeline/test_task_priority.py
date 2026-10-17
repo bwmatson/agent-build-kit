@@ -91,7 +91,9 @@ def test_a_second_default_above_the_first_group_is_reported(tmp_path: Path) -> N
 
 def test_a_line_in_a_group_the_reader_cannot_parse_is_reported(tmp_path: Path) -> None:
     """Under a heading that did not parse there is no group to attach it to."""
-    text = tasks_md("2") + "## 2. [no-such-repo] [tier1] Group 2\n\nPriority: 1\n\n- [ ] 2.1 x\n"
+    text = (
+        tasks_md("2") + "## 2. [no-such-repo] [unit-test] Group 2\n\nPriority: 1\n\n- [ ] 2.1 x\n"
+    )
     line = text.splitlines().index("Priority: 1") + 1
 
     _, errors = read(text, tmp_path)

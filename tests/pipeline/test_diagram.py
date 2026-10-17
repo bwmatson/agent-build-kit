@@ -28,7 +28,7 @@ def test_units_are_grouped_by_repo() -> None:
 
 
 def test_a_node_says_what_the_unit_is() -> None:
-    diagram = render_mermaid([unit("add-marker/1", title="Register the marker", tier="tier2")])
+    diagram = render_mermaid([unit("add-marker/1", title="Register the marker", tier="e2e-test")])
 
     assert "add-marker/1" in diagram
     assert "Register the marker" in diagram
@@ -247,7 +247,7 @@ def test_an_independent_unit_is_drawn_with_no_edge_from_its_predecessor() -> Non
             dict(
                 number=n,
                 repo=repo,
-                tier="tier1",
+                tier="unit-test",
                 title=f"group {n}",
                 estimated_lines=200,
                 independent=n == 3,

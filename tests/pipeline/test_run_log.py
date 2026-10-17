@@ -105,23 +105,23 @@ def test_the_file_carries_the_lines_emitted_in_order(tmp_path: Path) -> None:
     directory = run_log_dir(tmp_path)
     log = start_run(directory)
     log.emit("step: write the tests")
-    log.emit("tier 1 passed")
+    log.emit("unit-test passed")
     log.close("open")
 
     text = (directory / log.name).read_text()
 
-    assert text.index("step: write the tests") < text.index("tier 1 passed")
+    assert text.index("step: write the tests") < text.index("unit-test passed")
 
 
 def test_the_file_closes_with_the_outcome(tmp_path: Path) -> None:
     directory = run_log_dir(tmp_path)
     log = start_run(directory)
     log.emit("step: implement")
-    log.close("failed: tier 1 did not pass")
+    log.close("failed: unit-test did not pass")
 
     lines = (directory / log.name).read_text().rstrip().splitlines()
 
-    assert "failed: tier 1 did not pass" in lines[-1]
+    assert "failed: unit-test did not pass" in lines[-1]
 
 
 def test_another_units_lines_are_not_in_the_file(tmp_path: Path) -> None:

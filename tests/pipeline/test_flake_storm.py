@@ -1,7 +1,7 @@
 """Many flaky tests in one run are one storm, recorded once and fixed by no change
 (spec: flake-storm).
 
-Tier 1 runs for real over a fake runner that answers as the processes would (see
+Unit-test runs for real over a fake runner that answers as the processes would (see
 `test_flake_isolation`). The storm row is read back from the record's file as it is written,
 a JSON line with `kind: "storm"`.
 """
@@ -20,7 +20,7 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.flakes import Flake, FlakeFound, flake_record
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.wiring import build_tier1
+from agent_build_kit.pipeline.wiring import build_unit_test
 from agent_build_kit.profiles.base import ToolchainProfile
 from tests.conftest import make_installation
 from tests.factories import stored_unit
@@ -40,16 +40,16 @@ def storms(installation: Installation) -> list[dict]:
     return [row for row in rows if row.get("kind") == "storm"]
 
 
-def tier1(profile: object, runs: Runs, tmp_path: Path) -> tuple[bool, str]:
-    return build_tier1(
+def unit_test(profile: object, runs: Runs, tmp_path: Path) -> tuple[bool, str]:
+    return build_unit_test(
         profile=cast(ToolchainProfile, profile), run=runs, changed=lambda *a: ["tests/test_one.py"]
     )(cwd=tmp_path, base="main")
 
 
-def test_flakes_over_the_limit_are_one_storm_and_tier_1_goes_on(tmp_path: Path) -> None:
+def test_flakes_over_the_limit_are_one_storm_and_unit_test_goes_on(tmp_path: Path) -> None:
     installation = make_installation(tmp_path, global_limits=dict(max_flakes_per_run=2))
 
-    passed, output = tier1(HookedProfile(), Runs(reruns=[0, 0]), tmp_path)
+    passed, output = unit_test(HookedProfile(), Runs(reruns=[0, 0]), tmp_path)
 
     assert (passed, output) == (True, "")
     (storm,) = storms(installation)
@@ -59,11 +59,11 @@ def test_flakes_over_the_limit_are_one_storm_and_tier_1_goes_on(tmp_path: Path) 
     assert flake_record(installation).entries() == [], "no per-test entry"
 
 
-def test_a_storm_does_not_cut_tier_1_short(tmp_path: Path) -> None:
+def test_a_storm_does_not_cut_unit_test_short(tmp_path: Path) -> None:
     installation = make_installation(tmp_path, global_limits=dict(max_flakes_per_run=2))
     runs = AfterTheStorm(reruns=[0, 0])
 
-    passed, output = tier1(ThenFailing(), runs, tmp_path)
+    passed, output = unit_test(ThenFailing(), runs, tmp_path)
 
     assert not passed
     assert "second" in output and "an assertion failed" in output
@@ -74,7 +74,7 @@ def test_a_storm_does_not_cut_tier_1_short(tmp_path: Path) -> None:
 def test_ninety_seven_flakes_are_one_storm_naming_the_first_ten(tmp_path: Path) -> None:
     installation = make_installation(tmp_path)
 
-    passed, _ = tier1(ManyFailed(), Runs(reruns=[0, 0]), tmp_path)
+    passed, _ = unit_test(ManyFailed(), Runs(reruns=[0, 0]), tmp_path)
 
     assert passed
     (storm,) = storms(installation)
@@ -88,7 +88,7 @@ def test_flakes_at_the_limit_are_handled_one_by_one_and_no_storm_is_recorded(
     installation = make_installation(tmp_path, global_limits=dict(max_flakes_per_run=len(FAILED)))
 
     with pytest.raises(FlakeFound) as found:
-        tier1(HookedProfile(), Runs(reruns=[0, 0]), tmp_path)
+        unit_test(HookedProfile(), Runs(reruns=[0, 0]), tmp_path)
 
     assert [flake.test for flake in found.value.flakes] == FAILED
     assert storms(installation) == []
@@ -131,3 +131,6 @@ def test_status_shows_a_storm_as_one_line_and_not_in_the_per_test_list(
     assert "97" in line
     assert not any("test_case_000" in ln for ln in lines), "its tests are not listed one by one"
     assert any("tests/test_a.py::test_x" in ln and "flaky" in ln for ln in lines)
+
+
+tier1 = unit_test  # abk-shim

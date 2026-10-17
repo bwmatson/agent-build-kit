@@ -1,5 +1,5 @@
 """The change that fixes a failing or flaky test is written at priority 1, so the fix is not
-queued behind the work it blocks (spec: tier2-failures)."""
+queued behind the work it blocks (spec: e2e-failures)."""
 
 from __future__ import annotations
 

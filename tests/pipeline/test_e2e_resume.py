@@ -18,7 +18,7 @@ GATE_CLEARED = ResumeEvent(
 )
 
 
-def test_a_parked_unit_is_restacked_and_runs_tier_2_again_when_the_fix_merges(
+def test_a_parked_unit_is_restacked_and_runs_e2e_again_when_the_fix_merges(
     tmp_path: Path,
 ) -> None:
     recorder = fresh(tmp_path)
@@ -46,7 +46,7 @@ def test_a_parked_unit_is_restacked_and_runs_tier_2_again_when_the_fix_merges(
     assert "claude:rework" not in after and "claude:fix_checks" not in after
 
 
-def test_a_released_unit_that_the_restack_moves_runs_tier_1_once_before_tier_2(
+def test_a_released_unit_that_the_restack_moves_runs_unit_test_once_before_e2e(
     tmp_path: Path,
 ) -> None:
     recorder = fresh(tmp_path)
@@ -72,7 +72,7 @@ def test_a_released_unit_that_the_restack_moves_runs_tier_1_once_before_tier_2(
     assert after.index("moved") < after.index("unit-test") < after.index("push")
 
 
-def test_the_released_unit_that_fails_tier_2_again_on_the_same_test_is_parked_again(
+def test_the_released_unit_that_fails_e2e_again_on_the_same_test_is_parked_again(
     tmp_path: Path,
 ) -> None:
     recorder = fresh(tmp_path)

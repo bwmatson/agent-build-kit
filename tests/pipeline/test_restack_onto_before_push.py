@@ -3,7 +3,7 @@ and before a push.
 
 `wiring.build_restack_onto` is the real mover, with a resolver double standing
 in for the agent and nothing else faked. The push-gate cases run it through
-`UnitRunner.run`, with only the agent calls, tier 1, the push and the pull
+`UnitRunner.run`, with only the agent calls, unit-test, the push and the pull
 request faked, so the moved commit is what the gate meets.
 """
 

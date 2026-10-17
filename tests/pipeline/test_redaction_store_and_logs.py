@@ -73,7 +73,7 @@ def _ledger_path() -> Path:
     return Installation(config.active(), root).state_dir / LEDGER_NAME
 
 
-def _tier_two(tmp_path: Path, output: str) -> E2eSession:
+def _e2e(tmp_path: Path, output: str) -> E2eSession:
     return gate(tmp_path, run_returning(output), root=tmp_path)
 
 
@@ -88,7 +88,7 @@ def test_saved_feedback_holds_the_replacement(tmp_path: Path) -> None:
     assert SECRET not in (tmp_path / "units.json").read_text()
 
 
-def test_a_failing_tier_two_is_saved_and_said_without_the_value(tmp_path: Path) -> None:
+def test_a_failing_e2e_is_saved_and_said_without_the_value(tmp_path: Path) -> None:
     snapshot = build_snapshot(
         E2eResult(
             sha="abcdef1234567",
@@ -156,10 +156,10 @@ def test_a_tool_result_with_the_value_before_the_limit_keeps_no_part_of_it(tmp_p
     assert REPLACED[:8] in written
 
 
-def test_tier_two_output_with_the_value_across_the_cut_keeps_no_part_of_it(
+def test_e2e_output_with_the_value_across_the_cut_keeps_no_part_of_it(
     tmp_path: Path,
 ) -> None:
-    session = _tier_two(tmp_path, "x" * 100 + SECRET + "y" * 3990)
+    session = _e2e(tmp_path, "x" * 100 + SECRET + "y" * 3990)
 
     with known():
         session.run(cwd=tmp_path)
@@ -169,7 +169,7 @@ def test_tier_two_output_with_the_value_across_the_cut_keeps_no_part_of_it(
     assert SECRET[:8] not in session.result.output
 
 
-def test_tier_one_output_holds_the_replacement(tmp_path: Path) -> None:
+def test_unit_test_output_holds_the_replacement(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n")
     (tmp_path / "tests").mkdir()
 
@@ -259,7 +259,7 @@ def test_a_failed_redaction_keeps_the_figures_of_a_ledger_record(
     _assert_one_failure_line(caplog, "ledger")
 
 
-def test_a_failed_redaction_logs_one_line_for_a_tier_two_of_several_commands(
+def test_a_failed_redaction_logs_one_line_for_a_e2e_of_several_commands(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     (tmp_path / "pyproject.toml").write_text('[tool.uv.workspace]\nmembers = ["svc-a", "svc-b"]\n')
@@ -333,7 +333,7 @@ def test_a_tool_call_input_holds_the_replacement_at_every_depth(tmp_path: Path) 
     assert recorded == {"command": f"echo {REPLACED}", "nested": {"k": [REPLACED]}}
 
 
-def test_a_passing_tier_two_command_is_redacted_before_its_output_is_cut(
+def test_a_passing_e2e_command_is_redacted_before_its_output_is_cut(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n")
@@ -374,10 +374,10 @@ def test_verification_detail_holds_the_replacement(
     assert outcome.detail == f"down: {REPLACED}"
 
 
-def test_a_failed_redaction_leaves_the_tier_two_counts_and_verdict(
+def test_a_failed_redaction_leaves_the_e2e_counts_and_verdict(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    session = _tier_two(tmp_path, f"1 failed, 3 passed in 1.00s {SECRET}")
+    session = _e2e(tmp_path, f"1 failed, 3 passed in 1.00s {SECRET}")
 
     with known(broken=True):
         ok, _ = session.run(cwd=tmp_path)

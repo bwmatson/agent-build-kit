@@ -9,7 +9,7 @@ import pytest
 from agent_build_kit.compat_names import old_spelling
 from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline.e2e import stack_lock
-from tests.tier2_lock_fakes import Foreign, SleepingTime, install_clock
+from tests.e2e_lock_fakes import Foreign, SleepingTime, install_clock
 
 OLD_LOCK = f"{old_spelling(TestTier.E2E_TEST)}.lock"
 

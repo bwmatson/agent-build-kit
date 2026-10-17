@@ -47,7 +47,7 @@ def test_it_never_takes_the_stack_lock_so_a_held_one_does_not_make_it_wait(
     assert ok
 
 
-def test_its_log_says_tier_2_was_skipped_and_why(tmp_path: Path) -> None:
+def test_its_log_says_e2e_was_skipped_and_why(tmp_path: Path) -> None:
     repo, base = changes_no_test(tmp_path)
     log: list[str] = []
 
@@ -69,7 +69,7 @@ def test_its_result_has_zero_tests_and_is_labelled_as_run_on_none(tmp_path: Path
     assert gate.verdict is None
 
 
-def test_the_status_posted_for_its_commit_says_no_tier_2_test_ran(tmp_path: Path) -> None:
+def test_the_status_posted_for_its_commit_says_no_e2e_test_ran(tmp_path: Path) -> None:
     repo, base = changes_no_test(tmp_path)
     gate = session(tmp_path, Ran())
     gate.run(cwd=repo, base=base)
@@ -84,7 +84,7 @@ def test_the_status_posted_for_its_commit_says_no_tier_2_test_ran(tmp_path: Path
     assert "passed" not in posted["description"]
 
 
-def test_the_snapshot_says_no_tier_2_test_ran_and_not_that_the_suite_passed(
+def test_the_snapshot_says_no_e2e_test_ran_and_not_that_the_suite_passed(
     tmp_path: Path,
 ) -> None:
     repo, base = changes_no_test(tmp_path)
@@ -95,7 +95,7 @@ def test_the_snapshot_says_no_tier_2_test_ran_and_not_that_the_suite_passed(
     assert "0 passed" not in snapshot
 
 
-def test_the_unit_goes_on_as_one_whose_tier_2_passed(tmp_path: Path) -> None:
+def test_the_unit_goes_on_as_one_whose_e2e_passed(tmp_path: Path) -> None:
     repo, base = changes_no_test(tmp_path)
     ran = Ran()
     gate = session(tmp_path, ran)

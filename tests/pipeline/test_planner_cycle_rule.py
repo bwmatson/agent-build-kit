@@ -16,7 +16,7 @@ def prompt_with_an_unstarted_unit_in_flight() -> str:
         return json.dumps({"units": [], "joins": []})
 
     plan_round(
-        changes={"add-marker": "## 1. [app] [tier1] Register the marker\n"},
+        changes={"add-marker": "## 1. [app] [unit-test] Register the marker\n"},
         in_flight=[
             {
                 "id": "other/1",
@@ -24,7 +24,7 @@ def prompt_with_an_unstarted_unit_in_flight() -> str:
                 "branch": "spec/other/1",
                 "state": "planned",
                 "unstarted": True,
-                "tier": "tier1",
+                "tier": "unit-test",
                 "estimated_lines": 100,
                 "builds": "1",
                 "depends_on": [],

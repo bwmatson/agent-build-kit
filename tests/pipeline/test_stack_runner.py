@@ -7,7 +7,7 @@ than output:
 - nothing starts when the usage window is low,
 - tests are written and committed before any implementation,
 - the review pass only runs if there was something to review,
-- tier 2 passes before anything is pushed,
+- e2e-test passes before anything is pushed,
 - the commit status is posted after the push, never before,
 - and a failure anywhere leaves no PR behind.
 
@@ -33,23 +33,23 @@ from tests.graph_driver import run_on_graph
 class Recorder:
     """Stands in for every side effect, recording what happened in order."""
 
-    tier1_output: str = ""
+    unit_test_output: str = ""
 
     def __init__(
         self,
         *,
         commits_from_impl: int = 1,
-        tier2_ok: bool = True,
-        tier1_ok: bool = True,
+        e2e_ok: bool = True,
+        unit_test_ok: bool = True,
         close_error: str = "",
     ):
         self.events: list[str] = []
         self.prompts: list[str] = []
         self.commits_from_impl = commits_from_impl
-        self.tier2_ok = tier2_ok
-        self.tier1_ok = tier1_ok
-        # Answers for successive tier 1 runs, in order; once spent, `tier1_ok`.
-        self.tier1_results: list[tuple[bool, str]] = []
+        self.e2e_ok = e2e_ok
+        self.unit_test_ok = unit_test_ok
+        # Answers for successive unit-test runs, in order; once spent, `unit_test_ok`.
+        self.unit_test_results: list[tuple[bool, str]] = []
         self.pushed_shas: list[str] = []
         self.close_error = close_error
         self.closed: list[tuple[str, int, str]] = []
@@ -109,15 +109,17 @@ class Recorder:
         """Moves with every commit, as a real HEAD does."""
         return f"sha-{self.made}"
 
-    def tier1(self, *, cwd: Path, base: str = "main", whole_repo: bool = False) -> tuple[bool, str]:
-        self.events.append("tier1:whole_repo" if whole_repo else "tier1")
-        if self.tier1_results:
-            return self.tier1_results.pop(0)
-        return self.tier1_ok, self.tier1_output
+    def unit_test(
+        self, *, cwd: Path, base: str = "main", whole_repo: bool = False
+    ) -> tuple[bool, str]:
+        self.events.append("unit-test:whole_repo" if whole_repo else "unit-test")
+        if self.unit_test_results:
+            return self.unit_test_results.pop(0)
+        return self.unit_test_ok, self.unit_test_output
 
-    def tier2(self, *, cwd: Path, base: str | None = None) -> tuple[bool, str]:
-        self.events.append("tier2")
-        return self.tier2_ok, "## Tier 2 results\nfine"
+    def e2e(self, *, cwd: Path, base: str | None = None) -> tuple[bool, str]:
+        self.events.append("e2e-test")
+        return self.e2e_ok, "## E2e-test results\nfine"
 
     def push(self, branch: str, *, cwd: Path) -> str:
         self.events.append("push")
@@ -143,7 +145,7 @@ class Recorder:
 
 @pytest.fixture
 def runner(tmp_path: Path):
-    def build(recorder: Recorder, *, may_start: bool = True, tier: str = "tier1") -> UnitRunner:
+    def build(recorder: Recorder, *, may_start: bool = True, tier: str = "unit-test") -> UnitRunner:
         store = UnitStore(tmp_path / "units.json")
         store.upsert([unit(tier=tier)])
         return UnitRunner(
@@ -159,8 +161,8 @@ def runner(tmp_path: Path):
             head=recorder.head,
             upstream_incomplete=lambda u: None,
             restack_onto=lambda **kw: None,
-            run_unit_test=recorder.tier1,
-            run_e2e=recorder.tier2,
+            run_unit_test=recorder.unit_test,
+            run_e2e=recorder.e2e,
             push=recorder.push,
             open_pr=recorder.open_pr,
             post_status=recorder.post_status,
@@ -185,8 +187,8 @@ def make_runner(store: UnitStore, recorder: Recorder, tmp_path: Path) -> UnitRun
         head=recorder.head,
         upstream_incomplete=lambda u: None,
         restack_onto=lambda **kw: None,
-        run_unit_test=recorder.tier1,
-        run_e2e=recorder.tier2,
+        run_unit_test=recorder.unit_test,
+        run_e2e=recorder.e2e,
         push=recorder.push,
         open_pr=recorder.open_pr,
         post_status=recorder.post_status,
@@ -236,7 +238,7 @@ class Gate:
 def _tasks_file(tmp_path: Path) -> Path:
     tasks = tmp_path / "meta" / "openspec" / "changes" / "add-marker" / "tasks.md"
     tasks.parent.mkdir(parents=True)
-    tasks.write_text("## 1. [app] [tier1] G\n- [ ] 1.1 Test: a\n- [ ] 1.2 Do a\n")
+    tasks.write_text("## 1. [app] [unit-test] G\n- [ ] 1.1 Test: a\n- [ ] 1.2 Do a\n")
     return tasks
 
 

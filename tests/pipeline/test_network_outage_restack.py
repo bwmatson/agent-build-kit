@@ -48,7 +48,7 @@ def test_an_outage_in_prepare_s_restack_parks_the_unit_and_leaves_its_feedback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store = fresh_store(tmp_path)
-    store.set_feedback(UNIT, "tier 1 failed", source=FeedbackSource.TIER1)
+    store.set_feedback(UNIT, "unit-test failed", source=FeedbackSource.UNIT_TEST)
     recorder = Recorder(store)
     recorder.made = 2
 
@@ -60,8 +60,8 @@ def test_an_outage_in_prepare_s_restack_parks_the_unit_and_leaves_its_feedback(
     parked = store.get(UNIT)
     assert parked.state == PLANNED
     assert parked.cause == "network_unavailable"
-    assert parked.feedback == "tier 1 failed"
-    assert parked.feedback_source == FeedbackSource.TIER1
+    assert parked.feedback == "unit-test failed"
+    assert parked.feedback_source == FeedbackSource.UNIT_TEST
     assert not [event for event in recorder.events if event.startswith("claude:")], "no adapt run"
 
 

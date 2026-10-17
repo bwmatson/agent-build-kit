@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_build_kit import forges
-from agent_build_kit.pipeline.stack_runner import TIER1_FAILED
+from agent_build_kit.pipeline.stack_runner import UNIT_TEST_FAILED
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, branch_name
 from agent_build_kit.pipeline.wiring import REVIEW_TOOLS, build_run_review
@@ -94,7 +94,7 @@ class AlwaysReplyingRecorder(Recorder):
 
 def test_a_review_following_a_failing_check_gets_no_comments_note(tmp_path: Path) -> None:
     contexts = reviewed(
-        tmp_path, f"{TIER1_FAILED}\nFAILED tests/test_a.py::test_b", from_person=False
+        tmp_path, f"{UNIT_TEST_FAILED}\nFAILED tests/test_a.py::test_b", from_person=False
     )
 
     assert contexts

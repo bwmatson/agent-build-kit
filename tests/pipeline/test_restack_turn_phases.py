@@ -324,7 +324,7 @@ def test_a_remote_that_moved_is_refused_by_the_lease_and_the_move_is_not_retried
     moves: list[str] = []
     pushes: list[str] = []
 
-    def tier1(**kwargs: Any):
+    def unit_test(**kwargs: Any):
         return lambda *, cwd, base, moved_from=None: (True, "")
 
     def refused(repo: Path, branch: str, *, last_pushed: str | None) -> str:
@@ -337,7 +337,7 @@ def test_a_remote_that_moved_is_refused_by_the_lease_and_the_move_is_not_retried
         moves.append("move")
         return real_move(*args, **kwargs)
 
-    monkeypatch.setattr(cli, "build_unit_test", tier1)
+    monkeypatch.setattr(cli, "build_unit_test", unit_test)
     monkeypatch.setattr(cli, "push_with_lease", refused)
     monkeypatch.setattr(restack, "move_branch_onto", counting_move)
 

@@ -109,7 +109,7 @@ def test_a_fix_change_already_open_is_reported_as_existing_and_not_written_twice
     assert waits_on(run.inst, CHANGE) == [first]
 
 
-def test_the_released_unit_resumes_at_tier_2_and_runs_the_whole_marker(tmp_path: Path) -> None:
+def test_the_released_unit_resumes_at_e2e_and_runs_the_whole_marker(tmp_path: Path) -> None:
     run = wired(ScheduledRun(tmp_path, make_ran=failing(ONE, fixed_by="fix.txt")))
     assert run.tick().status == RunStatus.HELD
     parked = len(run.ran.calls)

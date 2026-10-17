@@ -1,6 +1,6 @@
 """A description is fitted to the host's limit by sections.
 
-The required parts and the pass or fail line are never cut; the tier 2 output
+The required parts and the pass or fail line are never cut; the e2e-test output
 (its tail kept, where measures and failed bars print) and the follow-ups share
 the room above their smallest forms, one part to two.
 """
@@ -18,7 +18,7 @@ GONE_NOTE = "_The full output was trimmed: it did not fit the host's description
 
 
 def body_of(*, output: str, follow_ups: list[str] | None = None, limit: int | None = None) -> str:
-    u = unit(tier="tier2", depends_on=())
+    u = unit(tier="e2e-test", depends_on=())
     return build_pr_body(
         u,
         graph=[u],
