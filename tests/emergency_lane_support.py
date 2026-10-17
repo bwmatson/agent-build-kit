@@ -13,6 +13,7 @@ from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING, UnitState
 from tests.conftest import make_installation
 from tests.factories import new_unit
+from tests.project_workspace import repos_declaring
 
 
 def lane_workspace(
@@ -22,10 +23,13 @@ def lane_workspace(
     workers: int = 4,
     places: int = 5,
     restacks: int = 2,
+    repos: dict | None = None,
 ) -> Installation:
-    """One project with the limits of the lane tests: five places, four workers, a lane of one."""
+    """One project with the limits of the lane tests: five places, four workers, a lane of one.
+    A workspace with the repos `app` and `platform` unless `repos` says otherwise."""
     return make_installation(
         tmp_path,
+        **({} if repos is None else {"repos": repos}),
         planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
         project_limits={
             "max_concurrent_stacks": workers,
@@ -72,3 +76,10 @@ def started_by_round(
     """The ids `run_round` hands out to start, with `building` as the builds in flight."""
     ready = cli.run_round(inst, store, building=building, only=frozenset(), submit=True)
     return [unit.id for unit in ready]
+
+
+def app_only_repos(root: Path) -> dict:
+    """The `repos` of a workspace with one project: `app`, without `platform`."""
+    repos = repos_declaring(root)
+    del repos["platform"]
+    return repos

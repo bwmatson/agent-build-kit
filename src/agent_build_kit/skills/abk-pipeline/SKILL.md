@@ -340,6 +340,9 @@ cannot do, and what a person does about it:
    at a time in each project. No unit that has never started starts while the units in
    progress in its project are at `project_limits.max_units_in_progress`, and a pass
    starts no more new units than fit under it: the rest stay `planned`, and
+   a priority-0 unit starts as soon as it is ready in the emergency lane
+   (`project_limits.emergency_extra`), and ordinary starts wait while it counts toward the
+   occupancy; `abk status` shows `emergency room N/M used by <unit>` while the lane is in use;
    the tick log and `abk status` say "queue is full: N units in progress,
    limit M" with the count in each state, one line for each project at its limit (the project is
    named in it when the workspace has more than one, e.g. `queue is full: app/web: …`, and a

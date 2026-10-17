@@ -242,6 +242,9 @@ project_limits:
                                 # while reworks, resumes and finishing reviewed work
                                 # still run; a blocked unit, and a failed unit that waits
                                 # on another unit, do not count
+  emergency_extra: 1            # the emergency lane's cap in each project: priority-0
+                                # units that may start past the places and workers above;
+                                # 0 turns the lane off
 
 global_limits:
   stack_depth_build_cap: 3      # longest chain of in-review PRs from main a

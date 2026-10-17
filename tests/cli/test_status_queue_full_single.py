@@ -29,4 +29,7 @@ def test_a_single_project_workspace_at_its_limit_names_no_project(
 
     full = [line for line in lines if "queue is full" in line]
     assert len(full) == 1
-    assert full[0].endswith("queue is full: 5 units in progress, limit 5 (5 in review)")
+    assert full[0].endswith(
+        "queue is full: 5 units in progress, limit 5 (5 in review)"
+        "; a priority-0 unit may still start while the emergency lane has room"
+    )

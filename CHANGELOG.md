@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A priority-0 unit now starts as soon as it is ready, in an emergency lane of its own
+  (`project_limits.emergency_extra`, 1 by default, 0 turns it off) past the places and
+  workers of its project. Ordinary starts wait while it runs, and it never delays a unit
+  that is finishing. `abk status` shows `emergency room N/M used by <unit>`, says on a full
+  queue that a priority-0 unit may still start, and marks such a unit in the ready queue.
+
 - The unit graph page draws a repo that has several projects with a nested subgraph for
   each project that has a unit in view, and the legend says so. A repo with one project
   is drawn exactly as before.
@@ -24,8 +30,8 @@
   equal priority, so a handoff unit no longer outranks a more urgent unit; it still takes
   the freed place when nothing more urgent can start. `abk status` marks such a unit in the
   ready queue with `(handoff)`. New `Priority: 0`, an emergency lane: the scale is 0 to 5,
-  0 starts before 1 (and its prerequisites with it) but bypasses no limit and stops no
-  running unit.
+  0 starts before 1 (and its prerequisites with it) and stops no running
+  unit; it starts in its own lane (see the emergency-lane entry above).
 
 - A failed unit that waited on another unit is now requeued once, by the pipeline, when its
   wait ends, instead of sitting failed until someone runs `abk requeue`. The mode comes from

@@ -207,6 +207,12 @@ a running pass loses no update.
 
 ### 3. Building a unit
 
+A priority-0 unit starts as soon as it is ready, in its own emergency lane with its own cap
+(`project_limits.emergency_extra`, 1 by default, 0 turns the lane off): the places and workers
+of the project may be full. It counts toward the occupancy, so ordinary starts wait until the
+occupancy falls below the limits, and it never delays a unit that is finishing: a rework, a
+resume, a review round and a push keep the workers they had.
+
 Each unit has a priority, 0 (emergency) to 5, 3 by default, set by the planner
 in code from the `Priority:` lines of the groups it builds: the most urgent of
 them, carried groups included. A started unit keeps the priority it started
@@ -237,7 +243,7 @@ not yet reviewed or merged, being reworked, failed or held, which covers a gate 
 merged and an upstream that went back), and counts again when it no longer does. A
 backoff, a lease, a limited tick and a usage pause do not make a unit blocked. Only a
 unit that has never started is stopped by the limit, and no more of them start than
-leave room; so is a planned unit that was blocked and no longer is (its record carries
+leave room, except a priority-0 unit in the project's emergency lane (above); so is a planned unit that was blocked and no longer is (its record carries
 the cause of the wait, or a unit it depends on was outside review and merge since it last
 changed state), which stays planned until the other units in progress are below the limit.
 A failed unit that waits on another unit (`waiting_on`) does not count while it waits
