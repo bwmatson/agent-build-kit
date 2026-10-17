@@ -3577,6 +3577,10 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
                 # The guard refused the move's agent: the lane moves it again when it allows.
                 refusals.discard(unit_id)
                 return
+            if Leases(lease_dir(inst.state_dir)).holder(unit_id) is not None:
+                raise BranchBusy(f"a tab holds the lease of {unit_id}")
+            if branch_is_held(inst, store.get(unit_id).branch or branch_name(store.get(unit_id))):
+                raise BranchBusy(f"the branch of {unit_id} is held by another run")
             # The run flags itself once it holds the branch and the unit is runnable.
             build_unit(inst, store.get(unit_id), store=store, moved_base_run=True)
 

@@ -422,6 +422,23 @@ class RestackLane:
         with self._changed:
             self._tried[unit.id] = stamp
 
+    def _go_on(self, entry: _Entry, rest: Rest) -> None:
+        """Make the unit's run. One that went ahead is noted like a move, so a scan leaves it
+        until its stamp changes; one that met a held branch (`BranchBusy`) is not, and is
+        tried again."""
+        try:
+            rest()
+        except BranchBusy:
+            raise
+        except BaseException:
+            self._note_unclaimed(entry)
+            raise
+        self._note_unclaimed(entry)
+
+    def _note_unclaimed(self, entry: _Entry) -> None:
+        if not entry.claimed:
+            self._note_attempt(entry.unit)
+
     def _run(self, entry: _Entry) -> None:
         unit = entry.unit
         ran = False
@@ -433,12 +450,10 @@ class RestackLane:
                     finally:
                         self._note_attempt(unit)
             else:
-                # A run takes its own branch lock and may find it held: that is no attempt
-                # for a later scan to wait out.
                 rest = entry.work()
             # What remains is the unit's run: it holds this worker, not the claim.
             if rest is not None:
-                rest()
+                self._go_on(entry, rest)
             ran = True
         except BranchBusy as error:
             self._log(f"{unit.id}: restack left for later, its branch is held ({error})")

@@ -8,6 +8,7 @@ the thread that calls it. What is read is which thread and which lock the run ha
 
 from __future__ import annotations
 
+import argparse
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -24,7 +25,7 @@ from agent_build_kit.pipeline.restack_lane import RestackLanes
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW, PLANNED, RUNNING, branch_name
-from agent_build_kit.pipeline.usage_guard import RateLimited
+from agent_build_kit.pipeline.usage_guard import Decision, RateLimited
 from agent_build_kit.pipeline.workspaces import branch_held, branch_lock
 from agent_build_kit.profiles.base import ProfileUnsupported
 from agent_build_kit.runtimes import AgentRateLimited
@@ -241,19 +242,68 @@ def test_a_refusal_the_move_met_does_not_drop_the_run_the_unit_is_later_owed(
     assert scene.ran == [MOVED]
 
 
-def test_a_run_in_the_lane_asks_the_build_pool_for_no_worker(
+def test_a_tick_makes_the_moved_base_run_in_the_lane_and_submits_only_builds_to_the_pool(
     scene: Scene, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    submitted: list[Any] = []
+    pools: list[ThreadPoolExecutor] = []
+
     class Counting(ThreadPoolExecutor):
-        submitted = 0
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            pools.append(self)
 
-        def submit(self, *args: Any, **kwargs: Any) -> Any:
-            Counting.submitted += 1
-            return super().submit(*args, **kwargs)
+        def submit(self, fn: Any, /, *args: Any, **kwargs: Any) -> Any:
+            submitted.append(fn)
+            return super().submit(fn, *args, **kwargs)
 
-    monkeypatch.setattr(cli, "ThreadPoolExecutor", Counting)
+    def finishes(unit: StoredUnit) -> RunOutcome:
+        scene.store.set_state(unit.id, RUNNING, branch=f"spec/{unit.id}")
+        scene.store.set_state(unit.id, IN_REVIEW, pr=9)
+        return RunOutcome(status=RunStatus.OPEN, detail=unit.id, pr=9)
 
-    scene.lane_moves()
+    handed: list[str] = []
+
+    def hands_over(inst: Installation, *, store: Any, lane: Any) -> None:
+        if not handed:
+            handed.append(MOVED)
+            lane.hand_over(store.get(MOVED))
+
+    scene.store.upsert([new_unit("first/1")])
+    scene.ends = finishes
+    for name, step in {
+        "plan_all": lambda inst, **kwargs: None,
+        "poll_all": hands_over,
+        "verify_ready": lambda inst, units, **kwargs: lambda change: True,
+        "archive_ready_changes": lambda *a, **k: [],
+        "current_usage": lambda: None,
+        "may_start_unit": lambda r: Decision(may_start=True, reason="plenty"),
+        "ThreadPoolExecutor": Counting,
+    }.items():
+        monkeypatch.setattr(cli, name, step)
+
+    assert cli.cmd_tick(argparse.Namespace(dry_run=False, only=None), scene.inst) == 0
+
+    assert pools, "the build pool the tick makes is the counting one"
+    where = dict(zip(scene.ran, scene.threads, strict=True))
+    assert where["first/1"].startswith("unit"), "the build ran on the pool's thread"
+    assert len(submitted) == 1, "and only it was submitted to the pool"
+    assert scene.ran.count(MOVED) == 1
+    assert where[MOVED] == "restack", "the moved-base run ran in the lane, not on the pool"
+
+
+def test_a_run_the_usage_window_refused_is_not_made_again_by_the_next_scan(
+    scene: Scene,
+) -> None:
+    def refused(unit: StoredUnit) -> RunOutcome:
+        raise RateLimited("usage limit reached")
+
+    scene.ends = refused
+
+    with cli.build_restack_lane(scene.inst, scene.store) as lanes:
+        lanes.scan(scene.store.all())
+        lanes.drain()
+        lanes.scan(scene.store.all())
+        lanes.drain()
 
     assert scene.ran == [MOVED]
-    assert Counting.submitted == 0
