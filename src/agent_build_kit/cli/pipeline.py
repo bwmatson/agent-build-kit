@@ -2953,16 +2953,16 @@ def plan_all(
         # planner may join this change's groups to, or join to each other.
         # Merged and satisfied units of other changes are in the trunk and cannot affect a
         # plan: they are counted in one line, not listed.
+        # Once a round: the plan check, the prompt and the figures stored all use one set.
+        units = store.all()
         landed = {MERGED, SATISFIED}
         context = [
             in_flight_item(u)
-            for u in store.all()
+            for u in units
             if (u.state in _STARTED and (u.state not in landed or u.change == change))
             or (u.state == PLANNED and u.change != change)
         ]
-        omitted = sum(1 for u in store.all() if u.state in landed and u.change != change)
-        # Once a round: the plan check, the prompt and the figures stored all use one set.
-        units = store.all()
+        omitted = sum(1 for u in units if u.state in landed and u.change != change)
         ratios = calibrations(units)
         try:
             catalog = _task_catalog(inst)
@@ -2991,9 +2991,9 @@ def plan_all(
                 built=built,
                 # Units the store already has: a dependency naming one of
                 # them is not a dependency on nothing.
-                known={u.id for u in store.all()},
+                known={u.id for u in units},
                 context=JoinContext(
-                    stored=tuple(store.all()),
+                    stored=tuple(units),
                     catalog=catalog,
                     needs={
                         group: tuple((need.change, need.group) for need in found)

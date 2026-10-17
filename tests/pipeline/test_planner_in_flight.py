@@ -95,21 +95,38 @@ def test_the_line_appears_only_when_a_unit_of_another_change_has_landed(
     )
 
 
-def test_a_plan_that_depends_on_an_omitted_unit_passes_and_its_needs_line_yields_the_edge(
+def omitted_feature(run: Replan, reply: str) -> tuple[str, str]:
+    """`feature` planned with `old/1` merged and omitted: the prompt, and the plan's status."""
+    add(run, "old/1", MERGED)
+    run.runtime.answer = reply
+    results = cli.plan_all(run.inst, store=run.store, only={"feature"})
+    return run.runtime.request.prompt, results["feature"].status
+
+
+def test_a_plan_that_depends_on_an_omitted_unit_passes_the_plan_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run = Replan(tmp_path, monkeypatch, feature=needs_md("old group 1"), old=tasks_md(1))
-    add(run, "old/1", MERGED)
-    run.runtime.answer = answer(planned("feature/1", (1,), depends_on=("old/1",)))
 
-    results = cli.plan_all(run.inst, store=run.store, only={"feature"})
-    prompt = run.runtime.request.prompt
+    prompt, status = omitted_feature(run, answer(planned("feature/1", (1,), depends_on=("old/1",))))
+
+    assert re.search(r"1 merged or satisfied units? of other changes are in the trunk", prompt)
+    assert "- old/1 " not in prompt
+    assert status == "planned"
+
+
+def test_a_needs_line_naming_a_group_an_omitted_unit_built_still_yields_its_edge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = Replan(tmp_path, monkeypatch, feature=needs_md("old group 1"), old=tasks_md(1))
+
+    prompt, status = omitted_feature(run, answer(planned("feature/1", (1,))))
     cli.link_needs(run.inst, store=run.store)
 
     assert re.search(r"1 merged or satisfied units? of other changes are in the trunk", prompt)
     assert "- old/1 " not in prompt
-    assert results["feature"].status == "planned"
-    assert run.store.get("feature/1").depends_on == ("old/1",)
+    assert status == "planned"
+    assert "old/1" in run.store.get("feature/1").depends_on
 
 
 def test_a_store_of_hundreds_of_landed_and_planned_units_gives_a_prompt_under_100_kb(

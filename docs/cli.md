@@ -471,9 +471,9 @@ says how many model calls it will make.
   the next try and the attempts, which a wait does not use, `never planned`), plans
   nothing and exits 2. A change that meets the outage again prints that it is waiting
   and that no attempt was used, and exits 1. `--failed` selects a waiting change.
-  A planner prompt that is too large shows as `failing 1/3: the generic prompt is 2000001
-  bytes; the stdin transport carries at most 2000000` (with `for <change>` after `prompt`,
-  naming the change); it counts attempts like any other failure.
+  A planner prompt that is too large shows as `failing 1/3: the generic prompt for feature is
+  2000001 bytes; the stdin transport carries at most 2000000`; it counts attempts like any
+  other failure.
   A plan that was refused shows the reason after its state (`failing 1/3: unit
   feature/2 claims group 1, which a merged unit has already built …`).
 - **`--forget`** clears the records and stops: no model call, and the next tick

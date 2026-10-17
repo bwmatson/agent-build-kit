@@ -38,4 +38,4 @@ def test_the_architecture_says_the_planners_list_omits_landed_units_of_other_cha
 
 
 def test_the_replan_listing_shows_the_failure_of_a_prompt_that_is_too_large() -> None:
-    assert re.search(r"failing 1/3: the \S+ prompt is [\d,]+ bytes", CLI)
+    assert re.search(r"failing 1/3: the \S+ prompt( for \S+)? is [\d,]+ bytes", CLI)

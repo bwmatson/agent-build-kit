@@ -32,6 +32,9 @@ def test_a_prompt_that_is_too_large_counts_attempts_gives_up_and_is_planned_agai
     assert run.calls == 0
     reason = run.records[CHANGE]["reason"]
     assert reason.startswith("the ")
+    assert "for feature" in reason
+    assert " bytes;" in reason
+    assert "at most 2000000" in reason
     assert "OSError" not in reason
     assert "PlannerError" not in reason
     assert f"failing 1/3: {reason}" in listing(run, capsys)
