@@ -4209,10 +4209,13 @@ def _build_unit(
                 if moved_base_run:
                     # The lane's run: flagged only now that it holds the branch and may go on.
                     store.set_moved_base_run(unit.id, True)
-                # A step recorded by an earlier run belongs to that run. A parked unit
-                # resumes at its node, which never passes `prepare`, so it is marked
-                # running here.
-                if unit.state == PLANNED and unit.cause in PARKED_CAUSES:
+                # A step recorded by an earlier run belongs to that run. A parked unit, or one
+                # the restack lane handed back, resumes at its node, which never passes
+                # `prepare`, so it is marked running here.
+                if unit.state == PLANNED and unit.cause in (
+                    *PARKED_CAUSES,
+                    Cause.RESTACK_HANDED_BACK,
+                ):
                     store.set_state(unit.id, RUNNING, branch=unit.branch or None)
                 store.record_step(unit.id, "")
                 if queued is not None:
@@ -4242,8 +4245,16 @@ def _build_unit(
                     transcript=unit_log_only,
                 )
                 outcome = run_unit_thread(
-                    inst, runner, unit, base=base, graph=graph, run_log=run_log
+                    inst, runner, unit, base=base, graph=graph, run_log=run_log, lane=moved_base_run
                 )
+                if outcome.handed_back:
+                    # Not moved-base work: a build worker takes the unit from the step its
+                    # thread stands at. Leaving `running` clears the lane's flag.
+                    store.set_state(
+                        unit.id, PLANNED, note=outcome.handed_back, cause=Cause.RESTACK_HANDED_BACK
+                    )
+                    end(f"handed back — {outcome.handed_back}", UnitOutcome.INTERRUPTED)
+                    return True
         except ProfileUnsupported as error:
             # A toolchain profile the framework does not implement yet: not the
             # unit's fault, and nothing a retry changes. Held for a person.
@@ -4384,9 +4395,13 @@ def run_unit_thread(
     base: str,
     graph: list[StoredUnit],
     run_log: RunLog | None,
+    lane: bool = False,
 ) -> RunOutcome:
-    """Start or resume the unit's thread to its next wait or the end."""
-    return asyncio.run(_on_thread(inst, runner, unit, base=base, graph=graph, run_log=run_log))
+    """Start or resume the unit's thread to its next wait or the end; with `lane`, as the
+    restack lane's run, which stops before work that is not about the move."""
+    return asyncio.run(
+        _on_thread(inst, runner, unit, base=base, graph=graph, run_log=run_log, lane=lane)
+    )
 
 
 async def _on_thread(
@@ -4399,6 +4414,7 @@ async def _on_thread(
     run_log: RunLog | None,
     event: ResumeEvent | None = None,
     feedback: Callable[[], tuple[str, bool, tuple[str, ...]]] | None = None,
+    lane: bool = False,
 ) -> RunOutcome:
     """Start or resume the unit's thread to its next wait, or deliver `event` to it."""
     # Late: the graph package imports the pipeline.
@@ -4409,7 +4425,7 @@ async def _on_thread(
     async with open_checkpointer(unit_graphs_path(inst.state_dir)) as saver:
         if event is None:
             # Under the lock `build_unit` holds; a delivery takes its own.
-            return await run_unit(runner, unit, saver=saver, **common)
+            return await run_unit(runner, unit, saver=saver, lane=lane, **common)
         return await resume_unit(
             runner,
             unit,
