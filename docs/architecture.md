@@ -104,7 +104,8 @@ refuses a change with tag errors before spending a model call on it:
 
 ### 2. Planning into units
 
-A **unit** is one PR's worth of task groups, in exactly one repo. It has one
+A **unit** is one PR's worth of task groups, in exactly one repo and one project of it
+(`Unit.project`). It has one
 identity, its first change's id and branch, and may also carry groups of other
 changes (`Unit.joined`); `Unit.members()` is the single way to ask which
 change's groups it builds, its own first. Building, review, ticking, archive
@@ -225,7 +226,7 @@ stacks on that predecessor; cross-repo, it counts once that predecessor has
 merged. `global_limits.stack_depth_build_cap` holds
 back chains of open PRs; `project_limits.max_concurrent_stacks` bounds units being
 built. `project_limits.max_units_in_progress` bounds the units started and not finished
-across repos: running, in review or failed, and any planned or unplanned unit
+in each project: running, in review or failed, and any planned or unplanned unit
 that a run has started: one with a recorded branch, a pushed or approved commit or a pull request. Merged, closed and satisfied
 units, held units (set aside until a person releases them), and units that
 never started, do not count. A planned or unplanned unit parked on a held split

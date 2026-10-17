@@ -26,6 +26,10 @@ tier it needs. They are written as tags, and `abk tags` checks them.
 - `<tier>` is `unit-test` (the ordinary suite, run in CI) or `e2e-test` (needs the
   real local stack, serialized on one host). The old `tier1` and `tier2` are still
   read as the same kinds, with a deprecation notice from `abk tags` and `abk check`.
+- `<repo>` may carry a project: `[app/web]` is the project `web` of repo `app`, spelled as
+  the path the repo declares for it. A project the repo does not declare is refused, by
+  `abk tags` and by planning, with the file and line. Groups of different projects of one
+  repo become separate units.
 - `<flag>`, optional, is `contract`, `narrow` or `acceptance` — see below.
 
 Under each heading, tasks are checkbox lines numbered within the group:

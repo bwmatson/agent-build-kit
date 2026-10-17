@@ -31,8 +31,8 @@ to it now (`usage_pause_pct` in the `session` / `weekly` section of
 window's reset nears, when one is set) or unknown; `git fetch --prune origin` in every repo; poll each repo's host; plan changes whose `tasks.md` changed; apply
 `Needs:` lines; verify and archive fully merged changes; then resume the units a killed
 run or a usage pause left `running` from their threads and build the ready
-units, up to `project_limits.max_concurrent_stacks` at once. No unit that has never
-started does while the units in progress across all repos are at
+units, up to `project_limits.max_concurrent_stacks` at once in each project. No unit that has never
+started does while the units in progress in its project are at
 `project_limits.max_units_in_progress`, and a pass starts no more than fit under it;
 the tick log and `abk status` then say "queue is full: N units in progress,
 limit M" followed by the count in each state. Free slots
@@ -692,10 +692,18 @@ Is this installation in a state the pipeline can run in? Each check prints
 | replay cassettes `<repo>` | | a recording has waited for review through more than `tests.replay.review_after_runs` runs. A note, not a warning, when some wait but none past the limit. Only checked for repos with a `tests.replay` section |
 | telemetry traces / telemetry metrics | | `ABK_OTEL_ENABLED` is set and the signal has no endpoint (`OTEL_EXPORTER_OTLP_ENDPOINT`, or the per-signal one), or the endpoint does not answer. Only checked when enabled |
 
-### `abk config [--show | --path]`
+### `abk config [--show | --path | --migrate [--yes] [--dry-run]]`
 
 `--show` (the default) prints the effective configuration as YAML with every
 default filled in; `--path` prints the `abk.yaml` in force. Exit 0.
+
+`--migrate` edits the file's text, so comments and spacing stay: the root `limits` block
+becomes `global_limits`, and the three scheduling settings left in it move to
+`project_limits`. It prints the diff and asks; `--yes` skips the question and `--dry-run`
+prints the diff and writes nothing. The first original is kept as `abk.yaml.abk-backup`,
+and the write goes through a temporary file. Exit 0 when it wrote or had nothing to do,
+1 when not confirmed (or no terminal and no `--yes`), 2 when it refuses and writes
+nothing. `--yes` and `--dry-run` need `--migrate`.
 
 ### `abk project init PATH --profile NAME --repo REPO [--scaffold]`
 

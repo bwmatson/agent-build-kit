@@ -337,8 +337,8 @@ cannot do, and what a person does about it:
    (`abk check` and `abk tags` first).
 2. The next tick's planner reads its `tasks.md` and adds units to the graph.
 3. Units build in dependency order, at most `project_limits.max_concurrent_stacks`
-   at a time. No unit that has never started starts while the units in
-   progress across all repos are at `project_limits.max_units_in_progress`, and a pass
+   at a time in each project. No unit that has never started starts while the units in
+   progress in its project are at `project_limits.max_units_in_progress`, and a pass
    starts no more new units than fit under it: the rest stay `planned`, and
    the tick log and `abk status` say "queue is full: N units in progress,
    limit M" with the count in each state, then "N blocked not counted" and a
