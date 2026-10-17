@@ -346,6 +346,7 @@ def store_for(inst: Installation) -> UnitStore:
                 checks_of=recorded_checks(inst.state_dir),
                 paused=parked_units(inst, units),
                 restacking=restacking_bases(inst),
+                projects=declared_projects(inst.repos),
             )
         except Exception as error:  # noqa: BLE001
             log(f"graph not refreshed — {type(error).__name__}: {error}")
@@ -810,6 +811,7 @@ def cmd_graph(args: argparse.Namespace, inst: Installation) -> int:
         checks_of=recorded_checks(inst.state_dir),
         paused=parked_units(inst, units),
         restacking=restacking_bases(inst),
+        projects=declared_projects(inst.repos),
     )
     print(f"{inst.graph_page}: {len(units)} unit(s)")
     return 0
@@ -3982,6 +3984,7 @@ def _refresh_graph_page(inst: Installation, store: UnitStore) -> None:
             checks_of=recorded_checks(inst.state_dir),
             paused=parked_units(inst, units),
             restacking=restacking_bases(inst),
+            projects=declared_projects(inst.repos),
         )
     except Exception as error:  # noqa: BLE001
         log(f"graph not refreshed — {type(error).__name__}: {error}")

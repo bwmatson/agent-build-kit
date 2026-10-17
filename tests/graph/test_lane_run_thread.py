@@ -29,7 +29,7 @@ def test_the_lane_runs_the_thread_through_the_nodes_after_prepare_to_the_next_wa
     def unit_test(**kwargs: Any) -> tuple[bool, str]:
         if scenes:
             stages.append(("unit_test", scenes[0].in_the_lane()))
-        return graph.recorder.tier1(**kwargs)
+        return graph.recorder.unit_test(**kwargs)
 
     graph.options["run_unit_test"] = unit_test
     scene = Scene(graph, tmp_path)
