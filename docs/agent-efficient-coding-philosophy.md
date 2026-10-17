@@ -40,7 +40,7 @@ Reviewing everything has three costs:
   row learns that approval is the expected answer. A review that almost never
   finds anything stops being read closely, while it still looks like a
   safeguard.
-- **It limits throughput.** `limits.max_units_in_progress` and the stack-depth
+- **It limits throughput.** `project_limits.max_units_in_progress` and the stack-depth
   caps exist because open PRs waiting for a person pile up. The builder waits
   on the reviewer, and the reviewer is the slowest part of the pipeline.
 
@@ -320,7 +320,7 @@ sized for goes back for a split, and a deterministic verdict decides the tier.
 
 ### Sizing work by expected review
 
-The unit size ceiling (`limits.max_unit_lines`, 750 today) rests on one
+The unit size ceiling (`global_limits.max_unit_lines`, 750 today) rests on one
 argument: a person has to read the whole diff in one sitting. That argument
 holds only when a person reads it. A unit expected to auto-land is judged by
 gates, not read line by line, so a ceiling set for human attention is
@@ -649,8 +649,8 @@ currently relies on.
 **Planning and splitting**
 
 - **Capacity limits assume the reviewer is the bottleneck.** That includes
-  `limits.max_units_in_progress`, the stack-depth caps and the
-  "reviewable in one sitting" reasoning behind `limits.max_unit_lines`, which
+  `project_limits.max_units_in_progress`, the stack-depth caps and the
+  "reviewable in one sitting" reasoning behind `global_limits.max_unit_lines`, which
   is deprecated in favour of a ceiling per expected review tier. The floor,
   `min_unit_lines`, stays, to merge small groups.
 - **A started unit can't be reshaped or superseded today.** Re-planning

@@ -713,7 +713,7 @@ in that phase, and this one sweeps what is left.
 - **Stubs on awkward toolchains.** Profiles opt in; a profile that can't keeps
   today's pair.
 - **Priority 1 doesn't bypass limits.** It sorts these changes first, but
-  `limits.max_units_in_progress` and the stack-depth caps still apply, so Phases 0
+  `project_limits.max_units_in_progress` and the stack-depth caps still apply, so Phases 0
   and 5 in particular should be sized to fit them.
 
 ## Process

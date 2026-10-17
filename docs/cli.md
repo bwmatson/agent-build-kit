@@ -35,7 +35,13 @@ units, up to `project_limits.max_concurrent_stacks` at once in each project. No 
 started does while the units in progress in its project are at
 `project_limits.max_units_in_progress`, and a pass starts no more than fit under it;
 the tick log and `abk status` then say "queue is full: N units in progress,
-limit M" followed by the count in each state. Free slots
+limit M" followed by the count in each state. There is one such line for each project at its
+limit, and a workspace with several projects names the project in it
+(`queue is full: app/web: 9 units in progress, limit 9 (...)`); each line lists only its own
+project's blocked and failed-waiting units, and the reason a pass started nothing names only
+the full projects that hold a ready unit back. A unit of a repo with several projects is
+labelled `(repo/project)` wherever a status line names it. A workspace with one project reads
+as it always did. Free slots
 go to open-PR work first (reworks, restacks), then resuming builds, then new
 units.
 
@@ -108,7 +114,8 @@ line each test that failed tier 2 on the base too, with how many times and its f
 A `tier 2:` line names the unit holding the tier 2 lock and for how long; a record left by a
 process that is gone, on a free lock, is shown as stale, a held lock whose recorded process is gone
 says so, and a free lock with no record prints nothing.
-A `restacks: N running, M waiting` line, printed only while the restack lane has work or a unit
+The `queue is full` lines are one for each project at its limit, as the tick paragraph above says.
+A `restacks: N running, M waiting` line, which totals the lane of every project, printed only while a restack lane has work or a unit
 is owed a restack, is followed by each unit as `restacking onto <base>`; a restack waiting for a
 usage pause is listed with the pause. A record left by a tick that has gone is ignored.
 Changes nothing. Exit 0.

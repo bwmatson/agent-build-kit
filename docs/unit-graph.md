@@ -614,7 +614,7 @@ branch.
 ## Concurrency
 
 - One tick process runs the threads on asyncio, at most `max_concurrent_stacks`
-  executing at once. A thread waiting in an interrupt costs nothing.
+  executing at once in each project; the build pool holds every project's workers together. A thread waiting in an interrupt costs nothing.
 - The scheduler is unchanged in what it decides. `ready_units` picks what
   starts, and existing work goes first. What it does changes: it **starts** a
   thread for a new unit and **resumes** threads that have something to do (an
