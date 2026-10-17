@@ -43,6 +43,7 @@ def runtime_scratch(
     env = dict(agent_home(tmp_path_factory).env)
     if runtime != "acp":
         env.update({n: os.environ[n] for n in claude_account.NAMES if n in os.environ})
+        env["ABK_RUNTIME"] = runtime
         return RuntimeScratch(runtime=runtime, runtimes_yaml="", env=env, command=[])
     line = os.environ.get(AGENT_COMMAND, "")
     if not line:
