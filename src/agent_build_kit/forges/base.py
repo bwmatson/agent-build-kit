@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from agent_build_kit.settings import Settings
 
 # Injected so a check can be tested against recorded answers, the way
-# `tier2.post_status` and the `wiring.build_*` factories already take one.
+# `e2e.post_status` and the `wiring.build_*` factories already take one.
 Run = Callable[..., subprocess.CompletedProcess]
 
 

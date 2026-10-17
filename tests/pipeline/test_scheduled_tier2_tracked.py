@@ -121,7 +121,7 @@ def test_a_scheduled_unit_waits_for_a_held_tier_2_lock_without_failing(
     inst, store, _ = installation(tmp_path, monkeypatch)
     assert tick(inst) == 0
     clock = install_clock(monkeypatch, AT)
-    other = Foreign(inst.state_dir / "tier2.lock")
+    other = Foreign(inst.state_dir / "e2e.lock")
     clock.release_at(2 * HOUR, other.release)
     log: list[str] = []
     runner, ran = tier2_runner(inst, store, monkeypatch, log, store.get(UNIT))

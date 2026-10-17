@@ -27,6 +27,7 @@ from agent_build_kit.config import (
     YamlProvider,
 )
 from agent_build_kit.forges import Forge, RepoId
+from agent_build_kit.model import E2E_LOCK_FILE
 from agent_build_kit.pipeline.planning_repo import (
     common_dir,
     is_worktree_of,
@@ -96,10 +97,10 @@ class Installation:
         return changes_dir_under(self.root, self.config.planning.specs_dir)
 
     @property
-    def tier2_lock(self) -> Path:
-        return self.state_dir / "tier2.lock"
+    def e2e_lock(self) -> Path:
+        return self.state_dir / E2E_LOCK_FILE
 
-    e2e_lock = tier2_lock  # abk-forward
+    tier2_lock = e2e_lock  # abk-shim
 
     @property
     def graph_page(self) -> Path:

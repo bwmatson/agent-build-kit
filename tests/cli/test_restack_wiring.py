@@ -56,7 +56,7 @@ def restack_wiring(
         return build_tier1(run=run, changed=lambda *a: ["tests/test_x.py"], **kwargs)
 
     given: dict[str, Any] = {}
-    monkeypatch.setattr(cli, "build_tier1", faked)
+    monkeypatch.setattr(cli, "build_unit_test", faked)
     monkeypatch.setattr(cli, "build_restack", lambda **kwargs: given.update(kwargs) or {})
     cli.build_stack_moves(UnitStore(tmp_path / "units.json"), installation)
     return given, ran

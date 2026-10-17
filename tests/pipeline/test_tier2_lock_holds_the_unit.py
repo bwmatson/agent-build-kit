@@ -61,7 +61,7 @@ def tree(tmp_path: Path) -> Path:
 def test_a_wait_without_a_deadline_outlasts_the_old_hour(
     tmp_path: Path, clock: SleepingTime
 ) -> None:
-    lock = tmp_path / "tier2.lock"
+    lock = tmp_path / "e2e.lock"
     other = Foreign(lock)
     clock.release_at(2 * HOUR, other.release)
     taken = False
@@ -76,7 +76,7 @@ def test_a_wait_without_a_deadline_outlasts_the_old_hour(
 def test_a_tier_2_run_queued_behind_a_long_holder_runs_and_returns_its_result(
     workspace: Installation, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clock: SleepingTime
 ) -> None:
-    lock = workspace.state_dir / "tier2.lock"
+    lock = workspace.state_dir / "e2e.lock"
     other = Foreign(lock)
     clock.release_at(2 * HOUR, other.release)
     built, ran = runner(workspace, tmp_path, monkeypatch, [])
@@ -91,7 +91,7 @@ def test_a_tier_2_run_queued_behind_a_long_holder_runs_and_returns_its_result(
 def test_the_wait_is_logged_at_once_and_at_each_interval_with_the_holder_and_its_age(
     workspace: Installation, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clock: SleepingTime
 ) -> None:
-    lock = workspace.state_dir / "tier2.lock"
+    lock = workspace.state_dir / "e2e.lock"
     other = Foreign(lock, unit="other/1", pid=os.getpid(), age=40 * 60)
     clock.release_at(650, other.release)
     log: list[str] = []
@@ -113,7 +113,7 @@ def test_the_wait_is_logged_at_once_and_at_each_interval_with_the_holder_and_its
 def test_a_wait_that_ends_records_one_span_with_the_seconds_waited(
     workspace: Installation, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clock: SleepingTime
 ) -> None:
-    lock = workspace.state_dir / "tier2.lock"
+    lock = workspace.state_dir / "e2e.lock"
     other = Foreign(lock, pid=os.getpid())
     clock.release_at(400, other.release)
     built, _ = runner(workspace, tmp_path, monkeypatch, [])
@@ -130,7 +130,7 @@ def test_a_wait_that_ends_records_one_span_with_the_seconds_waited(
 def test_the_holder_writes_its_unit_process_and_start_into_the_file_and_clears_it(
     tmp_path: Path, clock: SleepingTime
 ) -> None:
-    lock = tmp_path / "tier2.lock"
+    lock = tmp_path / "e2e.lock"
 
     with stack_lock(lock, holder="add-marker/1"):
         record = json.loads(lock.read_text())
@@ -142,7 +142,7 @@ def test_the_holder_writes_its_unit_process_and_start_into_the_file_and_clears_i
 
 
 def test_the_record_is_cleared_when_the_body_raises(tmp_path: Path, clock: SleepingTime) -> None:
-    lock = tmp_path / "tier2.lock"
+    lock = tmp_path / "e2e.lock"
 
     with pytest.raises(ValueError):  # noqa: PT012 — the raise is the point
         with stack_lock(lock, holder="add-marker/1"):
@@ -170,7 +170,7 @@ def test_a_lock_taken_at_once_is_held_under_the_units_id_with_no_wait_logged_or_
 def test_a_free_lock_with_a_dead_holders_record_is_logged_stale_and_overwritten(
     workspace: Installation, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clock: SleepingTime
 ) -> None:
-    lock = workspace.state_dir / "tier2.lock"
+    lock = workspace.state_dir / "e2e.lock"
     gone = dead_pid()
     lock.parent.mkdir(parents=True, exist_ok=True)
     lock.write_text(record_line("other/1", gone))
@@ -193,7 +193,7 @@ def test_a_free_lock_with_a_dead_holders_record_is_logged_stale_and_overwritten(
 def test_a_held_lock_whose_recorded_process_is_gone_is_not_broken(
     workspace: Installation, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clock: SleepingTime
 ) -> None:
-    lock = workspace.state_dir / "tier2.lock"
+    lock = workspace.state_dir / "e2e.lock"
     gone = dead_pid()
     other = Foreign(lock, unit="other/1", pid=gone)
     clock.release_at(400, other.release)
@@ -213,7 +213,7 @@ def test_a_held_lock_whose_recorded_process_is_gone_is_not_broken(
 def test_a_caller_with_its_own_wait_holds_under_its_name_and_still_gets_busy(
     workspace: Installation, monkeypatch: pytest.MonkeyPatch, clock: SleepingTime
 ) -> None:
-    lock = workspace.state_dir / "tier2.lock"
+    lock = workspace.state_dir / "e2e.lock"
     other = Foreign(lock, pid=os.getpid())
     with pytest.raises(StackBusy):
         verify_one(workspace, "add-marker", [], wait=30)

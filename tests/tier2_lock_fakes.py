@@ -118,7 +118,7 @@ def tier2_runner(
     unit: Unit,
 ) -> tuple[wiring.UnitRunner, Ran]:
     """The runner of `unit` whose tests command is `Ran`, over the workspace's tier 2 lock."""
-    ran = Ran(workspace.state_dir / "tier2.lock")
+    ran = Ran(workspace.state_dir / "e2e.lock")
     monkeypatch.setattr(wiring, "_run", ran)
     monkeypatch.setattr(wiring, "_head_sha", lambda cwd: "abc1234")
     built = build_runner(unit, store=store, installation=workspace, log=log.append)

@@ -31,7 +31,7 @@ def test_the_base_run_can_be_turned_off() -> None:
 
 @pytest.mark.parametrize("value", [2, 3, -1])
 def test_a_value_other_than_zero_or_one_is_refused(value: int) -> None:
-    with pytest.raises(ValidationError, match="tier2_base_runs") as refused:
+    with pytest.raises(ValidationError, match="e2e_base_runs") as refused:
         limits(value)
 
     assert "Extra inputs" not in str(refused.value)

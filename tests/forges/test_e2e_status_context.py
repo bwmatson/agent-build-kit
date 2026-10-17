@@ -135,4 +135,4 @@ def test_an_integration_test_unit_posts_no_status_and_takes_no_lock_or_setting(
 
     assert hosted[2]() == []
     assert installation.e2e_lock.name == "e2e.lock"
-    assert not list(installation.state_dir.glob("*.lock"))
+    assert not installation.e2e_lock.exists()

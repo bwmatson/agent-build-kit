@@ -337,7 +337,7 @@ def test_a_remote_that_moved_is_refused_by_the_lease_and_the_move_is_not_retried
         moves.append("move")
         return real_move(*args, **kwargs)
 
-    monkeypatch.setattr(cli, "build_tier1", tier1)
+    monkeypatch.setattr(cli, "build_unit_test", tier1)
     monkeypatch.setattr(cli, "push_with_lease", refused)
     monkeypatch.setattr(restack, "move_branch_onto", counting_move)
 

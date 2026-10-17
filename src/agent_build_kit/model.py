@@ -28,6 +28,10 @@ class Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
+# The e2e-test lock's file name in the state directory.
+E2E_LOCK_FILE = "e2e.lock"
+
+
 class TestTier(StrEnum):
     """The kind of a test, by width: a unit test, an integration test (behaviour across modules
     or files in the ordinary suite, a label that behaves as a unit test), or an end-to-end test

@@ -165,7 +165,7 @@ def test_the_checks_of_a_branch_with_no_worktree_run_on_a_checkout_at_the_moved_
 
         return run
 
-    monkeypatch.setattr(cli, "build_tier1", tier1)
+    monkeypatch.setattr(cli, "build_unit_test", tier1)
     monkeypatch.setattr(
         cli,
         "push_with_lease",
