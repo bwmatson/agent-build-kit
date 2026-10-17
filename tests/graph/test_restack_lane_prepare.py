@@ -136,7 +136,7 @@ def test_a_resolved_move_writes_the_predecessor_note_and_leaves_the_head_unappro
     def unit_test(**kwargs: Any) -> tuple[bool, str]:
         unit = scene.graph.store.get(OTHER)
         seen.append((unit.predecessor_note, unit.approved))
-        return scene.graph.recorder.tier1(**kwargs)
+        return scene.graph.recorder.unit_test(**kwargs)
 
     scene.graph.options["run_unit_test"] = unit_test
     scene.told_its_base_moved()

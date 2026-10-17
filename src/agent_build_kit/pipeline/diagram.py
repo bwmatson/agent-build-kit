@@ -101,10 +101,13 @@ def render_mermaid(
     checks_of: ChecksOf | None = None,
     paused: Collection[str] = (),
     restacking: Mapping[str, str] | None = None,
+    projects: Mapping[str, Collection[str]] | None = None,
 ) -> str:
     """Draw `units`. `graph` is the whole store when `units` is a subset of it:
     whether a unit is blocked depends on parents that may not be drawn. `restacking` names
     the base of each unit the restack lane holds."""
+    if projects is not None:
+        raise NotImplementedError
     graph = graph if graph is not None else units
     index = {unit.id: unit for unit in units}
     ordered = sorted(units, key=lambda unit: (unit.repo, unit.id))
@@ -173,6 +176,7 @@ def render_markdown(
     checks_of: ChecksOf | None = None,
     paused: Collection[str] = (),
     restacking: Mapping[str, str] | None = None,
+    projects: Mapping[str, Collection[str]] | None = None,
 ) -> str:
     """The committed page: the diagram, a legend, and what awaits review."""
     shown = in_view(units)
@@ -189,6 +193,14 @@ def render_markdown(
         or "- Nothing is waiting on review."
     )
 
+    diagram = render_mermaid(
+        shown,
+        graph=units,
+        checks_of=checks_of,
+        paused=paused,
+        restacking=restacking,
+        projects=projects,
+    )
     return f"""\
 # Unit dependency graph
 
@@ -198,7 +210,7 @@ units it builds on directly. Rewritten whenever a unit changes state; do not
 edit by hand.
 
 ```mermaid
-{render_mermaid(shown, graph=units, checks_of=checks_of, paused=paused, restacking=restacking)}
+{diagram}
 ```
 
 ## Legend
