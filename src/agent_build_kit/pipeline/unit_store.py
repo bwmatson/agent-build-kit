@@ -33,7 +33,7 @@ from pydantic import Field, ValidationError, field_validator, model_validator
 
 from agent_build_kit.budget import cut_head
 from agent_build_kit.compat_names import Place, new_spelling
-from agent_build_kit.model import Frozen
+from agent_build_kit.model import Frozen, TestTier, widest_kind
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.units import (
@@ -585,6 +585,8 @@ class UnitStore:
                     update={
                         "joined": existing.joined,
                         "estimated_lines": existing.estimated_lines,
+                        # Nor is the kind a joined group widened it to.
+                        "tier": widest_kind([fresh.tier, existing.tier]),
                     }
                 )
             if existing:
@@ -670,13 +672,14 @@ class UnitStore:
         return dropped
 
     @_exclusive
-    def join(self, join: Join) -> tuple[int, int] | None:
+    def join(self, join: Join, *, group_kinds: Sequence[TestTier]) -> tuple[int, int] | None:
         """Apply a planned join, or return `None` and change nothing.
 
         Both units are read again here, because either may have started since
         the plan was made. On success the units' estimates before and after
         are returned, `onto` carries the work, a unit joined in is removed and
-        whatever depended on it depends on `onto`.
+        whatever depended on it depends on `onto`. `onto` takes the widest kind of its own, the
+        unit joined in and `group_kinds`, the kinds of the groups a change's join brings.
         """
         stored = self._read()
         onto = stored.get(join.onto)
@@ -691,10 +694,14 @@ class UnitStore:
         else:
             members, added = (Member(change=join.change, groups=join.groups),), join.estimated_lines
         before = onto.estimated_lines
-        grown = onto.taking(members, estimated_lines=added)
+        grown = onto.taking(
+            members,
+            estimated_lines=added,
+            kinds=[*group_kinds, *([taken.tier] if taken is not None else [])],
+        )
         stored[onto.id] = grown.model_copy(
             update={
-                "history": (*onto.history, {"state": onto.state, "at": _now(), "note": "joined"})
+                "history": (*onto.history, {"state": onto.state, "at": _now(), "note": "joined"}),
             }
         )
         if taken is not None:

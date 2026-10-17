@@ -34,6 +34,15 @@ def tasks_md(groups: int = 2, *, needs: dict[int, str] | None = None) -> str:
     return text
 
 
+def tagged_md(*tags: str, repo: str = "app") -> str:
+    """A tasks.md with one group per tag, each headed `## <n>. [<repo>] [<tag>] Group <n>`."""
+    text = f"# Tasks\n\n{OPT_OUT}\n"
+    for number, tag in enumerate(tags, start=1):
+        text += f"## {number}. [{repo}] [{tag}] Group {number}\n\n- [ ] {number}.1 Test: it.\n"
+        text += f"- [ ] {number}.2 Do it.\n\n"
+    return text
+
+
 def needs_md(*lines: str) -> str:
     text = f"# Tasks\n\n{OPT_OUT}\n## 1. [app] [tier1] The work\n\n"
     text += "".join(f"Needs: {line} — a reason\n" for line in lines)

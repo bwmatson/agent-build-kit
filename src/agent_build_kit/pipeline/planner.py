@@ -503,8 +503,9 @@ You are planning units of work for a spec-driven pipeline. Return JSON only.
 A **unit** is one PR's worth of work in exactly ONE repo. Repos: {repos}.
 Tiers: {tiers} (e2e-test needs the live local stack and is serialized). A group tagged
 `[unit-test]` (or the old `[{old_unit_test}]`) is tier
-`unit-test`; one tagged `[e2e-test]` (or the old `[{old_e2e}]`) is tier `e2e-test`, and a
-unit's tier is the tier of its groups.
+`unit-test`; one tagged `[integration-test]` is tier `integration-test`; one tagged
+`[e2e-test]` (or the old `[{old_e2e}]`) is tier `e2e-test`, and a
+unit's tier is the widest tier of its groups.
 
 Rules the graph must satisfy:
 - A unit never spans repos. Every task group heading carries its own repo
@@ -581,7 +582,8 @@ they overlap* — the same files or modules — and the pair is small. Do not jo
 two units merely because both are small. The unit that stays is the earlier.
 Every join must satisfy all of these, and a plan with one that does not is
 rejected:
-- same repo and same tier;
+- same repo and compatible kinds (`unit-test` and `integration-test` together, `e2e-test`
+  only with `e2e-test`);
 - a straight line: the later depends on the earlier (or would, for a group of
   the change above), nothing else depends on the earlier, and the later waits
   on nothing else unfinished;
@@ -594,7 +596,7 @@ stays under that ceiling.
 
 Respond with exactly this shape and nothing else (`joins` may be empty):
 {{"units": [{{"id": "<change>/<n>", "change": "...", "title": "...",
-  "repo": "...", "tier": "unit-test|e2e-test", "depends_on": ["<unit id>"],
+  "repo": "...", "tier": "unit-test|integration-test|e2e-test", "depends_on": ["<unit id>"],
   "estimated_lines": 0, "groups": [1]}}],
   "joins": [{{"onto": "<unit id>", "change": "<the change above>",
   "groups": [1], "estimated_lines": 0}}, {{"onto": "<unit id>", "unit": "<unit id>"}}]}}

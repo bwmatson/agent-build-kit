@@ -40,7 +40,7 @@ from agent_build_kit.forges import PullRequest
 from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun
 from agent_build_kit.installation import Installation
-from agent_build_kit.model import Frozen
+from agent_build_kit.model import Frozen, TestTier, widest_kind
 from agent_build_kit.notify.build import build_notifier
 from agent_build_kit.notify.reconcile import reconcile as reconcile_notifications
 from agent_build_kit.notify.store import NotificationStore
@@ -712,6 +712,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             log(f"  attached: {held.unit_id}{where} — a chat is open with {files} changed")
 
     for unit in units:
+        if unit.tier == TestTier.INTEGRATION_TEST and unit.state not in (MERGED, CLOSED, UNPLANNED):
+            log(f"  {unit.id} ({unit.repo}) is {unit.tier}")
         if unit.state == HELD and unit.held_by == HeldBy.REVIEW and unit.pr:
             since = _conflicting(inst, unit, conflicting).get(unit.pr)
             if since is not None:
@@ -2735,10 +2737,16 @@ def _carrying_unstarted(store: UnitStore, change: str) -> list[str]:
     ]
 
 
-def _tag_problems(store: UnitStore, change: str, groups: Sequence[TaskGroup]) -> list[str]:
+def _tag_problems(
+    store: UnitStore,
+    change: str,
+    groups: Sequence[TaskGroup],
+    catalog: Mapping[str, Sequence[TaskGroup]],
+) -> list[str]:
     """Where a started unit's stored repo, project, tier or flag differs from the tags of a group
-    of `change` it carries, its own or joined. Each line names the unit, the group and
-    the way out; none when they agree."""
+    of `change` it carries, its own or joined. The stored tier is compared with the widest kind
+    among all the groups the unit carries, of every change in `catalog`. Each line names the
+    unit, the group and the way out; none when they agree."""
     by_number = {g.number: g for g in groups}
     lines: list[str] = []
     for u in store.all():
@@ -2748,17 +2756,37 @@ def _tag_problems(store: UnitStore, change: str, groups: Sequence[TaskGroup]) ->
         if u.state in (FAILED, HELD):
             way_out += f", or `abk requeue --restart {u.id}` rebuilds it from the new tags"
         checks: list[tuple[str, str, str, str]] = []
+        carried_kinds: list[tuple[str, int, TestTier]] = []
+        here = False
+        all_found = True
         for member in u.members():
-            if member.change != change:
-                continue
+            known = (
+                by_number
+                if member.change == change
+                else {g.number: g for g in catalog.get(member.change, ())}
+            )
             for number in member.groups:
+                if group := known.get(number):
+                    carried_kinds.append((member.change, number, group.tier))
+                else:
+                    all_found = False
+                if member.change != change:
+                    continue
                 if group := by_number.get(number):
-                    stored_tier = str(u.tier)
+                    here = True
                     checks += [
                         (f"its group {number}", "repo", u.repo, group.repo),
                         (f"its group {number}", "project", u.project, group.project),
-                        (f"its group {number}", "tier", stored_tier, str(group.tier)),
                     ]
+        # With a group missing (its change archived, or the group removed) the widest kind
+        # cannot be known, so the stored tier is not compared.
+        if here and all_found:
+            widest = widest_kind(kind for _, _, kind in carried_kinds)
+            # Named by the first group of that kind, the one that sets the unit's; a group
+            # of another change is named with its change, since its number means nothing here.
+            owner, first, _ = next(c for c in carried_kinds if c[2] == widest)
+            named = f"its group {first}" + ("" if owner == change else f" of {owner}")
+            checks.append((named, "tier", str(u.tier), str(widest)))
         # The flag is the unit's own first flagged group (see `plan_kind`). A record
         # from before flags were kept stores none, which says nothing about the group.
         if u.change == change and u.flag:
@@ -2902,7 +2930,7 @@ def plan_all(
         # tags it copied at plan time can disagree with the file.
         built = _taken_groups(store, change)
         if task_groups and built >= {g.number for g in task_groups}:
-            problems = _tag_problems(store, change, task_groups)
+            problems = _tag_problems(store, change, task_groups, _task_catalog(inst))
             for line in problems:
                 log(f"{change}: {line}")
             if problems:
@@ -3029,7 +3057,7 @@ def plan_all(
             )
         before = {u.id: u for u in store.all()}
         store.upsert(units, change=change)
-        dropped = [join for join in plan.joins if not _write_join(inst, store, join)]
+        dropped = [join for join in plan.joins if not _write_join(inst, store, join, task_groups)]
         log(f"planned {change}: {len(units)} unit(s)")
         # After the joins, so a unit that took in more work is as urgent as its
         # most urgent group; a unit that has started keeps what it has.
@@ -3125,7 +3153,9 @@ def _orphaned_changes(store: UnitStore, before: dict[str, StoredUnit]) -> set[st
     }
 
 
-def _write_join(inst: Installation, store: UnitStore, join: Join) -> bool:
+def _write_join(
+    inst: Installation, store: UnitStore, join: Join, task_groups: Sequence[TaskGroup]
+) -> bool:
     """Apply one planned join with both branches held and both units read again.
 
     A branch a live process holds is a unit that has started, as one that has
@@ -3137,7 +3167,8 @@ def _write_join(inst: Installation, store: UnitStore, join: Join) -> bool:
         with ExitStack() as held:
             for branch in branches:
                 held.enter_context(branch_lock(branch, root=inst.state_dir / "locks"))
-            estimates = store.join(join)
+            kinds = [g.tier for g in task_groups if g.number in join.groups]
+            estimates = store.join(join, group_kinds=kinds)
     except (BranchBusy, KeyError):
         return False
     if estimates is None:
