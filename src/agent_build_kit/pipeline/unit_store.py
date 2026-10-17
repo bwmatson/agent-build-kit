@@ -104,6 +104,18 @@ class Cause(StrEnum):
     SPLIT_HELD = SPLIT_HELD_CAUSE
 
 
+class Keep:
+    """The sentinel `KEEP`: a state change the store makes on its own account passes it as
+    the cause to carry the unit's standing cause forward."""
+
+
+KEEP = Keep()
+
+# The two kinds of cause, which together are exactly the members of `Cause`.
+STANDING_CAUSES: frozenset[Cause] = frozenset()
+EVENT_CAUSES: frozenset[Cause] = frozenset()
+
+
 class RequeueReason(StrEnum):
     """Why a unit was requeued: what the requeue handling depends on, whatever
     the display text says."""
@@ -340,6 +352,11 @@ class StoredUnit(Unit):
         except ValueError:
             # Written by a newer release; read as a record from before causes were kept.
             return None
+
+    @property
+    def cause_since(self) -> datetime | None:
+        """When the entry that set the current cause was written, or `None` without one."""
+        raise NotImplementedError
 
     @model_validator(mode="before")
     @classmethod
@@ -741,7 +758,7 @@ class UnitStore:
         branch: str | None = None,
         note: str = "",
         held_by: HeldBy = HeldBy.NONE,
-        cause: Cause | None = None,
+        cause: Cause | None | Keep = None,
         held_base: str = "",
     ) -> None:
         """Record a state, optionally with why.
@@ -794,9 +811,11 @@ class UnitStore:
         branch: str | None,
         note: str,
         held_by: HeldBy,
-        cause: Cause | None,
+        cause: Cause | None | Keep,
         held_base: str,
     ) -> tuple[StoredUnit, list[StoredUnit], bool]:
+        if isinstance(cause, Keep):
+            raise NotImplementedError
         state = UnitState(state)
         stored = self._read()
         unit = stored[unit_id]
