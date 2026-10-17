@@ -531,7 +531,9 @@ def test_the_tick_polls_before_it_plans(
 
     cli.cmd_tick(argv_namespace(dry_run=True), inst)
 
-    assert order == ["poll", "schedule"]
+    # The tick that builds nothing evaluates once more to say why, so only the first
+    # evaluation's place is the point.
+    assert order[:2] == ["poll", "schedule"]
 
 
 def test_a_poller_failure_does_not_stop_the_tick(
