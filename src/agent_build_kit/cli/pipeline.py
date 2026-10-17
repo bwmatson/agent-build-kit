@@ -227,7 +227,9 @@ from agent_build_kit.pipeline.units import (
     in_progress,
     in_progress_label,
     local_ref,
+    project_counts,
     project_key,
+    project_tag,
     ready_units,
     second_parent_wait,
     stack_age_source,
@@ -533,14 +535,14 @@ def _restack_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
         return []
     lines = [f"restacks: {len(running)} running, {len(waiting) + len(owed)} waiting"]
     for entry in [*running, *waiting]:
-        where = f" ({by_id[entry['unit']].repo})" if entry["unit"] in by_id else ""
+        where = f" ({unit_label(by_id[entry['unit']])})" if entry["unit"] in by_id else ""
         lines.append(f"  {entry['unit']}{where} restacking onto {entry['base']}")
     pause = is_paused(_paused_marker(inst))
     for unit_id in owed:
         unit = by_id[unit_id]
         if pause is None or unit.cause is not Cause.RESTACK_DEFERRED:
             # Not deferred by a pause: a clean move proceeds during one.
-            lines.append(f"  {unit.id} ({unit.repo}) restacking onto {base_of(unit, units)}")
+            lines.append(f"  {unit.id} ({unit_label(unit)}) restacking onto {base_of(unit, units)}")
             continue
         verb = "usage pause" if pause.kind == "usage" else "paused"
         lines.append(f"  restack waiting: {unit.id} — {pause_line(pause, verb=verb)}")
@@ -645,17 +647,16 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     conflicted: dict[str, set[int]] = {}
     conflicting: dict[str, dict[int, datetime]] = {}
 
-    full = _queue_full_line(inst, units)
-    if full:
-        log(full)
+    for line in _queue_full_by_project(inst, units).values():
+        log(line)
     for line in _restack_lines(inst, units):
         log(line)
     for line in [
         *_split_wait_lines(inst, units),
-        *_blocked_lines(units),
-        *_failed_waiting_lines(units),
+        *_blocked_lines(inst, units),
+        *_failed_waiting_lines(inst, units),
         *_wait_ended_lines(inst, units),
-        *_second_parent_lines(units),
+        *_second_parent_lines(inst, units),
     ]:
         log(line)
 
@@ -694,20 +695,20 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             and unit.state not in (MERGED, CLOSED, UNPLANNED)
         ):
             log(
-                f"  estimate: {unit.id} ({unit.repo}) estimated {unit.estimated_lines} "
-                f"(calibrated {unit.calibrated_lines})"
+                f"  estimate: {unit.id} ({unit_label(unit)}) "
+                f"estimated {unit.estimated_lines} (calibrated {unit.calibrated_lines})"
             )
 
     for unit in units:
         if over_ceiling(unit.actual_lines):
             log(
-                f"  over the ceiling: {unit.id} ({unit.repo}) estimated "
+                f"  over the ceiling: {unit.id} ({unit_label(unit)}) estimated "
                 f"{unit.estimated_lines}, landed {unit.actual_lines}"
             )
 
     for held in Leases(lease_dir(inst.state_dir)).attachments():
         owner = next((u for u in units if u.id == held.unit_id), None)
-        where = f" ({owner.repo})" if owner else ""
+        where = f" ({unit_label(owner)})" if owner else ""
         files = f"{held.changed} file{'' if held.changed == 1 else 's'}"
         if held.stale:
             log(
@@ -718,35 +719,36 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             log(f"  attached: {held.unit_id}{where} — a chat is open with {files} changed")
 
     for unit in units:
+        where = unit_label(unit)
         if unit.tier == TestTier.INTEGRATION_TEST and unit.state not in (MERGED, CLOSED, UNPLANNED):
-            log(f"  {unit.id} ({unit.repo}) is {unit.tier}")
+            log(f"  {unit.id} ({where}) is {unit.tier}")
         if unit.state == HELD and unit.held_by == HeldBy.REVIEW and unit.pr:
             since = _conflicting(inst, unit, conflicting).get(unit.pr)
             if since is not None:
-                log(f"  held: {unit.id} ({unit.repo}) #{unit.pr} — {unit.note}; a person is needed")
+                log(f"  held: {unit.id} ({where}) #{unit.pr} — {unit.note}; a person is needed")
         if unit.state == HELD and unit.cause is Cause.DIRTY_WORKTREE:
-            log(f"  parked: {unit.id} ({unit.repo}) — {unit.note}")
+            log(f"  parked: {unit.id} ({where}) — {unit.note}")
         step = unit.step or "an unknown step"
         if unit.state == FAILED and unit.cause is Cause.ENVIRONMENT:
-            log(f"  waiting for the environment: {unit.id} ({unit.repo}) at {step} — {unit.note}")
+            log(f"  waiting for the environment: {unit.id} ({where}) at {step} — {unit.note}")
         elif unit.state == FAILED:
-            log(f"  failed: {unit.id} ({unit.repo}) at {step} — {unit.note}")
+            log(f"  failed: {unit.id} ({where}) at {step} — {unit.note}")
             if kept := _e2e_output(unit):
-                log(f"  full e2e-test output: {unit.id} ({unit.repo}) — {kept}")
+                log(f"  full e2e-test output: {unit.id} ({where}) — {kept}")
             if blocked := _blocked_by(unit, units):
                 log(f"  {blocked}")
         if (left := backoff_remaining(unit, spans.clock.now())) is not None:
             log(
-                f"  {waiting_for(unit)}: {unit.id} ({unit.repo}) at {step}, "
+                f"  {waiting_for(unit)}: {unit.id} ({where}) at {step}, "
                 f"{int(left.total_seconds())}s remain — {unit.note}"
             )
         if unit.state == PLANNED and unit.cause is Cause.GATED:
             waits = waiting_on(unit, units)
             if waits:
-                log(f"  {unit.id} ({unit.repo}) {dependency_wait(waits, repo=unit.repo)}")
+                log(f"  {unit.id} ({where}) {dependency_wait(waits, repo=unit.repo)}")
         if unit.close_pending:
             log(
-                f"  close pending: {unit.id} ({unit.repo}) #{unit.close_pending.pr} is "
+                f"  close pending: {unit.id} ({where}) #{unit.close_pending.pr} is "
                 "satisfied but still open; closing is retried each pass"
             )
         if unit.state == IN_REVIEW:
@@ -756,7 +758,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
                 owed = None
             if owed and owed.pending_replies:
                 log(
-                    f"  unposted replies: {unit.id} ({unit.repo}) #{unit.pr or '?'} — "
+                    f"  unposted replies: {unit.id} ({where}) #{unit.pr or '?'} — "
                     f"{_owed_count(owed.pending_replies)} waiting for the host to take them"
                 )
             if unit.repo not in conflicted:
@@ -783,7 +785,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
                 else "awaiting review"
             )
             ran_none = f" — {NO_TEST_RAN}" if unit.note == NO_TEST_RAN else ""
-            log(f"  {waiting}: {unit.id} ({unit.repo}) #{unit.pr or '?'}{mark}{ran_none}")
+            log(f"  {waiting}: {unit.id} ({where}) #{unit.pr or '?'}{mark}{ran_none}")
     return 0
 
 
@@ -1909,7 +1911,7 @@ def _split_wait_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[s
         names = ", ".join(unit.parked_splits)
         why = "; ".join(hold_text(hold) for hold in _holds_of_parked(inst, unit).values())
         lines.append(
-            f"  waiting for e2e-test split {names}: {unit.id} ({unit.repo})"
+            f"  waiting for e2e-test split {names}: {unit.id} ({unit_label(unit)})"
             + (f" — {why}" if why else " — released, resumes this round")
         )
     return lines
@@ -1918,7 +1920,10 @@ def _split_wait_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[s
 def _preview_split_releases(inst: Installation, store: UnitStore) -> None:
     """A dry run's account of the parked units the next round would release."""
     for unit in _releasable_split_units(inst, store.all()):
-        log(f"would release {unit.id} ({unit.repo}): the e2e-test splits it waits on are usable")
+        log(
+            f"would release {unit.id} ({unit_label(unit)}): "
+            "the e2e-test splits it waits on are usable"
+        )
 
 
 def resumable_units(
@@ -2083,25 +2088,38 @@ def _within_workers[U: Unit](
     return chosen
 
 
-def _queue_full_line(inst: Installation, units: list[StoredUnit]) -> str | None:
-    held = [unit for unit in units if in_progress(unit, units)]
-    if start_room(units, inst.max_units_in_progress):
-        return None
-    by_label: dict[str, int] = {}
-    for unit in held:
-        label = in_progress_label(unit)
-        by_label[label] = by_label.get(label, 0) + 1
-    states = ", ".join(f"{count} {label}" for label, count in sorted(by_label.items()))
-    line = (
-        f"queue is full: {len(held)} units in progress, limit {inst.max_units_in_progress} "
-        f"({states})"
-    )
-    waiting = _blocked_lines(units)
-    if waiting:
-        line += f"; {len(waiting)} blocked not counted"
-    if failed := failed_waiting_units(units):
-        line += f"; {len(failed)} failed waiting not counted"
-    return line
+def unit_label(unit: Unit) -> str:
+    """How the status names a unit's place: its repo, and `repo/project` for a project beside
+    the root of a repo."""
+    return project_tag(unit.repo, unit.project)
+
+
+def _queue_full_by_project(inst: Installation, units: list[StoredUnit]) -> dict[ProjectKey, str]:
+    """One line for each project at its limit of units in progress, with its own blocked and
+    failed-waiting units; the project is named when the workspace has more than one."""
+    named = len(_live_projects(inst, units)) > 1
+    lines: dict[ProjectKey, str] = {}
+    for key in sorted(project_counts(units), key=lambda k: (k.repo, k.project)):
+        if start_room(units, inst.max_units_in_progress, key):
+            continue
+        held = [unit for unit in units if in_progress(unit, units) and project_key(unit) == key]
+        by_label: dict[str, int] = {}
+        for unit in held:
+            label = in_progress_label(unit)
+            by_label[label] = by_label.get(label, 0) + 1
+        states = ", ".join(f"{count} {label}" for label, count in sorted(by_label.items()))
+        name = f"{unit_label(held[0])}: " if named else ""
+        line = (
+            f"queue is full: {name}{len(held)} units in progress, "
+            f"limit {inst.max_units_in_progress} ({states})"
+        )
+        waiting = _blocked_lines(inst, units, key)
+        if waiting:
+            line += f"; {len(waiting)} blocked not counted"
+        if failed := [u for u in failed_waiting_units(units) if project_key(u) == key]:
+            line += f"; {len(failed)} failed waiting not counted"
+        lines[key] = line
+    return lines
 
 
 def _deadlock_lines(units: list[StoredUnit]) -> list[str]:
@@ -2124,7 +2142,7 @@ def _deadlocked_unit_lines(units: list[StoredUnit]) -> list[str]:
         return []
     by_id = {unit.id: unit for unit in units}
     lines = [
-        f"  deadlocked: {unit_id} ({by_id[unit_id].repo}) is in the cycle {chain}"
+        f"  deadlocked: {unit_id} ({unit_label(by_id[unit_id])}) is in the cycle {chain}"
         for unit_id, chain in stuck.items()
     ]
     behind: dict[str, str] = dict(stuck)
@@ -2138,36 +2156,41 @@ def _deadlocked_unit_lines(units: list[StoredUnit]) -> list[str]:
             if parents:
                 behind[unit.id] = behind[parents[0]]
                 lines.append(
-                    f"  {unit.id} ({unit.repo}) waits on {', '.join(parents)}, deadlocked "
-                    f"in {behind[parents[0]]}"
+                    f"  {unit.id} ({unit_label(unit)}) waits on {', '.join(parents)}, "
+                    f"deadlocked in {behind[parents[0]]}"
                 )
                 grew = True
     return ["cannot start:", *lines]
 
 
-def _blocked_lines(units: list[StoredUnit]) -> list[str]:
-    """One line for each blocked unit that has work and so is not counted, with what it waits on."""
+def _blocked_lines(
+    inst: Installation, units: list[StoredUnit], project: ProjectKey | None = None
+) -> list[str]:
+    """One line for each blocked unit that has work and so is not counted, with what it waits on;
+    only those of `project` when one is given."""
     lines = []
     for unit in uncounted(units):
+        if project is not None and project_key(unit) != project:
+            continue
         waits = [parent.id for parent in waiting_on(unit, units)]
-        lines.append(f"  blocked: {unit.id} ({unit.repo}) waits on {', '.join(waits)}")
+        lines.append(f"  blocked: {unit.id} ({unit_label(unit)}) waits on {', '.join(waits)}")
     return lines
 
 
-def _second_parent_lines(units: list[StoredUnit]) -> list[str]:
+def _second_parent_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
     """One line for each unit that has never started and waits for a second open parent."""
     return [
-        f"  {unit.id} ({unit.repo}) {wait}"
+        f"  {unit.id} ({unit_label(unit)}) {wait}"
         for unit in units
         if (wait := second_parent_wait(unit, units))
     ]
 
 
-def _failed_waiting_lines(units: list[StoredUnit]) -> list[str]:
+def _failed_waiting_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
     """One line for each failed unit that waits on another unit, with what it waits on."""
     return [
         f"  failed, waiting on {', '.join(parent.id for parent in waiting_on(unit, units))}: "
-        f"{unit.id} ({unit.repo})"
+        f"{unit.id} ({unit_label(unit)})"
         for unit in failed_waiting_units(units)
     ]
 
@@ -2176,7 +2199,7 @@ def _wait_ended_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
     """The failed units left failed because a prerequisite closed, and, unless the requeue is
     off, how many were resumed today because their wait ended."""
     lines = [
-        f"  {unit.id} ({unit.repo}) wait ended: {unit.wait_ended} closed, requeue to retry"
+        f"  {unit.id} ({unit_label(unit)}) wait ended: {unit.wait_ended} closed, requeue to retry"
         for unit in units
         if unit.state == FAILED and unit.wait_ended
     ]
@@ -2224,7 +2247,7 @@ def _ready_queue_lines(inst: Installation, units: list[StoredUnit]) -> list[str]
         else:
             why = "planned order"
         marker = " (handoff)" if unit.id in handed_off else ""
-        lines.append(f"  {place}. {unit.id} ({unit.repo}) — {why}{marker}")
+        lines.append(f"  {place}. {unit.id} ({unit_label(unit)}) — {why}{marker}")
     return lines
 
 
@@ -2276,7 +2299,7 @@ def _blocked_by(unit: StoredUnit, units: list[StoredUnit]) -> str:
         return ""
     noun = "unit" if waiting == 1 else "units"
     return (
-        f"{unit.id} ({unit.repo}) has {waiting} {noun} waiting on it — "
+        f"{unit.id} ({unit_label(unit)}) has {waiting} {noun} waiting on it — "
         "requeue it with `abk requeue`"
     )
 
@@ -2292,19 +2315,25 @@ def _nothing_started_reason(
         return "nothing can start: " + "; ".join(
             f"deadlocked: {' -> '.join(cycle)}" for cycle in cycles
         )
-    full = _queue_full_line(inst, units)
-    if full and _evaluate(
-        inst,
-        units,
-        started=set(),
-        building=set(),
-        only=only,
-        enforce_limit=False,
-        idle=_idle_units(inst, units, ()),
-    ):
-        return "\n".join(
-            [f"{full}; no new unit starts until one finishes or is closed", *_blocked_lines(units)]
+    full_projects = _queue_full_by_project(inst, units)
+    if full_projects:
+        ready = _evaluate(
+            inst,
+            units,
+            started=set(),
+            building=set(),
+            only=only,
+            enforce_limit=False,
+            idle=_idle_units(inst, units, ()),
         )
+        held_back = {project_key(unit) for unit in ready}
+        lines = []
+        for key, line in full_projects.items():
+            if key in held_back:
+                lines.append(f"{line}; no new unit starts until one finishes or is closed")
+                lines.extend(_blocked_lines(inst, units, key))
+        if lines:
+            return "\n".join(lines)
     failed = [line for unit in units if unit.state == FAILED and (line := _blocked_by(unit, units))]
     if failed:
         return "nothing can start: " + "; ".join(failed)
@@ -2348,7 +2377,7 @@ def _candidate_lines(
     lines = []
     for unit, why in candidates[:NOTHING_READY_UNITS]:
         waiting = f", waits on {', '.join(why.waits_on)}" if why.waits_on else ""
-        lines.append(f"  {unit.id} ({unit.repo}): {why.reason.value}{waiting}")
+        lines.append(f"  {unit.id} ({unit_label(unit)}): {why.reason.value}{waiting}")
     if len(candidates) > NOTHING_READY_UNITS:
         lines.append(f"  (+{len(candidates) - NOTHING_READY_UNITS} more)")
     return lines

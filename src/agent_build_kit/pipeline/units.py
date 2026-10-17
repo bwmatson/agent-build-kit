@@ -174,6 +174,11 @@ class ProjectKey(Frozen):
     project: str = "."
 
 
+def project_tag(repo: str, project: str) -> str:
+    """How a person spells a project: the repo, and `repo/project` unless it is the root."""
+    return repo if project == "." else f"{repo}/{project}"
+
+
 def project_key(unit: Unit) -> ProjectKey:
     """The project a unit is counted in: its repo and its project."""
     return ProjectKey(repo=unit.repo, project=unit.project)

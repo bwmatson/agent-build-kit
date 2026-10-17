@@ -906,8 +906,8 @@ def test_a_full_queue_starts_nothing_and_says_so(
     assert builder.started == []
     assert builder.store.get("new/1").state == PLANNED
     assert "nothing ready" not in out
-    assert "3 units in progress, limit 2" in out
-    assert "3 in review" in out
+    assert "app: 2 units in progress, limit 2 (2 in review)" in out
+    assert "platform" not in out
 
 
 def test_a_failed_unit_is_named_among_those_holding_the_places(

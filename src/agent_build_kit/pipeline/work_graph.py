@@ -29,7 +29,7 @@ from typing import Protocol
 from agent_build_kit.compat_names import Place, TestKind, is_old_spelling, new_spelling, notice
 from agent_build_kit.config import RepoConfig, active
 from agent_build_kit.model import Frozen, TestTier
-from agent_build_kit.pipeline.units import Priority, reachable
+from agent_build_kit.pipeline.units import Priority, project_tag, reachable
 
 
 class HasPath(Protocol):
@@ -211,7 +211,7 @@ class TaskGroup(Frozen):
     @property
     def tag(self) -> str:
         """The first tag of the heading: the repo, and `/project` unless it is the root project."""
-        return self.repo if self.project == "." else f"{self.repo}/{self.project}"
+        return project_tag(self.repo, self.project)
 
 
 class ValidationError(Frozen):
