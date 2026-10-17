@@ -83,7 +83,7 @@ from agent_build_kit.profiles.base import ProfileUnsupported
 from agent_build_kit.redaction import MIN_LENGTH
 from agent_build_kit.redaction import active as active_redactor
 from agent_build_kit.replay.review import directories, overdue, waiting
-from agent_build_kit.runtimes import policy_check
+from agent_build_kit.runtimes import claude_code, policy_check
 from agent_build_kit.runtimes.base import AgentRuntime, Run, Which, account_report_of
 from agent_build_kit.scrub_terms import ROOT_HOME, TILDE_HOME
 from agent_build_kit.settings import settings
@@ -1160,6 +1160,14 @@ def _account(runtime: AgentRuntime, run: Run) -> list[Check]:
     ]
 
 
+def _labelled_accounts(inst: Installation, run: Run) -> list[Check]:
+    """What the Claude accounts the repos name by label need on this machine."""
+    return [
+        Check(name="claude account", status=line.status, detail=line.detail, fix=line.fix)
+        for line in claude_code.labelled_accounts_report(inst, run)
+    ]
+
+
 def _runtime(inst: Installation, which: Which, run: Run) -> list[Check]:
     """Which runtime the pipeline runs on, whether it can start, how much it
     interposes on, and whether it refuses what abk forbids."""
@@ -1451,6 +1459,8 @@ def run_doctor(
     checks += _timers(inst, run, units, which)
     checks += _toolchain(inst, run, which)
     checks += _runtime(inst, which, run)
+    if config.runtime_name(inst.config) == config.CLAUDE_CODE:
+        checks += _labelled_accounts(inst, run)
     checks += _notifications(inst, run, which)
     checks += _ssh_keys(inst)
     checks += _verify_env(inst, run)

@@ -16,7 +16,7 @@ import subprocess
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from agent_build_kit import claude_account, config
@@ -73,6 +73,9 @@ from agent_build_kit.runtimes.network import network_failure
 from agent_build_kit.runtimes.traced import traced
 from agent_build_kit.settings import named_value
 from agent_build_kit.usage import Context, ContextBasis, context_of
+
+if TYPE_CHECKING:
+    from agent_build_kit.installation import Installation
 
 # (argv, *, cwd, on_event, input) -> the finished process: `claude_stream.stream_run`'s
 # shape. `input` is the prompt, written to the process's standard input. `on_event` is called
@@ -182,10 +185,10 @@ def command() -> list[str]:
     return list(config.runtime_entry(name=NAME).command or AGENT_COMMAND)
 
 
-def _account_run_kwargs() -> dict[str, Any]:
+def _account_run_kwargs(account: claude_account.Account | None = None) -> dict[str, Any]:
     """How a `claude` that is not a build is started in the account: its environment,
     or nothing for the default account."""
-    entry = claude_account.environment_entry()
+    entry = claude_account.environment_entry(account)
     return {"env": child_environment(None, entry)} if entry else {}
 
 
@@ -478,10 +481,7 @@ class ClaudeCodeRuntime:
                     status="FAIL", detail=str(error), fix=f"write an absolute path for {where}"
                 )
             ]
-        login = " ".join(
-            [*(f"{name}={shlex.quote(value)}" for name, value in entry.items())]
-            + [*map(shlex.quote, command()), "auth", "login"]
-        )
+        login = _login_command(entry)
         lines: list[AccountLine] = []
         if entry and named_value("CLAUDE_CODE_OAUTH_TOKEN", env_file):
             lines.append(
@@ -492,17 +492,10 @@ class ClaudeCodeRuntime:
                     fix="unset CLAUDE_CODE_OAUTH_TOKEN so the guard reads the account's directory",
                 )
             )
-        if entry and not account.is_dir():
-            missing = AccountLine(
-                status="FAIL", detail=f"{account} ({where}) does not exist", fix=login
-            )
-            return [missing, *lines]
-        summary = (
-            f"{account} ({where}) exists" if entry else f"the default account {account} is in use"
-        )
-        if _logged_in(run):
-            return [AccountLine(status="ok", detail=f"{summary}, logged in"), *lines]
-        return [AccountLine(status="FAIL", detail=f"{summary}, not logged in", fix=login), *lines]
+        if entry:
+            return [*_directory_lines(run, None, account, f"{account} ({where})", login), *lines]
+        name = f"the default account {account} is in use"
+        return [*_directory_lines(run, None, None, name, login), *lines]
 
     def check_policy(self, cwd: Path) -> PolicyReport:
         """Answered locally: every policed run registers the hook and passes
@@ -510,7 +503,58 @@ class ClaudeCodeRuntime:
         return PolicyReport(ok=True)
 
 
-def _logged_in(run: Run) -> bool:
+def _login_command(entry: dict[str, str]) -> str:
+    """The command a person runs to sign in to the account whose environment is `entry`."""
+    return " ".join(
+        [*(f"{name}={shlex.quote(value)}" for name, value in entry.items())]
+        + [*map(shlex.quote, command()), "auth", "login"]
+    )
+
+
+def _directory_lines(
+    run: Run,
+    account: claude_account.Account | None,
+    directory: Path | None,
+    name: str,
+    login: str,
+) -> list[AccountLine]:
+    """What one account says of itself: its `directory` is missing (an error), or it is not
+    logged in (an error), or it is. A `directory` of None is the default account, whose
+    existence is not asked."""
+    if directory is not None:
+        if not directory.is_dir():
+            return [AccountLine(status="FAIL", detail=f"{name} does not exist", fix=login)]
+        name = f"{name} exists"
+    if _logged_in(run, account):
+        return [AccountLine(status="ok", detail=f"{name}, logged in")]
+    return [AccountLine(status="FAIL", detail=f"{name}, not logged in", fix=login)]
+
+
+def labelled_accounts_report(inst: Installation, run: Run) -> list[AccountLine]:
+    """One line for each account label a repo names: a note when this machine gives the label
+    no directory (its repos use the default account), an error with the login command when the
+    directory is missing or not logged in."""
+    labels = sorted({repo.account for repo in inst.config.repos.values() if repo.account})
+    lines: list[AccountLine] = []
+    for label in labels:
+        account = claude_account.resolve(inst, label)
+        directory = account.config_dir
+        if directory is None:
+            lines.append(
+                AccountLine(
+                    status="info",
+                    detail=f"account {label!r} has no config_dir on this machine: its repos "
+                    "run on the default account",
+                )
+            )
+            continue
+        login = _login_command(claude_account.environment_entry(account))
+        name = f"account {label!r}: {directory}"
+        lines += _directory_lines(run, account, directory, name, login)
+    return lines
+
+
+def _logged_in(run: Run, account: claude_account.Account | None = None) -> bool:
     """Whether `auth status` exits 0 with `loggedIn` true; nothing else of its answer is read."""
     try:
         done = run(
@@ -519,7 +563,7 @@ def _logged_in(run: Run) -> bool:
             text=True,
             check=False,
             timeout=60,
-            **_account_run_kwargs(),
+            **_account_run_kwargs(account),
         )
         answer = json.loads(done.stdout)
     except (OSError, ValueError, subprocess.SubprocessError):
