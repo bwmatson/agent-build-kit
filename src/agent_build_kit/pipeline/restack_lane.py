@@ -27,7 +27,7 @@ from agent_build_kit.pipeline.events import Claim
 from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.shell import git
-from agent_build_kit.pipeline.unit_store import Cause, StoredUnit
+from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     IN_REVIEW,
     PLANNED,
@@ -75,6 +75,26 @@ def owed_a_restack(
         and not held(unit)
         and not holds_base(unit)
     )
+
+
+def owed_a_moved_base_run(
+    unit: StoredUnit,
+    graph: list[StoredUnit],
+    *,
+    has_commits: Callable[[StoredUnit], bool],
+    head: Callable[[StoredUnit], str],
+    held: Callable[[StoredUnit], bool],
+    leased: Callable[[StoredUnit], bool],
+) -> bool:
+    raise NotImplementedError
+
+
+def clear_answered_feedback(store: UnitStore, unit: StoredUnit, head: str) -> None:
+    raise NotImplementedError
+
+
+def moved_base_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
+    raise NotImplementedError
 
 
 def owed_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
