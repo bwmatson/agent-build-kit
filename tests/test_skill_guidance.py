@@ -39,7 +39,7 @@ PIPELINE_PHRASES = {
     "enable-linger": "loginctl enable-linger",
     "running with no process": "marked `running` with no process",
     "never under a timeout": "never under a timeout",
-    "slot rule": "count against `limits.max_units_in_progress`",
+    "slot rule": "count against their own project's `project_limits.max_units_in_progress`",
     "usage report by": "abk report --by",
     "usage report context": "--context",
 }

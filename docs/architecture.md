@@ -104,7 +104,8 @@ refuses a change with tag errors before spending a model call on it:
 
 ### 2. Planning into units
 
-A **unit** is one PR's worth of task groups, in exactly one repo. It has one
+A **unit** is one PR's worth of task groups, in exactly one repo and one project of it
+(`Unit.project`). It has one
 identity, its first change's id and branch, and may also carry groups of other
 changes (`Unit.joined`); `Unit.members()` is the single way to ask which
 change's groups it builds, its own first. Building, review, ticking, archive
@@ -225,7 +226,7 @@ stacks on that predecessor; cross-repo, it counts once that predecessor has
 merged. `global_limits.stack_depth_build_cap` holds
 back chains of open PRs; `project_limits.max_concurrent_stacks` bounds units being
 built. `project_limits.max_units_in_progress` bounds the units started and not finished
-across repos: running, in review or failed, and any planned or unplanned unit
+in each project: running, in review or failed, and any planned or unplanned unit
 that a run has started: one with a recorded branch, a pushed or approved commit or a pull request. Merged, closed and satisfied
 units, held units (set aside until a person releases them), and units that
 never started, do not count. A planned or unplanned unit parked on a held split
@@ -247,8 +248,9 @@ it waits on (a handoff unit): one prerequisite starts for each blocked unit's
 place (one unit for each place; several by effective priority, then effective age; it
 starts among the new units by the order below, so it never goes ahead of a more urgent one),
 within the limit and `max_concurrent_stacks`. A restack takes none of these: the merge, release
-and depth handlers hand each moved child to the restack lane (`project_limits.max_concurrent_restacks`
-workers apart from the build workers) instead of restacking inline, and the lane asks the usage
+and depth handlers hand each moved child to the restack lane of the unit's project (each project has its own lane, with
+`project_limits.max_concurrent_restacks` workers apart from the build workers and a queue in
+the order restacks were seen, so a busy project does not hold back another's restacks) instead of restacking inline, and the lane asks the usage
 guard before its conflict resolver. Free slots then go to
 units with an open pull request, then to those resuming a build, then to new
 ones. The first two go in planned order; new ones go by effective priority, then handoff
@@ -1241,7 +1243,7 @@ approved.
   clean base worktree on a large repo's own tier 2 suite was not measured.
 
 - **A unit's tier 2 run is narrowed to its own tests.** Under `e2e_unit_scope: own` (the
-  default; `limits`, with `tests.e2e_unit_scope` per repo; the old `tier2_unit_scope` still
+  default; `global_limits`, with `tests.e2e_unit_scope` per repo; the old `tier2_unit_scope` still
   loads) a unit runs only the tier 2 tests
   its branch added or changed, selected by identifier together with the marker. A unit with
   none runs nothing, takes no lock and says `tier 2 skipped: no tier 2 test added or changed`;
@@ -1251,7 +1253,7 @@ approved.
   `full`.
 
 - **The whole tier 2 suite runs on a schedule.** `e2e_schedule` (`daily`, `weekly` by
-  default, `monthly` or `off`; `limits`, with `tests.e2e_schedule` per repo; the old
+  default, `monthly` or `off`; `global_limits`, with `tests.e2e_schedule` per repo; the old
   `tier2_schedule` still loads) makes each round, before planning and ahead of the usage
   guard, write `scheduled-tier2-<repo>-<date>-<split>` for each split of a repo with a tier 2
   unit that is due, without a model call. The due date is read from the names of the split's

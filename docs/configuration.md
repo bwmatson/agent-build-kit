@@ -227,13 +227,27 @@ context:
   warn_share: 0.8               # a step ending above this share of the window logs a
                                 # warning (a signal only)
 
-limits:
+# Scheduling is set once for every project in `project_limits`; the rest of the
+# workspace-wide settings are `global_limits`. There is no per-repo override of
+# `project_limits`; a setting a repo needs of its own is a follow-on change, not a key.
+# The old root name `limits` still loads as `global_limits` with a deprecation notice
+# (both set is an error). A scheduling setting left in `global_limits` or `limits`
+# fails the load; `abk config --migrate` moves it (see docs/cli.md).
+project_limits:
+  max_concurrent_stacks: 4      # units being built at once, in each project
+  max_concurrent_restacks: 2    # restacks (a branch moved onto a changed base) at once in
+                                # each project; they take no build slot
+  max_units_in_progress: 5      # units started and not finished, in each project, at
+                                # least 1; at it no unit that has never started does,
+                                # while reworks, resumes and finishing reviewed work
+                                # still run; a blocked unit, and a failed unit that waits
+                                # on another unit, do not count
+
+global_limits:
   stack_depth_build_cap: 3      # longest chain of in-review PRs from main a
                                 # new unit may extend
   stack_depth_rebase_cap:       # deepest a dependent may sit when a merge
                                 # restacks it; unset = the build cap's value
-  max_concurrent_stacks: 4      # units being built at once, across all repos
-  max_concurrent_restacks: 2    # restacks (a branch moved onto a changed base) at once; they take no build slot
   max_flakes_per_run: 5         # more tests than this failing a run's first pass and passing
                                 # alone is one recorded storm, no fix change per test
   checks_register_seconds: 120  # seconds after a push in which a pull request with no
@@ -241,12 +255,6 @@ limits:
   label_sweep_per_tick: 20      # finished units' pull requests whose stale state
                                 # label a round takes off (each tick and each
                                 # refresh of a pass), at least 1
-  max_units_in_progress: 5      # units started and not finished, across all
-                                # repos, at least 1; at it no unit that has
-                                # never started does, while reworks, resumes
-                                # and finishing reviewed work still run; a
-                                # blocked unit, and a failed unit that waits
-                                # on another unit, do not count
   min_unit_lines: 400           # estimated changed lines before the planner
                                 # stops absorbing the next task group
   max_unit_lines: 750           # estimated changed lines one unit may carry;

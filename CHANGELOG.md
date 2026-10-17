@@ -403,7 +403,10 @@
   nothing names only the full projects that hold a ready unit back, with their own blocked
   units; and a unit of a project beside its repo's root is shown as `(repo/project)` in
   every status line that names it. A workspace with
-  one project reads as before.
+  one project reads as before. A task group's heading may name a project of its repo
+  (`[app/web]`); an undeclared project is refused by `abk tags` and by planning, groups of
+  different projects of one repo become separate units, and a started unit whose group is
+  re-tagged to another project is reported and not re-planned.
 
 - A `Needs:` line whose target the unit already reaches through its dependencies is no longer
   linked again on every tick; the unit's `needs` names every declared target, linked or not,
