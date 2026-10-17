@@ -60,7 +60,14 @@ OLD_HELPER_FAKES = (
 )
 PIPELINE_TESTS = TESTS / "pipeline"
 GRAPH_TESTS = TESTS / "graph"
-GRAPH_TEST_RANGES = (("test_adopted_event", "test_open_pr_limit"),)
+GRAPH_TEST_RANGES = (
+    ("test_adopted_event", "test_open_pr_limit"),
+    ("test_outside_commits_prompt", "test_tier2_failure_log"),
+    ("test_tier2_feedback", "test_wait_end_requeue_note"),
+)
+CONVERTED_TEST_DIRECTORIES = ("config", "fixtures", "forges", "init")
+# The settings-alias test names the old keys on purpose: they are what it loads.
+OLD_NAME_TESTS = ("test_test_kind_settings_aliases.py",)
 
 
 def text_files(folder: Path) -> list[Path]:
@@ -97,6 +104,16 @@ def graph_test_files() -> list[Path]:
     )
 
 
+def converted_test_directory_files() -> list[Path]:
+    """Every text file under the converted test directories, bar the tests of the old names."""
+    return [
+        p
+        for name in CONVERTED_TEST_DIRECTORIES
+        for p in text_files(TESTS / name)
+        if p.name not in OLD_NAME_TESTS
+    ]
+
+
 def converted_files() -> list[Path]:
     """The pipeline package, the converted source directories, `web/src` and the test helpers."""
     return [
@@ -108,6 +125,7 @@ def converted_files() -> list[Path]:
         *helper_files(),
         *pipeline_test_files(),
         *graph_test_files(),
+        *converted_test_directory_files(),
     ]
 
 
@@ -166,5 +184,15 @@ def test_each_old_fake_module_name_gives_the_objects_of_the_renamed_one(old: str
 
 def test_no_converted_pipeline_test_file_is_named_for_an_old_spelling() -> None:
     offenders = [p.name for p in pipeline_test_files() if OLD_SPELLING.search(p.name)]
+
+    assert offenders == []
+
+
+def test_no_converted_test_directory_file_is_named_for_an_old_spelling() -> None:
+    offenders = [
+        str(p.relative_to(TESTS))
+        for p in [*graph_test_files(), *converted_test_directory_files()]
+        if OLD_SPELLING.search(p.name)
+    ]
 
     assert offenders == []
