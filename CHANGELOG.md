@@ -8,6 +8,9 @@
   bytes as an argument, 2,000,000 on standard input or as a protocol message) fails before any
   process starts, with a message naming the call, the size, the limit and the transport. A
   wrapper set as `runtimes.claude_code.command` must pass its standard input on to `claude`.
+  The planner's list of units in flight now leaves out merged and satisfied units of other
+  changes (one line gives their count), and a planner prompt that is still too large fails the
+  attempt naming the size of each part.
 
 - The three `abk-*` skills (now version 1.1.0), the planning orientation template, the track
   prompts and the contributor rules say that a planning repo can be one of the code repos: the
