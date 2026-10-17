@@ -20,7 +20,7 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.lease import Leases, lease_dir
-from agent_build_kit.pipeline.pause import pause_in_force
+from agent_build_kit.pipeline.pause import PAUSE_MARKER, pause_in_force
 from agent_build_kit.pipeline.restack_lane import RestackLanes
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
@@ -292,18 +292,26 @@ def test_a_tick_makes_the_moved_base_run_in_the_lane_and_submits_only_builds_to_
     assert where[MOVED] == "restack", "the moved-base run ran in the lane, not on the pool"
 
 
-def test_a_run_the_usage_window_refused_is_not_made_again_by_the_next_scan(
+def test_a_lane_run_the_usage_window_refused_waits_for_the_pause_to_end_before_it_is_made_again(
     scene: Scene,
 ) -> None:
     def refused(unit: StoredUnit) -> RunOutcome:
         raise RateLimited("usage limit reached")
 
     scene.ends = refused
+    scene.store.set_state(MOVED, RUNNING, branch=f"spec/{MOVED}")
+    scene.store.set_moved_base_run(MOVED, True)  # a lane run an earlier process lost
 
     with cli.build_restack_lane(scene.inst, scene.store) as lanes:
         lanes.scan(scene.store.all())
         lanes.drain()
+        assert pause_in_force(scene.inst.state_dir)
+        lanes.scan(scene.store.all())
+        lanes.drain()
+        assert scene.ran == [MOVED], "the pause stands, so the scan leaves the run alone"
+
+        (scene.inst.state_dir / PAUSE_MARKER).unlink()
         lanes.scan(scene.store.all())
         lanes.drain()
 
-    assert scene.ran == [MOVED]
+    assert scene.ran == [MOVED, MOVED], "the pause ended, so the run is made again"
