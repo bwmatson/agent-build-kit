@@ -147,10 +147,14 @@ from agent_build_kit.pipeline.restack_lane import (
     Rest,
     RestackLane,
     RestackLanes,
+    base_tip,
+    forget_run_attempt,
+    hold_if_spent,
     in_a_lane_run,
     lane_record,
     owed_units,
     record_path,
+    record_run_attempt,
 )
 from agent_build_kit.pipeline.run_log import (
     RunLog,
@@ -3668,6 +3672,8 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
         if in_a_lane_run(unit):
             return run_of(unit.id)  # An interrupted run: its thread resumes at its node.
         graph = store.all()
+        if hold_if_spent(inst, store, unit, graph):
+            return None
         repo = inst.checkouts[unit.repo]
         branch = unit.branch or branch_name(unit)
         new_base = base_of(unit, graph)
@@ -4131,6 +4137,7 @@ def _build_unit(
     branch = branch_name(unit)
     run_log: RunLog | None = None
     ended = "interrupted"
+    before: StoredUnit | None = None  # the unit as it was, when this run began an attempt
 
     def say(message: str) -> None:
         # One stamp for both, so the file lines up with the journal.
@@ -4208,6 +4215,10 @@ def _build_unit(
                     return True
                 if moved_base_run:
                     # The lane's run: flagged only now that it holds the branch and may go on.
+                    # A run that starts is an attempt at its base's tip; one resumed is not.
+                    if not unit.moved_base_run:
+                        before = unit
+                        record_run_attempt(store, unit, base_tip(inst, unit, store.all()))
                     store.set_moved_base_run(unit.id, True)
                 # A step recorded by an earlier run belongs to that run. A parked unit, or one
                 # the restack lane handed back, resumes at its node, which never passes
@@ -4268,6 +4279,8 @@ def _build_unit(
             # tick resumes its thread at the node it was in. Not failed — nothing
             # is known to be wrong.
             end(f"interrupted ({error}); the next tick resumes it", UnitOutcome.INTERRUPTED)
+            if before is not None:
+                forget_run_attempt(store, before)  # It never got going: not an attempt.
             return True
         except RateLimited as error:
             # Not the unit's fault and not retried: the account is out of room, so

@@ -21,14 +21,22 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any
 
+from agent_build_kit.config import active
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.events import Claim
 from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.shell import git
-from agent_build_kit.pipeline.unit_store import Cause, FeedbackSource, StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import (
+    Cause,
+    FeedbackSource,
+    HeldBy,
+    StoredUnit,
+    UnitStore,
+)
 from agent_build_kit.pipeline.units import (
+    HELD,
     IN_REVIEW,
     PLANNED,
     RUNNING,
@@ -175,6 +183,79 @@ def moved_base_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
             leased=lambda unit: leases.holder(unit.id) is not None,
         )
     }
+
+
+def base_tip(inst: Installation, unit: StoredUnit, units: list[StoredUnit]) -> str:
+    """The commit the unit's base is at, empty when it cannot be read."""
+    repo = inst.checkouts[unit.repo]
+    ref = local_ref(base_of(unit, units), repo=unit.repo)
+    return git(repo, "rev-parse", "--verify", "--quiet", ref, check=False).stdout.strip()
+
+
+def attempts_at(unit: StoredUnit, tip: str) -> int:
+    """How many attempts, the conflict handler's and the lane's, were made at base tip `tip`."""
+    return unit.conflict_attempts if tip and unit.conflict_tip == tip else 0
+
+
+def record_run_attempt(store: UnitStore, unit: StoredUnit, tip: str) -> None:
+    """That a moved-base run starts: one more attempt at `tip`, with the head pushed now."""
+    store.record_conflict_attempt(
+        unit.id,
+        tip=tip,
+        head=unit.pushed or "",
+        attempts=attempts_at(unit, tip) + 1,
+        at=spans.clock.now(),
+    )
+
+
+def forget_run_attempt(store: UnitStore, before: StoredUnit) -> None:
+    """That the run just recorded never got going: the unit's record is as `before` had it."""
+    if before.conflict_attempts and before.conflict_at is not None:
+        store.record_conflict_attempt(
+            before.id,
+            tip=before.conflict_tip,
+            head=before.conflict_head,
+            attempts=before.conflict_attempts,
+            at=before.conflict_at,
+        )
+    else:
+        store.clear_conflict_attempts(before.id)
+
+
+def _last_ended(unit: StoredUnit) -> str:
+    """How the unit's last run ended: the latest record in its history that is not how it stands."""
+    standing = (unit.state, unit.cause)
+    for entry in reversed(unit.history):
+        cause = Cause(entry["cause"]) if entry.get("cause") else None
+        if (entry["state"], cause) != standing:
+            ended = str(entry["state"])
+            return f"{ended} for {cause.value.replace('_', ' ')}" if cause else ended
+    return str(unit.state)
+
+
+def hold_if_spent(
+    inst: Installation, store: UnitStore, unit: StoredUnit, units: list[StoredUnit]
+) -> bool:
+    """Hold, for a person, a unit whose attempts at its base's tip are spent, as the conflict
+    handler does; whether it was held. A new tip starts the count at zero."""
+    tip = base_tip(inst, unit, units)
+    done = attempts_at(unit, tip)
+    if done < active().global_limits.max_review_rounds:
+        return False
+    base = base_of(unit, units)
+    store.set_state(
+        unit.id,
+        HELD,
+        note=(
+            f"restack held: {done} attempts at {base}'s tip {tip[:12]} did not settle it; "
+            f"the last ended {_last_ended(unit)}"
+        ),
+        held_by=HeldBy.REVIEW,
+        cause=Cause.NEEDS_HUMAN,
+        pr=unit.pr,
+        branch=unit.branch,
+    )
+    return True
 
 
 def owed_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
