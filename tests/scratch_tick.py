@@ -193,3 +193,9 @@ def commits_on_unit_branch(
     except subprocess.CalledProcessError:
         remembered = ticks_of(scratch)
         pytest.fail(_failure(scratch, branch, tick or (remembered[-1] if remembered else None)))
+
+
+def register_scratch(scratch: Scratch) -> None:
+    """Make `scratch` the one the failure dump of the running test reads, for a test that builds
+    its scratch inside a helper and so has none as a fixture argument."""
+    raise NotImplementedError
