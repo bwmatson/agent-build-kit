@@ -127,7 +127,7 @@ def test_a_free_sessions_commit_is_listed_in_the_next_check_fix_review_and_rewor
         {"src/notes.py": "NOTE = 2\n", "tests/test_notes.py": "def test_note(): ...\n"},
         FREE_SESSION,
     )
-    recorder.tier1_results = [(False, "lint: unused import"), (True, "")]
+    recorder.unit_test_results = [(False, "lint: unused import"), (True, "")]
     recorder.verdicts = [rejecting("The note is not tested for the empty case.")]
     reviews_before = len(recorder.contexts)
     tick(tmp_path, recorder, event=ADOPTED, **overrides)
@@ -151,7 +151,7 @@ def test_each_outside_commit_is_listed_with_its_own_session(tmp_path: Path) -> N
     tick(tmp_path, recorder, **overrides)
     first = land(repo, "First change", {"src/a.py": "A = 1\n"}, FREE_SESSION)
     second = land(repo, "Second change", {"src/b.py": "B = 1\n"}, OTHER_FREE_SESSION)
-    recorder.tier1_results = [(False, "lint: nope"), (True, "")]
+    recorder.unit_test_results = [(False, "lint: nope"), (True, "")]
 
     tick(tmp_path, recorder, event=ADOPTED, **overrides)
     tick(tmp_path, recorder, **overrides)
@@ -169,7 +169,7 @@ def test_an_outside_commit_that_changed_a_test_asks_for_keep_adapt_or_retire_onl
     recorder, builder, overrides = drive(tmp_path)
     tick(tmp_path, recorder, **overrides)
     land(repo, "Reword the test", {"tests/test_notes.py": "def test_note(): ...\n"}, FREE_SESSION)
-    recorder.tier1_results = [(False, "lint: nope"), (True, "")]
+    recorder.unit_test_results = [(False, "lint: nope"), (True, "")]
 
     tick(tmp_path, recorder, event=ADOPTED, **overrides)
     tick(tmp_path, recorder, **overrides)
@@ -186,7 +186,7 @@ def test_an_outside_commit_that_changed_no_test_asks_for_no_decision(tmp_path: P
     recorder, builder, overrides = drive(tmp_path)
     tick(tmp_path, recorder, **overrides)
     land(repo, "Rename the marker", {"src/notes.py": "NOTE = 2\n"}, FREE_SESSION)
-    recorder.tier1_results = [(False, "lint: nope"), (True, "")]
+    recorder.unit_test_results = [(False, "lint: nope"), (True, "")]
 
     tick(tmp_path, recorder, event=ADOPTED, **overrides)
     tick(tmp_path, recorder, **overrides)

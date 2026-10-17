@@ -1,4 +1,4 @@
-"""The classic runner's scenarios for adapt, tier 2, satisfied, escalations,
+"""The classic runner's scenarios for adapt, e2e-test, satisfied, escalations,
 holds, spent rounds and moved bases, run through the graph engine with the same
 injected fakes (docs/unit-graph.md, Testing): each reaches the same outcome,
 state and pull request as `UnitRunner.run`.
@@ -38,7 +38,7 @@ from tests.graph_driver import position
 from tests.runner_fakes import Recorder, make_runner, rejecting
 
 
-def fresh(tmp_path: Path, *, tier: str = "tier1", **options: Any) -> Recorder:
+def fresh(tmp_path: Path, *, tier: str = "unit-test", **options: Any) -> Recorder:
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit(tier=tier)])
     return Recorder(store, **options)
@@ -47,7 +47,7 @@ def fresh(tmp_path: Path, *, tier: str = "tier1", **options: Any) -> Recorder:
 def tasks_file(tmp_path: Path) -> Path:
     tasks = tmp_path / "meta" / "openspec" / "changes" / "add-marker" / "tasks.md"
     tasks.parent.mkdir(parents=True)
-    tasks.write_text("## 1. [app] [tier1] G\n- [ ] 1.1 Test: a\n- [ ] 1.2 Do a\n")
+    tasks.write_text("## 1. [app] [unit-test] G\n- [ ] 1.1 Test: a\n- [ ] 1.2 Do a\n")
     return tasks
 
 
@@ -73,14 +73,14 @@ def test_the_body_is_fitted_once_to_the_lowest_limit_whatever_the_repos_host_tak
 ) -> None:
     """The unit's repository is on a host that takes more; the description is
     the one every host takes, the same whatever this host's own limit is."""
-    output = "## Tier 2 results\n3 passed\n" + "\n".join(
+    output = "## E2e-test results\n3 passed\n" + "\n".join(
         f"output line {n:04d} " + "o" * 60 for n in range(300)
     )
     sent: list[dict[str, str]] = []
     for own_limit in (65_536, 10_000):
         monkeypatch.setattr(forges.get("github"), "description_limit", own_limit)
-        recorder = fresh(tmp_path / str(own_limit), tier="tier2")
-        recorder.tier2_output = output
+        recorder = fresh(tmp_path / str(own_limit), tier="e2e-test")
+        recorder.e2e_output = output
         bodies: list[dict[str, str]] = []
 
         build(tmp_path / str(own_limit), recorder, open_pr=capturing(recorder, bodies))
@@ -94,31 +94,31 @@ def test_the_body_is_fitted_once_to_the_lowest_limit_whatever_the_repos_host_tak
     assert "## Assumptions" in sent[0]["body"]
 
 
-# --- tier 2 -------------------------------------------------------------------
+# --- e2e-test -------------------------------------------------------------------
 
 
 def test_tier_two_runs_after_the_review_and_before_the_push_for_a_tier_two_unit(
     tmp_path: Path,
 ) -> None:
-    recorder = fresh(tmp_path, tier="tier2")
+    recorder = fresh(tmp_path, tier="e2e-test")
 
     outcome = build(tmp_path, recorder)
 
     assert outcome.status == "open"
-    assert recorder.events.count("tier2") == 1
-    assert recorder.events.index("review") < recorder.events.index("tier2")
-    assert recorder.events.index("tier2") < recorder.events.index("push")
+    assert recorder.events.count("e2e-test") == 1
+    assert recorder.events.index("review") < recorder.events.index("e2e-test")
+    assert recorder.events.index("e2e-test") < recorder.events.index("push")
 
 
 def test_a_failing_tier_two_leaves_no_pull_request_and_keeps_its_output(tmp_path: Path) -> None:
-    recorder = fresh(tmp_path, tier="tier2", tier2_ok=False)
-    recorder.tier2_output = "FAILED live_test - the route 404s"
+    recorder = fresh(tmp_path, tier="e2e-test", e2e_ok=False)
+    recorder.e2e_output = "FAILED live_test - the route 404s"
 
     outcome = build(tmp_path, recorder)
 
-    assert "tier2" in recorder.events
+    assert "e2e-test" in recorder.events
     assert outcome.status == "failed"
-    assert "tier 2 failed" in outcome.detail
+    assert "e2e-test failed" in outcome.detail
     assert "push" not in recorder.events and "pr" not in recorder.events
     stored = recorder.store.get(unit().id)
     assert stored.state == "failed"
@@ -128,7 +128,7 @@ def test_a_failing_tier_two_leaves_no_pull_request_and_keeps_its_output(tmp_path
 def test_a_tier_two_unit_is_held_at_the_boundary_before_tier_two(tmp_path: Path) -> None:
     """Its upstream went back while it was in review: the live stack is not
     brought up against a stale base."""
-    recorder = fresh(tmp_path, tier="tier2", tier2_ok=False)
+    recorder = fresh(tmp_path, tier="e2e-test", e2e_ok=False)
 
     outcome = build(
         tmp_path,
@@ -141,28 +141,30 @@ def test_a_tier_two_unit_is_held_at_the_boundary_before_tier_two(tmp_path: Path)
     )
 
     assert outcome.status == "held"
-    assert "tier2" not in recorder.events
+    assert "e2e-test" not in recorder.events
     assert recorder.store.get(unit().id).state == PLANNED
 
 
 def test_tier_two_follows_checks_that_were_fixed_first(tmp_path: Path) -> None:
     """No point occupying the one local stack to re-confirm a known failure."""
-    recorder = fresh(tmp_path, tier="tier2")
-    recorder.tier1_results = [(False, "ERROR lint"), (True, "")]
+    recorder = fresh(tmp_path, tier="e2e-test")
+    recorder.unit_test_results = [(False, "ERROR lint"), (True, "")]
 
     outcome = build(tmp_path, recorder)
 
     assert outcome.status == "open"
-    steps = [e for e in recorder.events if e in ("tier1", "claude:fix_checks", "tier2", "review")]
-    assert steps == ["tier1", "claude:fix_checks", "tier1", "review", "tier2"]
+    steps = [
+        e for e in recorder.events if e in ("unit-test", "claude:fix_checks", "e2e-test", "review")
+    ]
+    assert steps == ["unit-test", "claude:fix_checks", "unit-test", "review", "e2e-test"]
 
 
 def test_the_status_is_posted_after_the_push_and_the_snapshot_reaches_the_body(
     tmp_path: Path,
 ) -> None:
     """GitHub only accepts a status for a commit it already has."""
-    recorder = fresh(tmp_path, tier="tier2")
-    recorder.tier2_output = "## Tier 2 results\n5 passed in the live stack"
+    recorder = fresh(tmp_path, tier="e2e-test")
+    recorder.e2e_output = "## E2e-test results\n5 passed in the live stack"
     bodies: list[dict[str, str]] = []
 
     build(tmp_path, recorder, open_pr=capturing(recorder, bodies))
@@ -175,13 +177,13 @@ def test_the_status_is_posted_after_the_push_and_the_snapshot_reaches_the_body(
 def test_a_tier_two_unit_moved_cleanly_runs_tier_two_again_before_it_is_pushed(
     tmp_path: Path,
 ) -> None:
-    recorder = fresh(tmp_path, tier="tier2")
+    recorder = fresh(tmp_path, tier="e2e-test")
     moves = Moves(recorder, CLEAN)
 
     outcome = build(tmp_path, recorder, **moves.overrides())
 
     assert outcome.status == "open"
-    assert recorder.events.count("tier2") == 2, "before the move and again on the moved commit"
+    assert recorder.events.count("e2e-test") == 2, "before the move and again on the moved commit"
     assert recorder.events.count("status") == 1
     assert recorder.events.index("push") < recorder.events.index("status")
 
@@ -203,7 +205,7 @@ def test_a_unit_with_nothing_of_its_own_and_passing_checks_is_satisfied(tmp_path
     outcome = build(tmp_path, recorder, **empty_branch())
 
     assert outcome.status == "satisfied"
-    assert "tier1:whole_repo" in recorder.events
+    assert "unit-test:whole_repo" in recorder.events
     assert "pr" not in recorder.events and "push" not in recorder.events
     assert "close" not in recorder.events, "there was never a pull request to close"
     assert recorder.store.get(unit().id).state == SATISFIED
@@ -331,7 +333,7 @@ def test_nothing_asks_an_agent_anything_once_the_checks_have_judged_an_empty_bra
 
     assert outcome.status == "satisfied"
     assert "review" not in recorder.events, "no review round runs for an empty branch"
-    after = recorder.events[recorder.events.index("tier1:whole_repo") + 1 :]
+    after = recorder.events[recorder.events.index("unit-test:whole_repo") + 1 :]
     assert not any(e.startswith("claude") or e == "review" for e in after)
 
 
@@ -422,7 +424,7 @@ def test_spent_rounds_push_the_branch_report_the_points_and_hold_the_unit(
     rounds = active().global_limits.max_review_rounds
     assert outcome.status == "held"
     assert recorder.events.count("review") == rounds
-    assert recorder.events.count("tier1") == rounds, "checked before each round, not after"
+    assert recorder.events.count("unit-test") == rounds, "checked before each round, not after"
     stored = recorder.store.get(unit().id)
     assert (stored.state, stored.pr) == (HELD, 7)
     assert "rounds spent" in stored.history[-1]["note"]
@@ -784,7 +786,7 @@ def test_a_changed_test_still_requires_a_decision_and_is_read_after_the_port(
 def test_an_unaccounted_test_keeps_where_the_waiting_feedback_came_from(tmp_path: Path) -> None:
     recorder = fresh(tmp_path)
     recorder.store.set_feedback(
-        unit().id, "tier 1 failed:\nE assert 1 == 2", source=FeedbackSource.TIER1
+        unit().id, "unit-test failed:\nE assert 1 == 2", source=FeedbackSource.UNIT_TEST
     )
     adapting = Adapting(
         recorder,
@@ -798,7 +800,7 @@ def test_an_unaccounted_test_keeps_where_the_waiting_feedback_came_from(tmp_path
 
     stored = recorder.store.get(unit().id)
     assert "no decision for `test_click`" in stored.feedback
-    assert stored.feedback_source is FeedbackSource.TIER1
+    assert stored.feedback_source is FeedbackSource.UNIT_TEST
 
 
 def test_an_incomplete_accounting_is_asked_again_before_the_unit_fails(tmp_path: Path) -> None:
@@ -1012,7 +1014,7 @@ def test_tier_one_failing_after_a_clean_move_is_reworked_reviewed_and_opened_in_
 ) -> None:
     recorder = fresh(tmp_path)
     moves = Moves(recorder, CLEAN)
-    recorder.tier1_results = [
+    recorder.unit_test_results = [
         (True, ""),
         (False, "FAILED test_a - trunk renamed the helper"),
         (True, ""),
@@ -1024,9 +1026,11 @@ def test_tier_one_failing_after_a_clean_move_is_reworked_reviewed_and_opened_in_
     stored = recorder.store.get(unit().id)
     assert stored.state == IN_REVIEW
     rework = [p for p in recorder.prompts if "trunk renamed the helper" in p]
-    assert len(rework) == 1, "the rework was given the tier 1 output"
+    assert len(rework) == 1, "the rework was given the unit-test output"
     after = recorder.events[recorder.events.index("claude:fix_checks") :]
-    assert after.index("tier1") < after.index("review") < after.index("push") < after.index("pr")
+    assert (
+        after.index("unit-test") < after.index("review") < after.index("push") < after.index("pr")
+    )
     assert recorder.events.count("push") == 1, "nothing was pushed before the rework"
     assert stored.feedback == ""
 
@@ -1098,7 +1102,7 @@ def test_a_base_gone_at_open_that_the_forge_still_names_holds_the_unit(tmp_path:
     assert "before its pull request" in stored.note, "it was pushed, so not 'before its push'"
 
 
-@pytest.mark.parametrize("tier", ["tier1", "tier2"])
+@pytest.mark.parametrize("tier", ["unit-test", "e2e-test"])
 def test_a_unit_moved_cleanly_onto_the_base_the_forge_named_is_pushed_not_held(
     tmp_path: Path, tier: str
 ) -> None:
@@ -1163,10 +1167,10 @@ def test_a_unit_whose_rounds_ran_out_gets_a_fresh_budget_when_its_base_is_gone_a
 def test_a_tier_two_unit_whose_checks_never_pass_ends_failed_before_tier_two_and_the_push(
     tmp_path: Path,
 ) -> None:
-    recorder = fresh(tmp_path, tier="tier2")
-    recorder.tier1_results = [(False, "ERROR lint")] * 20
+    recorder = fresh(tmp_path, tier="e2e-test")
+    recorder.unit_test_results = [(False, "ERROR lint")] * 20
 
     outcome = build(tmp_path, recorder)
 
     assert outcome.status == "failed"
-    assert "tier2" not in recorder.events and "push" not in recorder.events
+    assert "e2e-test" not in recorder.events and "push" not in recorder.events

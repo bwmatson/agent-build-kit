@@ -15,8 +15,8 @@ repo entries.
 
 Conventions that hold across every repo:
 
-- Two test tiers. Tier 1 is the ordinary suite, run on every pull request in
-  CI with no external services. Tier 2 needs the real local stack and is run
+- Two test tiers. Unit-test is the ordinary suite, run on every pull request in
+  CI with no external services. E2e-test needs the real local stack and is run
   serially on one host; a task group says which tier it needs.
 - Tests mirror the source layout: a test lives in the folder matching its
   module's folder under the package root. Integration tests — anything that

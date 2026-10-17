@@ -23,7 +23,7 @@ def _requeue() -> ResumeEvent:
 
 
 @pytest.mark.parametrize(
-    "source", [FeedbackSource.TIER1, FeedbackSource.REVIEW], ids=["checks", "review"]
+    "source", [FeedbackSource.UNIT_TEST, FeedbackSource.REVIEW], ids=["checks", "review"]
 )
 def test_the_prompt_holds_the_replacement_and_the_stored_feedback_is_unchanged(
     tmp_path: Path, source: FeedbackSource
@@ -55,7 +55,7 @@ def test_a_fix_round_prompt_holds_the_replacement_and_the_stored_feedback_is_unc
     """Feedback saved before the value was known is raw in the store: a failed check's
     output is saved with the set empty, then the fix prompt is built with it known."""
     recorder = fresh(tmp_path)
-    recorder.tier1_results = [(False, f"FAILED tests/test_it.py - env={SECRET}"), (True, "")]
+    recorder.unit_test_results = [(False, f"FAILED tests/test_it.py - env={SECRET}"), (True, "")]
     save = UnitStore.set_feedback
 
     def save_before_the_value_was_known(*args: Any, **kwargs: Any) -> None:

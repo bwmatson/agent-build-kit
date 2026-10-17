@@ -1,5 +1,5 @@
 """Gate evaluation over a temporary state directory: an installation whose `acp` split carries
-a gate, readings built to order, and the held set as the tier 2 selection reads it."""
+a gate, readings built to order, and the held set as the e2e-test selection reads it."""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def evaluate(inst: Installation, *, now: datetime = NOW, **kwargs: Any) -> list[
 
 
 def holds(inst: Installation, *, now: datetime = NOW) -> Holds:
-    """What the tier 2 selection of the `app` repo reads."""
+    """What the e2e-test selection of the `app` repo reads."""
     return repo_holds(inst.config, inst.repo("app"), inst.state_dir, now=now)
 
 

@@ -1,4 +1,4 @@
-"""A pytest plugin that splits a tier 2 test's time by agent role, checks and the rest.
+"""A pytest plugin that splits a e2e-test test's time by agent role, checks and the rest.
 
 For each phase (setup, call, teardown) of a `local_stack` test that requests the
 `scratch_ledger` fixture, a path to the scratch installation's usage ledger, the plugin reads
@@ -6,8 +6,8 @@ the rows appended since the last phase that used that ledger, so a module fixtur
 in the setup of the first test using it. At the end of the session it prints one line per
 phase: the prefix `ABK-TIME` and JSON with the test id, the phase, agent milliseconds and
 calls by role, the commands' milliseconds (`checks_ms`), the remainder of the phase's wall time
-(`other_ms`, never negative) and `overlap`, true when the parts sum above the wall time. The tier 2
-result reads these lines; a test without the fixture gets none.
+(`other_ms`, never negative) and `overlap`, true when the parts sum above the wall time.
+The e2e-test result reads these lines; a test without the fixture gets none.
 
 The phase's wall time is read from `clock.monotonic()`; a test replaces `clock` with one it moves.
 """

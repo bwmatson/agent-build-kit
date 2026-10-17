@@ -176,8 +176,8 @@ def test_a_loop_rework_answers_the_reviewer_not_the_pull_request(tmp_path: Path)
 
 
 def test_the_default_is_three_fix_rounds(tmp_path: Path) -> None:
-    recorder = fresh(tmp_path, tier1_ok=False)
-    recorder.tier1_output = FAILING
+    recorder = fresh(tmp_path, unit_test_ok=False)
+    recorder.unit_test_output = FAILING
 
     outcome = build(tmp_path, recorder)
 
@@ -191,7 +191,7 @@ def test_the_fix_budget_starts_again_for_each_round_of_review(tmp_path: Path) ->
     limited(max_check_rounds=2)
     recorder = fresh(tmp_path)
     recorder.verdicts = [rejecting("rename it"), approving()]
-    recorder.tier1_results = [
+    recorder.unit_test_results = [
         (False, FAILING),  # round 1: two fixes, the whole budget...
         (False, FAILING),
         (True, ""),
@@ -210,7 +210,7 @@ def test_the_fix_budget_starts_again_for_each_round_of_review(tmp_path: Path) ->
 def test_no_limit_keeps_fixing_until_the_checks_pass(tmp_path: Path) -> None:
     limited(max_check_rounds=None)
     recorder = fresh(tmp_path)
-    recorder.tier1_results = [(False, FAILING)] * 12 + [(True, "")]
+    recorder.unit_test_results = [(False, FAILING)] * 12 + [(True, "")]
 
     outcome = build(tmp_path, recorder)
 
@@ -220,21 +220,21 @@ def test_no_limit_keeps_fixing_until_the_checks_pass(tmp_path: Path) -> None:
 
 
 def test_a_pause_while_fixing_keeps_the_failure_for_the_resume(tmp_path: Path) -> None:
-    recorder = fresh(tmp_path, tier1_ok=False)
-    recorder.tier1_output = FAILING
+    recorder = fresh(tmp_path, unit_test_ok=False)
+    recorder.unit_test_output = FAILING
 
     outcome = tick(
         tmp_path,
         recorder,
-        may_start=lambda: ("tier1" not in recorder.events, "session at 91%"),
+        may_start=lambda: ("unit-test" not in recorder.events, "session at 91%"),
     )
 
     assert outcome.status == RunStatus.PAUSED
     assert position(tmp_path).next == (Node.FIX_CHECKS,)
-    assert recorder.store.get(unit().id).feedback_source == FeedbackSource.TIER1
+    assert recorder.store.get(unit().id).feedback_source == FeedbackSource.UNIT_TEST
     assert "claude:fix_checks" not in recorder.events
 
-    recorder.tier1_results = [(True, "")]
+    recorder.unit_test_results = [(True, "")]
     resumed = tick(tmp_path, recorder)
 
     assert resumed.status == RunStatus.OPEN
@@ -245,8 +245,8 @@ def test_a_pause_while_fixing_keeps_the_failure_for_the_resume(tmp_path: Path) -
 def test_a_pause_still_stops_an_unlimited_fix_loop(tmp_path: Path) -> None:
     """The usage guard, checked before every fix, is what bounds the cost."""
     limited(max_check_rounds=None)
-    recorder = fresh(tmp_path, tier1_ok=False)
-    recorder.tier1_output = FAILING
+    recorder = fresh(tmp_path, unit_test_ok=False)
+    recorder.unit_test_output = FAILING
 
     outcome = tick(
         tmp_path,

@@ -37,7 +37,7 @@ def test_a_node_test_in_a_node_project_is_listed_with_the_decision_asked(tmp_pat
         },
         FREE_SESSION,
     )
-    recorder.tier1_results = [(False, "lint: nope"), (True, "")]
+    recorder.unit_test_results = [(False, "lint: nope"), (True, "")]
 
     tick(tmp_path, recorder, event=ADOPTED, **overrides)
     tick(tmp_path, recorder, **overrides)

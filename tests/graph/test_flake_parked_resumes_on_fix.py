@@ -21,9 +21,9 @@ def test_the_parked_unit_stays_gated_while_the_fix_is_held_then_restacks_onto_it
     tasks = graph.inst.changes_dir / "add-marker" / "tasks.md"
     tasks.parent.mkdir(parents=True)
     tasks.write_text(TASKS)
-    tier1 = Flaking(graph.recorder, nth=1)
+    unit_test = Flaking(graph.recorder, nth=1)
     bases: list[str] = []
-    graph.options["run_unit_test"] = tier1
+    graph.options["run_unit_test"] = unit_test
     graph.options["restack_onto"] = lambda **kw: bases.append(str(kw["base"]))
     graph.options["on_flake"] = lambda unit, flake: wait_on_fix(
         graph.inst, FLAKE, graph.store.get(unit.id)

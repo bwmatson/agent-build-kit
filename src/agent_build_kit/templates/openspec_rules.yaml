@@ -18,7 +18,9 @@ rules:
     - "Call out every task group whose work crosses a service boundary, and which side lands first."
     - "Name every contract widened by the change and how it is narrowed again once every consumer has moved."
   tasks:
-    - "Every task group heading is `## <n>. [<repo>] [<tier>] <title>`, where <repo> is one of {repo_tags} and <tier> is unit-test or e2e-test (the old tier1 and tier2 are still read, with a notice). Example: `## 1. [{example_repo}] [unit-test] Add the marker`."
+    - "Every task group heading is `## <n>. [<repo>] [<tier>] <title>`, where <repo> is one of {repo_tags} and <tier> is unit-test or e2e-test (the old spellings are still read, with a notice). Example: `## 1. [{example_repo}] [unit-test] Add the marker`."
+    - "Name the kind of test each group needs, of three: `unit-test` is the ordinary suite, run anywhere; `integration-test` covers behaviour across modules in the ordinary suite with no live stack, and is not the `integration` marker or `tests/integration/`; `e2e-test` needs the real local stack."
+    - "The `[acceptance]` tag is for `e2e-test` only; a group of any other kind never carries it."
     - "Number groups from 1 in the order they are built."
     - "Within a group, test tasks come before implementation tasks: the tests are written and committed red first."
     - "A new test file goes where the repo's source layout says: mirroring the source folder, with integration tests under tests/integration/."

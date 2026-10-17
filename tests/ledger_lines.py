@@ -15,7 +15,7 @@ def _flat_line(**fields) -> dict:
         "unit": "add-marker/1",
         "change": "add-marker",
         "repo": "app",
-        "tier": "tier1",
+        "tier": "unit-test",
         "node": "implement",
         "round": 0,
         "role": "implement",

@@ -29,7 +29,7 @@ UNIT = "add-marker/1"
 OTHER = "add-marker/2"
 real_poll_all = cli.poll_all
 NEEDING_PARENT = (
-    "# Tasks\n\n## 1. [app] [tier1] Do the work\n\nNeeds: parent group 1 — a reason\n\n"
+    "# Tasks\n\n## 1. [app] [unit-test] Do the work\n\nNeeds: parent group 1 — a reason\n\n"
     "- [ ] 1.1 Test: it works\n- [ ] 1.2 Make it work\n"
 )
 

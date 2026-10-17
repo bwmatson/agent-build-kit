@@ -1,7 +1,7 @@
 """Two fake toolchain profiles for a repo whose projects are written in different languages.
 
 Each is the python-uv profile with its own commands, project check, failure kind and tools, so
-the tests of per-project tier 1 need no other ecosystem's tooling. They live here and not in
+the tests of per-project unit-test need no other ecosystem's tooling. They live here and not in
 a test file, and name no method `test_*`, because the pipeline takes any such name for a test.
 """
 

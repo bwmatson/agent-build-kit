@@ -63,7 +63,7 @@ def test_the_scrub_and_redact_history_write_the_same_suffix(moved: Installation)
 
     assert run(moved, "scrub-store", "--apply") == 0
     scrub_copies = sorted(p.name for p in moved.state_dir.glob("*" + SUFFIX))
-    store.write_text(store.read_text().replace("tier 2", SECRET))
+    store.write_text(store.read_text().replace("e2e-test", SECRET))
     (moved.state_dir / ("units.json" + SUFFIX)).unlink()
     assert run(moved, "redact-history", "--apply") == 0
 

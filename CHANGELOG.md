@@ -139,7 +139,9 @@
   `e2e.lock` (a lock still held under the old name is waited for), its full output is kept
   under `e2e-output/` (an old directory is moved on first use), the commit status is
   `local/e2e-test`, and the command is `abk e2e-test` (`abk tier2` still works, with a
-  notice).
+  notice). The graph node is `e2e-test`, the metrics are named `abk.e2e.*`, and the rules
+  `abk init` writes and the propose prompts name three kinds of test: `unit-test`,
+  `integration-test` and `e2e-test`, with `[acceptance]` for `e2e-test` only.
 
 - `abk scrub-store` reports, and with `--apply` on a paused pipeline replaces, the
   home-directory paths in the unit store's text (feedback, guidance, notes) with `<home>/`,

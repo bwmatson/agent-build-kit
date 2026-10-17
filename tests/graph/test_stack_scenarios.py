@@ -4,7 +4,7 @@ leaves behind, run through the graph engine over the injected fakes.
 These are the scenarios of the engine the graph replaced that its nodes still
 owe: the boundary every agent run is given, the history a later review sees,
 the order tasks are ticked in, the base a unit is built on, and what a unit
-that touches only tier 1 does not do.
+that touches only unit-test does not do.
 """
 
 from __future__ import annotations
@@ -149,7 +149,7 @@ def test_a_later_review_sees_what_earlier_rounds_asked_and_what_was_done(
 
 
 def test_tasks_are_ticked_when_the_unit_is_through_the_loop_not_before(tmp_path: Path) -> None:
-    """Ticked once review approved, tier 1 passed and the work is pushed, never
+    """Ticked once review approved, unit-test passed and the work is pushed, never
     by a build that has merely finished."""
     tasks = tasks_file(tmp_path)
     recorder = fresh(tmp_path)
@@ -169,7 +169,7 @@ def test_tasks_are_ticked_when_the_unit_is_through_the_loop_not_before(tmp_path:
 def test_a_failed_unit_leaves_its_tasks_unticked(tmp_path: Path) -> None:
     tasks = tasks_file(tmp_path)
     tasks.write_text(tasks.read_text().replace("- [ ]", "- [x]"))  # a build agent's doing
-    recorder = fresh(tmp_path, tier1_ok=False)
+    recorder = fresh(tmp_path, unit_test_ok=False)
 
     outcome = build(tmp_path, recorder)
 
@@ -200,13 +200,13 @@ def test_work_is_built_on_the_remote_trunk_but_the_pr_targets_main(tmp_path: Pat
 
 
 def test_a_tier_one_unit_does_not_touch_the_local_stack(tmp_path: Path) -> None:
-    """Tier 2 is serialized, so running it needlessly would block other work."""
+    """E2e-test is serialized, so running it needlessly would block other work."""
     recorder = fresh(tmp_path)
 
     outcome = build(tmp_path, recorder)
 
     assert outcome.status == "open"
-    assert "tier2" not in recorder.events
+    assert "e2e-test" not in recorder.events
     assert "status" not in recorder.events
 
 
@@ -238,16 +238,16 @@ def test_a_branch_with_nothing_on_it_is_not_reviewed(tmp_path: Path) -> None:
 
 
 def test_nothing_is_pushed_but_the_commit_review_approved(tmp_path: Path) -> None:
-    """A commit landing after the verdict, here tier 2 making one, fails the
+    """A commit landing after the verdict, here e2e-test making one, fails the
     unit instead of reaching the pull request."""
-    recorder = fresh(tmp_path, tier="tier2")
-    original = recorder.tier2
+    recorder = fresh(tmp_path, tier="e2e-test")
+    original = recorder.e2e
 
-    def tier2_that_commits(*, cwd: Path, base: str | None = None) -> tuple[bool, str]:
+    def e2e_that_commits(*, cwd: Path, base: str | None = None) -> tuple[bool, str]:
         recorder.made += 1
         return original(cwd=cwd)
 
-    outcome = build(tmp_path, recorder, run_e2e=tier2_that_commits)
+    outcome = build(tmp_path, recorder, run_e2e=e2e_that_commits)
 
     assert outcome.status == "failed"
     assert "push" not in recorder.events
@@ -259,15 +259,15 @@ def test_a_commit_tier_one_makes_before_the_review_is_the_commit_that_is_reviewe
     """An autoformatter in a check can rewrite files; run before the review,
     that is just more of the branch the reviewer reads and approves."""
     recorder = fresh(tmp_path)
-    original = recorder.tier1
+    original = recorder.unit_test
 
-    def tier1_that_commits(
+    def unit_test_that_commits(
         *, cwd: Path, base: str = "main", whole_repo: bool = False
     ) -> tuple[bool, str]:
         recorder.made += 1
         return original(cwd=cwd, base=base, whole_repo=whole_repo)
 
-    outcome = build(tmp_path, recorder, run_unit_test=tier1_that_commits)
+    outcome = build(tmp_path, recorder, run_unit_test=unit_test_that_commits)
 
     assert outcome.status == "open"
     assert recorder.store.get(unit().id).approved == recorder.head(tmp_path)
@@ -278,8 +278,8 @@ def test_a_commit_tier_one_makes_before_the_review_is_the_commit_that_is_reviewe
 
 def test_a_failed_tier_ones_output_reaches_the_run_log(tmp_path: Path) -> None:
     """The run log is what a person reads to see why a unit failed."""
-    recorder = fresh(tmp_path, tier1_ok=False)
-    recorder.tier1_output = "E   DISTINCTIVE-TIER-ONE-OUTPUT"
+    recorder = fresh(tmp_path, unit_test_ok=False)
+    recorder.unit_test_output = "E   DISTINCTIVE-TIER-ONE-OUTPUT"
 
     build(tmp_path, recorder)
 
@@ -287,10 +287,10 @@ def test_a_failed_tier_ones_output_reaches_the_run_log(tmp_path: Path) -> None:
 
 
 def test_a_tier_one_that_fails_after_a_clean_move_logs_its_output(tmp_path: Path) -> None:
-    """The re-check before the push, on the base as it now is, is a tier 1 too."""
+    """The re-check before the push, on the base as it now is, is a unit-test too."""
     recorder = fresh(tmp_path)
     recorder.made = 2
-    recorder.tier1_results = [(True, ""), (False, "E   DISTINCTIVE-RECHECK-OUTPUT")]
+    recorder.unit_test_results = [(True, ""), (False, "E   DISTINCTIVE-RECHECK-OUTPUT")]
     calls: list[int] = []
 
     def restack(**kw: Any) -> Any:

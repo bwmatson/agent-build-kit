@@ -147,7 +147,7 @@ check that a repo follows it.
 
 ## CI
 
-- **Rule:** tier 1 runs on GitHub Actions on every pull request and on
+- **Rule:** unit-test runs on GitHub Actions on every pull request and on
   pushes to the default branch: one pre-commit job, and one test job per
   workspace member; `uv lock --check` guards the lockfile.
   **Tool:** GitHub Actions with `astral-sh/setup-uv` and `actions/setup-python`.

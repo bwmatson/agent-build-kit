@@ -1,7 +1,7 @@
-"""A unit that meets a flake is parked gated, and resumes at tier 1 once the fix has
+"""A unit that meets a flake is parked gated, and resumes at unit-test once the fix has
 merged (spec: flaky-tests).
 
-Tier 1 is faked at the point the runner binds it: it raises `FlakeFound` where the real one
+Unit-test is faked at the point the runner binds it: it raises `FlakeFound` where the real one
 finds that every failed test passed both serial reruns.
 """
 
@@ -33,7 +33,7 @@ GATE_CLEARED = ResumeEvent(
 
 
 class Flaking:
-    """Tier 1 that finds a flake on its `nth` run and answers the recorder's otherwise."""
+    """Unit-test that finds a flake on its `nth` run and answers the recorder's otherwise."""
 
     def __init__(self, recorder: Recorder, *, nth: int) -> None:
         self.recorder = recorder
@@ -51,9 +51,9 @@ class Flaking:
     ):
         self.runs += 1
         if self.runs == self.nth:
-            self.recorder.events.append("tier1")
+            self.recorder.events.append("unit-test")
             raise FlakeFound((FLAKE,))
-        return self.recorder.tier1(
+        return self.recorder.unit_test(
             cwd=cwd,
             base=base,
             whole_repo=whole_repo,
@@ -99,20 +99,20 @@ def test_the_parked_unit_runs_tier_1_again_restacked_when_the_gate_clears(
 ) -> None:
     recorder = fresh(tmp_path)
     recorder.made = 2
-    tier1 = Flaking(recorder, nth=1)
-    tick(tmp_path, recorder, run_unit_test=tier1, on_flake=Told())
+    unit_test = Flaking(recorder, nth=1)
+    tick(tmp_path, recorder, run_unit_test=unit_test, on_flake=Told())
     parked = len(recorder.events)
 
     def restack(**kw: Any) -> None:
         recorder.events.append("restack")
 
-    tick(tmp_path, recorder, event=GATE_CLEARED, run_unit_test=tier1, restack_onto=restack)
-    outcome = tick(tmp_path, recorder, run_unit_test=tier1, restack_onto=restack)
+    tick(tmp_path, recorder, event=GATE_CLEARED, run_unit_test=unit_test, restack_onto=restack)
+    outcome = tick(tmp_path, recorder, run_unit_test=unit_test, restack_onto=restack)
 
     after = recorder.events[parked:]
     assert outcome.status == "open"
     assert "restack" in after, "moved onto the base the fix has merged to"
-    assert after.index("restack") < after.index("tier1") < after.index("push")
+    assert after.index("restack") < after.index("unit-test") < after.index("push")
     assert "claude:rework" not in after and "claude:fix_checks" not in after
 
 
@@ -131,13 +131,13 @@ def test_a_flake_on_the_base_does_not_send_the_unit_back_as_a_moved_base(
         **moving.overrides(),
     )
 
-    assert recorder.events.count("tier1") == 2, "the second run is the one after the move"
+    assert recorder.events.count("unit-test") == 2, "the second run is the one after the move"
     assert told.flakes == [("add-marker/1", TEST)]
     assert outcome.status == RunStatus.HELD
     stored = recorder.store.get("add-marker/1")
     assert (stored.state, stored.cause) == (PLANNED, Cause.GATED)
     assert "base moved" not in stored.note
-    assert stored.feedback == "", "no tier 1 failure is left for the agent"
+    assert stored.feedback == "", "no unit-test failure is left for the agent"
     assert "push" not in recorder.events
 
 
@@ -154,4 +154,4 @@ def test_a_unit_of_the_fix_change_is_not_parked_and_its_agent_is_told_the_test_s
     stored = recorder.store.get("add-marker/1")
     assert stored.cause is not Cause.GATED and stored.gated_requeue is None
     fixes = [p for p in recorder.prompts if "assert 'a' == 'b'" in p]
-    assert fixes, "the fix round was given the failure output, as for any tier 1 failure"
+    assert fixes, "the fix round was given the failure output, as for any unit-test failure"

@@ -17,7 +17,7 @@ from typing import Any
 from agent_build_kit import openspec
 from agent_build_kit.config import RepoConfig, dump
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.e2e import TestFailure, Tier2Result, build_snapshot
+from agent_build_kit.pipeline.e2e import E2eResult, TestFailure, build_snapshot
 from agent_build_kit.pipeline.shell import git_out as git
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, Unit, ready_units
@@ -47,7 +47,7 @@ _DEFAULTS: dict[str, Any] = {
     "change": "add-marker",
     "title": "Register the marker",
     "repo": "app",
-    "tier": "tier1",
+    "tier": "unit-test",
     "depends_on": (),
     "estimated_lines": 140,
     "groups": (1,),
@@ -116,7 +116,7 @@ def init_repo(path: Path) -> Path:
 
 
 def scratch_app(path: Path) -> Path:
-    """A python-uv app whose tier 1 can run: pytest and pre-commit in the dev
+    """A python-uv app whose unit-test can run: pytest and pre-commit in the dev
     group, and a pre-commit config that needs no network. One initial commit
     on `main`, which ignores bytecode, the virtualenv and `uv.lock` so a unit's
     commits hold only the unit's work. The lock is ignored, not committed,
@@ -199,7 +199,7 @@ def output_of(size: int) -> str:
 
 def snapshot(output: str, *, failures: list[TestFailure] | None = None) -> str:
     return build_snapshot(
-        Tier2Result(
+        E2eResult(
             sha="abcdef0123",
             passed=3,
             failed=len(failures) if failures else 1,

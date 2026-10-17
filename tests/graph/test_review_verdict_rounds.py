@@ -207,10 +207,10 @@ def test_a_failure_after_approval_and_before_the_push_leaves_no_follow_up_block(
     tmp_path: Path,
 ) -> None:
     """Recorded only after the push succeeds: a follow-up for work that never
-    left the machine would describe nothing real. Tier 1 runs before review on
-    the graph, so the failure after approval is tier 2's."""
-    recorder = fresh(tmp_path, tier2_ok=False)
-    recorder.store.upsert([unit(tier="tier2")])
+    left the machine would describe nothing real. Unit-test runs before review on
+    the graph, so the failure after approval is e2e-test's."""
+    recorder = fresh(tmp_path, e2e_ok=False)
+    recorder.store.upsert([unit(tier="e2e-test")])
     recorder.verdicts = [approval_with(optional(LOCK))]
 
     outcome = build(tmp_path, recorder)

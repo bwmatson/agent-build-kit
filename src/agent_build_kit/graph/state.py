@@ -21,8 +21,8 @@ class Node(StrEnum):
     REWORK = "rework"
     ADAPT = "adapt"
     RESTACK = "restack"
-    TIER1 = "tier1"
-    TIER2 = "tier2"
+    UNIT_TEST = "unit-test"
+    E2E = "e2e-test"
     VERIFY_BASE = "verify_base"
     NEW_COMMENTS = "new_comments"
     PUSH = "push"
@@ -130,18 +130,18 @@ class UnitRun(Frozen):
     checks_ok: bool = False
     produced_nothing: bool = False
     moved: bool = False  # `verify_base` moved the branch onto a new base
-    moved_from: str = ""  # the base that move left, for tier 1 to scope its run by
+    moved_from: str = ""  # the base that move left, for unit-test to scope its run by
     start: str = (
         ""  # the base's tip when `prepare` began, which a held unit checks the base against
     )
-    tier2: bool = False  # the unit is a tier 2 unit
+    e2e: bool = False  # the unit is a e2e-test unit
     scheduled: bool = False  # the unit is a scheduled run of the whole suite
-    scheduled_note: str = ""  # what its passing run says of itself, once tier 2 has passed
+    scheduled_note: str = ""  # what its passing run says of itself, once e2e-test has passed
     conflict: Restacked | None = None  # a restack that could not be merged, for `adapt` to port
     spent: bool = False  # the review rounds ran out with points outstanding
     adopted: bool = False  # the next review follows a chat's commit and is round zero
-    snapshot: str = ""  # tier 2's results, for the pull request body
-    tier2_ran_none: bool = False  # tier 2 ran no test: the unit has none of its own
+    snapshot: str = ""  # e2e-test's results, for the pull request body
+    e2e_ran_none: bool = False  # e2e-test ran no test: the unit has none of its own
     restack: bool = False  # go back to `prepare`: the base moved before the push
     rebased: bool = False  # the run already went back once, so the next time it holds
     # Why the run holds, and the state the store is left in.

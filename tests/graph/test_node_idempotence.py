@@ -82,7 +82,7 @@ def test_a_check_fix_killed_after_its_commit_is_not_made_again_when_resumed(
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
     recorder = Recorder(store, kill_after="commit:fix")
-    recorder.tier1_results = [(False, "ERROR implicit-any"), (True, "")]
+    recorder.unit_test_results = [(False, "ERROR implicit-any"), (True, "")]
 
     with pytest.raises(Killed):
         drive(tmp_path, recorder)

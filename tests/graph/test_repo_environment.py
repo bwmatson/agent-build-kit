@@ -2,7 +2,7 @@
 
 The worktree is a real git worktree of a real checkout, so the inputs are compared with
 the base branch's by git; `sync` and `check` are real child processes
-(`tests/environment_fakes.py`) and the agent and tier 1 are faked where the runner binds
+(`tests/environment_fakes.py`) and the agent and unit-test are faked where the runner binds
 them, as in the other graph tests. Every step lands in the environment's call log, which
 orders the commands among the agent's runs.
 """
@@ -87,7 +87,7 @@ def drive(
     event: ResumeEvent | None = None,
 ):
     """One tick over `recorder`, with the repository's configuration on the runner and
-    the agent's runs and tier 1 entered in the environment's call log."""
+    the agent's runs and unit-test entered in the environment's call log."""
     note = habitat.env.note if habitat.env else (lambda name: None)
     edits = agent_edits or {}
 
@@ -99,12 +99,17 @@ def drive(
             edits[kind]()
         return reply
 
-    def tier1(**kwargs: Any) -> tuple[bool, str]:
-        note("tier1")
-        return recorder.tier1(**kwargs)
+    def unit_test(**kwargs: Any) -> tuple[bool, str]:
+        note("unit-test")
+        return recorder.unit_test(**kwargs)
 
     return tick(
-        tmp_path, recorder, event=event, run=run, run_unit_test=tier1, repo_config=habitat.repo()
+        tmp_path,
+        recorder,
+        event=event,
+        run=run,
+        run_unit_test=unit_test,
+        repo_config=habitat.repo(),
     )
 
 
@@ -117,15 +122,17 @@ def test_a_unit_that_edits_a_manifest_has_sync_run_before_its_next_tier_1(tmp_pa
     env = FakeEnvironment(tmp_path / "control", inputs=(MANIFEST,))
     habitat = Habitat(tmp_path, env)
     recorder = fresh(tmp_path)
-    recorder.tier1_results = [(False, "E assert 1 == 2"), (True, "")]
+    recorder.unit_test_results = [(False, "E assert 1 == 2"), (True, "")]
 
     outcome = drive(tmp_path, habitat, recorder, agent_edits={"claude:impl": habitat.edit_manifest})
 
     assert outcome.status == "open"
-    assert sequence(env)[:5] == ["sync", "claude:tests", "claude:impl", "sync", "tier1"]
+    assert sequence(env)[:5] == ["sync", "claude:tests", "claude:impl", "sync", "unit-test"]
     calls = env.calls()
-    assert calls[calls.index("tier1") - 1] == "check", "the check came after sync, before tier 1"
-    assert sequence(env).count("tier1") == 2
+    assert calls[calls.index("unit-test") - 1] == "check", (
+        "the check came after sync, before unit-test"
+    )
+    assert sequence(env).count("unit-test") == 2
     assert sequence(env).count("sync") == 2, "the edit's hash was recorded: no third sync"
 
 
@@ -159,13 +166,13 @@ def test_unchanged_inputs_run_no_sync_before_a_later_tier_1(tmp_path: Path) -> N
     env = FakeEnvironment(tmp_path / "control", inputs=(MANIFEST,))
     habitat = Habitat(tmp_path, env)
     recorder = fresh(tmp_path)
-    recorder.tier1_results = [(False, "E assert 1 == 2"), (True, "")]
+    recorder.unit_test_results = [(False, "E assert 1 == 2"), (True, "")]
 
     outcome = drive(tmp_path, habitat, recorder)
 
     assert outcome.status == "open"
     assert "claude:fix_checks" in recorder.events
-    assert sequence(env).count("tier1") == 2
+    assert sequence(env).count("unit-test") == 2
     assert sequence(env).count("sync") == 1, "synced once, for the fresh worktree"
 
 
@@ -198,7 +205,7 @@ def test_a_broken_environment_with_the_bases_inputs_fails_the_unit_with_the_envi
     assert (stored.state, stored.cause) == (FAILED, Cause.ENVIRONMENT)
     assert stored.feedback == "", "nothing for an agent to fix is saved"
     assert recorder.prompts == [], "no agent round was spent"
-    assert "tier1" not in env.calls()
+    assert "unit-test" not in env.calls()
 
 
 def test_such_a_unit_resumes_when_a_later_check_passes(tmp_path: Path) -> None:
@@ -247,7 +254,9 @@ def test_a_failing_sync_after_the_units_own_manifest_change_goes_to_the_fix_roun
     assert (stored.state, stored.cause) != (FAILED, Cause.ENVIRONMENT)
     order = env.calls()
     assert "claude:fix_checks" in order, "the failure went to the fix round"
-    assert order.index("claude:fix_checks") < order.index("tier1"), "tier 1 waited for the fix"
+    assert order.index("claude:fix_checks") < order.index("unit-test"), (
+        "unit-test waited for the fix"
+    )
     fix_prompt = next(prompt for prompt in recorder.prompts if "checks (lint" in prompt)
     assert SYNC_FAILED_OUTPUT in fix_prompt, "the sync output is the feedback"
 
@@ -261,4 +270,4 @@ def test_a_repository_without_the_section_syncs_and_checks_nothing(tmp_path: Pat
 
     assert outcome.status == "open"
     assert other.calls() == []
-    assert "tier1" in recorder.events
+    assert "unit-test" in recorder.events

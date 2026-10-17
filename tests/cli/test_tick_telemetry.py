@@ -303,7 +303,7 @@ def test_no_span_or_metric_carries_feedback_a_prompt_a_diff_or_a_commit_message(
 ) -> None:
     feedback = "SENTINEL-comment: rename the lock in registry.py"
     ticks.recorder.verdicts = [rejecting(feedback)]
-    ticks.recorder.tier1_results = [(False, FAILING), (True, "")]
+    ticks.recorder.unit_test_results = [(False, FAILING), (True, "")]
     ticks.answer = DIFF
     messages: list[str] = []
     real_commit = ticks.recorder.commit
@@ -364,8 +364,8 @@ def test_a_step_that_waits_for_review_is_not_an_error(ticks: Ticks, exported: Co
 def test_a_failure_is_recorded_by_its_category_and_not_by_its_text(
     ticks: Ticks, exported: Collector
 ) -> None:
-    ticks.recorder.tier1_ok = False
-    ticks.recorder.tier1_output = "E   ImportError: SENTINEL-output cannot import 'geo'"
+    ticks.recorder.unit_test_ok = False
+    ticks.recorder.unit_test_output = "E   ImportError: SENTINEL-output cannot import 'geo'"
     ticks.agents()
 
     ticks.tick()
@@ -400,7 +400,7 @@ def test_a_unit_built_reviewed_twice_and_pushed_records_the_tables_instruments(
     ticks: Ticks, exported: Collector
 ) -> None:
     ticks.recorder.verdicts = [rejecting("rename the lock")]
-    ticks.recorder.tier1_results = [(False, FAILING), (True, "")]
+    ticks.recorder.unit_test_results = [(False, FAILING), (True, "")]
     ticks.agents()
 
     assert ticks.tick() == 0

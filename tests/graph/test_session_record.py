@@ -38,7 +38,7 @@ def test_fix_checks_updates_the_build_session_and_leaves_the_review_one(tmp_path
     distinct_models()
     recorder = fresh(tmp_path)
     recorder.verdicts = [rejecting("rename it")]
-    recorder.tier1_results = [(True, ""), (False, FAILING), (True, "")]
+    recorder.unit_test_results = [(True, ""), (False, FAILING), (True, "")]
     runs = Runs(recorder)
     # The second review is where the power goes, after fix_checks has completed.
     reviews = Reviews(recorder, kill_on=2)

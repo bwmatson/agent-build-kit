@@ -1,6 +1,6 @@
-"""Which tier 1 runs ask for a selected run (spec: affected-tests-in-fix-rounds).
+"""Which unit-test runs ask for a selected run (spec: affected-tests-in-fix-rounds).
 
-Tier 1 is faked at the point the runner binds it, recording the failed output each run
+Unit-test is faked at the point the runner binds it, recording the failed output each run
 was given: only a check that follows a failed check and a fixer's commit is given one, and
 so only that one may be selected. Every other run is asked for in full.
 """
@@ -23,19 +23,19 @@ def test_the_first_check_and_the_check_of_a_unit_that_never_failed_are_full(
     outcome = build(tmp_path, recorder)
 
     assert outcome.status == "open"
-    assert recorder.tier1_failed_outputs == [""]
+    assert recorder.unit_test_failed_outputs == [""]
 
 
 def test_the_check_after_a_failed_check_and_a_fix_is_given_the_failed_output(
     tmp_path: Path,
 ) -> None:
     recorder = fresh(tmp_path)
-    recorder.tier1_results = [(False, FAILING), (True, "")]
+    recorder.unit_test_results = [(False, FAILING), (True, "")]
 
     outcome = build(tmp_path, recorder)
 
     assert outcome.status == "open"
-    first, second = recorder.tier1_failed_outputs
+    first, second = recorder.unit_test_failed_outputs
     assert first == ""
     assert FAILING in second
 
@@ -45,14 +45,21 @@ def test_a_failure_of_the_selected_check_is_answered_by_the_next_fix_and_a_pass_
 ) -> None:
     other = "FAILED tests/test_y.py::test_other"
     recorder = fresh(tmp_path)
-    recorder.tier1_results = [(False, FAILING), (False, other), (True, "")]
+    recorder.unit_test_results = [(False, FAILING), (False, other), (True, "")]
 
     outcome = build(tmp_path, recorder)
 
     assert outcome.status == "open"
-    steps = [e for e in recorder.events if e in ("tier1", "claude:fix_checks", "review")]
-    assert steps == ["tier1", "claude:fix_checks", "tier1", "claude:fix_checks", "tier1", "review"]
-    outputs = recorder.tier1_failed_outputs
+    steps = [e for e in recorder.events if e in ("unit-test", "claude:fix_checks", "review")]
+    assert steps == [
+        "unit-test",
+        "claude:fix_checks",
+        "unit-test",
+        "claude:fix_checks",
+        "unit-test",
+        "review",
+    ]
+    outputs = recorder.unit_test_failed_outputs
     assert outputs[0] == "" and FAILING in outputs[1] and other in outputs[2]
 
 
@@ -63,20 +70,20 @@ def test_a_rework_after_review_is_checked_in_full(tmp_path: Path) -> None:
     outcome = build(tmp_path, recorder)
 
     assert outcome.status == "open"
-    assert recorder.tier1_failed_outputs == ["", ""]
+    assert recorder.unit_test_failed_outputs == ["", ""]
 
 
-def test_the_tier1_node_of_a_unit_moved_onto_a_new_base_after_fix_rounds_is_checked_in_full(
+def test_the_unit_test_node_of_a_unit_moved_onto_a_new_base_after_fix_rounds_is_checked_in_full(
     tmp_path: Path,
 ) -> None:
     recorder = fresh(tmp_path)
-    recorder.tier1_results = [(False, FAILING), (True, ""), (True, "")]
+    recorder.unit_test_results = [(False, FAILING), (True, ""), (True, "")]
     moving = Moving(recorder, CLEAN)
 
     outcome = build(tmp_path, recorder, **moving.overrides())
 
     assert outcome.status == "open"
     assert recorder.events.count("moved") == 1
-    first, selected, moved = recorder.tier1_failed_outputs
+    first, selected, moved = recorder.unit_test_failed_outputs
     assert first == "" and FAILING in selected
     assert moved == "", "the check after a move is the gate, never a selection"

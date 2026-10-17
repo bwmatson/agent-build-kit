@@ -78,7 +78,7 @@ def test_an_approved_build_is_pushed_and_opened_and_recorded_as_in_review(
     assert recorder.events.count("review") == 1
     assert "claude:rework" not in recorder.events
     assert recorder.events.index("push") < recorder.events.index("pr")
-    assert "status" not in recorder.events, "a unit that never ran tier 2 has none to post"
+    assert "status" not in recorder.events, "a unit that never ran e2e-test has none to post"
 
 
 def test_the_checks_run_once_and_before_the_review_and_the_review_before_the_push(
@@ -88,8 +88,8 @@ def test_the_checks_run_once_and_before_the_review_and_the_review_before_the_pus
 
     build(tmp_path, recorder)
 
-    assert recorder.events.count("tier1") == 1
-    assert recorder.events.index("tier1") < recorder.events.index("review")
+    assert recorder.events.count("unit-test") == 1
+    assert recorder.events.index("unit-test") < recorder.events.index("review")
     assert recorder.events.index("review") < recorder.events.index("push")
 
 
@@ -126,8 +126,8 @@ def test_only_the_approved_commit_is_pushed(tmp_path: Path) -> None:
 
 
 def test_a_failing_tier_one_fails_the_unit_and_leaves_no_pull_request(tmp_path: Path) -> None:
-    recorder = fresh(tmp_path, tier1_ok=False)
-    recorder.tier1_output = "E   ImportError: cannot import name 'geo' from 'src'"
+    recorder = fresh(tmp_path, unit_test_ok=False)
+    recorder.unit_test_output = "E   ImportError: cannot import name 'geo' from 'src'"
 
     outcome = build(tmp_path, recorder)
 
@@ -189,7 +189,7 @@ def test_a_unit_with_work_on_its_branch_and_no_feedback_builds_nothing_more(
     outcome = build(tmp_path, recorder)
 
     assert recorder.prompts == [], "no model call at all"
-    assert "tier1" in recorder.events
+    assert "unit-test" in recorder.events
     assert outcome.status == "open"
 
 
@@ -251,13 +251,15 @@ def test_failing_checks_go_back_to_the_builder_before_a_reviewer_is_asked(
     tmp_path: Path,
 ) -> None:
     recorder = fresh(tmp_path)
-    recorder.tier1_results = [(False, FAILING), (True, "")]
+    recorder.unit_test_results = [(False, FAILING), (True, "")]
 
     outcome = build(tmp_path, recorder)
 
     assert outcome.status == "open"
-    steps = [e for e in recorder.events if e in ("tier1", "claude:fix_checks", "review", "push")]
-    assert steps == ["tier1", "claude:fix_checks", "tier1", "review", "push"]
+    steps = [
+        e for e in recorder.events if e in ("unit-test", "claude:fix_checks", "review", "push")
+    ]
+    assert steps == ["unit-test", "claude:fix_checks", "unit-test", "review", "push"]
     fix = [p for p in recorder.prompts if "checks (lint" in p]
     assert len(fix) == 1 and FAILING in fix[0]
     assert recorder.store.get(unit().id).feedback == "", "the saved failure is cleared"
@@ -265,15 +267,15 @@ def test_failing_checks_go_back_to_the_builder_before_a_reviewer_is_asked(
 
 def test_checks_that_keep_failing_fail_the_unit_before_any_review(tmp_path: Path) -> None:
     limited(max_check_rounds=2)
-    recorder = fresh(tmp_path, tier1_ok=False)
-    recorder.tier1_output = FAILING
+    recorder = fresh(tmp_path, unit_test_ok=False)
+    recorder.unit_test_output = FAILING
 
     outcome = build(tmp_path, recorder)
 
     assert outcome.status == "failed"
     assert "checks still failing after 2 fix round(s)" in outcome.detail
     assert recorder.events.count("claude:fix_checks") == 2, "the budget, no more"
-    assert recorder.events.count("tier1") == 3
+    assert recorder.events.count("unit-test") == 3
     assert "review" not in recorder.events and "push" not in recorder.events
     stored = recorder.store.get(unit().id)
     assert stored.state == "failed" and FAILING in stored.feedback
@@ -281,21 +283,21 @@ def test_checks_that_keep_failing_fail_the_unit_before_any_review(tmp_path: Path
 
 def test_a_budget_of_zero_still_checks_but_makes_no_fix_attempt(tmp_path: Path) -> None:
     limited(max_check_rounds=0)
-    recorder = fresh(tmp_path, tier1_ok=False)
-    recorder.tier1_output = FAILING
+    recorder = fresh(tmp_path, unit_test_ok=False)
+    recorder.unit_test_output = FAILING
 
     outcome = build(tmp_path, recorder)
 
     assert outcome.status == "failed"
-    assert recorder.events.count("tier1") == 1
+    assert recorder.events.count("unit-test") == 1
     assert "claude:fix_checks" not in recorder.events
     assert "review" not in recorder.events
 
 
 def test_a_fix_that_leaves_the_branch_as_it_was_stops_the_run(tmp_path: Path) -> None:
     limited(max_check_rounds=None)
-    recorder = fresh(tmp_path, commits_from_impl=0, tier1_ok=False)
-    recorder.tier1_output = FAILING
+    recorder = fresh(tmp_path, commits_from_impl=0, unit_test_ok=False)
+    recorder.unit_test_output = FAILING
 
     outcome = build(tmp_path, recorder)
 
@@ -308,21 +310,23 @@ def test_a_fix_that_leaves_the_branch_as_it_was_stops_the_run(tmp_path: Path) ->
 def test_a_rework_after_review_is_checked_again_before_the_next_review(tmp_path: Path) -> None:
     recorder = fresh(tmp_path)
     recorder.verdicts = [rejecting("rename it")]
-    recorder.tier1_results = [(True, ""), (False, FAILING), (True, "")]
+    recorder.unit_test_results = [(True, ""), (False, FAILING), (True, "")]
 
     outcome = build(tmp_path, recorder)
 
     assert outcome.status == "open"
     steps = [
-        e for e in recorder.events if e in ("tier1", "claude:fix_checks", "claude:rework", "review")
+        e
+        for e in recorder.events
+        if e in ("unit-test", "claude:fix_checks", "claude:rework", "review")
     ]
     assert steps == [
-        "tier1",
+        "unit-test",
         "review",
         "claude:rework",
-        "tier1",
+        "unit-test",
         "claude:fix_checks",
-        "tier1",
+        "unit-test",
         "review",
     ]
 
@@ -396,7 +400,7 @@ def test_a_failed_restack_keeps_where_the_waiting_feedback_came_from(tmp_path: P
     recorder = fresh(tmp_path)
     recorder.made = 2
     recorder.store.set_feedback(
-        unit().id, "tier 1 failed:\nE assert 1 == 2", source=FeedbackSource.TIER1
+        unit().id, "unit-test failed:\nE assert 1 == 2", source=FeedbackSource.UNIT_TEST
     )
 
     def conflicted(**kw: Any) -> None:
@@ -406,9 +410,9 @@ def test_a_failed_restack_keeps_where_the_waiting_feedback_came_from(tmp_path: P
 
     stored = recorder.store.get(unit().id)
     assert "sessions.py" in stored.feedback
-    assert stored.feedback_source is FeedbackSource.TIER1
+    assert stored.feedback_source is FeedbackSource.UNIT_TEST
 
-    recorder.tier1_results = [(True, "")]
+    recorder.unit_test_results = [(True, "")]
     build(tmp_path, recorder, base="spec/add-marker/0")
 
     assert "claude:fix_checks" in recorder.events, "the output still goes out as a check failure"
@@ -495,13 +499,13 @@ def test_a_branch_moved_cleanly_before_the_push_is_checked_again_and_the_moved_h
     outcome = build(tmp_path, recorder, restack_onto=restack, fresh_base=fresh_base)
 
     assert outcome.status == "open"
-    steps = [e for e in recorder.events if e in ("tier1", "review", "verify_base", "push")]
-    assert steps == ["tier1", "review", "verify_base", "tier1", "push"]
+    steps = [e for e in recorder.events if e in ("unit-test", "review", "verify_base", "push")]
+    assert steps == ["unit-test", "review", "verify_base", "unit-test", "push"]
     assert recorder.remote == ["sha-3"], "the moved head, not the one review saw"
     assert recorder.store.get(unit().id).approved == "sha-3"
 
 
-# --- rework, replies and tier 1 for a unit with nothing ---------------------------
+# --- rework, replies and unit-test for a unit with nothing ---------------------------
 
 
 def test_a_rework_of_an_open_pr_posts_its_replies_after_the_push(tmp_path: Path) -> None:
@@ -551,13 +555,13 @@ def test_a_first_build_has_nobody_to_reply_to(tmp_path: Path) -> None:
 def test_a_unit_with_nothing_anywhere_still_fails(tmp_path: Path) -> None:
     """No commits of its own is not enough to call a unit satisfied: the checks
     have to pass too."""
-    recorder = fresh(tmp_path, commits_from_impl=0, tier1_ok=False)
+    recorder = fresh(tmp_path, commits_from_impl=0, unit_test_ok=False)
 
     outcome = build(tmp_path, recorder, branch_commits=lambda cwd, base: 0)
 
     assert outcome.status == "failed"
-    assert recorder.store.get(unit().id).feedback_source == FeedbackSource.TIER1
-    assert "tier1:whole_repo" in recorder.events, (
+    assert recorder.store.get(unit().id).feedback_source == FeedbackSource.UNIT_TEST
+    assert "unit-test:whole_repo" in recorder.events, (
         "judged on the whole-repo checks, not skipped because nothing landed"
     )
 
@@ -569,7 +573,7 @@ def test_a_unit_retried_after_tier_one_takes_the_rework_path(tmp_path: Path) -> 
     recorder.store.set_feedback(
         unit().id,
         "the checks failed:\nE   ImportError: no module named x",
-        source=FeedbackSource.TIER1,
+        source=FeedbackSource.UNIT_TEST,
     )
 
     build(tmp_path, recorder)

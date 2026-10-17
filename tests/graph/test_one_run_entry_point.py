@@ -36,7 +36,7 @@ def test_tests_and_implement_run_on_the_implement_model(tmp_path: Path) -> None:
 def test_fix_checks_runs_on_the_implement_model_with_the_failing_output(tmp_path: Path) -> None:
     distinct_models()
     recorder = fresh(tmp_path)
-    recorder.tier1_results = [(False, FAILING), (True, "")]
+    recorder.unit_test_results = [(False, FAILING), (True, "")]
     runs = Runs(recorder)
 
     tick(tmp_path, recorder, run=runs)

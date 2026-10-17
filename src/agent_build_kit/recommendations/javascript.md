@@ -101,7 +101,7 @@ check that a repo follows it.
 
 ## CI
 
-- **Rule:** tier 1 runs on GitHub Actions on every pull request and on
+- **Rule:** unit-test runs on GitHub Actions on every pull request and on
   pushes to the default branch: one job per package running lint, types
   and tests; `npm ci` guards the lockfile.
   **Tool:** GitHub Actions with `actions/setup-node` and npm's cache.

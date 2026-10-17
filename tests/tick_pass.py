@@ -66,7 +66,7 @@ def stored(uid: str, **overrides) -> StoredUnit:
         "change": change,
         "title": f"Build {uid}",
         "repo": "app",
-        "tier": "tier1",
+        "tier": "unit-test",
         "depends_on": (),
         "estimated_lines": 140,
         "groups": (1,),

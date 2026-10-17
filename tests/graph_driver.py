@@ -53,7 +53,7 @@ def tick(
     event: ResumeEvent | None = None,
     tracer: FakeTracer | None = None,
     run_log: RunLog | None = None,
-    tier: str = "tier1",
+    tier: str = "unit-test",
     base: str = "main",
     subject: Unit | None = None,
     **overrides: Any,

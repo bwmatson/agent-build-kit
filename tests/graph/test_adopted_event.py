@@ -34,10 +34,10 @@ def parked(tmp_path: Path, how: str) -> Recorder:
     """The unit's thread waiting where `how` says: in review, held by a reviewer, or failed."""
     if how == "failed":
         limited(max_check_rounds=0)
-        recorder = fresh(tmp_path, tier1_ok=False)
-        recorder.tier1_output = FAILING
+        recorder = fresh(tmp_path, unit_test_ok=False)
+        recorder.unit_test_output = FAILING
         assert tick(tmp_path, recorder).status == RunStatus.FAILED
-        recorder.tier1_ok = True
+        recorder.unit_test_ok = True
         assert recorder.store.get(unit().id).state == FAILED
         return recorder
     recorder = fresh(tmp_path)
@@ -73,7 +73,7 @@ def test_adopted_does_not_reuse_the_previous_approval(tmp_path: Path) -> None:
 
     assert outcome.status == RunStatus.OPEN
     assert recorder.events.count("review") == 2, "the new head is reviewed"
-    assert recorder.events.count("tier1") == 2, "and checked"
+    assert recorder.events.count("unit-test") == 2, "and checked"
     assert recorder.store.get(unit().id).state == IN_REVIEW
 
 
@@ -104,10 +104,10 @@ def test_adopted_clears_the_recorded_node_start(tmp_path: Path) -> None:
 def test_the_checks_after_an_adopted_commit_have_their_own_fix_budget(tmp_path: Path) -> None:
     limited(max_check_rounds=1)
     recorder = fresh(tmp_path)
-    recorder.tier1_results = [(False, FAILING), (True, "")]
+    recorder.unit_test_results = [(False, FAILING), (True, "")]
     tick(tmp_path, recorder)
     assert recorder.events.count("claude:fix_checks") == 1, "the build spent its budget"
-    recorder.tier1_results = [(False, FAILING), (True, "")]
+    recorder.unit_test_results = [(False, FAILING), (True, "")]
     tick(tmp_path, recorder, event=ADOPTED)
 
     outcome = tick(tmp_path, recorder)
@@ -121,8 +121,8 @@ def test_checks_that_keep_failing_after_an_adopted_commit_fail_the_unit_as_usual
 ) -> None:
     limited(max_check_rounds=1)
     recorder = parked(tmp_path, "in_review")
-    recorder.tier1_ok = False
-    recorder.tier1_output = FAILING
+    recorder.unit_test_ok = False
+    recorder.unit_test_output = FAILING
     tick(tmp_path, recorder, event=ADOPTED)
 
     outcome = tick(tmp_path, recorder)

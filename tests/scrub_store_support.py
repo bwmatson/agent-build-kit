@@ -21,9 +21,9 @@ UNIT = "add-marker/1"
 LINUX = "/" + "home" + "/someone/work/app/src/x.py"
 MACOS = "/" + "Users" + "/someone/work/app/y.py"
 TILDE = "~" + "/work/app/z.py"
-FEEDBACK = f"tier 2 failed in {LINUX} and {MACOS}, also {TILDE}, in repo platform"
+FEEDBACK = f"e2e-test failed in {LINUX} and {MACOS}, also {TILDE}, in repo platform"
 SCRUBBED = (
-    "tier 2 failed in <home>/work/app/src/x.py and <home>/work/app/y.py, "
+    "e2e-test failed in <home>/work/app/src/x.py and <home>/work/app/y.py, "
     "also <home>/work/app/z.py, in repo platform"
 )
 

@@ -8,8 +8,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline import wiring
-from tests.pipeline.test_tier2_gate_wiring import runner_of
-from tests.pipeline.test_tier2_split_groups import (
+from tests.pipeline.test_e2e_split_groups import (
     FILES,
     MARKER,
     SOURCE,
@@ -17,6 +16,7 @@ from tests.pipeline.test_tier2_split_groups import (
     expected,
     expression_of,
 )
+from tests.pipeline.test_tier2_gate_wiring import runner_of
 from tests.tier2_scope_fakes import branch
 
 REASON = "the provider is down"

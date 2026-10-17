@@ -3,7 +3,7 @@
 
 The runner is the real one over a real repository, its commands faked at their boundary: a
 command fails with the line a test runner prints and passes when it is run again alone. The
-graph's `tier1` node and the merge handler are driven with a tier 1 that raises what the
+graph's `unit-test` node and the merge handler are driven with a unit-test that raises what the
 runner raises. Each flake test is paired with a failure that repeats, so the two outcomes
 are read side by side.
 """
@@ -28,7 +28,7 @@ from agent_build_kit.pipeline.restack import Moved
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import PLANNED, Unit
-from agent_build_kit.pipeline.wiring import build_on_flake, build_tier1
+from agent_build_kit.pipeline.wiring import build_on_flake, build_unit_test
 from tests.conftest import make_installation
 from tests.factories import stored_unit
 from tests.graph.test_build_path import build, restacked
@@ -194,11 +194,11 @@ def test_the_added_tests_are_repeated_over_the_same_ids_on_a_scoped_run_as_on_a_
     with pytest.raises(FlakeFound) as raised:
         run_moved(room(tmp_path, "scoped"), Selecting([["affected"]]), scoped, **FILES)
     assert raised.value.scoped
-    make_installation(tmp_path / "planning-full", limits={"tier1_repeat_runs": 1})
+    make_installation(tmp_path / "planning-full", limits={"unit_test_repeat_runs": 1})
     repo, _ = moved(room(tmp_path, "full"), own=FILES["own"], incoming=FILES["incoming"])
     full = Runner()
 
-    assert build_tier1(profile=Selecting(), run=full)(cwd=repo, base="main")[0]
+    assert build_unit_test(profile=Selecting(), run=full)(cwd=repo, base="main")[0]
 
     assert OWN_REPEAT in scoped.ran and OWN_REPEAT in full.ran
     assert scoped.failed, "the scoped run met its flake"
@@ -209,7 +209,7 @@ def test_a_full_run_under_the_full_setting_raises_its_flake_as_a_full_runs_flake
 ) -> None:
     scoped_flake(room(tmp_path, "scoped"))
     workspace = make_installation(
-        tmp_path / "planning-full", limits={"tier1_repeat_runs": 1, "restack_check": "full"}
+        tmp_path / "planning-full", limits={"unit_test_repeat_runs": 1, "restack_check": "full"}
     )
     runner = Failing(["tests"], OTHER, again=0)
 
@@ -234,8 +234,8 @@ class Told:
         return self.fix
 
 
-class FailingTier2:
-    """Tier 2 as the recorder's, except that its second run, the one on the moved commit,
+class FailingE2e:
+    """E2e-test as the recorder's, except that its second run, the one on the moved commit,
     fails."""
 
     def __init__(self, recorder: Any) -> None:
@@ -244,12 +244,12 @@ class FailingTier2:
 
     def __call__(self, **kwargs: Any) -> tuple[bool, str]:
         self.runs += 1
-        ok, output = self.recorder.tier2(**kwargs)
-        return (False, "tier 2 failed: boom") if self.runs == 2 else (ok, output)
+        ok, output = self.recorder.e2e(**kwargs)
+        return (False, "e2e-test failed: boom") if self.runs == 2 else (ok, output)
 
 
 class Raising:
-    """Tier 1 that raises a flake on its second run, the one after the move, and otherwise
+    """Unit-test that raises a flake on its second run, the one after the move, and otherwise
     answers as the recorder's."""
 
     def __init__(self, recorder: Any, *, scoped: bool) -> None:
@@ -260,9 +260,9 @@ class Raising:
     def __call__(self, **kwargs: Any) -> tuple[bool, str]:
         self.runs += 1
         if self.runs == 2:
-            self.recorder.events.append("tier1")
+            self.recorder.events.append("unit-test")
             raise FlakeFound((FLAKE,), scoped=self.scoped)
-        return self.recorder.tier1(**kwargs)
+        return self.recorder.unit_test(**kwargs)
 
 
 def moved_build(
@@ -271,16 +271,16 @@ def moved_build(
     told: Told,
     *,
     scoped: bool,
-    tier2: Any = None,
+    e2e: Any = None,
     **options: Any,
 ) -> tuple[Any, RunOutcome]:
-    """A unit built to its move in a folder `name`, its second tier 1 raising a flake that is
-    `scoped` or not, and its tier 2 `tier2` when given as a function of the recorder;
+    """A unit built to its move in a folder `name`, its second unit-test raising a flake that is
+    `scoped` or not, and its e2e-test `e2e-test` when given as a function of the recorder;
     returns the recorder and the outcome."""
     where = room(tmp_path, name)
     recorder = fresh(where, **options)
     moving = Moving(recorder, restacked(old_base=OLD_BASE))
-    more = {} if tier2 is None else {"run_e2e": tier2(recorder)}
+    more = {} if e2e is None else {"run_e2e": e2e(recorder)}
     return recorder, build(
         where,
         recorder,
@@ -309,15 +309,13 @@ def test_a_tier_2_failure_after_a_scoped_flake_is_not_isolated_and_holds_the_uni
 ) -> None:
     told = Told()
 
-    recorder, _ = moved_build(
-        tmp_path, "flake", told, scoped=True, tier="tier2", tier2=FailingTier2
-    )
+    recorder, _ = moved_build(tmp_path, "flake", told, scoped=True, tier="e2e-test", e2e=FailingE2e)
 
     after = recorder.events[recorder.events.index("moved") :]
-    failed = after.index("tier2")
-    assert after[failed + 1] != "tier2", "the failed tier 2 was not run again alone"
+    failed = after.index("e2e-test")
+    assert after[failed + 1] != "e2e-test", "the failed e2e-test was not run again alone"
     assert any(event.startswith("claude:") for event in after[failed : after.index("push")])
-    assert told.flakes == [("add-marker/1", TEST, False)], "told of tier 1's flake only"
+    assert told.flakes == [("add-marker/1", TEST, False)], "told of unit-test's flake only"
 
 
 def test_a_scoped_flake_on_a_moved_base_is_recorded_and_the_unit_goes_on_to_its_push(
@@ -341,7 +339,7 @@ def test_a_failure_that_repeats_holds_the_unit_where_a_scoped_flake_did_not(
     moved_build(tmp_path, "flake", Told(), scoped=True)
     where = room(tmp_path, "held")
     held = fresh(where)
-    held.tier1_results = [(True, ""), (False, "FAILED tests/test_x.py::test_y - assert 1 == 2")]
+    held.unit_test_results = [(True, ""), (False, "FAILED tests/test_x.py::test_y - assert 1 == 2")]
     told = Told()
 
     build(where, held, on_flake=told, **Moving(held, restacked(old_base=OLD_BASE)).overrides())
@@ -372,11 +370,11 @@ def test_a_tier_two_unit_runs_tier_2_after_a_scoped_flake_and_is_told_of_it_once
 ) -> None:
     told = Told()
 
-    recorder, outcome = moved_build(tmp_path, "flake", told, scoped=True, tier="tier2")
+    recorder, outcome = moved_build(tmp_path, "flake", told, scoped=True, tier="e2e-test")
 
     assert outcome.status == "open"
     after = recorder.events[recorder.events.index("moved") :]
-    assert after.index("tier1") < after.index("tier2") < after.index("push")
+    assert after.index("unit-test") < after.index("e2e-test") < after.index("push")
     assert told.flakes == [("add-marker/1", TEST, False)]
 
 
@@ -384,7 +382,7 @@ def test_a_tier_two_unit_runs_tier_2_after_a_scoped_flake_and_is_told_of_it_once
 
 
 def restacking(
-    installation: Installation, name: str, tier1: Any, *, child: StoredUnit | None = None
+    installation: Installation, name: str, unit_test: Any, *, child: StoredUnit | None = None
 ):
     """The handler over unit `name`, or `child` when given, with the real flake recorder;
     returns the store, the pushes and the run."""
@@ -399,7 +397,7 @@ def restacking(
         store=store,
         root=installation.root,
         move=lambda *a, **k: Moved(sha="newsha"),
-        unit_test=tier1,
+        unit_test=unit_test,
         on_flake=build_on_flake(store, installation, log=lambda message: None),
         push=lambda *a, **k: pushed.append("pushed") or "newsha",
         retarget=lambda *a, **k: None,
@@ -421,10 +419,10 @@ def restacking(
 
 
 def flaking(scoped: bool):
-    def tier1(**kwargs: object):
+    def unit_test(**kwargs: object):
         raise FlakeFound((FLAKE,), scoped=scoped)
 
-    return tier1
+    return unit_test
 
 
 def test_a_scoped_flake_met_by_the_handler_is_recorded_and_the_branch_is_pushed(

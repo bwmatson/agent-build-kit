@@ -121,12 +121,18 @@ THEN bullets.
 
 The heading contract, checked mechanically by `abk tags` after you finish:
 `## <n>. [<repo>] [<tier>] <title>` — <repo> is `{repo}` (the workspace \
-repos are {repos}), <tier> is unit-test or e2e-test (the old tier1 and tier2 are still read), \
+repos are {repos}), <tier> is unit-test or e2e-test (the old spellings are still read), \
 an optional third tag is [contract], [narrow] or [acceptance]. Groups are numbered from 1 in build \
 order; each has tasks as `- [ ] <n>.<m> <task>` lines. Test tasks come before \
 implementation tasks in every group. The last group is `[e2e-test] [acceptance]` \
 and drives what the change built the way its consumer does — or, if there is \
 nothing to drive, `tasks.md` contains a line `Acceptance: none — <reason>`.
+
+The three kinds of test a group can need: `unit-test` is the ordinary suite, \
+run anywhere; `integration-test` covers behaviour across modules in the ordinary \
+suite with no live stack, and is not the `integration` marker or \
+`tests/integration/`; `e2e-test` needs the real local stack. The `[acceptance]` \
+tag is for `e2e-test` only.
 
 Rules the authoring model in this workspace follows (from openspec/config.yaml):
 

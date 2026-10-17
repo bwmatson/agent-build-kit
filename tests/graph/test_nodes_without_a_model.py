@@ -88,7 +88,7 @@ def test_the_fix_checks_node_starts_the_agent_with_no_model(tmp_path: Path) -> N
     record, runtime = on_acp(tmp_path)
     habitat = habitat_on(tmp_path, runtime)
     recorder = fresh(tmp_path)
-    recorder.tier1_results = [(False, "E501 line too long")]
+    recorder.unit_test_results = [(False, "E501 line too long")]
 
     outcome = tick(tmp_path, recorder, **habitat.overrides())
 

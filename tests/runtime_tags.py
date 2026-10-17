@@ -1,4 +1,4 @@
-"""A pytest plugin: a live-stack test carries at most one runtime tag (spec: tier2-runtime-tags).
+"""A pytest plugin: a live-stack test carries at most one runtime tag (spec: e2e-runtime-tags).
 
 At collection it reads every marker an item has (its own, its class's, its module's and a
 parameter's), takes the distinct `runtime_<name>` names, and for a `local_stack` item with

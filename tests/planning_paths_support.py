@@ -16,7 +16,7 @@ CHANGE = "openspec/changes/feature/tasks.md"
 SOURCE = "src/main.py"
 NEW_SOURCE = "src/new.py"
 TASKS = (
-    "# Tasks\n\n## 1. [app] [tier1] A group\n\nAcceptance: none — nothing to drive\n\n"
+    "# Tasks\n\n## 1. [app] [unit-test] A group\n\nAcceptance: none — nothing to drive\n\n"
     "- [ ] 1.1 Test: it works\n"
 )
 EDITED_TASKS = TASKS.replace("A group", "A group, reworded")

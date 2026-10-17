@@ -124,7 +124,7 @@ def test_an_event_for_a_unit_waiting_in_review_is_delivered_at_once(tmp_path: Pa
         ("comment", "Use a Sequence, list is invariant"),
         ("changes requested", "Rename the registry"),
         ("label", "agent-rework"),
-        ("failing check", "tier 1 failed: E   ImportError"),
+        ("failing check", "unit-test failed: E   ImportError"),
         ("conflict", "the branch conflicts with main in src/app.py"),
     ],
 )
@@ -240,9 +240,9 @@ def test_a_requeue_leaves_a_held_thread_at_prepare_and_runs_nothing(
 
 
 def test_a_requeue_leaves_a_failed_thread_at_prepare_and_runs_nothing(tmp_path: Path) -> None:
-    recorder = fresh(tmp_path, tier1_ok=False)
+    recorder = fresh(tmp_path, unit_test_ok=False)
     assert tick(tmp_path, recorder).status == RunStatus.FAILED
-    recorder.tier1_ok = True
+    recorder.unit_test_ok = True
     built = len(recorder.events)
     tracer = FakeTracer()
 
