@@ -64,7 +64,11 @@ PIPELINE_TEST_RANGES = (
     ("test_planner_project_check", "test_task_progress"),
     ("test_e2e", "test_e2e_scope_own"),
     ("test_unit_test_affected", "test_unit_test_spans"),
+    ("test_e2e_scope_whole", "test_wiring_transcript"),
+    ("test_work_graph", "test_worktree_in_turn"),
 )
+GRAPH_TESTS = TESTS / "graph"
+GRAPH_TEST_RANGES = (("test_adopted_event", "test_open_pr_limit"),)
 
 
 def text_files(folder: Path) -> list[Path]:
@@ -96,6 +100,15 @@ def pipeline_test_files() -> list[Path]:
     )
 
 
+def graph_test_files() -> list[Path]:
+    """The tests under `tests/graph` in the converted name ranges, by current file name."""
+    return sorted(
+        p
+        for p in GRAPH_TESTS.glob("test_*.py")
+        if any(first <= p.stem <= last for first, last in GRAPH_TEST_RANGES)
+    )
+
+
 def converted_files() -> list[Path]:
     """The pipeline package, the converted source directories, `web/src` and the test helpers."""
     return [
@@ -106,6 +119,7 @@ def converted_files() -> list[Path]:
         *text_files(WEB_SOURCE),
         *helper_files(),
         *pipeline_test_files(),
+        *graph_test_files(),
     ]
 
 
