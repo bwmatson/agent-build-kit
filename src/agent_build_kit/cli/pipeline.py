@@ -219,6 +219,7 @@ from agent_build_kit.pipeline.units import (
     depth_of,
     effective_priority,
     failed_waiting_units,
+    handoff_units,
     in_progress,
     in_progress_label,
     local_ref,
@@ -2101,6 +2102,7 @@ def _ready_queue_lines(inst: Installation, units: list[StoredUnit]) -> list[str]
     if not ready:
         return []
     lines = ["ready queue (start order):"]
+    handed_off = {unit.id for unit in handoff_units(ready, view, excluded)}
     for place, unit in enumerate(ready, start=1):
         urgency = effective_priority(unit, view, excluded)
         if urgency < unit.priority:
@@ -2112,7 +2114,8 @@ def _ready_queue_lines(inst: Installation, units: list[StoredUnit]) -> list[str]
             why = f"stack age, from {source.id}"
         else:
             why = "planned order"
-        lines.append(f"  {place}. {unit.id} ({unit.repo}) — {why}")
+        marker = " (handoff)" if unit.id in handed_off else ""
+        lines.append(f"  {place}. {unit.id} ({unit.repo}) — {why}{marker}")
     return lines
 
 

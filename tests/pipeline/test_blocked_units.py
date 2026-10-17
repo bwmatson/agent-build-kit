@@ -20,16 +20,12 @@ from agent_build_kit.pipeline.units import (
 )
 from agent_build_kit.pipeline.vocabulary import effective_state
 from tests.factories import new_unit as new
+from tests.factories import worked_unit as worked
 
 
 def caused(cause: Cause) -> dict:
     """The history a state change records, which is where a unit's cause is read from."""
     return {"history": ({"state": "planned", "at": "2026-09-23T09:00", "cause": cause.value},)}
-
-
-def worked(uid: str, **kw):
-    """A planned unit a run began and stopped: it has recorded its branch."""
-    return new(uid, branch=f"spec/{uid}", **kw)
 
 
 def review(uid: str, pr: int = 1, **kw):
@@ -172,7 +168,7 @@ def test_a_ready_prerequisite_takes_the_place_of_the_blocked_unit_at_the_limit()
     assert chosen(graph, limit=2) == ["base/1"]
 
 
-def test_the_handoff_comes_ahead_of_work_resuming_a_build() -> None:
+def test_work_resuming_a_build_still_comes_ahead_of_the_handoff() -> None:
     graph = [
         review("busy/1"),
         worked("paused/1"),
@@ -180,7 +176,7 @@ def test_the_handoff_comes_ahead_of_work_resuming_a_build() -> None:
         new("base/1"),
     ]
 
-    assert chosen(graph, limit=3, slots=1)[0] == "base/1"
+    assert chosen(graph, limit=3, slots=1)[0] == "paused/1"
 
 
 def test_the_prerequisite_of_a_unit_that_never_started_gets_no_handoff() -> None:

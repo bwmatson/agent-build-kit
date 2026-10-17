@@ -17,6 +17,7 @@ build their own `Installation` and activate it.
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 from collections.abc import Iterator
 from pathlib import Path
@@ -268,6 +269,16 @@ def make_installation(root: Path, **overrides) -> Installation:
     installation = Installation(workspace_config(root, **overrides), root)
     installation.activate()
     return installation
+
+
+QUEUE_LINE = re.compile(r"\d+\. \S+ \(\S+\) — .*")
+
+
+def ready_queue(lines: list[str]) -> list[str]:
+    """The numbered lines of the ready queue in `abk status` output, without the log timestamp."""
+    heading = next(i for i, line in enumerate(lines) if "ready queue" in line.lower())
+    found = (QUEUE_LINE.search(line) for line in lines[heading + 1 :])
+    return [match.group(0) for match in found if match]
 
 
 def status_lines(
