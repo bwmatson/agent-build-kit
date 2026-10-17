@@ -11,30 +11,8 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.work_graph import TaskGroup, ValidationError, validate_tasks
 from tests.conftest import make_installation
-
-OPT_OUT = "Acceptance: none — a fixture about priorities\n"
-
-
-def tasks_md(*priorities: str | None, head: str = "") -> str:
-    """A change with one group per entry, each carrying that `Priority:` value
-    (none for a group without the line); `head` is written above the first group."""
-    text = f"# Tasks\n\n{OPT_OUT}{head}\n"
-    for number, value in enumerate(priorities, start=1):
-        text += f"## {number}. [app] [tier1] Group {number}\n\n"
-        text += f"Priority: {value}\n\n" if value is not None else ""
-        text += f"- [ ] {number}.1 Test: it.\n- [ ] {number}.2 Do it.\n\n"
-    return text
-
-
-def read(text: str, tmp_path: Path) -> tuple[list[TaskGroup], list[ValidationError]]:
-    (tmp_path / "tasks.md").write_text(text)
-    return validate_tasks(tmp_path / "tasks.md")
-
-
-def priority_errors(errors: list[ValidationError]) -> list[int]:
-    return [e.line for e in errors if "riority" in e.message]
+from tests.task_priority_files import priority_errors, read, tasks_md
 
 
 def test_a_group_sets_its_own_priority(tmp_path: Path) -> None:
