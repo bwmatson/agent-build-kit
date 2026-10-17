@@ -53,6 +53,21 @@ def test_three_runs_that_leave_the_conflict_standing_hold_the_unit_with_a_note(
     assert re.search(r"restack[ _]conflict", note), "how the last run ended"
 
 
+def test_the_note_names_the_conflict_the_last_run_left_when_nothing_else_was_written(
+    scene: Attempts,
+) -> None:
+    for _ in range(ROUNDS + 1):
+        scene.scan()
+
+    stored = scene.unit
+    assert stored.state == HELD
+    assert len(scene.ran) == ROUNDS
+    note = stored.history[-1]["note"]
+    assert re.search(r"restack[ _]conflict", note)
+    assert "base changed" not in note
+    assert "running" not in note
+
+
 def test_the_lane_does_not_start_a_run_after_the_attempts_are_spent(scene: Attempts) -> None:
     three_runs_end_with_the_conflict_standing(scene)
 
@@ -89,3 +104,10 @@ def test_a_release_makes_the_unit_owed_again_with_the_count_kept_for_the_tip(
     assert UNIT in cli.owed_units(scene.inst, scene.store.all())
     assert scene.unit.conflict_attempts == ROUNDS
     assert scene.unit.conflict_tip == scene.tip()
+
+    # The count is kept for the tip, so the lane holds it again and runs nothing: a person who
+    # wants one more run asks for it with `abk requeue`, which runs the unit outside the lane.
+    scene.scan()
+
+    assert scene.unit.state == HELD
+    assert len(scene.ran) == ROUNDS

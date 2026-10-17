@@ -3672,7 +3672,7 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
         if in_a_lane_run(unit):
             return run_of(unit.id)  # An interrupted run: its thread resumes at its node.
         graph = store.all()
-        if hold_if_spent(inst, store, unit, graph):
+        if hold_if_spent(inst, store, unit, graph, log):
             return None
         repo = inst.checkouts[unit.repo]
         branch = unit.branch or branch_name(unit)
@@ -4138,6 +4138,17 @@ def _build_unit(
     run_log: RunLog | None = None
     ended = "interrupted"
     before: StoredUnit | None = None  # the unit as it was, when this run began an attempt
+    agent_ran = False  # whether an agent streamed anything in this run
+
+    def agent_said(message: str) -> None:
+        nonlocal agent_ran
+        agent_ran = True
+        unit_log_only(message)
+
+    def forget_if_not_begun() -> None:
+        """A run that stopped before its first agent call was not an attempt: its resume is."""
+        if before is not None and not agent_ran:
+            forget_run_attempt(store, before)
 
     def say(message: str) -> None:
         # One stamp for both, so the file lines up with the journal.
@@ -4215,11 +4226,17 @@ def _build_unit(
                     return True
                 if moved_base_run:
                     # The lane's run: flagged only now that it holds the branch and may go on.
-                    # A run that starts is an attempt at its base's tip; one resumed is not.
-                    if not unit.moved_base_run:
+                    # A run that starts is an attempt at its base's tip; one resumed is not,
+                    # unless the start it resumes stopped before its first agent call.
+                    if not unit.moved_base_run or unit.moved_base_uncounted:
+                        tip = base_tip(inst, unit, store.all())
+                        if not tip:
+                            end("skipped, its base cannot be read", UnitOutcome.SKIPPED)
+                            return True
                         before = unit
-                        record_run_attempt(store, unit, base_tip(inst, unit, store.all()))
+                        record_run_attempt(store, unit, tip)
                     store.set_moved_base_run(unit.id, True)
+                    store.set_moved_base_uncounted(unit.id, False)
                 # A step recorded by an earlier run belongs to that run. A parked unit, or one
                 # the restack lane handed back, resumes at its node, which never passes
                 # `prepare`, so it is marked running here.
@@ -4253,7 +4270,7 @@ def _build_unit(
                     log=say,
                     log_reaches_run_log=True,
                     journal=journal_only,
-                    transcript=unit_log_only,
+                    transcript=agent_said,
                 )
                 outcome = run_unit_thread(
                     inst, runner, unit, base=base, graph=graph, run_log=run_log, lane=moved_base_run
@@ -4279,8 +4296,7 @@ def _build_unit(
             # tick resumes its thread at the node it was in. Not failed — nothing
             # is known to be wrong.
             end(f"interrupted ({error}); the next tick resumes it", UnitOutcome.INTERRUPTED)
-            if before is not None:
-                forget_run_attempt(store, before)  # It never got going: not an attempt.
+            forget_if_not_begun()
             return True
         except RateLimited as error:
             # Not the unit's fault and not retried: the account is out of room, so
@@ -4340,6 +4356,7 @@ def _build_unit(
 
         end(f"{outcome.status} — {outcome.detail}", outcome.status)
         if outcome.status is UnitOutcome.PAUSED:
+            forget_if_not_begun()
             emit_metric(
                 "count", "abk.usage.pauses", 1, say, unit=unit.id, change=unit.change, kind="usage"
             )

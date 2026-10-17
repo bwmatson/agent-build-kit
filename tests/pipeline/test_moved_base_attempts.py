@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.pipeline.unit_store import Cause
+from agent_build_kit.pipeline.unit_store import Cause, StoredUnit
 from agent_build_kit.pipeline.units import CLOSED, RUNNING
 from agent_build_kit.pipeline.usage_guard import Interrupted
 from agent_build_kit.pipeline.workspaces import branch_lock
@@ -90,19 +90,45 @@ def test_a_branch_held_by_another_run_is_not_an_attempt(scene: Attempts) -> None
     assert scene.unit.conflict_attempts == 1, "the run that goes ahead is the first attempt"
 
 
-def test_a_usage_pause_before_the_first_agent_call_is_not_an_attempt(scene: Attempts) -> None:
-    def paused(unit: object) -> None:
+def test_a_usage_pause_before_the_first_agent_call_is_not_an_attempt_and_its_resume_is(
+    scene: Attempts,
+) -> None:
+    def paused(unit: StoredUnit) -> None:
+        scene.leaves_running(unit)
         raise Interrupted("usage window full: not started")
 
     scene.ends = paused
 
     scene.scan()
+    assert scene.unit.state == RUNNING
+    assert scene.unit.moved_base_run, "left flagged, for the lane's resume"
     assert scene.unit.conflict_attempts == 0
 
     scene.ends = scene.settles
-    scene.run_again()
+    scene.scan()
 
-    assert scene.unit.conflict_attempts == 1, "the paused start was not an attempt"
+    assert scene.ran == [UNIT, UNIT], "the lane's scan resumed the flagged run"
+    assert scene.unit.conflict_attempts == 1, "the run that goes ahead is the first attempt"
+
+
+def test_a_run_cut_off_after_an_agent_call_stays_an_attempt_and_its_resume_is_the_same_one(
+    scene: Attempts,
+) -> None:
+    def killed(unit: StoredUnit) -> None:
+        scene.transcript("the port agent said something")
+        scene.leaves_running(unit)
+        raise Interrupted("claude was killed by signal 9")
+
+    scene.ends = killed
+
+    scene.scan()
+    assert scene.unit.conflict_attempts == 1
+
+    scene.ends = scene.settles
+    scene.scan()
+
+    assert scene.ran == [UNIT, UNIT]
+    assert scene.unit.conflict_attempts == 1, "the resumed run is the same attempt"
 
 
 def test_a_run_that_found_nothing_owed_is_not_an_attempt(scene: Attempts) -> None:

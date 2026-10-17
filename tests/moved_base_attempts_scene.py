@@ -8,6 +8,7 @@ the lane's worker. `ends` says how a run ends; a run that settles leaves the uni
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +18,7 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED
+from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING
 from tests.factories import git, new_unit
 from tests.restack_lane_fakes import repo_behind
 
@@ -32,17 +33,29 @@ class Attempts:
         self.store = UnitStore(tmp_path / "units.json")
         self.store.upsert([new_unit(UNIT)])
         self.store.record_push(UNIT, PUSHED)
+        repo = self.inst.checkouts["app"]
+        git(repo, "checkout", "-q", BRANCH)
+        (repo / "own.txt").write_text("own\n")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", "the unit's own work")
+        git(repo, "checkout", "-q", "main")
         self.ran: list[str] = []
         self.moved = 0
+        self.transcript: Callable[[str], None] = print
         self.ends: Any = self.settles
         self.owe()
         for name, step in {
             "fetch_all": lambda inst: None,
             "has_identity": lambda inst, repo: True,
-            "build_runner": lambda unit, **kwargs: self,
+            "build_runner": self.runner_for,
             "build_restack": lambda **kwargs: self.move,
         }.items():
             monkeypatch.setattr(cli, name, step)
+
+    def runner_for(self, unit: StoredUnit, **kwargs: Any) -> Attempts:
+        """`build_runner`: the run keeps the callback an agent's output reaches the run log by."""
+        self.transcript = kwargs["transcript"]
+        return self
 
     @property
     def unit(self) -> StoredUnit:
@@ -69,6 +82,10 @@ class Attempts:
         """A run that ends with the conflict standing: planned, for a person or a worker."""
         self.store.set_state(unit.id, PLANNED, cause=Cause.RESTACK_CONFLICT, branch=BRANCH)
         return RunOutcome(status=RunStatus.OPEN, detail=unit.id, pr=9)
+
+    def leaves_running(self, unit: StoredUnit) -> None:
+        """What a run that is cut off leaves: the unit running, in the lane's hands."""
+        self.store.set_state(unit.id, RUNNING, branch=BRANCH, cause=Cause.RESTACK_CONFLICT)
 
     def scan(self) -> None:
         with cli.build_restack_lane(self.inst, self.store) as lanes:

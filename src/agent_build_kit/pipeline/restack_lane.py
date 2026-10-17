@@ -24,19 +24,17 @@ from typing import Any
 from agent_build_kit.config import active
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
-from agent_build_kit.pipeline.events import Claim
+from agent_build_kit.pipeline.events import Claim, hold_for_conflict, read_base_tip
 from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.unit_store import (
     Cause,
     FeedbackSource,
-    HeldBy,
     StoredUnit,
     UnitStore,
 )
 from agent_build_kit.pipeline.units import (
-    HELD,
     IN_REVIEW,
     PLANNED,
     RUNNING,
@@ -186,10 +184,12 @@ def moved_base_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
 
 
 def base_tip(inst: Installation, unit: StoredUnit, units: list[StoredUnit]) -> str:
-    """The commit the unit's base is at, empty when it cannot be read."""
-    repo = inst.checkouts[unit.repo]
-    ref = local_ref(base_of(unit, units), repo=unit.repo)
-    return git(repo, "rev-parse", "--verify", "--quiet", ref, check=False).stdout.strip()
+    """The commit the unit's base is at (the conflict handler's reading), empty when it cannot
+    be read: the lane starts no run at a tip it cannot name."""
+    try:
+        return read_base_tip(inst.checkouts, unit, units)
+    except Exception:  # noqa: BLE001 — an unreadable base is an empty tip, for the caller
+        return ""
 
 
 def attempts_at(unit: StoredUnit, tip: str) -> int:
@@ -209,7 +209,8 @@ def record_run_attempt(store: UnitStore, unit: StoredUnit, tip: str) -> None:
 
 
 def forget_run_attempt(store: UnitStore, before: StoredUnit) -> None:
-    """That the run just recorded never got going: the unit's record is as `before` had it."""
+    """That the run just recorded never got going: the unit's record is as `before` had it, and
+    the run's resume is the attempt."""
     if before.conflict_attempts and before.conflict_at is not None:
         store.record_conflict_attempt(
             before.id,
@@ -220,21 +221,26 @@ def forget_run_attempt(store: UnitStore, before: StoredUnit) -> None:
         )
     else:
         store.clear_conflict_attempts(before.id)
+    store.set_moved_base_uncounted(before.id, True)
 
 
 def _last_ended(unit: StoredUnit) -> str:
-    """How the unit's last run ended: the latest record in its history that is not how it stands."""
-    standing = (unit.state, unit.cause)
+    """How the unit's last run ended: the latest record in its history that a run wrote, not
+    the unit's being owed one again (`base_changed`) nor its being started (`running`)."""
     for entry in reversed(unit.history):
         cause = Cause(entry["cause"]) if entry.get("cause") else None
-        if (entry["state"], cause) != standing:
+        if entry["state"] != RUNNING and cause is not Cause.BASE_CHANGED:
             ended = str(entry["state"])
             return f"{ended} for {cause.value.replace('_', ' ')}" if cause else ended
     return str(unit.state)
 
 
 def hold_if_spent(
-    inst: Installation, store: UnitStore, unit: StoredUnit, units: list[StoredUnit]
+    inst: Installation,
+    store: UnitStore,
+    unit: StoredUnit,
+    units: list[StoredUnit],
+    log: Callable[[str], None] = print,
 ) -> bool:
     """Hold, for a person, a unit whose attempts at its base's tip are spent, as the conflict
     handler does; whether it was held. A new tip starts the count at zero."""
@@ -243,24 +249,17 @@ def hold_if_spent(
     if done < active().global_limits.max_review_rounds:
         return False
     base = base_of(unit, units)
-    store.set_state(
-        unit.id,
-        HELD,
-        note=(
-            f"restack held: {done} attempts at {base}'s tip {tip[:12]} did not settle it; "
-            f"the last ended {_last_ended(unit)}"
-        ),
-        held_by=HeldBy.REVIEW,
-        cause=Cause.NEEDS_HUMAN,
-        pr=unit.pr,
-        branch=unit.branch,
+    note = (
+        f"restack held: {done} attempts at {base}'s tip {tip[:12]} did not settle it; "
+        f"the last ended {_last_ended(unit)}"
     )
+    hold_for_conflict(unit, store, note, log, label="restack")
     return True
 
 
 def owed_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
-    """The ids of the units owed a restack, read from the repositories' branches, and of those
-    whose run the lane was making when it was interrupted."""
+    """The ids of the units owed a restack, read from the repositories' branches, of those
+    whose run the lane was making when it was interrupted, and of those owed a moved-base run."""
     leases = Leases(lease_dir(inst.state_dir))
     checkouts = inst.checkouts
 
@@ -283,7 +282,7 @@ def owed_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
         for unit in units
         if owed_a_restack(unit, units, holds_base=holds_base, held=held, leased=leased)
         or (in_a_lane_run(unit) and not leased(unit) and not held(unit))
-    }
+    } | moved_base_units(inst, units)
 
 
 def record_path(state_dir: Path, key: ProjectKey) -> Path:
