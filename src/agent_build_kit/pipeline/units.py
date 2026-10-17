@@ -55,7 +55,8 @@ MERGED = UnitState.MERGED
 CLOSED = UnitState.CLOSED
 
 # Stopped on something it could not get past; its feedback says what. Nothing
-# retries it until someone requeues it (`abk requeue`).
+# retries it until someone requeues it (`abk requeue`), or, once, the pipeline does when a
+# wait on another unit it was recorded in ends.
 FAILED = UnitState.FAILED
 
 # The pipeline is keeping its hands off this unit: a reviewer asked it to, the
@@ -825,7 +826,8 @@ def _waits_for_room(unit: Unit, graph: Sequence[Unit]) -> bool:
     )
 
 
-def _stamp(entry: dict[str, object]) -> datetime | None:
+def history_stamp(entry: dict[str, object]) -> datetime | None:
+    """When a history entry was made, or None when it carries no readable time."""
     try:
         return datetime.fromisoformat(str(entry.get("at", "")))
     except ValueError:
@@ -838,7 +840,7 @@ def _parent_went_back(unit: Unit, graph: Sequence[Unit]) -> bool:
     blocked since it last ran, whatever cause its record carries. Read from the
     parents' recorded history, as nothing writes a cause on a paused unit whose
     predecessor went back after it stopped."""
-    own = [stamp for entry in getattr(unit, "history", ()) if (stamp := _stamp(entry))]
+    own = [stamp for entry in getattr(unit, "history", ()) if (stamp := history_stamp(entry))]
     since = own[-1] if own else None
     index = _by_id(graph)
     for dep in through_satisfied(unit, graph):
@@ -847,7 +849,7 @@ def _parent_went_back(unit: Unit, graph: Sequence[Unit]) -> bool:
             continue
         state_then: str | None = None
         for entry in getattr(parent, "history", ()):
-            stamp = _stamp(entry)
+            stamp = history_stamp(entry)
             if stamp is None:
                 continue
             try:

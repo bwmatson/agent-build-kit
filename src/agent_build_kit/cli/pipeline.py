@@ -186,6 +186,7 @@ from agent_build_kit.pipeline.unit_store import (
     PARKED_CAUSES,
     UNPLANNED,
     Cause,
+    FeedbackSource,
     HeldBy,
     RequeueReason,
     ReworkKind,
@@ -205,6 +206,7 @@ from agent_build_kit.pipeline.units import (
     IN_REVIEW,
     MERGED,
     PLANNED,
+    REVIEWED,
     RUNNING,
     SATISFIED,
     Join,
@@ -219,7 +221,9 @@ from agent_build_kit.pipeline.units import (
     depth_of,
     effective_priority,
     failed_waiting_units,
+    group_names,
     handoff_units,
+    history_stamp,
     in_progress,
     in_progress_label,
     local_ref,
@@ -650,6 +654,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         *_split_wait_lines(inst, units),
         *_blocked_lines(units),
         *_failed_waiting_lines(units),
+        *_wait_ended_lines(inst, units),
         *_second_parent_lines(units),
     ]:
         log(line)
@@ -1482,6 +1487,7 @@ def run_round(
     _step("following predecessors", park_dependents, inst, store)
     _step("gating sent-back units", gate_sent_back, store)
     _step("releasing gated units", release_gated, inst, store, in_flight=spared)
+    _step("requeuing units whose wait ended", requeue_wait_ended, inst, store, in_flight=spared)
     if not dry_run:
         _step("releasing split-held units", release_split_held, inst, store, in_flight=spared)
     _step("reconciling notifications", _reconcile_notifications, inst, store)
@@ -1766,6 +1772,85 @@ def release_gated(inst: Installation, store: UnitStore, *, in_flight: Collection
             store.set_state(
                 unit.id, PLANNED, note=f"requeued: gate cleared ({mode})", cause=Cause.REQUEUED
             )
+
+
+def requeue_wait_ended(
+    inst: Installation, store: UnitStore, *, in_flight: Collection[str] = ()
+) -> None:
+    """Record the units a failed unit waits on and, once its wait has ended, requeue it
+    once through `requeue`'s delivery, in the mode its record gives.
+
+    The record is cleared by the requeue, so a wait is acted on once; a unit that is not
+    failed carries none. A wait that ended on a closed prerequisite leaves the unit
+    failed, with `wait_ended` for the status to show."""
+    setting = inst.config.global_limits.wait_end_requeue
+    if setting is config.WaitEndRequeue.OFF:
+        return
+    units = store.all()
+    by_id = {unit.id: unit for unit in units}
+    for unit in units:
+        if unit.state != FAILED:
+            if unit.waited_on:
+                store.set_waited_on(unit.id, ())
+            continue
+        waits = tuple(parent.id for parent in waiting_on(unit, units))
+        if waits:
+            if waits != unit.waited_on:
+                store.set_waited_on(unit.id, waits)
+            continue
+        if not unit.waited_on or unit.id in in_flight:
+            continue
+        prerequisites = [by_id.get(uid) for uid in unit.waited_on]
+        closed = [
+            uid if parent is None else group_names([parent])
+            for uid, parent in zip(unit.waited_on, prerequisites, strict=True)
+            if parent is None or parent.state in (CLOSED, UNPLANNED)
+        ]
+        if closed:
+            store.set_wait_ended(unit.id, ", ".join(closed))
+            store.set_waited_on(unit.id, ())
+        elif all(parent is not None and parent.state in REVIEWED for parent in prerequisites):
+            _requeue_ended_wait(inst, store, unit, [p for p in prerequisites if p is not None])
+        else:
+            # The `Needs:` line was dropped while the prerequisite is still open.
+            store.set_waited_on(unit.id, ())
+
+
+_ENVIRONMENTAL = (Cause.TOOLCHAIN, Cause.ENVIRONMENT, *PARKED_CAUSES)
+WAIT_ENDED = "its wait ended"
+
+
+def _wait_end_mode(unit: StoredUnit, setting: config.WaitEndRequeue) -> str:
+    """The mode a unit whose wait ended is requeued in: the setting when it forces one, else
+    the rule over its record. `rework` needs a saved failure or a person's note."""
+    if setting is config.WaitEndRequeue.RESUME:
+        return "resume"
+    if setting is config.WaitEndRequeue.REWORK:
+        return "rework" if unit.feedback or unit.guidance else "resume"
+    checks = (FeedbackSource.UNIT_TEST, FeedbackSource.E2E)
+    if unit.cause in _ENVIRONMENTAL or not unit.feedback or unit.feedback_source not in checks:
+        return "resume"
+    return "rework"
+
+
+def _requeue_ended_wait(
+    inst: Installation, store: UnitStore, unit: StoredUnit, landed: list[StoredUnit]
+) -> None:
+    mode = _wait_end_mode(unit, inst.config.global_limits.wait_end_requeue)
+    states = {MERGED: "merged", SATISFIED: "satisfied", IN_REVIEW: "in review"}
+    named = " and ".join(
+        f"{group_names([parent])} is now {states[parent.state]}" for parent in landed
+    )
+    code = requeue(
+        inst,
+        unit.id,
+        mode,
+        say=lambda text, error=False: log(text),
+        note=unit.guidance if mode == "rework" and not unit.feedback else "",
+        because=f"{WAIT_ENDED} (waiting on {named})",
+    )
+    if code == 0:
+        store.set_waited_on(unit.id, ())
 
 
 def release_split_held(
@@ -2085,6 +2170,30 @@ def _failed_waiting_lines(units: list[StoredUnit]) -> list[str]:
         f"{unit.id} ({unit.repo})"
         for unit in failed_waiting_units(units)
     ]
+
+
+def _wait_ended_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
+    """The failed units left failed because a prerequisite closed, and, unless the requeue is
+    off, how many were resumed today because their wait ended."""
+    lines = [
+        f"  {unit.id} ({unit.repo}) wait ended: {unit.wait_ended} closed, requeue to retry"
+        for unit in units
+        if unit.state == FAILED and unit.wait_ended
+    ]
+    if inst.config.global_limits.wait_end_requeue is config.WaitEndRequeue.OFF:
+        return lines
+    today = spans.clock.now().astimezone().date()
+    resumed = sum(
+        1
+        for unit in units
+        for entry in unit.history
+        if str(entry.get("note", "")).startswith(f"requeue: {WAIT_ENDED}")
+        and (at := history_stamp(entry)) is not None
+        and at.astimezone().date() == today
+    )
+    if resumed:
+        lines.append(f"failed units resumed when their wait ended: {resumed} today")
+    return lines
 
 
 def _ready_queue_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
@@ -4665,7 +4774,13 @@ def requeue_refusal(unit: StoredUnit) -> str | None:
 
 
 def requeue(
-    inst: Installation, unit_id: str, mode: str, *, say: Callable[..., None], note: str = ""
+    inst: Installation,
+    unit_id: str,
+    mode: str,
+    *,
+    say: Callable[..., None],
+    note: str = "",
+    because: str = "",
 ) -> int:
     """Give a failed or held unit another go; `abk requeue` and the web UI both call this.
 
@@ -4674,7 +4789,8 @@ def requeue(
     decides where it shows. The result is the command's exit code.
 
     `note` is a person's instruction for the agent's next run; only `rework` and
-    `restart` run the agent, so a plain requeue with one is refused.
+    `restart` run the agent, so a plain requeue with one is refused. `because` is the
+    history entry of a requeue the pipeline makes itself, in place of the default.
     """
     store = store_for(inst)
     known = {unit.id: unit for unit in store.all()}
@@ -4724,10 +4840,16 @@ def requeue(
             store.set_guidance(unit_id, note)
         store.set_gated_requeue(unit_id, why)
         say(f"{unit_id} requeued ({mode}), {dependency_wait(waits, repo=known[unit_id].repo)}")
-        return 0
+        return _requeued(store, unit_id)
     try:
         delivered = resume_thread(
-            inst, known[unit_id], "requeue", store=store, reason=mode, requeue=why, guidance=note
+            inst,
+            known[unit_id],
+            "requeue",
+            store=store,
+            reason=because or mode,
+            requeue=why,
+            guidance=note,
         )
     except BranchBusy as error:
         say(f"{unit_id} is being built ({error}); requeue it again once it has stopped")
@@ -4738,14 +4860,14 @@ def requeue(
             f"{unit_id} thread resumed ({mode}): {outcome.status} — {outcome.detail}",
             error=delivered.raised,
         )
-        return 1 if delivered.raised else 0
+        return 1 if delivered.raised else _requeued(store, unit_id)
     if note and mode != "restart":
         store.set_guidance(unit_id, note)
     if mode == "rework":
         store.set_state(
             unit_id,
             PLANNED,
-            note=f"requeued: reworking from {source}{said}",
+            note=f"requeue: {because}" if because else f"requeued: reworking from {source}{said}",
             cause=Cause.REQUEUED,
         )
         say(
@@ -4764,10 +4886,18 @@ def requeue(
         store.set_state(
             unit_id,
             PLANNED,
-            note="requeued: resuming where it stopped",
+            note=f"requeue: {because}" if because else "requeued: resuming where it stopped",
             cause=Cause.REQUEUED,
         )
         say(f"{unit_id} requeued, resuming where it stopped")
+    return _requeued(store, unit_id)
+
+
+def _requeued(store: UnitStore, unit_id: str) -> int:
+    """The exit code of a requeue that took effect; the line a closed prerequisite left in
+    the status goes with it, and stays for a requeue that was refused."""
+    if store.get(unit_id).wait_ended:
+        store.set_wait_ended(unit_id, "")
     return 0
 
 

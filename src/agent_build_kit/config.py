@@ -489,7 +489,19 @@ class ProjectLimitsConfig(Frozen):
 MOVED_TO_PROJECT_LIMITS = tuple(ProjectLimitsConfig.model_fields)
 
 
+class WaitEndRequeue(StrEnum):
+    """How a failed unit is requeued when the wait it was recorded in ends: the mode its
+    record gives, a forced mode, or not at all."""
+
+    AUTO = "auto"
+    RESUME = "resume"
+    REWORK = "rework"
+    OFF = "off"
+
+
 class LimitsConfig(TestKindSettings):
+    # How a failed unit that waited on another unit is requeued once, when its wait ends.
+    wait_end_requeue: WaitEndRequeue = WaitEndRequeue.AUTO
     # Longest chain of in-review PRs from main to a branch that a unit may
     # start building on.
     stack_depth_build_cap: int = 3
