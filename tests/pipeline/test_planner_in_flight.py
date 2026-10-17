@@ -69,7 +69,7 @@ def test_landed_units_of_other_changes_become_one_line_and_the_rest_stay_listed(
         assert not any(line.startswith(f"- {landed} ") for line in lines), landed
     assert SUMMARY in lines
     heading = next(line for line in tasks_md(4).splitlines() if line.startswith("## 1."))
-    assert f"{heading} (built by feature/1)" in lines
+    assert f"{heading} (priority 3) (built by feature/1)" in lines
 
 
 def test_the_line_appears_only_when_a_unit_of_another_change_has_landed(

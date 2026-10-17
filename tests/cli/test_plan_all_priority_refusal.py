@@ -66,10 +66,11 @@ def test_a_third_refusal_is_given_up_and_replan_exits_one_without_a_traceback(
     run.runtime.answer = INVERTED
     cli.plan_all(run.inst, store=run.store)
 
-    code, out = run.run(capsys, "feature", reply=INVERTED)
+    assert run.records["feature"]["attempts"] == 3
     _, listing = run.run(capsys)
 
-    assert run.records["feature"]["attempts"] == 3
+    code, out = run.run(capsys, "feature", reply=INVERTED)
+
     assert code == 1
     assert "Traceback" not in out
     assert "given up" in listing
