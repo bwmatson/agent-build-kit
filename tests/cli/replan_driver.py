@@ -128,3 +128,9 @@ class Replan:
         code = main(["replan", *argv])
         seen = capsys.readouterr()
         return code, seen.out + seen.err
+
+
+def seed_landed_and_planned(run: Replan, *, old: str, queued: str) -> None:
+    """Fill `run.store` with 360 merged units of `old`, 140 planned of `queued`, and 12 failed
+    of `misc`, in one write of the file."""
+    raise NotImplementedError
