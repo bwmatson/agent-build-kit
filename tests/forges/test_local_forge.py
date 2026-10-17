@@ -7,6 +7,7 @@ network connection fails the test, and reviews are written with the real review 
 from __future__ import annotations
 
 import inspect
+import json
 import socket
 from pathlib import Path
 from typing import Any, NoReturn
@@ -17,7 +18,7 @@ from agent_build_kit import forges
 from agent_build_kit.config import RepoConfig
 from agent_build_kit.forges import Label, PullRequest, RepoId
 from agent_build_kit.forges.base import Forge
-from agent_build_kit.forges.local import LocalForge
+from agent_build_kit.forges.local import LocalForge, LocalPrUnreadable
 from agent_build_kit.forges.operations import OPERATIONS
 from agent_build_kit.forges.resilient import ResilientForge
 from agent_build_kit.pipeline.pr_poller import Poller
@@ -27,6 +28,7 @@ from agent_build_kit.pipeline.units import IN_REVIEW, RUNNING
 from agent_build_kit.pipeline.wiring import build_close_pr
 from agent_build_kit.serve.review import Review, ReviewStore
 from tests.conftest import make_installation
+from tests.factories import commit_files, git, init_repo
 from tests.factories import unit as make_unit
 
 REPO = RepoId(forge="local", account="local", name="app")
@@ -528,3 +530,120 @@ def test_a_listing_that_carries_the_review_is_not_given_it_twice(
 
 def test_a_local_repo_has_no_server_guard_and_says_so() -> None:
     assert LocalForge().merge_guard(REPO, branch="main") != ""
+
+
+# --- the files a pull request changed -------------------------------------------------
+
+
+class Checkout:
+    """A real repository on `main` that the active installation lists as `app`."""
+
+    def __init__(self, forge: LocalForge, tmp_path: Path) -> None:
+        self.forge = forge
+        self.path = init_repo(tmp_path / "app")
+        commit_files(self.path, "start", {"README.md": "app\n"})
+        make_installation(
+            tmp_path / "planning", repos={"app": {"path": str(self.path), "forge": "local"}}
+        )
+        self.repo = forge.identity(RepoConfig(path=self.path, forge="local"))
+
+    def branch_with(self, files: dict[str, str]) -> None:
+        git(self.path, "checkout", "-q", "-b", HEAD, "main")
+        commit_files(self.path, "work", files)
+        git(self.path, "checkout", "-q", "main")
+
+    def open(self) -> int:
+        return self.forge.create_pr(self.repo, head=HEAD, base="main", title="t", body="b")
+
+    def settle(self) -> None:
+        self.forge.list_prs(self.repo)
+
+    def land(self) -> None:
+        git(self.path, "merge", "-q", "--ff-only", HEAD)
+
+
+@pytest.fixture
+def app(forge: LocalForge, tmp_path: Path) -> Checkout:
+    return Checkout(forge, tmp_path)
+
+
+def rewrite_records(state: Path, **fields: str) -> None:
+    kept = state / "local-prs.json"
+    stored = json.loads(kept.read_text())
+    for pulls in stored.values():
+        for pull in pulls:
+            for name, value in fields.items():
+                if value:
+                    pull[name] = value
+                else:
+                    del pull[name]
+    kept.write_text(json.dumps(stored))
+
+
+def test_a_pull_request_lists_the_files_its_branch_changed_before_and_after_it_lands(
+    app: Checkout,
+) -> None:
+    app.branch_with({"a.txt": "a\n", "b.txt": "b\n"})
+    number = app.open()
+
+    assert sorted(app.forge.pr_files(app.repo, number)) == ["a.txt", "b.txt"]
+
+    app.land()
+    app.settle()
+
+    assert sorted(app.forge.pr_files(app.repo, number)) == ["a.txt", "b.txt"]
+
+
+def test_a_pull_request_whose_branch_was_deleted_after_landing_still_lists_its_files(
+    app: Checkout,
+) -> None:
+    app.branch_with({"a.txt": "a\n"})
+    number = app.open()
+    app.land()
+    app.settle()
+    git(app.path, "branch", "-q", "-D", HEAD)
+
+    assert app.forge.pr_files(app.repo, number) == ["a.txt"]
+
+
+def test_a_branch_rebased_onto_an_advanced_trunk_lists_only_its_own_files(app: Checkout) -> None:
+    app.branch_with({"a.txt": "a\n"})
+    number = app.open()
+    commit_files(app.path, "elsewhere", {"b.txt": "b\n"})
+    git(app.path, "checkout", "-q", HEAD)
+    git(app.path, "rebase", "-q", "main")
+    git(app.path, "checkout", "-q", "main")
+    app.settle()
+    app.land()
+
+    assert app.forge.pr_files(app.repo, number) == ["a.txt"]
+
+
+def test_a_pull_request_with_no_branch_cannot_list_its_files(app: Checkout) -> None:
+    number = app.open()
+
+    with pytest.raises(LocalPrUnreadable, match=f"pull request {number}"):
+        app.forge.pr_files(app.repo, number)
+
+
+def test_a_record_without_a_fork_point_cannot_list_its_files(state: Path, app: Checkout) -> None:
+    app.branch_with({"a.txt": "a\n"})
+    number = app.open()
+    rewrite_records(state, fork="")
+
+    with pytest.raises(LocalPrUnreadable, match="fork point"):
+        app.forge.pr_files(app.repo, number)
+
+
+def test_a_fork_point_git_does_not_know_cannot_list_its_files(state: Path, app: Checkout) -> None:
+    app.branch_with({"a.txt": "a\n"})
+    number = app.open()
+    rewrite_records(state, fork="0" * 40)
+
+    with pytest.raises(LocalPrUnreadable, match=f"pull request {number}"):
+        app.forge.pr_files(app.repo, number)
+
+
+def test_a_pull_request_the_forge_does_not_hold_cannot_list_its_files(app: Checkout) -> None:
+    with pytest.raises(LocalPrUnreadable, match="no such pull request"):
+        app.forge.pr_files(app.repo, 99)

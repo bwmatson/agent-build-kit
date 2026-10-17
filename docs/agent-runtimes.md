@@ -928,6 +928,20 @@ the old account starts fresh) and set the usage windows for the new plan under
   file and then `exec`s `claude`; none is a model's judgement. Run with
   `uv run pytest -m local_stack tests/integration/test_dry_guidance_build.py
   tests/integration/test_dry_guidance_review.py`.
+- The planning-in-the-working-copy acceptance run
+  (`tests/integration/test_planning_in_repo_live_stack.py`, `local_stack`) builds a
+  scratch repository that is its own planning repo (a bare origin, a working copy on a
+  feature branch with an uncommitted source edit, the local forge) and drives the real
+  `abk` as processes: `install-timers --no-enable` (the pipeline worktree, its marker and
+  the units' working directory), a tick that syncs to a new tip and one that stops on a
+  divergence, `verify` and the archive, a planning commit holding only planning paths, a
+  track under `planning.publish: direct` and `branch`, and the worktree fence with the
+  policy hook. After each step the working copy's branch, HEAD, index and edit are
+  asserted unchanged, and the run prints which code the tick ran. The agent is the
+  scripted ACP agent the adapter's tests use, so it needs no real agent and does not
+  bill; it needs node (npx) and uv. The tests run in file order over one scratch
+  repository, so run the whole file: `uv run pytest -m local_stack
+  tests/integration/test_planning_in_repo_live_stack.py`.
 - `replay` (the `tests/replay/` plugin, see "Record and replay of external calls"
   below) puts a reverse proxy in front of an e2e-test test's calls to the model
   provider and package index, so a rerun of an unchanged call is answered from a

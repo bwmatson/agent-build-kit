@@ -453,6 +453,10 @@ class Forge(RegistersStacks, Protocol):
     # Whether this forge merges a pull request at all; false unless a forge says so.
     merges: bool
 
+    # Whether a repo on this forge works with any `origin`, since its pull requests are not
+    # kept at the remote; false for a forge whose host the origin has to name.
+    any_remote: bool
+
     def merge_pr(self, repo: RepoId, pr: int, *, head: str) -> str:
         """Squash-merge a pull request when its head is still `head`, the commit the
         caller approved, and return the commit the merge produced. Raises `MergeRefused`

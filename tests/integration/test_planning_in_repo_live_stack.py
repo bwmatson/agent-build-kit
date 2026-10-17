@@ -28,6 +28,7 @@ from pathlib import Path
 import pytest
 from pydantic import Field
 
+import agent_build_kit
 from agent_build_kit import config
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
@@ -132,6 +133,21 @@ def abk(scratch: Scratch, *args: str, cwd: Path, config_file: Path | None = None
 def in_pipeline(scratch: Scratch, *args: str) -> Ran:
     """`abk` in the pipeline worktree, through its own config, as a unit's run would."""
     return abk(scratch, *args, cwd=scratch.worktree, config_file=scratch.worktree / "abk.yaml")
+
+
+def code_ran(scratch: Scratch) -> Path:
+    """The package file the `abk` interpreter imports from the pipeline worktree, with the
+    environment the tick gets: the code a tick there runs."""
+    shebang = Path(ABK).read_text().splitlines()[0].removeprefix("#!")
+    run = subprocess.run(
+        [shebang, "-c", "import agent_build_kit; print(agent_build_kit.__file__)"],
+        cwd=scratch.worktree,
+        env=scratch.env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return Path(run.stdout.strip()).resolve()
 
 
 def untimed(ran: Ran) -> list[str]:
@@ -286,6 +302,14 @@ def test_a_tick_in_the_pipeline_worktree_follows_origin_and_stops_on_a_divergenc
         scratch.setup, change_files("added-elsewhere"), "a change from elsewhere"
     )
 
+    # Which code the tick runs is the interpreter's package, not the worktree's files: a unit's
+    # run resolves the worktree's environment, this scratch runs the kit under test.
+    code = code_ran(scratch)
+    print(f"the tick ran the code at {code}")
+    assert code == Path(agent_build_kit.__file__).resolve()
+    assert not code.is_relative_to(scratch.worktree)
+    assert not code.is_relative_to(scratch.working_copy)
+
     moved = in_pipeline(scratch, "tick")
 
     assert f"planning worktree moved to refs/remotes/origin/main ({tip[:10]})" in moved.output
@@ -341,6 +365,7 @@ def test_verify_passes_with_only_planning_paths_dirty_refuses_a_source_edit_and_
 
     assert passed.returncode == 0, passed.output
     assert "archived landed" in passed.output
+    assert "nothing to deploy" not in passed.output, "the src/ rule did not see src/landed.py"
     assert not (scratch.worktree / "openspec/changes/landed").exists()
     archived = list((scratch.worktree / "openspec/changes/archive").glob("*-landed"))
     assert len(archived) == 1, passed.output
@@ -357,6 +382,7 @@ def test_a_planning_commit_holds_only_planning_paths_and_a_track_publishes_both_
     (worktree / SOURCE).write_text("def main() -> None: ...\n# not for the planning commit\n")
     # The archive wrote the new capability's Purpose as a placeholder, which the check refuses.
     archived = worktree / "openspec/specs/landed/spec.md"
+    assert archived.is_file(), "run the verify test first: its archive writes this spec"
     archived.write_text(
         "\n".join(
             "The app exposes a marker function that other modules call to read the build marker."
