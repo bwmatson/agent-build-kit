@@ -58,10 +58,10 @@ def back_off(store: UnitStore, uid: str) -> None:
 
 
 def baseline_prints_unit_lines(builder: Builder, inst, capsys: pytest.CaptureFixture[str]) -> None:
-    """A held unit alone gets its line, so the absence of lines below is the report's doing."""
-    hold(builder.store, "held/1")
+    """A unit in backoff alone gets its line, so lines missing below are the report's doing."""
+    back_off(builder.store, "held/1")
     assert tick(inst) == 0
-    assert "  held/1 (app): needs_person" in lines_of(capsys)
+    assert "  held/1 (app): backoff" in lines_of(capsys)
     builder.store.set_state("held/1", MERGED)
 
 
@@ -112,11 +112,11 @@ def test_one_candidate_prints_one_line_and_no_tail(
     builder: Builder, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     inst = limit_workspace(tmp_path, 9)
-    hold(builder.store, "only/1")
+    back_off(builder.store, "only/1")
 
     assert tick(inst) == 0
 
-    assert report(lines_of(capsys)) == [FIRST_LINE, "  only/1 (app): needs_person"]
+    assert report(lines_of(capsys)) == [FIRST_LINE, "  only/1 (app): backoff"]
 
 
 def test_a_unit_in_review_alone_leaves_only_the_first_line(
@@ -170,6 +170,7 @@ def test_a_rate_limit_pause_prints_its_pause_line_and_no_unit_lines(
 ) -> None:
     inst = limit_workspace(tmp_path, 9)
     baseline_prints_unit_lines(builder, inst, capsys)
+    back_off(builder.store, "later/1")
     pause_until(
         datetime.now(UTC) + timedelta(hours=1),
         reason="the model refused",
