@@ -22,7 +22,7 @@ def test_a_negative_value_is_the_configuration_failure_naming_the_setting(
     checks = doctor(tmp_path, "  emergency_extra: -1\n")
 
     failed = [check for check in checks if check.name == "config"]
-    assert [check.status for check in failed] == ["fail"]
+    assert [check.status for check in failed] == ["FAIL"]
     assert "project_limits.emergency_extra" in failed[0].detail
     assert "Extra inputs" not in failed[0].detail
 

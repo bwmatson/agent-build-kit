@@ -207,7 +207,9 @@ class Installation:
 
     @property
     def emergency_extra(self) -> int:
-        raise NotImplementedError
+        """Priority-0 units that may start past the normal limits at once in one project
+        (`project_limits`); 0 is off."""
+        return self.config.project_limits.emergency_extra
 
     @property
     def stack_depth_build_cap(self) -> int:

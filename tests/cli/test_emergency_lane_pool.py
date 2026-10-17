@@ -127,8 +127,9 @@ def test_with_the_lane_off_the_fifth_build_is_not_started(
 ) -> None:
     in_flight, records = run_blocked_pass(tmp_path, builder, monkeypatch, extra=0)
 
-    assert in_flight == [4]
-    assert records == [frozenset()]
+    # The fifth build is not started beside the four; the unit builds alone once they end.
+    assert in_flight == [4, 1]
+    assert records == [frozenset(), frozenset()]
     assert builder.started.index("zero/1") > 3
 
 

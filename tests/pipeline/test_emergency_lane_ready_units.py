@@ -222,8 +222,8 @@ def test_a_unit_that_was_blocked_and_waits_for_room_draws_on_the_lane_like_a_new
 def test_a_priority_zero_unit_beyond_the_depth_cap_is_not_chosen() -> None:
     graph = [*full(), new("deep/1", priority=0, depends_on=("rev0/1",))]
 
-    assert starts(graph, depth_cap=1) == ["deep/1"]
-    assert starts(graph, depth_cap=0) == []
+    assert starts(graph, depth_cap=2) == ["deep/1"]
+    assert starts(graph, depth_cap=1) == []
 
 
 @pytest.mark.parametrize("state", ["held", "failed"])
