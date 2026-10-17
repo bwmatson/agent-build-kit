@@ -132,14 +132,19 @@ context:
   warn_share: 0.8             # a step ending above this share of the window logs a warning
 # runtimes.claude_code.context_windows: {model: tokens}, when the result does not name the window
 
-limits:
+# Scheduling is set once for every project; there is no per-repo override.
+project_limits:
+  max_concurrent_stacks: 4    # units implemented at once, in each project
+  max_concurrent_restacks: 2  # branches moved onto a changed base at once, in each project; no build slot taken
+  max_units_in_progress: 5    # started, unfinished units (>= 1) in each project, not counting blocked or failed-waiting ones; at it no never-started unit starts
+
+# `limits:` is the deprecated root name of `global_limits:`. A scheduling setting left in either
+# fails the load; `abk config --migrate [--yes] [--dry-run]` moves it by text (diff first, one backup).
+global_limits:
   stack_depth_build_cap: 3    # longest chain of in-review PRs from main
   stack_depth_rebase_cap:     # deepest a merge restacks a dependent; unset = the build cap
-  max_concurrent_stacks: 4    # units implemented at once, across repos
-  max_concurrent_restacks: 2  # branches moved onto a changed base at once; no build slot taken
   max_flakes_per_run: 5       # more flaky tests than this in one run are one recorded storm, no fix change each
   checks_register_seconds: 120  # secs after a push a PR with no checks yet reads `checking`
-  max_units_in_progress: 5    # started, unfinished units (>= 1), not counting blocked or failed-waiting ones; at it no never-started unit starts
   label_sweep_per_tick: 20    # finished units' PRs a round takes a stale state label off (>= 1)
   min_unit_lines: 400         # estimated lines before a unit stops growing
   max_unit_lines: 750         # estimated lines one unit may carry; above

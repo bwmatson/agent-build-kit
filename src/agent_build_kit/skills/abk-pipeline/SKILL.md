@@ -323,7 +323,7 @@ cannot do, and what a person does about it:
   timeout: killing the pass leaves this picture. The
   next tick that finds no process resumes the unit.
 - A full queue starves ready work: running, in review and failed units (and
-  planned ones already worked on) count against `limits.max_units_in_progress`;
+  planned ones already worked on) count against their own project's `project_limits.max_units_in_progress`;
   held, blocked and merged, closed or satisfied units, and failed units waiting
   on another, do not. A failed unit holds its slot until it is requeued and
   finishes, or closed: free one that way.
@@ -337,11 +337,15 @@ cannot do, and what a person does about it:
    (`abk check` and `abk tags` first).
 2. The next tick's planner reads its `tasks.md` and adds units to the graph.
 3. Units build in dependency order, at most `project_limits.max_concurrent_stacks`
-   at a time. No unit that has never started starts while the units in
-   progress across all repos are at `project_limits.max_units_in_progress`, and a pass
+   at a time in each project. No unit that has never started starts while the units in
+   progress in its project are at `project_limits.max_units_in_progress`, and a pass
    starts no more new units than fit under it: the rest stay `planned`, and
    the tick log and `abk status` say "queue is full: N units in progress,
-   limit M" with the count in each state, then "N blocked not counted" and a
+   limit M" with the count in each state, one line for each project at its limit (the project is
+   named in it when the workspace has more than one, e.g. `queue is full: app/web: …`, and a
+   unit of a repo with several projects is labelled `(repo/project)` in status lines); each line
+   lists its own project's blocked and failed-waiting units, and the reason a pass started
+   nothing names only the full projects holding a ready unit back. The line is followed by "N blocked not counted" and a
    `blocked: <unit> … waits on <unit>` line for each, and "N failed waiting not
    counted" for failed units that wait on another unit (they stay failed, and
    count again when the wait ends). A planned unit that waits on
@@ -371,7 +375,9 @@ directory is gone is logged as withdrawn and skipped.
 ## Restacks
 
 A unit whose base moved is moved by the restack lane, beside the build workers and outside
-`max_concurrent_stacks`. `abk status` prints `restacks: N running, M waiting` with each unit as
+`max_concurrent_stacks`. Each project has its own lane, with `project_limits.max_concurrent_restacks`
+workers, so a busy project does not hold back another's restacks. `abk status` prints one
+`restacks: N running, M waiting` line totalling every project's lane, with each unit as
 `restacking onto <base>`; a restack whose conflict needs the agent while a usage pause stands is
 listed as `restack waiting: <unit> — usage pause until <time>` and is moved when the pause ends.
 A clean move needs no agent and proceeds during a pause.

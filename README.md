@@ -110,7 +110,7 @@ runtimes:
       weekly:                   # 5-hour session / the 7-day week
         usage_pause_pct: 70
 
-limits:
+global_limits:
   max_unit_lines: 750           # the ceiling on what one unit may change (the default)
 ```
 

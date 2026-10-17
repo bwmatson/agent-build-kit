@@ -511,8 +511,8 @@ class ProjectLimitsConfig(Frozen):
 
     # How many units are implemented at once in one project (a repo's project).
     max_concurrent_stacks: int = 4
-    # How many restacks (moving a unit's branch onto a changed base) run at once, across
-    # all repos, in a lane apart from the build workers: a restack takes no build slot.
+    # How many restacks (moving a unit's branch onto a changed base) run at once in one
+    # project, in a lane apart from the build workers: a restack takes no build slot.
     max_concurrent_restacks: Annotated[int, Field(ge=1)] = 2
     # How many units may be started and not finished at once in one project (a repo's project).
     # At it no unit that has never started does; what drains the queue
