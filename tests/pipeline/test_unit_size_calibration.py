@@ -178,7 +178,7 @@ UNIT_TEST = [
 E2E = [(650, 479), (250, 116)]
 
 
-def test_the_worked_example_gives_1_51_at_tier_one_and_one_at_tier_two() -> None:
+def test_the_worked_example_gives_1_51_at_unit_test_and_one_at_e2e() -> None:
     limits()
     older = [sample(1.0, at=at) for at in range(-11, 0)]
     newest = [
@@ -661,7 +661,3 @@ def test_the_six_keys_have_their_defaults() -> None:
 def test_a_bad_value_fails_to_load_naming_the_key(key: str, overrides: dict) -> None:
     with pytest.raises(ValidationError, match=key):
         limits_config(**overrides)
-
-
-TIER1 = UNIT_TEST  # abk-shim
-TIER2 = E2E  # abk-shim

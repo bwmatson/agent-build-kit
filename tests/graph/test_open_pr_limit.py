@@ -21,7 +21,7 @@ def long_report() -> str:
     )
 
 
-def test_a_long_tier_two_report_reaches_the_forge_within_its_limit(tmp_path: Path) -> None:
+def test_a_long_e2e_report_reaches_the_forge_within_its_limit(tmp_path: Path) -> None:
     repo_with(**AZURE)  # a host that takes four thousand characters
     recorder = fresh(tmp_path, tier="e2e-test")
     recorder.e2e_output = long_report()

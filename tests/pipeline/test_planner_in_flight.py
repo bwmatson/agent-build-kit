@@ -23,8 +23,6 @@ from tests.factories import unit
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
-OLD_UNIT_TEST_TAG = "tier" + "1"  # the tag a stored unit may still carry
-
 OLD = "a-change-whose-units-all-merged-long-ago"
 QUEUED = "a-change-whose-units-are-still-planned"
 SUMMARY = "4 merged or satisfied units of other changes are in the trunk and omitted"
@@ -70,7 +68,8 @@ def test_landed_units_of_other_changes_become_one_line_and_the_rest_stay_listed(
     for landed in ("old/1", "old/2", "old/3", "sat/1"):
         assert not any(line.startswith(f"- {landed} ") for line in lines), landed
     assert SUMMARY in lines
-    assert "## 1. [app] [" + OLD_UNIT_TEST_TAG + "] Group 1 (built by feature/1)" in lines
+    heading = next(line for line in tasks_md(4).splitlines() if line.startswith("## 1."))
+    assert f"{heading} (built by feature/1)" in lines
 
 
 def test_the_line_appears_only_when_a_unit_of_another_change_has_landed(

@@ -1,4 +1,4 @@
-"""A failure that is on the base too belongs to a e2e-test split, and the open-fix gate holds
+"""A failure that is on the base too belongs to an e2e-test split, and the open-fix gate holds
 only a run that would execute that split (spec: e2e-failures)."""
 
 from __future__ import annotations

@@ -59,14 +59,6 @@ OLD_HELPER_FAKES = (
     "tier2_wait_fakes",
 )
 PIPELINE_TESTS = TESTS / "pipeline"
-PIPELINE_TEST_RANGES = (
-    ("test_call_record", "test_planner_cycle_rule"),
-    ("test_planner_project_check", "test_task_progress"),
-    ("test_e2e", "test_e2e_scope_own"),
-    ("test_unit_test_affected", "test_unit_test_spans"),
-    ("test_e2e_scope_whole", "test_wiring_transcript"),
-    ("test_work_graph", "test_worktree_in_turn"),
-)
 GRAPH_TESTS = TESTS / "graph"
 GRAPH_TEST_RANGES = (("test_adopted_event", "test_open_pr_limit"),)
 
@@ -92,12 +84,8 @@ def helper_files() -> list[Path]:
 
 
 def pipeline_test_files() -> list[Path]:
-    """The tests under `tests/pipeline` in the converted name ranges, by current file name."""
-    return sorted(
-        p
-        for p in PIPELINE_TESTS.glob("test_*.py")
-        if any(first <= p.stem <= last for first, last in PIPELINE_TEST_RANGES)
-    )
+    """Every test under `tests/pipeline`."""
+    return sorted(PIPELINE_TESTS.glob("test_*.py"))
 
 
 def graph_test_files() -> list[Path]:

@@ -1,4 +1,4 @@
-"""A e2e-test fix prompt names the file holding the full output, and does not tell the agent
+"""An e2e-test fix prompt names the file holding the full output, and does not tell the agent
 to rerun live tests it cannot run; a unit-test prompt is as it always was.
 
 The saved feedback is rendered through the rework node, with the agent a runtime behind
@@ -69,7 +69,7 @@ def reworked(tmp_path: Path, feedback: str, source: FeedbackSource, *, resumes: 
 
 
 @pytest.mark.parametrize("resumes", [False, True], ids=["prompt", "continuation"])
-def test_a_e2e_failure_with_a_file_names_it_and_says_the_live_tests_cannot_be_rerun(
+def test_an_e2e_failure_with_a_file_names_it_and_says_the_live_tests_cannot_be_rerun(
     tmp_path: Path, resumes: bool
 ) -> None:
     prompt = reworked(tmp_path, e2e_feedback(), FeedbackSource.E2E, resumes=resumes)
@@ -83,7 +83,7 @@ def test_a_e2e_failure_with_a_file_names_it_and_says_the_live_tests_cannot_be_re
 
 @pytest.mark.parametrize("resumes", [False, True], ids=["prompt", "continuation"])
 @pytest.mark.parametrize("withheld", [True, False], ids=["withheld", "no-file"])
-def test_a_e2e_failure_without_a_readable_file_names_none_and_says_it_cannot_be_rerun(
+def test_an_e2e_failure_without_a_readable_file_names_none_and_says_it_cannot_be_rerun(
     tmp_path: Path, withheld: bool, resumes: bool
 ) -> None:
     feedback = e2e_feedback(output_file=LOG if withheld else "", withheld=withheld)

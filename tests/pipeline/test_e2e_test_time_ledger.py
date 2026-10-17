@@ -1,4 +1,4 @@
-"""A e2e-test run writes one `test_time` row of the usage ledger for each entry it timed,
+"""An e2e-test run writes one `test_time` row of the usage ledger for each entry it timed,
 which the ledger's reader skips (spec: e2e-time-is-recorded-per-test).
 
 The gate runs over a fake runner that answers with what pytest prints; the ledger is the
