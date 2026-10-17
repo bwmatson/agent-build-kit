@@ -125,14 +125,15 @@ def test_one_dump_is_at_most_twenty_thousand_four_hundred_and_eighty_characters(
     assert TICK_LINE not in text and "tttt" in text
 
 
-def test_a_third_failing_test_after_the_session_budget_is_used_gets_one_line_saying_so(
+def test_a_dump_that_would_pass_the_session_budget_is_left_out_and_every_one_after_it(
     pytester: pytest.Pytester, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     probe = filled_scratch(tmp_path)
     stand_in_tick(probe, monkeypatch)
     size = len(scratch_dump.scratch_state(probe))
-    # The first two dumps use more than this; the third finds it spent.
-    monkeypatch.setattr(scratch_dump, "SESSION_CHARS", size + size // 2)
+    # The first dump fits; the second would take the session past this.
+    budget = size + size // 2
+    monkeypatch.setattr(scratch_dump, "SESSION_CHARS", budget)
     body = """\
 
 @pytest.mark.local_stack
@@ -155,7 +156,9 @@ def test_tre(tmp_path, monkeypatch):
     result = run_children(pytester, body)
 
     first, second, third = sections(result.outlines)
-    assert first[0].startswith("cause hints:") and second[0].startswith("cause hints:")
-    left_out = [line for line in third if line.strip()]
-    assert len(left_out) == 1
-    assert "left out" in left_out[0]
+    assert first[0].startswith("cause hints:")
+    for left_out in (second, third):
+        lines = [line for line in left_out if line.strip()]
+        assert len(lines) == 1 and "left out" in lines[0]
+    printed = sum(len("\n".join(section).strip()) for section in (first, second, third))
+    assert printed <= budget

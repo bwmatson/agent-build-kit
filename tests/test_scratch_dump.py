@@ -10,11 +10,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests import scratch_dump
+from tests import scratch_dump, scratch_tick
 from tests.scratch_dump_support import (
     BRANCH,
     FAILURE_NOTE,
     HOLDER,
+    LOCK_UNIT,
     PARENT,
     PAUSE_REASON,
     REQUESTS,
@@ -54,6 +55,8 @@ def test_a_failed_live_test_with_a_scratch_gets_a_section_holding_every_source(
     text = "\n".join(section)
     assert section[0].startswith("cause hints:")
     assert TICK_LINE in text and str(TICK_EXIT) in section[0]
+    assert f"{BRANCH} is on the remote" in section[0]
+    assert "feature/1: blocked, waits on " + PARENT in section[0]
     assert "blocked, waits on " + PARENT in text and "backoff" in text
     for unit_id in ("feature/1", "feature/2"):
         assert unit_id in text
@@ -62,6 +65,7 @@ def test_a_failed_live_test_with_a_scratch_gets_a_section_holding_every_source(
     assert FAILURE_NOTE in text
     assert PAUSE_REASON in text
     assert HOLDER in text
+    assert LOCK_UNIT in text and "4242" in text
     assert re.search(r"refs/heads/main\b", text) and re.search(rf"refs/heads/{BRANCH}\b", text)
     assert "run log line 40" in text
     assert "implementer" in text
@@ -104,6 +108,51 @@ def test_fails(scratch):
     section = only_section(result)
     assert section[0].startswith("cause hints:")
     assert TICK_LINE in "\n".join(section)
+
+
+def test_a_scratch_a_module_fixture_built_is_found_for_every_test_that_uses_it(
+    pytester: pytest.Pytester,
+) -> None:
+    body = """\
+from types import SimpleNamespace
+
+
+@pytest.fixture(scope="module")
+def built(tmp_path_factory):
+    monkeypatch = pytest.MonkeyPatch()
+    scratch = filled_scratch(tmp_path_factory.mktemp("module"))
+    stand_in_tick(scratch, monkeypatch)
+    register_scratch(scratch)
+    yield SimpleNamespace(scratch=scratch)
+    monkeypatch.undo()
+
+
+@pytest.mark.local_stack
+def test_one(built):
+    pytest.fail("one")
+
+
+@pytest.mark.local_stack
+def test_two(built):
+    pytest.fail("two")
+"""
+    result = run_children(pytester, body)
+
+    found = sections(result.outlines)
+    assert len(found) == 2
+    assert all(section[0].startswith("cause hints:") for section in found)
+
+
+def test_the_lock_of_a_running_e2e_test_is_shown_without_taking_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scratch = filled_scratch(tmp_path)
+    stand_in_tick(scratch, monkeypatch)
+    (scratch.state / "e2e.lock").unlink()
+
+    without = scratch_dump.scratch_state(scratch)
+
+    assert "(no e2e lock)" in without and LOCK_UNIT not in without
 
 
 def test_a_test_that_passes_is_skipped_is_unmarked_or_has_no_scratch_gets_no_section(
@@ -234,7 +283,7 @@ def test_a_git_that_runs_out_of_time_is_unavailable_and_was_given_ten_seconds(
         raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
 
     # No second elapses: the stand-in raises the timeout the moment git is asked.
-    monkeypatch.setattr(scratch_dump, "runner", SimpleNamespace(**{**vars(subprocess), "run": run}))
+    monkeypatch.setattr(scratch_tick, "runner", SimpleNamespace(**{**vars(subprocess), "run": run}))
 
     text = scratch_dump.scratch_state(scratch)
 

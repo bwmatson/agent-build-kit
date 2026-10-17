@@ -11,7 +11,7 @@ import pytest
 
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import FAILED
-from tests import scratch_dump
+from tests import scratch_dump, scratch_tick
 from tests.redaction_fakes import known
 from tests.scratch_dump_support import (
     TICK_LINE,
@@ -81,7 +81,7 @@ def test_no_secret_value_is_in_an_argument_of_a_git_command_it_ran(
         argvs.append([str(part) for part in argv])
         return subprocess.run(argv, **kwargs)
 
-    monkeypatch.setattr(scratch_dump, "runner", SimpleNamespace(**{**vars(subprocess), "run": run}))
+    monkeypatch.setattr(scratch_tick, "runner", SimpleNamespace(**{**vars(subprocess), "run": run}))
 
     with known({}):
         scratch_dump.scratch_state(scratch)

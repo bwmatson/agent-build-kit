@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 
+from agent_build_kit.model import E2E_LOCK_FILE
 from agent_build_kit.pipeline.lease import lease_dir
 from agent_build_kit.pipeline.pause import PAUSE_MARKER
 from agent_build_kit.pipeline.unit_store import HeldBy, UnitStore
@@ -28,6 +29,7 @@ BRANCH = "spec/feature/1"
 PARENT = "parent/1"
 FAILURE_NOTE = "the build step blew up"
 HOLDER = "chat-session-7"
+LOCK_UNIT = "locker/9"
 PAUSE_REASON = "wall of rate limit"
 TICK_LINE = "TICK-OUTPUT-LINE"
 TICK_EXIT = 4
@@ -147,6 +149,9 @@ def filled_scratch(tmp_path: Path, *, env: dict[str, str] | None = None) -> Dump
     leases.mkdir()
     (leases / "feature--1.lease").write_text(
         json.dumps({"holder": HOLDER, "pid": 1, "started": "1"})
+    )
+    (scratch.state / E2E_LOCK_FILE).write_text(
+        json.dumps({"unit": LOCK_UNIT, "pid": 4242, "since": "an hour ago"})
     )
     return scratch
 

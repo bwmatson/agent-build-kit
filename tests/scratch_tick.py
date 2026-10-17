@@ -24,6 +24,11 @@ from tests.factories import git, who_pushed
 # The program a tick runs, replaceable by a test that stands in for it.
 ABK: Path = Path(sys.executable).parent / "abk"
 
+# Seconds each `git` command of a diagnostic may take, and the module that runs it, which a
+# test replaces with a stand-in.
+GIT_TIMEOUT = 10
+runner = subprocess
+
 # How many ticks of one scratch are remembered.
 KEPT_TICKS = 3
 
@@ -154,13 +159,50 @@ def pause_of(scratch: Scratch) -> tuple[str, str]:
         return "unreadable", unavailable(marker.name, error)
 
 
-def _run_log(scratch: Scratch) -> str:
+def newest_run_log(scratch: Scratch) -> Path | None:
+    """The run log written last in the scratch's state directory, or None when there is none."""
     logs = sorted(
         (scratch.state / "unit-logs").glob("*.log"), key=lambda path: path.stat().st_mtime
     )
-    if not logs:
+    return logs[-1] if logs else None
+
+
+def _run_log(scratch: Scratch) -> str:
+    newest = newest_run_log(scratch)
+    if newest is None:
         return "(no run log)"
-    return "\n".join(logs[-1].read_text().splitlines()[-RUN_LOG_LINES:])
+    return "\n".join(newest.read_text().splitlines()[-RUN_LOG_LINES:])
+
+
+def _on_remote(scratch: Scratch, branch: str) -> str:
+    def probe() -> str:
+        found = runner.run(
+            ["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"],
+            cwd=scratch.remote,
+            capture_output=True,
+            timeout=GIT_TIMEOUT,
+        )
+        return f"{branch} is {'on' if found.returncode == 0 else 'not on'} the remote"
+
+    return attempt(f"{branch} on the remote", probe)
+
+
+def cause_hints(scratch: Scratch, branch: str | None = None, tick: TickResult | None = None) -> str:
+    """The `cause hints: ...` line: the last tick's return code, the pause marker, and for a
+    `branch` whether it is on the remote and its unit's wait reason. The guarded branch check and
+    the failure dump both open with it."""
+    if tick is None:
+        remembered = ticks_of(scratch)
+        tick = remembered[-1] if remembered else None
+    parts = [f"tick exited {tick.returncode}" if tick else "no tick was run"]
+    if branch:
+        parts.append(_on_remote(scratch, branch))
+    parts.append(f"pause marker {pause_of(scratch)[0]}")
+    if branch:
+        unit = "/".join(branch.split("/")[-2:])
+        wait = attempt(DECISIONS_NAME, lambda: waits_of(scratch).get(unit, "has no recorded wait"))
+        parts.append(f"{unit}: {wait}")
+    return "cause hints: " + "; ".join(parts)
 
 
 def _pushes(scratch: Scratch) -> list[str]:
@@ -173,8 +215,6 @@ def _pushes(scratch: Scratch) -> list[str]:
 
 
 def _failure(scratch: Scratch, branch: str, tick: TickResult | None) -> str:
-    from tests.scratch_dump import cause_hints
-
     _, pause = pause_of(scratch)
     sections = [
         cause_hints(scratch, branch, tick),

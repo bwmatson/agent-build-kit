@@ -245,9 +245,14 @@ def test_the_unit_is_built_reviewed_and_pushed_through_the_runtime(
         f"no commit after the tests implements src/app/marker.py\n{found()}"
     )
     log_lines = run_log(scratch).splitlines()
-    assert any(f"{Node.REVIEW}: review round" in line for line in log_lines), log_lines
-    assert any("in review: PR #7" in line for line in log_lines), log_lines
-    assert scratch.host.requests("POST", "/repos/example/app/pulls"), "no pull request was opened"
+    assert any(f"{Node.REVIEW}: review round" in line for line in log_lines), (
+        log_lines,
+        ticked.output,
+    )
+    assert any("in review: PR #7" in line for line in log_lines), (log_lines, ticked.output)
+    assert scratch.host.requests("POST", "/repos/example/app/pulls"), (
+        f"no pull request was opened\n{ticked.output}"
+    )
 
 
 def test_the_pipeline_alone_pushed_and_only_what_review_approved(
@@ -264,7 +269,7 @@ def test_the_pipeline_alone_pushed_and_only_what_review_approved(
     # tried: every update its reflog records is one of the pipeline's own pushes.
     pipeline_pushed = re.findall(rf" pushed {re.escape(BRANCH)} at ([0-9a-f]+)", log)
     reflog = git(scratch.remote, "reflog", "show", f"refs/heads/{BRANCH}", "--format=%H").split()
-    assert pipeline_pushed, log
+    assert pipeline_pushed, f"{log}\n{ticked.output}"
     assert len(reflog) == len(pipeline_pushed), f"{who_pushed(scratch)}\n{ticked.output}"
     for sha in reflog:
         assert any(sha.startswith(seen) for seen in pipeline_pushed), (
@@ -309,8 +314,12 @@ def test_progress_is_visible_while_the_run_works(built: tuple[Scratch, TickResul
     arrivals = [at for at, line in window if progress.match(line)]
     next_step = after[0]
     # Lines that arrive as the agent works, not all together when its turn ends.
-    assert len(arrivals) >= 3, f"agent progress lines in the step: {len(arrivals)}\n{window}"
-    assert arrivals[0] < next_step - 5, "the agent's progress arrived only as its run ended"
+    assert len(arrivals) >= 3, (
+        f"agent progress lines in the step: {len(arrivals)}\n{window}\n{ticked.output}"
+    )
+    assert arrivals[0] < next_step - 5, (
+        f"the agent's progress arrived only as its run ended\n{ticked.output}"
+    )
 
 
 def test_a_forbidden_command_is_refused_and_the_refusal_names_its_layer(
@@ -385,8 +394,8 @@ def test_the_report_has_one_agent_record_per_call_in_the_run_log(
     calls = [line for line in log.splitlines() if AGENT_STEP.search(line)]
     assert calls, f"the run log shows no agent call:\n{log}\n{ticked.output}"
     report = json.loads(abk_report(scratch, "--by", "node", "--json", "--include-estimates"))
-    assert calls_of(report["total"]) == len(calls), f"{report['rows']}\n{calls}"
-    assert sum(calls_of(row) for row in report["rows"]) == len(calls)
+    assert calls_of(report["total"]) == len(calls), f"{report['rows']}\n{calls}\n{ticked.output}"
+    assert sum(calls_of(row) for row in report["rows"]) == len(calls), ticked.output
 
 
 def test_the_report_totals_equal_the_ledger_and_name_each_figures_source(
@@ -399,17 +408,17 @@ def test_the_report_totals_equal_the_ledger_and_name_each_figures_source(
     assert records, f"the ledger holds no record of the unit's calls\n{ticked.output}"
     report = json.loads(abk_report(scratch, "--by", "unit", "--json", "--include-estimates"))
     [row] = report["rows"]
-    assert row["key"] == UNIT_ID
+    assert row["key"] == UNIT_ID, ticked.output
     measured = row["measured"]
 
-    assert measured["calls"] == len(records)
-    assert measured["input_tokens"] == summed([r.input_tokens for r in records])
-    assert measured["output_tokens"] == summed([r.output_tokens for r in records])
-    assert row["agent_ms"] == summed([r.duration_ms for r in records])
-    assert report["total"]["measured"]["input_tokens"] == measured["input_tokens"]
+    assert measured["calls"] == len(records), ticked.output
+    assert measured["input_tokens"] == summed([r.input_tokens for r in records]), ticked.output
+    assert measured["output_tokens"] == summed([r.output_tokens for r in records]), ticked.output
+    assert row["agent_ms"] == summed([r.duration_ms for r in records]), ticked.output
+    assert report["total"]["measured"]["input_tokens"] == measured["input_tokens"], ticked.output
     # Each figure's source is shown: the row names every source its calls had,
     # in the JSON and in the table.
-    assert set(row["sources"]) == {r.usage_source for r in records}
-    assert set(row["sources"]) <= SOURCES
+    assert set(row["sources"]) == {r.usage_source for r in records}, ticked.output
+    assert set(row["sources"]) <= SOURCES, ticked.output
     table = abk_report(scratch)
-    assert all(source in table for source in row["sources"]), table
+    assert all(source in table for source in row["sources"]), f"{table}\n{ticked.output}"

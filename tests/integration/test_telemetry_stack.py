@@ -97,6 +97,7 @@ class Scratch(Frozen):
     remote: Path
     state: Path
     env: dict[str, str] = Field(repr=False)
+    host: FakeGitHub
 
 
 class Built(Frozen):
@@ -181,6 +182,7 @@ def build_unit(
             remote=remote,
             state=Installation(config.load(planning / "abk.yaml"), planning).state_dir,
             env=env,
+            host=host,
         )
         register_scratch(scratch_state)
         tick = run_tick(scratch_state)

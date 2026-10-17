@@ -1358,16 +1358,17 @@ who pushed, not with a git error.
 
 `tests/scratch_dump.py`, listed in `tests/conftest.py` beside `tests.time_split`, adds a
 `SCRATCH STATE` section to the report of a failed or errored `local_stack` test (setup,
-call or teardown) that has a scratch: a fixture argument named `scratch`, or one passed to
-`register_scratch`. It is the last part of that test's failure block and opens with the
+call or teardown) that has a scratch: a fixture argument named `scratch`, the `scratch` attribute of any
+fixture argument (a module-scoped fixture that builds one), or one passed to
+`register_scratch` during the test. It is the last part of that test's failure block and opens with the
 same `cause hints:` line. It holds, each within a cap: the last tick's output (last 6000
 characters), the wait reason and the summary of each unit (20 lines of 200 characters),
-the pause marker (1000 characters), the leases (10 lines), the remote's heads (30 lines),
+the pause marker (1000 characters), the lease holders (10 lines) and the e2e lock holder (read from its file, never locked), the remote's heads (30 lines),
 the tails of the decision log, the usage ledger and the run log (15 lines of 300
 characters), the fake host's requests (30 lines) and the tick's environment (40 names;
 a name that looks like a secret is listed without its value). One dump is at most 20 480
-characters and a session's dumps 61 440; after that a failure gets one line saying its
-dump was left out. The text goes through the redactor, and the values of secret-looking
+characters and a session's dumps 61 440; a dump that would take the session past that gets
+one line saying it was left out, and only what is printed is counted. The text goes through the redactor, and the values of secret-looking
 environment names are registered first; if redaction fails the dump is replaced by one
 line saying it was withheld. A source that cannot be read is one line,
 `scratch state unavailable: <ExceptionType>`; the hook never changes a test's outcome,
