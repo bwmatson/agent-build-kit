@@ -261,6 +261,7 @@ class RestackLane:
         work: Work | None = None,
         *,
         done: Callable[[bool], None] | None = None,
+        claimed: bool = True,
     ) -> None:
         """Queue `unit`'s restack once and start it before returning when a worker is free.
 
@@ -463,8 +464,9 @@ class RestackLanes:
         work: Work | None = None,
         *,
         done: Callable[[bool], None] | None = None,
+        claimed: bool = True,
     ) -> None:
-        self._lane(project_key(unit)).hand_over(unit, work, done=done)
+        self._lane(project_key(unit)).hand_over(unit, work, done=done, claimed=claimed)
 
     def scan(self, units: list[StoredUnit]) -> None:
         """Hand each owed unit to the lane of its project, making that lane if need be."""
