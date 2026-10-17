@@ -101,6 +101,7 @@
   and `abk.yaml`). A source file modified there stays modified and unstaged, a file already
   staged outside those paths is not committed, and the chat's count of planning changes
   ignores source files. A separate planning repository commits and counts every file, as before.
+
 - A repo can name a Claude account by label (`repos.<name>.account`), and each person gives
   the label a directory in `abk.local.yaml` under `runtimes.claude_code.accounts.<label>`
   (`config_dir`, `limits`, `max_units_in_progress`). A `config_dir` in the committed
