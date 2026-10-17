@@ -228,7 +228,9 @@ built. `project_limits.max_units_in_progress` bounds the units started and not f
 across repos: running, in review or failed, and any planned or unplanned unit
 that a run has started: one with a recorded branch, a pushed or approved commit or a pull request. Merged, closed and satisfied
 units, held units (set aside until a person releases them), and units that
-never started, do not count. A blocked planned unit does not count either, however
+never started, do not count. A planned or unplanned unit parked on a held split
+(`parked_splits` set) holds no place whatever its cause field says; a parked unplanned unit
+is left alone on release, and a replan keeps the park. A blocked planned unit does not count either, however
 much work it has: it waits on another unit (`waiting_on`: a dependency or predecessor
 not yet reviewed or merged, being reworked, failed or held, which covers a gate not yet
 merged and an upstream that went back), and counts again when it no longer does. A

@@ -693,6 +693,21 @@ _WAIT_CAUSES = ("gated", "upstream_went_back")
 SPLIT_HELD_CAUSE = "split_held"
 
 
+def parked_on_split(unit: Unit) -> bool:
+    """Whether a planned or unplanned unit waits on a held e2e-test split, so it holds no place.
+
+    A planned unit with the cause `split_held` does, as does one with `parked_splits` whose
+    latest cause is not another (a state change that records no cause loses `split_held`;
+    a requeue or interruption after the park puts the unit on its way to run).
+    """
+    if unit.state not in (PLANNED, UnitState.UNPLANNED):
+        return False
+    cause = getattr(unit, "cause", None)
+    if unit.state == PLANNED and cause == SPLIT_HELD_CAUSE:
+        return True
+    return bool(getattr(unit, "parked_splits", None)) and cause in (None, SPLIT_HELD_CAUSE)
+
+
 def blocked(unit: Unit, graph: Sequence[Unit]) -> bool:
     """Whether a planned unit waits on another unit, so it holds no place.
 
@@ -770,8 +785,11 @@ def later_groups_by_change(unit: Unit, graph: Sequence[Unit]) -> dict[str, tuple
 def in_progress(unit: Unit, graph: Sequence[Unit] = ()) -> bool:
     """Whether the unit has been started and not finished (docs/architecture.md).
 
-    A planned unit parked for a held e2e-test split (cause `split_held`) is not: it has
-    nothing to run until the split is released.
+    A planned or unplanned unit parked on a held e2e-test split (`parked_on_split`) is
+    not, whatever its cause field says and whatever work it has: it has nothing to run
+    until the split is released. An unplanned one is left alone on release, because the
+    plan no longer has it, and stays uncounted until a replan plans it again; a replan
+    keeps the park.
 
     Running, in review and failed units are; so is a planned or unplanned one
     that has a pull request, a branch or a pushed commit, since something was
@@ -796,7 +814,7 @@ def in_progress(unit: Unit, graph: Sequence[Unit] = ()) -> bool:
         return not failed_waiting(unit, graph)
     if unit.state in (RUNNING, IN_REVIEW):
         return True
-    if unit.state == PLANNED and getattr(unit, "cause", None) == SPLIT_HELD_CAUSE:
+    if parked_on_split(unit):
         return False
     return _worked_on(unit) and not blocked(unit, graph)
 

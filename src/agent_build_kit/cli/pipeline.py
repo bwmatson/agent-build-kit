@@ -231,6 +231,7 @@ from agent_build_kit.pipeline.units import (
     in_progress,
     in_progress_label,
     local_ref,
+    parked_on_split,
     project_counts,
     project_key,
     project_tag,
@@ -1925,13 +1926,20 @@ def _split_wait_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[s
     """One line for each unit parked for a held e2e-test split: which, why and until when."""
     lines = []
     for unit in units:
-        if unit.state != PLANNED or unit.cause is not Cause.SPLIT_HELD:
+        if not parked_on_split(unit):
             continue
         names = ", ".join(unit.parked_splits)
         why = "; ".join(hold_text(hold) for hold in _holds_of_parked(inst, unit).values())
+        dropped = unit.state == UnitState.UNPLANNED
+        label = "unplanned, parked on" if dropped else "waiting for"
+        released = (
+            "released, left alone: the plan no longer has it"
+            if dropped
+            else "released, resumes this round"
+        )
         lines.append(
-            f"  waiting for e2e-test split {names}: {unit.id} ({unit_label(unit)})"
-            + (f" — {why}" if why else " — released, resumes this round")
+            f"  {label} e2e-test split {names}: {unit.id} ({unit_label(unit)})"
+            + (f" — {why}" if why else f" — {released}")
         )
     return lines
 

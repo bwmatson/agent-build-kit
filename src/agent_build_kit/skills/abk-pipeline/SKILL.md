@@ -150,7 +150,9 @@ instance).
 A unit whose tier 2 tests sit in a held split waits with the reason "waiting for tier 2
 split <name>" (cause `split_held`) until `abk tier2 release <split>`, or until the configuration
 sets `hold: false` for the split (removing a `hold: true` line frees it only when
-`tier2-held.json` has no entry for it). `abk tier2 status` shows each split as usable or held, and
+`tier2-held.json` has no entry for it). A planned or unplanned unit parked on a split holds
+no place whatever its cause field says; a parked unplanned unit is left alone on release, and a
+replan keeps the park. `abk tier2 status` shows each split as usable or held, and
 `abk tier2 check` lists the splits with their test counts and finds a test in two.
 
 ### Parked for its worktree
