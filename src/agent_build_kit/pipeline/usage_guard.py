@@ -837,6 +837,20 @@ def starting(unit: str) -> Iterator[None]:
         _starting.reset(token)
 
 
+def ask_before_call(
+    unit: str,
+    may_start: Callable[[], tuple[bool, str]],
+    resume_at: Callable[[], datetime | None],
+) -> None:
+    """Ask the guard before an agent call of `unit` that no node gates (a conflict resolver's),
+    by the decision a unit's agent step asks. A refusal is raised as the model's own rate limit,
+    carrying the time the guard expects to allow the call again."""
+    with starting(unit):
+        allowed, reason = may_start()
+    if not allowed:
+        raise AgentRateLimited(reason, resets_at=resume_at())
+
+
 def _noted(reading: UsageReading | None) -> UsageReading | None:
     """A reading that is not live, labelled with the rate limit in force, so the reason a start
     was refused names it and when the next call will be made."""

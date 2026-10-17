@@ -268,6 +268,7 @@ from agent_build_kit.pipeline.usage_guard import (
     Limits,
     RateLimited,
     UsageReading,
+    ask_before_call,
     claude_limits,
     current_cache_interval,
     current_usage,
@@ -278,7 +279,6 @@ from agent_build_kit.pipeline.usage_guard import (
     may_start_unit,
     reading_as,
     refreshed_usage,
-    starting,
     threshold_at,
 )
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
@@ -3643,13 +3643,12 @@ def gated_resolver(
 
     class Gated(ConflictSession):
         def __call__(self, prompt: str, *, cwd: Path, follow_up: str = "") -> None:
-            with starting(unit_id):
-                allowed, reason = may_start()
-            if not allowed:
-                again = resume_at()
+            try:
+                ask_before_call(unit_id, may_start, resume_at)
+            except AgentRateLimited as error:
                 if refused is not None:
-                    refused(unit_id, again)
-                raise AgentRateLimited(reason, resets_at=again)
+                    refused(unit_id, error.resets_at)
+                raise
             super().__call__(prompt, cwd=cwd, follow_up=follow_up)
 
     return Gated()
@@ -3708,7 +3707,14 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
             if branch_is_held(inst, store.get(unit_id).branch or branch_name(store.get(unit_id))):
                 raise BranchBusy(f"the branch of {unit_id} is held by another run")
             # The run flags itself once it holds the branch and the unit is runnable.
-            build_unit(inst, store.get(unit_id), store=store, moved_base_run=True)
+            build_unit(
+                inst,
+                store.get(unit_id),
+                store=store,
+                moved_base_run=True,
+                # A pause that stopped the run: the lane tries it again from the guard's time.
+                on_pause=lambda resume_at: lanes.defer_until(unit_id, resume_at),
+            )
 
         return run
 
@@ -3742,7 +3748,18 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
         if has_thread(inst, unit.id):
             # Parked at `prepare`: the lane makes the move here, and its worker goes on into
             # the unit's run (`run_of`).
-            ended = advance_thread_through_prepare(inst, unit, store=store)
+            try:
+                ended = advance_thread_through_prepare(inst, unit, store=store)
+            except AgentRateLimited as error:
+                # The guard refused the resolver: the move is tried again when it allows.
+                lanes.defer_until(unit.id, error.resets_at)
+                store.set_state(
+                    unit.id,
+                    RUNNING,
+                    note=f"restack onto {new_base} deferred: {cut_head(str(error), 300, 'char')}",
+                    cause=Cause.RESTACK_DEFERRED,
+                )
+                return None
             if ended is not None:
                 if ended.conflict:
                     store.set_state(
@@ -4099,6 +4116,7 @@ def build_unit(
     store: UnitStore,
     queued: spans.Mark | None = None,
     moved_base_run: bool = False,
+    on_pause: Callable[[datetime | None], None] | None = None,
 ) -> bool:
     """`_build_unit` as a `unit` span below the tick's, with the run's duration.
 
@@ -4133,6 +4151,7 @@ def build_unit(
                 trace=telemetry.reference(span),
                 queued=queued,
                 moved_base_run=moved_base_run,
+                on_pause=on_pause,
             )
         except BaseException:
             telemetry.failed(span)
@@ -4163,6 +4182,7 @@ def _build_unit(
     trace: str = "",
     queued: spans.Mark | None = None,
     moved_base_run: bool = False,
+    on_pause: Callable[[datetime | None], None] | None = None,
 ) -> bool:
     """Start the unit's thread, or resume the one a killed or paused run left,
     and run it to a wait or the end. Returns False only when the model refused
@@ -4286,9 +4306,8 @@ def _build_unit(
                 # A step recorded by an earlier run belongs to that run. A parked unit, or one
                 # the restack lane handed back, resumes at its node, which never passes
                 # `prepare`, so it is marked running here.
-                if unit.state == PLANNED and unit.cause in (
-                    *PARKED_CAUSES,
-                    Cause.RESTACK_HANDED_BACK,
+                if unit.state == PLANNED and (
+                    moved_base_run or unit.cause in (*PARKED_CAUSES, Cause.RESTACK_HANDED_BACK)
                 ):
                     store.set_state(unit.id, RUNNING, branch=unit.branch or None)
                 store.record_step(unit.id, "")
@@ -4352,6 +4371,8 @@ def _build_unit(
             if when is None and runtimes.active().supports_usage_tracking:
                 reading = held_usage()
                 when = reading.resets_at if reading else None
+            if on_pause is not None:
+                on_pause(error.resets_at)
 
             state = pause_until(
                 when,
@@ -4403,6 +4424,8 @@ def _build_unit(
         end(f"{outcome.status} — {outcome.detail}", outcome.status)
         if outcome.status is UnitOutcome.PAUSED:
             forget_if_not_begun()
+            if on_pause is not None:
+                on_pause(outcome.pause.until if outcome.pause else None)
             emit_metric(
                 "count", "abk.usage.pauses", 1, say, unit=unit.id, change=unit.change, kind="usage"
             )

@@ -9,7 +9,7 @@ reports a usage window, so the guard is the one asked before it is called.
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -21,7 +21,13 @@ from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED
 from agent_build_kit.runtimes import AgentRateLimited, AgentRequest
 from tests.factories import git, stored_unit
-from tests.restack_lane_fakes import asked_of_the_guard, moved_onto_main, restack, tracked_rig
+from tests.restack_lane_fakes import (
+    Moving,
+    asked_of_the_guard,
+    moved_onto_main,
+    restack,
+    tracked_rig,
+)
 from tests.restack_turn_fakes import (
     BRANCH,
     OLD_BASE,
@@ -34,22 +40,6 @@ from tests.usage_host import Host, payload, refused
 
 MINUTE = timedelta(minutes=1)
 CLEAN = "spec/c/3"
-
-
-class Moving:
-    """The pipeline's clock, from now on, moved only by the test."""
-
-    def __init__(self) -> None:
-        self.at = datetime.now(UTC)
-
-    def set(self, at: datetime) -> None:
-        self.at = at
-
-    def now(self) -> datetime:
-        return self.at
-
-    def monotonic(self) -> float:
-        return self.at.timestamp()
 
 
 @pytest.fixture

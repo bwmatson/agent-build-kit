@@ -6,6 +6,7 @@ from __future__ import annotations
 import subprocess
 import threading
 from collections.abc import Callable, Collection
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,22 @@ from tests.runtimes.stand_in import StandInRuntime
 from tests.usage_host import Host
 
 WAIT = 60
+
+
+class Moving:
+    """The pipeline's clock, from now on, moved only by the test."""
+
+    def __init__(self) -> None:
+        self.at = datetime.now(UTC)
+
+    def set(self, at: datetime) -> None:
+        self.at = at
+
+    def now(self) -> datetime:
+        return self.at
+
+    def monotonic(self) -> float:
+        return self.at.timestamp()
 
 
 def units(count: int) -> list[StoredUnit]:

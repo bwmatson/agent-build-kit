@@ -52,6 +52,9 @@
   the tip of the unit's base, together with the attempts made for a conflicting pull request;
   a unit whose attempts at one tip reach `max_review_rounds` is held for a person with a note
   naming the base, the tip and how the last run ended, and a new tip starts the count again.
+  Every agent call of a run in the lane, including the conflict resolver of its own move, asks
+  the usage guard first; a refusal aborts the move or interrupts the run where it stands, and
+  the lane tries it again once the guard allows, not on a timer.
 
 - A prompt no longer travels as a command-line argument to Claude Code: it is written to the
   agent's standard input, so a large prompt (a long plan, a big diff) no longer fails with
