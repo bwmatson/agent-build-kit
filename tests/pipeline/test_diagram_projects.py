@@ -29,8 +29,8 @@ def test_a_repo_with_two_projects_nests_a_subgraph_for_each() -> None:
     assert len(enclosing["a"]) == len(enclosing["b"]) == 2
     assert enclosing["a"][0] == enclosing["b"][0] == "subgraph app"
     assert enclosing["a"][1] != enclosing["b"][1]
-    assert enclosing["a"][1].endswith(".") or '"."' in enclosing["a"][1]
-    assert "web" in enclosing["b"][1]
+    assert enclosing["a"][1].endswith('["."]')
+    assert enclosing["b"][1].endswith('["web"]')
 
 
 def test_a_project_with_no_unit_in_view_has_no_subgraph() -> None:

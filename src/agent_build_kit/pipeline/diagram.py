@@ -112,7 +112,9 @@ def render_mermaid(
 ) -> str:
     """Draw `units`. `graph` is the whole store when `units` is a subset of it:
     whether a unit is blocked depends on parents that may not be drawn. `restacking` names
-    the base of each unit the restack lane holds."""
+    the base of each unit the restack lane holds. `projects` maps a repo to the project paths it
+    declares, as `declared_projects` returns them (the root may be left out; it counts whenever
+    a repo declares another path). It only decides whether a repo is drawn nested."""
     graph = graph if graph is not None else units
     index = {unit.id: unit for unit in units}
     ordered = sorted(units, key=lambda unit: (unit.repo, unit.project, unit.id))
@@ -125,7 +127,9 @@ def render_mermaid(
     for repo in sorted({unit.repo for unit in units}):
         lines.append(f"    subgraph {repo}")
         in_repo = [u for u in ordered if u.repo == repo]
-        nested = len({u.project for u in in_repo} | set((projects or {}).get(repo, ()))) > 1
+        declared = set((projects or {}).get(repo, ()))
+        # `declared_projects` leaves the root out: a repo declaring another path has it too.
+        nested = len({u.project for u in in_repo} | declared | ({"."} if declared else set())) > 1
         current: str | None = None
         for unit in in_repo:
             if nested and unit.project != current:
@@ -284,13 +288,16 @@ def write_page(
     checks_of: ChecksOf | None = None,
     paused: Collection[str] = (),
     restacking: Mapping[str, str] | None = None,
+    projects: Mapping[str, Collection[str]] | None = None,
 ) -> None:
     """Rewrite the page, keeping the old timestamp when nothing else changed.
 
     Called on every store write, so without this each tick would leave a
     one-line diff in a committed file for no change at all.
     """
-    page = render_markdown(units, checks_of=checks_of, paused=paused, restacking=restacking)
+    page = render_markdown(
+        units, checks_of=checks_of, paused=paused, restacking=restacking, projects=projects
+    )
     if out.exists() and _body(out.read_text()) == _body(page):
         return
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -310,6 +317,7 @@ def main(argv: list[str] | None = None) -> int:
     from agent_build_kit.installation import load_installation
     from agent_build_kit.pipeline.pr_poller import recorded_checks
     from agent_build_kit.pipeline.unit_store import UnitStore
+    from agent_build_kit.pipeline.work_graph import declared_projects
 
     installation = load_installation()
     parser = argparse.ArgumentParser(description="Render the unit dependency graph.")
@@ -323,6 +331,7 @@ def main(argv: list[str] | None = None) -> int:
         args.out,
         checks_of=recorded_checks(installation.state_dir),
         paused=parked_units(installation, units),
+        projects=declared_projects(installation.repos),
     )
     print(f"{args.out}: {len(units)} unit(s)")
     return 0
