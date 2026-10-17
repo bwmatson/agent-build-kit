@@ -46,6 +46,7 @@ pytest_plugins = [
     "tests.fork_warning_guard",
     "tests.replay.plugin",
     "tests.runtime_tags",
+    "tests.scratch_dump",
     "tests.time_limit",
     "tests.time_split",
 ]

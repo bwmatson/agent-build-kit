@@ -24,6 +24,11 @@ from tests.factories import git, who_pushed
 # The program a tick runs, replaceable by a test that stands in for it.
 ABK: Path = Path(sys.executable).parent / "abk"
 
+# Seconds each `git` command of a diagnostic may take, and the module that runs it, which a
+# test replaces with a stand-in.
+GIT_TIMEOUT = 10
+runner = subprocess
+
 # How many ticks of one scratch are remembered.
 KEPT_TICKS = 3
 
@@ -63,6 +68,7 @@ class TickResult(Frozen):
 
 
 _TICKS: dict[Path, deque[TickResult]] = {}
+_REGISTERED: list[Scratch] = []
 
 
 def run_tick(scratch: Scratch, *, timeout: float = 3600) -> TickResult:
@@ -116,14 +122,20 @@ def scratch_env_summary(env: Mapping[str, str]) -> list[str]:
     ]
 
 
-def _attempt(source: str, read: Callable[[], str]) -> str:
+def unavailable(source: str, error: Exception) -> str:
+    """The one line a diagnostic shows for a source it could not read."""
+    return f"{source} unavailable: {type(error).__name__}"
+
+
+def attempt(source: str, read: Callable[[], str]) -> str:
+    """`read()`, or the one line naming why `source` could not be read."""
     try:
         return read()
     except Exception as error:  # noqa: BLE001 — a diagnostic never hides the others
-        return f"{source} unavailable: {type(error).__name__}"
+        return unavailable(source, error)
 
 
-def _waits(scratch: Scratch) -> dict[str, str]:
+def waits_of(scratch: Scratch) -> dict[str, str]:
     """Each unit's latest wait reason from the decision log, with what it waits on."""
     latest: dict[str, str] = {}
     for line in (scratch.state / DECISIONS_NAME).read_text().splitlines():
@@ -136,7 +148,7 @@ def _waits(scratch: Scratch) -> dict[str, str]:
     return latest
 
 
-def _pause(scratch: Scratch) -> tuple[str, str]:
+def pause_of(scratch: Scratch) -> tuple[str, str]:
     """The pause marker's status (`absent`, `present` or `unreadable`) and what to show of it."""
     marker = scratch.state / PAUSE_MARKER
     try:
@@ -144,16 +156,53 @@ def _pause(scratch: Scratch) -> tuple[str, str]:
             return "absent", "absent"
         return "present", marker.read_text().strip()
     except Exception as error:  # noqa: BLE001 — a diagnostic never hides the others
-        return "unreadable", f"{marker.name} unavailable: {type(error).__name__}"
+        return "unreadable", unavailable(marker.name, error)
 
 
-def _run_log(scratch: Scratch) -> str:
+def newest_run_log(scratch: Scratch) -> Path | None:
+    """The run log written last in the scratch's state directory, or None when there is none."""
     logs = sorted(
         (scratch.state / "unit-logs").glob("*.log"), key=lambda path: path.stat().st_mtime
     )
-    if not logs:
+    return logs[-1] if logs else None
+
+
+def _run_log(scratch: Scratch) -> str:
+    newest = newest_run_log(scratch)
+    if newest is None:
         return "(no run log)"
-    return "\n".join(logs[-1].read_text().splitlines()[-RUN_LOG_LINES:])
+    return "\n".join(newest.read_text().splitlines()[-RUN_LOG_LINES:])
+
+
+def _on_remote(scratch: Scratch, branch: str) -> str:
+    def probe() -> str:
+        found = runner.run(
+            ["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"],
+            cwd=scratch.remote,
+            capture_output=True,
+            timeout=GIT_TIMEOUT,
+        )
+        return f"{branch} is {'on' if found.returncode == 0 else 'not on'} the remote"
+
+    return attempt(f"{branch} on the remote", probe)
+
+
+def cause_hints(scratch: Scratch, branch: str | None = None, tick: TickResult | None = None) -> str:
+    """The `cause hints: ...` line: the last tick's return code, the pause marker, and for a
+    `branch` whether it is on the remote and its unit's wait reason. The guarded branch check and
+    the failure dump both open with it."""
+    if tick is None:
+        remembered = ticks_of(scratch)
+        tick = remembered[-1] if remembered else None
+    parts = [f"tick exited {tick.returncode}" if tick else "no tick was run"]
+    if branch:
+        parts.append(_on_remote(scratch, branch))
+    parts.append(f"pause marker {pause_of(scratch)[0]}")
+    if branch:
+        unit = "/".join(branch.split("/")[-2:])
+        wait = attempt(DECISIONS_NAME, lambda: waits_of(scratch).get(unit, "has no recorded wait"))
+        parts.append(f"{unit}: {wait}")
+    return "cause hints: " + "; ".join(parts)
 
 
 def _pushes(scratch: Scratch) -> list[str]:
@@ -166,18 +215,15 @@ def _pushes(scratch: Scratch) -> list[str]:
 
 
 def _failure(scratch: Scratch, branch: str, tick: TickResult | None) -> str:
-    unit = "/".join(branch.split("/")[-2:])
-    marker, pause = _pause(scratch)
-    wait = _attempt(DECISIONS_NAME, lambda: _waits(scratch).get(unit, "has no recorded wait"))
-    ran = f"tick exited {tick.returncode}" if tick else "no tick was run"
+    _, pause = pause_of(scratch)
     sections = [
-        f"cause hints: {ran}; {branch} is not on the remote; pause marker {marker}; {unit}: {wait}",
+        cause_hints(scratch, branch, tick),
         "--- tick output ---\n" + (tick.output if tick else "no tick was run"),
         "--- wait reasons ---\n"
-        + _attempt(DECISIONS_NAME, lambda: json.dumps(_waits(scratch), indent=1)),
-        "--- run log ---\n" + _attempt("run log", lambda: _run_log(scratch)),
+        + attempt(DECISIONS_NAME, lambda: json.dumps(waits_of(scratch), indent=1)),
+        "--- run log ---\n" + attempt("run log", lambda: _run_log(scratch)),
         "--- pause marker ---\n" + pause,
-        _attempt("push history", lambda: who_pushed(scratch.remote, branch, _pushes(scratch))),
+        attempt("push history", lambda: who_pushed(scratch.remote, branch, _pushes(scratch))),
     ]
     return "\n".join(sections)
 
@@ -191,5 +237,23 @@ def commits_on_unit_branch(
     try:
         return git(scratch.remote, "log", "--format=%H", f"main..{branch}").split()
     except subprocess.CalledProcessError:
-        remembered = ticks_of(scratch)
-        pytest.fail(_failure(scratch, branch, tick or (remembered[-1] if remembered else None)))
+        pass
+    # Outside the handler, so the failure is not shown chained to a git error.
+    remembered = ticks_of(scratch)
+    pytest.fail(_failure(scratch, branch, tick or (remembered[-1] if remembered else None)))
+
+
+def register_scratch(scratch: Scratch) -> None:
+    """Make `scratch` the one the failure dump of the running test reads, for a test that builds
+    its scratch inside a helper and so has none as a fixture argument."""
+    _REGISTERED.append(scratch)
+
+
+def registered_scratches() -> tuple[Scratch, ...]:
+    """The scratches registered since `forget_registered` was last called."""
+    return tuple(_REGISTERED)
+
+
+def forget_registered() -> None:
+    """Start a test with no registered scratch."""
+    _REGISTERED.clear()
