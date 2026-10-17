@@ -1,4 +1,4 @@
-"""A e2e-test test is run by the e2e-test gate alone: unit-test's repeat and its serial rerun never
+"""An e2e test is run by the e2e-test gate alone: unit-test's repeat and its serial rerun never
 reach it, whatever `global_limits.unit_test_repeat_runs` says (spec: e2e-failures).
 
 The base run is the one further run of the untouched failures, and it is the gate's own.
@@ -78,7 +78,7 @@ def test_a_failing_e2e_test_named_in_unit_test_output_is_not_rerun_as_e2e(
 
     def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
         commands.append(command)
-        # lint passes; every test command fails and names the e2e-test test
+        # lint passes; every test command fails and names the e2e test
         return subprocess.CompletedProcess(command, 0 if len(commands) == 1 else 1, named, "")
 
     spy = Spy()

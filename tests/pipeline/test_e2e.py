@@ -1,6 +1,6 @@
 """The e2e-test gate: the real local stack, one run at a time.
 
-E2e-test tests need the gateway, the database, the event bus, the browser and
+E2e tests need the gateway, the database, the event bus, the browser and
 the router as they actually run on this host, on fixed ports. There is one
 of each, so two e2e-test runs at once would interfere — they queue behind a
 single lock, whatever the concurrency setting says (docs/architecture.md).

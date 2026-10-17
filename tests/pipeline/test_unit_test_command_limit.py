@@ -65,6 +65,7 @@ class ScriptProfile(PythonUvProfile):
     ) -> list[list[str]]:
         return [[sys.executable, "-c", self.script]]
 
+    # Assigned, not defined: a scan for changed tests takes any `def test_*` for one.
     test_commands = _commands
 
 

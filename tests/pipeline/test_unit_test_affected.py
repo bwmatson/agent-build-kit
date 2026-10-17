@@ -50,6 +50,7 @@ class Profile(PythonUvProfile):
     ) -> list[list[str]]:
         return [["full-tests"]]
 
+    # Assigned, not defined: a scan for changed tests takes any `def test_*` for one.
     test_commands = _commands
 
     def affected_test_commands(

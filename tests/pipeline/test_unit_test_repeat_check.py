@@ -42,6 +42,7 @@ class Profile(PythonUvProfile):
     ) -> list[list[str]]:
         return [RUN]
 
+    # Assigned, not defined: a scan for changed tests takes any `def test_*` for one.
     test_commands = _commands
 
 
@@ -99,6 +100,7 @@ class NodeProfile(Profile):
     ) -> list[list[str]]:
         return [NPM_TEST]
 
+    # Assigned, not defined: a scan for changed tests takes any `def test_*` for one.
     test_commands = _commands
 
     def repeat_command(self, command: list[str], tests: list[str]) -> list[str]:
@@ -119,6 +121,7 @@ class WorkspaceProfile(Profile):
     ) -> list[list[str]]:
         return MEMBERS
 
+    # Assigned, not defined: a scan for changed tests takes any `def test_*` for one.
     test_commands = _commands
 
 

@@ -1,4 +1,4 @@
-"""Under `own` a e2e-test unit runs the tests its branch added or changed, selected by
+"""Under `own` an e2e-test unit runs the tests its branch added or changed, selected by
 identifier with the marker kept, one command per project that has one; the scope is one
 function's decision, taken before the stack lock (spec: e2e-scope)."""
 

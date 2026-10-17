@@ -1,4 +1,4 @@
-"""A e2e-test result records the time of every phase of every test (spec:
+"""An e2e-test result records the time of every phase of every test (spec:
 e2e-time-is-recorded-per-test).
 
 The profile reads pytest's `slowest durations` section; the gate merges what each

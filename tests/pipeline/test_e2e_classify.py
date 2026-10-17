@@ -1,4 +1,4 @@
-"""A failed e2e-test test is the unit's own when its file is one the branch changed, and
+"""A failed e2e test is the unit's own when its file is one the branch changed, and
 untouched otherwise (spec: e2e-failures). Nothing is run to say so."""
 
 from __future__ import annotations
