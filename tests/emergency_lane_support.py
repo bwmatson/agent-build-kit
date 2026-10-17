@@ -3,8 +3,11 @@ with units in given states, and a round run over them."""
 
 from __future__ import annotations
 
+import argparse
 from collections.abc import Collection, Sequence
 from pathlib import Path
+
+import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
@@ -22,10 +25,13 @@ def lane_workspace(
     workers: int = 4,
     places: int = 5,
     restacks: int = 2,
+    repos: dict | None = None,
 ) -> Installation:
-    """One project with the limits of the lane tests: five places, four workers, a lane of one."""
+    """One project with the limits of the lane tests: five places, four workers, a lane of one.
+    A workspace with the repos `app` and `platform` unless `repos` says otherwise."""
     return make_installation(
         tmp_path,
+        **({} if repos is None else {"repos": repos}),
         planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
         project_limits={
             "max_concurrent_stacks": workers,
@@ -72,3 +78,13 @@ def started_by_round(
     """The ids `run_round` hands out to start, with `building` as the builds in flight."""
     ready = cli.run_round(inst, store, building=building, only=frozenset(), submit=True)
     return [unit.id for unit in ready]
+
+
+def status_output(
+    inst: Installation, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> list[str]:
+    """The lines `abk status` prints over `inst`."""
+    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    capsys.readouterr()
+    assert cli.cmd_status(argparse.Namespace(), inst) == 0
+    return capsys.readouterr().out.splitlines()
