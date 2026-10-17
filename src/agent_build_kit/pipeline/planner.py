@@ -761,6 +761,7 @@ def build_prompt(
     calibrations: Mapping[Kind, Calibration] | None = None,
     examples: Mapping[Kind, Sequence[StoredUnit]] | None = None,
     omitted: int = 0,
+    groups: Sequence[TaskGroup] | None = None,
 ) -> str:
     return _prompt_and_parts(changes, in_flight, calibrations, examples, omitted)[0]
 
