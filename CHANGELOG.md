@@ -114,8 +114,9 @@
   new ones. A unit's kind in metric labels, the diagram and calibration labels now shows the
   new values too, for lines already in the ledger as well. The e2e-test lock file is now
   `e2e.lock` (a lock still held under the old name is waited for), its full output is kept
-  under `e2e-output/` (an old directory is moved on first use), and the commit status is
-  `local/e2e-test`.
+  under `e2e-output/` (an old directory is moved on first use), the commit status is
+  `local/e2e-test`, and the command is `abk e2e-test` (`abk tier2` still works, with a
+  notice).
 
 - `abk scrub-store` reports, and with `--apply` on a paused pipeline replaces, the
   home-directory paths in the unit store's text (feedback, guidance, notes) with `<home>/`,

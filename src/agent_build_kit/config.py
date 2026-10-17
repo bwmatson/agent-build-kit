@@ -453,6 +453,12 @@ class TestKindSettings(Frozen):
         if not isinstance(data, dict):
             return data
         renamed = {k: new_spelling(Place.SETTING, k) if isinstance(k, str) else k for k in data}
+        for key, new in renamed.items():
+            if new != key and new in data:
+                raise ValueError(
+                    f"`{key}` and `{new}` are both set; `{key}` is the deprecated name of "
+                    f"`{new}`, keep one"
+                )
         return {
             (renamed[k] if renamed[k] in cls.model_fields and k not in cls.model_fields else k): v
             for k, v in data.items()

@@ -206,3 +206,10 @@ def test_abk_doctor_has_no_warning_for_the_new_keys(tmp_path: Path) -> None:
 
     assert [check for check in checks if check.name == "config"][0].status == "ok"
     assert not [check for check in checks if "deprecated" in check.detail + check.fix]
+
+
+def test_a_block_built_with_both_spellings_of_one_setting_is_refused() -> None:
+    both = dict(tier2_schedule="daily", e2e_schedule="weekly")
+
+    with pytest.raises(ValueError, match="both set"):
+        config.LimitsConfig.model_validate(both)

@@ -1377,7 +1377,7 @@ def _e2e_holds(inst: Installation) -> list[Check]:
             _fail(
                 "e2e-test holds",
                 f"{inst.state_dir / HELD_FILE} cannot be read, so it holds nothing",
-                "fix the file, or remove it and hold again with `abk e2e hold`",
+                "fix the file, or remove it and hold again with `abk e2e-test hold`",
             )
         ]
     checks = [
@@ -1388,7 +1388,7 @@ def _e2e_holds(inst: Installation) -> list[Check]:
         _warn(
             "e2e-test holds",
             f"{name}: the file holds it but the configuration releases it (`hold: false`)",
-            "the configuration wins; remove `hold: false`, or `abk e2e release` it",
+            "the configuration wins; remove `hold: false`, or `abk e2e-test release` it",
         )
         for name in holds.overridden
     ]
@@ -1396,7 +1396,7 @@ def _e2e_holds(inst: Installation) -> list[Check]:
         _warn(
             "e2e-test holds",
             f"{HELD_FILE} has an entry for `{name}`, which no repo declares",
-            "`abk e2e release` it, or declare the split",
+            "`abk e2e-test release` it, or declare the split",
         )
         for name in holds.unknown
     ]

@@ -6,15 +6,13 @@ it where a person looking for that unit can find it.
 
 from __future__ import annotations
 
-import contextlib
 import json
-import logging
 import re
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from agent_build_kit.compat_names import Place, notice, old_spelling
+from agent_build_kit.compat_names import moved_to_current_name, old_spelling
 from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline.units import Unit, unit_number
 from agent_build_kit.redaction import redact_text
@@ -37,8 +35,6 @@ _OUTPUT_DIR = "e2e-output"
 # The name the directory had under the kind's old spelling.
 _OLD_OUTPUT_DIR = f"{old_spelling(TestTier.E2E_TEST)}-output"
 
-logger = logging.getLogger(__name__)
-
 
 def run_log_dir(state_dir: Path) -> Path:
     """The directory of its own, under the state directory."""
@@ -47,16 +43,8 @@ def run_log_dir(state_dir: Path) -> Path:
 
 def e2e_output_dir(state_dir: Path) -> Path:
     """The directory of the full output of each e2e-test run, under the state directory. One
-    left under the old name is moved to the current one first, with a notice, when it is the
-    only one that exists."""
-    path = state_dir / _OUTPUT_DIR
-    old = state_dir / _OLD_OUTPUT_DIR
-    if not path.exists() and old.exists():
-        # A second process may have moved it first; the directory is there either way.
-        with contextlib.suppress(FileNotFoundError):
-            old.rename(path)
-            logger.warning(notice(Place.STATE_FILE, _OLD_OUTPUT_DIR, str(state_dir)))
-    return path
+    left under the old name is moved to the current one first."""
+    return moved_to_current_name(state_dir, _OUTPUT_DIR, _OLD_OUTPUT_DIR)
 
 
 def append_e2e_output(directory: Path, unit: Unit, started: datetime, text: str) -> Path:

@@ -143,6 +143,7 @@ def test_doctor_warns_that_the_configuration_releases_what_the_file_holds(
     assert conflict.status == "warn"
     assert "acp" in conflict.detail
     assert "configuration wins" in conflict.detail + conflict.fix
+    assert "abk e2e-test release" in conflict.fix
 
 
 def test_doctor_fails_an_unreadable_file(tmp_path: Path) -> None:
@@ -152,6 +153,7 @@ def test_doctor_fails_an_unreadable_file(tmp_path: Path) -> None:
     (unreadable,) = about(doctor(config), HELD_FILE)
 
     assert unreadable.status == "FAIL"
+    assert "abk e2e-test hold" in unreadable.fix
 
 
 def test_doctor_warns_of_an_entry_naming_an_undeclared_split(tmp_path: Path) -> None:
@@ -161,3 +163,4 @@ def test_doctor_warns_of_an_entry_naming_an_undeclared_split(tmp_path: Path) -> 
     (unknown,) = about(doctor(config), "gone")
 
     assert unknown.status == "warn"
+    assert "abk e2e-test release" in unknown.fix
