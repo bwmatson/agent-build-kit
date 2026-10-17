@@ -48,7 +48,7 @@ def test_acp_gets_a_runtimes_entry_and_the_override_from_the_agent_command_setti
     assert checked == [expected]
 
 
-def test_claude_code_gets_no_entry_and_no_override_but_sets_its_account_variables(
+def test_claude_code_gets_no_entry_and_pins_the_runtime_and_sets_its_account_variables(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     account = tmp_path / "account"
@@ -58,7 +58,7 @@ def test_claude_code_gets_no_entry_and_no_override_but_sets_its_account_variable
     scratch = runtime_scratch("claude_code", Factory(tmp_path), lambda command: None)
 
     assert scratch.runtimes_yaml == ""
-    assert "ABK_RUNTIME" not in scratch.env
+    assert scratch.env["ABK_RUNTIME"] == "claude_code"
     assert scratch.env[claude_account.VARIABLE] == str(account)
 
 

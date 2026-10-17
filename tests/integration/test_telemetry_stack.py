@@ -18,10 +18,11 @@ by metric name. The dev instance must be up; its published ports are named by:
 
 The fixture unit is built once, for `claude_code`, under that runtime's one tag. The
 `acp` parameters are added by a separate change.
+
 Every run is told apart in the stores by a service name of its own, so a store
 that already holds earlier runs does not answer for this one.
 
-Needs the dev stack, an agent speaking the protocol, node for the OpenSpec CLI
+Needs the dev stack, the host's Claude Code login, node for the OpenSpec CLI
 and uv. Bills on demand and takes minutes, so it is marked tier 2 and excluded
 from the default suite.
 """
@@ -48,7 +49,7 @@ from agent_build_kit.model import Frozen
 from tests.factories import git, init_repo, scratch_app
 from tests.forges.github_server import FakeGitHub
 from tests.forges.process_host import process_env
-from tests.runtime_scratch import AGENT_COMMAND, runtime_scratch
+from tests.runtime_scratch import runtime_scratch
 
 pytestmark = [
     pytest.mark.local_stack,
@@ -108,11 +109,6 @@ def closed_endpoint() -> str:
     return f"http://127.0.0.1:{port}"
 
 
-def agent_starts(command: list[str]) -> None:
-    if shutil.which(command[0]) is None:
-        pytest.fail(f"{AGENT_COMMAND} names {command[0]!r}, which is not on PATH")
-
-
 def run_tick(
     tmp_path: Path,
     runtime: str,
@@ -124,7 +120,7 @@ def run_tick(
 ) -> Ticked:
     """Build the fixture unit in one tick on `runtime` with telemetry on, pointed at
     `traces` and `metrics`, under a service name of its own."""
-    scratch = runtime_scratch(runtime, tmp_path_factory, agent_starts)
+    scratch = runtime_scratch(runtime, tmp_path_factory, lambda command: None)
     service = service or f"abk-acceptance-{uuid.uuid4().hex[:12]}"
 
     remote = tmp_path / "remote.git"
@@ -309,7 +305,8 @@ def test_a_ticks_duration_series_are_in_the_metrics_store_without_a_unit_id(
 def test_a_tick_with_the_endpoint_pointing_at_nothing_finishes_and_writes_nothing(
     tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
 ) -> None:
-    """Claude alone: DEAD_COLLECTOR_REASON."""
+    """Claude alone: the exporter does not depend on the agent, so a build on a second runtime
+    adds no coverage."""
     dead = closed_endpoint()
     # The stack must be up for "nothing was written" to mean anything.
     require_env(TRACES_URL)
