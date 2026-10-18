@@ -242,6 +242,3 @@ def test_a_lint_failure_is_never_run_again(tmp_path: Path) -> None:
     assert not passed
     assert message.startswith("$ lint (exit 1)")
     assert runs.serial_runs == []
-
-
-tier1 = unit_test  # abk-shim

@@ -323,9 +323,3 @@ def register(sub: argparse._SubParsersAction) -> None:
     release.set_defaults(func=_announced(cmd_e2e_release))
     status = commands.add_parser("status", help="each split as usable or held, and the schedule")
     status.set_defaults(func=_announced(cmd_e2e_status))
-
-
-cmd_tier2_check = cmd_e2e_check  # abk-shim
-cmd_tier2_hold = cmd_e2e_hold  # abk-shim
-cmd_tier2_release = cmd_e2e_release  # abk-shim
-cmd_tier2_status = cmd_e2e_status  # abk-shim

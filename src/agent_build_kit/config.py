@@ -476,15 +476,15 @@ TEST_KIND_SETTINGS = ConfigDict(validate_by_name=True, serialize_by_alias=True)
 
 
 class TestKindSettings(Frozen):
-    """A block of settings named for a test kind. A setting's old name still builds the block
-    and still reads, as its new one, until the aliases are removed."""
+    """A block of settings named for a test kind. An old key name in a file is read as the new
+    one, with a warning; the old names are not attributes."""
 
     model_config = TEST_KIND_SETTINGS
     __test__ = False
 
     @model_validator(mode="before")
     @classmethod
-    def _read_old_names(cls, data: Any) -> Any:  # abk-shim
+    def _read_old_names(cls, data: Any) -> Any:
         if not isinstance(data, dict):
             return data
         renamed = {k: new_spelling(Place.SETTING, k) if isinstance(k, str) else k for k in data}
@@ -498,12 +498,6 @@ class TestKindSettings(Frozen):
             (renamed[k] if renamed[k] in cls.model_fields and k not in cls.model_fields else k): v
             for k, v in data.items()
         }
-
-    def __getattr__(self, name: str) -> Any:  # abk-shim
-        new = new_spelling(Place.SETTING, name)
-        if new != name and new in type(self).model_fields:
-            return getattr(self, new)
-        return super().__getattr__(name)  # type: ignore[misc]
 
 
 class ProjectLimitsConfig(Frozen):
@@ -1761,12 +1755,3 @@ def models() -> ModelsConfig:
         review=pick("review", settings.review_model),
         rework_review=pick("rework_review", settings.rework_review_model),
     )
-
-
-Tier2UnitScope = E2eUnitScope  # abk-shim
-tier2_unit_scope = e2e_unit_scope  # abk-shim
-Tier2Schedule = E2eSchedule  # abk-shim
-tier2_schedule = e2e_schedule  # abk-shim
-tier2_splits = e2e_splits  # abk-shim
-Tier2SplitEntry = E2eSplitEntry  # abk-shim
-Tier2Split = E2eSplit  # abk-shim

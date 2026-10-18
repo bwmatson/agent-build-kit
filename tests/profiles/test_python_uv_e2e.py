@@ -31,7 +31,7 @@ def _member(root: Path, *, testpaths: bool, decoy: str) -> Path:
     return member
 
 
-def _run_tier_two(root: Path) -> subprocess.CompletedProcess:
+def _run_e2e(root: Path) -> subprocess.CompletedProcess:
     (command,) = PROFILE.e2e_commands(root, marker="local_stack")
     directory = root / command[command.index("--directory") + 1]
     pytest_args = command[command.index("pytest") + 1 :]
@@ -47,7 +47,7 @@ def _run_tier_two(root: Path) -> subprocess.CompletedProcess:
 def test_a_members_testpaths_keep_a_decoy_outside_them_uncollected(tmp_path: Path) -> None:
     _member(tmp_path, testpaths=True, decoy="smoke_test.py")
 
-    result = _run_tier_two(tmp_path)
+    result = _run_e2e(tmp_path)
 
     assert result.returncode == 0, result.stdout
     assert "1 passed" in result.stdout
@@ -57,7 +57,7 @@ def test_a_members_testpaths_keep_a_decoy_outside_them_uncollected(tmp_path: Pat
 def test_a_member_without_testpaths_collects_from_its_own_directory(tmp_path: Path) -> None:
     _member(tmp_path, testpaths=False, decoy="smoke_test.py")
 
-    result = _run_tier_two(tmp_path)
+    result = _run_e2e(tmp_path)
 
     assert result.returncode != 0
     assert "smoke_test" in result.stdout

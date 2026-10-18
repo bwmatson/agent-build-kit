@@ -291,6 +291,3 @@ def test_a_short_why_passes_the_room_it_does_not_use_on(tmp_path: Path) -> None:
     long = shown("long", paragraphs(6, 300))
 
     assert short > long, "what the short Why leaves unused goes to the others"
-
-
-tier2_body = e2e_body  # abk-shim

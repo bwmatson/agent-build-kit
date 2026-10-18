@@ -146,6 +146,3 @@ def test_a_detached_descendant_holding_the_output_does_not_hold_unit_test(tmp_pa
     assert not passed
     assert "1 seconds" in message
     assert "12 tests passed" in message
-
-
-tier1 = unit_test  # abk-shim

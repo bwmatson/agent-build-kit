@@ -11,6 +11,8 @@ import yaml
 from agent_build_kit import config
 from agent_build_kit.cli import main
 from agent_build_kit.cli.doctor import Check, run_doctor
+from agent_build_kit.compat_names import old_spelling
+from agent_build_kit.model import TestTier
 from tests.cli.test_doctor import Answers, which_all
 from tests.factories import init_repo
 
@@ -93,7 +95,7 @@ def test_a_repo_named_with_a_dot_loads_with_its_tests_block(tmp_path: Path, key:
 
     loaded = config.load(write(tmp_path, text))
 
-    assert loaded.repos["my.app"].tests.tier2_marker == "slow"
+    assert loaded.repos["my.app"].tests.e2e_marker == "slow"
 
 
 def test_the_top_level_tests_block_is_read_the_same_way(tmp_path: Path) -> None:
@@ -102,7 +104,7 @@ def test_the_top_level_tests_block_is_read_the_same_way(tmp_path: Path) -> None:
     new = config.load(write(tmp_path, f"version: 1\ntests:\n  e2e_splits:\n{split}"))
 
     assert old == new
-    assert old.tests.tier2_splits.keys() == {"slow"}
+    assert old.tests.e2e_splits.keys() == {"slow"}
 
 
 @pytest.mark.parametrize(
@@ -213,3 +215,13 @@ def test_a_block_built_with_both_spellings_of_one_setting_is_refused() -> None:
 
     with pytest.raises(ValueError, match="both set"):
         config.LimitsConfig.model_validate(both)
+
+
+def test_an_old_name_is_read_from_a_file_but_is_not_an_attribute(tmp_path: Path) -> None:
+    old_key = f"{old_spelling(TestTier.E2E_TEST)}_marker"
+
+    block = config.load(write(tmp_path, repo_block(old_key, "slow"))).repos["app"].tests
+
+    assert block.e2e_marker == "slow"
+    with pytest.raises(AttributeError):
+        getattr(block, old_key)

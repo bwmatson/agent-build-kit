@@ -303,6 +303,3 @@ def test_a_failed_command_whose_output_is_one_long_line_keeps_the_end_of_it(
     header, _, kept = text.rpartition("\n")
     assert header.startswith("$ ")
     assert kept == line[-4000:]
-
-
-tier1 = unit_test  # abk-shim

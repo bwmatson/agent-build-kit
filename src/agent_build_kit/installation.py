@@ -100,8 +100,6 @@ class Installation:
     def e2e_lock(self) -> Path:
         return self.state_dir / E2E_LOCK_FILE
 
-    tier2_lock = e2e_lock  # abk-shim
-
     @property
     def graph_page(self) -> Path:
         return self._under_root(self.config.planning.graph_page)

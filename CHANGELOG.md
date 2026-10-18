@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- The old test-kind module and name aliases are gone: importing a module such as the former
+  second-tier pipeline modules now fails, and the new names are the only ones in the code.
+  Old spellings in `abk.yaml`, state files and group tags are still read, with a warning,
+  but an old setting name is no longer an attribute of the loaded settings.
+  `python -m agent_build_kit.rename_test_kinds` stays for rewriting a planning repository's
+  text.
+
 - A replan no longer sets aside a planned unit that already has a branch, a pull request, a
   pushed commit or an approval just because the new plan leaves it out: it stays planned and
   `abk replan` says `kept: <unit> has work; not in the plan`, with the command to retire it.

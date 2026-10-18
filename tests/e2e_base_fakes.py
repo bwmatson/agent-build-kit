@@ -141,6 +141,3 @@ def session(tmp_path: Path, run: Runs, **kwargs) -> E2eSession:
         sha=lambda cwd: "abc1234",
         **kwargs,
     )
-
-
-TIER2_COMMAND = E2E_COMMAND  # abk-shim

@@ -3619,18 +3619,3 @@ def build_runner(
         log=log,
         log_reaches_run_log=log_reaches_run_log,
     )
-
-
-TIER2_OUTPUT_CHARS = E2E_OUTPUT_CHARS  # abk-shim
-TIER2_PASSING_CHARS = E2E_PASSING_CHARS  # abk-shim
-TIER2_DIGEST_CHARS = E2E_DIGEST_CHARS  # abk-shim
-TIER2_FAILED_WEIGHT = E2E_FAILED_WEIGHT  # abk-shim
-TIER2_DIGEST_SHARE = E2E_DIGEST_SHARE  # abk-shim
-TIER2_SMALLEST_TAIL = E2E_SMALLEST_TAIL  # abk-shim
-build_tier1 = build_unit_test  # abk-shim
-build_on_tier2_gate = build_on_e2e_gate  # abk-shim
-Tier2Run = E2eRun  # abk-shim
-Tier2Scope = E2eScope  # abk-shim
-tier2_work = e2e_work  # abk-shim
-tier2_scope = e2e_scope  # abk-shim
-Tier2Session = E2eSession  # abk-shim

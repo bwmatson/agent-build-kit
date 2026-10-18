@@ -560,9 +560,3 @@ def post_status(forge: Forge, repo: RepoId, result: E2eResult, head: str = "") -
         description=cut_head(description, forges.status_limit(), "char"),
         head=head,
     )
-
-
-Tier2Selection = E2eSelection  # abk-shim
-Tier2Classification = E2eClassification  # abk-shim
-Tier2Verdict = E2eVerdict  # abk-shim
-Tier2Result = E2eResult  # abk-shim

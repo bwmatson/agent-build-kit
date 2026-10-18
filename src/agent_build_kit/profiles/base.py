@@ -260,6 +260,3 @@ def is_doc_path(path: str) -> bool:
     first = path.split("/", 1)[0]
     name = path.rsplit("/", 1)[-1]
     return path.endswith(DOC_SUFFIXES) or first == "docs" or name.upper().startswith("LICENSE")
-
-
-AppliesTier2Selection = AppliesE2eSelection  # abk-shim

@@ -2515,6 +2515,3 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
         (Node.PREPARE, Node.CHECKS, Node.AWAIT_REVIEW, Node.HELD, END, *sorted(PARKABLE)),
     ),
 }
-TIER2_LOG_TAIL = E2E_LOG_TAIL  # abk-shim
-after_tier1 = after_unit_test  # abk-shim
-after_tier2 = after_e2e  # abk-shim

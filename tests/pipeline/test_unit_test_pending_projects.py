@@ -101,6 +101,3 @@ def test_a_repo_of_only_pending_projects_runs_nothing_passes_and_says_so(tmp_pat
     assert directories == []
     assert pending_lines(log, "api") and pending_lines(log, "web")
     assert any("nothing ran" in line for line in log)
-
-
-tier1 = unit_test  # abk-shim

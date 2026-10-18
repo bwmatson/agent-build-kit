@@ -451,10 +451,10 @@ def validate_tasks(
                 ValidationError(
                     line=index,
                     message=f'group "{heading.group("rest")}" is missing its tags — '
-                    f"headings are `## <n>. [<repo>] [<tier>] <title>`, "
+                    f"headings are `## <n>. [<repo>] [<kind>] <title>`, "
                     f"`[<repo>/<project>]` naming a project of the repo, "
                     f"repo one of {', '.join(repos) or '<the workspace repos>'}, "
-                    f"tier one of {', '.join(TEST_KIND_TAGS)}",
+                    f"kind one of {', '.join(TEST_KIND_TAGS)}",
                 )
             )
             continue
