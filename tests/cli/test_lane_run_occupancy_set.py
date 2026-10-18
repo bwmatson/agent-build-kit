@@ -13,7 +13,9 @@ from typing import Any
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.pipeline.units import IN_REVIEW
+from agent_build_kit.pipeline.unit_store import Cause
+from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED
+from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.emergency_lane_support import build, fresh
 from tests.lane_run_slots import Slots
 
@@ -56,6 +58,34 @@ def test_a_lane_unit_stored_running_that_waits_behind_the_lanes_cap_is_not_count
         assert s.runs.begun["run2/1"].wait(5)
 
         assert s.occupancy() == {"run2/1"}
+
+
+def test_a_waiting_lane_unit_whose_branch_is_held_still_takes_no_slot_from_a_ready_unit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    units = [build("run1/1"), build("run2/1"), fresh("r1/1"), fresh("r2/1")]
+    with Slots(tmp_path, monkeypatch, units, cap=2, restacks=1, flagged=["run1/1", "run2/1"]) as s:
+        s.run("run1/1")
+        s.hand_over("run2/1")
+        assert s.lanes.waiting == ["run2/1"]
+
+        # Not idle: a lock is held on its branch, so only the lane's wait leaves it out.
+        with branch_lock("spec/run2/1", root=s.inst.state_dir / "locks"):
+            assert s.occupancy() == {"run1/1"}
+            assert len(s.started()) == 1
+
+
+def test_a_planned_unit_the_lane_is_moving_reads_as_ready_not_as_waiting_for_a_slot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    units = [build("moved/1", PLANNED), fresh("r1/1")]
+    with Slots(tmp_path, monkeypatch, units) as slots:
+        slots.store.set_state("moved/1", PLANNED, branch="spec/moved/1", cause=Cause.BASE_CHANGED)
+        slots.run("moved/1")
+
+        slots.started()
+
+        assert slots.reasons()["moved/1"] not in ("slot", "queue_full")
 
 
 def test_the_occupancy_is_counted_for_each_project_so_a_full_one_starts_nothing_and_another_does(

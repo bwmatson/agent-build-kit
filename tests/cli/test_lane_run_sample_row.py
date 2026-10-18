@@ -17,9 +17,10 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
+from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.restack_lane import RestackLanes
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW
+from agent_build_kit.pipeline.units import IN_REVIEW, RUNNING
 from tests.tick_pass import (
     Builder,
     install_builder,
@@ -41,7 +42,13 @@ class Scene:
     `want` is the `running` count of the sample that ends them all."""
 
     def __init__(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, builds: int, queued: int = 0
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        builds: int,
+        queued: int = 0,
+        idle: bool = False,
     ) -> None:
         warm_unit_graphs(tmp_path)
         isolate(monkeypatch)
@@ -55,11 +62,19 @@ class Scene:
         store.set_state("rev/1", IN_REVIEW, pr=9, branch="spec/rev/1")
         # Units that wait for a slot to build in: ready, but for the occupancy.
         store.upsert([stored(f"queued{n}/1") for n in range(queued)])
+        if idle:
+            # Stored `running` with a thread and a free branch lock, and a lease so that no
+            # build resumes it: a unit no run holds, which takes no slot.
+            store.upsert([stored("idle/1")])
+            store.set_state("idle/1", RUNNING, branch="spec/idle/1")
+            Leases(lease_dir(self.inst.state_dir)).take("idle/1", "tab:a")
+            monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: True)
         self.begun = threading.Event()
         self.release = threading.Event()
         self.handed = False
         self.builds = builds
-        self.want = builds + 1
+        self.idle = idle
+        self.want = builds if idle else builds + 1
         self.samples: list[spans.Sample] = []
         self.levels: list[tuple[str, int]] = []
         for uid in names:
@@ -88,7 +103,7 @@ class Scene:
     def poll(self, inst: Installation, *, store: UnitStore, lane: RestackLanes) -> None:
         # The run comes once the builds are in: a run counts toward the occupancy, so it
         # would take a build's slot if it came first.
-        if self.handed or len(self.builder.started) < self.builds:
+        if self.idle or self.handed or len(self.builder.started) < self.builds:
             return
         self.handed = True
 
@@ -139,3 +154,15 @@ def test_a_queued_unit_is_not_counted_in_the_occupancy_of_the_row(
     assert row is not None, [sample.running for sample in scene.samples]
     assert row.queued == 1
     assert row.free_workers == 0
+
+
+def test_a_unit_stored_running_that_no_run_holds_takes_no_slot_in_the_row_or_the_gauge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scene = Scene(tmp_path, monkeypatch, builds=1, idle=True)
+
+    row = scene.row_seeing(1)
+
+    assert row is not None, [sample.running for sample in scene.samples]
+    assert (row.cap, row.free_workers) == (4, 3)
+    assert ("abk.slots.free", 3) in scene.levels

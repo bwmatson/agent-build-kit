@@ -79,10 +79,9 @@ class Slots:
         """The ids occupying the project of `of` (any unit of it; the first unit by default)."""
         units = self.store.all()
         key: ProjectKey = project_key(self.store.get(of) if of else units[0])
-        # As the round does: work waiting behind the lane's cap holds no slot.
-        waiting = set(self.lanes.waiting)
-        counted = [unit for unit in units if unit.id not in waiting]
-        return cli.slot_occupancy(counted, building, self.lanes.running).get(key, set())
+        return cli.slot_occupancy(
+            units, building, self.lanes.running, lane_waiting=self.lanes.waiting
+        ).get(key, set())
 
     def started(self, building: Collection[str] = ()) -> list[str]:
         """The ids a round hands out to start, with `building` as the builds in flight."""
