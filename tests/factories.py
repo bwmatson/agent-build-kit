@@ -22,6 +22,7 @@ from agent_build_kit.pipeline.shell import git_out as git
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, Unit, ready_units
 from agent_build_kit.pipeline.wiring import build_commit
+from agent_build_kit.pipeline.work_graph import TaskGroup
 
 __all__ = [
     "STOCK_CONFIG",
@@ -32,6 +33,7 @@ __all__ = [
     "fake_openspec",
     "follow_ups",
     "git",
+    "groups_at",
     "init_repo",
     "new_unit",
     "output_of",
@@ -57,6 +59,22 @@ _DEFAULTS: dict[str, Any] = {
 def unit(uid: str = "add-marker/1", **overrides) -> Unit:
     fields: dict[str, Any] = {**_DEFAULTS, "id": uid, **overrides}
     return Unit(**fields)
+
+
+def groups_at(*priorities: int, repo: str = "app") -> list[TaskGroup]:
+    """One group per entry, numbered from 1, each at that priority."""
+    return [
+        TaskGroup(
+            number=n,
+            repo=repo,
+            tier="unit-test",
+            title=f"G{n}",
+            line=3 + 6 * n,
+            task_count=2,
+            priority=value,
+        )
+        for n, value in enumerate(priorities, start=1)
+    ]
 
 
 def stored_unit(uid: str = "add-marker/1", **overrides) -> StoredUnit:

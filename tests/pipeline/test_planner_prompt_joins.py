@@ -10,8 +10,7 @@ import pytest
 from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
 from agent_build_kit.pipeline.planner import build_prompt
 from agent_build_kit.pipeline.units import Join
-from agent_build_kit.pipeline.work_graph import TaskGroup
-from tests.factories import stored_unit
+from tests.factories import groups_at, stored_unit
 from tests.prompt_text import flat
 
 
@@ -53,12 +52,6 @@ def test_the_paragraph_keeps_the_rule_against_joining_two_units_because_both_are
     assert "merely because both are small" in joining()
 
 
-def group_at(priority: int) -> TaskGroup:
-    return TaskGroup(
-        number=1, repo="app", tier="unit-test", title="A", line=3, task_count=2, priority=priority
-    )
-
-
 def join_of(*, lines: int = 100, started: bool = False) -> None:
     """A priority-1 group joined onto a priority-5 unit."""
     onto = stored_unit("base/1", change="base", groups=(1,), priority=5)
@@ -66,10 +59,10 @@ def join_of(*, lines: int = 100, started: bool = False) -> None:
         onto = onto.model_copy(update={"branch": "spec/base/1"})
     check_joins(
         [Join(onto="base/1", change="feature", groups=(1,), estimated_lines=lines)],
-        context=JoinContext(stored=(onto,), catalog={"base": (group_at(5),)}),
+        context=JoinContext(stored=(onto,), catalog={"base": tuple(groups_at(5))}),
         plan=[],
         change="feature",
-        groups=[group_at(1)],
+        groups=groups_at(1),
         built=set(),
         ceiling=750,
     )

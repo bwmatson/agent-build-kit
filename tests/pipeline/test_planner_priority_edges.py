@@ -17,23 +17,7 @@ from agent_build_kit.pipeline.units import (
     SATISFIED,
     UnitState,
 )
-from agent_build_kit.pipeline.work_graph import TaskGroup
-from tests.factories import stored_unit
-
-
-def groups_at(*priorities: int, repo: str = "app") -> list[TaskGroup]:
-    return [
-        TaskGroup(
-            number=n,
-            repo=repo,
-            tier="unit-test",
-            title=f"G{n}",
-            line=3 + 6 * n,
-            task_count=2,
-            priority=value,
-        )
-        for n, value in enumerate(priorities, start=1)
-    ]
+from tests.factories import groups_at, stored_unit
 
 
 def unit_of(uid: str, group: int, *depends: str, excuse: dict | None = None) -> dict:
