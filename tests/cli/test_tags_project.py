@@ -34,7 +34,10 @@ def test_tags_lists_each_group_with_its_project_beside_the_repo(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run = replan_with(
-        tmp_path, monkeypatch, "[app] [tier1] Add the route", "[app/web] [tier1] Add the filter"
+        tmp_path,
+        monkeypatch,
+        "[app] [unit-test] Add the route",
+        "[app/web] [unit-test] Add the filter",
     )
 
     status = cli.cmd_tags(TAGS, run.inst)
@@ -48,7 +51,7 @@ def test_tags_lists_each_group_with_its_project_beside_the_repo(
 def test_tags_on_an_undeclared_project_prints_the_message_with_file_and_line_and_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run = replan_with(tmp_path, monkeypatch, "[app/mobile] [tier1] Add the screen")
+    run = replan_with(tmp_path, monkeypatch, "[app/mobile] [unit-test] Add the screen")
 
     status = cli.cmd_tags(TAGS, run.inst)
 
@@ -64,8 +67,8 @@ def test_tags_on_an_undeclared_project_prints_the_message_with_file_and_line_and
 def test_planning_plans_a_declared_project_and_refuses_an_undeclared_one_without_a_call(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run = replan_with(tmp_path, monkeypatch, "[app/mobile] [tier1] Add the screen")
-    run.write("declared", tasks_with("[app/web] [tier1] Add the filter"))
+    run = replan_with(tmp_path, monkeypatch, "[app/mobile] [unit-test] Add the screen")
+    run.write("declared", tasks_with("[app/web] [unit-test] Add the filter"))
     run.runtime.answer = answer(planned("declared/1", (1,)))
 
     results = cli.plan_all(run.inst, store=run.store, only={CHANGE})
@@ -85,9 +88,9 @@ def test_a_project_group_takes_part_in_the_unrelated_parent_warning_given_the_pr
     tasks = tmp_path / "tasks.md"
     tasks.write_text(
         tasks_with(
-            "[app] [tier1] First",
-            "[app/web] [tier1] Second\n\nIndependent: it needs nothing earlier",
-            "[app] [tier1] Third",
+            "[app] [unit-test] First",
+            "[app/web] [unit-test] Second\n\nIndependent: it needs nothing earlier",
+            "[app] [unit-test] Third",
         )
     )
 

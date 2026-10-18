@@ -37,7 +37,7 @@ def _run(pytester: pytest.Pytester, *extra: str) -> str:
     return result.stdout.str()
 
 
-def test_the_one_second_floor_leaves_fast_tests_out_under_the_tier_2_flags(
+def test_the_one_second_floor_leaves_fast_tests_out_under_the_e2e_flags(
     pytester: pytest.Pytester,
 ) -> None:
     output = _run(pytester)

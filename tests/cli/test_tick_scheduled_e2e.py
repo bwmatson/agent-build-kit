@@ -1,6 +1,6 @@
-"""A tick writes the scheduled tier 2 change of a due repo before planning and ahead of the usage
+"""A tick writes the scheduled e2e-test change of a due repo before planning and ahead of the usage
 guard, is not idle while one is due, and `--dry-run` says what it would write and what exists
-(spec: tier2-schedule)."""
+(spec: e2e-schedule)."""
 
 from __future__ import annotations
 
@@ -16,9 +16,9 @@ from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import MERGED
 from agent_build_kit.pipeline.usage_guard import Decision
 from tests import tick_pass
+from tests.e2e_schedule_fakes import TODAY, on_today, open_change, planning, scheduled_changes
 from tests.factories import stored_unit
 from tests.tick_pass import isolate
-from tests.tier2_schedule_fakes import TODAY, on_today, open_change, planning, scheduled_changes
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -45,10 +45,10 @@ def calls(monkeypatch: pytest.MonkeyPatch) -> Calls:
 
 
 def installation(tmp_path: Path, schedule: str | None = None) -> tuple[Installation, UnitStore]:
-    """One repo, `app`, with a tier 2 unit that has merged, so only the schedule is work."""
+    """One repo, `app`, with a e2e-test unit that has merged, so only the schedule is work."""
     inst = planning(tmp_path, {"app": schedule})
     store = UnitStore(inst.state_dir / "units.json")
-    store.upsert([stored_unit("app-work/1", change="app-work", repo="app", tier="tier2")])
+    store.upsert([stored_unit("app-work/1", change="app-work", repo="app", tier="e2e-test")])
     store.set_state("app-work/1", MERGED, pr=1)
     return inst, store
 
@@ -175,7 +175,7 @@ def test_a_tick_writes_one_change_for_each_due_split_of_a_repo(
     splits = {"app": {"claude_code": {"marker": "runtime_claude_code"}}}
     inst = planning(tmp_path, repo_splits=splits)
     store = UnitStore(inst.state_dir / "units.json")
-    store.upsert([stored_unit("app-work/1", change="app-work", repo="app", tier="tier2")])
+    store.upsert([stored_unit("app-work/1", change="app-work", repo="app", tier="e2e-test")])
     store.set_state("app-work/1", MERGED, pr=1)
 
     assert tick(inst) == 0

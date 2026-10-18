@@ -13,7 +13,7 @@ from tests.factories import unit
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
-RETAGGED = tasks_md(1).replace("[tier1]", "[tier2]")
+RETAGGED = tasks_md(1).replace("[unit-test]", "[e2e-test]")
 
 
 def failed_unit_with_retagged_group(run: Replan) -> str:
@@ -72,7 +72,7 @@ def test_a_unit_requeued_with_restart_takes_the_new_tags_and_the_report_ends(
     assert run.calls == 0
 
     cli.requeue(run.inst, "feature/1", "restart", say=lambda text, error=False: None)
-    retagged = dict(planned("feature/1", (1,)), tier="tier2")
+    retagged = dict(planned("feature/1", (1,)), tier="e2e-test")
     code, out = run.run(capsys, "feature", reply=answer(retagged))
 
     assert code == 0, out
@@ -83,7 +83,7 @@ def test_a_unit_requeued_with_restart_takes_the_new_tags_and_the_report_ends(
 def test_a_started_unit_stored_before_flags_were_kept_is_not_reported_for_its_flag(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    flagged = tasks_md(1).replace("[tier1]", "[tier1] [narrow]")
+    flagged = tasks_md(1).replace("[unit-test]", "[unit-test] [narrow]")
     run = Replan(tmp_path, monkeypatch, feature=flagged)
     run.store.upsert([unit("feature/1", change="feature", groups=(1,))])
     run.store.set_state("feature/1", FAILED, branch="spec/feature/1")
@@ -121,7 +121,7 @@ def test_a_retagged_second_group_of_a_started_unit_is_reported_by_number(
     run.store.set_state("feature/1", FAILED, branch="spec/feature/1")
     run.record("feature")
     stale = run.records["feature"]["hash"]
-    run.write("feature", tasks_md(2).replace("[tier1] Group 2", "[tier2] Group 2"))
+    run.write("feature", tasks_md(2).replace("[unit-test] Group 2", "[e2e-test] Group 2"))
     capsys.readouterr()
 
     results = cli.plan_all(run.inst, store=run.store)

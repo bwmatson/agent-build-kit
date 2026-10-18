@@ -1,4 +1,4 @@
-"""The suite's guards against a real agent process let a tier 2 test through
+"""The suite's guards against a real agent process let a e2e-test test through
 (spec: test-determinism).
 
 A test marked `local_stack` — on the test, its class or its module — may start the
@@ -33,7 +33,7 @@ from tests.conftest import (
 INI = """\
 [pytest]
 markers =
-    local_stack: a tier-2 test
+    local_stack: an e2e test
 """
 
 # `original_spawn` is bound at import, before the autouse guard replaces `spawn` on the module;

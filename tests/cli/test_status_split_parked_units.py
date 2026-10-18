@@ -1,5 +1,5 @@
-"""`abk status` shows a unit parked for a held tier 2 split and counts it against nothing, and
-`abk tick --dry-run` says which parked units it would release (spec: tier2-runtime-parking)."""
+"""`abk status` shows a unit parked for a held e2e-test split and counts it against nothing, and
+`abk tick --dry-run` says which parked units it would release (spec: e2e-runtime-parking)."""
 
 from __future__ import annotations
 

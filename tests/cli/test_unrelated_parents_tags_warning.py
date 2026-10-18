@@ -18,7 +18,7 @@ from tests.cli.replan_driver import OPT_OUT, Replan
 
 
 def group(number: int, repo: str = "app", *, flag: str = "", independent: bool = False) -> str:
-    tier = "tier2" if flag == "acceptance" else "tier1"
+    tier = "e2e-test" if flag == "acceptance" else "unit-test"
     tags = f"[{repo}] [{tier}]" + (f" [{flag}]" if flag else "")
     text = f"## {number}. {tags} Group {number}\n\n"
     if independent:
@@ -106,8 +106,8 @@ def test_a_needs_line_to_another_changes_group_beside_a_predecessor_is_named(
     run = Replan(tmp_path, monkeypatch)
     run.write("other-change", tasks(group(1)))
     needing = group(2).replace(
-        "## 2. [app] [tier1] Group 2\n\n",
-        "## 2. [app] [tier1] Group 2\n\nNeeds: other-change group 1 — it adds the hook\n\n",
+        "## 2. [app] [unit-test] Group 2\n\n",
+        "## 2. [app] [unit-test] Group 2\n\nNeeds: other-change group 1 — it adds the hook\n\n",
     )
     run.write("shape-needs", tasks(group(1), needing))
 

@@ -1,4 +1,4 @@
-"""Which command records the live stack beside a tier 2 result: the config's
+"""Which command records the live stack beside a e2e-test result: the config's
 when it says, the repo's infrastructure profile's when it does not, nothing
 when told so."""
 

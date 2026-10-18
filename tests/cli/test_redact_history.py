@@ -61,7 +61,7 @@ def saved_history(inst: Installation) -> dict[str, Path]:
     with known({}):
         store = UnitStore(state / "units.json")
         store.upsert([new_unit("add-marker/1")])
-        store.set_feedback("add-marker/1", "tier 2 failed with " + SECRET + " in the output")
+        store.set_feedback("add-marker/1", "e2e-test failed with " + SECRET + " in the output")
     log = run_log_dir(state) / "add-marker-01-20260101T100000.log"
     log.parent.mkdir(parents=True)
     log.write_text("started\nenv held " + SECRET + "\n")
@@ -123,7 +123,7 @@ def test_apply_replaces_the_value_in_every_saved_file_and_keeps_a_copy(
         assert REPLACEMENT in text
         assert path.with_name(path.name + SUFFIX).read_text() == before[name]
     feedback = UnitStore(files["units"]).all()[0].feedback
-    assert feedback == "tier 2 failed with " + REPLACEMENT + " in the output"
+    assert feedback == "e2e-test failed with " + REPLACEMENT + " in the output"
 
 
 def test_a_second_run_finds_nothing_and_adds_no_copies(

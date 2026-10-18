@@ -42,9 +42,9 @@ def write_change(planning: Path, change: str, repo: str) -> None:
         "- **THEN** it is deselected\n"
     )
     (root / "tasks.md").write_text(
-        f"## 1. [{repo}] [tier1] Test layout and markers\n\n"
+        f"## 1. [{repo}] [unit-test] Test layout and markers\n\n"
         "- [ ] 1.1 Add tests/conftest.py and markers\n- [ ] 1.2 Exclude marked tiers by default\n\n"
-        f"## 2. [{repo}] [tier2] [acceptance] Run the suite as a consumer would\n\n"
+        f"## 2. [{repo}] [e2e-test] [acceptance] Run the suite as a consumer would\n\n"
         "- [ ] 2.1 Run pytest from a clean checkout\n"
     )
 

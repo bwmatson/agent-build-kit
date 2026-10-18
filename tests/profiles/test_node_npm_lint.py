@@ -3,7 +3,7 @@
 The lint commands run for real in a git repository, with the tools replaced by programs
 that record their arguments: what the command names is what the linter would have been
 given. The failure outputs are what the tools print, behind the `$ command (exit N)` line
-tier 1 puts above a failed command's output.
+unit-test puts above a failed command's output.
 """
 
 from __future__ import annotations
@@ -91,7 +91,7 @@ def project(tmp_path: Path) -> Path:
 @pytest.fixture
 def nested_project(tmp_path: Path) -> Path:
     """The project `web` in a repo that holds a second one, `api`; the branch changes a
-    source file in each. Returns the directory tier 1 runs the project's commands in."""
+    source file in each. Returns the directory unit-test runs the project's commands in."""
     work = init_repo(tmp_path / "repo")
     for name in ("web/src/a.ts", "web/src/b.ts", "api/b.ts", "api/c.ts"):
         (work / name).parent.mkdir(parents=True, exist_ok=True)

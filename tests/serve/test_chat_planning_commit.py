@@ -64,8 +64,8 @@ echo '{_report(valid=True)}'
 """
 
 TASKS = (
-    "# Tasks\n\n## 1. [app] [tier1] The base\n\n- [ ] 1.1 Test: the base works\n"
-    "\n## 2. [app] [tier1] The middle\n\nNeeds: other group 1 — the base\n\n"
+    "# Tasks\n\n## 1. [app] [unit-test] The base\n\n- [ ] 1.1 Test: the base works\n"
+    "\n## 2. [app] [unit-test] The middle\n\nNeeds: other group 1 — the base\n\n"
     "Acceptance: none — nothing to drive\n\n"
     "- [ ] 2.1 Test: the middle works\n"
 )
@@ -185,7 +185,7 @@ def test_a_task_file_that_abk_tags_rejects_is_given_to_the_agent_and_the_commit_
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tasks = "openspec/changes/feature/tasks.md"
-    edit(inst, "tasks.md", lambda text: text.replace("[app] [tier1] The base", "The base"))
+    edit(inst, "tasks.md", lambda text: text.replace("[app] [unit-test] The base", "The base"))
     fake = agent(monkeypatch, tree, lambda prompt: {tasks: FIXED_TASKS})
     before = head(planning)
 
@@ -346,7 +346,7 @@ def test_a_plan_change_is_listed_as_replanned_with_built_units_keeping_their_sta
     edit(
         inst,
         "tasks.md",
-        lambda text: text + "\n## 3. [app] [tier1] A new group\n\n- [ ] 3.1 Test: x\n",
+        lambda text: text + "\n## 3. [app] [unit-test] A new group\n\n- [ ] 3.1 Test: x\n",
     )
 
     listed = consequences_of(inst, tree, planning, api, monkeypatch)

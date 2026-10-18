@@ -1,5 +1,5 @@
 """`abk tick --dry-run` previews the fix change of each recorded pre-existing failure and
-writes nothing (spec: tier2-failures)."""
+writes nothing (spec: e2e-failures)."""
 
 from __future__ import annotations
 
@@ -75,7 +75,7 @@ def test_a_dry_run_previews_each_recorded_failure_and_writes_nothing(
     open_change(inst, open_name)
     archived_change(inst, archived_name)
     runs: list[object] = []
-    monkeypatch.setattr(wiring.Tier2Session, "run", lambda *args, **kwargs: runs.append(args))
+    monkeypatch.setattr(wiring.E2eSession, "run", lambda *args, **kwargs: runs.append(args))
     before = tree_bytes(inst)
     capsys.readouterr()
 

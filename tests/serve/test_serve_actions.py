@@ -50,7 +50,7 @@ def test_a_requeue_here_leaves_the_unit_as_the_cli_does(
     store = UnitStore(inst.state_dir / "units.json")
     act(pipeline, "feature/6", "requeue")
     via_ui = store.get("feature/6")
-    store.set_state("feature/6", FAILED, note="tier 1 failed", cause=Cause.FAILED)
+    store.set_state("feature/6", FAILED, note="unit-test failed", cause=Cause.FAILED)
 
     assert main(["requeue", "feature/6"]) == 0
 
@@ -67,7 +67,7 @@ def test_the_requeue_modes_are_the_clis(
     inst: Installation, pipeline: httpx.Client, mode: str
 ) -> None:
     store = UnitStore(inst.state_dir / "units.json")
-    store.set_feedback("feature/6", "tier 1 failed: a type error")
+    store.set_feedback("feature/6", "unit-test failed: a type error")
 
     answer = act(pipeline, "feature/6", "requeue", mode=mode)
 

@@ -28,7 +28,7 @@ from tests.environment_fakes import FakeEnvironment
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
-NOTE = "environment unhealthy before tier 1"
+NOTE = "environment unhealthy before unit-test"
 
 
 def managed(
@@ -100,7 +100,7 @@ def test_a_unit_failed_for_another_cause_is_not_named_as_waiting_for_the_environ
 ) -> None:
     inst, _ = managed(tmp_path, in_progress_limit=1)
     builder.store.upsert([stored("feature/1")])
-    builder.store.set_state("feature/1", FAILED, note="tier 1 failed", cause=Cause.FAILED)
+    builder.store.set_state("feature/1", FAILED, note="unit-test failed", cause=Cause.FAILED)
 
     lines = status_lines(inst, capsys)
 
@@ -181,7 +181,7 @@ def test_only_a_unit_waiting_for_the_environment_makes_a_store_with_nothing_else
 ) -> None:
     inst, _ = managed(tmp_path)
     builder.store.upsert([stored("feature/1")])
-    builder.store.set_state("feature/1", FAILED, note="tier 1 failed", cause=Cause.FAILED)
+    builder.store.set_state("feature/1", FAILED, note="unit-test failed", cause=Cause.FAILED)
     assert not cli.has_work(inst, builder.store), (
         "a unit failed for another cause waits for a person"
     )

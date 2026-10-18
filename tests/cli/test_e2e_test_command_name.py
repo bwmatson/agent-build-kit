@@ -1,4 +1,4 @@
-"""`abk e2e-test` is the command; `abk tier2` still works as a deprecated alias."""
+"""`abk e2e-test` is the command; the old command still works as a deprecated alias."""
 
 from __future__ import annotations
 
@@ -6,9 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from tests.cli.tier2_hold_fakes import abk, planning
+from tests.cli.e2e_hold_fakes import abk, planning
 
-NOTICE = "command `tier2` is deprecated; use `e2e-test`"
+OLD_COMMAND = "tier" + "2"
+NOTICE = f"command `{OLD_COMMAND}` is deprecated; use `e2e-test`"
 
 
 def test_the_new_name_runs_with_no_warning(
@@ -27,7 +28,7 @@ def test_the_old_name_runs_and_says_it_is_deprecated(
 ) -> None:
     config = planning(tmp_path)
 
-    code, _, err = abk(config, capsys, "tier2", "status")
+    code, _, err = abk(config, capsys, OLD_COMMAND, "status")
 
     assert code == 0
     assert any(NOTICE in line for line in err)

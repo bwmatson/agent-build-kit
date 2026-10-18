@@ -1,4 +1,4 @@
-"""The reverse proxy that records and replays the calls of tier-2 tests.
+"""The reverse proxy that records and replays the calls of e2e tests.
 
 One listener on loopback per configured upstream; the code under test is given the
 listener's address through the environment variables the upstream names.

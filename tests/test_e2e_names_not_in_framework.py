@@ -93,7 +93,7 @@ def hits_in(label: str, tree: ast.AST, names: set[str]) -> list[str]:
     ]
 
 
-def test_the_tier_2_mechanism_names_no_split_runtime_or_provider() -> None:
+def test_the_e2e_mechanism_names_no_split_runtime_or_provider() -> None:
     names = forbidden()
     hits = [hit for label, tree in scanned() for hit in hits_in(label, tree, names)]
 

@@ -1,5 +1,5 @@
 """Each `pre-existing:` line of `abk status` says how many units wait on its fix change
-(spec: tier2-waits-on-open-base-failure-fixes)."""
+(spec: e2e-waits-on-open-base-failure-fixes)."""
 
 from __future__ import annotations
 

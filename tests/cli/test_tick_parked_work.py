@@ -1,6 +1,6 @@
-"""A tick whose only work is a unit parked for a held tier 2 split is not idle and runs the
+"""A tick whose only work is a unit parked for a held e2e-test split is not idle and runs the
 release step, which reads the state file and the configuration alone (spec:
-tier2-runtime-parking)."""
+e2e-runtime-parking)."""
 
 from __future__ import annotations
 

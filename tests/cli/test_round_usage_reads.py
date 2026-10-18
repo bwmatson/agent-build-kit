@@ -113,7 +113,7 @@ TASKS = """# Tasks
 
 Acceptance: none — a fixture about rounds, not about the acceptance group
 
-## 1. [app] [tier1] Register the marker
+## 1. [app] [unit-test] Register the marker
 
 - [ ] 1.1 Test: it selects only marked tests.
 - [ ] 1.2 Register it.

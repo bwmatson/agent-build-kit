@@ -1,7 +1,7 @@
-"""What a tier 2 run exports of each test's time: the histograms `abk.e2e.test.duration`
+"""What a e2e-test run exports of each test's time: the histograms `abk.e2e.test.duration`
 and `abk.e2e.test.time` with bounded attributes and never a unit id, change name or test
 name; an export that raises never fails the run, and with telemetry off nothing is
-exported (spec: tier2-time-is-recorded-per-test).
+exported (spec: e2e-time-is-recorded-per-test).
 
 The receiver is an in-process OTLP/HTTP server decoding the bodies the real exporter
 posts.
@@ -16,14 +16,14 @@ import pytest
 
 from agent_build_kit import telemetry
 from agent_build_kit.installation import Installation
-from tests.otlp import Collector, Point, enabled
-from tests.tier2_duration_fakes import (
+from tests.e2e_duration_fakes import (
     E2E,
     durations_output,
     recorded_times,
     run_e2e,
     time_line,
 )
+from tests.otlp import Collector, Point, enabled
 
 TEST = f"{E2E}::test_a"
 SPLIT = time_line(

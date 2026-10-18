@@ -1,5 +1,5 @@
 """The change written for a pre-existing failing test, and its successor, pass
-`openspec validate --strict` (spec: tier2-failures). Needs node (npx) and, on the first
+`openspec validate --strict` (spec: e2e-failures). Needs node (npx) and, on the first
 run, the network."""
 
 from __future__ import annotations

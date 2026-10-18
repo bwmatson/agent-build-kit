@@ -1,5 +1,5 @@
-"""`abk tier2 check`: one line per split and `rest` with its marker and test count, the findings,
-the exit codes, and nothing changed on disk (spec: tier2-splits)."""
+"""`abk e2e check`: one line per split and `rest` with its marker and test count, the findings,
+the exit codes, and nothing changed on disk (spec: e2e-splits)."""
 
 from __future__ import annotations
 
@@ -76,7 +76,7 @@ def installation(
     root = tmp_path / "planning"
     found = make_installation(
         root,
-        tests={} if splits is None else {"tier2_splits": splits},
+        tests={} if splits is None else {"e2e_splits": splits},
         verify={"env": {"SVC_TOKEN": {"from": "literal", "value": "secret"}}},
         repos={
             "app": {

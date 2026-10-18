@@ -1,4 +1,4 @@
-"""Tier 1 runs the changelog check through the toolchain profile, for a repo that has it on."""
+"""Unit-test runs the changelog check through the toolchain profile, for a repo that has it on."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 from agent_build_kit import profiles
 from agent_build_kit.config import RepoConfig
-from agent_build_kit.pipeline.wiring import build_tier1
+from agent_build_kit.pipeline.wiring import build_unit_test
 
 
 def repo_config(path: Path, *, changelog: str | None = "CHANGELOG.md") -> RepoConfig:
@@ -46,9 +46,9 @@ def test_tier_one_runs_the_changelog_check_beside_lint_and_tests(tmp_path: Path)
         ran.append(command)
         return subprocess.CompletedProcess(command, 0, "", "")
 
-    passed, _ = build_tier1(run=run, changed=lambda *a: ["tests/test_x.py"], repo=repo_config(app))(
-        cwd=app, base="main"
-    )
+    passed, _ = build_unit_test(
+        run=run, changed=lambda *a: ["tests/test_x.py"], repo=repo_config(app)
+    )(cwd=app, base="main")
 
     assert passed
     assert [c for c in ran if is_changelog_check(c)]
@@ -63,7 +63,7 @@ def test_tier_one_runs_no_changelog_check_when_the_setting_is_off(tmp_path: Path
         ran.append(command)
         return subprocess.CompletedProcess(command, 0, "", "")
 
-    build_tier1(
+    build_unit_test(
         run=run, changed=lambda *a: ["tests/test_x.py"], repo=repo_config(app, changelog=None)
     )(cwd=app, base="main")
 
@@ -80,7 +80,7 @@ def test_tier_one_fails_the_checks_round_on_a_changelog_problem(tmp_path: Path) 
             return subprocess.CompletedProcess(command, 1, f"{problem}\n", "")
         return subprocess.CompletedProcess(command, 0, "", "")
 
-    passed, output = build_tier1(
+    passed, output = build_unit_test(
         run=run, changed=lambda *a: ["tests/test_x.py"], repo=repo_config(app)
     )(cwd=app, base="main")
 
@@ -89,7 +89,7 @@ def test_tier_one_fails_the_checks_round_on_a_changelog_problem(tmp_path: Path) 
 
 
 def run_emitted_check(app: Path) -> subprocess.CompletedProcess:
-    """The command the profile emits for the repo, run as tier 1 runs it: in the checkout."""
+    """The command the profile emits for the repo, run as unit-test runs it: in the checkout."""
     command = profiles.get("python-uv").extra_checks(repo_config(app))[0]
     return subprocess.run(command, cwd=app, capture_output=True, text=True, check=False)
 

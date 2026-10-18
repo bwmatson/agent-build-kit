@@ -1,5 +1,5 @@
 """A live-stack test carries at most one runtime tag, wherever the tags come from
-(spec: tier2-runtime-tags)."""
+(spec: e2e-runtime-tags)."""
 
 from __future__ import annotations
 

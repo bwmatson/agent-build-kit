@@ -1,4 +1,4 @@
-"""A tier 2 test's time is split by agent role, checks and the rest (spec: test-tiers).
+"""A e2e-test test's time is split by agent role, checks and the rest (spec: test-tiers).
 
 The plugin is driven in-process through `pytester` over generated tests, with a ledger
 file the generated tests write rows to and a clock the generated tests move.
@@ -70,7 +70,7 @@ def split_lines(
     """Run generated `local_stack` tests with the plugin; return the output's lines and the
     `ABK-TIME` entries it printed."""
     monkeypatch.setattr(time_split, "clock", fake_clock.FakeClock())
-    pytester.makeini("[pytest]\nmarkers =\n    local_stack: a tier-2 test\n")
+    pytester.makeini("[pytest]\nmarkers =\n    local_stack: an e2e test\n")
     pytester.makepyfile(test_child=PRELUDE + body)
     result = pytester.runpytest_inprocess("-p", "tests.time_split", "-p", "no:cacheprovider")
     assert result.ret == 0, result.outlines

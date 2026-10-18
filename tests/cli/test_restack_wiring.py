@@ -1,7 +1,7 @@
 """What the restack built by `build_stack_moves` is given for the repo it moves.
 
 A branch moved cleanly onto a new base is checked again before it is pushed, and
-that check is the repo's own tier 1: its changelog check when the setting is on,
+that check is the repo's own unit-test: its changelog check when the setting is on,
 and the repo's settings reach the conflict resolver.
 """
 
@@ -19,7 +19,7 @@ from agent_build_kit.config import RepoConfig
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.restack import ConflictContext, Moved
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.wiring import build_tier1
+from agent_build_kit.pipeline.wiring import build_unit_test
 from tests.conftest import make_installation
 from tests.moved_base_fakes import moved
 
@@ -45,7 +45,7 @@ def restack_wiring(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, installation: Installation
 ) -> tuple[dict[str, Any], list[list[str]]]:
     """The keyword arguments `build_restack` was given, and the commands every
-    tier 1 it builds would run in place of a real one."""
+    unit-test it builds would run in place of a real one."""
     ran: list[list[str]] = []
 
     def run(command: list[str], *, cwd: Path) -> subprocess.CompletedProcess:
@@ -53,7 +53,7 @@ def restack_wiring(
         return subprocess.CompletedProcess(command, 0, "", "")
 
     def faked(**kwargs: Any) -> Callable[..., tuple[bool, str]]:
-        return build_tier1(run=run, changed=lambda *a: ["tests/test_x.py"], **kwargs)
+        return build_unit_test(run=run, changed=lambda *a: ["tests/test_x.py"], **kwargs)
 
     given: dict[str, Any] = {}
     monkeypatch.setattr(cli, "build_unit_test", faked)

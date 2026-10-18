@@ -1,6 +1,6 @@
-"""The scratch app the tier-2 build test plans against has a working tier 1.
+"""The scratch app the e2e build test plans against has a working unit-test.
 
-Its tier 1 is the python-uv profile's own commands, run on a real repo with no
+Its unit-test is the python-uv profile's own commands, run on a real repo with no
 agent, so the fixture cannot drift from the profile unnoticed: a missing
 `pre-commit`, or a hook config that wants the network, fails here in seconds
 rather than at the end of a billed agent run.
@@ -23,7 +23,9 @@ pytestmark = [
 ]
 
 
-def test_the_scratch_apps_tier1_commands_succeed_as_the_fixture_is_built(tmp_path: Path) -> None:
+def test_the_scratch_apps_unit_test_commands_succeed_as_the_fixture_is_built(
+    tmp_path: Path,
+) -> None:
     app = scratch_app(tmp_path / "app")
     # What a unit adds: a test, so pytest has something to collect.
     (app / "tests" / "test_marker.py").write_text("def test_it():\n    assert True\n")
@@ -41,7 +43,9 @@ def test_the_scratch_apps_tier1_commands_succeed_as_the_fixture_is_built(tmp_pat
         assert result.returncode == 0, f"{command}\n{result.stdout}\n{result.stderr}"
 
 
-def test_the_scratch_apps_tier1_commands_leave_nothing_for_git_to_report(tmp_path: Path) -> None:
+def test_the_scratch_apps_unit_test_commands_leave_nothing_for_git_to_report(
+    tmp_path: Path,
+) -> None:
     """A file the commands create and the repo does not commit would hold a unit.
 
     The first `uv run` writes `uv.lock`; the fixture ignores it because resolving

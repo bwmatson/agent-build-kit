@@ -37,7 +37,7 @@ def test_message():
 '''
 
 
-def test_a_real_run_at_the_tier_2_flags_keeps_the_whole_first_line_of_every_message(
+def test_a_real_run_at_the_e2e_flags_keeps_the_whole_first_line_of_every_message(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("CI", raising=False)

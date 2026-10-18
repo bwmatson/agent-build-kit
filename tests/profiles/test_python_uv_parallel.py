@@ -6,7 +6,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from agent_build_kit.pipeline.wiring import build_tier1
+from agent_build_kit.pipeline.wiring import build_unit_test
 from agent_build_kit.profiles.python_uv import PROFILE
 
 PLAIN = ["uv", "run", "pytest", "-q"]
@@ -100,6 +100,6 @@ def test_tier_one_passes_when_the_serial_pass_finds_no_serial_tests(tmp_path: Pa
         code = PROFILE.no_tests_collected_exit if command == SERIAL else 0
         return subprocess.CompletedProcess(command, code, "", "")
 
-    ok, _ = build_tier1(run=run, changed=lambda *a: ["tests/test_x.py"])(cwd=repo, base="main")
+    ok, _ = build_unit_test(run=run, changed=lambda *a: ["tests/test_x.py"])(cwd=repo, base="main")
 
     assert ok

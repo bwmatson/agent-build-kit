@@ -1,5 +1,5 @@
-"""`abk status` names the unit holding the tier 2 lock and for how long
-(spec: unit-scheduling, "The status shows who holds the tier 2 lock")."""
+"""`abk status` names the unit holding the e2e-test lock and for how long
+(spec: unit-scheduling, "The status shows who holds the e2e-test lock")."""
 
 from __future__ import annotations
 
@@ -16,9 +16,9 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import e2e
 from agent_build_kit.pipeline.unit_store import UnitStore
 from tests.conftest import make_installation
+from tests.e2e_lock_fakes import Foreign, dead_pid, record_line
 from tests.factories import stored_unit
 from tests.fake_clock import install
-from tests.tier2_lock_fakes import Foreign, dead_pid, record_line
 
 FORTY_MINUTES = 40 * 60
 
@@ -34,7 +34,7 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Installation:
     return installation
 
 
-def tier2_lines(workspace: Installation, capsys: pytest.CaptureFixture[str]) -> list[str]:
+def e2e_lines(workspace: Installation, capsys: pytest.CaptureFixture[str]) -> list[str]:
     assert cli.cmd_status(argparse.Namespace(), workspace) == 0
     unstamped = [re.sub(r"^\[[^\]]*\] ", "", line) for line in capsys.readouterr().out.splitlines()]
     return [line for line in unstamped if line.startswith("e2e-test")]
@@ -47,7 +47,7 @@ def test_status_names_the_holder_and_how_long_it_has_held_the_lock(
         workspace.state_dir / "e2e.lock", "other/1", pid=os.getpid(), age=FORTY_MINUTES
     )
     try:
-        lines = tier2_lines(workspace, capsys)
+        lines = e2e_lines(workspace, capsys)
     finally:
         holder.release()
 
@@ -62,7 +62,7 @@ def test_status_shows_a_stale_record_of_a_free_lock_as_stale_and_leaves_the_file
     lock.write_text(record_line("other/1", dead_pid(), FORTY_MINUTES))
     before = lock.read_text()
 
-    lines = tier2_lines(workspace, capsys)
+    lines = e2e_lines(workspace, capsys)
 
     assert len(lines) == 1
     assert "stale" in lines[0] and "other/1" in lines[0]
@@ -70,20 +70,20 @@ def test_status_shows_a_stale_record_of_a_free_lock_as_stale_and_leaves_the_file
     assert lock.read_text() == before
 
 
-def test_status_shows_no_tier_2_line_once_the_lock_is_free_and_empty(
+def test_status_shows_no_e2e_line_once_the_lock_is_free_and_empty(
     workspace: Installation, capsys: pytest.CaptureFixture[str]
 ) -> None:
     lock = workspace.state_dir / "e2e.lock"
     holder = Foreign(lock, "other/1", pid=os.getpid())
     try:
-        assert tier2_lines(workspace, capsys), "held: a line"
+        assert e2e_lines(workspace, capsys), "held: a line"
     finally:
         holder.release()
     lock.write_text("")
-    assert tier2_lines(workspace, capsys) == [], "free and empty"
+    assert e2e_lines(workspace, capsys) == [], "free and empty"
 
     lock.unlink()
-    assert tier2_lines(workspace, capsys) == [], "no file"
+    assert e2e_lines(workspace, capsys) == [], "no file"
 
 
 def test_status_says_a_held_locks_recorded_process_is_gone(
@@ -91,7 +91,7 @@ def test_status_says_a_held_locks_recorded_process_is_gone(
 ) -> None:
     holder = Foreign(workspace.state_dir / "e2e.lock", "other/1", pid=dead_pid())
     try:
-        lines = tier2_lines(workspace, capsys)
+        lines = e2e_lines(workspace, capsys)
     finally:
         holder.release()
 
@@ -108,7 +108,7 @@ def test_status_says_a_held_lock_with_no_record_yet_is_held(
     lock.write_text("")
     with lock.open("r+") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
-        lines = tier2_lines(workspace, capsys)
+        lines = e2e_lines(workspace, capsys)
 
     assert len(lines) == 1
     assert "held" in lines[0]
@@ -120,8 +120,11 @@ def test_reading_the_status_leaves_the_lock_free_for_the_next_holder(
     lock = workspace.state_dir / "e2e.lock"
     lock.write_text(record_line("other/1", dead_pid()))
 
-    assert tier2_lines(workspace, capsys), "the status read the lock"
+    assert e2e_lines(workspace, capsys), "the status read the lock"
 
     with e2e.stack_lock(lock, timeout=0.0, holder="two/1"):
         record = e2e.read_lock_record(lock.read_text())
     assert record is not None and record.unit == "two/1"
+
+
+tier2_lines = e2e_lines  # abk-shim

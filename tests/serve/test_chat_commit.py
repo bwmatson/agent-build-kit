@@ -317,7 +317,7 @@ def test_a_commit_of_the_planning_checkout_releases_its_part_and_sends_the_unit_
     tasks = inst.changes_dir / "feature" / "tasks.md"
     tasks.parent.mkdir(parents=True)
     tasks.write_text(
-        "# Tasks\n\n## 1. [app] [tier1] A group\n\nAcceptance: none — nothing to drive\n\n"
+        "# Tasks\n\n## 1. [app] [unit-test] A group\n\nAcceptance: none — nothing to drive\n\n"
         "- [ ] 1.1 Test: it works\n"
     )
     planning = init_repo(inst.root)
