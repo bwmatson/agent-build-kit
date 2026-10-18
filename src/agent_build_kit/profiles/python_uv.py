@@ -213,6 +213,7 @@ TESTMON = "pytest-testmon"
 class PythonUvProfile:
     name: str = "python-uv"
     detect_markers: tuple[str, ...] = ("uv.lock", "pyproject.toml")
+    supports_stubs = True
     allowed_tools: str = (
         "Bash(uv run *) Bash(uv lock*) Bash(uv sync*) Bash(uv add *) Bash(uv remove *) "
         "Bash(pre-commit *)"
@@ -338,9 +339,11 @@ class PythonUvProfile:
         # then means judging the whole repo at its tip, not an empty range.
         return ["uv", "run", "pre-commit", "run", "--all-files"]
 
-    def clean_command(self) -> str:
-        # Type checking is skipped at the tests commit: a test importing a
-        # function that doesn't exist yet is the expected state there.
+    def clean_command(self, *, types: bool = False) -> str:
+        # Type checking is skipped unless asked for: in a build that is not stubbed a test
+        # importing a function that doesn't exist yet is the expected state at the tests commit.
+        if types:
+            return "uv run pre-commit run --all-files"
         return "SKIP=pyrefly-check uv run pre-commit run --all-files"
 
     def red_command(self, files: list[str]) -> str:
@@ -350,9 +353,11 @@ class PythonUvProfile:
         pytest = f"uv run pytest {' '.join(files)} -p no:cacheprovider --tb=line -q"
         return wrap_report_command(pytest, "--junitxml")
 
-    def interpret_red(self, output: str, exit_code: int) -> tuple[bool, list[str]]:
+    def interpret_red(
+        self, output: str, exit_code: int, *, stubbed: bool = False
+    ) -> tuple[bool, list[str]]:
         report, console = split_report(output)
-        result = judge_red(report, console, exit_code)
+        result = judge_red(report, console, exit_code, stubbed=stubbed)
         return result.verdict == "accepted", list(result.problems)
 
     def parse_test_summary(self, output: str) -> tuple[int, int, int, float]:

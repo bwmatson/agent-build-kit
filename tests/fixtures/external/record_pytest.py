@@ -23,6 +23,13 @@ OUT = Path(__file__).resolve().parent / "pytest"
 CASES = {
     "missing_implementation": "def test_new():\n    raise NotImplementedError\n",
     "import_error": "from nothing_here import thing\n\n\ndef test_new():\n    assert thing\n",
+    "missing_attribute": "import os\n\n\ndef test_new():\n    assert os.nothing_here\n",
+    "missing_module_in_body": (
+        "def test_new():\n    from nothing_here import thing\n\n    assert thing\n"
+    ),
+    "missing_name_in_body": (
+        "def test_new():\n    from os import nothing_here\n\n    assert nothing_here\n"
+    ),
     "fixture_error": "def test_new(db):\n    assert db\n",
     "assertion": "def test_new():\n    assert 1 == 2\n",
     "assertion_mentions_fixture": (

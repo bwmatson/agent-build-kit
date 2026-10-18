@@ -28,6 +28,8 @@ from pathlib import Path
 
 from agent_build_kit.pipeline.shell import git_out
 
+TESTS_PREFIX = "test: "
+CODE_PREFIX = "feat: "
 STUB_BODY_HINT = "only `raise NotImplementedError`"
 
 # A path is a test if any part of it is a tests directory, so this holds for a
@@ -127,16 +129,45 @@ def _file_at(repo: Path, sha: str, path: str) -> str:
         return ""  # Deleted in this commit; nothing to vouch for.
 
 
+def _subject(repo: Path, sha: str) -> str:
+    return git_out(repo, "log", "-1", "--format=%s", sha)
+
+
+def _pair_problems(subjects: list[str]) -> list[str]:
+    """What is wrong with how `subjects` (oldest first) pair up: each `test:` commit is
+    followed directly by a `feat:` commit with the same title."""
+    problems: list[str] = []
+    for index, subject in enumerate(subjects):
+        if not subject.startswith(TESTS_PREFIX):
+            continue
+        following = subjects[index + 1] if index + 1 < len(subjects) else None
+        if following is not None and following.startswith(TESTS_PREFIX):
+            problems.append(
+                f"`{following}` directly follows another tests commit — each group's tests "
+                "are followed by its own implementation commit"
+            )
+            continue
+        title = subject.removeprefix(TESTS_PREFIX)
+        if following != f"{CODE_PREFIX}{title}":
+            found = f"`{following}`" if following else "nothing"
+            problems.append(
+                f"`{subject}` is not directly followed by `{CODE_PREFIX}{title}` (next: {found})"
+            )
+    return problems
+
+
 def check_structure(
     repo: Path,
     base: str,
     is_test: Callable[[str], bool] | None = None,
     stubs: Callable[[str, str], list[str]] = stub_violations,
+    paired: bool = False,
 ) -> list[str]:
     """Check a branch's commits read as tests-then-implementation.
 
     `stubs` is the toolchain's check of a code file's content shipped beside tests, by
-    path and content; it defaults to the Python one.
+    path and content; it defaults to the Python one. `paired` also requires every `test:`
+    commit to be followed directly by a `feat:` commit of the same title.
 
     Returns every problem found, so one run shows the whole list rather than
     one problem per push.
@@ -198,5 +229,8 @@ def check_structure(
                 "implementation that makes it pass, so the pairs stay reviewable"
             )
             break
+
+    if paired:
+        problems.extend(_pair_problems([_subject(repo, sha) for sha in shas]))
 
     return problems

@@ -56,6 +56,8 @@ _DIFF_LINT = (
     f"{_DIFF.format(z=' -z')} | xargs -0 npx oxfmt --check"
 )
 _TYPE_CHECK = "tsc"
+# The project's type check, which `project_checks` and the stubbed clean command both run.
+_TYPE_CHECK_ARGV = ["npx", _TYPE_CHECK, "--noEmit"]
 _TEST_RUNNER = "vitest"
 # No test files is a pass; the report is printed after the marker.
 _RUN = f"npx {_TEST_RUNNER} run --passWithNoTests --reporter=junit"
@@ -163,6 +165,7 @@ def _failure(case: ElementTree.Element) -> tuple[str, ElementTree.Element | None
 class NodeNpmProfile:
     name: str = "node-npm"
     detect_markers: tuple[str, ...] = ("package-lock.json", "package.json")
+    supports_stubs = True
     allowed_tools: str = "Bash(npm *) Bash(npx *)"
     agent_commands: tuple[AgentCommand, ...] = (
         AgentCommand(purpose=AgentPurpose.TEST, command=["npx", "vitest", "run"]),
@@ -173,7 +176,7 @@ class NodeNpmProfile:
         ),
         AgentCommand(purpose=AgentPurpose.LINT, command=["npx", "oxlint", "."]),
         AgentCommand(purpose=AgentPurpose.FORMAT, command=["npx", "oxfmt", "--check", "."]),
-        AgentCommand(purpose=AgentPurpose.CHECK, command=["npx", "tsc", "--noEmit"]),
+        AgentCommand(purpose=AgentPurpose.CHECK, command=list(_TYPE_CHECK_ARGV)),
     )
     prompt_words: PromptWords = PromptWords(
         verify="linting and type checks (oxlint, tsc --noEmit)",
@@ -245,7 +248,7 @@ class NodeNpmProfile:
 
     def project_checks(self, repo: RepoConfig) -> list[list[str]]:
         """The type check, over the whole project: `tsc` cannot be scoped to files."""
-        return [["npx", _TYPE_CHECK, "--noEmit"]]
+        return [list(_TYPE_CHECK_ARGV)]
 
     def e2e_commands(self, repo: Path, *, marker: str) -> list[list[str]]:
         """The files named for `marker`, in each member of a workspace or else the project."""
@@ -276,10 +279,11 @@ class NodeNpmProfile:
             commands.append(["sh", "-c", _FILTERED, "sh", member or _HERE, *relative])
         return commands
 
-    def clean_command(self) -> str:
-        """Lint and the format check over the project; no type check, since a test importing
-        what does not exist yet is the expected state at the tests commit."""
-        return _LINT_ALL
+    def clean_command(self, *, types: bool = False) -> str:
+        """Lint and the format check over the project; with `types`, the project's type check
+        too. Without it none runs, since in a build that is not stubbed a test importing what
+        does not exist yet is the expected state at the tests commit."""
+        return f"{_LINT_ALL} && {shlex.join(_TYPE_CHECK_ARGV)}" if types else _LINT_ALL
 
     def red_command(self, files: list[str]) -> str:
         """Vitest with `files` as its filters, its JUnit report printed after the marker so it
@@ -292,12 +296,15 @@ class NodeNpmProfile:
         listed = "printf '%s\\n' " + shlex.join(_RED_FILE + file for file in files) + "; "
         return listed + wrap_report_command(run, "--outputFile")
 
-    def interpret_red(self, output: str, exit_code: int) -> tuple[bool, list[str]]:
+    def interpret_red(
+        self, output: str, exit_code: int, *, stubbed: bool = False
+    ) -> tuple[bool, list[str]]:
         """Red for the right reason, judged on the suites of the files the red command was
         given (it lists them before the report): every test that ran failed by an assertion
         or by an error saying `not implemented`. A file that failed to load (an unresolved
         import, a syntax error), a passing test and a run with no suite of those files are
-        rejected, each with its reason."""
+        rejected, each with its reason. This is also the stubbed reading (`stubbed`): a file
+        that failed to load is rejected either way."""
         _, console = split_report(output)
         given = {
             line.removeprefix(_RED_FILE).removeprefix("./")

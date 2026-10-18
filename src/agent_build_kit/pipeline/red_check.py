@@ -72,6 +72,11 @@ REJECTED = {
 }
 
 
+# Failures that are red in an unstubbed build and not in a stubbed one: a stub is missing, and
+# the implementation would not make the test mean anything.
+MISSING_NAMES = ("ModuleNotFoundError", "ImportError", "AttributeError")
+MISSING_NAME_REASON = "a name the test uses is missing, so a stub was not written"
+
 # The exception types a `<failure>` may carry for the report path to call it red.
 ACCEPTED_TYPES = frozenset(
     {
@@ -106,7 +111,9 @@ def _counts(output: str) -> dict[str, int]:
     return counts
 
 
-def interpret_pytest(output: str, *, exit_code: int) -> tuple[bool, list[str]]:
+def interpret_pytest(
+    output: str, *, exit_code: int, stubbed: bool = False
+) -> tuple[bool, list[str]]:
     """Was this run honestly red? Returns (ok, problems).
 
     `problems` is empty when ok, and otherwise says what disqualified the run,
@@ -133,12 +140,17 @@ def interpret_pytest(output: str, *, exit_code: int) -> tuple[bool, list[str]]:
         if marker in output:
             problems.append(f"{marker}: {why}")
 
-    if not any(marker in output for marker in ACCEPTED):
-        problems.append(
-            f"{UNRECOGNISED_FAILURE} "
-            "(expected an assertion failure, NotImplementedError, or a missing "
-            "module/attribute)"
-        )
+    accepted = [m for m in ACCEPTED if not (stubbed and m in MISSING_NAMES)]
+    if not any(marker in output for marker in accepted):
+        missing = [marker for marker in MISSING_NAMES if marker in output] if stubbed else []
+        if missing:
+            problems.extend(f"{marker}: {MISSING_NAME_REASON}" for marker in missing)
+        else:
+            problems.append(
+                f"{UNRECOGNISED_FAILURE} "
+                "(expected an assertion failure, NotImplementedError, or a missing "
+                "module/attribute)"
+            )
 
     return not problems, problems
 
@@ -197,8 +209,9 @@ def parse_report(report: str) -> ElementTree.Element:
         raise ValueError(f"not a JUnit report: {error}") from error
 
 
-def red_check(report: str) -> RedResult:
-    """Judge a run from pytest's JUnit report, by each failing test's exception.
+def red_check(report: str, *, stubbed: bool = False) -> RedResult:
+    """Judge a run from pytest's JUnit report, by each failing test's exception. `stubbed`
+    rejects a test that failed with an import, module or attribute error.
 
     Raises `ValueError` when `report` is not a JUnit report.
     """
@@ -224,6 +237,8 @@ def red_check(report: str) -> RedResult:
             kind = exception_type(message)
             if kind in ("SyntaxError", "IndentationError"):
                 problems.append(f"{name}: {REJECTED[kind]}")
+            elif stubbed and kind in MISSING_NAMES:
+                problems.append(f"{name}: {MISSING_NAME_REASON}")
             elif kind not in ACCEPTED_TYPES:
                 problems.append(f"{name}: {UNRECOGNISED_FAILURE}")
 
@@ -252,16 +267,18 @@ def _error_reason(element: ElementTree.Element, said: str) -> str | None:
     return "an error outside the test body is not a missing implementation"
 
 
-def judge_red(report: str | None, output: str, exit_code: int) -> RedResult:
+def judge_red(
+    report: str | None, output: str, exit_code: int, *, stubbed: bool = False
+) -> RedResult:
     """Judge a run from its `report`, or from the console `output` (logging
     that it did) when the report could not be written."""
     if report:
         try:
-            return red_check(report)
+            return red_check(report, stubbed=stubbed)
         except ValueError as error:
             reason = str(error)
     else:
         reason = "no report was written"
     LOG.warning("red check: %s; using the console fallback", reason)
-    ok, problems = interpret_pytest(output, exit_code=exit_code)
+    ok, problems = interpret_pytest(output, exit_code=exit_code, stubbed=stubbed)
     return RedResult(verdict="accepted" if ok else "rejected", problems=tuple(problems))

@@ -13,7 +13,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from agent_build_kit.config import AgentCommand, EnvironmentConfig, RepoConfig
+from agent_build_kit.config import AgentCommand, BuildersConfig, EnvironmentConfig, RepoConfig
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.e2e import E2eSelection, TestFailure, TestTime
 
@@ -87,6 +87,18 @@ class CreatedFiles(Protocol):
         ...
 
 
+def supports_stubs(profile: object) -> bool:
+    """Whether `profile` declares `supports_stubs` true; a profile without it, or one that
+    says anything but true, does not support them."""
+    return getattr(profile, "supports_stubs", False) is True
+
+
+def stubbed_build(builders: BuildersConfig, profile: object) -> bool:
+    """Whether a build is stubbed: `builders.per_group_commits` is on and `profile`
+    supports stubs."""
+    return builders.per_group_commits and supports_stubs(profile)
+
+
 class ToolchainProfile(Protocol):
     name: str
     # Files whose presence in a repo root suggests this profile (init's detection).
@@ -95,6 +107,9 @@ class ToolchainProfile(Protocol):
     # `--allowedTools` syntax; no effect under the acp runtime.
     allowed_tools: str
     prompt_words: PromptWords
+    # `supports_stubs: bool` is deliberately not declared here: a profile adds it
+    # to opt in, and `supports_stubs()` reads it tolerantly.
+
     # The test runner's exit status when nothing was selected.
     no_tests_collected_exit: int
 
@@ -133,11 +148,13 @@ class ToolchainProfile(Protocol):
         root_extras: list[str],
     ) -> list[list[str]]: ...
 
-    def clean_command(self) -> str: ...
+    def clean_command(self, *, types: bool = False) -> str: ...
 
     def red_command(self, files: list[str]) -> str: ...
 
-    def interpret_red(self, output: str, exit_code: int) -> tuple[bool, list[str]]: ...
+    def interpret_red(
+        self, output: str, exit_code: int, *, stubbed: bool = False
+    ) -> tuple[bool, list[str]]: ...
 
     def parse_test_summary(self, output: str) -> tuple[int, int, int, float]: ...
 
