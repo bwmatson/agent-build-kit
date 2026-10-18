@@ -4,7 +4,6 @@ the fresh unit the gate is about."""
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -41,7 +40,3 @@ def round_ids(inst: Installation, store: UnitStore) -> list[str]:
     """The ids one round hands out to start."""
     ready = cli.run_round(inst, store, building=(), only=frozenset(), submit=True)
     return [unit.id for unit in ready]
-
-
-def scratch(tmp_path: Path, name: str) -> Path:
-    return tmp_path / name

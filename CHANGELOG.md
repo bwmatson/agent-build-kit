@@ -21,7 +21,7 @@
   or units of different splits are never joined or planned together. `abk tags` refuses an
   undeclared name, a second line or a list of names, and a line in a unit-test group. A
   planned unit that has never started is no longer started while its split is held: it waits
-  with the reason `split` ("waiting for tier 2 split <name>" and the hold), takes no slot or
+  with the reason `split` ("waiting for e2e-test split <name>" and the hold), takes no slot or
   place under the limit, lends no priority to what it waits on, and starts in the round that
   finds the hold gone.
 

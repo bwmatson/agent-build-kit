@@ -73,7 +73,8 @@ class WaitRecorder:
         now = spans.clock.now()
         for unit, wait in waits.items():
             before = self._current.get(unit)
-            if before and before[0] == wait:
+            if before and (before[0].reason, before[0].waits_on) == (wait.reason, wait.waits_on):
+                # The detail is words for a reader; a change in it is not a new wait.
                 continue
             if before:
                 self._end(unit, before)
