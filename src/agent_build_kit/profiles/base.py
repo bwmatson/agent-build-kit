@@ -90,13 +90,13 @@ class CreatedFiles(Protocol):
 def supports_stubs(profile: object) -> bool:
     """Whether `profile` declares `supports_stubs` true; a profile without it, or one that
     says anything but true, does not support them."""
-    raise NotImplementedError
+    return getattr(profile, "supports_stubs", False) is True
 
 
 def stubbed_build(builders: BuildersConfig, profile: object) -> bool:
     """Whether a build is stubbed: `builders.per_group_commits` is on and `profile`
     supports stubs."""
-    raise NotImplementedError
+    return builders.per_group_commits and supports_stubs(profile)
 
 
 class ToolchainProfile(Protocol):
@@ -107,6 +107,8 @@ class ToolchainProfile(Protocol):
     # `--allowedTools` syntax; no effect under the acp runtime.
     allowed_tools: str
     prompt_words: PromptWords
+    # Whether the test step may write stubs the checks then judge; read through
+    # `supports_stubs`, so a profile without it counts as not supporting them.
     # The test runner's exit status when nothing was selected.
     no_tests_collected_exit: int
 

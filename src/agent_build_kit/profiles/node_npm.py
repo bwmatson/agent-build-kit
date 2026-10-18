@@ -163,6 +163,7 @@ def _failure(case: ElementTree.Element) -> tuple[str, ElementTree.Element | None
 class NodeNpmProfile:
     name: str = "node-npm"
     detect_markers: tuple[str, ...] = ("package-lock.json", "package.json")
+    supports_stubs = True
     allowed_tools: str = "Bash(npm *) Bash(npx *)"
     agent_commands: tuple[AgentCommand, ...] = (
         AgentCommand(purpose=AgentPurpose.TEST, command=["npx", "vitest", "run"]),
@@ -277,9 +278,10 @@ class NodeNpmProfile:
         return commands
 
     def clean_command(self, *, types: bool = False) -> str:
-        """Lint and the format check over the project; no type check, since a test importing
-        what does not exist yet is the expected state at the tests commit."""
-        return _LINT_ALL
+        """Lint and the format check over the project; with `types`, the project's type check
+        too. Without it none runs, since in a build that is not stubbed a test importing what
+        does not exist yet is the expected state at the tests commit."""
+        return f"{_LINT_ALL} && npx {_TYPE_CHECK} --noEmit" if types else _LINT_ALL
 
     def red_command(self, files: list[str]) -> str:
         """Vitest with `files` as its filters, its JUnit report printed after the marker so it
@@ -299,9 +301,8 @@ class NodeNpmProfile:
         given (it lists them before the report): every test that ran failed by an assertion
         or by an error saying `not implemented`. A file that failed to load (an unresolved
         import, a syntax error), a passing test and a run with no suite of those files are
-        rejected, each with its reason."""
-        if stubbed:
-            raise NotImplementedError
+        rejected, each with its reason. This is also the stubbed reading (`stubbed`): a file
+        that failed to load is rejected either way."""
         _, console = split_report(output)
         given = {
             line.removeprefix(_RED_FILE).removeprefix("./")
