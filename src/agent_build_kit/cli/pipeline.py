@@ -2818,8 +2818,8 @@ def parked_units(inst: Installation, units: Sequence[StoredUnit]) -> frozenset[s
 def branch_is_held(inst: Installation, branch: str) -> bool:
     """Whether a live process holds this branch's lock.
 
-    `branch_lock` already distinguishes a crashed holder from a live one by
-    its pid; acquiring and releasing is the cheapest way to ask.
+    Read from the lock's pid and never taken, so asking never turns away a run starting on
+    the branch; `workspaces.branch_held` does the reading.
     """
     return branch_held(branch, root=inst.state_dir / "locks")
 
