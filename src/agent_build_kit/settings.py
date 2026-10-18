@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     # Overrides abk.yaml's `runtime` on this machine (ABK_RUNTIME). None = the file's.
     runtime: str | None = None
 
+    # `on` or `off`; off means no usage reading and no usage pause in this process.
+    usage_guard: str = ""
+
     # Per-machine overrides of abk.yaml's `models`. None = use the file's.
     implement_model: str | None = None
     rework_model: str | None = None

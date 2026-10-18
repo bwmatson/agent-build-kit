@@ -37,6 +37,7 @@ def runtime_scratch(
     runtime: str,
     tmp_path_factory: TempFactory,
     start_check: Callable[[list[str]], None],
+    usage_guard: bool = False,
 ) -> RuntimeScratch:
     """The setup for `runtime`; `start_check` is asked, with the agent's command, to confirm the
     agent starts. Fails, never skips, when the runtime's agent command setting is missing."""
