@@ -6,7 +6,8 @@
   usage reading and never pause for usage. `abk tick` says so on its first line and
   `abk status` shows it. The scratch installation of a Claude Code live test sets it, so a
   test of the build no longer fails on the usage of the machine it runs on; a test about the
-  guard opts back in.
+  guard opts back in. A live test whose tick built nothing because usage paused it is skipped,
+  with the reading and threshold in the reason, instead of failing.
 
 - An e2e-test group can declare its split with a `Split: <name>` line (a split its repo declares,
   or `rest`; no line means `rest`). A unit records the one split its groups share, and groups

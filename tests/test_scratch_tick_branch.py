@@ -12,6 +12,7 @@ from agent_build_kit.pipeline.pause import PAUSE_MARKER
 from agent_build_kit.pipeline.wait_log import DECISIONS_NAME, ENDED
 from tests.scratch_fakes import HandScratch, commits_on, hand_scratch
 from tests.scratch_tick import TickResult, commits_on_unit_branch
+from tests.usage_condition import write_pause
 
 BRANCH = "spec/feature/1"
 EXIT = 37
@@ -52,9 +53,7 @@ def fill_state(scratch: HandScratch) -> None:
     (logs / "feature-01-run.log").write_text(
         "".join(f"run log line {number}\n" for number in range(1, 41))
     )
-    (scratch.state / PAUSE_MARKER).write_text(
-        json.dumps({"until": "2099-01-01T00:00:00+00:00", "reason": "wall of rate limit"})
-    )
+    write_pause(scratch.state, "wall of rate limit", kind="network")
 
 
 def test_a_branch_of_two_commits_gives_their_ids(tmp_path: Path) -> None:

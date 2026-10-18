@@ -20,6 +20,7 @@ from agent_build_kit.pipeline.pause import PAUSE_MARKER
 from agent_build_kit.pipeline.wait_log import DECISIONS_NAME, ENDED
 from agent_build_kit.redaction import redact_text
 from tests.factories import git, who_pushed
+from tests.usage_condition import skip_on_usage_condition
 
 # The program a tick runs, replaceable by a test that stands in for it.
 ABK: Path = Path(sys.executable).parent / "abk"
@@ -174,15 +175,20 @@ def _run_log(scratch: Scratch) -> str:
     return "\n".join(newest.read_text().splitlines()[-RUN_LOG_LINES:])
 
 
+def branch_on_remote(scratch: Scratch, branch: str) -> bool:
+    """Whether `branch` is on the scratch's remote."""
+    found = runner.run(
+        ["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"],
+        cwd=scratch.remote,
+        capture_output=True,
+        timeout=GIT_TIMEOUT,
+    )
+    return found.returncode == 0
+
+
 def _on_remote(scratch: Scratch, branch: str) -> str:
     def probe() -> str:
-        found = runner.run(
-            ["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"],
-            cwd=scratch.remote,
-            capture_output=True,
-            timeout=GIT_TIMEOUT,
-        )
-        return f"{branch} is {'on' if found.returncode == 0 else 'not on'} the remote"
+        return f"{branch} is {'on' if branch_on_remote(scratch, branch) else 'not on'} the remote"
 
     return attempt(f"{branch} on the remote", probe)
 
@@ -239,6 +245,7 @@ def commits_on_unit_branch(
     except subprocess.CalledProcessError:
         pass
     # Outside the handler, so the failure is not shown chained to a git error.
+    skip_on_usage_condition(scratch, branch)
     remembered = ticks_of(scratch)
     pytest.fail(_failure(scratch, branch, tick or (remembered[-1] if remembered else None)))
 
