@@ -1,6 +1,6 @@
 ---
 name: abk-authoring
-description: TRIGGER — read before writing or editing a change's tasks.md in a planning repo, before choosing a task group's [repo] [tier] tags or [contract]/[narrow]/[acceptance] flags, or when `abk tags` reports a problem. SKIP for questions about running the pipeline (abk-pipeline) or about abk.yaml (abk-config).
+description: TRIGGER — read before writing or editing a change's tasks.md in a planning repo, before choosing a task group's [repo] [kind] tags or [contract]/[narrow]/[acceptance] flags, or when `abk tags` reports a problem. SKIP for questions about running the pipeline (abk-pipeline) or about abk.yaml (abk-config).
 version: 1.1.0
 generatedBy: agent-build-kit
 ---
@@ -9,22 +9,25 @@ generatedBy: agent-build-kit
 
 The pipeline turns a change's `tasks.md` into units of work — branches and
 PRs — without reading anything else about it. Two facts therefore have to be
-on every task group heading: which repo its code lands in, and which test
-tier it needs. They are written as tags, and `abk tags` checks them.
+on every task group heading: which repo its code lands in, and which test kind it needs. They are written as tags, and `abk tags` checks them.
 
 ## The heading contract
 
 ```
-## <n>. [<repo>] [<tier>] <title>
-## <n>. [<repo>] [<tier>] [<flag>] <title>
+## <n>. [<repo>] [<kind>] <title>
+## <n>. [<repo>] [<kind>] [<flag>] <title>
 ```
 
 - `<n>` numbers groups from 1, in the order they are built. Gaps and
   reordering are errors: the number is the build order.
 - `<repo>` is one of the workspace's repo names exactly as `abk.yaml` spells
   them. A near miss (a capital, an underscore) is an error, not a guess.
-- `<tier>` is `unit-test` (the ordinary suite, run in CI) or `e2e-test` (needs the
-  real local stack, serialized on one host). The old `tier1` and `tier2` are still
+- `<kind>` is one of three test kinds, from narrowest to widest: `unit-test` (one module's
+  behaviour, in the ordinary suite run in CI), `integration-test` (behaviour across modules or
+  files, in the ordinary suite with no live stack) or `e2e-test` (needs the real local stack,
+  serialized on one host). `integration-test` is a label: it behaves as `unit-test` in every
+  other way, and it is not the pytest `integration` marker or `tests/integration/`. A unit of
+  several groups takes the widest kind. The earlier spellings of the two older kinds are still
   read as the same kinds, with a deprecation notice from `abk tags` and `abk check`.
 - `<repo>` may carry a project: `[app/web]` is the project `web` of repo `app`, spelled as
   the path the repo declares for it. A project the repo does not declare is refused, by
@@ -125,7 +128,7 @@ change on the cycle, and the dependency is refused when linked.
 
 Do not write a task a builder cannot do: a record that needs live numbers, an
 edit to the change's own files (`tasks.md`, its specs), or a tuning against a
-first tier 2 run that has not happened yet. Where a gap shows only in the tier 2
+first e2e-test run that has not happened yet. Where a gap shows only in the e2e-test
 feedback, record it in the unit's fix round from that feedback instead of
 specifying it up front. Confirm a measurement's premise before specifying it: a
 task that measures a setting on a schema the setting does not affect cannot
@@ -146,7 +149,7 @@ its unit. The reason is required; `abk tags` rejects the line without one. Use
 it sparingly: a small requirement that is related to another change does not
 need it, and may simply be its own change, since it no longer costs its own
 pull request when it is small and in line with unstarted work in the same repo
-and tier. `[acceptance]`, `[contract]` and `[narrow]` groups are never joined
+and kind. `[acceptance]`, `[contract]` and `[narrow]` groups are never joined
 and need no `Separate:` line.
 
 The planner joins related work first, groups that touch the same or closely related
@@ -200,11 +203,11 @@ warn of a group that is less urgent than one that depends on it, and such a grou
 promoted: the prerequisite is raised to its dependent's priority. Two groups that do not
 share code belong in an `Independent:` group, so neither is a prerequisite of the other.
 
-## Tier 2 splits
+## E2e-test splits
 
-A repo's tier 2 tests may be divided by `tests.tier2_splits` in `abk.yaml`; a test belongs
+A repo's e2e-test tests may be divided by `tests.e2e_splits` in `abk.yaml`; a test belongs
 to at most one split and the rest are `rest`. Before writing an `[e2e-test]` group that adds
-a tier 2 test, run `abk tier2 check` to see that the test lands in one split only.
+an e2e-test test, run `abk e2e-test check` to see that the test lands in one split only.
 
 ## Describe behaviour, not names
 

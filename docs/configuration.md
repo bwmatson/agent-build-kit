@@ -36,8 +36,8 @@ Every field, with its default. A key at its default can be left out;
 version: 1
 
 planning:
-  state_dir: runs               # pipeline state, run logs, each tier 2 run's full
-                                # output (tier2-output/) and the usage ledger
+  state_dir: runs               # pipeline state, run logs, each e2e-test run's full
+                                # output (e2e-output/) and the usage ledger
                                 # (usage-ledger.jsonl and decisions.jsonl, both
                                 # gitignored; add a line for each if you move
                                 # state_dir; docs/architecture.md).
@@ -214,7 +214,7 @@ environment:                    # how the pipeline's own environment is kept
                                 # warns. Default: none
 # A repository entry under `repos` takes the same `environment` section, with
 # paths relative to the repository. `abk doctor` warns for one without it.
-# It runs in the unit's worktree: before the tests and every tier 1, `sync` runs
+# It runs in the unit's worktree: before the tests and every unit-test, `sync` runs
 # when the inputs' hash differs from the one recorded for that worktree, then
 # `check`. With inputs equal to the base branch's a failure is the environment's
 # (cause `environment`); a failing `sync` or `check` after the unit changed an
@@ -305,16 +305,16 @@ global_limits:
   transcript_result_chars: 20000  # longest tool result a unit's transcript
                                   # keeps whole; longer ones are cut
   transcript_runs_kept: 3       # runs of one unit that keep their transcript
-  # The old `tier1_*` and `tier2_*` spellings of the next keys still load, with a notice.
-  unit_test_command_seconds: 3600   # longest a tier 1 command may run before it is aborted
+  # The earlier, numbered spellings of the next keys still load, with a notice, for one release.
+  unit_test_command_seconds: 3600   # longest a unit-test command may run before it is aborted
   unit_test_abort_grace_seconds: 10  # how long an aborted command has to exit before it is killed
   unit_test_repeat_runs: 3          # times the tests a unit added or changed are run again under load (0: off)
-  restack_check: affected           # tier 1 after a clean move: scoped by the files the move brought in (affected) or the whole suite (full); a scoped move runs the unit's own tests and the profile's selection, and the profile selects only where `checks.affected` records data
-  e2e_base_runs: 1                  # run the untouched failed tier 2 tests once on the base (0: off)
-  e2e_unit_scope: own               # tier 2 per unit: only the tests it added or changed (own) or the whole marker (full); tests.e2e_unit_scope overrides per repo
-  e2e_schedule: weekly              # whole tier 2 suite on the default branch: daily | weekly | monthly | 'off' (quote it); tests.e2e_schedule overrides per repo
-  e2e_lock_wait_seconds: 5400       # longest post-merge verification waits for the tier 2 lock before reporting it busy
-  e2e_durations_shown: 15           # slowest tier 2 test entries the posted result lists (0 = all)
+  restack_check: affected           # unit-test after a clean move: scoped by the files the move brought in (affected) or the whole suite (full); a scoped move runs the unit's own tests and the profile's selection, and the profile selects only where `checks.affected` records data
+  e2e_base_runs: 1                  # run the untouched failed e2e-test tests once on the base (0: off)
+  e2e_unit_scope: own               # e2e-test per unit: only the tests it added or changed (own) or the whole marker (full); tests.e2e_unit_scope overrides per repo
+  e2e_schedule: weekly              # whole e2e-test suite on the default branch: daily | weekly | monthly | 'off' (quote it); tests.e2e_schedule overrides per repo
+  e2e_lock_wait_seconds: 5400       # longest post-merge verification waits for the e2e-test lock before reporting it busy
+  e2e_durations_shown: 15           # slowest e2e-test test entries the posted result lists (0 = all)
   network_probe_timeout_seconds: 5  # longest the outage probe waits to connect to one host
   network_control_hosts: [one.one.one.one, dns.google]  # bare host names tried beside the code hosts to tell a network outage from a model service outage
   service_unavailable_attempts: 5   # times in a row a 5xx or 529 from the model service parks a unit before the next fails it
@@ -370,13 +370,13 @@ repos:                          # ordered: deploy order is derived from
     infra: none                 # infrastructure profile: docker or none
                                 # (infra/). What the repo runs on, apart from
                                 # its language; `docker` records the container
-                                # listing beside a tier-2 result, `none`
+                                # listing beside an e2e-test result, `none`
                                 # (the default) records nothing. `abk init`
                                 # writes `docker` when the root has a compose
                                 # file or Dockerfile. An unknown name fails
                                 # when abk.yaml loads.
     projects: []                # where each project inside the repo lives, so
-                                # tier 1 runs its checks *inside* it:
+                                # unit-test runs its checks *inside* it:
                                 #   - path: services/api
                                 #     languages: [python]
                                 #     profile: python-uv
@@ -386,8 +386,8 @@ repos:                          # ordered: deploy order is derived from
                                 # a project (`uv run pre-commit` cannot resolve
                                 # pre-commit there). Written by `abk init`.
                                 # A project whose directory does not exist in
-                                # the checkout being checked is *pending*: tier
-                                # 1 and tier 2 run nothing in it and name it in
+                                # the checkout being checked is *pending*:
+                                # unit-test and e2e-test run nothing in it and name it in
                                 # their output, `abk doctor` lists it as
                                 # information, and none of it fails. It stops
                                 # being pending when the directory exists, so
@@ -404,13 +404,13 @@ repos:                          # ordered: deploy order is derived from
       root_extras: []           # extra packages the repo-root tests/ (outside
                                 # every workspace member) need
       e2e_marker: local_stack   # the pytest marker on tests needing the real
-                                # stack (tier 2, and post-merge verify)
+                                # stack (e2e-test, and post-merge verify)
       e2e_unit_scope: null      # own | full for this repo; null follows limits
       e2e_schedule: null        # daily | weekly | monthly | 'off' for this repo; null follows limits
       dev_stack_marker: dev_stack
-                                # the marker on tier-2 tests only the dev stack
+                                # the marker on e2e-test tests only the dev stack
                                 # can run; left out of post-merge verify
-      replay: null              # record and replay of the calls tier-2 tests make outside
+      replay: null              # record and replay of the calls e2e-test tests make outside
                                 # the stack; absent = none. Set, it holds:
                                 #   upstreams: [{name, url, kind, env, keyed_headers}]
                                 #     kind: deterministic | llm; env: the variables that
@@ -439,16 +439,16 @@ repos:                          # ordered: deploy order is derived from
         command: null           # required for `command`: a template whose words
                                 # `{changed_files}` and `{failed_ids}` each become
                                 # one argument per file or test identifier, run in
-                                # the project directory under the tier 1 time limit;
+                                # the project directory under the unit-test time limit;
                                 # the profile's "no tests collected" exit counts as
                                 # a pass, and the full run still confirms it
     dev_stack: null             # {script: scripts/dev-stack.sh}: a script with
-                                # `up`, `test` and `down`. Tier 2 runs the
+                                # `up`, `test` and `down`. E2e-test runs the
                                 # unit's branch on it instead of the live
                                 # stack. null = no dev stack.
     changelog: CHANGELOG.md     # where the repo keeps its changelog. Set, the
                                 # build, rework, resolver and review prompts
-                                # carry its convention and tier 1 runs
+                                # carry its convention and unit-test runs
                                 # `abk changelog check`; null = off. The
                                 # convention is the `## Changelog` section of
                                 # the repo's AGENTS.md, else its CLAUDE.md,
@@ -490,7 +490,7 @@ repos:                          # ordered: deploy order is derived from
 
 verify:                         # post-merge verification (docs/architecture.md)
   # stack_versions_command: [docker, ps, --format, "{{.Names}}\t{{.Image}}"]
-                                # recorded beside a tier-2 result so a
+                                # recorded beside an e2e-test result so a
                                 # reviewer can see what the stack was; one
                                 # `name<TAB>image` per line. Resolved in
                                 # order: a list here (an override for every
@@ -507,7 +507,7 @@ verify:                         # post-merge verification (docs/architecture.md)
                                 # recording until each repo names
                                 # `infra: docker`.
   env: {}                       # environment handed to the live-stack tests —
-                                # a unit's tier 2 and the check after a merge
+                                # a unit's e2e-test and the check after a merge
                                 # alike — each value resolved by a provider
                                 # when the run starts (below)
 
@@ -652,24 +652,24 @@ as the `verify.env` values and the credential settings are. A value under 8 char
 not replaced, and `abk doctor` warns, by name, for such a variable and for a name that is
 not set. See "Secrets never leave as text" in `docs/architecture.md`.
 
-### `tests.tier2_splits`
+### `tests.e2e_splits`
 
-`tests.tier2_splits` divides a repo's tier 2 tests into named splits that can be run, held
-and scheduled apart. The key is spelled `tests.e2e_splits` under the test-kinds rename;
-`tier2_splits` still loads, with a deprecation notice, and the two are refused together.
+`tests.e2e_splits` divides a repo's e2e-test tests into named splits that can be run, held
+and scheduled apart. The key is `e2e_splits`; its earlier, numbered spelling still loads,
+with a deprecation notice, and a file setting both is refused.
 It sits under `tests` at the top of `abk.yaml`, or under a repo's own `tests`, where it
 replaces the top-level map for that repo.
 
 ```yaml
 tests:
-  tier2_splits:
+  e2e_splits:
     slow:
       marker: slow_stack      # the selector: a marker the test runner registers
       hold: false             # optional; true holds the split
 repos:
   app:
     tests:
-      tier2_splits: {}        # this repo declares none, whatever the top level says
+      e2e_splits: {}        # this repo declares none, whatever the top level says
 ```
 
 - A split name is lowercase letters, digits and underscores; `base`, the older name of
@@ -679,15 +679,14 @@ repos:
   An unknown key, a missing marker or a repeated one is refused when the file loads.
 - `rest` is always declared: it is the tests in no split. It may carry `hold` but no
   `marker`, and needs no entry. With no splits declared, a repo's splits are `rest` alone.
-- A test is in at most one split. `abk tier2 check` finds a test in two.
-- `hold: true` leaves a split out of every tier 2 run and parks the units that wait on it.
-  `abk tier2 hold` and `abk tier2 release` write `hold` in `abk.yaml` and an entry in the
-  state file `tier2-held.json` together. The configuration wins: `hold: false` always
+- A test is in at most one split. `abk e2e-test check` finds a test in two.
+- `hold: true` leaves a split out of every e2e-test run and parks the units that wait on it.
+  `abk e2e-test hold` and `abk e2e-test release` write `hold` in `abk.yaml` and an entry in the
+  state file `e2e-held.json` together. The configuration wins: `hold: false` always
   releases a split and `hold: true` always holds it, whatever the file says; the file
   decides only for a split with no `hold` set.
 - The three runtime lists this setting replaces are gone, with no alias, and are refused at
-  load with a pointer to the split setting that replaces each (`tests.e2e_splits`, the
-  spelling of the key `tier2_splits` is read as).
+  load with a pointer to the split setting that replaces each (`tests.e2e_splits`).
 
 ## Environment variables and `.env`
 
@@ -702,7 +701,7 @@ loaded (`abk init` writes `.env.example` to copy).
 | `ABK_GATEWAY_QUIET_SECONDS` | how long a call's gateway spend rows must have stopped growing before they are taken as complete; set it to at least the gateway's flush interval. Rows still arriving at the settle bound are used and the log says the totals may be incomplete | `10` |
 | `GH_TOKEN` (or `ABK_GH_TOKEN`) | one GitHub token for every GitHub call, instead of the per-owner lookup `gh auth token --user <owner>`. Read from `.env`, since pydantic-settings does not export to the environment. | unset: per-owner lookup |
 | `ABK_GITHUB_API_URL` | the address GitHub calls go to, for GitHub Enterprise or a stand-in host. On an Enterprise host set `GH_TOKEN`: the `gh auth token` lookup asks github.com | `https://api.github.com` |
-| `ABK_REPLAY_MODE` | what tier-2 tests do with the calls they make outside the stack: `off` (no listener, nothing changed), `record` (all live, a passing test's calls are written), `replay` (an exact, fresh match answers from its cassette; anything else goes live and is recorded) or `live` (cassettes ignored, recordings written as in `record`). Any other value is refused | `off` |
+| `ABK_REPLAY_MODE` | what e2e-test tests do with the calls they make outside the stack: `off` (no listener, nothing changed), `record` (all live, a passing test's calls are written), `replay` (an exact, fresh match answers from its cassette; anything else goes live and is recorded) or `live` (cassettes ignored, recordings written as in `record`). Any other value is refused | `off` |
 | `ABK_FORGE_TIMEOUT_SECONDS` | the timeout on every call to a code host | `30` |
 | `ABK_FORGE_RETRIES` | how many times a failed code-host call is retried after the first attempt | `3` |
 | `ABK_FORGE_DEADLINE_SECONDS` | the most time, from a code-host call's first attempt, that retries and their waits may take | `120` |

@@ -25,27 +25,27 @@ implemented.
 | `detect_markers` | `abk init` | files whose presence in a repo root suggest this profile |
 | `allowed_tools` | every build run | tool patterns to allow beyond the base list, in `--allowedTools` syntax; no effect under the `acp` runtime (docs/agent-runtimes.md) |
 | `prompt_words` | the build prompts | `verify` ("what the checks pass means") and `stub` ("what a permitted stub looks like") |
-| `no_tests_collected_exit` | tier 2, verify | the runner's exit status when nothing was selected — a pass, not a failure |
-| `lint_command(base)` | tier 1 | lint scoped to the diff since `base` |
-| `lint_command_all_files()` | tier 1 | lint of the whole repo — used only for a unit with no commits of its own, which has no diff to scope to |
-| `extra_checks(repo)` | tier 1 | commands about the checkout as a whole (the python profile's changelog check). Tier 1 runs the repo profile's once, in the checkout root, whatever the unit touched |
-| `project_checks(repo)` | tier 1 | optional: commands about one project (the node profile's type check, which cannot be scoped to files). Tier 1 runs them in the directory of each project the unit touched, under that project's own profile, and in the checkout root for a repo with no projects; a profile without the method counts as returning `[]`. Declared as `profiles.base.ProjectChecks` |
-| `failure_kind(output)` | tier 1 failures, telemetry | `lint`, `types` or `test`, read from the failed command's `$` header. The profile of the project the failed command ran in reads it (tier 1 writes the directory under the header, `check_failures.failed_in`); the repo's profile reads a failure that names no project directory |
-| `test_commands(repo, changed, root_extras)` | tier 1 | the test runs a set of changed paths calls for |
-| `test_commands_all(repo, root_extras)` | tier 1 | every test run the repo has, regardless of a diff — used only for a unit with no commits of its own |
-| `affected_test_commands(repo, changed_files, failed_ids, *, seed, root_extras)` | tier 1, fix rounds and a scoped moved base | optional: the commands that run the tests the change affects, `[]` for none, or `None` when the profile cannot say — which a profile without the method does too. `failed_ids` come from the profile's `failed_tests`; `seed` is a path it may keep selection data in (a file under the project's git-excluded `.abk/` folder); `root_extras` are the repo's `tests.root_extras`, as for `test_commands`. A fix round's check uses it, and the full suite always confirms (see `checks.affected` in `configuration.md`); a scoped moved base (see `global_limits.restack_check`) asks it once with the unit's files and the files the move brought in and no failed ids, and no full run confirms that. The Python profile answers `None` there, and so the full suite runs, when a changed file is not a document, a `.py` source file or a `test_*` module (a lock or configuration file, a `conftest.py`, a shared test helper) |
-| `seeding_command(command, seed, *, select=False)`, `is_seeded(command)` | tier 1, full runs and fix rounds | optional: `command`, a test run, as one that keeps its selection data at `seed`, running every test, or only the affected ones with `select`. A full run in a repo with `checks.affected` on uses it, so the data a later selection reads is recorded; a profile without it records nothing. A seeded command that fails with no test result (the plugin could not be installed) is run again without it, and a seeded selection that does so falls back to the full suite, with one log line. `is_seeded` tells which commands those are. The Python profile adds the coverage plugin (`pytest-testmon`) to the run's isolated environment and keeps its data file at `seed`: with that data `affected_test_commands` selects by the source each test executed, and without it (a rebuilt worktree) it runs the failed identifiers alone, or returns `None` when there are none. Each selected run writes an `affected` line to the usage ledger: unit, node, round, tests selected and in all, estimated seconds saved (the last full run's test time less the selected run's, never negative, absent with no full run to compare with) and `agreed`, `disagreed` or `not_run`; a scoped moved base's passing run writes one too, with `moved`, which no full run confirms |
+| `no_tests_collected_exit` | e2e-test, verify | the runner's exit status when nothing was selected — a pass, not a failure |
+| `lint_command(base)` | unit-test | lint scoped to the diff since `base` |
+| `lint_command_all_files()` | unit-test | lint of the whole repo — used only for a unit with no commits of its own, which has no diff to scope to |
+| `extra_checks(repo)` | unit-test | commands about the checkout as a whole (the python profile's changelog check). Unit-test runs the repo profile's once, in the checkout root, whatever the unit touched |
+| `project_checks(repo)` | unit-test | optional: commands about one project (the node profile's type check, which cannot be scoped to files). Unit-test runs them in the directory of each project the unit touched, under that project's own profile, and in the checkout root for a repo with no projects; a profile without the method counts as returning `[]`. Declared as `profiles.base.ProjectChecks` |
+| `failure_kind(output)` | unit-test failures, telemetry | `lint`, `types` or `test`, read from the failed command's `$` header. The profile of the project the failed command ran in reads it (unit-test writes the directory under the header, `check_failures.failed_in`); the repo's profile reads a failure that names no project directory |
+| `test_commands(repo, changed, root_extras)` | unit-test | the test runs a set of changed paths calls for |
+| `test_commands_all(repo, root_extras)` | unit-test | every test run the repo has, regardless of a diff — used only for a unit with no commits of its own |
+| `affected_test_commands(repo, changed_files, failed_ids, *, seed, root_extras)` | unit-test, fix rounds and a scoped moved base | optional: the commands that run the tests the change affects, `[]` for none, or `None` when the profile cannot say — which a profile without the method does too. `failed_ids` come from the profile's `failed_tests`; `seed` is a path it may keep selection data in (a file under the project's git-excluded `.abk/` folder); `root_extras` are the repo's `tests.root_extras`, as for `test_commands`. A fix round's check uses it, and the full suite always confirms (see `checks.affected` in `configuration.md`); a scoped moved base (see `global_limits.restack_check`) asks it once with the unit's files and the files the move brought in and no failed ids, and no full run confirms that. The Python profile answers `None` there, and so the full suite runs, when a changed file is not a document, a `.py` source file or a `test_*` module (a lock or configuration file, a `conftest.py`, a shared test helper) |
+| `seeding_command(command, seed, *, select=False)`, `is_seeded(command)` | unit-test, full runs and fix rounds | optional: `command`, a test run, as one that keeps its selection data at `seed`, running every test, or only the affected ones with `select`. A full run in a repo with `checks.affected` on uses it, so the data a later selection reads is recorded; a profile without it records nothing. A seeded command that fails with no test result (the plugin could not be installed) is run again without it, and a seeded selection that does so falls back to the full suite, with one log line. `is_seeded` tells which commands those are. The Python profile adds the coverage plugin (`pytest-testmon`) to the run's isolated environment and keeps its data file at `seed`: with that data `affected_test_commands` selects by the source each test executed, and without it (a rebuilt worktree) it runs the failed identifiers alone, or returns `None` when there are none. Each selected run writes an `affected` line to the usage ledger: unit, node, round, tests selected and in all, estimated seconds saved (the last full run's test time less the selected run's, never negative, absent with no full run to compare with) and `agreed`, `disagreed` or `not_run`; a scoped moved base's passing run writes one too, with `moved`, which no full run confirms |
 | `created_files(repo)` | worktree check, commit step, restack | optional: the paths or patterns, relative to `repo` and `/` separated, of the files the profile's own commands create or rewrite in a worktree (not what a build produces, which is `environment.artifacts`). `[]` for none, which a profile without the method also counts as. Absolute paths, paths with `..` and `.git` are ignored. The pipeline owns them, with or without an `environment` section: an untracked one is never a leftover and never committed; a tracked one follows the lock rule where the environment declares dependency inputs, and is ordinary work otherwise. A repository's `projects` own each profile's paths under the project's path |
-| `tier2_commands(repo, marker)` | tier 2 without a dev stack | every member's live-stack tests |
+| `e2e_commands(repo, marker)` | e2e-test without a dev stack | every member's live-stack tests |
 | `acceptance_commands(checkout, paths, marker, exclude_marker, root_extras)` | post-merge verify | the live tests among a change's paths |
 | `clean_command()` | the push gate | lint and format at the tests commit, types skipped |
 | `red_command(files)` | the push gate | run these test files at the tests commit |
 | `interpret_red(output, exit_code)` | the push gate | was that run honestly red, and why not |
-| `parse_test_summary(output)` | tier 2, verify | `(passed, failed, skipped, seconds)` |
-| `parse_test_failures(output)` | tier 2 | `TestFailure(test, line)` for each failed or errored test, in printed order; `[]` when the output has none. The python profile asks pytest for them with `-rfE --tb=short` |
-| `is_test_path(path)` | verify, tier 1 | test paths deploy nothing |
+| `parse_test_summary(output)` | e2e-test, verify | `(passed, failed, skipped, seconds)` |
+| `parse_test_failures(output)` | e2e-test | `TestFailure(test, line)` for each failed or errored test, in printed order; `[]` when the output has none. The python profile asks pytest for them with `-rfE --tb=short` |
+| `is_test_path(path)` | verify, unit-test | test paths deploy nothing |
 | `stub_violations(path, content)` | the push gate | why a file is more than a declaration |
-| `members(repo)` | tier 1, tier 2, verify | workspace members; empty for a single-package repo |
+| `members(repo)` | unit-test, e2e-test, verify | workspace members; empty for a single-package repo |
 | `member_of(repo, path)` | verify | which member a path is in |
 | `dependents(repo, member)` | verify | members that declare `member` as a dependency |
 | `detect_environment(root, framework)` (optional) | `abk init` | the proposed `environment` section for a checkout, or `None` when the profile cannot say; a profile without it counts as returning `None`; declared as `profiles.base.EnvironmentDrafting`, which the walk selects on. A draft can be a `config.DraftedEnvironment`, whose `note` init writes as a comment above the section. `profiles.registered(profile)` registers one for a `with` block |
@@ -69,20 +69,20 @@ What it runs, exactly:
 | Method | Command |
 |---|---|
 | `lint_command(base)` | `uv run pre-commit run --from-ref <base> --to-ref HEAD` — scoped to the diff, so a unit is not failed for problems in files it never touched |
-| `lint_command_all_files()` | `uv run pre-commit run --all-files` — tier 1 uses it only for a unit with no commits of its own |
+| `lint_command_all_files()` | `uv run pre-commit run --all-files` — unit-test uses it only for a unit with no commits of its own |
 | `clean_command()` | `SKIP=pyrefly-check uv run pre-commit run --all-files` — type checking skipped: a test importing what does not exist yet is the expected state at the tests commit |
 | `red_command(files)` | `uv run pytest <files> -p no:cacheprovider --tb=line -q` |
 | `test_commands`, single-package repo | `uv run pytest -q` if `tests/` exists, else nothing. A repo that declares `pytest-xdist` (project dependencies, extras, dependency groups) gets two commands instead, mirroring `poe test`: `uv run pytest -n auto --maxprocesses=8 -m 'not serial' -q`, then `uv run pytest -m serial -q`, whose exit 5 (nothing marked `serial`) counts as a pass. The repo's own `addopts` `-m` expression is kept: `(<it>) and not serial`. A repo without xdist keeps the plain command, since `-n` would be rejected there |
 | `test_commands`, workspace | per chosen member with a `tests/` dir: `uv run --package <name> --isolated pytest <member> -q` (the two xdist passes above instead, when the member's own `pyproject.toml` declares `pytest-xdist`). Chosen: the members a changed path is under — or **every** member when a non-`.md` path outside all members changed (the root `pyproject.toml` is where a marker gets registered). Plus, when such an outside path or `tests/` changed and a repo-root `tests/` exists: `uv run --no-project --isolated --with pytest [--with <root_extras>...] pytest tests -q` (the two xdist passes instead, when `root_extras` names `pytest-xdist`) |
-| `test_commands_all(repo, root_extras)` | every testable member plus the root `tests/`, whatever changed — tier 1 uses it only for a unit with no commits of its own |
-| `tier2_commands(marker)`, single-package | `uv run pytest -m <marker> -v` |
-| `tier2_commands(marker)`, workspace | per member with `tests/`: `uv run --directory <member> --package <name> --isolated pytest -m <marker> -v` (no path: the member's own pytest configuration, `testpaths` included, decides what is collected) |
+| `test_commands_all(repo, root_extras)` | every testable member plus the root `tests/`, whatever changed — unit-test uses it only for a unit with no commits of its own |
+| `e2e_commands(marker)`, single-package | `uv run pytest -m <marker> -v` |
+| `e2e_commands(marker)`, workspace | per member with `tests/`: `uv run --directory <member> --package <name> --isolated pytest -m <marker> -v` (no path: the member's own pytest configuration, `testpaths` included, decides what is collected) |
 | `acceptance_commands(...)` | the existing `.py` paths under `tests/integration/` among the changed paths, grouped by member: `uv run --package <name> --isolated pytest -m "<marker> and not <exclude_marker>" <files...>`; root files with the `--no-project --isolated --with ...` head instead |
 
 And what it knows:
 
 - `no_tests_collected_exit` is 5 (pytest's "no tests collected"); most
-  members carry no tier-2 tests.
+  members carry no e2e-test tests.
 - `allowed_tools` is `Bash(uv run *) Bash(uv lock*) Bash(uv sync*) Bash(uv add *)
   Bash(uv remove *) Bash(pre-commit *)`. A builder that changes dependencies
   needs `uv lock`, `uv sync`, `uv add` and `uv remove`, and a headless run
@@ -165,7 +165,7 @@ npm, `pnpm-lock.yaml` pnpm, `yarn.lock` yarn), else npm. `sync` is the plain ins
 depth-0 listing, the manifest and lock files are inputs, a `workspaces` field adds
 `<workspace>/package.json` patterns, and `node_modules` is an artifact.
 
-What still raises, method by method: the tier 2 and acceptance commands; `members`/`member_of`/`dependents` from
+What still raises, method by method: the e2e-test and acceptance commands; `members`/`member_of`/`dependents` from
 `package.json` workspaces.
 
 ## Adding a profile
@@ -177,7 +177,7 @@ There is no plugin discovery: the registry is filled in-process by
 1. Add `profiles/<name>.py` with a class satisfying `ToolchainProfile` (a
    plain class; the protocol is structural) and a module-level `PROFILE`
    instance. Reuse `pipeline/commit_order.stub_violations`,
-   `pipeline/red_check.interpret_pytest` and `pipeline/tier2.parse_pytest_summary`
+   `pipeline/red_check.interpret_pytest` and `pipeline/e2e.parse_pytest_summary`
    where the toolchain's output is pytest-shaped; otherwise write the
    equivalents beside the profile.
 2. Register it in `_load_builtin` (or call `profiles.register` before the
@@ -215,7 +215,7 @@ loads, naming the registered ones. Two ship:
 | `docker` | a compose file (`compose.yaml`, `docker-compose.yml`, ...) or `Dockerfile` | `docker ps --format "{{.Names}}\t{{.Image}}"` |
 | `none` | none | none: nothing is recorded or run |
 
-Tier 2 records the command's output beside its result, resolved by
+E2e-test records the command's output beside its result, resolved by
 `config.stack_versions_for`: `verify.stack_versions_command` when a list
 (installation-wide override), else the repo's infra profile's command; an
 explicit `null` records nothing. To add a profile: `infra/<name>.py` with a

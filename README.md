@@ -4,8 +4,8 @@ A spec-driven, unattended build pipeline for Claude Code across a workspace
 of repos. Changes are written as OpenSpec changes in a **planning repo**; the
 pipeline turns each change's task groups into units of work — one branch and
 one pull request each, in one of the workspace's **code repos** — builds them
-test-first with Claude Code, reviews them with a second model, runs two test
-tiers, pushes only what review approved, and after a human merges everything
+test-first with Claude Code, reviews them with a second model, runs its tests
+by kind, pushes only what review approved, and after a human merges everything
 deploys the change, runs its live tests and archives the spec. Scheduled
 tracks (health, improve, recommend) keep watch on the repos in between.
 `abk` is the CLI; `abk init` sets an installation up.
@@ -25,12 +25,16 @@ will be chosen later. The `python-uv` toolchain profile is implemented; the
  openspec/changes/<change>/   ──►   worktree per unit     ──►     PR per unit
    tasks.md (tagged groups)         tests commit, then             (never merged
  abk.yaml (the installation)        implementation,                by the agent)
- runs/units.json (the state)        review loop, tier 1,                │
-        ▲                           tier 2 on the dev stack             │
+ runs/units.json (the state)        review loop, unit-test,             │
+        ▲                           e2e-test on the dev stack           │
         └──────── poll: merged / closed / rework / restack ◄────────────┘
                   then verify (deploy + live tests) and archive
 ```
 
+- A task group is tagged with one of three **test kinds**, narrowest to widest: `unit-test`
+  (one module's behaviour), `integration-test` (behaviour across modules or files in the
+  ordinary suite, no live stack; a label that behaves as `unit-test`, not the pytest
+  `integration` marker) and `e2e-test` (needs the real local stack).
 - The **planning repo** holds the specs (an OpenSpec store), `abk.yaml`
   (everything about this installation: repos, owners, deploy rules, limits)
   and the pipeline's state. It is usually a repo of its own, but it can be one of
@@ -94,7 +98,7 @@ repos:
     default_branch: dev         # what units are built on
     profile: python-uv          # how it lints, tests and reads results
     projects:                   # where each project *inside* the repo lives,
-      - path: services/api      # so tier 1 runs its checks inside it
+      - path: services/api      # so unit-test runs its checks inside it
         languages: [python]
         profile: python-uv
 

@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 import agent_build_kit
+from agent_build_kit import skills
 from agent_build_kit.rename_test_kinds import (
     FORWARD_MARKER,
     SHIM_MARKER,
@@ -70,6 +71,18 @@ OLD_NAME_TESTS = (
 )
 
 
+# The two documents that explain the rename write the old names on purpose, as does the
+# changelog's entry for it. The whole changelog is exempt, on purpose: its older bullets
+# describe released behaviour by the names it had, and the changelog convention is to leave
+# other bullets as they are. The strict guard of the last group carries the same exemption.
+EXEMPT_DOCUMENTS = (
+    ROOT / "docs" / "agent-efficient-coding-philosophy.md",
+    ROOT / "docs" / "risk-tiered-review-design.md",
+    ROOT / "CHANGELOG.md",
+)
+TOP_LEVEL_DOCUMENTS = (ROOT / "README.md", ROOT / "AGENTS.md", ROOT / "CLAUDE.md")
+
+
 def text_files(folder: Path) -> list[Path]:
     """Every text file under `folder`, bytecode and installed packages left out."""
     found = []
@@ -89,6 +102,13 @@ def converted_test_directory_files() -> list[Path]:
     return [p for p in text_files(TESTS) if p.name not in OLD_NAME_TESTS]
 
 
+def converted_documents() -> list[Path]:
+    """The Markdown under `docs/`, the top-level documents and the skills' text."""
+    documents = [*sorted((ROOT / "docs").glob("*.md")), *TOP_LEVEL_DOCUMENTS]
+    skill_files = text_files(SOURCE / "skills")
+    return [p for p in [*documents, *skill_files] if p not in EXEMPT_DOCUMENTS]
+
+
 def converted_files() -> list[Path]:
     """The pipeline package, the converted source directories, `web/src` and `tests/`."""
     return [
@@ -98,6 +118,7 @@ def converted_files() -> list[Path]:
         *(p for name in SOURCE_DIRECTORIES for p in text_files(SOURCE / name)),
         *text_files(WEB_SOURCE),
         *converted_test_directory_files(),
+        *converted_documents(),
     ]
 
 
@@ -160,5 +181,11 @@ def test_no_converted_test_directory_file_is_named_for_an_old_spelling() -> None
         for p in converted_test_directory_files()
         if OLD_SPELLING.search(p.name) and not is_shim_module(p.read_text())
     ]
+
+    assert offenders == []
+
+
+def test_the_rendered_skills_carry_no_old_spelling() -> None:
+    offenders = [name for name in skills.names() if OLD_SPELLING.search(skills.rendered(name))]
 
     assert offenders == []

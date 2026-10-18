@@ -4,7 +4,7 @@
 state, the node enum, the SQLite checkpointer with its allowlist and the
 compiled graph, and `graph/unit.run_unit` runs a unit on it, over the
 callables `wiring.build_runner` binds: `prepare`, `adapt`, `tests`,
-`implement`, `checks`, `fix_checks`, `review`, `rework`, `tier1`, `tier2`,
+`implement`, `checks`, `fix_checks`, `review`, `rework`, `unit-test`, `e2e-test`,
 `verify_base`, `push`, `open_pr`, `await_review`, `satisfied`, `held` and
 `failed`, joined by the edges below. Before a step that starts work or leaves
 the machine the nodes consult `upstream_incomplete` and the hold, and a unit
@@ -93,7 +93,7 @@ line falls where a unit ends:
 |  | `Needs:` dependencies, applied by `waiting_on`/`ready_units` like any dependency: a same-repo parent in review releases the dependent onto the parent's branch, a cross-repo one must merge. A failed or held unit requeued while its parent is unmet waits as `planned` with the cause `gated`. The graph draws a `Needs:` dependency as a thick edge, `==>|needs|`, and the planner's own as a plain arrow; the mark (`needs`) is recomputed from `tasks.md` each tick and affects no scheduling. A target the unit already reaches through its dependencies is recorded in `needs` but not linked, so it draws no edge |
 | Where a run got to: the thread's position replaces `checkpoint()`, `record_step` and `resume_from` | The driver: the tick timer, `cmd_tick`, a pass's refresh loop |
 | In-run state: review rounds, deferred follow-ups, pending replies and the comments they answer | Polling the forge (`pr_poller.py`): the source of events |
-| Recovery after a kill: the tick resumes the thread | Branch locks, repo turns, the tier 2 lock |
+| Recovery after a kill: the tick resumes the thread | Branch locks, repo turns, the e2e-test lock |
 | Waiting in review or held, and what `events.py` does to a waiting unit | Git and forge work: restack and adapt mechanics, the approved-commit push gate, the commit gate, the policy hook, forges, profiles |
 | Stopping between steps for usage | The usage guard's decision (`usage_guard.py`), which a node asks |
 
@@ -189,32 +189,32 @@ flowchart TD
     resume --> implement & checks & verify_base
     tests --> implement
     implement -->|commits| checks
-    implement -->|nothing new| tier1
+    implement -->|nothing new| unit-test
     checks -->|passed| review
     checks -->|failed, fix rounds left| fix_checks
     checks -->|failed, fix rounds spent| failed
     adapt -->|tests not accounted for| failed
     fix_checks --> checks
-    review -->|approved, tier 2 unit| tier2
+    review -->|approved, e2e-test unit| e2e-test
     review -->|approved| verify_base
     review -->|changes asked| rework
     review -->|needs a person, escalated| held
-    implement & fix_checks & rework & review & tier2 & verify_base -->|upstream went back, base moved| held
-    tier1 & push -->|upstream went back, base moved; on their conditions| held
+    implement & fix_checks & rework & review & e2e-test & verify_base -->|upstream went back, base moved| held
+    unit-test & push -->|upstream went back, base moved; on their conditions| held
     review -->|rounds spent| push
     rework --> checks
-    tier1 -->|passed, no commits of its own| satisfied
-    tier1 -->|passed, after a clean move, tier 2 unit| tier2
-    tier1 -->|passed, after a clean move| new_comments
-    tier1 -->|passed, on its base| verify_base
-    tier1 -->|failed| failed
-    tier1 -->|failed or changed approval after a move| prepare
-    prepare -->|approved tip, tier 2 unit| tier2
-    tier2 -->|passed| verify_base
-    tier2 -->|passed, after a clean move| new_comments
-    tier2 -->|failed| failed
-    tier2 -->|failed after a move| prepare
-    verify_base -->|base moved, clean| tier1
+    unit-test -->|passed, no commits of its own| satisfied
+    unit-test -->|passed, after a clean move, e2e-test unit| e2e-test
+    unit-test -->|passed, after a clean move| new_comments
+    unit-test -->|passed, on its base| verify_base
+    unit-test -->|failed| failed
+    unit-test -->|failed or changed approval after a move| prepare
+    prepare -->|approved tip, e2e-test unit| e2e-test
+    e2e-test -->|passed| verify_base
+    e2e-test -->|passed, after a clean move| new_comments
+    e2e-test -->|failed| failed
+    e2e-test -->|failed after a move| prepare
+    verify_base -->|base moved, clean| unit-test
     verify_base -->|base moved, conflicts| prepare
     verify_base -->|on its base| new_comments
     new_comments -->|new comments| rework
@@ -255,12 +255,12 @@ are the reference for each condition. The nodes:
 | `prepare` | Worktree, fetch, move the branch onto its base, settling a conflict with the restack's two resolver steps in the build session (hunks, then dependent files) and handing what they cannot settle to `adapt` (for a unit told its base moved, the restack lane runs this node and the nodes after it, and stops before any work that is not about the move (a rework of other feedback, a fix of checks, the end-to-end tests, tests or implementation)); picks the next node from what is on the branch and in state | worktree setup, `restack_onto`, `branch_commits` |
 | `tests` | The tests-first commit | `run`, `commit` |
 | `implement` | The implementation commit; a step that adds nothing is judged as any other, not against the usage window | `run`, `commit`, `may_start` |
-| `checks` | Tier 1 on the branch **before a reviewer is asked**, on the committed tree. Passing records the commit, so `tier1` after approval is not repeated on it | `tier1`, `commit` |
+| `checks` | Unit-test on the branch **before a reviewer is asked**, on the committed tree. Passing records the commit, so `unit-test` after approval is not repeated on it | `unit-test`, `commit` |
 | `fix_checks` | Hands the failed checks' output to the builder, bounded by `global_limits.max_check_rounds`, then back to `checks`. Records no reply, as there is no reviewer to answer | `run`, `commit`, `may_start` |
 | `review` | One review round; records the verdict, findings, follow-ups and the approved commit. After a person's rework it is also given their comments, quoted, each with the builder's reply or `(no reply)` | `run_review` / `run_rework_review` |
 | `rework` | Addresses review or forge feedback and records the builder's replies | `run`, `commit` |
 | `adapt` | The last step of a conflict, after the restack's two resolver steps failed their checks: ports the old work onto the new base in the same session, told what was tried, and accounts for each test | the adapt agent, `check_test_decisions` |
-| `tier1`, `tier2` | The test tiers. `tier1` is **not** run after a review: approval leaves the branch as `checks` judged it. It runs for a unit that produced nothing (judged on tier 1 alone) and on a branch moved cleanly onto a new base, before the push. `tier2` follows approval for a tier 2 unit | `tier1`, `run_tier2` |
+| `unit-test`, `e2e-test` | The test kinds. `unit-test` is **not** run after a review: approval leaves the branch as `checks` judged it. It runs for a unit that produced nothing (judged on unit-test alone) and on a branch moved cleanly onto a new base, before the push. `e2e-test` follows approval for an e2e-test unit | `unit-test`, `run_e2e` |
 | `verify_base` | The fresh-base check before a push | fetch, `fresh_base`, `restack_onto` |
 | `new_comments` | Before the push, for a rework of a unit with a pull request, reads the notes and conversation again; those not in `seen_comments` and not the pipeline's own go back to `rework` as feedback, restarting the round counters; `open_pr` records the ids given to the agent so the poller ignores them | `fetch_comments` |
 | `push` | Pushes only the approved commit | the push gate, `push` |
@@ -270,14 +270,14 @@ are the reference for each condition. The nodes:
 | `satisfied`, `failed` | Terminal for this thread; `failed` waits for a requeue. A satisfied unit's thread is deleted, its groups ticked and an open pull request closed with the reason | `close_pr` for satisfied |
 
 Between steps a unit is held, not stopped: before `implement`, `fix_checks`,
-`review`, `rework`, `tier2` (unless the branch just moved), `verify_base` (and
-`tier1` for a unit that produced nothing, and `push` when its rounds are spent)
+`review`, `rework`, `e2e-test` (unless the branch just moved), `verify_base` (and
+`unit-test` for a unit that produced nothing, and `push` when its rounds are spent)
 the run asks whether its upstream went back for rework or its base moved or was
 rewritten since `prepare` took the tip, and goes to `held` with the unit
 `planned` if so. A step already begun is finished.
 
 A base that moves before the push, a pull request refused for a missing base, a
-failing tier 1 or tier 2 after a clean move, and a move that changed what review
+failing unit-test or e2e-test after a clean move, and a move that changed what review
 approved all go back to `prepare` once (`rebased`), so the restack resolves under
 the usage gate and review reads the result; a second time the unit is held
 `planned` for the next tick, so a base that keeps moving cannot loop.
@@ -320,14 +320,14 @@ change it.
 
 ### Checks before review
 
-Tier 1 used to run once, after the reviewer approved, so a branch that did not
+Unit-test used to run once, after the reviewer approved, so a branch that did not
 lint or type-check was reviewed twice over: once to approve it, and again after
 the failure came back. The reviewer is also the more expensive model. Now every
 route into `review` goes through `checks` first, including a rework: the
 builder's fix for a reviewer's point can break the build as easily as the first
 draft could.
 
-A failure is saved on the unit as feedback (`tier 1 failed:` and the output) and
+A failure is saved on the unit as feedback (`unit-test failed:` and the output) and
 goes to `fix_checks`, up to `global_limits.max_check_rounds` times (3 by default;
 `null` is no limit; 0 means no fix attempt, not no check: it is the only gate
 before a review and a push). The count is per round of review: `checks` runs at
@@ -335,7 +335,7 @@ the top of each round and the budget starts again, so a rework that breaks the
 build gets its own attempts. A fix that leaves the branch unchanged ends the
 run whatever the limit, as asking again would be the same question of the same
 tree. The checks prompt tells the agent to run the checks itself to see output that is cut
-short; for a tier 2 failure, which the agent cannot rerun, it names the file holding the full
+short; for an e2e-test failure, which the agent cannot rerun, it names the file holding the full
 output (unless it was withheld) and says the live tests cannot be rerun. Only when the
 budget is spent does the unit go to `failed`, with the
 output still saved, and `abk requeue --rework` is how it
@@ -344,10 +344,10 @@ keeps the saved failure, so the resume fixes what was found rather than finding
 it again; a successful fix clears it, so a run stopped before its review does
 not redo a fix that is already on the branch.
 
-Nothing runs tier 1 after the review. A reviewer reports and the builder fixes,
+Nothing runs unit-test after the review. A reviewer reports and the builder fixes,
 so approval leaves the branch exactly as `checks` judged it. The branch is
 checked again only when it changes: a clean move onto a new base
-(`verify_base` → `tier1` → push) is checked before it is pushed, and a move with
+(`verify_base` → `unit-test` → push) is checked before it is pushed, and a move with
 conflicts goes through `adapt`, which accounts for its own tests and then back
 through `checks` and `review`, since the resolution rewrote the commit that was
 approved.
@@ -367,7 +367,7 @@ sit in the unit store, plus what routing needs:
   builder's response), the approved commit, deferred follow-ups, pending
   replies, the predecessor note;
 - **step results routing reads:** commits this run produced, the last verdict,
-  tier results, why a run stopped;
+  unit-test and e2e-test results, why a run stopped;
 - **the last event received,** so a resumed node knows why it is running;
 - **the running agent's session id,** written as soon as the runtime reports it
   and cleared when the node completes (see Session capture and resume);
@@ -376,8 +376,8 @@ sit in the unit store, plus what routing needs:
   when the last node finished (what a re-run compares with), whether feedback
   was waiting at the start, the fix rounds and the review round so far, and
   whether the checks passed, the branch is empty or `verify_base` moved it, the
-  base's tip when `prepare` began, whether it is a tier 2 unit, the restack that
-  could not be merged (for `adapt`), whether the review rounds are spent, tier 2's
+  base's tip when `prepare` began, whether it is an e2e-test unit, the restack that
+  could not be merged (for `adapt`), whether the review rounds are spent, e2e-test's
   results, whether to go back to `prepare` and whether it already has once;
 - **why a run is held:** the detail, the state the store is left in and its note;
 - **how the run ended:** the status, detail and pull request `RunOutcome` reports.
@@ -508,11 +508,11 @@ at `prepare`, and any other event is `NotWaiting`, and the handler acts on the s
 
 ## The environment cause
 
-Before a unit's tier 1 runs (the `checks` node, or `tier1` for a unit that produced
-nothing), and again when a command the pipeline runs for tier 1 fails, the pipeline runs
+Before a unit's unit-test runs (the `checks` node, or `unit-test` for a unit that produced
+nothing), and again when a command the pipeline runs for unit-test fails, the pipeline runs
 the planning environment's `check`. When it fails, the unit is `failed` with the cause
 `environment`: no feedback is saved and no fix round runs. A unit's own failure while
-`check` passes is an ordinary tier 1 failure. The unit still counts toward the units in
+`check` passes is an ordinary unit-test failure. The unit still counts toward the units in
 progress, `abk status` and the full-queue line name it as waiting for the environment,
 and a store whose only unit needing attention is failed this way still counts as work for
 a tick. Each tick, once the environment is healthy, such units are resumed as `abk requeue`
@@ -551,8 +551,8 @@ On a fresh start `prepare` notes whether the approved commit is the pushed head
 (`pushed_head`) and whether a pull request exists (`opened`). With the former, and no
 pull request or unposted replies (owed replies count only when no feedback is saved, so a
 requeue for rework still reworks), `after_prepare` routes straight to `open_pr`, before
-tier 2, review or rework from saved feedback. Known limitation: a unit started fresh this way
-has no tier 2 snapshot in its run state, so the pull request it opens lacks the tier 2 result
+e2e-test, review or rework from saved feedback. Known limitation: a unit started fresh this way
+has no e2e-test snapshot in its run state, so the pull request it opens lacks the e2e-test result
 section.
 
 ## Usage pauses
@@ -649,7 +649,7 @@ branch.
 - Nothing but a slot runs a node. A poll's event delivery, `abk requeue` and
   the scheduler's refresh run no agent, check or push: they position the
   thread, and the pool runs it.
-- Repo turns and the tier 2 lock are taken inside the nodes that need them, as
+- Repo turns and the e2e-test lock are taken inside the nodes that need them, as
   the wrapped callables do now.
 
 ## Observability
@@ -661,7 +661,7 @@ branch.
 - **A span record per node** in the usage ledger: UTC start and end, duration,
   outcome and round, written when the node returns or raises. A usage pause
   (`usage_pause`) and the wait for a build slot (`slot`) are recorded as waits
-  with their bucket, and each tier 1 command with its duration
+  with their bucket, and each unit-test command with its duration
   (docs/architecture.md, Spans).
 - **Progress lines** reach the unit's run log (`runs/unit-logs/`) through
   `RunLog.emit`, called by the nodes. Stream events (`get_stream_writer`) are
@@ -704,8 +704,8 @@ no deprecation window. The callables in `wiring.py` and everything they reach st
 - **Acceptance:** one real unit built end to end through the graph, reviewed,
   pushed, opened, then resumed by a real review comment. The live-agent tests
   read the run log as the graph writes it: lines are `<unit>: <node>: …` with
-  the node names from `graph.state.Node`, and a failing tier 2 leaves the tail
-  of its output there, under the `tier2` prefix.
+  the node names from `graph.state.Node`, and a failing e2e-test leaves the tail
+  of its output there, under the `e2e-test` prefix.
 
 ## Open parents
 

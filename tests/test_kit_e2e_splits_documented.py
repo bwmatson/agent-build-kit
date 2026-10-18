@@ -11,14 +11,12 @@ import yaml
 from agent_build_kit.config import WorkspaceConfig
 
 ROOT = Path(__file__).resolve().parent.parent
-# The documents still carry the old spelling until they are renamed.
-DOC_KIND = "tier" + "2"
 
 
 def documented_block() -> dict:
     text = (ROOT / "docs" / "agent-runtimes.md").read_text(encoding="utf-8")
     blocks = re.findall(r"```ya?ml\n(.*?)```", text, re.DOTALL)
-    found = [yaml.safe_load(block) for block in blocks if f"{DOC_KIND}_splits:" in block]
+    found = [yaml.safe_load(block) for block in blocks if "e2e_splits:" in block]
     assert len(found) == 1, "docs/agent-runtimes.md needs one tests.e2e_splits example block"
     return found[0]
 

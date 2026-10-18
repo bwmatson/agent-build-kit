@@ -150,7 +150,7 @@ skipped entirely with `--skip-research`.
 
 The framework ships a **seed** for `python` and `javascript`
 (`recommendations/*.md`): a starting position with sections Formatting,
-Linting, Types, Test layout & tiers, Packaging & workspaces, Configuration &
+Linting, Types, Test layout & kinds of test, Packaging & workspaces, Configuration &
 types conventions, Pre-commit, CI, each item stating the rule, the tool and
 its version floor, the rationale, and how to verify a repo follows it. A
 `claude -p` run with `Read Grep Glob WebSearch WebFetch` validates every item
@@ -168,7 +168,7 @@ For each repo with a detected language — skipped with `--skip-propose` —
 
 | Change | When | What it specifies |
 |---|---|---|
-| `<repo>-testing-infrastructure` | the repo has code | test runner and layout, markers/tiers, fakes at protocol boundaries, a tests-first gate, CI — so an agent can change the repo safely |
+| `<repo>-testing-infrastructure` | the repo has code | test runner and layout, markers/kinds, fakes at protocol boundaries, a tests-first gate, CI — so an agent can change the repo safely |
 | `<repo>-code-standards` | always | types, formatting, linting and best practices from the language's recommendations, applied to this repo |
 
 An existing change directory is kept unless `--force`. The run happens in the
@@ -296,6 +296,6 @@ it refuses to overwrite.
 
 | Skill | Triggers when an agent is... |
 |---|---|
-| `abk-authoring` | writing or editing a change's `tasks.md`, choosing `[repo] [tier]` tags or `[contract]`/`[narrow]`/`[acceptance]` flags, or reading an `abk tags` error. The heading contract, the flags, `Needs:` lines, `abk check`/`abk tags` before committing. |
+| `abk-authoring` | writing or editing a change's `tasks.md`, choosing `[repo] [kind]` tags or `[contract]`/`[narrow]`/`[acceptance]` flags, or reading an `abk tags` error. The heading contract, the flags, `Needs:` lines, `abk check`/`abk tags` before committing. |
 | `abk-config` | editing `abk.yaml`, reading an `abk doctor` report, or asked where an installation fact should live. The schema, what doctor checks, how to add a repo or a service. |
 | `abk-pipeline` | asked what the pipeline is doing, why a unit is stuck, what `held`/`failed`/`in_review` mean, or about to run `abk tick`, `abk verify` or `abk archive`. The commands, the state files, the unit states and what to do about each, a change's lifecycle, pauses. |

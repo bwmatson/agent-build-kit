@@ -30,11 +30,11 @@ the output, starts nothing and exits non-zero. `abk status` prints the recorded 
 Units failed with the cause `environment` are resumed in the pass once it is healthy.
 
 A repository's own `environment` runs in the unit's worktree (`prepare_worktree`): in the
-tests node and before every tier 1 it hashes the inputs there, runs `sync` when the hash
+tests node and before every unit-test it hashes the inputs there, runs `sync` when the hash
 differs from the one recorded in the worktree's git directory, then `check`. A failure with
 inputs equal to the base branch's (at the point the branch left it) fails the unit with the
 cause `environment`; a failing `sync` or `check` after the unit changed the inputs is an
-ordinary tier 1 failure carrying that output.
+ordinary unit-test failure carrying that output.
 
 The lock files named in the repository's `environment.inputs.lock` belong to the pipeline in
 its worktrees, because a package manager's `sync` creates or rewrites them. The commit step
@@ -46,7 +46,7 @@ branch, since a rebase refuses a tree with an unstaged change. The same rules ap
 commit adopted from a chat.
 
 The files a toolchain profile says its own commands create (`created_files`) are owned the
-same way in a repository with no `environment` section, so a tier 1 command that writes one
+same way in a repository with no `environment` section, so a unit-test command that writes one
 does not hold the next step as a dirty worktree. `owned_paths` merges them with the lock files
 and artifacts, one entry per path, an artifact before a lock before a created file. An
 untracked one is never committed; a tracked one follows the lock rule only where the
@@ -66,7 +66,7 @@ work.
 A change lives in `openspec/changes/<change>/` in the planning repo:
 `proposal.md`, `design.md`, delta specs, and `tasks.md`. The pipeline reads
 only `tasks.md`, so two facts have to be on every task-group heading — the
-repo the code lands in, and the test tier it needs:
+repo the code lands in, and the test kind it needs:
 
 ```
 ## 1. [platform] [unit-test] [contract] Accept the new field, keep the old one
@@ -80,8 +80,12 @@ refuses a change with tag errors before spending a model call on it:
 
 - groups are numbered from 1 in build order, every group has at least one
   `- [ ] n.m` task, and `[repo]` is one of `abk.yaml`'s `repos` keys exactly;
-- `[unit-test]` runs in CI with no external services; `[e2e-test]` needs the real
-  stack on the developer host and is serialized behind one lock;
+- the kind tag is one of three, listed from narrowest to widest. `unit-test` covers one
+  module's behaviour and runs in CI with no external services. `integration-test` covers
+  behaviour across modules or files in the ordinary suite with no live stack, and behaves as
+  `unit-test` in every other way: it is a label, not the pytest `integration` marker and not
+  `tests/integration/`. `e2e-test` needs the real stack on the developer host and is
+  serialized behind one lock. A unit of several groups takes the widest kind among them;
 - an optional third tag is a **flag**. `[contract]` marks a group that widens
   a shape the *other* repo consumes (a wire model field, an event, a tool
   surface). Two repos are never at the same commit, so callers of both shapes
@@ -337,7 +341,7 @@ that no process holds takes no build slot until the round starts it again, and
 is started before planned units. A change that
 fully merges early in a long pass is verified live and archived by the next
 round, not the next pass; verification takes the live-stack lock without
-waiting, and is skipped and logged for that round while a tier 2 run holds it.
+waiting, and is skipped and logged for that round while an e2e-test run holds it.
 
 Those mid-pass polls run while other builds are still going, so an event can
 name a unit being built. Each handler takes the unit's branch lock first, as
@@ -395,16 +399,16 @@ release could move. The steps:
 4. **Implementation, commit.** A second run makes those tests pass and may
    not weaken them; commit `feat: <title>`. A branch left
    with no commits of its own — neither step added one — is not failed
-   outright; see the satisfied outcome after tier 1, below.
+   outright; see the satisfied outcome after unit-test, below.
 5. **Checks, then review rounds.** Before each review round the branch has to
-   pass tier 1 (lint, formatting, types and the tests; see step 6): a reviewer's
+   pass unit-test (lint, formatting, types and the tests; see step 6): a reviewer's
    time goes on a branch that already builds. A failure is saved as feedback and
-   handed to the builder with the check prompt, then tier 1 runs again, up to
+   handed to the builder with the check prompt, then unit-test runs again, up to
    `global_limits.max_check_rounds` times (3; `null` is no limit; 0 means no fix
    attempt, not no check), before the unit is `failed` with the output kept. A
    fix that changes nothing ends it too, whatever the limit. It runs again
    before every later review round with the budget started over, since a
-   rework can break the build as easily as the first draft. Nothing runs tier 1 after the review: a reviewer reports and the
+   rework can break the build as easily as the first draft. Nothing runs unit-test after the review: a reviewer reports and the
    builder fixes, so approval leaves the branch as the checks judged it.
    A read-only reviewer (`Read Grep Glob`, `git diff/log/
    show`, and the forge's read commands, `gh pr view`/`diff` or `az repos pr
@@ -461,7 +465,7 @@ release could move. The steps:
    when its environment refuses the edit (a protected file, a permission); if
    every remaining required change is blocked, the reviewer sets `needs_human`
    and the unit is `held` for a person. Approval records the commit SHA.
-6. **Tier 1.** Lint scoped to the unit's diff, then the tests of the members
+6. **Unit-test.** Lint scoped to the unit's diff, then the tests of the members
    it touched (see [toolchain-profiles.md](toolchain-profiles.md)). A failure
    is kept as feedback, so the retry is one scoped rework rather than a
    rebuild (`abk requeue --rework`; a plain requeue resumes at this check and
@@ -483,8 +487,8 @@ release could move. The steps:
    steps and, if they fail, the adapt step,
    which accounts for its own tests, and back through the checks and a review. A unit that reaches here with no commits of its own — its groups
    were already implemented, by a predecessor that worked ahead — is judged on
-   this check alone: tier 1 passing makes it `satisfied` rather than `failed`,
-   its groups ticked and its dependents released, with no PR opened; tier 1
+   this check alone: unit-test passing makes it `satisfied` rather than `failed`,
+   its groups ticked and its dependents released, with no PR opened; unit-test
    failing still fails it. If a rework finds this — a unit already holding an
    open PR discovers its work has landed elsewhere in the meantime — the
    reason is posted on that PR before it is closed: the groups it covered, that
@@ -503,23 +507,23 @@ release could move. The steps:
    branch go last, once its run has left the tree, by the rules a merged
    unit's removal follows: the branch stays while a dependent builds on it,
    is held for depth or was not moved off it.
-7. **Tier 2**, for `tier2` units. If the repo has `dev_stack`, the unit's
+7. **E2e-test**, for `e2e-test` units. If the repo has `dev_stack`, the unit's
    branch is brought up on it (`script up`, `script test`, `script down`,
    always torn down) — and first, when the repo `consumes` one with a dev
    stack of its own, that repo's stack from a detached worktree at its
    `origin/<default_branch>` (the local trunk for a repo with no `origin`), never the user's own checkout. Without a dev
-   stack the profile's tier-2 commands run against the live stack. Either way
-   under the one `runs/tier2.lock` queue (the file names its holder, and `abk status` shows the
+   stack the profile's e2e-test commands run against the live stack. Either way
+   under the one `runs/e2e.lock` queue (the file names its holder, and `abk status` shows the
    holder and its age), and the result is recorded with the
    commit, the command, counts and the stack-versions command's output
    (`verify.stack_versions_command`, else the repo's `infra:` profile's; see
-   [toolchain-profiles.md](toolchain-profiles.md)) for the PR body. Tier 2 runs in each declared project (`projects:`), from its
-   directory and under its profile, as tier 1 does, and from the root when none
+   [toolchain-profiles.md](toolchain-profiles.md)) for the PR body. E2e-test runs in each declared project (`projects:`), from its
+   directory and under its profile, as unit-test does, and from the root when none
    is declared; it runs each member's directory with no
    collection path, so it collects what the member's own pytest
    configuration (`testpaths`) selects. A stack-versions command that cannot
    start is logged and records nothing. The result also lists every failed or
-   errored test with its first failure line (`Tier2Result.failures`, read by the
+   errored test with its first failure line (`E2eResult.failures`, read by the
    profile's `parse_test_failures` from the redacted output, in the order the
    runner printed them, a line over 500 characters cut with `…`). The listing
    sits in the snapshot's fixed part above the cut output, so a description's
@@ -533,8 +537,8 @@ release could move. The steps:
    asked is logged, and the run goes on with the base it has). The branch is
    moved onto it with the restack a run starts with, but without the conflict
    resolver: a conflict is aborted and the branch left as it was. A clean move
-   re-runs tier 1 (and tier 2, for a tier 2 unit) and carries the approval to
-   the moved commit. That tier 1 is told the base the move left (`moved_from`) and
+   re-runs unit-test (and e2e-test, for an e2e-test unit) and carries the approval to
+   the moved commit. That unit-test is told the base the move left (`moved_from`) and
    classifies the move: it is scoped when no file the move brought in (the files that
    differ between the old base and the new one) is also a file the unit changes, and
    full when one is, when the unit produced nothing of its own, when the move has no old
@@ -555,10 +559,10 @@ release could move. The steps:
    run is run again alone and serially, as in a full run. One that passes alone is a flake
    on the moved base: it is recorded and its one fix change written, but the unit gains no
    `Needs:` line and goes on to its push. A test that fails again, or that the unit added or
-   changed, holds the unit as any tier 1 failure does. A full run keeps its flake rule, and
-   tier 2 is never repeated or isolated. The merge handler's tier 1 after
+   changed, holds the unit as any unit-test failure does. A full run keeps its flake rule, and
+   e2e-test is never repeated or isolated. The merge handler's unit-test after
    a release is told its old base and logs the same way. In a run, a conflict, or a
-   tier 1 or tier 2 failure on the new base, pushes nothing and resumes the unit at its
+   unit-test or e2e-test failure on the new base, pushes nothing and resumes the unit at its
    restack in the same run (a check's failure leaves its output as feedback). That restack is what
    resolves, under the usage gate, and review is told of it. It happens once:
    a second hold in the run leaves the unit `planned` to resume at its restack
@@ -595,10 +599,10 @@ release could move. The steps:
    follow-ups file keeps every point; a bare point that names a file an
    optional finding locates is left out of the body; the review prompt asks the
    reviewer not to repeat an optional finding as a follow-up). A body over the host's
-   description limit is fitted by weight, not in sequence: the tier 2 output
+   description limit is fitted by weight, not in sequence: the e2e-test output
    (its tail kept, down to the pass or fail line) and the follow-ups (whole
    items and a count of the rest) give up room first, the reason and the goal
-   last, and room a part does not use goes to the others. The `local/tier2` commit
+   last, and room a part does not use goes to the others. The `local/e2e-test` commit
    status is posted for the tested SHA (and, on a host that shows statuses on
    the pull request, on the open pull request for the branch too); the rework's replies to review threads
    are posted in those threads, signed with the commit. A reply the host does not take stays in the
@@ -692,8 +696,8 @@ cannot fill the disk; a writer holding the file open with a plain `>` leaves a
 sparse hole of NULs on its next write, which the next pass drops. One a killed run left is removed when its
 unit next starts a run or its change is archived. The folder is the agent's own:
 a reviewer starts with an empty one and is told to run its own commands, and
-tier 1 always runs the suite itself, so one agent's output never reaches another
-agent or stands in for tier 1's run.
+unit-test always runs the suite itself, so one agent's output never reaches another
+agent or stands in for unit-test's run.
 
 ### 4. Polling and events
 
@@ -733,7 +737,7 @@ while the conflict resolver edits files, so other units' worktree adds and pushe
 proceed meanwhile. A unit's own restack in a run follows the same rule. A branch
 that moved while the resolver worked is moved again once, then held. A branch with
 no worktree is moved in a temporary worktree on no branch, so the repo's own
-checkout is never switched. Its tier 1 run happens outside the turn.
+checkout is never switched. Its unit-test run happens outside the turn.
 
 | Change seen | Event | Effect (`events.py`) |
 |---|---|---|
@@ -742,7 +746,7 @@ checkout is never switched. Its tier 1 run happens outside the turn.
 | label `agent-hold` added | `hold` | unit `held` (`held_by` `reviewer`), taking over a hold for depth, which a merge would otherwise free, and keeping that hold's note so it can be found again; a hold the review loop or the toolchain made keeps its cause. Nothing automatic touches it again, and the label stays until a person removes it. Deferred while the unit is being built. |
 | label `agent-hold` removed | `release` | a unit the label held returns to `in_review` and its thread resumes with a release; a depth hold the label took over goes back to being one (`held_by` `depth`, with the `held_base` it kept) while its depth is beyond `global_limits.stack_depth_rebase_cap`, or, when a merge during the label brought it within, is restacked from the branch it was still on (a thread is resumed at `prepare`); a hold the review loop, a depth cap or the toolchain made (`held_by`; a record without one is not read from its note) stays held and the log says so. A comment or failing check that arrived during the hold is not recorded as seen with the release, so the next poll delivers it. Deferred while the unit is being built. |
 | a check the host cancelled (GitHub `CANCELLED`; on Azure DevOps a build policy whose build ended `canceled`) that was not cancelled at the last poll, or one first seen already cancelled | `rerun_checks` | the forge is asked to run the cancelled checks again, with no agent: a cancelled check says nothing about the commit, so it is not a failing check and raises no rework. The count is on the stored unit against its last pushed commit and starts again when the head moves; past `global_limits.max_check_reruns` (default 2) nothing is asked for and the log says the host keeps cancelling the checks. A re-run check that then fails is reworked as any failing check is; a poll that finds both cancelled and failing checks dispatches both events. |
-| label `agent-rework` added, `reviewDecision` becomes `CHANGES_REQUESTED`, a new comment or submitted review id, a newly failing check, or a pull request that becomes unmergeable (on Azure DevOps, `mergeStatus: conflicts`; an undetermined answer, which the host gives for a while after every push and whenever the base moves, is not a conflict and dispatches nothing; the snapshot keeps the last definite answer through it, so the conflict it resolves back into is not new; a conflict that stands after the unit's own push is offered again each poll as a `conflict` event, and the handler holds the unit, `held_by` the review loop, once `global_limits.max_review_rounds` attempts at one base tip have not cleared it or an attempt left the head unchanged). A PR first seen already red or already unmergeable is dispatched too. | `rework`, carrying the kind that sent the unit back (`failing_checks`, `conflict`, `label`, `changes_requested`, `comment`) | what the unit is handed is chosen by that kind and never by the reason's text, and the feedback is saved with its source (`review`, `ci`, `conflict`, `tier1`, `tier2`), which picks the fix-the-checks prompt. The reviewer's words (review bodies, inline comments still attached to a line, the latest comment) become the unit's feedback and it returns to `planned`; for failing checks the feedback is the failed jobs' logs (from the run's jobs, the tail up to the last error); for a conflict it is the conflict alone, and the restack at the start of the run does the rebase. A held unit does not take it: the comment stays new, is delivered as a rework once the unit is released, and the wait is logged once. A comment on a satisfied unit, or on a pull request with no unit, is consumed. Deferred while the unit is being built. A rework asked for by the `agent-rework` label also takes that label off once acted on, so it can be given again; a label that will not come off is left and acted on once. |
+| label `agent-rework` added, `reviewDecision` becomes `CHANGES_REQUESTED`, a new comment or submitted review id, a newly failing check, or a pull request that becomes unmergeable (on Azure DevOps, `mergeStatus: conflicts`; an undetermined answer, which the host gives for a while after every push and whenever the base moves, is not a conflict and dispatches nothing; the snapshot keeps the last definite answer through it, so the conflict it resolves back into is not new; a conflict that stands after the unit's own push is offered again each poll as a `conflict` event, and the handler holds the unit, `held_by` the review loop, once `global_limits.max_review_rounds` attempts at one base tip have not cleared it or an attempt left the head unchanged). A PR first seen already red or already unmergeable is dispatched too. | `rework`, carrying the kind that sent the unit back (`failing_checks`, `conflict`, `label`, `changes_requested`, `comment`) | what the unit is handed is chosen by that kind and never by the reason's text, and the feedback is saved with its source (`review`, `ci`, `conflict`, `unit-test`, `e2e-test`), which picks the fix-the-checks prompt. The reviewer's words (review bodies, inline comments still attached to a line, the latest comment) become the unit's feedback and it returns to `planned`; for failing checks the feedback is the failed jobs' logs (from the run's jobs, the tail up to the last error); for a conflict it is the conflict alone, and the restack at the start of the run does the rebase. A held unit does not take it: the comment stays new, is delivered as a rework once the unit is released, and the wait is logged once. A comment on a satisfied unit, or on a pull request with no unit, is consumed. Deferred while the unit is being built. A rework asked for by the `agent-rework` label also takes that label off once acted on, so it can be given again; a label that will not come off is left and acted on once. |
 
 **Labels on a pull request** are two families. The `agent-` labels are
 instructions a person sets (`agent-hold`, `agent-rework`); the pipeline reads
@@ -868,7 +872,7 @@ steps were tried and what their checks said; the stack-move handler leaves it
 `planned` with cause `restack_conflict`, and the lane's same worker goes straight on into that run, which starts the
 order from its first step. After a clean move
 whose diff (`git patch-id`) is unchanged and whose head review had approved,
-tier 1 runs again and the branch is pushed with a lease and a "Restacked"
+unit-test runs again and the branch is pushed with a lease and a "Restacked"
 comment. Anything else — a resolved conflict, a changed diff, a head review
 never approved — goes back to `planned` to be reviewed before it is pushed.
 
@@ -900,7 +904,7 @@ host's head.
 
 Once every unit of a change is `merged` (or `unplanned`), `verify.py` deploys
 what the change's PRs touched and runs the live tests they added — under the
-tier-2 lock, since both use the one live stack:
+e2e-test lock, since both use the one live stack:
 
 - the changed paths of each PR (`forge.pr_files`), per repo, in
   **deploy order**: a repo after the ones it `consumes`;
@@ -956,7 +960,7 @@ limit across the registered forges, where the open-pull-request step builds the 
 forge cuts a description it sends. `build_pr_body` makes the body from `Section`s and
 shares the limit with `fit`: the Why and the goal weigh eight, with their smallest forms
 (the Why's pointer to its proposal, the goal whole) reserved first, the Why capped by its
-ceiling; the position, scope, assumptions, restack note, held points, footer and the tier 2
+ceiling; the position, scope, assumptions, restack note, held points, footer and the e2e-test
 results are required (the results shrink to their pass or fail line and a note that the
 output was trimmed, the output keeping its tail), and the follow-ups, whole items followed
 by a count, weigh twice what the output does.
@@ -970,7 +974,7 @@ A render that overshoots is trimmed from the section with the most room and rend
 (up to three times), and a final line cut guarantees the budget. Ties go to the earlier
 section, so the result is deterministic.
 
-The same module builds three other texts. A unit's tier 2 output is one section per
+The same module builds three other texts. A unit's e2e-test output is one section per
 command (4,000 characters in all): a passing command keeps the end of its output, up to
 1,500 characters, and a failed one weighs four times as much and keeps, for each failed
 test, its identifier and the end of its own section (where the error is) before the end of
@@ -980,7 +984,7 @@ round headings are required and kept whole however long, findings already fixed 
 are left out whole (fixed ones first, each oldest first) with a count, and only when none is
 left to leave out are a round's prose and the builder's responses reduced. A commit status description is
 fitted to `forges.status_limit()`, the lowest `status_limit` across the registered forges,
-where `tier2.post_status` builds it; no forge cuts it.
+where `e2e.post_status` builds it; no forge cuts it.
 
 ## The guards
 
@@ -1194,16 +1198,16 @@ approved.
 
 ### Tests that cannot hang or race
 
-- **A command limit.** Every command tier 1 runs has a time limit,
-  `global_limits.tier1_command_seconds` (an hour by default), far over what a suite takes. A
+- **A command limit.** Every command unit-test runs has a time limit,
+  `global_limits.unit_test_command_seconds` (an hour by default), far over what a suite takes. A
   command past it is sent SIGABRT in its process group, so a runtime that can dump the
   stacks of its threads does; one that ignores that is killed after
-  `global_limits.tier1_abort_grace_seconds`. Tier 1 fails with the command, the time
+  `global_limits.unit_test_abort_grace_seconds`. Unit-test fails with the command, the time
   ("timed out after N seconds") and the end of its output, dump included. This catches a
   run whose tests all pass and whose process then does not exit.
 - **A test time limit.** `tests/time_limit.py` fails a test that runs past
   its limit from a timer thread, in setup, call and teardown alike: `--test-time-limit` (sixty
-  seconds) for a test without the `local_stack` marker, `--tier2-test-time-limit` (thirty
+  seconds) for a test without the `local_stack` marker, `--e2e-test-time-limit` (thirty
   minutes) for one with it, zero turning either off. The failure names the limit and its kind;
   the run goes on (see `docs/agent-runtimes.md`, Test markers).
 - **A test time split.** `tests/time_split.py` reports where a `local_stack` test's time went.
@@ -1213,7 +1217,7 @@ approved.
   prints at the end of the session one line per phase: `ABK-TIME ` and JSON with `test`,
   `phase`, `agent` (milliseconds by role), `calls` (by role), `checks_ms` (spans with a
   command, environment setup included), `other_ms` (the wall time left, never negative)
-  and `overlap` (true when the parts sum above the wall time). The tier 2 result merges the
+  and `overlap` (true when the parts sum above the wall time). The e2e-test result merges the
   lines by test and phase and shows them beside the entry; a test without the fixture
   gets no line.
 - **A guard.** `tests/timing_hazards.py` parses the test tree and fails on a bare sleep, a
@@ -1225,16 +1229,16 @@ approved.
 - **A step to call.** The output cap's pass is `scratch.cap_files`, idempotent (a cut file is
   within the limit and is not rewritten), and `scratch.watch_folder` yields an event set after
   each pass, so a test calls the step or waits on the signal and never polls a file.
-- **A flake is isolated, recorded and fixed once.** When tier 1 fails on tests, the profile's
+- **A flake is isolated, recorded and fixed once.** When unit-test fails on tests, the profile's
   optional `failed_tests` and `serial_rerun_command` hooks give the failed identifiers and a
-  serial command for just them, and `build_tier1` runs that twice. A rerun that fails leaves
+  serial command for just them, and `build_unit_test` runs that twice. A rerun that fails leaves
   the failure as it was. Both passing raises `FlakeFound`: the unit's node calls the runner's
   `on_flake`, which has `flakes.wait_on_fix` make sure, under `flakes.lock` in the state
   directory, that one open change exists for the test (a successor, `-2` and on, only after
   the earlier one is archived) and add a `Needs: <change> group 1 merged` line to each of
   the unit's groups, and appends the flake to `flakes.jsonl`. The unit is held `planned`,
   cause `gated`, with a `resume` requeue waiting, so `release_gated` resumes it once the fix
-  has merged: it restacks and runs tier 1 again. A unit of the fix change itself does not
+  has merged: it restacks and runs unit-test again. A unit of the fix change itself does not
   wait. `abk status` lists each flaky test with its count and fix change.
 - **A pre-existing failure is recorded and fixed once.** A test the base run names as failed
   is appended to `<state_dir>/preexisting-failures.jsonl` (test, unit, command, first
@@ -1251,34 +1255,34 @@ approved.
   `Priority: 1`: a unit waits on either kind until it merges. `abk status` lists each as
   `pre-existing:` with its count and fix change.
 - **A unit behind a fix waits, and is told only of its own failures.** When every failure of a
-  tier 2 run is pre-existing, the node (`Nodes.wait_for_preexisting`) records each through the
+  e2e-test run is pre-existing, the node (`Nodes.wait_for_preexisting`) records each through the
   runner's `on_preexisting` (`wiring.build_on_preexisting`), gives each group of the unit a
   `Needs:` line (`group 1 merged — failing test <id> on the base`) and parks it as `wait_for_fix`
-  does: `PLANNED`, cause `gated`, a `resume` requeue. It resumes restacked at tier 2, which runs
+  does: `PLANNED`, cause `gated`, a `resume` requeue. It resumes restacked at e2e-test, which runs
   in full again. A unit of the fix change, or one with a failure of its own or broken by it, is
   failed as today; its pre-existing failures are still recorded and fixed, without a `Needs:`
   line. The feedback saved on a failure drops the lines and output of pre-existing tests
   (`untouched_failures.feedback_snapshot`) and names them once.
-- **A unit about to run a full tier 2 run waits for an open fix.** Before `run_tier2`, and only
-  when the runner's `tier2_runs_whole` says the run executes the whole marker, the node asks
-  `on_tier2_gate` (`wiring.build_on_tier2_gate`). `untouched_failures.holding_fixes` returns
+- **A unit about to run a full e2e-test run waits for an open fix.** Before `run_e2e`, and only
+  when the runner's `e2e_runs_whole` says the run executes the whole marker, the node asks
+  `on_e2e_gate` (`wiring.build_on_e2e_gate`). `untouched_failures.holding_fixes` returns
   the recorded fix changes that are open, were recorded by a unit of the same repo, are not the
   unit's own change and carry no `Needs:` from it; each gets a `Needs:` line through
   `wait_on_preexisting`, and the unit is parked as above before the stack lock or any test.
   A same-repo fix releases the unit once its unit is in review, not only when it has merged.
   A closed fix change keeps the unit waiting until a person clears it. `abk status` ends each
   `pre-existing:` line with the number of units waiting on its fix.
-- **New tests are repeated under load.** After tier 1 passes, the tests the unit added or
-  changed (`tests_changed`) are run `global_limits.tier1_repeat_runs` times (three by default, 0
+- **New tests are repeated under load.** After unit-test passes, the tests the unit added or
+  changed (`tests_changed`) are run `global_limits.unit_test_repeat_runs` times (three by default, 0
   turns it off) with each test command's own workers, narrowed to exactly those tests (`path::Class::name`) by the
-  profile's optional `repeat_command` hook (the `RepeatsTests` protocol); any failure fails tier 1 with that run's output. A new test is not
+  profile's optional `repeat_command` hook (the `RepeatsTests` protocol); any failure fails unit-test with that run's output. A new test is not
   classified as a flake. The test-writing prompt and the reviewer's checklist carry the same
   determinism rules (`templates/determinism-guidance.md`): wait on events, not the clock,
   join or signal every thread, bind a free port, share no temporary path, assert no state a
   background actor repairs, and expose a step for timer code. A change that introduces such a
   use is a required finding, since the test passes alone and fails under load.
 
-- **Tier 2 failures are classified and checked on the base.** After a failed tier 2 run
+- **E2e-test failures are classified and checked on the base.** After a failed e2e-test run
   each failed test is the unit's own (its file changed on the branch, or a `conftest.py`
   beside it did) or untouched. The untouched ones are run once, together, with the
   profile's serial rerun command in a detached temporary worktree of the unit's base,
@@ -1288,36 +1292,36 @@ approved.
   cannot be added, a command cannot start) is logged and proves nothing: the tests it
   has not named are the unit's, and the unit fails as it would without it. Each failed
   command is repeated on the base with only its own tests. The node passes the base each
-  run is against, so a restack that moves it is followed. `global_limits.tier2_base_runs: 0`
-  turns it off. Tier 2 tests are never repeated or isolated by tier 1's machinery.
+  run is against, so a restack that moves it is followed. `global_limits.e2e_base_runs: 0`
+  turns it off. E2e-test tests are never repeated or isolated by unit-test's machinery.
   Known limits: ids are read as relative to the repo root (or the configured project), so
   a workspace member run with `--directory` prints ids relative to the member and a
   changed file of that member is not recognised as the unit's own; and the cost of the
-  clean base worktree on a large repo's own tier 2 suite was not measured.
+  clean base worktree on a large repo's own e2e-test suite was not measured.
 
-- **A unit's tier 2 run is narrowed to its own tests.** Under `e2e_unit_scope: own` (the
-  default; `global_limits`, with `tests.e2e_unit_scope` per repo; the old `tier2_unit_scope` still
-  loads) a unit runs only the tier 2 tests
+- **A unit's e2e-test run is narrowed to its own tests.** Under `e2e_unit_scope: own` (the
+  default; `global_limits`, with `tests.e2e_unit_scope` per repo; its earlier, numbered spelling
+  still loads) a unit runs only the e2e-test tests
   its branch added or changed, selected by identifier together with the marker. A unit with
-  none runs nothing, takes no lock and says `tier 2 skipped: no tier 2 test added or changed`;
-  its status says that no tier 2 test ran. Where the run cannot be narrowed (a dev stack
+  none runs nothing, takes no lock and says `e2e-test skipped: no e2e test added or changed`;
+  its status says that no e2e-test test ran. Where the run cannot be narrowed (a dev stack
   script, a profile that cannot select by identifier, tests that cannot be listed, no base),
   or under `full`, the whole marker runs and the log says why. A scheduled unit is always
   `full`.
 
-- **The whole tier 2 suite runs on a schedule.** `e2e_schedule` (`daily`, `weekly` by
-  default, `monthly` or `off`; `global_limits`, with `tests.e2e_schedule` per repo; the old
-  `tier2_schedule` still loads) makes each round, before planning and ahead of the usage
-  guard, write `scheduled-tier2-<repo>-<date>-<split>` for each split of a repo with a tier 2
+- **The whole e2e-test suite runs on a schedule.** `e2e_schedule` (`daily`, `weekly` by
+  default, `monthly` or `off`; `global_limits`, with `tests.e2e_schedule` per repo; its earlier,
+  numbered spelling still loads) makes each round, before planning and ahead of the usage
+  guard, write `scheduled-e2e-<repo>-<date>-<split>` for each split of a repo with an e2e-test
   unit that is due, without a model call. The due date is read from the names of the split's
   open and archived scheduled changes, so nothing else is stored, and one such change is open
   per split at a time. `has_work` is true while a repo is due, so an
   idle installation still reaches the round. The change's unit goes from `prepare` straight
-  to the whole-suite tier 2 step on the default branch: no tests, implement, checks, review,
+  to the whole-suite e2e-test step on the default branch: no tests, implement, checks, review,
   push or pull request, and no agent call. A pass ends it satisfied with a note and the change
   archives; a failure is recorded as pre-existing, fixed by `fix-failing-*` changes and
-  waited on as for any unit. It is counted by `max_units_in_progress`, waits for the tier 2
-  lock and starts only when the usage guard admits a unit. The `scheduled-tier2-` prefix is
+  waited on as for any unit. It is counted by `max_units_in_progress`, waits for the e2e-test
+  lock and starts only when the usage guard admits a unit. The `scheduled-e2e-` prefix is
   reserved. `abk tick --dry-run` prints `would write:` or `exists:` and writes nothing.
 
 ## Telemetry
@@ -1364,8 +1368,8 @@ outcome and, for a failed check, its kind.
 
 The last three are the usage ledger's figures, exported by the recorder that writes a ledger
 line: an agent record adds its cost and tokens, a span its time. A figure a record lacks adds
-nothing, and with telemetry off nothing is exported. The two tier 2 histograms are exported
-when a tier 2 run writes its `test_time` rows.
+nothing, and with telemetry off nothing is exported. The two e2e-test histograms are exported
+when an e2e-test run writes its `test_time` rows.
 
 `abk telemetry push-dashboard` pushes the packaged dashboard to the Grafana at `ABK_GRAFANA_URL`.
 `ABK_GRAFANA_TOKEN` is optional: set, every call carries it as a bearer token; unset, the calls
@@ -1382,8 +1386,8 @@ The set of known secret values (`verify.env`, the credential settings, the `reda
 each gateway key minted) is gathered when an installation is activated and held in memory
 only. Text is redacted at the last step before it is stored or sent, not in each caller:
 the unit store's `set_feedback`, the run log, the transcript (before a tool result is
-cut), printed output (so the journal is redacted too), the usage ledger's strings, tier-1
-and tier-2 output (before the 4000-character cut), the forge's write methods, and the
+cut), printed output (so the journal is redacted too), the usage ledger's strings, unit-test
+and e2e-test output (before the 4000-character cut), the forge's write methods, and the
 rework prompt as it is assembled. A value is replaced by `[redacted:<NAME>]`; one under
 8 characters is not. If redaction raises, the text is replaced by `[redaction failed: text
 withheld]` and one line logs the failure's type and place, never the text. The token
@@ -1392,15 +1396,15 @@ configured: they miss a key with no recognisable prefix and can match a harmless
 A secret split across two transcript events is not found. Text already saved is not
 rewritten by the pipeline; the temporary `abk redact-history` does it.
 
-### Tier 2 splits
+### E2e-test splits
 
-The held set is the `hold: true` entries of `tests.tier2_splits` together with the unexpired
-entries of `tier2-held.json` in the state directory; the configuration wins. One function
+The held set is the `hold: true` entries of `tests.e2e_splits` together with the unexpired
+entries of `e2e-held.json` in the state directory; the configuration wins. One function
 builds a run's selection from the repo's splits, the held set and the one split to run
-alone, and every tier 2 command takes it. A run records the split of each failed test
+alone, and every e2e-test command takes it. A run records the split of each failed test
 (`rest`, a declared split or `unknown`). A unit waiting on a held split is parked with the
-cause `split_held`. The scheduled tier 2 run is one change per split and `rest`, named
-`scheduled-tier2-<repo>-<date>-<split>`; an older change with no suffix or ending `-base`
+cause `split_held`. The scheduled e2e-test run is one change per split and `rest`, named
+`scheduled-e2e-<repo>-<date>-<split>`; an older change with no suffix or ending `-base`
 counts as `rest`.
 
 ### A failed live test says what its scratch tick did
@@ -1455,9 +1459,9 @@ The planning repo's state directory (`planning.state_dir`, default `runs/`):
 | `decisions.jsonl` | the decision log: `{at, unit, reason, waits_on, tick}`, appended only when a waiting unit's reason (`WaitReason`) or what it waits on changes, with a `none` record when the wait ends. Read from its tail when the pipeline starts; trimmed to `retention.decision_log_mb`, newest lines kept. Gitignored. | why a unit waited, and for how long. |
 | `usage-cache.json.lock` | the lock one process holds while it refreshes the reading. | never needed. |
 | `usage-cache.json` | the live usage reading (kept `usage_cache_minutes` to `usage_cache_max_minutes`) and any rate-limit cool-down. | one endpoint call. |
-| `tier2.lock`, `locks/` | the tier-2 queue lock; branch, repo and store locks. | nothing; kernel-released. |
+| `e2e.lock`, `locks/` | the e2e-test queue lock; branch, repo and store locks. | nothing; kernel-released. |
 | `unit-logs/<change>-<nn>-<YYYYMMDD-HHMMSS>-<step>.log` | one file per unit run: a header (unit, change, step, model, base, start), that unit's lines, then the outcome. `<nn>` is the unit's number padded to two digits, so a change's units sort in order and a unit's runs sort by time. The last three runs of a unit are kept; a log older than `retention.unit_log_days` is removed once the unit has a summary in the usage ledger (a unit without one keeps it); archiving a change removes its files. The file name and `started:` are UTC; each entry starts with the tick's own local-time `[HH:MM:SS]`, the same stamp it prints (the closing `outcome:` line has none: the line above it, the run's last, does). Agent replies and tool-call commands are written whole, line breaks kept; each further line of an entry starts with four spaces (`run_log.CONTINUATION`) and has no stamp, so every line that starts at the margin is a new entry. The journal keeps its one clipped line per step. The unit's `run_log` names its latest. Gitignored. | a unit's transcript; the tick's own output is unchanged. |
-| `tier2-output/<change>-<nn>-<YYYYMMDD-HHMMSS>-tier2.log` | the whole output of each command of a unit's tier 2 run, passing ones too, appended after each command so a run that dies keeps what it had, and redacted as a whole before it is written (a failing redaction leaves the withheld notice). The result's `output_file` and its `Full output:` line name it, the unit's run log carries the same line and `abk status` shows it for a failed unit whose last result was a tier 2 failure. The last three files of a unit are kept (`run_log.RUNS_KEPT`); archiving a change removes its files. Local only. | the posted result keeps only the last 4000 characters of the output. |
+| `e2e-output/<change>-<nn>-<YYYYMMDD-HHMMSS>-e2e.log` | the whole output of each command of a unit's e2e-test run, passing ones too, appended after each command so a run that dies keeps what it had, and redacted as a whole before it is written (a failing redaction leaves the withheld notice). The result's `output_file` and its `Full output:` line name it, the unit's run log carries the same line and `abk status` shows it for a failed unit whose last result was an e2e-test failure. The last three files of a unit are kept (`run_log.RUNS_KEPT`); archiving a change removes its files. Local only. | the posted result keeps only the last 4000 characters of the output. |
 | `transcripts/<change>-<nn>-<YYYYMMDD-HHMMSS>-<node>-<round>.jsonl` | one file per agent run of a unit (implement, rework, review, checks fixes) or chat turn, named like a run log plus the node and review round that made the call (round 0 outside a round). One JSON event per line, appended as the agent streams, the same shape for Claude Code and ACP: `kind` (`text`, `reasoning`, `tool_call`, `tool_result`, `plan`, `usage`, `permission`, `stop`), `at`, `unit`, `node`, `round`, `session`, `source` (`build` or `chat`), `text`, `tool`, `call` (a tool call's id, repeated by its result), `input`, `usage` and `truncated`. A tool result longer than `global_limits.transcript_result_chars` is cut there, ends with `… [cut: the result was N characters long]`, and carries the original length in `truncated`. A text or reasoning event is a whole message or thought, not a streamed fragment, and a user-side event of the Claude stream contributes only tool results. The calls of one run (a unit thread's pass, or one chat turn) share the run's stamp, and the last `global_limits.transcript_runs_kept` such runs of a unit are kept, whole; archiving a change removes its files. Local only, never committed or sent anywhere. | the agent tab's replay of a unit; the run log is unchanged. |
 | `<run id>-<repo>-<track>.md`, `tracked-issues.md` | the tracks' run logs and issue tracker. | history the tracks read. |
 
@@ -1511,14 +1515,14 @@ a review round carries a `cause` of `review`, `check` or `conflict`) and, each t
 pass refreshes, one `sample` line with the counts of units `running`, `in_review`, `blocked` and
 `queued`, the `free_workers`, the `limit` and the `cap`. Readers skip a kind they do not know.
 
-A tier 2 run also writes one `test_time` line for each phase of each test its toolchain timed
+An e2e-test run also writes one `test_time` line for each phase of each test its toolchain timed
 (`unit`, `change`, `marker`, the full `test` id, `phase`, `duration_ms`, and `agent_ms`,
 `checks_ms` and `other_ms` when a test suite reported the split). The toolchain profile asks
 for the durations (`parse_test_durations`; none for a toolchain that prints none), and a line
 of the form `ABK-TIME {json}` with `test`, `phase`, `agent` (milliseconds by role), `calls`,
-`checks_ms` and `other_ms` is merged onto the entry of its test and phase. `Tier2Result.durations`
+`checks_ms` and `other_ms` is merged onto the entry of its test and phase. `E2eResult.durations`
 holds the entries slowest first; the posted result opens with the three slowest and lists the
-first `global_limits.tier2_durations_shown` of them (0 lists all) above the output, so cutting the
+first `global_limits.e2e_durations_shown` of them (0 lists all) above the output, so cutting the
 output never drops the listing.
 
 `<state_dir>/usage-ledger.jsonl` gets one line for each agent call a unit's graph makes, when the
@@ -1633,7 +1637,7 @@ and for waits a `waited` bucket:
 | a node's run | the graph's node wrapper, when the node returns or raises (`outcome` is its status, or `error`) | empty |
 | the wait for a build slot | the tick: from the unit's being ready while every slot was taken to its worker taking the branch lock | `slot` |
 | a usage pause | the gate, once the guard lets the paused node start: from the interrupt (stamped in its payload, so a later process measures it) | `usage_pause` |
-| a tier 1 command | `build_tier1`, one per command, under `command` | empty |
+| a unit-test command | `build_unit_test`, one per command, under `command` | empty |
 
 Recording is as best-effort as the agent lines and shares their once-per-process report. The
 usage reader skips every line that is not an agent call.
@@ -1672,7 +1676,7 @@ belongs to where there is one (an exported metric never carries them):
 | `abk.tick.duration` | a tick ends | seconds |
 | `abk.unit.duration` | a unit's run ends | seconds |
 | `abk.review.rounds` | a unit's run ends other than paused | the review rounds it took |
-| `abk.checks.failures` | a tier 1 run fails | 1 |
+| `abk.checks.failures` | a unit-test run fails | 1 |
 | `abk.usage.pauses` | a pause for the usage window or a rate limit begins | 1 |
 
 Durations and counts are the very figures given the instruments, so a total derived from the
@@ -1927,7 +1931,7 @@ review written through the server is what the in-process host sees.
   the planning root.
 - **One workspace member at a time.** Every member tends to own a top-level
   `src` package, so one shared environment makes one member's tests import
-  another's. Tier 1 and tier 2 run each member with `uv run --package
+  another's. Unit-test and e2e-test run each member with `uv run --package
   <member> --isolated`, the way such a repo's CI does.
 - **Archive waits for verify.** A pipeline that stops at merge leaves deploys
   to whoever remembers them; a change was once archived while its consumer
@@ -1946,7 +1950,7 @@ review written through the server is what the in-process host sees.
   evidence; the policy hook denies `--amend` to keep it.
 - **Every push names the SHA it leases against**, because a bare lease is not
   a lease after a fetch.
-- **Tier 2 is a queue, branch locks fail fast.** A second unit's live tests
+- **E2e-test is a queue, branch locks fail fast.** A second unit's live tests
   are valid and merely have to wait; a second run on one branch is a bug.
 - **A rework is reviewed by a different model** (`models.rework_review`): a
   small targeted edit, and the model that made it is the worst judge of

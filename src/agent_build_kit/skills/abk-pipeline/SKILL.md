@@ -33,7 +33,7 @@ what the pipeline is doing, watch the pass, not a single unit.
 | `abk tick --dry-run` | Run a tick's reasoning — poll, plan, work out what is ready — and report it without building anything; it does not sync the environment or resume units waiting for it. |
 | `abk report --waits [--by unit\|day] [--json]` | Each unit's wall time by cause (blocked, ready, agent, checks, other, in review for a person, review rounds, paused, failed), the hours the pipeline ran nothing split into a full queue and room to spare, and the estimate ratio per kind. A cause never recorded prints as `-`. |
 | `abk tick` | A real pass, the same one the timer runs. Safe at any time. `--only <unit>` builds just that unit if it is ready. |
-| `abk verify <change>` | Deploy a fully merged change and run its live (tier 2) tests, then archive it; exits 1 if it fails or passes without the change being archived. The tick does this on its own once every unit of a change has merged. |
+| `abk verify <change>` | Deploy a fully merged change and run its live (e2e-test) tests, then archive it; exits 1 if it fails or passes without the change being archived. The tick does this on its own once every unit of a change has merged. |
 | `abk check` | `openspec validate --all --strict --json` on the planning repo. |
 | `abk tags <change>` / `abk tags --all` | Validate a change's task-group tags (see abk-authoring). |
 | `abk planning split --repo <key> --to <dir>` | Move a repo's changes, specs and unit records to another planning repo. Always run the dry run first (the default) and read the plan; then `--apply`, then `--apply --remove` to take what moved out of the source. Units must be settled; see `docs/cli.md`. |
@@ -90,6 +90,13 @@ next tick sync again.
 - `openspec/changes/<change>/` — the change a unit belongs to; its `tasks.md`
   is ticked as units pass review.
 
+## Test kinds
+
+There are three test kinds, narrowest to widest: `unit-test` (one module's behaviour),
+`integration-test` (behaviour across modules or files in the ordinary suite, no live stack; it
+runs as `unit-test` and is not the pytest `integration` marker) and `e2e-test` (needs the real
+local stack). A unit of several groups takes the widest kind.
+
 ## Unit states
 
 A **unit** is one PR's worth of work in exactly one repo, built from one or
@@ -99,13 +106,13 @@ more task groups of a change.
 |---|---|---|
 | `planned` | In the graph, waiting for its dependencies (a never-started unit with two open same-repo parents, neither built on the other, builds on the deeper and waits for the rest: `waiting for <parent> to merge (second open parent)` in `abk status`) and a free slot — or a unit held before a step, which its next run decides again from the branch. A pass lets such a unit back in only when it was sent back for rework, its base changed or the restack lane handed it back (`restack_handed_back`, started by a build worker in the same pass), or when it was parked with the cause `host_unavailable`, `network_unavailable` or `service_unavailable` (the code host, the network or the model service could not be reached) and its backoff of 1, 2, 5, 10 then 30 minutes by consecutive parking has elapsed — it then resumes at the failing step, and an approved, pushed unit goes straight to the pull request step; any other cause waits for the next pass, and the tick log names it. A standing cause lasts until a state change passes another, and an event cause is a transition that is over, such as `requeued` or `released`. An event cause ends a standing one. A replan keeps a unit's cause and its parked splits and saved requeue, so a unit parked on a split or a gate stays parked across it. A record with no cause is one from before causes or one an event ended, and is never readmitted by a pass. A step already running is never interrupted; a usage pause leaves the unit `running` (below), not `planned`. | Nothing. `abk tick --dry-run` says whether it is ready. |
 | `running` | A worktree is open and an agent is in the build/review loop, or the run was killed or paused for the usage window and its thread is interrupted. | Nothing. A killed run is resumed at the node it was in by the next tick; a usage pause resumes on the first tick the usage guard allows. Status, the graph and the label may name it `reworking` (answering review or check feedback) or `rebasing` (a conflict or moved base), or `paused` (a pause is in force and no run holds it; it resumes by itself): derived names, never stored, for a stored `running`. A PR is a draft while its unit is `running` or `planned`. |
-| `in_review` | The loop and tier 1 passed; the PR is waiting for a human. | Review the PR. A comment sends it back for rework, and a comment added while that rework runs is addressed by it before it pushes; a merge moves it on. A branch that stops merging into its base sends it back to `planned` by itself; `abk status` says `conflicts with <base> since <time>; moved N times` and what it waits for; a conflict that survives its attempts, or one an attempt changed nothing for, holds the unit with that reason. It also leaves review for `planned` (read as `paused_rework`) while a predecessor in the same repo is changing its branch, and returns by itself once that predecessor is back in review; the move is an `upstream_changed` event to its thread. |
+| `in_review` | The loop and unit-test passed; the PR is waiting for a human. | Review the PR. A comment sends it back for rework, and a comment added while that rework runs is addressed by it before it pushes; a merge moves it on. A branch that stops merging into its base sends it back to `planned` by itself; `abk status` says `conflicts with <base> since <time>; moved N times` and what it waits for; a conflict that survives its attempts, or one an attempt changed nothing for, holds the unit with that reason. It also leaves review for `planned` (read as `paused_rework`) while a predecessor in the same repo is changing its branch, and returns by itself once that predecessor is back in review; the move is an `upstream_changed` event to its thread. |
 | `checking` | Shown, never stored: a unit in review whose checks are still running, or that was pushed moments ago with none yet. It counts as in review for scheduling and dependents. `abk status` lists it as `checking`, apart from `awaiting review`. | Wait; it reads `in_review` once its checks pass, or a repo with no checks has waited `global_limits.checks_register_seconds`. |
 | `merged` | Landed. | Nothing; the change archives once every unit is merged and verified. |
 | `closed` | The PR was closed without merging. | Units stacked on it are left as they are; re-plan if the work is still wanted. |
 | `held` | A reviewer took the unit over, the toolchain cannot build it, the review loop held it itself, a merge left it beyond `global_limits.stack_depth_rebase_cap` — a change only a human can make, an escalated class or disagreement, or rounds spent with a pushed branch and PR. The pipeline will not touch it (a depth hold is released by a later merge). A held record with no cause is one from before causes, which `abk status` lists. | See below. |
-| `failed` | The build raised. With the cause `environment`, the pipeline's own environment failed its `environment.check` before tier 1; the unit keeps its slot, `abk status` says it is waiting for the environment, and the tick resumes it once the environment is healthy. | See below; for the environment cause, fix the environment (`abk doctor` runs the check). |
-| `satisfied` | The unit's groups were already implemented — by an earlier unit that worked ahead of its own plan — so it added no commits of its own, and what was already at the tip passed tier 1. | Nothing; its groups are ticked and its dependents released, the same as a merge: a pull request stacked on it is moved onto its predecessor's branch or the trunk and retargeted before the satisfied unit's own is closed. No PR was opened — or, if a rework found this after one was already open, the reason (the groups, that they were implemented elsewhere, and where when the graph can say) was posted on it and it was closed. |
+| `failed` | The build raised. With the cause `environment`, the pipeline's own environment failed its `environment.check` before unit-test; the unit keeps its slot, `abk status` says it is waiting for the environment, and the tick resumes it once the environment is healthy. | See below; for the environment cause, fix the environment (`abk doctor` runs the check). |
+| `satisfied` | The unit's groups were already implemented — by an earlier unit that worked ahead of its own plan — so it added no commits of its own, and what was already at the tip passed unit-test. | Nothing; its groups are ticked and its dependents released, the same as a merge: a pull request stacked on it is moved onto its predecessor's branch or the trunk and retargeted before the satisfied unit's own is closed. No PR was opened — or, if a rework found this after one was already open, the reason (the groups, that they were implemented elsewhere, and where when the graph can say) was posted on it and it was closed. |
 
 ### `held`
 
@@ -145,15 +152,15 @@ instance).
   the same repo restacks it once its depth is within the cap. To move it
   sooner, raise `global_limits.stack_depth_rebase_cap` or restack the branch by hand.
 
-### Waiting for a tier 2 split
+### Waiting for an e2e-test split
 
-A unit whose tier 2 tests sit in a held split waits with the reason "waiting for tier 2
-split <name>" (cause `split_held`) until `abk tier2 release <split>`, or until the configuration
+A unit whose e2e-test tests sit in a held split waits with the reason "waiting for e2e-test
+split <name>" (cause `split_held`) until `abk e2e-test release <split>`, or until the configuration
 sets `hold: false` for the split (removing a `hold: true` line frees it only when
-`tier2-held.json` has no entry for it). A planned or unplanned unit parked on a split holds
+`e2e-held.json` has no entry for it). A planned or unplanned unit parked on a split holds
 no place whatever its cause field says; a parked unplanned unit is left alone on release, and a
-replan keeps the park. `abk tier2 status` shows each split as usable or held, and
-`abk tier2 check` lists the splits with their test counts and finds a test in two.
+replan keeps the park. `abk e2e-test status` shows each split as usable or held, and
+`abk e2e-test check` lists the splits with their test counts and finds a test in two.
 
 ### Parked for its worktree
 
@@ -216,41 +223,41 @@ labelled `needs`.
 A test that failed under load and passed twice alone is a flake, not a failure: the unit is
 parked the same way (`gated`, its note names the test) with a `Needs:` line on the one
 change the pipeline wrote to fix that test. `abk status` lists each flaky test as `flaky:`
-with its count and fix change; the unit resumes at tier 1 once that change merges. The one
+with its count and fix change; the unit resumes at unit-test once that change merges. The one
 exception is the scoped run after a clean move of the base: a flake there is recorded and
 its fix change written, but the unit is not parked and gains no `Needs:` line. More than
 `global_limits.max_flakes_per_run` (default 5) such tests in one run is a disturbed run, not that many
-flakes: tier 1 records one `storm` row (`abk status` shows it as `flake storm:`), writes no change,
+flakes: unit-test records one `storm` row (`abk status` shows it as `flake storm:`), writes no change,
 and goes on with the checks that remain.
 
 At each planning pass a planned unit that never started, whose change no longer exists, becomes
 `unplanned`, and a unit waiting on it stops waiting; a started unit is left as it is.
 
-A test that fails tier 2 on the base as well is pre-existing: it is recorded in
+A test that fails e2e-test on the base as well is pre-existing: it is recorded in
 `preexisting-failures.jsonl` and gets one `fix-failing-<test>` change, written without a
 model (a successor only once the earlier one is merged and archived). `abk status` lists
 each as `pre-existing:` with its count and fix change. The fix changes of both kinds are
 written at `Priority: 1`. `abk tick --dry-run` prints `exists: <change>` or
-`would write: <change>` for each recorded one and writes nothing. A unit whose tier 2
+`would write: <change>` for each recorded one and writes nothing. A unit whose e2e-test
 failures are all pre-existing is parked `gated` on those fix changes (a `Needs:` line on each
-group) and runs tier 2 again, restacked, once they merge; a unit with a failure of its own
-fails as before and is shown only its own failures. A unit about to run a full tier 2 run is
+group) and runs e2e-test again, restacked, once they merge; a unit with a failure of its own
+fails as before and is shown only its own failures. A unit about to run a full e2e-test run is
 parked the same way, before the lock and any test, while a recorded fix change in its repo is
 open (the fix's own units and units already waiting on it run); it resumes once the fix is
 in review. `abk status` ends each `pre-existing:` line with how many units wait on its fix.
 
-Under `e2e_unit_scope: own` (the default; per repo `tests.e2e_unit_scope`) a unit's tier 2 run covers only the tier 2 tests
+Under `e2e_unit_scope: own` (the default; per repo `tests.e2e_unit_scope`) a unit's e2e-test run covers only the e2e-test tests
 its branch added or changed, selected by identifier and the marker; with none it runs and locks
-nothing and says `tier 2 skipped: no tier 2 test added or changed`. It runs the whole marker
+nothing and says `e2e-test skipped: no e2e test added or changed`. It runs the whole marker
 where it cannot narrow, or under `full`; a scheduled unit is always `full`.
 
 `e2e_schedule` (`daily`, `weekly`, `monthly`, `off`; per repo `tests.e2e_schedule`) makes a
-round write `scheduled-tier2-<repo>-<date>-<split>` before planning, ahead of the usage guard,
+round write `scheduled-e2e-<repo>-<date>-<split>` before planning, ahead of the usage guard,
 when a split of a repo is due; the date is read from the names of its open and archived
-scheduled changes, and one is open per split. Its unit goes from `prepare` to the whole-suite tier 2 step with no agent
+scheduled changes, and one is open per split. Its unit goes from `prepare` to the whole-suite e2e-test step with no agent
 call or pull request, ends satisfied on a pass, and a failure goes through the pre-existing/fix
 flow above. A due repo keeps a tick from being idle. `abk tick --dry-run` prints
-`would write: <change>` or `exists: <change>`. The `scheduled-tier2-` prefix is reserved.
+`would write: <change>` or `exists: <change>`. The `scheduled-e2e-` prefix is reserved.
 
 ### What an agent may run on the code host
 
@@ -364,7 +371,7 @@ cannot do, and what a person does about it:
    already did the work.
 4. Humans review and merge. A merge restacks whatever was on the branch.
 5. When every unit is merged or satisfied, the tick deploys the change (`deploy.rules`),
-   runs its tier 2 tests and — if it passes — archives it: the delta specs
+   runs its e2e-test tests and — if it passes — archives it: the delta specs
    are folded into `openspec/specs/` and the change moves to
    `openspec/changes/archive/`.
 

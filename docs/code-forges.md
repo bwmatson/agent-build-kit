@@ -90,7 +90,7 @@ parts are free functions beside it rather than inherited behaviour.
 | `review_notes(repo, pr)` | rework | the reviewer's words, and whether each is still live |
 | `post_reply(repo, pr, note_id, body)` | rework | the ids of what was posted |
 | `post_comment(repo, pr, body)` | rework, restack | ditto, for a note about the PR itself |
-| `post_status(repo, sha, ok, ..., head)` | the tier 2 gate | publish a result against the tested commit; a host that shows statuses on the pull request also gets it there, found from `head` |
+| `post_status(repo, sha, ok, ..., head)` | the e2e-test gate | publish a result against the tested commit; a host that shows statuses on the pull request also gets it there, found from `head` |
 | `failed_check_logs(repo, pull)` | rework | what the failing checks said |
 | `rerun_checks(repo, pull)` | `events` | run the pull request's cancelled checks again: GitHub re-runs the workflow runs behind them, Azure DevOps requeues the build policy evaluations whose build was cancelled |
 | `delete_remote_branch(repo, branch)` | `events` | remove a merged unit's branch |
@@ -267,12 +267,12 @@ of its own, whose id must be recorded or the poller reads it as feedback.
   `broken` are failing checks, while `running`, `queued`, `approved` and
   `notApplicable` are not. A completed or abandoned pull request makes no
   policy call.
-- **Tier 2's result is posted twice.** The commit status stays the record of
+- **E2e-test's result is posted twice.** The commit status stays the record of
   the commit measured; the open pull request for the unit's branch also gets
   the same status, because Azure shows only a pull request's own. A completed
   or abandoned pull request takes none, and a refusal is a logged warning, not
   a failed unit. The newest status of a context replaces the last, so a rework
-  that passes clears the failing `local/tier2`.
+  that passes clears the failing `local/e2e-test`.
 - **The server comments on its own.** "The reference refs/heads/… was updated"
   is written on the thread list on *every push*, and the pipeline pushes on
   every rework and every restack. Counted as a comment, each push reworks the
@@ -296,7 +296,7 @@ of its own, whose id must be recorded or the poller reads it as feedback.
   the source branch survives a merge, so it is ours to delete.
 
 The pull request body names the repo's `default_branch` where it says what a
-unit assumes is already merged, and the CI that runs a tier 1 unit's checks is
+unit assumes is already merged, and the CI that runs a unit-test unit's checks is
 the forge's `ci_name` ("GitHub Actions" on GitHub, "Azure Pipelines" here).
 
 ## The HTTP transport
