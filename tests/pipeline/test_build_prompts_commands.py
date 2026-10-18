@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.config import RepoConfig
 from agent_build_kit.pipeline import restack, stack_runner, wiring
 from agent_build_kit.pipeline.agent_commands import commands_note
+from tests.agent_command_fakes import repo_of
 from tests.prompt_text import placeholders
 
 SECTION = "Commands you may run"
@@ -27,7 +27,7 @@ CONTINUATIONS = [
 
 
 def python_note(tmp_path: Path) -> str:
-    return commands_note(RepoConfig(path=tmp_path, slug="example/app"))
+    return commands_note(repo_of(tmp_path))
 
 
 def render(template: str, commands: str) -> str:

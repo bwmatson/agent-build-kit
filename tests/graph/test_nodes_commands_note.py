@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -20,7 +19,7 @@ from agent_build_kit.pipeline.changelog_convention import changelog_note
 from agent_build_kit.pipeline.stack_runner import TESTS_PROMPT
 from agent_build_kit.pipeline.unit_store import FeedbackSource, RequeueReason
 from agent_build_kit.tool_patterns import allows
-from tests.agent_command_fakes import Silent, command
+from tests.agent_command_fakes import Silent, command, repo_of
 from tests.factories import scratch_app, unit
 from tests.graph.agent_fakes import distinct_models
 from tests.graph.test_adapt_in_the_restack_session import TRIED, Failing
@@ -32,10 +31,6 @@ from tests.runner_fakes import Recorder, rejecting
 SECTION = "Commands you may run"
 FAILING = "FAILED tests/test_marker.py::test_marks"
 STEPS = ["tests", "implement", "checks", "review-feedback", "rework", "adapt"]
-
-
-def repo_of(tmp_path: Path, **fields: Any) -> RepoConfig:
-    return RepoConfig(path=tmp_path, slug="example/app", **fields)
 
 
 def requeue() -> ResumeEvent:

@@ -2,28 +2,15 @@
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 import pytest
 
-from agent_build_kit import skills
 from agent_build_kit.cli.doctor import Check, run_doctor
-from agent_build_kit.config import EnvironmentConfig, RepoConfig, WorkspaceConfig, dump
-from agent_build_kit.init.scaffold import render_openspec_config
-from tests.factories import init_repo, which_all
+from tests.doctor_fakes import ok_run, planning_with
+from tests.factories import which_all
 
 HOOKS_FILE = ".pre-commit-config.yaml"
-
-
-def ok_run(argv, **kwargs):
-    if argv[0] == "git":
-        return subprocess.run(argv, **kwargs)
-    if argv[0] == "npx":
-        return subprocess.CompletedProcess(argv, 0, "1.0.0\n", "")
-    if argv[0] == "gh":
-        return subprocess.CompletedProcess(argv, 0, "tok\n", "")
-    return subprocess.CompletedProcess(argv, 0, "", "")
 
 
 def pyproject(*dev: str) -> str:
@@ -68,20 +55,7 @@ repos:
 
 @pytest.fixture
 def planning(tmp_path: Path) -> Path:
-    root = init_repo(tmp_path / "planning")
-    app = init_repo(tmp_path / "app")
-    (app / "CHANGELOG.md").write_text("# Changelog\n\n## Unreleased\n")
-    (app / ".gitattributes").write_text("CHANGELOG.md merge=union\n")
-    environment = EnvironmentConfig(sync=["env-sync"], check=["env-check"])
-    config = WorkspaceConfig(
-        environment=environment,
-        repos={"app": RepoConfig(path=app, slug="example/app", environment=environment)},
-    )
-    (root / "abk.yaml").write_text(dump(config))
-    (root / "openspec").mkdir()
-    (root / "openspec" / "config.yaml").write_text(render_openspec_config(config))
-    skills.install(root / ".claude" / "skills")
-    return root
+    return planning_with(tmp_path)
 
 
 def doctor(planning: Path, tmp_path: Path, *, pyproject_text: str, hooks: str) -> list[Check]:

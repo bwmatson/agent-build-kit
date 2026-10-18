@@ -19,7 +19,7 @@ from agent_build_kit.config import (
     load,
 )
 from agent_build_kit.pipeline.agent_commands import effective
-from tests.agent_command_fakes import command
+from tests.agent_command_fakes import command, repo_of
 
 GOOD = "uv run pytest -q"
 
@@ -30,10 +30,6 @@ def lines(repo: RepoConfig) -> list[str]:
 
 def profile_lines(*names: str) -> list[str]:
     return [" ".join(c.command) for name in names for c in profiles.get(name).agent_commands]  # type: ignore[attr-defined]
-
-
-def repo_of(tmp_path: Path, **fields: object) -> RepoConfig:
-    return RepoConfig(path=tmp_path, slug="example/app", **fields)  # type: ignore[arg-type]
 
 
 def write(tmp_path: Path, entries: list[str], *, projects: str = "") -> Path:

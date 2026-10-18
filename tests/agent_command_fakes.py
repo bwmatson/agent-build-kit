@@ -6,9 +6,10 @@ any such name for a test.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
-from agent_build_kit.config import AgentCommand
+from agent_build_kit.config import AgentCommand, RepoConfig
 from agent_build_kit.profiles.python_uv import PythonUvProfile
 
 
@@ -16,6 +17,11 @@ def command(purpose: str, line: str, scope: str = "whole") -> AgentCommand:
     return AgentCommand.model_validate(
         {"purpose": purpose, "command": line.split(), "scope": scope}
     )
+
+
+def repo_of(path: Path, **fields: Any) -> RepoConfig:
+    """The fixture repo: a `python-uv` app at `path`, with `fields` set on it."""
+    return RepoConfig(path=path, slug="example/app", **fields)
 
 
 class Silent(PythonUvProfile):

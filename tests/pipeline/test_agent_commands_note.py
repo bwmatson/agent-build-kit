@@ -7,16 +7,11 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit import profiles
-from agent_build_kit.config import RepoConfig
 from agent_build_kit.pipeline.agent_commands import commands_note
-from tests.agent_command_fakes import Silent, command
+from tests.agent_command_fakes import Silent, command, repo_of
 
 HEADING = "Commands you may run"
 BOUND = 600
-
-
-def repo_of(tmp_path: Path, **fields: object) -> RepoConfig:
-    return RepoConfig(path=tmp_path, slug="example/app", **fields)  # type: ignore[arg-type]
 
 
 def test_the_note_for_the_python_defaults_lists_the_four_commands(tmp_path: Path) -> None:
@@ -38,6 +33,14 @@ def test_the_note_of_each_built_in_profile_is_under_the_bound(tmp_path: Path, na
 
     assert note.startswith(HEADING)
     assert len(note) < BOUND
+
+
+def test_a_node_repo_lists_its_own_commands(tmp_path: Path) -> None:
+    note = commands_note(repo_of(tmp_path, profile="node-npm"))
+
+    assert "npx vitest run\n" in note
+    assert "npx vitest run <path>" in note
+    assert "uv run" not in note
 
 
 def test_a_repo_with_no_commands_has_an_empty_note(tmp_path: Path) -> None:
