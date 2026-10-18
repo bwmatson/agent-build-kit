@@ -6,7 +6,8 @@
   usage reading and never pause for usage. `abk tick` says so on its first line and
   `abk status` shows it. The scratch installation of a Claude Code live test sets it, so a
   test of the build no longer fails on the usage of the machine it runs on; a test about the
-  guard opts back in.
+  guard opts back in. A live test whose tick built nothing because usage paused it is skipped,
+  with the reading and threshold in the reason, instead of failing.
 
 - Asking whether a branch is held no longer takes its lock for a moment, so a build starting
   on that branch at the same time is no longer skipped by the question and left unbuilt for

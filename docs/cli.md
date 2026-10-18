@@ -22,7 +22,9 @@ point; the pipeline registers it per run as
 
 ### `abk tick [--dry-run] [--only UNIT ...]`
 
-One pass of the loop, the command the timer runs every few minutes. In
+One pass of the loop, the command the timer runs every few minutes. With
+`ABK_USAGE_GUARD=off` its first line is `usage guard off (ABK_USAGE_GUARD) — no usage is read
+and no start is held for usage`, and `abk status` shows the same line. In
 order: exit silently if nothing needs a tick (no unit `planned`/`running`/
 `in_review` and every change planned in its current form); stop if paused;
 read the usage windows and pause if either is past the threshold that applies

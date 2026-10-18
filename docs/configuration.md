@@ -708,6 +708,7 @@ loaded (`abk init` writes `.env.example` to copy).
 | `ABK_FORGE_DEADLINE_SECONDS` | the most time, from a code-host call's first attempt, that retries and their waits may take | `120` |
 | `ABK_WORKTREE_ROOT` | overrides `planning.worktree_root` on this machine | unset |
 | `ABK_OPENSPEC_VERSION` | the `@fission-ai/openspec` version run through `npx`; a pin, so an upgrade is a deliberate change | `1.13.1` |
+| `ABK_USAGE_GUARD` | `on` or `off`; `off` makes the process take no usage reading and never pause for usage. For scratch installations of live tests; it is not an `abk.yaml` key and is never read from the file. Any other value is refused | `on` |
 | `ABK_RUNTIME` | overrides `runtime` on this machine, so a runtime can be tried on one invocation without moving every repo in the workspace | unset: the file's |
 | `ABK_IMPLEMENT_MODEL`, `ABK_REWORK_MODEL`, `ABK_REVIEW_MODEL`, `ABK_REWORK_REVIEW_MODEL` | per-machine overrides of `models.*` | unset: the file's |
 | `ABK_GATEWAY_URL`, `ABK_GATEWAY_MASTER_KEY` | the model gateway and the master key that may mint keys on it. Set both and each agent call gets a key of its own, its usage is read from the gateway's records and the key is revoked afterwards; set neither for no gateway; one alone is said once and mints nothing | unset |

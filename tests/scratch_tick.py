@@ -20,6 +20,7 @@ from agent_build_kit.pipeline.pause import PAUSE_MARKER
 from agent_build_kit.pipeline.wait_log import DECISIONS_NAME, ENDED
 from agent_build_kit.redaction import redact_text
 from tests.factories import git, who_pushed
+from tests.usage_condition import skip_on_usage_condition
 
 # The program a tick runs, replaceable by a test that stands in for it.
 ABK: Path = Path(sys.executable).parent / "abk"
@@ -239,6 +240,7 @@ def commits_on_unit_branch(
     except subprocess.CalledProcessError:
         pass
     # Outside the handler, so the failure is not shown chained to a git error.
+    skip_on_usage_condition(scratch, branch)
     remembered = ticks_of(scratch)
     pytest.fail(_failure(scratch, branch, tick or (remembered[-1] if remembered else None)))
 

@@ -392,6 +392,10 @@ A clean move needs no agent and proceeds during a pause.
 
 ## When the pipeline is paused
 
+A live test that starts a scratch tick and finds it built nothing under a `usage` or `rate_limit`
+pause skips, naming the reading and threshold: usage is an environment condition, not a defect
+in the code. A scratch tick of a Claude Code live test runs with `ABK_USAGE_GUARD=off`.
+
 `abk status` prints `paused until … — <reason>`. The usual reason is the
 usage windows: no new unit starts above the threshold for the window named
 in the reason — `usage_pause_pct` (in the `session` or `weekly` section of
