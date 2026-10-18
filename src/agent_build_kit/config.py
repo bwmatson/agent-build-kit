@@ -1064,6 +1064,10 @@ class AgentCommand(Frozen):
         return self
 
 
+class RepoReviewConfig(Frozen):
+    """A repo's own review policy: the protected paths that add to the workspace's."""
+
+
 class RepoConfig(Frozen):
     path: Path
     # GitHub owner/name. The owner decides which `gh` account's token is used.
@@ -1103,6 +1107,7 @@ class RepoConfig(Frozen):
     changelog: str | None = "CHANGELOG.md"
     # How this repo's environment is kept current in a unit's worktree.
     environment: EnvironmentConfig | None = None
+    review: RepoReviewConfig = RepoReviewConfig()
 
 
 # --- verify env providers -----------------------------------------------------
@@ -1261,6 +1266,10 @@ def _alias_limits(data: dict[str, Any]) -> dict[str, Any]:
     return renamed
 
 
+class ReviewConfig(Frozen):
+    """The review policy: which changes never land without a person, and how they are classed."""
+
+
 class WorkspaceConfig(Frozen):
     version: int = 1
     planning: PlanningConfig = PlanningConfig()
@@ -1293,6 +1302,7 @@ class WorkspaceConfig(Frozen):
     # Per agent role (`build`, `review`), whether its nodes continue the role's
     # latest session. A role the mapping does not name is off.
     session_reuse: dict[str, bool] = {"build": True, "review": False}
+    review: ReviewConfig = ReviewConfig()
 
     @model_validator(mode="before")
     @classmethod
