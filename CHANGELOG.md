@@ -13,6 +13,7 @@
   but an old setting name is no longer an attribute of the loaded settings.
   `python -m agent_build_kit.rename_test_kinds` stays for rewriting a planning repository's
   text.
+
 - A unit now stores only its direct dependencies: one that a planned list, a `Needs:` line or a
   join would have added alongside a dependency that already reaches it is left out. A join is
   judged on those direct dependencies, so a unit that also listed the unit joined onto no
