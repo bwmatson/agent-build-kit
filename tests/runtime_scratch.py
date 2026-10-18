@@ -22,6 +22,9 @@ USAGE_GUARD = "ABK_USAGE_GUARD"
 RUNTIME_PARAMS: list[ParameterSet] = [
     pytest.param(name, marks=getattr(pytest.mark, f"runtime_{name}")) for name in RUNTIMES
 ]
+# The selection of those for the tests that run on Claude Code alone, until the ACP variants
+# are added.
+CLAUDE_CODE_PARAMS: list[ParameterSet] = [p for p in RUNTIME_PARAMS if p.values[0] == "claude_code"]
 
 
 class RuntimeScratch(Frozen):
