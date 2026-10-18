@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Asking whether a branch is held no longer takes its lock for a moment, so a build starting
+  on that branch at the same time is no longer skipped by the question and left unbuilt for
+  the rest of the pass.
+
 - A replan, a promotion back from `unplanned`, a vanished change and a join no longer drop
   the reason a unit was stopped: a standing cause such as a held split, a gate or a moved
   base is carried forward, and a backoff keeps counting from when the unit was parked.
