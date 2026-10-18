@@ -274,11 +274,20 @@ pass it. A blocked unit that had work gives its place to a ready, never-run prer
 it waits on (a handoff unit): one prerequisite starts for each blocked unit's
 place (one unit for each place; several by effective priority, then effective age; it
 starts among the new units by the order below, so it never goes ahead of a more urgent one),
-within the limit and `max_concurrent_stacks`. A restack takes none of these: the merge, release
-and depth handlers hand each moved child to the restack lane of the unit's project (each project has its own lane, with
-`project_limits.max_concurrent_restacks` workers apart from the build workers and a queue in
-the order restacks were seen, so a busy project does not hold back another's restacks) instead of restacking inline, and the lane asks the usage
-guard before its conflict resolver. Free slots then go to
+within the limit and `max_concurrent_stacks`. A unit whose only reason to run is that its base moved runs
+its whole moved-base run in the restack lane: the merge, release and depth handlers, and the poller on a conflicting
+pull request, hand each such unit to the restack lane of the unit's project (each project has its own lane, with
+`project_limits.max_concurrent_restacks` workers and a queue in the order restacks were seen, so a busy project does not
+hold back another's) instead of restacking inline. The lane's cap bounds the moved-base run: it is the move, the
+resolver, the port of a conflict the resolver could not settle and the checks and review of the moved branch, and it
+stops before any work that is not about the move (a rework of other feedback, a fix of checks, the end-to-end tests, tests or implementation), leaving the unit
+`planned` with a note naming the step for a build worker. A run is never held back by the limit on build workers, but
+the run counts toward slot occupancy: no build starts while the occupancy is at or above `max_concurrent_stacks`, and the
+occupancy may read over it. Each run counts as one attempt at the tip of the unit's base, bounded by
+`global_limits.max_review_rounds`; a unit that spends them is held with `needs_human` and a note naming the base, the tip
+and how the last run ended. A run the lane cannot go on with is handed back to a build worker, `planned` with the cause
+`restack_handed_back`. Every agent call in a run asks the usage guard first. The limits are counted for each project,
+not across all repos. Free slots then go to
 units with an open pull request, then to those resuming a build, then to new
 ones. The first two go in planned order; new ones go by effective priority, then handoff
 units before the others of equal priority, then by effective age (the earliest planned position among the unit and every unit waiting on it, in
@@ -856,7 +865,7 @@ the next sibling sees the conflict fresh, and fails the step's check, so the
 second call follows instead of the move aborting. What two steps leave
 unsettled goes, in a run, to the `adapt` port in the same session, told which
 steps were tried and what their checks said; the stack-move handler leaves it
-`planned` with cause `restack_conflict` and the unit's next run starts the
+`planned` with cause `restack_conflict`, and the lane's same worker goes straight on into that run, which starts the
 order from its first step. After a clean move
 whose diff (`git patch-id`) is unchanged and whose head review had approved,
 tier 1 runs again and the branch is pushed with a lease and a "Restacked"
