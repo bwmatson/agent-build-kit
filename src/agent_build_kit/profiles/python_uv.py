@@ -20,6 +20,9 @@ from collections.abc import Callable
 from pathlib import Path
 
 from agent_build_kit.config import (
+    AgentCommand,
+    AgentPurpose,
+    AgentScope,
     DraftedEnvironment,
     EnvironmentConfig,
     EnvironmentInputs,
@@ -213,6 +216,22 @@ class PythonUvProfile:
     allowed_tools: str = (
         "Bash(uv run *) Bash(uv lock*) Bash(uv sync*) Bash(uv add *) Bash(uv remove *) "
         "Bash(pre-commit *)"
+    )
+    agent_commands: tuple[AgentCommand, ...] = (
+        AgentCommand(purpose=AgentPurpose.TEST, command=["uv", "run", "pytest", "-q"]),
+        AgentCommand(
+            purpose=AgentPurpose.TEST,
+            command=["uv", "run", "pytest", "-q", "{path}"],
+            scope=AgentScope.FILE,
+        ),
+        AgentCommand(
+            purpose=AgentPurpose.CHECK, command=["uv", "run", "pre-commit", "run", "--all-files"]
+        ),
+        AgentCommand(
+            purpose=AgentPurpose.CHECK,
+            command=["uv", "run", "pre-commit", "run", "--files", "{path}"],
+            scope=AgentScope.FILE,
+        ),
     )
     prompt_words: PromptWords = PromptWords(
         verify="linting, formatting and type checks (pre-commit)",

@@ -130,6 +130,13 @@ from agent_build_kit.runtimes.base import (
 )
 from agent_build_kit.runtimes.network import network_failure
 from agent_build_kit.runtimes.traced import traced
+from agent_build_kit.tool_patterns import (  # noqa: F401  (`allows` is re-exported)
+    allows,
+    command_patterns,
+    matches,
+    name_of,
+    tokens,
+)
 from agent_build_kit.usage import ContextBasis, Usage, context_of
 
 NAME = known_agents.RUNTIME_NAME
@@ -337,23 +344,9 @@ EDIT_TOOLS = frozenset({"Edit", "Write", "NotebookEdit"})
 # something the broker has to hold back.
 READ_TOOLS = frozenset({"Read", "Grep", "Glob"})
 
-# Shell syntax that chains or redirects a command: a read-only pattern vouches
-# for one command, so a line that strings another after it is not covered.
-SHELL_OPERATORS = (";", "&", "|", "`", "$(", ">", "<", "\n")
-
-
-def _tokens(tool_list: str) -> list[str]:
-    """The list's entries, `Name` or `Name(pattern)`, a pattern's own spaces
-    kept."""
-    return re.findall(r"[^\s(]+(?:\([^)]*\))?", tool_list)
-
-
-def _name_of(token: str) -> str:
-    return token.split("(", 1)[0]
-
 
 def _names_edit_tool(tool_list: str) -> bool:
-    return any(_name_of(token) in EDIT_TOOLS for token in _tokens(tool_list))
+    return any(name_of(token) in EDIT_TOOLS for token in tokens(tool_list))
 
 
 def _is_read_only(request: AgentRequest) -> bool:
@@ -367,34 +360,6 @@ def _is_read_only(request: AgentRequest) -> bool:
     shape: under `claude_code` it is kept from editing by headless permission
     denial, not by a list."""
     return bool(request.allowed_tools) and not _names_edit_tool(request.allowed_tools)
-
-
-def _command_patterns(tool_list: str) -> tuple[str, ...]:
-    """The `Bash(...)` patterns a list grants; a bare `Bash` grants any."""
-    return tuple(
-        token[len("Bash(") : -1] if "(" in token else "*"
-        for token in _tokens(tool_list)
-        if _name_of(token) == "Bash"
-    )
-
-
-def _matches(command: str, patterns: tuple[str, ...]) -> bool:
-    """Claude Code's `Bash(...)` matching: `*` stands for anything and the
-    pattern covers the whole line, which may not chain a second command."""
-    line = command.strip()
-    if any(operator in line for operator in SHELL_OPERATORS):
-        return False
-    return any(
-        re.fullmatch(".*".join(re.escape(part) for part in pattern.split("*")), line, re.DOTALL)
-        for pattern in patterns
-    )
-
-
-def allows(tool_list: str, command: str) -> bool:
-    """Whether a Claude Code tool list (`--allowedTools` syntax) allows a shell
-    command: some `Bash(...)` entry, or a bare `Bash`, matches the whole line, and
-    the line chains no second command."""
-    return _matches(command, _command_patterns(tool_list))
 
 
 READ_ONLY_WARNING = (
@@ -456,8 +421,8 @@ def _cannot_honour(request: AgentRequest) -> str | None:
     permission broker cannot keep: only edits and commands can be held back."""
     unsupported = [
         token
-        for token in _tokens(request.allowed_tools)
-        if _name_of(token) not in READ_TOOLS and _name_of(token) != "Bash"
+        for token in tokens(request.allowed_tools)
+        if name_of(token) not in READ_TOOLS and name_of(token) != "Bash"
     ]
     if not unsupported:
         return None
@@ -897,7 +862,7 @@ class _Session:
     def _read_only_verdict(self, command: str) -> Verdict:
         """Allowed in a run that is not read-only; in one that is, only a
         command one of its `Bash(...)` patterns covers."""
-        if self._read_only is None or _matches(command, self._read_only):
+        if self._read_only is None or matches(command, self._read_only):
             return Verdict(allowed=True)
         return Verdict(
             allowed=False,
@@ -1333,7 +1298,7 @@ class AcpRuntime:
             roots=request.add_dirs,
             grants_nothing=request.permission_mode == "allowed_tools_only"
             and not request.allowed_tools,
-            read_only=_command_patterns(request.allowed_tools) if _is_read_only(request) else None,
+            read_only=command_patterns(request.allowed_tools) if _is_read_only(request) else None,
             permission=request.on_permission,
         )
         return await self._drive(command, request, session)

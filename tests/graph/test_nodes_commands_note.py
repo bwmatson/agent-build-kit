@@ -19,7 +19,8 @@ from agent_build_kit.pipeline.agent_commands import commands_note
 from agent_build_kit.pipeline.changelog_convention import changelog_note
 from agent_build_kit.pipeline.stack_runner import TESTS_PROMPT
 from agent_build_kit.pipeline.unit_store import FeedbackSource, RequeueReason
-from tests.agent_command_fakes import Silent, allowed, command
+from agent_build_kit.tool_patterns import allows
+from tests.agent_command_fakes import Silent, allow_list, command
 from tests.factories import scratch_app, unit
 from tests.graph.agent_fakes import distinct_models
 from tests.graph.test_adapt_in_the_restack_session import TRIED, Failing
@@ -162,5 +163,5 @@ def test_the_tests_prompt_for_the_scratch_app_names_commands_the_build_allows(
     named = [line.split(": ", 1)[1] for line in note.splitlines() if line.startswith("- ")]
     assert named
     for line in named:
-        item = command("test", line.replace("<path>", "{path}").replace("<test id>", "{path}"))
-        assert allowed(repo, item), line
+        sample = line.replace("<path>", "sample.txt").replace("<test id>", "sample.txt")
+        assert allows(allow_list(repo), sample), line

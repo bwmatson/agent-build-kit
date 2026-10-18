@@ -261,6 +261,11 @@ repos:                        # ordered; a task group's [repo] tag is a key here
     environment: null         # the same shape as the top-level `environment`, with paths
                               # relative to the repo; run in a unit's worktree.
                               # `abk doctor` warns for a repo without one
+    agent_commands: null      # commands the build prompts tell an agent it may run, each
+                              # {purpose: test|lint|format|check, command: "uv run pytest -q",
+                              # scope: whole|file|node-id}; `{path}` in the command exactly when
+                              # the scope is not whole. null follows the profiles, a list
+                              # replaces them. Each must match the build allow-list: refused at load
     changelog: CHANGELOG.md   # the repo's changelog; null = no convention, no check.
                               # Convention: AGENTS.md `## Changelog`, else CLAUDE.md,
                               # else the packaged text. Doctor warns if the file is absent
@@ -415,6 +420,7 @@ is 1 when anything failed.
 | verify env | A `verify.env` provider cannot resolve (names only are reported, never values). |
 | rules (info/warn) | Read from the `# abk-rules: vN` stamp at the top of `openspec/config.yaml`, never from the wording: reword the rules freely. `info` = no stamp, so nothing can be concluded; `warn` = the framework has added rules since that version (it lists them) or the stamp is newer than the framework. `abk init --update-rules` adds what they added to the end of the `context:` and restamps the file, changing nothing else. |
 | abk.yaml gaps (warn) | A service directory with no deploy rule, a rule whose prefix no longer exists, a dev-stack script without `dev_stack`, or a `live_written` path that is not a directory. |
+| agent commands (ok/info/FAIL/warn) | Each repo's effective `agent_commands`: ok with the count, info when none are named, FAIL for a command (a profile's own included) outside the build allow-list, warn when they would not all fit the prompt section's 600 characters. |
 | changelog (warn) | A repo's `changelog` path names a file its checkout does not have. Not checked when `changelog: null`. |
 | notifications | `notifications.provider` is `windows` and `powershell.exe` does not list the pinned BurntToast version (the fix is the install command), or is `command` and the `show` program is not on PATH. Nothing is checked while the provider is `off`. |
 | public content (warn) | The committed `abk.yaml` holds a repo path outside the checkout, a home-directory path in a value or a repo owned by another account than the origin (the key is named, never the value); or `abk.local.yaml`, `scrub.local` or a `*.pre-redact` copy is tracked or not ignored (the fix names the line to add). Offline. |

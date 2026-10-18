@@ -68,6 +68,7 @@ from agent_build_kit.notify.windows import (
     MODULE_CHECK_COMMAND,
 )
 from agent_build_kit.path_patterns import matches
+from agent_build_kit.pipeline import agent_commands
 from agent_build_kit.pipeline.e2e_holds import HELD_FILE, current_holds, hold_text
 from agent_build_kit.pipeline.environment import matched_inputs
 from agent_build_kit.pipeline.original_copy import COPY_PATTERN
@@ -539,6 +540,53 @@ def _toolchain(inst: Installation, run: Run, which: Which) -> list[Check]:
         )
     else:
         checks.append(_ok("openspec", result.stdout.strip() or "runs"))
+    return checks
+
+
+def _agent_commands(inst: Installation) -> list[Check]:
+    """The commands each repo's build prompts name for an agent: all allowed by the build's
+    tool list, none named, or some the prompt section has no room for. A profile's own
+    command outside its tool list is a defect of the profile, so a report and not a load
+    error."""
+    checks = []
+    for name, repo in inst.repos.items():
+        title = f"agent commands {name}"
+        try:
+            commands = agent_commands.effective(repo)
+            outside = agent_commands.refused(repo)
+        except KeyError:
+            continue  # an unknown profile is reported where the repo is
+        fix = f"allow it in the profile, or set `repos.{name}.agent_commands` in abk.yaml"
+        if outside:
+            lines = ", ".join(f"`{line}`" for _, line in outside)
+            checks.append(
+                _fail(
+                    title,
+                    f"profile {repo.profile}: {lines} not allowed by the build's tool list",
+                    fix,
+                )
+            )
+        elif not commands:
+            checks.append(
+                _info(
+                    title,
+                    "none named: the build prompts tell the agent no command to run",
+                    f"set `repos.{name}.agent_commands` to name some",
+                )
+            )
+        elif left := agent_commands.left_out(repo):
+            limit = agent_commands.NOTE_LIMIT
+            checks.append(
+                _warn(
+                    title,
+                    f"{len(left)} of {len(commands)} commands do not fit the {limit}-character "
+                    "section of the build prompts",
+                    f"list fewer in `repos.{name}.agent_commands`",
+                )
+            )
+        else:
+            count = f"{len(commands)} command{'' if len(commands) == 1 else 's'}"
+            checks.append(_ok(title, f"{count}, all allowed"))
     return checks
 
 
@@ -1458,6 +1506,7 @@ def run_doctor(
     checks += _state_ignores(inst)
     checks += _timers(inst, run, units, which)
     checks += _toolchain(inst, run, which)
+    checks += _agent_commands(inst)
     checks += _runtime(inst, which, run)
     if config.runtime_name(inst.config) == config.CLAUDE_CODE:
         checks += _labelled_accounts(inst, run)

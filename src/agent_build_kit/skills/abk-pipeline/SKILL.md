@@ -266,6 +266,16 @@ Only to read its own pull request, by the commands its repo's forge declares
 and the raw API escapes are refused on every repo, whatever its forge. On Azure
 DevOps, stacked pull requests are unsupported and units serialise per repo.
 
+### What the build prompts tell an agent to run
+
+A build agent runs headless and a command outside its tool list is refused, so the
+tests, implementation, review-feedback, checks-fix, rework and adapt prompts carry a
+"Commands you may run" section (at most 600 characters). The commands come from the
+repo's toolchain profiles (`agent_commands`), or from `repos.<name>.agent_commands`
+in `abk.yaml` when that replaces them, and each must match the build allow-list.
+A continued session already holds the full prompt and is not told again. A repo
+with no commands gets no section; `abk doctor` reports what each repo names.
+
 ### Labels on the pull request
 
 Two families. The `agent-` labels are instructions a person sets:

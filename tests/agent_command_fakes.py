@@ -12,7 +12,6 @@ from agent_build_kit import forges, profiles
 from agent_build_kit.config import AgentCommand, RepoConfig
 from agent_build_kit.pipeline import wiring
 from agent_build_kit.profiles.python_uv import PythonUvProfile
-from agent_build_kit.tool_patterns import allows
 
 SAMPLE_PATH = "sample.txt"
 
@@ -31,10 +30,6 @@ def line_of(item: AgentCommand) -> str:
 def allow_list(repo: RepoConfig) -> str:
     """The tool list a build is started with for `repo`."""
     return wiring.allowed_tools(profiles.get(repo.profile), forges.get(repo.forge), repo.projects)
-
-
-def allowed(repo: RepoConfig, item: AgentCommand) -> bool:
-    return allows(allow_list(repo), line_of(item))
 
 
 class Silent(PythonUvProfile):

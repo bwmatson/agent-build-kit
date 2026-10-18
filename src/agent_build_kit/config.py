@@ -981,6 +981,9 @@ class AzureDevOpsConfig(Frozen):
     repo: str = ""
 
 
+AGENT_PATH_WORD = "{path}"
+
+
 class AgentPurpose(StrEnum):
     TEST = "test"
     LINT = "lint"
@@ -998,8 +1001,26 @@ class AgentCommand(Frozen):
     """One command a build agent may run, and what it is for."""
 
     purpose: AgentPurpose
+    # An argument list; a string in abk.yaml is split like a shell would. `{path}` stands for
+    # what the agent picks, and is there exactly when the scope is not `whole`.
     command: list[str]
     scope: AgentScope = AgentScope.WHOLE
+
+    @model_validator(mode="before")
+    @classmethod
+    def _split(cls, data: Any) -> Any:
+        if isinstance(data, dict) and isinstance(data.get("command"), str):
+            return {**data, "command": shlex.split(data["command"])}
+        return data
+
+    @model_validator(mode="after")
+    def _path_fits_scope(self) -> AgentCommand:
+        has_path = AGENT_PATH_WORD in self.command
+        if has_path and self.scope is AgentScope.WHOLE:
+            raise ValueError(f"{AGENT_PATH_WORD} is for a file or node-id scope, not whole")
+        if not has_path and self.scope is not AgentScope.WHOLE:
+            raise ValueError(f"a {self.scope} scope needs {AGENT_PATH_WORD} in the command")
+        return self
 
 
 class RepoConfig(Frozen):
@@ -1624,6 +1645,7 @@ def load(path: Path) -> WorkspaceConfig:
     _check_runtime(loaded, path)
     _check_forges(loaded, path)
     _check_infra(loaded, path)
+    _check_agent_commands(loaded, path)
     return loaded
 
 
@@ -1654,6 +1676,21 @@ def _check_infra(config: WorkspaceConfig, path: Path) -> None:
             infra.get(repo.infra)
         except KeyError as error:
             raise ConfigError(f"{path}: repo {name!r}: {error.args[0]}") from None
+
+
+def _check_agent_commands(config: WorkspaceConfig, path: Path) -> None:
+    """An `agent_commands` list with a command the build allow-list refuses fails here,
+    naming the repo, the position, the command and the list."""
+    from agent_build_kit.pipeline import agent_commands
+
+    for name, repo in config.repos.items():
+        if repo.agent_commands is None:
+            continue
+        for index, line in agent_commands.refused(repo):
+            raise ConfigError(
+                f"{path}: repo {name!r}: agent_commands[{index}] `{line}` is not allowed to a "
+                f"build agent; the allow-list is {agent_commands.allow_list(repo)}"
+            )
 
 
 def _check_forges(config: WorkspaceConfig, path: Path) -> None:

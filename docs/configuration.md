@@ -25,7 +25,15 @@ relative to it. Commands that need an installation exit 2 when none is found.
 
 `abk config --path` prints the file in force; `abk config --show` (the
 default) prints the effective configuration with every default filled in.
-`abk doctor` checks the installation is runnable — see [cli.md](cli.md).
+`abk doctor` checks the installation is runnable — see [cli.md](cli.md). One of its checks
+reports each repo's agent commands:
+
+| Check | Status | Meaning |
+|---|---|---|
+| agent commands `<repo>` | ok | the number of effective commands, all allowed by the build allow-list |
+| agent commands `<repo>` | info | none named: the profile gives none and `agent_commands` is not set |
+| agent commands `<repo>` | FAIL | a command (a profile's own, which is not a load error) is outside the allow-list; allow it in the profile or set `repos.<name>.agent_commands` |
+| agent commands `<repo>` | warn | the commands would not all fit the 600-character prompt section; the leading ones are listed |
 
 ## `abk.yaml` reference
 
@@ -446,6 +454,15 @@ repos:                          # ordered: deploy order is derived from
                                 # `up`, `test` and `down`. E2e-test runs the
                                 # unit's branch on it instead of the live
                                 # stack. null = no dev stack.
+    agent_commands: null        # the commands the build prompts tell an agent it may
+                                # run: a list of {purpose: test|lint|format|check,
+                                # command: "uv run pytest -q {path}", scope:
+                                # whole|file|node-id}, a string split into
+                                # arguments, `{path}` there exactly when the scope
+                                # is not `whole`. null follows the toolchain
+                                # profiles; a list, `[]` included, replaces them.
+                                # Each must match the build allow-list (the tool
+                                # list the build starts with) or the load fails
     changelog: CHANGELOG.md     # where the repo keeps its changelog. Set, the
                                 # build, rework, resolver and review prompts
                                 # carry its convention and unit-test runs
