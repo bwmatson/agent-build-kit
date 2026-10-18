@@ -276,6 +276,7 @@ from agent_build_kit.pipeline.usage_guard import (
     current_usage,
     decide_start,
     forget_logged_failures,
+    guard_off_line,
     held_estimate_line,
     held_usage,
     may_start_unit,
@@ -585,6 +586,8 @@ def _slots_line(inst: Installation, units: list[StoredUnit]) -> str | None:
 
 def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     """What the pipeline thinks is going on, without changing anything."""
+    if off := guard_off_line():
+        log(off)
     paused = is_paused(_paused_marker(inst))
     if paused:
         log(pause_line(paused))
@@ -1037,6 +1040,8 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     Ordering matters in one place: the usage check comes first, so a low
     window stops the tick before it spends anything on planning.
     """
+    if off := guard_off_line():
+        log(off)
     forget_logged_failures()
     if planning_mode(inst) == PlanningMode.SEPARATE:
         if is_repo(inst.root) and not restore_default_branch(

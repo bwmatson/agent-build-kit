@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `ABK_USAGE_GUARD=off` (environment only, never an `abk.yaml` key) makes a process take no
+  usage reading and never pause for usage. `abk tick` says so on its first line and
+  `abk status` shows it. The scratch installation of a Claude Code live test sets it, so a
+  test of the build no longer fails on the usage of the machine it runs on; a test about the
+  guard opts back in.
+
 - Asking whether a branch is held no longer takes its lock for a moment, so a build starting
   on that branch at the same time is no longer skipped by the question and left unbuilt for
   the rest of the pass.
