@@ -8,6 +8,7 @@
   but an old setting name is no longer an attribute of the loaded settings.
   `python -m agent_build_kit.rename_test_kinds` stays for rewriting a planning repository's
   text.
+
 - The build prompts now name the commands an agent may run ("Commands you may run"), so an
   agent in a repo with no instruction file no longer picks a command the build refuses and
   loses its tests-first order. A toolchain profile provides them, `repos.<name>.agent_commands`

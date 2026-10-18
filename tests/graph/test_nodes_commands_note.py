@@ -146,6 +146,8 @@ def test_the_tests_prompt_for_the_scratch_app_names_commands_the_build_allows(
     tmp_path: Path,
 ) -> None:
     app = scratch_app(tmp_path / "app")
+    # The fixture may carry a stop-gap instruction file; the prompt must not need one.
+    (app / "CLAUDE.md").unlink(missing_ok=True)
     assert not list(app.glob("AGENTS.md")) and not list(app.glob("CLAUDE.md"))
     repo = repo_of(app)
     note = commands_note(repo)
