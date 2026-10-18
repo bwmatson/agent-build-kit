@@ -364,8 +364,8 @@ def test_a_unit_that_starts_while_the_plan_is_made_drops_only_that_join(
     assert started.state == RUNNING
     assert started.joined == ()
     assert started.estimated_lines == 100
-    assert run.ids() == ["base/1", "feature/1"]
-    assert run.store.get("feature/1").groups == (2,)
+    assert run.ids() == ["base/1", "feature/2"]
+    assert run.store.get("feature/2").groups == (2,)
 
     run.plan()
 
@@ -843,22 +843,22 @@ def test_planning_the_carrying_units_change_without_it_plans_the_carried_change_
         monkeypatch,
         units=[
             stored_unit(
-                "base/1",
+                "base/5",
                 change="base",
-                groups=(1,),
+                groups=(1, 2),
                 estimated_lines=180,
                 joined=(Member(change="feature", groups=(1,)),),
             )
         ],
-        tasks={"base": tasks_md(), "feature": tasks_md()},
+        tasks={"base": tasks_md(group(), group()), "feature": tasks_md()},
         planning="base",
-        reply=answer(units=[new_unit("base/2", (1,))]),
+        reply=answer(units=[new_unit("base/1", (1,)), new_unit("base/2", (2,))]),
     )
     assert "feature" in json.loads((run.inst.state_dir / "planned.json").read_text())
 
     run.plan()
 
-    assert run.store.get("base/1").state == "unplanned"
+    assert run.store.get("base/5").state == "unplanned"
     # `feature` is asked for again — here in the same pass, as it comes after
     # `base` — instead of being left recorded as planned.
     asked = [r.prompt for r in run.runtime.requests]

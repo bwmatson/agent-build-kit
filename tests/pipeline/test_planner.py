@@ -250,7 +250,7 @@ def test_a_correct_split_passes() -> None:
 def test_without_the_groups_the_check_is_skipped() -> None:
     """`groups` is optional so existing callers and tests that only care about
     the shape of a graph don't have to construct a task list."""
-    assert parse_graph(graph_json([planned()]))[0].id == "c/1"
+    assert parse_graph(graph_json([planned()]))[0].id == "c/2"
 
 
 def test_a_group_already_built_need_not_be_claimed_again() -> None:
@@ -332,7 +332,7 @@ def test_the_acceptance_group_is_a_unit_of_its_own() -> None:
     output = graph_json(
         [si(id="c/1", groups=[1, 2]), si(id="c/2", groups=[3], tier="e2e-test", depends_on=["c/1"])]
     )
-    assert [u.id for u in parse_graph(output, groups=ACCEPTING)] == ["c/1", "c/2"]
+    assert [u.id for u in parse_graph(output, groups=ACCEPTING)] == ["c/1", "c/3"]
 
     folded = graph_json([si(id="c/1", groups=[1]), si(id="c/2", groups=[2, 3], tier="e2e-test")])
     with pytest.raises(PlannerError, match="acceptance"):

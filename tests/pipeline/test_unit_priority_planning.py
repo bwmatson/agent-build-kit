@@ -159,14 +159,12 @@ def test_an_edited_line_reaches_the_units_that_have_not_started(
 ) -> None:
     run = Round(tmp_path, monkeypatch, {"feature": tasks_md(None, None)})
     two_units_in_one_change(run)
-    # A branch with no commit is a start the plan can still propose again.
-    run.store.set_state("feature/1", PLANNED, branch="spec/feature/1")
     path = run.inst.changes_dir / "feature" / "tasks.md"
     path.write_text(tasks_md(1, 1))
 
     two_units_in_one_change(run)
 
-    assert run.priority("feature/1") == 3
+    assert run.priority("feature/1") == 1
     assert run.priority("feature/2") == 1
 
 

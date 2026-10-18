@@ -209,6 +209,13 @@ A repo's e2e-test tests may be divided by `tests.e2e_splits` in `abk.yaml`; a te
 to at most one split and the rest are `rest`. Before writing an `[e2e-test]` group that adds
 an e2e-test test, run `abk e2e-test check` to see that the test lands in one split only.
 
+## Unit names
+
+The program names units, not the planner: a unit is `<change>/<lowest group>`, the lowest
+group of the change it carries, so a person can predict it from the headings. A replan over
+the same groups keeps every id, and a taken id (retired, started or finished) is replaced by
+the next free integer.
+
 ## Describe behaviour, not names
 
 A task describes behaviour. It names a new function, class or constant only when

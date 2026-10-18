@@ -72,7 +72,7 @@ def test_a_unit_requeued_with_restart_takes_the_new_tags_and_the_report_ends(
     assert run.calls == 0
 
     cli.requeue(run.inst, "feature/1", "restart", say=lambda text, error=False: None)
-    retagged = dict(planned("feature/1", (1,)), tier="e2e-test")
+    retagged = dict(planned("retagged", (1,)), change="feature", tier="e2e-test")
     code, out = run.run(capsys, "feature", reply=answer(retagged))
 
     assert code == 0, out

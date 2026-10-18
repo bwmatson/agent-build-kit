@@ -144,14 +144,14 @@ def test_a_dependency_on_a_started_or_finished_stored_unit_is_never_refused(
     assert against_stored(stored_target(state)) is None
 
 
-def test_a_plan_unit_that_is_stored_as_started_is_not_refused() -> None:
+def test_a_label_that_is_a_started_units_id_is_refused_not_priority_checked() -> None:
     started = stored_unit("app/1", change="app", groups=(1,)).model_copy(
         update={"state": FAILED, "branch": "spec/app/1"}
     )
     context = JoinContext(stored=(started,), catalog={"app": tuple(groups_at(3, 1))})
     assert "app/2" in refusal(in_one_change())
 
-    assert parse(in_one_change(), context=context).units
+    assert "started" in refusal(in_one_change(), context=context)
 
 
 def test_a_unit_whose_groups_are_not_in_the_catalog_counts_as_normal() -> None:
