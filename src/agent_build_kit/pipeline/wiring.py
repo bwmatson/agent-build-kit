@@ -866,6 +866,14 @@ def build_commit(
     return commit
 
 
+def build_stub_checks(
+    *, profile: ToolchainProfile, projects: list[ProjectConfig] | None = None
+) -> Callable[..., tuple[bool, str]]:
+    """The static checks of a stubbed build's test step: lint, format and types over the
+    tree with its new files staged, and no test."""
+    raise NotImplementedError
+
+
 def branch_commits(repo: Path, base: str, head: str = "HEAD") -> int:
     """How many commits the branch (`head`, the checked-out one by default) carries beyond
     its base.

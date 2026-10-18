@@ -1225,6 +1225,10 @@ def _no_reset() -> None:
     raise RuntimeError("this runner was not given a way to reset a branch")
 
 
+def _no_stub_checks(*args: object, **kwargs: object) -> object:
+    raise NotImplementedError
+
+
 def parse_test_decisions(answer: str) -> list[PortedTest]:
     value = last_json(answer, {"tests"}) or {}
     out: list[PortedTest] = []
@@ -1382,6 +1386,11 @@ class UnitRunner(BaseModel):
     # `Restacked.conflict` with the branch left where it was, and no agent runs.
     restack_onto: Callable[..., Restacked | None]
     run_unit_test: Callable[..., tuple[bool, str]]
+    # The static checks of a stubbed build's test step, given `cwd=`: whether lint, format and
+    # types pass over the tree with its new files, and the output. See `wiring.build_stub_checks`.
+    run_stub_checks: Callable[..., tuple[bool, str]] = _no_stub_checks  # type: ignore[assignment]
+    # A digest of the working tree, which says whether a fix changed it.
+    tree_state: Callable[[Path], str] = _no_stub_checks  # type: ignore[assignment]
     # Told the unit and each flake when unit-test raises `FlakeFound`: records it, and with
     # `wait` has the unit wait on its fix (with it false the change is ensured and no
     # `Needs:` line is added), and answers that change, or None when there is nothing for

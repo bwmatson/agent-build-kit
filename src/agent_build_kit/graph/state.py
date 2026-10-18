@@ -130,6 +130,7 @@ class UnitRun(Frozen):
     opened: bool = False  # the unit has a pull request
     had_feedback: bool = False  # feedback was waiting when the run began
     fix_rounds: int = 0  # fixes of failing checks in this round of review
+    stub_rounds: int = 0  # fixes of failing static checks in this group's tests
     review_round: int = 0
     checks_ok: bool = False
     produced_nothing: bool = False

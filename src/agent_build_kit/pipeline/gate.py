@@ -64,6 +64,7 @@ def check_branch(
     cache: CheckCache | None = None,
     profile: ToolchainProfile | None = None,
     projects: list[ProjectConfig] | None = None,
+    stubbed: bool = False,
 ) -> list[str]:
     """Every reason this branch may not be pushed, or an empty list.
 
