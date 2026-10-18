@@ -324,6 +324,9 @@ repo) maps a split name to a `marker`, an optional `hold` and an optional `gate`
 tests in no split, is always there and may carry `hold` or `gate` but no marker. The configuration wins over the state
 file `e2e-held.json`. The three runtime lists it replaced are gone, with no alias.
 
+`abk e2e-test hold <split>` and `abk e2e-test release <split>` set and clear `hold` and the state
+file entry together; `abk e2e-test status` shows what is held. A hand-set hold has no deadline.
+
 `abk e2e-test check [repo]` lists each split and `rest` with its marker and test count, and
 exits 0 when no test is in two splits, no marker is unknown to the test runner and no
 listing fails; 1 for a finding or a split the profile cannot apply; 2 for an unknown repo. It runs no test.

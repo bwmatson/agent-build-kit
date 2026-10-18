@@ -27,6 +27,12 @@
   `python -m agent_build_kit.rename_test_kinds` stays for rewriting a planning repository's
   text.
 
+- The documents and skills now describe how the kit's live tests are tagged by runtime, the
+  parking and scheduled change per split, and `abk e2e-test hold`, `release` and `status`,
+  with a short how-to for holding a split. A drift test fails a live test that starts an agent
+  without exactly one runtime tag, and an ACP scenario with no Claude Code variant and no
+  stated reason.
+
 - A unit now stores only its direct dependencies: one that a planned list, a `Needs:` line or a
   join would have added alongside a dependency that already reaches it is left out. A join is
   judged on those direct dependencies, so a unit that also listed the unit joined onto no

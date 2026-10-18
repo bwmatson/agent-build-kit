@@ -1254,7 +1254,9 @@ approved.
   wait. `abk status` lists each flaky test with its count and fix change.
 - **A pre-existing failure is recorded and fixed once.** A test the base run names as failed
   is appended to `<state_dir>/preexisting-failures.jsonl` (test, unit, command, first
-  failure line, time, the base run's result and output, and the fix change), through the
+  failure line, time, the base run's result and output, the `split` it failed in (`rest` or a
+  declared split; an older entry's `runtime` is read as the split, `base` as `rest`) and the
+  fix change), through the
   same `FailureRecord` the flake record uses. `untouched_failures.ensure_fix` makes sure,
   under `preexisting.lock`, that one open `fix-failing-<slug>` change exists for the test id
   (name capped with a hash, so a flake of the same test is a different change), and writes
@@ -1279,7 +1281,8 @@ approved.
   when the runner's `e2e_runs_whole` says the run executes the whole marker, the node asks
   `on_e2e_gate` (`wiring.build_on_e2e_gate`). `untouched_failures.holding_fixes` returns
   the recorded fix changes that are open, were recorded by a unit of the same repo, are not the
-  unit's own change and carry no `Needs:` from it; each gets a `Needs:` line through
+  unit's own change, carry no `Needs:` from it and were recorded for a split the run executes
+  (a fix for a test in a held or unexecuted split does not hold it); each gets a `Needs:` line through
   `wait_on_preexisting`, and the unit is parked as above before the stack lock or any test.
   A same-repo fix releases the unit once its unit is in review, not only when it has merged.
   A closed fix change keeps the unit waiting until a person clears it. `abk status` ends each
@@ -1414,7 +1417,8 @@ The held set is the `hold: true` entries of `tests.e2e_splits` together with the
 entries of `e2e-held.json` in the state directory; the configuration wins. One function
 builds a run's selection from the repo's splits, the held set and the one split to run
 alone, and every e2e-test command takes it. A run records the split of each failed test
-(`rest`, a declared split or `unknown`). A unit waiting on a held split is parked with the
+(`rest`, a declared split or `unknown`); a held split's failures are never recorded, and
+neither is one whose split is `unknown`. A unit waiting on a held split is parked with the
 cause `split_held`. The scheduled e2e-test run is one change per split and `rest`, named
 `scheduled-e2e-<repo>-<date>-<split>`; an older change with no suffix or ending `-base`
 counts as `rest`.
