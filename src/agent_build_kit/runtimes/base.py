@@ -96,6 +96,9 @@ class ToolPolicy(Frozen):
     branch_prefix: str = "spec/"
     no_commit: bool = False  # refuse `git commit` too: the person commits, not the turn
     planning_paths: tuple[str, ...] = ()  # unwritable in the worktree: the pipeline's own
+    # Files no command may write, wherever they are: the planning repo's abk.yaml, which holds
+    # the review policy a person owns.
+    fenced_files: tuple[Path, ...] = ()
     scoped: bool = True  # False: only commit and push are refused, nothing of the unit's rules
 
 

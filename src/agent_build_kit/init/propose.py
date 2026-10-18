@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Literal
 
 from agent_build_kit import openspec
-from agent_build_kit.config import active
+from agent_build_kit.config import CONFIG_FILENAME, active
 from agent_build_kit.init.claude_call import RunClaude, runtime_for, succeeded
 from agent_build_kit.init.detect import RepoDetection
 from agent_build_kit.init.scaffold import render_rules
@@ -186,7 +186,7 @@ def build_prompt(
 # --- fencing ------------------------------------------------------------------------
 
 
-def _policy() -> ToolPolicy:
+def _policy(planning: Path) -> ToolPolicy:
     """The policy hook, with writes fenced to the planning repo.
 
     A build agent's specs directory is read-only, which is right for it: its
@@ -194,9 +194,13 @@ def _policy() -> ToolPolicy:
     Here the agent's whole job is to write a change under `openspec/changes/`,
     so that one restriction is dropped and the rest — the command policy, and
     writes confined to the checkout it runs in, which is the planning repo —
-    stays.
+    stays. The review policy in abk.yaml is a person's, so no command writes it.
     """
-    return ToolPolicy(specs_dir=None, branch_prefix=active().git.branch_prefix)
+    return ToolPolicy(
+        specs_dir=None,
+        branch_prefix=active().git.branch_prefix,
+        fenced_files=(planning / CONFIG_FILENAME,),
+    )
 
 
 # --- validation ---------------------------------------------------------------------
@@ -333,7 +337,7 @@ def write_change(
                 add_dirs=reads,
                 allowed_tools=ALLOWED_TOOLS,
                 permission_mode="edit",
-                policy=_policy(),
+                policy=_policy(planning),
             ),
             agent,
             node=OverheadNode.INIT_PROPOSE,

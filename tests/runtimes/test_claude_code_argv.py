@@ -63,12 +63,20 @@ def flags(argv: list[str], prompt: str) -> dict[str, str | None]:
     return carried
 
 
-def hook(specs: Path | None, *, branch_prefix: str = "spec/", no_push: bool = True) -> dict:
+def hook(
+    specs: Path | None,
+    *,
+    branch_prefix: str = "spec/",
+    no_push: bool = True,
+    fenced_file: Path | None = None,
+) -> dict:
     """The PreToolUse registration a policed run carries, naming the policy
     module under the interpreter abk itself runs on. A policed run never pushes."""
     command = f"{sys.executable} -m agent_build_kit.hooks.policy --branch-prefix {branch_prefix}"
     if specs is not None:
         command += f" --specs {specs}"
+    if fenced_file is not None:
+        command += f" --fenced-file {fenced_file}"
     if no_push:
         command += " --no-push"
     return {

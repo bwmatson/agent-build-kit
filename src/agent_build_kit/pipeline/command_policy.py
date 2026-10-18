@@ -30,7 +30,7 @@ from collections.abc import Collection
 from pathlib import Path
 
 from agent_build_kit import forges
-from agent_build_kit.config import active
+from agent_build_kit.config import CONFIG_FILENAME, active
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.scratch import SCRATCH
 
@@ -563,36 +563,127 @@ FENCED_REASON = (
     "as `BLOCKED: <what and where>` so a human can make it"
 )
 # Programs that write every file they are given, and those that write only the last one.
-WRITES_ARGUMENTS = {"tee", "rm", "touch", "truncate", "ed", "ex", "vi", "vim", "nano", "mv"}
-WRITES_LAST_ARGUMENT = {"cp", "install", "ln"}
+WRITES_ARGUMENTS = {"tee", "rm", "touch", "truncate", "ed", "ex", "vi", "vim", "nano"}
+WRITES_LAST_ARGUMENT = {"cp", "install", "ln", "mv"}
 IN_PLACE_EDITORS = {"sed", "perl"}
+ASSIGNMENT = re.compile(r"[A-Za-z_]\w*=")
+VARIABLE = re.compile(r"\$(\w+)|\$\{(\w+)\}")
 
 
-def _names_fenced(token: str, fenced: Collection[Path], here: Path | None) -> Path | None:
-    """The fenced file `token` names, resolved from `here`; with `here` unknown, a relative
+def policy_files(
+    *,
+    checkout: Path | None,
+    planning_paths: Collection[str] = (),
+    planning_repo: Path | None = None,
+    fenced_files: Collection[Path] = (),
+) -> tuple[Path, ...]:
+    """The files that hold the review policy, which no command may write: the planning repo's
+    configuration file, those a run is told of, and the one in the run's own checkout when it
+    is a unit of the planning repo's repository (`planning_paths` names it)."""
+    files = [Path(f) for f in fenced_files]
+    if planning_repo is not None:
+        files.append(planning_repo.resolve() / CONFIG_FILENAME)
+    if checkout is not None and CONFIG_FILENAME in planning_paths:
+        files.append(checkout / CONFIG_FILENAME)
+    return tuple(dict.fromkeys(files))
+
+
+def _is_in_place(program: str, words: list[str]) -> bool:
+    """Whether `sed` or `perl` is told to edit its file: a short-option cluster holding `i`
+    (`-i`, `-ni`, `-pi`), or `--in-place`."""
+    if program not in IN_PLACE_EDITORS:
+        return False
+    return any(
+        w == "--in-place"
+        or w.startswith("--in-place=")
+        or (w.startswith("-") and not w.startswith("--") and "i" in w)
+        for w in words
+    )
+
+
+def _written(tokens: list[str]) -> list[tuple[str, list[str]]]:
+    """Each word the program writes, with the names it would give a file written into it when
+    the word is a directory."""
+    program, directory = tokens[0], None
+    arguments: list[str] = []
+    found: list[tuple[str, list[str]]] = []
+    words = [t for t in tokens[1:] if t not in REDIRECTS]
+    index = 0
+    while index < len(words):
+        word = words[index]
+        index += 1
+        if word in ("-t", "--target-directory") and index < len(words):
+            directory, index = words[index], index + 1
+        elif word.startswith("--target-directory="):
+            directory = word.split("=", 1)[1]
+        elif program == "dd" and word.startswith("of="):
+            found.append((word[3:], []))
+        elif not word.startswith("-"):
+            arguments.append(word)
+    if program in WRITES_ARGUMENTS or _is_in_place(program, words):
+        found += [(a, []) for a in arguments]
+    elif program in WRITES_LAST_ARGUMENT:
+        sources = arguments if directory else arguments[:-1]
+        destination = directory or (arguments[-1] if arguments else None)
+        if destination is not None:
+            found.append((destination, [Path(a).name for a in sources]))
+        if program == "mv":  # moving a file away removes it
+            found += [(a, []) for a in sources]
+    return found
+
+
+def _expanded(token: str, variables: dict[str, str]) -> str | None:
+    """`token` with the variables this command set and `~` expanded; None when a `$` or a
+    substitution is left that cannot be read off the text."""
+    token = VARIABLE.sub(lambda m: variables.get(m.group(1) or m.group(2), m.group(0)), token)
+    token = os.path.expanduser(token)
+    return None if "$" in token or "`" in token else token
+
+
+def _names_fenced(
+    token: str, fenced: Collection[Path], here: Path | None, names: list[str]
+) -> Path | None:
+    """The fenced file `token` names, resolved from `here`, or that it would write by putting
+    a file called one of `names` into the directory it is; with `here` unknown, a relative
     token that ends in a fenced file's name counts."""
-    if Path(token).is_absolute() or here is not None:
-        resolved = Path(os.path.realpath((here or Path("/")) / token))
-        return next((f for f in fenced if resolved == Path(os.path.realpath(f))), None)
-    return next((f for f in fenced if Path(token).name == f.name), None)
+    if not Path(token).is_absolute() and here is None:
+        return next((f for f in fenced if Path(token).name == f.name), None)
+    resolved = Path(os.path.realpath((here or Path("/")) / token))
+    real = {Path(os.path.realpath(f)): f for f in fenced}
+    if resolved in real:
+        return real[resolved]
+    if resolved.is_dir():
+        return next((real[resolved / n] for n in names if resolved / n in real), None)
+    return None
 
 
-def _check_fenced(segment: str, fenced: Collection[Path], here: Path | None) -> Verdict:
+def _check_fenced(
+    segment: str,
+    command: str,
+    fenced: Collection[Path],
+    here: Path | None,
+    variables: dict[str, str],
+) -> Verdict:
     """Refuse a segment that writes a fenced file: by redirect, or by a program that writes
-    its arguments (`tee`, `mv`, `cp` onto it, `sed -i`)."""
+    its arguments (`tee`, `mv` or `cp` onto it or into its directory, `dd of=`, `sed -i`).
+    A target that cannot be read off the text is refused when the command names a fenced
+    file anywhere."""
     tokens = _strip_wrappers(_tokens(segment))
-    targets = list(_redirect_targets(segment))
+    targets: list[tuple[str, list[str]]] = []
+    for raw in _redirect_targets(segment):
+        try:
+            targets.append((_expand_word(raw, Path("/dev/null")), []))
+        except (ValueError, IndexError):
+            targets.append((raw, []))
     if tokens:
-        words = [t for t in tokens[1:] if t not in REDIRECTS]
-        arguments = [t for t in words if not t.startswith("-")]
-        if tokens[0] in WRITES_ARGUMENTS or (
-            tokens[0] in IN_PLACE_EDITORS and any(t.startswith("-") and "i" in t for t in words)
-        ):
-            targets += arguments
-        elif tokens[0] in WRITES_LAST_ARGUMENT:
-            targets += arguments[-1:]
-    for target in targets:
-        hit = _names_fenced(target, fenced, here)
+        targets += _written(tokens)
+    for target, names in targets:
+        expanded = _expanded(target, variables)
+        if expanded is None:
+            if any(f.name in command for f in fenced):
+                return Verdict(allowed=False, reason=FENCED_REASON.format(target=target))
+            continue
+        hit = _names_fenced(expanded, fenced, here, names)
         if hit is not None:
             return Verdict(allowed=False, reason=FENCED_REASON.format(target=hit))
     return Verdict(allowed=True)
@@ -626,17 +717,24 @@ def check_command(
     current: str | None = None
     # Where the shell is by now: moved by each `cd`, None once it cannot be told.
     here: Path | None = cwd or worktree
+    # What `NAME=value` segments set, so a later `$NAME` can be read.
+    variables: dict[str, str] = {}
     for segment in SEGMENT_SPLIT.split(command):
         segment = segment.strip()
         verdict = _check_segment(segment, branch, protected)
         if verdict.allowed and worktree is not None:
             verdict = _check_redirects(segment, worktree, here)
         if verdict.allowed and fenced:
-            verdict = _check_fenced(segment, fenced, here)
+            verdict = _check_fenced(segment, command, fenced, here, variables)
         if verdict.allowed and planning_repo is not None:
             verdict = _check_planning(segment, planning_repo, current)
         if not verdict.allowed:
             return verdict
         current = _cd_target(segment) or current
         here = _after_cd(segment, here)
+        assigned = _tokens(segment)
+        if assigned and all(ASSIGNMENT.match(t) for t in assigned):
+            for assignment in assigned:
+                name, _, value = assignment.partition("=")
+                variables[name] = value
     return Verdict(allowed=True)

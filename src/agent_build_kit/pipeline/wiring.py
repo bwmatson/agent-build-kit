@@ -401,6 +401,7 @@ def build_run(
     at $0.50.
     """
     specs = _specs_dir(planning_repo)
+    config_file = (planning_repo or active_root() or Path()) / CONFIG_FILENAME
     # Half-configured gateway settings already said, once for this runner.
     warned: set[str] = set()
 
@@ -488,6 +489,8 @@ def build_run(
                 specs_dir=specs,
                 branch_prefix=active().git.branch_prefix,
                 planning_paths=planning_paths,
+                # The review policy in abk.yaml is a person's: no command writes it.
+                fenced_files=(config_file,),
             ),
             on_event=journal or log or print,
             on_transcript=transcript,

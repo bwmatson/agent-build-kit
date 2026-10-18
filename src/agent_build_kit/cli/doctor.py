@@ -69,7 +69,7 @@ from agent_build_kit.notify.windows import (
     INSTALL_COMMAND,
     MODULE_CHECK_COMMAND,
 )
-from agent_build_kit.path_patterns import matches, matching_files, normalize
+from agent_build_kit.path_patterns import matches, normalize
 from agent_build_kit.pipeline import agent_commands
 from agent_build_kit.pipeline.e2e import dimension_lines
 from agent_build_kit.pipeline.e2e_holds import HELD_FILE, current_holds, hold_text
@@ -190,6 +190,21 @@ def _cassettes(inst: Installation) -> list[Check]:
     return checks
 
 
+def _files_of_checkouts(inst: Installation) -> list[str] | None:
+    """Every file the repos' checkouts hold that git does not ignore, tracked or not; None when
+    one cannot be listed, so nothing is said about what it holds."""
+    files: list[str] = []
+    for path in inst.checkouts.values():
+        if not path.is_dir():
+            continue
+        try:
+            listed = git_out(path, "ls-files", "--cached", "--others", "--exclude-standard")
+        except (OSError, subprocess.CalledProcessError):
+            return None
+        files += listed.splitlines()
+    return files
+
+
 def _review(inst: Installation) -> list[Check]:
     """The `review` section: a glob that does not parse is a failure, since it would make the
     verdict wrong; a glob matching no file in any repo, and policy set while `enabled` is
@@ -217,9 +232,9 @@ def _review(inst: Installation) -> list[Check]:
             )
         else:
             parsed.append((label, glob))
-    checkouts = [path for path in inst.checkouts.values() if path.is_dir()]
+    files = _files_of_checkouts(inst)
     for label, glob in parsed:
-        if not any(matching_files(path, [glob])[glob] for path in checkouts):
+        if files is not None and not any(matches(glob, file) for file in files):
             checks.append(
                 _warn(
                     f"review {label}",

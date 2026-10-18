@@ -35,12 +35,12 @@ import sys
 import tempfile
 from pathlib import Path
 
-from agent_build_kit.config import CONFIG_FILENAME
 from agent_build_kit.pipeline.command_policy import (
     Verdict,
     check_command,
     check_no_commit,
     check_no_push,
+    policy_files,
 )
 from agent_build_kit.pipeline.scratch import carries_scratch
 
@@ -192,18 +192,6 @@ def _check_file_write(
     )
 
 
-def _policy_files(
-    cwd: str, planning_repo: Path | None, planning_paths: tuple[str, ...]
-) -> tuple[Path, ...]:
-    """The configuration file that holds the review policy: the planning repo's, and the one
-    in this run's own checkout when it is a unit of the planning repo's repository."""
-    files = [planning_repo.resolve() / CONFIG_FILENAME] if planning_repo is not None else []
-    checkout = _checkout_of(Path(cwd))
-    if checkout is not None and CONFIG_FILENAME in planning_paths:
-        files.append(checkout / CONFIG_FILENAME)
-    return tuple(files)
-
-
 def _may_write_planning(
     path: Path, planning_state_dir: Path | None, planning_change_dir: Path | None
 ) -> bool:
@@ -228,6 +216,7 @@ def decide(
     planning_state_dir: Path | None = None,
     planning_change_dir: Path | None = None,
     planning_paths: tuple[str, ...] = (),
+    fenced_files: tuple[Path, ...] = (),
     protected_branches: tuple[str, ...] = (),
     no_push: bool = False,
     no_commit: bool = False,
@@ -286,7 +275,12 @@ def decide(
             protected=protected_branches,
             worktree=checkout,
             cwd=Path(cwd).resolve(),
-            fenced=_policy_files(cwd, planning_repo, planning_paths),
+            fenced=policy_files(
+                checkout=_checkout_of(Path(cwd)),
+                planning_paths=planning_paths,
+                planning_repo=planning_repo,
+                fenced_files=fenced_files,
+            ),
         )
         if verdict.allowed and no_push:
             verdict = check_no_push(command)
@@ -307,6 +301,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--planning-state-dir", type=Path, default=None)
     parser.add_argument("--planning-change-dir", type=Path, default=None)
     parser.add_argument("--planning-paths", default="")
+    parser.add_argument("--fenced-file", type=Path, action="append", default=[])
     parser.add_argument("--protected-branches", default="")
     parser.add_argument("--no-push", action="store_true")
     parser.add_argument("--no-commit", action="store_true")
@@ -337,6 +332,7 @@ def main(argv: list[str] | None = None) -> int:
         planning_state_dir=args.planning_state_dir,
         planning_change_dir=args.planning_change_dir,
         planning_paths=tuple(p for p in args.planning_paths.split(",") if p),
+        fenced_files=tuple(args.fenced_file),
         protected_branches=tuple(b for b in args.protected_branches.split(",") if b),
         no_push=args.no_push,
         no_commit=args.no_commit,
@@ -355,6 +351,7 @@ def hook_settings(
     planning_state_dir: Path | None = None,
     planning_change_dir: Path | None = None,
     planning_paths: tuple[str, ...] = (),
+    fenced_files: tuple[Path, ...] = (),
     protected_branches: tuple[str, ...] = (),
     no_push: bool = False,
     no_commit: bool = False,
@@ -374,6 +371,7 @@ def hook_settings(
     `planning_change_dir` is the one change a propose run may write there.
     `planning_paths` are paths, relative to the unit's worktree, that a unit of the planning
     repo's own repository may not write: the pipeline owns them.
+    `fenced_files` are files no command may write, the planning repo's abk.yaml among them.
     `protected_branches` are the branches repos integrate on beyond `main` and
     `master`, which a direct push is refused to; the hook is its own process and
     knows no workspace, so it has to be told.
@@ -395,6 +393,8 @@ def hook_settings(
         command += f" --planning-change-dir {shlex.quote(str(planning_change_dir))}"
     if planning_paths:
         command += " --planning-paths " + shlex.quote(",".join(planning_paths))
+    for fenced in fenced_files:
+        command += f" --fenced-file {shlex.quote(str(fenced))}"
     if protected_branches:
         command += f" --protected-branches {','.join(protected_branches)}"
     if no_push:

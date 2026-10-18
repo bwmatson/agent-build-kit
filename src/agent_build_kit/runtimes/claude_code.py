@@ -256,6 +256,7 @@ def build_argv(request: AgentRequest) -> list[str]:
             request.policy.specs_dir,
             branch_prefix=request.policy.branch_prefix,
             planning_paths=request.policy.planning_paths,
+            fenced_files=request.policy.fenced_files,
             no_push=True,
             no_commit=request.policy.no_commit,
             refusals_only=not request.policy.scoped,

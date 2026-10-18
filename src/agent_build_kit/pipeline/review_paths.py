@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from agent_build_kit.config import WorkspaceConfig
-from agent_build_kit.path_patterns import matches_any
+from agent_build_kit.path_patterns import matches
 
 # Database migrations, CI and deploy configuration, container definitions, secrets and key
 # material, and ownership files.
@@ -36,6 +36,16 @@ def protected_globs(config: WorkspaceConfig, repo: str) -> tuple[str, ...]:
     return (*defaults, *review.protected_paths, *own)
 
 
+def glob_matches(glob: str, path: str, *, unparsed: bool) -> bool:
+    """Whether `glob` matches `path`; `unparsed` is the answer for a glob that does not parse,
+    which `abk doctor` reports and a decision must not raise on."""
+    try:
+        return matches(glob, path)
+    except ValueError:
+        return unparsed
+
+
 def is_protected(config: WorkspaceConfig, repo: str, path: str) -> bool:
-    """Whether `path` in `repo` is matched by the repo's protected globs."""
-    return matches_any(protected_globs(config, repo), path)
+    """Whether `path` in `repo` is matched by the repo's protected globs. A glob that does not
+    parse protects: the safe answer when the policy cannot be read."""
+    return any(glob_matches(g, path, unparsed=True) for g in protected_globs(config, repo))
