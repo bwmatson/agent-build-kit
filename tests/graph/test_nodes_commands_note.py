@@ -15,12 +15,12 @@ import pytest
 from agent_build_kit import profiles
 from agent_build_kit.config import RepoConfig
 from agent_build_kit.graph.state import EventKind, ResumeEvent
-from agent_build_kit.pipeline.agent_commands import commands_note
+from agent_build_kit.pipeline.agent_commands import allow_list, commands_note
 from agent_build_kit.pipeline.changelog_convention import changelog_note
 from agent_build_kit.pipeline.stack_runner import TESTS_PROMPT
 from agent_build_kit.pipeline.unit_store import FeedbackSource, RequeueReason
 from agent_build_kit.tool_patterns import allows
-from tests.agent_command_fakes import Silent, allow_list, command
+from tests.agent_command_fakes import Silent, command
 from tests.factories import scratch_app, unit
 from tests.graph.agent_fakes import distinct_models
 from tests.graph.test_adapt_in_the_restack_session import TRIED, Failing

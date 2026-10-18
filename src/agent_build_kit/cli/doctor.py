@@ -556,13 +556,19 @@ def _agent_commands(inst: Installation) -> list[Check]:
             outside = agent_commands.refused(repo)
         except KeyError:
             continue  # an unknown profile is reported where the repo is
+        toolchains = [repo.profile, *(p.profile for p in repo.projects)]
         fix = f"allow it in the profile, or set `repos.{name}.agent_commands` in abk.yaml"
         if outside:
             lines = ", ".join(f"`{line}`" for _, line in outside)
+            owner = (
+                f"profiles of repo {name} ({', '.join(dict.fromkeys(toolchains))})"
+                if repo.projects
+                else f"profile {repo.profile}"
+            )
             checks.append(
                 _fail(
                     title,
-                    f"profile {repo.profile}: {lines} not allowed by the build's tool list",
+                    f"{owner}: {lines} not allowed by the build's tool list",
                     fix,
                 )
             )

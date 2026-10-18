@@ -8,28 +8,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent_build_kit import forges, profiles
-from agent_build_kit.config import AgentCommand, RepoConfig
-from agent_build_kit.pipeline import wiring
+from agent_build_kit.config import AgentCommand
 from agent_build_kit.profiles.python_uv import PythonUvProfile
-
-SAMPLE_PATH = "sample.txt"
 
 
 def command(purpose: str, line: str, scope: str = "whole") -> AgentCommand:
     return AgentCommand.model_validate(
         {"purpose": purpose, "command": line.split(), "scope": scope}
     )
-
-
-def line_of(item: AgentCommand) -> str:
-    """The command as one line, with the path word replaced by a sample word."""
-    return " ".join(item.command).replace("{path}", SAMPLE_PATH)
-
-
-def allow_list(repo: RepoConfig) -> str:
-    """The tool list a build is started with for `repo`."""
-    return wiring.allowed_tools(profiles.get(repo.profile), forges.get(repo.forge), repo.projects)
 
 
 class Silent(PythonUvProfile):

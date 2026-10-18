@@ -11,8 +11,9 @@
 - The build prompts now name the commands an agent may run ("Commands you may run"), so an
   agent in a repo with no instruction file no longer picks a command the build refuses and
   loses its tests-first order. A toolchain profile provides them, `repos.<name>.agent_commands`
-  in `abk.yaml` replaces them, each must match the build allow-list (refused when the
-  configuration loads), and `abk doctor` reports each repo's list.
+  in `abk.yaml` replaces them, and an `agent_commands` list outside the build allow-list
+  is refused when the configuration loads. `abk doctor` reports each repo's list, and
+  fails a profile's own command that is outside the allow-list.
 
 - A replan no longer sets aside a planned unit that already has a branch, a pull request, a
   pushed commit or an approval just because the new plan leaves it out: it stays planned and

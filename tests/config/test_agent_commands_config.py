@@ -123,3 +123,13 @@ def test_the_allow_list_is_the_one_the_build_starts_with_including_project_profi
 
     with pytest.raises(ConfigError, match="npx vitest run"):
         load(write(tmp_path, ["npx vitest run"]))
+
+
+def test_an_unknown_profile_with_a_list_loads_as_it_does_without_one(tmp_path: Path) -> None:
+    path = write(tmp_path, [GOOD])
+    path.write_text(path.read_text().replace("    slug:", "    profile: no-such\n    slug:"))
+
+    try:
+        load(path)
+    except ConfigError:
+        pass  # a refusal is as good; a bare KeyError is the failure

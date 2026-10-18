@@ -1686,7 +1686,11 @@ def _check_agent_commands(config: WorkspaceConfig, path: Path) -> None:
     for name, repo in config.repos.items():
         if repo.agent_commands is None:
             continue
-        for index, line in agent_commands.refused(repo):
+        try:
+            outside = agent_commands.refused(repo)
+        except KeyError:
+            continue  # an unknown profile is reported where the repo is, as without the key
+        for index, line in outside:
             raise ConfigError(
                 f"{path}: repo {name!r}: agent_commands[{index}] `{line}` is not allowed to a "
                 f"build agent; the allow-list is {agent_commands.allow_list(repo)}"

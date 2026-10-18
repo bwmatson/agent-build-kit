@@ -786,8 +786,8 @@ one carried over unchanged is counted as kept automatically.
 
 Write any test the tasks require that the previous work did not have. Run
 linting, formatting, types and the tests before you finish.
-{commands}
-The change's files are read-only for you: do not tick boxes in its tasks.md
+
+{commands}The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}.
 
 """

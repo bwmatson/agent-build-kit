@@ -7,9 +7,9 @@ from pathlib import Path
 from agent_build_kit import forges, profiles
 from agent_build_kit.config import AgentCommand, RepoConfig
 from agent_build_kit.pipeline import wiring
-from agent_build_kit.pipeline.agent_commands import effective
+from agent_build_kit.pipeline.agent_commands import effective, judged_line
 from agent_build_kit.tool_patterns import allows
-from tests.agent_command_fakes import Bare, line_of
+from tests.agent_command_fakes import Bare
 
 
 def provided(name: str) -> tuple[AgentCommand, ...]:
@@ -27,7 +27,7 @@ def test_every_registered_profile_names_only_commands_its_own_tools_allow() -> N
         profile = profiles.get(name)
         tools = wiring.allowed_tools(profile, forges.get("github"), [])
         for item in getattr(profile, "agent_commands", ()):
-            assert allows(tools, line_of(item)), (name, line_of(item))
+            assert allows(tools, judged_line(item)), (name, judged_line(item))
 
 
 def test_the_python_profile_gives_test_and_check_at_whole_and_file_scope() -> None:
