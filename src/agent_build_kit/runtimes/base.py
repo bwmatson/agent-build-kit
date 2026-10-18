@@ -15,7 +15,7 @@ from collections.abc import Callable, Sequence
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.transcript import TranscriptEvent
@@ -165,6 +165,8 @@ class AgentRequest(Frozen):
     on_permission: Callable[[PermissionAsk], str | None] | None = None
     # With `resume_session`: continue in a copy of the session, leaving the first untouched.
     fork_session: bool = False
+    # The Claude account the call runs on; None: the default account.
+    account: Any = None  # a claude_account.Account; typed once the import cycle is settled
     # Added to the spawned agent's environment: where a per-run gateway key goes.
     env: dict[str, str] = {}
     # The whole environment the agent starts with, not an addition to ours; None: ours.
