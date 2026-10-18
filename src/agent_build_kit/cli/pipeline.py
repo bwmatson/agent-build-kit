@@ -117,6 +117,7 @@ from agent_build_kit.pipeline.planner import (
     in_flight_item,
     plan_kind,
     plan_round,
+    promote_ancestors,
     unit_priority,
 )
 from agent_build_kit.pipeline.planning_repo import (
@@ -236,6 +237,7 @@ from agent_build_kit.pipeline.units import (
     in_progress_label,
     local_ref,
     parked_on_split,
+    priority_note,
     project_counts,
     project_key,
     project_tag,
@@ -308,6 +310,8 @@ from agent_build_kit.pipeline.work_graph import (
     check_tags,
     declared_projects,
     group_needs,
+    group_promotions,
+    inverted_group_warnings,
     merged_needs_warnings,
     old_test_kind_warnings,
     specification_text,
@@ -676,9 +680,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         log(line)
 
     urgency = [
-        f"{unit.id} {unit.priority}"
+        f"{unit.id} {note}"
         for unit in units
-        if unit.priority != Priority.NORMAL and unit.state not in (MERGED, CLOSED)
+        if unit.state not in (MERGED, CLOSED) and (note := priority_note(unit, units))
     ]
     if urgency:
         log("priority: " + ", ".join(urgency))
@@ -1501,6 +1505,7 @@ def run_round(
         store=store,
         reported=refused_needs,
     )
+    _step("promoting prerequisites", _promote, inst, store)
     _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
     _step("following predecessors", park_dependents, inst, store)
     _step("gating sent-back units", gate_sent_back, store)
@@ -2324,12 +2329,8 @@ def _ready_queue_lines(inst: Installation, units: list[StoredUnit]) -> list[str]
     lines = ["ready queue (start order):"]
     handed_off = {unit.id for unit in handoff_units(ready, view, excluded)}
     for place, unit in enumerate(ready, start=1):
-        urgency = effective_priority(unit, view, excluded)
-        if urgency < unit.priority:
-            source = min(waiting_on_me(unit, view, excluded), key=lambda waiter: waiter.priority)
-            why = f"priority {urgency}, from {source.id}"
-        elif unit.priority != Priority.NORMAL:
-            why = f"priority {unit.priority}"
+        if note := priority_note(unit, view, excluded):
+            why = note
         elif source := stack_age_source(unit, view, excluded):
             why = f"stack age, from {source.id}"
         else:
@@ -3406,7 +3407,15 @@ def plan_all(
         kept = record.get("attempts", 0) if record.get("waiting") else 0
         record_plans(inst, {change: {"hash": digest, "attempts": kept, "ok": True}})
         results[change] = PlanResult(status="planned", cycle=drops.cycle)
+    if any(result.status == "planned" for result in results.values()):
+        _promote(inst, store)
     return results
+
+
+def _promote(inst: Installation, store: UnitStore) -> None:
+    """Give each unstarted unit the urgency of the units that wait on it, and say which."""
+    for unit_id, priority, source in promote_ancestors(store, _task_catalog(inst)):
+        log(f"promoted {unit_id} to priority {priority}, from {source}")
 
 
 def _drop_cycle_edges(
@@ -4721,6 +4730,12 @@ def _tag_warnings(inst: Installation, path: Path) -> list[str]:
     return [
         *merged_needs_warnings(path),
         *old_test_kind_warnings(path),
+        *inverted_group_warnings(
+            path,
+            inst.changes_dir,
+            repos=tuple(inst.repos),
+            projects=declared_projects(inst.repos),
+        ),
         *unrelated_parent_warnings(
             path,
             inst.changes_dir,
@@ -4764,8 +4779,15 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
             failed += 1
             continue
         print(f"{change}: {len(groups)} task group(s), all tagged")
+        promotions = group_promotions(groups)
         for group in groups:
-            urgency = f" (priority {group.priority})" if group.priority != Priority.NORMAL else ""
+            if group.number in promotions:
+                to, by = promotions[group.number]
+                urgency = f" (priority {group.priority}, promoted to {to} by group {by})"
+            elif group.priority != Priority.NORMAL:
+                urgency = f" (priority {group.priority})"
+            else:
+                urgency = ""
             print(f"  {group.number}. [{group.tag}] [{group.tier}] {group.title}{urgency}")
     return 1 if failed else 0
 
@@ -4913,6 +4935,7 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
     before = {unit.id: unit for unit in store.all()}
     results = plan_all(inst, store=store, only=set(to_plan), force=True)
     refusals = link_needs(inst, store=store)
+    _promote(inst, store)
     after = {unit.id: unit for unit in store.all()}
 
     failed = [change for change in to_plan if results[change].status != "planned"]

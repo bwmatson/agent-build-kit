@@ -27,3 +27,28 @@ def read(text: str, tmp_path: Path) -> tuple[list[TaskGroup], list[ValidationErr
 
 def priority_errors(errors: list[ValidationError]) -> list[int]:
     return [e.line for e in errors if "riority" in e.message]
+
+
+def group_md(
+    number: int,
+    priority: int,
+    *,
+    flag: str = "",
+    independent: bool = False,
+    needs: str = "",
+) -> str:
+    """One `## N.` group at that `Priority:`; `needs` is the target of a `Needs:` line."""
+    kind = "e2e-test" if flag == "acceptance" else "unit-test"
+    tags = f"[app] [{kind}]" + (f" [{flag}]" if flag else "")
+    text = f"## {number}. {tags} Group {number}\n\nPriority: {priority}\n"
+    if independent:
+        text += "Independent: it adds a receiver and needs nothing earlier\n"
+    if needs:
+        text += f"Needs: {needs} — a reason\n"
+    return text + f"\n- [ ] {number}.1 Test: it.\n- [ ] {number}.2 Do it.\n\n"
+
+
+def groups_md(*groups: str) -> str:
+    """A change made of `group_md` groups; it opts out of an acceptance group unless it has one."""
+    body = "".join(groups)
+    return "# Tasks\n\n" + ("" if "[acceptance]" in body else f"{OPT_OUT}\n") + body

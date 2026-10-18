@@ -19,7 +19,11 @@
   unit only for code it needs and to join related work first, the more urgent among equal
   fits. A plan that makes a unit wait on a less urgent unit that has not started is refused
   unless the unit gives a reason in `needs_less_urgent`, and the refusal is sent back with
-  the next attempt.
+  the next attempt. An unstarted unit that a more urgent unit waits on now takes that
+  unit's priority and records which one (`promoted from <unit>` in the graph and
+  `abk status`), and gives it back once the waiter merges or goes. `abk tags` and
+  `abk check` warn of a group less urgent than one that depends on it, and `abk tags`
+  lists the priority it will be promoted to.
 
 - The unit graph page draws a repo that has several projects with a nested subgraph for
   each project that has a unit in view, and the legend says so. A repo with one project

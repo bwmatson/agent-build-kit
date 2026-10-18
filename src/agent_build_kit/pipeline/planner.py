@@ -37,8 +37,8 @@ from agent_build_kit.pipeline.unit_size import (
     calibrated,
     largest_raw,
 )
-from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import Join, Priority, Unit
+from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
+from agent_build_kit.pipeline.units import Join, Priority, Unit, UnitState, waiting_on_me
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.work_graph import (
     GROUP_HEADING,
@@ -242,6 +242,53 @@ def unit_priority(unit: Unit, catalog: Mapping[str, Sequence[TaskGroup]]) -> int
         if group.number in member.groups
     ]
     return min(found, default=Priority.NORMAL)
+
+
+def promote_ancestors(
+    store: UnitStore, catalog: Mapping[str, Sequence[TaskGroup]]
+) -> list[tuple[str, int, str]]:
+    """Give each unit that has not started the most urgent priority among its groups and
+    every unit that waits on it, and name the waiter that gives it (of equals, the id that
+    sorts first). Recomputed at every pass, so a promotion lapses with its waiter; a unit
+    that has started is never changed. A waiter counts at its stored priority once it has
+    started and at its own before, which agree through chains. A unit none of whose groups
+    is in the catalog has no groups to read, so it keeps the priority it was stored with,
+    except that one carrying a promotion falls back to normal when the promotion lapses: its
+    own priority is not recorded apart from the promoted one.
+    Returns each unit now promoted by this pass as (id, priority, waiter)."""
+    promoted: list[tuple[str, int, str]] = []
+    units = [unit for unit in store.all() if unit.state != UnitState.UNPLANNED]
+
+    def own_priority(unit: StoredUnit) -> int:
+        known = any(
+            group.number in member.groups
+            for member in unit.members()
+            for group in catalog.get(member.change, ())
+        )
+        if known or unit.promoted_from:
+            return unit_priority(unit, catalog)
+        return unit.priority
+
+    own = {unit.id: own_priority(unit) for unit in units if unit.unstarted}
+    view = [
+        unit.model_copy(update={"priority": own[unit.id]}) if unit.id in own else unit
+        for unit in units
+    ]
+    for unit in view:
+        if unit.id not in own:
+            continue
+        waiters = waiting_on_me(unit, view)
+        best = min(waiters, key=lambda waiter: (waiter.priority, waiter.id), default=None)
+        if best is not None and best.priority < own[unit.id]:
+            priority, source = best.priority, best.id
+        else:
+            priority, source = own[unit.id], ""
+        stored = store.get(unit.id)
+        if (stored.priority, stored.promoted_from) != (priority, source):
+            store.set_promotion(unit.id, priority, source)
+            if source:
+                promoted.append((unit.id, priority, source))
+    return promoted
 
 
 def _read_joins(raw_joins: object) -> list[Join]:

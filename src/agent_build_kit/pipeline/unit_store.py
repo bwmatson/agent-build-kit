@@ -655,6 +655,7 @@ class UnitStore:
                 fresh = fresh.model_copy(
                     update={
                         "priority": existing.priority,
+                        "promoted_from": existing.promoted_from,
                         "project": existing.project,
                         "review_tier": existing.review_tier,
                     }
@@ -928,7 +929,12 @@ class UnitStore:
     def set_priority(self, unit_id: str, priority: int) -> None:
         """Set the priority of a unit that has not started; a started one keeps its own."""
         if self.get(unit_id).unstarted:
-            self._update(unit_id, priority=priority)
+            self._update(unit_id, priority=priority, promoted_from="")
+
+    def set_promotion(self, unit_id: str, priority: int, promoted_from: str) -> None:
+        """Give an unstarted unit the priority a waiter needs of it, and name the waiter."""
+        if self.get(unit_id).unstarted:
+            self._update(unit_id, priority=priority, promoted_from=promoted_from)
 
     def set_calibration(self, unit_id: str, flag: str, calibrated_lines: int | None) -> None:
         """The kind's flag and the calibrated figure of a unit that has not started; a
@@ -1082,6 +1088,8 @@ def _record(unit: StoredUnit) -> dict:
     record = unit.model_dump(mode="json")
     if unit.priority == Priority.NORMAL:
         del record["priority"]
+    if not unit.promoted_from:
+        del record["promoted_from"]
     if unit.description is None:
         del record["description"]
     for name in ("ready_at", "first_human_activity_at", "review_tier"):

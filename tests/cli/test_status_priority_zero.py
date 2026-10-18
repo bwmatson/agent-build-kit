@@ -28,7 +28,7 @@ def test_status_lists_a_priority_zero_unit_first_with_its_reason_and_only_then(
     )
     normal = status_lines(tmp_path / "normal", monkeypatch, capsys, [stored_unit("plain/1")])
 
-    assert any("priority:" in line and "zero/1 0" in line for line in lines)
+    assert any("priority:" in line and "zero/1 priority 0" in line for line in lines)
     assert ready_queue(lines)[0] == "1. zero/1 (app) — priority 0"
     assert not any("priority:" in line for line in normal)
 
