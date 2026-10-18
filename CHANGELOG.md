@@ -236,7 +236,11 @@
   `abk.yaml`, or a relative one, is refused; a label with no directory on a machine falls
   back to the default account. A label only takes effect once runs use it; until then units
   still run on the default account. `abk doctor` prints a note for such a label and an error with
-  the login command for a directory that is missing or not logged in.
+  the login command for a directory that is missing or not logged in. Usage is kept per
+  account: each account has its own reading, cache and call record, a unit's start is judged on
+  its own account's limits (a pause names the account), ledger rows carry the account,
+  `abk status` prints a usage line for each account in use, and `abk usage replay --account
+  <label>` replays one account.
 
 - Where an installation's own facts go is now written down in `docs/configuration.md`, the
   `abk-config` skill, `docs/init.md` and `docs/cli.md`: single values and secrets in the

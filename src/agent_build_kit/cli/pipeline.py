@@ -285,6 +285,7 @@ from agent_build_kit.pipeline.usage_guard import (
     held_estimate_line,
     held_usage,
     may_start_unit,
+    on_account,
     reading_as,
     refreshed_usage,
     threshold_at,
@@ -599,6 +600,30 @@ def _slots_line(inst: Installation, units: list[StoredUnit]) -> str | None:
     return f"slots: {taken}/{cap}{count}"
 
 
+def accounts_in_use(inst: Installation) -> list[claude_account.Account]:
+    """The accounts the repos run on, each once, in the order the repos are named; the default
+    account alone when no repo is named."""
+    found: dict[str | None, claude_account.Account] = {}
+    for name in inst.repos:
+        account = claude_account.for_repo(inst.config, name)
+        found.setdefault(claude_account.account_key(account), account)
+    return list(found.values()) or [claude_account.Account(limits=claude_limits())]
+
+
+def _account_usage_line(args: argparse.Namespace, account: claude_account.Account) -> str:
+    """The `usage:` line of one account: its reading judged on its own thresholds, and which
+    account it is when it is not the default."""
+    key = claude_account.account_key(account)
+    label = f"{account.label}, " if account.label else ""
+    whose = f" (account {label}{key})" if key else ""
+    with on_account(account), reading_as("cli-status"):
+        reading = _status_reading(args)
+        if not reading:
+            return f"usage: unknown{whose}"
+        age = int(reading.age.total_seconds() // 60)
+        return f"usage: {_usage_line(reading)} ({reading.source}, {age}m old){whose}"
+
+
 def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     """What the pipeline thinks is going on, without changing anything."""
     if off := guard_off_line():
@@ -607,22 +632,15 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     if paused:
         log(pause_line(paused))
 
-    account = claude_account.account_key()
-    whose = f" (account {account})" if account else ""
     try:
         runtime = runtimes.active()
     except KeyError as exc:
         log(f"usage: runtime {config.runtime_name()} is not available: {exc}")
     else:
-        with reading_as("cli-status"):
-            reading = _status_reading(args) if runtime.supports_usage_tracking else None
         if not runtime.supports_usage_tracking:
             log(f"usage: runtime {runtime.name} has no usage window")
-        elif reading:
-            age = int(reading.age.total_seconds() // 60)
-            log(f"usage: {_usage_line(reading)} ({reading.source}, {age}m old){whose}")
-        else:
-            log(f"usage: unknown{whose}")
+        for account in accounts_in_use(inst) if runtime.supports_usage_tracking else []:
+            log(_account_usage_line(args, account))
         if runtime.supports_usage_tracking and (estimate := held_estimate_line()):
             log(estimate)
         if runtime.supports_usage_tracking:

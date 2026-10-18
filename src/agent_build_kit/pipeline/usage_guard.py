@@ -285,12 +285,18 @@ def _http_get_json(url: str, headers: dict[str, str]) -> object:
 
 def _credentials_path() -> Path:
     """The credentials file read by default: the account's when one is set, else the constant."""
-    return CREDENTIALS_PATH if claude_account.is_default() else claude_account.credentials_path()
+    account = _account.get()
+    if claude_account.is_default(account):
+        return CREDENTIALS_PATH
+    return claude_account.credentials_path(account)
 
 
 def _state_file() -> Path:
     """Claude Code's own state file read by default: the account's when one is set."""
-    return DEFAULT_ANCHOR_PATH if claude_account.is_default() else claude_account.state_file()
+    account = _account.get()
+    if claude_account.is_default(account):
+        return DEFAULT_ANCHOR_PATH
+    return claude_account.state_file(account)
 
 
 def read_oauth_token(path: Path | None = None) -> str | None:
@@ -505,6 +511,9 @@ def refresh_login() -> None:
 
 
 def claude_limits() -> ClaudeLimitsConfig:
+    """The limits of the account in force (`on_account`), else the runtime's."""
+    if (account := _account.get()) is not None:
+        return account.limits
     return active().runtimes.get(CLAUDE_CODE, RuntimeConfig()).limits
 
 
@@ -524,7 +533,20 @@ def _cache_file() -> Path:
     state = (
         root / active().planning.state_dir if root else Path.home() / ".cache" / "agent-build-kit"
     )
-    return state / "usage-cache.json"
+    return _of_account(state / "usage-cache.json")
+
+
+def _of_account(path: Path) -> Path:
+    """`path` for the account in force: a labelled account keeps its own file beside it, as
+    `name.<label>.ext`, so accounts never share a reading, a cool-down or a call record."""
+    account = _account.get()
+    if account is None or account.label is None:
+        return path
+    return path.with_name(f"{path.stem}.{account.label}{path.suffix}")
+
+
+def _calls_file(cache_path: Path) -> Path:
+    return _of_account(cache_path.parent / CALLS_NAME)
 
 
 def _load_cache(path: Path) -> dict:
@@ -532,7 +554,9 @@ def _load_cache(path: Path) -> dict:
         cached = json.loads(path.read_text())
     except (OSError, ValueError):
         return {}
-    if not isinstance(cached, dict) or cached.get("account") != claude_account.account_key():
+    if not isinstance(cached, dict) or cached.get("account") != claude_account.account_key(
+        _account.get()
+    ):
         # A reading, cool-down or fallback of another account (or of none while one is in use,
         # or of one while none is) is never served; the next write replaces it.
         return {}
@@ -542,7 +566,7 @@ def _load_cache(path: Path) -> dict:
 def _write_cache(path: Path, body: dict) -> None:
     """Write the cache file whole: a reader outside the lock never sees half of it. The
     account is recorded only when one is set."""
-    if (account := claude_account.account_key()) is not None:
+    if (account := claude_account.account_key(_account.get())) is not None:
         body = {**body, "account": account}
     atomic_write_text(path, json.dumps(body, indent=2))
 
@@ -608,7 +632,7 @@ def read_live_usage(
     there.
     """
     cache_path = cache_path or _cache_file()
-    calls_file = cache_path.parent / CALLS_NAME
+    calls_file = _calls_file(cache_path)
     caller = caller or _caller.get()
     limits = claude_limits()
     if ttl is None:
@@ -662,7 +686,7 @@ def read_live_usage(
                 record_call(
                     calls_file,
                     UsageCall(
-                        account=claude_account.account_key(),
+                        account=claude_account.account_key(_account.get()),
                         at=asked,
                         caller=caller,
                         outcome=outcome,
@@ -742,7 +766,7 @@ def read_live_usage(
         record_call(
             calls_file,
             UsageCall(
-                account=claude_account.account_key(),
+                account=claude_account.account_key(_account.get()),
                 at=now,
                 caller=caller,
                 outcome="cache",
@@ -813,6 +837,23 @@ def rate_limit_note(cache_path: Path | None = None) -> str | None:
     return f"rate limited until {_hhmm(until)}"
 
 
+_account: ContextVar[claude_account.Account | None] = ContextVar("usage_account", default=None)
+
+
+@contextmanager
+def on_account(account: claude_account.Account | None) -> Iterator[None]:
+    """Run the readings and decisions inside the block for `account`: its credentials, state
+    file, cache, call record and limits. None leaves the account in force as it is."""
+    if account is None:
+        yield
+        return
+    token = _account.set(account)
+    try:
+        yield
+    finally:
+        _account.reset(token)
+
+
 _caller: ContextVar[str] = ContextVar("usage_caller", default="guard")
 
 
@@ -872,7 +913,8 @@ def _unspent(reading: UsageReading | None) -> UsageReading | None:
 
 def current_usage(account: claude_account.Account | None = None) -> UsageReading | None:
     """The best reading available: live if possible, else the local cache."""
-    return _noted(read_live_usage() or _unspent(read_cached_usage()))
+    with on_account(account):
+        return _noted(read_live_usage() or _unspent(read_cached_usage()))
 
 
 def _fresh_claude_block(held: UsageReading | None) -> UsageReading | None:
@@ -906,9 +948,10 @@ def _labelled(decision: Decision, reading: UsageReading) -> Decision:
 
 def held_usage(account: claude_account.Account | None = None) -> UsageReading | None:
     """The reading held now, from the cache file or Claude Code's own: no call is made."""
-    kept = _unspent(_kept_reading(_load_cache(_cache_file())))
-    block = _fresh_claude_block(kept)
-    return _noted(block or kept or _unspent(read_cached_usage()))
+    with on_account(account):
+        kept = _unspent(_kept_reading(_load_cache(_cache_file())))
+        block = _fresh_claude_block(kept)
+        return _noted(block or kept or _unspent(read_cached_usage()))
 
 
 def next_call_at(calls_file: Path, *, now: datetime) -> datetime | None:
@@ -923,7 +966,7 @@ def next_call_at(calls_file: Path, *, now: datetime) -> datetime | None:
 
 def refreshed_usage() -> UsageReading | None:
     """A fresh reading when the interval allows a call, else the one held."""
-    calls_file = _cache_file().parent / CALLS_NAME
+    calls_file = _calls_file(_cache_file())
     kept = _unspent(_kept_reading(_load_cache(_cache_file())))
     if (block := _fresh_claude_block(kept)) is not None:
         return _noted(block)
@@ -1167,7 +1210,7 @@ def _estimates(
     """The estimate of both windows from the reading kept, the ledger beside the cache file
     and the units admitted on an estimate since."""
     limits = claude_limits()
-    calls = read_calls(cache_path.parent / CALLS_NAME)
+    calls = read_calls(_calls_file(cache_path))
     kept = read_allowances(cache_path.parent / ALLOWANCES_NAME)
     admitted = set(_admitted(cached))
     spent = spend_times(read_ledger(cache_path.parent / LEDGER_NAME))
@@ -1260,7 +1303,7 @@ def held_estimate_line() -> str | None:
     reading is older than the time a reading is kept and the endpoint cannot be asked."""
     now = datetime.now(UTC)
     cache_path = _cache_file()
-    calls_file = cache_path.parent / CALLS_NAME
+    calls_file = _calls_file(cache_path)
     cached = _load_cache(cache_path)
     held = _estimable(_kept_reading(cached))
     if held is None or now - held.observed_at < current_cache_interval(calls_file).kept:
@@ -1300,6 +1343,21 @@ def decide_start(
     decide: Callable[..., Decision] | None = None,
     unit: str | None = None,
     account: claude_account.Account | None = None,
+) -> Decision:
+    """`_decide_start` for `account`'s windows, limits and cache; a refusal on a labelled
+    account says which account is full."""
+    with on_account(account):
+        decision = _decide_start(read=read, decide=decide, unit=unit)
+    if account is not None and account.label is not None and not decision.may_start:
+        return decision.model_copy(update={"reason": f"account {account.label}: {decision.reason}"})
+    return decision
+
+
+def _decide_start(
+    *,
+    read: Callable[[], UsageReading | None] | None = None,
+    decide: Callable[..., Decision] | None = None,
+    unit: str | None = None,
 ) -> Decision:
     """Whether a unit may start now, asking the endpoint only when a fresh reading
     could change the answer and the minimum interval allows a call.
@@ -1351,7 +1409,7 @@ def decide_start(
 
     now = datetime.now(UTC)
     cache_path = _cache_file()
-    calls_file = cache_path.parent / CALLS_NAME
+    calls_file = _calls_file(cache_path)
     held = _kept_reading(_load_cache(cache_path))
     if (block := _fresh_claude_block(held)) is not None:
         # A reading of Claude Code's own: it settles the decision without a call, even inside the
@@ -1359,7 +1417,7 @@ def decide_start(
         record_call(
             calls_file,
             UsageCall(
-                account=claude_account.account_key(),
+                account=claude_account.account_key(_account.get()),
                 at=now,
                 caller=_caller.get(),
                 outcome=CLAUDE_JSON,
@@ -1374,7 +1432,7 @@ def decide_start(
             record_call(
                 calls_file,
                 UsageCall(
-                    account=claude_account.account_key(),
+                    account=claude_account.account_key(_account.get()),
                     at=now,
                     caller=_caller.get(),
                     outcome=CACHE,

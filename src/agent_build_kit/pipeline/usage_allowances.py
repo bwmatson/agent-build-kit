@@ -101,6 +101,17 @@ def since_last_change(calls: list[UsageCall], account: str | None) -> list[Usage
     return calls
 
 
+def of_account(
+    calls: list[UsageCall], ledger: list[UsageRecord], key: str | None
+) -> tuple[list[UsageCall], list[UsageRecord]]:
+    """The readings of the account `key` and the units that ran on it; a row with no key, written
+    before the ledger carried one, counts for whichever account asks."""
+    return (
+        [call for call in calls if call.account == key],
+        [row for row in ledger if row.account in (key, None)],
+    )
+
+
 def calibrated_allowances(
     calls: list[UsageCall],
     ledger: list[UsageRecord],
@@ -113,7 +124,10 @@ def calibrated_allowances(
     if not limits.calibrate_usage_allowances:
         return {}
     min_gap = timedelta(minutes=limits.usage_cache_minutes)
-    calls = since_last_change(calls, claude_account.account_key())
+    if account is None:
+        calls = since_last_change(calls, claude_account.account_key())
+    else:
+        calls, ledger = of_account(calls, ledger, claude_account.account_key(account))
     found: dict[str, Calibrated] = {}
     for window in WINDOWS:
         usable = pairs(calls, ledger, window, min_gap=min_gap)
