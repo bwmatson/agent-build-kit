@@ -108,6 +108,7 @@ def render_mermaid(
     graph: list[StoredUnit] | None = None,
     checks_of: ChecksOf | None = None,
     paused: Collection[str] = (),
+    gated: Collection[str] = (),
     restacking: Mapping[str, str] | None = None,
     projects: Mapping[str, Collection[str]] | None = None,
 ) -> str:
@@ -196,6 +197,7 @@ def render_markdown(
     *,
     checks_of: ChecksOf | None = None,
     paused: Collection[str] = (),
+    gated: Collection[str] = (),
     restacking: Mapping[str, str] | None = None,
     projects: Mapping[str, Collection[str]] | None = None,
 ) -> str:

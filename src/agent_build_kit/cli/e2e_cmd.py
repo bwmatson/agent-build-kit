@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -39,6 +39,7 @@ from agent_build_kit.pipeline.e2e_holds import (
     remove_hold,
     write_hold,
 )
+from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.wiring import e2e_work
 from agent_build_kit.profiles.base import AppliesE2eSelection
 from agent_build_kit.timers import current_user
@@ -91,6 +92,7 @@ def cmd_e2e_check(
     installation: Installation | None,
     *,
     run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+    own_tests: Callable[[Installation, StoredUnit], Sequence[str]] | None = None,
 ) -> int:
     assert installation is not None
     names = [args.repo] if args.repo else list(installation.repos)

@@ -166,6 +166,7 @@ def effective_state(
     *,
     checks_of: ChecksOf | None = None,
     paused: Collection[str] = (),
+    gated: Collection[str] = (),
 ) -> str:
     """The key in `STATES` a unit currently reads as.
 
