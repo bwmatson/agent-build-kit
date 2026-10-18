@@ -956,8 +956,8 @@ units that carry its groups in `superseded_by`, left out of the stored record wh
 unit depends on is read through it: a stored `depends_on` entry that names a replaced unit stands
 for its successors, followed through further replaced units to eight links, once each and never the
 unit itself; a replaced unit with no successors stands for itself and is treated as a parent that
-builds nothing. Each tick `link_needs` rewrites a stored dependency on a replaced unit, in a unit
-of any state, to its live successors (only those a `Needs:` line resolves to, when it names some),
+builds nothing. Each tick `link_needs` rewrites a stored dependency on a replaced unit, in any unit
+that has not finished, started or not, to its live successors (only those a `Needs:` line resolves to, when it names some),
 refuses one that would close a cycle, and logs `<unit>: dependency <old> is now <new> (replaced
 by a replan)`; units replaced before the field existed get theirs once, logged as `successors
 recorded: <n> unit(s)`. A recorded wait (`waited_on`) follows the successor too.

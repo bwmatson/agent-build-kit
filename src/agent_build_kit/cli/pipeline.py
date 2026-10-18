@@ -3116,7 +3116,9 @@ def _repoint_replaced(
     """Replace each stored dependency of an unfinished unit on a replaced unit by the live
     units that carry its work now. When the unit's `Needs:` lines resolve to some of them only
     those are taken. A target that would close a cycle is refused as a `Needs:` is, and with
-    none left the stored dependency stays. Returns the refusals."""
+    none left the stored dependency stays. The unit itself is never a target: when it is the
+    only successor the dependency is dropped, as the unit carries that work. Returns the
+    refusals."""
     graph = {u.id: list(current_dependencies(u, units)) for u in units if u.state not in FINISHED}
     refused: list[CycleEdge] = []
     by_id = {u.id: u for u in units}
@@ -3129,19 +3131,25 @@ def _repoint_replaced(
             if found is None or found.state not in BUILDS_NOTHING or not found.superseded_by:
                 continue
             # A successor the store does not hold stands for itself and builds nothing here.
+            resolved = resolve_replaced(old, units)
             live = [
                 t
-                for t in resolve_replaced(old, units)
-                if t != old and (carrier := by_id.get(t)) and carrier.state not in BUILDS_NOTHING
+                for t in resolved
+                if t not in (old, unit.id)
+                and (carrier := by_id.get(t))
+                and carrier.state not in BUILDS_NOTHING
             ]
             narrowed = [t for t in live if t in wanted.get(unit.id, ())]
             kept: list[str] = []
             for target in narrowed or live:
-                if target != unit.id and (back := path_between(graph, target, unit.id)):
+                if back := path_between(graph, target, unit.id):
                     _refuse_cycle(unit.id, target, back, reported, refused)
                     continue
                 kept.append(target)
             if not kept:
+                if unit.id in resolved and not live:
+                    # The unit carries that work itself, so it has nothing to wait for.
+                    depends.remove(old)
                 continue
             at = depends.index(old)
             depends[at : at + 1] = kept

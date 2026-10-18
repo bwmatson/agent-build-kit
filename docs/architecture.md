@@ -137,8 +137,8 @@ A replan that regroups sets the unstarted units it replaces `unplanned` and reco
 `superseded_by`, the units that carry its groups. What a unit depends on is read through that field
 (`current_dependencies`): a `depends_on` entry that names a replaced unit stands for its
 successors, so the scheduler, the stack's base and depth, the restack, the cycle checks and the
-diagram agree. `link_needs` then rewrites the stored `depends_on` to the successors, in a unit of
-any state, and a join repoints `depends_on`, `needs`, `waited_on` and `superseded_by` onto the unit
+diagram agree. `link_needs` then rewrites the stored `depends_on` to the successors, in any unit
+that has not finished, started or not, and a join repoints `depends_on`, `needs`, `waited_on` and `superseded_by` onto the unit
 that took the other in.
 
 A planner call that ends on an outage (a network or provider failure, classified as a

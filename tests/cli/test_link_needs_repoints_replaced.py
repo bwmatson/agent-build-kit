@@ -1,5 +1,5 @@
-"""`link_needs` rewrites a stored dependency on a replaced unit to its live successors, in a unit
-of any state (spec: a-replaced-unit-points-to-its-successor)."""
+"""`link_needs` rewrites a stored dependency on a replaced unit to its live successors, in any unit
+that has not finished, started or not (spec: a-replaced-unit-points-to-its-successor)."""
 
 from __future__ import annotations
 
@@ -178,3 +178,16 @@ def test_a_second_run_changes_and_logs_nothing(
     assert capsys.readouterr().out == ""
     assert store.path.read_text() == before
     assert store.get("d/1").depends_on == ("x/5",)
+
+
+def test_a_unit_that_joined_the_replaced_one_drops_its_dependency_on_it(
+    installation: Installation, capsys: pytest.CaptureFixture[str]
+) -> None:
+    store = link(
+        installation,
+        replaced("x/3", "x/1"),
+        live("x/1", (1, 3), depends_on=("x/3",), state=UnitState.RUNNING, branch="spec/x/1"),
+    )
+
+    assert store.get("x/1").depends_on == ()
+    assert "is now x/1" not in capsys.readouterr().out

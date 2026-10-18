@@ -21,6 +21,7 @@ from agent_build_kit.pipeline.units import (
     branch_name,
     depth_of,
     effective_priority,
+    emergency_start,
     followed_dependencies,
     open_parents,
     waiting_on,
@@ -138,3 +139,53 @@ def test_a_satisfied_successors_branch_is_kept_for_a_dependent_held_on_it(tmp_pa
 
     assert deleted == []
     assert any("d/1 held for depth" in line for line in logged)
+
+
+def waiting_scene(successor_history: list[dict[str, str]]) -> list[StoredUnit]:
+    """`d/1` is in progress; its stored parent `x/3` went `unplanned` after `d/1` last changed."""
+    return [
+        stored_unit(
+            "x/3",
+            change="x",
+            state=UnitState.UNPLANNED,
+            superseded_by=("x/5",),
+            history=(
+                {"state": "in_review", "at": "2026-01-01T00:00:00"},
+                {"state": "unplanned", "at": "2026-01-03T00:00:00"},
+            ),
+        ),
+        stored_unit(
+            "x/5", change="x", state=IN_REVIEW, branch="spec/x/5", history=tuple(successor_history)
+        ),
+        stored_unit(
+            "d/1",
+            change="d",
+            depends_on=("x/3",),
+            branch="spec/d/1",
+            state=PLANNED,
+            priority=0,
+            history=({"state": "planned", "at": "2026-01-02T00:00:00"},),
+        ),
+    ]
+
+
+def test_a_replaced_parents_unplanned_history_does_not_make_the_dependent_wait_for_room() -> None:
+    graph = waiting_scene(
+        [
+            {"state": "in_review", "at": "2026-01-01T00:00:00"},
+            {"state": "in_review", "at": "2026-01-04T00:00:00"},
+        ]
+    )
+
+    assert not emergency_start(graph[-1], graph, excluded=())
+
+
+def test_a_successor_outside_review_since_the_dependent_changed_makes_it_wait_for_room() -> None:
+    graph = waiting_scene(
+        [
+            {"state": "in_review", "at": "2026-01-01T00:00:00"},
+            {"state": "planned", "at": "2026-01-04T00:00:00"},
+        ]
+    )
+
+    assert emergency_start(graph[-1], graph, excluded=())
