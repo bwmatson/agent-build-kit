@@ -10,7 +10,7 @@ three scheduled ones.
 **A track never edits a repo or opens a pull request.** `propose` writes a
 change in the planning repo; if it validates, the runner commits it to the
 planning repo and publishes it as `planning.publish` says, and the pipeline's tick plans and builds it
-like any other change — units, a review loop, the test tiers. Work a track
+like any other change — units, a review loop, the test kinds. Work a track
 wrote straight into a repo would go around all of that, and the tick would
 later find it already done.
 

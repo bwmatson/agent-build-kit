@@ -44,7 +44,9 @@ def test_the_architecture_says_a_unit_of_several_groups_takes_the_widest_kind() 
 
 
 def test_the_architecture_lists_the_kinds_from_narrowest_to_widest() -> None:
-    positions = [ARCHITECTURE.index(f"`{tag}`") for tag in TAGS]
+    start = ARCHITECTURE.index("the kind tag is one of three")
+    kinds_list = ARCHITECTURE[start : ARCHITECTURE.index("widest kind among them", start)]
+    positions = [kinds_list.index(f"`{tag}`") for tag in TAGS]
 
     assert positions == sorted(positions)
 

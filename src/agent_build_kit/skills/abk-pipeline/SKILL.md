@@ -90,6 +90,13 @@ next tick sync again.
 - `openspec/changes/<change>/` — the change a unit belongs to; its `tasks.md`
   is ticked as units pass review.
 
+## Test kinds
+
+There are three test kinds, narrowest to widest: `unit-test` (one module's behaviour),
+`integration-test` (behaviour across modules or files in the ordinary suite, no live stack; it
+runs as `unit-test` and is not the pytest `integration` marker) and `e2e-test` (needs the real
+local stack). A unit of several groups takes the widest kind.
+
 ## Unit states
 
 A **unit** is one PR's worth of work in exactly one repo, built from one or
@@ -146,11 +153,6 @@ instance).
   sooner, raise `global_limits.stack_depth_rebase_cap` or restack the branch by hand.
 
 ### Waiting for an e2e-test split
-
-There are three test kinds, narrowest to widest: `unit-test` (one module's behaviour),
-`integration-test` (behaviour across modules or files in the ordinary suite, no live stack; it
-runs as `unit-test` and is not the pytest `integration` marker) and `e2e-test` (needs the real
-local stack). A unit of several groups takes the widest kind.
 
 A unit whose e2e-test tests sit in a held split waits with the reason "waiting for e2e-test
 split <name>" (cause `split_held`) until `abk e2e-test release <split>`, or until the configuration
@@ -246,7 +248,7 @@ in review. `abk status` ends each `pre-existing:` line with how many units wait 
 
 Under `e2e_unit_scope: own` (the default; per repo `tests.e2e_unit_scope`) a unit's e2e-test run covers only the e2e-test tests
 its branch added or changed, selected by identifier and the marker; with none it runs and locks
-nothing and says `e2e-test skipped: no e2e-test test added or changed`. It runs the whole marker
+nothing and says `e2e-test skipped: no e2e test added or changed`. It runs the whole marker
 where it cannot narrow, or under `full`; a scheduled unit is always `full`.
 
 `e2e_schedule` (`daily`, `weekly`, `monthly`, `off`; per repo `tests.e2e_schedule`) makes a

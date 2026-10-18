@@ -1303,7 +1303,7 @@ approved.
   default; `global_limits`, with `tests.e2e_unit_scope` per repo; its earlier, numbered spelling
   still loads) a unit runs only the e2e-test tests
   its branch added or changed, selected by identifier together with the marker. A unit with
-  none runs nothing, takes no lock and says `e2e-test skipped: no e2e-test test added or changed`;
+  none runs nothing, takes no lock and says `e2e-test skipped: no e2e test added or changed`;
   its status says that no e2e-test test ran. Where the run cannot be narrowed (a dev stack
   script, a profile that cannot select by identifier, tests that cannot be listed, no base),
   or under `full`, the whole marker runs and the log says why. A scheduled unit is always

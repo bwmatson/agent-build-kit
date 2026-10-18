@@ -25,8 +25,8 @@ will be chosen later. The `python-uv` toolchain profile is implemented; the
  openspec/changes/<change>/   ──►   worktree per unit     ──►     PR per unit
    tasks.md (tagged groups)         tests commit, then             (never merged
  abk.yaml (the installation)        implementation,                by the agent)
- runs/units.json (the state)        review loop, unit-test,                │
-        ▲                           e2e-test on the dev stack             │
+ runs/units.json (the state)        review loop, unit-test,             │
+        ▲                           e2e-test on the dev stack           │
         └──────── poll: merged / closed / rework / restack ◄────────────┘
                   then verify (deploy + live tests) and archive
 ```

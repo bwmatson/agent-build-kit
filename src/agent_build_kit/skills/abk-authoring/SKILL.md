@@ -9,8 +9,7 @@ generatedBy: agent-build-kit
 
 The pipeline turns a change's `tasks.md` into units of work — branches and
 PRs — without reading anything else about it. Two facts therefore have to be
-on every task group heading: which repo its code lands in, and which test
-test kind it needs. They are written as tags, and `abk tags` checks them.
+on every task group heading: which repo its code lands in, and which test kind it needs. They are written as tags, and `abk tags` checks them.
 
 ## The heading contract
 

@@ -386,8 +386,8 @@ repos:                          # ordered: deploy order is derived from
                                 # a project (`uv run pre-commit` cannot resolve
                                 # pre-commit there). Written by `abk init`.
                                 # A project whose directory does not exist in
-                                # the checkout being checked is *pending*: tier
-                                # 1 and e2e-test run nothing in it and name it in
+                                # the checkout being checked is *pending*:
+                                # unit-test and e2e-test run nothing in it and name it in
                                 # their output, `abk doctor` lists it as
                                 # information, and none of it fails. It stops
                                 # being pending when the directory exists, so
