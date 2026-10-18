@@ -61,6 +61,7 @@ def test_the_unit_states_are_the_fixed_set() -> None:
         "held",
         "satisfied",
         "unplanned",
+        "retired",
     }
 
 

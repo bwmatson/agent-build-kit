@@ -41,6 +41,8 @@ class UnitState(StrEnum):
     SATISFIED = "satisfied"
     # Work the plan dropped; it may already have an open PR, so it is kept.
     UNPLANNED = "unplanned"
+    # Ended by `abk retire`: finished, builds nothing, and no plan revives it.
+    RETIRED = "retired"
 
 
 # States a unit moves through. "running" means it is in the build/review loop:
