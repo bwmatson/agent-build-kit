@@ -914,7 +914,7 @@ class UnitStore:
         if taken is not None:
             del stored[taken.id]
             stored.update(repointed(stored, taken.id, onto.id))
-            _repoint(stored, taken.id, onto.id)
+            _repoint_references(stored, taken.id, onto.id)
         self._write(stored)
         return before, before + added
 
@@ -1264,13 +1264,14 @@ def _record_successors(
     return written
 
 
-def _repoint(stored: dict[str, StoredUnit], old: str, new: str) -> None:
-    """Name `new` wherever a unit's `depends_on`, `needs`, `waited_on` or `superseded_by` names
-    `old`, once each."""
+def _repoint_references(stored: dict[str, StoredUnit], old: str, new: str) -> None:
+    """Name `new` wherever a unit's `needs`, `waited_on` or `superseded_by` names `old`, once
+    each. `depends_on` is left to `repointed`, the one path that stores only direct
+    dependencies."""
     for unit_id, unit in stored.items():
         update = {
             field: tuple(dict.fromkeys(new if item == old else item for item in current))
-            for field in ("depends_on", "needs", "waited_on", "superseded_by")
+            for field in ("needs", "waited_on", "superseded_by")
             if old in (current := getattr(unit, field))
         }
         if update:
