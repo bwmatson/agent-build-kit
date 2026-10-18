@@ -77,10 +77,11 @@
   `abk check` warn of a group less urgent than one that depends on it, and `abk tags`
   lists the priority it will be promoted to. Plans already recorded keep their edges;
   run `abk replan <change>` only to drop the avoidable ones.
+
 - The `node-npm` profile is now fully implemented, so a unit in a node project is no
   longer held for its toolchain. The README, the toolchain-profiles and configuration
   documents and the abk-config skill describe it as implemented, with a command table
-  for it and the convention that a node tier-2 test is a file named
+  for it and the convention that a node e2e test is a file named
   `<name>.<marker>.test.ts`.
 
 - The unit graph page draws a repo that has several projects with a nested subgraph for
