@@ -7,6 +7,7 @@
   `abk status` shows it. The scratch installation of a Claude Code live test sets it, so a
   test of the build no longer fails on the usage of the machine it runs on; a test about the
   guard opts back in.
+
 - An e2e-test group can declare its split with a `Split: <name>` line (a split its repo declares,
   or `rest`; no line means `rest`). A unit records the one split its groups share, and groups
   or units of different splits are never joined or planned together. `abk tags` refuses an
