@@ -80,7 +80,7 @@ AUTHORING_PHRASES = {
     "no task a builder cannot do": "do not write a task a builder cannot do",
     "live numbers": "live numbers",
     "the change's own files": "the change's own files",
-    "first e2e-test run": "first " + "tier" + " 2 run",
+    "first e2e-test run": "first e2e-test run",
     "fix round": "fix round",
     "confirm the premise": "confirm a measurement's premise",
     "same-repo needs": "same-repo `needs:`",

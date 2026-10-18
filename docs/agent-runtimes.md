@@ -857,7 +857,7 @@ The markers the suite uses:
 
 - `integration` needs node (`npx`) and the network for the real OpenSpec CLI.
   Run with `pytest -m integration`.
-- `local_stack` is the tier-2 marker the acceptance tests carry: they build a
+- `local_stack` is the e2e-test marker the acceptance tests carry: they build a
   unit through the `acp` runtime with a real agent on the host, named by
   `ABK_ACCEPTANCE_ACP_COMMAND`, and run `abk tick` as a process. They bill on
   demand and take minutes. Run with `pytest -m local_stack` (or `uv run poe
@@ -884,10 +884,10 @@ The markers the suite uses:
   never removed.
 - Every test runs under a time limit on each of its setup, call and teardown.
   A test without the `local_stack` marker has `--test-time-limit` seconds
-  (default 60); a `local_stack` test has `--tier2-test-time-limit` seconds
+  (default 60); a `local_stack` test has `--e2e-test-time-limit` seconds
   (default 1800, thirty minutes). Zero turns a limit off, and each option leaves
   the other alone. A failure names the limit passed: "test exceeded the time
-  limit of 60 seconds", or "test exceeded the tier-2 time limit of 1800
+  limit of 60 seconds", or "test exceeded the e2e-test time limit of 1800
   seconds".
 - The same build run (`tests/integration/test_build_unit.py`) also checks
   the usage report: `abk report --unit` for the built unit has one agent record
@@ -907,7 +907,7 @@ The markers the suite uses:
   answer for it. Run with `uv run pytest -m local_stack
   tests/integration/test_telemetry_stack.py`.
 - `replay` (the `tests/replay/` plugin, see "Record and replay of external calls"
-  below) puts a reverse proxy in front of a tier-2 test's calls to the model
+  below) puts a reverse proxy in front of an e2e-test test's calls to the model
   provider and package index, so a rerun of an unchanged call is answered from a
   recording. It is off unless `ABK_REPLAY_MODE` says otherwise.
 - `serial` marks a test that cannot share a process with others. `poe test`
@@ -924,9 +924,9 @@ The markers the suite uses:
 
 ### Splits and their selectors
 
-A repo's tier 2 tests are divided by `tests.tier2_splits` (see `docs/configuration.md`).
+A repo's e2e-test tests are divided by `tests.e2e_splits` (see `docs/configuration.md`).
 A test is in at most one split (exclusive membership): the tests no split selects are
-`rest`, and a test selected by two splits is a finding of `abk tier2 check`, which finds it
+`rest`, and a test selected by two splits is a finding of `abk e2e-test check`, which finds it
 by listing each split's tests through the toolchain profile, not through a plugin of the
 repo. The profile reports the selector kinds it supports and turns a split's selector
 into what its test runner takes; the python profile supports the selector kind `marker`
@@ -935,12 +935,12 @@ splits: held splits are left out, and a resume or a scheduled change runs one sp
 
 ### This repo's own splits
 
-The kit's own tier 2 tests are split the way any installation splits its tests: the
+The kit's own e2e-test tests are split the way any installation splits its tests: the
 `abk.yaml` an installation writes for the kit's repo declares one split per runtime.
 
 ```yaml
 tests:
-  tier2_splits:
+  e2e_splits:
     acp:
       marker: runtime_acp
     claude_code:
@@ -954,7 +954,7 @@ uses. A test keeps the example and the markers registered in `pyproject.toml` in
 
 ## Record and replay of external calls
 
-A tier-2 test that asks for the `replay` fixture (`tests/replay/plugin.py`) is given a
+An e2e-test test that asks for the `replay` fixture (`tests/replay/plugin.py`) is given a
 reverse proxy with one loopback listener per upstream in its `ReplayConfig`,
 which a test gives by overriding the `replay_config` fixture. The `repos.<name>.tests.replay`
 section holds the same fields and is accepted by the schema. The plugin does not read it yet,

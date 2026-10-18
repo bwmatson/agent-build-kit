@@ -18,7 +18,7 @@ overrides, `ABK_RUNTIME`, the gateway pair `ABK_GATEWAY_URL` and
 key of its own and its usage is read from the gateway's records), the
 code-host call bounds `ABK_FORGE_TIMEOUT_SECONDS`, `ABK_FORGE_RETRIES` and
 `ABK_FORGE_DEADLINE_SECONDS`, the GitHub address `ABK_GITHUB_API_URL` (an
-Enterprise host needs `GH_TOKEN` too), `ABK_REPLAY_MODE` (`off`, `record`, `replay` or `live`: what tier-2 tests do with calls
+Enterprise host needs `GH_TOKEN` too), `ABK_REPLAY_MODE` (`off`, `record`, `replay` or `live`: what e2e-test tests do with calls
 outside the stack), the telemetry switch `ABK_OTEL_ENABLED` and its
 `OTEL_*` endpoints, and `ABK_GRAFANA_URL`/`ABK_GRAFANA_TOKEN`/`ABK_GRAFANA_FOLDER`
 for `abk telemetry push-dashboard`, whose token is optional: without it the push is
@@ -29,6 +29,11 @@ The schema is strict: an unknown key fails at load. `abk config --show`
 prints the effective config with every default filled in; `abk config
 --path` prints which file is in force (`--config`, then `ABK_CONFIG`, then
 the nearest `abk.yaml` above the working directory).
+
+The `e2e_*` settings below apply to the `e2e-test` kind alone. Of the three test kinds
+(`unit-test`, `integration-test`, `e2e-test`), `integration-test` is a label that behaves as
+`unit-test`: it takes no e2e lock and no `e2e_*` setting, and is not the pytest `integration`
+marker.
 
 ## Schema
 
@@ -170,16 +175,16 @@ global_limits:
   max_check_reruns: 2         # re-runs of a head commit's cancelled checks
   transcript_result_chars: 20000  # longest tool result a transcript keeps whole
   transcript_runs_kept: 3     # runs of one unit that keep their transcript
-  # The old `tier1_*` and `tier2_*` spellings of the next keys still load, with a notice.
-  unit_test_command_seconds: 3600   # longest a tier 1 command may run before it is aborted
+  # The old `unit_test_*` and `e2e_*` spellings of the next keys still load, with a notice.
+  unit_test_command_seconds: 3600   # longest a unit-test command may run before it is aborted
   unit_test_abort_grace_seconds: 10  # how long an aborted command has to exit before it is killed
   unit_test_repeat_runs: 3          # times the tests a unit added or changed are run again under load (0: off)
-  restack_check: affected           # tier 1 after a clean move: scoped by the files the move brought in (affected) or the whole suite (full)
-  e2e_base_runs: 1                  # run the untouched failed tier 2 tests once on the base (0: off)
-  e2e_unit_scope: own               # tier 2 per unit: only the tests it added or changed (own) or the whole marker (full); tests.e2e_unit_scope overrides per repo
-  e2e_schedule: weekly              # whole tier 2 suite on the default branch: daily | weekly | monthly | 'off' (quote it); tests.e2e_schedule overrides per repo
-  e2e_lock_wait_seconds: 5400       # longest post-merge verification waits for the tier 2 lock before reporting it busy
-  e2e_durations_shown: 15           # slowest tier 2 test entries the posted result lists (0 = all)
+  restack_check: affected           # unit-test after a clean move: scoped by the files the move brought in (affected) or the whole suite (full)
+  e2e_base_runs: 1                  # run the untouched failed e2e-test tests once on the base (0: off)
+  e2e_unit_scope: own               # e2e-test per unit: only the tests it added or changed (own) or the whole marker (full); tests.e2e_unit_scope overrides per repo
+  e2e_schedule: weekly              # whole e2e-test suite on the default branch: daily | weekly | monthly | 'off' (quote it); tests.e2e_schedule overrides per repo
+  e2e_lock_wait_seconds: 5400       # longest post-merge verification waits for the e2e-test lock before reporting it busy
+  e2e_durations_shown: 15           # slowest e2e-test test entries the posted result lists (0 = all)
   network_probe_timeout_seconds: 5  # longest the outage probe waits to connect to one host
   network_control_hosts: [one.one.one.one, dns.google]  # bare host names tried beside the code hosts to tell a network outage from a model service outage
   service_unavailable_attempts: 5   # times in a row a 5xx or 529 from the model service parks a unit before the next fails it
@@ -218,11 +223,11 @@ repos:                        # ordered; a task group's [repo] tag is a key here
     default_branch: main
     profile: python-uv        # toolchain profile: python-uv or node-npm
     infra: none               # infrastructure profile: docker or none; docker
-                              # records the container listing beside a tier 2
+                              # records the container listing beside a e2e-test
                               # result (init writes it when a compose file or
                               # Dockerfile is in the root)
     projects: []              # [{path, profile, languages}]: a project whose directory is
-                              # absent from the checkout is pending: tier 1, tier 2 and
+                              # absent from the checkout is pending: unit-test, e2e-test and
                               # doctor skip it and say so, until a unit creates it
     languages: []             # e.g. [python]
     description: ""           # one paragraph, for prompts and context
@@ -231,14 +236,14 @@ repos:                        # ordered; a task group's [repo] tag is a key here
     relationships: ""         # prose for the planner about the other repos
     tests:
       root_extras: []         # extra packages the repo-root tests need
-      e2e_marker: local_stack    # tier 2 runs in each declared project, as tier 1 does, and
+      e2e_marker: local_stack    # e2e-test runs in each declared project, as unit-test does, and
                                  # each member from its own directory
                                  # with no path, so the member's pytest config,
                                  # `testpaths` included, decides what is collected
       e2e_unit_scope: null      # own | full for this repo; null follows limits
       e2e_schedule: null        # daily | weekly | monthly | 'off' for this repo; null follows limits
       dev_stack_marker: dev_stack
-      replay: null            # record/replay of tier-2 calls outside the stack:
+      replay: null            # record/replay of e2e-test calls outside the stack:
                               # upstreams [{name, url, kind: deterministic|llm, env,
                               # keyed_headers}], directory (tests/cassettes),
                               # max_age_days 30, llm_max_age_days 14, max_body_bytes 2 MiB,
@@ -252,7 +257,7 @@ repos:                        # ordered; a task group's [repo] tag is a key here
                               # `{changed_files}` and `{failed_ids}` each expand to
                               # separate arguments (a word of its own, not `--f={...}`)
     dev_stack: null           # {script: scripts/dev-stack.sh} — a script with
-                              # up/test/down; tier 2 runs on it, not live
+                              # up/test/down; e2e-test runs on it, not live
     environment: null         # the same shape as the top-level `environment`, with paths
                               # relative to the repo; run in a unit's worktree.
                               # `abk doctor` warns for a repo without one
@@ -299,14 +304,14 @@ notifications:                # tell a person when a unit waits on them
   # (the cmdlet names changed between releases); `abk init` offers to install it.
 ```
 
-### Tier 2 splits
+### E2e-test splits
 
-`tests.tier2_splits` (top level, or under a repo's own `tests`, which replaces it for that
+`tests.e2e_splits` (top level, or under a repo's own `tests`, which replaces it for that
 repo) maps a split name to a `marker`, an optional `hold` and an optional `gate`. `rest`, the
 tests in no split, is always there and may carry `hold` or `gate` but no marker. The configuration wins over the state
-file `tier2-held.json`. The three runtime lists it replaced are gone, with no alias.
+file `e2e-held.json`. The three runtime lists it replaced are gone, with no alias.
 
-`abk tier2 check [repo]` lists each split and `rest` with its marker and test count, and
+`abk e2e-test check [repo]` lists each split and `rest` with its marker and test count, and
 exits 0 when no test is in two splits, no marker is unknown to the test runner and no
 listing fails; 1 for a finding or a split the profile cannot apply; 2 for an unknown repo. It runs no test.
 

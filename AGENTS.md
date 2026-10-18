@@ -91,10 +91,11 @@ abk is moving from "every unit is reviewed by a person" to "every unit is verifi
 can't vouch for". The reasoning is in `docs/agent-efficient-coding-philosophy.md` and the plan, phase by phase, is in
 `docs/risk-tiered-review-design.md`. Work in flight should move toward it and not assume the old shape stays:
 
-- **Test kinds.** The two kinds of test are being renamed `unit-test` and `e2e-test` (today's tier 1 and tier 2), so that "tier"
-  can mean a review tier. Where your change leaves a name to you (a helper, a fake, a test file, a local variable), do not add a new
-  `tier1` or `tier2` spelling: use `unit_test` and `e2e`. Names a change's spec fixes (a setting, a tag, a metric) stay as the spec
-  says; the rename carries them.
+- **Test kinds.** There are three kinds of test, narrowest to widest: `unit-test` (one module's behaviour), `integration-test`
+  (behaviour across modules or files in the ordinary suite with no live stack; a label that behaves as `unit-test`, and not the
+  pytest `integration` marker) and `e2e-test` (needs the real local stack). The word "tier" is kept for review tiers. Where your
+  change leaves a name to you (a helper, a fake, a test file, a local variable), use `unit_test` and `e2e`, never the earlier numbered
+  spellings. Names a change's spec fixes (a setting, a tag, a metric) stay as the spec says.
 - **Size ceilings.** The single ceiling on a unit (`max_unit_lines`) is becoming a ceiling per review tier. Do not add a new place
   that reads it; send a new size check through the one function the existing ones use, so it moves with them.
 - **Who merges.** A unit that review classifies `auto` and policy allows will be merged by the pipeline, and anything else by a
@@ -116,7 +117,7 @@ src/agent_build_kit/
   openspec.py      the OpenSpec CLI through npx, pinned by settings.openspec_version
   cli/             `abk`: each module exposes register(sub); func(args, installation)
   pipeline/        the unit pipeline: planner, work_graph, stack_runner, wiring, events,
-                   gh_poller, restack, verify, archive, tier2, usage_guard, gate, ...
+                   gh_poller, restack, verify, archive, e2e, usage_guard, gate, ...
   hooks/policy.py  the Claude Code PreToolUse hook every agent run carries
   profiles/        toolchain profiles (python-uv today; node-npm declared)
   infra/           infrastructure profiles (docker, none): what a repo runs on
@@ -139,7 +140,7 @@ docs/              architecture, configuration, cli, toolchain-profiles, agent-r
   matching its package path; only the folder has to match, not the file
   name. Tests needing node or the network go under `tests/integration/`,
   marked `integration` (excluded by default). Tests driving a real agent on
-  the host are tier 2: they live under `tests/integration/` too, are marked
+  the host are `e2e-test` tests: they live under `tests/integration/` too, are marked
   `local_stack`, are excluded by default and run with `uv run pytest -m
   local_stack`. A `local_stack` test is the only one the guards let start a real
   agent (the runtime's spawn, a `claude` program); the other guards (login refresh,
@@ -223,7 +224,7 @@ instead of adding another.
 uv sync --group dev
 uv run poe test              # the suite, fixture-only: parallel workers (capped at 8), then a serial pass of tests marked `serial`
 uv run poe test-integration  # needs node: runs the real OpenSpec CLI via npx
-uv run poe test-local-stack  # tier 2: a real agent on this host (ABK_ACCEPTANCE_ACP_COMMAND), bills on demand
+uv run poe test-local-stack  # e2e-test: a real agent on this host (ABK_ACCEPTANCE_ACP_COMMAND), bills on demand
 uv run poe format            # pre-commit: ruff, ruff-format, pyrefly (from the lock), yamllint
 uv run poe scrub             # the structural no-installation-leaks check
 npm install --prefix web     # once: the web UI's dependencies

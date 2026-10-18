@@ -62,7 +62,7 @@ any other cause waits for the next pass. A refresh whose usage guard refuses
 starts nothing and skips planning, but still fetches, polls and archives (below).
 
 - `--dry-run` runs everything up to the build and reports what is ready
-  without building. For each recorded pre-existing tier 2 failure it also prints
+  without building. For each recorded pre-existing e2e-test failure it also prints
   `exists: <change>` (the open fix change) or `would write: <change>` (a change, or the
   successor of an archived one), even when no unit is pending; it writes nothing and runs
   no base run.
@@ -112,8 +112,8 @@ when the profile reads none. At each
 planning pass a planned unit that never started, whose change directory no longer exists, becomes
 `unplanned`, and a unit waiting on it stops waiting. A `flaky:` line lists each flaky test with
 its count and fix change, and a `pre-existing:`
-line each test that failed tier 2 on the base too, with how many times and its fix change.
-A `tier 2:` line names the unit holding the tier 2 lock and for how long; a record left by a
+line each test that failed e2e-test on the base too, with how many times and its fix change.
+A `e2e-test:` line names the unit holding the e2e-test lock and for how long; a record left by a
 process that is gone, on a free lock, is shown as stale, a held lock whose recorded process is gone
 says so, and a free lock with no record prints nothing.
 The `queue is full` lines are one for each project at its limit, as the tick paragraph above says.
@@ -328,7 +328,7 @@ archive failed), when it passed but the change was not archived.
 Validates the task-group heading contract of one change's `tasks.md`, or
 every active change's with `--all`: tags present and known, groups numbered
 from 1, every group has tasks, `[contract]` paired with a last `[narrow]`,
-`[acceptance]` present (as `tier2`, after everything it exercises) or opted
+`[acceptance]` present (as `e2e-test`, after everything it exercises) or opted
 out with a reasoned `Acceptance: none — ...` line. Prints each problem with
 its line, then the groups when clean. Also warns, once per group and
 without failing, when a group can give its unit unrelated open parents: an `[acceptance]` or
@@ -341,9 +341,9 @@ predecessor. Exit 1 if any change has a problem or no `tasks.md`.
 `openspec validate --all --strict --json` in the planning repo. Prints
 OpenSpec's output; exit code is OpenSpec's.
 
-### `abk tier2 check [REPO]`
+### `abk e2e-test check [REPO]`
 
-Lists each tier 2 split of the repo (default: every repo) and `rest` with its marker and the
+Lists each e2e-test split of the repo (default: every repo) and `rest` with its marker and the
 number of tests it holds, found by listing through the profile from each declared project's
 directory under the verify environment. It reports each selector the repo's test runner does
 not know, each test selected by two splits (its identifier and both split names) and each
@@ -352,27 +352,27 @@ repo with no declared split passes with a line saying so. Exit 0 when it finds n
 when it finds something or a declared split cannot be applied by the profile; 2 for a repo
 it does not know.
 
-### `abk tier2 hold SPLIT [--reason TEXT]`
+### `abk e2e-test hold SPLIT [--reason TEXT]`
 
-Holds a tier 2 split (a declared split, or `rest`) until `abk tier2 release`: units that wait on it
+Holds a e2e-test split (a declared split, or `rest`) until `abk e2e-test release`: units that wait on it
 park, and a run leaves it out. It sets `hold: true` in `abk.yaml` as text and writes the
-entry in `tier2-held.json` together, or neither; when the file cannot be edited that way it
+entry in `e2e-held.json` together, or neither; when the file cannot be edited that way it
 prints the line to change by hand and writes nothing. Exit 0 when held; 1 when nothing was
 written; 2 for a name that is not a split.
 
-### `abk tier2 release SPLIT`
+### `abk e2e-test release SPLIT`
 
-Ends a hold: it removes the entry from `tier2-held.json` and the `hold` line in `abk.yaml`
+Ends a hold: it removes the entry from `e2e-held.json` and the `hold` line in `abk.yaml`
 together, or neither. When a `hold: true` of the configuration or an entry of the split's gate
 still holds it afterwards, the command says so and what to change by hand. A split that is
 not held prints `nothing changed`. Exit 0 when the split is released or was not held, 1 when
 the edit of `abk.yaml` or the state file could not be made and nothing was written, 2 for a
 name that is not a split.
 
-### `abk tier2 status`
+### `abk e2e-test status`
 
 Prints each split and `rest` as `usable` or `held` (with the reason, and a file entry the
-configuration overrides) and the splits the scheduled tier 2 run covers. Changes nothing.
+configuration overrides) and the splits the scheduled e2e-test run covers. Changes nothing.
 
 ### `abk archive CHANGE`
 
@@ -833,7 +833,7 @@ repeated, every bullet under a `##` section, headings in order. Each problem pri
 `path line N: message`, and the exit is 1 when there are any. With no `PATH` it reads the
 file named by the `changelog` setting of the repo the current directory belongs to (a
 worktree included). A missing file passes with a note; so does a repo with the setting
-`null`. Tier 1 runs it for every repo with the setting on.
+`null`. Unit-test runs it for every repo with the setting on.
 
 ### `abk scrub-check --target DIR [--show-terms]`
 
