@@ -1086,6 +1086,20 @@ and `fixture.environment()` give them. The mode is `ABK_REPLAY_MODE`.
 - Run in `live` mode whenever the prompt text or the code under test changed, and at least
   weekly otherwise, so a replayed pass does not stand in for the provider's behaviour that day.
 
+### The acceptance test
+
+`tests/integration/test_replay_unit.py` builds one scratch unit three times with the agent named
+by `ABK_ACCEPTANCE_ACP_COMMAND`, each time as a pytest session with the replay plugin over one
+cassette directory: in `record` mode, in `replay` mode with nothing changed, and in `replay`
+mode with the task text edited. Run it with `uv run pytest -m local_stack
+tests/integration/test_replay_unit.py`; it needs node, uv and an agent, bills on demand and
+takes minutes. Every run records fresh into a temporary cassette directory and sets the mode
+of each session itself, so the test keeps no recordings to refresh and goes live against the
+agent and the index each time. The package index is asserted first. The model hit rate is
+printed and recorded as a test property and never asserted, so zero model hits is a finding, not a failure; the
+edited-task step does fail when no model call went through the proxy, since nothing then
+changed.
+
 ### How each upstream is pointed at the proxy
 
 Settled by running the tool where it could be run here, and otherwise left marked:

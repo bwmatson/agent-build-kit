@@ -6,7 +6,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import socket
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,6 +19,8 @@ import pytest
 from agent_build_kit.config import ReplayConfig, ReplayUpstream
 from agent_build_kit.model import Frozen
 from agent_build_kit.replay.models import Cassette, RequestSummary, StoredResponse, UpstreamKind
+from agent_build_kit.replay.report import ReplayedTest
+from agent_build_kit.replay.store import cassette_name
 from tests.replay.proxy import ReplayProxy
 
 UPSTREAM = "svc-a"
@@ -123,3 +125,16 @@ def run_session(
     return pytester.runpytest_inprocess(
         "-p", "tests.replay.plugin", "-p", "no:cacheprovider", *args
     )
+
+
+def replayed_cassettes(
+    recorded: Sequence[Cassette], directory: Path, test: ReplayedTest
+) -> list[Cassette]:
+    """The recorded cassettes a run answered from: those it asked for again, and that were
+    young enough to answer. A cassette no call asked for is in `test.unused`, and one that
+    matched but was too old is in `test.aged_out`."""
+    return [
+        c
+        for c in recorded
+        if cassette_name(directory, c) not in test.unused and c.key not in test.aged_out
+    ]

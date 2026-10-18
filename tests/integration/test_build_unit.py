@@ -22,18 +22,14 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from pydantic import Field
 
-from agent_build_kit import config
 from agent_build_kit.graph.state import Node
-from agent_build_kit.installation import Installation
-from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.commit_order import check_structure, classify_paths
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, read_ledger
-from tests.factories import git, init_repo, scratch_app
+from tests.factories import git
 from tests.factories import who_pushed as reflog_and_pushes
 from tests.forges.github_server import FakeGitHub
-from tests.forges.process_host import process_env
+from tests.marker_scratch import CHANGE, Scratch, build_scratch
 from tests.runtime_scratch import CLAUDE_CODE_PARAMS, runtime_scratch
 from tests.scratch_tick import TickResult, commits_on_unit_branch, run_tick
 
@@ -43,7 +39,6 @@ pytestmark = [
     pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not on PATH"),
 ]
 
-CHANGE = "add-marker"
 BRANCH = f"spec/{CHANGE}/1"
 UNIT_ID = f"{CHANGE}/1"
 
@@ -56,17 +51,6 @@ TASKS = """# Tasks
 
 Acceptance: none — a single function whose own test is its proof
 """
-
-
-class Scratch(Frozen):
-    model_config = {"arbitrary_types_allowed": True}
-
-    planning: Path
-    app: Path
-    remote: Path
-    state: Path
-    env: dict[str, str] = Field(repr=False)
-    host: FakeGitHub
 
 
 @pytest.fixture(scope="module")
@@ -96,52 +80,7 @@ def scratch(
     tmp_path = tmp_path_factory.mktemp("build")
     runtime = runtime_scratch(request.param, tmp_path_factory, lambda command: None)
 
-    remote = tmp_path / "remote.git"
-    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
-    # A bare repository keeps no reflog unless asked: it is what says, when
-    # the branch is not the pipeline's, which push put it there.
-    git(remote, "config", "core.logAllRefUpdates", "always")
-
-    app = scratch_app(tmp_path / "app")
-    git(app, "remote", "add", "origin", str(remote))
-    git(app, "push", "-q", "origin", "main")
-
-    planning = init_repo(tmp_path / "planning")
-    change = planning / "openspec" / "changes" / CHANGE
-    (change / "specs" / "marker").mkdir(parents=True)
-    (planning / "openspec" / "config.yaml").write_text("schema: spec-driven\n")
-    (change / "proposal.md").write_text(
-        "## Why\n\nThe app needs a marker.\n\n## What Changes\n\n- Add `marker()`.\n\n"
-        "## Impact\n\n- app: one module.\n"
-    )
-    (change / "specs" / "marker" / "spec.md").write_text(
-        "## ADDED Requirements\n\n### Requirement: A marker\nThe app SHALL expose `marker()`.\n\n"
-        "#### Scenario: Reading it\n- **WHEN** `marker()` is called\n"
-        '- **THEN** it returns "marked"\n'
-    )
-    (change / "tasks.md").write_text(TASKS)
-    (planning / "abk.yaml").write_text(
-        f"repos:\n  app:\n    path: {app}\n    slug: example/app\n"
-        "    profile: python-uv\n    languages: [python]\n"
-        f"{runtime.runtimes_yaml}"
-    )
-    git(planning, "add", "-A")
-    git(planning, "commit", "-q", "-m", "plan")
-
-    env = {
-        **process_env(github_host, tmp_path / "bin", tmp_path / "gh-calls.txt"),
-        **runtime.env,
-        "ABK_CONFIG": str(planning / "abk.yaml"),
-        "ABK_WORKTREE_ROOT": str(tmp_path / "worktrees"),
-    }
-    yield Scratch(
-        planning=planning,
-        app=app,
-        remote=remote,
-        state=Installation(config.load(planning / "abk.yaml"), planning).state_dir,
-        env=env,
-        host=github_host,
-    )
+    yield build_scratch(tmp_path, github_host, runtime, tasks=TASKS)
 
 
 @pytest.fixture(scope="module")

@@ -3,7 +3,9 @@ environment summarised without a secret."""
 
 from __future__ import annotations
 
+import os
 import stat
+import subprocess
 import sys
 from pathlib import Path
 
@@ -14,6 +16,7 @@ from tests import scratch_tick
 from tests.redaction_fakes import known
 from tests.scratch_fakes import HandScratch, hand_scratch
 from tests.scratch_tick import run_tick, scratch_env_summary, ticks_of
+from tests.waiting import wait_for
 
 # Plain concatenation: the shebang is the interpreter running the suite.
 STAND_IN = (
@@ -116,3 +119,28 @@ def test_a_registered_secret_in_a_plain_value_goes_through_the_redactor() -> Non
 
         assert any(line.startswith("PLAIN=") for line in summary)
         assert "registered-secret-value-1" not in "\n".join(summary)
+
+
+def test_a_tick_that_outlasts_its_wait_and_what_it_started_are_gone_when_it_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pids = tmp_path / "pids"
+    program = tmp_path / "abk-sleeper"
+    program.write_text(f"#!/bin/sh\nsleep 60 &\necho $! >> {pids}\necho $$ >> {pids}\nwait\n")
+    program.chmod(program.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setattr(scratch_tick, "ABK", program)
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        run_tick(ticking(tmp_path), timeout=1)
+
+    found = [int(pid) for pid in pids.read_text().split()]
+    assert len(found) == 2
+    wait_for(lambda: not any(alive(pid) for pid in found), what="the tick to be gone")
+
+
+def alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
