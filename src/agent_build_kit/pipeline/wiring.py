@@ -132,6 +132,7 @@ from agent_build_kit.pipeline.ui_review import ui_notes_of, ui_reply_writer, uni
 from agent_build_kit.pipeline.unit_size import actual_lines, over_ceiling
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
+    BUILDS_NOTHING,
     IN_REVIEW,
     MERGED,
     PLANNED,
@@ -3280,7 +3281,9 @@ def is_ancestor(tree: Path, base: str, of: str = "HEAD") -> bool:
     return not git(tree, "merge-base", "--is-ancestor", base, of, check=False).returncode
 
 
-def build_upstream_incomplete(store: UnitStore) -> Callable[..., tuple[Cause, str] | None]:
+def build_upstream_incomplete(
+    store: UnitStore, bounce_limit: int | None = None
+) -> Callable[..., tuple[Cause, str] | None]:
     """Why a unit should stop, if something it is built on went back.
 
     Read from the store each time rather than captured once: the poller that
@@ -3298,11 +3301,22 @@ def build_upstream_incomplete(store: UnitStore) -> Callable[..., tuple[Cause, st
         stored = as_stored(unit, known)
         for dep in followed_dependencies(stored, known):
             parent = index.get(dep)
-            if parent and parent.repo == unit.repo and parent.state not in REVIEWED:
-                return (
-                    Cause.UPSTREAM_WENT_BACK,
-                    f"{dep} is {parent.state} — it went back after this unit started",
-                )
+            if (
+                parent
+                and parent.repo == unit.repo
+                and parent.state not in BUILDS_NOTHING
+                and parent.state not in REVIEWED
+            ):
+                note = f"{dep} is {parent.state} — it went back after this unit started"
+                mine = index.get(unit.id)
+                if (
+                    bounce_limit is not None
+                    and mine is not None
+                    and mine.bounce_cause is Cause.UPSTREAM_WENT_BACK
+                    and mine.bounces + 1 >= bounce_limit
+                ):
+                    note += f"; held repeatedly by {dep}"
+                return (Cause.UPSTREAM_WENT_BACK, note)
         return None
 
     return upstream_incomplete
@@ -3318,7 +3332,7 @@ def why_branch_is_changing(
     is rebasing (its history is being rewritten before a new head exists), or
     when it is itself planned for a changing upstream or a moved base.
     """
-    if parent.state in REVIEWED:
+    if parent.state in REVIEWED or parent.state in BUILDS_NOTHING:
         return ""
     # A replan carries a standing cause, so these readings hold over it.
     if parent.state == PLANNED and parent.cause is Cause.UPSTREAM_WENT_BACK:
@@ -3584,7 +3598,9 @@ def build_runner(
             base=local_ref(repo.default_branch, repo=unit.repo),
         ),
         branch_commits=branch_commits,
-        upstream_incomplete=build_upstream_incomplete(store),
+        upstream_incomplete=build_upstream_incomplete(
+            store, installation.config.global_limits.bounce_limit
+        ),
         base_moved=build_base_moved(store),
         base_tip=tip,
         restack_onto=build_restack_onto(store, repo=repo, turn=unit_repo_turn),

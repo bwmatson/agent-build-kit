@@ -890,6 +890,34 @@ pass. The move is delivered to the unit's thread as an `upstream_changed` event,
 kind that sets `planned`; the thread keeps waiting at `await_review`. When the predecessor is back in review the unit is
 released and restacks onto its new head; an unchanged head restacks nothing.
 
+A predecessor that builds nothing (`BUILDS_NOTHING`: `unplanned` or `retired`) is skipped here, by
+the step-boundary check of a running build and by the rule that holds a returning unit for room:
+the scheduler's wait ignores it, so none of them may put back a unit the scheduler admitted for
+it, and a planned, running, failed, held or closed predecessor still holds its dependent with the
+cause `upstream_went_back`. Each tick `link_needs` also drops a stored dependency on such a unit
+that no `Needs:` line declares and logs `<unit>: dropped dependency <parent>: it builds nothing`;
+a replan never changes a started unit's dependencies, so a group that moved to another unit would
+otherwise leave the edge behind.
+
+### How a bounce is counted
+
+The store counts, where every state change is written, a unit that goes from `running` back to
+`planned` or `held` after a run shorter than `global_limits.bounce_span_seconds` (default 120):
+the same cause as the previous bounce raises `bounces`, another cause restarts it at one. A long
+run, a write with no cause, review, failure, a finished state, or a person's `abk requeue` zeroes
+it; a replan keeps it. At `global_limits.bounce_limit` (default 3) the tick logs `is looping`,
+`abk status` lists the unit under `looping:` and the ready queue marks it `(looping)`. Nothing is
+held or rescheduled because of it. Which paths put a unit back, and which protect themselves:
+
+| Path | Cause | Protection |
+|---|---|---|
+| upstream guard | `upstream_went_back` | none |
+| gated hold, second rebase hold | `base_changed` | none across ticks |
+| restack deferred | `restack_deferred` | none |
+| `reclaim_stranded`, no-thread fallbacks | `requeued`, `rework`, `released` | none |
+| environment waiters | `environment` | none |
+| host, network and model-service parks | `host_unavailable`, `network_unavailable`, `service_unavailable` | `PARK_BACKOFF`; `parked_attempts` fails the unit at a cap |
+
 ## The checking status
 
 A unit stored as `in_review` reads `checking` while any check on its pull request is pending, or

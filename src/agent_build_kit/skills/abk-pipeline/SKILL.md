@@ -330,6 +330,17 @@ cannot do, and what a person does about it:
 
 ## When nothing is moving
 
+- `abk status` lists `looping: <unit> (<label>) <n> times in a row, cause <cause> — <note>` for a
+  planned unit that was put back to planned (or held) from `running` as many times in a row, each
+  run short, with one cause, and marks it `(looping)` in the ready queue; the tick logged
+  `is looping: put back to planned <n> times` once. Nothing is held because of it. An
+  `upstream_went_back` note that ends `held repeatedly by <parent>` is the same loop. Find the
+  cause (the note and `cause` name it), then retire or replan the unit, or fix it and run
+  `abk requeue`, which resets the count.
+- `dropped dependency <parent>: it builds nothing` in the tick log is `link_needs` removing a
+  stored dependency on an unplanned or retired unit that no `Needs:` line declares. It changes
+  no wait; there is nothing to do.
+
 - User timers only fire while the systemd user manager runs, and without
   lingering that is only during a login session. Check `loginctl show-user
   "$USER" --property=Linger`, run `loginctl enable-linger "$USER"` if it says

@@ -616,11 +616,19 @@ release could move. The steps:
    `in_review`, and its groups are ticked in `tasks.md` — now, not when a
    build finished.
 
+A unit put back from `running` again and again with the same cause is counted by the store and
+named as looping (`abk status`, the tick's log, `(looping)` in the ready queue); the notice is
+visibility only and holds nothing.
+
 Between steps the unit can be stopped: a same-repo parent went back for
 rework (the unit `planned`, with cause `upstream_went_back`), or the usage window filled.
+A parent that builds nothing (`BUILDS_NOTHING`: `unplanned` or `retired`) holds no one: the
+check, the follow pass below and the room rule skip it as the scheduler's wait does, and
+`link_needs` drops a stale stored dependency on one (`dropped dependency`).
 In each round, after the fetch and poll, a unit in review is likewise set back to `planned` with that cause
 while a same-repo predecessor's branch is changing (a commit beyond its pushed head, rebasing, or
-itself planned for a changing upstream or a moved base). It keeps its approval, branch and pull
+itself planned for a changing upstream or a moved base; a predecessor that builds nothing is never
+changing). It keeps its approval, branch and pull
 request, and restacks onto the predecessor's new head when it is released. The move is an
 `upstream_changed` event delivered to the unit's thread, which records it and stays waiting at
 `await_review`; the release is unchanged. A unit with no thread is written to the store directly. The server's unit

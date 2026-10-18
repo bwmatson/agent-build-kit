@@ -550,6 +550,10 @@ class LimitsConfig(TestKindSettings):
     # Seconds after a push in which a pull request with no checks yet still reads
     # `checking`: CI may not have registered.
     checks_register_seconds: int = 120
+    # How many times in a row a unit may be put back to planned or held with the same cause,
+    # each run shorter than `bounce_span_seconds`, before it is named as looping.
+    bounce_limit: Annotated[int, Field(ge=2)] = 3
+    bounce_span_seconds: Annotated[int, Field(ge=1)] = 120
     # How many pull requests of finished units a round (each tick and each refresh of a
     # pass) takes their stale state label off, so a backlog does not spend the code
     # host's rate limit at once.
