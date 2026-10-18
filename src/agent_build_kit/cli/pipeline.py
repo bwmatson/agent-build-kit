@@ -228,6 +228,7 @@ from agent_build_kit.pipeline.units import (
     base_of,
     branch_name,
     count_by_project,
+    current_dependencies,
     dependency_wait,
     depth_of,
     effective_priority,
@@ -245,6 +246,7 @@ from agent_build_kit.pipeline.units import (
     project_key,
     project_tag,
     ready_units,
+    resolve_replaced,
     second_parent_wait,
     stack_age_source,
     start_room,
@@ -718,6 +720,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         *_failed_waiting_lines(units),
         *_wait_ended_lines(inst, units),
         *_second_parent_lines(units),
+        *_replaced_lines(units),
     ]:
         log(line)
 
@@ -1552,6 +1555,7 @@ def run_round(
     _step("creating the thread store", _create_thread_store, inst)
     if admitted:
         _step("planning", plan_all, inst, store=store)
+    _step("recording successors", record_successors, store)
     _step(
         "linking needs",
         link_needs,
@@ -1893,10 +1897,14 @@ def requeue_wait_ended(
             continue
         if not unit.waited_on or unit.id in in_flight:
             continue
-        prerequisites = [by_id.get(uid) for uid in unit.waited_on]
+        # A recorded unit a replan replaced stands for the units that carry its work.
+        recorded = tuple(
+            dict.fromkeys(uid for old in unit.waited_on for uid in resolve_replaced(old, units))
+        )
+        prerequisites = [by_id.get(uid) for uid in recorded]
         closed = [
             uid if parent is None else group_names([parent])
-            for uid, parent in zip(unit.waited_on, prerequisites, strict=True)
+            for uid, parent in zip(recorded, prerequisites, strict=True)
             if parent is None or parent.state in (CLOSED, *BUILDS_NOTHING)
         ]
         if closed:
@@ -2378,6 +2386,22 @@ def _second_parent_lines(units: list[StoredUnit]) -> list[str]:
         f"  {unit.id} ({unit_label(unit)}) {wait}"
         for unit in units
         if (wait := second_parent_wait(unit, units))
+    ]
+
+
+def _replaced_lines(units: list[StoredUnit]) -> list[str]:
+    """One line for each replaced unit that an unfinished unit's dependencies, `needs` or
+    recorded wait still name, which is a pass that has not yet run."""
+    named = {
+        uid
+        for unit in units
+        if unit.state not in FINISHED
+        for uid in (*unit.depends_on, *unit.needs, *unit.waited_on)
+    }
+    return [
+        f"  replaced: {unit.id} by {', '.join(unit.superseded_by)}"
+        for unit in units
+        if unit.state in BUILDS_NOTHING and unit.superseded_by and unit.id in named
     ]
 
 
@@ -2998,11 +3022,11 @@ def link_needs(
             f"{change} group {group} needs {need.change} group {need.group}, not planned yet"
         ),
     )
-    units = _drop_stale_edges(store, units, wanted)
-    graph = {u.id: list(u.depends_on) for u in units if u.state not in FINISHED}
+    refused = _repoint_replaced(units, wanted, store, reported)
+    units = _drop_stale_edges(store, store.all(), wanted)
+    graph = {u.id: list(current_dependencies(u, units)) for u in units if u.state not in FINISHED}
     # Every stored edge, of units in any state: a merged unit between two still links them.
-    stored = {u.id: list(u.depends_on) for u in units}
-    refused: list[CycleEdge] = []
+    stored = {u.id: list(current_dependencies(u, units)) for u in units}
     for unit in units:
         if unit.id not in wanted and not unit.needs:
             continue
@@ -3013,15 +3037,7 @@ def link_needs(
                 needs.append(target)
                 continue
             if back := path_between(graph, target, unit.id):
-                edge = CycleEdge(unit=unit.id, dependency=target, cycle=(unit.id, *back))
-                if reported is None or (unit.id, target) not in reported:
-                    log(
-                        f"{unit.id}: Needs: {target} refused, it would close the cycle "
-                        f"{' -> '.join(edge.cycle)}"
-                    )
-                if reported is not None:
-                    reported.add((unit.id, target))
-                refused.append(edge)
+                _refuse_cycle(unit.id, target, back, reported, refused)
                 continue
             added.append(target)
             needs.append(target)
@@ -3043,7 +3059,8 @@ def _drop_stale_edges(
     store: UnitStore, units: list[StoredUnit], wanted: dict[str, list[str]]
 ) -> list[StoredUnit]:
     """Remove each stored dependency, of a unit still to be built, on a unit that builds
-    nothing and that no `Needs:` line declares; the units as the store has them after."""
+    nothing, has no successor and that no `Needs:` line declares;
+    the units as the store has them after."""
     index = {unit.id: unit for unit in units}
     changed = False
     for unit in units:
@@ -3054,6 +3071,7 @@ def _drop_stale_edges(
             for dep in unit.depends_on
             if (parent := index.get(dep)) is not None
             and parent.state in BUILDS_NOTHING
+            and not parent.superseded_by
             and dep not in wanted.get(unit.id, ())
         ]
         if not stale:
@@ -3063,6 +3081,83 @@ def _drop_stale_edges(
             log(f"{unit.id}: dropped dependency {dep}: it builds nothing")
         changed = True
     return store.all() if changed else units
+
+
+def _refuse_cycle(
+    unit_id: str,
+    target: str,
+    back: Sequence[str],
+    reported: set[tuple[str, str]] | None,
+    refused: list[CycleEdge],
+) -> None:
+    """Refuse `target` as a dependency of `unit_id` because `back` runs from it to the unit:
+    log it unless the pair was already `reported`, and add it to `refused`."""
+    edge = CycleEdge(unit=unit_id, dependency=target, cycle=(unit_id, *back))
+    if reported is None or (unit_id, target) not in reported:
+        cycle = " -> ".join(edge.cycle)
+        log(f"{unit_id}: Needs: {target} refused, it would close the cycle {cycle}")
+    if reported is not None:
+        reported.add((unit_id, target))
+    refused.append(edge)
+
+
+def record_successors(store: UnitStore) -> None:
+    """Give units replaced before successors were recorded theirs, once, before linking."""
+    if written := store.backfill_successors():
+        log(f"successors recorded: {len(written)} unit(s)")
+
+
+def _repoint_replaced(
+    units: Sequence[StoredUnit],
+    wanted: Mapping[str, Sequence[str]],
+    store: UnitStore,
+    reported: set[tuple[str, str]] | None,
+) -> list[CycleEdge]:
+    """Replace each stored dependency of an unfinished unit on a replaced unit by the live
+    units that carry its work now. When the unit's `Needs:` lines resolve to some of them only
+    those are taken. A target that would close a cycle is refused as a `Needs:` is, and with
+    none left the stored dependency stays. The unit itself is never a target: when it is the
+    only successor the dependency is dropped, as the unit carries that work. Returns the
+    refusals."""
+    graph = {u.id: list(current_dependencies(u, units)) for u in units if u.state not in FINISHED}
+    refused: list[CycleEdge] = []
+    by_id = {u.id: u for u in units}
+    for unit in units:
+        if unit.state in FINISHED or unit.state in BUILDS_NOTHING:
+            continue
+        depends = list(unit.depends_on)
+        for old in unit.depends_on:
+            found = by_id.get(old)
+            if found is None or found.state not in BUILDS_NOTHING or not found.superseded_by:
+                continue
+            # A successor the store does not hold stands for itself and builds nothing here.
+            resolved = resolve_replaced(old, units)
+            live = [
+                t
+                for t in resolved
+                if t not in (old, unit.id)
+                and (carrier := by_id.get(t))
+                and carrier.state not in BUILDS_NOTHING
+            ]
+            narrowed = [t for t in live if t in wanted.get(unit.id, ())]
+            kept: list[str] = []
+            for target in narrowed or live:
+                if back := path_between(graph, target, unit.id):
+                    _refuse_cycle(unit.id, target, back, reported, refused)
+                    continue
+                kept.append(target)
+            if not kept:
+                if unit.id in resolved and not live:
+                    # The unit carries that work itself, so it has nothing to wait for.
+                    depends.remove(old)
+                continue
+            at = depends.index(old)
+            depends[at : at + 1] = kept
+            log(f"{unit.id}: dependency {old} is now {', '.join(kept)} (replaced by a replan)")
+        linked = tuple(dict.fromkeys(depends))
+        if linked != unit.depends_on:
+            store.set_dependencies(unit.id, linked)
+    return refused
 
 
 def declared_needs(
@@ -3399,10 +3494,12 @@ def plan_all(
         units = store.all()
         landed = {MERGED, SATISFIED}
         context = [
-            in_flight_item(u)
+            in_flight_item(u, units)
             for u in units
             if (u.state in _STARTED and (u.state not in landed or u.change == change))
             or (u.state == PLANNED and u.change != change)
+            # Shown with what replaced it, so the planner knows its groups are carried.
+            or (u.state == UnitState.UNPLANNED and u.superseded_by and u.change == change)
             # Shown so the planner leaves the id alone, though nothing is built on it.
             or (u.state == UnitState.RETIRED and u.change == change)
         ]
@@ -5209,7 +5306,12 @@ def _replan_differences(
             lines.append(f"{uid}: planned, {unit.estimated_lines} lines, {unit.tier}")
             continue
         if unit.state == UNPLANNED and old.state != UNPLANNED:
-            lines.append(f"{uid}: now unplanned, the plan no longer has it")
+            reason = (
+                f"replaced by {', '.join(unit.superseded_by)}"
+                if unit.superseded_by
+                else "the plan no longer has it"
+            )
+            lines.append(f"{uid}: now unplanned, {reason}")
         if removed := [x for x in old.depends_on if x not in unit.depends_on]:
             lines.append(f"{uid}: no longer depends on {', '.join(removed)}")
         if added := [x for x in unit.depends_on if x not in old.depends_on]:
@@ -5628,10 +5730,11 @@ def _waits_in(
             waits[unit.id] = Wait(reason=WaitReason.WAITING_REVIEW)
         elif unit.state == HELD and unit.held_by is HeldBy.DEPTH:
             # Clears by itself when a merge frees the depth: it waits on work, not a person.
+            current = current_dependencies(unit, view)
             parents = tuple(
                 parent.id
                 for parent in view
-                if parent.id in unit.depends_on and parent.state not in (MERGED, CLOSED, SATISFIED)
+                if parent.id in current and parent.state not in (MERGED, CLOSED, SATISFIED)
             )
             waits[unit.id] = Wait(reason=WaitReason.BLOCKED, waits_on=parents)
         elif unit.state in (HELD, FAILED):

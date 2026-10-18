@@ -7,7 +7,15 @@ from pathlib import Path
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.unit_store import UNPLANNED, StoredUnit
-from agent_build_kit.pipeline.units import CLOSED, MERGED, PLANNED, Unit, UnitState, waiting_on
+from agent_build_kit.pipeline.units import (
+    CLOSED,
+    MERGED,
+    PLANNED,
+    Unit,
+    UnitState,
+    current_dependencies,
+    waiting_on,
+)
 from agent_build_kit.pipeline.work_graph import group_needs, names_own_change, validate_tasks
 
 
@@ -95,7 +103,7 @@ def drop_cycle_edges(
     for stored in stored_units:
         if stored.state in FINISHED or (stored.state == PLANNED and stored.change in planning):
             continue
-        graph.setdefault(stored.id, []).extend(stored.depends_on)
+        graph.setdefault(stored.id, []).extend(current_dependencies(stored, stored_units))
     for unit_id, needed in declared_needs.items():
         graph.setdefault(unit_id, []).extend(n for n in needed if n not in graph.get(unit_id, ()))
     # A cycle of fixed edges is this plan's only if it runs through one of its units; one

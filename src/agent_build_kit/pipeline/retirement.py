@@ -18,6 +18,7 @@ from agent_build_kit.pipeline.units import (
     RUNNING,
     SATISFIED,
     UnitState,
+    current_dependencies,
     satisfied_landed,
 )
 
@@ -76,7 +77,7 @@ def _refusal(unit: StoredUnit, units: Sequence[StoredUnit]) -> str:
         return f"{unit.id} is running; stop it first"
     for other in units:
         if (
-            unit.id in other.depends_on
+            unit.id in current_dependencies(other, units)
             and other.repo == unit.repo
             and other.has_work
             and other.state not in FINISHED_STATES
@@ -96,7 +97,7 @@ def assess(unit_id: str, units: Sequence[StoredUnit]) -> Assessment:
     dependents = tuple(
         Dependent(id=other.id, state=str(other.state))
         for other in units
-        if unit_id in other.depends_on
+        if unit_id in current_dependencies(other, units)
         and other.state not in (*FINISHED_STATES, UnitState.UNPLANNED)
     )
     return Assessment(

@@ -55,5 +55,6 @@ def test_a_group_joined_onto_a_unit_of_another_project_is_refused() -> None:
 
 
 def test_each_unit_in_flight_carries_its_project() -> None:
-    assert in_flight_item(stored_unit("a/1", project="web"))["project"] == "web"
-    assert in_flight_item(stored_unit("b/1"))["project"] == "."
+    web, root = stored_unit("a/1", project="web"), stored_unit("b/1")
+    assert in_flight_item(web, [web, root])["project"] == "web"
+    assert in_flight_item(root, [web, root])["project"] == "."

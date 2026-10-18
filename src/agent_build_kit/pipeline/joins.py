@@ -27,6 +27,7 @@ from agent_build_kit.pipeline.units import (
     Join,
     Member,
     Unit,
+    current_dependencies,
     direct_dependencies,
     repointed,
 )
@@ -73,7 +74,10 @@ def check_joins(
     planned = {u.id: u for u in plan}
 
     def direct(unit: Unit) -> tuple[str, ...]:
-        return direct_dependencies(unit, [*state.values(), *planned.values()])
+        # Read through the units a replan replaced, then without a dependency another reaches.
+        graph = [*state.values(), *planned.values()]
+        resolved = unit.model_copy(update={"depends_on": current_dependencies(unit, graph)})
+        return direct_dependencies(resolved, graph)
 
     catalog = dict(context.catalog)
     if change is not None:

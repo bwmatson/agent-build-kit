@@ -133,6 +133,14 @@ at most 300 characters, redacted. A planner prompt over the safe size of the run
 transport fails the attempt the same way, its first line naming the change, the size and the
 limit and the lines after it the size of each part.
 
+A replan that regroups sets the unstarted units it replaces `unplanned` and records, in each one's
+`superseded_by`, the units that carry its groups. What a unit depends on is read through that field
+(`current_dependencies`): a `depends_on` entry that names a replaced unit stands for its
+successors, so the scheduler, the stack's base and depth, the restack, the cycle checks and the
+diagram agree. `link_needs` then rewrites the stored `depends_on` to the successors, in any unit
+that has not finished, started or not, and a join repoints `depends_on`, `needs`, `waited_on` and `superseded_by` onto the unit
+that took the other in.
+
 A planner call that ends on an outage (a network or provider failure, classified as a
 unit's agent run is) is a wait, not an attempt: the record keeps its `attempts` and gains
 `waiting` (`network` or `service`), `waits`, `since` and `until` (1, 2, 5, 10 then 30

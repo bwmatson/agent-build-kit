@@ -142,7 +142,7 @@ def preflight(
         else set()
     )
     for unit in records:
-        for field in ("depends_on", "needs"):
+        for field in ("depends_on", "needs", "superseded_by"):
             errors += [
                 _dangling(f"unit {unit.id} {field}", target)
                 for target in getattr(unit, field)
@@ -174,7 +174,7 @@ def preflight(
     edges = [
         f"unit {unit.id} {field} names {target}, which moves"
         for unit in staying
-        for field in ("depends_on", "needs")
+        for field in ("depends_on", "needs", "superseded_by")
         for target in getattr(unit, field)
         if target in moved_units
     ]

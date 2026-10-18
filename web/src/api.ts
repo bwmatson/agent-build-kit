@@ -9,6 +9,7 @@ export interface UnitSummary {
   branch: string;
   pr: number | null;
   repo: string;
+  replaced_by?: string[];
 }
 
 export interface Related {

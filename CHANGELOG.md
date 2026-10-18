@@ -7,6 +7,14 @@
   its id, so a replan no longer renumbers work or leaves stored references pointing at an
   unplanned unit. A label that is the id of a retired, started or finished unit is refused.
 
+- A unit that a replan replaced now points to the units that carry its work. Anything that waited
+  on the replaced unit waits for its successor instead, a tick rewrites the stored dependency and
+  logs `dependency <old> is now <new> (replaced by a replan)`, and a failed unit's recorded wait
+  follows the successor. `abk replan` says `now unplanned, replaced by <unit>`, `abk status` lists
+  a reference not yet rewritten as `replaced:`, and the graph page draws a dependency on a
+  replaced unit as one on its successor. Units replaced by an earlier release are given theirs on
+  the first tick.
+
 - `abk status` shows a `gate usage:` line for each split with a gate (amount against the budget, the
   threshold now, the reset, held or usable or unknown, and the source and age of the reading), and
   `abk doctor` checks each such split: the provider's library is installed, a reading can be taken,

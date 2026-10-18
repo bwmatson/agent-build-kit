@@ -37,6 +37,7 @@ from agent_build_kit.pipeline.units import (
     PLANNED,
     RUNNING,
     SATISFIED,
+    current_dependencies,
     failed_waiting,
     priority_note,
     second_parent_wait,
@@ -93,7 +94,7 @@ def in_view(units: list[StoredUnit]) -> list[StoredUnit]:
     unplanned units, are left out.
     """
     active = [unit for unit in units if unit.state in ACTIVE]
-    parents = {dep for unit in active for dep in unit.depends_on}
+    parents = {dep for unit in active for dep in current_dependencies(unit, units)}
     return [
         unit
         for unit in units
@@ -158,7 +159,7 @@ def render_mermaid(
         lines.append("    end")
 
     for unit in ordered:
-        for dependency in sorted(unit.depends_on):
+        for dependency in sorted(current_dependencies(unit, graph)):
             parent = index.get(dependency)
             if parent is None:
                 continue
@@ -244,7 +245,8 @@ view, titled with the project's path (`.` for the root).
   loop, so there is a reviewed branch to stack on. A thick edge labelled
   `needs` (`==>`) is a dependency its dependent wrote as a `Needs:` line, not
   one the planner inferred; it releases the dependent once the parent is in
-  review (same repo) or merged (other repo).
+  review (same repo) or merged (other repo). An edge to a unit a replan
+  replaced is drawn from the unit that carries its groups now.
 - **running** — in the build/review loop: an agent is working in a worktree,
   or the run is interrupted before an agent step until the usage window allows
   it and the next tick resumes it.

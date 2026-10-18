@@ -35,9 +35,8 @@ def plan_using(*ids: str) -> str:
 
 
 def retired_item(uid: str = "add-marker/1") -> dict:
-    return in_flight_item(
-        stored_unit(uid, change="add-marker", state=UnitState.RETIRED, branch=f"spec/{uid}")
-    )
+    retired = stored_unit(uid, change="add-marker", state=UnitState.RETIRED, branch=f"spec/{uid}")
+    return in_flight_item(retired, [retired])
 
 
 def test_the_prompt_lists_the_retired_ids_as_taken() -> None:
