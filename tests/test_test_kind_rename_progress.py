@@ -72,7 +72,9 @@ OLD_NAME_TESTS = (
 
 
 # The two documents that explain the rename write the old names on purpose, as does the
-# changelog's entry for it.
+# changelog's entry for it. The whole changelog is exempt, on purpose: its older bullets
+# describe released behaviour by the names it had, and the changelog convention is to leave
+# other bullets as they are. The strict guard of the last group carries the same exemption.
 EXEMPT_DOCUMENTS = (
     ROOT / "docs" / "agent-efficient-coding-philosophy.md",
     ROOT / "docs" / "risk-tiered-review-design.md",

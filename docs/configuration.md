@@ -305,7 +305,7 @@ global_limits:
   transcript_result_chars: 20000  # longest tool result a unit's transcript
                                   # keeps whole; longer ones are cut
   transcript_runs_kept: 3       # runs of one unit that keep their transcript
-  # The old `unit_test_*` and `e2e_*` spellings of the next keys still load, with a notice.
+  # The earlier, numbered spellings of the next keys still load, with a notice, for one release.
   unit_test_command_seconds: 3600   # longest a unit-test command may run before it is aborted
   unit_test_abort_grace_seconds: 10  # how long an aborted command has to exit before it is killed
   unit_test_repeat_runs: 3          # times the tests a unit added or changed are run again under load (0: off)
@@ -655,8 +655,8 @@ not set. See "Secrets never leave as text" in `docs/architecture.md`.
 ### `tests.e2e_splits`
 
 `tests.e2e_splits` divides a repo's e2e-test tests into named splits that can be run, held
-and scheduled apart. The key is spelled `tests.e2e_splits` under the test-kinds rename;
-`e2e_splits` still loads, with a deprecation notice, and the two are refused together.
+and scheduled apart. The key is `e2e_splits`; its earlier, numbered spelling still loads,
+with a deprecation notice, and a file setting both is refused.
 It sits under `tests` at the top of `abk.yaml`, or under a repo's own `tests`, where it
 replaces the top-level map for that repo.
 
@@ -686,8 +686,7 @@ repos:
   releases a split and `hold: true` always holds it, whatever the file says; the file
   decides only for a split with no `hold` set.
 - The three runtime lists this setting replaces are gone, with no alias, and are refused at
-  load with a pointer to the split setting that replaces each (`tests.e2e_splits`, the
-  spelling of the key `e2e_splits` is read as).
+  load with a pointer to the split setting that replaces each (`tests.e2e_splits`).
 
 ## Environment variables and `.env`
 

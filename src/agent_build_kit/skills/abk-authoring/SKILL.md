@@ -208,7 +208,7 @@ share code belong in an `Independent:` group, so neither is a prerequisite of th
 
 A repo's e2e-test tests may be divided by `tests.e2e_splits` in `abk.yaml`; a test belongs
 to at most one split and the rest are `rest`. Before writing an `[e2e-test]` group that adds
-a e2e-test test, run `abk e2e-test check` to see that the test lands in one split only.
+an e2e-test test, run `abk e2e-test check` to see that the test lands in one split only.
 
 ## Describe behaviour, not names
 

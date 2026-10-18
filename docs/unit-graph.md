@@ -260,7 +260,7 @@ are the reference for each condition. The nodes:
 | `review` | One review round; records the verdict, findings, follow-ups and the approved commit. After a person's rework it is also given their comments, quoted, each with the builder's reply or `(no reply)` | `run_review` / `run_rework_review` |
 | `rework` | Addresses review or forge feedback and records the builder's replies | `run`, `commit` |
 | `adapt` | The last step of a conflict, after the restack's two resolver steps failed their checks: ports the old work onto the new base in the same session, told what was tried, and accounts for each test | the adapt agent, `check_test_decisions` |
-| `unit-test`, `e2e-test` | The test tiers. `unit-test` is **not** run after a review: approval leaves the branch as `checks` judged it. It runs for a unit that produced nothing (judged on unit-test alone) and on a branch moved cleanly onto a new base, before the push. `e2e-test` follows approval for a e2e-test unit | `unit-test`, `run_e2e` |
+| `unit-test`, `e2e-test` | The test tiers. `unit-test` is **not** run after a review: approval leaves the branch as `checks` judged it. It runs for a unit that produced nothing (judged on unit-test alone) and on a branch moved cleanly onto a new base, before the push. `e2e-test` follows approval for an e2e-test unit | `unit-test`, `run_e2e` |
 | `verify_base` | The fresh-base check before a push | fetch, `fresh_base`, `restack_onto` |
 | `new_comments` | Before the push, for a rework of a unit with a pull request, reads the notes and conversation again; those not in `seen_comments` and not the pipeline's own go back to `rework` as feedback, restarting the round counters; `open_pr` records the ids given to the agent so the poller ignores them | `fetch_comments` |
 | `push` | Pushes only the approved commit | the push gate, `push` |
@@ -335,7 +335,7 @@ the top of each round and the budget starts again, so a rework that breaks the
 build gets its own attempts. A fix that leaves the branch unchanged ends the
 run whatever the limit, as asking again would be the same question of the same
 tree. The checks prompt tells the agent to run the checks itself to see output that is cut
-short; for a e2e-test failure, which the agent cannot rerun, it names the file holding the full
+short; for an e2e-test failure, which the agent cannot rerun, it names the file holding the full
 output (unless it was withheld) and says the live tests cannot be rerun. Only when the
 budget is spent does the unit go to `failed`, with the
 output still saved, and `abk requeue --rework` is how it
@@ -376,7 +376,7 @@ sit in the unit store, plus what routing needs:
   when the last node finished (what a re-run compares with), whether feedback
   was waiting at the start, the fix rounds and the review round so far, and
   whether the checks passed, the branch is empty or `verify_base` moved it, the
-  base's tip when `prepare` began, whether it is a e2e-test unit, the restack that
+  base's tip when `prepare` began, whether it is an e2e-test unit, the restack that
   could not be merged (for `adapt`), whether the review rounds are spent, e2e-test's
   results, whether to go back to `prepare` and whether it already has once;
 - **why a run is held:** the detail, the state the store is left in and its note;

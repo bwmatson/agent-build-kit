@@ -341,7 +341,7 @@ that no process holds takes no build slot until the round starts it again, and
 is started before planned units. A change that
 fully merges early in a long pass is verified live and archived by the next
 round, not the next pass; verification takes the live-stack lock without
-waiting, and is skipped and logged for that round while a e2e-test run holds it.
+waiting, and is skipped and logged for that round while an e2e-test run holds it.
 
 Those mid-pass polls run while other builds are still going, so an event can
 name a unit being built. Each handler takes the unit's branch lock first, as
@@ -537,7 +537,7 @@ release could move. The steps:
    asked is logged, and the run goes on with the base it has). The branch is
    moved onto it with the restack a run starts with, but without the conflict
    resolver: a conflict is aborted and the branch left as it was. A clean move
-   re-runs unit-test (and e2e-test, for a e2e-test unit) and carries the approval to
+   re-runs unit-test (and e2e-test, for an e2e-test unit) and carries the approval to
    the moved commit. That unit-test is told the base the move left (`moved_from`) and
    classifies the move: it is scoped when no file the move brought in (the files that
    differ between the old base and the new one) is also a file the unit changes, and
@@ -1300,8 +1300,8 @@ approved.
   clean base worktree on a large repo's own e2e-test suite was not measured.
 
 - **A unit's e2e-test run is narrowed to its own tests.** Under `e2e_unit_scope: own` (the
-  default; `global_limits`, with `tests.e2e_unit_scope` per repo; the old `e2e_unit_scope` still
-  loads) a unit runs only the e2e-test tests
+  default; `global_limits`, with `tests.e2e_unit_scope` per repo; its earlier, numbered spelling
+  still loads) a unit runs only the e2e-test tests
   its branch added or changed, selected by identifier together with the marker. A unit with
   none runs nothing, takes no lock and says `e2e-test skipped: no e2e-test test added or changed`;
   its status says that no e2e-test test ran. Where the run cannot be narrowed (a dev stack
@@ -1310,9 +1310,9 @@ approved.
   `full`.
 
 - **The whole e2e-test suite runs on a schedule.** `e2e_schedule` (`daily`, `weekly` by
-  default, `monthly` or `off`; `global_limits`, with `tests.e2e_schedule` per repo; the old
-  `e2e_schedule` still loads) makes each round, before planning and ahead of the usage
-  guard, write `scheduled-e2e-<repo>-<date>-<split>` for each split of a repo with a e2e-test
+  default, `monthly` or `off`; `global_limits`, with `tests.e2e_schedule` per repo; its earlier,
+  numbered spelling still loads) makes each round, before planning and ahead of the usage
+  guard, write `scheduled-e2e-<repo>-<date>-<split>` for each split of a repo with an e2e-test
   unit that is due, without a model call. The due date is read from the names of the split's
   open and archived scheduled changes, so nothing else is stored, and one such change is open
   per split at a time. `has_work` is true while a repo is due, so an
@@ -1369,7 +1369,7 @@ outcome and, for a failed check, its kind.
 The last three are the usage ledger's figures, exported by the recorder that writes a ledger
 line: an agent record adds its cost and tokens, a span its time. A figure a record lacks adds
 nothing, and with telemetry off nothing is exported. The two e2e-test histograms are exported
-when a e2e-test run writes its `test_time` rows.
+when an e2e-test run writes its `test_time` rows.
 
 `abk telemetry push-dashboard` pushes the packaged dashboard to the Grafana at `ABK_GRAFANA_URL`.
 `ABK_GRAFANA_TOKEN` is optional: set, every call carries it as a bearer token; unset, the calls
@@ -1461,7 +1461,7 @@ The planning repo's state directory (`planning.state_dir`, default `runs/`):
 | `usage-cache.json` | the live usage reading (kept `usage_cache_minutes` to `usage_cache_max_minutes`) and any rate-limit cool-down. | one endpoint call. |
 | `e2e.lock`, `locks/` | the e2e-test queue lock; branch, repo and store locks. | nothing; kernel-released. |
 | `unit-logs/<change>-<nn>-<YYYYMMDD-HHMMSS>-<step>.log` | one file per unit run: a header (unit, change, step, model, base, start), that unit's lines, then the outcome. `<nn>` is the unit's number padded to two digits, so a change's units sort in order and a unit's runs sort by time. The last three runs of a unit are kept; a log older than `retention.unit_log_days` is removed once the unit has a summary in the usage ledger (a unit without one keeps it); archiving a change removes its files. The file name and `started:` are UTC; each entry starts with the tick's own local-time `[HH:MM:SS]`, the same stamp it prints (the closing `outcome:` line has none: the line above it, the run's last, does). Agent replies and tool-call commands are written whole, line breaks kept; each further line of an entry starts with four spaces (`run_log.CONTINUATION`) and has no stamp, so every line that starts at the margin is a new entry. The journal keeps its one clipped line per step. The unit's `run_log` names its latest. Gitignored. | a unit's transcript; the tick's own output is unchanged. |
-| `e2e-output/<change>-<nn>-<YYYYMMDD-HHMMSS>-e2e.log` | the whole output of each command of a unit's e2e-test run, passing ones too, appended after each command so a run that dies keeps what it had, and redacted as a whole before it is written (a failing redaction leaves the withheld notice). The result's `output_file` and its `Full output:` line name it, the unit's run log carries the same line and `abk status` shows it for a failed unit whose last result was a e2e-test failure. The last three files of a unit are kept (`run_log.RUNS_KEPT`); archiving a change removes its files. Local only. | the posted result keeps only the last 4000 characters of the output. |
+| `e2e-output/<change>-<nn>-<YYYYMMDD-HHMMSS>-e2e.log` | the whole output of each command of a unit's e2e-test run, passing ones too, appended after each command so a run that dies keeps what it had, and redacted as a whole before it is written (a failing redaction leaves the withheld notice). The result's `output_file` and its `Full output:` line name it, the unit's run log carries the same line and `abk status` shows it for a failed unit whose last result was an e2e-test failure. The last three files of a unit are kept (`run_log.RUNS_KEPT`); archiving a change removes its files. Local only. | the posted result keeps only the last 4000 characters of the output. |
 | `transcripts/<change>-<nn>-<YYYYMMDD-HHMMSS>-<node>-<round>.jsonl` | one file per agent run of a unit (implement, rework, review, checks fixes) or chat turn, named like a run log plus the node and review round that made the call (round 0 outside a round). One JSON event per line, appended as the agent streams, the same shape for Claude Code and ACP: `kind` (`text`, `reasoning`, `tool_call`, `tool_result`, `plan`, `usage`, `permission`, `stop`), `at`, `unit`, `node`, `round`, `session`, `source` (`build` or `chat`), `text`, `tool`, `call` (a tool call's id, repeated by its result), `input`, `usage` and `truncated`. A tool result longer than `global_limits.transcript_result_chars` is cut there, ends with `… [cut: the result was N characters long]`, and carries the original length in `truncated`. A text or reasoning event is a whole message or thought, not a streamed fragment, and a user-side event of the Claude stream contributes only tool results. The calls of one run (a unit thread's pass, or one chat turn) share the run's stamp, and the last `global_limits.transcript_runs_kept` such runs of a unit are kept, whole; archiving a change removes its files. Local only, never committed or sent anywhere. | the agent tab's replay of a unit; the run log is unchanged. |
 | `<run id>-<repo>-<track>.md`, `tracked-issues.md` | the tracks' run logs and issue tracker. | history the tracks read. |
 
@@ -1515,7 +1515,7 @@ a review round carries a `cause` of `review`, `check` or `conflict`) and, each t
 pass refreshes, one `sample` line with the counts of units `running`, `in_review`, `blocked` and
 `queued`, the `free_workers`, the `limit` and the `cap`. Readers skip a kind they do not know.
 
-A e2e-test run also writes one `test_time` line for each phase of each test its toolchain timed
+An e2e-test run also writes one `test_time` line for each phase of each test its toolchain timed
 (`unit`, `change`, `marker`, the full `test` id, `phase`, `duration_ms`, and `agent_ms`,
 `checks_ms` and `other_ms` when a test suite reported the split). The toolchain profile asks
 for the durations (`parse_test_durations`; none for a toolchain that prints none), and a line

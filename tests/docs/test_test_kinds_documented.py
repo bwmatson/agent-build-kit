@@ -36,8 +36,7 @@ def test_the_architecture_says_integration_test_behaves_as_unit_test_in_every_ot
 
 
 def test_the_architecture_says_integration_test_is_not_the_pytest_marker_or_directory() -> None:
-    assert re.search(r"not the[^.]*`integration` marker", ARCHITECTURE)
-    assert "`tests/integration/`" in ARCHITECTURE
+    assert re.search(r"not the[^.]*`integration` marker[^.]*`tests/integration/`", ARCHITECTURE)
 
 
 def test_the_architecture_says_a_unit_of_several_groups_takes_the_widest_kind() -> None:

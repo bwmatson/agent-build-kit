@@ -175,7 +175,7 @@ global_limits:
   max_check_reruns: 2         # re-runs of a head commit's cancelled checks
   transcript_result_chars: 20000  # longest tool result a transcript keeps whole
   transcript_runs_kept: 3     # runs of one unit that keep their transcript
-  # The old `unit_test_*` and `e2e_*` spellings of the next keys still load, with a notice.
+  # The earlier, numbered spellings of the next keys still load, with a notice, for one release.
   unit_test_command_seconds: 3600   # longest a unit-test command may run before it is aborted
   unit_test_abort_grace_seconds: 10  # how long an aborted command has to exit before it is killed
   unit_test_repeat_runs: 3          # times the tests a unit added or changed are run again under load (0: off)
@@ -223,7 +223,7 @@ repos:                        # ordered; a task group's [repo] tag is a key here
     default_branch: main
     profile: python-uv        # toolchain profile: python-uv or node-npm
     infra: none               # infrastructure profile: docker or none; docker
-                              # records the container listing beside a e2e-test
+                              # records the container listing beside an e2e-test
                               # result (init writes it when a compose file or
                               # Dockerfile is in the root)
     projects: []              # [{path, profile, languages}]: a project whose directory is

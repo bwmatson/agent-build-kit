@@ -113,7 +113,7 @@ planning pass a planned unit that never started, whose change directory no longe
 `unplanned`, and a unit waiting on it stops waiting. A `flaky:` line lists each flaky test with
 its count and fix change, and a `pre-existing:`
 line each test that failed e2e-test on the base too, with how many times and its fix change.
-A `e2e-test:` line names the unit holding the e2e-test lock and for how long; a record left by a
+An `e2e-test:` line names the unit holding the e2e-test lock and for how long; a record left by a
 process that is gone, on a free lock, is shown as stale, a held lock whose recorded process is gone
 says so, and a free lock with no record prints nothing.
 The `queue is full` lines are one for each project at its limit, as the tick paragraph above says.
@@ -354,7 +354,7 @@ it does not know.
 
 ### `abk e2e-test hold SPLIT [--reason TEXT]`
 
-Holds a e2e-test split (a declared split, or `rest`) until `abk e2e-test release`: units that wait on it
+Holds an e2e-test split (a declared split, or `rest`) until `abk e2e-test release`: units that wait on it
 park, and a run leaves it out. It sets `hold: true` in `abk.yaml` as text and writes the
 entry in `e2e-held.json` together, or neither; when the file cannot be edited that way it
 prints the line to change by hand and writes nothing. Exit 0 when held; 1 when nothing was
