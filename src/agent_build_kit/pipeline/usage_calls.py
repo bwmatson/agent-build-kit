@@ -15,11 +15,18 @@ from typing import Literal
 
 from pydantic import ValidationError
 
-from agent_build_kit import telemetry
+from agent_build_kit import claude_account, telemetry
 from agent_build_kit.model import Frozen
 
 CALLS_NAME = "usage-calls.jsonl"
 KEPT = timedelta(days=7)
+
+
+def calls_path(state_dir: Path, account: claude_account.Account | None) -> Path:
+    """The record of `account` in `state_dir`: a labelled account writes its own file."""
+    return claude_account.file_for(state_dir / CALLS_NAME, account)
+
+
 REFUSED = "rate_limited"
 CACHE = "cache"
 CLAUDE_JSON = "claude-json"

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Literal
@@ -21,14 +21,20 @@ from agent_build_kit.config import ClaudeLimitsConfig
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.usage_calls import (
-    CALLS_NAME,
     UsageCall,
+    calls_path,
     consecutive_readings,
     parse_calls,
 )
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, UsageRecord, read_ledger, spend_times
 
 ALLOWANCES_NAME = "usage-allowances.json"
+
+
+def allowances_path(state_dir: Path, account: claude_account.Account | None) -> Path:
+    """The kept allowances of `account` in `state_dir`: a labelled account keeps its own file."""
+    return claude_account.file_for(state_dir / ALLOWANCES_NAME, account)
+
 
 Window = Literal["session", "weekly"]
 WINDOWS: tuple[Window, ...] = ("session", "weekly")
@@ -102,13 +108,16 @@ def since_last_change(calls: list[UsageCall], account: str | None) -> list[Usage
 
 
 def of_account(
-    calls: list[UsageCall], ledger: list[UsageRecord], key: str | None
+    calls: list[UsageCall], ledger: list[UsageRecord], account: claude_account.Account
 ) -> tuple[list[UsageCall], list[UsageRecord]]:
-    """The readings of the account `key` and the units that ran on it; a row with no key, written
-    before the ledger carried one, counts for whichever account asks."""
+    """The readings of `account` and the units that ran on it. A labelled account takes only
+    what carries its key; a row with no key (written by the default account, or before the
+    ledger carried one) counts for the default account alone."""
+    key = claude_account.account_key(account)
+    default = account.label is None
     return (
         [call for call in calls if call.account == key],
-        [row for row in ledger if row.account in (key, None)],
+        [row for row in ledger if row.account == key or (default and row.account is None)],
     )
 
 
@@ -120,14 +129,17 @@ def calibrated_allowances(
     now: datetime,
     account: claude_account.Account | None = None,
 ) -> dict[str, Calibrated]:
-    """Each window's calibration from the record; none with calibration off."""
+    """Each window's calibration from the record; none with calibration off. Without `account`
+    the default account's: its readings after the last one of another account, and the units
+    no labelled account ran."""
     if not limits.calibrate_usage_allowances:
         return {}
     min_gap = timedelta(minutes=limits.usage_cache_minutes)
     if account is None:
         calls = since_last_change(calls, claude_account.account_key())
+        ledger = of_account([], ledger, claude_account.Account())[1]
     else:
-        calls, ledger = of_account(calls, ledger, claude_account.account_key(account))
+        calls, ledger = of_account(calls, ledger, account)
     found: dict[str, Calibrated] = {}
     for window in WINDOWS:
         usable = pairs(calls, ledger, window, min_gap=min_gap)
@@ -190,18 +202,36 @@ def write_allowances(path: Path, found: Mapping[str, Calibrated]) -> None:
     atomic_write_text(path, json.dumps(body, indent=2))
 
 
-def refresh_allowances(state_dir: Path, *, limits: ClaudeLimitsConfig, now: datetime) -> None:
-    """Compute from the files in `state_dir` and keep the result, leaving it as it was when
-    a file cannot be read or the result cannot be kept."""
+def refresh_allowances(
+    state_dir: Path,
+    *,
+    limits: ClaudeLimitsConfig,
+    now: datetime,
+    accounts: Sequence[claude_account.Account] = (),
+) -> None:
+    """Compute from the files in `state_dir` and keep the result, for the default account with
+    `limits` and for each labelled account of `accounts` with its own limits, from its own call
+    record and the units that ran on it. A result is left as it was when a file cannot be read
+    or the result cannot be kept."""
     try:
-        try:
-            calls = parse_calls((state_dir / CALLS_NAME).read_text())
-        except FileNotFoundError:
-            calls = []
         ledger = read_ledger(state_dir / LEDGER_NAME)
-        write_allowances(
-            state_dir / ALLOWANCES_NAME,
-            calibrated_allowances(calls, ledger, limits=limits, now=now),
-        )
     except OSError:
         return
+    for account in (None, *(each for each in accounts if each.label is not None)):
+        try:
+            try:
+                calls = parse_calls(calls_path(state_dir, account).read_text())
+            except FileNotFoundError:
+                calls = []
+            write_allowances(
+                allowances_path(state_dir, account),
+                calibrated_allowances(
+                    calls,
+                    ledger,
+                    limits=limits if account is None else account.limits,
+                    now=now,
+                    account=account,
+                ),
+            )
+        except OSError:
+            continue

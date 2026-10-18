@@ -10,7 +10,7 @@ from pathlib import Path
 
 from agent_build_kit.claude_account import Account
 from agent_build_kit.config import ClaudeLimitsConfig
-from agent_build_kit.pipeline.usage_allowances import calibrated_allowances
+from agent_build_kit.pipeline.usage_allowances import calibrated_allowances, of_account
 from agent_build_kit.pipeline.usage_calls import UsageCall
 from agent_build_kit.pipeline.usage_ledger import UsageRecord
 from tests.usage_allowance_records import START, STEP, segments
@@ -52,3 +52,22 @@ def test_each_account_pairs_only_its_own_readings(tmp_path: Path) -> None:
         ENOUGH,
         4,
     )
+
+
+def test_a_default_accounts_unit_in_a_gap_of_another_account_is_not_its_spend(
+    tmp_path: Path,
+) -> None:
+    kit = Account(label="kit", config_dir=tmp_path / "kit-account")
+    key = str(kit.config_dir)
+    # ENOUGH gaps of `kit` with one of its units each, and in each a default-account unit too.
+    calls, ledger = segments("weekly", [(4, 1)] * ENOUGH)
+    calls = [each.model_copy(update={"account": key}) for each in calls]
+    own = [each.model_copy(update={"account": key}) for each in ledger]
+    stray = [each.model_copy(update={"unit": f"app/{each.unit}"}) for each in ledger]
+
+    second = calibrated_allowances(calls, [*own, *stray], limits=LIMITS, now=NOW, account=kit)
+    by_default = of_account([], [*own, *stray], Account())[1]
+
+    # The stray unit does not halve `kit`'s gain per unit.
+    assert second["weekly"].quantile_pct_per_unit == 4
+    assert {row.unit for row in by_default} == {row.unit for row in stray}

@@ -11,10 +11,13 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.claude_account import resolve
 from agent_build_kit.cli import build_parser
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.usage_allowances import allowances_path, write_allowances
 from tests.conftest import make_installation
+from tests.usage_allowance_records import calibrated
 from tests.usage_host import Host, editor_block
 
 MINUTE = timedelta(minutes=1)
@@ -68,3 +71,23 @@ def test_a_second_account_in_use_gets_its_own_usage_line_and_one_account_one_lin
     assert "claude.json" in second
     (default,) = [each for each in lines if "kit" not in each]
     assert "unknown" in default
+
+
+def test_the_allowances_line_of_each_account_comes_from_its_own_file_and_is_marked(
+    tmp_path: Path, host: Host, capsys: pytest.CaptureFixture[str]
+) -> None:
+    directory = tmp_path / "second-claude"
+    directory.mkdir()
+    inst = installation(tmp_path, host, directory=directory)
+    write_allowances(
+        allowances_path(inst.state_dir, resolve(inst, "kit")), {"weekly": calibrated(4)}
+    )
+
+    assert cli.cmd_status(build_parser().parse_args(["status"]), inst) == 0
+
+    lines = [each for each in capsys.readouterr().out.splitlines() if "usage allowances" in each]
+    assert len(lines) == 2
+    (second,) = [each for each in lines if "account kit" in each]
+    assert "weekly 4/unit" in second
+    (default,) = [each for each in lines if "account kit" not in each]
+    assert "weekly 4/unit" not in default

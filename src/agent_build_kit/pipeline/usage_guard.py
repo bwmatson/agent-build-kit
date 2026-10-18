@@ -78,20 +78,21 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock, try_file_lock
 from agent_build_kit.pipeline.pause import UNKNOWN_RETRY
 from agent_build_kit.pipeline.usage_allowances import (
-    ALLOWANCES_NAME,
     SESSION_WINDOW,
     WEEKLY_WINDOW,
     WINDOWS,
     allowance_for,
+    allowances_path,
+    of_account,
     read_allowances,
 )
 from agent_build_kit.pipeline.usage_calls import (
     CACHE,
-    CALLS_NAME,
     CLAUDE_JSON,
     CacheInterval,
     UsageCall,
     cache_interval,
+    calls_path,
     is_endpoint_call,
     most_added,
     rate_limit_headers,
@@ -537,16 +538,12 @@ def _cache_file() -> Path:
 
 
 def _of_account(path: Path) -> Path:
-    """`path` for the account in force: a labelled account keeps its own file beside it, as
-    `name.<label>.ext`, so accounts never share a reading, a cool-down or a call record."""
-    account = _account.get()
-    if account is None or account.label is None:
-        return path
-    return path.with_name(f"{path.stem}.{account.label}{path.suffix}")
+    """`path` for the account in force: see `claude_account.file_for`."""
+    return claude_account.file_for(path, _account.get())
 
 
 def _calls_file(cache_path: Path) -> Path:
-    return _of_account(cache_path.parent / CALLS_NAME)
+    return calls_path(cache_path.parent, _account.get())
 
 
 def _load_cache(path: Path) -> dict:
@@ -1211,9 +1208,11 @@ def _estimates(
     and the units admitted on an estimate since."""
     limits = claude_limits()
     calls = read_calls(_calls_file(cache_path))
-    kept = read_allowances(cache_path.parent / ALLOWANCES_NAME)
+    account = _account.get() or claude_account.Account()
+    kept = read_allowances(allowances_path(cache_path.parent, account))
     admitted = set(_admitted(cached))
-    spent = spend_times(read_ledger(cache_path.parent / LEDGER_NAME))
+    # Only the units that ran on this account spent its windows.
+    spent = spend_times(of_account([], read_ledger(cache_path.parent / LEDGER_NAME), account)[1])
 
     def units_since(since: datetime) -> int:
         return len(admitted | {unit for at, unit in spent if at >= since})

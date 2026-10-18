@@ -237,10 +237,11 @@
   back to the default account. A label only takes effect once runs use it; until then units
   still run on the default account. `abk doctor` prints a note for such a label and an error with
   the login command for a directory that is missing or not logged in. Usage is kept per
-  account: each account has its own reading, cache and call record, a unit's start is judged on
-  its own account's limits (a pause names the account), ledger rows carry the account,
-  `abk status` prints a usage line for each account in use, and `abk usage replay --account
-  <label>` replays one account.
+  account: each account has its own reading, cache, call record and allowances, a unit's start
+  (and its conflict resolver) is judged on its own account's limits and a round pauses only when
+  every account with a unit able to start is full (a pause names the account), ledger rows carry
+  the account, `abk status` prints the usage, estimate, allowances and call-rate lines for each
+  account in use, and `abk usage replay --account <label>` replays one account.
 
 - Where an installation's own facts go is now written down in `docs/configuration.md`, the
   `abk-config` skill, `docs/init.md` and `docs/cli.md`: single values and secrets in the

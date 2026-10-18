@@ -19,7 +19,7 @@ from agent_build_kit.pipeline.usage_allowances import (
     of_account,
     pairs,
 )
-from agent_build_kit.pipeline.usage_calls import CALLS_NAME, read_calls
+from agent_build_kit.pipeline.usage_calls import calls_path, read_calls
 from agent_build_kit.pipeline.usage_guard import WindowEstimate
 from agent_build_kit.pipeline.usage_ledger import (
     LEDGER_NAME,
@@ -51,9 +51,9 @@ def cmd_usage_replay(args: argparse.Namespace, inst: Installation) -> int:
     limits = account.limits
     # Only the readings of the account asked about (the default one without the flag).
     calls, ledger = of_account(
-        read_calls(inst.state_dir / CALLS_NAME),
+        read_calls(calls_path(inst.state_dir, account)),
         read_ledger(inst.state_dir / LEDGER_NAME),
-        claude_account.account_key(account),
+        account,
     )
     margin = limits.usage_headroom_margin_pct if args.margin is None else args.margin
     min_gap = timedelta(minutes=limits.usage_cache_minutes)
@@ -110,7 +110,8 @@ def cmd_usage_replay(args: argparse.Namespace, inst: Installation) -> int:
         )
     if not anywhere:
         print("no usable gap")
-    print(allowances_line(calibrated_allowances(calls, ledger, limits=limits, now=now), limits))
+    found = calibrated_allowances(calls, ledger, limits=limits, now=now, account=account)
+    print(allowances_line(found, limits))
     return 0
 
 
