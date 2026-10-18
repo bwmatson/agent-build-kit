@@ -3316,6 +3316,7 @@ def why_branch_is_changing(
     """
     if parent.state in REVIEWED:
         return ""
+    # A replan carries a standing cause, so these readings hold over it.
     if parent.state == PLANNED and parent.cause is Cause.UPSTREAM_WENT_BACK:
         return "it is planned, waiting on a changing upstream"
     if parent.state == PLANNED and parent.cause is Cause.BASE_CHANGED:
@@ -3356,7 +3357,8 @@ def follow_predecessors(
         index = {u.id: u for u in graph}
         for unit in graph:
             # A unit is moved once a pass: a delivery that leaves it in review (its thread
-            # declined) must not be asked again, or the pass would never settle.
+            # declined) must not be asked again, or the pass would never settle. The cause is
+            # standing, so a replan carries it, and a deferred conflict move records it explicitly.
             if (
                 unit.id in moved
                 or unit.state != IN_REVIEW

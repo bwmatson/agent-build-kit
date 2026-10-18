@@ -1500,7 +1500,12 @@ def on_conflict(
         elif outcome == RestackOutcome.DEFERRED:
             # The move could not run now (a usage pause, a busy checkout): not an attempt,
             # and still in review for the next poll to offer it again.
-            store.set_state(unit.id, IN_REVIEW, note="conflict move deferred: could not run now")
+            store.set_state(
+                unit.id,
+                IN_REVIEW,
+                note="conflict move deferred: could not run now",
+                cause=Cause.RESTACK_DEFERRED,
+            )
             log(f"conflict #{pr}: {unit.id} left for a later poll — the move could not run now")
         else:
             counted()

@@ -1191,8 +1191,9 @@ def backoff_remaining(unit: StoredUnit, now: datetime) -> timedelta | None:
 
 
 def awaits_release(unit: StoredUnit) -> bool:
-    """Whether a planned unit is stopped until something releases it: a gated requeue to be
-    delivered, or e2e tests parked for a held split. A tick never starts one."""
+    """Whether a planned unit is stopped until something releases it: a saved requeue to be
+    delivered (whatever the cause a replan or an older record left), or e2e tests parked for a
+    held split. A tick never starts one."""
     return unit.cause is Cause.SPLIT_HELD or (
-        unit.cause is Cause.GATED and unit.gated_requeue is not None
+        unit.state == PLANNED and unit.gated_requeue is not None
     )

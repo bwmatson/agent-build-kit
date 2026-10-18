@@ -83,6 +83,7 @@ def owed_a_restack(
     """Whether `unit` is owed a restack: its cause says its base moved, its branch does
     not hold the base, no run holds the branch, no lease names it, and nothing it
     depends on is unmerged."""
+    # The cause is standing, so a replan carries it and the answer is the same after one.
     return (
         unit.state in OWED_STATES
         and unit.cause in OWED_CAUSES
@@ -119,6 +120,7 @@ def owed_a_moved_base_run(
     """Whether `unit` is owed a moved-base run: it has commits, nothing holds it or it waits
     on, its cause is a moved base or a conflict sent back, and it has no rework input of
     its own (feedback that review has approved over is answered, the conflict's is not input)."""
+    # The cause is standing, so a replan carries it and this reads the same after one.
     return (
         unit.state in (PLANNED, IN_REVIEW)
         and (unit.cause in MOVED_BASE_CAUSES or unit.sent_back_for_conflict)

@@ -97,6 +97,18 @@ line falls where a unit ends:
 | Waiting in review or held, and what `events.py` does to a waiting unit | Git and forge work: restack and adapt mechanics, the approved-commit push gate, the commit gate, the policy hook, forges, profiles |
 | Stopping between steps for usage | The usage guard's decision (`usage_guard.py`), which a node asks |
 
+A cause is standing or an event. The standing causes (`STANDING_CAUSES`) name a situation that lasts
+until a state change passes another cause: `rework`, `base_changed`, `upstream_went_back`, `usage`,
+`depth`, `toolchain`, `review_escalated_class`, `review_escalated_disagreement`, `needs_human`,
+`reviewer_hold`, `gated`, `restack_conflict`, `restack_deferred`, `restack_handed_back`,
+`dirty_worktree`, `attached`, `host_unavailable`, `network_unavailable`, `service_unavailable`,
+`environment` and `split_held`. The event causes (`EVENT_CAUSES`) name a transition that is over:
+`requeued`, `released`, `adopted`, `merged`, `auto_landed`, `closed` and `failed`. An event cause ends
+a standing one explicitly. A replan carries a standing cause through the demotion and the promotion
+(and a vanished change and a join do the same), marking the entry `carried`, and a caller's state
+change passes its own cause or none. `upsert` keeps a unit's runtime fields, so a gated or parked
+unit stays parked across a replan. A record with no cause is one from before causes or one an event ended.
+
 ### Who holds what
 
 - **The graph page** draws one subgraph for each repo. A repo with several projects
