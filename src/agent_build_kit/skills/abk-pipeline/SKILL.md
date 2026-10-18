@@ -159,7 +159,8 @@ split <name>" (cause `split_held`) until `abk e2e-test release <split>`, or unti
 sets `hold: false` for the split (removing a `hold: true` line frees it only when
 `e2e-held.json` has no entry for it). A planned or unplanned unit parked on a split holds
 no place whatever its cause field says; a parked unplanned unit is left alone on release, and a
-replan keeps the park. `abk e2e-test status` shows each split as usable or held, and
+replan keeps the park. `abk e2e-test hold <split>` holds one by hand, with no deadline, and
+`abk e2e-test status` shows each split as usable or held, and
 `abk e2e-test check` lists the splits with their test counts and finds a test in two.
 
 ### Parked for its worktree

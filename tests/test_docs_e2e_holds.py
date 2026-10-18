@@ -1,7 +1,6 @@
 """The documents and skills say how the kit's tests are tagged and split and how a split is held.
 
-The commands are spelled as the command group is today, `abk e2e-test`; the change's spec
-calls the group `tier2`.
+The commands are spelled as the command group is, `abk e2e-test`.
 """
 
 from __future__ import annotations

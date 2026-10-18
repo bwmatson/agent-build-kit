@@ -933,6 +933,11 @@ into what its test runner takes; the python profile supports the selector kind `
 and turns it into the `-m` expression of the same text. A run is one selection over the
 splits: held splits are left out, and a resume or a scheduled change runs one split alone.
 
+A unit whose tests sit in a held split is parked, not failed: a tick does not start it
+and `abk status` shows it as waiting for that split. Once the split is released it runs
+only that split's tests on the same commit. The scheduled run of a repo is one change per
+split, so a held split's scheduled change stays open and parked while the others run.
+
 ### This repo's own splits
 
 The kit's own e2e-test tests are split the way any installation splits its tests: the
@@ -951,6 +956,28 @@ The names `acp` and `claude_code` and the `runtime_` markers are this repo's cho
 installation may name its splits anything. The repo's own collection plugin (at most one
 runtime tag per live-stack test) is a repo-local convenience, not something the framework
 uses. A test keeps the example and the markers registered in `pyproject.toml` in step.
+
+A drift test (`tests/test_live_tests_are_tagged.py`) keeps the tags honest: it fails, naming
+each, a live-stack test that starts an agent (through the scratch helper, the agent-home
+helper or the agent command setting) without exactly one runtime tag, and a scenario with
+an `acp` variant and no `claude_code` variant that has no stated reason in its module's
+table of reasons (`ACP_ONLY_REASONS`, scenario name to reason; an empty reason fails too).
+The table is empty today. The test does not check that a `claude_code` scenario has an `acp`
+variant.
+
+### Holding a split
+
+A hold has no deadline: a hold set by hand ends only with `release`.
+
+1. Hold it: `abk e2e-test hold <split> [--reason TEXT]` sets `hold: true` on the split in
+   `abk.yaml` and writes the entry in `e2e-held.json`, both or neither.
+2. See what waits on it: `abk e2e-test status` lists each split and `rest` as usable or held,
+   and the units parked on a held split show as waiting in `abk status`.
+3. Release it: `abk e2e-test release <split>` removes both. If a gate entry or a hand-written
+   `hold: true` still holds it, the command says so and what to change by hand.
+
+When the two disagree, the configuration wins: a split whose configuration says `hold: false`
+is usable although `e2e-held.json` holds it, and `status` shows the file entry as overridden.
 
 ## Record and replay of external calls
 

@@ -1,5 +1,5 @@
 """A drift test fails an untagged live test that drives an agent, and an ACP scenario with no
-Claude variant and no reason (spec: tier2-runtime-tests)."""
+Claude variant and no reason."""
 
 from __future__ import annotations
 
