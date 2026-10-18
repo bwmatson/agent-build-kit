@@ -15,6 +15,12 @@
   that is finishing. `abk status` shows `emergency room N/M used by <unit>`, says on a full
   queue that a priority-0 unit may still start, and marks such a unit in the ready queue.
 
+- The planner is shown each group's priority and each unit's, and is told to depend on a
+  unit only for code it needs and to join related work first, the more urgent among equal
+  fits. A plan that makes a unit wait on a less urgent unit that has not started is refused
+  unless the unit gives a reason in `needs_less_urgent`, and the refusal is sent back with
+  the next attempt.
+
 - The unit graph page draws a repo that has several projects with a nested subgraph for
   each project that has a unit in view, and the legend says so. A repo with one project
   is drawn exactly as before.

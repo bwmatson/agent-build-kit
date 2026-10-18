@@ -3100,6 +3100,14 @@ def _failure_reason(error: Exception) -> str:
     return cut_head(redact_text(first, where="plan record"), REASON_LIMIT, "char")
 
 
+def _previous_refusal(record: Mapping | None, digest: str) -> str:
+    """Why the last attempt at this `tasks.md` was refused, or nothing when it failed for
+    another reason or the file has changed since."""
+    if record and record.get("hash") == digest and record.get("units"):
+        return str(record.get("reason") or "")
+    return ""
+
+
 def _refusal(error: PlannerError) -> dict:
     """What a plan record keeps of a refused plan: the unit ids the planner returned
     and why it was refused, never its full reply."""
@@ -3275,6 +3283,7 @@ def plan_all(
                 changes={change: tasks.read_text()},
                 in_flight=context,
                 omitted=omitted,
+                previous_refusal=_previous_refusal(planned.get(change), digest),
                 groups=task_groups,
                 built=built,
                 # Units the store already has: a dependency naming one of

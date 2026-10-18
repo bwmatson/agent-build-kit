@@ -129,6 +129,7 @@ def parse_plan(
         raise PlannerError("planner output has no `units` list")
 
     units: list[Unit] = []
+    excuses: dict[str, dict[str, str]] = {}
     seen: set[str] = set()
 
     # Whatever refuses the reply, the ids read so far are kept on the error as evidence.
@@ -155,6 +156,8 @@ def parse_plan(
             if raw["id"] in seen:
                 raise PlannerError(f"duplicate unit id {raw['id']!r}")
             seen.add(raw["id"])
+            if "needs_less_urgent" in raw:
+                excuses[raw["id"]] = _read_excuses(raw)
 
             units.append(
                 Unit(
@@ -172,6 +175,7 @@ def parse_plan(
         joins = _read_joins(payload.get("joins"))
         _check_dependencies(units, known or set())
         if groups is not None:
+            _check_priority_edges(units, excuses, groups, context, change)
             carried = {number for join in joins if not join.unit for number in join.groups}
             _check_groups(units, groups, built or set(), carried)
             check_flagged_groups(units, groups)
@@ -196,6 +200,27 @@ def parse_plan(
         error.units = tuple(u.id for u in units)
         raise
     return Plan(units=tuple(units), joins=tuple(joins))
+
+
+def _read_excuses(raw: dict) -> dict[str, str]:
+    """The `needs_less_urgent` of a unit object: each dependency it lists, with a reason."""
+    found = raw["needs_less_urgent"]
+    if not isinstance(found, dict):
+        raise PlannerError(
+            f"unit {raw['id']} has a `needs_less_urgent` that is not an object of "
+            "dependency ids to reasons"
+        )
+    for dependency, reason in found.items():
+        if dependency not in (raw.get("depends_on") or ()):
+            raise PlannerError(
+                f"unit {raw['id']} excuses {dependency!r} in `needs_less_urgent` "
+                "but does not list it in `depends_on`"
+            )
+        if not isinstance(reason, str) or not reason.strip():
+            raise PlannerError(
+                f"unit {raw['id']} gives no reason for {dependency!r} in `needs_less_urgent`"
+            )
+    return dict(found)
 
 
 def _unit_project(raw: dict, groups: list[TaskGroup] | None) -> str:
@@ -497,6 +522,49 @@ def _check_dependencies(units: list[Unit], known: set[str]) -> None:
         visit(unit.id, [])
 
 
+def _check_priority_edges(
+    units: Sequence[Unit],
+    excuses: Mapping[str, Mapping[str, str]],
+    groups: Sequence[TaskGroup],
+    context: JoinContext | None,
+    change: str | None,
+) -> None:
+    """Refuse a dependency on a less urgent unit that has not started, unless it is excused.
+
+    A target is judged by the priority of its groups, never by its stored value, which a
+    promotion may have raised. A target that has started or finished is left alone: the
+    wait on it is already there.
+    """
+    catalog: dict[str, Sequence[TaskGroup]] = dict(context.catalog) if context else {}
+    # The groups are those of the change being planned, whatever its units name.
+    catalog |= {name: groups for name in ({change} if change else {u.change for u in units})}
+    stored = {unit.id: unit for unit in context.stored} if context else {}
+    planned = {unit.id: unit for unit in units}
+    refused: list[str] = []
+    for unit in units:
+        own = unit_priority(unit, catalog)
+        for dependency in unit.depends_on:
+            target = planned.get(dependency)
+            held = stored.get(dependency)
+            if held is not None and not held.unstarted:
+                continue
+            target = target or held
+            if target is None or dependency in excuses.get(unit.id, {}):
+                continue
+            theirs = unit_priority(target, catalog)
+            if theirs > own:
+                refused.append(
+                    f"unit {unit.id} (priority {own}) depends on {dependency} "
+                    f"(priority {theirs}), which is less urgent and has not started — drop "
+                    f"the edge, or give the reason in `needs_less_urgent`"
+                )
+    if refused:
+        # The first line is all a plan record keeps, so it says how many edges follow.
+        if len(refused) > 1:
+            refused[0] += f" (and {len(refused) - 1} more)"
+        raise PlannerError("\n".join(refused))
+
+
 PROMPT = """\
 You are planning units of work for a spec-driven pipeline. Return JSON only.
 
@@ -538,9 +606,15 @@ Rules the graph must satisfy:
 - Dependencies in the same repo may be in_review — the unit stacks on them.
   A cross-repo dependency means the dependent waits for a merge, so state it
   and keep the order right.
-- Depend on a unit if it introduces code this one needs, if the two touch
-  overlapping files or modules, or if this one relies on an API shape the
-  other establishes.
+- Depend on a unit only for code it introduces that this one needs, for overlapping
+  files or modules the two touch, or for an API shape the other establishes; those are
+  the only reasons. Groups being next to each other is not one: do not make a more
+  urgent unit depend on a less urgent one merely because the groups are adjacent, and
+  do not chain independent groups. A unit takes the most urgent priority of its
+  groups. A group's priority is shown on its heading, and a unit's below.
+- A unit may list in `needs_less_urgent` a dependency it must keep on a less urgent unit
+  that has not started, each with the reason; a plan with such a dependency and no
+  reason is refused.
 - Place new work against what is already in flight below, not against main:
   if an in-flight unit already adds what a new one needs, depend on it.
 - A unit shown below as unstarted must not be made to depend, directly or
@@ -576,8 +650,13 @@ Units already in flight:
 Joining: a unit marked *unstarted* has no branch, commits or pull request yet,
 so it can take in more work. Those units, and the change above, are all
 candidates: any two unstarted units may be joined as well as a group of the
-change above onto one. Put a join in `joins` instead of a unit of its own when
-you would otherwise have made the later work depend on the earlier *because
+change above onto one. Join work that belongs together first: groups of one change,
+or groups of different changes that touch the same or closely related files or
+modules. Among candidates that fit equally well, the more urgent work is joined first,
+so a less urgent item does not take a partner a more urgent one with similar files
+could use. A priority never overrides a better fit and never joins unrelated work. The
+unit takes the most urgent priority of its groups. Put a join in `joins` instead of a
+unit of its own when you would otherwise have made the later work depend on the earlier *because
 they overlap* — the same files or modules — and the pair is small. Do not join
 two units merely because both are small. The unit that stays is the earlier.
 Every join must satisfy all of these, and a plan with one that does not is
@@ -597,7 +676,8 @@ stays under that ceiling.
 Respond with exactly this shape and nothing else (`joins` may be empty):
 {{"units": [{{"id": "<change>/<n>", "change": "...", "title": "...",
   "repo": "...", "tier": "unit-test|integration-test|e2e-test", "depends_on": ["<unit id>"],
-  "estimated_lines": 0, "groups": [1]}}],
+  "estimated_lines": 0, "groups": [1],
+  "needs_less_urgent": {{"<unit id>": "<reason>"}}}}],
   "joins": [{{"onto": "<unit id>", "change": "<the change above>",
   "groups": [1], "estimated_lines": 0}}, {{"onto": "<unit id>", "unit": "<unit id>"}}]}}
 """
@@ -613,6 +693,7 @@ def in_flight_item(unit: StoredUnit) -> dict:
         "state": unit.state,
         "unstarted": unit.unstarted,
         "tier": unit.tier,
+        "priority": unit.priority,
         "estimated_lines": unit.estimated_lines,
         "depends_on": list(unit.depends_on),
         "taken": [[member.change, list(member.groups)] for member in unit.members()],
@@ -625,6 +706,8 @@ def in_flight_item(unit: StoredUnit) -> dict:
 
 def _in_flight_line(item: dict) -> str:
     line = f"- {item['id']} [{item['repo']}] {item.get('branch', '')} ({item.get('state', '?')})"
+    if "priority" in item:
+        line += f" priority {item['priority']}"
     if item.get("unstarted"):
         line += (
             f" unstarted, {item.get('tier', '?')}, est {item.get('estimated_lines', 0)} lines, "
@@ -732,8 +815,12 @@ def _join_raw(
     return f" For a calibrated kind that is the largest raw estimate it may carry ({figures})."
 
 
-def _mark_built(change: str, tasks: str, in_flight: list[dict]) -> str:
-    """`tasks` with `(built by <unit id>)` on the heading of each group a started unit builds."""
+def _mark_built(
+    change: str, tasks: str, in_flight: list[dict], groups: Sequence[TaskGroup] | None = None
+) -> str:
+    """`tasks` with `(priority N)` on the heading of each of `groups` and `(built by <unit id>)`
+    on that of each group a started unit builds."""
+    priorities = {group.number: group.priority for group in groups or ()}
     built = {
         number: item["id"]
         for item in in_flight
@@ -746,6 +833,8 @@ def _mark_built(change: str, tasks: str, in_flight: list[dict]) -> str:
     def mark(line: str) -> str:
         found = GROUP_NUMBER.match(line)
         unit_id = built.get(int(found["number"])) if found else None
+        if found and int(found["number"]) in priorities:
+            line += f" (priority {priorities[int(found['number'])]})"
         if heading := GROUP_HEADING.match(line):
             _, project = split_repo_tag(heading["repo"], known_repos())
             if project:
@@ -761,8 +850,9 @@ def build_prompt(
     calibrations: Mapping[Kind, Calibration] | None = None,
     examples: Mapping[Kind, Sequence[StoredUnit]] | None = None,
     omitted: int = 0,
+    groups: Sequence[TaskGroup] | None = None,
 ) -> str:
-    return _prompt_and_parts(changes, in_flight, calibrations, examples, omitted)[0]
+    return _prompt_and_parts(changes, in_flight, calibrations, examples, omitted, groups)[0]
 
 
 def omitted_line(count: int) -> str:
@@ -776,11 +866,15 @@ def _prompt_and_parts(
     calibrations: Mapping[Kind, Calibration] | None,
     examples: Mapping[Kind, Sequence[StoredUnit]] | None,
     omitted: int,
+    groups: Sequence[TaskGroup] | None = None,
+    previous_refusal: str = "",
 ) -> tuple[str, dict[str, int]]:
     """The prompt, and the size in bytes of the parts a person can cut."""
+    first = next(iter(changes), "")
     changes_text = (
         "\n\n".join(
-            f"### {name}\n{_mark_built(name, tasks, in_flight)}" for name, tasks in changes.items()
+            f"### {name}\n{_mark_built(name, tasks, in_flight, groups if name == first else None)}"
+            for name, tasks in changes.items()
         )
         or "(none)"
     )
@@ -815,6 +909,11 @@ def _prompt_and_parts(
         changes=changes_text,
         in_flight=in_flight_text,
     )
+    if previous_refusal:
+        prompt += (
+            "\n\nYour previous plan was refused. Plan again so that it does not recur:\n"
+            f"{previous_refusal}"
+        )
     parts = {
         "tasks.md": len(changes_text.encode()),
         "relationships": len(relationships.encode()),
@@ -866,6 +965,7 @@ def plan_round(
     run_claude: RunClaude | None = None,
     runtime: AgentRuntime | None = None,
     omitted: int = 0,
+    previous_refusal: str = "",
 ) -> Plan:
     """Ask for a graph and return it, or raise `PlannerError`.
 
@@ -873,7 +973,9 @@ def plan_round(
     Joins the planner proposes are checked against `context` and returned with
     the units; a caller that passes no `context` accepts none.
     """
-    prompt, parts = _prompt_and_parts(changes, in_flight, calibrations, examples, omitted)
+    prompt, parts = _prompt_and_parts(
+        changes, in_flight, calibrations, examples, omitted, groups, previous_refusal
+    )
     answer = (
         run_claude(prompt)
         if run_claude
