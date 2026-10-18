@@ -761,7 +761,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
                 f"  {waiting_for(unit)}: {unit.id} ({where}) at {step}, "
                 f"{int(left.total_seconds())}s remain — {unit.note}"
             )
-        if unit.state == PLANNED and unit.cause is Cause.GATED:
+        if unit.state == PLANNED and (unit.cause is Cause.GATED or unit.gated_requeue is not None):
             waits = waiting_on(unit, units)
             if waits:
                 log(f"  {unit.id} ({where}) {dependency_wait(waits, repo=unit.repo)}")
@@ -1774,8 +1774,8 @@ def awaiting_planning(inst: Installation, unit: StoredUnit, units: list[StoredUn
 
 
 def release_gated(inst: Installation, store: UnitStore, *, in_flight: Collection[str] = ()) -> None:
-    """Deliver the requeue a gated unit was waiting to receive, once nothing it
-    waits for is left, in the mode it was requeued with."""
+    """Deliver a planned unit's saved requeue, whatever its cause, once nothing it waits
+    for is left, in the mode it was requeued with."""
     units = store.all()
     for unit in units:
         if (
@@ -1916,6 +1916,7 @@ def _releasable_split_units(
     inst: Installation, units: Sequence[StoredUnit], in_flight: Collection[str] = ()
 ) -> list[StoredUnit]:
     """The units parked for held e2e-test splits none of which is held now."""
+    # The cause is standing, so a replan carries it and this reads the same after one.
     return [
         unit
         for unit in units
@@ -4334,7 +4335,8 @@ def _build_unit(
                     store.set_moved_base_uncounted(unit.id, False)
                 # A step recorded by an earlier run belongs to that run. A parked unit, or one
                 # the restack lane handed back, resumes at its node, which never passes
-                # `prepare`, so it is marked running here.
+                # `prepare`, so it is marked running here. The cause is standing, so a replan
+                # carries it and this reads the same after one.
                 if unit.state == PLANNED and (
                     moved_base_run or unit.cause in (*PARKED_CAUSES, Cause.RESTACK_HANDED_BACK)
                 ):

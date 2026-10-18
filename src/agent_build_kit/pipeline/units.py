@@ -721,6 +721,7 @@ def parked_on_split(unit: Unit) -> bool:
     if unit.state not in (PLANNED, UnitState.UNPLANNED):
         return False
     cause = getattr(unit, "cause", None)
+    # The cause is standing, so a replan carries it and this reads the same after one.
     if unit.state == PLANNED and cause == SPLIT_HELD_CAUSE:
         return True
     return bool(getattr(unit, "parked_splits", None)) and cause in (None, SPLIT_HELD_CAUSE)
@@ -859,6 +860,7 @@ def _waits_for_room(unit: Unit, graph: Sequence[Unit]) -> bool:
     and merge at some point since the unit last changed state (`_parent_went_back`).
     A build interrupted by a usage pause, a backoff or a lease, whose parents stayed
     reviewed or merged throughout, resumes at the limit."""
+    # The cause is standing, so a replan carries it and this reads the same after one.
     return (
         unit.state == PLANNED
         and in_progress(unit, graph)
