@@ -3280,7 +3280,9 @@ def is_ancestor(tree: Path, base: str, of: str = "HEAD") -> bool:
     return not git(tree, "merge-base", "--is-ancestor", base, of, check=False).returncode
 
 
-def build_upstream_incomplete(store: UnitStore) -> Callable[..., tuple[Cause, str] | None]:
+def build_upstream_incomplete(
+    store: UnitStore, bounce_limit: int | None = None
+) -> Callable[..., tuple[Cause, str] | None]:
     """Why a unit should stop, if something it is built on went back.
 
     Read from the store each time rather than captured once: the poller that

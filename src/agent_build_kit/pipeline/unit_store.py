@@ -250,6 +250,11 @@ class StoredUnit(Unit):
     # checks have been re-run. Here because each poll is a new process.
     check_rerun_head: str = ""
     check_reruns: int = 0
+    # Times in a row the unit went from `running` back to `planned` or `held` after a short
+    # run with the same cause, that cause, and when the last was counted.
+    bounces: int = 0
+    bounce_cause: Cause | None = None
+    bounce_at: datetime | None = None
     # The base tip a conflict attempt was made at, the head the unit had pushed when it
     # started, how many attempts there have been at that tip, and when the last started.
     conflict_tip: str = ""
@@ -565,6 +570,7 @@ class UnitStore:
         *,
         on_write: Callable[[list[StoredUnit]], None] | None = None,
         on_state: StateChanged | None = None,
+        bounce_span_seconds: int = 120,
     ) -> None:
         """`on_write` sees every unit after each change — how the diagram stays
         current without every call site that changes a state remembering it.
@@ -877,6 +883,7 @@ class UnitStore:
         held_by: HeldBy = HeldBy.NONE,
         cause: Cause | None | Keep = None,
         held_base: str = "",
+        by: str = "",
     ) -> None:
         """Record a state, optionally with why.
 
