@@ -26,13 +26,12 @@ def test_a_kept_planned_unit_is_named_with_the_way_to_retire_it(
     unit in the plan has work too and is not named."""
     run = Replan(tmp_path, monkeypatch, feature=tasks_md(2))
     with_branch(run, "feature/3", 9)
-    with_branch(run, "feature/4", 1, 2)
 
     code, out = run.run(capsys, "feature", reply=answer(planned("feature/4", (1, 2))))
 
     assert "kept: feature/3 has work; not in the plan" in out
     assert "abk retire feature/3 --reason" in out
-    assert "kept: feature/4" not in out
+    assert "kept: feature/1" not in out
     assert code == 0, "a plan that keeps every started unit is not a failure"
     assert run.store.get("feature/3").state == PLANNED
 
@@ -46,7 +45,7 @@ def test_a_refused_plan_exits_one_and_names_both_units_and_the_group(
     code, out = run.run(capsys, "feature", reply=answer(planned("feature/2", (1, 2))))
 
     assert code == 1
-    assert "feature/1" in out and "feature/2" in out and "group 1" in out
+    assert "feature/1" in out and "feature/3" in out and "group 1" in out
 
 
 def test_a_bare_replan_lists_the_refused_change_as_given_up_with_the_reason(
@@ -60,4 +59,4 @@ def test_a_bare_replan_lists_the_refused_change_as_given_up_with_the_reason(
 
     line = next(line for line in out.splitlines() if line.startswith("feature:"))
     assert "given up" in line
-    assert "feature/1" in line and "feature/2" in line
+    assert "feature/1" in line and "feature/3" in line

@@ -31,13 +31,15 @@ def reply(*units: dict, joins: list[dict] | None = None) -> str:
     return json.dumps({"units": list(units), "joins": joins or []})
 
 
-def read(text: str, *, count: int, stored=(), retired=()):
+def read(text: str, *, count: int, stored=(), retired=(), built=()):
     return parse_plan(
         text,
         groups=groups_at(*([3] * count)),
         change="x",
         context=JoinContext(stored=tuple(stored), catalog={}),
         retired=set(retired),
+        built=set(built),
+        known={s.id for s in stored},
     )
 
 
@@ -53,7 +55,7 @@ def test_labels_become_ids_from_the_groups_and_the_dependency_follows() -> None:
 def test_the_old_form_is_accepted_as_labels() -> None:
     text = reply(planned("x/7", (3,)), planned("x/9", (4,), depends_on=["x/7"]))
 
-    plan = read(text, count=4)
+    plan = read(text, count=4, built={1, 2})
 
     assert [u.id for u in plan.units] == ["x/3", "x/4"]
     assert plan.units[1].depends_on == ("x/3",)
@@ -63,7 +65,7 @@ def test_a_dependency_on_a_stored_unit_that_is_no_label_is_left() -> None:
     merged = stored_unit("x/1", change="x", groups=(1,), state=UnitState.MERGED)
     text = reply(planned("u2", (2,), depends_on=["x/1"]))
 
-    plan = read(text, count=2, stored=[merged])
+    plan = read(text, count=2, stored=[merged], built={1})
 
     assert plan.units[0].id == "x/2"
     assert plan.units[0].depends_on == ("x/1",)
@@ -98,9 +100,12 @@ def test_a_label_that_is_a_retired_id_is_refused_naming_it() -> None:
     retired = stored_unit("x/3", change="x", groups=(3,), state=UnitState.RETIRED, branch="b")
     kept = {"stored": [retired], "retired": {"x/3"}}
 
-    assert [u.id for u in read(reply(planned("u1", (3,))), count=3, **kept).units] == ["x/6"]
+    built = {1, 2, 4, 5}
+    plan = read(reply(planned("u1", (3,))), count=5, built=built, **kept)
+
+    assert [u.id for u in plan.units] == ["x/6"]
     with pytest.raises(PlannerError, match=r"x/3"):
-        read(reply(planned("x/3", (3,))), count=3, **kept)
+        read(reply(planned("x/3", (3,))), count=5, built=built, **kept)
 
 
 def test_a_label_that_is_a_running_units_id_is_refused_naming_it() -> None:
@@ -122,18 +127,20 @@ def test_a_label_that_is_an_unstarted_units_id_is_accepted() -> None:
 
 def test_joins_are_returned_unchanged() -> None:
     onto = stored_unit("y/1", change="y", groups=(1,))
-    join = {"onto": "y/1", "change": "x", "groups": [2], "estimated_lines": 20}
-    context = JoinContext(stored=(onto,), catalog={})
+    later = stored_unit("z/1", change="z", groups=(1,), depends_on=("y/1",))
+    catalog = {"y": tuple(groups_at(3)), "z": tuple(groups_at(3))}
+    context = JoinContext(stored=(onto, later), catalog=catalog)
 
     plan = parse_plan(
-        reply(planned("u1", (1,)), joins=[join]),
-        groups=groups_at(3, 3),
+        reply(planned("u1", (1,)), joins=[{"onto": "y/1", "unit": "z/1"}]),
+        groups=groups_at(3),
         change="x",
         context=context,
+        known={"y/1", "z/1"},
     )
 
     assert [u.id for u in plan.units] == ["x/1"]
-    assert [j.onto for j in plan.joins] == ["y/1"]
+    assert [(j.onto, j.unit) for j in plan.joins] == [("y/1", "z/1")]
 
 
 def test_a_refusal_holds_the_labels() -> None:

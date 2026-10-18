@@ -30,6 +30,7 @@ from agent_build_kit.config import REST_SPLIT, active
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
+from agent_build_kit.pipeline.unit_ids import assign_unit_ids, taken_ids
 from agent_build_kit.pipeline.unit_size import (
     Calibration,
     Kind,
@@ -121,7 +122,8 @@ def parse_plan(
 ) -> Plan:
     """Read and verify a proposed graph and its joins, or raise `PlannerError`.
 
-    `retired` is the ids of retired units: taken, so a plan may not use one.
+    `retired` is the ids of retired units: taken, so a label may not be one. A unit's `id` in
+    the reply is a label; the returned units carry the ids assigned from their groups.
 
     Joins are checked against `context`; without one, none may be proposed.
     """
@@ -141,6 +143,8 @@ def parse_plan(
     units: list[Unit] = []
     excuses: dict[str, dict[str, str]] = {}
     seen: set[str] = set()
+    stored = context.stored if context else ()
+    taken = taken_ids(stored, retired)
 
     # Whatever refuses the reply, the ids read so far are kept on the error as evidence.
     try:
@@ -163,10 +167,13 @@ def parse_plan(
                     f"unit {raw['id']} has unknown tier {raw['tier']!r} "
                     f"(expected one of {', '.join(TEST_KIND_TAGS)})"
                 )
-            if raw["id"] in retired:
-                raise PlannerError(f"unit id {raw['id']!r} belongs to a retired unit; use another")
+            if raw["id"] in taken:
+                raise PlannerError(
+                    f"unit label {raw['id']!r} is the id of a retired, started or finished "
+                    "unit; use another label"
+                )
             if raw["id"] in seen:
-                raise PlannerError(f"duplicate unit id {raw['id']!r}")
+                raise PlannerError(f"duplicate unit label {raw['id']!r}")
             seen.add(raw["id"])
             if "needs_less_urgent" in raw:
                 excuses[raw["id"]] = _read_excuses(raw)
@@ -212,7 +219,9 @@ def parse_plan(
     except PlannerError as error:
         error.units = tuple(u.id for u in units)
         raise
-    return Plan(units=tuple(units), joins=tuple(joins))
+    highest = max((group.number for group in groups or ()), default=0)
+    assigned = assign_unit_ids(units, stored=stored, retired=retired, highest_group=highest)
+    return Plan(units=assigned, joins=tuple(joins))
 
 
 def _read_excuses(raw: dict) -> dict[str, str]:
@@ -765,11 +774,16 @@ rejected:
 A unit joined to may be joined to again, in order along the line, while it
 stays under that ceiling.
 
+Ids: the program assigns each unit's id from its groups. The `id` you give a unit is your
+own label for this one reply, short and unique. Refer to a unit of the reply by its label in
+`depends_on` and `needs_less_urgent`, and to a unit already in flight by the id shown. A
+label is never the id of a unit in flight that has started.
+
 Respond with exactly this shape and nothing else (`joins` may be empty):
-{{"units": [{{"id": "<change>/<n>", "change": "...", "title": "...",
-  "repo": "...", "tier": "unit-test|integration-test|e2e-test", "depends_on": ["<unit id>"],
+{{"units": [{{"id": "<label>", "change": "...", "title": "...",
+  "repo": "...", "tier": "unit-test|integration-test|e2e-test", "depends_on": ["<label or id>"],
   "estimated_lines": 0, "groups": [1],
-  "needs_less_urgent": {{"<unit id>": "<reason>"}}}}],
+  "needs_less_urgent": {{"<label or id>": "<reason>"}}}}],
   "joins": [{{"onto": "<unit id>", "change": "<the change above>",
   "groups": [1], "estimated_lines": 0}}, {{"onto": "<unit id>", "unit": "<unit id>"}}]}}
 """

@@ -435,7 +435,10 @@ misspelled edge fails when the graph is compiled, not in the middle of a run.
 The state is one pydantic model, `UnitRun`: the in-run progress that used to
 sit in the unit store, plus what routing needs:
 
-- **identity:** the unit id, its groups, its change;
+- **identity:** the unit id, its groups, its change. The id is `<change>/<lowest group>`, assigned
+  by the program, not the planner; it is fixed at the first plan that contains the unit (a
+  replan of an unstarted unit with the same groups keeps it, a join does not renumber it) and
+  never changes once the unit has started;
 - **progress:** the review rounds so far (each round's findings and the
   builder's response), the approved commit, deferred follow-ups, pending
   replies, the predecessor note;

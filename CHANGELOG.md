@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A unit is now named by the program as `<change>/<lowest group>`, not by the planner's count.
+  The planner's `id` is only a label for one reply; an unstarted unit with the same groups keeps
+  its id, so a replan no longer renumbers work or leaves stored references pointing at an
+  unplanned unit. A label that is the id of a retired, started or finished unit is refused.
+
 - `abk status` shows a `gate usage:` line for each split with a gate (amount against the budget, the
   threshold now, the reset, held or usable or unknown, and the source and age of the reading), and
   `abk doctor` checks each such split: the provider's library is installed, a reading can be taken,

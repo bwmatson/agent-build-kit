@@ -119,12 +119,16 @@ change — and again only when the change's specification changes (its
 `tasks.md` with checkboxes and `Needs:` lines stripped, hashed into
 `runs/planned.json`) — the planner (`pipeline/planner.py`) sends the change,
 the units already in flight (the list omits merged and satisfied units of other changes, which are in the trunk and cannot affect a plan, and says how many it left out) and `abk.yaml`'s `relationships`/`consumes` prose
-to a model and gets the whole graph back as JSON: id (`<change>/<n>`), repo,
-tier, `depends_on`, `estimated_lines`, `groups`. The change text it is sent marks the
+to a model and gets the whole graph back as JSON: a label for each unit (used only inside
+that reply), repo, tier, `depends_on`, `estimated_lines`, `groups`. The change text it is sent marks the
 heading of each group a started unit builds `(built by <unit id>)`, and the prompt says
 such groups are taken and never claimed; a plan that claims one is still refused. A
 refused plan keeps the unit ids returned and the reason in the plan record, which a bare
-`abk replan` shows. Every failed attempt stores its `reason`: the first line of the error,
+`abk replan` shows. Once the plan is checked, the program names each unit
+`<change>/<lowest group>` and rewrites `depends_on` from labels to ids. It will reuse the id of an
+unstarted stored unit with exactly the same groups, whatever its number, so a replan renumbers
+nothing; when the id is retired, started or finished, the unit takes the next free integer
+above every number the change has used. Every failed attempt stores its `reason`: the first line of the error,
 at most 300 characters, redacted. A planner prompt over the safe size of the runtime's
 transport fails the attempt the same way, its first line naming the change, the size and the
 limit and the lines after it the size of each part.
