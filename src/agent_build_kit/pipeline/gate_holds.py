@@ -12,6 +12,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.e2e_holds import (
     SOURCE_GATE,
+    Hold,
     current_holds,
     declared_splits,
     held_splits,
@@ -127,26 +128,33 @@ def _age_minutes(result: GateResult, now: datetime) -> str:
     )
 
 
+def gate_standing(hold: Hold | None) -> bool:
+    """Whether `hold`, the split's entry in the held set, is one a gate evaluation wrote."""
+    return hold is not None and hold.source == SOURCE_GATE
+
+
 def gate_status_line(
-    installation: Installation,
     split: str,
     gate: GateConfig,
     result: GateResult,
+    hold: Hold | None,
     *,
     now: datetime,
 ) -> str:
     """The `abk status` line for one split's gate: the figures, the threshold, the reset, the
-    state and where the figure came from. A hold of another source names that source, since it
-    and not the gate's figures is what holds the split."""
+    state and where the figure came from. The state is `held` whenever the held set holds the
+    split; a hold of another source names that source, since it and not the gate's figures is
+    what holds the split."""
     provider = gate.provider
     source = "provider reading" if provider is not None else "command result"
     where = f"{source}{_age_minutes(result, now)}"
     subject = f"gate usage: {split} ({provider.name if provider else 'command'})"
-    hold = current_holds(installation.config, installation.state_dir, now=now).held.get(split)
-    if hold is not None and hold.source != SOURCE_GATE:
-        state = f"held ({hold.source or ' and '.join(hold.origins)})"
-    else:
+    if hold is None:
         state = result.state
+    elif gate_standing(hold):
+        state = "held"
+    else:
+        state = f"held ({hold.source or ' and '.join(hold.origins)})"
     if result.state == "unknown":
         return f"{subject} {state}: {result.reason} ({where})"
     if provider is None or result.used_amount is None or result.window_end is None:
@@ -178,11 +186,11 @@ def gate_status_lines(
             now=now,
             state_dir=installation.state_dir,
             root=installation.root,
-            standing=name in held and held[name].source == SOURCE_GATE,
+            standing=gate_standing(held.get(name)),
             refresh=refresh,
             fetch=refresh,
             read=read,
             run=run,
         )
-        lines.append(gate_status_line(installation, name, gate, result, now=now))
+        lines.append(gate_status_line(name, gate, result, held.get(name), now=now))
     return lines

@@ -1512,11 +1512,11 @@ def _gate_source(gate: GateConfig) -> list:
     return ["command", *(gate.command or [])]
 
 
-def _gate_cached_result(
-    entry: dict | None, gate: GateConfig, now: datetime
-) -> ProviderReading | ProviderUnknown | GateCommandResult | None:
-    """What the cache entry still answers, or None when it is spent, unreadable or was taken
-    for another gate."""
+def _gate_entry_answer(
+    entry: dict | None, gate: GateConfig
+) -> tuple[ProviderReading | ProviderUnknown | GateCommandResult, datetime, bool] | None:
+    """The answer a cache entry holds, when it was taken, and whether it is an unknown one; None
+    when the entry is unreadable or was taken for another gate. Its age is not looked at."""
     if entry is None or entry.get("source") != _gate_source(gate):
         return None
     try:
@@ -1532,6 +1532,18 @@ def _gate_cached_result(
     except (KeyError, TypeError, ValueError):
         return None
     unknown = kind == "unknown" or getattr(answer, "state", "") == "unknown"
+    return answer, taken, unknown
+
+
+def _gate_cached_result(
+    entry: dict | None, gate: GateConfig, now: datetime
+) -> ProviderReading | ProviderUnknown | GateCommandResult | None:
+    """What the cache entry still answers, or None when it is spent, unreadable or was taken
+    for another gate."""
+    held = _gate_entry_answer(entry, gate)
+    if held is None:
+        return None
+    answer, taken, unknown = held
     life = timedelta(
         minutes=gate.usage_stale_retry_minutes if unknown else gate.usage_cache_minutes
     )
@@ -1588,7 +1600,8 @@ def gate_result(
 ) -> GateResult:
     """One split's gate evaluated from its configuration, through the per-split cache in
     `<state_dir>/gate-usage.json` unless `refresh`; with `fetch` off nothing is asked of the
-    provider or run, and a cache that does not answer gives an unknown result.
+    provider or run, and the last entry recorded for this gate answers whatever its age (an
+    unknown result saying so when there is none).
 
     A good reading answers for `usage_cache_minutes` and never past its window's end, an unknown
     result for `usage_stale_retry_minutes`; the file is written whole under a lock, and not at all
@@ -1604,7 +1617,10 @@ def gate_result(
         return _gate_answer_result(cached, gate, taken=taken, now=now, standing=standing)
 
     if not fetch:
-        return GateResult(state="unknown", reason=NOT_READ_REASON)
+        last = _gate_entry_answer(entry, gate)
+        if last is None:
+            return GateResult(state="unknown", reason=NOT_READ_REASON)
+        return _gate_answer_result(last[0], gate, taken=last[1], now=now, standing=standing)
 
     # The lock is not held across the fetch: a provider that hangs must not keep the
     # readers of the cache waiting.

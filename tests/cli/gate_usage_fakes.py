@@ -28,15 +28,15 @@ def command_gate(probe: Probe) -> str:
     return "command: [" + ", ".join(f"'{part}'" for part in probe.argv) + "]"
 
 
-def gated_planning(tmp_path: Path, gate: str, *, split: str = "acp") -> Path:
+def gated_planning(tmp_path: Path, gate: str, *, split: str = "acp", extra: str = "") -> Path:
     """An `abk.yaml` declaring `split` (and `claude_code`, which has no gate) with `gate`, the
-    text of the gate's body."""
+    text of the gate's body, then `extra` (more top-level settings)."""
     body = "".join(f"        {line}\n" for line in gate.splitlines())
     return planning(
         tmp_path,
         "tests:\n  e2e_splits:\n"
         f"    {split}:\n      marker: runtime_{split}\n      gate:\n{body}"
-        "    claude_code: {marker: runtime_claude_code}\n",
+        "    claude_code: {marker: runtime_claude_code}\n" + extra,
     )
 
 

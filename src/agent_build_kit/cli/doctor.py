@@ -72,7 +72,7 @@ from agent_build_kit.notify.windows import (
 from agent_build_kit.path_patterns import matches
 from agent_build_kit.pipeline.e2e_holds import HELD_FILE, current_holds, hold_text
 from agent_build_kit.pipeline.environment import matched_inputs
-from agent_build_kit.pipeline.gate_holds import split_gates
+from agent_build_kit.pipeline.gate_holds import gate_standing, split_gates
 from agent_build_kit.pipeline.original_copy import COPY_PATTERN
 from agent_build_kit.pipeline.pending import describe, pending_projects
 from agent_build_kit.pipeline.planning_repo import common_dir, is_worktree_of
@@ -84,7 +84,7 @@ from agent_build_kit.pipeline.planning_sync import (
 from agent_build_kit.pipeline.shell import git, git_out
 from agent_build_kit.pipeline.usage_guard import gate_result
 from agent_build_kit.profiles.base import ProfileUnsupported
-from agent_build_kit.redaction import MIN_LENGTH, Redactor
+from agent_build_kit.redaction import MIN_LENGTH
 from agent_build_kit.redaction import active as active_redactor
 from agent_build_kit.replay.review import directories, overdue, waiting
 from agent_build_kit.runtimes import claude_code, policy_check, providers
@@ -1415,12 +1415,13 @@ def _e2e_holds(inst: Installation) -> list[Check]:
     return checks
 
 
-def _gate_usage(inst: Installation, run: Run, which: Which, entered: Redactor) -> list[Check]:
+def _gate_usage(inst: Installation, run: Run, which: Which) -> list[Check]:
     """For each split with a gate: the provider's library is importable, the budget is set, a
     reading can be taken (read afresh, never from the cache) and what it says. A hold that
     stands for a gate reading is information; an unknown result is a warning."""
     name = "gate usage"
     checks: list[Check] = []
+    held = current_holds(inst.config, inst.state_dir).held
     for split, gate in split_gates(inst).items():
         if gate.provider is not None:
             row = providers.PROVIDERS[gate.provider.name]
@@ -1457,11 +1458,12 @@ def _gate_usage(inst: Installation, run: Run, which: Which, entered: Redactor) -
             now=datetime.now(UTC),
             state_dir=inst.state_dir,
             root=inst.root,
+            standing=gate_standing(held.get(split)),
             refresh=True,
             persist=False,
             run=run,
         )
-        reason = entered.redact(result.reason)
+        reason = active_redactor().redact(result.reason)
         detail = f"{split}: {result.state}, {reason}" if reason else f"{split}: {result.state}"
         if result.state == "unknown":
             checks.append(
@@ -1510,15 +1512,12 @@ def run_doctor(
         checks.append(_fail("worktree root", str(error), "set planning.worktree_root elsewhere"))
         return checks
     checks.append(_ok("worktree root", str(inst.worktree_root)))
-    # The values known before the installation's own set replaces them, for what a library's
-    # error may quote.
-    entered = active_redactor()
     inst.activate()
 
     checks += _live_installation(inst)
     checks += _repos(inst, run)
     checks += _e2e_holds(inst)
-    checks += _gate_usage(inst, run, which, entered)
+    checks += _gate_usage(inst, run, which)
     checks += _pending_projects(inst)
     checks += _changelogs(inst)
     checks += _cassettes(inst)

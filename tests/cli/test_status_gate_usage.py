@@ -4,13 +4,17 @@ usage")."""
 
 from __future__ import annotations
 
+import json
 import re
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit.cli import pipeline as pipeline_cli
-from tests.cli.e2e_hold_fakes import abk
+from agent_build_kit.pipeline.e2e_holds import SOURCE_GATE, write_hold
+from agent_build_kit.pipeline.usage_guard import GATE_USAGE_NAME
+from tests.cli.e2e_hold_fakes import abk, planning
 from tests.cli.gate_usage_fakes import (
     Reads,
     command_gate,
@@ -151,3 +155,36 @@ def test_status_asks_no_provider_without_refresh_and_one_with_it(
 
     gate_lines(config, capsys, "--refresh")
     assert reads.calls == 1
+
+
+def test_a_reading_older_than_the_cache_still_shows_with_its_age_while_the_hold_stands(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider_reads(monkeypatch, Reads("173.04285316"))
+    config = gated_planning(tmp_path, provider_gate())
+    gate_lines(config, capsys, "--refresh")
+    cache = config.parent / GATE_USAGE_NAME
+    body = json.loads(cache.read_text())
+    taken = datetime.fromisoformat(body["acp"]["taken_at"]) - timedelta(minutes=20)
+    body["acp"]["taken_at"] = taken.isoformat()
+    cache.write_text(json.dumps(body))
+    write_hold(
+        config.parent,
+        "acp",
+        reason="modal usage 173.04 of 200 USD",
+        source=SOURCE_GATE,
+        by="gate evaluation",
+        until=month_end(),
+        now=datetime.now(UTC),
+    )
+
+    (line,) = gate_lines(config, capsys)
+
+    assert "173.04 of 200 USD (87%)" in line and "not read yet" not in line
+    assert re.search(r"held \(provider reading, (2\d)m old\)$", line), line
+
+
+def test_a_workspace_with_no_gate_has_no_gate_line(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert gate_lines(planning(tmp_path), capsys, "--refresh") == []
