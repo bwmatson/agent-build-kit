@@ -5,7 +5,7 @@ state, the node enum, the SQLite checkpointer with its allowlist and the
 compiled graph, and `graph/unit.run_unit` runs a unit on it, over the
 callables `wiring.build_runner` binds: `prepare`, `adapt`, `tests`,
 `implement`, `checks`, `fix_checks`, `review`, `rework`, `unit-test`, `e2e-test`,
-`verify_base`, `push`, `open_pr`, `await_review`, `satisfied`, `held` and
+`verify_base`, `new_comments`, `push`, `open_pr`, `await_review`, `satisfied`, `held` and
 `failed`, joined by the edges below. Before a step that starts work or leaves
 the machine the nodes consult `upstream_incomplete` and the hold, and a unit
 whose base moved is held. `await_review` and `held` are interrupts: a unit
@@ -17,9 +17,8 @@ node. A tick drives each unit through `run_unit`: it starts the unit's thread,
 or resumes one a killed or paused run left (a `running` unit that has a thread,
 whose branch no live process holds). The poller's events and `abk requeue`
 reach a unit that has a thread through `resume_unit`, which runs no node but
-the wait; the tick runs the thread in a slot. The first tick on this version
-moves the units the previous one left in flight onto threads (see Moving the
-units in flight). One difference from the old runner: the `chore:` commit of
+the wait; the tick runs the thread in a slot. A store that still holds in-run
+progress from before the graph does not load (see Who holds what). One difference from the old runner: the `chore:` commit of
 uncommitted work before each review round is not made, as every step already
 ends in its own commit. This document is what the implementation is specified
 against: it says which part of the pipeline moved onto
@@ -88,8 +87,8 @@ line falls where a unit ends:
 
 | Moves into the unit graph | Stays abk code |
 |---|---|
-| Step order and branching (`UnitRunner.run`) | Choosing what starts: `ready_units`, the depth caps, `max_units_in_progress`, slot order, `max_concurrent_stacks`; the last two are counted for each project |
-|  | Blocked units: a planned unit that `waiting_on` another unit is *blocked* (the graph's `blocked` label) and holds no place in `max_units_in_progress`; its ready, never-run prerequisite starts into that place ahead of the usual order, and a unit no longer blocked waits for room (`blocked`, `uncounted`, `ready_units`). A planned or unplanned unit parked on a split (`parked_on_split`) holds no place whatever its cause field says, a parked unplanned unit is left alone on release, and a replan keeps the park. A failed unit that waits on another unit holds no place either, is drawn `failed, waiting on <units>` and stays failed (`failed_waiting`) |
+| Step order and branching (`UnitRunner.run`) | Choosing what starts: `ready_units`, the depth caps, slot order, and `project_limits.max_units_in_progress` and `max_concurrent_stacks`, which are counted for each project |
+|  | Blocked units: a planned unit that `waiting_on` another unit is *blocked* (the graph's `blocked` label) and holds no place in `max_units_in_progress`; its ready, never-run prerequisite starts into that place ahead of the usual order, and a unit no longer blocked waits for room (`blocked`, `uncounted`, `ready_units`). A planned or unplanned unit parked on a split (`parked_on_split`) holds no place whatever its cause field says, a parked unplanned unit is left alone on release, and a replan keeps the park. A failed unit that waits on another unit holds no place either, is drawn `failed, waiting on <units>` and stays failed (`failed_waiting`); the pipeline requeues it once when its wait ends (see A failed unit whose wait ends). A planned unit that has never started and whose e2e-test split is held is not started and holds no place (see Held e2e-test splits) |
 |  | `Needs:` dependencies, applied by `waiting_on`/`ready_units` like any dependency: a same-repo parent in review releases the dependent onto the parent's branch, a cross-repo one must merge. A failed or held unit requeued while its parent is unmet waits as `planned` with the cause `gated`. The graph draws a `Needs:` dependency as a thick edge, `==>|needs|`, and the planner's own as a plain arrow; the mark (`needs`) is recomputed from `tasks.md` each tick and affects no scheduling. A target the unit already reaches through its dependencies is recorded in `needs` but not linked, so it draws no edge |
 | Where a run got to: the thread's position replaces `checkpoint()`, `record_step` and `resume_from` | The driver: the tick timer, `cmd_tick`, a pass's refresh loop |
 | In-run state: review rounds, deferred follow-ups, pending replies and the comments they answer | Polling the forge (`pr_poller.py`): the source of events |
@@ -109,6 +108,14 @@ a standing one explicitly. A replan carries a standing cause through the demotio
 change passes its own cause or none. `upsert` keeps a unit's runtime fields, so a gated or parked
 unit stays parked across a replan. A record with no cause is one from before causes or one an event ended.
 
+A unit can also be `retired`, a state beside `merged` and `closed`: it is finished, builds nothing,
+holds no place under `max_units_in_progress`, nothing waits on it, and no plan revives or reshapes it
+(an upsert skips it, and the planner is shown its id as taken and refuses a plan that reuses it). Its
+change archives only when every group it carried was built by a unit that merged or landed. A replan
+also keeps a planned unit that has a branch, a pull request, a pushed commit or an approval when the
+new plan leaves it out (`kept: <unit> has work; not in the plan`), and refuses, whole, a plan that gives
+a group to a second unit while a started unit still carries it.
+
 ### Who holds what
 
 - **The graph page** draws one subgraph for each repo. A repo with several projects
@@ -117,7 +124,7 @@ unit stays parked across a replan. A record with no cause is one from before cau
   root; a repo with one project is drawn flat, as before. An edge between two projects
   of one repo is plain, since it is within the repo.
 - **`runs/units.json`** stays the scheduling record. It holds each unit's
-  identity, change, repo, tier, dependencies, state, branch, pull request and
+  identity, change, repo, test kind (stored under the key `tier`), dependencies, state, branch, pull request and
   history. It is versioned beside the specs, the unit graph page is drawn from
   it, and `ready_units` reads it. What left it is in-run progress: where inside
   a unit a run got to, which is the thread's position, and the review rounds,
@@ -146,7 +153,12 @@ base moved is `running` with its thread parked at `prepare`, and the lane runs t
 (the move, the resolver, the port of a conflict, the checks and the review of the moved branch). The lane's cap
 bounds the moved-base run; the run counts toward slot occupancy and is never held back by the limit on build
 workers. It runs the thread to its next wait or end; only when the thread reaches a step outside a moved-base run (any work that is not about the move (a rework of other feedback, a fix of checks, the end-to-end tests, tests or implementation)) is the unit left `planned` with `restack_handed_back` at that step, for a build worker; a conflict left to the
-unit's own run is `restack_conflict`. The limits are counted for each project, not across all repos.
+unit's own run is `restack_conflict`. Each run the lane starts counts as one attempt at the tip of the
+unit's base, together with the attempts made for a conflicting pull request; when the attempts at one
+tip reach `global_limits.max_review_rounds` the unit is held for a person with a note naming the base,
+the tip and how the last run ended, and a new tip starts the count again. Every agent call of a lane
+run asks the usage guard first; a refusal defers the run, which the lane resumes once the guard allows,
+as it does a run the process lost. The limits are counted for each project, not across all repos.
 
 ## Priority
 
@@ -171,8 +183,12 @@ breaks a tie of equal priority and goes ahead of the others, then effective age.
 starts first, and as soon as it is ready: it uses the project's emergency lane
 (`project_limits.emergency_extra`) past the places and workers, and ordinary starts wait for it. `abk
 status` lists the units whose priority is not 3 and the ready queue in that
-order, each unit with its reason: `planned order`, its own priority, or the
-priority it takes from the unit that waits on it, and marks a handoff unit `(handoff)`. The graph page adds
+order, each unit with its reason: `planned order`, `stack age, from <unit>` (it starts ahead of
+older units because an older unit waits on it), its own priority, or the
+priority it takes from the unit that waits on it, and marks a handoff unit `(handoff)`. For a project
+whose emergency lane is in use it prints `emergency room N/M used by <units>`; a unit that
+only the lane can start is marked `(emergency room)` in the queue, and a full-queue line adds that a
+priority-0 unit may still start while the lane has room. The graph page adds
 `priority N` to the node of a unit whose priority is not 3, with `promoted from <unit>`
 (or `from <unit>` for a started unit a waiter covers) when that is where it came from.
 
@@ -180,13 +196,47 @@ priority it takes from the unit that waits on it, and marks a handoff unit `(han
 
 ```mermaid
 flowchart TD
+    subgraph grp_ready[Get ready]
+        prepare
+        adapt
+    end
+    subgraph grp_build[Agent builds]
+        tests
+        implement
+        rework
+    end
+    subgraph grp_quality[Quality checks]
+        checks
+        fix_checks
+        unit-test
+        e2e-test
+        review
+        verify_base
+    end
+    subgraph grp_host[Human review and code host]
+        new_comments
+        push
+        open_pr
+        await_review
+    end
+    subgraph grp_stopped[Stopped or finished]
+        held
+        failed
+        satisfied
+        finished((end))
+    end
+
     start((start)) --> prepare
     prepare -->|nothing of its own yet| tests
-    prepare -->|resume at a step| resume{{resume point}}
+    prepare -->|work on the branch| checks
+    prepare -->|approved tip| verify_base
     prepare -->|the restack's two steps failed| adapt
     prepare -->|feedback waiting| rework
-    adapt --> checks & rework & verify_base
-    resume --> implement & checks & verify_base
+    prepare -->|approved commit pushed, pull request or replies owed| open_pr
+    prepare -->|scheduled run| e2e-test
+    adapt --> checks
+    adapt --> rework
+    adapt --> verify_base
     tests --> implement
     implement -->|commits| checks
     implement -->|nothing new| unit-test
@@ -199,10 +249,17 @@ flowchart TD
     review -->|approved| verify_base
     review -->|changes asked| rework
     review -->|needs a person, escalated| held
-    implement & fix_checks & rework & review & e2e-test & verify_base -->|upstream went back, base moved| held
-    unit-test & push -->|upstream went back, base moved; on their conditions| held
+    implement -->|upstream went back, base moved| held
+    fix_checks -->|upstream went back, base moved| held
+    rework -->|upstream went back, base moved| held
+    review -->|upstream went back, base moved| held
+    e2e-test -->|upstream went back, base moved| held
+    verify_base -->|upstream went back, base moved| held
+    unit-test -->|upstream went back, base moved; on their conditions| held
+    push -->|upstream went back, base moved; on their conditions| held
     review -->|rounds spent| push
-    rework --> checks
+    rework -->|commits| checks
+    rework -->|nothing new| unit-test
     unit-test -->|passed, no commits of its own| satisfied
     unit-test -->|passed, after a clean move, e2e-test unit| e2e-test
     unit-test -->|passed, after a clean move| new_comments
@@ -211,6 +268,7 @@ flowchart TD
     unit-test -->|failed or changed approval after a move| prepare
     prepare -->|approved tip, e2e-test unit| e2e-test
     e2e-test -->|passed| verify_base
+    e2e-test -->|passed, scheduled run| satisfied
     e2e-test -->|passed, after a clean move| new_comments
     e2e-test -->|failed| failed
     e2e-test -->|failed after a move| prepare
@@ -227,9 +285,11 @@ flowchart TD
     await_review -->|rework| rework
     await_review -->|base moved| prepare
     await_review -->|hold| held
+    await_review -->|chat commit adopted| checks
     await_review -->|merged / closed| finished((end))
     held -->|requeue| prepare
     held -->|release| await_review
+    held -->|chat commit adopted| checks
     held -->|merged / closed| finished
     satisfied --> finished
     failed -->|requeue| prepare
@@ -238,7 +298,20 @@ flowchart TD
     classDef forge fill:#bfdbfe,stroke:#1d4ed8,color:#1c1917
     class tests,implement,fix_checks,review,rework,adapt agent
     class push,open_pr,await_review,satisfied forge
+    style grp_ready fill:#f5f5f4,stroke:#a8a29e
+    style grp_build fill:#fffbeb,stroke:#d97706
+    style grp_quality fill:#f0fdf4,stroke:#16a34a
+    style grp_host fill:#eff6ff,stroke:#2563eb
+    style grp_stopped fill:#fef2f2,stroke:#dc2626
+    linkStyle 1,2,3,4,5,6,7,8,9,10,40 stroke:#9ca3af,stroke-width:2px
+    linkStyle 11,12,13,32,33 stroke:#f59e0b,stroke-width:2px
+    linkStyle 14,15,18,19,20,21,31,34,35,36,37,39,41,42,43,45,46,47,48 stroke:#22c55e,stroke-width:2px
+    linkStyle 49,50,52,53,55,56,57,59,60 stroke:#3b82f6,stroke-width:2px
+    linkStyle 61,62,63,64,65,66 stroke:#f87171,stroke-width:2px
+    linkStyle 16,17,22,23,24,25,26,27,28,29,30,38,44,51,54,58 stroke:#ef4444,stroke-width:2px,stroke-dasharray:6 4
 ```
+
+The boxes group the nodes by what they do: getting the branch ready, the agent's build steps, the quality checks (the pipeline's own checks and fix rounds, the unit-test and e2e-test runs, the agent review and the base check), the human review and code host (the pull request comments, the push, opening the pull request and waiting for a person), and the places a unit stops. A line takes the colour of the group it leaves (grey from getting ready, amber from the agent's builds, green from the quality checks, blue from the human review and code host, light red from the stopped group), and a dashed red line is one that puts the unit in `held` or `failed` from another group.
 
 Amber nodes run an agent. Blue nodes are where the unit meets the code host,
 and the runner does that itself, in code, without an agent. Unshaded nodes are
@@ -398,6 +471,7 @@ unit's thread with a command:
 | A review asking for changes, a new comment, `agent-rework`, newly failing checks, a merge conflict (one that stands is moved again per base tip, and holds the unit when its attempts are spent or changed nothing) | `rework{reason, kind, feedback, source}` | `await_review` → `rework`; a merge conflict for a unit owed a moved-base run is routed to `prepare` with the conflict's feedback kept, and the rework runs only for what the move and the port leave |
 | The parent merged, or the base was rewritten | `base_moved{new_base}` | `await_review` → `prepare` (a running unit sees it at its next node); the restack lane then runs the moved-base run from `prepare` for a unit left parked there |
 | `agent-hold` | `hold` | → `held` |
+| A commit adopted from a chat (see Chat in [architecture.md](architecture.md)) | `adopted` | `await_review` or `held` → `checks`; the review that follows is round zero and takes no place in the round limit |
 | `agent-hold` removed | `release` | `held` → `await_review`, for a hold the label made |
 | Merged | `merged` | → end; `units.json` records the merge, and a child waiting in review (stored `in_review`, within the rebase cap) is sent `base_moved{new_base}` and its PR is retargeted at once, instead of being restacked by the handler; every other child, with a thread or without, is handed to the restack lane to be restacked, or held for depth, or left alone |
 | Closed unmerged | `closed` | → end |
@@ -518,6 +592,20 @@ and a store whose only unit needing attention is failed this way still counts as
 a tick. Each tick, once the environment is healthy, such units are resumed as `abk requeue`
 resumes a unit, within the concurrency limits.
 
+## A failed unit whose wait ends
+
+Each round records, for a failed unit that waits on another unit, the units it waits on
+(`waited_on`). When the wait is over and each of them is in review, merged or satisfied, the
+pipeline requeues the unit once, through the delivery `abk requeue` uses, and clears the record, so a
+wait is acted on once. `global_limits.wait_end_requeue` picks the mode. `auto` (the default) reworks a
+unit with a saved unit-test or e2e-test failure and resumes any other (an environmental cause, no saved
+failure, a review, CI or conflict failure); `resume` and `rework` force a mode (`rework` resumes a unit
+with no saved failure and no note); `off` does nothing. A person's note is kept as guidance. A held
+unit, a plain failure that never waited, and a unit whose prerequisite was closed or dropped from the
+plan are left alone, and the last stays failed with `wait ended: <prerequisite> closed, requeue to retry`
+in `abk status`. A prerequisite that is still open but whose `Needs:` line was dropped only clears the
+record. `abk status` counts the units resumed this way today.
+
 ## Host outages
 
 A step that gives up because the code host is unavailable (`HostUnavailable`) is not
@@ -554,6 +642,27 @@ requeue for rework still reworks), `after_prepare` routes straight to `open_pr`,
 e2e-test, review or rework from saved feedback. Known limitation: a unit started fresh this way
 has no e2e-test snapshot in its run state, so the pull request it opens lacks the e2e-test result
 section.
+
+## Held e2e-test splits
+
+A repo can hold one of its e2e-test splits for a reason (the hold, with its reason and until when, is
+read from the state file and the configuration, never by asking a gate). A group names its split with a
+`Split:` line and a unit records the one split its groups share, `rest` when they name none. Held
+splits touch the graph in three places:
+
+- **A run that reaches a held split parks.** When the tests of a held split did not run, `e2e-test`
+  returns the unit to `planned` with the cause `split_held`, recording the splits, the commit the run
+  passed on and the snapshot (`parked_splits`, `parked_sha`, `parked_snapshot`). Nothing is published and
+  nothing counts against the unit, as those tests have not failed.
+- **A parked unit is released when no split it waits on is held.** The round delivers it a `requeue`
+  (resume), and `e2e-test` runs those splits alone when the branch is still at the commit it passed on.
+  A unit parked on a split holds no place under `max_units_in_progress` (`parked_on_split`), planned or
+  unplanned; an unplanned one is left alone on release because the plan no longer has it.
+- **A unit that has never started does not start while its split is held.** The round leaves it out
+  as it does a held unit, so it takes no worker or place and lends no priority to what it waits on. Its
+  wait reason is `split`, with the words `waiting for e2e-test split <name>: <hold>`. The promotion is
+  worked out again each round, so the unit starts in the first round that finds the hold gone. A unit
+  that has started is not gated, since nothing a hold could disturb is left to protect.
 
 ## Usage pauses
 
@@ -664,10 +773,10 @@ branch.
   with their bucket, and each unit-test command with its duration
   (docs/architecture.md, Spans).
 - **Progress lines** reach the unit's run log (`runs/unit-logs/`) through
-  `RunLog.emit`, called by the nodes. Stream events (`get_stream_writer`) are
-  not built yet.
-- **The graph itself** is drawn from the compiled graph into this document and
-  the docs, so the diagram cannot drift from the code.
+  `RunLog.emit`, called by the nodes.
+- **The graph itself** is the `Node` enum and the routers' targets in `graph/nodes.py`
+  (`ROUTES`), checked when it compiles. The diagram above is written by hand from them, and the
+  unit graph page of a planning repo draws the units, not these nodes.
 - **LangSmith tracing** is supported by the framework, optional, and off by
   default. Nothing in the pipeline depends on it.
 
@@ -717,7 +826,7 @@ has never started and has two or more of them is blocked: it builds on the one w
 greatest stack depth (a tie goes to the later in plan order, and a chain's newest whatever order
 `depends_on` lists it in) and waits for the rest to merge or land (a closed parent still holds it, as any closed
 dependency does). `abk status` says
-`waiting for <parent> to merge (second open parent)` and the graph draws it blocked. A started
+`waiting for <change> group <n> to merge (second open parent)` and the graph draws it blocked. A started
 unit keeps its branch and is never held by this rule. Cross-repo parents are not open parents
 and still wait for a merge. No branch is made by merging parents' branches.
 
@@ -739,6 +848,32 @@ conflict, a moved base or a restack conflict or deferral, `reworking` when it is
 or check feedback, `paused` when a pause is in force and no run holds it (derived, never stored;
 it resumes by itself when the pause lifts), and `running` otherwise. A pull request is a draft while its unit is `running`
 or `planned` and ready when it is `in_review`.
+
+## Why a unit is not running
+
+A unit that is not running waits for one reason at a time (`WaitReason`), decided from the facts the
+round starts units on. For a planned unit they are checked in this order:
+
+| Reason | The unit |
+|---|---|
+| `lease` | has its lease held, as by an attached chat |
+| `backoff` | is parked for the code host, the network or the model service, and its backoff has not passed |
+| `blocked` | waits on other units (`waits_on`), on the release of a saved requeue, or on a stack deeper than the build cap; a unit held for depth reads the same |
+| `split` | has never started and its e2e-test split is held |
+| `usage_pause` | waits only because a usage pause is in force |
+| `ready` | will be started this round |
+| `queue_full` | has never started and its project has no room under `max_units_in_progress` |
+| `slot` | is ready and waits for a free build worker |
+
+A unit in review waits as `waiting_review`, and a held or failed one as `needs_person`. A reason is
+logged to the decision log when it or what it waits on changes (architecture.md, State on disk).
+A tick that builds nothing says why, and the first of these that applies is the account: a deadlock
+(`nothing can start: deadlocked: …`); a project whose queue is full, which says that no ordinary unit
+starts until the occupancy is below the limits (except a ready priority-0 unit while the lane has room);
+a failed unit that holds others up (`nothing can start: <unit> has N units waiting on it — requeue it with
+abk requeue`); and otherwise `nothing ready to build`, followed unless a usage pause is in force by a
+line `<unit> (<label>): <reason>[, waits on <units>]` for each planned, held or failed unit, at most 10,
+the ones a person can act on soonest (`ready`, `slot`, `lease`, `backoff`) first, then `(+M more)`.
 
 ## A unit in review follows its predecessor
 
