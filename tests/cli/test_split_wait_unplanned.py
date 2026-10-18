@@ -10,7 +10,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.unit_store import KEEP, UnitStore
 from agent_build_kit.pipeline.units import PLANNED, RUNNING, UnitState, in_progress, ready_units
 from tests.factories import stored_unit
 from tests.parked_split_support import Deliveries, hold, installation, park, store_of
@@ -25,8 +25,9 @@ def park_without_cause(store: UnitStore, uid: str) -> None:
 
 
 def drop(store: UnitStore, uid: str) -> None:
-    """A replan of the unit's change that leaves it out, so it is set `unplanned`."""
-    store.upsert([], change=uid.partition("/")[0])
+    """The unit set `unplanned` with its work kept, as a store written before a replan kept a
+    started unit holds it."""
+    store.set_state(uid, UnitState.UNPLANNED, cause=KEEP)
 
 
 def status(inst: Installation, monkeypatch: pytest.MonkeyPatch, capsys) -> list[str]:

@@ -278,7 +278,7 @@ def test_a_needs_edit_lists_the_unit_that_builds_the_group_not_the_one_numbered_
     api: httpx.Client,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    builds(inst, UNIT, groups=(1,))
+    builds(inst, UNIT, groups=(30,))
     builds(inst, "feature/7", groups=(1, 2))
     edit(
         inst, "tasks.md", lambda text: text.replace("Needs: other group 1", "Needs: other group 2")

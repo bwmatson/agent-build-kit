@@ -23,6 +23,7 @@ from agent_build_kit.pipeline.unit_store import Cause, HeldBy, StoredUnit, UnitS
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, RUNNING, UnitState
 from agent_build_kit.pipeline.usage_guard import Decision
 from tests.conftest import make_installation
+from tests.factories import own_group
 
 MOVED_NOTE = "held before implement: its base moved from spec/a/1 to main while it built"
 
@@ -69,7 +70,7 @@ def stored(uid: str, **overrides) -> StoredUnit:
         "tier": "unit-test",
         "depends_on": (),
         "estimated_lines": 140,
-        "groups": (1,),
+        "groups": own_group(uid, change),
     }
     return StoredUnit(**{**defaults, **overrides})
 

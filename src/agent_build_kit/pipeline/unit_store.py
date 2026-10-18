@@ -22,7 +22,7 @@ from __future__ import annotations
 import functools
 import json
 import time
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from contextlib import AbstractContextManager
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -185,6 +185,31 @@ def corrupt_store_message(path: Path) -> str:
     return f"unit store at {path} could not be read"
 
 
+class Collision(Frozen):
+    """A group a plan gives to `claimant` while `owner`, a started unit, carries it."""
+
+    change: str
+    group: int
+    owner: str
+    owner_state: UnitState
+    claimant: str
+
+
+class GroupOwned(Exception):
+    """A plan gives a group to a unit while a started unit that has not finished carries it.
+    The message names both units and the group; nothing is written."""
+
+    def __init__(self, collisions: Sequence[Collision]) -> None:
+        self.collisions = tuple(collisions)
+        super().__init__(
+            "; ".join(
+                f"{c.change} group {c.group} is carried by {c.owner} ({c.owner_state.value}), "
+                f"so {c.claimant} cannot take it"
+                for c in self.collisions
+            )
+        )
+
+
 class Description(Frozen):
     """What the reviewer says an approved branch does: a summary and its core changes."""
 
@@ -309,9 +334,20 @@ class StoredUnit(Unit):
     def unstarted(self) -> bool:
         """Planned, with no branch, commit or pull request:
         nothing exists that removing or extending this unit could disturb."""
-        return self.state == PLANNED and not (
-            self.branch or self.pr is not None or self.pushed or self.approved
-        )
+        return self.state == PLANNED and not self.has_work
+
+    @property
+    def owns_groups(self) -> bool:
+        """Whether the groups this unit carries are its to build: planned, running, in review,
+        failed or held, or unplanned with a branch, pull request, pushed commit or approval."""
+        if self.state == UNPLANNED:
+            return self.has_work
+        return self.state in (PLANNED, RUNNING, IN_REVIEW, FAILED, HELD)
+
+    @property
+    def has_work(self) -> bool:
+        """A branch, pull request, pushed commit or approval exists for the unit."""
+        return bool(self.branch or self.pr is not None or self.pushed or self.approved)
 
     @property
     def started_at(self) -> datetime | None:
@@ -596,6 +632,7 @@ class UnitStore:
         `unplanned` rather than deleted — it may already have an open PR.
         """
         stored = self._read()
+        before = dict(stored)
         planned_ids = {unit.id for unit in units}
 
         for unit in units:
@@ -699,11 +736,13 @@ class UnitStore:
                 # Demoting on absence breaks both: a unit demoted to
                 # `unplanned` after merging makes its change unarchivable, and
                 # one demoted while its PR is open blocks every unit behind it.
-                if unit.state != PLANNED:
+                if not unit.unstarted:
                     continue
                 if unit.change == change and unit_id not in planned_ids:
                     stored[unit_id] = _with_state(unit, UNPLANNED, KEEP)
 
+        if collisions := _new_collisions(before, stored):
+            raise GroupOwned(collisions)
         self._write(stored)
 
     @_exclusive
@@ -1081,6 +1120,49 @@ class UnitStore:
         is pushed several times — once per restack — while staying `open`.
         """
         self._update(unit_id, pushed=sha, pushed_at=spans.clock.now())
+
+
+def _carries(unit: StoredUnit | None) -> set[tuple[str, int]]:
+    """The (change, group) pairs the unit builds, its own and joined."""
+    if unit is None:
+        return set()
+    return {(member.change, number) for member in unit.members() for number in member.groups}
+
+
+def _new_collisions(
+    before: Mapping[str, StoredUnit], after: Mapping[str, StoredUnit]
+) -> list[Collision]:
+    """The collisions `after` has that `before` did not, in a stable order: a new claimant, or
+    an owner that began to carry the group. Who owned what is decided on both sides, so a
+    record that merely listed the group is not an existing collision."""
+    known = _collisions(before)
+    return sorted(
+        (c for c in _collisions(after) if c not in known),
+        key=lambda c: (c.change, c.group, c.owner, c.claimant),
+    )
+
+
+def _collisions(units: Mapping[str, StoredUnit]) -> set[Collision]:
+    """Every group an owner that has started carries while another owner carries it too."""
+    owners: dict[tuple[str, int], list[StoredUnit]] = {}
+    for unit in units.values():
+        if unit.owns_groups:
+            for pair in _carries(unit):
+                owners.setdefault(pair, []).append(unit)
+    return {
+        Collision(
+            change=change,
+            group=group,
+            owner=owner.id,
+            owner_state=owner.state,
+            claimant=claimant.id,
+        )
+        for (change, group), carriers in owners.items()
+        for owner in carriers
+        if not owner.unstarted
+        for claimant in carriers
+        if claimant.id != owner.id
+    }
 
 
 def _record(unit: StoredUnit) -> dict:

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A replan no longer sets aside a planned unit that already has a branch, a pull request, a
+  pushed commit or an approval just because the new plan leaves it out: it stays planned and
+  `abk replan` says `kept: <unit> has work; not in the plan`, with the command to retire it.
+  A plan that gives a group to another unit while a started unit still carries it is refused
+  whole, logged with both units and the way out, and not asked of the planner again until
+  `tasks.md` changes.
+
 - `ABK_USAGE_GUARD=off` (environment only, never an `abk.yaml` key) makes a process take no
   usage reading and never pause for usage. `abk tick` says so on its first line and
   `abk status` shows it. The scratch installation of a Claude Code live test sets it, so a

@@ -38,6 +38,7 @@ from agent_build_kit.pipeline.usage_guard import Decision, UsageReading
 from agent_build_kit.pipeline.workspaces import BranchBusy
 from agent_build_kit.profiles.base import ProfileUnsupported
 from tests.conftest import make_installation
+from tests.factories import own_group
 from tests.runtimes.stand_in import StandInRuntime
 
 inst: Installation = cast(Installation, None)  # set per test by `isolated`
@@ -272,7 +273,7 @@ def stored(uid: str = "add-marker/1", **overrides) -> StoredUnit:
         "tier": "unit-test",
         "depends_on": (),
         "estimated_lines": 140,
-        "groups": (1,),
+        "groups": own_group(uid, "add-marker"),
     }
     return StoredUnit(**{**defaults, **overrides})
 
