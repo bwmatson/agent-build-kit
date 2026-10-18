@@ -37,7 +37,7 @@ from agent_build_kit.pipeline.unit_size import (
     calibrated,
     largest_raw,
 )
-from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import Join, Priority, Unit
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.work_graph import (
@@ -242,6 +242,12 @@ def unit_priority(unit: Unit, catalog: Mapping[str, Sequence[TaskGroup]]) -> int
         if group.number in member.groups
     ]
     return min(found, default=Priority.NORMAL)
+
+
+def promote_ancestors(store: UnitStore, catalog: Mapping[str, Sequence[TaskGroup]]) -> None:
+    """Give each unit that has not started the most urgent priority among its groups and
+    every unit that waits on it, and name the waiter that gives it."""
+    raise NotImplementedError
 
 
 def _read_joins(raw_joins: object) -> list[Join]:

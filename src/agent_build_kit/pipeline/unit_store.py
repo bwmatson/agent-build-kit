@@ -205,6 +205,9 @@ class StoredUnit(Unit):
 
     branch: str = ""
     pr: int | None = None
+    # The unit that waits on this one and gives it the priority it has; empty when the
+    # priority is the unit's own.
+    promoted_from: str = ""
     # The pull request's changed lines as the reviewer sees them, generated
     # files left out; None until it has a pull request.
     actual_lines: int | None = None
@@ -914,6 +917,10 @@ class UnitStore:
         """Set the priority of a unit that has not started; a started one keeps its own."""
         if self.get(unit_id).unstarted:
             self._update(unit_id, priority=priority)
+
+    def set_promotion(self, unit_id: str, priority: int, promoted_from: str) -> None:
+        """Give an unstarted unit the priority a waiter needs of it, and name the waiter."""
+        raise NotImplementedError
 
     def set_calibration(self, unit_id: str, flag: str, calibrated_lines: int | None) -> None:
         """The kind's flag and the calibrated figure of a unit that has not started; a

@@ -410,6 +410,13 @@ def effective_priority(
     return min([unit.priority, *waiters])
 
 
+def priority_note(
+    unit: Unit, graph: Sequence[Unit], excluded: Collection[str] = frozenset()
+) -> str:
+    """The unit's effective priority and its source; empty for a normal unit with none."""
+    raise NotImplementedError
+
+
 def stack_age_source(
     unit: Unit, graph: Sequence[Unit], excluded: Collection[str] = frozenset()
 ) -> Unit | None:

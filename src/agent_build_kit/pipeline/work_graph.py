@@ -672,6 +672,30 @@ def _group_parents(groups: list[TaskGroup]) -> dict[int, list[int]]:
     return parents
 
 
+class InvertedGroup(Frozen):
+    """One direct edge onto a group that is less urgent than the group depending on it."""
+
+    group: int
+    priority: int
+    needed_by: int
+    needed_by_priority: int
+    # The change the depended-on group belongs to when a `Needs:` line names it; empty for
+    # a group of the same change.
+    change: str = ""
+
+
+def inverted_groups(
+    path: Path,
+    changes_dir: Path,
+    *,
+    repos: tuple[str, ...],
+    projects: Mapping[str, tuple[str, ...]],
+) -> list[InvertedGroup]:
+    """Each direct edge of a tasks file, from the planner's chain and from `Needs:` lines,
+    where the depended-on group has the larger priority number."""
+    raise NotImplementedError
+
+
 def unrelated_parent_warnings(
     path: Path,
     changes_dir: Path,
