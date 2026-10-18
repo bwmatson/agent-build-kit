@@ -45,7 +45,7 @@ def calls(monkeypatch: pytest.MonkeyPatch) -> Calls:
 
 
 def installation(tmp_path: Path, schedule: str | None = None) -> tuple[Installation, UnitStore]:
-    """One repo, `app`, with a e2e-test unit that has merged, so only the schedule is work."""
+    """One repo, `app`, with an e2e-test unit that has merged, so only the schedule is work."""
     inst = planning(tmp_path, {"app": schedule})
     store = UnitStore(inst.state_dir / "units.json")
     store.upsert([stored_unit("app-work/1", change="app-work", repo="app", tier="e2e-test")])

@@ -1,4 +1,4 @@
-"""The suite's guards against a real agent process let a e2e-test test through
+"""The suite's guards against a real agent process let an e2e test through
 (spec: test-determinism).
 
 A test marked `local_stack` — on the test, its class or its module — may start the

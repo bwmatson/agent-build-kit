@@ -1,4 +1,4 @@
-"""`abk e2e check`: one line per split and `rest` with its marker and test count, the findings,
+"""`abk e2e-test check`: one line per split and `rest` with its marker and test count, the findings,
 the exit codes, and nothing changed on disk (spec: e2e-splits)."""
 
 from __future__ import annotations

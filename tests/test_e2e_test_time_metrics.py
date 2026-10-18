@@ -1,4 +1,4 @@
-"""What a e2e-test run exports of each test's time: the histograms `abk.e2e.test.duration`
+"""What an e2e-test run exports of each test's time: the histograms `abk.e2e.test.duration`
 and `abk.e2e.test.time` with bounded attributes and never a unit id, change name or test
 name; an export that raises never fails the run, and with telemetry off nothing is
 exported (spec: e2e-time-is-recorded-per-test).

@@ -22,7 +22,7 @@ from tests.parked_split_support import installation as split_installation
 def parked(store: UnitStore, inst: Installation) -> None:
     store.upsert([new_unit("second/1")])
     store.set_state(
-        "second/1", PLANNED, note="e2e-test tests of acp did not run", cause=Cause.SPLIT_HELD
+        "second/1", PLANNED, note="e2e tests of acp did not run", cause=Cause.SPLIT_HELD
     )
     store.set_parked("second/1", ["acp"], "sha-1", "first run")
 

@@ -1,4 +1,4 @@
-"""A e2e test runs under its own time limit (spec: e2e-tests-have-their-own-time-limit).
+"""An e2e test runs under its own time limit (spec: e2e-tests-have-their-own-time-limit).
 
 A test with the `local_stack` marker is limited by `--e2e-test-time-limit`, every other
 test by `--test-time-limit`. The plugin is driven in a child pytest over generated files.
@@ -180,7 +180,7 @@ def test_a_e2e_limit_of_zero_turns_it_off_and_leaves_the_fast_limit(tmp_path: Pa
     assert "test exceeded the time limit of 1 seconds" in output, output
 
 
-def test_the_old_flag_still_limits_an_e2e_test_test_and_says_it_is_deprecated(
+def test_the_old_flag_still_limits_an_e2e_test_and_says_it_is_deprecated(
     tmp_path: Path,
 ) -> None:
     code, output = run_child(tmp_path, HANGING, "--test-time-limit=2", time_limit.OLD_FLAG + "=1")

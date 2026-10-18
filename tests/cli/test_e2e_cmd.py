@@ -1,4 +1,4 @@
-"""`abk e2e hold` and `release`: the configuration's `hold` and the state file written
+"""`abk e2e-test hold` and `release`: the configuration's `hold` and the state file written
 together, both or neither (spec: e2e-runtime-blocks)."""
 
 from __future__ import annotations

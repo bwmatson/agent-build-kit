@@ -1,4 +1,4 @@
-"""`abk e2e status`, the held lines of `abk status` and the held checks of `abk doctor`
+"""`abk e2e-test status`, the held lines of `abk status` and the held checks of `abk doctor`
 (spec: e2e-runtime-blocks, "What is held is visible")."""
 
 from __future__ import annotations
@@ -164,6 +164,3 @@ def test_doctor_warns_of_an_entry_naming_an_undeclared_split(tmp_path: Path) -> 
 
     assert unknown.status == "warn"
     assert "abk e2e-test release" in unknown.fix
-
-
-tier2_status = e2e_status  # abk-shim

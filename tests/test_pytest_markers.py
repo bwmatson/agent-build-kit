@@ -32,6 +32,3 @@ def test_the_docs_describe_it_beside_the_integration_marker() -> None:
 
         assert "local_stack" in text, path
         assert "pytest -m local_stack" in text, path
-
-
-test_the_tier2_marker_is_registered = test_the_e2e_marker_is_registered  # abk-shim

@@ -1,4 +1,4 @@
-"""The documents and skills describe e2e-test splits, holds and `abk e2e check`."""
+"""The documents and skills describe e2e-test splits, holds and `abk e2e-test check`."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ SKILLS = ROOT / "src" / "agent_build_kit" / "skills"
 # The documents still carry the old spelling until they are renamed.
 DOC_KIND = "tier" + "2"
 SKILL_NAMES = ("abk-config", "abk-authoring", "abk-pipeline")
-OLD_NAMES = ("runtimes_blocked", "runtimes_allowed", "e2e_runtimes")
+OLD_NAMES = ("runtimes_blocked", "runtimes_allowed", DOC_KIND + "_runtimes")
 
 
 def squashed(path: Path) -> str:
@@ -23,7 +23,7 @@ def squashed(path: Path) -> str:
 
 
 def command_entry() -> str:
-    """The command document from the first mention of `abk e2e check` to the next heading."""
+    """The command document from the first mention of `abk e2e-test check` to the next heading."""
     text = (DOCS / "cli.md").read_text(encoding="utf-8")
     check = f"abk {DOC_KIND} check"
     assert check in text, f"docs/cli.md has no entry for `{check}`"

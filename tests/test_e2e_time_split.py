@@ -1,4 +1,4 @@
-"""A e2e-test test's time is split by agent role, checks and the rest (spec: test-tiers).
+"""An e2e test's time is split by agent role, checks and the rest (spec: test-tiers).
 
 The plugin is driven in-process through `pytester` over generated tests, with a ledger
 file the generated tests write rows to and a clock the generated tests move.

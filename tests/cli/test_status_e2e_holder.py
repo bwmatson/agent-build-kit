@@ -125,6 +125,3 @@ def test_reading_the_status_leaves_the_lock_free_for_the_next_holder(
     with e2e.stack_lock(lock, timeout=0.0, holder="two/1"):
         record = e2e.read_lock_record(lock.read_text())
     assert record is not None and record.unit == "two/1"
-
-
-tier2_lines = e2e_lines  # abk-shim

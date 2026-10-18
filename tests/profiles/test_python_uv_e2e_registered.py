@@ -1,4 +1,4 @@
-"""The python profile reads the markers its test runner registers, for `abk e2e check`
+"""The python profile reads the markers its test runner registers, for `abk e2e-test check`
 (spec: e2e-splits)."""
 
 from __future__ import annotations

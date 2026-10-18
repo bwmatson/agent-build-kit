@@ -1,5 +1,5 @@
 """A planning root with a written `abk.yaml` and the state file of held splits, and `abk` run over
-them, for the tests of `abk e2e hold`, `release` and `status`."""
+them, for the tests of `abk e2e-test hold`, `release` and `status`."""
 
 from __future__ import annotations
 

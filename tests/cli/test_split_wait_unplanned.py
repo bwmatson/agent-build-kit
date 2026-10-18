@@ -1,4 +1,4 @@
-"""A unit parked on a e2e-test split that the plan dropped is left alone on release, holds no place,
+"""A unit parked on an e2e split that the plan dropped is left alone on release, holds no place,
 and `abk status` lists it (spec: a-dropped-unit-parked-on-a-split-takes-no-place)."""
 
 from __future__ import annotations
