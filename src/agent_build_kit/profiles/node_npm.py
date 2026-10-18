@@ -276,7 +276,7 @@ class NodeNpmProfile:
             commands.append(["sh", "-c", _FILTERED, "sh", member or _HERE, *relative])
         return commands
 
-    def clean_command(self) -> str:
+    def clean_command(self, *, types: bool = False) -> str:
         """Lint and the format check over the project; no type check, since a test importing
         what does not exist yet is the expected state at the tests commit."""
         return _LINT_ALL
@@ -292,12 +292,16 @@ class NodeNpmProfile:
         listed = "printf '%s\\n' " + shlex.join(_RED_FILE + file for file in files) + "; "
         return listed + wrap_report_command(run, "--outputFile")
 
-    def interpret_red(self, output: str, exit_code: int) -> tuple[bool, list[str]]:
+    def interpret_red(
+        self, output: str, exit_code: int, *, stubbed: bool = False
+    ) -> tuple[bool, list[str]]:
         """Red for the right reason, judged on the suites of the files the red command was
         given (it lists them before the report): every test that ran failed by an assertion
         or by an error saying `not implemented`. A file that failed to load (an unresolved
         import, a syntax error), a passing test and a run with no suite of those files are
         rejected, each with its reason."""
+        if stubbed:
+            raise NotImplementedError
         _, console = split_report(output)
         given = {
             line.removeprefix(_RED_FILE).removeprefix("./")

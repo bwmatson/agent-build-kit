@@ -338,7 +338,7 @@ class PythonUvProfile:
         # then means judging the whole repo at its tip, not an empty range.
         return ["uv", "run", "pre-commit", "run", "--all-files"]
 
-    def clean_command(self) -> str:
+    def clean_command(self, *, types: bool = False) -> str:
         # Type checking is skipped at the tests commit: a test importing a
         # function that doesn't exist yet is the expected state there.
         return "SKIP=pyrefly-check uv run pre-commit run --all-files"
@@ -350,7 +350,11 @@ class PythonUvProfile:
         pytest = f"uv run pytest {' '.join(files)} -p no:cacheprovider --tb=line -q"
         return wrap_report_command(pytest, "--junitxml")
 
-    def interpret_red(self, output: str, exit_code: int) -> tuple[bool, list[str]]:
+    def interpret_red(
+        self, output: str, exit_code: int, *, stubbed: bool = False
+    ) -> tuple[bool, list[str]]:
+        if stubbed:
+            raise NotImplementedError
         report, console = split_report(output)
         result = judge_red(report, console, exit_code)
         return result.verdict == "accepted", list(result.problems)

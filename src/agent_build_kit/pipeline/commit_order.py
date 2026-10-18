@@ -132,6 +132,7 @@ def check_structure(
     base: str,
     is_test: Callable[[str], bool] | None = None,
     stubs: Callable[[str, str], list[str]] = stub_violations,
+    paired: bool = False,
 ) -> list[str]:
     """Check a branch's commits read as tests-then-implementation.
 
@@ -141,6 +142,8 @@ def check_structure(
     Returns every problem found, so one run shows the whole list rather than
     one problem per push.
     """
+    if paired:
+        raise NotImplementedError
     shas = _commits(repo, base)
     if not shas:
         return [f"no commits between {base} and HEAD"]

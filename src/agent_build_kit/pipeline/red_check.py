@@ -106,12 +106,16 @@ def _counts(output: str) -> dict[str, int]:
     return counts
 
 
-def interpret_pytest(output: str, *, exit_code: int) -> tuple[bool, list[str]]:
+def interpret_pytest(
+    output: str, *, exit_code: int, stubbed: bool = False
+) -> tuple[bool, list[str]]:
     """Was this run honestly red? Returns (ok, problems).
 
     `problems` is empty when ok, and otherwise says what disqualified the run,
     so the message a developer sees names the actual rule.
     """
+    if stubbed:
+        raise NotImplementedError
     problems: list[str] = []
     counts = _counts(output)
 
@@ -252,9 +256,13 @@ def _error_reason(element: ElementTree.Element, said: str) -> str | None:
     return "an error outside the test body is not a missing implementation"
 
 
-def judge_red(report: str | None, output: str, exit_code: int) -> RedResult:
+def judge_red(
+    report: str | None, output: str, exit_code: int, *, stubbed: bool = False
+) -> RedResult:
     """Judge a run from its `report`, or from the console `output` (logging
     that it did) when the report could not be written."""
+    if stubbed:
+        raise NotImplementedError
     if report:
         try:
             return red_check(report)
