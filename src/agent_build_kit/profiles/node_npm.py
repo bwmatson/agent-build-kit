@@ -24,7 +24,13 @@ from xml.etree import ElementTree
 import tree_sitter_typescript
 from tree_sitter import Language, Node, Parser
 
-from agent_build_kit.config import EnvironmentConfig, RepoConfig
+from agent_build_kit.config import (
+    AgentCommand,
+    AgentPurpose,
+    AgentScope,
+    EnvironmentConfig,
+    RepoConfig,
+)
 from agent_build_kit.pipeline.e2e import TestFailure, TestTime, clip_failure_line
 from agent_build_kit.pipeline.red_check import (
     UNRECOGNISED_FAILURE,
@@ -158,6 +164,17 @@ class NodeNpmProfile:
     name: str = "node-npm"
     detect_markers: tuple[str, ...] = ("package-lock.json", "package.json")
     allowed_tools: str = "Bash(npm *) Bash(npx *)"
+    agent_commands: tuple[AgentCommand, ...] = (
+        AgentCommand(purpose=AgentPurpose.TEST, command=["npx", "vitest", "run"]),
+        AgentCommand(
+            purpose=AgentPurpose.TEST,
+            command=["npx", "vitest", "run", "{path}"],
+            scope=AgentScope.FILE,
+        ),
+        AgentCommand(purpose=AgentPurpose.LINT, command=["npx", "oxlint", "."]),
+        AgentCommand(purpose=AgentPurpose.FORMAT, command=["npx", "oxfmt", "--check", "."]),
+        AgentCommand(purpose=AgentPurpose.CHECK, command=["npx", "tsc", "--noEmit"]),
+    )
     prompt_words: PromptWords = PromptWords(
         verify="linting and type checks (oxlint, tsc --noEmit)",
         stub='a signature whose body is only `throw new Error("not implemented")`',

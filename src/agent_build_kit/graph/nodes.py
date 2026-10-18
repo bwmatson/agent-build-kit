@@ -35,6 +35,7 @@ from agent_build_kit.graph.state import (
 from agent_build_kit.installation import Installation, changes_dir_under
 from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline import environment, spans, spec_snapshot
+from agent_build_kit.pipeline.agent_commands import commands_note
 from agent_build_kit.pipeline.call_record import call_recorder
 from agent_build_kit.pipeline.changelog_convention import changelog_note
 from agent_build_kit.pipeline.check_failures import failed_check
@@ -1043,6 +1044,7 @@ class BuildPath:
         answer = self.agent(
             r.run,
             ADAPT_PROMPT.format(
+                commands=commands_note(r.repo_config),
                 change_dir=change_dir,
                 groups=groups,
                 onto_unit=restacked.onto_unit,
@@ -1213,6 +1215,7 @@ class BuildPath:
             build_boundary, _ = r.boundary_notes(unit, self.graph)
             self.say(f"write the tests ({models().implement})")
             prompt = TESTS_PROMPT.format(
+                commands=commands_note(r.repo_config),
                 guidance=person_guidance(r.store.get(unit.id).guidance),
                 groups=groups,
                 change_dir=change_dir,
@@ -1237,6 +1240,7 @@ class BuildPath:
             self.say(f"implement ({models().implement})")
             guidance = r.store.get(unit.id).guidance
             prompt = IMPLEMENTATION_PROMPT.format(
+                commands=commands_note(r.repo_config),
                 guidance=person_guidance(guidance),
                 groups=groups,
                 change_dir=change_dir,
@@ -1370,6 +1374,7 @@ class BuildPath:
                 r.run,
                 self.told(
                     CHECKS_PROMPT.format(
+                        commands=commands_note(r.repo_config),
                         guidance=note,
                         change_dir=change_dir,
                         groups=groups,
@@ -1527,6 +1532,7 @@ class BuildPath:
                 r.run,
                 self.told(
                     REVIEW_FEEDBACK_PROMPT.format(
+                        commands=commands_note(r.repo_config),
                         guidance=note,
                         change_dir=change_dir,
                         groups=groups,
@@ -1568,6 +1574,7 @@ class BuildPath:
                 r.run,
                 self.told(
                     CHECKS_PROMPT.format(
+                        commands=commands_note(r.repo_config),
                         guidance=note,
                         groups=groups,
                         change_dir=change_dir,
@@ -1577,6 +1584,7 @@ class BuildPath:
                     )
                     if failed_check
                     else REWORK_PROMPT.format(
+                        commands=commands_note(r.repo_config),
                         guidance=note,
                         groups=groups,
                         change_dir=change_dir,

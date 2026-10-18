@@ -136,11 +136,12 @@ and finish the task from there.
 
 
 class PromptTemplate(str):
-    """A prompt with a `{guidance}` place that is empty unless a caller fills it, so a
-    caller with no person's note formats it as it always did."""
+    """A prompt with a `{guidance}` place and a `{commands}` place, each empty unless a caller
+    fills it, so a caller with no person's note or no agent commands formats it as it always
+    did."""
 
     def format(self, *args: object, **fields: object) -> str:
-        return super().format(*args, **{"guidance": "", **fields})
+        return super().format(*args, **{"guidance": "", "commands": "", **fields})
 
 
 _PERSON_GUIDANCE = """\
@@ -242,7 +243,7 @@ fields the code will read.
 Before you finish: run linting and formatting, which must pass, and run the
 new tests, which must fail. A test that passes now is not testing the
 behaviour this group adds. Do not write the implementation.
-The change's files are read-only for you: do not tick boxes in its tasks.md
+{commands}The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, unit-test and been pushed.
 """
@@ -283,7 +284,7 @@ group(s) {groups}:
 """
     + _REVIEW_FEEDBACK_ASK
     + """\
-The change's files are read-only for you: do not tick boxes in its tasks.md
+{commands}The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, unit-test and been pushed.
 """
@@ -317,7 +318,7 @@ rule itself is wrong for this code, and then say so.
 Run linting, formatting, types and the tests before you finish, and finish only
 when all of them pass. Beyond fixing the checks, keep the change to what the
 task groups ask for.
-The change's files are read-only for you: do not tick boxes in its tasks.md
+{commands}The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, unit-test and been pushed.
 """
@@ -643,7 +644,7 @@ REWORK_PROMPT = PromptTemplate(
 """
     + _REWORK_ASK
     + """\
-The change's files are read-only for you: do not tick boxes in its tasks.md
+{commands}The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, unit-test and been pushed.
 """
@@ -665,7 +666,7 @@ the tests added duplicates existing code, delete the stub and repoint the test a
 the existing function with the same assertions; that is not weakening a test, and
 your summary says so. Run
 linting, formatting, types and the tests before you finish.
-The change's files are read-only for you: do not tick boxes in its tasks.md
+{commands}The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, unit-test and been pushed.
 """
@@ -750,7 +751,7 @@ class PortedTest(Frozen):
 # Said in the port's prompt when the steps before it failed their checks.
 TRIED_NOTE = "\nBefore this port, the narrower steps were tried and failed:\n\n{tried}\n"
 
-ADAPT_PROMPT = (
+ADAPT_PROMPT = PromptTemplate(
     """This unit — change {change_dir}, task group(s) {groups} — was built on an
 earlier version of `{onto_unit}` ({onto_intent}). That predecessor has changed
 since, and replaying this unit's commits onto its new version conflicted beyond
@@ -786,7 +787,7 @@ one carried over unchanged is counted as kept automatically.
 Write any test the tasks require that the previous work did not have. Run
 linting, formatting, types and the tests before you finish.
 
-The change's files are read-only for you: do not tick boxes in its tasks.md
+{commands}The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}.
 
 """
