@@ -116,3 +116,56 @@ def test_a_busy_branch_returns_false_so_the_poll_offers_it_again_and_it_is_then_
     assert rig.rework(CONFLICT_REASON, ReworkKind.CONFLICT) is True
     assert handed_ids(lane) == [UNIT], "handed over once, by the offer that took it"
     assert rig.stored().conflict_attempts == 0
+
+
+def delivered(*args: object, **kwargs: object) -> bool:
+    """A `resume` that reports the event delivered to a parked thread."""
+    return True
+
+
+def test_a_conflict_rework_delivered_to_a_parked_thread_is_handed_over_once_uncounted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lane = FakeLane()
+    rig = ConflictRig(tmp_path, monkeypatch)
+    rig.lane = lane
+    rig.resume = delivered
+
+    assert rig.rework(CONFLICT_REASON, ReworkKind.CONFLICT) is True
+
+    assert handed_ids(lane) == [UNIT], "exactly one hand-over"
+    assert rig.stored().conflict_attempts == 0, "the lane's run counts the attempt"
+
+
+def test_a_conflict_attempt_delivered_to_a_parked_thread_is_handed_over_once_uncounted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lane = FakeLane()
+    rig = ConflictRig(tmp_path, monkeypatch)
+    rig.lane = lane
+    rig.resume = delivered
+
+    rig.conflict()
+
+    assert handed_ids(lane) == [UNIT], "exactly one hand-over"
+    assert rig.stored().conflict_attempts == 0, "the lane's run counts the attempt"
+
+
+def test_a_rework_taken_but_not_handed_over_records_the_first_attempt_and_one_handed_over_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    own, plain = FakeLane(), FakeLane()
+    mine = ConflictRig(tmp_path / "own", monkeypatch)
+    mine.lane = own
+    mine.store.record_approval(UNIT, "an-earlier-head")
+    mine.store.set_feedback(UNIT, "rename the marker", source=FeedbackSource.REVIEW)
+    free = ConflictRig(tmp_path / "plain", monkeypatch)
+    free.lane = plain
+
+    mine.rework(CONFLICT_REASON, ReworkKind.CONFLICT)
+    free.rework(CONFLICT_REASON, ReworkKind.CONFLICT)
+
+    assert own.handed == []
+    assert (mine.stored().conflict_tip, mine.stored().conflict_attempts) == (mine.tip, 1)
+    assert handed_ids(plain) == [UNIT]
+    assert free.stored().conflict_attempts == 0

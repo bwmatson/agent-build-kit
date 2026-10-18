@@ -17,6 +17,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
+from agent_build_kit.graph.state import Node
 from agent_build_kit.pipeline.events import build_base_tip
 from agent_build_kit.pipeline.pr_poller import CONFLICT_REASON
 from agent_build_kit.pipeline.unit_store import HeldBy, ReworkKind
@@ -47,10 +48,21 @@ def without_thread(scene: Scene) -> None:
     scene.graph.store.set_state(OTHER, IN_REVIEW, pr=PR, branch=BRANCH)
     scene.graph.store.record_push(OTHER, scene.head)
     assert scene.graph.next(OTHER) == ()
+    scene.graph.recorder.logged.clear()
 
 
 def moved_in_the_lane(scene: Scene) -> bool:
     return bool(scene.calls) and all(scene.calls)
+
+
+def settled_by_the_move(scene: Scene) -> None:
+    """The move settled the conflict: its feedback is gone, and no port or rework agent ran for
+    it (the feedback alone would also be gone after a rework that answered it)."""
+    logged = scene.graph.recorder.logged
+    assert any("restacked onto main cleanly" in line for line in logged)
+    assert not any("rework from feedback" in line for line in logged), logged
+    assert not any("adapt onto" in line for line in logged), logged
+    assert scene.graph.store.get(OTHER).feedback == ""
 
 
 def test_a_unit_with_no_thread_sent_back_for_a_conflict_starts_at_the_move_in_the_lane(
@@ -72,7 +84,7 @@ def test_a_unit_with_no_thread_sent_back_for_a_conflict_starts_at_the_move_in_th
     assert moved_in_the_lane(scene), "the run began with the move, in a lane worker"
     assert git(scene.repo, "merge-base", "--is-ancestor", "main", BRANCH) == ""
     stored = graph.store.get(OTHER)
-    assert stored.feedback == "", "the move settled the conflict, so its feedback went"
+    settled_by_the_move(scene)
     assert stored.state != FAILED
 
 
@@ -96,6 +108,7 @@ def test_a_second_attempt_at_a_tip_for_a_unit_with_no_thread_runs_in_the_lane(
     assert answers == [True]
     assert moved_in_the_lane(scene)
     assert git(scene.repo, "merge-base", "--is-ancestor", "main", BRANCH) == ""
+    settled_by_the_move(scene)
 
 
 def test_an_event_for_a_unit_a_person_holds_is_left_for_the_next_poll_and_taken_then(
@@ -118,3 +131,27 @@ def test_an_event_for_a_unit_a_person_holds_is_left_for_the_next_poll_and_taken_
 
     assert moved_in_the_lane(scene)
     assert graph.store.get(OTHER).state != HELD
+
+
+def test_a_unit_with_a_parked_thread_sent_back_for_a_conflict_is_run_in_the_lane(
+    graph: Setup, tmp_path: Path
+) -> None:
+    scene = Scene(graph, tmp_path)
+    scene.told_its_base_moved()
+    assert graph.tick() == 0
+    assert graph.next(OTHER) == (Node.AWAIT_REVIEW,), "back in review, its thread waiting"
+    graph.store.set_state(OTHER, graph.store.get(OTHER).state, pr=PR, branch=BRANCH)
+    scene.calls.clear()
+    event = ("rework", {"reason": CONFLICT_REASON, "rework": ReworkKind.CONFLICT})
+
+    with cli.build_restack_lane(graph.inst, graph.store) as lane:
+        scene.lane = lane
+        assert graph.poll(event, pr=PR, lane=lane) == [True]
+        lane.drain()
+
+    assert moved_in_the_lane(scene), (
+        "the delivered event's run was the lane's, not a build worker's"
+    )
+    assert OTHER not in [
+        unit.id for unit in cli.resumable_units(graph.inst, graph.store.all(), only=frozenset())
+    ]

@@ -348,6 +348,15 @@ class StoredUnit(Unit):
         a new tip starts the count again."""
         return self.conflict_attempts >= max_rounds or (self.pushed or "") == self.conflict_head
 
+    def has_own_rework_input(self, head: str) -> bool:
+        """Whether the unit has saved feedback that is not the conflict's and that review has
+        not answered by approving `head`: rework of its own, which makes its run a build."""
+        return (
+            bool(self.feedback)
+            and self.feedback_source is not FeedbackSource.CONFLICT
+            and not (bool(self.approved) and self.approved == head)
+        )
+
     @property
     def held_by_the_label(self) -> bool:
         """Held, and by a reviewer's hold label. A record from before the holder was

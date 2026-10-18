@@ -4332,7 +4332,14 @@ def _build_unit(
                 if unit.state == PLANNED and (
                     moved_base_run or unit.cause in (*PARKED_CAUSES, Cause.RESTACK_HANDED_BACK)
                 ):
-                    store.set_state(unit.id, RUNNING, branch=unit.branch or None)
+                    # A lane run keeps why it was started: `prepare` reads a conflict sent back
+                    # from it.
+                    store.set_state(
+                        unit.id,
+                        RUNNING,
+                        branch=unit.branch or None,
+                        cause=unit.cause if moved_base_run else None,
+                    )
                 store.record_step(unit.id, "")
                 if queued is not None:
                     spans.record_span(
