@@ -18,6 +18,7 @@
   but an old setting name is no longer an attribute of the loaded settings.
   `python -m agent_build_kit.rename_test_kinds` stays for rewriting a planning repository's
   text.
+
 - The documents and skills now describe how the kit's live tests are tagged by runtime, the
   parking and scheduled change per split, and `abk e2e-test hold`, `release` and `status`,
   with a short how-to for holding a split. A drift test fails a live test that starts an agent
