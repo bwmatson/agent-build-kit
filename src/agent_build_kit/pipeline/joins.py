@@ -21,11 +21,20 @@ from agent_build_kit.pipeline.unit_size import (
     largest_raw,
 )
 from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import CLOSED, MERGED, PLANNED, SATISFIED, Join, Member, Unit
+from agent_build_kit.pipeline.units import (
+    CLOSED,
+    MERGED,
+    PLANNED,
+    SATISFIED,
+    Join,
+    Member,
+    Unit,
+    UnitState,
+)
 from agent_build_kit.pipeline.work_graph import TaskGroup
 
 # A dependency in one of these waits on nothing any more.
-FINISHED = (MERGED, SATISFIED, CLOSED)
+FINISHED = (MERGED, SATISFIED, CLOSED, UnitState.RETIRED)
 
 
 class JoinRefused(ValueError):

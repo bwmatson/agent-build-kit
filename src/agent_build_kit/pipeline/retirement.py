@@ -12,6 +12,10 @@ from collections.abc import Sequence
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.units import MERGED, RUNNING, SATISFIED, UnitState
+
+BUILT = (MERGED, SATISFIED)
+FINISHED = (MERGED, UnitState.CLOSED, SATISFIED, UnitState.RETIRED)
 
 
 class GroupFate(Frozen):
@@ -43,5 +47,57 @@ class Assessment(Frozen):
     reason_required: bool = False
 
 
+def _fate(unit: StoredUnit, change: str, group: int, others: Sequence[StoredUnit]) -> GroupFate:
+    """What becomes of one group of `unit`: built by a merged or satisfied unit, still owned by
+    another, or carried by none."""
+    carrying = [
+        other
+        for other in others
+        if other.id != unit.id
+        and any(m.change == change and group in m.groups for m in other.members())
+    ]
+    for other in carrying:
+        if other.state in BUILT:
+            return GroupFate(change=change, group=group, carried_by=other.id, merged=True)
+    for other in carrying:
+        if other.owns_groups:
+            return GroupFate(change=change, group=group, carried_by=other.id)
+    return GroupFate(change=change, group=group)
+
+
+def _refusal(unit: StoredUnit, units: Sequence[StoredUnit]) -> str:
+    if unit.state in FINISHED:
+        return f"{unit.id} is finished ({unit.state})"
+    if unit.state == RUNNING:
+        return f"{unit.id} is running; stop it first"
+    for other in units:
+        if (
+            unit.id in other.depends_on
+            and other.repo == unit.repo
+            and other.has_work
+            and other.state not in FINISHED
+        ):
+            return f"{other.id} has started and is stacked on {unit.id}"
+    return ""
+
+
 def assess(unit_id: str, units: Sequence[StoredUnit]) -> Assessment:
-    raise NotImplementedError
+    """Whether `unit_id` may be retired and what retiring it leaves behind."""
+    unit = next(u for u in units if u.id == unit_id)
+    groups = tuple(
+        _fate(unit, member.change, group, units)
+        for member in unit.members()
+        for group in member.groups
+    )
+    dependents = tuple(
+        Dependent(id=other.id, state=str(other.state))
+        for other in units
+        if unit_id in other.depends_on and other.state not in (*FINISHED, UnitState.UNPLANNED)
+    )
+    return Assessment(
+        unit=unit_id,
+        refusal=_refusal(unit, units),
+        groups=groups,
+        dependents=dependents,
+        reason_required=any(not fate.carried_by for fate in groups),
+    )

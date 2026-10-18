@@ -637,6 +637,9 @@ class UnitStore:
 
         for unit in units:
             existing = stored.get(unit.id)
+            if existing and existing.state == UnitState.RETIRED:
+                # Ended by a person: no plan revives or reshapes it.
+                continue
             # Only the planned shape: `StoredUnit` is a `Unit`, so a caller
             # may hand back what `all()` returned, and those extra fields
             # would collide with the recorded ones set just below.

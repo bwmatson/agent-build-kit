@@ -3327,6 +3327,8 @@ def plan_all(
             for u in units
             if (u.state in _STARTED and (u.state not in landed or u.change == change))
             or (u.state == PLANNED and u.change != change)
+            # Shown so the planner leaves the id alone, though nothing is built on it.
+            or (u.state == UnitState.RETIRED and u.change == change)
         ]
         omitted = sum(1 for u in units if u.state in landed and u.change != change)
         ratios = calibrations(units)

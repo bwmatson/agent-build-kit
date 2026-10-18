@@ -74,6 +74,9 @@ SATISFIED = UnitState.SATISFIED
 
 IN_FLIGHT = (RUNNING, IN_REVIEW)
 
+# States of a unit that builds nothing: nothing waits on it, follows it or counts its groups.
+BUILDS_NOTHING = (UnitState.UNPLANNED, UnitState.RETIRED)
+
 # What a dependent may build on. A unit is not finished when it starts — it is
 # finished when it has passed the build/review loop and unit-test and been pushed,
 # which is what `in_review` means. `IN_FLIGHT` includes `running`, so using it here
@@ -648,7 +651,7 @@ def earlier_units(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
         for other in graph
         if other.change == unit.change
         and other.id != unit.id
-        and other.state != UnitState.UNPLANNED
+        and other.state not in BUILDS_NOTHING
         and unit_number(other) < number
     ]
 
@@ -695,7 +698,7 @@ def waiting_on(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
     for dep in followed_dependencies(unit, graph):
         parent = index.get(dep)
         # A unit the plan dropped builds nothing, so nothing waits on it.
-        if parent is None or parent.state == UnitState.UNPLANNED:
+        if parent is None or parent.state in BUILDS_NOTHING:
             continue
         if parent.repo == unit.repo:
             if parent.state not in REVIEWED:
@@ -794,7 +797,7 @@ def later_groups_by_change(unit: Unit, graph: Sequence[Unit]) -> dict[str, tuple
         others = {
             group
             for other in graph
-            if other.id != unit.id and other.state != UnitState.UNPLANNED
+            if other.id != unit.id and other.state not in BUILDS_NOTHING
             for carried in other.members()
             if carried.change == change
             for group in carried.groups
@@ -831,7 +834,7 @@ def in_progress(unit: Unit, graph: Sequence[Unit] = ()) -> bool:
     failed unit that waits on another unit (`failed_waiting`) does not count
     while it waits, and stays failed.
     """
-    if unit.state in (MERGED, CLOSED, SATISFIED, HELD):
+    if unit.state in (MERGED, CLOSED, SATISFIED, HELD, UnitState.RETIRED):
         return False
     if unit.state == FAILED:
         return not failed_waiting(unit, graph)

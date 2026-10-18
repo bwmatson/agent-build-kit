@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 
 from agent_build_kit import runtimes
 from agent_build_kit.compat_names import Place, new_spelling, old_spelling
@@ -110,8 +110,11 @@ def parse_plan(
     change: str | None = None,
     context: JoinContext | None = None,
     calibrations: Mapping[Kind, Calibration] | None = None,
+    retired: Collection[str] = (),
 ) -> Plan:
     """Read and verify a proposed graph and its joins, or raise `PlannerError`.
+
+    `retired` is the ids of retired units: taken, so a plan may not use one.
 
     Joins are checked against `context`; without one, none may be proposed.
     """
@@ -153,6 +156,8 @@ def parse_plan(
                     f"unit {raw['id']} has unknown tier {raw['tier']!r} "
                     f"(expected one of {', '.join(TEST_KIND_TAGS)})"
                 )
+            if raw["id"] in retired:
+                raise PlannerError(f"unit id {raw['id']!r} belongs to a retired unit; use another")
             if raw["id"] in seen:
                 raise PlannerError(f"duplicate unit id {raw['id']!r}")
             seen.add(raw["id"])
@@ -760,6 +765,11 @@ Respond with exactly this shape and nothing else (`joins` may be empty):
 """
 
 
+def _retired_ids(in_flight: Sequence[dict]) -> list[str]:
+    """The ids of the retired units among the items the planner is shown."""
+    return [item["id"] for item in in_flight if item.get("state") == UnitState.RETIRED]
+
+
 def in_flight_item(unit: StoredUnit) -> dict:
     """A unit as the planner is shown it, and whether it may be joined."""
     return {
@@ -789,6 +799,8 @@ def split_note(item: dict) -> str:
 
 
 def _in_flight_line(item: dict) -> str:
+    if item.get("state") == UnitState.RETIRED:
+        return f"- {item['id']} (retired): this id is taken; never use it for a unit"
     line = f"- {item['id']} [{item['repo']}] {item.get('branch', '')} ({item.get('state', '?')})"
     if "priority" in item:
         line += f" priority {item['priority']}"
@@ -910,7 +922,7 @@ def _mark_built(
     built = {
         number: item["id"]
         for item in in_flight
-        if not item.get("unstarted")
+        if not item.get("unstarted") and item.get("state") != UnitState.RETIRED
         for name, numbers in item.get("taken", ())
         if name == change
         for number in numbers
@@ -1077,4 +1089,5 @@ def plan_round(
         change=next(iter(changes), None),
         context=context,
         calibrations=calibrations,
+        retired=_retired_ids(in_flight),
     )

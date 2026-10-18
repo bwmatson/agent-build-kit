@@ -32,7 +32,7 @@ def unit(uid: str, **overrides) -> StoredUnit:
 
 
 def target(**overrides) -> StoredUnit:
-    return unit("app/3", groups=(16,), branch="spec/app/3", **overrides)
+    return unit("app/3", **{"groups": (16,), "branch": "spec/app/3", **overrides})
 
 
 @pytest.mark.parametrize("state", [MERGED, CLOSED, SATISFIED, RETIRED])
