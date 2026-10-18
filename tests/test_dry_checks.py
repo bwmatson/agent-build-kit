@@ -15,6 +15,7 @@ from tests.dry_checks import (
     diff_definitions,
     is_copy,
     literal_count,
+    reaches_by_name,
     session_prompts,
 )
 from tests.factories import commit_files, git, init_repo
@@ -79,6 +80,24 @@ def test_a_mention_in_a_string_or_a_comment_is_not_a_call() -> None:
     )
 
     assert not calls_by_name(source, "page_path", "slugify")
+
+
+def test_a_call_through_a_thin_definition_of_the_branch_reaches_the_original() -> None:
+    chain = definitions_in_source(
+        "def page_path(title):\n    return 'pages/' + title_slug(title)\n\n"
+        "def title_slug(title):\n    return slugify(title)\n"
+    )
+
+    assert reaches_by_name(chain, "page_path", "slugify")
+    assert not reaches_by_name(chain, "title_slug", "page_path")
+
+
+def test_a_chain_that_never_calls_the_original_does_not_reach_it_and_a_cycle_ends() -> None:
+    chain = definitions_in_source(
+        "def a(x):\n    return b(x)\n\ndef b(x):\n    return a(x) + other(x)\n"
+    )
+
+    assert not reaches_by_name(chain, "a", "slugify")
 
 
 def test_a_call_made_by_another_definition_is_not_the_callers() -> None:

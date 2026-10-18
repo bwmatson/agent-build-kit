@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import json
 import textwrap
+from collections.abc import Iterable
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -32,6 +33,7 @@ __all__ = [
     "is_copy",
     "literal_count",
     "prompts_by_session",
+    "reaches_by_name",
     "session_prompts",
     "source_at",
 ]
@@ -129,6 +131,30 @@ def calls_by_name(source: str, caller: str, callee: str) -> bool:
                 return True
             if isinstance(target, ast.Attribute) and target.attr == callee:
                 return True
+    return False
+
+
+def reaches_by_name(found: Iterable[Definition], caller: str, callee: str) -> bool:
+    """Whether `caller` calls `callee`, directly or through definitions in `found`, resolved by
+    name as `calls_by_name` does."""
+    calls: dict[str, set[str]] = {}
+    for definition in found:
+        for node in ast.walk(ast.parse(definition.source)):
+            if not isinstance(node, ast.Call):
+                continue
+            target = node.func
+            name = target.id if isinstance(target, ast.Name) else getattr(target, "attr", "")
+            calls.setdefault(definition.name, set()).add(name)
+    seen: set[str] = set()
+    pending = [caller]
+    while pending:
+        name = pending.pop()
+        if name == callee and name != caller:
+            return True
+        if name in seen:
+            continue
+        seen.add(name)
+        pending.extend(calls.get(name, ()))
     return False
 
 

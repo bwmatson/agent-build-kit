@@ -105,6 +105,18 @@ REUSE_TASKS = """\
 Acceptance: none — two small functions whose own tests are their proof
 """
 
+# The review cases seed their branches, so their task names only the behaviour: a task that
+# named `title_slug` would make the clean branch, which has none, deviate from its spec.
+REVIEW_TASKS = """\
+## 1. [app] [unit-test] Page paths
+
+- [ ] 1.1 Test: `page_path(title)` in `src/app/pages.py` returns `pages/<slug>.md`, where the slug
+      is the title in lower case with every run of other characters squeezed into one hyphen.
+- [ ] 1.2 Add `page_path(title)` to `src/app/pages.py`.
+
+Acceptance: none — one small function whose own test is its proof
+"""
+
 GENERALIZE_TASKS = """\
 ## 1. [app] [unit-test] File stems
 
@@ -133,8 +145,8 @@ CASES = {
     "reuse": ("add-page-path", REUSE_TASKS, ""),
     "generalize": ("add-file-stem", GENERALIZE_TASKS, ""),
     "share": ("add-labels", SHARE_TASKS, ""),
-    "duplicate": ("add-page-path", REUSE_TASKS, "duplicate"),
-    "clean": ("add-page-path", REUSE_TASKS, "clean"),
+    "duplicate": ("add-page-path", REVIEW_TASKS, "duplicate"),
+    "clean": ("add-page-path", REVIEW_TASKS, "clean"),
 }
 
 

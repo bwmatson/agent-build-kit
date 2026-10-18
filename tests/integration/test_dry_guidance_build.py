@@ -35,6 +35,7 @@ from tests.dry_checks import (
     is_copy,
     literal_count,
     prompts_by_session,
+    reaches_by_name,
     session_prompts,
     source_at,
 )
@@ -133,9 +134,11 @@ def test_reuse_adds_no_function_carrying_the_existing_helpers_logic(reuse: DryRu
 
 
 def test_reuse_has_the_function_the_task_names_call_the_existing_helper(reuse: DryRun) -> None:
-    source = source_of(reuse, "page_path")
+    # Through the branch's own definitions: a task that names `title_slug` is met by a thin
+    # function that calls `slugify`, which copies no logic.
+    found = definitions(reuse.repo, reuse.branch)
 
-    assert calls_by_name(source, "page_path", "slugify"), evidence(reuse)
+    assert reaches_by_name(found, "page_path", "slugify"), evidence(reuse)
 
 
 # (b) A task needs a variant of an existing function.
@@ -219,7 +222,12 @@ def test_the_prompt_that_carries_the_do_not_weaken_sentence_holds_the_repointing
 ) -> None:
     prompts = session_prompts(reuse.record)
 
-    carrying = [flat(p) for p in prompts if "Do not weaken or delete a test to make it pass" in p]
+    # Flattened before the search: the continuation wraps the sentence across two lines.
+    carrying = [
+        squeezed
+        for squeezed in map(flat, prompts)
+        if "Do not weaken or delete a test to make it pass" in squeezed
+    ]
 
     assert carrying, "no prompt told the agent not to weaken a test"
     for prompt in carrying:
