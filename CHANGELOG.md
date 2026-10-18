@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A replan, a promotion back from `unplanned`, a vanished change and a join no longer drop
+  the reason a unit was stopped: a standing cause such as a held split, a gate or a moved
+  base is carried forward, and a backoff keeps counting from when the unit was parked.
+  A replan also keeps a unit's saved requeue, its wait records, its step, its guidance and
+  its other runtime fields, so a gated or parked unit stays parked across it. A requeue is
+  cleared in the same write that changes the cause.
+
 - A priority-0 unit now starts as soon as it is ready, in an emergency lane of its own
   (`project_limits.emergency_extra`, 1 by default, 0 turns it off) past the places and
   workers of its project. Ordinary starts wait while it runs, and it never delays a unit
