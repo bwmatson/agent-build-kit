@@ -6,6 +6,7 @@
   The planner's `id` is only a label for one reply; an unstarted unit with the same groups keeps
   its id, so a replan no longer renumbers work or leaves stored references pointing at an
   unplanned unit. A label that is the id of a retired, started or finished unit is refused.
+
 - A unit that a replan replaced now points to the units that carry its work. Anything that waited
   on the replaced unit waits for its successor instead, a tick rewrites the stored dependency and
   logs `dependency <old> is now <new> (replaced by a replan)`, and a failed unit's recorded wait

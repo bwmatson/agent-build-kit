@@ -22,17 +22,17 @@ def seed(run: Replan, uid: str, group: int) -> None:
 def test_a_replan_reports_each_replaced_unit_with_its_successor_and_a_dropped_one_as_before(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run = Replan(tmp_path, monkeypatch, feature=tasks_md(2))
-    seed(run, "feature/1", 1)
+    run = Replan(tmp_path, monkeypatch, feature=tasks_md(3))
     seed(run, "feature/2", 2)
+    seed(run, "feature/3", 3)
     seed(run, "feature/9", 9)
     run.record("feature")
 
-    _, out = run.run(capsys, "feature", reply=answer(planned("feature/3", (1, 2))))
+    _, out = run.run(capsys, "feature", reply=answer(planned("feature/7", (1, 2, 3))))
 
     lines = out.splitlines()
-    assert "feature/1: now unplanned, replaced by feature/3" in lines
-    assert "feature/2: now unplanned, replaced by feature/3" in lines
+    assert "feature/2: now unplanned, replaced by feature/1" in lines
+    assert "feature/3: now unplanned, replaced by feature/1" in lines
     assert "feature/9: now unplanned, the plan no longer has it" in lines
 
 
