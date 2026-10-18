@@ -194,6 +194,23 @@ rest of the plan is written, and the change is planned again next round. A group
 another unit carries counts as built when its change is planned again. Each join
 is logged with its groups, the unit and the combined estimate.
 
+Joins are chosen by logical grouping first: work that belongs together, groups of
+one change or of different changes that touch the same or closely related files,
+is joined, and never two items merely because both are small. Only among candidates
+that fit equally well is the more urgent work offered its partner first; a priority
+never overrides a better fit. A joined unit takes the most urgent priority of its
+groups. `check_joins` looks at no priority.
+
+**Priority in the plan.** The planner is shown each group's priority and each
+in-flight unit's, and is told to depend on a unit only for code it introduces. A plan
+whose unit depends on an unstarted unit of a larger priority number is refused, as
+`parse_plan` checks it, unless the unit gives a reason for the edge in
+`needs_less_urgent` (dependency id to reason); a target that has started, merged,
+closed or is satisfied is never checked. The refusal is recorded as any failed
+attempt, and the next attempt's prompt carries it. A plan recorded before this is
+not made stale by it: replan with `abk replan <change>` once to drop the edges that
+were avoidable.
+
 `UnitStore.upsert` merges the plan into `runs/units.json` by id: shape from
 the plan, state/branch/PR/feedback from what is already recorded. A unit the
 plan dropped becomes `unplanned` only if it never started.
@@ -219,7 +236,11 @@ them, carried groups included. A started unit keeps the priority it started
 with, and the store leaves the default out of a unit's record. `waiting_on_me`
 (`pipeline/units.py`) answers which units wait on a unit, across repos and
 through chains, and `effective_priority` takes the most urgent of a unit and
-those waiting on it.
+those waiting on it. An unstarted unit that a more urgent unit waits on is also
+promoted: `promote_ancestors` stores the waiter's priority on it and the waiter's id in
+`promoted_from`, at the end of planning and after `Needs:` lines are linked. The
+promotion is recomputed on each pass, so it lapses once the waiter merges, closes or
+loses the edge; a unit that started while promoted keeps it.
 
 `ready_units` picks planned units whose dependencies allow: a same-repo
 dependency may be `in_review` (the unit stacks on its branch), a cross-repo one
