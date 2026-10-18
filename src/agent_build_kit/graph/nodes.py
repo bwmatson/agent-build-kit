@@ -39,6 +39,7 @@ from agent_build_kit.pipeline.agent_commands import commands_note
 from agent_build_kit.pipeline.call_record import call_recorder
 from agent_build_kit.pipeline.changelog_convention import changelog_note
 from agent_build_kit.pipeline.check_failures import failed_check
+from agent_build_kit.pipeline.commit_order import CODE_PREFIX, TESTS_PREFIX
 from agent_build_kit.pipeline.e2e import NO_TEST_RAN, E2eVerdict
 from agent_build_kit.pipeline.e2e_schedule import is_scheduled, scheduled_split
 from agent_build_kit.pipeline.events import (
@@ -1246,7 +1247,7 @@ class BuildPath:
             if note := r.follow_ups_note(unit):
                 prompt = f"{note}\n\n{prompt}"
             self.agent(r.run, prompt, cwd=tree, state=state, model=models().implement)
-            r.commit(f"test: {unit.title}", cwd=tree, base=self.ref(state))
+            r.commit(f"{TESTS_PREFIX}{unit.title}", cwd=tree, base=self.ref(state))
         return {"head": r.head(tree)}
 
     def implement(self, state: UnitRun) -> Update:
@@ -1280,7 +1281,7 @@ class BuildPath:
                     changelog=changelog_note(tree, r.repo_config)
                 ),
             )
-            r.commit(f"feat: {unit.title}", cwd=tree, base=self.ref(state))
+            r.commit(f"{CODE_PREFIX}{unit.title}", cwd=tree, base=self.ref(state))
             r.store.set_guidance(unit.id, "")
             kept["guidance_asked"] = guidance_asked(state, guidance)
         # Counted on the branch, not taken from the commit step: an agent that

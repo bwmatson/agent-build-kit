@@ -56,6 +56,8 @@ _DIFF_LINT = (
     f"{_DIFF.format(z=' -z')} | xargs -0 npx oxfmt --check"
 )
 _TYPE_CHECK = "tsc"
+# The project's type check, which `project_checks` and the stubbed clean command both run.
+_TYPE_CHECK_ARGV = ["npx", _TYPE_CHECK, "--noEmit"]
 _TEST_RUNNER = "vitest"
 # No test files is a pass; the report is printed after the marker.
 _RUN = f"npx {_TEST_RUNNER} run --passWithNoTests --reporter=junit"
@@ -174,7 +176,7 @@ class NodeNpmProfile:
         ),
         AgentCommand(purpose=AgentPurpose.LINT, command=["npx", "oxlint", "."]),
         AgentCommand(purpose=AgentPurpose.FORMAT, command=["npx", "oxfmt", "--check", "."]),
-        AgentCommand(purpose=AgentPurpose.CHECK, command=["npx", "tsc", "--noEmit"]),
+        AgentCommand(purpose=AgentPurpose.CHECK, command=list(_TYPE_CHECK_ARGV)),
     )
     prompt_words: PromptWords = PromptWords(
         verify="linting and type checks (oxlint, tsc --noEmit)",
@@ -246,7 +248,7 @@ class NodeNpmProfile:
 
     def project_checks(self, repo: RepoConfig) -> list[list[str]]:
         """The type check, over the whole project: `tsc` cannot be scoped to files."""
-        return [["npx", _TYPE_CHECK, "--noEmit"]]
+        return [list(_TYPE_CHECK_ARGV)]
 
     def e2e_commands(self, repo: Path, *, marker: str) -> list[list[str]]:
         """The files named for `marker`, in each member of a workspace or else the project."""
@@ -281,7 +283,7 @@ class NodeNpmProfile:
         """Lint and the format check over the project; with `types`, the project's type check
         too. Without it none runs, since in a build that is not stubbed a test importing what
         does not exist yet is the expected state at the tests commit."""
-        return f"{_LINT_ALL} && npx {_TYPE_CHECK} --noEmit" if types else _LINT_ALL
+        return f"{_LINT_ALL} && {shlex.join(_TYPE_CHECK_ARGV)}" if types else _LINT_ALL
 
     def red_command(self, files: list[str]) -> str:
         """Vitest with `files` as its filters, its JUnit report printed after the marker so it

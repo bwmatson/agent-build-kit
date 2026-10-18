@@ -107,8 +107,9 @@ class ToolchainProfile(Protocol):
     # `--allowedTools` syntax; no effect under the acp runtime.
     allowed_tools: str
     prompt_words: PromptWords
-    # Whether the test step may write stubs the checks then judge; read through
-    # `supports_stubs`, so a profile without it counts as not supporting them.
+    # `supports_stubs: bool` is deliberately not declared here: a profile adds it
+    # to opt in, and `supports_stubs()` reads it tolerantly.
+
     # The test runner's exit status when nothing was selected.
     no_tests_collected_exit: int
 
