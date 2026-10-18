@@ -11,7 +11,7 @@ import pytest
 from modal.types import WorkspaceBillingSummary
 
 from agent_build_kit.runtimes import providers
-from tests.cli.tier2_hold_fakes import planning
+from tests.cli.e2e_hold_fakes import planning
 from tests.gate_hold_support import Probe
 from tests.provider_summaries import summary
 

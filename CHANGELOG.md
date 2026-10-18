@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `abk status` shows a `gate usage:` line for each split with a gate (amount against the budget, the
+  threshold now, the reset, held or usable or unknown, and the source and age of the reading), and
+  `abk doctor` checks each such split: the provider's library is installed, a reading can be taken,
+  and a hold that stands for a gate reading is a note, not a failure.
+
 - The old test-kind module and name aliases are gone: importing a module such as the former
   second-tier pipeline modules now fails, and the new names are the only ones in the code.
   Old spellings in `abk.yaml`, state files and group tags are still read, with a warning,

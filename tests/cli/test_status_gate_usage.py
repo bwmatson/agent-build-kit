@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import pipeline as pipeline_cli
+from tests.cli.e2e_hold_fakes import abk
 from tests.cli.gate_usage_fakes import (
     Reads,
     command_gate,
@@ -18,7 +19,6 @@ from tests.cli.gate_usage_fakes import (
     provider_gate,
     provider_reads,
 )
-from tests.cli.tier2_hold_fakes import abk
 from tests.gate_hold_support import Probe
 
 
@@ -91,7 +91,7 @@ def test_a_split_held_by_hand_shows_that_source_and_not_the_gates_figures_as_the
 ) -> None:
     provider_reads(monkeypatch, Reads("80"))
     config = gated_planning(tmp_path, provider_gate())
-    assert abk(config, capsys, "tier2", "hold", "acp", "--reason", "by hand")[0] == 0
+    assert abk(config, capsys, "e2e-test", "hold", "acp", "--reason", "by hand")[0] == 0
     gate_lines(config, capsys, "--refresh")
 
     (line,) = gate_lines(config, capsys)
