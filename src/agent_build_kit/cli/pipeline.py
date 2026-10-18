@@ -2149,6 +2149,14 @@ def _within_workers[U: Unit](
     return chosen
 
 
+def slot_occupancy(
+    units: Iterable[StoredUnit], building: Collection[str], lane_running: Collection[str]
+) -> dict[ProjectKey, set[str]]:
+    """The unit ids that occupy build slots in each project: the builds in flight, the
+    moved-base runs running in the lane and the stored-`running` units, each id once."""
+    raise NotImplementedError
+
+
 def unit_label(unit: Unit) -> str:
     """How the status names a unit's place: its repo, and `repo/project` for a project beside
     the root of a repo."""
