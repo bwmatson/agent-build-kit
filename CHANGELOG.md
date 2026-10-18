@@ -20,10 +20,11 @@
   fits. A plan that makes a unit wait on a less urgent unit that has not started is refused
   unless the unit gives a reason in `needs_less_urgent`, and the refusal is sent back with
   the next attempt. An unstarted unit that a more urgent unit waits on now takes that
-  unit's priority and records which one (`promoted from <unit>` in the graph and
+  unit's priority and records which one in `promoted_from` (`promoted from <unit>` in the graph and
   `abk status`), and gives it back once the waiter merges or goes. `abk tags` and
   `abk check` warn of a group less urgent than one that depends on it, and `abk tags`
-  lists the priority it will be promoted to.
+  lists the priority it will be promoted to. Plans already recorded keep their edges;
+  run `abk replan <change>` only to drop the avoidable ones.
 
 - The unit graph page draws a repo that has several projects with a nested subgraph for
   each project that has a unit in view, and the legend says so. A repo with one project

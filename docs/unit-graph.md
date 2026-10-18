@@ -143,6 +143,13 @@ itself and every unit that waits on it, directly or through a chain, in any
 repo; merged, closed and satisfied units, and units the round leaves out, do not
 count.
 
+The planner is refused a plan that makes a unit wait on a less urgent unit that has not
+started, unless the unit gives a reason in `needs_less_urgent`. An unstarted unit that a
+more urgent unit waits on takes that unit's priority, and its record keeps the waiter in
+`promoted_from`; both go back to the groups' own once the waiter merges or goes. A
+started unit keeps its priority and its `promoted_from`. Plans recorded before this keep
+their edges until `abk replan <change>` is run.
+
 Within each class of start (open pull request, resumed build, never run) ready
 units start by effective priority, then in the order they were planned; among units
 that have never run, a handoff unit (one that takes the place a blocked unit frees)
@@ -152,7 +159,8 @@ starts first, and as soon as it is ready: it uses the project's emergency lane
 status` lists the units whose priority is not 3 and the ready queue in that
 order, each unit with its reason: `planned order`, its own priority, or the
 priority it takes from the unit that waits on it, and marks a handoff unit `(handoff)`. The graph page adds
-`priority N` to the node of a unit whose priority is not 3.
+`priority N` to the node of a unit whose priority is not 3, with `promoted from <unit>`
+(or `from <unit>` for a started unit a waiter covers) when that is where it came from.
 
 ## The graph
 

@@ -149,6 +149,11 @@ pull request when it is small and in line with unstarted work in the same repo
 and tier. `[acceptance]`, `[contract]` and `[narrow]` groups are never joined
 and need no `Separate:` line.
 
+The planner joins related work first, groups that touch the same or closely related
+files, and among equally good fits offers the more urgent work its partner first. It
+never joins unrelated work for its priority, and a joined unit takes the most urgent
+priority of its groups.
+
 ## `Independent:` lines
 
 Groups of a change are built in order: each unit depends on the one before. A
@@ -188,6 +193,12 @@ reads only the number. A unit takes the most urgent priority of the groups it bu
 carried ones included, and keeps it once it has started. A value that is not an
 integer from 0 to 5, a second line in one place, or a line in a group that could
 not be read is an error; `abk tags` shows a priority that is not 3.
+
+A group should be at least as urgent as every group that depends on it: the groups after
+it in the chain, and any group with a `Needs:` line on it. `abk tags` and `abk check`
+warn of a group that is less urgent than one that depends on it, and such a group is
+promoted: the prerequisite is raised to its dependent's priority. Two groups that do not
+share code belong in an `Independent:` group, so neither is a prerequisite of the other.
 
 ## Tier 2 splits
 
