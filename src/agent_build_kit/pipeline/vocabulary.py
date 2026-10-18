@@ -44,6 +44,7 @@ class WaitReason(StrEnum):
     USAGE_PAUSE = spans.USAGE_PAUSE
     LEASE = "lease"
     BACKOFF = "backoff"
+    SPLIT = "split"
     WAITING_REVIEW = "waiting_review"
     NEEDS_PERSON = "needs_person"
     READY = "ready"

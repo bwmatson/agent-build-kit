@@ -1974,6 +1974,23 @@ def _holds_of_parked(inst: Installation, unit: StoredUnit) -> dict[str, Hold]:
     return {name: held[name] for name in unit.parked_splits if name in held}
 
 
+def _split_gates(inst: Installation, units: Sequence[StoredUnit]) -> dict[str, Hold]:
+    """The hold that keeps each unit from starting, by unit id: it has never started and its
+    split is held for its repo. The held set is read once for each repo, from the state file
+    and the configuration alone; a gate is never asked. A unit of a repo the configuration
+    no longer has is not gated."""
+    held_of: dict[str, Mapping[str, Hold]] = {}
+    gates: dict[str, Hold] = {}
+    for unit in units:
+        if not unit.unstarted or unit.repo not in inst.config.repos:
+            continue
+        if unit.repo not in held_of:
+            held_of[unit.repo] = repo_holds(inst.config, inst.repo(unit.repo), inst.state_dir).held
+        if unit.split in held_of[unit.repo]:
+            gates[unit.id] = held_of[unit.repo][unit.split]
+    return gates
+
+
 def _split_wait_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[str]:
     """One line for each unit parked for a held e2e-test split: which, why and until when."""
     lines = []
@@ -2102,6 +2119,7 @@ def _evaluate_round(
     now = spans.clock.now()
     leases = Leases(lease_dir(inst.state_dir))
     owed = owed_units(inst, units) if owed is None else owed
+    gates = _split_gates(inst, units)
     for unit in units:
         if unit.id in building:
             unit = unit.model_copy(update={"state": RUNNING})
@@ -2118,6 +2136,8 @@ def _evaluate_round(
             or awaits_release(unit)
             # Parked for the host being unavailable, and its backoff is not over.
             or backoff_remaining(unit, now) is not None
+            # Its e2e-test split is held, and nothing exists yet that a hold could disturb.
+            or unit.id in gates
         ):
             unit = unit.model_copy(update={"state": HELD})
             excluded.add(unit.id)
@@ -3517,7 +3537,10 @@ def plan_all(
 
 def _promote(inst: Installation, store: UnitStore) -> None:
     """Give each unstarted unit the urgency of the units that wait on it, and say which."""
-    for unit_id, priority, source in promote_ancestors(store, _task_catalog(inst)):
+    # A gated unit is left out of the round and lends nothing; the promotion is worked out
+    # again every round, so it comes back in the first round that finds the hold gone.
+    gated = _split_gates(inst, store.all())
+    for unit_id, priority, source in promote_ancestors(store, _task_catalog(inst), gated):
         log(f"promoted {unit_id} to priority {priority}, from {source}")
 
 
@@ -5534,6 +5557,7 @@ def _waits_in(
     leases = Leases(lease_dir(inst.state_dir))
     now = spans.clock.now()
     waits: dict[str, Wait] = {}
+    gates = _split_gates(inst, units)
     # By the stored state: the view shows what a pass leaves out as held.
     for unit in units:
         # What `--only` leaves out is not waiting for anything this pass decides.
@@ -5553,7 +5577,7 @@ def _waits_in(
             waits[unit.id] = Wait(reason=WaitReason.NEEDS_PERSON)
         elif unit.state == PLANNED:
             waits[unit.id] = _planned_wait(
-                inst, unit, view, leases, now, startable, usage_paused=usage_paused
+                inst, unit, view, leases, now, startable, gates, usage_paused=usage_paused
             )
     return waits
 
@@ -5565,6 +5589,7 @@ def _planned_wait(
     leases: Leases,
     now: datetime,
     startable: set[str],
+    gates: Mapping[str, Hold],
     *,
     usage_paused: bool,
 ) -> Wait:
@@ -5578,6 +5603,11 @@ def _planned_wait(
     # or a stack deeper than may be built until what it stacks on merges.
     if awaits_release(unit) or depth_of(unit, view) > inst.stack_depth_build_cap:
         return Wait(reason=WaitReason.BLOCKED)
+    if (gate := gates.get(unit.id)) is not None:
+        return Wait(
+            reason=WaitReason.SPLIT,
+            detail=f"waiting for e2e-test split {unit.split}: {hold_text(gate)}",
+        )
     if usage_paused:
         return Wait(reason=WaitReason.USAGE_PAUSE)
     if unit.id in startable:
