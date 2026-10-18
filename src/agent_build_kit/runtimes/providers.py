@@ -108,6 +108,9 @@ class Provider(Frozen):
     """One row of the table: how to read usage, how to turn the result into a reading
     (or unknown), and what to tell a person whose reading fails for want of the library."""
 
+    # The importable name of the library `read` uses, which is also the name of the kit's extra
+    # that installs it.
+    library: str
     read: Callable[[], object]
     parse: Callable[[object, float, datetime], ProviderReading | ProviderUnknown]
     hint: str
@@ -115,6 +118,7 @@ class Provider(Frozen):
 
 PROVIDERS: dict[str, Provider] = {
     "modal": Provider(
+        library="modal",
         read=read_modal_summary,
         parse=_parse_modal,
         hint=(

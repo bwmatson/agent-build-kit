@@ -118,6 +118,7 @@ line each test that failed e2e-test on the base too, with how many times and its
 An `e2e-test:` line names the unit holding the e2e-test lock and for how long; a record left by a
 process that is gone, on a free lock, is shown as stale, a held lock whose recorded process is gone
 says so, and a free lock with no record prints nothing.
+A split with a `gate` adds a `gate usage:` line: the split, the provider, the amount used against the budget and as a percent, the threshold now (and what it moves towards while it ramps), when the window resets, whether the split is held or usable or its usage unknown (with the reason), and the source and age of the reading. A command gate shows its result and reason. A split held by another source shows that source as the hold. Without `--refresh` only the cache is read, so no provider is asked and no command is run; `--refresh` reads afresh.
 The `queue is full` lines are one for each project at its limit, as the tick paragraph above says.
 A `restacks: N running, M waiting` line, which totals the lane of every project, printed only while a restack lane has work or a unit
 is owed a restack, is followed by each unit as `restacking onto <base>`; a restack waiting for a
@@ -697,6 +698,7 @@ Is this installation in a state the pipeline can run in? Each check prints
 | runtime | the selected runtime is not implemented, or its agent command (`runtimes.<name>.command`, else the adapter's own, `claude` for `claude_code`; the one every run spawns) is not on PATH | |
 | runtime coverage | | the runtime's `policy_coverage` is short of `all_calls` |
 | runtime policy | the runtime does not refuse a forbidden command class or one spelling of it (each class is named, with the spelling it let through and the spellings it refused; the fix printed is `runtimes.<name>.policy_fix`, else the runtime's own advice). It reads the agent's configuration, starts no agent and keeps no answer; the line says the answer is what the configuration says, not observed from the agent. Also when the configuration is absent or unreadable (the path or reason is named) | `cannot check: abk has no policy for this agent`; not checked, because the agent command does not resolve (see the `runtime` check) |
+| gate usage | | a split's gate cannot be read: the provider's library is not installed (both forms of the fix are printed: `uv sync --extra modal` in the installation, or `agent-build-kit[modal]` in its dependency on the kit), the call raises (the error's class and redacted message), the gate command is not on PATH, or the result is unknown. A reading that holds the split is a note, not a warning. The doctor reads afresh and never from the cache; a workspace with no gate has no such check |
 | ssh key `<name>` | `deploy.ssh_key` does not exist | |
 | verify.env `<VAR>` | the provider cannot resolve (names only; never values) | |
 | rules | | The `# abk-rules: vN` stamp in `openspec/config.yaml` against the framework's rules version: a note when it is unstamped, a warning when the framework has added rules since (they are listed) or the stamp is newer. Wording is never compared. |

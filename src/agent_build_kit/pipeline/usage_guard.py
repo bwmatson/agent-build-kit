@@ -112,6 +112,8 @@ from agent_build_kit.settings import settings
 # The one window a provider has, and the file its readings are kept in, per split.
 PROVIDER_WINDOW = "billing"
 GATE_USAGE_NAME = "gate-usage.json"
+# What an unknown gate result says when nothing was asked for it.
+NOT_READ_REASON = "not read yet; `abk status --refresh` reads it"
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 OAUTH_BETA_HEADER = "oauth-2025-04-20"
@@ -1440,9 +1442,13 @@ class GateResult(Frozen):
     used_pct: int | None = None
     window_end: datetime | None = None
     threshold: int | None = None
+    # The threshold in words, with where it is moving to while it moves.
+    threshold_note: str = ""
     # When a held result stops standing without a later reading: the window's end,
     # or one cache time on for a command.
     until: datetime | None = None
+    # When the reading behind the result was taken; None when none was.
+    taken_at: datetime | None = None
 
 
 def provider_decision(
@@ -1487,6 +1493,7 @@ def provider_decision(
         state="held" if held else "usable",
         reason=f"{reading.used_pct}% used, {note}",
         threshold=threshold,
+        threshold_note=note,
         until=reading.window_end if held else None,
         **figures,
     )
@@ -1505,11 +1512,11 @@ def _gate_source(gate: GateConfig) -> list:
     return ["command", *(gate.command or [])]
 
 
-def _gate_cached_result(
-    entry: dict | None, gate: GateConfig, now: datetime
-) -> ProviderReading | ProviderUnknown | GateCommandResult | None:
-    """What the cache entry still answers, or None when it is spent, unreadable or was taken
-    for another gate."""
+def _gate_entry_answer(
+    entry: dict | None, gate: GateConfig
+) -> tuple[ProviderReading | ProviderUnknown | GateCommandResult, datetime, bool] | None:
+    """The answer a cache entry holds, when it was taken, and whether it is an unknown one; None
+    when the entry is unreadable or was taken for another gate. Its age is not looked at."""
     if entry is None or entry.get("source") != _gate_source(gate):
         return None
     try:
@@ -1525,6 +1532,18 @@ def _gate_cached_result(
     except (KeyError, TypeError, ValueError):
         return None
     unknown = kind == "unknown" or getattr(answer, "state", "") == "unknown"
+    return answer, taken, unknown
+
+
+def _gate_cached_result(
+    entry: dict | None, gate: GateConfig, now: datetime
+) -> ProviderReading | ProviderUnknown | GateCommandResult | None:
+    """What the cache entry still answers, or None when it is spent, unreadable or was taken
+    for another gate."""
+    held = _gate_entry_answer(entry, gate)
+    if held is None:
+        return None
+    answer, taken, unknown = held
     life = timedelta(
         minutes=gate.usage_stale_retry_minutes if unknown else gate.usage_cache_minutes
     )
@@ -1544,27 +1563,25 @@ def _gate_answer_result(
     standing: bool,
 ) -> GateResult:
     if isinstance(answer, ProviderUnknown):
-        return GateResult(state="unknown", reason=answer.reason)
+        return GateResult(state="unknown", reason=answer.reason, taken_at=taken)
     if isinstance(answer, GateCommandResult):
         until = taken + timedelta(minutes=gate.usage_cache_minutes)
         return GateResult(
             state=answer.state,
             reason=answer.reason,
             until=until if answer.state == "held" else None,
+            taken_at=taken,
         )
     provider = gate.provider
     assert provider is not None
     result = provider_decision(answer, limits=provider.limits, now=now, standing=standing)
-    if result.state != "held":
-        return result
-    return result.model_copy(
-        update={
-            "reason": (
-                f"{provider.name} usage {answer.used_amount:.2f} of {provider.budget_usd:g} USD, "
-                + result.reason
-            )
-        }
-    )
+    update: dict[str, object] = {"taken_at": taken}
+    if result.state == "held":
+        update["reason"] = (
+            f"{provider.name} usage {answer.used_amount:.2f} of {provider.budget_usd:g} USD, "
+            + result.reason
+        )
+    return result.model_copy(update=update)
 
 
 def gate_result(
@@ -1577,11 +1594,14 @@ def gate_result(
     standing: bool = False,
     refresh: bool = False,
     persist: bool = True,
+    fetch: bool = True,
     read: Callable[[], object] | None = None,
     run: Run = subprocess.run,
 ) -> GateResult:
     """One split's gate evaluated from its configuration, through the per-split cache in
-    `<state_dir>/gate-usage.json` unless `refresh`.
+    `<state_dir>/gate-usage.json` unless `refresh`; with `fetch` off nothing is asked of the
+    provider or run, and the last entry recorded for this gate answers whatever its age (an
+    unknown result saying so when there is none).
 
     A good reading answers for `usage_cache_minutes` and never past its window's end, an unknown
     result for `usage_stale_retry_minutes`; the file is written whole under a lock, and not at all
@@ -1595,6 +1615,12 @@ def gate_result(
     if cached is not None and entry is not None:
         taken = datetime.fromisoformat(entry["taken_at"])
         return _gate_answer_result(cached, gate, taken=taken, now=now, standing=standing)
+
+    if not fetch:
+        last = _gate_entry_answer(entry, gate)
+        if last is None:
+            return GateResult(state="unknown", reason=NOT_READ_REASON)
+        return _gate_answer_result(last[0], gate, taken=last[1], now=now, standing=standing)
 
     # The lock is not held across the fetch: a provider that hangs must not keep the
     # readers of the cache waiting.

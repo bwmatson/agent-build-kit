@@ -94,7 +94,7 @@ from agent_build_kit.pipeline.events import (
 )
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.flakes import flake_record
-from agent_build_kit.pipeline.gate_holds import evaluate_gates
+from agent_build_kit.pipeline.gate_holds import evaluate_gates, gate_status_lines
 from agent_build_kit.pipeline.joins import JoinContext
 from agent_build_kit.pipeline.label_sweep import sweep_finished
 from agent_build_kit.pipeline.labels import StateLabels
@@ -625,6 +625,10 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         log(line)
     for line in held_status_lines(inst):
         log(line)
+    for line in gate_status_lines(
+        inst, now=datetime.now(UTC), refresh=getattr(args, "refresh", False)
+    ):
+        print(redact_text(line, where="printed output"), flush=True)
 
     for change, record in planned_hashes(inst).items():
         if record.get("waiting") in PLAN_WAITS:

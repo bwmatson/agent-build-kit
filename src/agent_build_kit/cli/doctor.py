@@ -11,12 +11,14 @@ the checks are tested against recorded answers rather than this machine.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import re
 import shlex
 import shutil
 import socket
 import subprocess
 import tomllib
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
@@ -70,6 +72,7 @@ from agent_build_kit.notify.windows import (
 from agent_build_kit.path_patterns import matches
 from agent_build_kit.pipeline.e2e_holds import HELD_FILE, current_holds, hold_text
 from agent_build_kit.pipeline.environment import matched_inputs
+from agent_build_kit.pipeline.gate_holds import gate_standing, split_gates
 from agent_build_kit.pipeline.original_copy import COPY_PATTERN
 from agent_build_kit.pipeline.pending import describe, pending_projects
 from agent_build_kit.pipeline.planning_repo import common_dir, is_worktree_of
@@ -79,11 +82,12 @@ from agent_build_kit.pipeline.planning_sync import (
     read_pipeline_marker,
 )
 from agent_build_kit.pipeline.shell import git, git_out
+from agent_build_kit.pipeline.usage_guard import gate_result
 from agent_build_kit.profiles.base import ProfileUnsupported
 from agent_build_kit.redaction import MIN_LENGTH
 from agent_build_kit.redaction import active as active_redactor
 from agent_build_kit.replay.review import directories, overdue, waiting
-from agent_build_kit.runtimes import claude_code, policy_check
+from agent_build_kit.runtimes import claude_code, policy_check, providers
 from agent_build_kit.runtimes.base import AgentRuntime, Run, Which, account_report_of
 from agent_build_kit.scrub_terms import ROOT_HOME, TILDE_HOME
 from agent_build_kit.settings import settings
@@ -1411,6 +1415,71 @@ def _e2e_holds(inst: Installation) -> list[Check]:
     return checks
 
 
+def _gate_usage(inst: Installation, run: Run, which: Which) -> list[Check]:
+    """For each split with a gate: the provider's library is importable, the budget is set, a
+    reading can be taken (read afresh, never from the cache) and what it says. A hold that
+    stands for a gate reading is information; an unknown result is a warning."""
+    name = "gate usage"
+    checks: list[Check] = []
+    held = current_holds(inst.config, inst.state_dir).held
+    for split, gate in split_gates(inst).items():
+        if gate.provider is not None:
+            row = providers.PROVIDERS[gate.provider.name]
+            if importlib.util.find_spec(row.library) is None:
+                checks.append(
+                    _warn(
+                        name,
+                        f"{split}: no reading can be taken, {row.hint}",
+                        f"run `uv sync --extra {row.library}` in the installation, or name "
+                        f"`agent-build-kit[{row.library}]` in its dependency on the kit",
+                    )
+                )
+                continue
+            checks.append(
+                _ok(
+                    name,
+                    f"{split}: budget {gate.provider.budget_usd:g} USD ({row.library} installed)",
+                )
+            )
+        else:
+            program = (gate.command or [""])[0]
+            if which(program) is None:
+                checks.append(
+                    _warn(
+                        name,
+                        f"{split}: the gate command {program} was not found",
+                        "install it, or fix `gate.command` for the split",
+                    )
+                )
+                continue
+        result = gate_result(
+            split,
+            gate,
+            now=datetime.now(UTC),
+            state_dir=inst.state_dir,
+            root=inst.root,
+            standing=gate_standing(held.get(split)),
+            refresh=True,
+            persist=False,
+            run=run,
+        )
+        reason = active_redactor().redact(result.reason)
+        detail = f"{split}: {result.state}, {reason}" if reason else f"{split}: {result.state}"
+        if result.state == "unknown":
+            checks.append(
+                _warn(
+                    name,
+                    f"{split}: no reading can be taken: {reason}",
+                    "fix the reason shown",
+                )
+            )
+        elif result.state == "held":
+            checks.append(_info(name, detail))
+        else:
+            checks.append(_ok(name, detail))
+    return checks
+
+
 def run_doctor(
     config_path: Path | None,
     *,
@@ -1448,6 +1517,7 @@ def run_doctor(
     checks += _live_installation(inst)
     checks += _repos(inst, run)
     checks += _e2e_holds(inst)
+    checks += _gate_usage(inst, run, which)
     checks += _pending_projects(inst)
     checks += _changelogs(inst)
     checks += _cassettes(inst)

@@ -12,13 +12,15 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.e2e_holds import (
     SOURCE_GATE,
+    Hold,
+    current_holds,
     declared_splits,
     held_splits,
     remove_hold,
     write_hold,
 )
 from agent_build_kit.pipeline.shell import Run
-from agent_build_kit.pipeline.usage_guard import gate_result
+from agent_build_kit.pipeline.usage_guard import GateResult, gate_result
 
 # Who the held set records as the writer of a gate entry.
 EVALUATOR = "gate evaluation"
@@ -32,7 +34,7 @@ class GateAction(Frozen):
     reason: str
 
 
-def _gates(installation: Installation) -> dict[str, GateConfig]:
+def split_gates(installation: Installation) -> dict[str, GateConfig]:
     """Each split's gate, the top-level declaration first and then any repo's own."""
     config = installation.config
     gates: dict[str, GateConfig] = {}
@@ -59,7 +61,7 @@ def evaluate_gates(
     """Evaluate every split with a gate and write, renew or lift its `gate` entry; with
     `dry_run` only report. The only writer of gate entries: an entry of another source, and a
     split the configuration holds, are left alone."""
-    gates = _gates(installation)
+    gates = split_gates(installation)
     if not gates:
         return []
     state = installation.state_dir
@@ -116,3 +118,79 @@ def evaluate_gates(
             GateAction(split=name, action="renew" if renewing else "hold", reason=reason)
         )
     return actions
+
+
+def _age_minutes(result: GateResult, now: datetime) -> str:
+    return (
+        ""
+        if result.taken_at is None
+        else f", {int((now - result.taken_at).total_seconds() // 60)}m old"
+    )
+
+
+def gate_standing(hold: Hold | None) -> bool:
+    """Whether `hold`, the split's entry in the held set, is one a gate evaluation wrote."""
+    return hold is not None and hold.source == SOURCE_GATE
+
+
+def gate_status_line(
+    split: str,
+    gate: GateConfig,
+    result: GateResult,
+    hold: Hold | None,
+    *,
+    now: datetime,
+) -> str:
+    """The `abk status` line for one split's gate: the figures, the threshold, the reset, the
+    state and where the figure came from. The state is `held` whenever the held set holds the
+    split; a hold of another source names that source, since it and not the gate's figures is
+    what holds the split."""
+    provider = gate.provider
+    source = "provider reading" if provider is not None else "command result"
+    where = f"{source}{_age_minutes(result, now)}"
+    subject = f"gate usage: {split} ({provider.name if provider else 'command'})"
+    if hold is None:
+        state = result.state
+    elif gate_standing(hold):
+        state = "held"
+    else:
+        state = f"held ({hold.source or ' and '.join(hold.origins)})"
+    if result.state == "unknown":
+        return f"{subject} {state}: {result.reason} ({where})"
+    if provider is None or result.used_amount is None or result.window_end is None:
+        reason = f": {result.reason}" if result.reason else ""
+        return f"{subject} {state}{reason} ({where})"
+    return (
+        f"{subject} {result.used_amount:.2f} of {provider.budget_usd:g} USD ({result.used_pct}%), "
+        f"{result.threshold_note}, resets {result.window_end.astimezone(UTC):%m-%d %H:%M} UTC, "
+        f"{state} ({where})"
+    )
+
+
+def gate_status_lines(
+    installation: Installation,
+    *,
+    now: datetime,
+    refresh: bool = False,
+    read: Callable[[], object] | None = None,
+    run: Run = subprocess.run,
+) -> list[str]:
+    """One line for each split with a gate, for `abk status`. Without `refresh` the cache is all
+    that is read: no provider is asked and no command run."""
+    held = current_holds(installation.config, installation.state_dir, now=now).held
+    lines = []
+    for name, gate in split_gates(installation).items():
+        result = gate_result(
+            name,
+            gate,
+            now=now,
+            state_dir=installation.state_dir,
+            root=installation.root,
+            standing=gate_standing(held.get(name)),
+            refresh=refresh,
+            fetch=refresh,
+            read=read,
+            run=run,
+        )
+        lines.append(gate_status_line(name, gate, result, held.get(name), now=now))
+    return lines
