@@ -915,6 +915,17 @@ the old account starts fresh) and set the usage windows for the new plan under
   run uses a service name of its own, so earlier runs in the stores do not
   answer for it. Run with `uv run pytest -m local_stack
   tests/integration/test_telemetry_stack.py`.
+- The dry-guidance acceptance run (`tests/integration/test_dry_guidance_build.py`
+  and `tests/integration/test_dry_guidance_review.py`) is `local_stack`, needs
+  `ABK_ACCEPTANCE_ACP_COMMAND` and fails, not skips, when it names no agent. It
+  bills per token and takes minutes per case. Each case runs once: three builds
+  (reuse, generalize, share) and two reviews (a seeded duplicate, a clean branch),
+  five agent runs in all, with no retry. Each tick is limited to 25 minutes, under
+  the e2e-test time limit above, so a stuck agent fails with the unit's log. The
+  assertions parse what the agent wrote and the prompts it was sent, recorded by
+  `tests/acp_recorder.py` at the protocol; none is a model's judgement. Run with
+  `uv run pytest -m local_stack tests/integration/test_dry_guidance_build.py
+  tests/integration/test_dry_guidance_review.py`.
 - `replay` (the `tests/replay/` plugin, see "Record and replay of external calls"
   below) puts a reverse proxy in front of an e2e-test test's calls to the model
   provider and package index, so a rerun of an unchanged call is answered from a
