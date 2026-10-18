@@ -1482,7 +1482,9 @@
   commit means for started units (a `Needs:` edit, a plan change, a requirement a unit was
   built to) without changing any of them. When a session other than the unit's own commits
   to its branch, the unit's next check fix, review and rework prompts list that commit as
-  authoritative and not to be reverted.
+  authoritative and not to be reverted. A chat turn on a unit's own session with an agent
+  that cannot resume that session now goes on in a new session seeded with what was
+  recorded, and says so, instead of ending with no reply.
 
 - A repo can now set `forge: local`: its pull requests, and the review comments and decision
   made in the web UI, are kept in the state directory instead of on a code host, with no

@@ -18,15 +18,13 @@ What is asserted is what an operator sees:
 - a stale attachment is released from the command line.
 
 Needs an agent speaking the protocol, node for the OpenSpec CLI and uv. Bills on demand and takes
-minutes, so it is marked tier 2 and excluded from the default suite.
+minutes, so it is marked e2e-test and excluded from the default suite.
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
 import re
-import shlex
 import shutil
 import subprocess
 import sys
@@ -37,6 +35,7 @@ from typing import Any
 
 import httpx
 import pytest
+from pydantic import Field
 
 from agent_build_kit import config
 from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
@@ -52,6 +51,8 @@ from tests.attach_driver import leave_lease
 from tests.factories import git, init_repo, scratch_app
 from tests.forges.github_server import FakeGitHub
 from tests.forges.process_host import process_env
+from tests.runtime_scratch import runtime_scratch
+from tests.scratch_tick import commits_on_unit_branch, run_tick
 
 pytestmark = [
     pytest.mark.local_stack,
@@ -59,11 +60,14 @@ pytestmark = [
     pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not on PATH"),
 ]
 
+# The scenarios run on the protocol runtime alone: the agent that is reached through the recorder
+# is the one a host names, and its session handling is what the chat flows are checked against.
+REASON = "the agent is reached through the protocol runtime's command, which the recorder wraps"
+
 CHANGE = "add-marker"
 BRANCH = f"spec/{CHANGE}/1"
 UNIT_ID = f"{CHANGE}/1"
 UNIT_URL = f"/api/units/{CHANGE}/1"
-AGENT_COMMAND = "ABK_ACCEPTANCE_ACP_COMMAND"
 HOOK_MARKER = "FIXME-CHAT"
 OUTSIDE_NOTE = "Commits made outside this session"
 CHAT_COMMIT_REVIEW = "review of a chat's commit"
@@ -71,7 +75,7 @@ COMMENT = "Please also say in the docstring of `marker()` that it is a marker."
 
 TASKS = """# Tasks
 
-## 1. [app] [tier1] Add the marker
+## 1. [app] [unit-test] Add the marker
 
 - [ ] 1.1 Test: `marker()` in `src/app/marker.py` returns the string `"marked"`.
 - [ ] 1.2 Add `marker()` to `src/app/marker.py`.
@@ -112,7 +116,16 @@ fi
 """
 
 
-class Ticked(Frozen):
+ACP_ONLY_REASONS = {
+    "test_a_request_against_a_requirement_is_flagged_and_changes_nothing": REASON,
+    "test_a_chat_edit_is_fixed_for_the_hook_committed_and_reviewed_without_a_round": REASON,
+    "test_a_free_session_changes_code_and_a_task_file_and_each_checkout_is_committed": REASON,
+    "test_the_next_rework_lists_the_outside_commit_as_authoritative": REASON,
+    "test_a_stale_attachment_is_released_from_the_command_line": REASON,
+}
+
+
+class Ran(Frozen):
     returncode: int
     output: str
 
@@ -124,9 +137,10 @@ class Scratch(Frozen):
     app: Path
     remote: Path
     installation: Installation
+    state: Path
     prompts: Path
     host: FakeGitHub
-    env: dict[str, str]
+    env: dict[str, str] = Field(repr=False)
 
     @property
     def tree(self) -> Path:
@@ -149,9 +163,7 @@ def github_host() -> Iterator[FakeGitHub]:
 @pytest.fixture(scope="module")
 def scratch(tmp_path_factory: pytest.TempPathFactory, github_host: FakeGitHub) -> Scratch:
     tmp_path = tmp_path_factory.mktemp("chat-editing")
-    command = os.environ.get(AGENT_COMMAND, "")
-    if not command:
-        pytest.fail(f"{AGENT_COMMAND} names no agent: this run needs a real one on the host")
+    runtime = runtime_scratch("acp", tmp_path_factory, lambda command: None)
     prompts = tmp_path / "prompts.log"
     recorder = tmp_path / "recorder.py"
     recorder.write_text(RECORDER)
@@ -176,7 +188,7 @@ def scratch(tmp_path_factory: pytest.TempPathFactory, github_host: FakeGitHub) -
         '- **THEN** it returns "marked"\n'
     )
     (change / "tasks.md").write_text(TASKS)
-    wrapped = [sys.executable, str(recorder), str(prompts), *shlex.split(command)]
+    wrapped = [sys.executable, str(recorder), str(prompts), *runtime.command]
     (planning / "abk.yaml").write_text(
         f"repos:\n  app:\n    path: {app}\n    slug: example/app\n"
         "    profile: python-uv\n    languages: [python]\n"
@@ -189,15 +201,17 @@ def scratch(tmp_path_factory: pytest.TempPathFactory, github_host: FakeGitHub) -
 
     env = {
         **process_env(github_host, tmp_path / "bin", tmp_path / "gh-calls.txt"),
+        **runtime.env,
         "ABK_CONFIG": str(planning / "abk.yaml"),
         "ABK_WORKTREE_ROOT": str(tmp_path / "worktrees"),
-        "ABK_RUNTIME": "acp",
     }
+    installation = Installation(config.load(planning / "abk.yaml"), planning)
     return Scratch(
         planning=planning,
         app=app,
         remote=remote,
-        installation=Installation(config.load(planning / "abk.yaml"), planning),
+        installation=installation,
+        state=installation.state_dir,
         prompts=prompts,
         host=github_host,
         env=env,
@@ -231,7 +245,7 @@ def api(scratch: Scratch) -> Iterator[httpx.Client]:
         yield client
 
 
-def abk(scratch: Scratch, *args: str) -> Ticked:
+def abk(scratch: Scratch, *args: str) -> Ran:
     run = subprocess.run(
         [str(Path(sys.executable).parent / "abk"), *args],
         cwd=scratch.planning,
@@ -240,7 +254,7 @@ def abk(scratch: Scratch, *args: str) -> Ticked:
         text=True,
         timeout=3600,
     )
-    return Ticked(returncode=run.returncode, output=run.stdout + run.stderr)
+    return Ran(returncode=run.returncode, output=run.stdout + run.stderr)
 
 
 def run_log(scratch: Scratch) -> str:
@@ -327,20 +341,27 @@ def converse(api: httpx.Client, url: str, body: dict[str, Any]) -> list[dict[str
 
 
 def said(events: list[dict[str, Any]]) -> str:
-    return "".join(
+    """What the reply said, then any error it ended with, so a failure shows both."""
+    text = "".join(
         str(e.get("delta", "")) for e in events if e.get("type") == "TEXT_MESSAGE_CONTENT"
     )
+    errors = [str(e.get("message", e)) for e in events if e.get("type") == "RUN_ERROR"]
+    return "\n".join([text, *(f"RUN_ERROR: {error}" for error in errors)])
 
 
 @pytest.fixture(scope="module")
 def in_review(scratch: Scratch) -> Scratch:
     """The unit built by the tick, waiting in review with a pull request."""
-    built = abk(scratch, "tick")
+    built = run_tick(scratch)
     assert built.returncode == 0, built.output
-    assert scratch.host.requests("POST", "/repos/example/app/pulls"), run_log(scratch)
+    assert commits_on_unit_branch(scratch, BRANCH, built), built.output
+    assert scratch.host.requests("POST", "/repos/example/app/pulls"), (
+        f"{run_log(scratch)}\n{built.output}"
+    )
     return scratch
 
 
+@pytest.mark.runtime_acp
 def test_a_request_against_a_requirement_is_flagged_and_changes_nothing(
     in_review: Scratch, api: httpx.Client
 ) -> None:
@@ -364,6 +385,7 @@ def test_a_request_against_a_requirement_is_flagged_and_changes_nothing(
     api.delete(f"{UNIT_URL}/lease", params={"tab": "flag"})
 
 
+@pytest.mark.runtime_acp
 def test_a_chat_edit_is_fixed_for_the_hook_committed_and_reviewed_without_a_round(
     in_review: Scratch, api: httpx.Client
 ) -> None:
@@ -416,7 +438,7 @@ def test_a_chat_edit_is_fixed_for_the_hook_committed_and_reviewed_without_a_roun
     assert Leases(lease_dir(scratch.installation.state_dir)).attachment(UNIT_ID) is None
 
     logs_before = log_names(scratch)
-    ticked = abk(scratch, "tick")
+    ticked = run_tick(scratch)
     assert ticked.returncode == 0, ticked.output
     log = logs_since(scratch, logs_before)
     assert CHAT_COMMIT_REVIEW in log, log
@@ -425,6 +447,7 @@ def test_a_chat_edit_is_fixed_for_the_hook_committed_and_reviewed_without_a_roun
     assert git(scratch.remote, "rev-parse", BRANCH).strip() == head(tree)
 
 
+@pytest.mark.runtime_acp
 def test_a_free_session_changes_code_and_a_task_file_and_each_checkout_is_committed(
     in_review: Scratch, api: httpx.Client
 ) -> None:
@@ -476,13 +499,14 @@ def test_a_free_session_changes_code_and_a_task_file_and_each_checkout_is_commit
     assert Leases(lease_dir(scratch.installation.state_dir)).attachment(UNIT_ID) is None
 
     logs_before = log_names(scratch)
-    ticked = abk(scratch, "tick")
+    ticked = run_tick(scratch)
     assert ticked.returncode == 0, ticked.output
     log = logs_since(scratch, logs_before)
     assert CHAT_COMMIT_REVIEW in log, log
     assert_chat_review_uncounted(log)
 
 
+@pytest.mark.runtime_acp
 def test_the_next_rework_lists_the_outside_commit_as_authoritative(in_review: Scratch) -> None:
     scratch = in_review
     outside = git(scratch.tree, "log", "-1", "--format=%H", "--grep=Add a version").strip()
@@ -491,7 +515,7 @@ def test_the_next_rework_lists_the_outside_commit_as_authoritative(in_review: Sc
 
     told_before, logs_before = len(prompts_told(scratch)), log_names(scratch)
 
-    reworked = abk(scratch, "tick")
+    reworked = run_tick(scratch)
 
     assert reworked.returncode == 0, reworked.output
     told = prompts_told(scratch)[told_before:]
@@ -506,6 +530,7 @@ def test_the_next_rework_lists_the_outside_commit_as_authoritative(in_review: Sc
     )
 
 
+@pytest.mark.runtime_acp
 def test_a_stale_attachment_is_released_from_the_command_line(in_review: Scratch) -> None:
     scratch = in_review
     tree = scratch.tree

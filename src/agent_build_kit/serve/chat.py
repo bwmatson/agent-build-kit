@@ -734,6 +734,14 @@ def register(
         except KeyError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
         prompt = with_attachments(body.prompt, body.attachments)
+
+        def fresh(cb: dict[str, Any]) -> AgentRequest:
+            """The turn in a new session, for an agent that cannot resume the build session:
+            seeded with what was recorded of it, and still the builder's turn."""
+            known = chat.acp_sessions().get(recorded.session_id)
+            seen = [e.model_dump() for e in known[1]] if known else []
+            return chat.request(cb, _seed(seen, prompt), cwd, model=recorded.model, builder=unit)
+
         return chat.leased(
             unit,
             body.tab,
@@ -746,6 +754,7 @@ def register(
                 unit=unit,
                 said=prompt,
                 session=recorded.session_id,
+                fallback=fresh if recorded.runtime == ACP else None,
             ),
             session=recorded.session_id,
             runtime=recorded.runtime,
