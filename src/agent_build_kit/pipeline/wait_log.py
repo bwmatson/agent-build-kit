@@ -31,6 +31,8 @@ class Wait(Frozen):
 
     reason: WaitReason
     waits_on: tuple[str, ...] = ()
+    # What the reason reads in words, when the reason alone does not say it.
+    detail: str = ""
 
 
 class WaitRecorder:
