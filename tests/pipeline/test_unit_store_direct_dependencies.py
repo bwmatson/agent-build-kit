@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agent_build_kit.pipeline.file_lock import try_file_lock
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import FAILED, MERGED
 from tests.factories import unit
@@ -96,3 +97,20 @@ def test_the_record_read_back_is_the_record_written(tmp_path: Path) -> None:
 
     assert UnitStore(path).get("feature/3") == store.get("feature/3")
     assert UnitStore(path).get("feature/3").depends_on == ("feature/2",)
+
+
+def test_set_dependencies_writes_under_the_stores_lock(tmp_path: Path) -> None:
+    path = tmp_path / "units.json"
+    held: list[bool] = []
+
+    def on_write(units) -> None:
+        with try_file_lock(path.with_name("units.json.lock")) as free:
+            held.append(not free)
+
+    store = UnitStore(path, on_write=on_write)
+    store.upsert([unit("feature/1"), unit("feature/2")])
+    held.clear()
+
+    store.set_dependencies("feature/2", ("feature/1",))
+
+    assert held == [True]

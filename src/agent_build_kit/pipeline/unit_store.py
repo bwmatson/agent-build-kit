@@ -1076,6 +1076,7 @@ class UnitStore:
         """Name where the unit's most recent run is in the traces. Not a state change."""
         self._update(unit_id, trace=trace)
 
+    @_exclusive
     def set_dependencies(self, unit_id: str, depends_on: Sequence[str]) -> None:
         """Store the direct dependencies of the list given."""
         stored = self._read()
