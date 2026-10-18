@@ -234,9 +234,12 @@ context:
 # (both set is an error). A scheduling setting left in `global_limits` or `limits`
 # fails the load; `abk config --migrate` moves it (see docs/cli.md).
 project_limits:
-  max_concurrent_stacks: 4      # units being built at once, in each project
-  max_concurrent_restacks: 2    # restacks (a branch moved onto a changed base) at once in
-                                # each project; they take no build slot
+  max_concurrent_stacks: 4      # units being built at once, in each project (every limit
+                                # here is counted for each project, not across all repos)
+  max_concurrent_restacks: 2    # moved-base runs (a branch moved onto a changed base, and
+                                # the run after it) at once in each project; the lane's cap
+                                # bounds the run, which counts toward slot occupancy but is
+                                # never held back by max_concurrent_stacks
   max_units_in_progress: 5      # units started and not finished, in each project, at
                                 # least 1; at it no unit that has never started does,
                                 # while reworks, resumes and finishing reviewed work
@@ -521,6 +524,18 @@ notifications:                  # tell a person when a unit waits on them (off b
                                 # through BurntToast pinned to 0.8.5 (`abk init` installs
                                 # it, `abk doctor` checks that version is listed).
 ```
+
+### `project_limits.max_concurrent_restacks`
+
+A unit whose only reason to run is that its base moved runs its whole moved-base run in the
+restack lane: the move, the resolver, the port of a conflict and the checks and review of the
+moved branch. The lane's cap bounds the moved-base run. The run counts toward slot occupancy but
+is never held back by the limit `max_concurrent_stacks`: no build starts at or above that cap,
+and the occupancy may read over it. A run stops before a rework that answers a reviewer, a fix
+of failing checks or the end-to-end tests, and what it cannot go on with is handed back,
+`planned` with the cause `restack_handed_back`. The attempts at one base tip are bounded by
+`global_limits.max_review_rounds`, after which the unit is held for a person. Every limit in
+`project_limits` is counted for each project, not across all repos.
 
 ### `planning.self_pull` and `planning.publish`
 

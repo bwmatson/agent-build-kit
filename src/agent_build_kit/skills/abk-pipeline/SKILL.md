@@ -377,9 +377,15 @@ directory is gone is logged as withdrawn and skipped.
 
 ## Restacks
 
-A unit whose base moved is moved by the restack lane, beside the build workers and outside
-`max_concurrent_stacks`. Each project has its own lane, with `project_limits.max_concurrent_restacks`
-workers, so a busy project does not hold back another's restacks. `abk status` prints one
+A unit whose only reason to run is that its base moved runs its whole moved-base run in the
+restack lane. The lane's cap bounds the moved-base run: each project has its own lane, with
+`project_limits.max_concurrent_restacks` workers, so a busy project does not hold back another's.
+The run counts toward slot occupancy (no build starts at or above `max_concurrent_stacks`, and the
+occupancy may read over it) and is never held back by the limit on build workers. A run that
+cannot go on is handed back: the unit is `planned` with `restack_handed_back` and a note naming
+the step, and a build worker takes it; `restack_conflict` is the same for a conflict the lane left
+to the unit's own run. Attempts at one base tip are bounded by `max_review_rounds`, then the unit
+is held for a person. `abk status` prints one
 `restacks: N running, M waiting` line totalling every project's lane, with each unit as
 `restacking onto <base>`; a restack whose conflict needs the agent while a usage pause stands is
 listed as `restack waiting: <unit> — usage pause until <time>` and is moved when the pause ends.
