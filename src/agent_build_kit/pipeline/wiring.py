@@ -3316,6 +3316,7 @@ def why_branch_is_changing(
     """
     if parent.state in REVIEWED:
         return ""
+    # A replan carries a standing cause, so these readings hold over it.
     if parent.state == PLANNED and parent.cause is Cause.UPSTREAM_WENT_BACK:
         return "it is planned, waiting on a changing upstream"
     if parent.state == PLANNED and parent.cause is Cause.BASE_CHANGED:

@@ -1723,6 +1723,7 @@ def gate_sent_back(store: UnitStore) -> None:
     pass that finds the gate clear, instead of starting it again."""
     units = store.all()
     for unit in units:
+        # The cause is standing, so a replan between the send-back and here keeps it.
         if unit.state != PLANNED or unit.cause not in READMITTED_CAUSES:
             continue
         waits = [parent for parent in waiting_on(unit, units) if parent.repo != unit.repo]
@@ -1779,7 +1780,6 @@ def release_gated(inst: Installation, store: UnitStore, *, in_flight: Collection
     for unit in units:
         if (
             unit.state != PLANNED
-            or unit.cause is not Cause.GATED
             or unit.gated_requeue is None
             or unit.id in in_flight
             or waiting_on(unit, units)

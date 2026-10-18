@@ -587,17 +587,34 @@ request, and restacks onto the predecessor's new head when it is released. The m
 `upstream_changed` event delivered to the unit's thread, which records it and stays waiting at
 `await_review`; the release is unchanged. A unit with no thread is written to the store directly. The server's unit
 summary and the `abk.units` gauge read the stored state; `status` carries the derived name.
+
 Every change that stops a unit, holds it or sends it back (and a merge, a close, a
 release, a failure) records a `cause`, a fixed set of values, on its history entry; the
 note beside it is prose for people and no code reads it. The entries for starting a run,
-reaching review and being satisfied carry none. A pass lets a unit it already
-built back in only when its last cause is `rework` or `base_changed` (resuming restacks
-it, so what held it is gone), or `host_unavailable`, `network_unavailable` or `service_unavailable` once its backoff has
-elapsed (the code host, the network or the model service could not be reached; 1, 2, 5,
-10, then 30 minutes by consecutive parking); a
+reaching review and being satisfied carry none. A cause is one of two kinds, and the
+two sets (`STANDING_CAUSES` and `EVENT_CAUSES`) together are exactly the members of `Cause`.
+A standing cause names a situation that lasts until a state change passes another cause: `rework`,
+`base_changed`, `upstream_went_back`, `usage`, `depth`, `toolchain`, `review_escalated_class`,
+`review_escalated_disagreement`, `needs_human`, `reviewer_hold`, `gated`, `restack_conflict`,
+`restack_deferred`, `restack_handed_back`, `dirty_worktree`, `attached`, `host_unavailable`,
+`network_unavailable`, `service_unavailable`, `environment` and `split_held`.
+An event cause names a transition that has happened and is over: `requeued`, `released`,
+`adopted`, `merged`, `auto_landed`, `closed` and `failed`. Recording an event cause ends a standing
+one explicitly. A state change the store makes on its own account (a replan's demotion and
+promotion, a vanished change, a join) passes `KEEP` and so carries a standing cause forward,
+with the previous note, and marks the entry `carried`, while a caller's state change passes its
+own cause or none. `cause_since` of a stored unit is the time of the entry that set the cause, so a
+carried entry does not restart a backoff while a second parking does. The one place a cause is
+not carried is a label hold, a known gap. `upsert` keeps a unit's runtime fields, its saved
+requeue and its parked splits among them, so a gated or parked unit stays parked across a replan.
+A pass lets a unit it already
+built back in only when it was sent back for rework or its base changed (resuming restacks
+it, so what held it is gone), or when it was parked because the code host, the network or the
+model service could not be reached, once its backoff has
+elapsed (1, 2, 5, 10, then 30 minutes by consecutive parking); a
 unit put back for any other cause waits for the next pass, and the tick log says which cause. A unit held for depth keeps the branch it is
-still on as `held_base`, and who holds it as `held_by`. A record with no cause, or one
-this release does not know, is never readmitted by the pass; `abk status` lists it.
+still on as `held_base`, and who holds it as `held_by`. A record with no cause is one from before causes or one an event ended,
+and one with a cause this release does not know reads the same way: the pass never readmits it, and `abk status` lists it.
 A usage pause leaves the unit `running`, with its thread interrupted before
 the agent node; the first tick the usage guard allows resumes it from there.
 A run that is killed is resumed the same way, at the node it was in: nothing

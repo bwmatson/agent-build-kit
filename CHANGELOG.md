@@ -7,7 +7,8 @@
   base is carried forward, and a backoff keeps counting from when the unit was parked.
   A replan also keeps a unit's saved requeue, its wait records, its step, its guidance and
   its other runtime fields, so a gated or parked unit stays parked across it. A requeue is
-  cleared in the same write that changes the cause.
+  cleared in the same write that changes the cause. A conflict move that could not run now
+  keeps its restack owed, and a gated unit is released by its saved requeue whatever its cause.
 
 - A priority-0 unit now starts as soon as it is ready, in an emergency lane of its own
   (`project_limits.emergency_extra`, 1 by default, 0 turns it off) past the places and

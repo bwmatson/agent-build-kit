@@ -83,6 +83,7 @@ def owed_a_restack(
     """Whether `unit` is owed a restack: its cause says its base moved, its branch does
     not hold the base, no run holds the branch, no lease names it, and nothing it
     depends on is unmerged."""
+    # The cause is standing, so a replan carries it and the answer is the same after one.
     return (
         unit.state in OWED_STATES
         and unit.cause in OWED_CAUSES
