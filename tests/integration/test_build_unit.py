@@ -29,6 +29,7 @@ from agent_build_kit.graph.state import Node
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.commit_order import check_structure, classify_paths
+from agent_build_kit.pipeline.usage_guard import GUARD_OFF_LINE
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, read_ledger
 from tests.factories import git, init_repo, scratch_app
 from tests.factories import who_pushed as reflog_and_pushes
@@ -194,10 +195,11 @@ def test_the_unit_is_built_reviewed_and_pushed_through_the_runtime(
     scratch, ticked = built
 
     assert ticked.returncode == 0, f"{ticked.output}\n{who_pushed(scratch)}"
-    # A Claude run has a usage window to read: the tick states the start decision it reached,
-    # and only a runtime without a window says it has none.
+    # A Claude run has a usage window to read: the tick states the start decision it reached.
+    # The scratch setup turns the guard off, so that decision is the guard-off line; only a
+    # runtime without a window says it has none.
     assert "has no usage window" not in ticked.output, ticked.output
-    assert re.search(r"session \d+%, weekly \d+%|allowing starts", ticked.output), ticked.output
+    assert GUARD_OFF_LINE in ticked.output, ticked.output
     commits = pushed_commits(scratch, ticked)
 
     def found() -> str:

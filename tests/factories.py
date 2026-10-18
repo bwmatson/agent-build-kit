@@ -9,13 +9,14 @@ imports these, rather than in a tenth near-copy.
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 import zlib
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from agent_build_kit import openspec
+from agent_build_kit import openspec, profiles
 from agent_build_kit.config import RepoConfig, dump
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.e2e import E2eResult, TestFailure, build_snapshot
@@ -178,6 +179,16 @@ def scratch_app(path: Path) -> Path:
     (path / "src" / "app" / "__init__.py").write_text("")
     (path / "tests").mkdir()
     (path / "tests" / ".gitkeep").write_text("")
+    # The headless build session can run only what the profile allows, so the agent is told
+    # the profile's own commands, not left to guess a bare `pytest` or `ruff`.
+    profile = profiles.get("python-uv")
+    [test] = profile.test_commands_all(path, root_extras=[])
+    (path / "CLAUDE.md").write_text(
+        "# app\n\n"
+        f"- Run the tests with `{shlex.join(test)}`.\n"
+        f"- Lint and format with `{shlex.join(profile.lint_command_all_files())}`.\n"
+        "- Run no other test, lint or format program directly.\n"
+    )
     git(path, "add", "-A")
     git(path, "commit", "-q", "-m", "start")
     return path
