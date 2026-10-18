@@ -30,7 +30,7 @@ def doctor(tmp_path: Path, review: dict[str, Any]) -> list[Check]:
 
 
 def about_review(checks: list[Check], status: str) -> list[Check]:
-    return [c for c in checks if c.status == status and "review" in f"{c.name} {c.detail}".lower()]
+    return [c for c in checks if c.status == status and c.name.startswith("review")]
 
 
 VALID = {
@@ -45,7 +45,7 @@ def test_a_valid_section_is_silent(tmp_path: Path) -> None:
 
     assert load(tmp_path / "planning" / "abk.yaml").review.model_dump()["enabled"] is True
     assert about_review(checks, "warn") == []
-    assert about_review(checks, "fail") == []
+    assert about_review(checks, "FAIL") == []
 
 
 def test_a_protected_glob_that_matches_no_file_in_any_repo_is_warned_about_naming_it(
@@ -56,7 +56,7 @@ def test_a_protected_glob_that_matches_no_file_in_any_repo_is_warned_about_namin
     found = about_review(checks, "warn")
     assert len(found) == 1
     assert "servcies/**" in f"{found[0].name} {found[0].detail}"
-    assert about_review(checks, "fail") == []
+    assert about_review(checks, "FAIL") == []
 
 
 def test_a_class_glob_that_matches_no_file_is_warned_about_naming_it_and_the_class(
@@ -73,8 +73,8 @@ def test_a_class_glob_that_matches_no_file_is_warned_about_naming_it_and_the_cla
 def test_a_class_that_cannot_be_resolved_is_a_failure(tmp_path: Path) -> None:
     checks = doctor(tmp_path, {**VALID, "classes": {"docs": ["../outside/**"]}})
 
-    found = about_review(checks, "fail") or [
-        c for c in checks if c.status == "fail" and "docs" in f"{c.name} {c.detail}"
+    found = about_review(checks, "FAIL") or [
+        c for c in checks if c.status == "FAIL" and "docs" in f"{c.name} {c.detail}"
     ]
     assert found
     assert "docs" in f"{found[0].name} {found[0].detail}"
@@ -86,7 +86,7 @@ def test_policy_set_while_review_is_not_enabled_is_warned_about(tmp_path: Path) 
     found = about_review(checks, "warn")
     assert len(found) == 1
     assert "enabled" in f"{found[0].name} {found[0].detail}"
-    assert about_review(checks, "fail") == []
+    assert about_review(checks, "FAIL") == []
 
 
 def test_a_section_with_nothing_set_and_review_off_is_silent(tmp_path: Path) -> None:
@@ -94,4 +94,4 @@ def test_a_section_with_nothing_set_and_review_off_is_silent(tmp_path: Path) -> 
 
     assert load(tmp_path / "planning" / "abk.yaml").review.model_dump()["enabled"] is False
     assert about_review(checks, "warn") == []
-    assert about_review(checks, "fail") == []
+    assert about_review(checks, "FAIL") == []

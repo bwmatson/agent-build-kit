@@ -1067,6 +1067,8 @@ class AgentCommand(Frozen):
 class RepoReviewConfig(Frozen):
     """A repo's own review policy: the protected paths that add to the workspace's."""
 
+    protected_paths: list[str] = []
+
 
 class RepoConfig(Frozen):
     path: Path
@@ -1266,8 +1268,35 @@ def _alias_limits(data: dict[str, Any]) -> dict[str, Any]:
     return renamed
 
 
+class AutoLandConfig(Frozen):
+    """The track record a class needs before it counts as proven."""
+
+    min_samples: int = Field(default=20, ge=1)
+    min_clean_rate: float = Field(default=0.95, ge=0, le=1)
+
+
 class ReviewConfig(Frozen):
     """The review policy: which changes never land without a person, and how they are classed."""
+
+    # Build-out flag: off, nothing is planned, classified or recorded for review.
+    enabled: bool = False
+    # Globs added to the framework's defaults; a repo's own list adds to these.
+    protected_paths: list[str] = []
+    protected_defaults: bool = True
+    # Class name to path globs, in the order that decides which class a unit belongs to.
+    classes: dict[str, list[str]] = {}
+    auto_land: AutoLandConfig = AutoLandConfig()
+
+    @field_validator("classes")
+    @classmethod
+    def _no_slash_in_a_class_name(cls, classes: dict[str, list[str]]) -> dict[str, list[str]]:
+        for name in classes:
+            if "/" in name:
+                raise ValueError(
+                    f"the class name {name!r} contains a slash; `<repo>/<kind>` names are the "
+                    "framework's own"
+                )
+        return classes
 
 
 class WorkspaceConfig(Frozen):

@@ -558,6 +558,46 @@ def _after_cd(segment: str, here: Path | None) -> Path | None:
     return Path(os.path.normpath((here or Path("/")).absolute() / target))
 
 
+FENCED_REASON = (
+    "{target} is the review policy and a person's to change; if it needs changing, report it "
+    "as `BLOCKED: <what and where>` so a human can make it"
+)
+# Programs that write every file they are given, and those that write only the last one.
+WRITES_ARGUMENTS = {"tee", "rm", "touch", "truncate", "ed", "ex", "vi", "vim", "nano", "mv"}
+WRITES_LAST_ARGUMENT = {"cp", "install", "ln"}
+IN_PLACE_EDITORS = {"sed", "perl"}
+
+
+def _names_fenced(token: str, fenced: Collection[Path], here: Path | None) -> Path | None:
+    """The fenced file `token` names, resolved from `here`; with `here` unknown, a relative
+    token that ends in a fenced file's name counts."""
+    if Path(token).is_absolute() or here is not None:
+        resolved = Path(os.path.realpath((here or Path("/")) / token))
+        return next((f for f in fenced if resolved == Path(os.path.realpath(f))), None)
+    return next((f for f in fenced if Path(token).name == f.name), None)
+
+
+def _check_fenced(segment: str, fenced: Collection[Path], here: Path | None) -> Verdict:
+    """Refuse a segment that writes a fenced file: by redirect, or by a program that writes
+    its arguments (`tee`, `mv`, `cp` onto it, `sed -i`)."""
+    tokens = _strip_wrappers(_tokens(segment))
+    targets = list(_redirect_targets(segment))
+    if tokens:
+        words = [t for t in tokens[1:] if t not in REDIRECTS]
+        arguments = [t for t in words if not t.startswith("-")]
+        if tokens[0] in WRITES_ARGUMENTS or (
+            tokens[0] in IN_PLACE_EDITORS and any(t.startswith("-") and "i" in t for t in words)
+        ):
+            targets += arguments
+        elif tokens[0] in WRITES_LAST_ARGUMENT:
+            targets += arguments[-1:]
+    for target in targets:
+        hit = _names_fenced(target, fenced, here)
+        if hit is not None:
+            return Verdict(allowed=False, reason=FENCED_REASON.format(target=hit))
+    return Verdict(allowed=True)
+
+
 def check_command(
     command: str,
     *,
@@ -566,6 +606,7 @@ def check_command(
     protected: Collection[str] = (),
     worktree: Path | None = None,
     cwd: Path | None = None,
+    fenced: Collection[Path] = (),
 ) -> Verdict:
     """Decide whether `command` may run while working on `branch`.
 
@@ -579,6 +620,8 @@ def check_command(
     Every segment is checked, so a denied command behind `&&`, `;` or a pipe
     is still denied. With `planning_repo` set (a track run), commands that move
     that repo's branches are refused too: the pipeline commits there.
+
+    `fenced` are files no command may write, however it writes them.
     """
     current: str | None = None
     # Where the shell is by now: moved by each `cd`, None once it cannot be told.
@@ -588,6 +631,8 @@ def check_command(
         verdict = _check_segment(segment, branch, protected)
         if verdict.allowed and worktree is not None:
             verdict = _check_redirects(segment, worktree, here)
+        if verdict.allowed and fenced:
+            verdict = _check_fenced(segment, fenced, here)
         if verdict.allowed and planning_repo is not None:
             verdict = _check_planning(segment, planning_repo, current)
         if not verdict.allowed:

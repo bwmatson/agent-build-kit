@@ -734,6 +734,28 @@ derived term); `abk scrub-check` reads it. `abk doctor`'s `public content` check
 `abk.local.yaml` or `scrub.local` is tracked or not ignored, and when a committed `abk.yaml`
 holds a repo path outside the checkout, a home path or another account's repo.
 
+### `review`
+
+The review policy, a build-out section for risk-tiered review. A person edits it; a build agent
+and a track are refused any write to `abk.yaml`, by file write, shell redirect or editor command.
+
+```yaml
+review:
+  enabled: false           # off: nothing is planned, classified or recorded for review
+  protected_paths: []      # globs added to the framework's defaults
+  protected_defaults: true # migrations, CI and deploy config, containers, secrets, CODEOWNERS
+  classes: {}              # name -> path globs; no slash in a name; the first listed class wins
+  auto_land: {min_samples: 20, min_clean_rate: 0.95}
+repos:
+  app:
+    review: {protected_paths: []}   # added to the workspace's list for this repo, never narrowing it
+```
+
+A unit belongs to the first class whose globs match every path it changed, else `<repo>/<kind>`
+(`unit-test` or `e2e-test`; an `integration-test` unit is a `unit-test` one). `abk doctor` warns for a
+glob that matches no file in any repo and for policy set while `enabled` is false, and fails for a
+glob that does not parse.
+
 ### `redact`
 
 `redact: [NAME, ...]` lists environment variables whose values are secrets the framework

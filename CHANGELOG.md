@@ -61,6 +61,10 @@
   in the limits block and the `tests` blocks) to `unit_test_*` and `e2e_*`, in the same single
   change, confirmation and backup as the limits move. Values and comments stay as they were, and
   a file it cannot edit safely is refused with nothing written.
+- `abk.yaml` accepts a `review` section (and a `review` block per repo) holding the review policy:
+  protected paths that never land without a person, named classes of change, and the track record a
+  class needs. It does nothing while `review.enabled` is false. `abk doctor` checks it, and a build
+  agent or track can no longer write `abk.yaml` by a shell redirect or an editor command.
 
 - A unit is now named by the program as `<change>/<lowest group>`, not by the planner's count.
   The planner's `id` is only a label for one reply; an unstarted unit with the same groups keeps

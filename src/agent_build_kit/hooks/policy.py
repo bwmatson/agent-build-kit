@@ -35,6 +35,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from agent_build_kit.config import CONFIG_FILENAME
 from agent_build_kit.pipeline.command_policy import (
     Verdict,
     check_command,
@@ -191,6 +192,18 @@ def _check_file_write(
     )
 
 
+def _policy_files(
+    cwd: str, planning_repo: Path | None, planning_paths: tuple[str, ...]
+) -> tuple[Path, ...]:
+    """The configuration file that holds the review policy: the planning repo's, and the one
+    in this run's own checkout when it is a unit of the planning repo's repository."""
+    files = [planning_repo.resolve() / CONFIG_FILENAME] if planning_repo is not None else []
+    checkout = _checkout_of(Path(cwd))
+    if checkout is not None and CONFIG_FILENAME in planning_paths:
+        files.append(checkout / CONFIG_FILENAME)
+    return tuple(files)
+
+
 def _may_write_planning(
     path: Path, planning_state_dir: Path | None, planning_change_dir: Path | None
 ) -> bool:
@@ -273,6 +286,7 @@ def decide(
             protected=protected_branches,
             worktree=checkout,
             cwd=Path(cwd).resolve(),
+            fenced=_policy_files(cwd, planning_repo, planning_paths),
         )
         if verdict.allowed and no_push:
             verdict = check_no_push(command)
