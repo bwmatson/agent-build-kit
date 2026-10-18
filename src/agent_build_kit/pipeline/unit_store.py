@@ -97,6 +97,7 @@ class Cause(StrEnum):
     MERGED = "merged"
     AUTO_LANDED = "auto_landed"
     CLOSED = "closed"
+    RETIRED = "retired"
     FAILED = "failed"
     HOST_UNAVAILABLE = "host_unavailable"
     NETWORK_UNAVAILABLE = "network_unavailable"
@@ -123,6 +124,7 @@ EVENT_CAUSES: frozenset[Cause] = frozenset(
         Cause.MERGED,
         Cause.AUTO_LANDED,
         Cause.CLOSED,
+        Cause.RETIRED,
         Cause.FAILED,
     }
 )
@@ -748,6 +750,25 @@ class UnitStore:
             raise GroupOwned(collisions)
         self._write(stored)
 
+    def retire(self, unit_id: str, reason: str = "") -> None:
+        """End a unit: state `retired`, cause `retired` and one history entry with the reason
+        (`retired` when none is given) and `by: abk retire`, in one write. The branch and the
+        pull request stay as they are. The write is made under the store's lock by
+        `_record_state`, as `set_state` does; the lock is not re-entrant."""
+        unit, everything, opened = self._record_state(
+            unit_id,
+            UnitState.RETIRED,
+            pr=None,
+            branch=None,
+            note=reason or "retired",
+            held_by=HeldBy.NONE,
+            cause=Cause.RETIRED,
+            held_base="",
+            by="abk retire",
+        )
+        if self.on_state:
+            self.on_state(unit, everything, opened)
+
     @_exclusive
     def import_units(self, units: Sequence[StoredUnit]) -> None:
         """Add records from another store with every field kept; an equal one is skipped and a
@@ -906,6 +927,7 @@ class UnitStore:
         held_by: HeldBy,
         cause: Cause | None | Keep,
         held_base: str,
+        by: str = "",
     ) -> tuple[StoredUnit, list[StoredUnit], bool]:
         state = UnitState(state)
         stored = self._read()
@@ -935,7 +957,7 @@ class UnitStore:
                 "service_attempts": 0 if state in (IN_REVIEW, FAILED) else unit.service_attempts,
                 # A gate is closed in the write that changes the cause.
                 "gated_requeue": unit.gated_requeue if resolved is Cause.GATED else None,
-                "history": (*unit.history, _entry(unit, state, cause, note)),
+                "history": (*unit.history, _entry(unit, state, cause, note, by)),
             }
         )
         self._write(stored)
@@ -1192,10 +1214,13 @@ def _resolve(unit: StoredUnit, cause: Cause | None | Keep) -> Cause | None:
     return cause
 
 
-def _entry(unit: StoredUnit, state: UnitState, cause: Cause | None | Keep, note: str = "") -> dict:
+def _entry(
+    unit: StoredUnit, state: UnitState, cause: Cause | None | Keep, note: str = "", by: str = ""
+) -> dict:
     """The history entry for `unit` changing to `state`. With `KEEP` it repeats the standing
     cause and the previous note (unless one is given) and is marked `carried`, so
-    `cause_since` and a reader of the history can tell a carry from the cause being set."""
+    `cause_since` and a reader of the history can tell a carry from the cause being set.
+    `by` names the command that did it when a command did, never a person."""
     resolved = _resolve(unit, cause)
     carried = isinstance(cause, Keep) and resolved is not None
     if carried and not note and unit.history:
@@ -1206,6 +1231,7 @@ def _entry(unit: StoredUnit, state: UnitState, cause: Cause | None | Keep, note:
         **({"note": note} if note else {}),
         **({"cause": resolved.value} if resolved else {}),
         **({"carried": True} if carried else {}),
+        **({"by": by} if by else {}),
     }
 
 

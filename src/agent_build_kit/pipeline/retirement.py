@@ -12,10 +12,14 @@ from collections.abc import Sequence
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import MERGED, RUNNING, SATISFIED, UnitState
-
-BUILT = (MERGED, SATISFIED)
-FINISHED = (MERGED, UnitState.CLOSED, SATISFIED, UnitState.RETIRED)
+from agent_build_kit.pipeline.units import (
+    FINISHED_STATES,
+    MERGED,
+    RUNNING,
+    SATISFIED,
+    UnitState,
+    satisfied_landed,
+)
 
 
 class GroupFate(Frozen):
@@ -57,7 +61,7 @@ def _fate(unit: StoredUnit, change: str, group: int, others: Sequence[StoredUnit
         and any(m.change == change and group in m.groups for m in other.members())
     ]
     for other in carrying:
-        if other.state in BUILT:
+        if other.state == MERGED or (other.state == SATISFIED and satisfied_landed(other, others)):
             return GroupFate(change=change, group=group, carried_by=other.id, merged=True)
     for other in carrying:
         if other.owns_groups:
@@ -66,7 +70,7 @@ def _fate(unit: StoredUnit, change: str, group: int, others: Sequence[StoredUnit
 
 
 def _refusal(unit: StoredUnit, units: Sequence[StoredUnit]) -> str:
-    if unit.state in FINISHED:
+    if unit.state in FINISHED_STATES:
         return f"{unit.id} is finished ({unit.state})"
     if unit.state == RUNNING:
         return f"{unit.id} is running; stop it first"
@@ -75,7 +79,7 @@ def _refusal(unit: StoredUnit, units: Sequence[StoredUnit]) -> str:
             unit.id in other.depends_on
             and other.repo == unit.repo
             and other.has_work
-            and other.state not in FINISHED
+            and other.state not in FINISHED_STATES
         ):
             return f"{other.id} has started and is stacked on {unit.id}"
     return ""
@@ -92,7 +96,8 @@ def assess(unit_id: str, units: Sequence[StoredUnit]) -> Assessment:
     dependents = tuple(
         Dependent(id=other.id, state=str(other.state))
         for other in units
-        if unit_id in other.depends_on and other.state not in (*FINISHED, UnitState.UNPLANNED)
+        if unit_id in other.depends_on
+        and other.state not in (*FINISHED_STATES, UnitState.UNPLANNED)
     )
     return Assessment(
         unit=unit_id,

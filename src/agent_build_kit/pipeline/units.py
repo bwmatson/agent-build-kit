@@ -77,6 +77,9 @@ IN_FLIGHT = (RUNNING, IN_REVIEW)
 # States of a unit that builds nothing: nothing waits on it, follows it or counts its groups.
 BUILDS_NOTHING = (UnitState.UNPLANNED, UnitState.RETIRED)
 
+# A dependency in one of these waits on nothing any more: it has finished or was ended.
+FINISHED_STATES = (MERGED, SATISFIED, CLOSED, UnitState.RETIRED)
+
 # What a dependent may build on. A unit is not finished when it starts — it is
 # finished when it has passed the build/review loop and unit-test and been pushed,
 # which is what `in_review` means. `IN_FLIGHT` includes `running`, so using it here

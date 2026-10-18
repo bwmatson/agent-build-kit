@@ -22,19 +22,13 @@ from agent_build_kit.pipeline.unit_size import (
 )
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import (
-    CLOSED,
-    MERGED,
+    FINISHED_STATES,
     PLANNED,
-    SATISFIED,
     Join,
     Member,
     Unit,
-    UnitState,
 )
 from agent_build_kit.pipeline.work_graph import TaskGroup
-
-# A dependency in one of these waits on nothing any more.
-FINISHED = (MERGED, SATISFIED, CLOSED, UnitState.RETIRED)
 
 
 class JoinRefused(ValueError):
@@ -115,7 +109,7 @@ def check_joins(
                 raise refuse(f"{taken.id} does not depend on {onto.id}, so they are not in a line")
             for dependency in taken.depends_on:
                 other = state.get(dependency)
-                if dependency != onto.id and (other is None or other.state not in FINISHED):
+                if dependency != onto.id and (other is None or other.state not in FINISHED_STATES):
                     raise refuse(f"{taken.id} also waits on {dependency}, which is unfinished")
             others = [
                 u.id for u in state.values() if onto.id in u.depends_on and u.id != taken.id
@@ -148,7 +142,9 @@ def check_joins(
                     )
                 for need in context.needs.get(number, ()):
                     holder = next((u for u in state.values() if _holds(u, need)), None)
-                    if holder is None or (holder.id != onto.id and holder.state not in FINISHED):
+                    if holder is None or (
+                        holder.id != onto.id and holder.state not in FINISHED_STATES
+                    ):
                         raise refuse(f"group {number} also waits on {need[0]} group {need[1]}")
             claimed |= set(join.groups)
             added_kinds = [by_number[number].tier for number in join.groups]

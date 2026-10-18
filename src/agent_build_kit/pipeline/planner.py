@@ -38,7 +38,14 @@ from agent_build_kit.pipeline.unit_size import (
     largest_raw,
 )
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import Join, Priority, Unit, UnitState, waiting_on_me
+from agent_build_kit.pipeline.units import (
+    BUILDS_NOTHING,
+    Join,
+    Priority,
+    Unit,
+    UnitState,
+    waiting_on_me,
+)
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.work_graph import (
     GROUP_HEADING,
@@ -274,7 +281,7 @@ def promote_ancestors(
     own priority is not recorded apart from the promoted one.
     Returns each unit now promoted by this pass as (id, priority, waiter)."""
     promoted: list[tuple[str, int, str]] = []
-    units = [unit for unit in store.all() if unit.state != UnitState.UNPLANNED]
+    units = [unit for unit in store.all() if unit.state not in BUILDS_NOTHING]
 
     def own_priority(unit: StoredUnit) -> int:
         known = any(
