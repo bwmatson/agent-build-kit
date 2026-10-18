@@ -151,6 +151,43 @@ def test_a_collision_already_in_the_store_is_not_refused(tmp_path: Path) -> None
     assert store.get("app/3").branch == "spec/app/3"
 
 
+def test_a_dropped_unit_the_plan_brings_back_is_a_new_claimant(tmp_path: Path) -> None:
+    """`app/4` listed group 16 while it was `unplanned` with no work, which owns nothing, so
+    planning it again is not a collision already stored."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored_unit("app/4", change="app", groups=(16,))], change="app")
+    store.upsert([stored_unit("app/3", change="app", groups=(16,))], change="app")
+    store.set_state("app/3", PLANNED, branch="spec/app/3")
+    assert store.get("app/4").state == UnitState.UNPLANNED
+    assert store.get("app/4").groups == (16,)
+    before = store.path.read_bytes()
+
+    with pytest.raises(GroupOwned) as refused:
+        store.upsert([stored_unit("app/4", change="app", groups=(16,))], change="app")
+
+    for name in ("app/3", "app/4", "16"):
+        assert name in str(refused.value)
+    assert store.path.read_bytes() == before
+
+
+def test_an_unstarted_unit_that_listed_the_group_does_not_excuse_a_started_one_taking_it(
+    tmp_path: Path,
+) -> None:
+    store = store_with_owner(tmp_path)
+    store.upsert([stored_unit("app/4", change="app", groups=(17,))])
+
+    with pytest.raises(GroupOwned) as refused:
+        store.upsert(
+            [
+                stored_unit("app/3", change="app", groups=(16, 17)),
+                stored_unit("app/4", change="app", groups=(17,)),
+            ],
+            change="app",
+        )
+
+    assert "app/3" in str(refused.value) and "app/4" in str(refused.value)
+
+
 @pytest.mark.parametrize(
     ("state", "branch", "owns"),
     [

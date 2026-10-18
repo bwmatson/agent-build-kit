@@ -61,7 +61,8 @@ _DEFAULTS: dict[str, Any] = {
 def own_group(uid: str, change: str) -> tuple[int, ...]:
     """The group a unit carries unless a test says: the number in its id, offset by the id's
     prefix when that is not the unit's change, so no two units of a fixture carry the same
-    group, which a started unit's plan may not repeat."""
+    group, which a started unit's plan may not repeat. The offset only has to differ between
+    prefixes; a fixture that needs a particular group passes `groups`."""
     prefix, _, number = uid.rpartition("/")
     if not number.isdigit():
         return _DEFAULTS["groups"]

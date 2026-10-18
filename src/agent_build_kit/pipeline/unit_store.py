@@ -1131,30 +1131,37 @@ def _carries(unit: StoredUnit | None) -> set[tuple[str, int]]:
 def _new_collisions(
     before: Mapping[str, StoredUnit], after: Mapping[str, StoredUnit]
 ) -> list[Collision]:
-    """Where a unit that did not carry a group before now carries it while another owner that
-    has started does. A collision already in `before` is not one."""
+    """The collisions `after` has that `before` did not, in a stable order: a new claimant, or
+    an owner that began to carry the group. Who owned what is decided on both sides, so a
+    record that merely listed the group is not an existing collision."""
+    known = _collisions(before)
+    return sorted(
+        (c for c in _collisions(after) if c not in known),
+        key=lambda c: (c.change, c.group, c.owner, c.claimant),
+    )
+
+
+def _collisions(units: Mapping[str, StoredUnit]) -> set[Collision]:
+    """Every group an owner that has started carries while another owner carries it too."""
     owners: dict[tuple[str, int], list[StoredUnit]] = {}
-    for unit in after.values():
+    for unit in units.values():
         if unit.owns_groups:
-            for pair in sorted(_carries(unit)):
+            for pair in _carries(unit):
                 owners.setdefault(pair, []).append(unit)
-    found = []
-    for (change, group), carriers in owners.items():
-        for claimant in carriers:
-            if (change, group) in _carries(before.get(claimant.id)):
-                continue
-            found.extend(
-                Collision(
-                    change=change,
-                    group=group,
-                    owner=owner.id,
-                    owner_state=owner.state,
-                    claimant=claimant.id,
-                )
-                for owner in carriers
-                if owner.id != claimant.id and not owner.unstarted
-            )
-    return found
+    return {
+        Collision(
+            change=change,
+            group=group,
+            owner=owner.id,
+            owner_state=owner.state,
+            claimant=claimant.id,
+        )
+        for (change, group), carriers in owners.items()
+        for owner in carriers
+        if not owner.unstarted
+        for claimant in carriers
+        if claimant.id != owner.id
+    }
 
 
 def _record(unit: StoredUnit) -> dict:

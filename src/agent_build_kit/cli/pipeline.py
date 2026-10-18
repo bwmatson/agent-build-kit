@@ -3499,8 +3499,8 @@ def plan_all(
                 status="planned", dropped_joins=len(dropped), cycle=drops.cycle, kept=left_out
             )
             continue
-        kept = record.get("attempts", 0) if record.get("waiting") else 0
-        record_plans(inst, {change: {"hash": digest, "attempts": kept, "ok": True}})
+        attempts_kept = record.get("attempts", 0) if record.get("waiting") else 0
+        record_plans(inst, {change: {"hash": digest, "attempts": attempts_kept, "ok": True}})
         results[change] = PlanResult(status="planned", cycle=drops.cycle, kept=left_out)
     if any(result.status == "planned" for result in results.values()):
         _promote(inst, store)
