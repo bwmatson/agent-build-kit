@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.runtime_tags import runtime_tags
+from tests.runtime_tag_collection import assert_runs_on_claude_code_alone
 
 MODULE = Path(__file__).parent / "integration" / "test_build_unit.py"
 
@@ -18,14 +18,7 @@ MODULE = Path(__file__).parent / "integration" / "test_build_unit.py"
 def test_the_build_test_collects_only_claude_code_items_each_with_that_one_tag(
     pytester: pytest.Pytester,
 ) -> None:
-    items, _ = pytester.inline_genitems(str(MODULE))
-
-    assert items
-    assert [
-        (i.nodeid, runtime_tags(i)) for i in items if runtime_tags(i) != ["runtime_claude_code"]
-    ] == []
-    assert all(i.get_closest_marker("local_stack") is not None for i in items)
-    assert all(i.nodeid.endswith("[claude_code]") for i in items)
+    assert_runs_on_claude_code_alone(pytester, MODULE)
 
 
 def test_the_build_test_holds_no_acp_only_step() -> None:

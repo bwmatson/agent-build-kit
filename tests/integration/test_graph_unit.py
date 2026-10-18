@@ -38,7 +38,7 @@ from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from tests.factories import git, init_repo, scratch_app
 from tests.forges.github_server import FakeGitHub
 from tests.forges.process_host import process_env
-from tests.runtime_scratch import RUNTIME_PARAMS, runtime_scratch
+from tests.runtime_scratch import CLAUDE_CODE_PARAMS, runtime_scratch
 from tests.scratch_tick import commits_on_unit_branch, run_tick
 
 pytestmark = [
@@ -50,9 +50,6 @@ pytestmark = [
 CHANGE = "add-marker"
 BRANCH = f"spec/{CHANGE}/1"
 UNIT_ID = f"{CHANGE}/1"
-# This change runs the scenario on Claude Code alone, so the file holds no ACP-only step: the
-# session listing and the ACP parameter come with the change that adds the ACP variants.
-CLAUDE_CODE = [p for p in RUNTIME_PARAMS if p.values[0] == "claude_code"]
 COMMENT = "Please add a one-line docstring to `marker()` saying what it returns."
 
 TASKS = """# Tasks
@@ -165,7 +162,7 @@ def run_log(scratch: Scratch) -> str:
     return "\n".join(path.read_text() for path in logs)
 
 
-@pytest.mark.parametrize("scratch", CLAUDE_CODE, indirect=True)
+@pytest.mark.parametrize("scratch", CLAUDE_CODE_PARAMS, indirect=True)
 def test_a_unit_runs_to_review_is_reworked_on_a_comment_and_its_thread_ends_at_merge(
     scratch: Scratch,
     scratch_ledger: Path,
