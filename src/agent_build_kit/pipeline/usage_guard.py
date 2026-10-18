@@ -870,7 +870,7 @@ def _unspent(reading: UsageReading | None) -> UsageReading | None:
     return reading
 
 
-def current_usage() -> UsageReading | None:
+def current_usage(account: claude_account.Account | None = None) -> UsageReading | None:
     """The best reading available: live if possible, else the local cache."""
     return _noted(read_live_usage() or _unspent(read_cached_usage()))
 
@@ -904,7 +904,7 @@ def _labelled(decision: Decision, reading: UsageReading) -> Decision:
     return decision.model_copy(update={"reason": reason})
 
 
-def held_usage() -> UsageReading | None:
+def held_usage(account: claude_account.Account | None = None) -> UsageReading | None:
     """The reading held now, from the cache file or Claude Code's own: no call is made."""
     kept = _unspent(_kept_reading(_load_cache(_cache_file())))
     block = _fresh_claude_block(kept)
@@ -1299,6 +1299,7 @@ def decide_start(
     read: Callable[[], UsageReading | None] | None = None,
     decide: Callable[..., Decision] | None = None,
     unit: str | None = None,
+    account: claude_account.Account | None = None,
 ) -> Decision:
     """Whether a unit may start now, asking the endpoint only when a fresh reading
     could change the answer and the minimum interval allows a call.

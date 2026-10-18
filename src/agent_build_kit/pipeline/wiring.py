@@ -2194,6 +2194,7 @@ def build_usage_gate(
     usage: Reading | None = None,
     decide: Decide | None = None,
     start: Callable[[], Decision] | None = None,
+    account: claude_account.Account | None = None,
 ) -> tuple[Callable[[], tuple[bool, str]], Callable[[], datetime | None]]:
     """`may_start` and `resume_at` for one gate, taking one decision between them.
 

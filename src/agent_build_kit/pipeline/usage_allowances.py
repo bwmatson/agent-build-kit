@@ -107,6 +107,7 @@ def calibrated_allowances(
     *,
     limits: ClaudeLimitsConfig,
     now: datetime,
+    account: claude_account.Account | None = None,
 ) -> dict[str, Calibrated]:
     """Each window's calibration from the record; none with calibration off."""
     if not limits.calibrate_usage_allowances:
