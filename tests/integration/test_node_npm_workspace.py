@@ -2,7 +2,7 @@
 
 A temporary workspace of two packages, `core` and `app` (which depends on `core`), is installed
 from the npm registry, and the profile's own commands are built and run in it: lint, the type
-check, the tests of a changed member and the tier-2 run for the file-name marker. A failure
+check, the tests of a changed member and the e2e run for the file-name marker. A failure
 seeded in one member fails the matching command with the failure kind the profile reports for
 it, and the dependents of the shared package are read from the manifests.
 
@@ -190,7 +190,7 @@ def test_a_change_to_the_root_manifest_runs_every_member(workspace: Path) -> Non
         assert done.returncode == 0, done.stdout + done.stderr
 
 
-def test_the_tier_2_run_selects_the_marked_files_and_not_the_unmarked_ones(
+def test_the_e2e_run_selects_the_marked_files_and_not_the_unmarked_ones(
     workspace: Path,
 ) -> None:
     ran: list[str] = []
