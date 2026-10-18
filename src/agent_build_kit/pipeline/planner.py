@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 
 from agent_build_kit import runtimes
 from agent_build_kit.compat_names import Place, new_spelling, old_spelling
@@ -257,7 +257,9 @@ def unit_priority(unit: Unit, catalog: Mapping[str, Sequence[TaskGroup]]) -> int
 
 
 def promote_ancestors(
-    store: UnitStore, catalog: Mapping[str, Sequence[TaskGroup]]
+    store: UnitStore,
+    catalog: Mapping[str, Sequence[TaskGroup]],
+    excluded: Collection[str] = (),
 ) -> list[tuple[str, int, str]]:
     """Give each unit that has not started the most urgent priority among its groups and
     every unit that waits on it, and name the waiter that gives it (of equals, the id that
@@ -267,6 +269,7 @@ def promote_ancestors(
     is in the catalog has no groups to read, so it keeps the priority it was stored with,
     except that one carrying a promotion falls back to normal when the promotion lapses: its
     own priority is not recorded apart from the promoted one.
+    A waiter in `excluded` (one the round leaves out) gives nothing.
     Returns each unit now promoted by this pass as (id, priority, waiter)."""
     promoted: list[tuple[str, int, str]] = []
     units = [unit for unit in store.all() if unit.state != UnitState.UNPLANNED]
@@ -289,7 +292,7 @@ def promote_ancestors(
     for unit in view:
         if unit.id not in own:
             continue
-        waiters = waiting_on_me(unit, view)
+        waiters = waiting_on_me(unit, view, excluded)
         best = min(waiters, key=lambda waiter: (waiter.priority, waiter.id), default=None)
         if best is not None and best.priority < own[unit.id]:
             priority, source = best.priority, best.id

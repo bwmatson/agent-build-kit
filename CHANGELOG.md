@@ -19,7 +19,11 @@
 - An e2e-test group can declare its split with a `Split: <name>` line (a split its repo declares,
   or `rest`; no line means `rest`). A unit records the one split its groups share, and groups
   or units of different splits are never joined or planned together. `abk tags` refuses an
-  undeclared name, a second line or a list of names, and a line in a unit-test group.
+  undeclared name, a second line or a list of names, and a line in a unit-test group. A
+  planned unit that has never started is no longer started while its split is held: it waits
+  with the reason `split` ("waiting for tier 2 split <name>" and the hold), takes no slot or
+  place under the limit, lends no priority to what it waits on, and starts in the round that
+  finds the hold gone.
 
 - Asking whether a branch is held no longer takes its lock for a moment, so a build starting
   on that branch at the same time is no longer skipped by the question and left unbuilt for

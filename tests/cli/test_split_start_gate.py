@@ -1,4 +1,4 @@
-"""A round leaves out a planned unit that has never started when its tier 2 split is held for
+"""A round leaves out a planned unit that has never started when its e2e-test split is held for
 its repo, and treats every other unit as it does without the hold (spec: split-start-gate)."""
 
 from __future__ import annotations
@@ -103,7 +103,7 @@ def held_by_person(store: UnitStore) -> None:
     store.set_state("other/1", HELD, note="a person took over")
 
 
-def parked_at_tier_2(store: UnitStore) -> None:
+def parked_on_split(store: UnitStore) -> None:
     park(store, "other/1", ("acp",))
 
 
@@ -114,7 +114,7 @@ UNGATED = [
     pytest.param(reworking, id="reworking"),
     pytest.param(failed, id="failed"),
     pytest.param(held_by_person, id="held"),
-    pytest.param(parked_at_tier_2, id="parked-at-tier-2"),
+    pytest.param(parked_on_split, id="parked-on-split"),
 ]
 
 

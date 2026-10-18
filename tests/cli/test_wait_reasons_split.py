@@ -53,7 +53,7 @@ def test_a_gated_unit_has_the_reason_split_with_the_hold_text_and_its_deadline(
 
     held = repo_holds(inst.config, inst.repo("app"), inst.state_dir).held["acp"]
     assert wait.reason is WaitReason.SPLIT == "split"
-    assert "waiting for tier 2 split acp" in wait.detail
+    assert "waiting for e2e-test split acp" in wait.detail
     assert hold_text(held) in wait.detail
     assert "the usage window is spent" in wait.detail and "until" in wait.detail
 

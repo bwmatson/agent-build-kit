@@ -1,4 +1,4 @@
-"""A planned unit in a tier 2 split, and a round that decides whether it starts (spec:
+"""A planned unit in an e2e-test split, and a round that decides whether it starts (spec:
 split-start-gate): the installation that declares the splits, the stand-ins a round reaches, and
 the fresh unit the gate is about."""
 

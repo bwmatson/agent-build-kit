@@ -1969,6 +1969,14 @@ def _holds_of_parked(inst: Installation, unit: StoredUnit) -> dict[str, Hold]:
     return {name: held[name] for name in unit.parked_splits if name in held}
 
 
+def _split_gate(inst: Installation, unit: StoredUnit) -> Hold | None:
+    """The hold that keeps `unit` from starting: it has never started and its split is held for
+    its repo. Reads the state file and the configuration alone; a gate is never asked."""
+    if not unit.unstarted:
+        return None
+    return repo_holds(inst.config, inst.repo(unit.repo), inst.state_dir).held.get(unit.split)
+
+
 def _split_wait_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[str]:
     """One line for each unit parked for a held e2e-test split: which, why and until when."""
     lines = []
@@ -2113,6 +2121,8 @@ def _evaluate_round(
             or awaits_release(unit)
             # Parked for the host being unavailable, and its backoff is not over.
             or backoff_remaining(unit, now) is not None
+            # Its e2e-test split is held, and nothing exists yet that a hold could disturb.
+            or _split_gate(inst, unit) is not None
         ):
             unit = unit.model_copy(update={"state": HELD})
             excluded.add(unit.id)
@@ -3510,7 +3520,8 @@ def plan_all(
 
 def _promote(inst: Installation, store: UnitStore) -> None:
     """Give each unstarted unit the urgency of the units that wait on it, and say which."""
-    for unit_id, priority, source in promote_ancestors(store, _task_catalog(inst)):
+    gated = {unit.id for unit in store.all() if _split_gate(inst, unit) is not None}
+    for unit_id, priority, source in promote_ancestors(store, _task_catalog(inst), gated):
         log(f"promoted {unit_id} to priority {priority}, from {source}")
 
 
@@ -5571,6 +5582,11 @@ def _planned_wait(
     # or a stack deeper than may be built until what it stacks on merges.
     if awaits_release(unit) or depth_of(unit, view) > inst.stack_depth_build_cap:
         return Wait(reason=WaitReason.BLOCKED)
+    if (gate := _split_gate(inst, unit)) is not None:
+        return Wait(
+            reason=WaitReason.SPLIT,
+            detail=f"waiting for e2e-test split {unit.split}: {hold_text(gate)}",
+        )
     if usage_paused:
         return Wait(reason=WaitReason.USAGE_PAUSE)
     if unit.id in startable:
