@@ -310,6 +310,7 @@ from agent_build_kit.pipeline.work_graph import (
     ValidationError,
     check_tags,
     declared_projects,
+    declared_split_names,
     group_needs,
     group_promotions,
     inverted_group_warnings,
@@ -4788,7 +4789,12 @@ def _needs_cycle_problems(inst: Installation) -> dict[str, str]:
 
 def _validated(inst: Installation, path: Path) -> tuple[list[TaskGroup], list[ValidationError]]:
     """A tasks file's groups and errors against the installation's repos and their projects."""
-    return validate_tasks(path, repos=tuple(inst.repos), projects=declared_projects(inst.repos))
+    return validate_tasks(
+        path,
+        repos=tuple(inst.repos),
+        projects=declared_projects(inst.repos),
+        splits=declared_split_names(inst.repos, inst.config),
+    )
 
 
 def _tag_warnings(inst: Installation, path: Path) -> list[str]:
@@ -4832,6 +4838,7 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
             inst.changes_dir,
             repos=tuple(inst.repos),
             projects=declared_projects(inst.repos),
+            splits=declared_split_names(inst.repos, inst.config),
         )
         if change.lower() in cycles:
             errors.append(cycles[change.lower()])

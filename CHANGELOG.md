@@ -8,6 +8,11 @@
   test of the build no longer fails on the usage of the machine it runs on; a test about the
   guard opts back in.
 
+- An e2e-test group can declare its split with a `Split: <name>` line (a split its repo declares,
+  or `rest`; no line means `rest`). A unit records the one split its groups share, and groups
+  or units of different splits are never joined or planned together. `abk tags` refuses an
+  undeclared name, a second line or a list of names, and a line in a unit-test group.
+
 - Asking whether a branch is held no longer takes its lock for a moment, so a build starting
   on that branch at the same time is no longer skipped by the question and left unbuilt for
   the rest of the pass.

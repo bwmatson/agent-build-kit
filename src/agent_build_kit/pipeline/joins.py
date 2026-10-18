@@ -97,6 +97,11 @@ def check_joins(
                 raise refuse(f"{taken.id} is in another repo or tier")
             if taken.project != onto.project:
                 raise refuse(f"{taken.id} is in another project")
+            if taken.split != onto.split:
+                raise refuse(
+                    f"{taken.id} is in e2e-test split {taken.split!r}, not in {onto.id}'s "
+                    f"({onto.split!r})"
+                )
             if onto.id not in taken.depends_on:
                 raise refuse(f"{taken.id} does not depend on {onto.id}, so they are not in a line")
             for dependency in taken.depends_on:
@@ -126,6 +131,11 @@ def check_joins(
                 if group.project != onto.project:
                     raise refuse(
                         f"group {number} is in project {group.project!r}, not in {onto.id}'s"
+                    )
+                if group.split != onto.split:
+                    raise refuse(
+                        f"group {number} is in e2e-test split {group.split!r}, not in "
+                        f"{onto.id}'s ({onto.split!r})"
                     )
                 for need in context.needs.get(number, ()):
                     holder = next((u for u in state.values() if _holds(u, need)), None)

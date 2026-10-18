@@ -26,7 +26,7 @@ from collections.abc import Callable, Mapping, Sequence
 
 from agent_build_kit import runtimes
 from agent_build_kit.compat_names import Place, new_spelling, old_spelling
-from agent_build_kit.config import active
+from agent_build_kit.config import REST_SPLIT, active
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
@@ -167,6 +167,7 @@ def parse_plan(
                     repo=raw["repo"],
                     tier=raw["tier"],
                     project=_unit_project(raw, groups),
+                    split=_unit_split(raw, groups),
                     depends_on=tuple(raw.get("depends_on") or ()),
                     estimated_lines=int(raw.get("estimated_lines") or 0),
                     groups=tuple(raw.get("groups") or ()),
@@ -223,13 +224,24 @@ def _read_excuses(raw: dict) -> dict[str, str]:
     return dict(found)
 
 
+def _first_group(raw: dict, groups: list[TaskGroup] | None) -> TaskGroup | None:
+    """The first group a planned unit lists that is in `groups`: where its shape is read from."""
+    by_number = {group.number: group for group in groups or ()}
+    return next((by_number[n] for n in raw.get("groups") or () if n in by_number), None)
+
+
 def _unit_project(raw: dict, groups: list[TaskGroup] | None) -> str:
     """The project a planned unit is for: the one it names, else that of its first group."""
     if raw.get("project"):
         return str(raw["project"])
-    by_number = {group.number: group for group in groups or ()}
-    first = next((by_number[n] for n in raw.get("groups") or () if n in by_number), None)
+    first = _first_group(raw, groups)
     return first.project if first else "."
+
+
+def _unit_split(raw: dict, groups: list[TaskGroup] | None) -> str:
+    """The e2e-test split a planned unit is in: that of its first group, never the model's word."""
+    first = _first_group(raw, groups)
+    return first.split if first else REST_SPLIT
 
 
 def unit_priority(unit: Unit, catalog: Mapping[str, Sequence[TaskGroup]]) -> int:
@@ -404,6 +416,13 @@ def _check_groups(
     claimed: dict[int, str] = {}
 
     for unit in units:
+        in_splits = {n: by_number[n].split for n in unit.groups if n in by_number}
+        if len(set(in_splits.values())) > 1:
+            named = ", ".join(f"group {n} is in {split}" for n, split in in_splits.items())
+            raise PlannerError(
+                f"unit {unit.id} mixes e2e-test splits ({named}) — a unit is in one split, "
+                "so each split's groups are a unit of their own"
+            )
         for number in unit.groups:
             group = by_number.get(number)
             if group is None:
@@ -419,6 +438,11 @@ def _check_groups(
                 raise PlannerError(
                     f"unit {unit.id} is for project {unit.project!r} of {unit.repo} but claims "
                     f"group {number}, which is tagged for project {group.project!r}"
+                )
+            if group.split != unit.split:
+                raise PlannerError(
+                    f"unit {unit.id} is in e2e-test split {unit.split!r} but claims group "
+                    f"{number}, which is in split {group.split!r}"
                 )
             if number in built:
                 raise PlannerError(
@@ -632,6 +656,11 @@ Rules the graph must satisfy:
   heading below as `(project <path>)` when it is not the repo's root; a unit
   never takes groups tagged for different projects, and a join never crosses
   projects.
+- A unit is in one e2e-test split: a group's `Split:` line, `rest` when it has none,
+  shown on its heading below as `(split <name>)` when it is not `rest`. Groups of
+  different splits are never in one unit, even when they are small and consecutive
+  in the same repo: write each split's groups as a unit of its own. A join never
+  crosses splits.
 - Every group in the change must be claimed by exactly one unit: none left
   out, none in two units. The exception is a group whose heading is marked
   `(built by <unit id>)`: it is taken, so never claim it and return no unit
@@ -709,7 +738,8 @@ two units merely because both are small. The unit that stays is the earlier.
 Every join must satisfy all of these, and a plan with one that does not is
 rejected:
 - same repo and compatible kinds (`unit-test` and `integration-test` together, `e2e-test`
-  only with `e2e-test`);
+  only with `e2e-test`), and the same e2e-test split (a unit in flight shows its split
+  when it is not `rest`);
 - a straight line: the later depends on the earlier (or would, for a group of
   the change above), nothing else depends on the earlier, and the later waits
   on nothing else unfinished;
@@ -736,6 +766,7 @@ def in_flight_item(unit: StoredUnit) -> dict:
         "id": unit.id,
         "repo": unit.repo,
         "project": unit.project,
+        "split": unit.split,
         "branch": unit.branch,
         "state": unit.state,
         "unstarted": unit.unstarted,
@@ -751,13 +782,20 @@ def in_flight_item(unit: StoredUnit) -> dict:
     }
 
 
+def split_note(item: dict) -> str:
+    """`split <name>, ` for a unit outside `rest`, else nothing."""
+    split = item.get("split", REST_SPLIT)
+    return "" if split == REST_SPLIT else f"split {split}, "
+
+
 def _in_flight_line(item: dict) -> str:
     line = f"- {item['id']} [{item['repo']}] {item.get('branch', '')} ({item.get('state', '?')})"
     if "priority" in item:
         line += f" priority {item['priority']}"
     if item.get("unstarted"):
         line += (
-            f" unstarted, {item.get('tier', '?')}, est {item.get('estimated_lines', 0)} lines, "
+            f" unstarted, {item.get('tier', '?')}, "
+            f"{split_note(item)}est {item.get('estimated_lines', 0)} lines, "
             f"builds {item.get('builds', '?')}, depends on "
             f"{', '.join(item.get('depends_on') or []) or 'nothing'}"
         )
@@ -865,9 +903,10 @@ def _join_raw(
 def _mark_built(
     change: str, tasks: str, in_flight: list[dict], groups: Sequence[TaskGroup] | None = None
 ) -> str:
-    """`tasks` with `(priority N)` on the heading of each of `groups` and `(built by <unit id>)`
-    on that of each group a started unit builds."""
+    """`tasks` with `(priority N)` (and `(split <name>)` outside `rest`) on the heading of each
+    of `groups` and `(built by <unit id>)` on that of each group a started unit builds."""
     priorities = {group.number: group.priority for group in groups or ()}
+    splits = {group.number: group.split for group in groups or ()}
     built = {
         number: item["id"]
         for item in in_flight
@@ -882,6 +921,8 @@ def _mark_built(
         unit_id = built.get(int(found["number"])) if found else None
         if found and int(found["number"]) in priorities:
             line += f" (priority {priorities[int(found['number'])]})"
+        if found and splits.get(int(found["number"]), REST_SPLIT) != REST_SPLIT:
+            line += f" (split {splits[int(found['number'])]})"
         if heading := GROUP_HEADING.match(line):
             _, project = split_repo_tag(heading["repo"], known_repos())
             if project:

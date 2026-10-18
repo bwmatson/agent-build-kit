@@ -136,7 +136,11 @@ def planning_gate(inst: Installation, change: str) -> Callable[[Path], str]:
 
     def gate(cwd: Path) -> str:
         from agent_build_kit import openspec
-        from agent_build_kit.pipeline.work_graph import check_tags, declared_projects
+        from agent_build_kit.pipeline.work_graph import (
+            check_tags,
+            declared_projects,
+            declared_split_names,
+        )
 
         rejected = []
         ok, output = openspec.check(cwd)
@@ -147,6 +151,7 @@ def planning_gate(inst: Installation, change: str) -> Callable[[Path], str]:
             inst.changes_dir,
             repos=tuple(inst.repos),
             projects=declared_projects(inst.repos),
+            splits=declared_split_names(inst.repos, inst.config),
         )
         if errors:
             rejected.append(f"abk tags {change} failed:\n" + "\n".join(errors))
