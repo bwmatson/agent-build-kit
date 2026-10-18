@@ -1,6 +1,6 @@
 """A tick and its lane: the lane is created once per tick and handed to the poll, the tick
-waits for it as it waits for builds, a restack running takes no build slot, and the sample
-row is the build pool's.
+waits for it as it waits for builds, a restack running counts toward the slot occupancy
+without waiting for a build slot, and so does the sample row.
 
 A tick is driven as `test_tick_samples` drives it. The poll is a fake that receives the
 lane and hands it a restack, which blocks on an event a build or a sample sets, so what
@@ -157,7 +157,7 @@ def test_a_build_slot_is_free_while_a_restack_runs_and_a_ready_unit_starts_in_it
     assert scene.log == ["restack begun", "build first/1", "built first/1", "restack done"]
 
 
-def test_the_samples_free_workers_and_cap_are_the_build_pools_with_a_restack_running(
+def test_the_samples_free_workers_count_the_restack_running_as_occupying_a_slot(
     scene: Scene, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     during: list[list[str]] = []
@@ -176,7 +176,7 @@ def test_the_samples_free_workers_and_cap_are_the_build_pools_with_a_restack_run
     first, *_ = scene.samples()
     assert during[0] == ["second/1"]
     assert set(first) == SAMPLE_FIELDS
-    assert (first["free_workers"], first["cap"]) == (2, 2)
+    assert (first["free_workers"], first["cap"]) == (1, 2)
 
 
 def test_a_build_that_stops_for_a_moved_base_is_followed_at_once_by_a_restack_of_it(
