@@ -157,7 +157,7 @@ def test_a_node_that_raises_raises_the_same_error_when_the_ledger_cannot_be_writ
     assert [line for line in recorder.logged if "ledger" in line.lower()], "and it said so"
 
 
-def tier_one_commands(tmp_path: Path, workspace: Installation, clock: FakeClock, **overrides: Any):
+def unit_test_commands(tmp_path: Path, workspace: Installation, clock: FakeClock, **overrides: Any):
     tree = tmp_path / "tree"
     (tree / "tests").mkdir(parents=True)
     (tree / "pyproject.toml").write_text("[project]\nname = 'x'\n")
@@ -172,10 +172,10 @@ def tier_one_commands(tmp_path: Path, workspace: Installation, clock: FakeClock,
     return [s for s in span_lines(workspace) if s.get("command")]
 
 
-def test_a_tier_one_command_run_by_the_checks_node_carries_its_node_and_round(
+def test_a_unit_test_command_run_by_the_checks_node_carries_its_node_and_round(
     tmp_path: Path, workspace: Installation, clock: FakeClock
 ) -> None:
-    commands = tier_one_commands(tmp_path, workspace, clock)
+    commands = unit_test_commands(tmp_path, workspace, clock)
 
     assert commands
     assert {(s["unit"], s["change"], s["node"], s["round"]) for s in commands} == {
@@ -183,10 +183,10 @@ def test_a_tier_one_command_run_by_the_checks_node_carries_its_node_and_round(
     }
 
 
-def test_a_tier_one_command_run_by_the_tier_one_node_carries_that_node(
+def test_a_unit_test_command_run_by_the_unit_test_node_carries_that_node(
     tmp_path: Path, workspace: Installation, clock: FakeClock
 ) -> None:
-    commands = tier_one_commands(tmp_path, workspace, clock, branch_commits=lambda cwd, base: 0)
+    commands = unit_test_commands(tmp_path, workspace, clock, branch_commits=lambda cwd, base: 0)
 
     assert commands
     assert {(s["unit"], s["change"], s["node"], s["round"]) for s in commands} == {
@@ -194,7 +194,7 @@ def test_a_tier_one_command_run_by_the_tier_one_node_carries_that_node(
     }
 
 
-def test_a_tier_one_command_that_raises_still_leaves_an_error_span(
+def test_a_unit_test_command_that_raises_still_leaves_an_error_span(
     tmp_path: Path, workspace: Installation, clock: FakeClock
 ) -> None:
     tree = tmp_path / "tree"

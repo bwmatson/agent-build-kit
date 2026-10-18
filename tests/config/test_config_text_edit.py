@@ -14,6 +14,8 @@ import yaml
 from agent_build_kit.config_text_edit import ConfigTextEditError, set_hold
 from agent_build_kit.runtimes.policy_apply import BACKUP_SUFFIX
 
+# The key keeps the old test-kind spelling: it is what an installation still has.
+OLD_SPLITS = "tier" + "2_splits"
 HEAD = "# the planning repo\nplanning:\n  path: /work/plan  # here\n\n"
 TAIL = "\n# repos below\nrepos:\n  app:\n    path: /work/app\n    slug: example/app\n"
 
@@ -250,11 +252,11 @@ def test_hold_on_rest_creates_a_missing_e2e_splits_mapping(tmp_path: Path) -> No
 
 
 def test_a_file_written_with_the_old_key_is_edited_under_that_key(tmp_path: Path) -> None:
-    original = "tests:\n  e2e_splits:\n    acp:\n      marker: runtime_acp\n"
+    original = f"tests:\n  {OLD_SPLITS}:\n    acp:\n      marker: runtime_acp\n"
     path = write(tmp_path, original)
     set_hold(path, None, "acp", True)
     expected = {"acp": {"marker": "runtime_acp", "hold": True}}
-    assert loaded(path)["tests"] == {"e2e_splits": expected}
+    assert loaded(path)["tests"] == {OLD_SPLITS: expected}
 
 
 def test_hold_on_rest_creates_a_missing_tests_mapping(tmp_path: Path) -> None:

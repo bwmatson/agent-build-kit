@@ -35,7 +35,7 @@ SAID = f"the run printed {SECRET} in its output"
 SAID_REPLACED = f"the run printed {REPLACED} in its output"
 
 
-def _failing_tier_two_body() -> str:
+def _failing_e2e_body() -> str:
     snapshot = build_snapshot(
         E2eResult(
             sha="abcdef1234567",
@@ -67,14 +67,14 @@ def _one_failure_line(caplog: pytest.LogCaptureFixture) -> None:
 
 @pytest.mark.usefixtures("github_env")
 class TestGitHub:
-    def test_a_pull_request_description_from_a_failing_tier_two_holds_the_replacement(
+    def test_a_pull_request_description_from_a_failing_e2e_holds_the_replacement(
         self,
     ) -> None:
         created = answer(
             {"number": 7, "node_id": "PR_7", "state": "open", "head": {"ref": HEAD}}, 201
         )
         host = GitHubHost(routes={("POST", f"{BASE}/pulls"): created})
-        body = _failing_tier_two_body()
+        body = _failing_e2e_body()
         assert SECRET in body
 
         with known():
@@ -145,7 +145,7 @@ class TestAzureDevOps:
 
         with known():
             AzureDevOpsForge(http=host).create_pr(
-                AZURE, head=HEAD, base="main", title=f"Fix {SECRET}", body=_failing_tier_two_body()
+                AZURE, head=HEAD, base="main", title=f"Fix {SECRET}", body=_failing_e2e_body()
             )
 
         [call] = host.writes()
@@ -196,7 +196,7 @@ class TestLocal:
 
         with known():
             number = forge.create_pr(
-                LOCAL, head=HEAD, base="main", title=f"Fix {SECRET}", body=_failing_tier_two_body()
+                LOCAL, head=HEAD, base="main", title=f"Fix {SECRET}", body=_failing_e2e_body()
             )
             forge.post_comment(LOCAL, number, body=SAID)
             forge.update_pr(LOCAL, number, body=SAID)

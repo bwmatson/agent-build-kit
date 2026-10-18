@@ -97,7 +97,7 @@ def test_the_body_is_fitted_once_to_the_lowest_limit_whatever_the_repos_host_tak
 # --- e2e-test -------------------------------------------------------------------
 
 
-def test_tier_two_runs_after_the_review_and_before_the_push_for_a_tier_two_unit(
+def test_e2e_runs_after_the_review_and_before_the_push_for_an_e2e_unit(
     tmp_path: Path,
 ) -> None:
     recorder = fresh(tmp_path, tier="e2e-test")
@@ -110,7 +110,7 @@ def test_tier_two_runs_after_the_review_and_before_the_push_for_a_tier_two_unit(
     assert recorder.events.index("e2e-test") < recorder.events.index("push")
 
 
-def test_a_failing_tier_two_leaves_no_pull_request_and_keeps_its_output(tmp_path: Path) -> None:
+def test_a_failing_e2e_leaves_no_pull_request_and_keeps_its_output(tmp_path: Path) -> None:
     recorder = fresh(tmp_path, tier="e2e-test", e2e_ok=False)
     recorder.e2e_output = "FAILED live_test - the route 404s"
 
@@ -125,7 +125,7 @@ def test_a_failing_tier_two_leaves_no_pull_request_and_keeps_its_output(tmp_path
     assert "the route 404s" in stored.feedback
 
 
-def test_a_tier_two_unit_is_held_at_the_boundary_before_tier_two(tmp_path: Path) -> None:
+def test_an_e2e_unit_is_held_at_the_boundary_before_e2e(tmp_path: Path) -> None:
     """Its upstream went back while it was in review: the live stack is not
     brought up against a stale base."""
     recorder = fresh(tmp_path, tier="e2e-test", e2e_ok=False)
@@ -145,7 +145,7 @@ def test_a_tier_two_unit_is_held_at_the_boundary_before_tier_two(tmp_path: Path)
     assert recorder.store.get(unit().id).state == PLANNED
 
 
-def test_tier_two_follows_checks_that_were_fixed_first(tmp_path: Path) -> None:
+def test_e2e_follows_checks_that_were_fixed_first(tmp_path: Path) -> None:
     """No point occupying the one local stack to re-confirm a known failure."""
     recorder = fresh(tmp_path, tier="e2e-test")
     recorder.unit_test_results = [(False, "ERROR lint"), (True, "")]
@@ -174,7 +174,7 @@ def test_the_status_is_posted_after_the_push_and_the_snapshot_reaches_the_body(
     assert "5 passed in the live stack" in bodies[-1]["body"]
 
 
-def test_a_tier_two_unit_moved_cleanly_runs_tier_two_again_before_it_is_pushed(
+def test_an_e2e_unit_moved_cleanly_runs_e2e_again_before_it_is_pushed(
     tmp_path: Path,
 ) -> None:
     recorder = fresh(tmp_path, tier="e2e-test")
@@ -1009,7 +1009,7 @@ def test_a_base_that_keeps_needing_resolution_is_resumed_once_then_left_planned(
     assert moves.resolving.count(False) == 2, "one resume, not a loop"
 
 
-def test_tier_one_failing_after_a_clean_move_is_reworked_reviewed_and_opened_in_the_same_run(
+def test_unit_test_failing_after_a_clean_move_is_reworked_reviewed_and_opened_in_the_same_run(
     tmp_path: Path,
 ) -> None:
     recorder = fresh(tmp_path)
@@ -1164,7 +1164,7 @@ def test_a_unit_whose_rounds_ran_out_gets_a_fresh_budget_when_its_base_is_gone_a
     assert all("rounds spent" not in h.get("note", "") for h in stored.history)
 
 
-def test_a_tier_two_unit_whose_checks_never_pass_ends_failed_before_tier_two_and_the_push(
+def test_an_e2e_unit_whose_checks_never_pass_ends_failed_before_e2e_and_the_push(
     tmp_path: Path,
 ) -> None:
     recorder = fresh(tmp_path, tier="e2e-test")

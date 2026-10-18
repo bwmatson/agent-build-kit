@@ -6,7 +6,7 @@ Each fixture is the JUnit report Vitest wrote for one tiny project in a temporar
 directory: a failing assertion beside a skipped and a passing test, a stub that throws
 `not implemented`, a test file importing a module that does not exist, a type error, and a
 passing run, a syntax error, a run that executed nothing, a failing test file beside a
-passing one from another file, and a e2e run (a file named for its marker) that keeps its
+passing one from another file, and an e2e-test run (a file named for its marker) that keeps its
 timings. Needs network access once, for `npx` to fetch Vitest. Only the
 temporary path, the tool's cache path, timings and host name are redacted; the header names the
 tool version and the command. Name cases on the command line to record only those.
@@ -23,7 +23,7 @@ OUT = Path(__file__).resolve().parent / "vitest"
 COMMAND = ["npx", "--yes", "vitest", "run", "--reporter=junit", "--passWithNoTests"]
 REPORT_FILE = "report.xml"
 # Cases whose test times are the point, so the redaction leaves them.
-KEEP_TIMES = {"e2e-test"}
+KEEP_TIMES = {"e2e"}
 HEADER = "import { expect, test } from 'vitest';\n"
 
 CASES = {
@@ -76,7 +76,7 @@ CASES = {
         HEADER + "test('adds', () => {\n  expect(1).toBe(2);\n});\n",
         {"h.test.ts": HEADER + "test('holds', () => {\n  expect(1).toBe(1);\n});\n"},
     ),
-    "e2e-test": (
+    "e2e": (
         "live.local_stack.test.ts",
         HEADER
         + "test('waits', async () => {\n"

@@ -60,11 +60,6 @@ OLD_HELPER_FAKES = (
 )
 PIPELINE_TESTS = TESTS / "pipeline"
 GRAPH_TESTS = TESTS / "graph"
-GRAPH_TEST_RANGES = (
-    ("test_adopted_event", "test_open_pr_limit"),
-    ("test_outside_commits_prompt", "test_tier2_failure_log"),
-    ("test_tier2_feedback", "test_wait_end_requeue_note"),
-)
 CONVERTED_TEST_DIRECTORIES = ("config", "fixtures", "forges", "init")
 # The settings-alias test names the old keys on purpose: they are what it loads.
 OLD_NAME_TESTS = ("test_test_kind_settings_aliases.py",)
@@ -96,12 +91,8 @@ def pipeline_test_files() -> list[Path]:
 
 
 def graph_test_files() -> list[Path]:
-    """The tests under `tests/graph` in the converted name ranges, by current file name."""
-    return sorted(
-        p
-        for p in GRAPH_TESTS.glob("test_*.py")
-        if any(first <= p.stem <= last for first, last in GRAPH_TEST_RANGES)
-    )
+    """Every file under `tests/graph`, helpers and conftest included."""
+    return text_files(GRAPH_TESTS)
 
 
 def converted_test_directory_files() -> list[Path]:
