@@ -69,8 +69,9 @@
   the restack lane: after a move that leaves a conflict or a deferral, the lane's worker goes on
   into the unit's run, holding one lane worker and no build worker. A run the process lost or a
   usage pause interrupted is resumed by the lane, not offered to a build worker. The lane
-  never does ordinary work: a run stops before a rework that answers a reviewer, a fix of
-  failing checks or the end-to-end tests, leaves the unit planned with a note naming the step,
+  never does ordinary work: a run stops before any work that is not about the move (a
+  rework of other feedback, a fix of checks, the end-to-end tests, tests or implementation),
+  leaves the unit `planned` with the cause `restack_handed_back` and a note naming the step,
   and a build worker takes it from there. Each run the lane starts counts as one attempt at
   the tip of the unit's base, together with the attempts made for a conflicting pull request;
   a unit whose attempts at one tip reach `max_review_rounds` is held for a person with a note
@@ -84,7 +85,10 @@
   such a unit to the lane at once instead of waiting for a build worker.
   A run in the lane is never held back by the limit on build workers, but it counts toward
   slot occupancy: while the occupancy is at or above `max_concurrent_stacks` no build starts,
-  new or resumed, and it may read over the cap. `abk status` prints a slots line such as
+  new or resumed, and it may read over the cap. `project_limits.max_concurrent_restacks` now
+  bounds the whole moved-base run in each project's lane, not only the move, so size it for
+  runs that include review; this limit, the occupancy and the other limits are counted for
+  each project, not across all repos. `abk status` prints a slots line such as
   `slots: 5/4, 1 restacking`, and the sample row and slot gauges report the same occupancy.
 
 - A prompt no longer travels as a command-line argument to Claude Code: it is written to the

@@ -59,7 +59,8 @@ OLD_ACCOUNTS = (
     r"outside max_concurrent_stacks",
     r"beside the build workers",
     r"apart from the build workers",
-    r"work after a move runs in a build worker",
+    r"through prepare only",
+    r"outside the build slots",
 )
 
 

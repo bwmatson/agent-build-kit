@@ -531,8 +531,8 @@ A unit whose only reason to run is that its base moved runs its whole moved-base
 restack lane: the move, the resolver, the port of a conflict and the checks and review of the
 moved branch. The lane's cap bounds the moved-base run. The run counts toward slot occupancy but
 is never held back by the limit `max_concurrent_stacks`: no build starts at or above that cap,
-and the occupancy may read over it. A run stops before a rework that answers a reviewer, a fix
-of failing checks or the end-to-end tests, and what it cannot go on with is handed back,
+and the occupancy may read over it. A run stops before any work that is not about the move (a rework of other feedback, a fix of checks, the end-to-end tests, tests or implementation),
+and what it cannot go on with is handed back,
 `planned` with the cause `restack_handed_back`. The attempts at one base tip are bounded by
 `global_limits.max_review_rounds`, after which the unit is held for a person. Every limit in
 `project_limits` is counted for each project, not across all repos.

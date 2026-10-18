@@ -280,7 +280,7 @@ pull request, hand each such unit to the restack lane of the unit's project (eac
 `project_limits.max_concurrent_restacks` workers and a queue in the order restacks were seen, so a busy project does not
 hold back another's) instead of restacking inline. The lane's cap bounds the moved-base run: it is the move, the
 resolver, the port of a conflict the resolver could not settle and the checks and review of the moved branch, and it
-stops before a rework that answers a reviewer, a fix of failing checks or the end-to-end tests, leaving the unit
+stops before any work that is not about the move (a rework of other feedback, a fix of checks, the end-to-end tests, tests or implementation), leaving the unit
 `planned` with a note naming the step for a build worker. A run is never held back by the limit on build workers, but
 the run counts toward slot occupancy: no build starts while the occupancy is at or above `max_concurrent_stacks`, and the
 occupancy may read over it. Each run counts as one attempt at the tip of the unit's base, bounded by
@@ -865,7 +865,7 @@ the next sibling sees the conflict fresh, and fails the step's check, so the
 second call follows instead of the move aborting. What two steps leave
 unsettled goes, in a run, to the `adapt` port in the same session, told which
 steps were tried and what their checks said; the stack-move handler leaves it
-`planned` with cause `restack_conflict` and the unit's next run starts the
+`planned` with cause `restack_conflict`, and the lane's same worker goes straight on into that run, which starts the
 order from its first step. After a clean move
 whose diff (`git patch-id`) is unchanged and whose head review had approved,
 tier 1 runs again and the branch is pushed with a lease and a "Restacked"

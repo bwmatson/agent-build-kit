@@ -122,7 +122,7 @@ is owed a restack, is followed by each unit as `restacking onto <base>`; a resta
 usage pause is listed with the pause. The lane runs the whole moved-base run of a unit whose base moved, so a unit
 shows as `restacking onto <base>` for the whole run, not only the move; the lane's cap bounds the moved-base run, and a
 run the lane cannot go on with is handed back to a build worker, `planned` with the cause `restack_handed_back`. The
-slots line shows that the run counts toward slot occupancy, so it may read over the cap, as in `slots: 5/4, 1 restacking`: the run is
+slots line shows that the run counts toward slot occupancy, so it may read over the cap, as in `slots: 5/4, 1 restacking` (the line totals every project, like the restacks line, and its cap is the per-project cap times the projects with unfinished work): the run is
 never held back by the limit on build workers, but no build starts at or above it. A record left by a tick that has gone
 is ignored.
 Changes nothing. Exit 0.
