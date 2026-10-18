@@ -12,8 +12,14 @@ import pytest
 from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
 from agent_build_kit.pipeline.units import MERGED, Join, Unit
 from agent_build_kit.pipeline.work_graph import TaskGroup
-from tests.factories import stored_unit as stored
+from tests.factories import stored_unit
 from tests.factories import unit as planned
+
+
+def stored(uid: str, **overrides):
+    """A stored unit of `feature`, whose groups `CATALOG` knows."""
+    return stored_unit(uid, change="feature", **overrides)
+
 
 CATALOG = {
     "feature": tuple(

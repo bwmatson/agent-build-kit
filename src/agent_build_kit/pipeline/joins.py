@@ -27,6 +27,8 @@ from agent_build_kit.pipeline.units import (
     Join,
     Member,
     Unit,
+    direct_dependencies,
+    repointed,
 )
 from agent_build_kit.pipeline.work_graph import TaskGroup
 
@@ -68,7 +70,11 @@ def check_joins(
         if change is not None and u.change == change and u.state == PLANNED
     }
     state = {u.id: u for u in context.stored if u.id not in replaced}
-    plan_depends = {u.id: u.depends_on for u in plan}
+    planned = {u.id: u for u in plan}
+
+    def direct(unit: Unit) -> tuple[str, ...]:
+        return direct_dependencies(unit, [*state.values(), *planned.values()])
+
     catalog = dict(context.catalog)
     if change is not None:
         catalog[change] = tuple(groups)
@@ -105,15 +111,17 @@ def check_joins(
                     f"{taken.id} is in e2e-test split {taken.split!r}, not in {onto.id}'s "
                     f"({onto.split!r})"
                 )
-            if onto.id not in taken.depends_on:
+            if onto.id not in direct(taken):
                 raise refuse(f"{taken.id} does not depend on {onto.id}, so they are not in a line")
-            for dependency in taken.depends_on:
+            for dependency in direct(taken):
                 other = state.get(dependency)
                 if dependency != onto.id and (other is None or other.state not in FINISHED_STATES):
                     raise refuse(f"{taken.id} also waits on {dependency}, which is unfinished")
             others = [
-                u.id for u in state.values() if onto.id in u.depends_on and u.id != taken.id
-            ] + [uid for uid, deps in plan_depends.items() if onto.id in deps]
+                u.id
+                for u in [*state.values(), *planned.values()]
+                if onto.id in direct(u) and u.id != taken.id
+            ]
             members = taken.members()
             added = taken.estimated_lines
             added_kinds = [taken.tier]
@@ -148,7 +156,7 @@ def check_joins(
                         raise refuse(f"group {number} also waits on {need[0]} group {need[1]}")
             claimed |= set(join.groups)
             added_kinds = [by_number[number].tier for number in join.groups]
-            others = [u.id for u in state.values() if onto.id in u.depends_on]
+            others = [u.id for u in state.values() if onto.id in direct(u)]
             members = (Member(change=join.change, groups=join.groups),)
             added = join.estimated_lines
             taken = None
@@ -180,16 +188,13 @@ def check_joins(
         state[onto.id] = onto.taking(members, estimated_lines=added, kinds=added_kinds)
         if taken is not None:
             del state[taken.id]
-            for unit_id, unit in list(state.items()):
-                if taken.id in unit.depends_on:
-                    state[unit_id] = unit.model_copy(
-                        update={"depends_on": _repointed(unit, taken, onto)}
-                    )
-            for unit_id, deps in plan_depends.items():
-                if taken.id in deps:
-                    plan_depends[unit_id] = tuple(
-                        dict.fromkeys(onto.id if dep == taken.id else dep for dep in deps)
-                    )
+            moved = repointed({**state, **planned}, taken.id, onto.id)
+            for uid, unit in moved.items():
+                update = {"depends_on": unit.depends_on}
+                if uid in state:
+                    state[uid] = state[uid].model_copy(update=update)
+                else:
+                    planned[uid] = planned[uid].model_copy(update=update)
 
 
 def _needs_stack(kind: TestTier) -> bool:
@@ -199,10 +204,6 @@ def _needs_stack(kind: TestTier) -> bool:
 
 def _holds(unit: Unit, need: tuple[str, int]) -> bool:
     return any(m.change == need[0] and need[1] in m.groups for m in unit.members())
-
-
-def _repointed(unit: Unit, taken: Unit, onto: Unit) -> tuple[str, ...]:
-    return tuple(dict.fromkeys(onto.id if dep == taken.id else dep for dep in unit.depends_on))
 
 
 def _check_groups(

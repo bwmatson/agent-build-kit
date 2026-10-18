@@ -106,10 +106,11 @@ def deep_store(directory: Path, name: str = "units.json") -> UnitStore:
 
     Merging c/1 leaves c/2 at depth 1 and c/4 at depth 3: c/4 is a direct
     dependent of c/1 that sits deeper than c/2. c/9 is an unrelated unit in the
-    same repo.
+    same repo. Written with `import_units`, as a store from before dependencies were
+    reduced, because `upsert` would drop c/4's listing of c/1.
     """
     store = UnitStore(directory / name)
-    store.upsert(
+    store.import_units(
         [
             stored_unit("c/1"),
             stored_unit("c/2", depends_on=("c/1",)),
