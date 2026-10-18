@@ -52,4 +52,4 @@ def test_nothing_is_split_or_kept_of_a_refused_line(tmp_path: Path) -> None:
     groups, errors = read(tmp_path, text)
 
     assert len(errors) == 2
-    assert {g.split for g in groups} <= {"rest"}
+    assert [(g.number, g.split) for g in groups] == [(1, "rest"), (2, "rest")]

@@ -656,6 +656,11 @@ Rules the graph must satisfy:
   heading below as `(project <path>)` when it is not the repo's root; a unit
   never takes groups tagged for different projects, and a join never crosses
   projects.
+- A unit is in one e2e-test split: a group's `Split:` line, `rest` when it has none,
+  shown on its heading below as `(split <name>)` when it is not `rest`. Groups of
+  different splits are never in one unit, even when they are small and consecutive
+  in the same repo: write each split's groups as a unit of its own. A join never
+  crosses splits.
 - Every group in the change must be claimed by exactly one unit: none left
   out, none in two units. The exception is a group whose heading is marked
   `(built by <unit id>)`: it is taken, so never claim it and return no unit
@@ -733,7 +738,8 @@ two units merely because both are small. The unit that stays is the earlier.
 Every join must satisfy all of these, and a plan with one that does not is
 rejected:
 - same repo and compatible kinds (`unit-test` and `integration-test` together, `e2e-test`
-  only with `e2e-test`);
+  only with `e2e-test`), and the same e2e-test split (a unit in flight shows its split
+  when it is not `rest`);
 - a straight line: the later depends on the earlier (or would, for a group of
   the change above), nothing else depends on the earlier, and the later waits
   on nothing else unfinished;
@@ -760,6 +766,7 @@ def in_flight_item(unit: StoredUnit) -> dict:
         "id": unit.id,
         "repo": unit.repo,
         "project": unit.project,
+        "split": unit.split,
         "branch": unit.branch,
         "state": unit.state,
         "unstarted": unit.unstarted,
@@ -775,13 +782,20 @@ def in_flight_item(unit: StoredUnit) -> dict:
     }
 
 
+def split_note(item: dict) -> str:
+    """`split <name>, ` for a unit outside `rest`, else nothing."""
+    split = item.get("split", REST_SPLIT)
+    return "" if split == REST_SPLIT else f"split {split}, "
+
+
 def _in_flight_line(item: dict) -> str:
     line = f"- {item['id']} [{item['repo']}] {item.get('branch', '')} ({item.get('state', '?')})"
     if "priority" in item:
         line += f" priority {item['priority']}"
     if item.get("unstarted"):
         line += (
-            f" unstarted, {item.get('tier', '?')}, est {item.get('estimated_lines', 0)} lines, "
+            f" unstarted, {item.get('tier', '?')}, "
+            f"{split_note(item)}est {item.get('estimated_lines', 0)} lines, "
             f"builds {item.get('builds', '?')}, depends on "
             f"{', '.join(item.get('depends_on') or []) or 'nothing'}"
         )
@@ -889,9 +903,10 @@ def _join_raw(
 def _mark_built(
     change: str, tasks: str, in_flight: list[dict], groups: Sequence[TaskGroup] | None = None
 ) -> str:
-    """`tasks` with `(priority N)` on the heading of each of `groups` and `(built by <unit id>)`
-    on that of each group a started unit builds."""
+    """`tasks` with `(priority N)` (and `(split <name>)` outside `rest`) on the heading of each
+    of `groups` and `(built by <unit id>)` on that of each group a started unit builds."""
     priorities = {group.number: group.priority for group in groups or ()}
+    splits = {group.number: group.split for group in groups or ()}
     built = {
         number: item["id"]
         for item in in_flight
@@ -906,6 +921,8 @@ def _mark_built(
         unit_id = built.get(int(found["number"])) if found else None
         if found and int(found["number"]) in priorities:
             line += f" (priority {priorities[int(found['number'])]})"
+        if found and splits.get(int(found["number"]), REST_SPLIT) != REST_SPLIT:
+            line += f" (split {splits[int(found['number'])]})"
         if heading := GROUP_HEADING.match(line):
             _, project = split_repo_tag(heading["repo"], known_repos())
             if project:
