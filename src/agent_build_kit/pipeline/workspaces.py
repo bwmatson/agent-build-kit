@@ -124,13 +124,9 @@ def branch_lock(branch: str, *, root: Path):
 def branch_held(branch: str, *, root: Path) -> bool:
     """Whether a live process holds this branch's lock.
 
-    `branch_lock` already distinguishes a crashed holder from a live one by its pid;
-    acquiring and releasing is the cheapest way to ask."""
-    try:
-        with branch_lock(branch, root=root):
-            return False
-    except BranchBusy:
-        return True
+    Read, never taken: a probe that claimed the lock would turn away a run starting on the
+    branch at the same moment."""
+    return lock_holder_gone(branch, root=root) is False
 
 
 def worktree_path(repo: Path, branch: str, root: Path) -> Path:
