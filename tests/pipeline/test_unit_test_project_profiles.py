@@ -252,6 +252,3 @@ def test_a_project_absent_from_the_checkout_runs_none_of_its_checks(tmp_path: Pa
 
     assert passed
     assert "web-types" not in commands.words()
-
-
-tier1 = unit_test  # abk-shim

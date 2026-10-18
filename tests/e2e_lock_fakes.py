@@ -123,6 +123,3 @@ def e2e_runner(
     monkeypatch.setattr(wiring, "_head_sha", lambda cwd: "abc1234")
     built = build_runner(unit, store=store, installation=workspace, log=log.append)
     return built, ran
-
-
-tier2_runner = e2e_runner  # abk-shim

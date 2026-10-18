@@ -165,6 +165,3 @@ def export_span(span: Span) -> None:
         telemetry.duration("abk.wait.duration", seconds, bucket=span.waited)
     elif not span.command:
         telemetry.duration("abk.node.duration", seconds, node=span.node)
-
-
-TIER2_LOCK = E2E_LOCK  # abk-shim

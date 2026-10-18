@@ -90,6 +90,3 @@ def test_a_failing_e2e_test_named_in_unit_test_output_is_not_rerun_as_e2e(
     assert E2E_COMMAND not in commands
     assert all("local_stack" not in " ".join(command) for command in spy.reruns)
     assert all("local_stack" not in " ".join(command) for command in commands)
-
-
-TIER2_TEST = E2E_TEST  # abk-shim

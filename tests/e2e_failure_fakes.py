@@ -172,6 +172,3 @@ def run_failing_e2e(tmp_path: Path, snapshot: str) -> tuple[str, Path]:
 
     asyncio.run(go())
     return store.get(e2e.id).feedback, logs
-
-
-run_failing_tier2 = run_failing_e2e  # abk-shim

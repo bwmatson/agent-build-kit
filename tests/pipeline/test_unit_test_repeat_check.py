@@ -317,6 +317,3 @@ def test_a_test_method_in_a_source_file_is_not_repeated(tmp_path: Path) -> None:
     for command in runs.repeat_runs:
         assert command[-1] == "test_new.py::test_added"
         assert "src/db.py" not in " ".join(command)
-
-
-tier1 = unit_test  # abk-shim

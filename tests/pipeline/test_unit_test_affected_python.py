@@ -360,6 +360,3 @@ def test_a_seeded_serial_pass_that_collects_nothing_is_run_once_and_says_nothing
     serial = [c for c in runner.ran if "pytest" in c and "serial" in c]
     assert len(serial) == 1 and any("testmon" in w for w in serial[0])
     assert not any("selection tooling" in line for line in log), log
-
-
-tier1_for = unit_test_for  # abk-shim

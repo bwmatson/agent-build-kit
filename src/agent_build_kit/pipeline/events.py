@@ -2415,6 +2415,3 @@ def build_dispatch(
         return True
 
     return dispatch
-
-
-_default_tier1 = _default_unit_test  # abk-shim

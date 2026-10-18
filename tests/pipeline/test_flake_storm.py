@@ -131,6 +131,3 @@ def test_status_shows_a_storm_as_one_line_and_not_in_the_per_test_list(
     assert "97" in line
     assert not any("test_case_000" in ln for ln in lines), "its tests are not listed one by one"
     assert any("tests/test_a.py::test_x" in ln and "flaky" in ln for ln in lines)
-
-
-tier1 = unit_test  # abk-shim

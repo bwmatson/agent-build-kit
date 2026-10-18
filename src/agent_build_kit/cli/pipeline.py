@@ -5620,8 +5620,3 @@ def _record_waits(
                 store.mark_ready(unit_id)
     except Exception as error:  # noqa: BLE001 — a record is never a pass's to lose
         log(f"the decision log is not recording ({type(error).__name__}: {error})")
-
-
-_tier2_output = _e2e_output  # abk-shim
-build_tier1 = build_unit_test  # abk-shim
-tier2_output_dir = e2e_output_dir  # abk-shim

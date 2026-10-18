@@ -103,7 +103,7 @@ class Settings(BaseSettings):
     # complete: at least the gateway's flush interval.
     gateway_quiet_seconds: float = 10.0
 
-    # What tier-2 tests do with the calls they make outside the stack (replay/).
+    # What e2e tests do with the calls they make outside the stack (replay/).
     replay_mode: ReplayMode = ReplayMode.off
 
     # Telemetry (telemetry.py): off unless this is set. The endpoint and

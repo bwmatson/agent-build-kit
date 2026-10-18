@@ -1686,6 +1686,3 @@ class UnitRunner(BaseModel):
         self.store.set_state(unit.id, UnitState.FAILED, note=detail, cause=cause)
         self.mark_tasks(unit, done=False)
         return RunOutcome(status=RunStatus.FAILED, detail=detail)
-
-
-TIER1_FAILED = UNIT_TEST_FAILED  # abk-shim

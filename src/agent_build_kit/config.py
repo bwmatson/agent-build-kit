@@ -484,7 +484,7 @@ class TestKindSettings(Frozen):
 
     @model_validator(mode="before")
     @classmethod
-    def _read_old_names(cls, data: Any) -> Any:  # abk-shim
+    def _read_old_names(cls, data: Any) -> Any:
         if not isinstance(data, dict):
             return data
         renamed = {k: new_spelling(Place.SETTING, k) if isinstance(k, str) else k for k in data}
@@ -499,7 +499,7 @@ class TestKindSettings(Frozen):
             for k, v in data.items()
         }
 
-    def __getattr__(self, name: str) -> Any:  # abk-shim
+    def __getattr__(self, name: str) -> Any:
         new = new_spelling(Place.SETTING, name)
         if new != name and new in type(self).model_fields:
             return getattr(self, new)
@@ -1761,12 +1761,3 @@ def models() -> ModelsConfig:
         review=pick("review", settings.review_model),
         rework_review=pick("rework_review", settings.rework_review_model),
     )
-
-
-Tier2UnitScope = E2eUnitScope  # abk-shim
-tier2_unit_scope = e2e_unit_scope  # abk-shim
-Tier2Schedule = E2eSchedule  # abk-shim
-tier2_schedule = e2e_schedule  # abk-shim
-tier2_splits = e2e_splits  # abk-shim
-Tier2SplitEntry = E2eSplitEntry  # abk-shim
-Tier2Split = E2eSplit  # abk-shim

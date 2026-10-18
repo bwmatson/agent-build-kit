@@ -1492,6 +1492,3 @@ def cmd_doctor(args: argparse.Namespace, _inst: Installation | None) -> int:
 def register(sub: argparse._SubParsersAction) -> None:
     parser = sub.add_parser("doctor", help="check this installation is runnable")
     parser.set_defaults(func=cmd_doctor, needs_installation=False)
-
-
-_tier2_holds = _e2e_holds  # abk-shim

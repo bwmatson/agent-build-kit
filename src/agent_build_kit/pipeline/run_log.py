@@ -196,7 +196,3 @@ def remove_old_logs(directory: Path, ledger: Path, *, days: int, now: datetime) 
                 path.unlink(missing_ok=True)
             except OSError:
                 continue
-
-
-tier2_output_dir = e2e_output_dir  # abk-shim
-append_tier2_output = append_e2e_output  # abk-shim

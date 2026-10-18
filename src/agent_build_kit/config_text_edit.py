@@ -11,9 +11,10 @@ from typing import Any
 
 import yaml
 
+from agent_build_kit.compat_names import old_spelling
 from agent_build_kit.config import REST_SPLIT
 from agent_build_kit.init.scaffold import block_end, indent_of
-from agent_build_kit.model import Frozen
+from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.runtimes.policy_apply import backup_and_replace
 
 __all__ = ["ConfigTextEditError", "TextEdit", "set_hold"]
@@ -21,7 +22,7 @@ __all__ = ["ConfigTextEditError", "TextEdit", "set_hold"]
 _HOLD = "hold"
 # The key the splits are written under, and the older name still read as the same setting.
 _SPLITS = "e2e_splits"
-_OLD_SPLITS = "tier2_splits"
+_OLD_SPLITS = f"{old_spelling(TestTier.E2E_TEST)}_splits"
 _NULL_TAG = "tag:yaml.org,2002:null"
 
 _Pair = tuple[yaml.ScalarNode, yaml.Node]

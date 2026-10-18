@@ -96,6 +96,3 @@ def test_a_changed_diff_or_a_resolution_is_planned_for_review_without_unit_test(
         assert (stored.state, stored.cause) == (PLANNED, Cause.RESTACK_DEFERRED)
         assert unit_test.calls == []
         assert pushed == []
-
-
-Tier1 = UnitTest  # abk-shim
