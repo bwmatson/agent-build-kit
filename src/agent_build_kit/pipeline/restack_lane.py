@@ -119,12 +119,9 @@ def owed_a_moved_base_run(
     """Whether `unit` is owed a moved-base run: it has commits, nothing holds it or it waits
     on, its cause is a moved base or a conflict sent back, and it has no rework input of
     its own (feedback that review has approved over is answered, the conflict's is not input)."""
-    sent_back_by_conflict = (
-        unit.cause is Cause.REWORK and unit.feedback_source is FeedbackSource.CONFLICT
-    )
     return (
         unit.state in (PLANNED, IN_REVIEW)
-        and (unit.cause in MOVED_BASE_CAUSES or sent_back_by_conflict)
+        and (unit.cause in MOVED_BASE_CAUSES or unit.sent_back_for_conflict)
         and not waiting_on(unit, graph)
         and not leased(unit)
         and not held(unit)

@@ -968,11 +968,7 @@ class BuildPath:
                 )
                 return {**FRESH, **remembered, **self.stop(why)}
             if restacked is not None:
-                if (
-                    not restacked.conflict
-                    and saved.feedback_source is FeedbackSource.CONFLICT
-                    and saved.cause is Cause.REWORK
-                ):
+                if not restacked.conflict and saved.sent_back_for_conflict:
                     # The move settled the conflict the feedback names: nothing to rework.
                     r.store.set_feedback(unit.id, "")
                     feedback = ""

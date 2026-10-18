@@ -3738,7 +3738,7 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
         graph = store.all()
         if hold_if_spent(inst, store, unit, graph, log):
             return None
-        if unit.cause is Cause.REWORK and unit.feedback_source is FeedbackSource.CONFLICT:
+        if unit.sent_back_for_conflict:
             # Sent back for a conflict: the run starts at the move, in this worker.
             return run_of(unit.id)
         repo = inst.checkouts[unit.repo]
@@ -4299,10 +4299,7 @@ def _build_unit(
                 # A moved-base run may start from a unit still in review that was sent back
                 # for its conflict.
                 sent_back = (
-                    moved_base_run
-                    and unit.state == IN_REVIEW
-                    and unit.cause is Cause.REWORK
-                    and unit.feedback_source is FeedbackSource.CONFLICT
+                    moved_base_run and unit.state == IN_REVIEW and unit.sent_back_for_conflict
                 )
                 if unit.state not in (PLANNED, RUNNING) and not sent_back:
                     end(f"skipped, it is now {unit.state}", UnitOutcome.SKIPPED)

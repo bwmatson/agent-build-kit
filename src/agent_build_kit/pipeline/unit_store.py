@@ -348,6 +348,12 @@ class StoredUnit(Unit):
         a new tip starts the count again."""
         return self.conflict_attempts >= max_rounds or (self.pushed or "") == self.conflict_head
 
+    @property
+    def sent_back_for_conflict(self) -> bool:
+        """Whether the unit was sent back for its pull request's conflict: its run is the
+        conflict's rework, which starts at the move."""
+        return self.cause is Cause.REWORK and self.feedback_source is FeedbackSource.CONFLICT
+
     def has_own_rework_input(self, head: str) -> bool:
         """Whether the unit has saved feedback that is not the conflict's and that review has
         not answered by approving `head`: rework of its own, which makes its run a build."""

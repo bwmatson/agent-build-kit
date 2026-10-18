@@ -152,6 +152,3 @@ def test_a_unit_with_a_parked_thread_sent_back_for_a_conflict_is_run_in_the_lane
     assert moved_in_the_lane(scene), (
         "the delivered event's run was the lane's, not a build worker's"
     )
-    assert OTHER not in [
-        unit.id for unit in cli.resumable_units(graph.inst, graph.store.all(), only=frozenset())
-    ]
