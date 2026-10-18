@@ -14,6 +14,8 @@ INIT_CONVENTIONS = INTEGRATION / "test_init_conventions_workspace.py"
 # The fixture modules below are collected the way the project collects its own.
 SCRATCH_IMPORT = "from tests.runtime_scratch import runtime_scratch\n"
 AGENT_HOME_IMPORT = "from tests.agent_home import agent_home\n"
+SCRATCH_MODULE_IMPORT = "from tests import runtime_scratch\n"
+HOME_MODULE_IMPORT = "from tests import agent_home\n"
 COMMAND_READ = 'import os\nCOMMAND = os.environ.get("ABK_ACCEPTANCE_ACP_COMMAND")\n'
 HEADER = "import pytest\n\npytestmark = pytest.mark.local_stack\n"
 BUILDS_ONE_TAGGED = (
@@ -30,7 +32,9 @@ def drifted(pytester: pytest.Pytester, **modules: str) -> list[str]:
 
 
 @pytest.mark.parametrize(
-    "use", [SCRATCH_IMPORT, AGENT_HOME_IMPORT, COMMAND_READ], ids=["scratch", "home", "command"]
+    "use",
+    [SCRATCH_IMPORT, AGENT_HOME_IMPORT, COMMAND_READ, SCRATCH_MODULE_IMPORT, HOME_MODULE_IMPORT],
+    ids=["scratch", "home", "command", "scratch-module", "home-module"],
 )
 def test_an_untagged_test_that_starts_an_agent_is_named(
     pytester: pytest.Pytester, use: str

@@ -4,6 +4,7 @@ in its module's table of reasons (`ACP_ONLY_REASONS`, scenario name to reason; a
 
 from __future__ import annotations
 
+import ast
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -19,6 +20,8 @@ REASONS_TABLE = "ACP_ONLY_REASONS"
 INTEGRATION = ROOT / "tests" / "integration"
 # A module that imports one of these, or reads the agent command setting, starts an agent.
 AGENT_HELPERS = ("tests.runtime_scratch", "tests.agent_home")
+TESTS_PACKAGE = "tests"
+AGENT_HELPER_NAMES = {helper.split(".")[1] for helper in AGENT_HELPERS}
 ACP, CLAUDE_CODE = "runtime_acp", "runtime_claude_code"
 
 
@@ -38,9 +41,25 @@ def module_of(item: pytest.Item) -> Any:
     return parent.obj
 
 
+def imports_an_agent_helper(source: str) -> bool:
+    """Whether the module imports a helper module, as `import tests.x`, `from tests.x import y`
+    or `from tests import x`."""
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import) and any(a.name in AGENT_HELPERS for a in node.names):
+            return True
+        if isinstance(node, ast.ImportFrom) and node.level == 0:
+            if node.module in AGENT_HELPERS:
+                return True
+            if node.module == TESTS_PACKAGE and any(
+                a.name in AGENT_HELPER_NAMES for a in node.names
+            ):
+                return True
+    return False
+
+
 def starts_an_agent(module: Any) -> bool:
     source = Path(module.__file__).read_text()
-    return AGENT_COMMAND in source or any(helper in source for helper in AGENT_HELPERS)
+    return AGENT_COMMAND in source or imports_an_agent_helper(source)
 
 
 def drift(items: list[pytest.Item]) -> list[str]:

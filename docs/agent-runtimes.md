@@ -935,7 +935,7 @@ splits: held splits are left out, and a resume or a scheduled change runs one sp
 
 A unit whose tests sit in a held split is parked, not failed: a tick does not start it
 and `abk status` shows it as waiting for that split. Once the split is released it runs
-only that split's tests on the same commit. The scheduled run of a repo is one change per
+only that split's tests on the same commit (the whole run if the commit has moved). The scheduled run of a repo is one change per
 split, so a held split's scheduled change stays open and parked while the others run.
 
 ### This repo's own splits
@@ -962,8 +962,8 @@ each, a live-stack test that starts an agent (through the scratch helper, the ag
 helper or the agent command setting) without exactly one runtime tag, and a scenario with
 an `acp` variant and no `claude_code` variant that has no stated reason in its module's
 table of reasons (`ACP_ONLY_REASONS`, scenario name to reason; an empty reason fails too).
-No module defines a table today; a module that has none counts as empty. The test does not check that a `claude_code` scenario has an `acp`
-variant.
+No module defines a table today; a module that has none counts as empty. The test does
+not check that a `claude_code` scenario has an `acp` variant.
 
 ### Holding a split
 
