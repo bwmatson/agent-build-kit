@@ -12,7 +12,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.unit_store import Cause
-from agent_build_kit.pipeline.units import IN_REVIEW
+from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED
 from tests import fake_clock
 from tests.bounce_support import bounce, bounce_times
 from tests.conftest import make_installation, ready_queue, run_status
@@ -97,6 +97,9 @@ def test_the_tick_logs_a_looping_unit_once(
 
     bounce_times(store, "a/1", Cause.BASE_CHANGED, clock, 3, note=NOTE)
     first = [line for line in capsys.readouterr().out.splitlines() if LOOPING in line]
+    store.set_state("a/1", PLANNED, cause=Cause.RELEASED)
+    store.set_state("a/1", HELD, cause=Cause.GATED)
+    assert store.get("a/1").bounces == 3
     bounce(store, "a/1", Cause.BASE_CHANGED, clock, note=NOTE)
     again = [line for line in capsys.readouterr().out.splitlines() if "is looping" in line]
 

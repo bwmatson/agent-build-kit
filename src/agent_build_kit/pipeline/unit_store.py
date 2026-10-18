@@ -1269,7 +1269,9 @@ def _record(unit: StoredUnit) -> dict:
         del record["promoted_from"]
     if unit.description is None:
         del record["description"]
-    for name in ("ready_at", "first_human_activity_at", "review_tier"):
+    if not unit.bounces:
+        del record["bounces"]
+    for name in ("ready_at", "first_human_activity_at", "review_tier", "bounce_cause", "bounce_at"):
         if record[name] is None:
             del record[name]
     return record

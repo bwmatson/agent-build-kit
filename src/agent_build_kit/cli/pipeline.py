@@ -388,8 +388,9 @@ def store_for(inst: Installation) -> UnitStore:
             paused=parked_units(inst, units),
         )
         drafts.follow(unit, units, opened=opened)
-        # Equal, not at or above, so a unit that keeps bouncing is named once.
-        if unit.bounces == limits.bounce_limit and unit.state in (PLANNED, HELD):
+        # Equal, and only on the write that counted it (from `running`), so it is named once.
+        counted = len(unit.history) > 1 and unit.history[-2].get("state") == RUNNING
+        if counted and unit.bounces == limits.bounce_limit and unit.state in (PLANNED, HELD):
             log(
                 f"{unit.id} is looping: put back to {unit.state} {unit.bounces} times in "
                 f"{limits.bounce_span_seconds}s by {unit.bounce_cause}; last note: {unit.note}"
@@ -5036,7 +5037,7 @@ def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
     note = getattr(args, "note", None) or ""
     if path := getattr(args, "note_file", None):
         note = Path(path).read_text()
-    return requeue(inst, args.unit, mode, say=say, note=note)
+    return requeue(inst, args.unit, mode, say=say, note=note, by=REQUEUE_BY)
 
 
 def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
@@ -5303,12 +5304,15 @@ def requeue(
     say: Callable[..., None],
     note: str = "",
     because: str = "",
+    by: str = "",
 ) -> int:
     """Give a failed or held unit another go; `abk requeue` and the web UI both call this.
 
     `mode` is `resume`, `rework` or `restart`, as `cmd_requeue` describes them. Every
     message goes to `say(text, error=...)` instead of being printed, so the caller
-    decides where it shows. The result is the command's exit code.
+    decides where it shows. `by` is `REQUEUE_BY` when a person asked, which ends the unit's
+    run of bounces; the pipeline's own requeues leave it empty. The result is the command's exit
+    code.
 
     `note` is a person's instruction for the agent's next run; only `rework` and
     `restart` run the agent, so a plain requeue with one is refused. `because` is the
@@ -5357,7 +5361,7 @@ def requeue(
             PLANNED,
             note=f"requeued: {dependency_wait(waits, repo=known[unit_id].repo)}{said}",
             cause=Cause.GATED,
-            by=REQUEUE_BY,
+            by=by,
         )
         if note:
             store.set_guidance(unit_id, note)
@@ -5392,7 +5396,7 @@ def requeue(
             PLANNED,
             note=f"requeue: {because}" if because else f"requeued: reworking from {source}{said}",
             cause=Cause.REQUEUED,
-            by=REQUEUE_BY,
+            by=by,
         )
         say(
             f"{unit_id} requeued, the agent will rework it from "
@@ -5407,7 +5411,7 @@ def requeue(
             PLANNED,
             note=f"requeued: starting over{said}",
             cause=Cause.REQUEUED,
-            by=REQUEUE_BY,
+            by=by,
         )
         say(f"{unit_id} requeued, starting over from the agent's step")
     else:
@@ -5416,7 +5420,7 @@ def requeue(
             PLANNED,
             note=f"requeue: {because}" if because else "requeued: resuming where it stopped",
             cause=Cause.REQUEUED,
-            by=REQUEUE_BY,
+            by=by,
         )
         say(f"{unit_id} requeued, resuming where it stopped")
     return _requeued(store, unit_id)

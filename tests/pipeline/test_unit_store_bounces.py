@@ -224,3 +224,9 @@ def test_an_older_store_file_loads_with_zero_and_counts_from_there(
     bounce(store, UID, Cause.BASE_CHANGED, clock)
 
     assert store.get(UID).bounces == 1
+
+
+def test_a_unit_that_never_bounced_is_stored_without_the_bounce_keys(store: UnitStore) -> None:
+    store.set_state(UID, RUNNING, branch=f"spec/{UID}")
+
+    assert "bounce" not in store.path.read_text()

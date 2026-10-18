@@ -26,7 +26,7 @@ from agent_build_kit.cli.pipeline import (
 )
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.pr_poller import HOLD_LABEL
-from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.unit_store import REQUEUE_BY, StoredUnit
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW
 
 ACTIONS = ("requeue", "hold", "release", "approve")
@@ -80,6 +80,7 @@ def register(
                 unit.id,
                 (body or ActionBody()).mode,
                 say=lambda text, error=False: lines.append(text),
+                by=REQUEUE_BY,
             )
             if code:
                 raise HTTPException(status_code=409, detail="\n".join(lines))

@@ -131,3 +131,19 @@ def test_a_child_with_two_parents_is_held_naming_the_planned_one_only(
     assert found is not None
     assert "a/2" in found[1]
     assert "a/1" not in found[1]
+
+
+@pytest.mark.parametrize("state", [PLANNED, RUNNING, FAILED])
+def test_a_cross_repo_parent_still_to_be_built_does_not_stop_its_child(
+    store: UnitStore, state: UnitState
+) -> None:
+    store.upsert(
+        [
+            unit("a/1", change="a", repo="platform"),
+            unit("a/2", change="a", repo="app", depends_on=("a/1",)),
+        ]
+    )
+    store.set_state("a/1", state)
+    store.set_state("a/2", RUNNING)
+
+    assert build_upstream_incomplete(store)(store.get("a/2")) is None
