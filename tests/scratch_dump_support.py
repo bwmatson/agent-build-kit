@@ -15,7 +15,6 @@ import pytest
 
 from agent_build_kit.model import E2E_LOCK_FILE
 from agent_build_kit.pipeline.lease import lease_dir
-from agent_build_kit.pipeline.pause import PAUSE_MARKER
 from agent_build_kit.pipeline.unit_store import HeldBy, UnitStore
 from agent_build_kit.pipeline.units import FAILED, HELD
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
@@ -24,6 +23,7 @@ from tests import scratch_tick
 from tests.factories import git, unit
 from tests.scratch_fakes import HandScratch, hand_scratch
 from tests.scratch_tick import TickResult, register_scratch, run_tick
+from tests.usage_condition import write_pause
 
 BRANCH = "spec/feature/1"
 PARENT = "parent/1"
@@ -121,9 +121,7 @@ def add_run_log(scratch: DumpScratch, lines: Iterable[str]) -> None:
 
 
 def add_pause(scratch: DumpScratch, reason: str = PAUSE_REASON) -> None:
-    (scratch.state / PAUSE_MARKER).write_text(
-        json.dumps({"until": "2099-01-01T00:00:00+00:00", "reason": reason})
-    )
+    write_pause(scratch.state, reason, kind="network")
 
 
 def add_heads(scratch: DumpScratch, names: Iterable[str]) -> None:

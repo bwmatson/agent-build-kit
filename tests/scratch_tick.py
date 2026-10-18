@@ -175,15 +175,20 @@ def _run_log(scratch: Scratch) -> str:
     return "\n".join(newest.read_text().splitlines()[-RUN_LOG_LINES:])
 
 
+def branch_on_remote(scratch: Scratch, branch: str) -> bool:
+    """Whether `branch` is on the scratch's remote."""
+    found = runner.run(
+        ["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"],
+        cwd=scratch.remote,
+        capture_output=True,
+        timeout=GIT_TIMEOUT,
+    )
+    return found.returncode == 0
+
+
 def _on_remote(scratch: Scratch, branch: str) -> str:
     def probe() -> str:
-        found = runner.run(
-            ["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"],
-            cwd=scratch.remote,
-            capture_output=True,
-            timeout=GIT_TIMEOUT,
-        )
-        return f"{branch} is {'on' if found.returncode == 0 else 'not on'} the remote"
+        return f"{branch} is {'on' if branch_on_remote(scratch, branch) else 'not on'} the remote"
 
     return attempt(f"{branch} on the remote", probe)
 

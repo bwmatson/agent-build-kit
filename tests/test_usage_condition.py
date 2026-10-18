@@ -3,26 +3,22 @@ skip that names the pause; anything else is left to fail as it did."""
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline.pause import PAUSE_MARKER
+from agent_build_kit.pipeline.pause import PauseKind
 from tests.scratch_fakes import HandScratch, hand_scratch
-from tests.usage_condition import skip_on_usage_condition
+from tests.usage_condition import skip_on_usage_condition, write_pause
 
 BRANCH = "spec/feature/1"
 USAGE_REASON = "session usage at 91% (threshold 70%, live)"
 LIMIT_REASON = "You've hit your limit · resets 5pm"
 
 
-def mark(scratch: HandScratch, kind: str, reason: str, *, hours: float = 1) -> None:
-    until = datetime.now(UTC) + timedelta(hours=hours)
-    (scratch.state / PAUSE_MARKER).write_text(
-        json.dumps({"until": until.isoformat(), "reason": reason, "kind": kind})
-    )
+def mark(scratch: HandScratch, kind: PauseKind, reason: str, *, hours: float = 1) -> None:
+    write_pause(scratch.state, reason, kind=kind, until=datetime.now(UTC) + timedelta(hours=hours))
 
 
 def skip_reason(scratch: HandScratch) -> str:

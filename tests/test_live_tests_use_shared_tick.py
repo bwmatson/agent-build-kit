@@ -100,6 +100,16 @@ def test_each_of_the_three_files_registers_its_scratch() -> None:
     assert missing == []
 
 
+def test_each_live_test_that_runs_a_tick_ends_it_through_the_guarded_branch_check() -> None:
+    bypassing = []
+    for path in live_files():
+        tree = ast.parse(path.read_text())
+        if calls_named(tree, {"run_tick"}) and not calls_named(tree, {"commits_on_unit_branch"}):
+            bypassing.append(path.name)
+
+    assert bypassing == []
+
+
 def test_a_copy_of_the_graph_test_with_a_tick_that_builds_nothing_fails_with_hints_first(
     pytester: pytest.Pytester,
 ) -> None:
