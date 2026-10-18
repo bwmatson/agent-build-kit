@@ -3003,13 +3003,9 @@ def link_needs(
             graph.setdefault(unit.id, []).append(target)
             stored[unit.id].append(target)
         if added:
-            # A listed dependency an added target reaches is no longer a direct one.
-            kept = [
-                d for d in unit.depends_on if not any(path_between(stored, t, d) for t in added)
-            ]
-            linked = (*kept, *added)
-            store.set_dependencies(unit.id, linked)
-            stored[unit.id] = list(linked)
+            # The store keeps the direct ones: a listed dependency an added target reaches goes.
+            store.set_dependencies(unit.id, (*unit.depends_on, *added))
+            stored[unit.id] = list(store.get(unit.id).depends_on)
             log(f"{unit.id}: now depends on {', '.join(added)} (Needs: in tasks.md)")
         # Which targets a `Needs:` line named, linked or implied, for the graph alone; a
         # removed line removes the mark.

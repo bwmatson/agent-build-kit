@@ -336,7 +336,7 @@ def test_a_restack_that_raises_leaves_the_unit_in_review_and_the_others_reconsid
     tmp_path: Path,
 ) -> None:
     store = deep_store(tmp_path)
-    store.upsert([unit("c/5", depends_on=("c/1", "c/3"))])
+    store.import_units([unit("c/5", depends_on=("c/1", "c/3"))])
     store.set_state("c/5", IN_REVIEW, pr=5, branch="spec/c/5")
     merge(store, 1, cap=2, recorder=Recorder(), deleted=[])
     assert store.get("c/4").state == store.get("c/5").state == HELD

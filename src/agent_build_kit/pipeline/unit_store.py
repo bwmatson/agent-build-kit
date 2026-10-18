@@ -48,6 +48,8 @@ from agent_build_kit.pipeline.units import (
     Priority,
     Unit,
     UnitState,
+    direct_dependencies,
+    repointed,
 )
 from agent_build_kit.pipeline.work_graph import FLAGS
 from agent_build_kit.redaction import redact_text
@@ -549,6 +551,11 @@ def guidance_excerpt(note: str) -> str:
     return f" — {cut_head(note, 200, 'char')}" if note else ""
 
 
+def _reduced(stored: dict[str, StoredUnit], unit_id: str) -> StoredUnit:
+    unit = stored[unit_id]
+    return unit.model_copy(update={"depends_on": direct_dependencies(unit, list(stored.values()))})
+
+
 class UnitStore:
     """The planning repo's record of every unit, across all repos."""
 
@@ -727,6 +734,9 @@ class UnitStore:
                     fresh = fresh.model_copy(update={"state": existing.state})
             stored[unit.id] = fresh
 
+        for unit in units:
+            stored[unit.id] = _reduced(stored, unit.id)
+
         if change is not None:
             for unit_id, unit in stored.items():
                 # Only a unit that never started can be dropped — that is the
@@ -852,12 +862,7 @@ class UnitStore:
         )
         if taken is not None:
             del stored[taken.id]
-            for unit_id, unit in stored.items():
-                if taken.id in unit.depends_on:
-                    repointed = (onto.id if dep == taken.id else dep for dep in unit.depends_on)
-                    stored[unit_id] = unit.model_copy(
-                        update={"depends_on": tuple(dict.fromkeys(repointed))}
-                    )
+            stored.update(repointed(stored, taken.id, onto.id))
         self._write(stored)
         return before, before + added
 
@@ -1071,8 +1076,13 @@ class UnitStore:
         """Name where the unit's most recent run is in the traces. Not a state change."""
         self._update(unit_id, trace=trace)
 
+    @_exclusive
     def set_dependencies(self, unit_id: str, depends_on: Sequence[str]) -> None:
-        self._update(unit_id, depends_on=tuple(depends_on))
+        """Store the direct dependencies of the list given."""
+        stored = self._read()
+        stored[unit_id] = stored[unit_id].model_copy(update={"depends_on": tuple(depends_on)})
+        stored[unit_id] = _reduced(stored, unit_id)
+        self._write(stored)
 
     def set_waited_on(self, unit_id: str, waited_on: Sequence[str]) -> None:
         self._update(unit_id, waited_on=tuple(waited_on))

@@ -14,6 +14,11 @@
   `python -m agent_build_kit.rename_test_kinds` stays for rewriting a planning repository's
   text.
 
+- A unit now stores only its direct dependencies: one that a planned list, a `Needs:` line or a
+  join would have added alongside a dependency that already reaches it is left out. A join is
+  judged on those direct dependencies, so a unit that also listed the unit joined onto no
+  longer blocks the join.
+
 - The build prompts now name the commands an agent may run ("Commands you may run"), so an
   agent in a repo with no instruction file no longer picks a command the build refuses and
   loses its tests-first order. A toolchain profile provides them, `repos.<name>.agent_commands`

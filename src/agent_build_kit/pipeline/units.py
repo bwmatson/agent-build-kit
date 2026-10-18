@@ -540,6 +540,50 @@ def reachable[T](start: Iterable[T], successors: Callable[[T], Iterable[T]]) -> 
     return seen
 
 
+def direct_dependencies(unit: Unit, graph: Sequence[Unit]) -> tuple[str, ...]:
+    """`unit.depends_on`, in its stored order, without a dependency another of them reaches.
+
+    The walk follows stored `depends_on` edges through units of every state and repo, and does
+    not look through a satisfied unit. Two dependencies that reach each other (a stored cycle)
+    are both kept.
+    """
+    index = _by_id(graph)
+
+    def successors(uid: str) -> tuple[str, ...]:
+        return index[uid].depends_on if uid in index else ()
+
+    reach = {dep: reachable(successors(dep), successors) for dep in unit.depends_on}
+    return tuple(
+        dep
+        for dep in unit.depends_on
+        if not any(
+            other != dep and dep in reach[other] and other not in reach[dep]
+            for other in unit.depends_on
+        )
+    )
+
+
+def repointed[U: Unit](units: Mapping[str, U], taken: str, onto: str) -> dict[str, U]:
+    """The units that depended on `taken`, depending on `onto` instead, each list
+    de-duplicated and reduced over the graph with `taken` gone."""
+    moved = {
+        uid: unit.model_copy(
+            update={
+                "depends_on": tuple(
+                    dict.fromkeys(onto if d == taken else d for d in unit.depends_on)
+                )
+            }
+        )
+        for uid, unit in units.items()
+        if taken in unit.depends_on
+    }
+    graph = [*(u for uid, u in units.items() if uid not in moved), *moved.values()]
+    return {
+        uid: unit.model_copy(update={"depends_on": direct_dependencies(unit, graph)})
+        for uid, unit in moved.items()
+    }
+
+
 def _builds_on(unit: Unit, graph: Sequence[Unit]) -> set[str]:
     """Every unit `unit` is built on, however far, through `through_satisfied`."""
     index = _by_id(graph)

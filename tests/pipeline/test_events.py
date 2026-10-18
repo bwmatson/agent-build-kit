@@ -79,7 +79,9 @@ def test_a_child_moves_onto_its_next_open_parent_not_main(tmp_path: Path) -> Non
     which is still open. Sending it to main would drop the middle's work from
     under it."""
     store = UnitStore(tmp_path / "units.json")
-    store.upsert(
+    # Seeded as a store from before dependencies were reduced: `upsert` would drop c/3's
+    # listing of c/1, which this test needs a store that still has.
+    store.import_units(
         [
             unit("c/1"),
             unit("c/2", depends_on=("c/1",)),
