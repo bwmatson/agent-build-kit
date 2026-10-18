@@ -393,6 +393,12 @@ class BuildPath:
             return {}
         return {"e2e": True}
 
+    def account_key(self) -> str:
+        """The key of the account this unit's calls run on; empty for the default account."""
+        label = self.runner.repo_config.account if self.runner.repo_config else None
+        account = claude_account.resolve_in(active(), label)
+        return claude_account.account_key(account) or ""
+
     def record_step(self, node: Node) -> None:
         """Name `node` as the step the unit is failing in; never raises."""
         try:
@@ -424,6 +430,7 @@ class BuildPath:
             round=_round(node, state),
             head=head,
             cumulative_usd=cumulative,
+            account=self.account_key(),
             spec=self._spec_taken,
         )
         kept: Update = {"sessions": {**state.sessions, role: session}}
@@ -600,6 +607,12 @@ class BuildPath:
         session: AgentSession | None,
         inputs: dict[str, Any],
     ) -> str:
+        if state.session_id and state.session_account != self.account_key():
+            self.say(
+                f"session {state.session_id} was made under another account; "
+                "running the node from its start in a new session"
+            )
+            state = state.model_copy(update={"session_id": ""})
         if state.session_id:
             self.say(f"continuing agent session {state.session_id}")
             # A session this node's role recorded keeps the model and runtime it began on.
@@ -676,6 +689,8 @@ class BuildPath:
             return None, ""
         if (session := given or state.sessions.get(role)) is None:
             return None, ""
+        if session.account != self.account_key():
+            return None, "it was made under another account"
         if session.head and not self.runner.head_reachable(cwd, session.head):
             return None, f"the commit {session.head} it last saw is gone from the worktree"
         return session, ""

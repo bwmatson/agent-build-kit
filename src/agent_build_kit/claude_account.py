@@ -17,7 +17,13 @@ from dotenv import dotenv_values
 from pydantic import AliasChoices
 
 from agent_build_kit import settings as settings_module
-from agent_build_kit.config import CLAUDE_CODE, ClaudeLimitsConfig, ConfigError, runtime_entry
+from agent_build_kit.config import (
+    CLAUDE_CODE,
+    ClaudeLimitsConfig,
+    ConfigError,
+    WorkspaceConfig,
+    runtime_entry,
+)
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.settings import Settings, settings
@@ -149,7 +155,12 @@ class Account(Frozen):
 def resolve(inst: Installation, label: str | None) -> Account:
     """The account a repo's `account` label names on this machine: the labelled one when it has
     a `config_dir`, else the default account."""
-    entry = runtime_entry(inst.config, name=CLAUDE_CODE)
+    return resolve_in(inst.config, label)
+
+
+def resolve_in(config: WorkspaceConfig, label: str | None) -> Account:
+    """`resolve` over a loaded configuration, for a caller that holds no `Installation`."""
+    entry = runtime_entry(config, name=CLAUDE_CODE)
     named = entry.accounts.get(label) if label is not None else None
     if named is None or named.config_dir is None:
         return Account(limits=entry.limits)

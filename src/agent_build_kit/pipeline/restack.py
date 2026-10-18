@@ -31,7 +31,7 @@ from contextlib import AbstractContextManager, contextmanager, nullcontext
 from contextvars import ContextVar
 from pathlib import Path
 
-from agent_build_kit import runtimes
+from agent_build_kit import claude_account, runtimes
 from agent_build_kit.budget import cut_head
 from agent_build_kit.config import RepoConfig, active
 from agent_build_kit.model import Frozen
@@ -944,6 +944,8 @@ def claude_resolver(
     agent = runtime or runtimes.active()
     moving = _CONFLICT.get()
     resumed = bool(resume_session and follow_up and agent.supports_session_resume)
+    moving_repo = active().repos.get(moving.moving_repo) if moving else None
+    account = claude_account.resolve_in(active(), moving_repo.account) if moving_repo else None
 
     def ask(text: str, *, session: str) -> AgentResult:
         request = AgentRequest(
@@ -953,6 +955,7 @@ def claude_resolver(
             allowed_tools=RESOLVER_TOOLS,
             permission_mode="allowed_tools_only",
             resume_session=session,
+            account=account,
         )
         request = recorded(
             request,

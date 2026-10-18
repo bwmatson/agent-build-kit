@@ -46,6 +46,7 @@ class AgentSession(Frozen):
     round: int
     head: str
     cumulative_usd: float | None = None  # the session's running cost after its last call
+    account: str = ""  # the account key it was made under; empty: the default account
     spec: str = ""  # hash of the change's spec files as the agent last saw them; empty: unrecorded
 
 
@@ -113,6 +114,7 @@ class UnitRun(Frozen):
     blocked_by_environment: bool = False  # the stop is the environment's, not the unit's
     event: ResumeEvent | None = None
     session_id: str = ""  # the agent session the running node reported, until the node completes
+    session_account: str = ""  # the account key `session_id` was made under; empty: the default
     running_node: str = ""  # the agent node whose run started, until that node completes
     parked_node: str = ""  # the node a dirty tree parked the unit at, which a requeue goes back to
     sessions: Mapping[SessionRole, AgentSession] = {}  # each role's latest session

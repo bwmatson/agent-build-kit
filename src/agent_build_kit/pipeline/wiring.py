@@ -31,7 +31,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Protocol
 
-from agent_build_kit import forges, infra, profiles, runtimes
+from agent_build_kit import claude_account, forges, infra, profiles, runtimes
 from agent_build_kit.budget import Section, cut_head, cut_tail, fit
 from agent_build_kit.config import (
     BASE_GROUP,
@@ -370,6 +370,7 @@ def build_run(
     runtime: AgentRuntime | None = None,
     role: Role = "implement",
     planning_paths: tuple[str, ...] = (),
+    account: claude_account.Account | None = None,
 ) -> Callable[..., str]:
     """A scoped agent run inside a unit's worktree, policed by the hook and
     the deny list the runtime applies for a `ToolPolicy`.
@@ -458,6 +459,7 @@ def build_run(
                 else None
             ),
             role=role,
+            account=account,
             cwd=cwd,
             env=env,
             # The specs, and nothing else in the planning repo. The unit
@@ -682,6 +684,7 @@ def build_run_review(
     role: Role = "review",
     forge: Forge | None = None,
     repo: RepoConfig | None = None,
+    account: claude_account.Account | None = None,
 ) -> Callable[..., str]:
     """The review pass. Separate from implementation so the standards are
     loaded only here, not during the expensive run."""
@@ -697,6 +700,7 @@ def build_run_review(
         record_for=record_for,
         runtime=runtime,
         role=role,
+        account=account,
     )
 
     def run_review(
@@ -3521,7 +3525,9 @@ def build_runner(
 
     forge = forges.get(repo.forge)
     tools = allowed_tools(profile, forge, repo.projects)
+    account = claude_account.resolve(installation, repo.account)
     run = build_run(
+        account=account,
         planning_repo=planning_repo,
         allowed_tools=tools,
         log=log,
@@ -3555,6 +3561,7 @@ def build_runner(
             record_for=record_for,
             forge=forge,
             repo=repo,
+            account=account,
         ),
         run_rework_review=build_run_review(
             planning_repo=planning_repo,
@@ -3566,6 +3573,7 @@ def build_runner(
             record_for=record_for,
             role="rework_review",
             repo=repo,
+            account=account,
         ),
         # A rejected commit goes back to the build run's agent, same policy.
         commit=build_commit(
