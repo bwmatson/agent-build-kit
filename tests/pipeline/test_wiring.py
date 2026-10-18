@@ -1612,6 +1612,25 @@ def test_a_project_whose_toolchain_is_unimplemented_holds_the_unit(
         unit_test(cwd=tmp_path, base="origin/dev")
 
 
+def test_a_node_unit_builds_and_is_not_held_for_its_toolchain(tmp_path: Path) -> None:
+    """The node profile implements every method a build reaches, so none raises
+    `ProfileUnsupported` and the unit is built, not held."""
+    (tmp_path / "web").mkdir()
+    (tmp_path / "web" / "package.json").write_text("{}")
+    run, calls = recorder()
+    unit_test = build_unit_test(
+        run=run,
+        changed=lambda cwd, base: ["web/src/b.ts"],
+        projects=[ProjectConfig(path="web", languages=["typescript"], profile="node-npm")],
+    )
+
+    unit_test(cwd=tmp_path, base="origin/dev")
+
+    assert calls
+    assert {at for _, at in calls} == {tmp_path / "web"}
+    assert any("vitest" in " ".join(command) for command, _ in calls)
+
+
 def test_a_file_belongs_to_the_deepest_project_that_holds_it(tmp_path: Path) -> None:
     """`poc/web/src/b.ts` is inside `poc` too; the web app is what owns it."""
     (tmp_path / "poc" / "web").mkdir(parents=True)

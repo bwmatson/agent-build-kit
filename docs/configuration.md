@@ -372,8 +372,7 @@ repos:                          # ordered: deploy order is derived from
       org: ""                   # percent-encoded: `%20` handed to
       project: ""               # `az repos --project` names a project that
       repo: ""                  # does not exist.
-    profile: python-uv          # toolchain profile: python-uv, or node-npm
-                                # (declared, not implemented). The repo-wide
+    profile: python-uv          # toolchain profile: python-uv, or node-npm. The repo-wide
                                 # default; a project below may set its own.
     infra: none                 # infrastructure profile: docker or none
                                 # (infra/). What the repo runs on, apart from
@@ -412,7 +411,9 @@ repos:                          # ordered: deploy order is derived from
       root_extras: []           # extra packages the repo-root tests/ (outside
                                 # every workspace member) need
       e2e_marker: local_stack   # the pytest marker on tests needing the real
-                                # stack (e2e-test, and post-merge verify)
+                                # stack (e2e-test, and post-merge verify); for a
+                                # node project a file-name segment instead:
+                                # `<name>.local_stack.test.ts`
       e2e_unit_scope: null      # own | full for this repo; null follows limits
       e2e_schedule: null        # daily | weekly | monthly | 'off' for this repo; null follows limits
       dev_stack_marker: dev_stack

@@ -78,6 +78,13 @@
   lists the priority it will be promoted to. Plans already recorded keep their edges;
   run `abk replan <change>` only to drop the avoidable ones.
 
+- The `node-npm` profile is now fully implemented, so a unit in a node project is no
+  longer held for its toolchain. The README, the toolchain-profiles and configuration
+  documents and the abk-config skill describe it as implemented, with a command table
+  for it and the convention that a node e2e test is a file named
+  `<name>.<marker>.test.ts`. npm workspace members are tested one at a time in their own
+  directories, and post-merge verify and acceptance select the marked files.
+
 - The unit graph page draws a repo that has several projects with a nested subgraph for
   each project that has a unit in view, and the legend says so. A repo with one project
   is drawn exactly as before.

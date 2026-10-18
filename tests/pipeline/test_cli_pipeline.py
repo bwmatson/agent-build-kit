@@ -418,9 +418,9 @@ class Exploding:
         raise RuntimeError("git exploded")
 
 
-class Unimplemented:
+class UnsupportedProfile:
     def run(self, unit, *, base, graph):
-        raise ProfileUnsupported("the node-npm profile has no test runner yet")
+        raise ProfileUnsupported("a fake profile does not support this method")
 
 
 class Abstract:
@@ -447,7 +447,7 @@ def test_a_toolchain_the_framework_cannot_build_holds_the_unit_and_records_why(
 ) -> None:
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored()])
-    monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: Unimplemented())
+    monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: UnsupportedProfile())
 
     assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
 

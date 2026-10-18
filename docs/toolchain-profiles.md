@@ -12,8 +12,7 @@ repos:
 ```
 
 `profiles.get(name)` returns it; an unknown name raises with the known list.
-Two ship: `python-uv`, implemented, and `node-npm`, declared and not
-implemented.
+Two ship: `python-uv` and `node-npm`, both implemented.
 
 ## The protocol
 
@@ -125,56 +124,76 @@ And what it knows:
 
 ## `node-npm`
 
-Declared so that `abk init` detects JavaScript/TypeScript repos and writes
-their specs — research and proposal are language-agnostic — and so the
-planner can place units in them. Lint, the type check and the test commands are
-implemented for a single package; the methods listed at the end of this section still
-raise, and `abk tick` catches that when it tries to build a unit in such a repo, logs
-it, and puts the unit in `held` (nothing a retry changes; a person builds it by hand or
-changes the plan).
+A JavaScript/TypeScript repo managed by npm, linted with oxlint and oxfmt, type-checked
+with `tsc` and tested with Vitest. An npm workspace is tested **one member at a time in
+its own directory**. Members come from the root manifest's `workspaces` field (the array
+form, and the object form's `packages`); glob patterns are expanded and a directory
+without a `package.json` is not a member. Negated patterns and nested workspaces are not
+supported. pnpm and yarn workspaces are not read.
 
-Implemented: `lint_command(base)` lints (`npx oxlint`) and format-checks
-(`npx oxfmt --check`) the `ts`, `tsx`, `js`, `jsx` and `mts` files that differ from
-`base`, relative to the project, and fails when `base` does not resolve;
-`lint_command_all_files()` does both over the whole project. `project_checks` is
-`npx tsc --noEmit`, the type check as its own check, run over the whole project in
-its directory. `failure_kind` reads the failed command in the `$` header: the type
-checker is `types`, the test runner is `test`, the linter and format check are `lint`.
-`test_commands` and `test_commands_all` run `npx vitest run --passWithNoTests
---reporter=junit` with the JUnit report written to a temporary file and printed after
-the report marker (the shape of the Python profile's red command), so a project with
-no test files passes and the report outlives the worktree; `parse_test_summary` and
-`parse_test_failures` read that report, one failure per failing `testcase`, named
-`file > test`. Recorded reports live under `tests/fixtures/external/vitest/`;
-re-record them with `uv run python tests/fixtures/external/record_vitest.py`.
+What it runs, exactly:
 
-What exists: `detect_markers` (`package-lock.json`, `package.json`),
-`allowed_tools` (`Bash(npm *) Bash(npx *)`), the prompt words ("linting and
-type checks (oxlint, tsc --noEmit)", a stub body of
-`throw new Error("not implemented")`), `no_tests_collected_exit` 0,
-`is_test_path` (a `__tests__` directory, or `.test`/`.spec` before `ts`, `tsx`, `js`,
-`jsx` or `mts`),
-`clean_command` (`npx oxlint . && npx oxfmt --check .`, no `tsc`), `red_command` (Vitest, with the
-given files as its filters, which match by substring so the report, naming each test
-suite by its file, is what tells the given files from others; its JUnit report is printed after
-the marker, after a line for each given file), `interpret_red` (judges only the suites named
-after the given files, which the red command printed before the report: a failure of type
-`AssertionError` or an error whose message is `not implemented` is red; a file that failed to
-load (its testcase is named as the file), any passing test, a given file with no failing test
-and any other failure are each rejected with a reason), `stub_violations` (parsed with tree-sitter: every function, method or arrow body, at any
-depth, must be only `throw new Error("not implemented")`, comments aside; a function without a
-body is accepted; an unparseable file is a violation; test files and non-source extensions are
-not checked), and `created_files` (`**/*.tsbuildinfo`, `node_modules/.vite`,
-`node_modules/.vitest` and `.vite`). It also drafts the environment for
-`abk init` from a `package.json` (`profiles/node_environment.py`): the manager is
-the manifest's `packageManager` field, else the lock file present (`package-lock.json`
-npm, `pnpm-lock.yaml` pnpm, `yarn.lock` yarn), else npm. `sync` is the plain install
-(never a frozen one, which fails for the unit that changed a dependency), `check` a
-depth-0 listing, the manifest and lock files are inputs, a `workspaces` field adds
-`<workspace>/package.json` patterns, and `node_modules` is an artifact.
+| Method | Command |
+|---|---|
+| `lint_command(base)` | `npx oxlint` and `npx oxfmt --check` over the `ts`, `tsx`, `js`, `jsx` and `mts` files that differ from `base`, relative to the project; fails when `base` does not resolve |
+| `lint_command_all_files()` | `npx oxlint . && npx oxfmt --check .` |
+| `clean_command()` | the same, with no `tsc`: a test importing what does not exist yet is the expected state at the tests commit |
+| `project_checks` | `npx tsc --noEmit`, the type check as its own check, over the whole project in its directory |
+| `red_command(files)` | `npx vitest run <files> --reporter=junit`, the report printed after a marker, after a line for each given file |
+| `test_commands`, single package | `npx vitest run --passWithNoTests --reporter=junit`, the report in a temporary file printed after the report marker |
+| `test_commands`, workspace | one such run in the directory of each member a changed path is under, or in **every** member when a non-documentation path outside all members changed (the root manifest, shared configuration); a test file outside every member is run from the root, filtered to it |
+| `test_commands_all(repo, root_extras)` | every member, whatever changed |
+| `e2e_commands(marker)` | per member (or the project): the same run filtered to files named `<name>.<marker>.test.<ext>` |
+| `acceptance_commands(...)` | the changed files that exist, carry the marker and not the dev-stack marker's, one run per member with those files as filters |
 
-What still raises, method by method: the e2e-test and acceptance commands; `members`/`member_of`/`dependents` from
-`package.json` workspaces.
+**The marker is a file-name segment.** Vitest has no tag filter that serves selection,
+exclusion and path-based acceptance together, so a node project's e2e tests are the
+files named `<name>.<marker>.test.ts[x]`, with `<marker>` the repo's `tests.e2e_marker`
+(`local_stack` by default). The e2e-test run takes the files carrying it; post-merge verify leaves out
+the files carrying `tests.dev_stack_marker`; acceptance runs the changed marked files.
+Unit-test is the project's or member's whole Vitest run and does not leave marked files
+out, so a marked test must skip itself when the stack is absent. Excluding marked files in the
+Vitest configuration hides them from the e2e-test run too, which selects by the same
+file-name substring after the configuration's `exclude` applies.
+
+And what it knows:
+
+- `failure_kind` reads the failed command in the `$` header: the type checker is `types`,
+  the test runner is `test`, the linter and format check are `lint`.
+- `parse_test_summary`, `parse_test_failures` and `parse_test_durations` read the JUnit
+  report, one failure per failing `testcase`, named `file > test`. Recorded reports live
+  under `tests/fixtures/external/vitest/`; re-record them with
+  `uv run python tests/fixtures/external/record_vitest.py`.
+- `detect_markers` (`package-lock.json`, `package.json`), `allowed_tools`
+  (`Bash(npm *) Bash(npx *)`), the prompt words ("linting and type checks (oxlint,
+  tsc --noEmit)", a stub body of `throw new Error("not implemented")`),
+  `no_tests_collected_exit` 0.
+- `is_test_path`: a `__tests__` directory, or `.test`/`.spec` before `ts`, `tsx`, `js`,
+  `jsx` or `mts`.
+- `interpret_red` judges only the suites named after the given files, which the red
+  command printed before the report: a failure of type `AssertionError` or an error whose
+  message is `not implemented` is red; a file that failed to load (its testcase is named as
+  the file), any passing test, a given file with no failing test and any other failure are
+  each rejected with a reason.
+- `stub_violations` (parsed with tree-sitter): every function, method or arrow body, at any
+  depth, must be only `throw new Error("not implemented")`, comments aside; a function
+  without a body is accepted; an unparseable file is a violation; test files and non-source
+  extensions are not checked.
+- `created_files`: `**/*.tsbuildinfo`, `node_modules/.vite`, `node_modules/.vitest` and
+  `.vite`.
+- `members` reads the `workspaces` field as above; `member_of` names the deepest member
+  holding a path; `dependents` reads each other member's `dependencies`,
+  `devDependencies` and `peerDependencies` for the member's package name.
+- It drafts the environment for `abk init` from a `package.json`
+  (`profiles/node_environment.py`): the manager is the manifest's `packageManager` field,
+  else the lock file present (`package-lock.json` npm, `pnpm-lock.yaml` pnpm, `yarn.lock`
+  yarn), else npm. `sync` is the plain install (never a frozen one, which fails for the unit
+  that changed a dependency), `check` a depth-0 listing, the manifest and lock files are
+  inputs, a `workspaces` field adds `<workspace>/package.json` patterns, and `node_modules`
+  is an artifact.
+
+A profile method that raises `ProfileUnsupported` still makes `abk tick` log it and put the
+unit in `held`; the node profile raises none.
 
 ## Adding a profile
 
