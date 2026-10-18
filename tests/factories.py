@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import zlib
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,7 @@ __all__ = [
     "groups_at",
     "init_repo",
     "new_unit",
+    "own_group",
     "output_of",
     "replaced",
     "snapshot",
@@ -56,8 +58,21 @@ _DEFAULTS: dict[str, Any] = {
 }
 
 
+def own_group(uid: str, change: str) -> tuple[int, ...]:
+    """The group a unit carries unless a test says: the number in its id, offset by the id's
+    prefix when that is not the unit's change, so no two units of a fixture carry the same
+    group, which a started unit's plan may not repeat."""
+    prefix, _, number = uid.rpartition("/")
+    if not number.isdigit():
+        return _DEFAULTS["groups"]
+    offset = 0 if prefix == change else 1000 * (1 + zlib.crc32(prefix.encode()) % 1000)
+    return (int(number) + offset,)
+
+
 def unit(uid: str = "add-marker/1", **overrides) -> Unit:
     fields: dict[str, Any] = {**_DEFAULTS, "id": uid, **overrides}
+    if "groups" not in overrides:
+        fields["groups"] = own_group(uid, fields["change"])
     return Unit(**fields)
 
 
@@ -79,6 +94,8 @@ def groups_at(*priorities: int, repo: str = "app") -> list[TaskGroup]:
 
 def stored_unit(uid: str = "add-marker/1", **overrides) -> StoredUnit:
     fields: dict[str, Any] = {**_DEFAULTS, "id": uid, **overrides}
+    if "groups" not in overrides:
+        fields["groups"] = own_group(uid, fields["change"])
     return StoredUnit(**fields)
 
 

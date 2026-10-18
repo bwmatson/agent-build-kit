@@ -195,6 +195,7 @@ from agent_build_kit.pipeline.unit_store import (
     UNPLANNED,
     Cause,
     FeedbackSource,
+    GroupOwned,
     HeldBy,
     RequeueReason,
     ReworkKind,
@@ -3041,6 +3042,8 @@ class PlanResult(Frozen):
     # A cycle of `Needs:` and stored dependencies alone, which no planner edge could be
     # dropped from: the plan stands and this names it.
     cycle: tuple[str, ...] = ()
+    # Planned units of the change with work that the plan left out, and so kept as they were.
+    kept: tuple[str, ...] = ()
 
 
 def _carried(store: UnitStore, change: str, keep: Callable[[StoredUnit], bool]) -> set[int]:
@@ -3425,7 +3428,34 @@ def plan_all(
                 f"{' -> '.join(drops.cycle)}"
             )
         before = {u.id: u for u in store.all()}
-        store.upsert(units, change=change)
+        try:
+            store.upsert(units, change=change)
+        except GroupOwned as error:
+            # The cause is in the store, not in the model's answer: asking again would
+            # propose the same plan, so every attempt is spent until tasks.md changes.
+            for found in error.collisions:
+                log(
+                    f"not planning {change}: {found.change} group {found.group} is carried by "
+                    f"{found.owner} ({found.owner_state.value}), so {found.claimant} cannot "
+                    f"take it — run `abk retire {found.owner}`, or edit tasks.md to keep the "
+                    f"group with {found.owner}"
+                )
+            failure = {
+                "hash": digest,
+                "attempts": max_attempts,
+                "ok": False,
+                "owned": sorted({found.owner for found in error.collisions}),
+                "reason": _failure_reason(error),
+            }
+            record_plans(inst, {change: failure})
+            results[change] = PlanResult(status="failed")
+            continue
+        planned_ids = {u.id for u in units}
+        left_out = tuple(
+            u.id
+            for u in before.values()
+            if u.change == change and u.state == PLANNED and u.has_work and u.id not in planned_ids
+        )
         dropped = [join for join in plan.joins if not _write_join(inst, store, join, task_groups)]
         log(f"planned {change}: {len(units)} unit(s)")
         # After the joins, so a unit that took in more work is as urgent as its
@@ -3466,12 +3496,12 @@ def plan_all(
             record_plans(inst, {change: None})
             log(f"{change}: {len(dropped)} join(s) dropped, a unit started since the plan")
             results[change] = PlanResult(
-                status="planned", dropped_joins=len(dropped), cycle=drops.cycle
+                status="planned", dropped_joins=len(dropped), cycle=drops.cycle, kept=left_out
             )
             continue
         kept = record.get("attempts", 0) if record.get("waiting") else 0
         record_plans(inst, {change: {"hash": digest, "attempts": kept, "ok": True}})
-        results[change] = PlanResult(status="planned", cycle=drops.cycle)
+        results[change] = PlanResult(status="planned", cycle=drops.cycle, kept=left_out)
     if any(result.status == "planned" for result in results.values()):
         _promote(inst, store)
     return results
@@ -5024,6 +5054,10 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
     differences = _replan_differences(before, after)
     for line in differences or ["nothing changed"]:
         print(line)
+    for change in to_plan:
+        for unit_id in results[change].kept:
+            print(f"kept: {unit_id} has work; not in the plan")
+            print(f"  `abk retire {unit_id} --reason TEXT` ends it and releases its groups")
     for unit in after.values():
         if unit.change in to_plan and unit.state not in (PLANNED, UNPLANNED):
             print(f"kept: {unit.id}, {unit.state.value}")

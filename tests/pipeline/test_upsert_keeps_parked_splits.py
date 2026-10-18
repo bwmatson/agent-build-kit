@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_build_kit.pipeline.unit_store import Cause, UnitStore
+from agent_build_kit.pipeline.unit_store import KEEP, Cause, UnitStore
 from agent_build_kit.pipeline.units import PLANNED, UnitState
 from tests.factories import stored_unit
 
@@ -41,8 +41,8 @@ def test_a_replan_that_demotes_a_parked_unit_and_plans_it_again_keeps_its_park(
     tmp_path: Path,
 ) -> None:
     store = parked_store(tmp_path)
-    store.upsert([], change="feature")
-    assert store.get("feature/1").state == UnitState.UNPLANNED, "left out of a replan"
+    # A replan now keeps a unit with a branch: record the demotion as an earlier one left it.
+    store.set_state("feature/1", UnitState.UNPLANNED, cause=KEEP)
     assert parked_fields(store) == KEPT, "a demotion keeps the park"
 
     store.upsert([stored_unit("feature/1", change="feature")], change="feature")

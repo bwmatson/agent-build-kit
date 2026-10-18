@@ -43,7 +43,13 @@ def seed_pipeline(installation: Installation) -> UnitStore:
     store.upsert(
         [
             unit("feature/1", change="feature", title="Base"),
-            unit("feature/2", change="feature", title="Middle", depends_on=("feature/1",)),
+            unit(
+                "feature/2",
+                change="feature",
+                title="Middle",
+                depends_on=("feature/1",),
+                groups=(1,),
+            ),
             unit(
                 "feature/3",
                 change="feature",
