@@ -18,7 +18,14 @@ from agent_build_kit.pipeline.units import (
     SATISFIED,
     UnitState,
 )
-from tests.cli.replan_driver import Replan, answer, needs_md, planned, tasks_md
+from tests.cli.replan_driver import (
+    Replan,
+    answer,
+    needs_md,
+    planned,
+    seed_landed_and_planned,
+    tasks_md,
+)
 from tests.factories import unit
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
@@ -138,17 +145,7 @@ def test_a_store_of_hundreds_of_landed_and_planned_units_gives_a_prompt_under_10
     run = Replan(tmp_path, monkeypatch, feature=tasks_md(1) + padding)
     for name in (OLD, QUEUED, "misc"):
         run.write(name, tasks_md(1))
-    run.store.upsert(
-        [
-            *(unit(f"{OLD}/{n}", change=OLD, groups=(n,)) for n in range(1, 361)),
-            *(unit(f"{QUEUED}/{n}", change=QUEUED, groups=(n,)) for n in range(1, 141)),
-            *(unit(f"misc/{n}", change="misc", groups=(n,)) for n in range(1, 13)),
-        ]
-    )
-    for n in range(1, 361):
-        run.store.set_state(f"{OLD}/{n}", MERGED, branch=f"spec/{OLD}/{n}", pr=n)
-    for n in range(1, 13):
-        run.store.set_state(f"misc/{n}", FAILED, branch=f"spec/misc/{n}", pr=n)
+    seed_landed_and_planned(run, old=OLD, queued=QUEUED)
     run.runtime.answer = answer(planned("feature/1", (1,)))
 
     cli.plan_all(run.inst, store=run.store, only={"feature"})

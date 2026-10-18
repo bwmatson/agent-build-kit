@@ -16,9 +16,12 @@ from agent_build_kit import runtimes
 from agent_build_kit.cli import main
 from agent_build_kit.config import dump
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
+from agent_build_kit.pipeline.units import FAILED, MERGED
 from agent_build_kit.pipeline.work_graph import specification_text
+from tests.calibration_support import write_store
 from tests.conftest import make_installation
+from tests.factories import new_unit
 from tests.runtimes.stand_in import StandInRuntime
 
 OPT_OUT = "Acceptance: none — a fixture about replanning\n"
@@ -128,3 +131,24 @@ class Replan:
         code = main(["replan", *argv])
         seen = capsys.readouterr()
         return code, seen.out + seen.err
+
+
+def seed_landed_and_planned(run: Replan, *, old: str, queued: str) -> None:
+    """Fill `run.store` with 360 merged units of `old`, 140 planned of `queued`, and 12 failed
+    of `misc`, in one write of the file."""
+
+    def seeded(uid: str, n: int, **fields) -> StoredUnit:
+        return new_unit(uid, groups=(n,), **fields)
+
+    units = [
+        *(
+            seeded(f"{old}/{n}", n, state=MERGED, branch=f"spec/{old}/{n}", pr=n)
+            for n in range(1, 361)
+        ),
+        *(seeded(f"{queued}/{n}", n) for n in range(1, 141)),
+        *(
+            seeded(f"misc/{n}", n, state=FAILED, branch=f"spec/misc/{n}", pr=n)
+            for n in range(1, 13)
+        ),
+    ]
+    write_store(run.store.path.parent, units)
