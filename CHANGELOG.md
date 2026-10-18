@@ -11,6 +11,13 @@
   threshold now, the reset, held or usable or unknown, and the source and age of the reading), and
   `abk doctor` checks each such split: the provider's library is installed, a reading can be taken,
   and a hold that stands for a gate reading is a note, not a failure.
+- A dependency on a unit the plan dropped or a person retired no longer stops a unit that the
+  scheduler has admitted: the build's step check, the follow pass for units in review and the
+  room rule skip a parent that builds nothing, and each tick drops a stale stored dependency on
+  one (`dropped dependency`). A unit put back from running again and again with the same cause
+  is now logged once as looping, listed by `abk status` under `looping:` and marked
+  `(looping)` in the ready queue; `global_limits.bounce_limit` and `bounce_span_seconds` tune
+  it. It is a notice only and holds nothing.
 
 - The old test-kind module and name aliases are gone: importing a module such as the former
   second-tier pipeline modules now fails, and the new names are the only ones in the code.

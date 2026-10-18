@@ -552,8 +552,8 @@ class LimitsConfig(TestKindSettings):
     checks_register_seconds: int = 120
     # How many times in a row a unit may be put back to planned or held with the same cause,
     # each run shorter than `bounce_span_seconds`, before it is named as looping.
-    bounce_limit: int = 3
-    bounce_span_seconds: int = 120
+    bounce_limit: Annotated[int, Field(ge=2)] = 3
+    bounce_span_seconds: Annotated[int, Field(ge=1)] = 120
     # How many pull requests of finished units a round (each tick and each refresh of a
     # pass) takes their stale state label off, so a backlog does not spend the code
     # host's rate limit at once.

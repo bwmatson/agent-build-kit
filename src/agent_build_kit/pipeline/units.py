@@ -942,7 +942,7 @@ def _parent_went_back(unit: Unit, graph: Sequence[Unit]) -> bool:
     index = _by_id(graph)
     for dep in through_satisfied(unit, graph):
         parent = index.get(dep)
-        if parent is None:
+        if parent is None or parent.state in BUILDS_NOTHING:
             continue
         state_then: str | None = None
         for entry in getattr(parent, "history", ()):

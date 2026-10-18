@@ -192,6 +192,7 @@ from agent_build_kit.pipeline.unit_size import (
 from agent_build_kit.pipeline.unit_store import (
     PARK_BACKOFF,
     PARKED_CAUSES,
+    REQUEUE_BY,
     UNPLANNED,
     Cause,
     FeedbackSource,
@@ -374,6 +375,7 @@ def store_for(inst: Installation) -> UnitStore:
         refresh_graph(units)
         refresh_usage(units)
 
+    limits = inst.config.global_limits
     labels = StateLabels(inst.forge_of, log=log)
     drafts = StateDrafts(inst.forge_of, log=log)
 
@@ -386,11 +388,18 @@ def store_for(inst: Installation) -> UnitStore:
             paused=parked_units(inst, units),
         )
         drafts.follow(unit, units, opened=opened)
+        # Equal, not at or above, so a unit that keeps bouncing is named once.
+        if unit.bounces == limits.bounce_limit and unit.state in (PLANNED, HELD):
+            log(
+                f"{unit.id} is looping: put back to {unit.state} {unit.bounces} times in "
+                f"{limits.bounce_span_seconds}s by {unit.bounce_cause}; last note: {unit.note}"
+            )
 
     return UnitStore(
         inst.state_dir / "units.json",
         on_write=refresh_pages,
         on_state=follow,
+        bounce_span_seconds=limits.bounce_span_seconds,
     )
 
 
@@ -727,6 +736,12 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     # Units in flight from before causes were kept: nothing reads their notes, so
     # each is requeued (`abk requeue`) or, for a reviewer's hold, held again from
     # the pull request, and the entry that follows carries a cause.
+    for unit in units:
+        if _is_looping(inst, unit):
+            log(
+                f"  looping: {unit.id} ({unit_label(unit)}) {unit.bounces} times in a row, "
+                f"cause {unit.bounce_cause} — {unit.note}"
+            )
     uncaused = [
         unit.id
         for unit in units
@@ -2398,6 +2413,12 @@ def _wait_ended_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
     return lines
 
 
+def _is_looping(inst: Installation, unit: StoredUnit) -> bool:
+    """Whether a planned unit has been put back as many times in a row with one cause as
+    `global_limits.bounce_limit` names. Visibility only: nothing schedules on it."""
+    return unit.state == PLANNED and unit.bounces >= inst.config.global_limits.bounce_limit
+
+
 def _ready_queue_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
     """The ready queue in the order the scheduler starts it, with why each unit is where it is."""
     attached = {held.unit_id for held in Leases(lease_dir(inst.state_dir)).attachments()}
@@ -2416,6 +2437,7 @@ def _ready_queue_lines(inst: Installation, units: list[StoredUnit]) -> list[str]
         return []
     lines = ["ready queue (start order):"]
     handed_off = {unit.id for unit in handoff_units(ready, view, excluded)}
+    stored = {unit.id: unit for unit in units}
     for place, unit in enumerate(ready, start=1):
         if note := priority_note(unit, view, excluded):
             why = note
@@ -2425,6 +2447,7 @@ def _ready_queue_lines(inst: Installation, units: list[StoredUnit]) -> list[str]
             why = "planned order"
         marker = " (handoff)" if unit.id in handed_off else ""
         marker += " (emergency room)" if unit.id in lane_only else ""
+        marker += " (looping)" if _is_looping(inst, stored[unit.id]) else ""
         lines.append(f"  {place}. {unit.id} ({unit_label(unit)}) — {why}{marker}")
     return lines
 
@@ -2974,6 +2997,7 @@ def link_needs(
             f"{change} group {group} needs {need.change} group {need.group}, not planned yet"
         ),
     )
+    units = _drop_stale_edges(store, units, wanted)
     graph = {u.id: list(u.depends_on) for u in units if u.state not in FINISHED}
     # Every stored edge, of units in any state: a merged unit between two still links them.
     stored = {u.id: list(u.depends_on) for u in units}
@@ -3012,6 +3036,32 @@ def link_needs(
         if tuple(needs) != unit.needs:
             store.set_needs(unit.id, needs)
     return refused
+
+
+def _drop_stale_edges(
+    store: UnitStore, units: list[StoredUnit], wanted: dict[str, list[str]]
+) -> list[StoredUnit]:
+    """Remove each stored dependency, of a unit still to be built, on a unit that builds
+    nothing and that no `Needs:` line declares; the units as the store has them after."""
+    index = {unit.id: unit for unit in units}
+    changed = False
+    for unit in units:
+        if unit.state in FINISHED or unit.state in BUILDS_NOTHING:
+            continue
+        stale = [
+            dep
+            for dep in unit.depends_on
+            if (parent := index.get(dep)) is not None
+            and parent.state in BUILDS_NOTHING
+            and dep not in wanted.get(unit.id, ())
+        ]
+        if not stale:
+            continue
+        store.set_dependencies(unit.id, [d for d in unit.depends_on if d not in stale])
+        for dep in stale:
+            log(f"{unit.id}: dropped dependency {dep}: it builds nothing")
+        changed = True
+    return store.all() if changed else units
 
 
 def declared_needs(
@@ -5307,6 +5357,7 @@ def requeue(
             PLANNED,
             note=f"requeued: {dependency_wait(waits, repo=known[unit_id].repo)}{said}",
             cause=Cause.GATED,
+            by=REQUEUE_BY,
         )
         if note:
             store.set_guidance(unit_id, note)
@@ -5341,6 +5392,7 @@ def requeue(
             PLANNED,
             note=f"requeue: {because}" if because else f"requeued: reworking from {source}{said}",
             cause=Cause.REQUEUED,
+            by=REQUEUE_BY,
         )
         say(
             f"{unit_id} requeued, the agent will rework it from "
@@ -5351,7 +5403,11 @@ def requeue(
         if note:
             store.set_guidance(unit_id, note)
         store.set_state(
-            unit_id, PLANNED, note=f"requeued: starting over{said}", cause=Cause.REQUEUED
+            unit_id,
+            PLANNED,
+            note=f"requeued: starting over{said}",
+            cause=Cause.REQUEUED,
+            by=REQUEUE_BY,
         )
         say(f"{unit_id} requeued, starting over from the agent's step")
     else:
@@ -5360,6 +5416,7 @@ def requeue(
             PLANNED,
             note=f"requeue: {because}" if because else "requeued: resuming where it stopped",
             cause=Cause.REQUEUED,
+            by=REQUEUE_BY,
         )
         say(f"{unit_id} requeued, resuming where it stopped")
     return _requeued(store, unit_id)

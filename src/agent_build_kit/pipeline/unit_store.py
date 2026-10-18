@@ -49,6 +49,7 @@ from agent_build_kit.pipeline.units import (
     Unit,
     UnitState,
     direct_dependencies,
+    history_stamp,
     repointed,
 )
 from agent_build_kit.pipeline.work_graph import FLAGS
@@ -57,6 +58,20 @@ from agent_build_kit.redaction import redact_text
 # A unit that the latest plan no longer contains. Kept rather than deleted: it
 # may already have an open PR, and the runner needs to see that the plan moved.
 UNPLANNED = UnitState.UNPLANNED
+
+# What `abk requeue` writes as `by`: a person's requeue ends a unit's run of bounces.
+REQUEUE_BY = "abk requeue"
+
+# Writing a unit into one of these ends its run of bounces: it is in review, failed or finished.
+_ENDS_BOUNCES = (
+    UnitState.IN_REVIEW,
+    UnitState.FAILED,
+    UnitState.MERGED,
+    UnitState.CLOSED,
+    UnitState.SATISFIED,
+    UnitState.UNPLANNED,
+    UnitState.RETIRED,
+)
 
 
 class HeldBy(StrEnum):
@@ -572,7 +587,10 @@ class UnitStore:
         on_state: StateChanged | None = None,
         bounce_span_seconds: int = 120,
     ) -> None:
-        """`on_write` sees every unit after each change — how the diagram stays
+        """`bounce_span_seconds` is the longest run that still counts as a bounce when a unit
+        is put back from `running` (`_bounces`).
+
+        `on_write` sees every unit after each change — how the diagram stays
         current without every call site that changes a state remembering it.
 
         `on_state` hears each `set_state` once the change is written and the
@@ -582,6 +600,7 @@ class UnitStore:
         self.path = path
         self.on_write = on_write
         self.on_state = on_state
+        self.bounce_span_seconds = bounce_span_seconds
 
     def locked(self) -> AbstractContextManager[None]:
         """The lock every change to the store is made under, for a rewrite of the file
@@ -667,6 +686,9 @@ class UnitStore:
                 calibrated_lines=existing.calibrated_lines if existing else None,
                 check_rerun_head=existing.check_rerun_head if existing else "",
                 check_reruns=existing.check_reruns if existing else 0,
+                bounces=existing.bounces if existing else 0,
+                bounce_cause=existing.bounce_cause if existing else None,
+                bounce_at=existing.bounce_at if existing else None,
                 conflict_tip=existing.conflict_tip if existing else "",
                 conflict_head=existing.conflict_head if existing else "",
                 conflict_attempts=existing.conflict_attempts if existing else 0,
@@ -906,6 +928,7 @@ class UnitStore:
             held_by=held_by,
             cause=cause,
             held_base=held_base,
+            by=by,
         )
         try:
             unit, everything, opened = record()
@@ -967,11 +990,42 @@ class UnitStore:
                 "service_attempts": 0 if state in (IN_REVIEW, FAILED) else unit.service_attempts,
                 # A gate is closed in the write that changes the cause.
                 "gated_requeue": unit.gated_requeue if resolved is Cause.GATED else None,
+                **self._bounces(unit, state, resolved, by),
                 "history": (*unit.history, _entry(unit, state, cause, note, by)),
             }
         )
         self._write(stored)
         return stored[unit_id], list(stored.values()), opened
+
+    def _bounces(
+        self, unit: StoredUnit, state: UnitState, cause: Cause | None, by: str
+    ) -> dict[str, object]:
+        """The bounce fields after `unit` is written into `state`: the count goes up for a
+        short run put back to `planned` or `held` with the cause of the last bounce,
+        restarts for another cause, and is zero after a long run, no cause, a person's
+        requeue, review, failure or a finished state. Any other write leaves it."""
+        zero: dict[str, object] = {"bounces": 0, "bounce_cause": None, "bounce_at": None}
+        if by == REQUEUE_BY or state in _ENDS_BOUNCES:
+            return zero
+        if unit.state != RUNNING or state not in (PLANNED, HELD):
+            return {}
+        now = spans.clock.now()
+        started = next(
+            (
+                stamp
+                for entry in reversed(unit.history)
+                if entry.get("state") == RUNNING and (stamp := history_stamp(entry))
+            ),
+            None,
+        )
+        try:
+            ran = (now - started).total_seconds() if started else None
+        except TypeError:
+            ran = None
+        if not isinstance(cause, Cause) or ran is None or ran >= self.bounce_span_seconds:
+            return zero
+        count = unit.bounces + 1 if unit.bounce_cause is cause else 1
+        return {"bounces": count, "bounce_cause": cause, "bounce_at": now}
 
     def count_service_attempt(self, unit_id: str) -> int:
         """Count one more parking in a row on the model service's status; the new count."""
