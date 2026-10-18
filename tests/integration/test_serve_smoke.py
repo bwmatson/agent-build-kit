@@ -2,7 +2,7 @@
 sessions, streams a turn to a real client and shuts down (spec: chat-tests).
 
 Every other chat test calls the application in-process; what only a socket shows (a stream
-flushed as it is written, a connection that closes) is checked here, and tier 1 does not run
+flushed as it is written, a connection that closes) is checked here, and unit-test does not run
 it.
 """
 

@@ -6,7 +6,7 @@ scratch planning directory. Research and proposals are skipped, so no agent is
 needed; the OpenSpec CLI is real. The repos are read back the way a person would
 read them: their files and `git status`.
 
-Needs node for the OpenSpec CLI. Marked tier 2 and excluded from the default suite;
+Needs node for the OpenSpec CLI. Marked e2e-test and excluded from the default suite;
 run it with `uv run pytest -m local_stack tests/integration/test_init_conventions_workspace.py`.
 """
 

@@ -30,10 +30,10 @@ def store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> UnitStore:
 
 
 def failed_at_verify(store: UnitStore, uid: str = "add-marker/1") -> None:
-    """A unit that built, then failed its tier 1 check: the case that resumes."""
+    """A unit that built, then failed its unit-test check: the case that resumes."""
     store.upsert([unit(uid)])
     store.set_state(uid, UnitState.FAILED, branch=f"spec/{uid}")
-    store.set_feedback(uid, "tier 1 failed: pre-commit was not found")
+    store.set_feedback(uid, "unit-test failed: pre-commit was not found")
 
 
 def test_a_failed_unit_resumes_where_it_stopped(store: UnitStore, capsys) -> None:
@@ -104,7 +104,7 @@ def test_an_unknown_unit_says_so_and_lists_the_known_ones(store: UnitStore, caps
 
 # --- --rework ------------------------------------------------------------------
 #
-# A unit that failed tier 1 on real errors (a type check, a lint rule, a test)
+# A unit that failed unit-test on real errors (a type check, a lint rule, a test)
 # saved the output, but resuming at `verify` runs the check again and meets the
 # same errors with the agent never having seen them. --rework keeps the work and
 # hands the agent what failed.
@@ -112,13 +112,13 @@ def test_an_unknown_unit_says_so_and_lists_the_known_ones(store: UnitStore, caps
 
 def test_rework_hands_the_agent_the_saved_failure(store: UnitStore, capsys) -> None:
     failed_at_verify(store)
-    store.set_feedback("add-marker/1", "tier 1 failed:\nERROR implicit-any in test_x.py")
+    store.set_feedback("add-marker/1", "unit-test failed:\nERROR implicit-any in test_x.py")
 
     assert main(["requeue", "add-marker/1", "--rework"]) == 0
 
     after = store.get("add-marker/1")
     assert after.state == "planned"
-    assert after.feedback == "tier 1 failed:\nERROR implicit-any in test_x.py", "and it keeps it"
+    assert after.feedback == "unit-test failed:\nERROR implicit-any in test_x.py", "and it keeps it"
     assert after.branch == "spec/add-marker/1", "the work stays"
     assert "rework it from the failure it saved" in capsys.readouterr().out
 

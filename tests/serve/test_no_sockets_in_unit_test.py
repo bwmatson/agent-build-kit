@@ -1,4 +1,4 @@
-"""The guard keeps tier 1 under `tests/serve` free of sockets (spec: chat-tests)."""
+"""The guard keeps unit-test under `tests/serve` free of sockets (spec: chat-tests)."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ def tree(root: Path, files: dict[str, str]) -> Path:
         "from agent_build_kit.serve.server import start_server\n\nstart_server(None)\n",
     ],
 )
-def test_a_socket_in_a_tier_1_module_is_reported_with_file_and_line(
+def test_a_socket_in_a_unit_test_module_is_reported_with_file_and_line(
     tmp_path: Path, source: str
 ) -> None:
     root = tree(tmp_path, {"test_x.py": "x = 1\n" + source})
@@ -210,7 +210,7 @@ def test_the_allowlist_does_not_grow() -> None:
     assert ALLOWLIST <= ALLOWLIST_CEILING
 
 
-def test_every_tier_1_module_under_tests_serve_opens_no_socket_but_the_allowlisted() -> None:
+def test_every_unit_test_module_under_tests_serve_opens_no_socket_but_the_allowlisted() -> None:
     # `conftest.py` is scanned too: the `api` fixture every module draws on stays in-process.
     assert check_serve_tests(SERVE_TESTS, allowlist=ALLOWLIST) == []
 

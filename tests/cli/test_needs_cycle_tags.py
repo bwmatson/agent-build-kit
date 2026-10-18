@@ -77,16 +77,16 @@ def test_a_cycle_leaves_the_other_changes_and_their_messages_alone(
     run.write(
         "own-group",
         f"# Tasks\n\n{OPT_OUT}\n"
-        "## 1. [app] [tier1] One\n\n- [ ] 1.1 Test: it.\n- [ ] 1.2 Do it.\n\n"
-        "## 2. [app] [tier1] Two\n\nNeeds: own-group group 1 — why\n\n"
+        "## 1. [app] [unit-test] One\n\n- [ ] 1.1 Test: it.\n- [ ] 1.2 Do it.\n\n"
+        "## 2. [app] [unit-test] Two\n\nNeeds: own-group group 1 — why\n\n"
         "- [ ] 2.1 Test: it.\n- [ ] 2.2 Do it.\n",
     )
     run.write(
         "independent",
         f"# Tasks\n\n{OPT_OUT}\n"
-        "## 1. [app] [tier1] One\n\nNeeds: other-independent group 1 — why\n\n"
+        "## 1. [app] [unit-test] One\n\nNeeds: other-independent group 1 — why\n\n"
         "- [ ] 1.1 Test: it.\n- [ ] 1.2 Do it.\n\n"
-        "## 2. [app] [tier1] Two\n\nIndependent: touches nothing in group 1\n\n"
+        "## 2. [app] [unit-test] Two\n\nIndependent: touches nothing in group 1\n\n"
         "- [ ] 2.1 Test: it.\n- [ ] 2.2 Do it.\n",
     )
     run.write("other-independent", tasks_md(1, needs={1: "independent group 2"}))

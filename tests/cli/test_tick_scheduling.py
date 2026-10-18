@@ -1253,7 +1253,7 @@ def _ends_and_waits(
     "note",
     [
         MOVED_NOTE,
-        "base moved before its push: tier 1 failed on main",
+        "base moved before its push: unit-test failed on main",
         "base gone before its pull request: base branch spec/a/1 does not exist",
         "moving onto main needed resolution",
         "quite different words",

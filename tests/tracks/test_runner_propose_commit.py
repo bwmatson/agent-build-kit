@@ -63,7 +63,7 @@ def writes_a_change(inst: Installation, *, valid: bool = True) -> Callable[[Agen
         directory = inst.changes_dir / name
         (directory / "specs" / "thing").mkdir(parents=True)
         (directory / "proposal.md").write_text("## Why\n\nA finding.\n")
-        (directory / "tasks.md").write_text("## 1. [app] [tier1] Fix it\n\n- [ ] 1.1 Test\n")
+        (directory / "tasks.md").write_text("## 1. [app] [unit-test] Fix it\n\n- [ ] 1.1 Test\n")
         (directory / "specs" / "thing" / "spec.md").write_text("## ADDED Requirements\n")
         log = runner.run_log(inst, project(inst), "propose")
         log.parent.mkdir(parents=True, exist_ok=True)

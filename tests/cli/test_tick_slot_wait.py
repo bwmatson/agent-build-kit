@@ -43,7 +43,7 @@ def stored(uid: str, repo: str) -> StoredUnit:
         change=change,
         title=f"Build {uid}",
         repo=repo,
-        tier="tier1",
+        tier="unit-test",
         depends_on=(),
         estimated_lines=140,
         groups=(1,),

@@ -10,7 +10,7 @@ Needs an agent speaking the protocol, named by `ABK_ACCEPTANCE_ACP_COMMAND`
 (a command line), node for the OpenSpec CLI, and uv. Only GitHub is faked, at
 the host's API: a fake server reached through `ABK_GITHUB_API_URL`, with
 `gh auth token` the one command left as a script. Bills on demand and takes
-minutes, so it is marked with the tier-2 marker and excluded from the default
+minutes, so it is marked with the e2e marker and excluded from the default
 suite.
 """
 
@@ -56,7 +56,7 @@ AGENT_COMMAND = "ABK_ACCEPTANCE_ACP_COMMAND"
 
 TASKS = """# Tasks
 
-## 1. [app] [tier1] Add the marker
+## 1. [app] [unit-test] Add the marker
 
 - [ ] 1.1 Test: `marker()` in `src/app/marker.py` returns the string `"marked"`.
 - [ ] 1.2 Add `marker()` to `src/app/marker.py`.

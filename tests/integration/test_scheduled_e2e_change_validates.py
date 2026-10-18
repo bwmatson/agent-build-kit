@@ -1,5 +1,5 @@
 """The change written for a due repo passes `abk check` (`openspec validate --strict`) and
-`abk tags` (spec: tier2-schedule). Needs node (npx) and, on the first run, the network."""
+`abk tags` (spec: e2e-schedule). Needs node (npx) and, on the first run, the network."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ import pytest
 from agent_build_kit import openspec
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.e2e_schedule import scheduled_name, write_due
+from tests.e2e_schedule_fakes import TODAY, planning, store_of
 from tests.openspec_cli import require
-from tests.tier2_schedule_fakes import TODAY, planning, store_of
 
 pytestmark = [
     pytest.mark.integration,
@@ -33,7 +33,7 @@ def test_the_written_change_passes_abk_check_and_abk_tags(tmp_path) -> None:
 
 def test_every_variants_change_passes_abk_check_and_abk_tags(tmp_path) -> None:
     splits = {"acp": {"marker": "runtime_acp"}, "claude_code": {"marker": "runtime_claude_code"}}
-    inst = planning(tmp_path, tests={"tier2_splits": splits})
+    inst = planning(tmp_path, tests={"e2e_splits": splits})
     (inst.specs_dir / "specs").mkdir(parents=True, exist_ok=True)
 
     names = write_due(inst, store_of(inst, "app"), today=TODAY, say=lambda line: None)

@@ -27,7 +27,7 @@ OPT_OUT = "Acceptance: none — a fixture about replanning\n"
 def tasks_md(groups: int = 2, *, needs: dict[int, str] | None = None) -> str:
     text = f"# Tasks\n\n{OPT_OUT}\n"
     for number in range(1, groups + 1):
-        text += f"## {number}. [app] [tier1] Group {number}\n\n"
+        text += f"## {number}. [app] [unit-test] Group {number}\n\n"
         if needs and number in needs:
             text += f"Needs: {needs[number]} — a reason\n\n"
         text += f"- [ ] {number}.1 Test: it.\n- [ ] {number}.2 Do it.\n\n"
@@ -44,7 +44,7 @@ def tagged_md(*tags: str, repo: str = "app") -> str:
 
 
 def needs_md(*lines: str) -> str:
-    text = f"# Tasks\n\n{OPT_OUT}\n## 1. [app] [tier1] The work\n\n"
+    text = f"# Tasks\n\n{OPT_OUT}\n## 1. [app] [unit-test] The work\n\n"
     text += "".join(f"Needs: {line} — a reason\n" for line in lines)
     return text + "\n- [ ] 1.1 Test: it.\n- [ ] 1.2 Do it.\n"
 
@@ -57,7 +57,7 @@ def planned(
         "change": uid.split("/")[0],
         "title": "A unit",
         "repo": "app",
-        "tier": "tier1",
+        "tier": "unit-test",
         "depends_on": list(depends_on),
         "estimated_lines": lines,
         "groups": list(groups),

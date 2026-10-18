@@ -1,4 +1,4 @@
-"""Each tick round evaluates every split that has a gate, before planning and the tier 2
+"""Each tick round evaluates every split that has a gate, before planning and the e2e-test
 selection, and a dry run only reports (spec: split-gate-usage).
 
 The gate is a real command, a small script that counts its runs, so the round reaches it
@@ -37,7 +37,8 @@ sys.exit(int(sys.argv[2]))
 """
 
 TASKS = (
-    "# Tasks\n\n## 1. [app] [tier1] Register the marker\n\n- [ ] 1.1 Test: it\n- [ ] 1.2 Make it\n"
+    "# Tasks\n\n## 1. [app] [unit-test] Register the marker\n\n"
+    "- [ ] 1.1 Test: it\n- [ ] 1.2 Make it\n"
 )
 
 

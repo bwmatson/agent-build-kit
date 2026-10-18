@@ -45,7 +45,6 @@ SOURCE_DIRECTORIES = (
 ROOT = PIPELINE.parents[2]
 WEB_SOURCE = ROOT / "web" / "src"
 TESTS = ROOT / "tests"
-FIRST_HELPER, LAST_HELPER = "calibration_support", "time_split"
 OLD_HELPER_FAKES = (
     "scheduled_tier2_fakes",
     "tier2_base_fakes",
@@ -58,11 +57,17 @@ OLD_HELPER_FAKES = (
     "tier2_scope_fakes",
     "tier2_wait_fakes",
 )
-PIPELINE_TESTS = TESTS / "pipeline"
-GRAPH_TESTS = TESTS / "graph"
-CONVERTED_TEST_DIRECTORIES = ("config", "fixtures", "forges", "init")
-# The settings-alias test names the old keys on purpose: they are what it loads.
-OLD_NAME_TESTS = ("test_test_kind_settings_aliases.py",)
+# The tests of the old names write them on purpose: they are what they load, rename or map.
+OLD_NAME_TESTS = (
+    "test_compat_names.py",
+    "test_rename_test_kinds.py",
+    "test_rename_test_kinds_forward.py",
+    "test_rename_test_kinds_idempotent.py",
+    "test_rename_test_kinds_root.py",
+    "test_rename_test_kinds_shims.py",
+    "test_test_kind_rename_progress.py",
+    "test_test_kind_settings_aliases.py",
+)
 
 
 def text_files(folder: Path) -> list[Path]:
@@ -79,43 +84,19 @@ def text_files(folder: Path) -> list[Path]:
     return found
 
 
-def helper_files() -> list[Path]:
-    """The non-test modules at the top of `tests/`, `calibration_support` to `time_split`."""
-    helpers = sorted(p for p in TESTS.glob("*.py") if not p.name.startswith("test_"))
-    return [p for p in helpers if FIRST_HELPER <= p.stem <= LAST_HELPER]
-
-
-def pipeline_test_files() -> list[Path]:
-    """Every test under `tests/pipeline`."""
-    return sorted(PIPELINE_TESTS.glob("test_*.py"))
-
-
-def graph_test_files() -> list[Path]:
-    """Every file under `tests/graph`, helpers and conftest included."""
-    return text_files(GRAPH_TESTS)
-
-
 def converted_test_directory_files() -> list[Path]:
-    """Every text file under the converted test directories, bar the tests of the old names."""
-    return [
-        p
-        for name in CONVERTED_TEST_DIRECTORIES
-        for p in text_files(TESTS / name)
-        if p.name not in OLD_NAME_TESTS
-    ]
+    """Every text file under `tests/`, bar the tests of the old names."""
+    return [p for p in text_files(TESTS) if p.name not in OLD_NAME_TESTS]
 
 
 def converted_files() -> list[Path]:
-    """The pipeline package, the converted source directories, `web/src` and the test helpers."""
+    """The pipeline package, the converted source directories, `web/src` and `tests/`."""
     return [
         *converted_pipeline_files(),
         SOURCE / "config.py",
         SOURCE / "installation.py",
         *(p for name in SOURCE_DIRECTORIES for p in text_files(SOURCE / name)),
         *text_files(WEB_SOURCE),
-        *helper_files(),
-        *pipeline_test_files(),
-        *graph_test_files(),
         *converted_test_directory_files(),
     ]
 
@@ -173,17 +154,11 @@ def test_each_old_fake_module_name_gives_the_objects_of_the_renamed_one(old: str
     assert shimmed is renamed
 
 
-def test_no_converted_pipeline_test_file_is_named_for_an_old_spelling() -> None:
-    offenders = [p.name for p in pipeline_test_files() if OLD_SPELLING.search(p.name)]
-
-    assert offenders == []
-
-
 def test_no_converted_test_directory_file_is_named_for_an_old_spelling() -> None:
     offenders = [
         str(p.relative_to(TESTS))
-        for p in [*graph_test_files(), *converted_test_directory_files()]
-        if OLD_SPELLING.search(p.name)
+        for p in converted_test_directory_files()
+        if OLD_SPELLING.search(p.name) and not is_shim_module(p.read_text())
     ]
 
     assert offenders == []

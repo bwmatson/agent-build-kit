@@ -1,6 +1,6 @@
 """A turn is read through the in-process client without a socket opening (spec: chat-tests).
 
-The guard in `test_no_sockets_in_tier1.py` reads the source; this runs the application with
+The guard in `test_no_sockets_in_unit_test.py` reads the source; this runs the application with
 every way of opening a socket refused, so one made at run time (a server started in the
 application's lifespan, a client built in a dependency) fails here.
 """

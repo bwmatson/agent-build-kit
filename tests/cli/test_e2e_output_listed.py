@@ -34,7 +34,7 @@ def test_the_run_log_has_a_line_with_the_path_even_when_the_tail_cut_leaves_it_o
     assert any(str(path) in line for line in log.read_text().splitlines())
 
 
-def test_status_shows_the_file_of_a_unit_whose_last_result_was_a_tier_2_failure(
+def test_status_shows_the_file_of_a_unit_whose_last_result_was_a_e2e_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     directory = e2e_output_dir(tmp_path)
@@ -81,7 +81,7 @@ def _status_of(
     return capsys.readouterr().out.splitlines()
 
 
-def test_status_names_the_latest_file_when_feedback_holds_two_tier_2_failures(
+def test_status_names_the_latest_file_when_feedback_holds_two_e2e_failures(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     first = e2e_output_dir(tmp_path) / "feature-01-20261011-110000-e2e.log"

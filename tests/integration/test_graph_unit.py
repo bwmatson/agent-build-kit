@@ -13,7 +13,7 @@ into rework and a second push; and the thread is gone once the pull request is
 merged.
 
 Needs an agent speaking the protocol, node for the OpenSpec CLI and uv. Bills on
-demand and takes minutes, so it is marked tier 2 and excluded from the default
+demand and takes minutes, so it is marked e2e-test and excluded from the default
 suite.
 """
 
@@ -57,7 +57,7 @@ COMMENT = "Please add a one-line docstring to `marker()` saying what it returns.
 
 TASKS = """# Tasks
 
-## 1. [app] [tier1] Add the marker
+## 1. [app] [unit-test] Add the marker
 
 - [ ] 1.1 Test: `marker()` in `src/app/marker.py` returns the string `"marked"`.
 - [ ] 1.2 Add `marker()` to `src/app/marker.py`.

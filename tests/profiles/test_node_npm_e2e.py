@@ -1,4 +1,4 @@
-"""The node-npm profile selects tier-2 tests by a marker in the file name,
+"""The node-npm profile selects e2e tests by a marker in the file name,
 `<name>.<marker>.test.<ext>` (spec: node-npm-workspaces)."""
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ MARKED = "src/live.local_stack.test.ts"
 UNMARKED = "src/unit.test.ts"
 # Carries both markers: e2e-test selects it, and only the exclusion keeps it out of acceptance.
 DEV = "src/dev.dev_stack.local_stack.test.ts"
-# The marker is not right before `test`, so it is not a tier-2 file.
+# The marker is not right before `test`, so it is not an e2e file.
 DETACHED = "src/x.local_stack.browser.test.ts"
 
 

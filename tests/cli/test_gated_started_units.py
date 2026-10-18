@@ -88,7 +88,7 @@ def write_needs(inst: Installation, change: str = "feature", group: int = 1) -> 
     folder.mkdir(parents=True, exist_ok=True)
     tasks = folder / "tasks.md"
     tasks.write_text(
-        f"# Tasks\n\n## {group}. [app] [tier1] The work\n\n{NEEDS}\n- [ ] {group}.1 Test: it\n"
+        f"# Tasks\n\n## {group}. [app] [unit-test] The work\n\n{NEEDS}\n- [ ] {group}.1 Test: it\n"
     )
     return tasks
 
@@ -104,7 +104,7 @@ def gated_failure(store: UnitStore, *, state=FAILED) -> None:
     )
     store.set_state("dep/1", IN_REVIEW, pr=3)
     store.set_state("feature/1", state, branch="spec/feature/1")
-    store.set_feedback("feature/1", "tier 2 failed: the dev stack is down")
+    store.set_feedback("feature/1", "e2e-test failed: the dev stack is down")
 
 
 class Thread:
@@ -176,7 +176,7 @@ def test_requeue_of_a_gated_unit_leaves_it_planned_and_gated(
     assert after.cause is Cause.GATED
     assert thread.delivered == [], "no event reaches the thread while the gate is unmet"
     assert after.branch == "spec/feature/1"
-    assert after.feedback == "tier 2 failed: the dev stack is down"
+    assert after.feedback == "e2e-test failed: the dev stack is down"
     out = capsys.readouterr().out
     assert "dep group 1" in out, "the command names the group it waits for"
 
@@ -190,7 +190,7 @@ def test_requeue_of_a_gated_unit_keeps_the_saved_feedback_when_reworking(
 
     after = store.get("feature/1")
     assert (after.state, after.cause) == (PLANNED, Cause.GATED)
-    assert after.feedback == "tier 2 failed: the dev stack is down"
+    assert after.feedback == "e2e-test failed: the dev stack is down"
     assert thread.delivered == []
 
 

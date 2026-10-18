@@ -98,7 +98,7 @@ def test_a_tick_delivers_a_commit_made_and_not_delivered_once_and_removes_the_le
                 change="feature",
                 title="Build",
                 repo="app",
-                tier="tier1",
+                tier="unit-test",
                 depends_on=(),
                 estimated_lines=140,
                 groups=(1,),

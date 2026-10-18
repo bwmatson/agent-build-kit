@@ -7,9 +7,12 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.compat_names import old_spelling
+from agent_build_kit.model import TestTier
 from agent_build_kit.serve.metrics import Instrument, LocalSource
 from tests.ledger_lines import agent_line, write_ledger
 
+KINDS = [(old_spelling(kind), kind.value) for kind in (TestTier.UNIT_TEST, TestTier.E2E_TEST)]
 DAY = "2026-01-01T10:00:00+00:00"
 
 
@@ -23,7 +26,7 @@ def metric_line(tier: str) -> dict:
     }
 
 
-@pytest.mark.parametrize("old, new", [("tier1", "unit-test"), ("tier2", "e2e-test")])
+@pytest.mark.parametrize("old, new", KINDS)
 def test_agent_lines_of_either_spelling_are_one_label(tmp_path: Path, old: str, new: str) -> None:
     ledger = write_ledger(
         tmp_path / "usage-ledger.jsonl",
@@ -39,7 +42,7 @@ def test_agent_lines_of_either_spelling_are_one_label(tmp_path: Path, old: str, 
     assert totals == {new: pytest.approx(3.0), "": pytest.approx(4.0)}
 
 
-@pytest.mark.parametrize("old, new", [("tier1", "unit-test"), ("tier2", "e2e-test")])
+@pytest.mark.parametrize("old, new", KINDS)
 def test_metric_lines_of_either_spelling_are_one_label(tmp_path: Path, old: str, new: str) -> None:
     ledger = write_ledger(tmp_path / "usage-ledger.jsonl", metric_line(old), metric_line(new))
     duration = Instrument(

@@ -46,7 +46,7 @@ TASKS = """# Tasks
 
 Acceptance: none — a fixture about rounds, not about the acceptance group
 
-## 1. [app] [tier1] Register the marker
+## 1. [app] [unit-test] Register the marker
 
 - [ ] 1.1 Test: it selects only marked tests.
 - [ ] 1.2 Register it.
@@ -709,7 +709,7 @@ def test_editing_the_tasks_of_a_change_whose_unit_builds_replans_it_and_leaves_t
     unit = store.get("add-marker/1")
     building, started = {"add-marker/1"}, {"add-marker/1"}
 
-    path.write_text(TASKS + "\n## 2. [app] [tier1] More\n\n- [ ] 2.1 Do it.\n")
+    path.write_text(TASKS + "\n## 2. [app] [unit-test] More\n\n- [ ] 2.1 Do it.\n")
     ready = run(inst, store, building=building, started=started)
 
     assert len(calls) == 2, "the edit was not planned"

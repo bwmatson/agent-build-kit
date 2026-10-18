@@ -70,8 +70,8 @@ def write_change(inst: Installation) -> None:
         "#### Scenario: A restart\n\n- **WHEN** it restarts\n- **THEN** every session is found\n"
     )
     (change / "tasks.md").write_text(
-        f"# Tasks\n\n## 1. [app] [tier1] {GROUP}\n\n- [ ] 1.1 Test: the journal is read\n"
-        "\n## 2. [app] [tier1] A later group\n\n- [ ] 2.1 Test: nothing\n"
+        f"# Tasks\n\n## 1. [app] [unit-test] {GROUP}\n\n- [ ] 1.1 Test: the journal is read\n"
+        "\n## 2. [app] [unit-test] A later group\n\n- [ ] 2.1 Test: nothing\n"
     )
 
 

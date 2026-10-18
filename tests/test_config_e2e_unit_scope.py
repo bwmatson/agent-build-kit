@@ -1,5 +1,5 @@
-"""`tier2_unit_scope` is `own` or `full`: a default under `limits` and an optional override
-on a repo's `tests` block, the repo's winning (spec: tier2-scope)."""
+"""`e2e_unit_scope` is `own` or `full`: a default under `limits` and an optional override
+on a repo's `tests` block, the repo's winning (spec: e2e-scope)."""
 
 from __future__ import annotations
 
@@ -12,12 +12,12 @@ from pydantic import ValidationError
 
 from agent_build_kit.cli import main
 from agent_build_kit.config import (
+    E2eUnitScope,
     LimitsConfig,
     RepoConfig,
-    Tier2UnitScope,
     WorkspaceConfig,
     dump,
-    tier2_unit_scope,
+    e2e_unit_scope,
 )
 
 
@@ -30,27 +30,27 @@ def repo(**tests: Any) -> Any:
 
 
 def test_the_default_is_own() -> None:
-    assert limits().tier2_unit_scope == "own"
-    assert tier2_unit_scope(repo(), limits()) is Tier2UnitScope.OWN
+    assert limits().e2e_unit_scope == "own"
+    assert e2e_unit_scope(repo(), limits()) is E2eUnitScope.OWN
 
 
 @pytest.mark.parametrize("value", ["own", "full"])
 def test_each_value_is_accepted_in_limits_and_on_a_repo(value: str) -> None:
-    assert limits(tier2_unit_scope=value).tier2_unit_scope == value
-    assert repo(tier2_unit_scope=value).tests.tier2_unit_scope == value
+    assert limits(e2e_unit_scope=value).e2e_unit_scope == value
+    assert repo(e2e_unit_scope=value).tests.e2e_unit_scope == value
 
 
 def test_a_repo_has_no_value_of_its_own_by_default() -> None:
-    assert repo().tests.tier2_unit_scope is None
+    assert repo().tests.e2e_unit_scope is None
 
 
 def test_the_repos_value_wins_over_limits() -> None:
-    assert tier2_unit_scope(repo(tier2_unit_scope="own"), limits(tier2_unit_scope="full")) == "own"
-    assert tier2_unit_scope(repo(tier2_unit_scope="full"), limits(tier2_unit_scope="own")) == "full"
+    assert e2e_unit_scope(repo(e2e_unit_scope="own"), limits(e2e_unit_scope="full")) == "own"
+    assert e2e_unit_scope(repo(e2e_unit_scope="full"), limits(e2e_unit_scope="own")) == "full"
 
 
 def test_a_repo_without_a_value_follows_limits() -> None:
-    assert tier2_unit_scope(repo(), limits(tier2_unit_scope="full")) is Tier2UnitScope.FULL
+    assert e2e_unit_scope(repo(), limits(e2e_unit_scope="full")) is E2eUnitScope.FULL
 
 
 @pytest.mark.parametrize("value", ["some", "Full", "", "off", "none"])
@@ -58,7 +58,7 @@ def test_any_other_value_in_limits_is_refused_naming_the_setting_and_both_values
     value: str,
 ) -> None:
     with pytest.raises(ValidationError, match="e2e_unit_scope") as refused:
-        limits(tier2_unit_scope=value)
+        limits(e2e_unit_scope=value)
 
     assert "Extra inputs" not in str(refused.value)
     assert "own" in str(refused.value) and "full" in str(refused.value)
@@ -69,7 +69,7 @@ def test_any_other_value_on_a_repo_is_refused_naming_the_setting_and_both_values
     value: str,
 ) -> None:
     with pytest.raises(ValidationError, match="e2e_unit_scope") as refused:
-        repo(tier2_unit_scope=value)
+        repo(e2e_unit_scope=value)
 
     assert "Extra inputs" not in str(refused.value)
     assert "own" in str(refused.value) and "full" in str(refused.value)
@@ -78,12 +78,12 @@ def test_any_other_value_on_a_repo_is_refused_naming_the_setting_and_both_values
 def test_config_show_prints_the_values_set(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     config = WorkspaceConfig.model_validate(
         {
-            "limits": {"tier2_unit_scope": "full"},
+            "limits": {"e2e_unit_scope": "full"},
             "repos": {
                 "app": {
                     "path": str(tmp_path / "app"),
                     "slug": "example/app",
-                    "tests": {"tier2_unit_scope": "own"},
+                    "tests": {"e2e_unit_scope": "own"},
                 }
             },
         }

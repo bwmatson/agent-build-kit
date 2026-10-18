@@ -301,7 +301,3 @@ def test_only_a_repo_with_a_declared_split_can_be_unable() -> None:
     for profile in (PROFILE, node_npm.PROFILE):
         assert selection_unavailable(profile, dev_stack_script=True, splits=REST_ONLY) is None
         assert selection_unavailable(profile, dev_stack_script=False, splits=REST_ONLY) is None
-
-
-test_tier2_commands_carry_the_rendered_expression_for_the_root = ()
-test_tier2_commands_carry_the_rendered_expression_for_each_member = ()

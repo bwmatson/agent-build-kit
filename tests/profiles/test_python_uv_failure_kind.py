@@ -1,4 +1,4 @@
-"""Which check a failed tier 1 command was, as the python-uv profile reads it
+"""Which check a failed unit-test command was, as the python-uv profile reads it
 from pre-commit's real output: `<hook name>....<result>` per hook, and under a
 failed one `- hook id: <id>`, `- exit code: N`, a blank line, the tool's output."""
 

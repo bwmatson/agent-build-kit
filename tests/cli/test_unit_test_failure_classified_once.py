@@ -66,7 +66,7 @@ def exported_and_recorded(ticks: Ticks, exported: Collector) -> tuple[set[Any], 
 
 
 @pytest.mark.parametrize("fail", SITES)
-def test_a_tier_1_failure_is_classified_once_and_telemetry_and_the_record_agree(
+def test_a_unit_test_failure_is_classified_once_and_telemetry_and_the_record_agree(
     ticks: Ticks,  # noqa: F811
     exported: Collector,  # noqa: F811
     monkeypatch: pytest.MonkeyPatch,

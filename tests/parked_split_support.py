@@ -81,7 +81,7 @@ def park(
         uid,
         PLANNED,
         branch=f"spec/{uid}",
-        note=f"e2e-test tests of {', '.join(splits)} did not run: the split is held",
+        note=f"e2e tests of {', '.join(splits)} did not run: the split is held",
         cause=Cause.SPLIT_HELD,
     )
     store.set_parked(uid, splits, "abc1234", "e2e-test passed the other groups")

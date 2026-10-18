@@ -1,4 +1,4 @@
-"""The tier-2 marker the acceptance tests carry: registered, kept out of the
+"""The e2e marker the acceptance tests carry: registered, kept out of the
 default run, and documented beside the marker already there."""
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ def pytest_options() -> dict:
     return tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["pytest"]["ini_options"]
 
 
-def test_the_tier2_marker_is_registered() -> None:
+def test_the_e2e_marker_is_registered() -> None:
     markers = pytest_options()["markers"]
 
     assert any(marker.startswith("local_stack:") for marker in markers)

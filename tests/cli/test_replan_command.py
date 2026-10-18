@@ -169,7 +169,7 @@ def test_a_change_with_tag_errors_is_refused_and_says_to_run_tags(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run = two_changes(tmp_path, monkeypatch)
-    run.write("broken", "# Tasks\n\n## 1. [nowhere] [tier1] G\n\n- [ ] 1.1 Test: it.\n")
+    run.write("broken", "# Tasks\n\n## 1. [nowhere] [unit-test] G\n\n- [ ] 1.1 Test: it.\n")
 
     code, out = run.run(capsys, "broken", reply=ONE)
 

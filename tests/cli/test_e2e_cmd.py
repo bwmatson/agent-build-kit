@@ -1,5 +1,5 @@
-"""`abk tier2 hold` and `release`: the configuration's `hold` and the state file written
-together, both or neither (spec: tier2-runtime-blocks)."""
+"""`abk e2e-test hold` and `release`: the configuration's `hold` and the state file written
+together, both or neither (spec: e2e-runtime-blocks)."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import pytest
 
 from agent_build_kit.config import load
 from agent_build_kit.pipeline.e2e_holds import HELD_FILE
-from tests.cli.tier2_hold_fakes import (
+from tests.cli.e2e_hold_fakes import (
     SPLITS,
     SPLITS_ACP_RELEASED,
     abk,
@@ -24,7 +24,7 @@ from tests.cli.tier2_hold_fakes import (
 
 
 def hold_of(config: Path, split: str) -> bool | None:
-    return load(config).tests.tier2_splits[split].hold
+    return load(config).tests.e2e_splits[split].hold
 
 
 def said(out: list[str], err: list[str]) -> str:
@@ -37,7 +37,7 @@ def test_hold_sets_hold_true_in_the_text_and_writes_the_entry_in_one_operation(
     config = planning(tmp_path)
     before = config.read_text()
 
-    code, out, err = abk(config, capsys, "tier2", "hold", "acp", "--reason", "out of budget")
+    code, out, err = abk(config, capsys, "e2e-test", "hold", "acp", "--reason", "out of budget")
 
     assert code == 0
     assert hold_of(config, "acp") is True
@@ -57,7 +57,7 @@ def test_hold_removes_a_hold_false_it_finds_on_the_split(
 ) -> None:
     config = planning(tmp_path, SPLITS_ACP_RELEASED)
 
-    code, _, _ = abk(config, capsys, "tier2", "hold", "acp")
+    code, _, _ = abk(config, capsys, "e2e-test", "hold", "acp")
 
     assert code == 0
     assert hold_of(config, "acp") is True
@@ -69,9 +69,9 @@ def test_a_second_hold_updates_the_reason_and_keeps_one_entry(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     config = planning(tmp_path)
-    assert abk(config, capsys, "tier2", "hold", "acp", "--reason", "first")[0] == 0
+    assert abk(config, capsys, "e2e-test", "hold", "acp", "--reason", "first")[0] == 0
 
-    code, _, _ = abk(config, capsys, "tier2", "hold", "acp", "--reason", "second")
+    code, _, _ = abk(config, capsys, "e2e-test", "hold", "acp", "--reason", "second")
 
     assert code == 0
     assert list(held_entries(config)) == ["acp"]
@@ -84,7 +84,7 @@ def test_rest_can_be_held_and_its_entry_is_appended(
 ) -> None:
     config = planning(tmp_path)
 
-    code, _, _ = abk(config, capsys, "tier2", "hold", "rest")
+    code, _, _ = abk(config, capsys, "e2e-test", "hold", "rest")
 
     assert code == 0
     assert "rest: {hold: true}" in config.read_text()
@@ -97,11 +97,11 @@ def test_hold_has_no_until_and_its_hold_stays_until_release(
 ) -> None:
     config = planning(tmp_path)
 
-    code, _, err = abk(config, capsys, "tier2", "hold", "acp", "--until", "2026-11-01")
+    code, _, err = abk(config, capsys, "e2e-test", "hold", "acp", "--until", "2026-11-01")
     assert code == 2
     assert any("--until" in line for line in err)
     assert held_entries(config) == {}
-    assert abk(config, capsys, "tier2", "hold", "acp")[0] == 0
+    assert abk(config, capsys, "e2e-test", "hold", "acp")[0] == 0
 
     assert held_entries(config)["acp"].get("until") is None
     assert hold_of(config, "acp") is True
@@ -112,10 +112,10 @@ def test_release_removes_the_entry_and_the_hold_line_from_both_places(
 ) -> None:
     config = planning(tmp_path)
     before = config.read_text()
-    assert abk(config, capsys, "tier2", "hold", "acp")[0] == 0
+    assert abk(config, capsys, "e2e-test", "hold", "acp")[0] == 0
     assert held_entries(config)
 
-    code, out, err = abk(config, capsys, "tier2", "release", "acp")
+    code, out, err = abk(config, capsys, "e2e-test", "release", "acp")
 
     assert code == 0
     assert held_entries(config) == {}
@@ -130,7 +130,7 @@ def test_release_says_when_a_gate_entry_still_holds_the_split_and_may_return(
     config = planning(tmp_path)
     gate_entry(config, "acp", datetime.now(UTC) + timedelta(days=1))
 
-    code, out, err = abk(config, capsys, "tier2", "release", "acp")
+    code, out, err = abk(config, capsys, "e2e-test", "release", "acp")
 
     assert code == 0
     assert "still held" in said(out, err)
@@ -142,11 +142,11 @@ def test_a_name_nothing_declares_exits_2_naming_the_splits_there_are(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     config = planning(tmp_path)
-    assert abk(config, capsys, "tier2", "hold", "acp")[0] == 0
+    assert abk(config, capsys, "e2e-test", "hold", "acp")[0] == 0
     before = config.read_text()
 
     for command in ("hold", "release"):
-        code, out, err = abk(config, capsys, "tier2", command, "nothing")
+        code, out, err = abk(config, capsys, "e2e-test", command, "nothing")
 
         assert code == 2
         for name in ("acp", "claude_code", "rest"):
@@ -160,7 +160,7 @@ def test_releasing_a_split_that_is_not_held_says_so_and_changes_nothing(
     config = planning(tmp_path)
     before = config.read_text()
 
-    code, out, err = abk(config, capsys, "tier2", "release", "acp")
+    code, out, err = abk(config, capsys, "e2e-test", "release", "acp")
 
     assert code == 0
     assert "not held" in said(out, err)
@@ -191,7 +191,7 @@ def test_a_configuration_that_cannot_be_edited_writes_nothing_and_says_what_to_d
     gate_entry(config, "acp", datetime.now(UTC) + timedelta(days=1))
     state = (config.parent / HELD_FILE).read_text()
 
-    code, out, err = abk(config, capsys, "tier2", command, "acp")
+    code, out, err = abk(config, capsys, "e2e-test", command, "acp")
 
     assert code not in (0, 2)
     assert reason in said(out, err)
@@ -208,7 +208,7 @@ def test_an_unwritable_configuration_writes_neither_place(
     config = planning(tmp_path)
     config.chmod(stat.S_IRUSR)
 
-    code, out, err = abk(config, capsys, "tier2", "hold", "acp")
+    code, out, err = abk(config, capsys, "e2e-test", "hold", "acp")
 
     assert code not in (0, 2)
     assert "hold: true" in said(out, err)
@@ -220,7 +220,7 @@ APP_RELEASED = own_splits("          hold: false\n")
 
 
 def app_hold(config: Path, split: str = "acp") -> bool | None:
-    own = load(config).repos["app"].tests.tier2_splits
+    own = load(config).repos["app"].tests.e2e_splits
     assert own is not None
     return own[split].hold
 
@@ -231,13 +231,13 @@ def test_hold_and_release_reach_a_repos_own_declaration_as_well_as_the_top_level
     config = planning(tmp_path, app_tests=APP_RELEASED)
     before = config.read_text()
 
-    assert abk(config, capsys, "tier2", "hold", "acp")[0] == 0
+    assert abk(config, capsys, "e2e-test", "hold", "acp")[0] == 0
 
     assert hold_of(config, "acp") is True
     assert app_hold(config) is True
     assert "hold: false" not in config.read_text()
 
-    code, _, _ = abk(config, capsys, "tier2", "release", "acp")
+    code, _, _ = abk(config, capsys, "e2e-test", "release", "acp")
 
     assert code == 0
     assert held_entries(config) == {}
@@ -250,13 +250,13 @@ def test_a_split_declared_only_under_a_repo_can_be_held_and_released(
     config = planning(tmp_path, "", app_tests=own_splits(""))
     before = config.read_text()
 
-    code, _, err = abk(config, capsys, "tier2", "hold", "acp")
+    code, _, err = abk(config, capsys, "e2e-test", "hold", "acp")
 
     assert code == 0, err
     assert app_hold(config) is True
     assert "acp" in held_entries(config)
 
-    assert abk(config, capsys, "tier2", "release", "acp")[0] == 0
+    assert abk(config, capsys, "e2e-test", "release", "acp")[0] == 0
     assert app_hold(config) is None
     assert held_entries(config) == {}
     assert config.read_text() == before
@@ -269,7 +269,7 @@ def test_a_refusal_at_one_place_writes_nothing_and_names_each_place(
     config = planning(tmp_path, app_tests=own)
     before = config.read_text()
 
-    code, out, err = abk(config, capsys, "tier2", "hold", "acp")
+    code, out, err = abk(config, capsys, "e2e-test", "hold", "acp")
 
     assert code not in (0, 2)
     assert "repos.app.tests.e2e_splits" in said(out, err)
@@ -286,7 +286,7 @@ def test_release_puts_the_configuration_back_when_the_state_file_cannot_be_chang
     (config.parent / HELD_FILE).write_text("{not json")
     before = config.read_text()
 
-    code, out, err = abk(config, capsys, "tier2", "release", "acp")
+    code, out, err = abk(config, capsys, "e2e-test", "release", "acp")
 
     assert code not in (0, 2)
     assert "nothing was released" in said(out, err)

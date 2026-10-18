@@ -1,5 +1,5 @@
 """The runtime tags are registered and a mistyped one fails collection (spec:
-tier2-runtime-tags)."""
+e2e-runtime-tags)."""
 
 from __future__ import annotations
 

@@ -24,7 +24,7 @@ def write_change(planning: Path, change: str, repo: str) -> None:
     root.mkdir(parents=True, exist_ok=True)
     (root / "proposal.md").write_text("## Why\n\nBecause.\n")
     (root / "tasks.md").write_text(
-        f"## 1. [{repo}] [tier1] First\n\n- [ ] 1.1 Test it\n\n"
+        f"## 1. [{repo}] [unit-test] First\n\n- [ ] 1.1 Test it\n\n"
         "Acceptance: none — scaffolding only\n"
     )
 

@@ -32,8 +32,8 @@ BUILD_SESSION = "0b7e1d52-9c3a-4f8e-b1d6-2a5c7e9f0d71"
 FREE_SESSION = "6d2a8f14-3e5b-4c7a-9f0e-1b8d3c6a2e71"
 UNIT = "feature/2"
 TASKS = (
-    "# Tasks\n\n## 1. [app] [tier1] A group\n\n- [ ] 1.1 Test: it works\n"
-    "\n## 2. [app] [tier1] Another group\n\n- [ ] 2.1 Test: it also works\n"
+    "# Tasks\n\n## 1. [app] [unit-test] A group\n\n- [ ] 1.1 Test: it works\n"
+    "\n## 2. [app] [unit-test] Another group\n\n- [ ] 2.1 Test: it also works\n"
 )
 EDITED_TASKS = TASKS.replace("Another group", "Another group, reworded")
 
