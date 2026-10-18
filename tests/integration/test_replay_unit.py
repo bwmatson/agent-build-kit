@@ -187,16 +187,11 @@ def test_an_edited_task_sends_exactly_the_changed_calls_live(edited_step: Step) 
     test = edited.test
     assert test is not None, edited.output
     before = {c.key for c in edited.before}
-    if not kinds(edited.before, UpstreamKind.llm):
-        # The finding to report: no model call went through the proxy, so the edited text
-        # reached no recorded request. Then exactly the calls whose request changed, none, went
-        # live, and nothing new was written; the package index is asked the same.
-        assert test.misses == [], edited.output
-        assert {c.key for c in edited.after} == before, edited.output
-        return
+    # No model call recorded is the finding to report, and it fails: nothing can then go live.
+    recorded_model = len(kinds(edited.before, UpstreamKind.llm))
     assert test.misses, (
-        "editing the task text changed no recorded model call, though the model was recorded"
-        f"\n{edited.output}"
+        "editing the task text changed no recorded call: no model call went through the proxy "
+        f"({recorded_model} recorded)\n{edited.output}"
     )
     after = {c.key: c for c in edited.after}
     live = {miss.key for miss in test.misses}
