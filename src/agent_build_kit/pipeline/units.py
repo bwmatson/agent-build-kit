@@ -122,6 +122,8 @@ class Unit(Frozen):
     # (the kind's old spelling) is read as the kind it meant.
     tier: TestKind
     project: str = "."
+    # The tier 2 split all the unit's groups share; `rest` when they declare none.
+    split: str = "rest"
     depends_on: tuple[str, ...] = ()
     # Every target a `Needs:` line names, whether linked as a dependency or already reached
     # through one; only the graph reads it, and draws an edge only for those also in `depends_on`.

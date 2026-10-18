@@ -207,6 +207,8 @@ class TaskGroup(Frozen):
     priority: int = Priority.NORMAL
     # The "Done when" sentence under the heading, "" when the group has none.
     goal: str = ""
+    # The tier 2 split of an e2e-test group, from its `Split:` line; `rest` when it has none.
+    split: str = "rest"
 
     @property
     def tag(self) -> str:
