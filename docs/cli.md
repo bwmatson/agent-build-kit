@@ -360,8 +360,8 @@ it does not know.
 Holds an e2e-test split (a declared split, or `rest`) until `abk e2e-test release`: units that wait on it
 park, and a run leaves it out. It sets `hold: true` in `abk.yaml` as text and writes the
 entry in `e2e-held.json` together, or neither; when the file cannot be edited that way it
-prints the line to change by hand and writes nothing. It takes no deadline: a hold set by
-hand ends only with `release`, and `--until` is an unknown argument. The command refuses a
+prints the line to change by hand and writes nothing. It takes no deadline: no time ends a hold
+set by hand, only `release` (or `hold: false` for the split in `abk.yaml`), and `--until` is an unknown argument. The command refuses a
 name that is not a split and a configuration it cannot edit. Exit 0 when held; 1 when nothing
 was written; 2 for a name that is not a split.
 

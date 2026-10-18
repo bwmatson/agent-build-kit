@@ -39,6 +39,11 @@ def command_entry(command: str) -> str:
     return text[start : text.index("### ", start + 4)]
 
 
+@pytest.mark.parametrize("command", COMMANDS)
+def test_the_command_document_has_an_entry_for_each_command(command: str) -> None:
+    assert command_entry(command).strip()
+
+
 @pytest.mark.parametrize("command", ["hold", "release"])
 def test_the_command_document_gives_the_refusals_of_a_command_that_writes(command: str) -> None:
     assert re.search(r"refus", command_entry(command), re.I)

@@ -56,7 +56,7 @@ def drift(items: list[pytest.Item]) -> list[str]:
         scenarios[path, getattr(item, "originalname", item.name)].update(tags)
         if len(tags) > 1:
             found.append(f"{item.nodeid}: carries {len(tags)} runtime tags: {', '.join(tags)}")
-        elif not tags and starts_an_agent(module):
+        elif not tags and item.get_closest_marker("local_stack") and starts_an_agent(module):
             found.append(f"{item.nodeid}: starts an agent and carries no runtime tag")
     for (path, scenario), tags in scenarios.items():
         if ACP in tags and CLAUDE_CODE not in tags and scenario not in tables[path]:

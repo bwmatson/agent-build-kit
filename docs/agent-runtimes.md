@@ -962,12 +962,13 @@ each, a live-stack test that starts an agent (through the scratch helper, the ag
 helper or the agent command setting) without exactly one runtime tag, and a scenario with
 an `acp` variant and no `claude_code` variant that has no stated reason in its module's
 table of reasons (`ACP_ONLY_REASONS`, scenario name to reason; an empty reason fails too).
-The table is empty today. The test does not check that a `claude_code` scenario has an `acp`
+No module defines a table today; a module that has none counts as empty. The test does not check that a `claude_code` scenario has an `acp`
 variant.
 
 ### Holding a split
 
-A hold has no deadline: a hold set by hand ends only with `release`.
+A hold set with `abk e2e-test hold` has no deadline: no time ends it, only `release` (or
+`hold: false` for the split in `abk.yaml`). A gate's hold carries its own deadline.
 
 1. Hold it: `abk e2e-test hold <split> [--reason TEXT]` sets `hold: true` on the split in
    `abk.yaml` and writes the entry in `e2e-held.json`, both or neither.

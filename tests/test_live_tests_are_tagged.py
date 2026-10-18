@@ -5,10 +5,10 @@ from __future__ import annotations
 
 import pytest
 
-from tests.live_tag_drift import drift, live_modules
+from tests.live_tag_drift import INTEGRATION, drift, live_modules
 from tests.runtime_tag_collection import ROOT, collect
+from tests.runtime_tags import runtime_tags
 
-INTEGRATION = ROOT / "tests" / "integration"
 INIT_CONVENTIONS = INTEGRATION / "test_init_conventions_workspace.py"
 
 # The fixture modules below are collected the way the project collects its own.
@@ -81,18 +81,26 @@ pytestmark = pytest.mark.local_stack
 @pytest.mark.runtime_acp
 def test_lists_the_session():
     pass
-{claude}
+
 {table}
 """
-CLAUDE_SIBLING = """
-@pytest.mark.runtime_claude_code
-def test_lists_the_session():
+# One function parametrised per runtime, as the kit's live modules write a scenario with both.
+BOTH_RUNTIMES = """
+import pytest
+
+from tests.runtime_scratch import RUNTIME_PARAMS
+
+pytestmark = pytest.mark.local_stack
+
+
+@pytest.mark.parametrize("runtime", RUNTIME_PARAMS)
+def test_lists_the_session(runtime):
     pass
 """
 
 
-def acp_module(claude: str = "", table: str = "") -> str:
-    return ACP_MODULE.format(import_=SCRATCH_IMPORT, claude=claude, table=table)
+def acp_module(table: str = "") -> str:
+    return ACP_MODULE.format(import_=SCRATCH_IMPORT, table=table)
 
 
 def test_an_acp_scenario_with_no_claude_sibling_and_no_reason_is_named(
@@ -105,7 +113,15 @@ def test_an_acp_scenario_with_no_claude_sibling_and_no_reason_is_named(
 
 
 def test_an_acp_scenario_with_a_claude_sibling_passes(pytester: pytest.Pytester) -> None:
-    assert drifted(pytester, test_both=acp_module(claude=CLAUDE_SIBLING)) == []
+    pytester.syspathinsert(ROOT)
+    pytester.makepyfile(test_both=BOTH_RUNTIMES)
+    items, _ = pytester.inline_genitems()
+
+    assert sorted(runtime_tags(item) for item in items) == [
+        ["runtime_acp"],
+        ["runtime_claude_code"],
+    ]
+    assert drift(items) == []
 
 
 def test_an_entry_with_an_empty_reason_is_named(pytester: pytest.Pytester) -> None:
@@ -125,6 +141,14 @@ def test_an_acp_only_scenario_with_a_stated_reason_passes(pytester: pytest.Pytes
 
 def test_a_claude_test_with_no_acp_sibling_is_not_named(pytester: pytest.Pytester) -> None:
     assert drifted(pytester, test_claude_only=BUILDS_ONE_TAGGED) == []
+
+
+def test_a_parametrised_claude_test_with_no_acp_sibling_is_not_named(
+    pytester: pytest.Pytester,
+) -> None:
+    claude_only = BOTH_RUNTIMES.replace("RUNTIME_PARAMS", "CLAUDE_CODE_PARAMS")
+
+    assert drifted(pytester, test_claude_param=claude_only) == []
 
 
 TWO_TAGS = f"""{HEADER}{SCRATCH_IMPORT}
