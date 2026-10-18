@@ -185,6 +185,11 @@ def corrupt_store_message(path: Path) -> str:
     return f"unit store at {path} could not be read"
 
 
+class GroupOwned(Exception):
+    """A plan gives a group to a unit while a started unit that has not finished carries it.
+    The message names both units and the group; nothing is written."""
+
+
 class Description(Frozen):
     """What the reviewer says an approved branch does: a summary and its core changes."""
 
@@ -312,6 +317,12 @@ class StoredUnit(Unit):
         return self.state == PLANNED and not (
             self.branch or self.pr is not None or self.pushed or self.approved
         )
+
+    @property
+    def owns_groups(self) -> bool:
+        """Whether the groups this unit carries are its to build: planned, running, in review,
+        failed or held, or unplanned with a branch, pull request, pushed commit or approval."""
+        raise NotImplementedError
 
     @property
     def started_at(self) -> datetime | None:
