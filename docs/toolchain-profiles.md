@@ -141,7 +141,7 @@ What it runs, exactly:
 | `project_checks` | `npx tsc --noEmit`, the type check as its own check, over the whole project in its directory |
 | `red_command(files)` | `npx vitest run <files> --reporter=junit`, the report printed after a marker, after a line for each given file |
 | `test_commands`, single package | `npx vitest run --passWithNoTests --reporter=junit`, the report in a temporary file printed after the report marker |
-| `test_commands`, workspace | one such run in the directory of each member a changed path is under, or in **every** member when a non-documentation path outside all members changed (the root manifest, shared configuration) |
+| `test_commands`, workspace | one such run in the directory of each member a changed path is under, or in **every** member when a non-documentation path outside all members changed (the root manifest, shared configuration); a test file outside every member is run from the root, filtered to it |
 | `test_commands_all(repo, root_extras)` | every member, whatever changed |
 | `e2e_commands(marker)` | per member (or the project): the same run filtered to files named `<name>.<marker>.test.<ext>` |
 | `acceptance_commands(...)` | the changed files that exist, carry the marker and not the dev-stack marker's, one run per member with those files as filters |
