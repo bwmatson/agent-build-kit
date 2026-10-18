@@ -151,7 +151,10 @@ exclusion and path-based acceptance together, so a node project's e2e tests are 
 files named `<name>.<marker>.test.ts[x]`, with `<marker>` the repo's `tests.e2e_marker`
 (`local_stack` by default). The e2e-test run takes the files carrying it; post-merge verify leaves out
 the files carrying `tests.dev_stack_marker`; acceptance runs the changed marked files.
-Unmarked `.test.`/`.spec.` files are unit tests.
+Unit-test is the project's or member's whole Vitest run and does not leave marked files
+out, so a marked test must skip itself when the stack is absent. Excluding marked files in the
+Vitest configuration hides them from the e2e-test run too, which selects by the same
+file-name substring after the configuration's `exclude` applies.
 
 And what it knows:
 

@@ -238,11 +238,14 @@ repos:                        # ordered; a task group's [repo] tag is a key here
       root_extras: []         # extra packages the repo-root tests need
       e2e_marker: local_stack    # for a node project the marker is a file-name segment:
                                  # `<name>.local_stack.test.ts[x]` (`<name>.<marker>.test.<ext>`)
-                                 # is e2e-test; unmarked `.test.` files are unit-test
+                                 # is e2e-test. Unit-test still runs the whole Vitest run, marked
+                                 # files included, so a marked test must skip itself without the
+                                 # stack; a Vitest `exclude` of them hides them from e2e-test too.
+                                 #
                                  # e2e-test runs in each declared project, as unit-test does, and
                                  # each member from its own directory
-                                 # with no path, so the member's pytest config,
-                                 # `testpaths` included, decides what is collected
+                                 # with no path, so the member's own test configuration
+                                 # (pytest config, `testpaths` included) decides what is collected
       e2e_unit_scope: null      # own | full for this repo; null follows limits
       e2e_schedule: null        # daily | weekly | monthly | 'off' for this repo; null follows limits
       dev_stack_marker: dev_stack

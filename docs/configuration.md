@@ -372,8 +372,7 @@ repos:                          # ordered: deploy order is derived from
       org: ""                   # percent-encoded: `%20` handed to
       project: ""               # `az repos --project` names a project that
       repo: ""                  # does not exist.
-    profile: python-uv          # toolchain profile: python-uv, or node-npm.
-                                # The repo-wide
+    profile: python-uv          # toolchain profile: python-uv, or node-npm. The repo-wide
                                 # default; a project below may set its own.
     infra: none                 # infrastructure profile: docker or none
                                 # (infra/). What the repo runs on, apart from
