@@ -88,6 +88,21 @@ def test_a_planned_unit_the_lane_is_moving_reads_as_ready_not_as_waiting_for_a_s
         assert slots.reasons()["moved/1"] not in ("slot", "queue_full")
 
 
+def test_a_planned_unit_waiting_in_the_lane_reads_as_ready_not_as_waiting_for_a_slot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    units = [build("run1/1"), build("moved/1", PLANNED), fresh("r1/1")]
+    with Slots(tmp_path, monkeypatch, units, restacks=1, flagged=["run1/1"]) as slots:
+        slots.store.set_state("moved/1", PLANNED, branch="spec/moved/1", cause=Cause.BASE_CHANGED)
+        slots.run("run1/1")
+        slots.hand_over("moved/1")
+        assert slots.lanes.waiting == ["moved/1"]
+
+        slots.started()
+
+        assert slots.reasons()["moved/1"] not in ("slot", "queue_full")
+
+
 def test_the_occupancy_is_counted_for_each_project_so_a_full_one_starts_nothing_and_another_does(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

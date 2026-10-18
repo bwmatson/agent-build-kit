@@ -1645,8 +1645,10 @@ def run_round(
         started=set(started),
         building=in_flight | resumed | lane_running,
         only=only,
-        # Work waiting behind the lane's cap holds no slot, as a unit no run holds does not.
-        idle=(idle - resumed) | lane_waiting,
+        # A running unit waiting behind the lane's cap holds no slot, as one no run holds does
+        # not; a planned one stays as it is, owed a restack.
+        idle=(idle - resumed)
+        | {unit.id for unit in units if unit.id in lane_waiting and unit.state == RUNNING},
         owed=owed,
     )
     ready = [*resumable, *evaluated]
