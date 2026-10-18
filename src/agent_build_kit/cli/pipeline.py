@@ -563,6 +563,30 @@ def _restack_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
     return lines
 
 
+def _slots_line(inst: Installation, units: list[StoredUnit]) -> str | None:
+    """`slots: 5/4, 1 restacking`: the occupancy over the cap, with the moved-base runs running
+    in the lane. Nothing is printed when no slot is taken and no run is in the lane."""
+    held = lane_record(inst.state_dir)
+    restacking = {entry["unit"] for entry in held if entry["status"] == "running"}
+    waiting = {entry["unit"] for entry in held} - restacking
+    builds = [
+        unit
+        for unit in units
+        if unit.id in restacking
+        or (
+            unit.state == RUNNING
+            and unit.id not in waiting
+            and branch_is_held(inst, unit.branch or branch_name(unit))
+        )
+    ]
+    taken = sum(len(ids) for ids in slot_occupancy(builds, (), restacking).values())
+    if not (taken or restacking):
+        return None
+    cap = inst.max_concurrent_stacks * max(1, len(_unfinished_projects(units)))
+    count = f", {len(restacking)} restacking" if restacking else ""
+    return f"slots: {taken}/{cap}{count}"
+
+
 def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     """What the pipeline thinks is going on, without changing anything."""
     paused = is_paused(_paused_marker(inst))
@@ -669,6 +693,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     for line in _emergency_room_lines(inst, units, lane_use):
         log(line)
     for line in _restack_lines(inst, units):
+        log(line)
+    if line := _slots_line(inst, units):
         log(line)
     for line in [
         *_split_wait_lines(inst, units),
@@ -1591,11 +1617,22 @@ def run_round(
     if readmit:
         readmit.admit(units, in_flight)
     idle = _idle_units(inst, units, in_flight)
-    held = {unit.id for unit in units if unit.state == RUNNING} - idle
-    # A unit no run holds takes no slot while it waits; the runs in flight do.
+    # A unit no run holds takes no slot while it waits; the runs in flight do, and so do the
+    # moved-base runs running in the lane, never those waiting behind its cap.
     # One this pass built that an event resumed is started again, within the
     # same budget as a readmission.
-    workers = in_flight | held
+    lane_running = set(lane.running) if lane else set()
+    lane_waiting = set(lane.waiting) if lane else set()
+    occupied = slot_occupancy(
+        [
+            unit
+            for unit in units
+            if (unit.id not in idle or unit.id in lane_running) and unit.id not in lane_waiting
+        ],
+        in_flight,
+        lane_running,
+    )
+    workers = set().union(*occupied.values())
     # The emergency lane's units take no worker of the project's own: a rework or a resume
     # is held to the workers the lane leaves. A unit in flight is in progress for the record.
     emergency_lane.prune(inst.state_dir, _with_builds_running(units, in_flight))
@@ -1618,7 +1655,7 @@ def run_round(
         inst,
         units,
         started=set(started),
-        building=in_flight | resumed,
+        building=in_flight | resumed | lane_running,
         only=only,
         idle=idle - resumed,
         owed=owed,
@@ -2154,7 +2191,12 @@ def slot_occupancy(
 ) -> dict[ProjectKey, set[str]]:
     """The unit ids that occupy build slots in each project: the builds in flight, the
     moved-base runs running in the lane and the stored-`running` units, each id once."""
-    raise NotImplementedError
+    ids = {*building, *lane_running}
+    occupied: dict[ProjectKey, set[str]] = {}
+    for unit in units:
+        if unit.state == RUNNING or unit.id in ids:
+            occupied.setdefault(project_key(unit), set()).add(unit.id)
+    return occupied
 
 
 def unit_label(unit: Unit) -> str:
@@ -2642,11 +2684,18 @@ def _schedule(
             units = store.all()
             states = [unit.state for unit in units]
             in_flight = {unit.id for unit in building.values()}
-            running = in_flight | {unit.id for unit in units if unit.state == RUNNING}
+            lane_waiting = set(lane.waiting)
+            occupied = slot_occupancy(
+                [unit for unit in units if unit.id not in lane_waiting],
+                in_flight,
+                lane.running,
+            )
+            running = set().union(*occupied.values())
             # Totals over the projects with a unit not yet finished, for reporting only.
             live = _unfinished_projects(units)
-            building_by = count_by_project(units, lambda unit: unit.id in in_flight)
-            free = sum(max(0, inst.max_concurrent_stacks - building_by.get(key, 0)) for key in live)
+            free = sum(
+                max(0, inst.max_concurrent_stacks - len(occupied.get(key, ()))) for key in live
+            )
             spans.record_sample(
                 spans.Sample(
                     at=spans.clock.now().isoformat(),

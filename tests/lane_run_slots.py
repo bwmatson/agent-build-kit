@@ -72,13 +72,17 @@ class Slots:
         for unit_id in unit_ids:
             self.store.set_state(unit_id, IN_REVIEW, pr=9)
             self.runs.release(unit_id)
-        self.lanes.drain()
+        while set(unit_ids) & {*self.lanes.running}:
+            self.lanes.finished().result(WAIT)
 
     def occupancy(self, building: Collection[str] = (), of: str = "") -> set[str]:
         """The ids occupying the project of `of` (any unit of it; the first unit by default)."""
         units = self.store.all()
         key: ProjectKey = project_key(self.store.get(of) if of else units[0])
-        return cli.slot_occupancy(units, building, self.lanes.running).get(key, set())
+        # As the round does: work waiting behind the lane's cap holds no slot.
+        waiting = set(self.lanes.waiting)
+        counted = [unit for unit in units if unit.id not in waiting]
+        return cli.slot_occupancy(counted, building, self.lanes.running).get(key, set())
 
     def started(self, building: Collection[str] = ()) -> list[str]:
         """The ids a round hands out to start, with `building` as the builds in flight."""

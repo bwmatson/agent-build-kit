@@ -26,7 +26,7 @@ from agent_build_kit.pipeline.usage_guard import Decision
 from agent_build_kit.runtimes import AgentRequest
 from tests.factories import git, init_repo, stored_unit
 from tests.graph.test_remaining_paths import RESOLVED, Moves
-from tests.restack_lane_fakes import WAIT, Tracking
+from tests.restack_lane_fakes import Tracking
 from tests.restack_turn_fakes import commit_file, keeps_both
 from tests.tick_driver import UNIT, Setup
 from tests.usage_host import Host, payload
@@ -108,28 +108,32 @@ def test_a_run_held_for_a_second_moved_base_is_moved_by_the_lane_with_its_confli
     assert scene.graph.store.get(UNIT).state == IN_REVIEW, "then built, in a worker"
 
 
-def test_the_lane_moves_the_held_unit_while_the_only_build_slot_is_taken(scene: Scene) -> None:
+def test_a_build_waits_for_the_lanes_run_of_the_held_unit_when_it_takes_the_only_slot(
+    scene: Scene,
+) -> None:
     graph = scene.graph
     graph.store.upsert([stored_unit(OTHER, change="other")])
     scene.moves(RESOLVED, None, RESOLVED)
+    order: list[str] = []
 
     def worktree(unit: Any, base: str) -> Path:
         if unit.id == OTHER:
-            scene.building.set()
+            order.append("other built")
         return scene.tree
 
-    def waits_for_the_other_build(request: AgentRequest) -> None:
-        # Only a resolver that is not waiting for a build slot sees the other unit start.
-        assert scene.building.wait(WAIT), "the move waited for the build slot"
+    def resolver(request: AgentRequest) -> None:
+        order.append("resolved")
         scene.resolves(request)
 
     graph.options["worktree"] = worktree
-    runtime = Tracking(act=waits_for_the_other_build)
+    runtime = Tracking(act=resolver)
     graph.patch.setattr(runtimes, "active", lambda: runtime)
 
     assert graph.tick() == 0
 
     assert graph.inst.max_concurrent_stacks == 1
+    # The run in the lane counts toward the occupancy, so no build starts beside it at the cap.
+    assert order == ["resolved", "other built"]
     assert len(scene.resolved) == 1
     assert scene.holds_main()
     assert {graph.store.get(UNIT).state, graph.store.get(OTHER).state} == {IN_REVIEW}

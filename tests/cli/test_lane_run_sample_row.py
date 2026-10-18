@@ -58,6 +58,7 @@ class Scene:
         self.begun = threading.Event()
         self.release = threading.Event()
         self.handed = False
+        self.builds = builds
         self.want = builds + 1
         self.samples: list[spans.Sample] = []
         self.levels: list[tuple[str, int]] = []
@@ -85,7 +86,9 @@ class Scene:
         self.release.wait(WAIT)
 
     def poll(self, inst: Installation, *, store: UnitStore, lane: RestackLanes) -> None:
-        if self.handed:
+        # The run comes once the builds are in: a run counts toward the occupancy, so it
+        # would take a build's slot if it came first.
+        if self.handed or len(self.builder.started) < self.builds:
             return
         self.handed = True
 

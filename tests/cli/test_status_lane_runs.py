@@ -63,7 +63,7 @@ def test_two_runs_and_a_third_owed_read_as_restacking_and_the_slots_line_counts_
     assert "slots: 2/4, 2 restacking" in lines
     for unit_id in ("run1/1", "run2/1"):
         assert any(unit_id in line and "restacking onto main" in line for line in lines), unit_id
-    assert page.count("restacking onto main") == 3
+    assert page.count("restacking onto main") == 2
 
 
 def test_a_handed_back_unit_is_not_counted_as_restacking_and_reads_as_planned(
@@ -112,7 +112,7 @@ def test_four_builds_and_a_run_at_a_cap_of_four_print_the_slots_line_over_the_ca
 
         lines = status(slots, capsys)
 
-    assert "slots: 5/4, 1 restacking" in lines
+    assert "slots: 5/4, 1 restacking" in lines, "\n".join(lines)
 
 
 def test_with_nothing_in_the_lane_the_slots_line_has_no_restacking_count(

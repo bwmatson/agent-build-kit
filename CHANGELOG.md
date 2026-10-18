@@ -76,6 +76,10 @@
   unit has a thread: when the move settles the conflict no rework agent is asked, and when it
   cannot, the port runs first and the rework only for what is left. The conflict handlers hand
   such a unit to the lane at once instead of waiting for a build worker.
+  A run in the lane is never held back by the limit on build workers, but it counts toward
+  slot occupancy: while the occupancy is at or above `max_concurrent_stacks` no build starts,
+  new or resumed, and it may read over the cap. `abk status` prints a slots line such as
+  `slots: 5/4, 1 restacking`, and the sample row and slot gauges report the same occupancy.
 
 - A prompt no longer travels as a command-line argument to Claude Code: it is written to the
   agent's standard input, so a large prompt (a long plan, a big diff) no longer fails with

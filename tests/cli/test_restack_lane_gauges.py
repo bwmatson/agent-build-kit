@@ -1,5 +1,5 @@
 """The lane's two counts are gauges of their own, set where the slot gauges are, with no unit or
-change attribute; a restack changes none of the slot gauges.
+change attribute; a restack in the lane counts toward the slot gauges' occupancy.
 
 A tick is driven as `test_restack_lane_tick` drives it: the poll hands the lane a restack that
 blocks on an event, and the pass sets it when it next asks the lane to say when a restack ends,
@@ -57,6 +57,6 @@ def test_the_restack_gauges_are_set_with_the_slot_gauges_and_carry_no_attribute(
 
     assert first("abk.restacks.running") == (1, {})
     assert first("abk.restacks.waiting") == (0, {})
-    # The slot gauges are the build pool's, as the sample row's free workers are.
+    # The slot gauges are the occupancy's, as the sample row's free workers are: the run counts.
     assert first("abk.slots.free") == (samples[0].free_workers, {})
-    assert samples[0].free_workers == 2
+    assert samples[0].free_workers == 1
