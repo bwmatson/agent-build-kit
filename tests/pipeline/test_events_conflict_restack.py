@@ -4,17 +4,16 @@ The stack move is `build_restack`'s, over a fake git, unit-test and host, so its
 merge handler's own.
 """
 
-from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit.pipeline.restack import Moved, RestackConflict
-from agent_build_kit.pipeline.unit_store import Cause, ReworkKind, StoredUnit
+from agent_build_kit.pipeline.unit_store import Cause, ReworkKind
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, local_ref
 from agent_build_kit.pipeline.workspaces import BranchBusy
-from tests.conflict_event_fakes import UNIT, ConflictRig, real_restack
+from tests.conflict_event_fakes import UNIT, ConflictRig, FakeLane, real_restack
 
 
 def test_the_first_attempt_of_a_trunk_based_unit_is_the_stack_move(
@@ -235,19 +234,6 @@ def test_the_move_tells_unit_test_and_the_comment_which_base_it_left(
     assert "fork1" in body
 
 
-class FakeLane:
-    """A restack lane that only records what it is handed, to run when the test says."""
-
-    def __init__(self) -> None:
-        self.handed: list[tuple[StoredUnit, Callable[[], None]]] = []
-
-    def hand_over(
-        self, unit: StoredUnit, work: Callable[[], None] | None = None, **kwargs: object
-    ) -> None:
-        assert work is not None
-        self.handed.append((unit, work))
-
-
 @pytest.mark.parametrize("conflicts", [False, True])
 def test_with_a_lane_the_conflict_move_is_handed_over_and_ends_as_it_does_inline(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, conflicts: bool
@@ -272,6 +258,7 @@ def test_with_a_lane_the_conflict_move_is_handed_over_and_ends_as_it_does_inline
     assert rig.stored().conflict_attempts == 0
     ((unit, work),) = lane.handed
     assert unit.id == UNIT
+    assert work is not None
     work()
     stored, expected = rig.stored(), inline.stored()
     assert (stored.state, stored.cause, stored.conflict_attempts) == (

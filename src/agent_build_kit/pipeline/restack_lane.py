@@ -107,16 +107,6 @@ def _branch_head(checkouts: Mapping[str, Path], unit: StoredUnit) -> str:
     ).stdout.strip()
 
 
-def _answered(unit: StoredUnit, head: str) -> bool:
-    """Whether review has approved the branch's head, so saved feedback has been answered."""
-    return bool(unit.approved) and unit.approved == head
-
-
-def _rework_input(unit: StoredUnit) -> bool:
-    """Whether the unit's saved feedback is something other than the conflict's."""
-    return bool(unit.feedback) and unit.feedback_source is not FeedbackSource.CONFLICT
-
-
 def owed_a_moved_base_run(
     unit: StoredUnit,
     graph: list[StoredUnit],
@@ -129,24 +119,25 @@ def owed_a_moved_base_run(
     """Whether `unit` is owed a moved-base run: it has commits, nothing holds it or it waits
     on, its cause is a moved base or a conflict sent back, and it has no rework input of
     its own (feedback that review has approved over is answered, the conflict's is not input)."""
-    sent_back_by_conflict = (
-        unit.cause is Cause.REWORK and unit.feedback_source is FeedbackSource.CONFLICT
-    )
     return (
         unit.state in (PLANNED, IN_REVIEW)
-        and (unit.cause in MOVED_BASE_CAUSES or sent_back_by_conflict)
+        and (unit.cause in MOVED_BASE_CAUSES or unit.sent_back_for_conflict)
         and not waiting_on(unit, graph)
         and not leased(unit)
         and not held(unit)
         and has_commits(unit)
-        and not (_rework_input(unit) and not _answered(unit, head(unit)))
+        and not unit.has_own_rework_input(head(unit))
     )
 
 
 def clear_answered_feedback(store: UnitStore, unit: StoredUnit, head: str) -> None:
     """As a moved-base run starts, drop the feedback review has approved over, so `prepare`
     does not route to `rework` for it."""
-    if _rework_input(unit) and _answered(unit, head):
+    if (
+        unit.feedback
+        and unit.feedback_source is not FeedbackSource.CONFLICT
+        and not unit.has_own_rework_input(head)
+    ):
         store.set_feedback(unit.id, "")
 
 

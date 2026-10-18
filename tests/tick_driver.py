@@ -19,6 +19,7 @@ from agent_build_kit.graph.state import Node
 from agent_build_kit.graph.unit import thread_position
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.events import Review
+from agent_build_kit.pipeline.restack_lane import Lane
 from agent_build_kit.pipeline.usage_guard import Decision
 from tests.conftest import make_installation
 from tests.graph_driver import fresh
@@ -91,9 +92,11 @@ class Setup:
         tasks.write_text(NEEDING_PARENT)
         cli.link_needs(self.inst, store=self.store)
 
-    def poll(self, *events: tuple[str, dict[str, Any]], pr: int = 7) -> list[bool]:
+    def poll(
+        self, *events: tuple[str, dict[str, Any]], pr: int = 7, lane: Lane | None = None
+    ) -> list[bool]:
         """Report `events` for pull request `pr` as the poller does, and return
-        what the dispatch answered each."""
+        what the dispatch answered each; with a `lane`, the handlers hand work to it."""
         answers: list[bool] = []
 
         class Reports:
@@ -107,7 +110,7 @@ class Setup:
                     answers.append(self.dispatch(name, pr, pull=None, **kwargs))
 
         self.patch.setattr(cli, "Poller", Reports)
-        real_poll_all(self.inst, store=self.store)
+        real_poll_all(self.inst, store=self.store, lane=lane)
         return answers
 
 

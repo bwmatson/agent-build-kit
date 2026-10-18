@@ -3738,6 +3738,9 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
         graph = store.all()
         if hold_if_spent(inst, store, unit, graph, log):
             return None
+        if unit.sent_back_for_conflict:
+            # Sent back for a conflict: the run starts at the move, in this worker.
+            return run_of(unit.id)
         repo = inst.checkouts[unit.repo]
         branch = unit.branch or branch_name(unit)
         new_base = base_of(unit, graph)
@@ -4293,7 +4296,12 @@ def _build_unit(
                     return True
                 # A unit may also be `running`: killed or paused in a node,
                 # which is how its thread resumes it.
-                if unit.state not in (PLANNED, RUNNING):
+                # A moved-base run may start from a unit still in review that was sent back
+                # for its conflict.
+                sent_back = (
+                    moved_base_run and unit.state == IN_REVIEW and unit.sent_back_for_conflict
+                )
+                if unit.state not in (PLANNED, RUNNING) and not sent_back:
                     end(f"skipped, it is now {unit.state}", UnitOutcome.SKIPPED)
                     return True
                 # A tab may have taken the lease since the pass picked this unit. The
@@ -4321,7 +4329,14 @@ def _build_unit(
                 if unit.state == PLANNED and (
                     moved_base_run or unit.cause in (*PARKED_CAUSES, Cause.RESTACK_HANDED_BACK)
                 ):
-                    store.set_state(unit.id, RUNNING, branch=unit.branch or None)
+                    # A lane run keeps why it was started: `prepare` reads a conflict sent back
+                    # from it.
+                    store.set_state(
+                        unit.id,
+                        RUNNING,
+                        branch=unit.branch or None,
+                        cause=unit.cause if moved_base_run else None,
+                    )
                 store.record_step(unit.id, "")
                 if queued is not None:
                     spans.record_span(
