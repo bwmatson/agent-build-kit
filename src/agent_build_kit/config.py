@@ -981,6 +981,27 @@ class AzureDevOpsConfig(Frozen):
     repo: str = ""
 
 
+class AgentPurpose(StrEnum):
+    TEST = "test"
+    LINT = "lint"
+    FORMAT = "format"
+    CHECK = "check"
+
+
+class AgentScope(StrEnum):
+    WHOLE = "whole"
+    FILE = "file"
+    NODE_ID = "node-id"
+
+
+class AgentCommand(Frozen):
+    """One command a build agent may run, and what it is for."""
+
+    purpose: AgentPurpose
+    command: list[str]
+    scope: AgentScope = AgentScope.WHOLE
+
+
 class RepoConfig(Frozen):
     path: Path
     # GitHub owner/name. The owner decides which `gh` account's token is used.
@@ -1011,6 +1032,8 @@ class RepoConfig(Frozen):
     relationships: str = ""
     tests: TestsConfig = TestsConfig()
     checks: ChecksConfig = ChecksConfig()
+    # The commands a build agent is told it may run; None follows the profiles.
+    agent_commands: list[AgentCommand] | None = None
     dev_stack: DevStackConfig | None = None
     deploy: DeployConfig = DeployConfig()
     # Where the repo keeps its changelog; None switches the changelog convention

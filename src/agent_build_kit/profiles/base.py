@@ -13,7 +13,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from agent_build_kit.config import EnvironmentConfig, RepoConfig
+from agent_build_kit.config import AgentCommand, EnvironmentConfig, RepoConfig
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.e2e import E2eSelection, TestFailure, TestTime
 
@@ -63,6 +63,14 @@ class ProjectChecks(Protocol):
         """Run in the directory of each project the unit touched that uses this profile,
         whatever the repo's own profile; in the checkout root for a repo with no projects."""
         ...
+
+
+@runtime_checkable
+class AgentCommands(Protocol):
+    """The optional attribute a profile adds to name the commands a build agent may run.
+    A profile without it counts as naming none."""
+
+    agent_commands: tuple[AgentCommand, ...]
 
 
 @runtime_checkable
