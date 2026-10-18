@@ -128,13 +128,25 @@ def test_a_split_suffixed_stored_id_counts_as_its_leading_number() -> None:
     assert assigned([labelled("u1", (3,))], stored, highest=5) == ["x/9"]
 
 
-def test_a_started_units_record_is_not_touched() -> None:
-    running = held("x/2", (3, 4))
-    before = running.model_copy()
+def test_a_started_unit_is_never_renamed_or_given_its_groups() -> None:
+    result = assign_unit_ids(
+        [labelled("u1", (2,))], stored=[held("x/2", (3, 4))], retired=set(), highest_group=4
+    )
 
-    assigned([labelled("u1", (2,))], [running], highest=4)
+    assert all(u.id != "x/2" and not set(u.groups) & {3, 4} for u in result)
 
-    assert running == before
+
+def test_a_planned_unit_with_a_branch_keeps_its_id_for_the_same_groups() -> None:
+    restarted = held("x/1", (1,), state=UnitState.PLANNED)
+
+    assert assigned([labelled("u1", (1,))], [restarted], highest=1) == ["x/1"]
+
+
+def test_failed_held_in_review_and_merged_units_are_never_matched() -> None:
+    for state in (UnitState.FAILED, UnitState.HELD, UnitState.IN_REVIEW, MERGED):
+        ids = assigned([labelled("u1", (1,))], [held("x/1", (1,), state=state)], highest=1)
+
+        assert ids != ["x/1"], state
 
 
 def test_dependencies_on_labels_become_ids_and_a_stored_dependency_is_left() -> None:

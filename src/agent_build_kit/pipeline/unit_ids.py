@@ -6,7 +6,7 @@ import re
 from collections.abc import Collection, Sequence
 
 from agent_build_kit.pipeline.unit_store import UNPLANNED, StoredUnit
-from agent_build_kit.pipeline.units import PLANNED, Unit, UnitState
+from agent_build_kit.pipeline.units import PLANNED, Unit
 
 _LEADING_NUMBER = re.compile(r"\d+")
 
@@ -14,11 +14,15 @@ _LEADING_NUMBER = re.compile(r"\d+")
 def is_reusable(stored: StoredUnit, retired: Collection[str] = ()) -> bool:
     """Whether a plan may rewrite or revive `stored` in place: not started, not retired."""
     return (
-        stored.state in (PLANNED, UNPLANNED)
-        and not stored.has_work
-        and stored.state != UnitState.RETIRED
-        and stored.id not in retired
-    )
+        stored.unstarted or (stored.state == UNPLANNED and not stored.has_work)
+    ) and stored.id not in retired
+
+
+def is_matchable(stored: StoredUnit, retired: Collection[str] = ()) -> bool:
+    """Whether a plan unit with exactly `stored`'s groups keeps its id: any reusable unit, and
+    a `planned` unit that has work, which a restart requeue leaves with its branch and which
+    the plan rewrites in place with the new tags."""
+    return is_reusable(stored, retired) or (stored.state == PLANNED and stored.id not in retired)
 
 
 def taken_ids(stored: Sequence[StoredUnit], retired: Collection[str] = ()) -> set[str]:
@@ -45,6 +49,7 @@ def assign_unit_ids(
     gets the smallest free integer above every number the change has used.
     """
     reusable = {u.id: u for u in stored if is_reusable(u, retired)}
+    matchable = [u for u in stored if is_matchable(u, retired)]
     known = {u.id for u in stored} | set(retired)
     ids: dict[int, str] = {i: u.id for i, u in enumerate(units) if not u.groups}
     order = sorted((i for i, u in enumerate(units) if u.groups), key=lambda i: min(units[i].groups))
@@ -55,7 +60,7 @@ def assign_unit_ids(
     for i in order:
         owned = sorted(
             (_number(s.id), s.id)
-            for s in reusable.values()
+            for s in matchable
             if s.change == units[i].change
             and set(s.groups) == set(units[i].groups)
             and s.id not in ids.values()

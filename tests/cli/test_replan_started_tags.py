@@ -75,11 +75,9 @@ def test_a_unit_requeued_with_restart_takes_the_new_tags_and_the_report_ends(
     retagged = dict(planned("retagged", (1,)), change="feature", tier="e2e-test")
     code, out = run.run(capsys, "feature", reply=answer(retagged))
 
-    # The requeued unit keeps its branch, so it has started and its id is taken: the plan
-    # that gives its group to another unit is refused, naming both.
-    assert code == 1, out
-    assert "feature/1" in out and "feature/2" in out
-    assert run.store.get("feature/1").tier == "unit-test"
+    assert code == 0, out
+    assert run.store.get("feature/1").tier == "e2e-test"
+    assert run.records["feature"]["ok"] is True
 
 
 def test_a_started_unit_stored_before_flags_were_kept_is_not_reported_for_its_flag(

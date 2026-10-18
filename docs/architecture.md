@@ -123,7 +123,7 @@ to a model and gets the whole graph back as JSON: a label for each unit (used on
 that reply), repo, tier, `depends_on`, `estimated_lines`, `groups`. The change text it is sent marks the
 heading of each group a started unit builds `(built by <unit id>)`, and the prompt says
 such groups are taken and never claimed; a plan that claims one is still refused. A
-refused plan keeps the unit ids returned and the reason in the plan record, which a bare
+refused plan keeps the labels the planner gave its units and the reason in the plan record, which a bare
 `abk replan` shows. Once the plan is checked, the program names each unit
 `<change>/<lowest group>` and rewrites `depends_on` from labels to ids. It will reuse the id of an
 unstarted stored unit with exactly the same groups, whatever its number, so a replan renumbers
