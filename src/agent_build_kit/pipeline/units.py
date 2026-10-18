@@ -134,6 +134,9 @@ class Unit(Frozen):
     groups: tuple[int, ...] = ()
     joined: tuple[Member, ...] = ()
     priority: int = Field(default=Priority.NORMAL, ge=Priority.EMERGENCY, le=Priority.NICE_TO_HAVE)
+    # The unit that waits on this one and gives it the priority it has; empty when the
+    # priority is the unit's own.
+    promoted_from: str = ""
 
     def members(self) -> tuple[Member, ...]:
         """Every change's groups this unit builds: its own first, then carried ones."""
@@ -414,7 +417,15 @@ def priority_note(
     unit: Unit, graph: Sequence[Unit], excluded: Collection[str] = frozenset()
 ) -> str:
     """The unit's effective priority and its source; empty for a normal unit with none."""
-    raise NotImplementedError
+    urgency = effective_priority(unit, graph, excluded)
+    if unit.promoted_from:
+        return f"priority {urgency}, promoted from {unit.promoted_from}"
+    if urgency < unit.priority:
+        source = min(
+            waiting_on_me(unit, graph, excluded), key=lambda waiter: (waiter.priority, waiter.id)
+        )
+        return f"priority {urgency}, from {source.id}"
+    return f"priority {urgency}" if urgency != Priority.NORMAL else ""
 
 
 def stack_age_source(

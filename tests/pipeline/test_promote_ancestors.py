@@ -65,6 +65,9 @@ def test_of_two_equally_urgent_waiters_the_id_that_sorts_first_is_named(tmp_path
 
 def test_a_waiter_of_equal_or_lower_urgency_changes_nothing(tmp_path) -> None:
     store = stored(tmp_path, (1, ()), (2, (1,)), (3, (1,)))
+    # Stored as the planning pass leaves them: each at the priority of its group.
+    for number, priority in ((1, 2), (2, 2), (3, 4)):
+        store.set_priority(f"c/{number}", priority)
     before = store.path.read_text()
 
     promote_ancestors(store, catalog(2, 2, 4))

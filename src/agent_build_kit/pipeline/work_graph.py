@@ -692,8 +692,80 @@ def inverted_groups(
     projects: Mapping[str, tuple[str, ...]],
 ) -> list[InvertedGroup]:
     """Each direct edge of a tasks file, from the planner's chain and from `Needs:` lines,
-    where the depended-on group has the larger priority number."""
-    raise NotImplementedError
+    where the depended-on group has the larger priority number. A `Needs:` target that
+    cannot be read gives nothing."""
+    groups, _ = validate_tasks(path, repos=repos, projects=projects)
+    by_number = {g.number: g for g in groups}
+    parents = _group_parents(groups)
+    found = [
+        InvertedGroup(
+            group=parent,
+            priority=by_number[parent].priority,
+            needed_by=group.number,
+            needed_by_priority=group.priority,
+        )
+        for group in groups
+        for parent in parents[group.number]
+        if by_number[parent].priority > group.priority
+    ]
+    for number, needs in group_needs(path).items():
+        group = by_number.get(number)
+        for need in needs:
+            other = tasks_path(need.change, changes_dir)
+            if group is None or names_own_change(need, path) or not other.is_file():
+                continue
+            other_groups, _ = validate_tasks(other, repos=repos, projects=projects)
+            target = next((g for g in other_groups if g.number == need.group), None)
+            if target is not None and target.priority > group.priority:
+                found.append(
+                    InvertedGroup(
+                        group=target.number,
+                        priority=target.priority,
+                        needed_by=group.number,
+                        needed_by_priority=group.priority,
+                        change=need.change,
+                    )
+                )
+    return found
+
+
+def inverted_group_warnings(
+    path: Path,
+    changes_dir: Path,
+    *,
+    repos: tuple[str, ...],
+    projects: Mapping[str, tuple[str, ...]],
+) -> list[str]:
+    """One warning per inverted edge of a tasks file, as `abk tags` and `abk check` print it."""
+    groups, _ = validate_tasks(path, repos=repos, projects=projects)
+    lines = {g.number: g.line for g in groups}
+    return [
+        f"{path}:line {lines[edge.needed_by]}: warning: "
+        f"{edge.change + ' ' if edge.change else ''}group {edge.group} "
+        f"(priority {edge.priority}) is needed by group {edge.needed_by} "
+        f"(priority {edge.needed_by_priority}): it will be promoted to "
+        f"{edge.needed_by_priority}; give it Priority {edge.needed_by_priority} or lower "
+        f"group {edge.needed_by}"
+        for edge in inverted_groups(path, changes_dir, repos=repos, projects=projects)
+    ]
+
+
+def group_promotions(groups: list[TaskGroup]) -> dict[int, tuple[int, int]]:
+    """For each group that a more urgent group depends on, directly or through the chain the
+    planner draws, the priority it will be promoted to and the group that gives it (of equals,
+    the lowest number)."""
+    dependents: dict[int, list[int]] = {}
+    for number, above in _group_parents(groups).items():
+        for parent in above:
+            dependents.setdefault(parent, []).append(number)
+    by_number = {g.number: g for g in groups}
+    promoted: dict[int, tuple[int, int]] = {}
+    for group in groups:
+        waiting = reachable(dependents.get(group.number, []), lambda n: dependents.get(n, []))
+        best = min(((by_number[n].priority, n) for n in waiting), default=None)
+        if best is not None and best[0] < group.priority:
+            promoted[group.number] = best
+    return promoted
 
 
 def unrelated_parent_warnings(

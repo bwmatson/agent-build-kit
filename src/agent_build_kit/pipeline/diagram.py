@@ -37,8 +37,8 @@ from agent_build_kit.pipeline.units import (
     PLANNED,
     RUNNING,
     SATISFIED,
-    Priority,
     failed_waiting,
+    priority_note,
     second_parent_wait,
     waiting_on,
 )
@@ -148,7 +148,7 @@ def render_mermaid(
             if wait := second_parent_wait(unit, graph):
                 name = f"{name}, {wait}"
             head = f"{unit.id}<br/>{unit.title}<br/>{_carried(unit)}"
-            urgency = f" · priority {unit.priority}" if unit.priority != Priority.NORMAL else ""
+            urgency = f" · {note}" if (note := priority_note(unit, graph)) else ""
             waiting = _waiting(unit)
             label = f"{head}<small>{unit.tier} · {name}{waiting}{pr}{urgency}</small>"
             indent = "            " if nested else "        "
