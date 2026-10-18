@@ -27,7 +27,14 @@ from pathlib import Path
 from typing import Protocol
 
 from agent_build_kit.compat_names import Place, TestKind, is_old_spelling, new_spelling, notice
-from agent_build_kit.config import REST_SPLIT, SPLIT_NAME, RepoConfig, active, e2e_splits
+from agent_build_kit.config import (
+    REST_SPLIT,
+    SPLIT_NAME,
+    RepoConfig,
+    WorkspaceConfig,
+    active,
+    e2e_splits,
+)
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.units import Priority, project_tag, reachable
 
@@ -179,11 +186,11 @@ INDEPENDENT_LINE = re.compile(r"^Independent:\s*(?P<reason>.*?)\s*$", re.I)
 PRIORITY_LINE = re.compile(r"^Priority:\s*(?P<value>.*?)\s*$", re.I)
 PRIORITY_VALUE = re.compile(r"[0-5]")
 
-# "- [ ] 1.1 Do the thing" / "- [x] 1.1 Done". Checked and unchecked both count:
-# this asks whether a group has tasks at all, not how far along it is.
 # `Split: <name>` in an e2e-test group: the e2e-test split it runs in (`rest` when absent).
 SPLIT_LINE = re.compile(r"^Split:\s*(?P<value>.*?)\s*$", re.I)
 
+# "- [ ] 1.1 Do the thing" / "- [x] 1.1 Done". Checked and unchecked both count:
+# this asks whether a group has tasks at all, not how far along it is.
 TASK_LINE = re.compile(r"^\s*-\s+\[[ xX]\]\s+\d+\.\d+\s+\S")
 
 
@@ -211,7 +218,7 @@ class TaskGroup(Frozen):
     # The "Done when" sentence under the heading, "" when the group has none.
     goal: str = ""
     # The e2e-test split of an e2e-test group, from its `Split:` line; `rest` when it has none.
-    split: str = "rest"
+    split: str = REST_SPLIT
 
     @property
     def tag(self) -> str:
@@ -254,9 +261,11 @@ def _project_problem(number: int, repo: str, project: str, declared: tuple[str, 
     return head + f"{repo} declares {', '.join(declared)} (its root project is tagged [{repo}])"
 
 
-def declared_split_names(repos: Mapping[str, RepoConfig]) -> dict[str, tuple[str, ...]]:
-    """The e2e-test splits each repo declares, `rest` last, as `Split:` may name them."""
-    config = active()
+def declared_split_names(
+    repos: Mapping[str, RepoConfig], config: WorkspaceConfig
+) -> dict[str, tuple[str, ...]]:
+    """The e2e-test splits each repo declares under `config`, `rest` last, as `Split:` may
+    name them."""
     return {
         name: tuple(split.name for split in e2e_splits(repo, config))
         for name, repo in repos.items()
@@ -306,7 +315,7 @@ def validate_tasks(
     """
     repos = known_repos() if repos is None else repos
     projects = declared_projects(active().repos) if projects is None else projects
-    splits = declared_split_names(active().repos) if splits is None else splits
+    splits = declared_split_names(active().repos, active()) if splits is None else splits
     lines = path.read_text().splitlines()
 
     groups: list[TaskGroup] = []
@@ -937,13 +946,14 @@ def check_tags(
     *,
     repos: tuple[str, ...],
     projects: Mapping[str, tuple[str, ...]] | None = None,
+    splits: Mapping[str, tuple[str, ...]] | None = None,
 ) -> tuple[list[TaskGroup], list[str]]:
     """What `abk tags <change>` runs: the change's groups and every problem found, each
     printed as the command prints it; a change with no tasks file has one problem."""
     path = tasks_path(change, changes_dir)
     if not path.exists():
         return [], [f"no tasks.md for change {change!r} at {path}"]
-    groups, errors = validate_tasks(path, repos=repos, projects=projects)
+    groups, errors = validate_tasks(path, repos=repos, projects=projects, splits=splits)
     return groups, [f"{path}:{error}" for error in errors]
 
 

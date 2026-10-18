@@ -25,7 +25,7 @@ from typing import Self
 from pydantic import Field
 
 from agent_build_kit.compat_names import Place, TestKind, new_spelling
-from agent_build_kit.config import active, active_checkout
+from agent_build_kit.config import REST_SPLIT, active, active_checkout
 from agent_build_kit.model import Frozen, TestTier, widest_kind
 from agent_build_kit.pipeline.shell import has_origin
 
@@ -123,7 +123,7 @@ class Unit(Frozen):
     tier: TestKind
     project: str = "."
     # The e2e-test split all the unit's groups share; `rest` when they declare none.
-    split: str = "rest"
+    split: str = REST_SPLIT
     depends_on: tuple[str, ...] = ()
     # Every target a `Needs:` line names, whether linked as a dependency or already reached
     # through one; only the graph reads it, and draws an edge only for those also in `depends_on`.

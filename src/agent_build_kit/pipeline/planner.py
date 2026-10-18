@@ -26,7 +26,7 @@ from collections.abc import Callable, Mapping, Sequence
 
 from agent_build_kit import runtimes
 from agent_build_kit.compat_names import Place, new_spelling, old_spelling
-from agent_build_kit.config import active
+from agent_build_kit.config import REST_SPLIT, active
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
@@ -224,22 +224,24 @@ def _read_excuses(raw: dict) -> dict[str, str]:
     return dict(found)
 
 
+def _first_group(raw: dict, groups: list[TaskGroup] | None) -> TaskGroup | None:
+    """The first group a planned unit lists that is in `groups`: where its shape is read from."""
+    by_number = {group.number: group for group in groups or ()}
+    return next((by_number[n] for n in raw.get("groups") or () if n in by_number), None)
+
+
 def _unit_project(raw: dict, groups: list[TaskGroup] | None) -> str:
     """The project a planned unit is for: the one it names, else that of its first group."""
     if raw.get("project"):
         return str(raw["project"])
-    by_number = {group.number: group for group in groups or ()}
-    first = next((by_number[n] for n in raw.get("groups") or () if n in by_number), None)
+    first = _first_group(raw, groups)
     return first.project if first else "."
 
 
 def _unit_split(raw: dict, groups: list[TaskGroup] | None) -> str:
-    """The e2e-test split a planned unit is in: the one it names, else that of its first group."""
-    if raw.get("split"):
-        return str(raw["split"])
-    by_number = {group.number: group for group in groups or ()}
-    first = next((by_number[n] for n in raw.get("groups") or () if n in by_number), None)
-    return first.split if first else "rest"
+    """The e2e-test split a planned unit is in: that of its first group, never the model's word."""
+    first = _first_group(raw, groups)
+    return first.split if first else REST_SPLIT
 
 
 def unit_priority(unit: Unit, catalog: Mapping[str, Sequence[TaskGroup]]) -> int:

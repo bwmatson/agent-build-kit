@@ -247,7 +247,8 @@ def validation_errors(
     if not tasks.is_file():
         errors.append(f"{tasks.relative_to(planning)} is missing")
     else:
-        _groups, tag_errors = validate_tasks(tasks, repos=repos, projects=projects)
+        # A workspace being set up declares no e2e-test splits yet, so only `rest` is accepted.
+        _groups, tag_errors = validate_tasks(tasks, repos=repos, projects=projects, splits={})
         errors.extend(f"tasks.md line {error.line}: {error.message}" for error in tag_errors)
     return errors
 
