@@ -37,7 +37,7 @@ def isolated(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def installation(tmp_path: Path, host: Host, *, default: int, kit: int) -> Installation:
-    """One unit on each account, the default account's session at `default`% and `kit`'s at `kit`%."""
+    """One unit on each account: the default account's session at `default`%, `kit`'s at `kit`%."""
     directory = tmp_path / "second-claude"
     directory.mkdir()
     inst = make_installation(
