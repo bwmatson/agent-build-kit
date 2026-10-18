@@ -162,6 +162,28 @@ def test_a_promotion_lapses_at_the_pass_after_its_waiter_loses_the_edge(tmp_path
     assert result(store, 1) == (3, "")
 
 
+def test_a_promoted_unit_whose_groups_are_not_in_the_catalog_falls_back_to_normal_on_lapse(
+    tmp_path,
+) -> None:
+    store = stored(tmp_path, (1, ()))
+    store.set_promotion("c/1", 0, "c/2")
+
+    promote_ancestors(store, {})
+
+    assert result(store, 1) == (3, "")
+
+
+def test_an_unpromoted_unit_whose_groups_are_not_in_the_catalog_keeps_its_stored_priority(
+    tmp_path,
+) -> None:
+    store = stored(tmp_path, (1, ()))
+    store.set_promotion("c/1", 1, "")
+
+    promote_ancestors(store, {})
+
+    assert result(store, 1) == (1, "")
+
+
 def test_a_unit_that_started_while_promoted_keeps_the_promoted_priority_and_source(
     tmp_path,
 ) -> None:

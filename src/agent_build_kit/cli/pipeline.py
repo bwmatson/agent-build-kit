@@ -680,10 +680,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         log(line)
 
     urgency = [
-        f"{unit.id} {unit.priority}"
-        + (f" (promoted from {unit.promoted_from})" if unit.promoted_from else "")
+        f"{unit.id} {note}"
         for unit in units
-        if unit.priority != Priority.NORMAL and unit.state not in (MERGED, CLOSED)
+        if unit.state not in (MERGED, CLOSED) and (note := priority_note(unit, units))
     ]
     if urgency:
         log("priority: " + ", ".join(urgency))

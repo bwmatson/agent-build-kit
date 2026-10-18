@@ -252,7 +252,9 @@ def promote_ancestors(
     sorts first). Recomputed at every pass, so a promotion lapses with its waiter; a unit
     that has started is never changed. A waiter counts at its stored priority once it has
     started and at its own before, which agree through chains. A unit none of whose groups
-    is in the catalog has no groups to read, so it keeps the priority it was stored with.
+    is in the catalog has no groups to read, so it keeps the priority it was stored with,
+    except that one carrying a promotion falls back to normal when the promotion lapses: its
+    own priority is not recorded apart from the promoted one.
     Returns each unit now promoted by this pass as (id, priority, waiter)."""
     promoted: list[tuple[str, int, str]] = []
     units = [unit for unit in store.all() if unit.state != UnitState.UNPLANNED]

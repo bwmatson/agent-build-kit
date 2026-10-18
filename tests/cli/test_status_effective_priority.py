@@ -89,4 +89,25 @@ def test_a_started_promoted_unit_is_listed_with_its_source_in_the_priority_line(
     lines = run_status(inst, monkeypatch, capsys)
 
     summary = next(line for line in lines if "priority:" in line)
-    assert "base/1" in summary and "promoted from fix/1" in summary
+    assert "base/1 priority 1, promoted from fix/1" in summary
+
+
+def test_a_started_unit_a_more_urgent_waiter_covers_is_listed_with_that_waiter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inst = make_installation(
+        tmp_path, planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees"))
+    )
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert(
+        [
+            stored_unit("base/1", change="base"),
+            stored_unit("fix/1", change="fix", priority=1, depends_on=("base/1",)),
+        ]
+    )
+    store.set_state("base/1", RUNNING, branch="spec/base/1")
+
+    lines = run_status(inst, monkeypatch, capsys)
+
+    summary = next(line for line in lines if "priority:" in line)
+    assert "base/1 priority 1, from fix/1" in summary

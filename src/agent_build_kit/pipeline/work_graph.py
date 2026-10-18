@@ -679,6 +679,8 @@ class InvertedGroup(Frozen):
     priority: int
     needed_by: int
     needed_by_priority: int
+    # The heading line of the dependent group, where a warning about the edge points.
+    needed_by_line: int = 0
     # The change the depended-on group belongs to when a `Needs:` line names it; empty for
     # a group of the same change.
     change: str = ""
@@ -703,6 +705,7 @@ def inverted_groups(
             priority=by_number[parent].priority,
             needed_by=group.number,
             needed_by_priority=group.priority,
+            needed_by_line=group.line,
         )
         for group in groups
         for parent in parents[group.number]
@@ -723,6 +726,7 @@ def inverted_groups(
                         priority=target.priority,
                         needed_by=group.number,
                         needed_by_priority=group.priority,
+                        needed_by_line=group.line,
                         change=need.change,
                     )
                 )
@@ -737,10 +741,8 @@ def inverted_group_warnings(
     projects: Mapping[str, tuple[str, ...]],
 ) -> list[str]:
     """One warning per inverted edge of a tasks file, as `abk tags` and `abk check` print it."""
-    groups, _ = validate_tasks(path, repos=repos, projects=projects)
-    lines = {g.number: g.line for g in groups}
     return [
-        f"{path}:line {lines[edge.needed_by]}: warning: "
+        f"{path}:line {edge.needed_by_line}: warning: "
         f"{edge.change + ' ' if edge.change else ''}group {edge.group} "
         f"(priority {edge.priority}) is needed by group {edge.needed_by} "
         f"(priority {edge.needed_by_priority}): it will be promoted to "

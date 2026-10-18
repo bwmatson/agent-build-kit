@@ -11,7 +11,13 @@ from tests.task_priority_files import group_md, groups_md
 
 
 def inverted(changes: Path, change: str) -> list[InvertedGroup]:
-    return inverted_groups(changes / change / "tasks.md", changes, repos=("app",), projects={})
+    """The edges without their heading lines, which `test_an_edge_carries_...` pins."""
+    return [
+        edge.model_copy(update={"needed_by_line": 0})
+        for edge in inverted_groups(
+            changes / change / "tasks.md", changes, repos=("app",), projects={}
+        )
+    ]
 
 
 def write(changes: Path, change: str, *groups: str) -> None:
@@ -102,3 +108,18 @@ def test_a_needs_target_missing_from_the_other_change_returns_nothing_and_no_err
 
     assert inverted(tmp_path, "feature") == []
     assert inverted(tmp_path, "lonely") == []
+
+
+def test_an_edge_carries_the_heading_line_of_the_group_depending_on_it(tmp_path: Path) -> None:
+    write(tmp_path, "feature", group_md(1, 3), group_md(2, 1))
+    tasks = tmp_path / "feature" / "tasks.md"
+
+    (edge,) = inverted_groups(tasks, tmp_path, repos=("app",), projects={})
+
+    heading = (
+        tasks.read_text()
+        .splitlines()
+        .index(next(line for line in tasks.read_text().splitlines() if line.startswith("## 2.")))
+        + 1
+    )
+    assert edge.needed_by_line == heading

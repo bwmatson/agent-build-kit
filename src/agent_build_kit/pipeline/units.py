@@ -418,13 +418,13 @@ def priority_note(
 ) -> str:
     """The unit's effective priority and its source; empty for a normal unit with none."""
     urgency = effective_priority(unit, graph, excluded)
-    if unit.promoted_from:
-        return f"priority {urgency}, promoted from {unit.promoted_from}"
     if urgency < unit.priority:
         source = min(
             waiting_on_me(unit, graph, excluded), key=lambda waiter: (waiter.priority, waiter.id)
         )
         return f"priority {urgency}, from {source.id}"
+    if unit.promoted_from:
+        return f"priority {urgency}, promoted from {unit.promoted_from}"
     return f"priority {urgency}" if urgency != Priority.NORMAL else ""
 
 

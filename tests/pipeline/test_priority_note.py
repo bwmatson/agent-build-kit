@@ -33,6 +33,16 @@ def test_a_started_unit_a_more_urgent_waiter_covers_names_the_waiter() -> None:
     assert priority_note(base, [base, waiter]) == "priority 1, from app/9"
 
 
+def test_a_promoted_unit_a_more_urgent_waiter_now_covers_names_that_waiter() -> None:
+    base = unit("base", priority=1, state=RUNNING, branch="spec/base", promoted_from="app/9")
+    waiters = [
+        unit("app/9", priority=1, depends_on=("base",)),
+        unit("app/12", priority=0, depends_on=("base",)),
+    ]
+
+    assert priority_note(base, [base, *waiters]) == "priority 0, from app/12"
+
+
 def test_a_waiter_that_is_not_more_urgent_adds_no_source() -> None:
     base = unit("base", priority=2)
     waiter = unit("app/9", priority=4, depends_on=("base",))
