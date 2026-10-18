@@ -336,7 +336,7 @@ class ClaudeCodeRuntime:
         execute = self._execute or spawn
         # Only when there is something to add: an injected `execute` written
         # before the environment was passed does not take the argument.
-        env = {**request.env, **claude_account.environment_entry()}
+        env = {**request.env, **claude_account.environment_entry(request.account)}
         extra: dict[str, Any] = {"env": env} if env else {}
         if request.environment is not None:
             extra["environment"] = request.environment

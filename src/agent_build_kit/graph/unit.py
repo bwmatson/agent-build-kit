@@ -148,7 +148,10 @@ def _record_sessions(path: BuildPath, compiled: CompiledStateGraph, unit_id: str
     def record(session: str) -> None:
         # Called on the thread a node runs on, while the loop is free.
         asyncio.run_coroutine_threadsafe(
-            compiled.aupdate_state(_config(unit_id), {"session_id": session}), loop
+            compiled.aupdate_state(
+                _config(unit_id), {"session_id": session, "session_account": path.account_key()}
+            ),
+            loop,
         ).result()
 
     def start(node: str) -> None:

@@ -393,6 +393,17 @@ class BuildPath:
             return {}
         return {"e2e": True}
 
+    def account_key(self) -> str:
+        """The key of the account this unit's calls run on: its directory, never empty. A stored
+        session with an empty key was made before keys were recorded, so it is not compared."""
+        return str(claude_account.home(self.runner.account))
+
+    def _under_account(self) -> str:
+        """Names the Claude Code account in a line about a session `claude` cannot find, when one
+        is set: a stored session belongs to the account it was begun under."""
+        account = claude_account.account_key(self.runner.account)
+        return f", under the account {account}" if account else ""
+
     def record_step(self, node: Node) -> None:
         """Name `node` as the step the unit is failing in; never raises."""
         try:
@@ -424,6 +435,7 @@ class BuildPath:
             round=_round(node, state),
             head=head,
             cumulative_usd=cumulative,
+            account=self.account_key(),
             spec=self._spec_taken,
         )
         kept: Update = {"sessions": {**state.sessions, role: session}}
@@ -600,6 +612,12 @@ class BuildPath:
         session: AgentSession | None,
         inputs: dict[str, Any],
     ) -> str:
+        if state.session_id and state.session_account not in ("", self.account_key()):
+            self.say(
+                f"session {state.session_id} was made under another account; "
+                "running the node from its start in a new session"
+            )
+            state = state.model_copy(update={"session_id": ""})
         if state.session_id:
             self.say(f"continuing agent session {state.session_id}")
             # A session this node's role recorded keeps the model and runtime it began on.
@@ -626,7 +644,8 @@ class BuildPath:
                 )
             except SessionUnavailable as error:
                 self.say(
-                    f"session {state.session_id} cannot be continued ({error}{_under_account()}); "
+                    f"session {state.session_id} cannot be continued "
+                    f"({error}{self._under_account()}); "
                     "running the node from its start in a new session"
                 )
         elif follow_up:
@@ -648,7 +667,7 @@ class BuildPath:
             if why:
                 self.say(
                     f"the {SESSION_ROLES[Node(self._node)]} session cannot be continued "
-                    f"({why}{_under_account()}); "
+                    f"({why}{self._under_account()}); "
                     "running the node from its start in a new session"
                 )
         if self._leftovers:
@@ -676,6 +695,8 @@ class BuildPath:
             return None, ""
         if (session := given or state.sessions.get(role)) is None:
             return None, ""
+        if session.account not in ("", self.account_key()):
+            return None, "it was made under another account"
         if session.head and not self.runner.head_reachable(cwd, session.head):
             return None, f"the commit {session.head} it last saw is gone from the worktree"
         return session, ""
@@ -2282,13 +2303,6 @@ class BuildPath:
 def guidance_asked(state: UnitRun, note: str) -> str:
     """The notes the next review is told, with `note` added to those already kept."""
     return f"{state.guidance_asked}\n\n{note}".strip()
-
-
-def _under_account() -> str:
-    """Names the Claude Code account in a line about a session `claude` cannot find, when one
-    is set: a stored session belongs to the account it was begun under."""
-    account = claude_account.account_key()
-    return f", under the account {account}" if account else ""
 
 
 def _listed(paths: tuple[str, ...]) -> str:

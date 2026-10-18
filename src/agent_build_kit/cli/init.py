@@ -833,6 +833,10 @@ def cmd_install_skills(args: argparse.Namespace, inst: Installation | None) -> i
     targets: list[Path] = []
     if args.user:
         targets.append(claude_account.skills_dir())
+        if inst is not None:
+            labels = sorted({repo.account for repo in inst.config.repos.values() if repo.account})
+            accounts = (claude_account.resolve(inst, label) for label in labels)
+            targets += [claude_account.skills_dir(a) for a in accounts if a.config_dir]
     targets += [Path(p).expanduser().resolve() / ".claude" / "skills" for p in args.repo or []]
     if not targets:
         if inst is None:

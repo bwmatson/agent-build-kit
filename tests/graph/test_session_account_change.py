@@ -10,11 +10,13 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.claude_account import Account
 from agent_build_kit.pipeline.stack_runner import RunStatus
 from agent_build_kit.pipeline.wiring import build_run
 from agent_build_kit.settings import settings
 from tests.graph.test_agent_session import Sessions, killed_in_the_tests_step, logged, run_log
-from tests.graph_driver import tick
+from tests.graph_driver import fresh, tick
+from tests.runner_fakes import Killed
 
 GONE = "No conversation found with session ID: sess-1"
 
@@ -50,3 +52,28 @@ def test_a_session_of_another_account_runs_afresh_and_the_line_names_the_account
     assert str(account) in line
     assert str(account) not in default
     assert "cannot be continued" in default
+
+
+def test_the_line_names_the_account_of_a_labelled_unit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tmp_path.mkdir(exist_ok=True)
+    kit = tmp_path / "kit-home"
+    monkeypatch.setattr(settings, "claude_home", tmp_path / "default-home")
+    runtime = Sessions(refuses=GONE)
+    account = Account(label="kit", config_dir=kit)
+    recorder = fresh(tmp_path)
+    with pytest.raises(Killed):
+        tick(tmp_path, recorder, run=build_run(runtime=runtime), account=account)
+
+    tick(
+        tmp_path,
+        recorder,
+        run=build_run(runtime=runtime),
+        run_log=run_log(tmp_path),
+        account=account,
+    )
+
+    line = logged(tmp_path)
+    assert f"under the account {kit}" in line
+    assert "default-home" not in line

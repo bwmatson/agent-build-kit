@@ -36,6 +36,7 @@ from typing import Protocol, runtime_checkable
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from agent_build_kit.budget import Section, cut_head, fit
+from agent_build_kit.claude_account import Account
 from agent_build_kit.config import RepoConfig, active
 from agent_build_kit.installation import changes_dir_under
 from agent_build_kit.model import Frozen
@@ -1356,6 +1357,8 @@ class UnitRunner(BaseModel):
     leases: Leases | None = None
     # The repo being built, for what its settings decide: None reads as the defaults.
     repo_config: RepoConfig | None = None
+    # The Claude account the unit's calls run on, resolved once; None: the default account.
+    account: Account | None = None
     worktree: Worktree
     may_start: Callable[[], tuple[bool, str]]
     # When the usage guard expects to allow a start again, for the interrupt a
