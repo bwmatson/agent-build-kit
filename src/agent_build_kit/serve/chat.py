@@ -718,6 +718,12 @@ def register(
 
         return StreamingResponse(body(), media_type="text/event-stream")
 
+    def recorded_events(session: str) -> list[dict[str, Any]]:
+        """The server's own record of an ACP session, as the seed of a session that goes on
+        from it; empty when it recorded none."""
+        known = chat.acp_sessions().get(session)
+        return [e.model_dump() for e in known[1]] if known else []
+
     @app.post("/api/units/{change}/{number}/chat")
     def unit_chat(change: str, number: str, body: Turn) -> StreamingResponse:
         unit = chat.unit(change, number)
@@ -738,9 +744,8 @@ def register(
         def fresh(cb: dict[str, Any]) -> AgentRequest:
             """The turn in a new session, for an agent that cannot resume the build session:
             seeded with what was recorded of it, and still the builder's turn."""
-            known = chat.acp_sessions().get(recorded.session_id)
-            seen = [e.model_dump() for e in known[1]] if known else []
-            return chat.request(cb, _seed(seen, prompt), cwd, model=recorded.model, builder=unit)
+            seed = _seed(recorded_events(recorded.session_id), prompt)
+            return chat.request(cb, seed, cwd, model=recorded.model, builder=unit)
 
         return chat.leased(
             unit,
@@ -939,10 +944,9 @@ def register(
             path = chat.claude_file(session)
             if path is not None:
                 return claude_events(path), False
-        known = chat.acp_sessions().get(session)
-        if known is None:
+        if session not in chat.acp_sessions():
             raise HTTPException(status_code=404, detail=f"no session {session}")
-        return [e.model_dump() for e in known[1]], True
+        return recorded_events(session), True
 
     def resumable(session: str) -> bool:
         """Whether the agent would resume this ACP session in place: it advertises resume and
