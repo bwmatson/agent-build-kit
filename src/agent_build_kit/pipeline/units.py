@@ -540,6 +540,11 @@ def reachable[T](start: Iterable[T], successors: Callable[[T], Iterable[T]]) -> 
     return seen
 
 
+def direct_dependencies(unit: Unit, graph: Sequence[Unit]) -> tuple[str, ...]:
+    """`unit.depends_on`, in its stored order, without a dependency another of them reaches."""
+    raise NotImplementedError
+
+
 def _builds_on(unit: Unit, graph: Sequence[Unit]) -> set[str]:
     """Every unit `unit` is built on, however far, through `through_satisfied`."""
     index = _by_id(graph)
