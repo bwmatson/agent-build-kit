@@ -97,7 +97,24 @@ def test_a_planned_unit_listing_the_taken_unit_and_the_joined_one_permits_the_jo
     check(Join(onto="feature/1", unit="feature/2"), units=units, plan=plan)
 
 
-def test_the_plans_dependencies_are_repointed_and_reduced_for_a_later_join() -> None:
+def test_a_planned_unit_after_the_taken_one_is_repointed_for_a_later_join() -> None:
+    units = [
+        stored("feature/1"),
+        stored("feature/2", depends_on=("feature/1",)),
+        stored("feature/3", depends_on=("feature/2",)),
+    ]
+    plan = [planned("plan/1", change="plan", depends_on=("feature/2",))]
+
+    with pytest.raises(JoinRefused, match="plan/1 already depends on feature/1"):
+        check(
+            Join(onto="feature/1", unit="feature/2"),
+            Join(onto="feature/1", unit="feature/3"),
+            units=units,
+            plan=plan,
+        )
+
+
+def test_the_plans_redundant_dependencies_are_reduced_for_a_later_join() -> None:
     units = [
         stored("feature/1"),
         stored("feature/2", depends_on=("feature/1",)),
