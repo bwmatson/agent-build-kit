@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
-from agent_build_kit.pipeline.unit_store import Cause
+from collections.abc import Sequence
 
-__all__ = ["EVENT", "STANDING"]
+from agent_build_kit.pipeline.unit_store import Cause, UnitStore
+from agent_build_kit.pipeline.units import Unit
+
+__all__ = ["EVENT", "REPLANS", "STANDING", "replan"]
+
+# What a replan does to a unit's record: it plans the same graph again, or leaves the unit out
+# (demotion) and then plans it again (promotion).
+REPLANS = ("a replan", "a demotion and a promotion")
 
 STANDING = [
     Cause.SPLIT_HELD,
@@ -38,3 +45,10 @@ EVENT = [
     Cause.CLOSED,
     Cause.FAILED,
 ]
+
+
+def replan(store: UnitStore, how: str, units: Sequence[Unit], *, change: str) -> None:
+    """Replan `change` into `store` as `how` (one of `REPLANS`) says."""
+    if how == REPLANS[1]:
+        store.upsert([], change=change)
+    store.upsert(units, change=change)
