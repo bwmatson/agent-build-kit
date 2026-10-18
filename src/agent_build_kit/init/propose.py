@@ -120,8 +120,8 @@ THEN bullets.
 - `tasks.md` — task groups under the heading contract below.
 
 The heading contract, checked mechanically by `abk tags` after you finish:
-`## <n>. [<repo>] [<tier>] <title>` — <repo> is `{repo}` (the workspace \
-repos are {repos}), <tier> is `unit-test`, `integration-test` or `e2e-test` \
+`## <n>. [<repo>] [<kind>] <title>` — <repo> is `{repo}` (the workspace \
+repos are {repos}), <kind> is `unit-test`, `integration-test` or `e2e-test` \
 (the old spellings are still read), an optional third tag is [contract], [narrow] \
 or [acceptance]. Groups are numbered from 1 in build order; \
 each has tasks as `- [ ] <n>.<m> <task>` lines. Test tasks come before \

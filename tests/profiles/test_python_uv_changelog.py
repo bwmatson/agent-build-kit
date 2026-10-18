@@ -38,7 +38,7 @@ def test_the_python_profile_adds_nothing_when_the_setting_is_off(tmp_path: Path)
     assert profiles.get("python-uv").extra_checks(repo_config(tmp_path, changelog=None)) == []
 
 
-def test_tier_one_runs_the_changelog_check_beside_lint_and_tests(tmp_path: Path) -> None:
+def test_unit_test_runs_the_changelog_check_beside_lint_and_tests(tmp_path: Path) -> None:
     app = checkout(tmp_path)
     ran: list[list[str]] = []
 
@@ -55,7 +55,7 @@ def test_tier_one_runs_the_changelog_check_beside_lint_and_tests(tmp_path: Path)
     assert [c for c in ran if "pre-commit" in c]
 
 
-def test_tier_one_runs_no_changelog_check_when_the_setting_is_off(tmp_path: Path) -> None:
+def test_unit_test_runs_no_changelog_check_when_the_setting_is_off(tmp_path: Path) -> None:
     app = checkout(tmp_path)
     ran: list[list[str]] = []
 
@@ -71,7 +71,7 @@ def test_tier_one_runs_no_changelog_check_when_the_setting_is_off(tmp_path: Path
     assert not [c for c in ran if is_changelog_check(c)]
 
 
-def test_tier_one_fails_the_checks_round_on_a_changelog_problem(tmp_path: Path) -> None:
+def test_unit_test_fails_the_checks_round_on_a_changelog_problem(tmp_path: Path) -> None:
     app = checkout(tmp_path)
     problem = "CHANGELOG.md line 9: bullet not separated by a blank line"
 

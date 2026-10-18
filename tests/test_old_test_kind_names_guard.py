@@ -45,12 +45,27 @@ def test_an_old_spelling_fails_naming_the_file_and_line(tmp_path: Path, path: st
 
 
 @pytest.mark.parametrize(
-    "spelling", [f"{TIER.title()} 1", f"{TIER.upper()}_2", f"{TIER}-2", f"{TIER}1"]
+    "spelling",
+    [
+        f"{TIER.title()} 1",
+        f"{TIER.upper()}_2",
+        f"{TIER}-2",
+        f"{TIER}1",
+        f"{TIER}_two",
+        f"{TIER} one",
+    ],
 )
 def test_each_spelling_and_case_is_found(tmp_path: Path, spelling: str) -> None:
     root = tree(tmp_path, {"src/step.py": f"# the {spelling} run\n"})
 
     assert any("src/step.py:1" in p for p in old_spelling_problems(root))
+
+
+@pytest.mark.parametrize("path", ["pyproject.toml", "scripts/ci_scope.py", ".github/ci.yml"])
+def test_the_build_files_and_scripts_are_scanned(tmp_path: Path, path: str) -> None:
+    root = tree(tmp_path, {path: f"# {OLD_GATE}\n"})
+
+    assert any(f"{path}:1" in p for p in old_spelling_problems(root))
 
 
 def test_a_file_named_for_an_old_spelling_fails(tmp_path: Path) -> None:
@@ -66,6 +81,9 @@ def test_a_file_named_for_an_old_spelling_fails(tmp_path: Path) -> None:
         "src/agent_build_kit/rename_test_kinds.py",
         "tests/test_compat_names.py",
         "tests/test_rename_test_kinds_shims.py",
+        "tests/config/test_test_kind_settings_aliases.py",
+        "docs/agent-efficient-coding-philosophy.md",
+        "docs/risk-tiered-review-design.md",
         "CHANGELOG.md",
     ],
 )

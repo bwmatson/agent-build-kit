@@ -32,7 +32,7 @@ def selects(command: list[str], path: str) -> bool:
     return any(f in path for f in command[5:])
 
 
-def test_tier_two_selects_the_files_carrying_the_marker_and_not_the_unmarked(
+def test_e2e_selects_the_files_carrying_the_marker_and_not_the_unmarked(
     profile, tmp_path: Path
 ) -> None:
     touch(tmp_path, MARKED, UNMARKED)
@@ -52,7 +52,7 @@ def test_the_marker_is_the_configured_one(profile, tmp_path: Path) -> None:
     assert not selects(command, MARKED)
 
 
-def test_tier_two_of_a_workspace_runs_each_member_in_its_directory(profile, tmp_path: Path) -> None:
+def test_e2e_of_a_workspace_runs_each_member_in_its_directory(profile, tmp_path: Path) -> None:
     workspace(tmp_path, ["packages/a", "packages/b"])
     touch(tmp_path, f"packages/a/{MARKED}", f"packages/b/{MARKED}")
 
@@ -98,7 +98,7 @@ def test_acceptance_has_nothing_to_run_without_a_changed_marked_file(
     assert acceptance(profile, tmp_path, [UNMARKED, "src/gone.local_stack.test.ts"]) == []
 
 
-def test_each_tests_time_comes_from_the_recorded_tier_two_report(profile) -> None:
+def test_each_tests_time_comes_from_the_recorded_e2e_report(profile) -> None:
     output = f"RUN v5.0.4\n{REPORT_MARK}\n{(VITEST / 'e2e.xml').read_text()}"
 
     times = profile.parse_test_durations(output)
@@ -112,7 +112,7 @@ def test_each_tests_time_comes_from_the_recorded_tier_two_report(profile) -> Non
     assert times[1].seconds == pytest.approx(0.00047, abs=0.0001)
 
 
-def test_a_marker_not_right_before_test_is_a_tier_two_file_for_neither_run(
+def test_a_marker_not_right_before_test_is_a_e2e_file_for_neither_run(
     profile, tmp_path: Path
 ) -> None:
     touch(tmp_path, DETACHED)

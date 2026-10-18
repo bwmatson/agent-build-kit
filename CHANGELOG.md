@@ -4,7 +4,8 @@
 
 - The old test-kind module and name aliases are gone: importing a module such as the former
   second-tier pipeline modules now fails, and the new names are the only ones in the code.
-  Old spellings in `abk.yaml`, state files and group tags are still read, with a warning.
+  Old spellings in `abk.yaml`, state files and group tags are still read, with a warning,
+  but an old setting name is no longer an attribute of the loaded settings.
   `python -m agent_build_kit.rename_test_kinds` stays for rewriting a planning repository's
   text.
 

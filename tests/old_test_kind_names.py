@@ -12,9 +12,9 @@ import re
 from pathlib import Path
 
 # Built in parts so this file carries no old spelling for the guard to find.
-OLD_SPELLING = re.compile("ti" + "er[-_ ]?[12]", re.IGNORECASE)
+OLD_SPELLING = re.compile("ti" + "er[-_ ]?([12]|one|two)", re.IGNORECASE)
 
-SCANNED = ("src", "tests", "web/src", "docs")
+SCANNED = ("src", "tests", "web/src", "docs", "scripts", ".github")
 SKIPPED_PARTS = frozenset({"__pycache__", "node_modules"})
 BUILT_WEB = Path("src/agent_build_kit/serve/static")
 
@@ -40,7 +40,7 @@ def exempt(path: Path) -> bool:
 
 def candidates(root: Path) -> list[Path]:
     found = [p for name in SCANNED for p in sorted((root / name).rglob("*"))]
-    found += sorted(root.glob("*.md"))
+    found += sorted(root.glob("*.md")) + [root / "pyproject.toml"]
     return [
         p
         for p in found

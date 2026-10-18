@@ -109,7 +109,7 @@ def test_the_prompt_carries_the_repo_the_rules_and_the_recommendations(app: Path
 
     assert "openspec/changes/app-testing-infrastructure/" in prompt
     assert "tests-first gate" in prompt
-    assert "## <n>. [<repo>] [<tier>] <title>" in prompt
+    assert "## <n>. [<repo>] [<kind>] <title>" in prompt
     assert "platform, app" in prompt
     assert "[platform], [app]" in prompt, "the rules block names the real repos"
     assert "Test tasks come before implementation" in prompt

@@ -476,8 +476,8 @@ TEST_KIND_SETTINGS = ConfigDict(validate_by_name=True, serialize_by_alias=True)
 
 
 class TestKindSettings(Frozen):
-    """A block of settings named for a test kind. A setting's old name still builds the block
-    and still reads, as its new one, until the aliases are removed."""
+    """A block of settings named for a test kind. An old key name in a file is read as the new
+    one, with a warning; the old names are not attributes."""
 
     model_config = TEST_KIND_SETTINGS
     __test__ = False
@@ -498,12 +498,6 @@ class TestKindSettings(Frozen):
             (renamed[k] if renamed[k] in cls.model_fields and k not in cls.model_fields else k): v
             for k, v in data.items()
         }
-
-    def __getattr__(self, name: str) -> Any:
-        new = new_spelling(Place.SETTING, name)
-        if new != name and new in type(self).model_fields:
-            return getattr(self, new)
-        return super().__getattr__(name)  # type: ignore[misc]
 
 
 class ProjectLimitsConfig(Frozen):

@@ -93,7 +93,7 @@ def test_the_serial_pass_may_collect_nothing_and_no_other_command_may(tmp_path: 
     assert PROFILE.tolerates_exit(PLAIN, 0)
 
 
-def test_tier_one_passes_when_the_serial_pass_finds_no_serial_tests(tmp_path: Path) -> None:
+def test_unit_test_passes_when_the_serial_pass_finds_no_serial_tests(tmp_path: Path) -> None:
     repo = repo_with(tmp_path, '[dependency-groups]\ndev = ["pytest-xdist"]\n')
 
     def run(command, **kwargs):
