@@ -11,6 +11,8 @@ import pytest
 
 from agent_build_kit import claude_account, runtimes
 from agent_build_kit.config import CLAUDE_CODE, RepoConfig
+from agent_build_kit.graph.nodes import BuildPath
+from agent_build_kit.graph.state import EventKind, ResumeEvent
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import restack
 from agent_build_kit.pipeline.planner import plan_round
@@ -22,8 +24,15 @@ from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.settings import settings
 from tests.conftest import make_installation
 from tests.factories import commit, git, init_repo, unit
-from tests.graph.test_agent_session import Sessions, killed_in_the_tests_step
-from tests.graph_driver import tick
+from tests.graph.agent_fakes import Runs
+from tests.graph.test_agent_session import (
+    Sessions,
+    killed_in_the_tests_step,
+    logged,
+    run_log,
+)
+from tests.graph.test_one_run_entry_point import FEEDBACK
+from tests.graph_driver import fresh, tick
 from tests.pipeline.test_planner_runtime import CHANGES, PLAN
 from tests.runtimes.stand_in import StandInRuntime
 
@@ -158,3 +167,66 @@ def test_a_session_made_under_one_account_is_not_resumed_under_another(
     killed, again, *_ = runtime.requests
     assert again.resume_session == "", "no attempt to continue the other account's session"
     assert again.prompt == killed.prompt, "started afresh from the node's start"
+
+
+def test_a_session_saved_before_accounts_were_recorded_is_still_resumed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An installation on the default account through `CLAUDE_CONFIG_DIR` and no `accounts:`
+    keys: what an earlier version stored holds no account, and carries on as it did."""
+    tmp_path.mkdir(exist_ok=True)
+    monkeypatch.setattr(settings, "claude_home", tmp_path / "default-home")
+    runtime = Sessions()
+    with monkeypatch.context() as earlier:
+        earlier.setattr(BuildPath, "account_key", lambda self: "")
+        recorder = killed_in_the_tests_step(tmp_path, runtime)
+
+    tick(tmp_path, recorder, run=build_run(runtime=runtime))
+
+    _, resumed, *_ = runtime.requests
+    assert resumed.resume_session == "sess-1"
+
+
+def rework_after(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recorded: str
+) -> tuple[Runs, str]:
+    """The calls of a rework that follows up the build session, which was made under the account
+    `recorded` names ("blank": before accounts were recorded) while the rework runs under `b`."""
+    tmp_path.mkdir(exist_ok=True)
+    recorder = fresh(tmp_path)
+    monkeypatch.setattr(settings, "claude_home", tmp_path / ("b" if recorded == "same" else "a"))
+    event = ResumeEvent(
+        kind=EventKind.REWORK, reason="comment", feedback=FEEDBACK, from_person=True
+    )
+    with monkeypatch.context() as earlier:
+        if recorded == "blank":
+            earlier.setattr(BuildPath, "account_key", lambda self: "")
+        tick(tmp_path, recorder, run=Runs(recorder))
+        tick(tmp_path, recorder, run=Runs(recorder), event=event)
+    monkeypatch.setattr(settings, "claude_home", tmp_path / "b")
+    runs = Runs(recorder)
+
+    tick(tmp_path, recorder, run=runs, run_log=run_log(tmp_path))
+
+    return runs, logged(tmp_path)
+
+
+@pytest.mark.parametrize("recorded", ["same", "blank"])
+def test_a_follow_up_continues_a_role_session_of_the_same_or_an_unrecorded_account(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recorded: str
+) -> None:
+    runs, _ = rework_after(tmp_path, monkeypatch, recorded)
+
+    (rework,) = runs.calls
+    assert rework.resume_session
+
+
+def test_a_follow_up_does_not_continue_a_role_session_of_another_account(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runs, log = rework_after(tmp_path, monkeypatch, "other")
+
+    (rework,) = runs.calls
+    assert rework.resume_session == ""
+    assert FEEDBACK in rework.prompt
+    assert "it was made under another account" in log

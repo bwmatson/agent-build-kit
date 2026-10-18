@@ -166,7 +166,9 @@ class AgentRequest(Frozen):
     # With `resume_session`: continue in a copy of the session, leaving the first untouched.
     fork_session: bool = False
     # The Claude account the call runs on; None: the default account.
-    account: Any = None  # a claude_account.Account; typed once the import cycle is settled
+    # A claude_account.Account. Untyped: that module imports `config`, which imports this one,
+    # so typing it needs the models moved out of `config` first.
+    account: Any = None
     # Added to the spawned agent's environment: where a per-run gateway key goes.
     env: dict[str, str] = {}
     # The whole environment the agent starts with, not an addition to ours; None: ours.

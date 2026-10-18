@@ -158,6 +158,13 @@ def resolve(inst: Installation, label: str | None) -> Account:
     return resolve_in(inst.config, label)
 
 
+def for_repo(config: WorkspaceConfig, repo_name: str) -> Account:
+    """The account the units and tracks of the repo `repo_name` run on: its label's account, else
+    the default account (also for a name no repo has)."""
+    repo = config.repos.get(repo_name)
+    return resolve_in(config, repo.account if repo else None)
+
+
 def resolve_in(config: WorkspaceConfig, label: str | None) -> Account:
     """`resolve` over a loaded configuration, for a caller that holds no `Installation`."""
     entry = runtime_entry(config, name=CLAUDE_CODE)

@@ -944,8 +944,7 @@ def claude_resolver(
     agent = runtime or runtimes.active()
     moving = _CONFLICT.get()
     resumed = bool(resume_session and follow_up and agent.supports_session_resume)
-    moving_repo = active().repos.get(moving.moving_repo) if moving else None
-    account = claude_account.resolve_in(active(), moving_repo.account) if moving_repo else None
+    account = claude_account.for_repo(active(), moving.moving_repo) if moving else None
 
     def ask(text: str, *, session: str) -> AgentResult:
         request = AgentRequest(

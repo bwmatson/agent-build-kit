@@ -3525,7 +3525,7 @@ def build_runner(
 
     forge = forges.get(repo.forge)
     tools = allowed_tools(profile, forge, repo.projects)
-    account = claude_account.resolve(installation, repo.account)
+    account = claude_account.for_repo(installation.config, unit.repo)
     run = build_run(
         account=account,
         planning_repo=planning_repo,
@@ -3541,6 +3541,7 @@ def build_runner(
     )
     gate_may_start, gate_resume_at = build_usage_gate()
     return UnitRunner(
+        account=account,
         store=store,
         leases=Leases(lease_dir(root)),
         planning_repo=planning_repo,
