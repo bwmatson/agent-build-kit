@@ -1,4 +1,4 @@
-"""A planned unit records the one tier 2 split its groups share (spec: e2e-split-declaration)."""
+"""A planned unit records the one e2e-test split its groups share (spec: e2e-split-declaration)."""
 
 from __future__ import annotations
 

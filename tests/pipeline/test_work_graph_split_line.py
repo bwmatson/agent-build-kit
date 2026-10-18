@@ -117,7 +117,7 @@ def test_a_groups_split_is_the_declaration_of_its_own_repo(tmp_path: Path) -> No
     assert [(g.number, g.split) for g in groups if g.number in (1, 2)] == [(1, "acp"), (2, "gpu")]
 
 
-def test_a_unit_test_group_with_a_split_line_is_refused_saying_it_has_no_tier_2(
+def test_a_unit_test_group_with_a_split_line_is_refused_saying_it_has_no_e2e_run(
     tmp_path: Path,
 ) -> None:
     splits_workspace(tmp_path / "planning")
@@ -127,7 +127,7 @@ def test_a_unit_test_group_with_a_split_line_is_refused_saying_it_has_no_tier_2(
 
     (error,) = errors
     assert error.line == line_of(text, "Split: acp")
-    assert "unit-test group has no tier 2" in error.message
+    assert "unit-test group has no e2e-test run" in error.message
 
 
 def test_a_split_line_above_the_first_group_is_refused_as_belonging_to_no_group(

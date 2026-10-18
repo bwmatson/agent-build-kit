@@ -1,4 +1,4 @@
-"""A join is refused across tier 2 splits as it is across repos and kinds, and accepted within
+"""A join is refused across e2e-test splits as it is across repos and kinds, and accepted within
 one (spec: unit-joining)."""
 
 from __future__ import annotations

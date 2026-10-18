@@ -1,4 +1,4 @@
-"""A workspace whose repos declare tier 2 splits, and tasks files whose groups name them."""
+"""A workspace whose repos declare e2e-test splits, and tasks files whose groups name them."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 from agent_build_kit.installation import Installation
 from tests.conftest import make_installation
 
-OPT_OUT = "Acceptance: none — a fixture about tier 2 splits\n"
+OPT_OUT = "Acceptance: none — a fixture about e2e-test splits\n"
 DECLARED = {"claude_code": {"marker": "runtime_claude_code"}, "acp": {"marker": "runtime_acp"}}
 
 

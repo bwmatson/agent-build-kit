@@ -167,6 +167,7 @@ def parse_plan(
                     repo=raw["repo"],
                     tier=raw["tier"],
                     project=_unit_project(raw, groups),
+                    split=_unit_split(raw, groups),
                     depends_on=tuple(raw.get("depends_on") or ()),
                     estimated_lines=int(raw.get("estimated_lines") or 0),
                     groups=tuple(raw.get("groups") or ()),
@@ -230,6 +231,15 @@ def _unit_project(raw: dict, groups: list[TaskGroup] | None) -> str:
     by_number = {group.number: group for group in groups or ()}
     first = next((by_number[n] for n in raw.get("groups") or () if n in by_number), None)
     return first.project if first else "."
+
+
+def _unit_split(raw: dict, groups: list[TaskGroup] | None) -> str:
+    """The e2e-test split a planned unit is in: the one it names, else that of its first group."""
+    if raw.get("split"):
+        return str(raw["split"])
+    by_number = {group.number: group for group in groups or ()}
+    first = next((by_number[n] for n in raw.get("groups") or () if n in by_number), None)
+    return first.split if first else "rest"
 
 
 def unit_priority(unit: Unit, catalog: Mapping[str, Sequence[TaskGroup]]) -> int:
@@ -404,6 +414,13 @@ def _check_groups(
     claimed: dict[int, str] = {}
 
     for unit in units:
+        in_splits = {n: by_number[n].split for n in unit.groups if n in by_number}
+        if len(set(in_splits.values())) > 1:
+            named = ", ".join(f"group {n} is in {split}" for n, split in in_splits.items())
+            raise PlannerError(
+                f"unit {unit.id} mixes e2e-test splits ({named}) — a unit is in one split, "
+                "so each split's groups are a unit of their own"
+            )
         for number in unit.groups:
             group = by_number.get(number)
             if group is None:
@@ -419,6 +436,11 @@ def _check_groups(
                 raise PlannerError(
                     f"unit {unit.id} is for project {unit.project!r} of {unit.repo} but claims "
                     f"group {number}, which is tagged for project {group.project!r}"
+                )
+            if group.split != unit.split:
+                raise PlannerError(
+                    f"unit {unit.id} is in e2e-test split {unit.split!r} but claims group "
+                    f"{number}, which is in split {group.split!r}"
                 )
             if number in built:
                 raise PlannerError(

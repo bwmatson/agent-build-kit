@@ -651,12 +651,13 @@ class UnitStore:
                 history=existing.history if existing else ({"state": PLANNED, "at": _now()},),
             )
             if existing and not existing.unstarted:
-                # A unit keeps the priority, the project and the review tier it started with.
+                # A unit keeps the priority, project, split and review tier it started with.
                 fresh = fresh.model_copy(
                     update={
                         "priority": existing.priority,
                         "promoted_from": existing.promoted_from,
                         "project": existing.project,
+                        "split": existing.split,
                         "review_tier": existing.review_tier,
                     }
                 )
