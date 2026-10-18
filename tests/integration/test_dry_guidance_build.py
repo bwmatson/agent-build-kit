@@ -251,7 +251,9 @@ def test_no_continuation_prompt_holds_the_reuse_part(reuse: DryRun) -> None:
 
 
 # The prompts are recorded at the protocol by a wrapper around the agent command, which only
-# an ACP agent speaks, so no scenario here has a Claude Code variant.
+# an ACP agent speaks, so no scenario here has a Claude Code variant. Every test of the module
+# reads a case that `ticked_case` ran under that recorder, which is why one reason covers all; a
+# test added here that does not need the recorder should be tagged and listed on its own.
 ACP_ONLY_REASONS = {
     name: "the prompts are recorded at the ACP wire by a wrapper around the agent command"
     for name in list(globals())

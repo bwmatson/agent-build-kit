@@ -29,6 +29,7 @@ from tests.dry_scratch import (
 )
 from tests.forges.github_server import FakeGitHub
 from tests.prompt_text import flat
+from tests.scratch_tick import register_scratch
 
 pytestmark = [
     pytest.mark.local_stack,
@@ -93,6 +94,8 @@ def test_the_review_prompt_the_reviewer_was_sent_holds_the_prior_art_clause(
     request: pytest.FixtureRequest, run_name: str
 ) -> None:
     run: DryRun = request.getfixturevalue(run_name)
+    # No fixture argument names the run here, so the failure dump is pointed at it.
+    register_scratch(run)
 
     prompts = [flat(p) for p in session_prompts(run.record)]
 
@@ -100,7 +103,9 @@ def test_the_review_prompt_the_reviewer_was_sent_holds_the_prior_art_clause(
 
 
 # The prompts are recorded at the protocol by a wrapper around the agent command, which only
-# an ACP agent speaks, so no scenario here has a Claude Code variant.
+# an ACP agent speaks, so no scenario here has a Claude Code variant. Every test of the module
+# reads a case that `ticked_case` ran under that recorder, which is why one reason covers all; a
+# test added here that does not need the recorder should be tagged and listed on its own.
 ACP_ONLY_REASONS = {
     name: "the prompts are recorded at the ACP wire by a wrapper around the agent command"
     for name in list(globals())

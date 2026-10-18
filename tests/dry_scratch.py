@@ -178,6 +178,13 @@ class DryRun(Frozen):
     tick_output: str = ""
 
     @property
+    def scratch(self) -> DryRun:
+        """What the failure dump reads of a test that takes this run as a fixture value: the run
+        is its own scratch, so every test of a module-scoped case prints the SCRATCH STATE
+        section, not only the one that set the fixture up."""
+        return self
+
+    @property
     def repo(self) -> Path:
         """Where the branch is: the remote once the unit pushed it, else the local app, which
         holds a seeded branch and what a held or failed tick left."""
