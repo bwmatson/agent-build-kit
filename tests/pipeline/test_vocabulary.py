@@ -35,6 +35,7 @@ EVERY_STATE = {
     "closed",
     "failed",
     "unplanned",
+    "retired",
 }
 
 

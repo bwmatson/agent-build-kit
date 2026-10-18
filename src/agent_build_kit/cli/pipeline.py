@@ -208,6 +208,7 @@ from agent_build_kit.pipeline.unit_store import (
     waiting_for,
 )
 from agent_build_kit.pipeline.units import (
+    BUILDS_NOTHING,
     CLOSED,
     FAILED,
     HELD,
@@ -738,7 +739,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         if (
             unit.calibrated_lines is not None
             and unit.calibrated_lines != unit.estimated_lines
-            and unit.state not in (MERGED, CLOSED, UNPLANNED)
+            and unit.state not in (MERGED, CLOSED, *BUILDS_NOTHING)
         ):
             log(
                 f"  estimate: {unit.id} ({unit_label(unit)}) "
@@ -766,7 +767,11 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
 
     for unit in units:
         where = unit_label(unit)
-        if unit.tier == TestTier.INTEGRATION_TEST and unit.state not in (MERGED, CLOSED, UNPLANNED):
+        if unit.tier == TestTier.INTEGRATION_TEST and unit.state not in (
+            MERGED,
+            CLOSED,
+            *BUILDS_NOTHING,
+        ):
             log(f"  {unit.id} ({where}) is {unit.tier}")
         if unit.state == HELD and unit.held_by == HeldBy.REVIEW and unit.pr:
             since = _conflicting(inst, unit, conflicting).get(unit.pr)
@@ -1792,7 +1797,7 @@ def awaiting_planning(inst: Installation, unit: StoredUnit, units: list[StoredUn
     planned = {
         (member.change, group)
         for other in units
-        if other.state != UNPLANNED
+        if other.state not in BUILDS_NOTHING
         for member in other.members()
         for group in member.groups
     }
@@ -1872,7 +1877,7 @@ def requeue_wait_ended(
         closed = [
             uid if parent is None else group_names([parent])
             for uid, parent in zip(unit.waited_on, prerequisites, strict=True)
-            if parent is None or parent.state in (CLOSED, UNPLANNED)
+            if parent is None or parent.state in (CLOSED, *BUILDS_NOTHING)
         ]
         if closed:
             store.set_wait_ended(unit.id, ", ".join(closed))
@@ -2937,7 +2942,7 @@ def link_needs(
     for a pair already in `reported`, which a pass keeps across its rounds.
     """
     units = store.all()
-    live = [unit for unit in units if unit.state != UNPLANNED]
+    live = [unit for unit in units if unit.state not in BUILDS_NOTHING]
     wanted = declared_needs(
         inst,
         live,
@@ -3327,6 +3332,8 @@ def plan_all(
             for u in units
             if (u.state in _STARTED and (u.state not in landed or u.change == change))
             or (u.state == PLANNED and u.change != change)
+            # Shown so the planner leaves the id alone, though nothing is built on it.
+            or (u.state == UnitState.RETIRED and u.change == change)
         ]
         omitted = sum(1 for u in units if u.state in landed and u.change != change)
         ratios = calibrations(units)
@@ -3528,7 +3535,7 @@ def _drop_cycle_edges(
     kept = [
         u
         for u in stored
-        if u.state != UNPLANNED and not (u.change == change and u.state == PLANNED)
+        if u.state not in BUILDS_NOTHING and not (u.change == change and u.state == PLANNED)
     ]
     drops = drop_cycle_edges(plan_units, stored, declared_needs(inst, [*kept, *plan_units]))
     if drops.dropped:
@@ -5066,7 +5073,7 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
             print(f"kept: {unit_id} has work; not in the plan")
             print(f"  `abk retire {unit_id} --reason TEXT` ends it and releases its groups")
     for unit in after.values():
-        if unit.change in to_plan and unit.state not in (PLANNED, UNPLANNED):
+        if unit.change in to_plan and unit.state not in (PLANNED, *BUILDS_NOTHING):
             print(f"kept: {unit.id}, {unit.state.value}")
     # Each was printed above as the plan or the linking logged it.
     # Only a refusal in a cycle through a change planned here: another change's is left to

@@ -633,7 +633,7 @@ A standing cause names a situation that lasts until a state change passes anothe
 `restack_deferred`, `restack_handed_back`, `dirty_worktree`, `attached`, `host_unavailable`,
 `network_unavailable`, `service_unavailable`, `environment` and `split_held`.
 An event cause names a transition that has happened and is over: `requeued`, `released`,
-`adopted`, `merged`, `auto_landed`, `closed` and `failed`. Recording an event cause ends a standing
+`adopted`, `merged`, `auto_landed`, `closed`, `retired` and `failed`. Recording an event cause ends a standing
 one explicitly. A state change the store makes on its own account (a replan's demotion and
 promotion, a vanished change, a join) passes `KEEP` and so carries a standing cause forward,
 with the previous note, and marks the entry `carried`, while a caller's state change passes its

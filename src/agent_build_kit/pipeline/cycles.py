@@ -7,7 +7,7 @@ from pathlib import Path
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.unit_store import UNPLANNED, StoredUnit
-from agent_build_kit.pipeline.units import CLOSED, MERGED, PLANNED, Unit, waiting_on
+from agent_build_kit.pipeline.units import CLOSED, MERGED, PLANNED, Unit, UnitState, waiting_on
 from agent_build_kit.pipeline.work_graph import group_needs, names_own_change, validate_tasks
 
 
@@ -30,7 +30,7 @@ class CycleDrops(Frozen):
 
 
 # Units whose work is done or abandoned: nothing waits on them, so they sit in no cycle.
-FINISHED = (MERGED, CLOSED, UNPLANNED)
+FINISHED = (MERGED, CLOSED, UNPLANNED, UnitState.RETIRED)
 
 
 def path_between(edges: Mapping[str, Sequence[str]], start: str, goal: str) -> tuple[str, ...]:

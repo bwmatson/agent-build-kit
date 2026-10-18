@@ -26,6 +26,7 @@ from agent_build_kit.pipeline.units import (
     PLANNED,
     RUNNING,
     SATISFIED,
+    UnitState,
     waiting_on,
 )
 
@@ -99,12 +100,13 @@ STATES: Mapping[str, StateStyle] = {
     CLOSED: _style("closed", "#fee2e2", "#dc2626", "#450a0a"),
     FAILED: _style("failed", "#fecaca", "#b91c1c", "#450a0a", "stroke-width:3px"),
     UNPLANNED: _style("unplanned", "#f5f5f4", "#a8a29e", "#44403c"),
+    UnitState.RETIRED: _style("retired", "#f1f5f9", "#64748b", "#334155", "stroke-dasharray:6 3"),
 }
 
 # Drawn by the graph and deliberately given no label: the host shows merged and
 # closed itself, and an unplanned or satisfied unit has no pull request of its
 # own to carry one.
-FINISHED: frozenset[str] = frozenset({MERGED, CLOSED, UNPLANNED, SATISFIED})
+FINISHED: frozenset[str] = frozenset({MERGED, CLOSED, UNPLANNED, SATISFIED, UnitState.RETIRED})
 UNLABELLED: frozenset[str] = FINISHED
 
 _DESCRIPTIONS = {
