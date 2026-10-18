@@ -45,6 +45,7 @@ from agent_build_kit.pipeline.units import (
     Priority,
     Unit,
     UnitState,
+    current_dependencies,
     waiting_on_me,
 )
 from agent_build_kit.pipeline.vocabulary import OverheadNode
@@ -794,8 +795,9 @@ def _retired_ids(in_flight: Sequence[dict]) -> list[str]:
     return [item["id"] for item in in_flight if item.get("state") == UnitState.RETIRED]
 
 
-def in_flight_item(unit: StoredUnit) -> dict:
-    """A unit as the planner is shown it, and whether it may be joined."""
+def in_flight_item(unit: StoredUnit, graph: Sequence[StoredUnit]) -> dict:
+    """A unit as the planner is shown it, and whether it may be joined. Its dependencies are
+    read through `graph`, so one on a replaced unit shows as the units that carry its work."""
     return {
         "id": unit.id,
         "repo": unit.repo,
@@ -807,7 +809,8 @@ def in_flight_item(unit: StoredUnit) -> dict:
         "tier": unit.tier,
         "priority": unit.priority,
         "estimated_lines": unit.estimated_lines,
-        "depends_on": list(unit.depends_on),
+        "depends_on": list(current_dependencies(unit, graph)),
+        "replaced_by": list(unit.superseded_by),
         "taken": [[member.change, list(member.groups)] for member in unit.members()],
         "builds": "; ".join(
             f"{member.change} group(s) {', '.join(str(n) for n in member.groups)}"
@@ -839,6 +842,8 @@ def _in_flight_line(item: dict) -> str:
         # Started units too: the groups one carries are taken, and the planner
         # has to see that to leave them out.
         line += f" builds {item['builds']}"
+    if item.get("replaced_by"):
+        line += f", replaced by {', '.join(item['replaced_by'])}"
     return line
 
 

@@ -147,6 +147,9 @@ class Unit(Frozen):
     # The unit that waits on this one and gives it the priority it has; empty when the
     # priority is the unit's own.
     promoted_from: str = ""
+    # The units that carry this one's groups after a replan replaced it; empty for a unit the
+    # plan holds.
+    superseded_by: tuple[str, ...] = ()
 
     def members(self) -> tuple[Member, ...]:
         """Every change's groups this unit builds: its own first, then carried ones."""
@@ -339,6 +342,75 @@ def _by_id(graph: Sequence[Unit]) -> dict[str, Unit]:
     return {unit.id: unit for unit in graph}
 
 
+# How many replaced units `resolve_replaced` follows from one id.
+REPLACED_DEPTH = 8
+
+
+def successors_of(unit: Unit, units: Sequence[Unit]) -> tuple[str, ...]:
+    """The ids of the units other than `unit` that build any `(change, group)` pair `unit`
+    builds, own or joined, in id order. A unit that builds nothing or is closed does not
+    carry them; a merged or satisfied one does, its work being covered."""
+    pairs = carried_pairs(unit)
+    return tuple(
+        sorted(
+            other.id
+            for other in units
+            if other.id != unit.id
+            and other.state not in (*BUILDS_NOTHING, UnitState.CLOSED)
+            and pairs & carried_pairs(other)
+        )
+    )
+
+
+def carried_pairs(unit: Unit) -> set[tuple[str, int]]:
+    """The (change, group) pairs the unit builds, its own and joined."""
+    return {(member.change, number) for member in unit.members() for number in member.groups}
+
+
+def _resolved(unit_id: str, index: dict[str, Unit]) -> tuple[str, ...]:
+    def walk(uid: str, depth: int, seen: frozenset[str]) -> tuple[str, ...]:
+        found = index.get(uid)
+        if (
+            found is None
+            or found.state not in BUILDS_NOTHING
+            or not found.superseded_by
+            or depth >= REPLACED_DEPTH
+        ):
+            return (uid,)
+        out: list[str] = []
+        for successor in found.superseded_by:
+            if successor not in seen and successor != uid:
+                out.extend(walk(successor, depth + 1, seen | {uid}))
+        return tuple(dict.fromkeys(out))
+
+    return walk(unit_id, 0, frozenset()) or (unit_id,)
+
+
+def resolve_replaced(unit_id: str, graph: Sequence[Unit]) -> tuple[str, ...]:
+    """The ids that stand in for `unit_id`: itself, unless it is a replaced unit with
+    successors, then theirs, followed through further replaced units (at most
+    `REPLACED_DEPTH` links, cycle-safe), once each, in order."""
+    return _resolved(unit_id, _by_id(graph))
+
+
+def _current(unit: Unit, index: dict[str, Unit]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            resolved
+            for dep in unit.depends_on
+            for resolved in _resolved(dep, index)
+            if resolved != unit.id
+        )
+    )
+
+
+def current_dependencies(unit: Unit, graph: Sequence[Unit]) -> tuple[str, ...]:
+    """`unit.depends_on` with each entry that names a replaced unit read as the units that
+    carry its work: de-duplicated, in order, never the unit itself. The one place a
+    dependency is followed through `superseded_by`."""
+    return _current(unit, _by_id(graph))
+
+
 def through_satisfied(unit: Unit, graph: Sequence[Unit]) -> tuple[str, ...]:
     """`unit.depends_on`, with a same-repo `SATISFIED` dependency replaced by
     its own — recursively.
@@ -366,7 +438,7 @@ def through_satisfied(unit: Unit, graph: Sequence[Unit]) -> tuple[str, ...]:
             return (dep_id,)
         seen = seen | {dep_id}
         out: list[str] = []
-        for other in parent.depends_on:
+        for other in _current(parent, index):
             if other in index and index[other].repo == parent.repo:
                 out.extend(expand(other, seen))
             else:
@@ -374,7 +446,7 @@ def through_satisfied(unit: Unit, graph: Sequence[Unit]) -> tuple[str, ...]:
         return tuple(out)
 
     out: list[str] = []
-    for dep in unit.depends_on:
+    for dep in _current(unit, index):
         parent = index.get(dep)
         if parent is not None and parent.repo == unit.repo:
             out.extend(expand(dep, frozenset()))
@@ -395,8 +467,9 @@ def waiting_on_me(
     one: a unit in the round that waits through one still waits on `unit`.
     """
     dependents: dict[str, list[Unit]] = {}
+    index = _by_id(graph)
     for other in graph:
-        for dep in other.depends_on:
+        for dep in _current(other, index):
             dependents.setdefault(dep, []).append(other)
 
     found: dict[str, Unit] = {}
@@ -669,7 +742,7 @@ def satisfied_landed(unit: Unit, graph: Sequence[Unit]) -> bool:
     def landed(current: Unit, seen: frozenset[str]) -> bool:
         same_repo = [
             index[dep]
-            for dep in current.depends_on
+            for dep in _current(current, index)
             if dep in index and index[dep].repo == current.repo and dep not in seen
         ]
         return all(

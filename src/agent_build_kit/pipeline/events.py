@@ -92,6 +92,7 @@ from agent_build_kit.pipeline.units import (
     UnitState,
     base_of,
     branch_name,
+    current_dependencies,
     depth_of,
     local_ref,
     through_satisfied,
@@ -817,7 +818,7 @@ def _children_of(parent: StoredUnit, graph: list[StoredUnit]) -> list[StoredUnit
     return [
         unit
         for unit in graph
-        if parent.id in (*unit.depends_on, *through_satisfied(unit, graph))
+        if parent.id in (*current_dependencies(unit, graph), *through_satisfied(unit, graph))
         and unit.repo == parent.repo
         and unit.state in IN_FLIGHT
         and unit.branch
@@ -834,7 +835,7 @@ def _dependents_of(parent: StoredUnit, graph: list[StoredUnit]) -> list[StoredUn
     return [
         unit
         for unit in graph
-        if parent.id in (*unit.depends_on, *through_satisfied(unit, graph))
+        if parent.id in (*current_dependencies(unit, graph), *through_satisfied(unit, graph))
         and unit.repo == parent.repo
         and unit.state not in (MERGED, CLOSED)
     ]

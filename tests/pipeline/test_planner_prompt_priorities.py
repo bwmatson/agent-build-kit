@@ -63,7 +63,7 @@ def test_the_priority_comes_before_the_project_and_the_builder_on_the_same_headi
     unit = stored_unit("feature/1", change="feature", groups=(1,), state=FAILED)
     tasks = tasks_of(1, heading="[app/web] [unit-test]")
 
-    prompt = prompt_of(tmp_path, tasks, [in_flight_item(unit)])
+    prompt = prompt_of(tmp_path, tasks, [in_flight_item(unit, [unit])])
 
     assert (
         "## 1. [app/web] [unit-test] Group 1 (priority 1) (project web) (built by feature/1)"
@@ -85,7 +85,8 @@ def test_an_unstarted_and_a_started_unit_are_listed_with_their_priority() -> Non
     unstarted = stored_unit("feature/1", change="feature", groups=(1,), priority=2)
     started = stored_unit("feature/2", change="feature", groups=(2,), priority=2, state=FAILED)
 
-    prompt = build_prompt({}, [in_flight_item(unstarted), in_flight_item(started)])
+    both = [unstarted, started]
+    prompt = build_prompt({}, [in_flight_item(unstarted, both), in_flight_item(started, both)])
 
     lines = {line.split()[1]: line for line in prompt.splitlines() if line.startswith("- feature/")}
     assert "priority 2" in lines["feature/1"]
@@ -95,7 +96,7 @@ def test_an_unstarted_and_a_started_unit_are_listed_with_their_priority() -> Non
 def test_a_promoted_unit_is_listed_with_its_stored_priority() -> None:
     promoted = stored_unit("feature/1", change="feature", groups=(1,), priority=1)
 
-    item = in_flight_item(promoted)
+    item = in_flight_item(promoted, [promoted])
 
     assert item["priority"] == 1
     assert "priority 1" in build_prompt({}, [item])
@@ -106,7 +107,7 @@ def test_a_prompt_built_without_groups_has_no_group_mark_and_lists_priorities(
 ) -> None:
     unit = stored_unit("feature/1", change="feature", groups=(1,), priority=2)
 
-    prompt = build_prompt({"feature": tasks_of(1, 2)}, [in_flight_item(unit)])
+    prompt = build_prompt({"feature": tasks_of(1, 2)}, [in_flight_item(unit, [unit])])
 
     assert not any(PRIORITY.search(heading) for heading in headings(prompt))
     assert "priority 2" in prompt

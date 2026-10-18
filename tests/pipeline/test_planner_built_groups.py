@@ -19,7 +19,7 @@ RULE = re.compile(r"(?i)built[^.]*\bnever\b[^.]*claim|\bnever\b[^.]*claim[^.]*bu
 
 def taken() -> list[dict]:
     unit = stored_unit("feature/1", change="feature", groups=(1,), state=FAILED)
-    return [in_flight_item(unit)]
+    return [in_flight_item(unit, [unit])]
 
 
 def test_the_prompt_states_that_built_groups_are_never_claimed() -> None:
@@ -40,6 +40,6 @@ def test_a_heading_the_validator_reads_with_extra_whitespace_is_marked_too() -> 
     tasks = TASKS.replace("## 2. [app]", "##  2. [app]")
     unit = stored_unit("feature/2", change="feature", groups=(2,), state=FAILED)
 
-    prompt = build_prompt({"feature": tasks}, [in_flight_item(unit)])
+    prompt = build_prompt({"feature": tasks}, [in_flight_item(unit, [unit])])
 
     assert "##  2. [app] [unit-test] Group two (built by feature/2)" in prompt.splitlines()

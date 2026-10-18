@@ -114,6 +114,18 @@ more task groups of a change.
 | `failed` | The build raised. With the cause `environment`, the pipeline's own environment failed its `environment.check` before unit-test; the unit keeps its slot, `abk status` says it is waiting for the environment, and the tick resumes it once the environment is healthy. | See below; for the environment cause, fix the environment (`abk doctor` runs the check). |
 | `satisfied` | The unit's groups were already implemented — by an earlier unit that worked ahead of its own plan — so it added no commits of its own, and what was already at the tip passed unit-test. | Nothing; its groups are ticked and its dependents released, the same as a merge: a pull request stacked on it is moved onto its predecessor's branch or the trunk and retargeted before the satisfied unit's own is closed. No PR was opened — or, if a rework found this after one was already open, the reason (the groups, that they were implemented elsewhere, and where when the graph can say) was posted on it and it was closed. |
 
+### A unit a replan replaced
+
+A replan that regroups gives the groups of an unstarted unit to new units and sets the old one
+`unplanned`. The store records the units that carry its groups in its `superseded_by` field, and
+every reader of a unit's dependencies follows it, so a unit that stored a dependency on the old one
+waits for the new one. `abk replan` says `now unplanned, replaced by <unit>`. The next tick rewrites
+the stored dependency and logs `<unit>: dependency <old> is now <new> (replaced by a replan)`, and a
+tick that gives an older replaced unit its successors logs `successors recorded: <n> unit(s)`.
+`abk status` prints `replaced: <unit> by <units>` only while a reference has not been rewritten yet.
+Nothing needs doing: a replaced unit with no successor, because its work was dropped, is treated as
+a dependency that builds nothing.
+
 ### `held`
 
 Four ways in: a reviewer put the `agent-hold` label on the PR, the review loop

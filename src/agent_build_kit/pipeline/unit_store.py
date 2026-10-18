@@ -37,6 +37,7 @@ from agent_build_kit.model import Frozen, TestTier, widest_kind
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.units import (
+    BUILDS_NOTHING,
     FAILED,
     HELD,
     IN_REVIEW,
@@ -48,9 +49,11 @@ from agent_build_kit.pipeline.units import (
     Priority,
     Unit,
     UnitState,
+    carried_pairs,
     direct_dependencies,
     history_stamp,
     repointed,
+    successors_of,
 )
 from agent_build_kit.pipeline.work_graph import FLAGS
 from agent_build_kit.redaction import redact_text
@@ -676,7 +679,8 @@ class UnitStore:
             # may hand back what `all()` returned, and those extra fields
             # would collide with the recorded ones set just below.
             fresh = StoredUnit(
-                **unit.model_dump(include=set(Unit.model_fields)),
+                # A unit the plan holds is live, so it never carries what replaced it.
+                **unit.model_dump(include=set(Unit.model_fields) - {"superseded_by"}),
                 branch=existing.branch if existing else "",
                 pr=existing.pr if existing else None,
                 pushed=existing.pushed if existing else None,
@@ -765,6 +769,7 @@ class UnitStore:
         for unit in units:
             stored[unit.id] = _reduced(stored, unit.id)
 
+        demoted: list[str] = []
         if change is not None:
             for unit_id, unit in stored.items():
                 # Only a unit that never started can be dropped — that is the
@@ -781,6 +786,12 @@ class UnitStore:
                     continue
                 if unit.change == change and unit_id not in planned_ids:
                     stored[unit_id] = _with_state(unit, UNPLANNED, KEEP)
+                    demoted.append(unit_id)
+            _record_successors(
+                stored,
+                [uid for uid, u in stored.items() if u.change == change],
+                annotate=demoted,
+            )
 
         if collisions := _new_collisions(before, stored):
             raise GroupOwned(collisions)
@@ -851,9 +862,21 @@ class UnitStore:
         ]
         for unit_id in dropped:
             stored[unit_id] = _with_state(stored[unit_id], UNPLANNED, KEEP)
+        _record_successors(stored, dropped, annotate=dropped)
         if dropped:
             self._write(stored)
         return dropped
+
+    @_exclusive
+    def backfill_successors(self) -> list[str]:
+        """Give every `unplanned` or `retired` unit with no record of what replaced it the
+        units that carry its groups now, in one write, and return the ids written. A unit
+        nothing carries stays empty; one that has successors is not touched."""
+        stored = self._read()
+        written = _record_successors(stored, list(stored))
+        if written:
+            self._write(stored)
+        return written
 
     @_exclusive
     def join(self, join: Join, *, group_kinds: Sequence[TestTier]) -> tuple[int, int] | None:
@@ -891,6 +914,7 @@ class UnitStore:
         if taken is not None:
             del stored[taken.id]
             stored.update(repointed(stored, taken.id, onto.id))
+            _repoint(stored, taken.id, onto.id)
         self._write(stored)
         return before, before + added
 
@@ -1216,11 +1240,41 @@ class UnitStore:
         self._update(unit_id, pushed=sha, pushed_at=spans.clock.now())
 
 
-def _carries(unit: StoredUnit | None) -> set[tuple[str, int]]:
-    """The (change, group) pairs the unit builds, its own and joined."""
-    if unit is None:
-        return set()
-    return {(member.change, number) for member in unit.members() for number in member.groups}
+def _record_successors(
+    stored: dict[str, StoredUnit], ids: Collection[str], *, annotate: Collection[str] = ()
+) -> list[str]:
+    """Set `superseded_by` on each of `ids` that is `unplanned` or `retired` with none, from
+    the units `stored` holds, and return the ids set. A unit in `annotate` was demoted by this
+    write, so its last history entry says what replaced it."""
+    everyone = list(stored.values())
+    written: list[str] = []
+    for unit_id in ids:
+        unit = stored[unit_id]
+        if unit.state not in BUILDS_NOTHING or unit.superseded_by:
+            continue
+        successors = successors_of(unit, everyone)
+        if not successors:
+            continue
+        update: dict[str, Any] = {"superseded_by": successors}
+        if unit_id in annotate and unit.history:
+            note = f"replaced by {', '.join(successors)}"
+            update["history"] = (*unit.history[:-1], {**unit.history[-1], "note": note})
+        stored[unit_id] = unit.model_copy(update=update)
+        written.append(unit_id)
+    return written
+
+
+def _repoint(stored: dict[str, StoredUnit], old: str, new: str) -> None:
+    """Name `new` wherever a unit's `depends_on`, `needs`, `waited_on` or `superseded_by` names
+    `old`, once each."""
+    for unit_id, unit in stored.items():
+        update = {
+            field: tuple(dict.fromkeys(new if item == old else item for item in current))
+            for field in ("depends_on", "needs", "waited_on", "superseded_by")
+            if old in (current := getattr(unit, field))
+        }
+        if update:
+            stored[unit_id] = unit.model_copy(update=update)
 
 
 def _new_collisions(
@@ -1241,7 +1295,7 @@ def _collisions(units: Mapping[str, StoredUnit]) -> set[Collision]:
     owners: dict[tuple[str, int], list[StoredUnit]] = {}
     for unit in units.values():
         if unit.owns_groups:
-            for pair in _carries(unit):
+            for pair in carried_pairs(unit):
                 owners.setdefault(pair, []).append(unit)
     return {
         Collision(
@@ -1267,6 +1321,8 @@ def _record(unit: StoredUnit) -> dict:
         del record["priority"]
     if not unit.promoted_from:
         del record["promoted_from"]
+    if not unit.superseded_by:
+        del record["superseded_by"]
     if unit.description is None:
         del record["description"]
     if not unit.bounces:

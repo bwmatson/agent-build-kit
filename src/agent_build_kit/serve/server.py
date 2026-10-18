@@ -35,7 +35,7 @@ from agent_build_kit.pipeline.environment import repo_artifacts
 from agent_build_kit.pipeline.run_log import CONTINUATION, run_log_dir
 from agent_build_kit.pipeline.stack_runner import unit_follow_ups
 from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import base_of
+from agent_build_kit.pipeline.units import base_of, current_dependencies
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.usage_report import GROUPINGS, build_report, render_json
 from agent_build_kit.pipeline.vocabulary import effective_state
@@ -253,6 +253,7 @@ def create_app(
             "note": unit.note,
             "branch": unit.branch,
             "pr": unit.pr,
+            "replaced_by": list(unit.superseded_by),
         }
 
     def related(
@@ -301,7 +302,7 @@ def create_app(
                 for entry in unit.history
             ],
             "base": base_of(unit, units),
-            "depends_on": related(unit.depends_on, units, paused),
+            "depends_on": related(current_dependencies(unit, units), units, paused),
             "review_round": review_round(installation, unit.id),
             "actions": available_actions(unit, installation),
         }

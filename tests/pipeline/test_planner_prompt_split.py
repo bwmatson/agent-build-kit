@@ -47,8 +47,9 @@ def test_the_line_of_an_unstarted_unit_names_its_split_unless_it_is_rest(tmp_pat
     acp = stored_unit("base/1", change="base", tier="e2e-test", split="acp")
     plain = stored_unit("base/2", change="base", tier="e2e-test")
 
+    both = [acp, plain]
     prompt = build_prompt(
-        {"feature": tasks_text(group(1))}, [in_flight_item(acp), in_flight_item(plain)]
+        {"feature": tasks_text(group(1))}, [in_flight_item(acp, both), in_flight_item(plain, both)]
     )
 
     first, second = (line for line in prompt.splitlines() if line.startswith("- base/"))
