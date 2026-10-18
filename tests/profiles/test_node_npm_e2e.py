@@ -99,7 +99,7 @@ def test_acceptance_has_nothing_to_run_without_a_changed_marked_file(
 
 
 def test_each_tests_time_comes_from_the_recorded_tier_two_report(profile) -> None:
-    output = f"RUN v5.0.4\n{REPORT_MARK}\n{(VITEST / 'tier2.xml').read_text()}"
+    output = f"RUN v5.0.4\n{REPORT_MARK}\n{(VITEST / 'e2e.xml').read_text()}"
 
     times = profile.parse_test_durations(output)
 

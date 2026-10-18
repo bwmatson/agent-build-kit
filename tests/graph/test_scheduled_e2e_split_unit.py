@@ -1,6 +1,6 @@
 """The unit of a scheduled split's change runs the whole marker restricted to that split, ends
 satisfied with a note naming the split, and waits, change open, while the split is held
-(spec: tier2-split-runs)."""
+(spec: e2e-split-runs)."""
 
 from __future__ import annotations
 
@@ -14,9 +14,9 @@ from agent_build_kit.pipeline.stack_runner import RunStatus
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import PLANNED, SATISFIED
 from agent_build_kit.profiles.python_uv import PROFILE
-from tests.scheduled_tier2_fakes import ScheduledRun, archiving
-from tests.tier2_park_fakes import GATE_CLEARED
-from tests.tier2_scope_fakes import KIT_SPLITS
+from tests.e2e_park_fakes import GATE_CLEARED
+from tests.e2e_scope_fakes import KIT_SPLITS
+from tests.scheduled_e2e_fakes import ScheduledRun, archiving
 
 MARKER = "local_stack"
 REASON = "the provider is down"

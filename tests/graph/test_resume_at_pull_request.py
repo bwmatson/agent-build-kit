@@ -39,7 +39,7 @@ def pushed(tmp_path: Path, *, tier: str = "unit-test", approved: str = HEAD) -> 
     return recorder
 
 
-def test_a_tier_two_unit_does_not_run_tier_two_again(tmp_path: Path) -> None:
+def test_an_e2e_unit_does_not_run_e2e_again(tmp_path: Path) -> None:
     recorder = pushed(tmp_path, tier="e2e-test")
 
     outcome = build(tmp_path, recorder)

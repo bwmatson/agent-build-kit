@@ -17,7 +17,7 @@ from agent_build_kit.forges.azure_devops import AzureDevOpsForge
 from agent_build_kit.forges.base import RepoId
 from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.forges.local import LocalForge
-from agent_build_kit.pipeline.e2e import Tier2Result, build_snapshot
+from agent_build_kit.pipeline.e2e import E2eResult, build_snapshot
 from agent_build_kit.pipeline.pr_body import build_pr_body
 from tests.factories import stored_unit
 from tests.forges import azure_answers
@@ -35,9 +35,9 @@ SAID = f"the run printed {SECRET} in its output"
 SAID_REPLACED = f"the run printed {REPLACED} in its output"
 
 
-def _failing_tier_two_body() -> str:
+def _failing_e2e_body() -> str:
     snapshot = build_snapshot(
-        Tier2Result(
+        E2eResult(
             sha="abcdef1234567",
             passed=0,
             failed=1,
@@ -48,7 +48,7 @@ def _failing_tier_two_body() -> str:
         )
     )
     return build_pr_body(
-        stored_unit(tier="tier2"), graph=[stored_unit()], base="main", e2e_snapshot=snapshot
+        stored_unit(tier="e2e-test"), graph=[stored_unit()], base="main", e2e_snapshot=snapshot
     )
 
 
@@ -67,14 +67,14 @@ def _one_failure_line(caplog: pytest.LogCaptureFixture) -> None:
 
 @pytest.mark.usefixtures("github_env")
 class TestGitHub:
-    def test_a_pull_request_description_from_a_failing_tier_two_holds_the_replacement(
+    def test_a_pull_request_description_from_a_failing_e2e_holds_the_replacement(
         self,
     ) -> None:
         created = answer(
             {"number": 7, "node_id": "PR_7", "state": "open", "head": {"ref": HEAD}}, 201
         )
         host = GitHubHost(routes={("POST", f"{BASE}/pulls"): created})
-        body = _failing_tier_two_body()
+        body = _failing_e2e_body()
         assert SECRET in body
 
         with known():
@@ -114,10 +114,10 @@ class TestGitHub:
         with known():
             forge = GitHubForge(http=host)
             forge.post_status(
-                GITHUB, sha="abc1234def", ok=False, context="local/tier2", description=counts
+                GITHUB, sha="abc1234def", ok=False, context="local/e2e-test", description=counts
             )
             forge.post_status(
-                GITHUB, sha="abc1234def", ok=False, context="local/tier2", description=SAID
+                GITHUB, sha="abc1234def", ok=False, context="local/e2e-test", description=SAID
             )
 
         counted, said = host.calls(*route)
@@ -145,7 +145,7 @@ class TestAzureDevOps:
 
         with known():
             AzureDevOpsForge(http=host).create_pr(
-                AZURE, head=HEAD, base="main", title=f"Fix {SECRET}", body=_failing_tier_two_body()
+                AZURE, head=HEAD, base="main", title=f"Fix {SECRET}", body=_failing_e2e_body()
             )
 
         [call] = host.writes()
@@ -170,7 +170,7 @@ class TestAzureDevOps:
 
         with known():
             AzureDevOpsForge(http=host).post_status(
-                AZURE, sha="abc123", ok=False, context="local/tier2", description=SAID, head=HEAD
+                AZURE, sha="abc123", ok=False, context="local/e2e-test", description=SAID, head=HEAD
             )
 
         written = "\n".join(str(call.body) for call in host.writes())
@@ -196,7 +196,7 @@ class TestLocal:
 
         with known():
             number = forge.create_pr(
-                LOCAL, head=HEAD, base="main", title=f"Fix {SECRET}", body=_failing_tier_two_body()
+                LOCAL, head=HEAD, base="main", title=f"Fix {SECRET}", body=_failing_e2e_body()
             )
             forge.post_comment(LOCAL, number, body=SAID)
             forge.update_pr(LOCAL, number, body=SAID)

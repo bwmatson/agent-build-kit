@@ -15,18 +15,18 @@ from agent_build_kit.init.propose import ALLOWED_TOOLS, ProposeError, build_prom
 from tests.factories import init_repo
 
 GOOD_TASKS = """\
-## 1. [app] [tier1] Test layout and markers
+## 1. [app] [unit-test] Test layout and markers
 
 - [ ] 1.1 Add tests/conftest.py with the markers
 - [ ] 1.2 Exclude marked tiers by default
 
-## 2. [app] [tier2] [acceptance] Run the suite as a consumer would
+## 2. [app] [e2e-test] [acceptance] Run the suite as a consumer would
 
 - [ ] 2.1 Run pytest from a clean checkout
 """
 
 BAD_TASKS = """\
-## 1. [elsewhere] [tier1] Wrong repo tag
+## 1. [elsewhere] [unit-test] Wrong repo tag
 
 - [ ] 1.1 A task
 """

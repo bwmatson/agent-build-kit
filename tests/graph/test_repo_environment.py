@@ -118,7 +118,9 @@ def sequence(env: FakeEnvironment) -> list[str]:
     return [call for call in env.calls() if call != "check"]
 
 
-def test_a_unit_that_edits_a_manifest_has_sync_run_before_its_next_tier_1(tmp_path: Path) -> None:
+def test_a_unit_that_edits_a_manifest_has_sync_run_before_its_next_unit_test(
+    tmp_path: Path,
+) -> None:
     env = FakeEnvironment(tmp_path / "control", inputs=(MANIFEST,))
     habitat = Habitat(tmp_path, env)
     recorder = fresh(tmp_path)
@@ -162,7 +164,7 @@ def test_a_failing_check_after_the_units_own_manifest_change_goes_to_the_fix_rou
     assert BROKEN_OUTPUT in fix_prompt
 
 
-def test_unchanged_inputs_run_no_sync_before_a_later_tier_1(tmp_path: Path) -> None:
+def test_unchanged_inputs_run_no_sync_before_a_later_unit_test(tmp_path: Path) -> None:
     env = FakeEnvironment(tmp_path / "control", inputs=(MANIFEST,))
     habitat = Habitat(tmp_path, env)
     recorder = fresh(tmp_path)

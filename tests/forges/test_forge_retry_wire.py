@@ -277,7 +277,7 @@ class TestAzureDevOps:
             AZURE,
             sha="abc123",
             ok=True,
-            context="local/tier2",
+            context="local/e2e-test",
             description="d",
             head="spec/add-marker/1",
         )

@@ -98,7 +98,7 @@ def test_a_restacked_branch_gets_no_changelog_check_when_its_repo_has_it_off(
     assert not [c for c in ran if is_changelog_check(c)]
 
 
-def test_the_restacks_tier_one_is_the_setting_of_the_repo_the_branch_is_in(
+def test_the_restacks_unit_test_is_the_setting_of_the_repo_the_branch_is_in(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     installation = workspace(tmp_path, app_changelog=None)
@@ -139,7 +139,7 @@ def test_the_resolver_is_told_the_settings_of_the_repo_it_moves_in(
     assert contexts[0].repo.changelog == changelog
 
 
-def test_the_restacks_tier_one_logs_what_a_move_after_a_release_was_checked_by(
+def test_the_restacks_unit_test_logs_what_a_move_after_a_release_was_checked_by(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     installation = workspace(tmp_path, app_changelog=None)

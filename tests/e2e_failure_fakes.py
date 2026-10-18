@@ -156,12 +156,10 @@ def run_failing_e2e(tmp_path: Path, snapshot: str) -> tuple[str, Path]:
     """Run an e2e-test unit whose e2e-test fails with `snapshot`: the feedback the unit
     holds afterwards, and the directory of its run logs."""
     logs = tmp_path / "unit-logs"
-    tier_two = unit(tier="e2e-test")
-    run_log = RunLog(
-        logs, tier_two, step="build", model="m", base="main", started=datetime.now(UTC)
-    )
+    e2e = unit(tier="e2e-test")
+    run_log = RunLog(logs, e2e, step="build", model="m", base="main", started=datetime.now(UTC))
     store = UnitStore(tmp_path / "units.json")
-    store.upsert([tier_two])
+    store.upsert([e2e])
     recorder = Recorder(store, e2e_ok=False)
     recorder.e2e_output = snapshot
     runner = make_runner(store, recorder, tmp_path)
@@ -169,11 +167,11 @@ def run_failing_e2e(tmp_path: Path, snapshot: str) -> tuple[str, Path]:
     async def go() -> None:
         async with open_checkpointer(unit_graphs_path(tmp_path / "state")) as saver:
             await run_unit(
-                runner, tier_two, base="main", graph=[], saver=saver, run_log=run_log, tracer=None
+                runner, e2e, base="main", graph=[], saver=saver, run_log=run_log, tracer=None
             )
 
     asyncio.run(go())
-    return store.get(tier_two.id).feedback, logs
+    return store.get(e2e.id).feedback, logs
 
 
 run_failing_tier2 = run_failing_e2e  # abk-shim

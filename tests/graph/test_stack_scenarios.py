@@ -199,7 +199,7 @@ def test_work_is_built_on_the_remote_trunk_but_the_pr_targets_main(tmp_path: Pat
     assert pr_bases == ["main"]
 
 
-def test_a_tier_one_unit_does_not_touch_the_local_stack(tmp_path: Path) -> None:
+def test_a_unit_test_unit_does_not_touch_the_local_stack(tmp_path: Path) -> None:
     """E2e-test is serialized, so running it needlessly would block other work."""
     recorder = fresh(tmp_path)
 
@@ -253,7 +253,7 @@ def test_nothing_is_pushed_but_the_commit_review_approved(tmp_path: Path) -> Non
     assert "push" not in recorder.events
 
 
-def test_a_commit_tier_one_makes_before_the_review_is_the_commit_that_is_reviewed(
+def test_a_commit_unit_test_makes_before_the_review_is_the_commit_that_is_reviewed(
     tmp_path: Path,
 ) -> None:
     """An autoformatter in a check can rewrite files; run before the review,
@@ -276,17 +276,17 @@ def test_a_commit_tier_one_makes_before_the_review_is_the_commit_that_is_reviewe
 # --- the checks' output reaches the run log ---------------------------------------
 
 
-def test_a_failed_tier_ones_output_reaches_the_run_log(tmp_path: Path) -> None:
+def test_a_failed_unit_tests_output_reaches_the_run_log(tmp_path: Path) -> None:
     """The run log is what a person reads to see why a unit failed."""
     recorder = fresh(tmp_path, unit_test_ok=False)
-    recorder.unit_test_output = "E   DISTINCTIVE-TIER-ONE-OUTPUT"
+    recorder.unit_test_output = "E   DISTINCTIVE-UNIT-TEST-OUTPUT"
 
     build(tmp_path, recorder)
 
-    assert any("E   DISTINCTIVE-TIER-ONE-OUTPUT" in line for line in recorder.logged)
+    assert any("E   DISTINCTIVE-UNIT-TEST-OUTPUT" in line for line in recorder.logged)
 
 
-def test_a_tier_one_that_fails_after_a_clean_move_logs_its_output(tmp_path: Path) -> None:
+def test_a_unit_test_that_fails_after_a_clean_move_logs_its_output(tmp_path: Path) -> None:
     """The re-check before the push, on the base as it now is, is a unit-test too."""
     recorder = fresh(tmp_path)
     recorder.made = 2

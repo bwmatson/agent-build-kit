@@ -24,7 +24,8 @@ def test_the_tasks_are_read_where_the_layout_function_says(
     monkeypatch.setattr(propose, "changes_dir_under", lambda root, specs_dir: changes)
     (changes / "feature").mkdir(parents=True)
     (changes / "feature" / "tasks.md").write_text(
-        "## 1. [app] [tier1] First\n\n- [ ] 1.1 Test it\n\nAcceptance: none — scaffolding only\n"
+        "## 1. [app] [unit-test] First\n\n- [ ] 1.1 Test it\n\n"
+        "Acceptance: none — scaffolding only\n"
     )
 
     errors = validation_errors(tmp_path, "feature", repos=("app",), projects={}, run_openspec=valid)

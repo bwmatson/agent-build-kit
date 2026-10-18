@@ -283,18 +283,18 @@ def test_a_status_names_the_tested_commit() -> None:
     host = GitHubHost(routes=status_route("abc1234def"))
 
     forge(host).post_status(
-        REPO, sha="abc1234def", ok=True, context="local/tier2", description="4 passed"
+        REPO, sha="abc1234def", ok=True, context="local/e2e-test", description="4 passed"
     )
 
     [call] = host.calls("POST", f"{BASE}/statuses/abc1234def")
-    assert call.body == {"state": "success", "context": "local/tier2", "description": "4 passed"}
+    assert call.body == {"state": "success", "context": "local/e2e-test", "description": "4 passed"}
 
 
 def test_a_failed_run_is_a_failure_status() -> None:
     host = GitHubHost(routes=status_route("abc1234def"))
 
     forge(host).post_status(
-        REPO, sha="abc1234def", ok=False, context="local/tier2", description="d"
+        REPO, sha="abc1234def", ok=False, context="local/e2e-test", description="d"
     )
 
     [call] = host.calls("POST", f"{BASE}/statuses/abc1234def")

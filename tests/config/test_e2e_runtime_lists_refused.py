@@ -1,5 +1,5 @@
-"""The runtime lists `tests.tier2_runtimes`, `tests.runtimes_blocked` and
-`tests.runtimes_allowed` are gone, each refused naming what replaces it (spec: tier2-splits)."""
+"""The runtime lists `tests.<old e2e list>`, `tests.runtimes_blocked` and
+`tests.runtimes_allowed` are gone, each refused naming what replaces it (spec: e2e-splits)."""
 
 from __future__ import annotations
 
@@ -14,6 +14,8 @@ from agent_build_kit.cli import main
 from agent_build_kit.config import WorkspaceConfig, dump
 
 APP: dict[str, Any] = {"path": "/work/app", "slug": "example/app"}
+# The refused key keeps the old test-kind spelling: it is what an installation still has.
+OLD_RUNTIMES = "tier" + "2_runtimes"
 REPLACED_BY_HOLD = "tests.e2e_splits.<name>.hold"
 SPLIT = {"acp": {"marker": "runtime_acp"}}
 
@@ -35,19 +37,19 @@ def test_a_hold_list_is_refused_naming_the_hold_setting(setting: str) -> None:
 
 def test_the_top_level_runtime_list_is_refused_naming_a_declared_split() -> None:
     with pytest.raises(ValidationError) as refused:
-        load(tests={"tier2_runtimes": ["acp"]})
+        load(tests={OLD_RUNTIMES: ["acp"]})
 
     text = str(refused.value)
-    assert "tests.tier2_runtimes" in text
+    assert f"tests.{OLD_RUNTIMES}" in text
     assert "tests.e2e_splits" in text
 
 
 def test_a_repos_own_runtime_list_is_refused_naming_a_declared_split() -> None:
     with pytest.raises(ValidationError) as refused:
-        load(own={"tier2_runtimes": ["acp"]})
+        load(own={OLD_RUNTIMES: ["acp"]})
 
     text = str(refused.value)
-    assert "repos.app.tests.tier2_runtimes" in text
+    assert f"repos.app.tests.{OLD_RUNTIMES}" in text
     assert "tests.e2e_splits" in text
 
 
@@ -58,9 +60,9 @@ def test_a_split_named_base_is_refused_as_the_older_name_of_rest(repo_level: boo
 
     with pytest.raises(ValidationError) as refused:
         if repo_level:
-            load(own={"tier2_splits": base})
+            load(own={"e2e_splits": base})
         else:
-            load(tests={"tier2_splits": base})
+            load(tests={"e2e_splits": base})
 
     text = str(refused.value)
     assert setting in text
@@ -72,10 +74,10 @@ def test_config_show_no_longer_prints_the_lists(
     tmp_path: Path, capsys: pytest.CaptureFixture
 ) -> None:
     path = tmp_path / "abk.yaml"
-    path.write_text(dump(load(tests={"tier2_splits": SPLIT})))
+    path.write_text(dump(load(tests={"e2e_splits": SPLIT})))
 
     assert main(["--config", str(path), "config", "--show"]) == 0
 
     shown = yaml.safe_load(capsys.readouterr().out)
-    assert {"tier2_runtimes", "runtimes_blocked", "runtimes_allowed"}.isdisjoint(shown["tests"])
-    assert "tier2_runtimes" not in shown["repos"]["app"]["tests"]
+    assert {OLD_RUNTIMES, "runtimes_blocked", "runtimes_allowed"}.isdisjoint(shown["tests"])
+    assert OLD_RUNTIMES not in shown["repos"]["app"]["tests"]

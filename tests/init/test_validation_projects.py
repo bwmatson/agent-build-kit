@@ -34,10 +34,10 @@ def errors_for(planning: Path, heading: str) -> list[str]:
 
 
 def test_an_undeclared_project_is_an_error_naming_it_and_the_declared_ones(planning: Path) -> None:
-    (error,) = [e for e in errors_for(planning, "[app/mobile] [tier1] Add it") if "mobile" in e]
+    (error,) = [e for e in errors_for(planning, "[app/mobile] [unit-test] Add it") if "mobile" in e]
 
     assert "web" in error
 
 
 def test_a_declared_project_is_no_error(planning: Path) -> None:
-    assert not [e for e in errors_for(planning, "[app/web] [tier1] Add it") if "project" in e]
+    assert not [e for e in errors_for(planning, "[app/web] [unit-test] Add it") if "project" in e]

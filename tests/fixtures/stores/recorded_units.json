@@ -5,7 +5,7 @@
       "change": "feature",
       "title": "Register the marker",
       "repo": "app",
-      "tier": "tier1",
+      "tier": "unit-test",
       "depends_on": [],
       "needs": [],
       "estimated_lines": 140,
@@ -60,7 +60,7 @@
       "change": "feature",
       "title": "Register the marker",
       "repo": "app",
-      "tier": "tier1",
+      "tier": "unit-test",
       "depends_on": [
         "feature/1"
       ],
@@ -117,7 +117,7 @@
       "change": "feature",
       "title": "Register the marker",
       "repo": "app",
-      "tier": "tier1",
+      "tier": "unit-test",
       "depends_on": [
         "feature/1",
         "feature/2"
@@ -175,7 +175,7 @@
       "change": "feature",
       "title": "Register the marker",
       "repo": "app",
-      "tier": "tier1",
+      "tier": "unit-test",
       "depends_on": [
         "feature/1",
         "feature/2",
@@ -234,7 +234,7 @@
       "change": "feature",
       "title": "Register the marker",
       "repo": "app",
-      "tier": "tier1",
+      "tier": "unit-test",
       "depends_on": [],
       "needs": [],
       "estimated_lines": 140,
@@ -289,7 +289,7 @@
       "change": "feature",
       "title": "Register the marker",
       "repo": "platform",
-      "tier": "tier1",
+      "tier": "unit-test",
       "depends_on": [
         "feature/1"
       ],
@@ -346,7 +346,7 @@
       "change": "feature",
       "title": "Register the marker",
       "repo": "app",
-      "tier": "tier1",
+      "tier": "unit-test",
       "depends_on": [
         "feature/1",
         "feature/2",
@@ -404,7 +404,7 @@
       "change": "feature",
       "title": "Register the marker",
       "repo": "app",
-      "tier": "tier1",
+      "tier": "unit-test",
       "depends_on": [
         "feature/1",
         "feature/2",
@@ -463,7 +463,7 @@
       "change": "add-marker",
       "title": "Register the marker",
       "repo": "app",
-      "tier": "tier1",
+      "tier": "unit-test",
       "depends_on": [],
       "needs": [],
       "estimated_lines": 140,
@@ -518,7 +518,7 @@
       "change": "add-marker",
       "title": "Register the marker",
       "repo": "app",
-      "tier": "tier1",
+      "tier": "unit-test",
       "depends_on": [
         "add-marker/1"
       ],
@@ -575,7 +575,7 @@
       "change": "add-marker",
       "title": "Register the marker",
       "repo": "app",
-      "tier": "tier1",
+      "tier": "unit-test",
       "depends_on": [
         "add-marker/1",
         "add-marker/2"
@@ -633,7 +633,7 @@
       "change": "add-marker",
       "title": "Register the marker",
       "repo": "app",
-      "tier": "tier1",
+      "tier": "unit-test",
       "depends_on": [
         "add-marker/1",
         "add-marker/2",

@@ -1,5 +1,5 @@
-"""A scheduled unit builds nothing: it goes from `prepare` to the whole-suite tier 2 step, ends
-satisfied when it passes, and its change archives by the existing path (spec: tier2-schedule)."""
+"""A scheduled unit builds nothing: it goes from `prepare` to the whole-suite e2e-test step, ends
+satisfied when it passes, and its change archives by the existing path (spec: e2e-schedule)."""
 
 from __future__ import annotations
 
@@ -12,9 +12,11 @@ from agent_build_kit.pipeline.archive import archive_ready_changes
 from agent_build_kit.pipeline.e2e_schedule import write_due
 from agent_build_kit.pipeline.stack_runner import RunStatus
 from agent_build_kit.pipeline.units import SATISFIED
+from tests.e2e_schedule_fakes import TODAY
+from tests.e2e_scope_fakes import WHOLE, Ran
 from tests.factories import git
 from tests.runner_fakes import Killed
-from tests.scheduled_tier2_fakes import (
+from tests.scheduled_e2e_fakes import (
     CHANGE,
     SUMMARY,
     ScheduledRun,
@@ -22,15 +24,13 @@ from tests.scheduled_tier2_fakes import (
     archiving_on,
     scheduled_unit,
 )
-from tests.tier2_schedule_fakes import TODAY
-from tests.tier2_scope_fakes import WHOLE, Ran
 
 BUILD_STEPS = {"claude:tests", "claude:impl", "claude:rework", "claude:fix_checks", "review"}
 PUBLISHED = {"push", "pr", "status", "close"}
 
 
-@pytest.mark.parametrize("feedback", ["", "tier 2 failed:\nFAILED tests/live/test_live.py::t"])
-def test_a_scheduled_unit_goes_from_prepare_to_tier_2_and_builds_nothing(
+@pytest.mark.parametrize("feedback", ["", "e2e-test failed:\nFAILED tests/live/test_live.py::t"])
+def test_a_scheduled_unit_goes_from_prepare_to_e2e_and_builds_nothing(
     tmp_path: Path, feedback: str
 ) -> None:
     run = ScheduledRun(tmp_path, feedback=feedback)
@@ -39,10 +39,10 @@ def test_a_scheduled_unit_goes_from_prepare_to_tier_2_and_builds_nothing(
 
     recorder = run.recorder
     assert outcome.status == RunStatus.SATISFIED
-    assert run.ran.commands, "tier 2 ran"
+    assert run.ran.commands, "e2e-test ran"
     assert recorder.prompts == [], "no agent was called"
     assert not (BUILD_STEPS | PUBLISHED) & set(recorder.events)
-    assert not [event for event in recorder.events if event.startswith(("commit", "tier1"))]
+    assert not [event for event in recorder.events if event.startswith(("commit", "unit-test"))]
     assert recorder.pr_calls == 0 and recorder.remote == []
 
 
@@ -81,7 +81,7 @@ def test_the_run_starts_from_the_default_branch_tip_as_of_the_start(tmp_path: Pa
         heads: list[str] = []
 
         def __call__(self, command: list[str], **kwargs: object):
-            order.append("tier2")
+            order.append("e2e-test")
             self.heads.append(git(Path(str(kwargs["cwd"])), "rev-parse", "HEAD").strip())
             return super().__call__(command, **kwargs)
 
@@ -92,13 +92,15 @@ def test_the_run_starts_from_the_default_branch_tip_as_of_the_start(tmp_path: Pa
 
     run.tick(fetch=lambda unit: order.append("fetch"))
 
-    assert order == ["fetch", "tier2", "fetch", "tier2"], "fetched before each run of the suite"
+    assert order == ["fetch", "e2e-test", "fetch", "e2e-test"], (
+        "fetched before each run of the suite"
+    )
     assert run.ran.heads == [run.base, tip], "the reused worktree is moved to the new tip"
 
 
 def test_a_new_runner_resumed_at_satisfied_still_has_the_note_of_the_run(tmp_path: Path) -> None:
     run = ScheduledRun(tmp_path)
-    killed = run.tick  # the process dies in `satisfied`, after tier 2 was checkpointed
+    killed = run.tick  # the process dies in `satisfied`, after e2e-test was checkpointed
 
     def die(unit: object) -> list[str]:
         raise Killed("satisfied")
@@ -107,7 +109,7 @@ def test_a_new_runner_resumed_at_satisfied_still_has_the_note_of_the_run(tmp_pat
         killed(release_dependents=die)
 
     def refuse(**kwargs: object) -> None:
-        raise AssertionError("tier 2 is not run again")
+        raise AssertionError("e2e-test is not run again")
 
     outcome = run.tick(
         run_e2e=refuse,

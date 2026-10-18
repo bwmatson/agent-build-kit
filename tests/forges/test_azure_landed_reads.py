@@ -230,7 +230,7 @@ def test_a_status_the_host_refuses_does_not_raise(caplog: pytest.LogCaptureFixtu
 
     with caplog.at_level(logging.WARNING):
         forge(host).post_status(
-            REPO, sha="abc123", ok=True, context="local/tier2", description="d", head=HEAD
+            REPO, sha="abc123", ok=True, context="local/e2e-test", description="d", head=HEAD
         )
 
     assert host.calls("POST", "commits/abc123/statuses")

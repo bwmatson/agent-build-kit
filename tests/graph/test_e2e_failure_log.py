@@ -25,7 +25,7 @@ FAILURE = build_snapshot(
 )
 
 
-def test_a_failing_tier_two_writes_the_tail_of_its_output_to_the_run_log(tmp_path: Path) -> None:
+def test_a_failing_e2e_writes_the_tail_of_its_output_to_the_run_log(tmp_path: Path) -> None:
     _, logs = run_failing_e2e(tmp_path, FAILURE)
 
     (written,) = logs.iterdir()

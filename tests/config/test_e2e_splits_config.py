@@ -1,4 +1,4 @@
-"""`tests.tier2_splits`, at the top of the file and per repo (spec: tier2-splits)."""
+"""`tests.e2e_splits`, at the top of the file and per repo (spec: e2e-splits)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import yaml
 from pydantic import ValidationError
 
 from agent_build_kit.cli import main
-from agent_build_kit.config import Tier2Split, WorkspaceConfig, dump, tier2_splits
+from agent_build_kit.config import E2eSplit, WorkspaceConfig, dump, e2e_splits
 
 TWO = {"claude_code": {"marker": "runtime_claude_code"}, "acp": {"marker": "runtime_acp"}}
 
@@ -18,10 +18,10 @@ TWO = {"claude_code": {"marker": "runtime_claude_code"}, "acp": {"marker": "runt
 def config(splits: dict[str, Any] | None = None, *, own: dict[str, Any] | None = None) -> Any:
     app: dict[str, Any] = {"path": "/work/app", "slug": "example/app"}
     if own is not None:
-        app["tests"] = {"tier2_splits": own}
+        app["tests"] = {"e2e_splits": own}
     return WorkspaceConfig.model_validate(
         {
-            "tests": {} if splits is None else {"tier2_splits": splits},
+            "tests": {} if splits is None else {"e2e_splits": splits},
             "repos": {
                 "app": app,
                 "platform": {"path": "/work/platform", "slug": "example/platform"},
@@ -31,23 +31,23 @@ def config(splits: dict[str, Any] | None = None, *, own: dict[str, Any] | None =
 
 
 def names(loaded: Any, repo: str = "app") -> list[str]:
-    return [split.name for split in tier2_splits(loaded.repos[repo], loaded)]
+    return [split.name for split in e2e_splits(loaded.repos[repo], loaded)]
 
 
 def test_nothing_declared_gives_rest_alone() -> None:
     loaded = config()
 
-    assert loaded.tests.tier2_splits == {}
-    assert tier2_splits(loaded.repos["app"], loaded) == (Tier2Split(name="rest"),)
+    assert loaded.tests.e2e_splits == {}
+    assert e2e_splits(loaded.repos["app"], loaded) == (E2eSplit(name="rest"),)
 
 
 def test_two_splits_are_given_in_declaration_order_then_rest_with_their_markers() -> None:
     loaded = config(TWO)
 
-    assert tier2_splits(loaded.repos["app"], loaded) == (
-        Tier2Split(name="claude_code", marker="runtime_claude_code"),
-        Tier2Split(name="acp", marker="runtime_acp"),
-        Tier2Split(name="rest"),
+    assert e2e_splits(loaded.repos["app"], loaded) == (
+        E2eSplit(name="claude_code", marker="runtime_claude_code"),
+        E2eSplit(name="acp", marker="runtime_acp"),
+        E2eSplit(name="rest"),
     )
 
 
@@ -102,21 +102,21 @@ def test_an_unknown_key_is_refused_though_the_split_without_it_loads() -> None:
 def test_hold_accepts_true_and_false(hold: bool) -> None:
     loaded = config({"gpu": {"marker": "gpu", "hold": hold}})
 
-    assert tier2_splits(loaded.repos["app"], loaded)[0].hold is hold
+    assert e2e_splits(loaded.repos["app"], loaded)[0].hold is hold
 
 
 def test_hold_is_unset_when_absent() -> None:
     loaded = config({"gpu": {"marker": "gpu"}})
 
-    assert [split.hold for split in tier2_splits(loaded.repos["app"], loaded)] == [None, None]
+    assert [split.hold for split in e2e_splits(loaded.repos["app"], loaded)] == [None, None]
 
 
 def test_rest_may_carry_a_hold() -> None:
     loaded = config({"gpu": {"marker": "gpu"}, "rest": {"hold": True}})
 
-    assert tier2_splits(loaded.repos["app"], loaded) == (
-        Tier2Split(name="gpu", marker="gpu"),
-        Tier2Split(name="rest", hold=True),
+    assert e2e_splits(loaded.repos["app"], loaded) == (
+        E2eSplit(name="gpu", marker="gpu"),
+        E2eSplit(name="rest", hold=True),
     )
 
 
