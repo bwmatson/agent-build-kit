@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Literal
 
 from dotenv import dotenv_values
 from pydantic import AliasChoices, Field
@@ -80,6 +81,10 @@ class Settings(BaseSettings):
 
     # Overrides abk.yaml's `runtime` on this machine (ABK_RUNTIME). None = the file's.
     runtime: str | None = None
+
+    # `off` takes no usage reading and never pauses for usage in this process. Environment
+    # only, never an abk.yaml key: it is for scratch installations (usage_guard.guard_off_line).
+    usage_guard: Literal["on", "off"] = "on"
 
     # Per-machine overrides of abk.yaml's `models`. None = use the file's.
     implement_model: str | None = None

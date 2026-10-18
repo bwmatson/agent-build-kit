@@ -107,6 +107,7 @@ from agent_build_kit.runtimes.providers import (
     run_gate_command,
 )
 from agent_build_kit.runtimes.providers import read_usage as read_provider_usage
+from agent_build_kit.settings import settings
 
 # The one window a provider has, and the file its readings are kept in, per split.
 PROVIDER_WINDOW = "billing"
@@ -1281,6 +1282,16 @@ def _too_soon(allowed: datetime, now: datetime) -> Decision:
     )
 
 
+GUARD_OFF_LINE = (
+    "usage guard off (ABK_USAGE_GUARD) — no usage is read and no start is held for usage"
+)
+
+
+def guard_off_line() -> str | None:
+    """What a tick and the status say when this process runs with the guard off, else None."""
+    return GUARD_OFF_LINE if settings.usage_guard == "off" else None
+
+
 def decide_start(
     *,
     read: Callable[[], UsageReading | None] | None = None,
@@ -1297,6 +1308,8 @@ def decide_start(
     `read` and `decide` stand for `current_usage` and `may_start_unit` where a fresh
     reading is taken, for a caller that has its own.
     """
+    if settings.usage_guard == "off":
+        return Decision(may_start=True, reason="usage guard off (ABK_USAGE_GUARD)")
     unit = unit or _starting.get()
     read = read or current_usage
     judge = decide or may_start_unit

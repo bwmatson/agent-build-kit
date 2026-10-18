@@ -1,6 +1,7 @@
 """The hosts that are part of the stack, and the refusal to stand in front of one."""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -29,7 +30,7 @@ def repo(**fields) -> RepoConfig:
     return RepoConfig(path=Path("/work/app"), slug="example/app", **fields)
 
 
-def machine(**fields: str) -> Settings:
+def machine(**fields: Any) -> Settings:
     return Settings(_env_file=None, **fields)
 
 
