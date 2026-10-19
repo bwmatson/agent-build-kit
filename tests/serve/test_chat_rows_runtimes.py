@@ -30,7 +30,7 @@ CLAUDE = "claude_code"
 ACP = "acp"
 UNIT = "feature/2"
 REVIEW = "/api/units/feature/2"
-BUILD_SESSION = "0b7e1d52-9c3a-4f8e-b1d6-2a5c7e9f0d61"
+BUILD_SESSION = "0b7e1d52-9c3a-4f8e-b1d6-2a5c7e2fc1b9"
 
 
 @pytest.fixture

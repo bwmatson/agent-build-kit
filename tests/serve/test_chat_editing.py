@@ -41,7 +41,7 @@ from tests.serving import seed_pipeline
 
 pytestmark = pytest.mark.serial
 
-BUILD_SESSION = "0b7e1d52-9c3a-4f8e-b1d6-2a5c7e9f0d41"
+BUILD_SESSION = "0b7e1d52-9c3a-4f8e-b1d6-2a5c7e9dff72"
 FREE_SESSION = "6d2a8f14-3e5b-4c7a-9f0e-1b8d3c6a2e51"
 REVIEW = "/api/units/feature/2"
 UNIT = "feature/2"

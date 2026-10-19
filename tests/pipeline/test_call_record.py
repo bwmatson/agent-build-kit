@@ -26,7 +26,7 @@ from tests.redaction_fakes import NAME, SECRET, known
 from tests.runtimes.stand_in import StandInRuntime
 
 UNIT = "add-marker/1"
-SESSION = "7e1c5a30-2b4d-4f86-a3c9-d0e8b6f21a47"
+SESSION = "7e1c5a30-2b4d-4f86-a3c9-d0e8b611438c"
 
 
 @pytest.fixture(autouse=True)

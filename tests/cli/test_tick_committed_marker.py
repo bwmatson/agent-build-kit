@@ -25,7 +25,7 @@ from tests.factories import git
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
 UNIT = "feature/1"
-SESSION = "0b7e1d52-9c3a-4f8e-b1d6-2a5c7e9f0d41"
+SESSION = "0b7e1d52-9c3a-4f8e-b1d6-2a5c7ec27b50"
 
 
 class Builder:

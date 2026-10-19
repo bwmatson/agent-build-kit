@@ -79,7 +79,7 @@ def assistant(*content: dict) -> dict:
         },
         "parent_tool_use_id": None,
         "session_id": claude_cli.SESSION,
-        "uuid": "6d2a8f14-3e5b-4c7a-9f0e-1b8d3c6a2e47",
+        "uuid": "6d2a8f14-3e5b-4c7a-9f0e-1b8d3c99db3c",
     }
 
 

@@ -98,7 +98,7 @@ def test_claude_reasoning_is_its_own_message_kind() -> None:
             "role": "assistant",
             "content": [{"type": "thinking", "thinking": "The marker goes in app.py."}],
         },
-        "session_id": "7c2e4290-1d5a-4b8f-a429-3e6f0b1c9d72",
+        "session_id": "7c2e4290-1d5a-4b8f-a429-3e6f0bf4d94f",
     }
 
     out = encoded(claude_events(json.dumps(thinking)))
@@ -119,7 +119,7 @@ def test_a_claude_error_result_is_a_run_error() -> None:
             "is_error": True,
             "num_turns": 30,
             "errors": ["out of turns"],
-            "session_id": "7c2e4290-1d5a-4b8f-a429-3e6f0b1c9d72",
+            "session_id": "7c2e4290-1d5a-4b8f-a429-3e6f0bf4d94f",
         }
     )
 

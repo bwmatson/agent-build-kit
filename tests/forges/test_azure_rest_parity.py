@@ -222,7 +222,7 @@ def test_a_build_policy_that_is_not_finished_badly_is_not_reported(status: str) 
 
 
 def test_a_rejected_policy_that_is_not_a_build_is_not_a_failing_check() -> None:
-    reviewers = {"id": "fa4e907d-c16b-4a4c-9dfa-4906e5d171dd", "displayName": "Reviewers"}
+    reviewers = {"id": "fa4e907d-c16b-4a4c-9dfa-4906e52aec29", "displayName": "Reviewers"}
     evaluation = azure_answers.evaluation("rejected", "Reviewers", reviewers)
 
     assert failing_names(one(azure_answers.OPEN, policies={162: [evaluation]}).checks) == ()

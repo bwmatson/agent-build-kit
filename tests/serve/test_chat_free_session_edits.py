@@ -29,7 +29,7 @@ from tests.serving import seed_pipeline
 pytestmark = pytest.mark.serial
 
 BUILD_SESSION = "0b7e1d52-9c3a-4f8e-b1d6-2a5c7e9f0d71"
-FREE_SESSION = "6d2a8f14-3e5b-4c7a-9f0e-1b8d3c6a2e71"
+FREE_SESSION = "6d2a8f14-3e5b-4c7a-9f0e-1b8d3c2e1a07"
 UNIT = "feature/2"
 TASKS = (
     "# Tasks\n\n## 1. [app] [unit-test] A group\n\n- [ ] 1.1 Test: it works\n"

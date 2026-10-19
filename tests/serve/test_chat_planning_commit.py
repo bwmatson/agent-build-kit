@@ -380,7 +380,7 @@ def test_a_changed_requirement_flags_a_started_unit_for_a_rework_or_a_requeue_an
 
 # --- the lease and the checkouts a commit names -----------------------------------------------
 
-FREE_SESSION = "6d2a8f14-3e5b-4c7a-9f0e-1b8d3c6a2e71"
+FREE_SESSION = "6d2a8f14-3e5b-4c7a-9f0e-1b8d3c644e30"
 
 
 def free_lease(inst: Installation, *, files: int) -> Leases:

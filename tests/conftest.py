@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import re
 import subprocess
+import uuid
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 
@@ -50,6 +51,13 @@ pytest_plugins = [
     "tests.time_limit",
     "tests.time_split",
 ]
+
+
+@pytest.fixture
+def new_session_id() -> Callable[[], str]:
+    """A session id made for the test, a new one on each call: no two tests, in any worker,
+    start a process carrying the same one."""
+    return lambda: str(uuid.uuid4())
 
 
 @pytest.fixture(autouse=True)

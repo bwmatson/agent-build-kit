@@ -275,7 +275,7 @@ class Chat:
     def holders(
         self, session: str, cwd: str = "", newest: bool = False, proc: Path = Path("/proc")
     ) -> list[int]:
-        return holding_pids(session, cwd=cwd, newest=newest)
+        return holding_pids(session, cwd=cwd, newest=newest, proc=proc)
 
     def claude_holders(self, session: str, proc: Path = Path("/proc")) -> list[int]:
         """Processes that have a Claude session open: one with its id in its arguments, or a
@@ -285,11 +285,13 @@ class Chat:
             first = item.cwd not in seen
             seen.add(item.cwd)
             if item.id == session:
-                return self.holders(session, item.cwd, first)
-        return self.holders(session)
+                return self.holders(session, item.cwd, first, proc)
+        return self.holders(session, proc=proc)
 
     def session_holders(self, runtime: str, session: str, proc: Path = Path("/proc")) -> list[int]:
-        return self.claude_holders(session) if runtime == CLAUDE else self.holders(session)
+        if runtime == CLAUDE:
+            return self.claude_holders(session, proc)
+        return self.holders(session, proc=proc)
 
     # --- tabs -------------------------------------------------------------------------
 

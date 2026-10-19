@@ -32,7 +32,7 @@ from tests.serve.socket_api import (
 )
 from tests.serving import seed_pipeline
 
-BUILD_SESSION = "0b7e1d52-9c3a-4f8e-b1d6-2a5c7e9f0d31"
+BUILD_SESSION = "0b7e1d52-9c3a-4f8e-b1d6-2a5c7e88dfa3"
 REVIEW = "/api/units/feature/2"
 RUNNING = "/api/units/feature/7"
 

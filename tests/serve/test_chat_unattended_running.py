@@ -16,7 +16,7 @@ def test_a_running_unit_nothing_is_building_is_paused_not_streaming(
     inst: Installation, api: httpx.Client
 ) -> None:
     seed_pipeline(inst)
-    record_session(inst, "feature/7", "6d2a8f14-3e5b-4c7a-9f0e-1b8d3c6a2e51", runtime="claude_code")
+    record_session(inst, "feature/7", "6d2a8f14-3e5b-4c7a-9f0e-1b8d3ce639ed", runtime="claude_code")
     UnitStore(inst.state_dir / "units.json").set_state(
         "feature/7", RUNNING, note="requeued", cause=Cause.REQUEUED
     )
@@ -33,7 +33,7 @@ def test_a_running_unit_that_reads_reworking_is_still_a_running_unit_to_a_chat(
     inst: Installation, api: httpx.Client
 ) -> None:
     seed_pipeline(inst)
-    record_session(inst, "feature/7", "6d2a8f14-3e5b-4c7a-9f0e-1b8d3c6a2e51", runtime="claude_code")
+    record_session(inst, "feature/7", "6d2a8f14-3e5b-4c7a-9f0e-1b8d3ce639ed", runtime="claude_code")
     store = UnitStore(inst.state_dir / "units.json")
     store.set_feedback("feature/7", "rename it", source=FeedbackSource.REVIEW)
     store.set_state("feature/7", RUNNING, note="rework requested", cause=Cause.REWORK)
