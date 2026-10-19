@@ -18,7 +18,10 @@ from tests.split_workspace import DECLARED, group, tasks_text
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
 SPLITS = dict(DECLARED, acp=dict(DECLARED["acp"], hold=True))
-PLAN = answer(planned("other/1", (1,)))
+# A started unit keeps its group, so the planner is refused whatever it answers; the step after
+# planning runs all the same, and that is what these tests read.
+PLAN = answer(planned("feature/2", (1,)))
+OTHER_PLAN = answer(planned("other/1", (1,)))
 
 
 def parked_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Replan:
@@ -35,25 +38,39 @@ def parked_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Replan:
     return run
 
 
-def test_a_replan_prints_a_line_naming_the_unit_and_both_splits_and_releases_it_at_once(
+def test_a_replan_of_the_change_prints_a_line_naming_the_unit_and_both_splits_and_reworks_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run = parked_run(tmp_path, monkeypatch)
     thread = Reworks(monkeypatch, run.store)
 
-    code, out = run.run(capsys, "other", reply=PLAN)
+    _, out = run.run(capsys, "feature", reply=PLAN)
 
-    assert code == 0, out
     [line] = [x for x in out.splitlines() if UNIT in x and "acp" in x and "claude_code" in x]
     assert out.index("planning") < out.index(line), "after the plan"
     assert [call["unit"] for call in thread.calls] == [UNIT]
     assert run.store.get(UNIT).split == "claude_code"
 
-    again, out_again = run.run(capsys, "other", reply=PLAN)
+    _, out_again = run.run(capsys, "feature", reply=PLAN)
 
-    assert again == 0
     assert "claude_code" not in out_again, "nothing parked, nothing new"
     assert len(thread.calls) == 1
+
+
+def test_a_replan_of_another_change_leaves_the_parked_unit_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = parked_run(tmp_path, monkeypatch)
+    thread = Reworks(monkeypatch, run.store)
+    before = run.store.get(UNIT)
+
+    code, out = run.run(capsys, "other", reply=OTHER_PLAN)
+
+    assert code == 0, out
+    assert thread.calls == []
+    assert "claude_code" not in out
+    assert run.store.get(UNIT) == before
+    assert before.parked_splits == ["acp"]
 
 
 def test_a_dry_run_says_it_would_rework_the_unit_and_writes_nothing(
@@ -72,3 +89,7 @@ def test_a_dry_run_says_it_would_rework_the_unit_and_writes_nothing(
     assert "acp" in would and "claude_code" in would
     assert thread.calls == []
     assert run.store.get(UNIT) == before and before.state == PLANNED
+
+    capsys.readouterr()
+    assert cli.cmd_tick(argparse.Namespace(dry_run=True, only=["elsewhere/1"]), run.inst) == 0
+    assert "would rework" not in capsys.readouterr().out, "--only names another unit"

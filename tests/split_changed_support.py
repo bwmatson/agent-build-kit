@@ -7,14 +7,13 @@ from typing import Any
 
 import pytest
 
-from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import RUNNING
 from tests.parked_split_support import Deliveries
 from tests.split_workspace import group, tasks_text
 
-__all__ = ["UNIT", "Reworks", "release", "write_split"]
+__all__ = ["UNIT", "Reworks", "write_split"]
 
 UNIT = "feature/1"
 
@@ -51,8 +50,3 @@ class Reworks(Deliveries):
             unit.id, RUNNING, note=f"requeued: {kwargs.get('reason', '')}", cause=Cause.REQUEUED
         )
         return object()
-
-
-def release(inst: Installation, store: UnitStore, **kwargs: Any) -> None:
-    """One pass of the step."""
-    cli.release_split_changed(inst, store, **kwargs)

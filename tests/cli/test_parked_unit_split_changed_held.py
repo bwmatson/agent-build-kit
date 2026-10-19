@@ -12,7 +12,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.e2e_holds import remove_hold
 from agent_build_kit.pipeline.unit_store import UnitStore
 from tests.parked_split_support import hold, installation, park, store_of
-from tests.split_changed_support import UNIT, Reworks, release, write_split
+from tests.split_changed_support import UNIT, Reworks, write_split
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -31,7 +31,7 @@ def store(inst: Installation) -> UnitStore:
 
 def a_round(inst: Installation, store: UnitStore) -> None:
     """The steps of a pass that act on a parked unit, in the tick's order."""
-    release(inst, store)
+    cli.release_split_changed(inst, store)
     cli.release_split_held(inst, store)
 
 

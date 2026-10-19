@@ -1145,7 +1145,7 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     # A dry run says what the recorded failures' fix changes are even when nothing is pending.
     if args.dry_run:
         _preview_changes(inst)
-        _preview_split_releases(inst, store_for(inst))
+        _preview_split_releases(inst, store_for(inst), getattr(args, "only", None) or ())
     if not has_work(inst, store_for(inst)):
         return 0
 
@@ -2121,12 +2121,16 @@ class SplitChange(Frozen):
 
 
 def split_changes(
-    inst: Installation, units: Sequence[StoredUnit], in_flight: Collection[str] = ()
+    inst: Installation,
+    units: Sequence[StoredUnit],
+    in_flight: Collection[str] = (),
+    only: Collection[str] = (),
 ) -> list[SplitChange]:
     """The parked units (planned, cause `split_held`, with parked splits, not in flight) whose
     groups, as `tasks.md` reads now, are all in one split that is not the one the unit is stored
     in and not one it is parked on. A unit whose groups do not read as one split, or whose tasks
-    file is refused or lacks a group, is left out."""
+    file is refused or lacks a group, is left out. With `only`, a unit is read only when it or its
+    change is named."""
     found = []
     for unit in units:
         if (
@@ -2135,6 +2139,7 @@ def split_changes(
             or not unit.parked_splits
             or unit.id in in_flight
             or unit.repo not in inst.config.repos
+            or (only and unit.id not in only and unit.change not in only)
         ):
             continue
         groups: list[TaskGroup] = []
@@ -2171,9 +2176,9 @@ def release_split_changed(
     """Rework, once, each parked unit whose group's `Split:` changed away from its park, unless
     the new split is held, when it stays parked until a pass finds that released. The rework is
     delivered first and the park cleared after, so a delivery that is refused changes nothing."""
-    for change in split_changes(inst, store.all(), in_flight):
+    for change in split_changes(inst, store.all(), in_flight, only):
         unit = change.unit
-        if change.hold is not None or (only and unit.id not in only and unit.change not in only):
+        if change.hold is not None:
             continue
         note = (
             f"Automatic note: group {change.group}'s Split changed from {unit.split} to "
@@ -2276,14 +2281,16 @@ def _split_wait_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[s
     return lines
 
 
-def _preview_split_releases(inst: Installation, store: UnitStore) -> None:
+def _preview_split_releases(
+    inst: Installation, store: UnitStore, only: Collection[str] = ()
+) -> None:
     """A dry run's account of the parked units the next round would release."""
     for unit in _releasable_split_units(inst, store.all()):
         log(
             f"would release {unit.id} ({unit_label(unit)}): "
             "the e2e-test splits it waits on are usable"
         )
-    for change in split_changes(inst, store.all()):
+    for change in split_changes(inst, store.all(), only=only):
         if change.hold is None:
             log(f"would rework {change.unit.id} ({unit_label(change.unit)}): {change.reason}")
 
@@ -5621,7 +5628,7 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
         for unit_id in edge.cycle
         if unit_id in after
     ) or any(results[change].cycle for change in to_plan)
-    release_split_changed(inst, store)
+    release_split_changed(inst, store, only=set(to_plan))
     return 1 if refused or failed or cyclic else 0
 
 

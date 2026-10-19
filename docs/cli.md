@@ -574,8 +574,9 @@ says how many model calls it will make.
   other failure.
   A plan that was refused shows the reason after its state (`failing 1/3: unit
   feature/2 claims group 1, which a merged unit has already built …`).
-- **Parked units.** After planning it reworks, once, each parked unit whose group's `Split:`
-  changed away from its park (see `abk status`), and prints a line naming the unit and both splits.
+- **Parked units.** After planning it reworks, once, each parked unit of the changes it plans whose
+  group's `Split:` changed away from its park (see `abk status`), and prints a line naming the unit
+  and both splits; the parked units of other changes are left to the tick.
 - **`--forget`** clears the records and stops: no model call, and the next tick
   plans them.
 - **Started work is left alone.** A unit that is running, in review, failed, held,

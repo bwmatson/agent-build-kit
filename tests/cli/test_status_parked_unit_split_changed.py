@@ -13,7 +13,7 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import PLANNED
 from tests.parked_split_support import hold, installation, park, store_of
-from tests.split_changed_support import Reworks, release, write_split
+from tests.split_changed_support import Reworks, write_split
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -56,7 +56,7 @@ def test_a_reworked_unit_is_requeued_and_its_history_names_both_splits(
     Reworks(monkeypatch, store, thread=False)
     write_split(inst, "claude_code")
 
-    release(inst, store)
+    cli.release_split_changed(inst, store)
     lines = status(inst, monkeypatch, capsys)
 
     unit = store.get("feature/1")
