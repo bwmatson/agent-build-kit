@@ -324,6 +324,9 @@ class PythonUvProfile:
         parts = path.split("/")
         return "tests" in parts[:-1] or bool(_TEST_FILE.match(parts[-1]))
 
+    def collects_path(self, path: str) -> bool:
+        raise NotImplementedError
+
     def stub_violations(self, path: str, content: str) -> list[str]:
         return _stub_violations(path, content)
 
