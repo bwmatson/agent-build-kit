@@ -89,3 +89,17 @@ def test_a_unit_retired_by_the_line_is_no_longer_listed(
 
     assert retire_lines(lines) == []
     assert not any("group 16" in line for line in lines)
+
+
+def test_a_group_one_started_unit_and_an_unstarted_one_carry_is_not_listed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    units = [
+        stored_unit("app/3", state="planned", groups=(8,)),
+        stored_unit("app/5", state="in_review", branch="spec/app/5", pr=5, groups=(8,)),
+    ]
+
+    lines = run_status(stored_installation(tmp_path, units), monkeypatch, capsys)
+
+    assert retire_lines(lines) == []
+    assert not any("group 8" in line for line in lines)

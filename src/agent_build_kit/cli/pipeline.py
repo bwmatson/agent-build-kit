@@ -2388,17 +2388,17 @@ _PROGRESS = {UNPLANNED: 0, PLANNED: 1, FAILED: 2, HELD: 2, RUNNING: 3, IN_REVIEW
 
 
 def _collision_lines(units: list[StoredUnit]) -> list[str]:
-    """One line for each group that two units that have not finished carry, at least one of
-    them started, suggesting the unit further from done to retire."""
+    """One line for each group that two units that have started and not finished carry,
+    suggesting the unit further from done to retire."""
     owners: dict[tuple[str, int], list[StoredUnit]] = {}
     for unit in units:
-        if unit.owns_groups:
+        if unit.owns_groups and not unit.unstarted:
             for member in unit.members():
                 for group in member.groups:
                     owners.setdefault((member.change, group), []).append(unit)
     lines = []
     for (change, group), carrying in sorted(owners.items()):
-        if len(carrying) < 2 or all(unit.unstarted for unit in carrying):
+        if len(carrying) < 2:
             continue
         # The later in plan order on a tie.
         far = max(carrying, key=lambda u: (-_PROGRESS.get(u.state, 0), units.index(u)))

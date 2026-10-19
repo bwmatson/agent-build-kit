@@ -130,3 +130,28 @@ def test_discarding_without_deleting_is_meaningless_and_refused(
     assert "--delete-branch" in out
     assert scene.snapshot() == before
     assert scene.has_branch(UNIT)
+
+
+def test_a_count_git_cannot_read_is_unknown_and_refuses_the_deletion(
+    scene: Scene,  # noqa: F811
+    capsys,
+) -> None:
+    """The parent in review has a branch name but no branch in the checkout, so the count from
+    the unit's base cannot be made."""
+    scene.add("feature/2", "in_review", pr=2)
+    scene.add(UNIT, depends_on=("feature/2",))
+    scene.built_elsewhere(UNIT)
+    scene.commits(UNIT, 1)
+    before = scene.snapshot()
+
+    code, out = scene.retire(capsys, UNIT, "--delete-branch")
+
+    assert code == 1
+    assert "could not be counted" in out and "--discard-unpushed" in out
+    assert scene.snapshot() == before
+    assert scene.has_branch(UNIT)
+
+    code, _ = scene.retire(capsys, UNIT, "--delete-branch", "--discard-unpushed")
+
+    assert code == 0
+    assert not scene.has_branch(UNIT)

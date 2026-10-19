@@ -30,21 +30,22 @@ from agent_build_kit.pipeline.workspaces import (
     worktree_path,
 )
 
-RETIRED_BY = "abk retire"
-
 
 def _commits(count: int) -> str:
     return f"{count} commit{'' if count == 1 else 's'} not pushed"
 
 
-def _unpushed(repo: Path, unit: StoredUnit, units: list[StoredUnit]) -> int:
-    """The commits on the unit's branch after its last pushed commit, or after its base when
-    none was pushed; none when the branch is not in the checkout."""
-    if not unit.branch or not git_out(repo, "branch", "--list", unit.branch):
-        return 0
+def _unpushed(repo: Path, unit: StoredUnit, units: list[StoredUnit]) -> tuple[str, int | None]:
+    """Where the count starts and the commits on the unit's branch after it: the last pushed
+    commit, or the base when none was pushed. The count is 0 when the branch is not in the
+    checkout, and None when git cannot read it: unknown is not none."""
     since = unit.pushed or base_of(unit, units)
+    if not unit.branch or not git_out(repo, "branch", "--list", unit.branch):
+        return since, 0
     counted = git(repo, "rev-list", "--count", f"{since}..{unit.branch}", check=False)
-    return int(counted.stdout) if counted.returncode == 0 and counted.stdout.strip() else 0
+    if counted.returncode != 0 or not counted.stdout.strip():
+        return since, None
+    return since, int(counted.stdout)
 
 
 def _delete_thread(inst: Installation, unit_id: str) -> None:
@@ -105,17 +106,18 @@ def retire(
 
     repo = inst.checkouts[unit.repo]
     tree = worktree_path(repo, unit.branch, inst.worktree_root) if unit.branch else None
-    unpushed = 0
     if delete_branch and unit.branch:
         if tree is not None and tree.exists() and (dirty := changed_paths(tree)):
             say(f"{tree} has uncommitted changes ({', '.join(dirty)}); commit or remove them first")
             return 1
-        unpushed = _unpushed(repo, unit, units)
-        if unpushed:
+        since, unpushed = _unpushed(repo, unit, units)
+        if unpushed is None:
+            say(f"{unit_id}: the commits on {unit.branch} since {since} could not be counted")
+        elif unpushed:
             say(f"{unit_id}: {_commits(unpushed)}")
-            if not discard_unpushed:
-                say("--discard-unpushed accepts losing them")
-                return 1
+        if unpushed != 0 and not discard_unpushed:
+            say("--discard-unpushed accepts losing them")
+            return 1
 
     with ExitStack() as held:
         if unit.branch:
@@ -197,7 +199,7 @@ def _retire(
     )
     if unit.pr is not None:
         try:
-            pipe.build_close_pr()(unit, unit.pr, closing)
+            pipe.build_close_pr(for_repo=inst.forge_of)(unit, unit.pr, closing)
         except Exception as error:  # noqa: BLE001 - kept for the next pass
             store.set_close_pending(unit.id, ClosePending(pr=unit.pr, reason=closing))
             say(
