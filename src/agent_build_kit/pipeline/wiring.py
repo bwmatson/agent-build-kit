@@ -257,6 +257,9 @@ AgentCallback = Callable[..., None]
 # toolchain's own commands (a test runner, a linter) come from the profile.
 BASE_TOOLS = "Read Edit Write Grep Glob Bash(git *)"
 
+# Only a builder installs a staged config file through the kit (the reviewer's list is its own).
+INSTALL_CONFIG_TOOL = "Bash(abk install-config *)"
+
 
 def forge_read_tools(forge: Forge) -> str:
     return " ".join(f"Bash({' '.join(command)}*)" for command in forge.read_commands)
@@ -268,7 +271,7 @@ def allowed_tools(
     """The repo profile's tools and those of each project's profile, each listed once."""
     toolchains = [profile, *(profiles.get(p.profile) for p in projects or [])]
     tools = dict.fromkeys(t.allowed_tools for t in toolchains)
-    return f"{BASE_TOOLS} {forge_read_tools(forge)} {' '.join(tools)}".strip()
+    return f"{BASE_TOOLS} {INSTALL_CONFIG_TOOL} {forge_read_tools(forge)} {' '.join(tools)}".strip()
 
 
 def _specs_dir(planning_repo: Path | None) -> Path:

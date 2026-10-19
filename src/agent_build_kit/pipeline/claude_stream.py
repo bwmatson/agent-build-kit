@@ -222,6 +222,8 @@ def describe(event: dict, *, whole: bool = False) -> list[str]:
         return [f"claude started ({event.get('model', '?')})"]
     if kind == "assistant":
         return [line for block in _content(event) if (line := _block(block, whole))]
+    if kind == "user":
+        return [line for block in _content(event) if (line := _install_line(block))]
     if kind == "result":
         seconds = round((event.get("duration_ms") or 0) / 1000)
         turns = event.get("num_turns", "?")
@@ -294,6 +296,18 @@ def _block(block: dict, whole: bool = False) -> str:
     if block.get("type") == "tool_use":
         return f"{block.get('name', '?')} {keep(_tool_target(block.get('input') or {}))}".rstrip()
     return ""
+
+
+def _install_line(block: dict) -> str:
+    """The line `abk install-config` prints on success (target, hash, size), so an install is
+    on the run log; any other tool result is not."""
+    if block.get("type") != "tool_result":
+        return ""
+    content = block.get("content")
+    if isinstance(content, list):
+        content = " ".join(str(b.get("text", "")) for b in content if isinstance(b, dict))
+    text = content.strip() if isinstance(content, str) else ""
+    return text if text.startswith("installed ") and " sha256=" in text else ""
 
 
 def _tool_target(tool_input: dict) -> str:

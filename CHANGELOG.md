@@ -500,7 +500,8 @@
   `.abk/proposed/` and the command copies it into place when the target is inside the
   worktree and its name is allow-listed; a YAML file must parse. Anything else is refused
   and nothing is written. `builders.installable_files` in `abk.yaml` adds names to the
-  allow-list, and each install prints the target, the content hash and the size.
+  allow-list, and each install prints the target, the content hash and the size, which the
+  unit's run log also records. Builders may run the command and their prompts say how.
 
 - `abk tags` with no change and no `--all`, or with both, now prints one line saying what to
   pass and exits 2, instead of failing with a traceback. Its help names `--all`.

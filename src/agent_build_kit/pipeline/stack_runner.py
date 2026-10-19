@@ -120,6 +120,15 @@ The pipeline pushes this branch, after review and unit-test; you never do. Run n
 
 OUTPUT_NOTE = "\n" + output_convention()
 
+# What a builder does for a config file the harness will not let it write (`abk install-config`).
+INSTALL_NOTE = """\
+The harness refuses an edit to some config files, a `.pre-commit-config.yaml` among them. To
+change one, write the new content to a file under `.abk/proposed/` and run
+`abk install-config .abk/proposed/<file> <target>`; it installs only a file named
+`.pre-commit-config.yaml` (or one the installation lists under `builders.installable_files`),
+inside this worktree.
+"""
+
 # Part of a full prompt only: a continued session already holds it.
 REUSE_NOTE = "\n" + reuse_guidance() + "\n"
 
@@ -252,6 +261,7 @@ the unit has passed review, unit-test and been pushed.
     + PIPELINE_PUSHES_NOTE
     + OUTPUT_NOTE
     + REUSE_NOTE
+    + INSTALL_NOTE
 )
 
 _REVIEW_FEEDBACK_ASK = """\
@@ -293,6 +303,7 @@ the unit has passed review, unit-test and been pushed.
     + PIPELINE_PUSHES_NOTE
     + OUTPUT_NOTE
     + REUSE_NOTE
+    + INSTALL_NOTE
     + NO_REWRITE_NOTE
 )
 
@@ -323,7 +334,8 @@ task groups ask for.
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, unit-test and been pushed.
 """
-    + REUSE_NOTE,
+    + REUSE_NOTE
+    + INSTALL_NOTE,
     unit_test="The output may be cut short; run the checks\nyourself to see all of it.",
 )
 
@@ -653,6 +665,7 @@ the unit has passed review, unit-test and been pushed.
     + PIPELINE_PUSHES_NOTE
     + OUTPUT_NOTE
     + REUSE_NOTE
+    + INSTALL_NOTE
     + NO_REWRITE_NOTE
 )
 
@@ -675,6 +688,7 @@ the unit has passed review, unit-test and been pushed.
     + PIPELINE_PUSHES_NOTE
     + OUTPUT_NOTE
     + REUSE_NOTE
+    + INSTALL_NOTE
 )
 
 # Given to every build-side prompt above, only when this change has units
@@ -794,6 +808,7 @@ or edit anything under {change_dir}.
 """
     + PIPELINE_PUSHES_NOTE
     + OUTPUT_NOTE
+    + INSTALL_NOTE
     + """
 Finish with JSON and nothing after it:
 

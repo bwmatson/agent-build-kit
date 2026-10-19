@@ -8,7 +8,8 @@ from agent_build_kit.profiles.python_uv import PROFILE
 
 # What a GitHub agent was given before the allow-list came from the forge.
 GITHUB_BEFORE = (
-    "Read Edit Write Grep Glob Bash(git *) Bash(gh pr view*) Bash(gh pr diff*) "
+    "Read Edit Write Grep Glob Bash(git *) Bash(abk install-config *) "
+    "Bash(gh pr view*) Bash(gh pr diff*) "
     f"{PROFILE.allowed_tools}"
 ).strip()
 
