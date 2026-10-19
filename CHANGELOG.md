@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The build can commit per task group behind `builders.per_group_commits` (off by default):
+  each group gets a `test:` commit of stubs and tests, checked for lint, format and types
+  before it is made, then a `feat:` commit, and the push gate checks the pairs, types and
+  the stubbed red reading. Only toolchain profiles that support stubs are affected. Set
+  the setting to `false`, or leave it out, to keep one pair of commits per unit.
+
 - A repo can run on its own Claude account: `repos.<name>.account` in `abk.yaml` names a label,
   and each person gives that label's directory in `abk.local.yaml`. Units in progress are now
   counted per account against that account's `max_units_in_progress`, so one account's stalled

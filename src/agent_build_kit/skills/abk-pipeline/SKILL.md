@@ -190,6 +190,15 @@ cleaned, since the changes may be the only copy. Commit or remove them, then
 else again at `prepare`. A requeue while the tree is still dirty leaves it parked. Changes an agent left when it was killed
 mid-run are not this: the node resumes over them and commits them.
 
+### Stopped in the stub check loop
+
+With `builders.per_group_commits` on and a profile that supports stubs, each group's stubs and
+tests are checked (lint, format, types) before the tests commit, by `stub_checks`, with
+`fix_stub_checks` fixing what fails, up to `max_check_rounds`. A unit that stops there keeps the
+checker's output as its feedback under the source `stub-checks`. `abk requeue <unit>` sends it
+back to `fix_stub_checks` with that output, so the next agent call is the fix, not a rework and
+not the tests written again; the rounds already used are kept. Ordinary review feedback still goes to rework.
+
 ### Attached to a chat
 
 A `held` unit with the cause `attached` has uncommitted changes in its worktree

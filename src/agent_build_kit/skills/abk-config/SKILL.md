@@ -210,6 +210,9 @@ environment:                  # how the pipeline's own environment is kept curre
 builders:
   installable_files: []       # base names `abk install-config` may install, besides
                               # .pre-commit-config.yaml; never a path or a pattern
+  per_group_commits: false    # builders.per_group_commits. true = one `test:` (with stubs) and one `feat:` commit per task
+                              # group, stubs and tests checked for lint, format and types first;
+                              # needs a profile that supports stubs. Default off; false turns it off
 
 tracks:                       # the scheduled health/improve/recommend tracks
   model: sonnet               # Claude Code's alias, sent to any runtime as
