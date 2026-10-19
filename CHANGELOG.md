@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A unit's own-test e2e-test selection now names only files the test runner collects by
+  default (for Python, `test_*.py` and `*_test.py`). A helper module under `tests/` or a
+  `conftest.py` holding a `test_` function is no longer run by identifier without its
+  environment. A unit that touched only such files runs nothing, and the skip line lists
+  them. A custom `python_files` or `testpaths` is not read.
+
 - The build can commit per task group behind `builders.per_group_commits` (off by default):
   each group gets a `test:` commit of stubs and tests, checked for lint, format and types
   before it is made, then a `feat:` commit, and the push gate checks the pairs, types and

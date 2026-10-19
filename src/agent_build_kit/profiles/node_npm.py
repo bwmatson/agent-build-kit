@@ -393,7 +393,7 @@ class NodeNpmProfile:
         return "__tests__" in parts[:-1] or bool(_TEST_FILE.search(parts[-1]))
 
     def collects_path(self, path: str) -> bool:
-        raise NotImplementedError
+        return self.is_test_path(path)
 
     def detect_environment(self, root: Path, *, framework: bool) -> EnvironmentConfig | None:
         return node_environment.detect_environment(root)

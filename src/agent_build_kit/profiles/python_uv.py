@@ -43,6 +43,7 @@ from agent_build_kit.profiles.base import PromptWords, is_doc_path
 # not a failure — most members carry no e2e tests.
 NO_TESTS_COLLECTED = 5
 
+_COLLECTED_FILE = re.compile(r"^(test_.*|.*_test)\.py$")
 _TEST_FILE = re.compile(r"^(test_.*|.*_test|conftest)\.py$")
 _DEP_NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 XDIST = "pytest-xdist"
@@ -325,7 +326,7 @@ class PythonUvProfile:
         return "tests" in parts[:-1] or bool(_TEST_FILE.match(parts[-1]))
 
     def collects_path(self, path: str) -> bool:
-        raise NotImplementedError
+        return bool(_COLLECTED_FILE.match(path.split("/")[-1]))
 
     def stub_violations(self, path: str, content: str) -> list[str]:
         return _stub_violations(path, content)

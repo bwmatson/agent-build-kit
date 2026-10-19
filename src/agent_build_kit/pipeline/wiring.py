@@ -1549,11 +1549,12 @@ def _ids_for(
     touched: list[tuple[str, str]], cwd: Path, where: Path, toolchain: ToolchainProfile
 ) -> list[str]:
     """The identifiers of the touched tests that fall under `where`, as a runner started
-    there selects them. Only test files: a `test_*` method in a source file is not collected."""
+    there selects them. Only files the runner collects: a `test_*` method in a source file or a
+    helper module is not."""
     return [
         f"{relative}::{name}"
         for path, name in touched
-        if toolchain.is_test_path(path) and (relative := _under(cwd / path, where)) is not None
+        if toolchain.collects_path(path) and (relative := _under(cwd / path, where)) is not None
     ]
 
 
@@ -2298,6 +2299,15 @@ def e2e_work(
     ]
 
 
+def _skipped_reason(touched: list[tuple[str, str]], work: Sequence[tuple[Any, Any, Any]]) -> str:
+    """The skip line, followed by the touched test files the runner does not collect."""
+    reason = "e2e-test skipped: no e2e test added or changed"
+    left_out = sorted(
+        {path for path, _ in touched if not any(tc.collects_path(path) for _, tc, _ in work)}
+    )
+    return f"{reason}; not collected by the suite: {', '.join(left_out)}" if left_out else reason
+
+
 def e2e_scope(
     cwd: Path,
     base: str | None,
@@ -2356,7 +2366,7 @@ def e2e_scope(
         mode=E2eUnitScope.OWN,
         runs=runs,
         ids=list(dict.fromkeys(ids)),
-        reason="" if runs else "e2e-test skipped: no e2e test added or changed",
+        reason="" if runs else _skipped_reason(touched, work),
     )
 
 
