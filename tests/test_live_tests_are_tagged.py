@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.live_tag_drift import INTEGRATION, drift, drifted, live_modules
+from tests.live_tag_drift import INTEGRATION, drift, drifted, find_live_modules
 from tests.runtime_tag_collection import ROOT, collect
 from tests.runtime_tags import runtime_tags
 
@@ -16,7 +16,6 @@ SCRATCH_IMPORT = "from tests.runtime_scratch import runtime_scratch\n"
 AGENT_HOME_IMPORT = "from tests.agent_home import agent_home\n"
 SCRATCH_MODULE_IMPORT = "from tests import runtime_scratch\n"
 HOME_MODULE_IMPORT = "from tests import agent_home\n"
-COMMAND_READ = 'import os\nCOMMAND = os.environ.get("ABK_ACCEPTANCE_ACP_COMMAND")\n'
 HEADER = "import pytest\n\npytestmark = pytest.mark.local_stack\n"
 BUILDS_ONE_TAGGED = (
     f"{HEADER}{SCRATCH_IMPORT}\n\n@pytest.mark.runtime_claude_code\n"
@@ -24,16 +23,26 @@ BUILDS_ONE_TAGGED = (
 )
 
 
+# An import of a helper and the statement of a test that starts an agent through it (a test
+# starts an agent by calling or reading it, not by the module importing it).
+STARTS = [
+    (SCRATCH_IMPORT, 'runtime_scratch("acp", None, None)'),
+    (AGENT_HOME_IMPORT, "agent_home(None)"),
+    ("import os\n", 'os.environ.get("ABK_ACCEPTANCE_ACP_COMMAND")'),
+    (SCRATCH_MODULE_IMPORT, 'runtime_scratch.runtime_scratch("acp", None, None)'),
+    (HOME_MODULE_IMPORT, "agent_home.agent_home(None)"),
+]
+
+
 @pytest.mark.parametrize(
-    "use",
-    [SCRATCH_IMPORT, AGENT_HOME_IMPORT, COMMAND_READ, SCRATCH_MODULE_IMPORT, HOME_MODULE_IMPORT],
-    ids=["scratch", "home", "command", "scratch-module", "home-module"],
+    ("use", "call"), STARTS, ids=["scratch", "home", "command", "scratch-module", "home-module"]
 )
 def test_an_untagged_test_that_starts_an_agent_is_named(
-    pytester: pytest.Pytester, use: str
+    pytester: pytest.Pytester, use: str, call: str
 ) -> None:
     found = drifted(
-        pytester, test_untagged=f"{HEADER}{use}\n\ndef test_builds_a_unit():\n    pass\n"
+        pytester,
+        test_untagged=f"{HEADER}{use}\n\ndef test_builds_a_unit():\n    {call}\n",
     )
 
     assert len(found) == 1
@@ -55,13 +64,13 @@ def test_the_init_conventions_module_which_starts_no_agent_passes_untagged(
 
     assert items
     assert drift(items) == []
-    assert INIT_CONVENTIONS in live_modules()
+    assert INIT_CONVENTIONS in find_live_modules(ROOT / "tests")
 
 
 def test_every_test_of_the_kits_live_modules_that_starts_an_agent_has_exactly_one_tag(
     pytester: pytest.Pytester,
 ) -> None:
-    modules = live_modules()
+    modules = find_live_modules(ROOT / "tests")
     assert modules
     items, _ = pytester.inline_genitems(*(str(m) for m in modules))
 
