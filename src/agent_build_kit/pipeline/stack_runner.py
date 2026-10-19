@@ -230,6 +230,7 @@ class GroupStep(Frozen):
     change_dir: str
     number: int
     title: str
+    goal: str = ""  # the group's "Done when" sentence, "" when it has none
 
 
 class WriteTestsTemplate(PromptTemplate):
@@ -1442,6 +1443,9 @@ class UnitRunner(BaseModel):
     run_rework_review: Callable[..., str]
     commit: Callable[..., int]
     branch_commits: Callable[..., int]
+    # The subject of each commit on the branch beyond its base, oldest first: where a stubbed
+    # build reads the groups it has already built.
+    branch_subjects: Callable[..., list[str]] = lambda cwd, base: []
     # The cause and words for stopping because something the unit is built on
     # went back, or None. See `wiring.build_upstream_incomplete`.
     upstream_incomplete: Callable[..., tuple[Cause, str] | None]
@@ -1710,8 +1714,8 @@ class UnitRunner(BaseModel):
         for member in unit.members():
             change_dir = self.change_dir(member.change)
             tasks = Path(change_dir) / "tasks.md"
-            titles = (
-                {group.number: group.title for group in validate_tasks(tasks)[0]}
+            found = (
+                {group.number: group for group in validate_tasks(tasks)[0]}
                 if tasks.exists()
                 else {}
             )
@@ -1719,7 +1723,8 @@ class UnitRunner(BaseModel):
                 GroupStep(
                     change_dir=change_dir,
                     number=number,
-                    title=titles.get(number, unit.title),
+                    title=found[number].title if number in found else unit.title,
+                    goal=found[number].goal if number in found else "",
                 )
                 for number in member.groups
             )

@@ -8,6 +8,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
+from agent_build_kit.pipeline.commit_order import branch_subjects
 from agent_build_kit.pipeline.stack_runner import RunOutcome
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import Member
@@ -70,6 +71,9 @@ class OnBranch(StubLoop):
 
     def branch_commits(self, cwd: Path, base: str) -> int:
         return branch_commits(cwd, base)
+
+    def branch_subjects(self, cwd: Path, base: str) -> list[str]:
+        return branch_subjects(cwd, base)
 
     def overrides(self, tmp_path: Path) -> dict[str, Any]:
         return {**super().overrides(tmp_path), "worktree": lambda u, base: tmp_path / "tree"}

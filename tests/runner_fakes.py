@@ -117,6 +117,9 @@ class Recorder:
     def branch_commits(self, cwd: Path, base: str) -> int:
         return self.made
 
+    def branch_subjects(self, cwd: Path, base: str) -> list[str]:
+        return list(self.subjects)
+
     def head(self, cwd: Path) -> str:
         return f"sha-{self.made}"
 
@@ -194,6 +197,7 @@ def make_runner(
         run_rework_review=recorder.review,
         commit=recorder.commit,
         branch_commits=recorder.branch_commits,
+        branch_subjects=recorder.branch_subjects,
         base_tip=lambda tree, ref: ref,  # every base resolves, as `wiring.tip` finds one that does
         head=recorder.head,
         upstream_incomplete=lambda u: None,
