@@ -69,11 +69,15 @@ def installation(
     splits: dict[str, Any] | None = SPLITS,
     profile: str = "python-uv",
     projects: list[dict[str, str]] | None = None,
+    dimensions: dict[str, Any] | None = None,
 ) -> Installation:
     root = tmp_path / "planning"
+    tests: dict[str, Any] = {} if splits is None else {"e2e_splits": splits}
+    if dimensions is not None:
+        tests["e2e_dimensions"] = dimensions
     found = make_installation(
         root,
-        tests={} if splits is None else {"e2e_splits": splits},
+        tests=tests,
         verify={"env": {"SVC_TOKEN": {"from": "literal", "value": "secret"}}},
         repos={
             "app": {

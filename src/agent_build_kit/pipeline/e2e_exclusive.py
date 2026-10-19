@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import subprocess
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Mapping
 
-from agent_build_kit.config import E2eSplit
+from agent_build_kit.config import E2eDimensionValue, E2eSplit
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.e2e import build_selection
 from agent_build_kit.profiles.base import AppliesE2eSelection, ListsRegisteredSelectors
@@ -76,3 +76,18 @@ def check_splits(
                 if split.marker not in known
             )
     return SplitCheck(listings=tuple(listings), findings=tuple(findings))
+
+
+def check_dimensions(
+    toolchain: AppliesE2eSelection,
+    command: list[str],
+    marker: str,
+    dimensions: Mapping[str, Mapping[str, E2eDimensionValue]],
+    splits: Collection[E2eSplit],
+    *,
+    run: Callable[..., subprocess.CompletedProcess],
+) -> SplitCheck:
+    """List each dimension value's tests through `toolchain` for `command`, and name every test
+    carrying two values of one dimension, every marker shared by two values or a split and every
+    marker the runner does not register."""
+    raise NotImplementedError
