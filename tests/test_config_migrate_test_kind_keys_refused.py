@@ -21,7 +21,8 @@ CASES = {
         r"anchor|alias",
     ),
     "merge key in the block": (
-        "base: &base\n  e2e_marker: slow\ntests:\n  <<: *base\n  tier2_schedule: weekly\n",
+        "base: &base\n  e2e_marker: slow\nrepos:\n  app:\n    tests:\n      <<: *base\n"
+        "      tier2_schedule: weekly\n",
         r"tests|<<|tier2_schedule",
         r"merge|anchor|alias",
     ),

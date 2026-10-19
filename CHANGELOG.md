@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `abk config --migrate` now also renames the old test-kind setting keys (`tier1_*` and `tier2_*`
+  in the limits block and the `tests` blocks) to `unit_test_*` and `e2e_*`, in the same single
+  change, confirmation and backup as the limits move. Values and comments stay as they were, and
+  a file it cannot edit safely is refused with nothing written.
+
 - A unit is now named by the program as `<change>/<lowest group>`, not by the planner's count.
   The planner's `id` is only a label for one reply; an unstarted unit with the same groups keeps
   its id, so a replan no longer renumbers work or leaves stored references pointing at an

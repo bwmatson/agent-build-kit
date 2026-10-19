@@ -62,9 +62,9 @@ def test_a_unit_test_key_is_renamed_to_its_stem() -> None:
 
 
 def test_values_are_never_renamed_only_keys() -> None:
-    before = "tests:\n  tier2_marker: tier2_marker\n"
+    before = "repos:\n  app:\n    tests:\n      tier2_marker: tier2_marker\n"
 
-    assert migrate(before).text == "tests:\n  e2e_marker: tier2_marker\n"
+    assert migrate(before).text == ("repos:\n  app:\n    tests:\n      e2e_marker: tier2_marker\n")
 
 
 def test_the_edit_keeps_carriage_returns_and_a_missing_final_newline() -> None:
