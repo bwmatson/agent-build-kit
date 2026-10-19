@@ -33,8 +33,6 @@ from tests.replay.proxy import ReplayProxy
 from tests.runtime_scratch import runtime_scratch
 from tests.scratch_tick import commits_on_unit_branch, register_scratch, run_tick
 
-# An e2e test in its own session: it starts a real agent and takes minutes, so it is under the
-# e2e time limit and not the default one.
 ROOT = "ABK_REPLAY_UNIT_ROOT"
 CASSETTES = "ABK_REPLAY_UNIT_CASSETTES"
 MARKER = "ABK_REPLAY_UNIT_MARKER"
@@ -49,6 +47,8 @@ def missing_environment() -> list[str]:
 # This is a helper the driver runs by id, not a test of the suite: without the driver's
 # environment it is skipped, and the reason names what is missing.
 pytestmark = [
+    # An e2e test in its own session: it starts a real agent and takes minutes, so it is under
+    # the e2e time limit and not the default one.
     pytest.mark.local_stack,
     pytest.mark.skipif(
         bool(missing_environment()),

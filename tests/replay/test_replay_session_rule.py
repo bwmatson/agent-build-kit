@@ -20,8 +20,13 @@ def request(
     system: str = "You are an agent.",
     message: str = "Add the marker.",
     indent: int | None = None,
+    compact: bool = True,
 ) -> Request:
-    user_id = json.dumps({"device_id": "d", "account_uuid": "", "session_id": session})
+    # As the agent sends it: `JSON.stringify` output has no spaces after `:` or `,`.
+    user_id = json.dumps(
+        {"device_id": "d", "account_uuid": "", "session_id": session},
+        separators=(",", ":") if compact else None,
+    )
     body = {
         "model": model,
         "metadata": {"user_id": user_id},
@@ -44,6 +49,10 @@ def key(asked: Request) -> str:
 def test_two_requests_that_differ_only_in_the_session_id_have_the_same_key() -> None:
     assert key(request(FIRST)) == key(request(SECOND))
     assert key(request(FIRST, indent=2)) == key(request(SECOND))
+
+
+def test_a_session_id_in_the_spaced_json_shape_is_normalised_too() -> None:
+    assert key(request(FIRST, compact=False)) == key(request(SECOND, compact=False))
 
 
 def test_without_the_rule_the_session_id_alone_changes_the_key() -> None:

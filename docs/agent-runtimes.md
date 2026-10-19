@@ -1098,7 +1098,10 @@ of each session itself, so the test keeps no recordings to refresh and goes live
 agent and the index each time. The package index is asserted first. The model hit rate is
 printed and recorded as a test property and never asserted, so zero model hits is a finding, not a failure; the
 edited-task step does fail when no model call went through the proxy, since nothing then
-changed.
+changed. The scratch root stays at a fixed place because a different working directory changes
+the environment block and the memory-directory path in `system[2]` of every model request. The
+only normalisation declared is the `session_id` inside `metadata.user_id`, the one request field
+that varies between runs from the same directory; no rule hides a path.
 
 ### How each upstream is pointed at the proxy
 
@@ -1109,7 +1112,7 @@ Settled by running the tool where it could be run here, and otherwise left marke
 | `uv` package index | `UV_DEFAULT_INDEX` (`UV_INDEX_URL` is deprecated), and `UV_FIND_LINKS` for files outside the index | confirmed from `uv pip install --help`; whether it reaches a tool run inside an agent's subprocess depends on that agent passing its environment on |
 | `npm` registry | the `registry` setting, by `NPM_CONFIG_REGISTRY` or `.npmrc` | UNVERIFIED here: the run was refused in this session |
 | Package files on a second host | an index names the host of its files in its own responses, so a proxy for the index would need a second upstream of its own with the links rewritten when served and never in the stored body | UNVERIFIED: no index was run against a proxy |
-| Claude Code agent (`claude_code` runtime) | `ANTHROPIC_BASE_URL`, added to the agent's environment by the runtime's `request.env` | UNVERIFIED: no agent was started, since one bills on demand; whether its credentials work against a forwarding proxy is also open |
+| Claude Code agent (`claude_code` runtime) | `ANTHROPIC_BASE_URL`, added to the agent's environment by the runtime's `request.env` | confirmed with Claude Code 2.1.303: it honours `ANTHROPIC_BASE_URL` over plain http, login works through it, and the model upstream is `https://api.anthropic.com` with calls `POST /v1/messages?beta=true` |
 | ACP agent (`runtimes.acp.command`) | no endpoint override is known: the command is the agent's own, and the framework sets none | UNVERIFIED; left out of replay until an override is shown to work |
 | Model provider streaming | the proxy stores a body as the sequence of chunks received and replays it in order, so the format matters only to the secret scan | the proxy is tested with chunked responses; the provider's event format is UNVERIFIED |
 

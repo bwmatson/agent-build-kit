@@ -11,6 +11,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from tests.integration import replay_unit_build as build
 
 BUILD_ID = "replay_unit_build.py::test_the_unit_is_built"
@@ -64,6 +66,20 @@ def collected_ids(selection: str) -> set[str]:
         timeout=120,
     )
     return {line.rpartition("::")[2] for line in done.stdout.splitlines() if "::" in line}
+
+
+def test_the_build_session_declares_the_session_rule(pytester: pytest.Pytester) -> None:
+    # The fixture the replay plugin reads the build's rules from, resolved as the plugin would.
+    pytester.makepyfile(
+        test_rules="""
+        from tests.integration.replay_unit_build import SESSION_RULE, replay_rules  # noqa: F401
+
+        def test_declared(replay_rules):
+            assert replay_rules == [SESSION_RULE]
+        """
+    )
+
+    pytester.runpytest_inprocess("-p", "no:cacheprovider").assert_outcomes(passed=1)
 
 
 def test_the_acceptance_runs_on_claude_code_alone() -> None:
