@@ -139,7 +139,7 @@ def render_mermaid(
                     lines.append("        end")
                 current = unit.project
                 lines.append(f'        subgraph {_project_id(repo, current)}["{current}"]')
-            state = effective_state(unit, graph, checks_of=checks_of, paused=paused)
+            state = effective_state(unit, graph, checks_of=checks_of, paused=paused, gated=gated)
             pr = f" · PR #{unit.pr}" if unit.pr else ""
             name = STATES[state].name
             if restacking and unit.id in restacking:
@@ -179,7 +179,7 @@ def render_mermaid(
         lines.append(f"    classDef {state} {painted}")
 
     for unit in ordered:
-        state = effective_state(unit, graph, checks_of=checks_of, paused=paused)
+        state = effective_state(unit, graph, checks_of=checks_of, paused=paused, gated=gated)
         lines.append(f"    class {_node_id(unit.id)} {state}")
 
     return "\n".join(lines)
@@ -221,8 +221,15 @@ def render_markdown(
         graph=units,
         checks_of=checks_of,
         paused=paused,
+        gated=gated,
         restacking=restacking,
         projects=projects,
+    )
+    gate_legend = (
+        "\n  A unit may also wait on a held e2e-test split: it is not started until the split\n"
+        "  is released, and the round that finds the hold gone starts it."
+        if gated
+        else ""
     )
     return f"""\
 # Unit dependency graph
@@ -248,7 +255,7 @@ view, titled with the project's path (`.` for the root).
   `needs` (`==>`) is a dependency its dependent wrote as a `Needs:` line, not
   one the planner inferred; it releases the dependent once the parent is in
   review (same repo) or merged (other repo). An edge to a unit a replan
-  replaced is drawn from the unit that carries its groups now.
+  replaced is drawn from the unit that carries its groups now.{gate_legend}
 - **running** — in the build/review loop: an agent is working in a worktree,
   or the run is interrupted before an agent step until the usage window allows
   it and the next tick resumes it.
@@ -291,6 +298,7 @@ def write_page(
     *,
     checks_of: ChecksOf | None = None,
     paused: Collection[str] = (),
+    gated: Collection[str] = (),
     restacking: Mapping[str, str] | None = None,
     projects: Mapping[str, Collection[str]] | None = None,
 ) -> None:
@@ -300,7 +308,12 @@ def write_page(
     one-line diff in a committed file for no change at all.
     """
     page = render_markdown(
-        units, checks_of=checks_of, paused=paused, restacking=restacking, projects=projects
+        units,
+        checks_of=checks_of,
+        paused=paused,
+        gated=gated,
+        restacking=restacking,
+        projects=projects,
     )
     if out.exists() and _body(out.read_text()) == _body(page):
         return
@@ -317,7 +330,7 @@ def main(argv: list[str] | None = None) -> int:
     import argparse
     from pathlib import Path
 
-    from agent_build_kit.cli.pipeline import parked_units
+    from agent_build_kit.cli.pipeline import gated_units, parked_units
     from agent_build_kit.installation import load_installation
     from agent_build_kit.pipeline.pr_poller import recorded_checks
     from agent_build_kit.pipeline.unit_store import UnitStore
@@ -335,6 +348,7 @@ def main(argv: list[str] | None = None) -> int:
         args.out,
         checks_of=recorded_checks(installation.state_dir),
         paused=parked_units(installation, units),
+        gated=gated_units(installation, units),
         projects=declared_projects(installation.repos),
     )
     print(f"{args.out}: {len(units)} unit(s)")

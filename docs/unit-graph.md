@@ -666,6 +666,8 @@ splits touch the graph in three places:
   wait reason is `split`, with the words `waiting for e2e-test split <name>: <hold>`. The promotion is
   worked out again each round, so the unit starts in the first round that finds the hold gone. A unit
   that has started is not gated, since nothing a hold could disturb is left to protect.
+- **The graph draws it as blocked.** Its legend says a unit may wait on a held e2e-test split, and
+  the `blocked` state's description does too.
 
 ## Usage pauses
 

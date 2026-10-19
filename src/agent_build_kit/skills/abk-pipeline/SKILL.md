@@ -175,6 +175,11 @@ replan keeps the park. `abk e2e-test hold <split>` holds one by hand, with no de
 `abk e2e-test status` shows each split as usable or held, and
 `abk e2e-test check` lists the splits with their test counts and finds a test in two.
 
+A unit that has never started and whose split is held is not started and reads "waiting for
+e2e-test split <name>" in `abk status` (wait reason `split`); it holds no place, and the round
+that finds the hold gone starts it. A unit that has started still parks at e2e-test when its
+tests are in a held split, which is the backstop for a wrong or missing `Split:` declaration.
+
 ### Parked for its worktree
 
 A `held` unit with the cause `dirty_worktree` found uncommitted changes in its

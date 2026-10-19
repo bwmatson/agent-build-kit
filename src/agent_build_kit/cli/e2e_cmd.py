@@ -17,6 +17,7 @@ from agent_build_kit.compat_names import old_spelling
 from agent_build_kit.config import (
     REST_SPLIT,
     E2eSchedule,
+    E2eSplit,
     WorkspaceConfig,
     e2e_schedule,
     e2e_splits,
@@ -27,7 +28,7 @@ from agent_build_kit.config_text_edit import ConfigTextEditError, TextEdit, set_
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline.e2e import listing_runner, selection_unavailable
-from agent_build_kit.pipeline.e2e_exclusive import check_splits
+from agent_build_kit.pipeline.e2e_exclusive import SplitCheck, check_splits
 from agent_build_kit.pipeline.e2e_holds import (
     HELD_FILE,
     ORIGIN_CONFIGURATION,
@@ -39,16 +40,59 @@ from agent_build_kit.pipeline.e2e_holds import (
     remove_hold,
     write_hold,
 )
-from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.own_tests import defined_tests_in_range
+from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
+from agent_build_kit.pipeline.units import parked_on_split
+from agent_build_kit.pipeline.vocabulary import FINISHED
 from agent_build_kit.pipeline.wiring import e2e_work
 from agent_build_kit.profiles.base import AppliesE2eSelection
 from agent_build_kit.timers import current_user
+
+OwnTests = Callable[[Installation, StoredUnit], Sequence[str]]
+
+
+def unit_own_tests(installation: Installation, unit: StoredUnit) -> Sequence[str]:
+    """The tests a unit's branch defines or edits; none for a unit with no branch yet."""
+    if not unit.branch:
+        return ()
+    base = installation.repo(unit.repo).default_branch
+    return defined_tests_in_range(installation.checkouts[unit.repo], base, unit.branch)
+
+
+def _split_declaration_warnings(
+    installation: Installation,
+    name: str,
+    splits: Sequence[E2eSplit],
+    checks: Sequence[SplitCheck],
+    own_tests: OwnTests,
+) -> list[str]:
+    """A warning for each unit of `name` that is declared in one split and has an own test that
+    is in another; the split of a test is the one whose listing holds it."""
+    where: dict[str, str] = {}
+    for index, split in enumerate(splits):
+        for check in checks:
+            for test in (check.listings[index].tests or ()) if check.listings else ():
+                where[test] = split.name
+    warnings = []
+    for unit in UnitStore(installation.state_dir / "units.json").all():
+        if unit.repo != name or unit.state in FINISHED:
+            continue
+        for own in own_tests(installation, unit):
+            found = {s for test, s in where.items() if test == own or test.endswith(f"::{own}")}
+            if found and unit.split not in found:
+                groups = ", ".join(str(group) for group in unit.groups)
+                warnings.append(
+                    f"  warning: {unit.change} group {groups} is declared {unit.split} but its "
+                    f"test {own} is in {', '.join(sorted(found))}"
+                )
+    return warnings
 
 
 def _check_repo(
     name: str,
     installation: Installation,
     run: Callable[..., subprocess.CompletedProcess],
+    own_tests: OwnTests,
 ) -> int:
     repo = installation.repo(name)
     config = installation.config
@@ -84,6 +128,8 @@ def _check_repo(
     findings = [finding for check in checks for finding in check.findings]
     for finding in findings:
         print(f"  finding: {finding}")
+    for warning in _split_declaration_warnings(installation, name, splits, checks, own_tests):
+        print(warning)
     return 1 if findings else 0
 
 
@@ -92,7 +138,7 @@ def cmd_e2e_check(
     installation: Installation | None,
     *,
     run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
-    own_tests: Callable[[Installation, StoredUnit], Sequence[str]] | None = None,
+    own_tests: OwnTests | None = None,
 ) -> int:
     assert installation is not None
     names = [args.repo] if args.repo else list(installation.repos)
@@ -102,7 +148,8 @@ def cmd_e2e_check(
     except KeyError as error:
         print(f"abk: {error.args[0]}", file=sys.stderr)
         return 2
-    return max(_check_repo(name, installation, run) for name in names)
+    lookup = own_tests or unit_own_tests
+    return max(_check_repo(name, installation, run, lookup) for name in names)
 
 
 def _places(config: WorkspaceConfig, split: str) -> list[str | None]:
@@ -261,6 +308,7 @@ def cmd_e2e_status(args: argparse.Namespace, installation: Installation | None) 
     assert installation is not None
     splits = declared_splits(installation.config)
     holds = current_holds(installation.config, installation.state_dir)
+    units = UnitStore(installation.state_dir / "units.json").all()
     if holds.unreadable:
         print(f"{HELD_FILE} cannot be read; nothing in it counts")
     for split in splits:
@@ -274,6 +322,12 @@ def cmd_e2e_status(args: argparse.Namespace, installation: Installation | None) 
             )
         else:
             print(f"{split.name:<14} usable")
+        if hold is not None:
+            for unit in units:
+                if parked_on_split(unit) and split.name in unit.parked_splits:
+                    print(f"  parked at e2e-test: {unit.id} ({unit.repo})")
+                elif unit.unstarted and unit.split == split.name:
+                    print(f"  not started: {unit.id} ({unit.repo})")
     limits = installation.config.global_limits
     running = [
         split.name

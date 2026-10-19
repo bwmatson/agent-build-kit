@@ -297,7 +297,13 @@ from agent_build_kit.pipeline.vocabulary import (
     state_label,
     state_label_names,
 )
-from agent_build_kit.pipeline.wait_log import DECISIONS_NAME, Wait, WaitRecorder, trim_decision_log
+from agent_build_kit.pipeline.wait_log import (
+    DECISIONS_NAME,
+    Wait,
+    WaitRecorder,
+    recorded_waits,
+    trim_decision_log,
+)
 from agent_build_kit.pipeline.wiring import (
     build_close_pr,
     build_on_flake,
@@ -361,6 +367,7 @@ def store_for(inst: Installation) -> UnitStore:
                 inst.graph_page,
                 checks_of=recorded_checks(inst.state_dir),
                 paused=parked_units(inst, units),
+                gated=gated_units(inst, units),
                 restacking=restacking_bases(inst),
                 projects=declared_projects(inst.repos),
             )
@@ -2019,9 +2026,31 @@ def _split_gates(inst: Installation, units: Sequence[StoredUnit]) -> dict[str, H
     return gates
 
 
+def gated_units(inst: Installation, units: Sequence[StoredUnit]) -> frozenset[str]:
+    """The ids of the units a held e2e-test split keeps from starting."""
+    return frozenset(_split_gates(inst, units))
+
+
 def _split_wait_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[str]:
-    """One line for each unit parked for a held e2e-test split: which, why and until when."""
+    """One line for each unit parked for a held e2e-test split, or kept from starting by one:
+    which, why and until when; a unit whose split was released and has not started yet says so."""
     lines = []
+    gates = _split_gates(inst, units)
+    recorded = recorded_waits(inst.state_dir / DECISIONS_NAME)
+    for unit in units:
+        if (gate := gates.get(unit.id)) is not None:
+            why = hold_text(gate)
+        elif (
+            unit.unstarted
+            and unit.id in recorded
+            and recorded[unit.id][0].reason is WaitReason.SPLIT
+        ):
+            why = "released, starts this round"
+        else:
+            continue
+        lines.append(
+            f"  waiting for e2e-test split {unit.split}: {unit.id} ({unit_label(unit)}) — {why}"
+        )
     for unit in units:
         if not parked_on_split(unit):
             continue

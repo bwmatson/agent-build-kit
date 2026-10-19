@@ -112,7 +112,7 @@ UNLABELLED: frozenset[str] = FINISHED
 
 _DESCRIPTIONS = {
     "planned": "Ready to start when a slot allows",
-    "blocked": "Waiting on a unit it depends on",
+    "blocked": "Waiting on a unit it depends on, or on a held e2e-test split",
     "running": "An agent is building this unit",
     "reworking": "An agent is answering review or check feedback on this unit",
     "paused": "Waiting for the usage window; the run resumes by itself",
@@ -185,6 +185,8 @@ def effective_state(
     # Stopped part-way through its loop, rather than never started: a run that
     # held at a boundary records a return to planned with a note saying why. A
     # usage pause is not one: the unit stays `running`, interrupted, in its thread.
+    if unit.id in gated:
+        return "blocked"
     if waiting_on(unit, units):
         reworking = unit.cause in (Cause.BASE_CHANGED, Cause.UPSTREAM_WENT_BACK)
         return "paused_rework" if reworking else "blocked"

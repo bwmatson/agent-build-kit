@@ -35,6 +35,28 @@ class Wait(Frozen):
     detail: str = ""
 
 
+def recorded_waits(path: Path) -> dict[str, tuple[Wait, datetime]]:
+    """Each unit the log at `path` last recorded as waiting, with the wait and since when; a
+    unit whose last record closed its wait is not in it."""
+    current: dict[str, tuple[Wait, datetime]] = {}
+    try:
+        lines = path.read_text().splitlines()
+    except OSError:
+        return current
+    for line in lines:
+        try:
+            raw = json.loads(line)
+            unit = str(raw["unit"])
+            if raw["reason"] == ENDED:
+                current.pop(unit, None)
+                continue
+            wait = Wait(reason=WaitReason(raw["reason"]), waits_on=tuple(raw["waits_on"]))
+            current[unit] = (wait, datetime.fromisoformat(raw["at"]))
+        except (ValueError, KeyError, TypeError):
+            continue
+    return current
+
+
 class WaitRecorder:
     """Appends `{at, unit, reason, waits_on, tick}` to the log at `path` only when a
     unit's reason or what it waits on changes, resuming from the log's tail."""
@@ -47,23 +69,7 @@ class WaitRecorder:
         self._current: dict[str, tuple[Wait, datetime]] = self._resume()
 
     def _resume(self) -> dict[str, tuple[Wait, datetime]]:
-        current: dict[str, tuple[Wait, datetime]] = {}
-        try:
-            lines = self.path.read_text().splitlines()
-        except OSError:
-            return current
-        for line in lines:
-            try:
-                raw = json.loads(line)
-                unit = str(raw["unit"])
-                if raw["reason"] == ENDED:
-                    current.pop(unit, None)
-                    continue
-                wait = Wait(reason=WaitReason(raw["reason"]), waits_on=tuple(raw["waits_on"]))
-                current[unit] = (wait, datetime.fromisoformat(raw["at"]))
-            except (ValueError, KeyError, TypeError):
-                continue
-        return current
+        return recorded_waits(self.path)
 
     def record(self, waits: Mapping[str, Wait], *, tick: str, keep: Collection[str] = ()) -> None:
         """Log what changed since the last call; a unit that left `waits` gets a

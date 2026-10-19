@@ -365,6 +365,13 @@ hold set by hand, only `release` (or `hold: false` for the split in `abk.yaml`),
 is an unknown argument. The command refuses a name that is not a split and a configuration it cannot edit. Exit 0 when held; 1 when nothing
 was written; 2 for a name that is not a split.
 
+A unit that has never started and whose split is held is not started. `abk status` lists it as
+`waiting for e2e-test split <name>` with the hold's reason (and `released, starts this round` once
+the split is usable), `abk e2e-test status` lists under each held split the units parked at
+e2e-test and the units not started, and `abk tags` refuses a `Split:` line that names an
+undeclared split, a second line, or a line in a unit-test group. `abk e2e-test check` warns, and
+does not change its exit status, when a group's own test is in a split other than its declared one.
+
 ### `abk e2e-test release SPLIT`
 
 Ends a hold: it removes the entry from `e2e-held.json` and the `hold` line in `abk.yaml`

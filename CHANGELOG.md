@@ -74,7 +74,10 @@
   planned unit that has never started is no longer started while its split is held: it waits
   with the reason `split` ("waiting for e2e-test split <name>" and the hold), takes no slot or
   place under the limit, lends no priority to what it waits on, and starts in the round that
-  finds the hold gone.
+  finds the hold gone. `abk status` lists such units (and says when one is released and starts
+  this round), `abk e2e-test status` lists the parked and not-started units under each held
+  split, the graph draws them as blocked with a legend line, and `abk e2e-test check` warns when
+  a group's own test is in a split other than the one it declares.
 
 - Asking whether a branch is held no longer takes its lock for a moment, so a build starting
   on that branch at the same time is no longer skipped by the question and left unbuilt for

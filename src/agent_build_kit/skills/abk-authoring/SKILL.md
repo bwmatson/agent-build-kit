@@ -178,6 +178,14 @@ group (a flagged group keeps the ordering rules its flag gives it); `abk tags` r
 have two parents neither of which builds on the other, and it then waits for all but one of them
 to merge. Order the groups as a chain, or put the independent group in another change, to avoid it.
 
+## `Split:` lines
+
+A `[e2e-test]` group may carry `Split: <name>`, one of the e2e-test splits its repo declares, or
+`rest`; no line means `rest`. A group is in one split: a test that must run in two splits is
+written as two groups, and the planner never joins them. `rest` merges now while the group in a
+held split waits until the split is released. A `Split:` line in a unit-test group, above the first
+group, or naming an undeclared split is refused by `abk tags`.
+
 ## `Priority:` lines
 
 A group says how urgent it is on a line inside it, and a line above the first
