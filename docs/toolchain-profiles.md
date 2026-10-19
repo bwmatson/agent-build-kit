@@ -38,9 +38,10 @@ Two ship: `python-uv` and `node-npm`, both implemented.
 | `agent_commands` | the build prompts | optional, and each command it names must match the build allow-list; declared as `profiles.base.AgentCommands`: a tuple of `config.AgentCommand` (purpose `test`, `lint`, `format` or `check`; the command as an argument list; scope `whole`, `file` or `node-id`, with `{path}` in the command exactly when the scope is not `whole`) naming what a build agent may run. A profile without it names none. Each command must match the build allow-list (`wiring.allowed_tools` for the repo, its forge and its projects, judged by `tool_patterns.allows`, which refuses a line that chains another command), or the agent's run refuses it. `repos.<name>.agent_commands` replaces them (see `configuration.md`) and is refused at load when one does not match; for a profile's own list `abk doctor` reports a FAIL |
 | `e2e_commands(repo, marker)` | e2e-test without a dev stack | every member's live-stack tests |
 | `acceptance_commands(checkout, paths, marker, exclude_marker, root_extras)` | post-merge verify | the live tests among a change's paths |
-| `clean_command()` | the push gate | lint and format at the tests commit, types skipped |
+| `clean_command(*, types=False)` | the push gate | lint and format at the tests commit, types skipped; with `types=True` the type check runs too, as the gate does for a stubbed build |
 | `red_command(files)` | the push gate | run these test files at the tests commit |
-| `interpret_red(output, exit_code)` | the push gate | was that run honestly red, and why not |
+| `interpret_red(output, exit_code, *, stubbed=False)` | the push gate | was that run honestly red, and why not; with `stubbed=True` the stubbed red reading: the test must fail by an assertion or a "not implemented" error, and a failure to import or a missing attribute is refused |
+| `supports_stubs` | the build, the gate | optional boolean: whether the profile can write stubs that pass its static checks. Read tolerantly (`profiles.base.supports_stubs`): a profile without it, or with anything but true, does not support stubs, so `builders.per_group_commits` has no effect on its repos |
 | `parse_test_summary(output)` | e2e-test, verify | `(passed, failed, skipped, seconds)` |
 | `parse_test_failures(output)` | e2e-test | `TestFailure(test, line)` for each failed or errored test, in printed order; `[]` when the output has none. The python profile asks pytest for them with `-rfE --tb=short` |
 | `is_test_path(path)` | verify, unit-test | test paths deploy nothing |

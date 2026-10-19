@@ -205,8 +205,10 @@ flowchart TD
         tests
         implement
         rework
+        fix_stub_checks
     end
     subgraph grp_quality[Quality checks]
+        stub_checks
         checks
         fix_checks
         unit-test
@@ -239,6 +241,12 @@ flowchart TD
     adapt --> rework
     adapt --> verify_base
     tests --> implement
+    tests -->|stubbed build| stub_checks
+    stub_checks -->|passed, commits the tests| implement
+    stub_checks -->|failed, rounds left| fix_stub_checks
+    stub_checks -->|failed, rounds spent or nothing changed| failed
+    fix_stub_checks --> stub_checks
+    implement -->|a group has no pair| tests
     implement -->|commits| checks
     implement -->|nothing new| unit-test
     checks -->|passed| review
