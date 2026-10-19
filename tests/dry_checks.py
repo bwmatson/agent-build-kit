@@ -15,6 +15,7 @@ from pathlib import Path
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.shell import git
+from tests.claude_recorder import HEADER
 
 # Fixed by the controls in tests/test_dry_checks.py, as measured there: a copy with renamed
 # locals and constants scores 1.0, a function that only delegates 0.43 and an unrelated one 0.54.
@@ -32,7 +33,8 @@ __all__ = [
     "diff_definitions",
     "is_copy",
     "literal_count",
-    "prompts_by_session",
+    "ClaudeRun",
+    "claude_session_prompts",
     "reaches_by_name",
     "session_prompts",
     "source_at",
@@ -196,27 +198,35 @@ def literal_count(repo: Path, ref: str, literal: str, under: str = "src/") -> in
     return sum(source_at(repo, ref, path).count(literal) for path in _files(repo, ref, under))
 
 
-def _prompt_requests(record: Path) -> list[tuple[str, str]]:
-    """Each `session/prompt` request in a recording, in order: its session and its text."""
-    lines = [json.loads(line) for line in record.read_text().splitlines() if line.strip()]
+def session_prompts(record: Path) -> list[str]:
+    """The text of each `session/prompt` request in an ACP recording, in order."""
+    requests = [json.loads(line) for line in record.read_text().splitlines() if line.strip()]
     return [
-        (
-            str(line["params"].get("sessionId", "")),
-            "\n".join(str(block.get("text", "")) for block in line["params"]["prompt"]),
-        )
-        for line in lines
-        if line.get("method") == "session/prompt"
+        "\n".join(str(block.get("text", "")) for block in request["params"]["prompt"])
+        for request in requests
+        if request.get("method") == "session/prompt"
     ]
 
 
-def session_prompts(record: Path) -> list[str]:
-    """The text of each `session/prompt` request in a recording, in the order sent."""
-    return [text for _, text in _prompt_requests(record)]
+class ClaudeRun(Frozen):
+    """One `-p` run of Claude Code in a recording: the prompt it was sent, and the session it
+    resumed ("" for a run that started one)."""
+
+    text: str
+    resume: str
 
 
-def prompts_by_session(record: Path) -> dict[str, list[str]]:
-    """The same prompts, in order, under the session each was sent to."""
-    sessions: dict[str, list[str]] = {}
-    for session, text in _prompt_requests(record):
-        sessions.setdefault(session, []).append(text)
-    return sessions
+def claude_session_prompts(record: Path) -> list[ClaudeRun]:
+    """The runs in a recording made by `claude_recorder`, in order. A run is split from the next
+    at its header line; one with no standard input (a check that is not a `-p` run) has no text
+    and is left out."""
+    runs: list[ClaudeRun] = []
+    for block in record.read_text().split(HEADER)[1:]:
+        header, _, body = block.partition("\n")
+        arguments = json.loads(header)
+        text = body.removesuffix("\n")
+        if not text:
+            continue
+        resume = arguments[arguments.index("--resume") + 1] if "--resume" in arguments else ""
+        runs.append(ClaudeRun(text=text, resume=resume))
+    return runs

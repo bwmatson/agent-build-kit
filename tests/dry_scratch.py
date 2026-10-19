@@ -22,7 +22,9 @@ from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_pa
 from agent_build_kit.graph.unit import thread_position
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
-from tests.acp_recorder import wrapped
+from agent_build_kit.runtimes import claude_code
+from tests.acp_recorder import wrapped as acp_wrapped
+from tests.claude_recorder import wrapped as claude_wrapped
 from tests.dry_checks import diff_definitions
 from tests.factories import commit_files, git, init_repo, scratch_app
 from tests.forges.github_server import FakeGitHub
@@ -210,7 +212,9 @@ def seed_branch(app: Path, change: str, *, duplicate: bool) -> str:
     return branch
 
 
-def _planning(root: Path, app: Path, change: str, tasks: str, command: list[str]) -> Path:
+def _planning(
+    root: Path, app: Path, change: str, tasks: str, runtime: str, command: list[str]
+) -> Path:
     planning = init_repo(root / "planning")
     folder = planning / "openspec" / "changes" / change
     (folder / "specs" / "dry").mkdir(parents=True)
@@ -227,7 +231,7 @@ def _planning(root: Path, app: Path, change: str, tasks: str, command: list[str]
     (planning / "abk.yaml").write_text(
         f"repos:\n  app:\n    path: {app}\n    slug: example/app\n"
         "    profile: python-uv\n    languages: [python]\n"
-        f"runtimes:\n  acp:\n    command: {json.dumps(command)}\n"
+        f"runtimes:\n  {runtime}:\n    command: {json.dumps(command)}\n"
         "limits:\n  max_review_rounds: 1\n"
     )
     git(planning, "add", "-A")
@@ -245,13 +249,16 @@ def ticked_case(
     tmp_path_factory: pytest.TempPathFactory,
     github: FakeGitHub,
     case: str,
+    runtime_name: str,
 ) -> Iterator[DryRun]:
     """Builds `case` ("reuse", "generalize", "share", "duplicate" or "clean") in its own scratch
-    app and planning repo, the real agent command wrapped by the recorder, ticks once with
-    `max_review_rounds` 1 under `TICK_TIMEOUT`, and yields what is left. Fails, never skips,
-    when no agent command is set."""
+    app and planning repo for the runtime `runtime_name` ("claude_code" or "acp"), the real
+    agent command wrapped by that runtime's recorder, ticks once with `max_review_rounds` 1
+    under `TICK_TIMEOUT`, and yields what is left. Fails, never skips, when the runtime's agent
+    is not set. The record is Claude's (`claude_session_prompts`) or the ACP client's
+    (`session_prompts`) by the runtime."""
     change, tasks, seed = CASES[case]
-    runtime = runtime_scratch("acp", tmp_path_factory, lambda command: None)
+    runtime = runtime_scratch(runtime_name, tmp_path_factory, lambda command: None)
     root = tmp_path_factory.mktemp(f"dry-{case}")
     remote = root / "remote.git"
     subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
@@ -261,7 +268,11 @@ def ticked_case(
     if seed:
         seed_branch(app, change, duplicate=seed == "duplicate")
     record = root / "agent-lines.jsonl"
-    planning = _planning(root, app, change, tasks, wrapped(record, runtime.command))
+    if runtime_name == "acp":
+        recorded = acp_wrapped(record, runtime.command)
+    else:
+        recorded = claude_wrapped(record, list(claude_code.AGENT_COMMAND))
+    planning = _planning(root, app, change, tasks, runtime_name, recorded)
     run = DryRun(
         change=change,
         branch=f"spec/{change}/1",

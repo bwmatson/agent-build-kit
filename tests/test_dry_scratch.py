@@ -17,7 +17,14 @@ import pytest
 
 from agent_build_kit import profiles
 from tests.acp_recorder import wrapped
-from tests.dry_checks import definitions, diff_definitions, is_copy, literal_count
+from tests.claude_recorder import wrapped as claude_wrapped
+from tests.dry_checks import (
+    claude_session_prompts,
+    definitions,
+    diff_definitions,
+    is_copy,
+    literal_count,
+)
 from tests.dry_scratch import SQUEEZE, dry_app, seed_branch
 from tests.factories import git
 
@@ -168,3 +175,84 @@ def test_the_recording_wrapper_ends_with_the_agents_code_when_the_agent_dies_fir
         wrapper.kill()
         wrapper.stdin.close()
         wrapper.stdout.close()
+
+
+# A stand-in for `claude`: says its own process id, its arguments and what it read on stdin.
+STUB_CLAUDE = """\
+#!/bin/sh
+echo "pid $$"
+echo "args $*"
+cat
+"""
+STUB_CLAUDE_STATUS = """\
+#!/bin/sh
+echo "args $*"
+"""
+
+
+def stub_claude(tmp_path: Path, script: str) -> Path:
+    stub = tmp_path / "claude"
+    stub.write_text(script)
+    stub.chmod(0o755)
+    return stub
+
+
+def run_the_claude_wrapper(tmp_path: Path, args: list[str], prompt: str) -> tuple[int, str, Path]:
+    record = tmp_path / "claude-runs.txt"
+    process = subprocess.Popen(
+        [*claude_wrapped(record, [str(stub_claude(tmp_path, STUB_CLAUDE))]), *args],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    output, _ = process.communicate(prompt, timeout=60)
+    return process.pid, output, record
+
+
+def test_the_claude_wrapper_records_the_prompt_and_arguments_and_passes_both_on_unchanged(
+    tmp_path: Path,
+) -> None:
+    args = ["-p", "--resume", "session-1", "--model", "haiku"]
+    prompt = "Work ONLY the test tasks.\nSecond line, with 'quotes' and \"more\".\n"
+
+    _, output, record = run_the_claude_wrapper(tmp_path, args, prompt)
+
+    assert f"args {' '.join(args)}\n" in output
+    assert output.endswith(prompt)
+    [run] = claude_session_prompts(record)
+    assert run.text == prompt
+    assert run.resume == "session-1"
+
+
+def test_the_claude_wrapper_leaves_no_process_of_its_own_once_claude_runs(tmp_path: Path) -> None:
+    pid, output, _ = run_the_claude_wrapper(tmp_path, ["-p"], "a prompt\n")
+
+    # It exec'd: the process the stub ran in is the one the wrapper was started as.
+    assert output.splitlines()[0] == f"pid {pid}"
+
+
+def test_the_claude_wrapper_leaves_the_input_of_a_run_that_is_not_a_prompt_alone(
+    tmp_path: Path,
+) -> None:
+    record = tmp_path / "claude-runs.txt"
+
+    # Standard input is never closed here: the wrapper must not wait on it.
+    process = subprocess.Popen(
+        [
+            *claude_wrapped(record, [str(stub_claude(tmp_path, STUB_CLAUDE_STATUS))]),
+            "auth",
+            "status",
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    assert process.stdin is not None and process.stdout is not None
+    try:
+        assert process.wait(timeout=10) == 0
+        assert process.stdout.read() == "args auth status\n"
+    finally:
+        process.kill()
+        process.stdin.close()
+        process.stdout.close()
+    assert claude_session_prompts(record) == []

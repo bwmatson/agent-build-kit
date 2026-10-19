@@ -1,15 +1,17 @@
 """A real agent reuses, generalizes and shares as the builders' prompts ask.
 
-Three cases, each one unit built once by the agent `ABK_ACCEPTANCE_ACP_COMMAND` names, in a
-scratch app that tempts duplication. Every assertion is structural: it counts definitions and
-call sites in what the agent wrote, never a model's reading of it. A red run is one of three
+Three cases, each one unit built once by Claude Code, in a scratch app that tempts duplication.
+Every assertion is structural: it counts definitions and call sites in what the agent wrote,
+never a model's reading of it. A red run is one of three
 things, told apart in this order by the failure message: the prompt was not delivered (the
 prompt test fails), the agent ignored it (the prompt test passes and a structural one fails
 with a copy in the diff), or the assertion was too strict (the diff shows no copied logic).
 No assertion is loosened to turn a run green.
 
-Needs an agent speaking the protocol, node for the OpenSpec CLI and uv. Bills on demand and
-takes minutes per case, so it is marked e2e-test and excluded from the default suite.
+Needs a Claude Code account, node for the OpenSpec CLI and uv. The prompts are recorded by a
+wrapper set as `runtimes.claude_code.command` (`tests/claude_recorder.py`); the ACP form of that
+check is a separate module. Bills on demand and takes minutes per case, so it is marked
+e2e-test and excluded from the default suite.
 """
 
 from __future__ import annotations
@@ -20,23 +22,15 @@ from collections.abc import Iterator
 import pytest
 
 from agent_build_kit.pipeline.reuse_guidance import reuse_guidance
-from agent_build_kit.pipeline.stack_runner import (
-    ADAPT_CONTINUATION,
-    CHECKS_CONTINUATION,
-    IMPLEMENTATION_CONTINUATION,
-    REVIEW_FEEDBACK_CONTINUATION,
-    REWORK_CONTINUATION,
-)
 from tests.dry_checks import (
     Definition,
     calls_by_name,
+    claude_session_prompts,
     definitions,
     diff_definitions,
     is_copy,
     literal_count,
-    prompts_by_session,
     reaches_by_name,
-    session_prompts,
     source_at,
 )
 from tests.dry_scratch import (
@@ -50,26 +44,15 @@ from tests.dry_scratch import (
 )
 from tests.forges.github_server import FakeGitHub
 from tests.prompt_text import flat
+from tests.runtime_scratch import CLAUDE_CODE_PARAMS
 
 pytestmark = [
     pytest.mark.local_stack,
-    pytest.mark.runtime_acp,
     pytest.mark.skipif(shutil.which("npx") is None, reason="npx is not on PATH"),
     pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not on PATH"),
 ]
 
 TESTS_STEP = "Work ONLY the test tasks"
-# What each continuation prompt opens with: its text before the first placeholder.
-CONTINUATION_OPENINGS = tuple(
-    flat(template.split("{", 1)[0])
-    for template in (
-        IMPLEMENTATION_CONTINUATION,
-        CHECKS_CONTINUATION,
-        REVIEW_FEEDBACK_CONTINUATION,
-        REWORK_CONTINUATION,
-        ADAPT_CONTINUATION,
-    )
-)
 
 
 @pytest.fixture(scope="module")
@@ -79,25 +62,26 @@ def github_host() -> Iterator[FakeGitHub]:
 
 
 def case(
-    tmp_path_factory: pytest.TempPathFactory, github: FakeGitHub, name: str
+    tmp_path_factory: pytest.TempPathFactory, github: FakeGitHub, name: str, runtime: str
 ) -> Iterator[DryRun]:
-    with ticked_case(tmp_path_factory, github, name) as run:
+    with ticked_case(tmp_path_factory, github, name, runtime) as run:
         yield run
 
 
-@pytest.fixture(scope="module")
-def reuse(tmp_path_factory, github_host) -> Iterator[DryRun]:
-    yield from case(tmp_path_factory, github_host, "reuse")
+# The one parameter carries the module's one runtime tag, `runtime_claude_code`.
+@pytest.fixture(scope="module", params=CLAUDE_CODE_PARAMS)
+def reuse(request, tmp_path_factory, github_host) -> Iterator[DryRun]:
+    yield from case(tmp_path_factory, github_host, "reuse", request.param)
 
 
-@pytest.fixture(scope="module")
-def generalize(tmp_path_factory, github_host) -> Iterator[DryRun]:
-    yield from case(tmp_path_factory, github_host, "generalize")
+@pytest.fixture(scope="module", params=CLAUDE_CODE_PARAMS)
+def generalize(request, tmp_path_factory, github_host) -> Iterator[DryRun]:
+    yield from case(tmp_path_factory, github_host, "generalize", request.param)
 
 
-@pytest.fixture(scope="module")
-def share(tmp_path_factory, github_host) -> Iterator[DryRun]:
-    yield from case(tmp_path_factory, github_host, "share")
+@pytest.fixture(scope="module", params=CLAUDE_CODE_PARAMS)
+def share(request, tmp_path_factory, github_host) -> Iterator[DryRun]:
+    yield from case(tmp_path_factory, github_host, "share", request.param)
 
 
 def only(found: list, run: DryRun, what: str):
@@ -205,7 +189,7 @@ def test_share_has_both_named_functions_call_the_one_other_definition(share: Dry
 def test_the_tests_step_prompt_held_the_reuse_part_and_the_three_way_instruction(
     reuse: DryRun,
 ) -> None:
-    prompts = session_prompts(reuse.record)
+    prompts = [run.text for run in claude_session_prompts(reuse.record)]
     steps = [p for p in prompts if TESTS_STEP in p]
     assert len(steps) == 1, (
         f"{len(steps)} tests-step prompts of {len(prompts)} sent\n"
@@ -220,7 +204,7 @@ def test_the_tests_step_prompt_held_the_reuse_part_and_the_three_way_instruction
 def test_the_prompt_that_carries_the_do_not_weaken_sentence_holds_the_repointing_line(
     reuse: DryRun,
 ) -> None:
-    prompts = session_prompts(reuse.record)
+    prompts = [run.text for run in claude_session_prompts(reuse.record)]
 
     # Flattened before the search: the continuation wraps the sentence across two lines.
     carrying = [
@@ -235,27 +219,13 @@ def test_the_prompt_that_carries_the_do_not_weaken_sentence_holds_the_repointing
 
 
 def test_no_continuation_prompt_holds_the_reuse_part(reuse: DryRun) -> None:
-    sessions = prompts_by_session(reuse.record)
-    prompts = [p for sent in sessions.values() for p in sent]
-    if not any(len(sent) > 1 for sent in sessions.values()):
-        pytest.skip("session reuse sent no continuation: no session was sent a second prompt")
+    runs = claude_session_prompts(reuse.record)
+    assert runs, "the wrapper recorded no prompt"
+    # A run that resumes the unit's session is sent a continuation; one that starts a session
+    # is sent a full prompt.
+    continuations = [run for run in runs if run.resume]
+    if not continuations:
+        pytest.skip("session reuse sent no continuation: no run resumed a session")
 
-    continuations = [p for p in prompts if flat(p).startswith(CONTINUATION_OPENINGS)]
-
-    assert continuations, (
-        f"a session was sent several prompts, none opening as a continuation does: "
-        f"{CONTINUATION_OPENINGS}\n" + "\n---\n".join(p[:200] for p in prompts)
-    )
-    for prompt in continuations:
-        assert reuse_guidance() not in prompt
-
-
-# The prompts are recorded at the protocol by a wrapper around the agent command, which only
-# an ACP agent speaks, so no scenario here has a Claude Code variant. Every test of the module
-# reads a case that `ticked_case` ran under that recorder, which is why one reason covers all; a
-# test added here that does not need the recorder should be tagged and listed on its own.
-ACP_ONLY_REASONS = {
-    name: "the prompts are recorded at the ACP wire by a wrapper around the agent command"
-    for name in list(globals())
-    if name.startswith("test_")
-}
+    for run in continuations:
+        assert reuse_guidance() not in run.text

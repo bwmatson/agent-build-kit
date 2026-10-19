@@ -916,14 +916,16 @@ the old account starts fresh) and set the usage windows for the new plan under
   answer for it. Run with `uv run pytest -m local_stack
   tests/integration/test_telemetry_stack.py`.
 - The dry-guidance acceptance run (`tests/integration/test_dry_guidance_build.py`
-  and `tests/integration/test_dry_guidance_review.py`) is `local_stack`, needs
-  `ABK_ACCEPTANCE_ACP_COMMAND` and fails, not skips, when it names no agent. It
-  bills per token and takes minutes per case. Each case runs once: three builds
-  (reuse, generalize, share) and two reviews (a seeded duplicate, a clean branch),
-  five agent runs in all, with no retry. Each tick is limited to 25 minutes, under
-  the e2e-test time limit above, so a stuck agent fails with the unit's log. The
-  assertions parse what the agent wrote and the prompts it was sent, recorded by
-  `tests/acp_recorder.py` at the protocol; none is a model's judgement. Run with
+  and `tests/integration/test_dry_guidance_review.py`) is `local_stack`, tagged
+  `runtime_claude_code` (the ACP form is a separate module), and needs a Claude
+  Code account. It bills per token and takes minutes per case. Each case runs
+  once: three builds (reuse, generalize, share) and two reviews (a seeded
+  duplicate, a clean branch), five agent runs in all, with no retry. Each tick is
+  limited to 25 minutes, under the e2e-test time limit above, so a stuck agent
+  fails with the unit's log. The assertions parse what the agent wrote and the
+  prompts it was sent, recorded by `tests/claude_recorder.py`, a wrapper set as
+  `runtimes.claude_code.command` that appends each run's arguments and prompt to a
+  file and then `exec`s `claude`; none is a model's judgement. Run with
   `uv run pytest -m local_stack tests/integration/test_dry_guidance_build.py
   tests/integration/test_dry_guidance_review.py`.
 - `replay` (the `tests/replay/` plugin, see "Record and replay of external calls"

@@ -9,8 +9,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from tests.claude_recorder import HEADER
 from tests.dry_checks import (
     calls_by_name,
+    claude_session_prompts,
     definitions_in_source,
     diff_definitions,
     is_copy,
@@ -206,3 +208,39 @@ def test_the_prompts_of_a_session_are_the_text_of_its_prompt_requests(tmp_path: 
     assert "first prompt, part one" in prompts[0]
     assert prompts[0].index("part one") < prompts[0].index("part two")
     assert prompts[1] == "second prompt"
+
+
+def a_claude_run(arguments: list[str], prompt: str) -> str:
+    """One run as `claude_recorder` writes it: the header, the input, a newline of its own."""
+    return HEADER + json.dumps(["claude", *arguments]) + "\n" + prompt + "\n"
+
+
+def test_the_runs_of_a_claude_recording_are_each_runs_text_in_order_with_its_resume_id(
+    tmp_path: Path,
+) -> None:
+    record = tmp_path / "claude-runs.txt"
+    first = 'Work ONLY the test tasks.\n\nabk-run ["claude"] in a prompt is only text\n'
+    record.write_text(
+        a_claude_run(["-p", "--model", "opus"], first)
+        + a_claude_run(["-p", "--resume", "abc-123", "--model", "opus"], "Now implement.")
+    )
+
+    runs = claude_session_prompts(record)
+
+    assert [(run.text, run.resume) for run in runs] == [
+        (first, ""),
+        ("Now implement.", "abc-123"),
+    ]
+
+
+def test_a_claude_run_with_no_standard_input_is_left_out(tmp_path: Path) -> None:
+    record = tmp_path / "claude-runs.txt"
+    record.write_text(
+        HEADER
+        + json.dumps(["claude", "auth", "status"])
+        + "\n"
+        + a_claude_run(["-p"], "A prompt.")
+        + a_claude_run(["-p"], "")
+    )
+
+    assert [run.text for run in claude_session_prompts(record)] == ["A prompt."]
