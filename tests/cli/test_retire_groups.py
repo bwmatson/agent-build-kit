@@ -14,7 +14,7 @@ def test_groups_built_in_a_merged_unit_need_no_reason(scene: Scene, capsys) -> N
 
     code, out = scene.retire(capsys, UNIT)
 
-    assert code == 0
+    assert code == 0, out
     assert scene.unit(UNIT).state == "retired"
     assert "feature/2" in out and "merged" in out
 

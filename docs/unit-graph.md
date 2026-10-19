@@ -114,7 +114,8 @@ holds no place under `max_units_in_progress`, nothing waits on it, and no plan r
 change archives only when every group it carried was built by a unit that merged or landed. A replan
 also keeps a planned unit that has a branch, a pull request, a pushed commit or an approval when the
 new plan leaves it out (`kept: <unit> has work; not in the plan`), and refuses, whole, a plan that gives
-a group to a second unit while a started unit still carries it.
+a group to a second unit while a started unit still carries it. `abk retire` is the one way a person
+sets the state `retired`; `abk status` lists the units to retire.
 
 ### Who holds what
 

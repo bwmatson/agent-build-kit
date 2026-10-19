@@ -128,7 +128,41 @@ run the lane cannot go on with is handed back to a build worker, `planned` with 
 slots line shows that the run counts toward slot occupancy, so it may read over the cap, as in `slots: 5/4, 1 restacking` (the line totals every project, like the restacks line, and its cap is the per-project cap times the projects with unfinished work): the run is
 never held back by the limit on build workers, but no build starts at or above it. A record left by a tick that has gone
 is ignored.
+A group carried by two units that have started and not finished is listed as `group N of CHANGE is
+carried by A (state), B (state) — suggestion: abk retire A --reason "..."`, suggesting the unit
+further from done (`unplanned`, then `planned`, then `failed` or `held`, then `running` or
+`in_review`; the later in plan order on a tie), and each `unplanned` unit that holds work as
+`unplanned with work: UNIT ... abk retire UNIT --reason "..."`, with `nothing is lost: its groups
+are in UNIT` when a merged unit carries them all. A store without either prints nothing of the kind.
 Changes nothing. Exit 0.
+
+### `abk retire UNIT [--reason TEXT] [--delete-branch] [--discard-unpushed] [--dry-run]`
+
+Ends a unit that has not finished, setting it to the state `retired`: finished, in no place under
+the limit on units in progress, waited on by nothing, and never revived by a plan. Its groups are
+released; the history records the state, the cause `retired`, the reason and `by: abk retire`,
+never a person's name. The unit's thread is deleted.
+
+- **What it refuses**, changing nothing and exiting 1: a merged, closed, satisfied or retired
+  unit, a `running` unit, a unit whose branch lock a live process holds or that has a live lease
+  (the holder is named; a lock or lease left by a process that is gone does not refuse), a unit a
+  started same-repo dependent is stacked on (the dependent is named), and `--discard-unpushed`
+  without `--delete-branch`. An unknown unit exits 2.
+- **The reason rule.** For each group the unit carries the command says which unit carries it
+  (merged, or still owning it) or that no unit does. A group no unit builds needs `--reason`,
+  without which the groups are printed and the command refuses; with it they are printed as
+  released, the change's recorded plan is forgotten so the next tick plans it again, and so is
+  the recorded refusal of any change that names the unit. Dependents that have not finished are
+  listed with their states as no longer waiting. When every group is carried no reason is needed.
+- **What is kept.** The pull request is closed with the reason posted first (a close the host
+  refuses is kept as pending and repeated by each pass, the unit staying retired and the command
+  exiting 1). The branch, the worktree and the remote branch stay unless `--delete-branch` is
+  given: it removes the worktree (never forced; a tree with uncommitted changes refuses the whole
+  command), deletes the local branch and, when the unit was pushed, the remote branch. Commits
+  after the last pushed one (after the base when none) refuse `--delete-branch` alone, printing
+  `N commits not pushed`; `--discard-unpushed` accepts the loss.
+- **`--dry-run`** prints every step, the groups released, the dependents and the commit count,
+  writes nothing, calls no host and exits as the real command would.
 
 ### `abk replay review [--keep NAME ...] [--delete NAME ...]`
 
@@ -513,6 +547,11 @@ says how many model calls it will make.
   removed, estimate and tier changes, units that became `unplanned`, joins dropped,
   and each started unit it left alone (`kept: feature/1, running`); nothing for a
   unit that did not change, or "nothing changed".
+- **A planned unit with work that the plan leaves out is kept**, with
+  `kept: <unit> has work; not in the plan` and the `abk retire` line to end it.
+- **A plan that gives a group to a second unit is refused** while a started unit that has not
+  finished carries it: nothing is written for the change, both units and the group are
+  named with the way out, and the command exits 1.
 
 A name that is not a change, a change without a `tasks.md` and a change with
 task-group tag errors (run `abk tags`) are refused and nothing is planned for them.
