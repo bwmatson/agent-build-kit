@@ -42,6 +42,17 @@ def test_rest_held_does_not_bring_the_unavailable_marker_back() -> None:
     assert set(selection.any_of) == {"runtime_acp", "runtime_claude_code"}
 
 
+def test_rest_held_leaves_out_an_unavailable_marker_that_is_no_split_marker() -> None:
+    splits = (E2eSplit(name="acp", marker="runtime_acp"), E2eSplit(name="rest"))
+
+    expression = PROFILE.expression(
+        MARKER, build_selection(MARKER, splits, held=["rest"], unavailable=[OTEL])
+    )
+
+    assert "runtime_acp" in expression
+    assert f"not {OTEL}" in expression
+
+
 def test_a_split_run_alone_still_leaves_out_the_unavailable_marker() -> None:
     expression = text(only="acp", unavailable=["runtime_claude_code"])
 

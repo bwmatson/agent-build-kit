@@ -96,7 +96,9 @@ def build_selection(
             for split in declared
             if split.name not in left_out and markers[split.name] not in out
         )
-        return base.model_copy(update={"left_out": left_out, "any_of": kept, "empty": not kept})
+        return base.model_copy(
+            update={"left_out": left_out, "any_of": kept, "none_of": out, "empty": not kept}
+        )
     held_markers = [markers[s.name] for s in declared if s.name in left_out]
     return base.model_copy(
         update={"left_out": left_out, "none_of": tuple(dict.fromkeys([*held_markers, *out]))}
