@@ -206,6 +206,10 @@ environment:                  # how the pipeline's own environment is kept curre
   artifacts: [.venv]          # what sync and check produce: never an input, a leftover or
                               # a commit; a tracked file under it is ordinary work
 
+builders:
+  installable_files: []       # base names `abk install-config` may install, besides
+                              # .pre-commit-config.yaml; never a path or a pattern
+
 tracks:                       # the scheduled health/improve/recommend tracks
   model: sonnet               # Claude Code's alias, sent to any runtime as
                               # is: set it when selecting another runtime

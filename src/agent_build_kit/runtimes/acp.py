@@ -98,6 +98,7 @@ from agent_build_kit.pipeline.command_policy import (
     check_no_push,
 )
 from agent_build_kit.pipeline.command_spellings import probe_rows
+from agent_build_kit.pipeline.install_record import logged_lines
 from agent_build_kit.pipeline.scratch import carries_scratch
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.transcript import TranscriptEvent
@@ -672,6 +673,9 @@ class _Session:
             )
             if update.status:
                 self._tell(f"{title}: {update.status}")
+            if update.status == "completed":
+                for installed in logged_lines(output_of(update)):
+                    self._tell(installed)
             if update.status == "failed":
                 self._attribute_own_refusal(update.tool_call_id, update)
             if update.status in ("completed", "failed"):

@@ -24,6 +24,7 @@ from typing import IO, Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from agent_build_kit.pipeline.install_record import logged_lines
 from agent_build_kit.pipeline.transcript import TranscriptEvent
 from agent_build_kit.usage import Salvaged, Usage
 
@@ -222,6 +223,13 @@ def describe(event: dict, *, whole: bool = False) -> list[str]:
         return [f"claude started ({event.get('model', '?')})"]
     if kind == "assistant":
         return [line for block in _content(event) if (line := _block(block, whole))]
+    if kind == "user":
+        return [
+            line
+            for block in _content(event)
+            if block.get("type") == "tool_result"
+            for line in logged_lines(_result_text(block.get("content")))
+        ]
     if kind == "result":
         seconds = round((event.get("duration_ms") or 0) / 1000)
         turns = event.get("num_turns", "?")

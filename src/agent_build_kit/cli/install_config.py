@@ -17,10 +17,9 @@ import yaml
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.file_lock import atomic_write_bytes
+from agent_build_kit.pipeline.install_record import ALWAYS_INSTALLABLE, STAGING, install_line
 from agent_build_kit.pipeline.shell import git
 
-STAGING = Path(".abk") / "proposed"
-ALWAYS_INSTALLABLE = (".pre-commit-config.yaml",)
 YAML_SUFFIXES = (".yaml", ".yml")
 
 
@@ -83,8 +82,9 @@ def cmd_install_config(args: argparse.Namespace, inst: Installation) -> int:
         print(f"abk install-config: failed: {error}", file=sys.stderr)
         return 1
     print(
-        f"installed {target.relative_to(worktree)} "
-        f"sha256={hashlib.sha256(content).hexdigest()} size={len(content)}"
+        install_line(
+            str(target.relative_to(worktree)), hashlib.sha256(content).hexdigest(), len(content)
+        )
     )
     return 0
 

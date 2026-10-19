@@ -774,6 +774,17 @@ and the write goes through a temporary file. Exit 0 when it wrote or had nothing
 1 when not confirmed (or no terminal and no `--yes`), 2 when it refuses and writes
 nothing. `--yes` and `--dry-run` need `--migrate`.
 
+### `abk install-config STAGED TARGET`
+
+Installs a file the agent harness will not let a builder write. A builder run may use it
+(`Bash(abk install-config *)` is in its tool list; a reviewer's and a planner's are not). It runs in
+the unit's worktree. `STAGED` must be a regular file, not a symlink, under `.abk/proposed/` of
+that worktree. `TARGET` must resolve inside the worktree, and its base name must be
+`.pre-commit-config.yaml` or a name under `builders.installable_files`; a YAML target must
+parse. Anything else is refused with the reason, nothing is written (the copy goes through a
+temporary file and a rename), and the exit code is 1. On success it prints
+`installed <target> sha256=<hash> size=<bytes>`, and that line is copied to the unit's run log.
+
 ### `abk project init PATH --profile NAME --repo REPO [--scaffold]`
 
 Registers a project in `REPO`'s `projects:` list before its directory exists (it is

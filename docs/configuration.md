@@ -327,6 +327,10 @@ global_limits:
   network_control_hosts: [one.one.one.one, dns.google]  # bare host names tried beside the code hosts to tell a network outage from a model service outage
   service_unavailable_attempts: 5   # times in a row a 5xx or 529 from the model service parks a unit before the next fails it
 
+builders:
+  installable_files: []         # base names (never paths or patterns) `abk install-config` may
+                                # install besides `.pre-commit-config.yaml`
+
 tracks:                         # the scheduled tracks (docs/tracks.md); their
                                 # model and tool lists stay here, not under
                                 # runtimes.<name>
