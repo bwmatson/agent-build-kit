@@ -1442,6 +1442,15 @@ cause `split_held`. The scheduled e2e-test run is one change per split and `rest
 `scheduled-e2e-<repo>-<date>-<split>`; an older change with no suffix or ending `-base`
 counts as `rest`.
 
+A group of a change declares its split with a `Split:` line, because the planner cannot know where
+a test will land until it is written, and a unit must be started or left alone whole: the unit
+records the one split its groups share and groups of two splits are never joined. A planned unit
+that has never started and whose split is held is not started: the round leaves it out as it does
+a held unit, it takes no place and lends no priority, and its wait reason is `split` ("waiting
+for e2e-test split <name>"). The round that finds the hold gone starts it. A unit that has started
+is not gated, and a wrong declaration is caught by the parking above, which stays as the
+backstop; `abk e2e-test check` warns about a declaration that differs from a group's own tests.
+
 ### A failed live test says what its scratch tick did
 
 A live test (`local_stack`, under `tests/integration/`) runs `abk tick` through

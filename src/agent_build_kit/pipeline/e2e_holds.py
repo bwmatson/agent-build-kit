@@ -3,8 +3,10 @@ state directory together, the configuration winning (spec: e2e-holds)."""
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import AwareDatetime, TypeAdapter, ValidationError
 
@@ -12,6 +14,9 @@ from agent_build_kit.compat_names import moved_to_current_name, old_spelling
 from agent_build_kit.config import REST_SPLIT, E2eSplit, RepoConfig, WorkspaceConfig, e2e_splits
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
+
+if TYPE_CHECKING:
+    from agent_build_kit.pipeline.unit_store import StoredUnit
 
 # The state file's name in the state directory.
 HELD_FILE = "e2e-held.json"
@@ -160,6 +165,31 @@ def repo_holds(
     """The splits held now for `repo`, over its own declarations: what its e2e-test run, its
     parked units and its post-merge verification leave out."""
     return held_splits(e2e_splits(repo, config), state_dir, now=now or datetime.now(UTC))
+
+
+def parked_holds(config: WorkspaceConfig, state_dir: Path, unit: StoredUnit) -> dict[str, Hold]:
+    """The splits `unit` is parked on that are held for its own repo."""
+    held = repo_holds(config, config.repos[unit.repo], state_dir).held
+    return {name: held[name] for name in unit.parked_splits if name in held}
+
+
+def split_gates(
+    config: WorkspaceConfig, state_dir: Path, units: Sequence[StoredUnit]
+) -> dict[str, Hold]:
+    """The hold that keeps each unit from starting, by unit id: it has never started and its
+    split is held for its own repo. The held set is read once for each repo, from the state file
+    and the configuration alone; a gate is never asked. A unit of a repo the configuration no
+    longer has, or of a split its repo no longer declares, is not gated."""
+    held_of: dict[str, Mapping[str, Hold]] = {}
+    gates: dict[str, Hold] = {}
+    for unit in units:
+        if not unit.unstarted or unit.repo not in config.repos:
+            continue
+        if unit.repo not in held_of:
+            held_of[unit.repo] = repo_holds(config, config.repos[unit.repo], state_dir).held
+        if unit.split in held_of[unit.repo]:
+            gates[unit.id] = held_of[unit.repo][unit.split]
+    return gates
 
 
 def hold_text(hold: Hold) -> str:

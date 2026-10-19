@@ -3202,8 +3202,11 @@ def _test_bodies(source: str, *, qualified: bool = False) -> dict[str, list[str]
     return {name: sorted(texts) for name, texts in bodies.items()}
 
 
-def _changed_tests(tree: Path, ref: str, *, qualified: bool) -> list[tuple[str, str, bool]]:
-    """(file, test, still there) for each test whose body differs between `ref` and the tree.
+def _changed_tests(
+    tree: Path, ref: str, *, qualified: bool, head: str | None = None
+) -> list[tuple[str, str, bool]]:
+    """(file, test, still there) for each test whose body differs between `ref` and the tree,
+    or between `ref` and the commit `head` when one is given.
 
     Compared file by file in both directions, so a test that only survived the
     replay by name — kept, but silently weakened — is caught, and so is one
@@ -3219,26 +3222,36 @@ def _changed_tests(tree: Path, ref: str, *, qualified: bool) -> list[tuple[str, 
         "--name-only",
         "--no-renames",
         ref,
+        *([head] if head else []),
         "--",
         "*.py",
         errors="surrogateescape",
     )
-    new = git(
-        tree,
-        "ls-files",
-        "-z",
-        "--others",
-        "--exclude-standard",
-        "--",
-        "*.py",
-        errors="surrogateescape",
+    new = (
+        git(
+            tree,
+            "ls-files",
+            "-z",
+            "--others",
+            "--exclude-standard",
+            "--",
+            "*.py",
+            errors="surrogateescape",
+        ).stdout
+        if head is None
+        else ""
     )
-    paths = {p for p in (diff.stdout + "\0" + new.stdout).split("\0") if p}
+    paths = {p for p in (diff.stdout + "\0" + new).split("\0") if p}
     changed: list[tuple[str, str, bool]] = []
     for path in sorted(paths):
-        file = tree / path
-        source = file.read_text(errors="replace") if file.is_file() else ""
-        current = _test_bodies(source, qualified=qualified) if file.is_file() else {}
+        if head is None:
+            file = tree / path
+            source = file.read_text(errors="replace") if file.is_file() else ""
+            present = file.is_file()
+        else:
+            shown = git(tree, "show", f"{head}:{path}", check=False, errors="replace")
+            source, present = shown.stdout, shown.returncode == 0
+        current = _test_bodies(source, qualified=qualified) if present else {}
         old_source = git(tree, "show", f"{ref}:{path}", check=False, errors="replace")
         old = (
             _test_bodies(old_source.stdout, qualified=qualified)
@@ -3263,11 +3276,30 @@ def tests_changed(tree: Path, ref: str) -> set[str]:
     return {name for _, name, _ in _changed_tests(tree, ref, qualified=False)}
 
 
-def touched_tests(tree: Path, ref: str) -> list[tuple[str, str]]:
-    """(file, test) for each test the tree adds or changes against `ref`, as a runner
-    selects it: the file's path from the tree's root and the test's name, with its classes
-    (`Group::test_x`). A deleted test is not listed, since nothing is left to run."""
-    return [(p, n) for p, n, there in _changed_tests(tree, ref, qualified=True) if there]
+def touched_tests(tree: Path, ref: str, head: str | None = None) -> list[tuple[str, str]]:
+    """(file, test) for each test the tree adds or changes against `ref` (or the commit
+    `head` adds or changes against it), as a runner selects it: the file's path from the
+    tree's root and the test's name, with its classes (`Group::test_x`). A deleted test is
+    not listed, since nothing is left to run."""
+    return [(p, n) for p, n, there in _changed_tests(tree, ref, qualified=True, head=head) if there]
+
+
+def own_test_ids(
+    tree: Path,
+    ref: str,
+    work: Sequence[tuple[Path, ToolchainProfile, Any]],
+    *,
+    head: str | None = None,
+) -> list[str]:
+    """The identifiers, from the tree's root, of the tests a unit adds or changes against
+    `ref` (up to `head`): the definition the e2e-test run narrows to, for one that wants the
+    unit's own tests without running them. `work` is `e2e_work`'s."""
+    touched = touched_tests(tree, ref, head)
+    ids: list[str] = []
+    for where, toolchain, _ in work:
+        prefix = f"{where.relative_to(tree).as_posix()}/" if where != tree else ""
+        ids += [f"{prefix}{id_}" for id_ in _ids_for(touched, tree, where, toolchain)]
+    return list(dict.fromkeys(ids))
 
 
 def reset_to(tree: Path, onto: str, keep: str) -> None:

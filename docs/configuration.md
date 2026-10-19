@@ -698,6 +698,10 @@ repos:
 - `rest` is always declared: it is the tests in no split. It may carry `hold` but no
   `marker`, and needs no entry. With no splits declared, a repo's splits are `rest` alone.
 - A test is in at most one split. `abk e2e-test check` finds a test in two.
+- The splits a repo declares are what a `Split:` line in a change's e2e-test group may name (see
+  `e2e_splits` of the repo, or the top level when the repo declares none of its own); a group with
+  no line is in `rest`. A group is in one split, so a test that must run in two is written as two
+  groups.
 - `hold: true` leaves a split out of every e2e-test run and parks the units that wait on it.
   `abk e2e-test hold` and `abk e2e-test release` write `hold` in `abk.yaml` and an entry in the
   state file `e2e-held.json` together. The configuration wins: `hold: false` always

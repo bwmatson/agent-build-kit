@@ -112,7 +112,7 @@ UNLABELLED: frozenset[str] = FINISHED
 
 _DESCRIPTIONS = {
     "planned": "Ready to start when a slot allows",
-    "blocked": "Waiting on a unit it depends on",
+    "blocked": "Waiting on a unit it depends on, or on a held e2e-test split",
     "running": "An agent is building this unit",
     "reworking": "An agent is answering review or check feedback on this unit",
     "paused": "Waiting for the usage window; the run resumes by itself",
@@ -166,6 +166,7 @@ def effective_state(
     *,
     checks_of: ChecksOf | None = None,
     paused: Collection[str] = (),
+    gated: Collection[str] = (),
 ) -> str:
     """The key in `STATES` a unit currently reads as.
 
@@ -180,6 +181,9 @@ def effective_state(
         return "checking"
     if unit.state != PLANNED:
         return unit.state
+
+    if unit.id in gated:
+        return "blocked"
 
     # Stopped part-way through its loop, rather than never started: a run that
     # held at a boundary records a return to planned with a note saying why. A

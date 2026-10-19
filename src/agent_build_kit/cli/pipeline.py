@@ -77,7 +77,12 @@ from agent_build_kit.pipeline.e2e import (
     lock_status_line,
     stack_lock,
 )
-from agent_build_kit.pipeline.e2e_holds import Hold, hold_text, repo_holds
+from agent_build_kit.pipeline.e2e_holds import (
+    Hold,
+    hold_text,
+    parked_holds,
+    split_gates,
+)
 from agent_build_kit.pipeline.e2e_schedule import any_due, write_due
 from agent_build_kit.pipeline.events import (
     Restack,
@@ -300,7 +305,13 @@ from agent_build_kit.pipeline.vocabulary import (
     state_label,
     state_label_names,
 )
-from agent_build_kit.pipeline.wait_log import DECISIONS_NAME, Wait, WaitRecorder, trim_decision_log
+from agent_build_kit.pipeline.wait_log import (
+    DECISIONS_NAME,
+    Wait,
+    WaitRecorder,
+    recorded_waits,
+    trim_decision_log,
+)
 from agent_build_kit.pipeline.wiring import (
     build_close_pr,
     build_on_flake,
@@ -364,6 +375,7 @@ def store_for(inst: Installation) -> UnitStore:
                 inst.graph_page,
                 checks_of=recorded_checks(inst.state_dir),
                 paused=parked_units(inst, units),
+                gated=gated_units(inst, units),
                 restacking=restacking_bases(inst),
                 projects=declared_projects(inst.repos),
             )
@@ -2078,41 +2090,42 @@ def _releasable_split_units(
         if unit.state == PLANNED
         and unit.cause is Cause.SPLIT_HELD
         and unit.id not in in_flight
-        and not _holds_of_parked(inst, unit)
+        and not parked_holds(inst.config, inst.state_dir, unit)
     ]
 
 
-def _holds_of_parked(inst: Installation, unit: StoredUnit) -> dict[str, Hold]:
-    """The splits `unit` waits on that are held for its own repo."""
-    held = repo_holds(inst.config, inst.repo(unit.repo), inst.state_dir).held
-    return {name: held[name] for name in unit.parked_splits if name in held}
-
-
-def _split_gates(inst: Installation, units: Sequence[StoredUnit]) -> dict[str, Hold]:
-    """The hold that keeps each unit from starting, by unit id: it has never started and its
-    split is held for its repo. The held set is read once for each repo, from the state file
-    and the configuration alone; a gate is never asked. A unit of a repo the configuration
-    no longer has is not gated."""
-    held_of: dict[str, Mapping[str, Hold]] = {}
-    gates: dict[str, Hold] = {}
-    for unit in units:
-        if not unit.unstarted or unit.repo not in inst.config.repos:
-            continue
-        if unit.repo not in held_of:
-            held_of[unit.repo] = repo_holds(inst.config, inst.repo(unit.repo), inst.state_dir).held
-        if unit.split in held_of[unit.repo]:
-            gates[unit.id] = held_of[unit.repo][unit.split]
-    return gates
+def gated_units(inst: Installation, units: Sequence[StoredUnit]) -> frozenset[str]:
+    """The ids of the units a held e2e-test split keeps from starting."""
+    return frozenset(split_gates(inst.config, inst.state_dir, units))
 
 
 def _split_wait_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[str]:
-    """One line for each unit parked for a held e2e-test split: which, why and until when."""
+    """One line for each unit parked for a held e2e-test split, or kept from starting by one:
+    which, why and until when; a unit whose split was released and has not started yet says so."""
     lines = []
+    gates = split_gates(inst.config, inst.state_dir, units)
+    recorded = recorded_waits(inst.state_dir / DECISIONS_NAME)
+    for unit in units:
+        if (gate := gates.get(unit.id)) is not None:
+            why = hold_text(gate)
+        elif (
+            unit.unstarted
+            and unit.id in recorded
+            and recorded[unit.id][0].reason is WaitReason.SPLIT
+        ):
+            why = "released, starts this round"
+        else:
+            continue
+        lines.append(
+            f"  waiting for e2e-test split {unit.split}: {unit.id} ({unit_label(unit)}) — {why}"
+        )
     for unit in units:
         if not parked_on_split(unit):
             continue
         names = ", ".join(unit.parked_splits)
-        why = "; ".join(hold_text(hold) for hold in _holds_of_parked(inst, unit).values())
+        why = "; ".join(
+            hold_text(hold) for hold in parked_holds(inst.config, inst.state_dir, unit).values()
+        )
         dropped = unit.state == UnitState.UNPLANNED
         label = "unplanned, parked on" if dropped else "waiting for"
         released = (
@@ -2233,7 +2246,7 @@ def _evaluate_round(
     now = spans.clock.now()
     leases = Leases(lease_dir(inst.state_dir))
     owed = owed_units(inst, units) if owed is None else owed
-    gates = _split_gates(inst, units)
+    gates = split_gates(inst.config, inst.state_dir, units)
     for unit in units:
         if unit.id in building:
             unit = unit.model_copy(update={"state": RUNNING})
@@ -3824,7 +3837,7 @@ def _promote(inst: Installation, store: UnitStore) -> None:
     """Give each unstarted unit the urgency of the units that wait on it, and say which."""
     # A gated unit is left out of the round and lends nothing; the promotion is worked out
     # again every round, so it comes back in the first round that finds the hold gone.
-    gated = _split_gates(inst, store.all())
+    gated = split_gates(inst.config, inst.state_dir, store.all())
     for unit_id, priority, source in promote_ancestors(store, _task_catalog(inst), gated):
         log(f"promoted {unit_id} to priority {priority}, from {source}")
 
@@ -5894,7 +5907,7 @@ def _waits_in(
     leases = Leases(lease_dir(inst.state_dir))
     now = spans.clock.now()
     waits: dict[str, Wait] = {}
-    gates = _split_gates(inst, units)
+    gates = split_gates(inst.config, inst.state_dir, units)
     # By the stored state: the view shows what a pass leaves out as held.
     for unit in units:
         # What `--only` leaves out is not waiting for anything this pass decides.
