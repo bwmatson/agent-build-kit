@@ -196,9 +196,11 @@ def slots_per_account(config: WorkspaceConfig) -> bool:
 
 
 def label_of(key: str | None, config: WorkspaceConfig) -> str:
-    """How a ledger row's account key reads: the label of the account whose directory it is, the
-    key itself for a directory no label names, and `default` for the default account."""
-    if key is None:
-        return "default"
+    """How a ledger row's account key reads: the label of the account whose directory it is,
+    `default` for the default account (no key, or the directory the environment names), and the
+    key itself for a directory nothing names."""
     named = runtime_entry(config, name=CLAUDE_CODE).accounts
-    return next((label for label, entry in named.items() if str(entry.config_dir) == key), key)
+    for label, entry in named.items():
+        if key is not None and str(entry.config_dir) == key:
+            return label
+    return "default" if key is None or key == account_key() else key

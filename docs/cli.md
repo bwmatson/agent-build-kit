@@ -35,7 +35,8 @@ window's reset nears, when one is set) or unknown; `git fetch --prune origin` in
 run or a usage pause left `running` from their threads and build the ready
 units, up to `project_limits.max_concurrent_stacks` at once in each project. No unit that has never
 started does while the units in progress in its project are at
-`project_limits.max_units_in_progress`, and a pass starts no more than fit under it;
+`project_limits.max_units_in_progress` (or, once an installation names a Claude account, in its account,
+against that account's own `max_units_in_progress`), and a pass starts no more than fit under it;
 the tick log and `abk status` then say "queue is full: N units in progress,
 limit M" followed by the count in each state, and, while the project's emergency lane
 (`project_limits.emergency_extra`) has room, that a priority-0 unit may still start; a unit in
@@ -182,7 +183,7 @@ every store write; this is for a page that went missing. Exit 0.
 
 Tokens by kind, cost and time by bucket (agent, checks, slot wait, usage-pause wait,
 review wait) from the usage ledger and the unit store, grouped `--by` unit (default),
-change, node, role, model, repo or day. `--since` (a date) keeps calls on or after it;
+change, node, role, model, repo, account or day. `--since` (a date) keeps calls on or after it;
 `--change` and `--unit` narrow to one. Estimated figures sit in their own columns and
 stay out of the totals unless `--include-estimates`; a figure never recorded prints as
 `-`, never `0`. The source column says whether figures were `reported`, from the

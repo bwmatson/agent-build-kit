@@ -248,7 +248,9 @@ project_limits:
                                 # the run after it) at once in each project; the lane's cap
                                 # bounds the run, which counts toward slot occupancy but is
                                 # never held back by max_concurrent_stacks
-  max_units_in_progress: 5      # units started and not finished, in each project, at
+  max_units_in_progress: 5      # units started and not finished, in each project (once a
+                                # Claude account is named: in each account, the default
+                                # account's across all its projects), at
                                 # least 1; at it no unit that has never started does,
                                 # while reworks, resumes and finishing reviewed work
                                 # still run; a blocked unit, and a failed unit that waits
@@ -668,7 +670,9 @@ runtimes:
 
 Units in progress are counted per account against that account's `max_units_in_progress`
 (the default account's is `project_limits.max_units_in_progress`) once an installation names an
-account. `abk report --by account` groups the ledger by account.
+account. From then on `project_limits.max_units_in_progress` bounds the default account's units
+across all its projects together, not each project, and that includes a repo whose label has no
+directory on this machine, so a person with one account sees the one limit shared by every repo. `abk report --by account` groups the ledger by account.
 
 They are independent layers, and both may be used. For a fact either could carry, the loader
 reads the entry itself (which `verify.env` variable exists, and its provider) from `abk.yaml`

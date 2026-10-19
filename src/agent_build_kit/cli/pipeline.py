@@ -757,8 +757,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
 
     lane_use = _lane_use(inst, units)
     for key, line in _queue_full_by_project(inst, units).items():
-        in_lane = lane_use.get(key, ()) if isinstance(key, ProjectKey) else ()
-        if len(in_lane) < inst.emergency_extra:
+        if _lane_has_room(inst, units, key, lane_use):
             line += "; a priority-0 unit may still start while the emergency lane has room"
         log(line)
     for line in _emergency_room_lines(inst, units, lane_use):
@@ -2390,6 +2389,29 @@ def _slot_limit(inst: Installation) -> Callable[[Hashable], int]:
     return limit
 
 
+def _lane_has_room(
+    inst: Installation,
+    units: list[StoredUnit],
+    slot: Hashable,
+    lane_use: dict[ProjectKey, list[StoredUnit]],
+) -> bool:
+    """Whether the emergency lane of a project in `slot` has room: of the project itself, or of
+    any project whose units are counted in the account `slot`."""
+    slot_of = _slot_of(inst)
+    projects = {project_key(u) for u in units if slot_of(u) == slot}
+    return any(len(lane_use.get(project, ())) < inst.emergency_extra for project in projects)
+
+
+def _slots_capacity(inst: Installation, units: list[StoredUnit], live: set[ProjectKey]) -> int:
+    """The units in progress the gate allows in all: each live project's limit, or each account in
+    use's own limit when units are counted per account."""
+    slot_of = _slot_of(inst)
+    if slot_of is project_key:
+        return inst.max_units_in_progress * len(live)
+    slots = {slot_of(unit) for unit in units if project_key(unit) in live}
+    return sum(_slot_limit(inst)(slot) for slot in slots)
+
+
 def _slot_name(slot: Hashable, units: list[StoredUnit]) -> str:
     """How a full slot is named in the status: a project by its tag, an account by its label."""
     if isinstance(slot, ProjectKey):
@@ -2732,6 +2754,7 @@ def _nothing_started_reason(
         return "nothing can start: " + "; ".join(
             f"deadlocked: {' -> '.join(cycle)}" for cycle in cycles
         )
+    slot_of = _slot_of(inst)
     full_projects = _queue_full_by_project(inst, units)
     if full_projects:
         ready = _evaluate(
@@ -2743,14 +2766,14 @@ def _nothing_started_reason(
             enforce_limit=False,
             idle=_idle_units(inst, units, ()),
         )
-        held_back = {_slot_of(inst)(unit) for unit in ready}
+        held_back = {slot_of(unit) for unit in ready}
         lines = []
         for key, line in full_projects.items():
             if key in held_back:
                 lines.append(
                     f"{line}; {_WAIT_FOR_ROOM if inst.emergency_extra else _WAIT_FOR_ROOM_OFF}"
                 )
-                lines.extend(_blocked_lines(units, key))
+                lines.extend(_blocked_lines(units, key, slot_of))
         if lines:
             return "\n".join(lines)
     failed = [line for unit in units if unit.state == FAILED and (line := _blocked_by(unit, units))]
@@ -2984,7 +3007,7 @@ def _schedule(
                     ),
                     queued=len(queued),
                     free_workers=free,
-                    limit=inst.max_units_in_progress * len(live),
+                    limit=_slots_capacity(inst, units, live),
                     cap=inst.max_concurrent_stacks * len(live),
                 ),
                 log,

@@ -387,7 +387,7 @@ cannot do, and what a person does about it:
   or `runtimes.claude_code.accounts`), they count per resolved account against that
   account's `max_units_in_progress` instead, and a label with no directory counts as the default account. A failed unit holds its slot until it is requeued and
   finishes, or closed: free one that way.
-- Usage is read with `abk report --by role|model|change` (cost) and
+- Usage is read with `abk report --by role|model|change|account` (cost) and
   `abk report --context` (context window use). The ledger does not record
   what a runtime does not report.
 
@@ -398,7 +398,9 @@ cannot do, and what a person does about it:
 2. The next tick's planner reads its `tasks.md` and adds units to the graph.
 3. Units build in dependency order, at most `project_limits.max_concurrent_stacks`
    at a time in each project. No unit that has never started starts while the units in
-   progress in its project are at `project_limits.max_units_in_progress`, and a pass
+   progress in its project are at `project_limits.max_units_in_progress` (counted per account
+   instead once an account is named, against that account's `max_units_in_progress`; the
+   default account's units then count together across all its projects), and a pass
    starts no more new units than fit under it: the rest stay `planned`, and
    a priority-0 unit starts as soon as it is ready in the emergency lane
    (`project_limits.emergency_extra`), and ordinary starts wait while it counts toward the

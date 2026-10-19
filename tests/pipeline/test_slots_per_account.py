@@ -12,7 +12,7 @@ import pytest
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import FAILED
 from tests.conftest import status_lines
-from tests.factories import new_unit
+from tests.factories import new_unit, started_ids
 
 REPOS = ("app", "platform", "web")
 
@@ -128,3 +128,34 @@ def test_a_label_that_falls_back_to_the_default_account_counts_against_its_limit
     [line] = full(lines)
     assert "default account" in line
     assert "2 units in progress, limit 2" in line
+
+
+def gate(kit_limit: int, default_limit: int = 5):
+    """`ready_units`'s slot arguments: `app` is on the `kit` account, every other repo on the
+    default account, each with its own limit."""
+    return dict(
+        max_units_in_progress=default_limit,
+        slot_of=lambda unit: "kit" if unit.repo == "app" else None,
+        slot_limit=lambda slot: kit_limit if slot == "kit" else default_limit,
+    )
+
+
+def kit_graph() -> list:
+    failed = [
+        new_unit(f"f{n}/1", repo="app", state=FAILED, branch=f"spec/f{n}/1") for n in range(2)
+    ]
+    return [*failed, new_unit("app-ready/1", repo="app"), new_unit("web-ready/1", repo="web")]
+
+
+def test_the_gate_starts_the_default_accounts_unit_while_the_full_account_waits() -> None:
+    assert started_ids(kit_graph(), slots=4, **gate(kit_limit=2)) == ["web-ready/1"]
+
+
+def test_the_gate_holds_an_account_to_its_own_limit_below_the_project_limit() -> None:
+    graph = [*kit_graph()[:1], new_unit("app-ready/1", repo="app")]
+
+    assert started_ids(graph, slots=4, **gate(kit_limit=1)) == []
+
+
+def test_the_gate_starts_a_unit_while_its_account_has_room() -> None:
+    assert started_ids(kit_graph(), slots=4, **gate(kit_limit=3)) == ["app-ready/1", "web-ready/1"]

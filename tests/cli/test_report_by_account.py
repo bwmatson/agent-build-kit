@@ -18,7 +18,7 @@ from tests.ledger_lines import agent_line, write_ledger
 
 @pytest.fixture
 def inst(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Installation:
-    kit_home = str(tmp_path / "kit-home")
+    kit_home = str(tmp_path / "second-home")
     installation = make_installation(tmp_path / "planning")
     (installation.root / "abk.yaml").write_text(dump(installation.config))
     # A machine path is never in the committed file; the account's directory is the overlay's.
@@ -54,4 +54,6 @@ def test_the_table_by_account_names_the_label(
 ) -> None:
     assert main(["report", "--by", "account"]) == 0
 
-    assert "kit" in capsys.readouterr().out
+    rows = [line.split()[0] for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert "kit" in rows
+    assert "second-home" not in " ".join(rows)

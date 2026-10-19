@@ -280,7 +280,9 @@ stacks on that predecessor; cross-repo, it counts once that predecessor has
 merged. `global_limits.stack_depth_build_cap` holds
 back chains of open PRs; `project_limits.max_concurrent_stacks` bounds units being
 built. `project_limits.max_units_in_progress` bounds the units started and not finished
-in each project: running, in review or failed, and any planned or unplanned unit
+in each project (or, once an installation names a Claude account, in each account, against that
+account's own `max_units_in_progress`; the default account's units then count together across all its
+projects against `project_limits.max_units_in_progress`): running, in review or failed, and any planned or unplanned unit
 that a run has started: one with a recorded branch, a pushed or approved commit or a pull request. Merged, closed and satisfied
 units, held units (set aside until a person releases them), and units that
 never started, do not count. A planned or unplanned unit parked on a held split

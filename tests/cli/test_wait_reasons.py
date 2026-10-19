@@ -110,8 +110,16 @@ def isolated(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def installation(tmp_path: Path, **project_limits: int) -> Installation:
+    return workspace_with(tmp_path, {}, project_limits)
+
+
+def workspace_with(
+    tmp_path: Path, blocks: dict[str, dict], project_limits: dict[str, int]
+) -> Installation:
+    """`blocks` adds top-level blocks of the config, such as `repos` and `runtimes`."""
     return make_installation(
         tmp_path,
+        **blocks,
         planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
         project_limits={
             "max_concurrent_stacks": 2,
@@ -129,8 +137,9 @@ def waits_of(
     started: Collection[str] = (),
     usage_paused: bool = False,
     limits: dict[str, int] | None = None,
+    workspace: dict[str, dict] | None = None,
 ) -> dict[str, Wait]:
-    inst = installation(tmp_path, **(limits or {}))
+    inst = workspace_with(tmp_path, workspace or {}, limits or {})
     store = UnitStore(tmp_path / "units.json")
     setup(store, inst)
     return cli.wait_reasons(
@@ -368,3 +377,40 @@ def test_a_decision_log_that_cannot_be_trimmed_still_dates_readiness(
     cli.run_round(inst, store, building=(), only=frozenset(), submit=True)
 
     assert store.get("second/1").ready_at is not None
+
+
+def test_a_unit_of_a_full_account_waits_for_room_while_a_default_account_unit_is_ready(
+    tmp_path: Path,
+) -> None:
+    def scene(store: UnitStore, inst: Installation) -> None:
+        full = [new_unit(f"held{n}/1", repo="app") for n in range(2)]
+        store.upsert(
+            [*full, new_unit("app-ready/1", repo="app"), new_unit("web-ready/1", repo="web")]
+        )
+        for unit in full:
+            store.set_state(unit.id, FAILED, note="broke", branch=f"spec/{unit.id}")
+
+    def repo(name: str, **fields: str) -> dict:
+        return {"path": str(tmp_path / "checkouts" / name), "slug": f"example/{name}", **fields}
+
+    waits = waits_of(
+        tmp_path,
+        scene,
+        limits={"max_units_in_progress": 5},
+        workspace={
+            "repos": {"app": repo("app", account="kit"), "web": repo("web")},
+            "runtimes": {
+                "claude_code": {
+                    "accounts": {
+                        "kit": {
+                            "config_dir": str(tmp_path / "kit-home"),
+                            "max_units_in_progress": 2,
+                        }
+                    }
+                }
+            },
+        },
+    )
+
+    assert waits["app-ready/1"].reason is WaitReason.QUEUE_FULL
+    assert waits["web-ready/1"].reason is WaitReason.READY
