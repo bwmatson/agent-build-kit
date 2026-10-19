@@ -72,11 +72,14 @@ from agent_build_kit.pipeline.stack_runner import (
     REWORK_CONTINUATION,
     REWORK_PROMPT,
     STUB_CHECKS_PROMPT,
+    STUBBED_TESTS_FINISH,
+    TESTS_FINISH,
     TESTS_PROMPT,
     TRIED_NOTE,
     UNIT_TEST_FAILED,
     WHOLE_ASK,
     Escalation,
+    GroupStep,
     Restacked,
     RunStatus,
     UnitOutcome,
@@ -229,6 +232,9 @@ class BuildPath:
         # Whether a dirty tree is the running node's own, killed mid-agent, and what it holds.
         self._own = False
         self._leftovers: tuple[str, ...] = ()
+        # What `prepare` found uncommitted from a run stopped in the stub check loop, for the
+        # fix that follows it to tell its agent about.
+        self._stub_leftovers: tuple[str, ...] = ()
         # The last session an agent call of the running node ended in:
         # (id, runtime, model, the session's cumulative cost after the call).
         self._ended: tuple[str, str, str, float | None] | None = None
@@ -902,11 +908,19 @@ class BuildPath:
             try:
                 self._tree = self.runner.worktree(self.unit, base)
             except DirtyWorktree as dirty:
-                if not self._own or self._chat_changes():
+                if not (self._own or self._stopped_in_stub_loop()) or self._chat_changes():
                     raise
                 self._tree = self.runner.worktree(self.unit, base, allow_dirty=True)
                 self._leftovers = dirty.paths
+                if not self._own:
+                    self._stub_leftovers = dirty.paths
         return self._tree
+
+    def _stopped_in_stub_loop(self) -> bool:
+        """Whether the unit stopped in the stub check loop: the tests and stubs it left
+        uncommitted in the tree are its own, to be fixed, not a person's to remove."""
+        stored = self.runner.store.get(self.unit.id)
+        return bool(stored.feedback) and stored.feedback_source is FeedbackSource.STUB_CHECKS
 
     def ref(self, state: UnitRun) -> str:
         return local_ref(state.base or self.base, repo=self.unit.repo)
@@ -1047,11 +1061,14 @@ class BuildPath:
         r, unit = self.runner, self.unit
         head = r.head(self.tree())
         stored = r.store.get(unit.id)
+        looping = bool(feedback) and stored.feedback_source is FeedbackSource.STUB_CHECKS
         return {
             "pushed_head": bool(existing) and head == stored.approved == stored.pushed,
             "opened": stored.pr is not None,
             "base_commits": existing,
-            "had_feedback": bool(feedback),
+            # Output saved by the stub check loop goes back to the loop, not to rework.
+            "stub_loop": looping,
+            "had_feedback": bool(feedback) and not looping,
             "head": head,
             "head_approved": bool(existing) and head == r.store.get(unit.id).approved,
         }
@@ -1249,7 +1266,7 @@ class BuildPath:
         if r.head(tree) != state.head:
             self.say("the tests commit is already on the branch")
         else:
-            change_dir, groups = r.scope(unit)
+            change_dir, groups = self.scope(state)
             build_boundary, _ = r.boundary_notes(unit, self.graph)
             self.say(f"write the tests ({models().implement})")
             prompt = TESTS_PROMPT.format(
@@ -1259,6 +1276,7 @@ class BuildPath:
                 change_dir=change_dir,
                 boundary=build_boundary,
                 changelog=changelog_note(tree, r.repo_config),
+                finish=STUBBED_TESTS_FINISH if stubbed else TESTS_FINISH,
             )
             if note := r.follow_ups_note(unit):
                 prompt = f"{note}\n\n{prompt}"
@@ -1266,7 +1284,7 @@ class BuildPath:
             if stubbed:
                 # Committed by `stub_checks`, once the stubs and tests pass the static checks.
                 return {"head": r.head(tree), "stub_loop": True}
-            r.commit(f"{TESTS_PREFIX}{unit.title}", cwd=tree, base=self.ref(state))
+            r.commit(f"{TESTS_PREFIX}{self.title(state)}", cwd=tree, base=self.ref(state))
         return {"head": r.head(tree), "stub_loop": False}
 
     def stub_checks(self, state: UnitRun) -> Update:
@@ -1279,11 +1297,11 @@ class BuildPath:
         if ok:
             if state.stub_rounds:
                 r.store.set_feedback(unit.id, "")
-            r.commit(f"{TESTS_PREFIX}{unit.title}", cwd=tree, base=self.ref(state))
+            r.commit(f"{TESTS_PREFIX}{self.title(state)}", cwd=tree, base=self.ref(state))
             return {"head": r.head(tree), "stub_loop": False, "stub_rounds": 0}
         self.say(output)
         # Kept before anything can stop the run, so a retry addresses this output.
-        r.store.set_feedback(unit.id, output)
+        r.store.set_feedback(unit.id, output, source=FeedbackSource.STUB_CHECKS)
         if (budget := out_of_rounds(state.stub_rounds)) is not None:
             return self.stop(
                 f"static checks still failing after {budget} fix round(s) on the tests"
@@ -1293,12 +1311,14 @@ class BuildPath:
     def fix_stub_checks(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit
         tree = self.tree()
-        change_dir, groups = r.scope(unit)
+        change_dir, groups = self.scope(state)
         attempt = state.stub_rounds + 1
         model = state.build_model or models().implement
         feedback = redact_text(r.store.get(unit.id).feedback, where="fix prompt")
         note = person_guidance(r.store.get(unit.id).guidance)
         before = r.tree_state(tree)
+        self._leftovers = self._leftovers or self._stub_leftovers
+        self._stub_leftovers = ()
         self.say(f"fix the failing static checks on the tests ({model}), round {attempt}")
         self.agent(
             r.run,
@@ -1317,6 +1337,24 @@ class BuildPath:
             return self.stop(f"static checks failing and fix round {attempt} changed nothing")
         return {"stub_rounds": attempt}
 
+    def group_step(self, state: UnitRun) -> GroupStep | None:
+        """The task group a stubbed build is on, None when the build is not stubbed."""
+        steps = self.runner.group_steps(self.unit) if self.stubbed() else ()
+        return steps[state.group] if state.group < len(steps) else None
+
+    def scope(self, state: UnitRun) -> tuple[str, str]:
+        """The change directory and group numbers a prompt names: the group a stubbed build
+        is on, else the whole unit's."""
+        step = self.group_step(state)
+        if step is None:
+            return self.runner.scope(self.unit)
+        return step.change_dir, str(step.number)
+
+    def title(self, state: UnitRun) -> str:
+        """What a commit subject names: the group a stubbed build is on, else the unit."""
+        step = self.group_step(state)
+        return step.title if step else self.unit.title
+
     def stubbed(self) -> bool:
         """Whether this unit is built stubbed: the setting is on and its profile supports stubs."""
         config = self.runner.repo_config
@@ -1329,7 +1367,7 @@ class BuildPath:
         if r.head(tree) != state.head:
             self.say("the implementation commit is already on the branch")
         else:
-            change_dir, groups = r.scope(unit)
+            change_dir, groups = self.scope(state)
             build_boundary, _ = r.boundary_notes(unit, self.graph)
             self.say(f"implement ({models().implement})")
             guidance = r.store.get(unit.id).guidance
@@ -1353,9 +1391,16 @@ class BuildPath:
                     changelog=changelog_note(tree, r.repo_config)
                 ),
             )
-            r.commit(f"{CODE_PREFIX}{unit.title}", cwd=tree, base=self.ref(state))
-            r.store.set_guidance(unit.id, "")
-            kept["guidance_asked"] = guidance_asked(state, guidance)
+            r.commit(f"{CODE_PREFIX}{self.title(state)}", cwd=tree, base=self.ref(state))
+            more = self.group_step(state) is not None and state.group + 1 < len(r.group_steps(unit))
+            if not more:
+                # Kept until the last group, so every group's prompts carry the note.
+                r.store.set_guidance(unit.id, "")
+                kept["guidance_asked"] = guidance_asked(state, guidance)
+        if self.group_step(state) is not None:
+            # A group's pair is done: the next group's tests come before the checks.
+            kept["group"] = state.group + 1
+            kept["more_groups"] = state.group + 1 < len(r.group_steps(unit))
         # Counted on the branch, not taken from the commit step: an agent that
         # commits its own work leaves the pipeline nothing to commit.
         return {
@@ -2357,6 +2402,10 @@ class BuildPath:
             "given_comments": (),
             "comments_pending": False,
             "had_feedback": had_feedback,
+            "stub_rounds": 0,
+            "stub_loop": False,
+            "group": 0,
+            "more_groups": False,
             "held": "",
             "hold_state": "",
             "hold_note": "",
@@ -2426,6 +2475,10 @@ def after_prepare(state: UnitRun) -> Node:
         # The work is approved and on the remote: only the pull request step is left.
         # Feedback saved after the pull request was opened is still to be reworked.
         return Node.OPEN_PR
+    if state.stub_loop:
+        # Stopped or killed in the check loop on the tests: back to the fix the saved
+        # output asks for.
+        return Node.FIX_STUB_CHECKS
     if state.had_feedback:
         return Node.REWORK
     if not state.base_commits:
@@ -2449,7 +2502,11 @@ def after_fix_stub_checks(state: UnitRun) -> Node:
 
 
 def after_implement(state: UnitRun) -> Node:
-    return halted(state) or (Node.UNIT_TEST if state.produced_nothing else Node.CHECKS)
+    if stop := halted(state):
+        return stop
+    if state.more_groups:
+        return Node.TESTS
+    return Node.UNIT_TEST if state.produced_nothing else Node.CHECKS
 
 
 def after_checks(state: UnitRun) -> Node:
@@ -2563,6 +2620,7 @@ PREPARED: tuple[Target, ...] = (
     Node.FAILED,
     Node.ADAPT,
     Node.REWORK,
+    Node.FIX_STUB_CHECKS,
     Node.CHECKS,
     Node.TESTS,
     Node.E2E,
@@ -2584,7 +2642,7 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
         (Node.HELD, Node.FAILED, Node.FIX_STUB_CHECKS, Node.IMPLEMENT),
     ),
     Node.FIX_STUB_CHECKS: (after_fix_stub_checks, (Node.HELD, Node.FAILED, Node.STUB_CHECKS)),
-    Node.IMPLEMENT: (after_implement, (Node.HELD, Node.UNIT_TEST, Node.CHECKS)),
+    Node.IMPLEMENT: (after_implement, (Node.HELD, Node.UNIT_TEST, Node.CHECKS, Node.TESTS)),
     Node.CHECKS: (after_checks, (Node.HELD, Node.FAILED, Node.REVIEW, Node.FIX_CHECKS)),
     Node.FIX_CHECKS: (after_fix_checks, (Node.HELD, Node.FAILED, Node.CHECKS)),
     Node.REVIEW: (

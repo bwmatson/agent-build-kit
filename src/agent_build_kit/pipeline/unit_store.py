@@ -181,6 +181,7 @@ class FeedbackSource(StrEnum):
     CONFLICT = "conflict"
     UNIT_TEST = "unit-test"
     E2E = "e2e-test"
+    STUB_CHECKS = "stub-checks"
 
     @classmethod
     def _missing_(cls, value: object) -> FeedbackSource | None:
