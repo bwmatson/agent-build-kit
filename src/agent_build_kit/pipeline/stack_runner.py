@@ -45,6 +45,7 @@ from agent_build_kit.pipeline.e2e import E2eResult, E2eVerdict, latest_full_outp
 from agent_build_kit.pipeline.e2e_holds import Holds
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.flakes import OnFlake
+from agent_build_kit.pipeline.install_record import ALWAYS_INSTALLABLE, STAGING
 from agent_build_kit.pipeline.lease import Leases
 from agent_build_kit.pipeline.pr_replies import last_json, parse_answer
 from agent_build_kit.pipeline.reuse_guidance import reuse_guidance
@@ -121,12 +122,12 @@ The pipeline pushes this branch, after review and unit-test; you never do. Run n
 OUTPUT_NOTE = "\n" + output_convention()
 
 # What a builder does for a config file the harness will not let it write (`abk install-config`).
-INSTALL_NOTE = """\
-The harness refuses an edit to some config files, a `.pre-commit-config.yaml` among them. To
-change one, write the new content to a file under `.abk/proposed/` and run
-`abk install-config .abk/proposed/<file> <target>`; it installs only a file named
-`.pre-commit-config.yaml` (or one the installation lists under `builders.installable_files`),
-inside this worktree.
+_INSTALLABLE = ", ".join(f"`{name}`" for name in ALWAYS_INSTALLABLE)
+INSTALL_NOTE = f"""\
+The harness refuses an edit to some config files, {_INSTALLABLE} among them. To change
+one, write the new content to a file under `{STAGING}/` and run
+`abk install-config {STAGING}/<file> <target>`; it installs only a file with one of those
+names (or one the installation lists under `builders.installable_files`), inside this worktree.
 """
 
 # Part of a full prompt only: a continued session already holds it.

@@ -10,6 +10,7 @@ import pytest
 
 from agent_build_kit import forges
 from agent_build_kit.pipeline import planner, stack_runner
+from agent_build_kit.pipeline.install_record import ALWAYS_INSTALLABLE, STAGING, install_line
 from agent_build_kit.pipeline.wiring import allowed_tools, build_run, build_run_review
 from agent_build_kit.profiles.python_uv import PROFILE
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
@@ -68,8 +69,8 @@ def test_a_builder_prompt_names_the_command_the_staging_directory_and_the_allow_
     text = flat(filled(getattr(stack_runner, name)))
 
     assert "abk install-config" in text
-    assert ".abk/proposed/" in text
-    assert ".pre-commit-config.yaml" in text
+    assert f"{STAGING}/" in text
+    assert all(name in text for name in ALWAYS_INSTALLABLE)
 
 
 def test_an_install_is_written_to_the_units_run_log(tmp_path: Path) -> None:
@@ -79,6 +80,7 @@ def test_an_install_is_written_to_the_units_run_log(tmp_path: Path) -> None:
     tree.mkdir()
     digest = hashlib.sha256(STAGED.encode()).hexdigest()
     target = "pkg/.pre-commit-config.yaml"
+    line = install_line(target, digest, len(STAGED))
     events = stream(
         {
             "type": "assistant",
@@ -102,7 +104,7 @@ def test_an_install_is_written_to_the_units_run_log(tmp_path: Path) -> None:
                     {
                         "type": "tool_result",
                         "tool_use_id": TOOL_CALL,
-                        "content": f"installed {target} sha256={digest} size={len(STAGED)}",
+                        "content": f"On branch spec/feature/1\n{line}\nnothing else to do\n",
                     }
                 ],
             },
@@ -117,5 +119,4 @@ def test_an_install_is_written_to_the_units_run_log(tmp_path: Path) -> None:
 
     run("Implement it.", cwd=tree)
 
-    (logged,) = [line for line in lines if digest in line]
-    assert target in logged
+    assert [text.strip() for text in lines if "installed " in text] == [line]
