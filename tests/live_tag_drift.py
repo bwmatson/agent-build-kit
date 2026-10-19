@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+from agent_build_kit.model import Frozen
 from tests.runtime_scratch import AGENT_COMMAND
 from tests.runtime_tag_collection import ROOT
 from tests.runtime_tags import runtime_tags
@@ -90,3 +91,58 @@ def drift(items: list[pytest.Item]) -> list[str]:
             if not reason.strip()
         ]
     return found
+
+
+def find_live_modules(tests_root: Path) -> list[Path]:
+    """Every Python file under `tests_root`, at any depth and whatever its name, whose syntax
+    marks a test `local_stack` (`pytestmark`, a decorator, a `pytest.param` mark, a class
+    decorator), sorted. A word in a string or comment does not count. Fails, naming the file,
+    on one that cannot be parsed."""
+    raise NotImplementedError
+
+
+class AgentSignals(Frozen):
+    """The table of what starts an agent: the shared helper modules (dotted names) whose import
+    marks a test as starting one, and the helper modules under `tests/` that call an agent
+    but are excused, each with its reason."""
+
+    helper_modules: tuple[str, ...]
+    excused_helpers: dict[str, str]
+
+
+AGENT_SIGNALS = AgentSignals(helper_modules=(), excused_helpers={})
+
+
+def agent_start_notes(items: list[pytest.Item]) -> list[str]:
+    """One line per fixture of a test among `items` that could not be resolved and so was not
+    counted as starting an agent."""
+    raise NotImplementedError
+
+
+def derived_splits(pyproject: Path) -> set[str]:
+    """The split names of the `runtime_<name>` markers registered in `pyproject`: `<name>` each."""
+    raise NotImplementedError
+
+
+def documented_splits(document: Path) -> set[str]:
+    """The split names of the yaml example under "This repo's own splits" in `document`."""
+    raise NotImplementedError
+
+
+def split_name_drift(pyproject: Path, document: Path) -> list[str]:
+    """One message per marker with no documented split and per documented split with no marker,
+    each naming it."""
+    raise NotImplementedError
+
+
+def split_of(item: pytest.Item) -> str:
+    """The split a test is in: the name of its one runtime tag, `rest` when it has none."""
+    raise NotImplementedError
+
+
+def drifted(pytester: pytest.Pytester, **modules: str) -> list[str]:
+    """The drift messages for fixture `modules`, collected the way the project collects its own."""
+    pytester.syspathinsert(ROOT)
+    pytester.makepyfile(**modules)
+    items, _ = pytester.inline_genitems()
+    return drift(items)

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.live_tag_drift import INTEGRATION, drift, live_modules
+from tests.live_tag_drift import INTEGRATION, drift, drifted, live_modules
 from tests.runtime_tag_collection import ROOT, collect
 from tests.runtime_tags import runtime_tags
 
@@ -22,13 +22,6 @@ BUILDS_ONE_TAGGED = (
     f"{HEADER}{SCRATCH_IMPORT}\n\n@pytest.mark.runtime_claude_code\n"
     "def test_builds_a_unit():\n    pass\n"
 )
-
-
-def drifted(pytester: pytest.Pytester, **modules: str) -> list[str]:
-    pytester.syspathinsert(ROOT)
-    pytester.makepyfile(**modules)
-    items, _ = pytester.inline_genitems()
-    return drift(items)
 
 
 @pytest.mark.parametrize(
