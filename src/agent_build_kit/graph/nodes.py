@@ -1284,8 +1284,7 @@ class BuildPath:
         self.say(output)
         # Kept before anything can stop the run, so a retry addresses this output.
         r.store.set_feedback(unit.id, output)
-        budget = active().global_limits.max_check_rounds
-        if budget is not None and state.stub_rounds >= budget:
+        if (budget := out_of_rounds(state.stub_rounds)) is not None:
             return self.stop(
                 f"static checks still failing after {budget} fix round(s) on the tests"
             )
@@ -1401,8 +1400,7 @@ class BuildPath:
         r.store.set_feedback(
             unit.id, f"{UNIT_TEST_FAILED}\n{output}".strip(), source=FeedbackSource.UNIT_TEST
         )
-        budget = active().global_limits.max_check_rounds
-        if budget is not None and state.fix_rounds >= budget:
+        if (budget := out_of_rounds(state.fix_rounds)) is not None:
             return {
                 **self.stop(f"checks still failing after {budget} fix round(s), before review"),
                 "checks_ok": False,
@@ -2397,6 +2395,13 @@ def _round(node: Node, state: UnitRun) -> int:
     if node is Node.REWORK:
         return state.review_round
     return 0
+
+
+def out_of_rounds(used: int) -> int | None:
+    """`global_limits.max_check_rounds` when `used` fix rounds have spent it, else None;
+    `null` is no limit and 0 is spent at once."""
+    budget = active().global_limits.max_check_rounds
+    return budget if budget is not None and used >= budget else None
 
 
 def halted(state: UnitRun) -> Node | None:

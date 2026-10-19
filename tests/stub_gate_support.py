@@ -78,8 +78,10 @@ def repo_on_branch(tmp_path: Path) -> Path:
     return work
 
 
-def commit_tests(repo: Path, title: str, name: str) -> str:
-    commit(repo, f"test: {title}", {f"tests/test_{name}.py": "def test_x(): assert False\n"})
+def commit_tests(
+    repo: Path, title: str, name: str, content: str = "def test_x(): assert False\n"
+) -> str:
+    commit(repo, f"test: {title}", {f"tests/test_{name}.py": content})
     return git(repo, "rev-parse", "HEAD")
 
 

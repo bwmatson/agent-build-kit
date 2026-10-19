@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agent_build_kit.graph.nodes import BuildPath
+from agent_build_kit.graph.state import UnitRun
+from tests.factories import unit
 from tests.graph.stub_loop_fakes import StubLoop, stubbed_build
 from tests.graph.test_build_path import build, limited
 from tests.graph_driver import fresh as fresh_store
+from tests.runner_fakes import make_runner
 
 
 def failing(count: int) -> list[tuple[bool, str]]:
@@ -89,3 +93,23 @@ def test_the_rounds_are_counted_apart_from_the_builds_check_rounds(tmp_path: Pat
     assert outcome.status == "open"
     assert recorder.events.count("claude:fix_stub") == 1
     assert recorder.events.count("claude:fix_checks") == 1
+
+
+def test_a_pass_starts_the_next_groups_loop_from_zero_and_clears_the_saved_output(
+    tmp_path: Path,
+) -> None:
+    """After a loop that used two fix rounds, the update that commits the tests resets the
+    count and the output kept for a stop is gone."""
+    recorder = looping(tmp_path, checks=[(True, "")])
+    recorder.store.set_feedback("add-marker/1", "STUB-OUTPUT-1")
+    runner = make_runner(recorder.store, recorder, tmp_path, **recorder.overrides(tmp_path))
+    path = BuildPath(runner, unit(), base="main", graph=[], run_log=None, tracer=None)
+
+    update = path.stub_checks(
+        UnitRun(unit_id="add-marker/1", change="add-marker", stub_rounds=2, stub_loop=True)
+    )
+
+    assert update["stub_rounds"] == 0
+    assert update["stub_loop"] is False
+    assert recorder.store.get("add-marker/1").feedback == ""
+    assert "commit:test" in recorder.events

@@ -78,7 +78,8 @@ def check_branch(
     for a file no project holds. A commit touching several projects passes when
     every project's checks do.
 
-    A `stubbed` build also needs its commits paired, runs the clean command with types and
+    Whether the build is `stubbed` is the repo's profile's to say, and holds for every
+    project. A `stubbed` build also needs its commits paired, runs the clean command with types and
     reads the red run as stubbed; its cached results are kept apart from the other mode's.
     """
     profile = profile or profiles.get("python-uv")

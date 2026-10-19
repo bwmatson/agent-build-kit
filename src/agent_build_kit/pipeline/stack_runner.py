@@ -1245,8 +1245,12 @@ def _no_reset() -> None:
     raise RuntimeError("this runner was not given a way to reset a branch")
 
 
-def _no_stub_checks(*args: object, **kwargs: object) -> object:
-    raise NotImplementedError
+def _no_stub_checks(*, cwd: Path) -> tuple[bool, str]:
+    raise RuntimeError("this runner was not given a way to run the stub checks")
+
+
+def _no_tree_state(cwd: Path) -> str:
+    raise RuntimeError("this runner was not given a way to read a working tree's state")
 
 
 def parse_test_decisions(answer: str) -> list[PortedTest]:
@@ -1408,9 +1412,9 @@ class UnitRunner(BaseModel):
     run_unit_test: Callable[..., tuple[bool, str]]
     # The static checks of a stubbed build's test step, given `cwd=`: whether lint, format and
     # types pass over the tree with its new files, and the output. See `wiring.build_stub_checks`.
-    run_stub_checks: Callable[..., tuple[bool, str]] = _no_stub_checks  # type: ignore[assignment]
+    run_stub_checks: Callable[..., tuple[bool, str]] = _no_stub_checks
     # A digest of the working tree, which says whether a fix changed it.
-    tree_state: Callable[[Path], str] = _no_stub_checks  # type: ignore[assignment]
+    tree_state: Callable[[Path], str] = _no_tree_state
     # Told the unit and each flake when unit-test raises `FlakeFound`: records it, and with
     # `wait` has the unit wait on its fix (with it false the change is ensured and no
     # `Needs:` line is added), and answers that change, or None when there is nothing for
