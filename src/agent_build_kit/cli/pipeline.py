@@ -25,7 +25,7 @@ import subprocess
 import sys
 import time
 import uuid
-from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Hashable, Iterable, Mapping, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import AbstractContextManager, ExitStack
 from datetime import UTC, datetime
@@ -218,6 +218,7 @@ from agent_build_kit.pipeline.unit_store import (
 from agent_build_kit.pipeline.units import (
     BUILDS_NOTHING,
     CLOSED,
+    EVERY_SLOT,
     FAILED,
     HELD,
     IN_FLIGHT,
@@ -757,7 +758,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
 
     lane_use = _lane_use(inst, units)
     for key, line in _queue_full_by_project(inst, units).items():
-        if len(lane_use.get(key, ())) < inst.emergency_extra:
+        if _lane_has_room(inst, units, key, lane_use):
             line += "; a priority-0 unit may still start while the emergency lane has room"
         log(line)
     for line in _emergency_room_lines(inst, units, lane_use):
@@ -2284,6 +2285,8 @@ def _evaluate_round(
             extra_workers=owed_by,
             depth_cap=inst.stack_depth_build_cap,
             max_units_in_progress=inst.max_units_in_progress if enforce_limit else None,
+            slot_of=_slot_of(inst),
+            slot_limit=_slot_limit(inst),
             excluded=excluded,
             emergency_extra=extra,
             in_lane=lane,
@@ -2366,29 +2369,86 @@ def unit_label(unit: Unit) -> str:
     return project_tag(unit.repo, unit.project)
 
 
-def _queue_full_by_project(inst: Installation, units: list[StoredUnit]) -> dict[ProjectKey, str]:
-    """One line for each project at its limit of units in progress, with its own blocked and
-    failed-waiting units; the project is named when the workspace has more than one."""
-    named = len(_live_projects(inst, units)) > 1
-    lines: dict[ProjectKey, str] = {}
-    for key in sorted(project_counts(units), key=lambda k: (k.repo, k.project)):
-        if start_room(units, inst.max_units_in_progress, key):
+def _slot_of(inst: Installation) -> Callable[[Unit], Hashable]:
+    """What a unit's place in progress is counted under: its account's label (None for the
+    default account) when the installation uses accounts, else its project."""
+    if not claude_account.slots_per_account(inst.config):
+        return project_key
+    return lambda unit: claude_account.for_repo(inst.config, unit.repo).label
+
+
+def _slot_limit(inst: Installation) -> Callable[[Hashable], int]:
+    """The units in progress one slot of `_slot_of` allows: an account's own limit, else the
+    project limit."""
+    if not claude_account.slots_per_account(inst.config):
+        return lambda _slot: inst.max_units_in_progress
+
+    def limit(label: Hashable) -> int:
+        named = claude_account.resolve(inst, label if isinstance(label, str) else None)
+        return named.max_units_in_progress or inst.max_units_in_progress
+
+    return limit
+
+
+def _lane_has_room(
+    inst: Installation,
+    units: list[StoredUnit],
+    slot: Hashable,
+    lane_use: dict[ProjectKey, list[StoredUnit]],
+) -> bool:
+    """Whether the emergency lane of a project in `slot` has room: of the project itself, or of
+    any project whose units are counted in the account `slot`."""
+    slot_of = _slot_of(inst)
+    projects = {project_key(u) for u in units if slot_of(u) == slot}
+    return any(len(lane_use.get(project, ())) < inst.emergency_extra for project in projects)
+
+
+def _slots_capacity(inst: Installation, units: list[StoredUnit], live: set[ProjectKey]) -> int:
+    """The units in progress the gate allows in all: each live project's limit, or each account in
+    use's own limit when units are counted per account."""
+    slot_of = _slot_of(inst)
+    if slot_of is project_key:
+        return inst.max_units_in_progress * len(live)
+    slots = {slot_of(unit) for unit in units if project_key(unit) in live}
+    return sum(_slot_limit(inst)(slot) for slot in slots)
+
+
+def _slot_name(slot: Hashable, units: list[StoredUnit]) -> str:
+    """How a full slot is named in the status: a project by its tag, an account by its label."""
+    if isinstance(slot, ProjectKey):
+        return unit_label(next(u for u in units if project_key(u) == slot))
+    return f"account {slot}" if slot else "default account"
+
+
+def _slot_order(slot: Hashable) -> tuple[str, str]:
+    if isinstance(slot, ProjectKey):
+        return (slot.repo, slot.project)
+    return (str(slot or ""), "")
+
+
+def _queue_full_by_project(inst: Installation, units: list[StoredUnit]) -> dict[Hashable, str]:
+    """One line for each project (or account, when the installation uses accounts) at its limit
+    of units in progress, with its own blocked and failed-waiting units; the slot is named when
+    the workspace has more than one."""
+    slot_of = _slot_of(inst)
+    named = len(_live_projects(inst, units)) > 1 or slot_of is not project_key
+    lines: dict[Hashable, str] = {}
+    for key in sorted(project_counts(units, slot_of), key=_slot_order):
+        limit = _slot_limit(inst)(key)
+        if start_room(units, limit, key, slot_of):
             continue
-        held = [unit for unit in units if in_progress(unit, units) and project_key(unit) == key]
+        held = [unit for unit in units if in_progress(unit, units) and slot_of(unit) == key]
         by_label: dict[str, int] = {}
         for unit in held:
             label = in_progress_label(unit)
             by_label[label] = by_label.get(label, 0) + 1
         states = ", ".join(f"{count} {label}" for label, count in sorted(by_label.items()))
-        name = f"{unit_label(held[0])}: " if named else ""
-        line = (
-            f"queue is full: {name}{len(held)} units in progress, "
-            f"limit {inst.max_units_in_progress} ({states})"
-        )
-        waiting = _blocked_lines(units, key)
+        name = f"{_slot_name(key, units)}: " if named else ""
+        line = f"queue is full: {name}{len(held)} units in progress, limit {limit} ({states})"
+        waiting = _blocked_lines(units, key, slot_of)
         if waiting:
             line += f"; {len(waiting)} blocked not counted"
-        if failed := [u for u in failed_waiting_units(units) if project_key(u) == key]:
+        if failed := [u for u in failed_waiting_units(units) if slot_of(u) == key]:
             line += f"; {len(failed)} failed waiting not counted"
         lines[key] = line
     return lines
@@ -2467,12 +2527,16 @@ def _deadlocked_unit_lines(units: list[StoredUnit]) -> list[str]:
     return ["cannot start:", *lines]
 
 
-def _blocked_lines(units: list[StoredUnit], project: ProjectKey | None = None) -> list[str]:
+def _blocked_lines(
+    units: list[StoredUnit],
+    project: Hashable = EVERY_SLOT,
+    slot_of: Callable[[Unit], Hashable] = project_key,
+) -> list[str]:
     """One line for each blocked unit that has work and so is not counted, with what it waits on;
-    only those of `project` when one is given."""
+    only those of the slot `project` unless it is `EVERY_SLOT`."""
     lines = []
     for unit in uncounted(units):
-        if project is not None and project_key(unit) != project:
+        if project is not EVERY_SLOT and slot_of(unit) != project:
             continue
         waits = [parent.id for parent in waiting_on(unit, units)]
         lines.append(f"  blocked: {unit.id} ({unit_label(unit)}) waits on {', '.join(waits)}")
@@ -2691,6 +2755,7 @@ def _nothing_started_reason(
         return "nothing can start: " + "; ".join(
             f"deadlocked: {' -> '.join(cycle)}" for cycle in cycles
         )
+    slot_of = _slot_of(inst)
     full_projects = _queue_full_by_project(inst, units)
     if full_projects:
         ready = _evaluate(
@@ -2702,14 +2767,14 @@ def _nothing_started_reason(
             enforce_limit=False,
             idle=_idle_units(inst, units, ()),
         )
-        held_back = {project_key(unit) for unit in ready}
+        held_back = {slot_of(unit) for unit in ready}
         lines = []
         for key, line in full_projects.items():
             if key in held_back:
                 lines.append(
                     f"{line}; {_WAIT_FOR_ROOM if inst.emergency_extra else _WAIT_FOR_ROOM_OFF}"
                 )
-                lines.extend(_blocked_lines(units, key))
+                lines.extend(_blocked_lines(units, key, slot_of))
         if lines:
             return "\n".join(lines)
     failed = [line for unit in units if unit.state == FAILED and (line := _blocked_by(unit, units))]
@@ -2943,7 +3008,7 @@ def _schedule(
                     ),
                     queued=len(queued),
                     free_workers=free,
-                    limit=inst.max_units_in_progress * len(live),
+                    limit=_slots_capacity(inst, units, live),
                     cap=inst.max_concurrent_stacks * len(live),
                 ),
                 log,
@@ -5972,7 +6037,8 @@ def _planned_wait(
         return Wait(reason=WaitReason.USAGE_PAUSE)
     if unit.id in startable:
         return Wait(reason=WaitReason.READY)
-    room = start_room(view, inst.max_units_in_progress, project_key(unit))
+    slot_of = _slot_of(inst)
+    room = start_room(view, _slot_limit(inst)(slot_of(unit)), slot_of(unit), slot_of)
     if not in_progress(unit, view) and not room:
         return Wait(reason=WaitReason.QUEUE_FULL)
     return Wait(reason=WaitReason.SLOT)

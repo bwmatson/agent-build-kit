@@ -87,7 +87,7 @@ line falls where a unit ends:
 
 | Moves into the unit graph | Stays abk code |
 |---|---|
-| Step order and branching (`UnitRunner.run`) | Choosing what starts: `ready_units`, the depth caps, slot order, and `project_limits.max_units_in_progress` and `max_concurrent_stacks`, which are counted for each project |
+| Step order and branching (`UnitRunner.run`) | Choosing what starts: `ready_units`, the depth caps, slot order, and `project_limits.max_units_in_progress` and `max_concurrent_stacks`, which are counted for each project (the limit on units in progress per account once an installation names a Claude account) |
 |  | Blocked units: a planned unit that `waiting_on` another unit is *blocked* (the graph's `blocked` label) and holds no place in `max_units_in_progress`; its ready, never-run prerequisite starts into that place ahead of the usual order, and a unit no longer blocked waits for room (`blocked`, `uncounted`, `ready_units`). A planned or unplanned unit parked on a split (`parked_on_split`) holds no place whatever its cause field says, a parked unplanned unit is left alone on release, and a replan keeps the park. A failed unit that waits on another unit holds no place either, is drawn `failed, waiting on <units>` and stays failed (`failed_waiting`); the pipeline requeues it once when its wait ends (see A failed unit whose wait ends). A planned unit that has never started and whose e2e-test split is held is not started and holds no place (see Held e2e-test splits) |
 |  | `Needs:` dependencies, applied by `waiting_on`/`ready_units` like any dependency: a same-repo parent in review releases the dependent onto the parent's branch, a cross-repo one must merge. A failed or held unit requeued while its parent is unmet waits as `planned` with the cause `gated`. The graph draws a `Needs:` dependency as a thick edge, `==>|needs|`, and the planner's own as a plain arrow; the mark (`needs`) is recomputed from `tasks.md` each tick and affects no scheduling. A target the unit already reaches through its dependencies is recorded in `needs` but not linked, so it draws no edge |
 | Where a run got to: the thread's position replaces `checkpoint()`, `record_step` and `resume_from` | The driver: the tick timer, `cmd_tick`, a pass's refresh loop |
@@ -159,7 +159,7 @@ unit's base, together with the attempts made for a conflicting pull request; whe
 tip reach `global_limits.max_review_rounds` the unit is held for a person with a note naming the base,
 the tip and how the last run ended, and a new tip starts the count again. Every agent call of a lane
 run asks the usage guard first; a refusal defers the run, which the lane resumes once the guard allows,
-as it does a run the process lost. The limits are counted for each project, not across all repos.
+as it does a run the process lost. The limits are counted for each project, not across all repos; once an installation names a Claude account, units in progress are counted for each account instead.
 
 ## Priority
 
