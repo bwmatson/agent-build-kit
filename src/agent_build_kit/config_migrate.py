@@ -270,14 +270,20 @@ def _rename_test_kind_keys(text: str) -> str:
         return text
 
     lines = split_lines(text)
+    seen: set[int] = set()
     for where, path, keys in found:
-        block = _block_node(root, path)
-        assert isinstance(block, yaml.MappingNode)
         parent = _block_node(root, path[:-1])
-        assert isinstance(parent, yaml.MappingNode)
-        block_key = _pair(parent, path[-1])
-        assert block_key is not None
-        if _MARKED.search(strip_comment(lines[block_key[0].start_mark.line])):
+        held = _pair(parent, path[-1]) if isinstance(parent, yaml.MappingNode) else None
+        block_key, block = held if held else (None, None)
+        # A block that is not written at its path is one a merge key or an alias brought in, and
+        # one reached by two paths is written once for both.
+        if block_key is None or not isinstance(block, yaml.MappingNode) or id(block) in seen:
+            raise _refuse(
+                where,
+                "the block comes from a merge key or an alias, which cannot be renamed by lines",
+            )
+        seen.add(id(block))
+        if _MARKED.search(strip_comment(lines[block_key.start_mark.line])):
             raise _refuse(where, "the block has an anchor or an alias, which cannot be edited")
         if block.flow_style:
             raise _refuse(where, "a flow-style block cannot be edited without rewriting the line")

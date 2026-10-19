@@ -20,7 +20,7 @@ BEFORE = (
     "  # the split of the e2e tests, by name\n"
     "  tier2_splits:\n"
     "    slow:\n"
-    "      tier2_schedule: nightly\n"
+    "      marker: slow\n"
     "    fast: {}\n"
 )
 AFTER = (

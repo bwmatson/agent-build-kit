@@ -31,6 +31,28 @@ CASES = {
         r"tests|tier2_schedule",
         r"flow",
     ),
+    "block brought in by a merge key above it": (
+        "repos:\n  app: &app\n    path: app\n    tests:\n      tier2_schedule: weekly\n"
+        "  platform:\n    <<: *app\n    path: platform\n",
+        r"repos\.platform\.tests",
+        r"merge|alias",
+    ),
+    "block of a repo that is an alias of another": (
+        "repos:\n  app: &app\n    path: app\n    tests:\n      tier2_schedule: weekly\n"
+        "  platform: *app\n",
+        r"repos\.(app|platform)\.tests",
+        r"merge|alias",
+    ),
+    "quoted old key": (
+        'global_limits:\n  "tier2_lock_wait_seconds": 600\n',
+        r"tier2_lock_wait_seconds",
+        r"quoted",
+    ),
+    "several documents with an old key": (
+        "global_limits:\n  tier2_lock_wait_seconds: 600\n---\nversion: 1\n",
+        r"abk\.yaml",
+        r"several documents",
+    ),
 }
 
 
