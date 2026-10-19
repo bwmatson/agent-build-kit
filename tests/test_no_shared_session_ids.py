@@ -1,0 +1,32 @@
+"""No two test files define the same constant session id: a test names a session by an id
+made for it (the `new_session_id` fixture), so no two tests running at once in any worker
+start processes carrying the same one."""
+
+from __future__ import annotations
+
+import uuid
+from pathlib import Path
+
+from tests.session_id_constants import duplicated_session_ids
+
+TESTS = Path(__file__).resolve().parent
+
+
+def test_no_session_id_is_defined_in_two_test_files() -> None:
+    shared = duplicated_session_ids(TESTS)
+
+    assert not shared, "\n".join(
+        f"{session_id} is defined in {', '.join(str(p.relative_to(TESTS)) for p in files)}"
+        for session_id, files in shared.items()
+    )
+
+
+def test_a_repeat_in_one_file_is_allowed_and_two_files_are_named(tmp_path: Path) -> None:
+    shared, alone = str(uuid.uuid4()), str(uuid.uuid4())
+    (tmp_path / "sub").mkdir()
+    first, second, third = tmp_path / "a.py", tmp_path / "sub" / "b.py", tmp_path / "c.py"
+    first.write_text(f'ID = "{shared}"\nOTHER = "{alone}"\nAGAIN = "{alone}"\n')
+    second.write_text(f'ID = "{shared}"\n')
+    third.write_text('NOT_AN_ID = "0b7e1d52-9c3a"\n')
+
+    assert duplicated_session_ids(tmp_path) == {shared: [first, second]}

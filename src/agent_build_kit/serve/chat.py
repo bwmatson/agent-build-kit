@@ -272,10 +272,12 @@ class Chat:
     def busy(self, session: str) -> bool:
         return session in self._busy
 
-    def holders(self, session: str, cwd: str = "", newest: bool = False) -> list[int]:
+    def holders(
+        self, session: str, cwd: str = "", newest: bool = False, proc: Path = Path("/proc")
+    ) -> list[int]:
         return holding_pids(session, cwd=cwd, newest=newest)
 
-    def claude_holders(self, session: str) -> list[int]:
+    def claude_holders(self, session: str, proc: Path = Path("/proc")) -> list[int]:
         """Processes that have a Claude session open: one with its id in its arguments, or a
         `claude` working in the directory the session is the newest of."""
         seen: set[str] = set()
@@ -286,7 +288,7 @@ class Chat:
                 return self.holders(session, item.cwd, first)
         return self.holders(session)
 
-    def session_holders(self, runtime: str, session: str) -> list[int]:
+    def session_holders(self, runtime: str, session: str, proc: Path = Path("/proc")) -> list[int]:
         return self.claude_holders(session) if runtime == CLAUDE else self.holders(session)
 
     # --- tabs -------------------------------------------------------------------------
