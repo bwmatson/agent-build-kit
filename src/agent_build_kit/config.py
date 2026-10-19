@@ -378,6 +378,19 @@ def e2e_splits(repo: RepoConfig, config: WorkspaceConfig) -> tuple[E2eSplit, ...
     return (*named, E2eSplit(name=REST_SPLIT, hold=rest.hold))
 
 
+def e2e_dimensions(
+    repo: RepoConfig, config: WorkspaceConfig
+) -> dict[str, dict[str, E2eDimensionValue]]:
+    """The dimensions in effect for `repo`: its own `tests.e2e_dimensions` when set, else the
+    top level's."""
+    raise NotImplementedError
+
+
+def unavailable_markers(repo: RepoConfig, config: WorkspaceConfig) -> tuple[str, ...]:
+    """The markers of the values `tests.e2e_available` leaves out for `repo`."""
+    raise NotImplementedError
+
+
 def known_runtime_names(configured: Iterable[str] = ()) -> set[str]:
     """The runtimes a test tag or a `tests` list may name: the registry's, the protocol
     runtime's and the keys under `runtimes`, never the reserved name of the base group."""
@@ -822,6 +835,12 @@ class E2eSplit(Frozen):
     hold: bool | None = None
 
 
+class E2eDimensionValue(Frozen):
+    """One value of a `tests.e2e_dimensions.<dimension>` entry: the marker its tests carry."""
+
+    marker: str
+
+
 class TestsConfig(TestKindSettings):
     # Extra packages the repo-root tests (outside every workspace member) need.
     root_extras: list[str] = []
@@ -838,6 +857,8 @@ class TestsConfig(TestKindSettings):
     replay: ReplayConfig | None = None
     # This repo's e2e-test splits; None follows the top-level `tests.e2e_splits`.
     e2e_splits: dict[str, E2eSplitEntry] | None = Field(None, alias="e2e_splits")
+    # This repo's dimensions; None follows the top-level `tests.e2e_dimensions`.
+    e2e_dimensions: dict[str, dict[str, E2eDimensionValue]] | None = None
 
 
 # The older name of `rest`, the e2e tests in no split; reserved, so no split has this name.
@@ -857,6 +878,9 @@ class RuntimeTestsConfig(TestKindSettings):
     """The installation-wide `tests` block: the declared e2e-test splits."""
 
     e2e_splits: dict[str, E2eSplitEntry] = Field({}, alias="e2e_splits")
+    e2e_dimensions: dict[str, dict[str, E2eDimensionValue]] = {}
+    # The values this machine has, per dimension; a dimension with no entry has every value.
+    e2e_available: dict[str, list[str]] = {}
 
 
 # The words of a `command` template that stand for a list of arguments.

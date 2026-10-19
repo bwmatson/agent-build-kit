@@ -66,9 +66,11 @@ def build_selection(
     *,
     held: Collection[str] = (),
     only: str | None = None,
+    unavailable: Collection[str] = (),
 ) -> E2eSelection:
     """The selection of an e2e-test run over a repo's declared `splits`: leaving out the `held`
-    ones, or running `only` one (a split name or `rest`)."""
+    ones, or running `only` one (a split name or `rest`), and always the tests carrying a
+    marker of `unavailable`."""
     known = [split.name for split in splits]
     for name in [*held, *([only] if only is not None else [])]:
         if name not in known:
