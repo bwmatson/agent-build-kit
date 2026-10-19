@@ -31,6 +31,7 @@ from agent_build_kit.config import (
     by_project,
     e2e_splits,
     owning_project,
+    unavailable_markers,
 )
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
@@ -112,10 +113,14 @@ def _live_selection(
     *,
     held: tuple[str, ...] = (),
     only: str | None = None,
+    unavailable: tuple[str, ...] = (),
 ) -> E2eSelection:
     """The selection of a repo's live tests over its `splits`, less the `held` ones (or only
-    `only`) and less the tests only the dev stack runs; the profile renders it."""
-    selection = build_selection(repo.tests.e2e_marker, splits, held=held, only=only)
+    `only`), less the tests of an `unavailable` marker and less the tests only the dev stack
+    runs; the profile renders it."""
+    selection = build_selection(
+        repo.tests.e2e_marker, splits, held=held, only=only, unavailable=unavailable
+    )
     if (exclude := repo.tests.dev_stack_marker) and not selection.empty:
         selection = selection.model_copy(update={"none_of": (exclude, *selection.none_of)})
     return selection
@@ -129,22 +134,24 @@ def _acceptance_runs(
     *,
     splits: tuple[E2eSplit, ...] = (),
     held: tuple[str, ...] = (),
+    unavailable: tuple[str, ...] = (),
 ) -> list[tuple[ToolchainProfile, Path, list[str]]]:
     """The live tests of the changed `paths`, as (profile, directory to run in, command):
     each project's own profile is asked about the paths under it, from its directory; the
-    repo's profile about the rest, from the checkout root. The `held` splits of `splits` are
-    left out when the profile can apply a selection."""
+    repo's profile about the rest, from the checkout root. The `held` splits of `splits` and
+    the tests of an `unavailable` marker are left out when the profile can apply a
+    selection."""
     runs = []
     for project, group in by_project(repo.projects, paths):
         profile = profiles.for_project(project, fallback)
         directory = checkout / project.prefix if project else checkout
         marker, exclude = repo.tests.e2e_marker, repo.tests.dev_stack_marker
         if (
-            held
+            (held or unavailable)
             and isinstance(profile, AppliesE2eSelection)
             and not selection_unavailable(profile, dev_stack_script=False, splits=splits)
         ):
-            selection = _live_selection(repo, splits, held=held)
+            selection = _live_selection(repo, splits, held=held, unavailable=unavailable)
             if selection.empty:
                 continue
             marker, exclude = profile.expression(selection.marker, selection), ""
@@ -167,6 +174,7 @@ def _held_live_tests(
     *,
     run: Run,
     env: dict[str, str],
+    unavailable: tuple[str, ...] = (),
 ) -> list[str]:
     """The `held` splits that hold a live test among the `runs` (the commands as they run
     with nothing left out). A listing that fails says nothing about the split, so the split
@@ -178,7 +186,9 @@ def _held_live_tests(
         lister = listing_runner(run, directory, env)
         for name in held:
             listed = profile.list_tests(
-                command, _live_selection(repo, splits, only=name), run=lister
+                command,
+                _live_selection(repo, splits, only=name, unavailable=unavailable),
+                run=lister,
             )
             if name not in found and (listed is None or listed):
                 found.append(name)
@@ -271,8 +281,15 @@ def verify_change(
         holds = repo_holds(installation.config, repo, installation.state_dir).held
         held = tuple(split.name for split in splits if split.name in holds)
         plans[name] = deploy_commands(repo, files[name], checkout=checkouts[name], profile=profile)
+        unavailable = unavailable_markers(repo, installation.config)
         tests[name] = _acceptance_runs(
-            repo, files[name], checkouts[name], profile, splits=splits, held=held
+            repo,
+            files[name],
+            checkouts[name],
+            profile,
+            splits=splits,
+            held=held,
+            unavailable=unavailable,
         )
         if held:
             waiting += _held_live_tests(
@@ -282,6 +299,7 @@ def verify_change(
                 held,
                 run=run,
                 env={**os.environ, **(env or {}), **live_credentials(repo, checkouts[name])},
+                unavailable=unavailable,
             )
     # Before anything is pulled or deployed: the verification is tried again once released.
     if waiting:

@@ -51,6 +51,7 @@ from agent_build_kit.config import (
     models,
     owning_project,
     stack_versions_for,
+    unavailable_markers,
 )
 from agent_build_kit.forges import FileChange, Forge, RegistersStacks, RepoId, StackRefused
 from agent_build_kit.installation import Installation
@@ -2409,10 +2410,12 @@ class E2eSession:
         held: Collection[str] = (),
         only: str | None = None,
         splits: Collection[E2eSplit] = (),
+        unavailable: Collection[str] = (),
     ) -> None:
         self.unit = unit
         self.verdict: E2eVerdict | None = None
         self._held = held
+        self._unavailable = unavailable
         self._only = self._only_given = only
         self._splits = splits
         self._on_dev_stack = False
@@ -2536,11 +2539,17 @@ class E2eSession:
         """What this run selects: the whole marker when nothing is left out or the profile
         cannot express a selection, else the repo's splits less the held ones (or the one
         that runs alone; the untagged group is `rest`)."""
-        if (not self._held and self._only is None) or selection_unavailable(
-            self._profile, dev_stack_script=False, splits=self._splits
-        ):
+        if (
+            not self._held and self._only is None and not self._unavailable
+        ) or selection_unavailable(self._profile, dev_stack_script=False, splits=self._splits):
             return E2eSelection(marker=self._marker)
-        return build_selection(self._marker, self._splits, held=self._held, only=self._only_split)
+        return build_selection(
+            self._marker,
+            self._splits,
+            held=self._held,
+            only=self._only_split,
+            unavailable=self._unavailable,
+        )
 
     def _expression(self) -> str | None:
         """The text the test runner takes for this run's selection; None when it selects
@@ -2578,7 +2587,9 @@ class E2eSession:
             return [], scope
         parked: list[str] = []
         for name in sorted(self._held):
-            held = build_selection(self._marker, self._splits, only=name)
+            held = build_selection(
+                self._marker, self._splits, only=name, unavailable=self._unavailable
+            )
             found: list[str] | None = []
             for run in scope.runs:
                 lister = self._lister(toolchains[run.where], run.where)
@@ -2635,7 +2646,9 @@ class E2eSession:
             bare = {test: test.removeprefix(prefix) for test in tests}
             sure = True
             for split in named:
-                selection = build_selection(self._marker, self._splits, only=split.name)
+                selection = build_selection(
+                    self._marker, self._splits, only=split.name, unavailable=self._unavailable
+                )
                 ids = lister(list(command), selection, list(bare.values()))
                 if ids is None:
                     sure = False
@@ -3612,6 +3625,7 @@ def build_runner(
         projects=repo.projects,
         output_dir=e2e_output_dir(root),
         splits=declared,
+        unavailable=unavailable_markers(repo, installation.config),
     )
     planning_repo = installation.root
     # Units build in parallel, and two in one repo share its `.git`. Adding a

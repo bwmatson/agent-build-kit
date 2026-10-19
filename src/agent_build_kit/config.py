@@ -368,7 +368,11 @@ def e2e_schedule(repo: RepoConfig, limits: LimitsConfig) -> E2eSchedule:
 def e2e_splits(repo: RepoConfig, config: WorkspaceConfig) -> tuple[E2eSplit, ...]:
     """The splits in effect for `repo`: its declared ones in declaration order, then `rest`."""
     own = repo.tests.e2e_splits
-    declared = config.tests.e2e_splits if own is None else own
+    return _splits_of(config.tests.e2e_splits if own is None else own)
+
+
+def _splits_of(declared: dict[str, E2eSplitEntry]) -> tuple[E2eSplit, ...]:
+    """The splits a `tests.e2e_splits` mapping declares, in order, then `rest`."""
     named = [
         E2eSplit(name=name, marker=entry.marker, hold=entry.hold)
         for name, entry in declared.items()
@@ -376,6 +380,27 @@ def e2e_splits(repo: RepoConfig, config: WorkspaceConfig) -> tuple[E2eSplit, ...
     ]
     rest = declared.get(REST_SPLIT, E2eSplitEntry())
     return (*named, E2eSplit(name=REST_SPLIT, hold=rest.hold))
+
+
+def e2e_dimensions(
+    repo: RepoConfig, config: WorkspaceConfig
+) -> dict[str, dict[str, E2eDimensionValue]]:
+    """The dimensions in effect for `repo`: its own `tests.e2e_dimensions` when set, else the
+    top level's."""
+    own = repo.tests.e2e_dimensions
+    return config.tests.e2e_dimensions if own is None else own
+
+
+def unavailable_markers(repo: RepoConfig, config: WorkspaceConfig) -> tuple[str, ...]:
+    """The markers of the values `tests.e2e_available` leaves out for `repo`."""
+    available = config.tests.e2e_available
+    return tuple(
+        entry.marker
+        for dimension, values in e2e_dimensions(repo, config).items()
+        if dimension in available
+        for value, entry in values.items()
+        if value not in available[dimension]
+    )
 
 
 def known_runtime_names(configured: Iterable[str] = ()) -> set[str]:
@@ -822,6 +847,12 @@ class E2eSplit(Frozen):
     hold: bool | None = None
 
 
+class E2eDimensionValue(Frozen):
+    """One value of a `tests.e2e_dimensions.<dimension>` entry: the marker its tests carry."""
+
+    marker: str
+
+
 class TestsConfig(TestKindSettings):
     # Extra packages the repo-root tests (outside every workspace member) need.
     root_extras: list[str] = []
@@ -838,6 +869,8 @@ class TestsConfig(TestKindSettings):
     replay: ReplayConfig | None = None
     # This repo's e2e-test splits; None follows the top-level `tests.e2e_splits`.
     e2e_splits: dict[str, E2eSplitEntry] | None = Field(None, alias="e2e_splits")
+    # This repo's dimensions; None follows the top-level `tests.e2e_dimensions`.
+    e2e_dimensions: dict[str, dict[str, E2eDimensionValue]] | None = None
 
 
 # The older name of `rest`, the e2e tests in no split; reserved, so no split has this name.
@@ -857,6 +890,9 @@ class RuntimeTestsConfig(TestKindSettings):
     """The installation-wide `tests` block: the declared e2e-test splits."""
 
     e2e_splits: dict[str, E2eSplitEntry] = Field({}, alias="e2e_splits")
+    e2e_dimensions: dict[str, dict[str, E2eDimensionValue]] = {}
+    # The values this machine has, per dimension; a dimension with no entry has every value.
+    e2e_available: dict[str, list[str]] = {}
 
 
 # The words of a `command` template that stand for a list of arguments.
@@ -1360,6 +1396,49 @@ class WorkspaceConfig(Frozen):
                         f"{seen[entry.marker]}"
                     )
                 seen[entry.marker] = name
+        return self
+
+    @model_validator(mode="after")
+    def _e2e_dimensions_declared_well(self) -> WorkspaceConfig:
+        """A marker belongs to one value or split of a repo, and `e2e_available` names only
+        dimensions and values some scope declares."""
+        checked = [("tests", self.tests.e2e_dimensions, _splits_of(self.tests.e2e_splits))]
+        checked += [
+            (
+                f"repos.{key}.tests" if repo.tests.e2e_dimensions is not None else "tests",
+                e2e_dimensions(repo, self),
+                e2e_splits(repo, self),
+            )
+            for key, repo in self.repos.items()
+        ]
+        for setting, dimensions, splits in checked:
+            seen = {s.marker: f"split {s.name!r}" for s in splits if s.marker}
+            for dimension, values in dimensions.items():
+                for value, entry in values.items():
+                    if entry.marker in seen:
+                        raise ValueError(
+                            f"{setting}.e2e_dimensions.{dimension}.{value}.marker: "
+                            f"{entry.marker!r} is also the marker of {seen[entry.marker]}"
+                        )
+                    seen[entry.marker] = f"{dimension}={value}"
+        declared: dict[str, set[str]] = {}
+        scopes = [self.tests.e2e_dimensions]
+        scopes += [r.tests.e2e_dimensions for r in self.repos.values() if r.tests.e2e_dimensions]
+        for scope in scopes:
+            for dimension, values in scope.items():
+                declared.setdefault(dimension, set()).update(values)
+        for dimension, wanted in self.tests.e2e_available.items():
+            if dimension not in declared:
+                raise ValueError(
+                    f"tests.e2e_available.{dimension}: no such dimension in `e2e_dimensions` "
+                    f"(declared: {', '.join(sorted(declared)) or 'none'})"
+                )
+            for value in wanted:
+                if value not in declared[dimension]:
+                    raise ValueError(
+                        f"tests.e2e_available.{dimension}: {value!r} is not a declared value "
+                        f"(declared: {', '.join(sorted(declared[dimension]))})"
+                    )
         return self
 
     @model_validator(mode="after")
