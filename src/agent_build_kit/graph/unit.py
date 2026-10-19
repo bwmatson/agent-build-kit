@@ -315,7 +315,15 @@ async def advance_through_prepare(
 
 
 # The steps outside a moved-base run: the lane stops before them and hands the unit back.
-OUTSIDE_A_MOVED_BASE_RUN = (Node.REWORK, Node.FIX_CHECKS, Node.E2E, Node.TESTS, Node.IMPLEMENT)
+OUTSIDE_A_MOVED_BASE_RUN = (
+    Node.REWORK,
+    Node.FIX_CHECKS,
+    Node.E2E,
+    Node.TESTS,
+    Node.STUB_CHECKS,
+    Node.FIX_STUB_CHECKS,
+    Node.IMPLEMENT,
+)
 
 
 def _hand_back_note(step: Node, source: FeedbackSource, *, asked: bool) -> str:

@@ -71,6 +71,7 @@ from agent_build_kit.pipeline.stack_runner import (
     REVIEW_FEEDBACK_PROMPT,
     REWORK_CONTINUATION,
     REWORK_PROMPT,
+    STUB_CHECKS_PROMPT,
     TESTS_PROMPT,
     TRIED_NOTE,
     UNIT_TEST_FAILED,
@@ -116,6 +117,7 @@ from agent_build_kit.pipeline.usage_ledger import (
     session_cumulative,
 )
 from agent_build_kit.pipeline.workspaces import DirtyWorktree
+from agent_build_kit.profiles.base import stubbed_build
 from agent_build_kit.redaction import redact_text
 from agent_build_kit.runtimes.base import (
     AgentInterrupted,
@@ -156,11 +158,21 @@ E2E_LOG_TAIL = 40
 GATED = frozenset({Node.IMPLEMENT, Node.FIX_CHECKS, Node.REVIEW, Node.REWORK, Node.VERIFY_BASE})
 # The nodes that start an agent: each asks the usage guard first.
 AGENT_NODES = frozenset(
-    {Node.TESTS, Node.IMPLEMENT, Node.FIX_CHECKS, Node.REVIEW, Node.REWORK, Node.ADAPT}
+    {
+        Node.TESTS,
+        Node.IMPLEMENT,
+        Node.FIX_CHECKS,
+        Node.FIX_STUB_CHECKS,
+        Node.REVIEW,
+        Node.REWORK,
+        Node.ADAPT,
+    }
 )
 # The agent nodes that edit the tree: a dirty tree left by a killed run of one of
 # these is that node's own work to carry on from. Review writes nothing.
-EDITING_NODES = frozenset({Node.TESTS, Node.IMPLEMENT, Node.FIX_CHECKS, Node.REWORK, Node.ADAPT})
+EDITING_NODES = frozenset(
+    {Node.TESTS, Node.IMPLEMENT, Node.FIX_CHECKS, Node.FIX_STUB_CHECKS, Node.REWORK, Node.ADAPT}
+)
 # The nodes a park records and a requeue goes back to, with their inputs as they stood:
 # `prepare` would route on the branch alone and lose what the node was to do.
 PARKABLE = EDITING_NODES | {Node.REVIEW}
@@ -170,6 +182,7 @@ SESSION_ROLES: dict[Node, SessionRole] = {
     Node.TESTS: SessionRole.BUILD,
     Node.IMPLEMENT: SessionRole.BUILD,
     Node.FIX_CHECKS: SessionRole.BUILD,
+    Node.FIX_STUB_CHECKS: SessionRole.BUILD,
     Node.REWORK: SessionRole.BUILD,
     Node.ADAPT: SessionRole.BUILD,
     Node.RESTACK: SessionRole.BUILD,
@@ -233,6 +246,8 @@ class BuildPath:
             Node.IMPLEMENT: self.implement,
             Node.CHECKS: self.checks,
             Node.FIX_CHECKS: self.fix_checks,
+            Node.STUB_CHECKS: self.stub_checks,
+            Node.FIX_STUB_CHECKS: self.fix_stub_checks,
             Node.REVIEW: self.review,
             Node.REWORK: self.rework,
             Node.ADAPT: self.adapt,
@@ -256,7 +271,7 @@ class BuildPath:
         cannot be read is not the node's failure."""
         if node is Node.ADAPT:
             return "conflict"
-        if node is Node.FIX_CHECKS:
+        if node in (Node.FIX_CHECKS, Node.FIX_STUB_CHECKS):
             return "check"
         if node is not Node.REWORK:
             return ""
@@ -1230,6 +1245,7 @@ class BuildPath:
         fault = self.worktree_fault(state)
         if fault is not None and fault.environment:
             return self.blocked(fault.output)
+        stubbed = self.stubbed()
         if r.head(tree) != state.head:
             self.say("the tests commit is already on the branch")
         else:
@@ -1247,8 +1263,64 @@ class BuildPath:
             if note := r.follow_ups_note(unit):
                 prompt = f"{note}\n\n{prompt}"
             self.agent(r.run, prompt, cwd=tree, state=state, model=models().implement)
+            if stubbed:
+                # Committed by `stub_checks`, once the stubs and tests pass the static checks.
+                return {"head": r.head(tree), "stub_loop": True}
             r.commit(f"{TESTS_PREFIX}{unit.title}", cwd=tree, base=self.ref(state))
-        return {"head": r.head(tree)}
+        return {"head": r.head(tree), "stub_loop": False}
+
+    def stub_checks(self, state: UnitRun) -> Update:
+        """Lint, format and types over what the test agent wrote, no test run; the tests commit
+        is made once they pass."""
+        r, unit = self.runner, self.unit
+        tree = self.tree()
+        self.say("static checks on the stubs and tests")
+        ok, output = r.run_stub_checks(cwd=tree)
+        if ok:
+            if state.stub_rounds:
+                r.store.set_feedback(unit.id, "")
+            r.commit(f"{TESTS_PREFIX}{unit.title}", cwd=tree, base=self.ref(state))
+            return {"head": r.head(tree), "stub_loop": False, "stub_rounds": 0}
+        self.say(output)
+        # Kept before anything can stop the run, so a retry addresses this output.
+        r.store.set_feedback(unit.id, output)
+        if (budget := out_of_rounds(state.stub_rounds)) is not None:
+            return self.stop(
+                f"static checks still failing after {budget} fix round(s) on the tests"
+            )
+        return {}
+
+    def fix_stub_checks(self, state: UnitRun) -> Update:
+        r, unit = self.runner, self.unit
+        tree = self.tree()
+        change_dir, groups = r.scope(unit)
+        attempt = state.stub_rounds + 1
+        model = state.build_model or models().implement
+        feedback = redact_text(r.store.get(unit.id).feedback, where="fix prompt")
+        note = person_guidance(r.store.get(unit.id).guidance)
+        before = r.tree_state(tree)
+        self.say(f"fix the failing static checks on the tests ({model}), round {attempt}")
+        self.agent(
+            r.run,
+            STUB_CHECKS_PROMPT.format(
+                commands=commands_note(r.repo_config),
+                guidance=note,
+                change_dir=change_dir,
+                groups=groups,
+                feedback=feedback,
+            ),
+            cwd=tree,
+            state=state,
+            model=model,
+        )
+        if r.tree_state(tree) == before:
+            return self.stop(f"static checks failing and fix round {attempt} changed nothing")
+        return {"stub_rounds": attempt}
+
+    def stubbed(self) -> bool:
+        """Whether this unit is built stubbed: the setting is on and its profile supports stubs."""
+        config = self.runner.repo_config
+        return config is not None and stubbed_build(active().builders, profiles.get(config.profile))
 
     def implement(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit
@@ -1328,8 +1400,7 @@ class BuildPath:
         r.store.set_feedback(
             unit.id, f"{UNIT_TEST_FAILED}\n{output}".strip(), source=FeedbackSource.UNIT_TEST
         )
-        budget = active().global_limits.max_check_rounds
-        if budget is not None and state.fix_rounds >= budget:
+        if (budget := out_of_rounds(state.fix_rounds)) is not None:
             return {
                 **self.stop(f"checks still failing after {budget} fix round(s), before review"),
                 "checks_ok": False,
@@ -2319,9 +2390,18 @@ def _round(node: Node, state: UnitRun) -> int:
         return state.review_round + 1
     if node in (Node.CHECKS, Node.FIX_CHECKS):
         return state.fix_rounds + 1
+    if node in (Node.STUB_CHECKS, Node.FIX_STUB_CHECKS):
+        return state.stub_rounds + 1
     if node is Node.REWORK:
         return state.review_round
     return 0
+
+
+def out_of_rounds(used: int) -> int | None:
+    """`global_limits.max_check_rounds` when `used` fix rounds have spent it, else None;
+    `null` is no limit and 0 is spent at once."""
+    budget = active().global_limits.max_check_rounds
+    return budget if budget is not None and used >= budget else None
 
 
 def halted(state: UnitRun) -> Node | None:
@@ -2357,7 +2437,15 @@ def after_prepare(state: UnitRun) -> Node:
 
 
 def after_tests(state: UnitRun) -> Node:
-    return halted(state) or Node.IMPLEMENT
+    return halted(state) or (Node.STUB_CHECKS if state.stub_loop else Node.IMPLEMENT)
+
+
+def after_stub_checks(state: UnitRun) -> Node:
+    return halted(state) or (Node.FIX_STUB_CHECKS if state.stub_loop else Node.IMPLEMENT)
+
+
+def after_fix_stub_checks(state: UnitRun) -> Node:
+    return halted(state) or Node.STUB_CHECKS
 
 
 def after_implement(state: UnitRun) -> Node:
@@ -2490,7 +2578,12 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
         after_prepare,
         PREPARED,
     ),
-    Node.TESTS: (after_tests, (Node.HELD, Node.FAILED, Node.IMPLEMENT)),
+    Node.TESTS: (after_tests, (Node.HELD, Node.FAILED, Node.STUB_CHECKS, Node.IMPLEMENT)),
+    Node.STUB_CHECKS: (
+        after_stub_checks,
+        (Node.HELD, Node.FAILED, Node.FIX_STUB_CHECKS, Node.IMPLEMENT),
+    ),
+    Node.FIX_STUB_CHECKS: (after_fix_stub_checks, (Node.HELD, Node.FAILED, Node.STUB_CHECKS)),
     Node.IMPLEMENT: (after_implement, (Node.HELD, Node.UNIT_TEST, Node.CHECKS)),
     Node.CHECKS: (after_checks, (Node.HELD, Node.FAILED, Node.REVIEW, Node.FIX_CHECKS)),
     Node.FIX_CHECKS: (after_fix_checks, (Node.HELD, Node.FAILED, Node.CHECKS)),

@@ -866,6 +866,46 @@ def build_commit(
     return commit
 
 
+def build_stub_checks(
+    *,
+    profile: ToolchainProfile,
+    projects: list[ProjectConfig] | None = None,
+    run: Callable[..., subprocess.CompletedProcess] | None = None,
+) -> Callable[..., tuple[bool, str]]:
+    """The static checks of a stubbed build's test step: lint, format and types over the
+    tree with its new files staged, and no test.
+
+    The command is the clean command the push gate runs at the tests commit, with types,
+    run in the directory of each project the changed files belong to."""
+    run = run or _run
+
+    def checks(*, cwd: Path) -> tuple[bool, str]:
+        # Staged so the checkers, which read what git tracks, see a file the agent added.
+        run(["git", "add", "-A"], cwd=cwd)
+        names = run(["git", "diff", "--cached", "--name-only"], cwd=cwd).stdout.split()
+        failures: list[str] = []
+        for owner, _ in by_project(projects or [], names) or [(None, [])]:
+            toolchain = profiles.for_project(owner, profile)
+            where = cwd / owner.prefix if owner else cwd
+            done = run(["sh", "-c", toolchain.clean_command(types=True)], cwd=where)
+            if done.returncode:
+                failures.append(f"{done.stdout}\n{done.stderr}".strip())
+        return not failures, "\n\n".join(failures)
+
+    return checks
+
+
+def build_tree_state(*, run: Callable[..., subprocess.CompletedProcess] | None = None):
+    """A digest of a working tree, new files included: what says whether a fix changed it."""
+    run = run or _run
+
+    def state(cwd: Path) -> str:
+        run(["git", "add", "-A"], cwd=cwd)
+        return run(["git", "write-tree"], cwd=cwd).stdout.strip()
+
+    return state
+
+
 def branch_commits(repo: Path, base: str, head: str = "HEAD") -> int:
     """How many commits the branch (`head`, the checked-out one by default) carries beyond
     its base.
@@ -3633,6 +3673,8 @@ def build_runner(
             repo=repo,
             base=local_ref(repo.default_branch, repo=unit.repo),
         ),
+        run_stub_checks=build_stub_checks(profile=profile, projects=repo.projects),
+        tree_state=build_tree_state(),
         branch_commits=branch_commits,
         upstream_incomplete=build_upstream_incomplete(
             store, installation.config.global_limits.bounce_limit

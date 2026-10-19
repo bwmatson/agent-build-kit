@@ -328,6 +328,26 @@ the unit has passed review, unit-test and been pushed.
 )
 
 
+STUB_CHECKS_PROMPT = PromptTemplate(
+    """\
+{guidance}The static checks (lint, formatting and types) failed on the stubs and tests you
+wrote for task group(s) {groups} of change {change_dir}. Nothing has been committed
+yet: the tests are committed once these pass.
+
+---
+{feedback}
+---
+
+Make the existing stubs and tests pass these checks. Fix the cause, not the report: do not
+suppress a rule or loosen a type to make a check pass, and do not change what the tests
+assert. Do not run the new tests; they are meant to fail until the implementation exists.
+Run the lint, format and type checks again before you finish.
+{commands}The change's files are read-only for you: do not tick boxes in its tasks.md
+or edit anything under {change_dir}.
+"""
+)
+
+
 # The only follow-up kind that does not block approval. Anything else — a
 # correctness problem, a test that would pass regardless, a missing test the
 # task asked for, or something the command policy forbids — is inconvenient,
@@ -1225,6 +1245,14 @@ def _no_reset() -> None:
     raise RuntimeError("this runner was not given a way to reset a branch")
 
 
+def _no_stub_checks(*, cwd: Path) -> tuple[bool, str]:
+    raise RuntimeError("this runner was not given a way to run the stub checks")
+
+
+def _no_tree_state(cwd: Path) -> str:
+    raise RuntimeError("this runner was not given a way to read a working tree's state")
+
+
 def parse_test_decisions(answer: str) -> list[PortedTest]:
     value = last_json(answer, {"tests"}) or {}
     out: list[PortedTest] = []
@@ -1382,6 +1410,11 @@ class UnitRunner(BaseModel):
     # `Restacked.conflict` with the branch left where it was, and no agent runs.
     restack_onto: Callable[..., Restacked | None]
     run_unit_test: Callable[..., tuple[bool, str]]
+    # The static checks of a stubbed build's test step, given `cwd=`: whether lint, format and
+    # types pass over the tree with its new files, and the output. See `wiring.build_stub_checks`.
+    run_stub_checks: Callable[..., tuple[bool, str]] = _no_stub_checks
+    # A digest of the working tree, which says whether a fix changed it.
+    tree_state: Callable[[Path], str] = _no_tree_state
     # Told the unit and each flake when unit-test raises `FlakeFound`: records it, and with
     # `wait` has the unit wait on its fix (with it false the change is ensured and no
     # `Needs:` line is added), and answers that change, or None when there is nothing for

@@ -129,12 +129,17 @@ class CheckCache:
         except (OSError, ValueError):
             return {}  # A corrupt cache is a miss, never a crash.
 
-    def lookup(self, repo: Path, sha: str) -> bool | None:
+    def _key(self, repo: Path, sha: str, mode: str) -> str | None:
         key = patch_id(repo, sha)
+        return f"{key}:{mode}" if key and mode else key
+
+    def lookup(self, repo: Path, sha: str, *, mode: str = "") -> bool | None:
+        """The cached result for this content under `mode`, the checks it was judged by."""
+        key = self._key(repo, sha, mode)
         return self._load().get(key) if key else None
 
-    def record(self, repo: Path, sha: str, *, ok: bool) -> None:
-        key = patch_id(repo, sha)
+    def record(self, repo: Path, sha: str, *, ok: bool, mode: str = "") -> None:
+        key = self._key(repo, sha, mode)
         if not key:
             return
 
