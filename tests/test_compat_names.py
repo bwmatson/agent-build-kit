@@ -7,7 +7,14 @@ from __future__ import annotations
 
 import pytest
 
-from agent_build_kit.compat_names import Place, is_old_spelling, new_spelling, notice, old_spelling
+from agent_build_kit.compat_names import (
+    KIND_FORMS,
+    Place,
+    is_old_spelling,
+    new_spelling,
+    notice,
+    old_spelling,
+)
 from agent_build_kit.model import TestTier
 
 OLD_TO_NEW = [
@@ -57,3 +64,16 @@ def test_the_notice_names_the_old_spelling_the_new_one_and_where_it_was_read() -
     assert "tier2" in text
     assert "e2e-test" in text
     assert "tasks.md line 7" in text
+
+
+def test_integration_test_is_returned_unchanged_and_is_not_an_old_spelling() -> None:
+    kind = TestTier.INTEGRATION_TEST.value
+    for place in (Place.TAG, Place.VALUE):
+        assert new_spelling(place, kind) == kind
+        assert not is_old_spelling(place, kind)
+    assert kind not in KIND_FORMS
+    assert kind not in {old for _, old, _ in OLD_TO_NEW}
+    assert kind not in {new for _, _, new in OLD_TO_NEW}
+    assert all(forms.tag != kind for forms in KIND_FORMS.values())
+    with pytest.raises(StopIteration):
+        old_spelling(TestTier.INTEGRATION_TEST)

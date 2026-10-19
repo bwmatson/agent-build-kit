@@ -225,3 +225,15 @@ def test_an_old_name_is_read_from_a_file_but_is_not_an_attribute(tmp_path: Path)
     assert block.e2e_marker == "slow"
     with pytest.raises(AttributeError):
         getattr(block, old_key)
+
+
+def test_no_setting_is_named_for_integration_test_and_the_unit_test_ones_are_read() -> None:
+    names = {
+        name
+        for model in (config.LimitsConfig, config.TestsConfig, config.RuntimeTestsConfig)
+        for name in model.model_fields
+    }
+
+    assert not [name for name in names if "integration" in name]
+    assert {"unit_test_command_seconds", "unit_test_repeat_runs"} <= names
+    assert TestTier.INTEGRATION_TEST.value == "integration-test"

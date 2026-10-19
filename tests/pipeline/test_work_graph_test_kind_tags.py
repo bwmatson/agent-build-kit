@@ -30,6 +30,13 @@ def test_the_new_tags_are_read_as_the_two_test_kinds(tmp_path: Path) -> None:
     assert [g.tier for g in groups] == [TestTier.UNIT_TEST, TestTier.E2E_TEST]
 
 
+def test_the_three_tags_are_read_in_order_with_no_notice(tmp_path: Path) -> None:
+    groups, errors = read(tmp_path, "unit-test", "integration-test", "e2e-test")
+
+    assert errors == []
+    assert [g.tier for g in groups] == list(TestTier)
+
+
 def test_the_old_tags_are_read_as_the_same_kinds(tmp_path: Path) -> None:
     groups, errors = read(tmp_path, OLD_UNIT_TEST_TAG, OLD_E2E_TAG)
 
@@ -45,6 +52,7 @@ def test_an_unknown_tag_is_refused_listing_the_new_spellings(tmp_path: Path) -> 
     assert "integration" in error.message
     assert "unit-test" in error.message
     assert "e2e-test" in error.message
+    assert "integration-test" in error.message
 
 
 def test_tags_prints_a_notice_for_each_old_tag_with_the_new_tag_and_the_group(
@@ -92,3 +100,19 @@ def test_check_prints_a_notice_for_each_old_tag_and_none_for_a_new_one(
     assert status == 0
     assert len(notices) == 2
     assert "group 1" in notices[0] and "group 3" in notices[1]
+
+
+def test_tags_and_check_print_no_notice_for_integration_test(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = Replan(tmp_path, monkeypatch, feature=tagged_md("integration-test"))
+    monkeypatch.setattr(openspec, "check", lambda root: (True, "all valid\n"))
+
+    tags = cli.cmd_tags(argparse.Namespace(change="feature", all=False), run.inst)
+    tags_out = capsys.readouterr().out
+    check = cli.cmd_check(argparse.Namespace(), run.inst)
+    check_out = capsys.readouterr().out
+
+    assert (tags, check) == (0, 0)
+    assert "[app] [integration-test] Group 1" in tags_out
+    assert "deprecated" not in tags_out + check_out
