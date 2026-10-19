@@ -141,6 +141,15 @@ class AgentStart(Frozen):
         bound = helper_names(tree)
         programs = {agent.program for agent in KNOWN_AGENTS}
         starts, runtimes = False, set()
+        runtime_names = {
+            target.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Call)
+            and callee(node.value)[1] == PROTOCOL_CLASS
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
         for node in ast.walk(function):
             if isinstance(node, ast.Name) and node.id == CLAUDE_ACCOUNT:
                 runtimes.add("claude_code")
@@ -160,7 +169,9 @@ class AgentStart(Frozen):
                     runtimes.add(first_string(node))
             elif last in PROTOCOL_METHODS and isinstance(node.func, ast.Attribute):
                 owner = node.func.value
-                if isinstance(owner, ast.Call) and callee(owner)[1] == PROTOCOL_CLASS:
+                if (isinstance(owner, ast.Call) and callee(owner)[1] == PROTOCOL_CLASS) or (
+                    isinstance(owner, ast.Name) and owner.id in runtime_names
+                ):
                     starts = True
                     runtimes.add("acp")
             elif (root, last) == ("shutil", "which"):
@@ -181,7 +192,7 @@ class AgentStart(Frozen):
         for function, tree in functions_reached(item):
             total |= cls.of_function(function, tree)
         callspec = getattr(item, "callspec", None)
-        values = set(callspec.params.values()) if callspec else set()
+        values = {v for v in callspec.params.values() if isinstance(v, str)} if callspec else set()
         return total | cls(runtimes=frozenset(values & set(RUNTIMES)))
 
 
@@ -202,6 +213,9 @@ def requested_fixtures(item: pytest.Item) -> dict[str, Any]:
     info = getattr(item, "_fixtureinfo", None)
     found: dict[str, Any] = {}
     if info is None:
+        assert not getattr(item, "fixturenames", None), (
+            f"{item.nodeid}: pytest no longer offers its fixture information"
+        )
         return found
     pending = list(info.argnames)
     while pending:

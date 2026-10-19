@@ -12,7 +12,6 @@ from tests.live_tag_drift import (
     agent_start_notes,
     drift,
     drifted,
-    find_live_modules,
 )
 from tests.runtime_tag_collection import ROOT
 
@@ -46,6 +45,22 @@ def test_a_test_showing_a_signal_is_named_and_one_that_does_not_is_not(
     use, call = SIGNALS[signal]
 
     found = drifted(pytester, test_case=module_with(use, f"def test_starts():\n    {call}\n"))
+
+    assert len(found) == 1
+    assert "test_starts" in found[0]
+
+
+@pytest.mark.parametrize("where", ["in_test", "module_level"])
+def test_a_runtime_held_in_a_variable_before_it_is_used_is_found(
+    pytester: pytest.Pytester, where: str
+) -> None:
+    local = "def test_starts():\n    runtime = AcpRuntime()\n    runtime.list_models(['a'])\n"
+    shared = "RUNTIME = AcpRuntime()\n\n\ndef test_starts():\n    RUNTIME.detect(None, None)\n"
+
+    found = drifted(
+        pytester,
+        test_case=module_with(DETECT, local if where == "in_test" else shared),
+    )
 
     assert len(found) == 1
     assert "test_starts" in found[0]
@@ -121,17 +136,6 @@ def test_a_fixture_that_cannot_be_resolved_is_not_counted_and_a_note_mentions_it
     assert len(notes) == 1
     assert "mystery_fixture" in notes[0]
     assert "test_mystery" in notes[0]
-
-
-def test_every_test_of_the_kits_live_modules_that_starts_an_agent_has_exactly_one_tag(
-    pytester: pytest.Pytester,
-) -> None:
-    modules = find_live_modules(ROOT / "tests")
-    assert modules
-    items, _ = pytester.inline_genitems(*(str(m) for m in modules))
-
-    assert items
-    assert drift(items) == []
 
 
 def called_names(tree: ast.AST) -> set[str]:

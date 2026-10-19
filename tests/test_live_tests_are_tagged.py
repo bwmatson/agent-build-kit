@@ -3,9 +3,17 @@ Claude variant and no reason."""
 
 from __future__ import annotations
 
+import warnings
+
 import pytest
 
-from tests.live_tag_drift import INTEGRATION, drift, drifted, find_live_modules
+from tests.live_tag_drift import (
+    INTEGRATION,
+    agent_start_notes,
+    drift,
+    drifted,
+    find_live_modules,
+)
 from tests.runtime_tag_collection import ROOT, collect
 from tests.runtime_tags import runtime_tags
 
@@ -76,6 +84,8 @@ def test_every_test_of_the_kits_live_modules_that_starts_an_agent_has_exactly_on
 
     assert items
     assert drift(items) == []
+    for note in agent_start_notes(items):
+        warnings.warn(note, stacklevel=1)
 
 
 ACP_MODULE = """

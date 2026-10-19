@@ -58,6 +58,19 @@ def test_a_test_tagged_acp_whose_callspec_holds_claude_code_is_named(
     assert len(found) == 1
     assert "test_wrong" in found[0]
     assert "runtime_acp" in found[0]
+    assert "claude_code" in found[0]
+
+
+def test_a_correctly_tagged_test_with_an_unhashable_parameter_is_not_named(
+    pytester: pytest.Pytester,
+) -> None:
+    source = module(
+        ACP_TAG,
+        '@pytest.mark.parametrize("argv", [["a", "b"], {"k": 1}])\n'
+        'def test_wrong(argv):\n    shutil.which("claude-agent-acp")\n',
+    )
+
+    assert drifted(pytester, test_case="import shutil\n" + source) == []
 
 
 @pytest.mark.parametrize(
