@@ -290,17 +290,20 @@ def status_lines(
     *,
     limit: int | None = None,
     repos: dict[str, dict] | None = None,
+    runtimes: dict[str, dict] | None = None,
     record: Callable[[UnitStore], None] | None = None,
 ) -> list[str]:
     """`abk status` over `units`, or over what `record` puts in the store when a test needs
     notes and causes. `upsert` drops a unit's state, branch and pull request, so those are
-    recorded after it; `limit` is `project_limits.max_units_in_progress` and `repos` the
-    workspace's repos."""
+    recorded after it; `limit` is `project_limits.max_units_in_progress`, `repos` the
+    workspace's repos and `runtimes` its `runtimes` block."""
     overrides: dict[str, object] = (
         {} if limit is None else dict(project_limits=dict(max_units_in_progress=limit))
     )
     if repos is not None:
         overrides["repos"] = repos
+    if runtimes is not None:
+        overrides["runtimes"] = runtimes
     workspace = make_installation(
         tmp_path,
         planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
