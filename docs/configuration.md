@@ -253,6 +253,9 @@ project_limits:
                                 # while reworks, resumes and finishing reviewed work
                                 # still run; a blocked unit, and a failed unit that waits
                                 # on another unit, do not count
+  wait_end_requeue: auto        # how a failed unit is requeued once when its wait ends:
+                                # auto (default; the mode follows its record), resume,
+                                # rework, or off (only a person requeues it)
   emergency_extra: 1            # the emergency lane's cap in each project: priority-0
                                 # units that may start past the places and workers above;
                                 # 0 turns the lane off
