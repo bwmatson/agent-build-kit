@@ -134,6 +134,8 @@ class UnitRun(Frozen):
     fix_rounds: int = 0  # fixes of failing checks in this round of review
     stub_rounds: int = 0  # fixes of failing static checks in this group's tests
     stub_loop: bool = False  # the tests are written and wait on their static checks
+    group: int = 0  # in a stubbed build, the index of the task group being built
+    more_groups: bool = False  # in a stubbed build, a group is left after the one just built
     review_round: int = 0
     checks_ok: bool = False
     produced_nothing: bool = False

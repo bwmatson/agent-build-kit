@@ -63,6 +63,7 @@ from agent_build_kit.pipeline.units import (
     UnitState,
     later_groups_by_change,
 )
+from agent_build_kit.pipeline.work_graph import validate_tasks
 
 
 # The change lives in the planning repo, which the run can read because
@@ -207,7 +208,38 @@ def person_guidance(note: str) -> str:
     return _PERSON_GUIDANCE.format(note=note) if note else ""
 
 
-TESTS_PROMPT = PromptTemplate(
+TESTS_FINISH = """\
+Before you finish: run linting and formatting, which must pass, and run the
+new tests, which must fail. A test that passes now is not testing the
+behaviour this group adds. Do not write the implementation.
+"""
+
+# A stubbed build checks the tests statically, then commits them; they run only once the
+# implementation is committed.
+STUBBED_TESTS_FINISH = """\
+Before you finish: the stubs and tests you wrote must pass lint, format and types, so run
+those checks and fix what they report. Stubs hold no logic. Do not run the new tests: they
+are meant to fail until the implementation exists, and the pipeline checks that they do.
+Do not write the implementation.
+"""
+
+
+class GroupStep(Frozen):
+    """One task group of a unit, as a stubbed build takes it up on its own."""
+
+    change_dir: str
+    number: int
+    title: str
+
+
+class WriteTestsTemplate(PromptTemplate):
+    """The tests prompt, which ends with `TESTS_FINISH` unless a caller fills `{finish}`."""
+
+    def format(self, *args: object, **fields: object) -> str:
+        return super().format(*args, **{"finish": TESTS_FINISH, **fields})
+
+
+TESTS_PROMPT = WriteTestsTemplate(
     """\
 {guidance}The change you are implementing is specified in {change_dir} — read its
 tasks.md, proposal.md, design.md and specs/ before you start.
@@ -251,10 +283,7 @@ parser of external data fixtures recorded from the real system, or carrying
 everything the real one does (metadata, nulls, empty values), not only the
 fields the code will read.
 
-Before you finish: run linting and formatting, which must pass, and run the
-new tests, which must fail. A test that passes now is not testing the
-behaviour this group adds. Do not write the implementation.
-{commands}The change's files are read-only for you: do not tick boxes in its tasks.md
+{finish}{commands}The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, unit-test and been pushed.
 """
@@ -1672,6 +1701,29 @@ class UnitRunner(BaseModel):
             " and ".join(dirs),
             " and ".join(f"{n} of {d}" for n, d in zip(numbers, dirs, strict=True)),
         )
+
+    def group_steps(self, unit: Unit) -> tuple[GroupStep, ...]:
+        """Each task group the unit builds, in the order its members list them, with the
+        change directory and heading title a per-group prompt and commit use. A group whose
+        heading cannot be read is titled with the unit's."""
+        steps: list[GroupStep] = []
+        for member in unit.members():
+            change_dir = self.change_dir(member.change)
+            tasks = Path(change_dir) / "tasks.md"
+            titles = (
+                {group.number: group.title for group in validate_tasks(tasks)[0]}
+                if tasks.exists()
+                else {}
+            )
+            steps.extend(
+                GroupStep(
+                    change_dir=change_dir,
+                    number=number,
+                    title=titles.get(number, unit.title),
+                )
+                for number in member.groups
+            )
+        return tuple(steps)
 
     def mark_tasks(self, unit: Unit, *, done: bool) -> None:
         """Tick or untick each change's groups in that change's own tasks file."""
