@@ -673,6 +673,10 @@ splits touch the graph in three places:
   nothing counts against the unit, as those tests have not failed.
 - **A parked unit is released when no split it waits on is held.** The round delivers it a `requeue`
   (resume), and `e2e-test` runs those splits alone when the branch is still at the commit it passed on.
+  A parked unit whose group's `Split:` changed away from its park is the exception: it is reworked once
+  with an automatic note (`RequeueReason.FROM_FAILURE`), its parked fields cleared and its stored split
+  set to the new one, and while the new split is held it stays parked and the release of the old split
+  does not resume it.
   A unit parked on a split holds no place under `max_units_in_progress` (`parked_on_split`), planned or
   unplanned; an unplanned one is left alone on release because the plan no longer has it.
 - **A unit that has never started does not start while its split is held.** The round leaves it out

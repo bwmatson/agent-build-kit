@@ -404,7 +404,10 @@ A unit that has never started and whose split is held is not started. `abk statu
 `waiting for e2e-test split <name>` with the hold's reason (and `released, starts this round` once
 the split is usable), `abk e2e-test status` lists under each held split the units parked at
 e2e-test and the units not started, and `abk tags` refuses a `Split:` line that names an
-undeclared split, a second line, or a line in a unit-test group. `abk e2e-test check` warns, and
+undeclared split, a second line, or a line in a unit-test group. A parked unit whose group's
+`Split:` was edited to another split is reworked once, and while that split is held its parked
+line says the group now says it and that the unit reworks when it is released; `abk tick
+--dry-run` prints "would rework" for it. `abk e2e-test check` warns, and
 does not change its exit status, when a group's own test is in a split other than its declared one.
 
 ### `abk e2e-test release SPLIT`
@@ -571,6 +574,9 @@ says how many model calls it will make.
   other failure.
   A plan that was refused shows the reason after its state (`failing 1/3: unit
   feature/2 claims group 1, which a merged unit has already built …`).
+- **Parked units.** After planning it reworks, once, each parked unit of the changes it plans whose
+  group's `Split:` changed away from its park (see `abk status`), and prints a line naming the unit
+  and both splits; the parked units of other changes are left to the tick.
 - **`--forget`** clears the records and stops: no model call, and the next tick
   plans them.
 - **Started work is left alone.** A unit that is running, in review, failed, held,

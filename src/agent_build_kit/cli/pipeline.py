@@ -81,6 +81,7 @@ from agent_build_kit.pipeline.e2e_holds import (
     Hold,
     hold_text,
     parked_holds,
+    repo_holds,
     split_gates,
 )
 from agent_build_kit.pipeline.e2e_schedule import any_due, write_due
@@ -1144,7 +1145,7 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     # A dry run says what the recorded failures' fix changes are even when nothing is pending.
     if args.dry_run:
         _preview_changes(inst)
-        _preview_split_releases(inst, store_for(inst))
+        _preview_split_releases(inst, store_for(inst), getattr(args, "only", None) or ())
     if not has_work(inst, store_for(inst)):
         return 0
 
@@ -1686,6 +1687,14 @@ def run_round(
     _step("releasing gated units", release_gated, inst, store, in_flight=spared)
     _step("requeuing units whose wait ended", requeue_wait_ended, inst, store, in_flight=spared)
     if not dry_run:
+        _step(
+            "reworking units whose split changed",
+            release_split_changed,
+            inst,
+            store,
+            in_flight=spared,
+            only=only,
+        )
         _step("releasing split-held units", release_split_held, inst, store, in_flight=spared)
     _step("reconciling notifications", _reconcile_notifications, inst, store)
     units = store.all()
@@ -2097,11 +2106,114 @@ def release_split_held(
             )
 
 
+class SplitChange(Frozen):
+    """A parked unit whose group's `Split:` now says another split than it is stored in."""
+
+    unit: StoredUnit
+    group: int
+    new: str
+    # Why the new split is held for the unit's repo, None when it is not.
+    hold: Hold | None = None
+
+    @property
+    def reason(self) -> str:
+        return f"its group's Split changed from {self.unit.split} to {self.new}"
+
+
+def split_changes(
+    inst: Installation,
+    units: Sequence[StoredUnit],
+    in_flight: Collection[str] = (),
+    only: Collection[str] = (),
+) -> list[SplitChange]:
+    """The parked units (planned, cause `split_held`, with parked splits, not in flight) whose
+    groups, as `tasks.md` reads now, are all in one split that is not the one the unit is stored
+    in and not one it is parked on. A unit whose groups do not read as one split, or whose tasks
+    file is refused or lacks a group, is left out. With `only`, a unit is read only when it or its
+    change is named."""
+    found = []
+    for unit in units:
+        if (
+            unit.state != PLANNED
+            or unit.cause is not Cause.SPLIT_HELD
+            or not unit.parked_splits
+            or unit.id in in_flight
+            or unit.repo not in inst.config.repos
+            or (only and unit.id not in only and unit.change not in only)
+        ):
+            continue
+        groups: list[TaskGroup] = []
+        for member in unit.members():
+            tasks = inst.changes_dir / member.change / "tasks.md"
+            if not tasks.is_file():
+                break
+            read, errors = _validated(inst, tasks)
+            by_number = {g.number: g for g in read}
+            if errors or any(number not in by_number for number in member.groups):
+                break
+            groups += [by_number[number] for number in member.groups]
+        else:
+            splits = {g.split for g in groups}
+            if len(splits) != 1:
+                continue
+            (new,) = splits
+            if new == unit.split or new in unit.parked_splits:
+                continue
+            held = repo_holds(inst.config, inst.config.repos[unit.repo], inst.state_dir).held
+            found.append(
+                SplitChange(unit=unit, group=groups[0].number, new=new, hold=held.get(new))
+            )
+    return found
+
+
+def release_split_changed(
+    inst: Installation,
+    store: UnitStore,
+    *,
+    in_flight: Collection[str] = (),
+    only: Collection[str] = (),
+) -> None:
+    """Rework, once, each parked unit whose group's `Split:` changed away from its park, unless
+    the new split is held, when it stays parked until a pass finds that released. The rework is
+    delivered first and the park cleared after, so a delivery that is refused changes nothing."""
+    for change in split_changes(inst, store.all(), in_flight, only):
+        unit = change.unit
+        if change.hold is not None:
+            continue
+        note = (
+            f"Automatic note: group {change.group}'s Split changed from {unit.split} to "
+            f"{change.new} and its task text changed with it. Read group {change.group}'s tasks "
+            f"in tasks.md again and apply them, including converting the tests that ran in "
+            f"{unit.split}. The tasks are read again from the file."
+        )
+        try:
+            delivered = resume_thread(
+                inst,
+                unit,
+                "requeue",
+                store=store,
+                reason=change.reason,
+                requeue=RequeueReason.FROM_FAILURE,
+                guidance=note,
+            )
+        except BranchBusy:
+            continue
+        if delivered is None:
+            store.set_guidance(unit.id, note)
+            store.set_state(
+                unit.id, PLANNED, note=f"requeued: {change.reason}", cause=Cause.REQUEUED
+            )
+        store.set_parked(unit.id)
+        store.set_split(unit.id, change.new)
+        log(f"reworking {unit.id} ({unit_label(unit)}): {change.reason}")
+
+
 def _releasable_split_units(
     inst: Installation, units: Sequence[StoredUnit], in_flight: Collection[str] = ()
 ) -> list[StoredUnit]:
     """The units parked for held e2e-test splits none of which is held now."""
     # The cause is standing, so a replan carries it and this reads the same after one.
+    moved = {change.unit.id for change in split_changes(inst, units)}
     return [
         unit
         for unit in units
@@ -2109,6 +2221,8 @@ def _releasable_split_units(
         and unit.cause is Cause.SPLIT_HELD
         and unit.id not in in_flight
         and not parked_holds(inst.config, inst.state_dir, unit)
+        # A unit whose group moved to another split is reworked, not resumed onto its old tests.
+        and unit.id not in moved
     ]
 
 
@@ -2121,6 +2235,7 @@ def _split_wait_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[s
     """One line for each unit parked for a held e2e-test split, or kept from starting by one:
     which, why and until when; a unit whose split was released and has not started yet says so."""
     lines = []
+    moved = {change.unit.id: change for change in split_changes(inst, units)}
     gates = split_gates(inst.config, inst.state_dir, units)
     recorded = recorded_waits(inst.state_dir / DECISIONS_NAME)
     for unit in units:
@@ -2144,6 +2259,14 @@ def _split_wait_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[s
         why = "; ".join(
             hold_text(hold) for hold in parked_holds(inst.config, inst.state_dir, unit).values()
         )
+        if unit.id in moved:
+            change = moved[unit.id]
+            why = (
+                f"its group now says Split {change.new} (held: {hold_text(change.hold)}), "
+                "reworks when it is released"
+                if change.hold
+                else f"its group now says Split {change.new}, reworks this round"
+            )
         dropped = unit.state == UnitState.UNPLANNED
         label = "unplanned, parked on" if dropped else "waiting for"
         released = (
@@ -2158,13 +2281,18 @@ def _split_wait_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[s
     return lines
 
 
-def _preview_split_releases(inst: Installation, store: UnitStore) -> None:
+def _preview_split_releases(
+    inst: Installation, store: UnitStore, only: Collection[str] = ()
+) -> None:
     """A dry run's account of the parked units the next round would release."""
     for unit in _releasable_split_units(inst, store.all()):
         log(
             f"would release {unit.id} ({unit_label(unit)}): "
             "the e2e-test splits it waits on are usable"
         )
+    for change in split_changes(inst, store.all(), only=only):
+        if change.hold is None:
+            log(f"would rework {change.unit.id} ({unit_label(change.unit)}): {change.reason}")
 
 
 def resumable_units(
@@ -5500,6 +5628,7 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
         for unit_id in edge.cycle
         if unit_id in after
     ) or any(results[change].cycle for change in to_plan)
+    release_split_changed(inst, store, only=set(to_plan))
     return 1 if refused or failed or cyclic else 0
 
 

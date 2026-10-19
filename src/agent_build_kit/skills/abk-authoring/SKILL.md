@@ -192,7 +192,10 @@ A `[e2e-test]` group may carry `Split: <name>`, one of the e2e-test splits its r
 `rest`; no line means `rest`. A group is in one split: a test that must run in two splits is
 written as two groups, and the planner never joins them. `rest` merges now while the group in a
 held split waits until the split is released. A `Split:` line in a unit-test group, above the first
-group, or naming an undeclared split is refused by `abk tags`.
+group, or naming an undeclared split is refused by `abk tags`. Editing the `Split:` of a started
+unit's group takes effect for a unit parked on a split: it is reworked once with a note, and when
+the new split is held the rework is deferred until it is released. For any other started unit the
+stored split stays as it was.
 
 ## `Priority:` lines
 

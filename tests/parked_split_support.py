@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from types import EllipsisType
 from typing import Any
 
 import pytest
@@ -29,19 +30,26 @@ def installation(
     acp: bool | None = True,
     claude_code: bool | None = None,
     rest: bool | None = None,
+    gpu: bool | None | EllipsisType = ...,
     gate: dict[str, Any] | None = None,
     claude_code_gate: dict[str, Any] | None = None,
     **overrides: Any,
 ) -> Installation:
     """Two splits declared for every repo; `acp` and `claude_code` carry the configured `hold`
-    given (None leaves the entry without one) and each the gate given for it. The state directory
-    is the planning root; `rest` is the configured hold of the split every
+    given (None leaves the entry without one) and each the gate given for it. `gpu` declares a
+    third split, configured as given (None for no hold), and is left undeclared by default. The
+    state directory is the planning root; `rest` is the configured hold of the split every
     unmarked test is in, left undeclared when None."""
     splits: dict[str, dict[str, Any]] = {}
     for name, configured in (("acp", acp), ("claude_code", claude_code)):
         splits[name] = {"marker": f"runtime_{name}"}
         if configured is not None:
             splits[name]["hold"] = configured
+    if not isinstance(gpu, EllipsisType):
+        entry: dict[str, Any] = {"marker": "runtime_gpu"}
+        if gpu is not None:
+            entry["hold"] = gpu
+        splits["gpu"] = entry
     if rest is not None:
         splits["rest"] = {"hold": rest}
     if gate is not None:
@@ -77,10 +85,13 @@ def park(
     splits: tuple[str, ...] = ("acp",),
     *,
     repo: str = "app",
+    split: str | None = None,
 ) -> None:
     """`uid` as a run leaves it when its e2e tests of `splits` did not run: planned, with the
-    cause `split_held`, a branch, and the splits and commit the run was on."""
-    store.upsert([stored_unit(uid, change=uid.partition("/")[0], repo=repo)])
+    cause `split_held`, a branch, and the splits and commit the run was on. `split` is the split
+    the unit is stored in, `rest` unless given."""
+    extra = {} if split is None else {"split": split}
+    store.upsert([stored_unit(uid, change=uid.partition("/")[0], repo=repo, **extra)])
     store.set_state(
         uid,
         PLANNED,

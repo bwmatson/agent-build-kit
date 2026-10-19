@@ -180,6 +180,14 @@ e2e-test split <name>" in `abk status` (wait reason `split`); it holds no place,
 that finds the hold gone starts it. A unit that has started still parks at e2e-test when its
 tests are in a held split, which is the backstop for a wrong or missing `Split:` declaration.
 
+A parked unit follows its group's `Split:`. To move one, edit the group's `Split:` line and its
+tasks (the task text should ask for the tests to be converted), then run `abk replan`. The next
+pass, or the replan itself, finds that the split changed and reworks the unit once with an
+automatic note, as a requeue and not a resume; `abk status` then shows it as queued again. If the
+new split is held, the unit stays parked and defers the rework until that split is released; the
+release of the old split does not resume it. A group still saying the split it is parked on, or a
+file `abk tags` refuses, changes nothing.
+
 ### Parked for its worktree
 
 A `held` unit with the cause `dirty_worktree` found uncommitted changes in its
