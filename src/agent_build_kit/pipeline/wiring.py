@@ -60,6 +60,7 @@ from agent_build_kit.pipeline.changelog_convention import review_changelog_parag
 from agent_build_kit.pipeline.check_failures import failed_in
 from agent_build_kit.pipeline.check_runner import worktree_at
 from agent_build_kit.pipeline.command_limit import run_limited
+from agent_build_kit.pipeline.commit_order import branch_subjects
 from agent_build_kit.pipeline.determinism_guidance import determinism_guidance
 from agent_build_kit.pipeline.e2e import (
     UNKNOWN_SPLIT,
@@ -3681,6 +3682,7 @@ def build_runner(
         run_stub_checks=build_stub_checks(profile=profile, projects=repo.projects),
         tree_state=build_tree_state(),
         branch_commits=branch_commits,
+        branch_subjects=branch_subjects,
         upstream_incomplete=build_upstream_incomplete(
             store, installation.config.global_limits.bounce_limit
         ),

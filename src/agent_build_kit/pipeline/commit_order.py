@@ -23,13 +23,17 @@ from __future__ import annotations
 
 import ast
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
+from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.shell import git_out
 
 TESTS_PREFIX = "test: "
 CODE_PREFIX = "feat: "
+# What a per-group commit's body says it holds, before the group's "Done when" sentence.
+TESTS_BODY = "Stubs and tests for this task group; they fail until its implementation."
+CODE_BODY = "The implementation of this task group, which makes its tests pass."
 STUB_BODY_HINT = "only `raise NotImplementedError`"
 
 # A path is a test if any part of it is a tests directory, so this holds for a
@@ -129,8 +133,36 @@ def _file_at(repo: Path, sha: str, path: str) -> str:
         return ""  # Deleted in this commit; nothing to vouch for.
 
 
-def _subject(repo: Path, sha: str) -> str:
-    return git_out(repo, "log", "-1", "--format=%s", sha)
+def branch_subjects(repo: Path, base: str) -> list[str]:
+    """The subject of each commit the checked-out branch carries beyond `base`, oldest first.
+    Read from the subjects, not the hashes, so a restack that rewrote every commit changes
+    nothing."""
+    out = git_out(repo, "log", "--reverse", "--format=%s", f"{base}..HEAD")
+    return out.splitlines() if out else []
+
+
+class GroupProgress(Frozen):
+    """How far a stubbed build's branch has got through the unit's groups."""
+
+    done: int  # groups whose tests and implementation commits are both there
+    tests_made: bool  # the next group's tests commit is there, its implementation not
+
+
+def group_progress(subjects: list[str], titles: Sequence[str]) -> GroupProgress:
+    """Walk the groups in the unit's order, each taking a `test:` then a `feat:` commit with
+    its title from the front of `subjects` (oldest first). The position in the unit, not the
+    title, tells groups apart, so two groups with one title are told apart. A branch that does
+    not begin with the first group's tests has made no progress."""
+    position = 0
+    for done, title in enumerate(titles):
+        tests = position < len(subjects) and subjects[position] == f"{TESTS_PREFIX}{title}"
+        if not tests:
+            return GroupProgress(done=done, tests_made=False)
+        position += 1
+        if position >= len(subjects) or subjects[position] != f"{CODE_PREFIX}{title}":
+            return GroupProgress(done=done, tests_made=True)
+        position += 1
+    return GroupProgress(done=len(titles), tests_made=False)
 
 
 def _pair_problems(subjects: list[str]) -> list[str]:
@@ -231,6 +263,6 @@ def check_structure(
             break
 
     if paired:
-        problems.extend(_pair_problems([_subject(repo, sha) for sha in shas]))
+        problems.extend(_pair_problems(branch_subjects(repo, base)))
 
     return problems

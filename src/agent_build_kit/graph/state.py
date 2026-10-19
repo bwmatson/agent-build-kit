@@ -52,6 +52,12 @@ class AgentSession(Frozen):
     spec: str = ""  # hash of the change's spec files as the agent last saw them; empty: unrecorded
 
 
+# Where a stubbed build picks up from a branch holding some of its groups: plain text, for the
+# checkpoint. The next group has no tests commit, or has them and no implementation commit.
+RESUME_TESTS = "tests"
+RESUME_IMPLEMENT = "implement"
+
+
 class Verdict(StrEnum):
     APPROVED = "approved"
     CHANGES = "changes"
@@ -135,6 +141,7 @@ class UnitRun(Frozen):
     stub_rounds: int = 0  # fixes of failing static checks in this group's tests
     stub_loop: bool = False  # the tests are written and wait on their static checks
     group: int = 0  # in a stubbed build, the index of the task group being built
+    resume: str = ""  # in a stubbed build, where the branch says to continue: a RESUME_ value
     more_groups: bool = False  # in a stubbed build, a group is left after the one just built
     review_round: int = 0
     checks_ok: bool = False

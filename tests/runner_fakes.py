@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_build_kit.config import active
+from agent_build_kit.pipeline.commit_order import TESTS_PREFIX
 from agent_build_kit.pipeline.stack_runner import UnitRunner
 from agent_build_kit.pipeline.unit_store import UnitStore
 
@@ -59,6 +60,7 @@ class Recorder:
         self.unit_test_moved_from: list[str | None] = []
         self.made = 0
         self.subjects: list[str] = []  # the subject of each commit made, oldest first
+        self.messages: list[str] = []  # the whole message of each: subject, blank line, body
         self.remote: list[str] = []  # every distinct head the remote has been given
         self.prs: dict[str, int] = {}  # branch -> pull request, as the forge holds them
         self.pr_calls = 0
@@ -106,14 +108,19 @@ class Recorder:
         return self.verdicts.pop(0) if self.verdicts else approving()
 
     def commit(self, message: str, *, cwd: Path, base: str = "") -> int:
-        self.subjects.append(message)
-        count = 1 if "test" in message else self.commits_from_impl
+        self.messages.append(message)
+        subject = message.split("\n", 1)[0]
+        self.subjects.append(subject)
+        count = 1 if subject.startswith(TESTS_PREFIX) else self.commits_from_impl
         self.made += count
         self._after(f"commit:{message.split(':')[0]}")
         return count
 
     def branch_commits(self, cwd: Path, base: str) -> int:
         return self.made
+
+    def branch_subjects(self, cwd: Path, base: str) -> list[str]:
+        return list(self.subjects)
 
     def head(self, cwd: Path) -> str:
         return f"sha-{self.made}"
@@ -192,6 +199,7 @@ def make_runner(
         run_rework_review=recorder.review,
         commit=recorder.commit,
         branch_commits=recorder.branch_commits,
+        branch_subjects=recorder.branch_subjects,
         base_tip=lambda tree, ref: ref,  # every base resolves, as `wiring.tip` finds one that does
         head=recorder.head,
         upstream_incomplete=lambda u: None,
