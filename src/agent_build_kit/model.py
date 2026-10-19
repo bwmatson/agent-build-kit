@@ -48,3 +48,8 @@ def widest_kind(kinds: Iterable[TestTier]) -> TestTier:
     """The widest of `kinds` by the order unit-test, integration-test, e2e-test."""
     order = list(TestTier)
     return max(kinds, key=order.index)
+
+
+def pooled_kind(kind: TestTier) -> TestTier:
+    """The kind a calibration ratio is keyed by: integration-test counts as unit-test."""
+    return TestTier.UNIT_TEST if kind is TestTier.INTEGRATION_TEST else kind

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `[integration-test]` is a third test-kind tag: a label for behaviour across modules or files in
+  the ordinary suite, treated as `unit-test` everywhere except that a unit takes the widest kind of
+  its groups and a join accepts it with a `unit-test`. Estimate calibration pools it with
+  `unit-test`, so samples of both feed one ratio.
+
 - `abk config --migrate` now also renames the old test-kind setting keys (`tier1_*` and `tier2_*`
   in the limits block and the `tests` blocks) to `unit_test_*` and `e2e_*`, in the same single
   change, confirmation and backup as the limits move. Values and comments stay as they were, and
