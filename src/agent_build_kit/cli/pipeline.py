@@ -2097,6 +2097,13 @@ def release_split_held(
             )
 
 
+def release_split_changed(
+    inst: Installation, store: UnitStore, *, in_flight: Collection[str] = ()
+) -> None:
+    """Rework, once, each parked unit whose group's `Split:` changed away from its park."""
+    raise NotImplementedError
+
+
 def _releasable_split_units(
     inst: Installation, units: Sequence[StoredUnit], in_flight: Collection[str] = ()
 ) -> list[StoredUnit]:
