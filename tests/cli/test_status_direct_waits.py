@@ -59,6 +59,21 @@ def test_a_failed_waiting_unit_names_its_parent_and_not_the_ancestor(
     assert "  failed, waiting on mid/1: top/1" in waiting
 
 
+def test_a_blocked_unit_behind_a_satisfied_middle_unit_names_the_failed_ancestor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    units = [
+        new_unit("a/1", state=FAILED),
+        new_unit("a/2", state="satisfied", depends_on=("a/1",)),
+        new_unit("a/3", state=PLANNED, depends_on=("a/1", "a/2")),
+    ]
+
+    lines = status_lines(tmp_path, monkeypatch, capsys, record=recording(units), limit=2)
+
+    blocked = next(line for line in lines if "blocked: a/3" in line)
+    assert blocked.endswith("waits on a/1")
+
+
 def test_a_unit_held_for_depth_names_its_direct_parents(tmp_path: Path) -> None:
     units = [
         new_unit("base/1", state=PLANNED),

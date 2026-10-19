@@ -2533,7 +2533,7 @@ def _deadlocked_unit_lines(units: list[StoredUnit]) -> list[str]:
         for unit in units:
             if unit.id in behind or unit.state != PLANNED:
                 continue
-            parents = [p.id for p in waiting_on(unit, units) if p.id in behind]
+            parents = [p.id for p in shown_waits(unit, units) if p.id in behind]
             if parents:
                 behind[unit.id] = behind[parents[0]]
                 lines.append(

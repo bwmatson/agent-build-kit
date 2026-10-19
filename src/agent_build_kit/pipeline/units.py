@@ -639,16 +639,22 @@ def direct_dependencies(unit: Unit, graph: Sequence[Unit]) -> tuple[str, ...]:
     )
 
 
-def shown_dependencies(unit: Unit, graph: Sequence[Unit]) -> tuple[str, ...]:
-    """The dependencies a view shows for `unit`: `current_dependencies` cut to the direct ones."""
+def as_shown[U: Unit](unit: U, graph: Sequence[Unit]) -> U:
+    """`unit` as a view shows it: its dependencies read through `superseded_by`
+    (`current_dependencies`) and cut to the direct ones."""
     current = unit.model_copy(update={"depends_on": current_dependencies(unit, graph)})
-    return direct_dependencies(current, graph)
+    return current.model_copy(update={"depends_on": direct_dependencies(current, graph)})
+
+
+def shown_dependencies(unit: Unit, graph: Sequence[Unit]) -> tuple[str, ...]:
+    """The dependencies a view shows for `unit`."""
+    return as_shown(unit, graph).depends_on
 
 
 def shown_waits(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
-    """`waiting_on(unit)` without a stored dependency that another dependency of `unit` reaches."""
-    redundant = set(unit.depends_on) - set(shown_dependencies(unit, graph))
-    return [parent for parent in waiting_on(unit, graph) if parent.id not in redundant]
+    """What `unit` waits on, asked of the unit as a view shows it, so a wait names only
+    dependencies the views draw and list."""
+    return waiting_on(as_shown(unit, graph), graph)
 
 
 def repointed[U: Unit](units: Mapping[str, U], taken: str, onto: str) -> dict[str, U]:

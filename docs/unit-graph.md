@@ -849,9 +849,10 @@ through `AgentRuntime`.
 ## Direct dependencies
 
 A unit stores only its direct dependencies: `direct_dependencies` keeps the dependencies that
-no other of the unit's dependencies reaches (one that another reaches is dropped, and the walk
-does not reach through a satisfied unit), through stored edges in any state and repo, in the order
-given. Every write (planning, a `Needs:` link, a join) stores the reduced list, and the graph
+another of the unit's dependencies does not reach (one that another reaches is dropped), in the
+order given. The walk follows stored edges through units of every state and repo, satisfied ones
+included, and does not replace a satisfied unit by what it was built on, as `through_satisfied`
+does. Every write (planning, a `Needs:` link, a join) stores the reduced list, and the graph
 page, the unit's page, `abk status`, the pull request body and the planner show the same list. The
 first tick or replan after an update reduces a store that lists more, once, through the store's own
 methods.

@@ -33,7 +33,7 @@ from agent_build_kit.pipeline.unit_store import Description, StoredUnit
 from agent_build_kit.pipeline.units import (
     MERGED,
     Member,
-    shown_dependencies,
+    as_shown,
     through_satisfied,
     trunk_of,
 )
@@ -43,7 +43,7 @@ from agent_build_kit.pipeline.work_graph import TaskGroup, validate_tasks
 def _unmerged(unit: StoredUnit, graph: list[StoredUnit]) -> list[StoredUnit]:
     """What this unit depends on that has not merged yet."""
     index = {item.id: item for item in graph}
-    direct = unit.model_copy(update={"depends_on": shown_dependencies(unit, graph)})
+    direct = as_shown(unit, graph)
     return [
         index[dep]
         for dep in through_satisfied(direct, graph)
