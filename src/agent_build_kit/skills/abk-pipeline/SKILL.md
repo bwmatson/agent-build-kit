@@ -277,7 +277,9 @@ in review. `abk status` ends each `pre-existing:` line with how many units wait 
 
 Under `e2e_unit_scope: own` (the default; per repo `tests.e2e_unit_scope`) a unit's e2e-test run covers only the e2e-test tests
 its branch added or changed, selected by identifier and the marker; with none it runs and locks
-nothing and says `e2e-test skipped: no e2e test added or changed`. It runs the whole marker
+nothing and says `e2e-test skipped: no e2e test added or changed`. Only files the runner
+collects by default are named, so a helper module or `conftest.py` is not; the skip line then
+ends with the touched test files it left out. It runs the whole marker
 where it cannot narrow, or under `full`; a scheduled unit is always `full`.
 
 `e2e_schedule` (`daily`, `weekly`, `monthly`, `off`; per repo `tests.e2e_schedule`) makes a

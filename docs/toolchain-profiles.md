@@ -45,6 +45,7 @@ Two ship: `python-uv` and `node-npm`, both implemented.
 | `parse_test_summary(output)` | e2e-test, verify | `(passed, failed, skipped, seconds)` |
 | `parse_test_failures(output)` | e2e-test | `TestFailure(test, line)` for each failed or errored test, in printed order; `[]` when the output has none. The python profile asks pytest for them with `-rfE --tb=short` |
 | `is_test_path(path)` | verify, unit-test | test paths deploy nothing |
+| `collects_path(path)` | e2e-test | whether the runner collects the file by default; the own-test selection names only such files. Distinct from `is_test_path`, which is unchanged |
 | `stub_violations(path, content)` | the push gate | why a file is more than a declaration |
 | `members(repo)` | unit-test, e2e-test, verify | workspace members; empty for a single-package repo |
 | `member_of(repo, path)` | verify | which member a path is in |
@@ -103,6 +104,8 @@ And what it knows:
   `--package <name> --isolated` is what the repo's own `agent_commands` is for.
 - `is_test_path`: a `tests` directory anywhere above the file, or a file named
   `test_*.py`, `*_test.py` or `conftest.py`.
+- `collects_path`: the file's own name matches `test_*.py` or `*_test.py`, wherever it is, so
+  `conftest.py` and a helper module under `tests/` are test-side but not collected.
 - `stub_violations`: Python files are parsed with `ast`; every function body
   must be only `pass`, `raise NotImplementedError`, or a constant (after a
   docstring). Unparseable is a violation. Other languages get no opinion.
@@ -171,6 +174,7 @@ And what it knows:
   `no_tests_collected_exit` 0.
 - `is_test_path`: a `__tests__` directory, or `.test`/`.spec` before `ts`, `tsx`, `js`,
   `jsx` or `mts`.
+- `collects_path`: the same answer as `is_test_path`.
 - `interpret_red` judges only the suites named after the given files, which the red
   command printed before the report: a failure of type `AssertionError` or an error whose
   message is `not implemented` is red; a file that failed to load (its testcase is named as

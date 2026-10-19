@@ -1357,7 +1357,11 @@ approved.
   still loads) a unit runs only the e2e-test tests
   its branch added or changed, selected by identifier together with the marker. A unit with
   none runs nothing, takes no lock and says `e2e-test skipped: no e2e test added or changed`;
-  its status says that no e2e-test test ran. Where the run cannot be narrowed (a dev stack
+  its status says that no e2e-test test ran. Only files the runner collects by default
+  (`test_*.py` or `*_test.py` for python-uv) are named, so a helper module and `conftest.py` are
+  not, whatever `def test_*` they hold; a custom `python_files` or `testpaths` is not read, so
+  tests it adds run only in the whole marker run. A unit that touched only such files runs
+  nothing, and the skip line ends with the files left out. Where the run cannot be narrowed (a dev stack
   script, a profile that cannot select by identifier, tests that cannot be listed, no base),
   or under `full`, the whole marker runs and the log says why. A scheduled unit is always
   `full`.
