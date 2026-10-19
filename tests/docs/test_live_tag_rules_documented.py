@@ -35,12 +35,11 @@ def test_the_runtimes_document_has_the_gap_list_section_with_the_current_list() 
 
 
 def test_the_runtimes_document_says_a_tag_is_compared_with_what_the_test_starts() -> None:
-    assert re.search(r"tag[^.]*compared with[^.]*(runtime )?(the test|it) starts", RUNTIMES)
+    assert re.search(r"tag[^.]*compared with[^.]*starts", RUNTIMES)
 
 
-def test_the_runtimes_document_records_the_other_repos_have_no_such_test() -> None:
-    assert re.search(r"`shared-infra` and `hermes`[^.]*no[^.]*(drift test|such test)", RUNTIMES)
-    assert "follow-up" in RUNTIMES
+def test_the_runtimes_document_records_other_repos_get_no_such_test_yet() -> None:
+    assert re.search(r"other code repos[^.]*no such drift test[^.]*;[^.]*follow-up", RUNTIMES)
 
 
 def test_agents_md_says_how_a_new_live_test_is_tagged() -> None:

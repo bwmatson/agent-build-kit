@@ -9,6 +9,7 @@ import pytest
 
 from tests.live_tag_drift import (
     claude_without_acp,
+    collected,
     documented_gaps,
     find_live_modules,
     warn_gap_list_drift,
@@ -32,10 +33,7 @@ EXCUSED = CLAUDE_ONLY + '\nCLAUDE_ONLY_REASONS = {"test_builds_a_unit": "only cl
 
 
 def gaps(pytester: pytest.Pytester, **modules: str) -> list[str]:
-    pytester.syspathinsert(ROOT)
-    pytester.makepyfile(**modules)
-    items, _ = pytester.inline_genitems()
-    return claude_without_acp(items)
+    return claude_without_acp(collected(pytester, **modules))
 
 
 def document_listing(tmp_path: Path, *entries: str) -> Path:
@@ -49,9 +47,7 @@ def document_listing(tmp_path: Path, *entries: str) -> Path:
 
 
 def warned(pytester: pytest.Pytester, document: Path, **modules: str) -> list[str]:
-    pytester.syspathinsert(ROOT)
-    pytester.makepyfile(**modules)
-    items, _ = pytester.inline_genitems()
+    items = collected(pytester, **modules)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         warn_gap_list_drift(items, document)
@@ -122,7 +118,9 @@ def test_a_list_that_matches_the_document_warns_of_nothing(
     assert warned(pytester, document, test_same=CLAUDE_ONLY) == []
 
 
-def test_the_kits_current_list_equals_the_documents(pytester: pytest.Pytester) -> None:
+def test_the_kits_current_list_matches_the_documents_without_a_warning(
+    pytester: pytest.Pytester,
+) -> None:
     modules = find_live_modules(ROOT / "tests")
     items, _ = pytester.inline_genitems(*(str(m) for m in modules))
 
@@ -134,4 +132,6 @@ def test_the_kits_current_list_equals_the_documents(pytester: pytest.Pytester) -
         "test_graph_unit.py",
         "test_telemetry_stack.py",
     }
-    assert documented_gaps(DOCUMENT) == current
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        warn_gap_list_drift(items, DOCUMENT)

@@ -269,17 +269,27 @@ def agent_start_notes(items: list[pytest.Item]) -> list[str]:
     ]
 
 
-def drift(items: list[pytest.Item]) -> list[str]:
-    """One message per offence among the collected `items`, each naming the test or the scenario."""
-    found: list[str] = []
+def scenarios_of(
+    items: list[pytest.Item], table: str
+) -> tuple[dict[tuple[Path, str], set[str]], dict[Path, dict[str, str]]]:
+    """The runtime tags of each scenario (file and function, parametrisations joined) among
+    `items`, and each module's table of reasons named `table` (absent is empty)."""
     scenarios: dict[tuple[Path, str], set[str]] = defaultdict(set)
     tables: dict[Path, dict[str, str]] = {}
     for item in items:
-        tags = runtime_tags(item)
         module = module_of(item)
         path = Path(module.__file__)
-        tables[path] = getattr(module, REASONS_TABLE, {})
-        scenarios[path, getattr(item, "originalname", item.name)].update(tags)
+        tables[path] = getattr(module, table, {})
+        scenarios[path, getattr(item, "originalname", item.name)].update(runtime_tags(item))
+    return scenarios, tables
+
+
+def drift(items: list[pytest.Item]) -> list[str]:
+    """One message per offence among the collected `items`, each naming the test or the scenario."""
+    found: list[str] = []
+    scenarios, tables = scenarios_of(items, REASONS_TABLE)
+    for item in items:
+        tags = runtime_tags(item)
         if len(tags) > 1:
             found.append(f"{item.nodeid}: carries {len(tags)} runtime tags: {', '.join(tags)}")
         elif item.get_closest_marker("local_stack"):
@@ -313,10 +323,16 @@ def derived_splits(pyproject: Path) -> set[str]:
     return {name.removeprefix(PREFIX) for name in names if name.startswith(PREFIX)}
 
 
+def section_of(document: Path, heading: str) -> str:
+    """The text of `document` under `heading`, up to the next line that starts with `#`."""
+    text = document.read_text()
+    assert heading in text, f"no section {heading!r} in {document}"
+    return re.split(r"^#", text.split(heading, 1)[1], maxsplit=1, flags=re.MULTILINE)[0]
+
+
 def documented_splits(document: Path) -> set[str]:
     """The split names of the yaml example under "This repo's own splits" in `document`."""
-    section = document.read_text().split(SPLITS_HEADING, 1)[1]
-    section = re.split(r"^#", section, maxsplit=1, flags=re.MULTILINE)[0]
+    section = section_of(document, SPLITS_HEADING)
     example = re.search(r"```yaml\n(.*?)```", section, re.DOTALL)
     assert example, f"no yaml example under {SPLITS_HEADING!r} in {document}"
     return set(yaml.safe_load(example.group(1))["tests"]["e2e_splits"])
@@ -345,12 +361,7 @@ def split_of(item: pytest.Item) -> str:
 def claude_without_acp(items: list[pytest.Item]) -> list[str]:
     """The sorted `file::scenario` of every Claude-tagged scenario among `items` with no ACP
     sibling and no entry in its module's `CLAUDE_ONLY_REASONS` (optional, never required)."""
-    scenarios: dict[tuple[Path, str], set[str]] = defaultdict(set)
-    tables: dict[Path, dict[str, str]] = {}
-    for item in items:
-        path = Path(module_of(item).__file__)
-        tables[path] = getattr(module_of(item), CLAUDE_REASONS_TABLE, {})
-        scenarios[path, getattr(item, "originalname", item.name)].update(runtime_tags(item))
+    scenarios, tables = scenarios_of(items, CLAUDE_REASONS_TABLE)
     return sorted(
         f"{path.name}::{scenario}"
         for (path, scenario), tags in scenarios.items()
@@ -360,9 +371,7 @@ def claude_without_acp(items: list[pytest.Item]) -> list[str]:
 
 def documented_gaps(document: Path) -> list[str]:
     """The bullets under "Claude scenarios without an ACP sibling" in `document`."""
-    section = document.read_text().split(GAPS_HEADING, 1)[1]
-    section = re.split(r"^#", section, maxsplit=1, flags=re.MULTILINE)[0]
-    return re.findall(r"^- `([^`]+)`", section, re.MULTILINE)
+    return re.findall(r"^- `([^`]+)`", section_of(document, GAPS_HEADING), re.MULTILINE)
 
 
 def warn_gap_list_drift(items: list[pytest.Item], document: Path) -> None:
@@ -377,9 +386,14 @@ def warn_gap_list_drift(items: list[pytest.Item], document: Path) -> None:
         warnings.warn(f"{name}: listed in {document.name} but no longer a gap", stacklevel=2)
 
 
-def drifted(pytester: pytest.Pytester, **modules: str) -> list[str]:
-    """The drift messages for fixture `modules`, collected the way the project collects its own."""
+def collected(pytester: pytest.Pytester, **modules: str) -> list[pytest.Item]:
+    """The items of fixture `modules`, collected the way the project collects its own."""
     pytester.syspathinsert(ROOT)
     pytester.makepyfile(**modules)
     items, _ = pytester.inline_genitems()
-    return drift(items)
+    return items
+
+
+def drifted(pytester: pytest.Pytester, **modules: str) -> list[str]:
+    """The drift messages for fixture `modules`, collected the way the project collects its own."""
+    return drift(collected(pytester, **modules))

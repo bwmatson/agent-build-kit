@@ -924,7 +924,8 @@ The markers the suite uses:
   without workers.
 - `runtime_<name>` (`runtime_claude_code`, `runtime_acp`) names the one agent
   runtime a `local_stack` test drives; a test with none is the untagged base and
-  needs no agent. Two different runtime tags on one live-stack test, from the test,
+  needs no agent. The tag is the runtime the test starts, as decided from `AGENT_SIGNALS`,
+  and the drift test fails a mismatch (see below). Two different runtime tags on one live-stack test, from the test,
   its class, its module or a parameter, fail collection naming the test, so a
   scenario that needs two runtimes is two tests. Markers are strict: an
   unregistered one fails collection. `dev_stack` marks a test that needs the
@@ -976,8 +977,8 @@ from the table `AGENT_SIGNALS` in `tests/live_tag_drift.py` (the shared helpers 
 one, the program lookups and the agent command setting), through the fixtures the test
 requests and the functions of its module it calls; a stand-in agent is not counted. It
 fails, naming each, a test that starts an agent without exactly one runtime tag, and a tag
-that is compared with what the test starts (a `runtime_acp` test that starts `claude`, or a
-`runtime_claude_code` test that starts a protocol agent). A scenario with an `acp` variant
+that disagrees with what the test starts (the tag is compared with it: a `runtime_acp` test
+that starts `claude`, or a `runtime_claude_code` test that starts a protocol agent). A scenario with an `acp` variant
 and no `claude_code` variant needs a stated reason in its module's table of reasons
 (`ACP_ONLY_REASONS`, scenario name to reason; an empty reason fails too). A test also checks
 that the split names equal the registered `runtime_<name>` markers. A tagged test may need
@@ -1000,8 +1001,8 @@ tests raises a warning, not a failure.
 - `test_telemetry_stack.py::test_a_ticks_duration_series_are_in_the_metrics_store_without_a_unit_id`
 - `test_telemetry_stack.py::test_a_ticks_trace_is_found_in_the_trace_store_by_the_unit_id`
 
-`shared-infra` and `hermes` have no such drift test and no runtime markers; adding them is a
-follow-up and not part of this rule.
+An installation's other code repos get no such drift test or runtime markers from this rule;
+adding them is a follow-up and not part of this rule.
 
 ### Holding a split
 
