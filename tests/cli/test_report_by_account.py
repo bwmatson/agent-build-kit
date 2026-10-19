@@ -12,6 +12,7 @@ import yaml
 from agent_build_kit.cli import main
 from agent_build_kit.config import dump
 from agent_build_kit.installation import Installation
+from agent_build_kit.settings import reload
 from tests.conftest import make_installation
 from tests.ledger_lines import agent_line, write_ledger
 
@@ -57,3 +58,25 @@ def test_the_table_by_account_names_the_label(
     rows = [line.split()[0] for line in capsys.readouterr().out.splitlines() if line.strip()]
     assert "kit" in rows
     assert "second-home" not in " ".join(rows)
+
+
+def test_a_row_keyed_by_the_environments_directory_reads_default(
+    inst: Installation,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    home = tmp_path / "env-home"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
+    reload(None)
+    request.addfinalizer(lambda: reload(None))
+    write_ledger(
+        inst.state_dir / "usage-ledger.jsonl",
+        agent_line(round=0, session_id="s1", account=str(home)),
+    )
+
+    assert main(["report", "--by", "account", "--json"]) == 0
+
+    keys = [row["key"] for row in json.loads(capsys.readouterr().out)["rows"]]
+    assert keys == ["default"]

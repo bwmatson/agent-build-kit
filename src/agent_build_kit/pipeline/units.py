@@ -1071,16 +1071,22 @@ def in_progress_label(unit: Unit) -> str:
     return unit.state.replace("_", " ")
 
 
+# Stands for every slot where a slot key is asked for; None is a key too, the default account's.
+EVERY_SLOT = object()
+
+
 def start_room(
     graph: Sequence[Unit],
     limit: int,
-    project: Hashable | None = None,
+    project: Hashable = EVERY_SLOT,
     slot_of: Callable[[Unit], Hashable] = project_key,
 ) -> int:
     """How many never-started units may begin before `limit` is reached, in `project` (a slot of
-    `slot_of`; every unit counts when none is given)."""
+    `slot_of`; every unit counts when `EVERY_SLOT`)."""
     counts = project_counts(graph, slot_of)
-    return max(0, limit - (sum(counts.values()) if project is None else counts.get(project, 0)))
+    return max(
+        0, limit - (sum(counts.values()) if project is EVERY_SLOT else counts.get(project, 0))
+    )
 
 
 def _start_rank(unit: Unit) -> int:

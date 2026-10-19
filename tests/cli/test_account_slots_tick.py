@@ -4,11 +4,12 @@ emergency-lane note only while a lane of its projects has room."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline import emergency_lane
+from agent_build_kit.pipeline import emergency_lane, spans
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import FAILED, PLANNED
 from tests.cli.test_tick_scheduling import open_pr
@@ -101,3 +102,60 @@ def test_a_full_account_slot_with_a_free_emergency_lane_says_a_priority_zero_may
     line = lane_status(tmp_path, monkeypatch, capsys, lane=())
 
     assert line.endswith(LANE_NOTE)
+
+
+def test_a_full_default_account_queue_does_not_list_another_accounts_blocked_units(
+    builder: Builder, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inst = make_installation(
+        tmp_path,
+        planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
+        project_limits={"max_units_in_progress": 2},
+        repos=repos(tmp_path, {"app": "kit"}),
+        runtimes={"claude_code": {"accounts": kit(tmp_path, max_units_in_progress=5)}},
+    )
+    open_pr(builder, "one/1", 11, repo="web")
+    open_pr(builder, "two/1", 12, repo="web")
+    builder.store.upsert(
+        [
+            stored("ready/1", repo="web"),
+            stored("parent/1", repo="app"),
+            stored("blocked/1", repo="app", depends_on=("parent/1",)),
+        ]
+    )
+    builder.store.set_state("parent/1", FAILED, note="broke", branch="spec/parent/1")
+    builder.store.set_state("blocked/1", PLANNED, branch="spec/blocked/1")
+
+    assert tick(inst) == 0
+
+    out = capsys.readouterr().out
+    assert builder.started == []
+    [line] = [line for line in out.splitlines() if "default account: 2 units in progress" in line]
+    assert "blocked" not in line
+    assert "blocked: blocked/1" not in out
+
+
+def test_the_slot_sample_limit_is_the_sum_of_the_limits_of_the_accounts_in_use(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst = make_installation(
+        tmp_path,
+        planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
+        project_limits={"max_units_in_progress": 5},
+        repos=repos(tmp_path, {"app": "kit"}),
+        runtimes={"claude_code": {"accounts": kit(tmp_path, max_units_in_progress=2)}},
+    )
+    builder.store.upsert([stored("a/1", repo="app"), stored("w/1", repo="web")])
+    recorded: list[spans.Sample] = []
+    real = spans.record_sample
+
+    def record(sample: spans.Sample, log: Callable[[str], None]) -> None:
+        recorded.append(sample)
+        real(sample, log)
+
+    monkeypatch.setattr(spans, "record_sample", record)
+
+    assert tick(inst) == 0
+
+    assert recorded
+    assert {sample.limit for sample in recorded} == {7}

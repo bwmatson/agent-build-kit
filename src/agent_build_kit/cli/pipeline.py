@@ -218,6 +218,7 @@ from agent_build_kit.pipeline.unit_store import (
 from agent_build_kit.pipeline.units import (
     BUILDS_NOTHING,
     CLOSED,
+    EVERY_SLOT,
     FAILED,
     HELD,
     IN_FLIGHT,
@@ -2528,14 +2529,14 @@ def _deadlocked_unit_lines(units: list[StoredUnit]) -> list[str]:
 
 def _blocked_lines(
     units: list[StoredUnit],
-    project: Hashable | None = None,
+    project: Hashable = EVERY_SLOT,
     slot_of: Callable[[Unit], Hashable] = project_key,
 ) -> list[str]:
     """One line for each blocked unit that has work and so is not counted, with what it waits on;
-    only those of the slot `project` when one is given."""
+    only those of the slot `project` unless it is `EVERY_SLOT`."""
     lines = []
     for unit in uncounted(units):
-        if project is not None and slot_of(unit) != project:
+        if project is not EVERY_SLOT and slot_of(unit) != project:
             continue
         waits = [parent.id for parent in waiting_on(unit, units)]
         lines.append(f"  blocked: {unit.id} ({unit_label(unit)}) waits on {', '.join(waits)}")
