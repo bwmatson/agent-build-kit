@@ -12,6 +12,7 @@
   (and the group's tasks) and run `abk replan` or wait for the next tick: the unit is reworked
   once with an automatic note, instead of staying parked on the old split. If the new split is
   held, the rework waits until it is released, and `abk status` says so.
+
 - `tests.e2e_dimensions` declares groups of values a live test may need (a runtime, a
   telemetry sink), each value with a pytest marker, and `tests.e2e_available` (set per
   machine, for example in `abk.local.yaml`) lists the values a machine has. An e2e run
