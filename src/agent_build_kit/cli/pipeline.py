@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict
 from agent_build_kit import claude_account, config, forges, profiles, runtimes, telemetry
 from agent_build_kit.budget import cut_head
 from agent_build_kit.cli.e2e_cmd import held_status_lines
+from agent_build_kit.cli.retire_cmd import cmd_retire
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun
@@ -5630,6 +5631,31 @@ def register(sub: argparse._SubParsersAction) -> None:
     )
     given.add_argument("--note-file", metavar="PATH", help="--note, read from a file")
     requeue.set_defaults(func=cmd_requeue)
+
+    retire = sub.add_parser(
+        "retire", help="end a unit that has not finished and release its groups"
+    )
+    retire.add_argument("unit", help="the unit id, e.g. add-marker/1")
+    retire.add_argument(
+        "--reason",
+        metavar="TEXT",
+        default="",
+        help="why; needed when a group no unit builds is released",
+    )
+    retire.add_argument(
+        "--delete-branch",
+        action="store_true",
+        help="also remove the worktree and delete the local and remote branch",
+    )
+    retire.add_argument(
+        "--discard-unpushed",
+        action="store_true",
+        help="with --delete-branch, accept losing commits that were never pushed",
+    )
+    retire.add_argument(
+        "--dry-run", action="store_true", help="print every step and change nothing"
+    )
+    retire.set_defaults(func=cmd_retire)
 
     replan = sub.add_parser("replan", help="plan changes again now, whatever their recorded plan")
     replan.add_argument("changes", nargs="*", help="change names, or unit ids")
