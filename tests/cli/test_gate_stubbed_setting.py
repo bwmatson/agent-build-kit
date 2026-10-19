@@ -10,6 +10,7 @@ import pytest
 
 from agent_build_kit import profiles
 from agent_build_kit.cli import main
+from agent_build_kit.config import dump
 from agent_build_kit.pipeline import gate
 from tests.conftest import make_installation
 
@@ -35,6 +36,7 @@ def asked(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
 
 def gate_in(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, setting: bool, args: list[str]):
     inst = make_installation(tmp_path / "planning", builders={"per_group_commits": setting})
+    (inst.root / "abk.yaml").write_text(dump(inst.config))
     app = inst.root / "checkouts" / "app"
     app.mkdir(parents=True, exist_ok=True)
     monkeypatch.chdir(inst.root)

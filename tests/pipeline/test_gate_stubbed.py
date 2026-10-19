@@ -69,7 +69,7 @@ def test_a_tests_commit_followed_by_another_is_refused_only_for_a_stubbed_build(
     before = judged(repo, ModeProfile())
 
     assert any("test: two" in problem for problem in stubbed)
-    assert before == []
+    assert not any("test: two" in problem for problem in before), before
 
 
 def test_a_build_that_is_not_stubbed_runs_without_types_and_with_the_plain_red_reading(

@@ -6,7 +6,8 @@ when:
 1. its commits read as tests-then-implementation (`commit_order`),
 2. linting and formatting pass at each tests commit — type checking is
    deliberately skipped there, since tests routinely reference code that
-   doesn't exist yet,
+   doesn't exist yet, unless the build is stubbed, whose stubs make the
+   tests type-check,
 3. the new tests in each tests commit fail, and fail honestly (`red_check`),
 4. and the branch tip is green, which the stack runner checks separately
    because it also gates e2e-test.
@@ -76,9 +77,13 @@ def check_branch(
     and each project's commands run in its directory; `profile` is the repo's own,
     for a file no project holds. A commit touching several projects passes when
     every project's checks do.
+
+    A `stubbed` build also needs its commits paired, runs the clean command with types and
+    reads the red run as stubbed; its cached results are kept apart from the other mode's.
     """
     profile = profile or profiles.get("python-uv")
     projects = projects or []
+    mode = "stubbed" if stubbed else ""
 
     def is_test(path: str) -> bool:
         return profiles.for_path(projects, path, profile).is_test_path(path)
@@ -86,7 +91,7 @@ def check_branch(
     def stubs(path: str, content: str) -> list[str]:
         return profiles.for_path(projects, path, profile).stub_violations(path, content)
 
-    problems = check_structure(repo, base, is_test, stubs)
+    problems = check_structure(repo, base, is_test, stubs, paired=stubbed)
     if problems:
         # No point running anything: the shape is wrong, so "which commit is
         # the tests commit" isn't yet a meaningful question.
@@ -94,7 +99,7 @@ def check_branch(
 
     for sha in _tests_commits(repo, base, is_test):
         if cache is not None:
-            cached = cache.lookup(repo, sha)
+            cached = cache.lookup(repo, sha, mode=mode)
             if cached is True:
                 continue
             if cached is False:
@@ -114,7 +119,7 @@ def check_branch(
                 repo,
                 sha,
                 [
-                    toolchain.clean_command(),
+                    toolchain.clean_command(types=True) if stubbed else toolchain.clean_command(),
                     toolchain.red_command(owned),
                 ],
                 subdir=prefix or ".",
@@ -124,12 +129,16 @@ def check_branch(
                     f"{where}lint/format did not pass at the tests commit\n"
                     f"{cut_tail(clean.stdout, 2000)}"
                 )
-            ok, red_problems = toolchain.interpret_red(red.stdout + red.stderr, red.exit_code)
+            ok, red_problems = (
+                toolchain.interpret_red(red.stdout + red.stderr, red.exit_code, stubbed=True)
+                if stubbed
+                else toolchain.interpret_red(red.stdout + red.stderr, red.exit_code)
+            )
             if not ok:
                 commit_problems.extend(f"{where}{problem}" for problem in red_problems)
 
         if cache is not None:
-            cache.record(repo, sha, ok=not commit_problems)
+            cache.record(repo, sha, ok=not commit_problems, mode=mode)
         problems.extend(commit_problems)
 
     return problems

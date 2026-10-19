@@ -14,6 +14,8 @@ from agent_build_kit.pipeline.unit_store import FeedbackSource, RequeueReason, R
 class Node(StrEnum):
     PREPARE = "prepare"
     TESTS = "tests"
+    STUB_CHECKS = "stub_checks"
+    FIX_STUB_CHECKS = "fix_stub_checks"
     IMPLEMENT = "implement"
     CHECKS = "checks"
     FIX_CHECKS = "fix_checks"
@@ -131,6 +133,7 @@ class UnitRun(Frozen):
     had_feedback: bool = False  # feedback was waiting when the run began
     fix_rounds: int = 0  # fixes of failing checks in this round of review
     stub_rounds: int = 0  # fixes of failing static checks in this group's tests
+    stub_loop: bool = False  # the tests are written and wait on their static checks
     review_round: int = 0
     checks_ok: bool = False
     produced_nothing: bool = False

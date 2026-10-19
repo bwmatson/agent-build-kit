@@ -5540,13 +5540,17 @@ def cmd_gate(args: argparse.Namespace, inst: Installation | None) -> int:
     """The push gate, for a branch in a checkout: tests-first order, clean
     and red at the tests commit."""
     from agent_build_kit import profiles
+    from agent_build_kit.config import BuildersConfig
     from agent_build_kit.pipeline.check_runner import CheckCache
     from agent_build_kit.pipeline.gate import check_branch
+    from agent_build_kit.profiles.base import stubbed_build
 
     profile_name = args.profile
     base = args.base
     projects = []
+    builders = BuildersConfig()
     if inst is not None:
+        builders = inst.config.builders
         repo = Path(args.repo).resolve()
         for name, path in inst.checkouts.items():
             if repo == path.resolve() or repo.is_relative_to(path.resolve()):
@@ -5559,7 +5563,12 @@ def cmd_gate(args: argparse.Namespace, inst: Installation | None) -> int:
     profile = profiles.get(profile_name or "python-uv")
     cache = CheckCache(args.cache) if args.cache else None
     problems = check_branch(
-        Path(args.repo), base or "main", cache=cache, profile=profile, projects=projects
+        Path(args.repo),
+        base or "main",
+        cache=cache,
+        profile=profile,
+        projects=projects,
+        stubbed=stubbed_build(builders, profile),
     )
     for problem in problems:
         print(f"✗ {problem}")

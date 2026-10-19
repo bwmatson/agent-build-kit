@@ -328,6 +328,26 @@ the unit has passed review, unit-test and been pushed.
 )
 
 
+STUB_CHECKS_PROMPT = PromptTemplate(
+    """\
+{guidance}The static checks (lint, formatting and types) failed on the stubs and tests you
+wrote for task group(s) {groups} of change {change_dir}. Nothing has been committed
+yet: the tests are committed once these pass.
+
+---
+{feedback}
+---
+
+Make the existing stubs and tests pass these checks. Fix the cause, not the report: do not
+suppress a rule or loosen a type to make a check pass, and do not change what the tests
+assert. Do not run the new tests; they are meant to fail until the implementation exists.
+Run the lint, format and type checks again before you finish.
+{commands}The change's files are read-only for you: do not tick boxes in its tasks.md
+or edit anything under {change_dir}.
+"""
+)
+
+
 # The only follow-up kind that does not block approval. Anything else — a
 # correctness problem, a test that would pass regardless, a missing test the
 # task asked for, or something the command policy forbids — is inconvenient,

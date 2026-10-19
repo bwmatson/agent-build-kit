@@ -53,7 +53,9 @@ IDENTIFYING_FIELDS = frozenset(
 
 # The unit graph's nodes that make agent calls. A row of any other node is a call of its own:
 # no kill re-runs it, so the reader never replaces or merges it with another.
-UNIT_CALL_NODES = frozenset(["tests", "implement", "review", "rework", "fix_checks", "adapt"])
+UNIT_CALL_NODES = frozenset(
+    ["tests", "implement", "review", "rework", "fix_checks", "fix_stub_checks", "adapt"]
+)
 
 # What has been reported this process, so that many units failing the same way
 # say it once; guarded because units run on threads.
