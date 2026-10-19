@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict
 from agent_build_kit import claude_account, config, forges, profiles, runtimes, telemetry
 from agent_build_kit.budget import cut_head
 from agent_build_kit.cli.e2e_cmd import held_status_lines
+from agent_build_kit.cli.retire_cmd import cmd_retire
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun
@@ -50,6 +51,7 @@ from agent_build_kit.pipeline import (
     environment,
     landing_intent,
     network_probe,
+    retirement,
     spans,
     usage_report,
 )
@@ -436,13 +438,13 @@ def _usage_line(reading: UsageReading) -> str:
 
 
 def retry_closes(store: UnitStore, *, close_pr: Callable[[Unit, int, str], None]) -> None:
-    """Close again each satisfied unit's pull request that is still open, removing the
-    record of those that closed."""
+    """Close again each satisfied or retired unit's pull request that is still open, removing
+    the record of those that closed."""
     for unit in store.all():
         pending = unit.close_pending
         if pending is None:
             continue
-        if unit.state != SATISFIED or unit.pr != pending.pr:
+        if unit.state not in (SATISFIED, UnitState.RETIRED) or unit.pr != pending.pr:
             # The unit went on to something else (a requeue, say), and the pull request
             # may be the one now under review: the record is stale, not an order.
             store.set_close_pending(unit.id, None)
@@ -755,6 +757,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     for line in [
         *_split_wait_lines(inst, units),
         *_blocked_lines(units),
+        *_retire_lines(units),
         *_failed_waiting_lines(units),
         *_wait_ended_lines(inst, units),
         *_second_parent_lines(units),
@@ -2461,6 +2464,57 @@ def _blocked_lines(units: list[StoredUnit], project: ProjectKey | None = None) -
         waits = [parent.id for parent in waiting_on(unit, units)]
         lines.append(f"  blocked: {unit.id} ({unit_label(unit)}) waits on {', '.join(waits)}")
     return lines
+
+
+# How near done a unit is, by state: the nearer, the less likely it is the one to retire.
+_PROGRESS = {UNPLANNED: 0, PLANNED: 1, FAILED: 2, HELD: 2, RUNNING: 3, IN_REVIEW: 3}
+
+
+def _collision_lines(units: list[StoredUnit]) -> list[str]:
+    """One line for each group that two units that have started and not finished carry,
+    suggesting the unit further from done to retire."""
+    owners: dict[tuple[str, int], list[StoredUnit]] = {}
+    for unit in units:
+        if unit.owns_groups and not unit.unstarted:
+            for member in unit.members():
+                for group in member.groups:
+                    owners.setdefault((member.change, group), []).append(unit)
+    lines = []
+    for (change, group), carrying in sorted(owners.items()):
+        if len(carrying) < 2:
+            continue
+        # The later in plan order on a tie.
+        far = max(carrying, key=lambda u: (-_PROGRESS.get(u.state, 0), units.index(u)))
+        who = ", ".join(f"{u.id} ({u.state.value})" for u in carrying)
+        lines.append(
+            f"  group {group} of {change} is carried by {who} — suggestion: "
+            f'abk retire {far.id} --reason "..."'
+        )
+    return lines
+
+
+def _unplanned_work_lines(units: list[StoredUnit]) -> list[str]:
+    """One line for each unplanned unit that holds work, with the command to end it, and a note
+    when a merged unit carries all its groups."""
+    lines = []
+    for unit in units:
+        if unit.state != UNPLANNED or not unit.has_work:
+            continue
+        fates = retirement.assess(unit.id, units).groups
+        note = ""
+        if fates and all(fate.merged for fate in fates):
+            built = ", ".join(sorted({fate.carried_by for fate in fates}))
+            note = f" — nothing is lost: its groups are in {built}"
+        lines.append(
+            f"  unplanned with work: {unit.id} ({unit_label(unit)}) — "
+            f'abk retire {unit.id} --reason "..."{note}'
+        )
+    return lines
+
+
+def _retire_lines(units: list[StoredUnit]) -> list[str]:
+    """The units a person may want to retire, each with the command to run."""
+    return [*_collision_lines(units), *_unplanned_work_lines(units)]
 
 
 def _second_parent_lines(units: list[StoredUnit]) -> list[str]:
@@ -5725,6 +5779,31 @@ def register(sub: argparse._SubParsersAction) -> None:
     )
     given.add_argument("--note-file", metavar="PATH", help="--note, read from a file")
     requeue.set_defaults(func=cmd_requeue)
+
+    retire = sub.add_parser(
+        "retire", help="end a unit that has not finished and release its groups"
+    )
+    retire.add_argument("unit", help="the unit id, e.g. add-marker/1")
+    retire.add_argument(
+        "--reason",
+        metavar="TEXT",
+        default="",
+        help="why; needed when a group no unit builds is released",
+    )
+    retire.add_argument(
+        "--delete-branch",
+        action="store_true",
+        help="also remove the worktree and delete the local and remote branch",
+    )
+    retire.add_argument(
+        "--discard-unpushed",
+        action="store_true",
+        help="with --delete-branch, accept losing commits that were never pushed",
+    )
+    retire.add_argument(
+        "--dry-run", action="store_true", help="print every step and change nothing"
+    )
+    retire.set_defaults(func=cmd_retire)
 
     replan = sub.add_parser("replan", help="plan changes again now, whatever their recorded plan")
     replan.add_argument("changes", nargs="*", help="change names, or unit ids")

@@ -350,6 +350,18 @@ cannot do, and what a person does about it:
   `upstream_went_back` note that ends `held repeatedly by <parent>` is the same loop. Find the
   cause (the note and `cause` name it), then retire or replan the unit, or fix it and run
   `abk requeue`, which resets the count.
+- A unit that holds a place and cannot move (an `unplanned` unit with a branch, or a planned
+  unit a replan left out): `abk status` lists it as `unplanned with work:` with the line to run,
+  and lists each group two started units carry with the one further from done as a suggestion.
+  `abk retire UNIT [--reason TEXT] [--delete-branch] [--discard-unpushed] [--dry-run]` ends it in
+  the state `retired`: finished, in no place, nothing waits on it, its groups free. A group no
+  unit builds needs `--reason` and is planned again; an open pull request is closed with the
+  reason; the branch and worktree are kept unless `--delete-branch` is given, and commits never
+  pushed need `--discard-unpushed` as well. It refuses a running or finished unit, a live branch
+  lock or lease, and a unit a started dependent is stacked on. A replan keeps a started unit the
+  plan omits and prints `kept: <unit> has work; not in the plan`, and it refuses a plan that
+  gives a group to a second unit while a started one carries it, naming both: retire the
+  owner, or edit `tasks.md` to keep the group with it.
 - `dropped dependency <parent>: it builds nothing` in the tick log is `link_needs` removing a
   stored dependency on an unplanned or retired unit that no `Needs:` line declares. It changes
   no wait; there is nothing to do.

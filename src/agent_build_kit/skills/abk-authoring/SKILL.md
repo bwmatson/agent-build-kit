@@ -217,6 +217,12 @@ group of the change it carries, so a person can predict it from the headings. A 
 the same groups keeps every id, and a taken id (retired, started or finished) is replaced by
 the next free integer.
 
+A group's owner is one unit while that unit has started and not finished. Renumbering or
+narrowing a group a started unit carries gives it to a second unit, and the plan is refused,
+naming both units and the group. To move the group, retire the owner with `abk retire UNIT
+--reason TEXT` (its work stays on its branch unless `--delete-branch` is given), or edit
+`tasks.md` to keep the group with the unit that has it.
+
 ## Describe behaviour, not names
 
 A task describes behaviour. It names a new function, class or constant only when

@@ -229,7 +229,18 @@ were avoidable.
 
 `UnitStore.upsert` merges the plan into `runs/units.json` by id: shape from
 the plan, state/branch/PR/feedback from what is already recorded. A unit the
-plan dropped becomes `unplanned` only if it never started.
+plan dropped becomes `unplanned` only if it never started; a planned unit with a branch, a
+pull request, a pushed commit or an approval stays as it is and the replan prints `kept:`.
+
+A group has one owner among the units that have not finished: a unit owns its groups while it
+is `planned`, `running`, `in_review`, `failed` or `held`, or `unplanned` with work, and a
+merged, closed, satisfied or retired unit owns none. `upsert` checks the store as the merge
+would leave it and raises `GroupOwned`, writing nothing, when a plan gives a group to a unit
+that did not carry it while a started owner does. `plan_all` then logs both units and the
+way out (`abk retire` the owner, or edit `tasks.md`), records the plan as failed with its
+attempts spent and the owners' ids, and does not ask the planner again until `tasks.md`
+changes or `abk retire` forgets the record. A collision already in the store does not block a
+replan; `abk status` lists it.
 
 `abk replan` is the on-demand way to plan: it plans the changes it is given
 whatever the recorded hash says, then links the `Needs:` lines, and prints what

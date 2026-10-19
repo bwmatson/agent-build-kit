@@ -63,7 +63,12 @@
   `abk replan` says `kept: <unit> has work; not in the plan`, with the command to retire it.
   A plan that gives a group to another unit while a started unit still carries it is refused
   whole, logged with both units and the way out, and not asked of the planner again until
-  `tasks.md` changes.
+  `tasks.md` changes. The new `abk retire UNIT` ends a unit that has not finished: it sets the
+  state `retired`, releases its groups (a group nobody built needs `--reason` and is planned
+  again), closes its pull request, and keeps the branch unless `--delete-branch` is given
+  (`--discard-unpushed` accepts losing unpushed commits, `--dry-run` shows the steps).
+  `abk status` lists each group two started units carry and each unplanned unit that holds work,
+  with the `abk retire` line to run.
 
 - `ABK_USAGE_GUARD=off` (environment only, never an `abk.yaml` key) makes a process take no
   usage reading and never pause for usage. `abk tick` says so on its first line and
