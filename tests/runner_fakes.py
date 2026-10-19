@@ -59,6 +59,7 @@ class Recorder:
         self.unit_test_moved_from: list[str | None] = []
         self.made = 0
         self.subjects: list[str] = []  # the subject of each commit made, oldest first
+        self.messages: list[str] = []  # the whole message of each: subject, blank line, body
         self.remote: list[str] = []  # every distinct head the remote has been given
         self.prs: dict[str, int] = {}  # branch -> pull request, as the forge holds them
         self.pr_calls = 0
@@ -106,7 +107,8 @@ class Recorder:
         return self.verdicts.pop(0) if self.verdicts else approving()
 
     def commit(self, message: str, *, cwd: Path, base: str = "") -> int:
-        self.subjects.append(message)
+        self.messages.append(message)
+        self.subjects.append(message.split("\n", 1)[0])
         count = 1 if "test" in message else self.commits_from_impl
         self.made += count
         self._after(f"commit:{message.split(':')[0]}")
