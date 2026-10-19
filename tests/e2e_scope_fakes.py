@@ -93,6 +93,7 @@ def session(
     held: Collection[str] = (),
     only: str | None = None,
     splits: Collection[E2eSplit] = KIT_SPLITS,
+    unavailable: Collection[str] = (),
 ) -> E2eSession:
     lines = log if log is not None else []
     return E2eSession(
@@ -109,4 +110,5 @@ def session(
         held=held,
         only=only,
         splits=splits,
+        unavailable=unavailable,
     )

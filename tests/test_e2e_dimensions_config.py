@@ -85,8 +85,22 @@ def test_a_repos_own_dimensions_replace_the_top_levels() -> None:
 def test_a_marker_shared_by_two_values_is_refused_naming_it() -> None:
     shared = {"runtime": {"a": {"marker": "same"}, "b": {"marker": "same"}}}
 
-    with pytest.raises(ValidationError, match="same"):
+    with pytest.raises(ValidationError, match=r"tests\.e2e_dimensions\.runtime\.b.*same"):
         config(shared)
+
+
+def test_a_repos_own_shared_marker_is_named_under_that_repo() -> None:
+    shared = {"runtime": {"a": {"marker": "same"}, "b": {"marker": "same"}}}
+
+    with pytest.raises(ValidationError, match=r"repos\.app\.tests\.e2e_dimensions\.runtime\.b"):
+        config(own=shared)
+
+
+def test_a_shared_marker_is_refused_with_no_repo_declared() -> None:
+    shared = {"runtime": {"a": {"marker": "same"}, "b": {"marker": "same"}}}
+
+    with pytest.raises(ValidationError, match=r"tests\.e2e_dimensions\.runtime\.b"):
+        WorkspaceConfig.model_validate({"tests": {"e2e_dimensions": shared}, "repos": {}})
 
 
 def test_a_marker_shared_by_two_dimensions_is_refused_naming_it() -> None:

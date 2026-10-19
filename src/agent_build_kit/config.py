@@ -368,7 +368,11 @@ def e2e_schedule(repo: RepoConfig, limits: LimitsConfig) -> E2eSchedule:
 def e2e_splits(repo: RepoConfig, config: WorkspaceConfig) -> tuple[E2eSplit, ...]:
     """The splits in effect for `repo`: its declared ones in declaration order, then `rest`."""
     own = repo.tests.e2e_splits
-    declared = config.tests.e2e_splits if own is None else own
+    return _splits_of(config.tests.e2e_splits if own is None else own)
+
+
+def _splits_of(declared: dict[str, E2eSplitEntry]) -> tuple[E2eSplit, ...]:
+    """The splits a `tests.e2e_splits` mapping declares, in order, then `rest`."""
     named = [
         E2eSplit(name=name, marker=entry.marker, hold=entry.hold)
         for name, entry in declared.items()
@@ -1398,16 +1402,22 @@ class WorkspaceConfig(Frozen):
     def _e2e_dimensions_declared_well(self) -> WorkspaceConfig:
         """A marker belongs to one value or split of a repo, and `e2e_available` names only
         dimensions and values some scope declares."""
-        for key, repo in self.repos.items():
-            splits = repo.tests.e2e_splits
-            if splits is None:
-                splits = self.tests.e2e_splits
-            seen = {e.marker: f"split {n!r}" for n, e in splits.items() if e.marker}
-            for dimension, values in e2e_dimensions(repo, self).items():
+        checked = [("tests", self.tests.e2e_dimensions, _splits_of(self.tests.e2e_splits))]
+        checked += [
+            (
+                f"repos.{key}.tests" if repo.tests.e2e_dimensions is not None else "tests",
+                e2e_dimensions(repo, self),
+                e2e_splits(repo, self),
+            )
+            for key, repo in self.repos.items()
+        ]
+        for setting, dimensions, splits in checked:
+            seen = {s.marker: f"split {s.name!r}" for s in splits if s.marker}
+            for dimension, values in dimensions.items():
                 for value, entry in values.items():
                     if entry.marker in seen:
                         raise ValueError(
-                            f"repos.{key}.tests.e2e_dimensions.{dimension}.{value}.marker: "
+                            f"{setting}.e2e_dimensions.{dimension}.{value}.marker: "
                             f"{entry.marker!r} is also the marker of {seen[entry.marker]}"
                         )
                     seen[entry.marker] = f"{dimension}={value}"
