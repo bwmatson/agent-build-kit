@@ -9,8 +9,8 @@ from typing import Any
 
 from agent_build_kit.config import RepoConfig
 from agent_build_kit.pipeline.unit_store import UnitStore
-from tests.factories import activate_with
-from tests.runner_fakes import Recorder
+from tests.factories import activate_with, unit
+from tests.runner_fakes import Killed, Recorder
 
 
 def stubbed_build() -> None:
@@ -30,11 +30,13 @@ class StubLoop(Recorder):
         *,
         checks: list[tuple[bool, str]] | None = None,
         fixes_change: bool = True,
+        kill_in_fix: int = 0,
         **options: Any,
     ) -> None:
         super().__init__(store, **options)
         self.checks = checks or [(True, "")]
         self.fixes_change = fixes_change
+        self.kill_in_fix = kill_in_fix  # the run dies, once, in this fix call (1-based)
         self.tree = "tree-0"
         self.asked = 0  # static checks run
         self.fix_prompts: list[str] = []
@@ -54,6 +56,9 @@ class StubLoop(Recorder):
             self.prompts.append(prompt)
             self.fix_prompts.append(prompt)
             self.events.append("claude:fix_stub")
+            if self.kill_in_fix == len(self.fix_prompts):
+                self.kill_in_fix = 0
+                raise Killed("claude:fix_stub")
             if self.fixes_change:
                 self.tree = f"tree-{len(self.fix_prompts)}"
             return "done"
@@ -66,3 +71,10 @@ class StubLoop(Recorder):
             tree_state=self.tree_state,
             repo_config=RepoConfig(path=tmp_path / "checkouts" / "app", slug="example/app"),
         )
+
+
+def with_three_groups(tmp_path: Path, **options: Any) -> StubLoop:
+    """A recorder over a store holding a unit of groups 1, 2 and 3."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit(groups=(1, 2, 3))])
+    return StubLoop(store, **options)
