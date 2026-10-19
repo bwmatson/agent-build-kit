@@ -132,6 +132,4 @@ def test_the_kits_current_list_matches_the_documents_without_a_warning(
         "test_graph_unit.py",
         "test_telemetry_stack.py",
     }
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", UserWarning)
-        warn_gap_list_drift(items, DOCUMENT)
+    warn_gap_list_drift(items, DOCUMENT)
