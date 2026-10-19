@@ -1392,7 +1392,7 @@ class BuildersConfig(Frozen):
     installable_files: list[str] = []
     # Stubs, the check-and-fix loop before the tests commit and one tests/implementation
     # pair per task group, for a unit whose toolchain profile supports stubs.
-    per_group_commits: StrictBool = False
+    per_group_commits: StrictBool = True
 
     @field_validator("installable_files")
     @classmethod

@@ -272,7 +272,9 @@ def github_server() -> Iterator[FakeGitHub]:
 
 
 def workspace_config(root: Path, **overrides) -> WorkspaceConfig:
-    """Two repos on a temporary root: `app` consumes `platform`."""
+    """Two repos on a temporary root: `app` consumes `platform`. Builds are not stubbed unless
+    `builders` says so, so a runner fake need not run the stub checks."""
+    overrides["builders"] = {"per_group_commits": False, **overrides.get("builders", {})}
     repos = {
         "platform": RepoConfig(path=root / "checkouts" / "platform", slug="example/platform"),
         "app": RepoConfig(

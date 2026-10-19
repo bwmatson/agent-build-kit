@@ -31,11 +31,6 @@ def load(builders: Any = None) -> WorkspaceConfig:
     return WorkspaceConfig.model_validate(data)
 
 
-def test_a_workspace_with_no_builders_section_loads_with_the_setting_off() -> None:
-    assert setting(load()) is False
-    assert setting(load({"installable_files": []})) is False
-
-
 @pytest.mark.parametrize("given", [True, False])
 def test_a_boolean_loads_as_given(given: bool) -> None:
     assert setting(load({"per_group_commits": given})) is given

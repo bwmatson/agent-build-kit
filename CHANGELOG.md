@@ -466,10 +466,11 @@
   drift test refuses two of the kit's live tests that differ in name only by a value.
 
 - The build can commit per task group behind `builders.per_group_commits` (off by default):
+- The build commits per task group, on by default (`builders.per_group_commits`):
   each group gets a `test:` commit of stubs and tests, checked for lint, format and types
   before it is made, then a `feat:` commit, and the push gate checks the pairs, types and
   the stubbed red reading. Only toolchain profiles that support stubs are affected. Set
-  the setting to `false`, or leave it out, to keep one pair of commits per unit.
+  the setting to `false` to keep one pair of commits per unit.
 
 - The live tests that need the shared telemetry stack now carry a `telemetry_otel` marker, so
   a split can select them. A machine without the stack holds a split on that marker
