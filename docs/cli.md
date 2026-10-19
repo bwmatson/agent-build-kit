@@ -527,7 +527,7 @@ planned by the failure-fix or flaky-test mechanisms. When a prerequisite was clo
 rather than merged, the unit stays failed and `abk status` says `wait ended:
 <prerequisite> closed, requeue to retry` until a later `abk requeue` clears it.
 `global_limits.wait_end_requeue` is `auto` (default), `resume`, `rework` (resume when
-nothing is saved) or `off`, which restores requeueing by a person only. Once per wait:
+no failure is saved and no note was left) or `off`, which restores requeueing by a person only. Once per wait:
 a unit that fails again and waits on nothing is not requeued again, and a prerequisite
 added later starts a new wait.
 

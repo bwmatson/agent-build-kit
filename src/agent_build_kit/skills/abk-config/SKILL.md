@@ -142,7 +142,6 @@ project_limits:
   max_concurrent_stacks: 4    # units implemented at once, in each project
   max_concurrent_restacks: 2  # moved-base runs (a branch moved onto a changed base, and the run after it) at once, in each project; never held back by max_concurrent_stacks
   max_units_in_progress: 5    # started, unfinished units (>= 1) in each project, not counting blocked or failed-waiting ones; at it no never-started unit starts
-  wait_end_requeue: auto      # auto (default), resume, rework or off: how a failed unit that waited on another unit is requeued once when its wait ends; off leaves it to a person
   emergency_extra: 1          # the emergency lane cap, in each project: priority-0 units that may start past the limits above (default 1; 0 is off)
 
 # `limits:` is the deprecated root name of `global_limits:`. A scheduling setting left in either
@@ -152,6 +151,7 @@ global_limits:
   stack_depth_rebase_cap:     # deepest a merge restacks a dependent; unset = the build cap
   max_flakes_per_run: 5       # more flaky tests than this in one run are one recorded storm, no fix change each
   checks_register_seconds: 120  # secs after a push a PR with no checks yet reads `checking`
+  wait_end_requeue: auto      # auto (default), resume, rework or off: how a failed unit that waited on another unit is requeued once when its wait ends; off leaves it to a person
   bounce_limit: 3             # a unit put back from running this many times in a row with one cause is named looping (>= 2)
   bounce_span_seconds: 120    # a run shorter than this counts as a bounce (>= 1)
   label_sweep_per_tick: 20    # finished units' PRs a round takes a stale state label off (>= 1)
