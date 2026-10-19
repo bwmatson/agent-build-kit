@@ -18,7 +18,6 @@ from tests.chat_serving import record_session, turn, unit_worktree, use_claude
 from tests.runtimes.claude_cli import SESSION, FakeClaude, finished_build
 from tests.serving import seed_pipeline
 
-BUILD_SESSION = "0b7e1d52-9c3a-4f8e-b1d6-2a5c7e9f0d51"
 REVIEW = "/api/units/feature/2"
 FIRST_TOTAL = '"total_cost_usd": 0.4127'
 
@@ -37,9 +36,9 @@ class Growing(FakeClaude):
 
 
 @pytest.fixture
-def pipeline(inst: Installation) -> Installation:
+def pipeline(inst: Installation, build_session: str) -> Installation:
     seed_pipeline(inst)
-    record_session(inst, "feature/2", BUILD_SESSION, runtime="claude_code")
+    record_session(inst, "feature/2", build_session, runtime="claude_code")
     return inst
 
 

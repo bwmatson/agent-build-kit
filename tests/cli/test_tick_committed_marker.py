@@ -5,6 +5,7 @@ process that made the commit is alive (docs/architecture.md, Editing from chat).
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -25,7 +26,11 @@ from tests.factories import git
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
 UNIT = "feature/1"
-SESSION = "0b7e1d52-9c3a-4f8e-b1d6-2a5c7ec27b50"
+
+
+@pytest.fixture
+def session(new_session_id: Callable[[], str]) -> str:
+    return new_session_id()
 
 
 class Builder:
@@ -88,7 +93,7 @@ def inst(tmp_path: Path) -> Installation:
 
 
 def test_a_tick_delivers_a_commit_made_and_not_delivered_once_and_removes_the_lease(
-    inst: Installation, usage_reads: list[str]
+    inst: Installation, usage_reads: list[str], session: str
 ) -> None:
     store = UnitStore(inst.state_dir / "units.json")
     store.upsert(
@@ -107,7 +112,7 @@ def test_a_tick_delivers_a_commit_made_and_not_delivered_once_and_removes_the_le
     )
     store.set_state(UNIT, RUNNING, branch="spec/feature/1")
     store.set_state(UNIT, IN_REVIEW, pr=7)
-    record_session(inst, UNIT, SESSION, runtime="claude_code")
+    record_session(inst, UNIT, session, runtime="claude_code")
     tree = checked_out(inst, UNIT)
     (tree / "notes.txt").write_text("a change\n")
     git(tree, "add", "-A")

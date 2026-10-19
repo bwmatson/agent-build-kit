@@ -30,10 +30,6 @@ from tests.chat_serving import claude_session_file, record_session, turn, use_cl
 from tests.runtimes.claude_cli import FakeClaude, Invocation, finished_build, replied
 from tests.serving import seed_pipeline
 
-pytestmark = pytest.mark.serial
-
-BUILD_SESSION = "0b7e1d52-9c3a-4f8e-b1d6-2a5c7e3d112f"
-FREE_SESSION = "6d2a8f14-3e5b-4c7a-9f0e-1b8d3c6a2e61"
 REVIEW = "/api/units/feature/2"
 UNIT = "feature/2"
 
@@ -76,10 +72,10 @@ def write_change(inst: Installation) -> None:
 
 
 @pytest.fixture
-def tree(inst: Installation) -> Path:
+def tree(inst: Installation, build_session: str) -> Path:
     seed_pipeline(inst)
     write_change(inst)
-    record_session(inst, UNIT, BUILD_SESSION, runtime="claude_code", model="opus")
+    record_session(inst, UNIT, build_session, runtime="claude_code", model="opus")
     return checked_out(inst, UNIT)
 
 
@@ -93,7 +89,11 @@ def everything_sent(argv: Invocation) -> str:
 
 
 def test_only_the_units_own_session_is_given_its_change_and_the_tests_with_code_rule(
-    inst: Installation, tree: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+    inst: Installation,
+    tree: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+    free_session: str,
 ) -> None:
     fake = use_claude(monkeypatch, replied(tree, "Looked."))
 
@@ -111,10 +111,10 @@ def test_only_the_units_own_session_is_given_its_change_and_the_tests_with_code_
     from agent_build_kit.settings import settings
 
     assert settings.claude_home is not None
-    claude_session_file(settings.claude_home, FREE_SESSION, tree)
+    claude_session_file(settings.claude_home, free_session, tree)
     turn(
         api,
-        f"/api/sessions/claude_code/{FREE_SESSION}/continue",
+        f"/api/sessions/claude_code/{free_session}/continue",
         {"tab": "t1", "prompt": "Change the notes."},
     )
     turn(
@@ -172,7 +172,11 @@ class FlagThenEdit(FakeClaude):
 
 
 def test_proceeding_after_a_flag_is_a_builder_turn_on_the_same_session_that_edits(
-    inst: Installation, tree: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+    inst: Installation,
+    tree: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+    build_session: str,
 ) -> None:
     fake = FlagThenEdit(tree)
     runtimes.names()
@@ -190,7 +194,7 @@ def test_proceeding_after_a_flag_is_a_builder_turn_on_the_same_session_that_edit
     for name, text in CONTEXT.items():
         assert text in sent, f"the {name} is still part of the turn"
     assert "--specs" in sent, "the builder's policy"
-    assert BUILD_SESSION in sent, "the unit's own session"
+    assert build_session in sent, "the unit's own session"
     assert changed_files(tree) == ["notes.txt"]
     assert head(tree) == before
 

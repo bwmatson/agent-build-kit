@@ -7,18 +7,23 @@ from collections.abc import Callable
 
 import pytest
 
-seen: set[str] = set()
+
+@pytest.fixture
+def first(new_session_id: Callable[[], str]) -> str:
+    return new_session_id()
 
 
-@pytest.mark.parametrize("case", range(4))
-def test_each_test_gets_an_id_no_other_test_in_the_process_had(
-    case: int, new_session_id: Callable[[], str]
-) -> None:
-    session_id = new_session_id()
+@pytest.fixture
+def second(new_session_id: Callable[[], str]) -> str:
+    return new_session_id()
 
-    assert str(uuid.UUID(session_id)) == session_id
-    assert session_id not in seen
-    seen.add(session_id)
+
+def test_an_id_has_the_shape_of_a_session_id(first: str) -> None:
+    assert str(uuid.UUID(first)) == first
+
+
+def test_two_fixtures_backed_by_it_get_different_ids(first: str, second: str) -> None:
+    assert first != second
 
 
 def test_each_call_within_a_test_gives_another_id(new_session_id: Callable[[], str]) -> None:

@@ -39,9 +39,6 @@ from tests.factories import git, init_repo
 from tests.runtimes.claude_cli import FakeClaude, finished_build
 from tests.serving import seed_pipeline
 
-pytestmark = pytest.mark.serial
-
-BUILD_SESSION = "0b7e1d52-9c3a-4f8e-b1d6-2a5c7e9f0d81"
 UNIT = "feature/2"
 COMMIT = f"/api/units/{UNIT}/commit"
 BROKEN = "BROKEN requirement has no scenario"
@@ -112,9 +109,9 @@ class Fixes(FakeClaude):
 
 
 @pytest.fixture
-def tree(inst: Installation) -> Path:
+def tree(inst: Installation, build_session: str) -> Path:
     seed_pipeline(inst)
-    record_session(inst, UNIT, BUILD_SESSION, runtime="claude_code", model="opus")
+    record_session(inst, UNIT, build_session, runtime="claude_code", model="opus")
     return checked_out(inst, UNIT)
 
 
@@ -380,10 +377,8 @@ def test_a_changed_requirement_flags_a_started_unit_for_a_rework_or_a_requeue_an
 
 # --- the lease and the checkouts a commit names -----------------------------------------------
 
-FREE_SESSION = "6d2a8f14-3e5b-4c7a-9f0e-1b8d3c644e30"
 
-
-def free_lease(inst: Installation, *, files: int) -> Leases:
+def free_lease(inst: Installation, *, files: int, free_session: str) -> Leases:
     """A live lease of a free session on both checkouts, as its turn leaves it."""
     leases = Leases(lease_dir(inst.state_dir))
     leases.drop(UNIT)
@@ -391,7 +386,7 @@ def free_lease(inst: Installation, *, files: int) -> Leases:
         UNIT,
         "tab:t1",
         checkouts=("worktree", "planning"),
-        session=FREE_SESSION,
+        session=free_session,
         runtime="claude_code",
         head="abc",
     )
@@ -405,8 +400,9 @@ def test_committing_the_only_dirty_checkout_leaves_a_lease_a_closing_page_frees(
     planning: Path,
     api: httpx.Client,
     monkeypatch: pytest.MonkeyPatch,
+    free_session: str,
 ) -> None:
-    leases = free_lease(inst, files=1)
+    leases = free_lease(inst, files=1, free_session=free_session)
     edit(inst, "tasks.md", lambda text: text.replace("The middle", "The middle, reworded"))
     agent(monkeypatch, tree, lambda prompt: {})
 
@@ -424,8 +420,9 @@ def test_committing_the_planning_checkout_keeps_the_count_of_what_the_worktree_s
     planning: Path,
     api: httpx.Client,
     monkeypatch: pytest.MonkeyPatch,
+    free_session: str,
 ) -> None:
-    leases = free_lease(inst, files=2)
+    leases = free_lease(inst, files=2, free_session=free_session)
     (tree / "notes.py").write_text("NOTE = 1\n")
     edit(inst, "tasks.md", lambda text: text.replace("The middle", "The middle, reworded"))
     agent(monkeypatch, tree, lambda prompt: {})
@@ -437,9 +434,9 @@ def test_committing_the_planning_checkout_keeps_the_count_of_what_the_worktree_s
 
 
 def test_a_commit_naming_both_checkouts_is_refused_and_commits_neither(
-    inst: Installation, tree: Path, planning: Path, api: httpx.Client
+    inst: Installation, tree: Path, planning: Path, api: httpx.Client, free_session: str
 ) -> None:
-    leases = free_lease(inst, files=2)
+    leases = free_lease(inst, files=2, free_session=free_session)
     (tree / "notes.py").write_text("NOTE = 1\n")
     edit(inst, "tasks.md", lambda text: text.replace("The middle", "The middle, reworded"))
     heads = (head(tree), head(planning))

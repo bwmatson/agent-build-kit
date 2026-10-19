@@ -26,10 +26,6 @@ from tests.factories import git, init_repo
 from tests.runtimes.claude_cli import FakeClaude, finished_build
 from tests.serving import seed_pipeline
 
-pytestmark = pytest.mark.serial
-
-BUILD_SESSION = "0b7e1d52-9c3a-4f8e-b1d6-2a5c7e9f0d71"
-FREE_SESSION = "6d2a8f14-3e5b-4c7a-9f0e-1b8d3c2e1a07"
 UNIT = "feature/2"
 TASKS = (
     "# Tasks\n\n## 1. [app] [unit-test] A group\n\n- [ ] 1.1 Test: it works\n"
@@ -81,9 +77,9 @@ def planning(inst: Installation) -> Path:
 
 
 @pytest.fixture
-def tree(inst: Installation) -> Path:
+def tree(inst: Installation, build_session: str) -> Path:
     seed_pipeline(inst)
-    record_session(inst, UNIT, BUILD_SESSION, runtime="claude_code", model="opus")
+    record_session(inst, UNIT, build_session, runtime="claude_code", model="opus")
     return checked_out(inst, UNIT)
 
 
@@ -93,12 +89,13 @@ def test_a_free_session_changes_code_and_a_task_file_in_one_session_and_commits_
     planning: Path,
     api: httpx.Client,
     monkeypatch: pytest.MonkeyPatch,
+    free_session: str,
 ) -> None:
     from agent_build_kit.pipeline.lease import Leases, lease_dir
     from agent_build_kit.settings import settings
 
     assert settings.claude_home is not None
-    claude_session_file(settings.claude_home, FREE_SESSION, tree)
+    claude_session_file(settings.claude_home, free_session, tree)
     tasks = inst.changes_dir / "feature" / "tasks.md"
     fake = EditsBoth(finished_build(tree, "Done."), tasks)
     runtimes.names()
@@ -107,7 +104,7 @@ def test_a_free_session_changes_code_and_a_task_file_in_one_session_and_commits_
 
     turn(
         api,
-        f"/api/sessions/claude_code/{FREE_SESSION}/continue",
+        f"/api/sessions/claude_code/{free_session}/continue",
         {"tab": "t1", "prompt": "Change the notes and the task wording."},
     )
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
-import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -46,14 +46,22 @@ from tests.runtimes.in_process_acp import use_in_process_agent
 from tests.serving import seed_pipeline
 
 # A session id on a command line (an editor holding it, a fake agent listing it) is seen by
-# every server on the machine, so these cannot run beside each other.
-pytestmark = pytest.mark.serial
+# every server on the machine: each test makes its own ids.
 
-# Fresh per process: another checkout's run on the same machine, whose fake agents carry the
-# same ids, would otherwise look like a process holding these sessions.
-EDITOR_SESSION = str(uuid.uuid4())
-IDLE_SESSION = str(uuid.uuid4())
-OLD_ACP = f"sess_{uuid.uuid4().hex[:16]}"
+
+@pytest.fixture
+def editor_session(new_session_id: Callable[[], str]) -> str:
+    return new_session_id()
+
+
+@pytest.fixture
+def idle_session(new_session_id: Callable[[], str]) -> str:
+    return new_session_id()
+
+
+@pytest.fixture
+def old_acp(new_session_id: Callable[[], str]) -> str:
+    return new_session_id()
 
 
 @pytest.fixture
@@ -72,12 +80,12 @@ def pipeline(inst: Installation, home: Path) -> Installation:
 
 
 @pytest.fixture
-def editor(home: Path, tmp_path: Path) -> Path:
+def editor(home: Path, tmp_path: Path, editor_session: str, idle_session: str) -> Path:
     """A session started in an editor, in a project of its own."""
     project = tmp_path / "project"
     project.mkdir()
-    claude_session_file(home, IDLE_SESSION, project, title="Idle one")
-    return claude_session_file(home, EDITOR_SESSION, project, title="Fix the bug")
+    claude_session_file(home, idle_session, project, title="Idle one")
+    return claude_session_file(home, editor_session, project, title="Fix the bug")
 
 
 def listed(api: httpx.Client) -> dict[str, dict[str, Any]]:
@@ -88,10 +96,10 @@ def listed(api: httpx.Client) -> dict[str, dict[str, Any]]:
 
 
 def test_a_session_held_by_a_running_editor_process_is_read_only_with_fork_offered(
-    pipeline: Installation, editor: Path, api: httpx.Client
+    pipeline: Installation, editor: Path, api: httpx.Client, editor_session: str
 ) -> None:
-    with holding_process(EDITOR_SESSION):
-        opened = api.get(f"/api/sessions/claude_code/{EDITOR_SESSION}").json()
+    with holding_process(editor_session):
+        opened = api.get(f"/api/sessions/claude_code/{editor_session}").json()
 
     assert opened["read_only"] is True
     assert "process" in opened["reason"].lower()
@@ -100,13 +108,17 @@ def test_a_session_held_by_a_running_editor_process_is_read_only_with_fork_offer
 
 
 def test_a_units_chat_into_a_session_a_process_holds_is_refused(
-    pipeline: Installation, editor: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+    pipeline: Installation,
+    editor: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+    editor_session: str,
 ) -> None:
     fake = use_claude(monkeypatch, finished_build(editor.parent, "Hi."))
-    record_session(pipeline, "feature/2", EDITOR_SESSION, runtime="claude_code")
+    record_session(pipeline, "feature/2", editor_session, runtime="claude_code")
     before = editor.read_bytes()
 
-    with holding_process(EDITOR_SESSION):
+    with holding_process(editor_session):
         tab = api.get("/api/units/feature/2/agent", params={"tab": "t1"}).json()
         written = api.post("/api/units/feature/2/chat", json={"tab": "t1", "prompt": "Hello"})
 
@@ -118,34 +130,38 @@ def test_a_units_chat_into_a_session_a_process_holds_is_refused(
 
 
 def test_the_sessions_page_marks_which_sessions_a_process_holds(
-    pipeline: Installation, editor: Path, api: httpx.Client
+    pipeline: Installation, editor: Path, api: httpx.Client, editor_session: str, idle_session: str
 ) -> None:
-    with holding_process(EDITOR_SESSION):
+    with holding_process(editor_session):
         sessions = listed(api)
 
-    assert sessions[EDITOR_SESSION]["held"] is True
-    assert sessions[IDLE_SESSION]["held"] is False
+    assert sessions[editor_session]["held"] is True
+    assert sessions[idle_session]["held"] is False
 
 
 def test_forking_starts_a_new_session_and_never_writes_to_the_first(
-    pipeline: Installation, editor: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+    pipeline: Installation,
+    editor: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+    editor_session: str,
 ) -> None:
     fake = use_claude(monkeypatch, finished_build(editor.parent, "Forked."))
     before = editor.read_bytes()
 
-    with holding_process(EDITOR_SESSION):
+    with holding_process(editor_session):
         events = turn(
             api,
-            f"/api/sessions/claude_code/{EDITOR_SESSION}/fork",
+            f"/api/sessions/claude_code/{editor_session}/fork",
             {"tab": "t1", "prompt": "Take it further."},
         )
 
     argv = fake.calls[0][0]
-    assert argv[argv.index("--resume") + 1] == EDITOR_SESSION
+    assert argv[argv.index("--resume") + 1] == editor_session
     assert "--fork-session" in argv, "the agent forks rather than appending to the editor's file"
     assert "Take it further." in prompt_of(argv)
     started = next(e for e in events if e["type"] == "CUSTOM" and e["name"] == "session")
-    assert started["value"]["id"] == FAKE_CLAUDE_SESSION != EDITOR_SESSION
+    assert started["value"]["id"] == FAKE_CLAUDE_SESSION != editor_session
     assert editor.read_bytes() == before
 
 
@@ -224,44 +240,57 @@ def test_a_new_session_for_a_repo_starts_in_its_checkout(
 
 
 def test_a_session_started_in_an_editor_is_listed_with_where_and_what(
-    pipeline: Installation, editor: Path, api: httpx.Client, tmp_path: Path
+    pipeline: Installation,
+    editor: Path,
+    api: httpx.Client,
+    tmp_path: Path,
+    editor_session: str,
+    idle_session: str,
 ) -> None:
     sessions = listed(api)
 
-    session = sessions[EDITOR_SESSION]
+    session = sessions[editor_session]
     assert session["runtime"] == "claude_code"
     assert session["cwd"] == str(tmp_path / "project")
     assert "Fix the bug" in session["title"]
-    assert set(sessions) >= {EDITOR_SESSION, IDLE_SESSION}
+    assert set(sessions) >= {editor_session, idle_session}
 
 
 def test_an_idle_claude_session_is_resumed_in_place(
-    pipeline: Installation, editor: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+    pipeline: Installation,
+    editor: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+    idle_session: str,
 ) -> None:
     fake = use_claude(monkeypatch, finished_build(editor.parent, "Continued."))
 
     turn(
         api,
-        f"/api/sessions/claude_code/{IDLE_SESSION}/continue",
+        f"/api/sessions/claude_code/{idle_session}/continue",
         {"tab": "t1", "prompt": "And then?"},
     )
 
     argv = fake.calls[0][0]
-    assert argv[argv.index("--resume") + 1] == IDLE_SESSION
+    assert argv[argv.index("--resume") + 1] == idle_session
     assert "--fork-session" not in argv
     assert "And then?" in prompt_of(argv)
 
 
 def test_continuing_a_session_a_process_holds_forks_it_instead(
-    pipeline: Installation, editor: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+    pipeline: Installation,
+    editor: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+    editor_session: str,
 ) -> None:
     fake = use_claude(monkeypatch, finished_build(editor.parent, "Continued."))
     before = editor.read_bytes()
 
-    with holding_process(EDITOR_SESSION):
+    with holding_process(editor_session):
         turn(
             api,
-            f"/api/sessions/claude_code/{EDITOR_SESSION}/continue",
+            f"/api/sessions/claude_code/{editor_session}/continue",
             {"tab": "t1", "prompt": "And then?"},
         )
 
@@ -288,13 +317,17 @@ def test_an_acp_session_the_agent_lists_is_resumed_in_place(
 
 
 def test_an_acp_session_the_agent_cannot_load_is_read_only_and_says_how_to_go_on(
-    pipeline: Installation, tmp_path: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+    pipeline: Installation,
+    tmp_path: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+    old_acp: str,
 ) -> None:
     unit_worktree(pipeline, "feature/2")
-    recorded_acp_session(pipeline, OLD_ACP)
+    recorded_acp_session(pipeline, old_acp)
     use_in_process_agent(monkeypatch, tmp_path / "agent.jsonl")
 
-    opened = api.get(f"/api/sessions/acp/{OLD_ACP}").json()
+    opened = api.get(f"/api/sessions/acp/{old_acp}").json()
 
     assert opened["read_only"] is True
     assert EARLIER_TURN in str(opened["events"])
@@ -303,34 +336,42 @@ def test_an_acp_session_the_agent_cannot_load_is_read_only_and_says_how_to_go_on
 
 
 def test_continuing_it_starts_a_new_session_seeded_with_the_history(
-    pipeline: Installation, tmp_path: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+    pipeline: Installation,
+    tmp_path: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+    old_acp: str,
 ) -> None:
     unit_worktree(pipeline, "feature/2")
-    recorded_acp_session(pipeline, OLD_ACP)
+    recorded_acp_session(pipeline, old_acp)
     record = tmp_path / "agent.jsonl"
     use_in_process_agent(monkeypatch, record)
 
-    turn(api, f"/api/sessions/acp/{OLD_ACP}/continue", {"tab": "t1", "prompt": "Carry on."})
+    turn(api, f"/api/sessions/acp/{old_acp}/continue", {"tab": "t1", "prompt": "Carry on."})
 
     assert requests(record, "session/resume") == [], "the old session was never resumed"
     assert len(requests(record, "session/new")) == 1
     [prompted] = requests(record, "session/prompt")
-    assert prompted["sessionId"] == SESSION != OLD_ACP
+    assert prompted["sessionId"] == SESSION != old_acp
     said = " ".join(block.get("text", "") for block in prompted["prompt"])
     assert EARLIER_TURN in said, "the new session is seeded with the history"
     assert "Carry on." in said
 
 
 def test_an_acp_session_the_agent_does_not_list_is_read_only_though_it_can_resume(
-    pipeline: Installation, tmp_path: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+    pipeline: Installation,
+    tmp_path: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+    old_acp: str,
 ) -> None:
     unit_worktree(pipeline, "feature/2")
-    recorded_acp_session(pipeline, OLD_ACP)
+    recorded_acp_session(pipeline, old_acp)
     use_in_process_agent(
         monkeypatch, tmp_path / "agent.jsonl", resume=True, list_sessions=True, sessions=()
     )
 
-    opened = api.get(f"/api/sessions/acp/{OLD_ACP}").json()
+    opened = api.get(f"/api/sessions/acp/{old_acp}").json()
 
     assert opened["read_only"] is True
     assert opened["actions"] == ["continue_as_new"]
@@ -338,29 +379,37 @@ def test_an_acp_session_the_agent_does_not_list_is_read_only_though_it_can_resum
 
 
 def test_continuing_a_session_the_agent_does_not_list_says_it_became_a_new_one(
-    pipeline: Installation, tmp_path: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+    pipeline: Installation,
+    tmp_path: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+    old_acp: str,
 ) -> None:
     unit_worktree(pipeline, "feature/2")
-    recorded_acp_session(pipeline, OLD_ACP)
+    recorded_acp_session(pipeline, old_acp)
     use_in_process_agent(
         monkeypatch, tmp_path / "agent.jsonl", resume=True, list_sessions=True, sessions=()
     )
 
-    events = turn(api, f"/api/sessions/acp/{OLD_ACP}/continue", {"tab": "t1", "prompt": "Go on."})
+    events = turn(api, f"/api/sessions/acp/{old_acp}/continue", {"tab": "t1", "prompt": "Go on."})
 
     assert any(e["type"] == "CUSTOM" and e["name"] == "continued_as_new" for e in events)
 
 
 def test_a_seeded_turns_question_is_kept_under_the_new_session_and_not_the_first(
-    pipeline: Installation, tmp_path: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+    pipeline: Installation,
+    tmp_path: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+    old_acp: str,
 ) -> None:
     unit_worktree(pipeline, "feature/2")
-    recorded_acp_session(pipeline, OLD_ACP)
+    recorded_acp_session(pipeline, old_acp)
     use_in_process_agent(monkeypatch, tmp_path / "agent.jsonl")
 
-    turn(api, f"/api/sessions/acp/{OLD_ACP}/continue", {"tab": "t1", "prompt": "Carry on."})
+    turn(api, f"/api/sessions/acp/{old_acp}/continue", {"tab": "t1", "prompt": "Carry on."})
 
-    assert "Carry on." not in str(api.get(f"/api/sessions/acp/{OLD_ACP}").json()["events"])
+    assert "Carry on." not in str(api.get(f"/api/sessions/acp/{old_acp}").json()["events"])
     new = api.get(f"/api/sessions/acp/{SESSION}").json()
     assert "Carry on." in str(new["events"])
 
@@ -381,20 +430,24 @@ def test_a_units_recorded_claude_session_continued_from_the_sessions_page_keeps_
 
 
 def test_listing_reading_and_continuing_a_session_start_no_subprocess(
-    pipeline: Installation, tmp_path: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+    pipeline: Installation,
+    tmp_path: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+    old_acp: str,
 ) -> None:
     def refuse(*args: object, **kwargs: object) -> None:
         raise AssertionError("a test of the sessions page started a process")
 
     unit_worktree(pipeline, "feature/2")
-    recorded_acp_session(pipeline, OLD_ACP)
+    recorded_acp_session(pipeline, old_acp)
     use_in_process_agent(monkeypatch, tmp_path / "agent.jsonl")
     monkeypatch.setattr(asyncio, "create_subprocess_exec", refuse)
     monkeypatch.setattr(asyncio, "create_subprocess_shell", refuse)
     with monkeypatch.context() as listing:
         # Listing and reading run nothing at all; a turn runs git, never an agent.
         listing.setattr(subprocess, "Popen", refuse)
-        assert listed(api)[OLD_ACP]["runtime"] == "acp"
-        assert api.get(f"/api/sessions/acp/{OLD_ACP}").json()["read_only"] is True
-    events = turn(api, f"/api/sessions/acp/{OLD_ACP}/continue", {"tab": "t1", "prompt": "Go on."})
+        assert listed(api)[old_acp]["runtime"] == "acp"
+        assert api.get(f"/api/sessions/acp/{old_acp}").json()["read_only"] is True
+    events = turn(api, f"/api/sessions/acp/{old_acp}/continue", {"tab": "t1", "prompt": "Go on."})
     assert any(e["type"] == "CUSTOM" and e["name"] == "session" for e in events)

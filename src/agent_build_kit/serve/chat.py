@@ -56,6 +56,7 @@ from agent_build_kit.runtimes.base import (
 from agent_build_kit.serve.bridge import AgUiEncoder, messages_snapshot
 from agent_build_kit.serve.review import unit_worktree
 from agent_build_kit.serve.sessions import (
+    PROC,
     claude_events,
     claude_home,
     claude_sessions,
@@ -273,11 +274,11 @@ class Chat:
         return session in self._busy
 
     def holders(
-        self, session: str, cwd: str = "", newest: bool = False, proc: Path = Path("/proc")
+        self, session: str, cwd: str = "", newest: bool = False, proc: Path = PROC
     ) -> list[int]:
         return holding_pids(session, cwd=cwd, newest=newest, proc=proc)
 
-    def claude_holders(self, session: str, proc: Path = Path("/proc")) -> list[int]:
+    def claude_holders(self, session: str, proc: Path = PROC) -> list[int]:
         """Processes that have a Claude session open: one with its id in its arguments, or a
         `claude` working in the directory the session is the newest of."""
         seen: set[str] = set()
@@ -288,7 +289,7 @@ class Chat:
                 return self.holders(session, item.cwd, first, proc)
         return self.holders(session, proc=proc)
 
-    def session_holders(self, runtime: str, session: str, proc: Path = Path("/proc")) -> list[int]:
+    def session_holders(self, runtime: str, session: str, proc: Path = PROC) -> list[int]:
         if runtime == CLAUDE:
             return self.claude_holders(session, proc)
         return self.holders(session, proc=proc)

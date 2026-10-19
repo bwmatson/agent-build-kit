@@ -931,10 +931,8 @@ The markers the suite uses:
   parameter, so a module for another runtime can import it. It needs node, uv
   and Claude Code, bills on demand and takes minutes. Run with `uv run pytest
   -m local_stack tests/integration/test_chat_editing_claude_code.py`.
-- `serial` marks a test that cannot share a process with others. `poe test`
-  runs the suite in parallel workers (pytest-xdist, capped at 8) without these
-  tests, then runs them alone in a serial pass. A plain `pytest <file>` runs
-  without workers.
+- `poe test` runs the suite in parallel workers (pytest-xdist, capped at 8). A plain
+  `pytest <file>` runs without workers.
 - `runtime_<name>` (`runtime_claude_code`, `runtime_acp`) names the one agent
   runtime a `local_stack` test drives; a test with none is the untagged base and
   needs no agent. The tag is the runtime the test starts, as decided from `AGENT_SIGNALS`,

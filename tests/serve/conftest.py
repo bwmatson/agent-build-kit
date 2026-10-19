@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import signal
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -26,6 +26,24 @@ def inst(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Installation:
     (installation.root / "abk.yaml").write_text(dump(installation.config))
     monkeypatch.chdir(installation.root)
     return installation
+
+
+@pytest.fixture
+def build_session(new_session_id: Callable[[], str]) -> str:
+    """The id of the session a unit's build recorded."""
+    return new_session_id()
+
+
+@pytest.fixture
+def free_session(new_session_id: Callable[[], str]) -> str:
+    """The id of a session started outside any unit."""
+    return new_session_id()
+
+
+@pytest.fixture
+def other_session(new_session_id: Callable[[], str]) -> str:
+    """The id of one more session, held by nobody."""
+    return new_session_id()
 
 
 @pytest.fixture

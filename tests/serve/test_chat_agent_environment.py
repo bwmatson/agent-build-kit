@@ -32,7 +32,6 @@ REVIEW = "/api/units/feature/2"
 
 # A session id on a command line (a fake agent listing it) is seen by every server on the
 # machine, so these cannot run beside each other.
-pytestmark = pytest.mark.serial
 
 
 @pytest.fixture(autouse=True)
