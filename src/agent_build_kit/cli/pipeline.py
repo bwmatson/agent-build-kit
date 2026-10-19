@@ -257,6 +257,8 @@ from agent_build_kit.pipeline.units import (
     ready_units,
     resolve_replaced,
     second_parent_wait,
+    shown_dependencies,
+    shown_waits,
     stack_age_source,
     start_room,
     trunk_of,
@@ -872,7 +874,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
                 f"{int(left.total_seconds())}s remain — {unit.note}"
             )
         if unit.state == PLANNED and (unit.cause is Cause.GATED or unit.gated_requeue is not None):
-            waits = waiting_on(unit, units)
+            waits = shown_waits(unit, units)
             if waits:
                 log(f"  {unit.id} ({where}) {dependency_wait(waits, repo=unit.repo)}")
         if unit.close_pending:
@@ -2531,7 +2533,7 @@ def _deadlocked_unit_lines(units: list[StoredUnit]) -> list[str]:
         for unit in units:
             if unit.id in behind or unit.state != PLANNED:
                 continue
-            parents = [p.id for p in waiting_on(unit, units) if p.id in behind]
+            parents = [p.id for p in shown_waits(unit, units) if p.id in behind]
             if parents:
                 behind[unit.id] = behind[parents[0]]
                 lines.append(
@@ -2553,7 +2555,7 @@ def _blocked_lines(
     for unit in uncounted(units):
         if project is not EVERY_SLOT and slot_of(unit) != project:
             continue
-        waits = [parent.id for parent in waiting_on(unit, units)]
+        waits = [parent.id for parent in shown_waits(unit, units)]
         lines.append(f"  blocked: {unit.id} ({unit_label(unit)}) waits on {', '.join(waits)}")
     return lines
 
@@ -2637,7 +2639,7 @@ def _replaced_lines(units: list[StoredUnit]) -> list[str]:
 def _failed_waiting_lines(units: list[StoredUnit]) -> list[str]:
     """One line for each failed unit that waits on another unit, with what it waits on."""
     return [
-        f"  failed, waiting on {', '.join(parent.id for parent in waiting_on(unit, units))}: "
+        f"  failed, waiting on {', '.join(parent.id for parent in shown_waits(unit, units))}: "
         f"{unit.id} ({unit_label(unit)})"
         for unit in failed_waiting_units(units)
     ]
@@ -6007,7 +6009,7 @@ def _waits_in(
             waits[unit.id] = Wait(reason=WaitReason.WAITING_REVIEW)
         elif unit.state == HELD and unit.held_by is HeldBy.DEPTH:
             # Clears by itself when a merge frees the depth: it waits on work, not a person.
-            current = current_dependencies(unit, view)
+            current = shown_dependencies(unit, view)
             parents = tuple(
                 parent.id
                 for parent in view
@@ -6038,7 +6040,7 @@ def _planned_wait(
         return Wait(reason=WaitReason.LEASE)
     if backoff_remaining(unit, now) is not None:
         return Wait(reason=WaitReason.BACKOFF)
-    if parents := waiting_on(unit, view):
+    if parents := shown_waits(unit, view):
         return Wait(reason=WaitReason.BLOCKED, waits_on=tuple(parent.id for parent in parents))
     # Not ready for want of work another unit has to finish: a requeue gated on a merge,
     # or a stack deeper than may be built until what it stacks on merges.

@@ -37,11 +37,11 @@ from agent_build_kit.pipeline.units import (
     PLANNED,
     RUNNING,
     SATISFIED,
-    current_dependencies,
     failed_waiting,
     priority_note,
     second_parent_wait,
-    waiting_on,
+    shown_dependencies,
+    shown_waits,
 )
 from agent_build_kit.pipeline.vocabulary import STATES, ChecksOf, effective_state
 
@@ -94,7 +94,7 @@ def in_view(units: list[StoredUnit]) -> list[StoredUnit]:
     unplanned units, are left out.
     """
     active = [unit for unit in units if unit.state in ACTIVE]
-    parents = {dep for unit in active for dep in current_dependencies(unit, units)}
+    parents = {dep for unit in active for dep in shown_dependencies(unit, units)}
     return [
         unit
         for unit in units
@@ -145,7 +145,7 @@ def render_mermaid(
             if restacking and unit.id in restacking:
                 name = f"restacking onto {restacking[unit.id]}"
             if failed_waiting(unit, graph):
-                waits = ", ".join(parent.id for parent in waiting_on(unit, graph))
+                waits = ", ".join(parent.id for parent in shown_waits(unit, graph))
                 name = f"{name}, waiting on {waits}"
             if wait := second_parent_wait(unit, graph):
                 name = f"{name}, {wait}"
@@ -160,7 +160,7 @@ def render_mermaid(
         lines.append("    end")
 
     for unit in ordered:
-        for dependency in sorted(current_dependencies(unit, graph)):
+        for dependency in sorted(shown_dependencies(unit, graph)):
             parent = index.get(dependency)
             if parent is None:
                 continue
@@ -254,7 +254,8 @@ view, titled with the project's path (`.` for the root).
   loop, so there is a reviewed branch to stack on. A thick edge labelled
   `needs` (`==>`) is a dependency its dependent wrote as a `Needs:` line, not
   one the planner inferred; it releases the dependent once the parent is in
-  review (same repo) or merged (other repo). An edge to a unit a replan
+  review (same repo) or merged (other repo). A `Needs:` line the chain already
+  implies draws no edge, and nor does a dependency another one reaches. An edge to a unit a replan
   replaced is drawn from the unit that carries its groups now.{gate_legend}
 - **running** — in the build/review loop: an agent is working in a worktree,
   or the run is interrupted before an agent step until the usage window allows

@@ -30,16 +30,23 @@ from agent_build_kit.forges.base import fit_description
 from agent_build_kit.installation import changes_dir_under
 from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline.unit_store import Description, StoredUnit
-from agent_build_kit.pipeline.units import MERGED, Member, through_satisfied, trunk_of
+from agent_build_kit.pipeline.units import (
+    MERGED,
+    Member,
+    as_shown,
+    through_satisfied,
+    trunk_of,
+)
 from agent_build_kit.pipeline.work_graph import TaskGroup, validate_tasks
 
 
 def _unmerged(unit: StoredUnit, graph: list[StoredUnit]) -> list[StoredUnit]:
     """What this unit depends on that has not merged yet."""
     index = {item.id: item for item in graph}
+    direct = as_shown(unit, graph)
     return [
         index[dep]
-        for dep in through_satisfied(unit, graph)
+        for dep in through_satisfied(direct, graph)
         if dep in index and index[dep].state != MERGED
     ]
 

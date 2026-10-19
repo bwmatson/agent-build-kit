@@ -62,7 +62,10 @@
   would, whatever order its dependencies are listed in. The planner asks an acceptance or
   narrow group to depend on the end of its chain and on independent units, and shows only
   direct dependencies. The first tick or replan after updating reduces the units already
-  stored, logging what each lost, and a replan reports only direct changes.
+  stored, logging what each lost, and a replan reports only direct changes. The graph page, a
+  unit's page, the waiting lines of `abk status` and the "Merge ... first" list of a pull
+  request body show the same direct dependencies, and a `Needs:` line the chain already implies
+  draws no edge.
 
 - The build prompts now name the commands an agent may run ("Commands you may run"), so an
   agent in a repo with no instruction file no longer picks a command the build refuses and
