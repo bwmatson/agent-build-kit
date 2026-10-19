@@ -49,7 +49,9 @@ def run_init(planning: Path, repos: list[Path]) -> subprocess.CompletedProcess[s
     argv = [str(Path(sys.executable).parent / "abk"), "init", str(planning)]
     for root in repos:
         argv += ["--repo", str(root)]
-    argv += ["--yes", "--skip-research", "--skip-propose"]
+    # The runtime is named, so the run does not depend on which agents this machine has.
+    argv += ["--yes", "--runtime", "claude_code", "--agent-command", "claude"]
+    argv += ["--skip-research", "--skip-propose"]
     env = {k: v for k, v in os.environ.items() if k != "ABK_CONFIG"}
     return subprocess.run(argv, capture_output=True, text=True, env=env, check=False, timeout=300)
 
