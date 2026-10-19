@@ -128,7 +128,6 @@ def test_a_unit_that_touched_no_test_has_the_reason_with_nothing_appended(
     scope = decide(repo, base)
 
     assert scope.reason == SKIPPED
-    assert PROFILE.collects_path("test_x.py")
 
 
 def test_a_helper_beside_a_driver_leaves_no_skip_reason_when_a_run_remains(
@@ -137,4 +136,12 @@ def test_a_helper_beside_a_driver_leaves_no_skip_reason_when_a_run_remains(
     repo, base = branch(tmp_path, {HELPER: HELPER_TEST, DRIVER: DRIVER_TEST})
 
     assert decide(repo, base).reason == ""
-    assert not PROFILE.collects_path(HELPER)
+
+
+def test_a_test_named_method_in_a_source_file_is_not_listed_as_a_left_out_test(
+    tmp_path: Path,
+) -> None:
+    source = "class Client:\n    def test_connection(self):\n        return True\n"
+    repo, base = branch(tmp_path, {"src/app.py": source})
+
+    assert decide(repo, base).reason == SKIPPED

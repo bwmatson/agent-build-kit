@@ -2299,11 +2299,18 @@ def e2e_work(
     ]
 
 
-def _skipped_reason(touched: list[tuple[str, str]], work: Sequence[tuple[Any, Any, Any]]) -> str:
+def _skipped_reason(
+    touched: list[tuple[str, str]], work: Sequence[tuple[Path, ToolchainProfile, Any]]
+) -> str:
     """The skip line, followed by the touched test files the runner does not collect."""
     reason = "e2e-test skipped: no e2e test added or changed"
     left_out = sorted(
-        {path for path, _ in touched if not any(tc.collects_path(path) for _, tc, _ in work)}
+        {
+            path
+            for path, _ in touched
+            if any(tc.is_test_path(path) for _, tc, _ in work)
+            and not any(tc.collects_path(path) for _, tc, _ in work)
+        }
     )
     return f"{reason}; not collected by the suite: {', '.join(left_out)}" if left_out else reason
 
