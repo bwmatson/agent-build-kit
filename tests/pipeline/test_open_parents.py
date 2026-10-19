@@ -309,15 +309,16 @@ def test_a_started_unit_keeps_the_wait_the_base_and_the_count_it_had(started: di
     ("listed", "deeper", "expected"),
     [
         (("p1/1", "p2/1"), False, "p2/1"),
-        (("p2/1", "p1/1"), False, "p1/1"),
-        (("p1/1", "p2/1"), True, "p2/1"),
+        (("p2/1", "p1/1"), False, "p2/1"),
+        (("p1/1", "p2/1"), True, "p1/1"),
     ],
-    ids=["plan order", "reversed", "a deeper sibling listed first"],
+    ids=["plan order", "reversed", "a deeper sibling listed last"],
 )
-def test_a_started_unit_keeps_the_base_it_has_today(
+def test_a_started_unit_has_the_base_an_unstarted_one_has(
     listed: tuple[str, ...], deeper: bool, expected: str
 ) -> None:
-    """The last open dependency in the order listed, as before the rule, whatever the depths."""
+    """The deepest unrelated open parent, a tie going to the later in plan order, whatever the
+    order listed."""
     graph = [review("p1/1"), review("p2/1")]
     if deeper:
         graph = [review("root/1"), review("p1/1", depends_on=("root/1",)), review("p2/1")]

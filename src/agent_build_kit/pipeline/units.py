@@ -283,21 +283,23 @@ def plan_units(change: str, groups: list[dict], *, min_lines: int, max_lines: in
     # The unit the next chained group depends on. An independent group is
     # outside the chain: it neither takes this tail nor moves it.
     tail: str | None = None
-    independent_seen = False
+    # The independent units so far, which an acceptance or narrow unit depends on.
+    standing: list[str] = []
 
     def flush() -> None:
-        nonlocal tail, independent_seen
+        nonlocal tail
         if not current:
             return
         unit_id = f"{change}/{len(units) + 1}"
         alone = bool(current[0].get("independent"))
-        # A group that exercises or removes what the others built waits for
-        # every earlier unit once any of them is off the chain.
-        waits_for_all = current[0].get("flag") in ("acceptance", "narrow") and independent_seen
+        # A group that exercises or removes what the others built depends on the end of
+        # its chain and on each unit off it; the rest it reaches through the chain, and
+        # `earlier_units` makes it wait for them at run time.
+        joins_independent = current[0].get("flag") in ("acceptance", "narrow") and standing
         if alone:
             depends_on: tuple[str, ...] = ()
-        elif waits_for_all:
-            depends_on = tuple(u.id for u in units)
+        elif joins_independent:
+            depends_on = (*((tail,) if tail else ()), *standing)
         else:
             depends_on = (tail,) if tail else ()
         units.append(
@@ -318,7 +320,7 @@ def plan_units(change: str, groups: list[dict], *, min_lines: int, max_lines: in
             )
         )
         if alone:
-            independent_seen = True
+            standing.append(unit_id)
         else:
             tail = unit_id
         current.clear()
@@ -569,13 +571,12 @@ def trunk_of(repo: str) -> str:
 def base_of(unit: Unit, graph: Sequence[Unit]) -> str:
     """The branch this unit builds on.
 
-    For a unit that has not started, its newest still-open dependency in the same
-    repo (`_stack_base`: the one the others are built on, else the deepest, a tie
-    going to the later in plan order). A unit that has started keeps the choice it
-    was started on, the last open same-repo dependency in the order listed, so a
-    sibling's depth changing never moves it. With none open, the repo's default
-    branch. Nothing starts from the trunk by default: if the work it needs is in flight,
-    stacking on it is what keeps the two from duplicating or conflicting.
+    Its newest still-open dependency in the same repo (`_stack_base`: the one the
+    others are built on, else the deepest, a tie going to the later in plan order),
+    for a unit that has started as for one that has not, whatever order the
+    dependencies are listed in. With none open, the repo's default branch. Nothing
+    starts from the trunk by default: if the work it needs is in flight, stacking
+    on it is what keeps the two from duplicating or conflicting.
 
     A same-repo dependency that is satisfied is transparent (see
     `through_satisfied`): it has no branch of its own, so its dependent stacks
@@ -586,14 +587,6 @@ def base_of(unit: Unit, graph: Sequence[Unit]) -> str:
     edge is an ordering constraint instead, and `ready_units` makes the
     dependent wait for a merge.
     """
-    if _worked_on(unit):
-        index = _by_id(graph)
-        listed = [
-            index[dep]
-            for dep in through_satisfied(unit, graph)
-            if dep in index and index[dep].repo == unit.repo and index[dep].state == IN_REVIEW
-        ]
-        return branch_name(listed[-1]) if listed else trunk_of(unit.repo)
     base = _stack_base(unit, graph)
     return branch_name(base) if base is not None else trunk_of(unit.repo)
 
