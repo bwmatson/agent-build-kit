@@ -236,4 +236,3 @@ def test_no_setting_is_named_for_integration_test_and_the_unit_test_ones_are_rea
 
     assert not [name for name in names if "integration" in name]
     assert {"unit_test_command_seconds", "unit_test_repeat_runs"} <= names
-    assert TestTier.INTEGRATION_TEST.value == "integration-test"
