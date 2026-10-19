@@ -182,11 +182,12 @@ def effective_state(
     if unit.state != PLANNED:
         return unit.state
 
+    if unit.id in gated:
+        return "blocked"
+
     # Stopped part-way through its loop, rather than never started: a run that
     # held at a boundary records a return to planned with a note saying why. A
     # usage pause is not one: the unit stays `running`, interrupted, in its thread.
-    if unit.id in gated:
-        return "blocked"
     if waiting_on(unit, units):
         reworking = unit.cause in (Cause.BASE_CHANGED, Cause.UPSTREAM_WENT_BACK)
         return "paused_rework" if reworking else "blocked"

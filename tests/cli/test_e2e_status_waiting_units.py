@@ -72,3 +72,24 @@ def test_the_lines_for_the_held_set_are_the_ones_it_printed_before(
 
     assert [line for line in after if "gated/1" not in line] == before
     assert len(after) == len(before) + 1
+
+
+def test_a_unit_of_a_repo_for_which_the_split_is_not_held_is_not_listed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repos = {
+        "app": {"path": str(tmp_path / "checkouts" / "app"), "slug": "example/app"},
+        "platform": {
+            "path": str(tmp_path / "checkouts" / "platform"),
+            "slug": "example/platform",
+            "tests": {"e2e_splits": {}},
+        },
+    }
+    inst = installation(tmp_path, acp=True, repos=repos)
+    store = store_of(inst)
+    fresh(store, "held/1", "acp", repo="app")
+    fresh(store, "free/1", "acp", repo="platform")
+
+    listed = under(status(inst, capsys), "acp")
+
+    assert [line for line in listed if "/1" in line] == ["  not started: held/1 (app)"]

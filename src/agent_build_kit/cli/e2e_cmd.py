@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -37,14 +38,16 @@ from agent_build_kit.pipeline.e2e_holds import (
     current_holds,
     declared_splits,
     hold_text,
+    parked_holds,
     remove_hold,
+    split_gates,
     write_hold,
 )
-from agent_build_kit.pipeline.own_tests import defined_tests_in_range
+from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import parked_on_split
+from agent_build_kit.pipeline.units import parked_on_split, project_tag
 from agent_build_kit.pipeline.vocabulary import FINISHED
-from agent_build_kit.pipeline.wiring import e2e_work
+from agent_build_kit.pipeline.wiring import e2e_work, own_test_ids
 from agent_build_kit.profiles.base import AppliesE2eSelection
 from agent_build_kit.timers import current_user
 
@@ -52,33 +55,45 @@ OwnTests = Callable[[Installation, StoredUnit], Sequence[str]]
 
 
 def unit_own_tests(installation: Installation, unit: StoredUnit) -> Sequence[str]:
-    """The tests a unit's branch defines or edits; none for a unit with no branch yet."""
+    """The tests a unit's branch adds or changes since it forked from the default branch, as
+    the e2e-test run names them (`own_test_ids`); none for a unit with no branch yet."""
     if not unit.branch:
         return ()
-    base = installation.repo(unit.repo).default_branch
-    return defined_tests_in_range(installation.checkouts[unit.repo], base, unit.branch)
+    repo = installation.repo(unit.repo)
+    checkout = installation.checkouts[unit.repo]
+    fork = git(checkout, "merge-base", repo.default_branch, unit.branch, check=False)
+    if fork.returncode != 0:
+        return ()
+    work = e2e_work(checkout, repo.projects, profiles.get(repo.profile), repo.tests.e2e_marker)
+    return own_test_ids(checkout, fork.stdout.strip(), work, head=unit.branch)
+
+
+def _without_parameters(test: str) -> str:
+    """A listed id without the parameter id a parametrized test carries: `path::test_x[a]`."""
+    return re.sub(r"\[[^\]]*\]$", "", test)
 
 
 def _split_declaration_warnings(
     installation: Installation,
     name: str,
     splits: Sequence[E2eSplit],
-    checks: Sequence[SplitCheck],
+    listed: Sequence[tuple[str, SplitCheck]],
     own_tests: OwnTests,
 ) -> list[str]:
     """A warning for each unit of `name` that is declared in one split and has an own test that
-    is in another; the split of a test is the one whose listing holds it."""
-    where: dict[str, str] = {}
+    is in another; the split of a test is the one whose listing holds it. `listed` is each check
+    with the directory prefix its listing's ids are relative to."""
+    where: dict[str, set[str]] = {}
     for index, split in enumerate(splits):
-        for check in checks:
+        for prefix, check in listed:
             for test in (check.listings[index].tests or ()) if check.listings else ():
-                where[test] = split.name
+                where.setdefault(prefix + _without_parameters(test), set()).add(split.name)
     warnings = []
     for unit in UnitStore(installation.state_dir / "units.json").all():
         if unit.repo != name or unit.state in FINISHED:
             continue
         for own in own_tests(installation, unit):
-            found = {s for test, s in where.items() if test == own or test.endswith(f"::{own}")}
+            found = where.get(_without_parameters(own), set())
             if found and unit.split not in found:
                 groups = ", ".join(str(group) for group in unit.groups)
                 warnings.append(
@@ -105,7 +120,7 @@ def _check_repo(
     marker = repo.tests.e2e_marker
     verify_env = installation.verify_env()
     env = {**os.environ, **verify_env} if verify_env else None
-    checks = []
+    listed: list[tuple[str, SplitCheck]] = []
     for where, toolchain, commands in e2e_work(
         checkout, repo.projects, profiles.get(repo.profile), marker
     ):
@@ -115,10 +130,17 @@ def _check_repo(
             return 1
         # `selection_unavailable` has said the profile applies a marker selector.
         assert isinstance(toolchain, AppliesE2eSelection)
-        checks += [
-            check_splits(toolchain, command, marker, splits, run=listing_runner(run, where, env))
+        prefix = f"{where.relative_to(checkout).as_posix()}/" if where != checkout else ""
+        listed += [
+            (
+                prefix,
+                check_splits(
+                    toolchain, command, marker, splits, run=listing_runner(run, where, env)
+                ),
+            )
             for command in commands
         ]
+    checks = [check for _, check in listed]
     print(f"{name}:")
     for index, split in enumerate(splits):
         counts = [check.listings[index].tests for check in checks if check.listings]
@@ -128,7 +150,7 @@ def _check_repo(
     findings = [finding for check in checks for finding in check.findings]
     for finding in findings:
         print(f"  finding: {finding}")
-    for warning in _split_declaration_warnings(installation, name, splits, checks, own_tests):
+    for warning in _split_declaration_warnings(installation, name, splits, listed, own_tests):
         print(warning)
     return 1 if findings else 0
 
@@ -309,6 +331,7 @@ def cmd_e2e_status(args: argparse.Namespace, installation: Installation | None) 
     splits = declared_splits(installation.config)
     holds = current_holds(installation.config, installation.state_dir)
     units = UnitStore(installation.state_dir / "units.json").all()
+    gates = split_gates(installation.config, installation.state_dir, units)
     if holds.unreadable:
         print(f"{HELD_FILE} cannot be read; nothing in it counts")
     for split in splits:
@@ -322,12 +345,13 @@ def cmd_e2e_status(args: argparse.Namespace, installation: Installation | None) 
             )
         else:
             print(f"{split.name:<14} usable")
-        if hold is not None:
-            for unit in units:
-                if parked_on_split(unit) and split.name in unit.parked_splits:
-                    print(f"  parked at e2e-test: {unit.id} ({unit.repo})")
-                elif unit.unstarted and unit.split == split.name:
-                    print(f"  not started: {unit.id} ({unit.repo})")
+        for unit in units:
+            if parked_on_split(unit) and split.name in parked_holds(
+                installation.config, installation.state_dir, unit
+            ):
+                print(f"  parked at e2e-test: {unit.id} ({project_tag(unit.repo, unit.project)})")
+            elif gates.get(unit.id) is not None and unit.split == split.name:
+                print(f"  not started: {unit.id} ({project_tag(unit.repo, unit.project)})")
     limits = installation.config.global_limits
     running = [
         split.name

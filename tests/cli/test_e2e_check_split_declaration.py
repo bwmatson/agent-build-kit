@@ -12,12 +12,16 @@ import pytest
 from agent_build_kit.cli import e2e_cmd
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
-from tests.e2e_check_support import ACP, CLAUDE, CLEAN, Pytest, installation
-from tests.factories import stored_unit
+from agent_build_kit.pipeline.units import PLANNED
+from tests.e2e_check_support import ACP, BASE, CLAUDE, CLEAN, Pytest, installation
+from tests.factories import git, init_repo, stored_unit
 
 
 class Lookup:
-    """The own-test lookup: the tests each unit's groups add, and the units it was asked about."""
+    """The own-test lookup: the tests each unit's groups add, as the real lookup gives them
+    (file-qualified ids from the checkout's root, with no parameter id), and the units it was
+    asked about. A started unit declared `rest` found at e2e-test to hold `acp` tests parks for
+    `acp` as before: tests/pipeline/test_e2e_split_groups.py pins that backstop."""
 
     def __init__(self, tests: dict[str, Sequence[str]]) -> None:
         self.tests = tests
@@ -86,3 +90,50 @@ def test_a_group_in_the_split_of_its_own_tests_and_a_unit_without_tests_print_no
     assert code == 0
     assert len(warnings) == 1 and "wrong" in warnings[0]
     assert not any("agree" in line or "bare" in line for line in warnings)
+
+
+def commit_test(app: Path, name: str, source: str) -> None:
+    (app / "tests" / "integration" / name).write_text(source)
+    git(app, "add", "-A")
+    git(app, "commit", "-q", "-m", f"add {name}")
+
+
+def test_the_default_lookup_names_only_the_tests_the_branch_added_since_it_forked(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inst = installation(tmp_path)
+    app = init_repo(tmp_path / "app")
+    (app / ".gitignore").write_text("__pycache__/\n")
+    git(app, "add", "-A")
+    git(app, "commit", "-q", "-m", "start")
+    git(app, "checkout", "-q", "-b", "spec/feature/1")
+    commit_test(
+        app,
+        "test_own.py",
+        "import pytest\n\n\n@pytest.mark.parametrize('v', ['a', 'b'])\ndef test_own_acp(v):\n"
+        "    pass\n\n\ndef test_own_plain():\n    pass\n",
+    )
+    git(app, "checkout", "-q", "main")
+    commit_test(app, "test_later.py", "def test_main_acp():\n    pass\n")
+    store = UnitStore(inst.state_dir / "units.json")
+    store.upsert([stored_unit("feature/1", change="feature", split="rest", groups=(3,))])
+    store.set_state("feature/1", PLANNED, branch="spec/feature/1")
+    own = "tests/integration/test_own.py"
+    listings = {
+        f"{BASE} and runtime_acp": [
+            f"{own}::test_own_acp[a]",
+            f"{own}::test_own_acp[b]",
+            "tests/integration/test_later.py::test_main_acp",
+        ],
+        f"{BASE} and runtime_claude_code": [CLAUDE],
+        f"{BASE} and not runtime_acp and not runtime_claude_code": [f"{own}::test_own_plain"],
+    }
+    capsys.readouterr()
+
+    code = e2e_cmd.cmd_e2e_check(argparse.Namespace(repo="app"), inst, run=Pytest(listings))
+
+    lines = capsys.readouterr().out.splitlines()
+    [warning] = [line for line in lines if "warning" in line]
+    assert code == 0
+    assert "feature group 3" in warning and "test_own_acp" in warning
+    assert "rest" in warning and "acp" in warning
