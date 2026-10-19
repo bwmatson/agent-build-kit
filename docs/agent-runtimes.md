@@ -895,6 +895,14 @@ The markers the suite uses:
   the unit's usage-ledger records, with each figure's source named in the JSON
   and the table. It needs nothing beyond the agent above. Run with `uv run
   pytest -m local_stack tests/integration/test_build_unit.py`.
+- The `abk init` acceptance run (`tests/integration/test_init_runtime_live_stack.py`,
+  also `local_stack`) runs the real command as a process against a stand-in agent
+  and makes no model call: the stand-in is the protocol test agent placed on a
+  `PATH` of its own under a known agent's program name, and it records every
+  request it is sent. It needs node for the OpenSpec CLI and nothing else; its
+  last test uses a protocol agent installed on the host and skips without one.
+  Run with `uv run pytest -m local_stack
+  tests/integration/test_init_runtime_live_stack.py`.
 - The telemetry acceptance run (`tests/integration/test_telemetry_stack.py`,
   also `local_stack`) ticks a fixture unit with `ABK_OTEL_ENABLED` on and reads
   the trace and the duration series back from the shared stack's stores. It

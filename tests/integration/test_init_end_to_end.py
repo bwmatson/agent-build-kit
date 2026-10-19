@@ -16,7 +16,7 @@ from agent_build_kit import openspec
 from agent_build_kit.cli import init as init_cmd
 from agent_build_kit.cli import main
 from agent_build_kit.config import load
-from tests.factories import git, init_repo, recognised_planning
+from tests.factories import coded_repo, git, recognised_planning
 from tests.openspec_cli import require
 
 pytestmark = [
@@ -66,13 +66,7 @@ def test_init_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
         monkeypatch.setenv(var, "t")
     for var in ("GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"):
         monkeypatch.setenv(var, "t@t.t")
-    app = init_repo(tmp_path / "app")
-    git(app, "remote", "add", "origin", "git@github.com:example/app.git")
-    (app / "pyproject.toml").write_text('[project]\nname = "app"\n')
-    (app / "src").mkdir()
-    (app / "src" / "app.py").write_text("x = 1\n")
-    git(app, "add", "-A")
-    git(app, "commit", "-q", "-m", "code")
+    app = coded_repo(tmp_path / "app", "example/app")
     planning = recognised_planning(tmp_path / "planning")
 
     # The runtime is named and `claude` pretended to be on the path, so the run does not

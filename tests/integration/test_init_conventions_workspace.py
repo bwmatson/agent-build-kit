@@ -12,7 +12,6 @@ run it with `uv run pytest -m local_stack tests/integration/test_init_convention
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 import sys
@@ -21,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from tests.factories import git, init_repo
+from tests.scripted_abk import Machine, machine
 
 pytestmark = [
     pytest.mark.local_stack,
@@ -45,13 +45,17 @@ def code_repo(tmp_path: Path, name: str, **files: str) -> Path:
     return root
 
 
-def run_init(planning: Path, repos: list[Path]) -> subprocess.CompletedProcess[str]:
+def run_init(on: Machine, planning: Path, repos: list[Path]) -> subprocess.CompletedProcess[str]:
     argv = [str(Path(sys.executable).parent / "abk"), "init", str(planning)]
     for root in repos:
         argv += ["--repo", str(root)]
-    argv += ["--yes", "--skip-research", "--skip-propose"]
-    env = {k: v for k, v in os.environ.items() if k != "ABK_CONFIG"}
-    return subprocess.run(argv, capture_output=True, text=True, env=env, check=False, timeout=300)
+    # The runtime is named and a `claude` stub is on the run's own path, so the run does not
+    # depend on which agents this machine has.
+    argv += ["--yes", "--runtime", "claude_code", "--agent-command", "claude"]
+    argv += ["--skip-research", "--skip-propose"]
+    return subprocess.run(
+        argv, capture_output=True, text=True, env=on.env, check=False, timeout=300
+    )
 
 
 def snapshot(root: Path) -> dict[str, bytes]:
@@ -71,7 +75,12 @@ def test_init_leaves_each_repo_as_the_spec_says_and_a_second_run_changes_nothing
     worker = code_repo(tmp_path, "worker")
     repos = [app, platform, worker]
 
-    first = run_init(planning, repos)
+    on = machine(tmp_path / "machine")
+    stub = on.bin_dir / "claude"
+    stub.write_text("#!/bin/sh\nexit 0\n")
+    stub.chmod(0o755)
+
+    first = run_init(on, planning, repos)
 
     assert first.returncode == 0, first.stdout + first.stderr
     for root in repos:
@@ -95,7 +104,7 @@ def test_init_leaves_each_repo_as_the_spec_says_and_a_second_run_changes_nothing
     before = {root: snapshot(root) for root in repos}
     status = {root: git(root, "status", "--porcelain") for root in repos}
 
-    second = run_init(planning, repos)
+    second = run_init(on, planning, repos)
 
     assert second.returncode == 0, second.stdout + second.stderr
     for root in repos:
