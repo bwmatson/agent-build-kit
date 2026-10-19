@@ -9,12 +9,12 @@ from tests.calibration_support import limits, sample
 
 
 def test_a_stored_unit_of_either_kind_has_the_same_kind() -> None:
-    unit = sample(1.5, at=0, tier="unit-test", flag="ui")
-    wider = sample(1.5, at=1, tier="integration-test", flag="ui")
+    unit = sample(1.5, at=0, tier="unit-test", flag="narrow")
+    wider = sample(1.5, at=1, tier="integration-test", flag="narrow")
 
     assert kind_of(wider) == kind_of(unit)
     assert kind_of(wider).tier == "unit-test"
-    assert kind_of(sample(1.5, at=2, tier="e2e-test", flag="ui")) != kind_of(wider)
+    assert kind_of(sample(1.5, at=2, tier="e2e-test", flag="narrow")) != kind_of(wider)
 
 
 def test_the_calibration_over_both_kinds_is_one_ratio_from_all_samples() -> None:
