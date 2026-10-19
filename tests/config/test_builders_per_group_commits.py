@@ -10,8 +10,7 @@ from pydantic import ValidationError
 from agent_build_kit import profiles
 from agent_build_kit.config import WorkspaceConfig
 from agent_build_kit.profiles.base import stubbed_build
-
-REPO = {"app": {"path": "/work/app", "slug": "example/app"}}
+from tests.config.builders_config import load
 
 
 class NoStubs:
@@ -22,13 +21,6 @@ class NoStubs:
 
 def setting(loaded: WorkspaceConfig) -> Any:
     return loaded.builders.model_dump()["per_group_commits"]
-
-
-def load(builders: Any = None) -> WorkspaceConfig:
-    data: dict[str, Any] = {"repos": REPO}
-    if builders is not None:
-        data["builders"] = builders
-    return WorkspaceConfig.model_validate(data)
 
 
 @pytest.mark.parametrize("given", [True, False])

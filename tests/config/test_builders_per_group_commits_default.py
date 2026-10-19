@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
 
 import pytest
 import yaml
@@ -12,20 +11,13 @@ import yaml
 from agent_build_kit import profiles
 from agent_build_kit.config import WorkspaceConfig, dump
 from agent_build_kit.profiles.base import stubbed_build
+from tests.config.builders_config import load
 
 ROOT = Path(__file__).resolve().parents[2]
-REPO = {"app": {"path": "/work/app", "slug": "example/app"}}
 SETTING_DOCUMENTS = (
     ROOT / "docs" / "configuration.md",
     ROOT / "src" / "agent_build_kit" / "skills" / "abk-config" / "SKILL.md",
 )
-
-
-def load(builders: Any = None) -> WorkspaceConfig:
-    data: dict[str, Any] = {"repos": REPO}
-    if builders is not None:
-        data["builders"] = builders
-    return WorkspaceConfig.model_validate(data)
 
 
 def test_a_workspace_with_no_builders_section_reports_the_setting_on() -> None:

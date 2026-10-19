@@ -470,7 +470,9 @@
   each group gets a `test:` commit of stubs and tests, checked for lint, format and types
   before it is made, then a `feat:` commit, and the push gate checks the pairs, types and
   the stubbed red reading. Only toolchain profiles that support stubs are affected. Set
-  the setting to `false` to keep one pair of commits per unit.
+  the setting to `false` to keep one pair of commits per unit. A unit whose tests commit was
+  made before updating may be refused by the gate's types check; rebuild it with
+  `abk requeue --restart`, or set the setting to `false` until it lands.
 
 - The live tests that need the shared telemetry stack now carry a `telemetry_otel` marker, so
   a split can select them. A machine without the stack holds a split on that marker
