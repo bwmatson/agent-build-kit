@@ -18,7 +18,9 @@
   machine, for example in `abk.local.yaml`) lists the values a machine has. An e2e run
   leaves out the tests carrying an unavailable value's marker, so a machine without a
   value no longer fails those tests. A marker shared by two values or a split, and an
-  availability naming something undeclared, are refused at load.
+  availability naming something undeclared, are refused at load. `abk e2e-test check` also
+  lists each value and reports a test carrying two values of one dimension, a marker used
+  twice and a marker the runner does not register.
 
 - The build can commit per task group behind `builders.per_group_commits` (off by default):
   each group gets a `test:` commit of stubs and tests, checked for lint, format and types

@@ -7,7 +7,7 @@ from collections.abc import Callable, Collection, Mapping
 
 from agent_build_kit.config import E2eDimensionValue, E2eSplit
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.e2e import build_selection
+from agent_build_kit.pipeline.e2e import E2eSelection, build_selection
 from agent_build_kit.profiles.base import AppliesE2eSelection, ListsRegisteredSelectors
 
 
@@ -90,4 +90,52 @@ def check_dimensions(
     """List each dimension value's tests through `toolchain` for `command`, and name every test
     carrying two values of one dimension, every marker shared by two values or a split and every
     marker the runner does not register."""
-    raise NotImplementedError
+    findings: list[str] = []
+    listings: list[SplitListing] = []
+    owners: dict[str, list[str]] = {}
+    for split in splits:
+        if split.marker is not None:
+            owners.setdefault(split.marker, []).append(f"split {split.name}")
+    for dimension, values in dimensions.items():
+        for value, entry in values.items():
+            owners.setdefault(entry.marker, []).append(f"{dimension}={value}")
+    for tag, names in owners.items():
+        if len(names) > 1:
+            findings.append(f"marker {tag} is used by {' and '.join(names)}")
+    carried: dict[str, dict[str, list[str]]] = {}
+    for dimension, values in dimensions.items():
+        for value, entry in values.items():
+            selection = E2eSelection(marker=marker, any_of=(entry.marker,))
+            tests = toolchain.list_tests(command, selection, run=run)
+            if tests is None:
+                findings.append(
+                    f"the listing of {dimension}={value} failed; it says nothing about it"
+                )
+            listings.append(
+                SplitListing(
+                    name=f"{dimension}={value}",
+                    marker=entry.marker,
+                    tests=None if tests is None else tuple(tests),
+                )
+            )
+            for test in tests or ():
+                carried.setdefault(dimension, {}).setdefault(test, []).append(value)
+    for dimension, tests_values in carried.items():
+        for test, found in tests_values.items():
+            if len(found) > 1:
+                findings.append(
+                    f"{test} carries {len(found)} values of {dimension}: {' and '.join(found)}"
+                )
+    if isinstance(toolchain, ListsRegisteredSelectors):
+        known = toolchain.registered_selectors(command, run=run)
+        if known is None:
+            findings.append("the listing of the runner's registered selectors failed")
+        else:
+            findings.extend(
+                f"unknown selector {entry.marker} of {dimension}={value}: "
+                "the runner does not register it"
+                for dimension, values in dimensions.items()
+                for value, entry in values.items()
+                if entry.marker not in known
+            )
+    return SplitCheck(listings=tuple(listings), findings=tuple(findings))

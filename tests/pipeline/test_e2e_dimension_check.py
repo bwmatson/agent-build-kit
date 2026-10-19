@@ -77,9 +77,7 @@ class Runner:
         return subprocess.CompletedProcess(argv, 0 if found else 5, "\n".join(found) + "\n", "")
 
 
-def check(
-    tmp_path: Path, run: Runner, capsys: pytest.CaptureFixture[str]
-) -> tuple[int, list[str]]:
+def check(tmp_path: Path, run: Runner, capsys: pytest.CaptureFixture[str]) -> tuple[int, list[str]]:
     found = installation(tmp_path, splits=None, dimensions=DIMENSIONS)
     capsys.readouterr()
     code = e2e_cmd.cmd_e2e_check(argparse.Namespace(repo="app"), found, run=run)
@@ -137,7 +135,7 @@ def test_a_marker_declared_by_two_values_is_a_finding_naming_the_marker_and_both
         "local_stack",
         dimensions,
         (),
-        run=Runner({}),
+        run=Runner({}, registered=("local_stack", "runtime_shared")),
     )
 
     (finding,) = [f for f in result.findings if "runtime_shared" in f]
