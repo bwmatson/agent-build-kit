@@ -1317,7 +1317,8 @@ class BuildPath:
         feedback = redact_text(r.store.get(unit.id).feedback, where="fix prompt")
         note = person_guidance(r.store.get(unit.id).guidance)
         before = r.tree_state(tree)
-        self._leftovers, self._stub_leftovers = self._stub_leftovers, ()
+        self._leftovers = self._leftovers or self._stub_leftovers
+        self._stub_leftovers = ()
         self.say(f"fix the failing static checks on the tests ({model}), round {attempt}")
         self.agent(
             r.run,
