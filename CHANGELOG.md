@@ -215,6 +215,8 @@
   checked and verified exactly like `unit-test` and takes no stack lock. A unit takes the
   widest kind of its groups, `unit-test` and `integration-test` may be joined, and
   `e2e-test` still joins only with `e2e-test`. `abk status` names a unit of the new kind.
+  Estimate calibration pools `integration-test` with `unit-test`, so samples of both feed one
+  ratio and a unit of either is checked by it.
 
 - Each tick round now evaluates every tier 2 split that has a `gate` and keeps the result
   in the held set with source `gate`: a split over its threshold is held until the

@@ -13,7 +13,7 @@ from statistics import median
 from agent_build_kit.compat_names import TestKind
 from agent_build_kit.config import active
 from agent_build_kit.forges import FileChange
-from agent_build_kit.model import Frozen
+from agent_build_kit.model import Frozen, pooled_kind
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import MERGED
 
@@ -59,7 +59,7 @@ class Calibration(Frozen):
 
 
 def kind_of(unit: StoredUnit) -> Kind:
-    return Kind(repo=unit.repo, tier=unit.tier, flag=unit.flag)
+    return Kind(repo=unit.repo, tier=pooled_kind(unit.tier), flag=unit.flag)
 
 
 def measured(unit: StoredUnit) -> bool:

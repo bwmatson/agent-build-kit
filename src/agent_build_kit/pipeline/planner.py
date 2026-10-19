@@ -27,7 +27,7 @@ from collections.abc import Callable, Collection, Mapping, Sequence
 from agent_build_kit import runtimes
 from agent_build_kit.compat_names import Place, new_spelling, old_spelling
 from agent_build_kit.config import REST_SPLIT, active
-from agent_build_kit.model import Frozen, TestTier
+from agent_build_kit.model import Frozen, TestTier, pooled_kind
 from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
 from agent_build_kit.pipeline.unit_ids import assign_unit_ids, taken_ids
@@ -362,7 +362,7 @@ def plan_kind(unit: Unit, groups: Sequence[TaskGroup] | None) -> Kind:
     flag = next(
         (by_number[n].flag for n in unit.groups if n in by_number and by_number[n].flag), ""
     )
-    return Kind(repo=unit.repo, tier=unit.tier, flag=flag)
+    return Kind(repo=unit.repo, tier=pooled_kind(unit.tier), flag=flag)
 
 
 def _check_ceiling(

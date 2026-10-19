@@ -1102,7 +1102,7 @@ def test_a_base_gone_at_open_that_the_forge_still_names_holds_the_unit(tmp_path:
     assert "before its pull request" in stored.note, "it was pushed, so not 'before its push'"
 
 
-@pytest.mark.parametrize("tier", ["unit-test", "e2e-test"])
+@pytest.mark.parametrize("tier", ["unit-test", "integration-test", "e2e-test"])
 def test_a_unit_moved_cleanly_onto_the_base_the_forge_named_is_pushed_not_held(
     tmp_path: Path, tier: str
 ) -> None:

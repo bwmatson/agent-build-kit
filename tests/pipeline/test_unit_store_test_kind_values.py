@@ -59,6 +59,13 @@ def test_a_new_value_is_read_back_as_the_same_test_tier(tmp_path, kind) -> None:
     assert records(store)[0]["tier"] == kind.value
 
 
+def test_the_integration_test_kind_is_a_member_and_has_no_old_spelling() -> None:
+    assert TestTier.INTEGRATION_TEST in list(TestTier)
+    assert TestTier.INTEGRATION_TEST not in OLD_TO_NEW.values()
+    assert TestTier.INTEGRATION_TEST.value not in OLD_TO_NEW
+    assert all(old.startswith("tier") for old in OLD_TO_NEW)
+
+
 @pytest.mark.parametrize("old", sorted(OLD_TO_NEW))
 def test_a_plan_written_before_the_rename_reads_the_kind_as_a_test_tier(old) -> None:
     assert parse_graph(plan_with(old))[0].tier is OLD_TO_NEW[old]
