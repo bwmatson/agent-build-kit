@@ -186,3 +186,19 @@ def resolve_in(config: WorkspaceConfig, label: str | None) -> Account:
         limits=named.limits,
         max_units_in_progress=named.max_units_in_progress,
     )
+
+
+def slots_per_account(config: WorkspaceConfig) -> bool:
+    """Whether units in progress are counted per account: the installation names an account or a
+    repo's label. With neither, they are counted per project, as before."""
+    entry = runtime_entry(config, name=CLAUDE_CODE)
+    return bool(entry.accounts) or any(repo.account for repo in config.repos.values())
+
+
+def label_of(key: str | None, config: WorkspaceConfig) -> str:
+    """How a ledger row's account key reads: the label of the account whose directory it is, the
+    key itself for a directory no label names, and `default` for the default account."""
+    if key is None:
+        return "default"
+    named = runtime_entry(config, name=CLAUDE_CODE).accounts
+    return next((label for label, entry in named.items() if str(entry.config_dir) == key), key)

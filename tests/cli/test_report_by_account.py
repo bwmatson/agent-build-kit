@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 from agent_build_kit.cli import main
 from agent_build_kit.config import dump
@@ -18,17 +19,20 @@ from tests.ledger_lines import agent_line, write_ledger
 @pytest.fixture
 def inst(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Installation:
     kit_home = str(tmp_path / "kit-home")
-    installation = make_installation(
-        tmp_path / "planning",
-        runtimes={"claude_code": {"accounts": {"kit": {"config_dir": kit_home}}}},
-    )
+    installation = make_installation(tmp_path / "planning")
     (installation.root / "abk.yaml").write_text(dump(installation.config))
+    # A machine path is never in the committed file; the account's directory is the overlay's.
+    (installation.root / "abk.local.yaml").write_text(
+        yaml.safe_dump(
+            {"runtimes": {"claude_code": {"accounts": {"kit": {"config_dir": kit_home}}}}}
+        )
+    )
     monkeypatch.chdir(installation.root)
     write_ledger(
         installation.state_dir / "usage-ledger.jsonl",
-        agent_line(session_id="s1", account=kit_home),
-        agent_line(session_id="s2", account=kit_home),
-        agent_line(session_id="s3", account=None),
+        agent_line(round=0, session_id="s1", account=kit_home),
+        agent_line(round=1, session_id="s2", account=kit_home),
+        agent_line(round=2, session_id="s3", account=None),
     )
     return installation
 

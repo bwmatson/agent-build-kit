@@ -11,7 +11,7 @@ import pytest
 
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import FAILED
-from tests.conftest import ready_queue, status_lines
+from tests.conftest import status_lines
 from tests.factories import new_unit
 
 REPOS = ("app", "platform", "web")
@@ -67,8 +67,9 @@ def kit(tmp_path: Path, **fields: object) -> dict:
     return {"kit": {"config_dir": str(tmp_path / "kit-home"), **fields}}
 
 
-def started(lines: list[str]) -> list[str]:
-    return [line.split()[1] for line in ready_queue(lines)]
+def full(lines: list[str]) -> list[str]:
+    """The status's lines for a queue at its limit; the ready queue ignores the limit."""
+    return [line for line in lines if "queue is full" in line]
 
 
 def test_failed_units_filling_one_accounts_slots_do_not_stop_the_default_accounts_units(
@@ -85,7 +86,9 @@ def test_failed_units_filling_one_accounts_slots_do_not_stop_the_default_account
     )
 
     # `app` and `platform` share the `kit` account's two places; `web` is on the default account.
-    assert started(lines) == ["web-ready/1"]
+    [line] = full(lines)
+    assert "account kit" in line
+    assert "2 units in progress, limit 2" in line
 
 
 def test_a_unit_counts_against_its_accounts_limit_not_the_default_accounts(
@@ -102,8 +105,9 @@ def test_a_unit_counts_against_its_accounts_limit_not_the_default_accounts(
         limit=5,
     )
 
-    assert started(lines) == []
-    assert any("queue is full" in line and "limit 1" in line for line in lines)
+    [line] = full(lines)
+    assert "account kit" in line
+    assert "1 units in progress, limit 1" in line
 
 
 def test_a_label_that_falls_back_to_the_default_account_counts_against_its_limit(
@@ -121,5 +125,6 @@ def test_a_label_that_falls_back_to_the_default_account_counts_against_its_limit
     )
 
     # `kit` has no directory here, so `app` is on the default account with `platform` and `web`.
-    assert started(lines) == []
-    assert any("queue is full" in line and "limit 2" in line for line in lines)
+    [line] = full(lines)
+    assert "default account" in line
+    assert "2 units in progress, limit 2" in line

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A repo can run on its own Claude account: `repos.<name>.account` in `abk.yaml` names a label,
+  and each person gives that label's directory in `abk.local.yaml`. Units in progress are now
+  counted per account against that account's `max_units_in_progress`, so one account's stalled
+  units no longer stop another's, `abk report --by account` groups usage by account, and the
+  init template and `.env.example` now say `abk.local.yaml` stays out of git.
+
 - `abk config --migrate` now also renames the old test-kind setting keys (`tier1_*` and `tier2_*`
   in the limits block and the `tests` blocks) to `unit_test_*` and `e2e_*`, in the same single
   change, confirmation and backup as the limits move. Values and comments stay as they were, and

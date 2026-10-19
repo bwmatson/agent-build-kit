@@ -26,6 +26,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from agent_build_kit import claude_account, config
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.file_lock import atomic_write_text
@@ -42,7 +43,7 @@ from agent_build_kit.pipeline.usage_ledger import (
 )
 from agent_build_kit.pipeline.vocabulary import WaitReason
 
-GROUPINGS = ("unit", "change", "node", "role", "model", "repo", "day")
+GROUPINGS = ("unit", "change", "node", "role", "model", "repo", "account", "day")
 
 # A session's increments this far from its final cumulative figure still add up.
 SESSION_TOLERANCE = 1e-6
@@ -252,6 +253,7 @@ class _Entry(Frozen):
     model: str = NONE
     runtime: str = ""
     usage_source: str = ""
+    account: str | None = None  # the account directory the call ran under; None is the default
     at: datetime | None = None
     row: ReportRow
     call: UsageRecord | None = None  # the ledger record, for what is read off the call itself
@@ -374,6 +376,8 @@ def _when(value: object) -> datetime | None:
 def _group_key(entry: _Entry, group_by: str) -> str:
     if group_by == "day":
         return entry.at.date().isoformat() if entry.at else NONE
+    if group_by == "account":
+        return claude_account.label_of(entry.account, config.active())
     return getattr(entry, group_by) or NONE
 
 
@@ -423,6 +427,7 @@ def _entries_in(lines: list[str], units: dict[str, StoredUnit]) -> list[_Entry]:
             model=r.model or NONE,
             runtime=r.runtime,
             usage_source=r.usage_source,
+            account=r.account,
             at=_when(r.at),
             row=_call_row(r),
             call=r,

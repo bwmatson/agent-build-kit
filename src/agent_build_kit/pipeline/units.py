@@ -16,7 +16,7 @@ cannot be named here. Given plain `Unit`s they would see no pull request and no 
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Hashable, Iterable, Mapping, Sequence
 from datetime import datetime
 from enum import IntEnum, StrEnum
 from pathlib import Path
@@ -200,19 +200,29 @@ def project_key(unit: Unit) -> ProjectKey:
     return ProjectKey(repo=unit.repo, project=unit.project)
 
 
-def project_counts(graph: Sequence[Unit]) -> dict[ProjectKey, int]:
-    """The units in progress (`in_progress`) in each project that has any; no total is kept."""
-    return count_by_project(graph, lambda unit: in_progress(unit, graph))
+def project_counts(
+    graph: Sequence[Unit], slot_of: Callable[[Unit], Hashable] = project_key
+) -> dict[Hashable, int]:
+    """The units in progress (`in_progress`) in each slot (a project, unless `slot_of` names the
+    account) that has any; no total is kept."""
+    return count_by(graph, slot_of, lambda unit: in_progress(unit, graph))
 
 
 def count_by_project(
     graph: Sequence[Unit], counts: Callable[[Unit], bool]
 ) -> dict[ProjectKey, int]:
     """How many units `counts` accepts in each project that has any."""
-    totals: dict[ProjectKey, int] = {}
+    return count_by(graph, project_key, counts)
+
+
+def count_by[K: Hashable](
+    graph: Sequence[Unit], key_of: Callable[[Unit], K], counts: Callable[[Unit], bool]
+) -> dict[K, int]:
+    """How many units `counts` accepts under each key of `key_of` that has any."""
+    totals: dict[K, int] = {}
     for unit in graph:
         if counts(unit):
-            key = project_key(unit)
+            key = key_of(unit)
             totals[key] = totals.get(key, 0) + 1
     return totals
 
@@ -1061,10 +1071,15 @@ def in_progress_label(unit: Unit) -> str:
     return unit.state.replace("_", " ")
 
 
-def start_room(graph: Sequence[Unit], limit: int, project: ProjectKey | None = None) -> int:
-    """How many never-started units may begin before `limit` is reached, in `project` (every
-    unit counts when none is given)."""
-    counts = project_counts(graph)
+def start_room(
+    graph: Sequence[Unit],
+    limit: int,
+    project: Hashable | None = None,
+    slot_of: Callable[[Unit], Hashable] = project_key,
+) -> int:
+    """How many never-started units may begin before `limit` is reached, in `project` (a slot of
+    `slot_of`; every unit counts when none is given)."""
+    counts = project_counts(graph, slot_of)
     return max(0, limit - (sum(counts.values()) if project is None else counts.get(project, 0)))
 
 
@@ -1134,6 +1149,8 @@ def ready_units(
     emergency_extra: int = 0,
     in_lane: Collection[str] = frozenset(),
     extra_workers: Mapping[ProjectKey, int] | None = None,
+    slot_of: Callable[[Unit], Hashable] = project_key,
+    slot_limit: Callable[[Hashable], int] | None = None,
 ) -> list[Unit]:
     """The planned units that may start right now, in the order to start them.
 
@@ -1146,7 +1163,8 @@ def ready_units(
     units of one project are being built at once.
 
     `max_units_in_progress` bounds the units started and not finished in each
-    project (repo and project, `project_key`; `in_progress`), never in total. A
+    project (repo and project, `project_key`; `in_progress`), never in total; `slot_of` and
+    `slot_limit` count them under another key instead, an account, each with its own limit. A
     unit that has never started begins only while that leaves room in its own
     project, and no more of them than it does; one already in progress (a
     rework, a resume, a unit finishing its review loop) always may, since
@@ -1173,8 +1191,10 @@ def ready_units(
     running = count_by_project(graph, lambda unit: unit.state == RUNNING)
 
     # A unit that was blocked and no longer is draws on the room like a new one.
-    counted = count_by_project(
-        graph, lambda unit: in_progress(unit, graph) and not _waits_for_room(unit, graph)
+    counted = count_by(
+        graph,
+        slot_of,
+        lambda unit: in_progress(unit, graph) and not _waits_for_room(unit, graph),
     )
 
     ready: list[Unit] = []
@@ -1199,23 +1219,25 @@ def ready_units(
     )
     started: list[Unit] = []
     taken: dict[ProjectKey, int] = {}
-    drawn: dict[ProjectKey, int] = {}
+    drawn: dict[Hashable, int] = {}
     for unit in ordered:
         key = project_key(unit)
+        slot = slot_of(unit)
+        limit = slot_limit(slot) if slot_limit else max_units_in_progress
         new = not in_progress(unit, graph) or _waits_for_room(unit, graph)
         draws = max_units_in_progress is not None and new
         # A unit already started is held to the workers the lane's units leave.
         busy = running.get(key, 0) - (0 if new else lane_running.get(key, 0))
         room = max_concurrent + (extra_workers or {}).get(key, 0)
         if busy + taken.get(key, 0) >= room or (
-            draws and counted.get(key, 0) + drawn.get(key, 0) >= (max_units_in_progress or 0)
+            draws and counted.get(slot, 0) + drawn.get(slot, 0) >= (limit or 0)
         ):
             if lane_use.get(key, 0) < emergency_extra and emergency_start(unit, graph, excluded):
                 lane_use[key] = lane_use.get(key, 0) + 1
                 started.append(unit)
             continue
         if draws:
-            drawn[key] = drawn.get(key, 0) + 1
+            drawn[slot] = drawn.get(slot, 0) + 1
         taken[key] = taken.get(key, 0) + 1
         started.append(unit)
     return started

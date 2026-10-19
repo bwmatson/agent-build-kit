@@ -652,6 +652,24 @@ verify:
       key: EXTRA_TOKEN
 ```
 
+A second Claude account is set the same way: a repo names a label in `abk.yaml`
+(`repos.<name>.account: kit`), and each person gives that label's directory in
+`abk.local.yaml`. A label with no `config_dir` on a machine runs on the default account.
+
+```yaml
+runtimes:
+  claude_code:
+    accounts:
+      kit:
+        config_dir: /path/to/.claude-kit        # absolute; refused in the committed abk.yaml
+        max_units_in_progress: 3                # this account's own slots
+        limits: {}                              # same shape as runtimes.claude_code.limits
+```
+
+Units in progress are counted per account against that account's `max_units_in_progress`
+(the default account's is `project_limits.max_units_in_progress`) once an installation names an
+account. `abk report --by account` groups the ledger by account.
+
 They are independent layers, and both may be used. For a fact either could carry, the loader
 reads the entry itself (which `verify.env` variable exists, and its provider) from `abk.yaml`
 merged with `abk.local.yaml`, and reads that entry's value from the file its `env-file`

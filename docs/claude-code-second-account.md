@@ -3,11 +3,28 @@
 A how-to for anyone running one installation on a Claude Code account other than the
 machine's default.
 
-## Why the account is a directory in `.env`
+## The in-repo form
 
-An account is a Claude Code config directory. Which one to use is specific to a user and
-a machine, so it goes in the installation's `.env` (git-ignored) or the process
-environment, never in a checked-in file: there is no abk.yaml key for it.
+An account is a Claude Code config directory, and which directory is specific to a person and
+a machine. The repo names an account by label, and each person supplies the directory:
+
+- In `abk.yaml` (committed): `repos.<name>.account: kit`.
+- In `abk.local.yaml` (ignored by git, one per machine):
+  `runtimes.claude_code.accounts.<label>` as `accounts.kit.config_dir`, an absolute path, with
+  its own `limits` and `max_units_in_progress` if it needs them.
+
+A `config_dir` in the committed `abk.yaml` is refused. A person with one account sets nothing:
+a label with no `config_dir` on their machine falls back to the default account, with the
+default account's windows and slots, and `abk doctor` prints one note naming the label. A person
+with one account is never refused.
+
+Usage windows, caches, stored sessions, slots and `abk report --by account` are kept per account.
+`abk doctor` warns when git tracks `abk.local.yaml`.
+
+## The alternative: one account for the whole installation, in `.env`
+
+This form moves the default account of every repo in the installation. It goes in the
+installation's `.env` (git-ignored) or the process environment, never in `abk.yaml`.
 
 ## The rules
 
