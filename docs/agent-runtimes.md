@@ -918,16 +918,19 @@ The markers the suite uses:
   below) puts a reverse proxy in front of an e2e-test test's calls to the model
   provider and package index, so a rerun of an unchanged call is answered from a
   recording. It is off unless `ABK_REPLAY_MODE` says otherwise.
-- The chat-editing acceptance run (`tests/integration/test_chat_editing_acp.py`,
-  also `local_stack`) builds a scratch unit to review, then drives the real
-  server over HTTP with the agent above: a chat edit fixed for a rejecting hook
-  and committed in one request, a request against a requirement flagged, a free
-  session committing code and a task file per checkout, the next rework told of
-  the outside commit, and a stale lease released with `abk attach release`. The
-  agent's stdin is copied to a file by a small recorder so the prompts it was
-  given can be read. It needs node, uv and the agent above, bills on demand and
-  takes minutes. Run with `uv run pytest -m local_stack
-  tests/integration/test_chat_editing_acp.py`.
+- The chat-editing acceptance run (`tests/integration/test_chat_editing_claude_code.py`,
+  `local_stack`, tagged `runtime_claude_code`) builds a scratch unit to review,
+  then drives the real server over HTTP with a real Claude Code: a chat edit
+  fixed for a rejecting hook and committed in one request, a request against a
+  requirement flagged, a free session committing code and a task file per
+  checkout, the next rework told of the outside commit, and a stale lease
+  released with `abk attach release`. A wrapper script set as
+  `runtimes.claude_code.command` copies the prompt it is sent into a file and
+  then `exec`s `claude`, so the prompts the agent was given can be read. The
+  scratch installation comes from a fixture that takes the runtime as its
+  parameter, so a module for another runtime can import it. It needs node, uv
+  and Claude Code, bills on demand and takes minutes. Run with `uv run pytest
+  -m local_stack tests/integration/test_chat_editing_claude_code.py`.
 - `serial` marks a test that cannot share a process with others. `poe test`
   runs the suite in parallel workers (pytest-xdist, capped at 8) without these
   tests, then runs them alone in a serial pass. A plain `pytest <file>` runs

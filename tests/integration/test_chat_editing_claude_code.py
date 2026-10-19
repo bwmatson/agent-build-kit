@@ -1,8 +1,11 @@
 """Editing from chat over a real scratch installation: a chat edit to a reviewed commit.
 
-The agent is a real one on this host (`ABK_ACCEPTANCE_ACP_COMMAND`), reached through a recorder
-that copies what is written to its stdin into a file, so what the pipeline told it is read at the
-protocol boundary. `abk tick` and `abk attach release` are the real CLI run as processes, and the
+The agent is a real Claude Code on this host, reached through a recorder: a wrapper script set as
+`runtimes.claude_code.command` that copies its standard input (where the prompt is sent) into a
+file and then `exec`s `claude`, so what the pipeline told it is read at the process boundary and
+no process of the wrapper's own is left. The scratch installation is built for the runtime a
+fixture parameter names, so the same scenarios can run on another runtime from a module that
+imports this one. `abk tick` and `abk attach release` are the real CLI run as processes, and the
 server is the real one, serving the scratch installation in this process and driven over HTTP as the
 page drives it. Only GitHub is faked, as in the other acceptance runs.
 
@@ -17,7 +20,7 @@ What is asserted is what an operator sees:
   on its own) and the unit's next rework is told of the outside commit;
 - a stale attachment is released from the command line.
 
-Needs an agent speaking the protocol, node for the OpenSpec CLI and uv. Bills on demand and takes
+Needs Claude Code, node for the OpenSpec CLI and uv. Bills on demand and takes
 minutes, so it is marked e2e-test and excluded from the default suite.
 """
 
@@ -51,7 +54,7 @@ from tests.attach_driver import leave_lease
 from tests.factories import git, init_repo, scratch_app
 from tests.forges.github_server import FakeGitHub
 from tests.forges.process_host import process_env
-from tests.runtime_scratch import runtime_scratch
+from tests.runtime_scratch import CLAUDE_CODE_PARAMS, runtime_scratch
 from tests.scratch_tick import commits_on_unit_branch, run_tick
 
 pytestmark = [
@@ -59,10 +62,6 @@ pytestmark = [
     pytest.mark.skipif(shutil.which("npx") is None, reason="npx is not on PATH"),
     pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not on PATH"),
 ]
-
-# The scenarios run on the protocol runtime alone: the agent that is reached through the recorder
-# is the one a host names, and its session handling is what the chat flows are checked against.
-REASON = "the agent is reached through the protocol runtime's command, which the recorder wraps"
 
 CHANGE = "add-marker"
 BRANCH = f"spec/{CHANGE}/1"
@@ -83,7 +82,19 @@ TASKS = """# Tasks
 Acceptance: none — a single function whose own test is its proof
 """
 
-# Stands between the pipeline and the agent: the agent's stdin is copied to a file as it is read.
+# Claude Code's recorder: the prompt arrives on standard input, which is copied to the prompts file
+# and handed on from a file the shell has already unlinked, so `exec` leaves Claude, with its own
+# arguments (and the session id among them), as the only process.
+CLAUDE_RECORDER = """#!/bin/sh
+tmp=$(mktemp)
+cat > "$tmp"
+cat "$tmp" >> "{prompts}"
+exec 3< "$tmp"
+rm -f "$tmp"
+exec claude "$@" <&3
+"""
+
+# The protocol runtime's recorder: each line the client sends the agent is appended to a file.
 RECORDER = textwrap.dedent(
     """\
     import subprocess, sys, threading
@@ -116,15 +127,6 @@ fi
 """
 
 
-ACP_ONLY_REASONS = {
-    "test_a_request_against_a_requirement_is_flagged_and_changes_nothing": REASON,
-    "test_a_chat_edit_is_fixed_for_the_hook_committed_and_reviewed_without_a_round": REASON,
-    "test_a_free_session_changes_code_and_a_task_file_and_each_checkout_is_committed": REASON,
-    "test_the_next_rework_lists_the_outside_commit_as_authoritative": REASON,
-    "test_a_stale_attachment_is_released_from_the_command_line": REASON,
-}
-
-
 class Ran(Frozen):
     returncode: int
     output: str
@@ -136,6 +138,7 @@ class Scratch(Frozen):
     planning: Path
     app: Path
     remote: Path
+    runtime: str
     installation: Installation
     state: Path
     prompts: Path
@@ -160,13 +163,30 @@ def github_host() -> Iterator[FakeGitHub]:
         assert missed == [], f"the forge called routes the fake host does not serve: {missed}"
 
 
-@pytest.fixture(scope="module")
-def scratch(tmp_path_factory: pytest.TempPathFactory, github_host: FakeGitHub) -> Scratch:
+def recorded_runtimes(runtime: str, prompts: Path, command: list[str], directory: Path) -> str:
+    """The `runtimes` section of `abk.yaml` that wraps the agent of `runtime` in its recorder."""
+    if runtime == "acp":
+        recorder = directory / "recorder.py"
+        recorder.write_text(RECORDER)
+        wrapped = [sys.executable, str(recorder), str(prompts), *command]
+    else:
+        recorder = directory / "claude-recorder.sh"
+        recorder.write_text(CLAUDE_RECORDER.format(prompts=prompts))
+        recorder.chmod(0o755)
+        wrapped = [str(recorder)]
+    return f"runtimes:\n  {runtime}:\n    command: {wrapped}\n"
+
+
+@pytest.fixture(scope="module", params=CLAUDE_CODE_PARAMS)
+def scratch(
+    request: pytest.FixtureRequest,
+    tmp_path_factory: pytest.TempPathFactory,
+    github_host: FakeGitHub,
+) -> Scratch:
+    """The scratch installation for the runtime the test is parametrized with."""
     tmp_path = tmp_path_factory.mktemp("chat-editing")
-    runtime = runtime_scratch("acp", tmp_path_factory, lambda command: None)
+    runtime = runtime_scratch(request.param, tmp_path_factory, lambda command: None)
     prompts = tmp_path / "prompts.log"
-    recorder = tmp_path / "recorder.py"
-    recorder.write_text(RECORDER)
 
     remote = tmp_path / "remote.git"
     subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
@@ -188,12 +208,11 @@ def scratch(tmp_path_factory: pytest.TempPathFactory, github_host: FakeGitHub) -
         '- **THEN** it returns "marked"\n'
     )
     (change / "tasks.md").write_text(TASKS)
-    wrapped = [sys.executable, str(recorder), str(prompts), *runtime.command]
     (planning / "abk.yaml").write_text(
         f"repos:\n  app:\n    path: {app}\n    slug: example/app\n"
         "    profile: python-uv\n    languages: [python]\n"
         f"planning:\n  worktree_root: {tmp_path / 'worktrees'}\n"
-        f"runtimes:\n  acp:\n    command: {wrapped}\n"
+        f"{recorded_runtimes(runtime.runtime, prompts, runtime.command, tmp_path)}"
     )
     (planning / ".gitignore").write_text("runs/\n")
     git(planning, "add", "-A")
@@ -207,6 +226,7 @@ def scratch(tmp_path_factory: pytest.TempPathFactory, github_host: FakeGitHub) -
     }
     installation = Installation(config.load(planning / "abk.yaml"), planning)
     return Scratch(
+        runtime=runtime.runtime,
         planning=planning,
         app=app,
         remote=remote,
@@ -239,7 +259,7 @@ def scratch_workspace(workspace: object, scratch: Scratch) -> Iterator[None]:
 @pytest.fixture(scope="module")
 def api(scratch: Scratch) -> Iterator[httpx.Client]:
     with (
-        start_server(scratch.installation) as server,
+        start_server(scratch.installation, agent_environment=scratch.env) as server,
         httpx.Client(base_url=server.url, timeout=1800) as client,
     ):
         yield client
@@ -361,7 +381,6 @@ def in_review(scratch: Scratch) -> Scratch:
     return scratch
 
 
-@pytest.mark.runtime_acp
 def test_a_request_against_a_requirement_is_flagged_and_changes_nothing(
     in_review: Scratch, api: httpx.Client
 ) -> None:
@@ -385,7 +404,6 @@ def test_a_request_against_a_requirement_is_flagged_and_changes_nothing(
     api.delete(f"{UNIT_URL}/lease", params={"tab": "flag"})
 
 
-@pytest.mark.runtime_acp
 def test_a_chat_edit_is_fixed_for_the_hook_committed_and_reviewed_without_a_round(
     in_review: Scratch, api: httpx.Client
 ) -> None:
@@ -447,7 +465,6 @@ def test_a_chat_edit_is_fixed_for_the_hook_committed_and_reviewed_without_a_roun
     assert git(scratch.remote, "rev-parse", BRANCH).strip() == head(tree)
 
 
-@pytest.mark.runtime_acp
 def test_a_free_session_changes_code_and_a_task_file_and_each_checkout_is_committed(
     in_review: Scratch, api: httpx.Client
 ) -> None:
@@ -461,7 +478,7 @@ def test_a_free_session_changes_code_and_a_task_file_and_each_checkout_is_commit
         "/api/sessions",
         {
             "tab": "free",
-            "runtime": "acp",
+            "runtime": scratch.runtime,
             "unit": UNIT_ID,
             "prompt": (
                 'Add a one-line module docstring `"""The marker module."""` at the top of '
@@ -506,7 +523,6 @@ def test_a_free_session_changes_code_and_a_task_file_and_each_checkout_is_commit
     assert_chat_review_uncounted(log)
 
 
-@pytest.mark.runtime_acp
 def test_the_next_rework_lists_the_outside_commit_as_authoritative(in_review: Scratch) -> None:
     scratch = in_review
     outside = git(scratch.tree, "log", "-1", "--format=%H", "--grep=Add a version").strip()
@@ -530,7 +546,6 @@ def test_the_next_rework_lists_the_outside_commit_as_authoritative(in_review: Sc
     )
 
 
-@pytest.mark.runtime_acp
 def test_a_stale_attachment_is_released_from_the_command_line(in_review: Scratch) -> None:
     scratch = in_review
     tree = scratch.tree
