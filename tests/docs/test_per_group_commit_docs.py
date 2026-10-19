@@ -61,3 +61,10 @@ def test_the_pipeline_skill_names_the_feedback_source_and_the_requeue() -> None:
     assert "stub-checks" in text
     assert re.search(r"stub-checks.{0,600}requeue", text, re.I)
     assert re.search(r"stub-checks.{0,800}\btests?\b", text, re.I)
+
+
+def test_the_architecture_document_describes_the_stubbed_build() -> None:
+    text = squashed(DOCS / "architecture.md")
+    assert "stub_checks" in text
+    assert "fix_stub_checks" in text
+    assert "per_group_commits" in text

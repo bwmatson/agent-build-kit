@@ -196,8 +196,8 @@ With `builders.per_group_commits` on and a profile that supports stubs, each gro
 tests are checked (lint, format, types) before the tests commit, by `stub_checks`, with
 `fix_stub_checks` fixing what fails, up to `max_check_rounds`. A unit that stops there keeps the
 checker's output as its feedback under the source `stub-checks`. `abk requeue <unit>` sends it
-back to the tests step with that output, so the next agent call is the fix, not a rework; the
-rounds already used are kept. Ordinary review feedback still goes to rework.
+back to `fix_stub_checks` with that output, so the next agent call is the fix, not a rework and
+not the tests written again; the rounds already used are kept. Ordinary review feedback still goes to rework.
 
 ### Attached to a chat
 

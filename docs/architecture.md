@@ -426,6 +426,22 @@ release could move. The steps:
    not weaken them; commit `feat: <title>`. A branch left
    with no commits of its own — neither step added one — is not failed
    outright; see the satisfied outcome after unit-test, below.
+
+   **Stubbed build, per group.** With `builders.per_group_commits` on and a
+   profile that supports stubs, steps 3 and 4 run once per task group instead
+   of once per unit, making one `test:`/`feat:` pair per group. The tests run
+   writes the group's tests and stubs and the pipeline does not commit them
+   yet: `stub_checks` runs lint, format and types over the stubs and tests
+   (no test run), and only then commits `test:`. A failure is saved as
+   `stub-checks` feedback and `fix_stub_checks` hands it to the builder, then
+   back to `stub_checks`, up to `global_limits.max_check_rounds`; a round that
+   changes nothing, or the rounds spent, stops the unit. Each commit's body
+   holds a fixed sentence and the group's "Done when". The implementation run
+   then commits `feat:` for the group, and the next group starts with its own
+   tests. Resume reads the branch's commit subjects and starts at the first
+   group without its pair (a unit stopped in the loop goes back to
+   `fix_stub_checks`). A group left with no pair when the build ends stops the
+   unit, naming the group.
 5. **Checks, then review rounds.** Before each review round the branch has to
    pass unit-test (lint, formatting, types and the tests; see step 6): a reviewer's
    time goes on a branch that already builds. A failure is saved as feedback and

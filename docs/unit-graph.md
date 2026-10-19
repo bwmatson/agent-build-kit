@@ -4,7 +4,7 @@
 state, the node enum, the SQLite checkpointer with its allowlist and the
 compiled graph, and `graph/unit.run_unit` runs a unit on it, over the
 callables `wiring.build_runner` binds: `prepare`, `adapt`, `tests`,
-`implement`, `checks`, `fix_checks`, `review`, `rework`, `unit-test`, `e2e-test`,
+`implement`, `stub_checks`, `fix_stub_checks`, `checks`, `fix_checks`, `review`, `rework`, `unit-test`, `e2e-test`,
 `verify_base`, `new_comments`, `push`, `open_pr`, `await_review`, `satisfied`, `held` and
 `failed`, joined by the edges below. Before a step that starts work or leaves
 the machine the nodes consult `upstream_incomplete` and the hold, and a unit
@@ -230,7 +230,9 @@ flowchart TD
     end
 
     start((start)) --> prepare
-    prepare -->|nothing of its own yet| tests
+    prepare -->|nothing of its own yet; also a part-built stubbed branch whose next group has no tests| tests
+    prepare -->|part-built stubbed branch, next group's tests committed| implement
+    prepare -->|stopped in the stub check loop| fix_stub_checks
     prepare -->|work on the branch| checks
     prepare -->|approved tip| verify_base
     prepare -->|the restack's two steps failed| adapt
@@ -240,13 +242,14 @@ flowchart TD
     adapt --> checks
     adapt --> rework
     adapt --> verify_base
-    tests --> implement
+    tests -->|not stubbed| implement
     tests -->|stubbed build| stub_checks
     stub_checks -->|passed, commits the tests| implement
     stub_checks -->|failed, rounds left| fix_stub_checks
     stub_checks -->|failed, rounds spent or nothing changed| failed
     fix_stub_checks --> stub_checks
-    implement -->|a group has no pair| tests
+    implement -->|stubbed build, a group is left| tests
+    implement -->|a group has no pair| failed
     implement -->|commits| checks
     implement -->|nothing new| unit-test
     checks -->|passed| review
@@ -305,19 +308,19 @@ flowchart TD
 
     classDef agent fill:#fde68a,stroke:#b45309,color:#1c1917
     classDef forge fill:#bfdbfe,stroke:#1d4ed8,color:#1c1917
-    class tests,implement,fix_checks,review,rework,adapt agent
+    class tests,implement,fix_stub_checks,fix_checks,review,rework,adapt agent
     class push,open_pr,await_review,satisfied forge
     style grp_ready fill:#f5f5f4,stroke:#a8a29e
     style grp_build fill:#fffbeb,stroke:#d97706
     style grp_quality fill:#f0fdf4,stroke:#16a34a
     style grp_host fill:#eff6ff,stroke:#2563eb
     style grp_stopped fill:#fef2f2,stroke:#dc2626
-    linkStyle 1,2,3,4,5,6,7,8,9,10,40 stroke:#9ca3af,stroke-width:2px
-    linkStyle 11,12,13,32,33 stroke:#f59e0b,stroke-width:2px
-    linkStyle 14,15,18,19,20,21,31,34,35,36,37,39,41,42,43,45,46,47,48 stroke:#22c55e,stroke-width:2px
-    linkStyle 49,50,52,53,55,56,57,59,60 stroke:#3b82f6,stroke-width:2px
-    linkStyle 61,62,63,64,65,66 stroke:#f87171,stroke-width:2px
-    linkStyle 16,17,22,23,24,25,26,27,28,29,30,38,44,51,54,58 stroke:#ef4444,stroke-width:2px,stroke-dasharray:6 4
+    linkStyle 0,1,2,3,4,5,6,7,8,9,10,11,12,49 stroke:#9ca3af,stroke-width:2px
+    linkStyle 13,14,18,19,21,22,41,42 stroke:#f59e0b,stroke-width:2px
+    linkStyle 15,16,23,24,27,28,29,30,40,43,44,45,46,48,50,51,52,54,55,56,57 stroke:#22c55e,stroke-width:2px
+    linkStyle 58,59,61,62,64,65,66,68,69 stroke:#3b82f6,stroke-width:2px
+    linkStyle 70,71,72,73,74,75 stroke:#f87171,stroke-width:2px
+    linkStyle 17,20,25,26,31,32,33,34,35,36,37,38,39,47,53,60,63,67 stroke:#ef4444,stroke-width:2px,stroke-dasharray:6 4
 ```
 
 The boxes group the nodes by what they do: getting the branch ready, the agent's build steps, the quality checks (the pipeline's own checks and fix rounds, the unit-test and e2e-test runs, the agent review and the base check), the human review and code host (the pull request comments, the push, opening the pull request and waiting for a person), and the places a unit stops. A line takes the colour of the group it leaves (grey from getting ready, amber from the agent's builds, green from the quality checks, blue from the human review and code host, light red from the stopped group), and a dashed red line is one that puts the unit in `held` or `failed` from another group.
@@ -335,8 +338,10 @@ are the reference for each condition. The nodes:
 | Node | Does | Wraps (from `wiring.build_runner`) |
 |---|---|---|
 | `prepare` | Worktree, fetch, move the branch onto its base, settling a conflict with the restack's two resolver steps in the build session (hunks, then dependent files) and handing what they cannot settle to `adapt` (for a unit told its base moved, the restack lane runs this node and the nodes after it, and stops before any work that is not about the move (a rework of other feedback, a fix of checks, the end-to-end tests, tests or implementation)); picks the next node from what is on the branch and in state | worktree setup, `restack_onto`, `branch_commits` |
-| `tests` | The tests-first commit | `run`, `commit` |
-| `implement` | The implementation commit; a step that adds nothing is judged as any other, not against the usage window | `run`, `commit`, `may_start` |
+| `tests` | The tests-first commit. A stubbed build makes one pair per group: the tests are written here and committed only once `stub_checks` passes, each commit's body holding the fixed sentence and the group's "Done when" | `run`, `commit` |
+| `stub_checks` | Stubbed build only: lint, format and types over the stubs and tests, with no test run, then commits `test:`. On failure it saves the output as `stub-checks` feedback and stops the unit once `global_limits.max_check_rounds` is spent | `run_stub_checks`, `commit` |
+| `fix_stub_checks` | Hands that output to the builder, stops if the round changed nothing, then back to `stub_checks` | `run`, `tree_state` |
+| `implement` | The implementation commit; a step that adds nothing is judged as any other, not against the usage window. A stubbed build makes one `feat:` per group, with the same body, and goes back to `tests` while a group is left; a group with no pair stops the unit | `run`, `commit`, `may_start` |
 | `checks` | Unit-test on the branch **before a reviewer is asked**, on the committed tree. Passing records the commit, so `unit-test` after approval is not repeated on it | `unit-test`, `commit` |
 | `fix_checks` | Hands the failed checks' output to the builder, bounded by `global_limits.max_check_rounds`, then back to `checks`. Records no reply, as there is no reviewer to answer | `run`, `commit`, `may_start` |
 | `review` | One review round; records the verdict, findings, follow-ups and the approved commit. After a person's rework it is also given their comments, quoted, each with the builder's reply or `(no reply)` | `run_review` / `run_rework_review` |
