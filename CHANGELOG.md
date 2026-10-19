@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- The kit's drift test now checks each live test more strictly. It finds live-stack
+  modules anywhere under `tests/` by syntax, decides per test from a table of signals
+  (`AGENT_SIGNALS`) whether an agent starts, fails a runtime tag that disagrees with what the
+  test starts, and checks the split names against the registered markers. Claude scenarios
+  with no ACP sibling are listed in `docs/agent-runtimes.md`; a difference from the tests is
+  a warning, never a failure.
+
 - A unit's own-test e2e-test selection now names only files the test runner collects by
   default (for Python, `test_*.py` and `*_test.py`). A helper module under `tests/` or a
   `conftest.py` holding a `test_` function is no longer run by identifier without its

@@ -148,6 +148,11 @@ docs/              architecture, configuration, cli, toolchain-profiles, agent-r
   others: `poe test` runs it in a serial pass after the parallel one, and
   `pytest <file>` runs without workers. Test directories carry no `__init__.py`, so test file
   basenames must be unique.
+- **A new live test is tagged by what it starts.** A live test that starts an agent carries exactly one
+  runtime tag (`runtime_acp` or `runtime_claude_code`), the one of the runtime it starts; the drift
+  test decides what starts one from `AGENT_SIGNALS` in `tests/live_tag_drift.py` and compares the
+  tag with it. An ACP scenario with no Claude variant states why in its module's
+  `ACP_ONLY_REASONS` (scenario name to reason); a Claude one may say so in `CLAUDE_ONLY_REASONS`.
 - **A new live test uses the shared tick.** It runs `abk tick` with `run_tick` and reads a unit's
   branch with `commits_on_unit_branch`, both from `tests/scratch_tick.py`, and puts the tick's
   output in the message of an assertion about the tick or a unit's state. It never defines its

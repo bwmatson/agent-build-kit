@@ -11,6 +11,7 @@ import inspect
 import re
 import textwrap
 import tomllib
+import warnings
 from collections import defaultdict
 from functools import cache
 from pathlib import Path
@@ -30,6 +31,8 @@ INTEGRATION = ROOT / "tests" / "integration"
 ACP, CLAUDE_CODE = "runtime_acp", "runtime_claude_code"
 SPLITS_HEADING = "This repo's own splits"
 UNTAGGED_SPLIT = "rest"
+GAPS_HEADING = "Claude scenarios without an ACP sibling"
+CLAUDE_REASONS_TABLE = "CLAUDE_ONLY_REASONS"
 CLAUDE_PROGRAM = "claude"
 CLAUDE_ACCOUNT = "claude_account"
 PROTOCOL_CLASS = "AcpRuntime"
@@ -342,18 +345,36 @@ def split_of(item: pytest.Item) -> str:
 def claude_without_acp(items: list[pytest.Item]) -> list[str]:
     """The sorted `file::scenario` of every Claude-tagged scenario among `items` with no ACP
     sibling and no entry in its module's `CLAUDE_ONLY_REASONS` (optional, never required)."""
-    raise NotImplementedError
+    scenarios: dict[tuple[Path, str], set[str]] = defaultdict(set)
+    tables: dict[Path, dict[str, str]] = {}
+    for item in items:
+        path = Path(module_of(item).__file__)
+        tables[path] = getattr(module_of(item), CLAUDE_REASONS_TABLE, {})
+        scenarios[path, getattr(item, "originalname", item.name)].update(runtime_tags(item))
+    return sorted(
+        f"{path.name}::{scenario}"
+        for (path, scenario), tags in scenarios.items()
+        if CLAUDE_CODE in tags and ACP not in tags and scenario not in tables[path]
+    )
 
 
 def documented_gaps(document: Path) -> list[str]:
     """The bullets under "Claude scenarios without an ACP sibling" in `document`."""
-    raise NotImplementedError
+    section = document.read_text().split(GAPS_HEADING, 1)[1]
+    section = re.split(r"^#", section, maxsplit=1, flags=re.MULTILINE)[0]
+    return re.findall(r"^- `([^`]+)`", section, re.MULTILINE)
 
 
 def warn_gap_list_drift(items: list[pytest.Item], document: Path) -> None:
     """Warn (`UserWarning`), naming it, of each gap among `items` that `document` does not list
     and each entry of `document` that is no longer a gap. Never fails."""
-    raise NotImplementedError
+    current, documented = set(claude_without_acp(items)), set(documented_gaps(document))
+    for name in sorted(current - documented):
+        warnings.warn(
+            f"{name}: a Claude scenario with no ACP sibling, not in {document.name}", stacklevel=2
+        )
+    for name in sorted(documented - current):
+        warnings.warn(f"{name}: listed in {document.name} but no longer a gap", stacklevel=2)
 
 
 def drifted(pytester: pytest.Pytester, **modules: str) -> list[str]:
