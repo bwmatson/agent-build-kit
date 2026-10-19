@@ -28,6 +28,7 @@ from agent_build_kit.pipeline.work_graph import TaskGroup
 
 __all__ = [
     "STOCK_CONFIG",
+    "coded_repo",
     "commit",
     "commit_files",
     "commit_unit_work",
@@ -323,3 +324,16 @@ def planning(root: Path) -> Installation:
 def which_all(name: str) -> str | None:
     """A `which` that finds every program."""
     return f"/usr/bin/{name}"
+
+
+def coded_repo(path: Path, slug: str) -> Path:
+    """A committed code repo with a remote for `slug` and a Python manifest, as `abk init
+    --repo` detects one."""
+    app = init_repo(path)
+    git(app, "remote", "add", "origin", f"git@github.com:{slug}.git")
+    (app / "pyproject.toml").write_text('[project]\nname = "app"\n')
+    (app / "src").mkdir()
+    (app / "src" / "app.py").write_text("x = 1\n")
+    git(app, "add", "-A")
+    git(app, "commit", "-q", "-m", "code")
+    return app
