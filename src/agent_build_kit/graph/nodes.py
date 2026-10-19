@@ -1390,13 +1390,15 @@ class BuildPath:
             return f"{prefix}{self.unit.title}"
         return f"{prefix}{step.title}\n\n" + "\n\n".join(filter(None, (body, step.goal)))
 
-    def missing_pairs(self, ref: str) -> str:
-        """The groups the branch holds no pair for, named; "" when it holds one for each."""
+    def unpaired(self, state: UnitRun, ref: str) -> str:
+        """The group just built, named, when the branch does not hold a pair for it and every
+        group before it; "" when it does."""
         steps = self.runner.group_steps(self.unit)
-        done = group_progress(
-            self.runner.branch_subjects(self.tree(), ref), [s.title for s in steps]
-        ).done
-        return ", ".join(f"group {s.number} ({s.title})" for s in steps[done:])
+        subjects = self.runner.branch_subjects(self.tree(), ref)
+        if group_progress(subjects, [s.title for s in steps]).done > state.group:
+            return ""
+        step = steps[state.group]
+        return f"group {step.number} ({step.title})"
 
     def stubbed(self) -> bool:
         """Whether this unit is built stubbed: the setting is on and its profile supports stubs."""
@@ -1436,11 +1438,9 @@ class BuildPath:
             )
             r.commit(self.message(CODE_PREFIX, CODE_BODY, state), cwd=tree, base=self.ref(state))
             more = self.group_step(state) is not None and state.group + 1 < len(r.group_steps(unit))
-            if self.group_step(state) is not None and not more:
-                if missing := self.missing_pairs(ref):
-                    return self.stop(
-                        f"the branch holds no tests and implementation pair for {missing}"
-                    )
+            if self.group_step(state) is not None and (missing := self.unpaired(state, ref)):
+                # After every group, so a later group's tests are never written over a gap.
+                return self.stop(f"the branch holds no tests and implementation pair for {missing}")
             if not more:
                 # Kept until the last group, so every group's prompts carry the note.
                 r.store.set_guidance(unit.id, "")
@@ -2527,11 +2527,12 @@ def after_prepare(state: UnitRun) -> Node:
         # Stopped or killed in the check loop on the tests: back to the fix the saved
         # output asks for.
         return Node.FIX_STUB_CHECKS
+    if state.resume:
+        # A stubbed build continues at the first group without its pair, whatever note or
+        # restack feedback waits: the groups carry it in their prompts.
+        return Node.IMPLEMENT if state.resume == RESUME_IMPLEMENT else Node.TESTS
     if state.had_feedback:
         return Node.REWORK
-    if state.resume:
-        # A stubbed build continues at the first group without its pair.
-        return Node.IMPLEMENT if state.resume == RESUME_IMPLEMENT else Node.TESTS
     if not state.base_commits:
         return Node.TESTS
     if state.head_approved:

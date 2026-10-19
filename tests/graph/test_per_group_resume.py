@@ -65,3 +65,15 @@ def test_a_restack_that_rewrote_every_hash_still_resumes_at_the_right_group(
     assert outcome.status == "open"
     assert recorder.subjects == ["test: G3", "feat: G3"]
     assert subjects(repo)[:4] == PAIRS
+
+
+def test_a_part_built_branch_with_a_saved_note_continues_at_the_next_group(tmp_path: Path) -> None:
+    note = "keep the marker name short"
+    recorder, outcome, repo = built(tmp_path, seeded=PAIRS, guidance=note)
+
+    assert outcome.status == "open"
+    assert "claude:rework" not in recorder.events
+    assert recorder.events[:5] == PAIR_STEPS
+    assert group_named(recorder.prompts[0]) == "3"
+    assert note in recorder.prompts[0], "the note reaches the group's prompt"
+    assert subjects(repo) == [*PAIRS, "test: G3", "feat: G3"]

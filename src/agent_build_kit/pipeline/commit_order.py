@@ -133,10 +133,6 @@ def _file_at(repo: Path, sha: str, path: str) -> str:
         return ""  # Deleted in this commit; nothing to vouch for.
 
 
-def _subject(repo: Path, sha: str) -> str:
-    return git_out(repo, "log", "-1", "--format=%s", sha)
-
-
 def branch_subjects(repo: Path, base: str) -> list[str]:
     """The subject of each commit the checked-out branch carries beyond `base`, oldest first.
     Read from the subjects, not the hashes, so a restack that rewrote every commit changes
@@ -267,6 +263,6 @@ def check_structure(
             break
 
     if paired:
-        problems.extend(_pair_problems([_subject(repo, sha) for sha in shas]))
+        problems.extend(_pair_problems(branch_subjects(repo, base)))
 
     return problems

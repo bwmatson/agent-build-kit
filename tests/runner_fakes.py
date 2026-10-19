@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_build_kit.config import active
+from agent_build_kit.pipeline.commit_order import TESTS_PREFIX
 from agent_build_kit.pipeline.stack_runner import UnitRunner
 from agent_build_kit.pipeline.unit_store import UnitStore
 
@@ -108,8 +109,9 @@ class Recorder:
 
     def commit(self, message: str, *, cwd: Path, base: str = "") -> int:
         self.messages.append(message)
-        self.subjects.append(message.split("\n", 1)[0])
-        count = 1 if "test" in message else self.commits_from_impl
+        subject = message.split("\n", 1)[0]
+        self.subjects.append(subject)
+        count = 1 if subject.startswith(TESTS_PREFIX) else self.commits_from_impl
         self.made += count
         self._after(f"commit:{message.split(':')[0]}")
         return count

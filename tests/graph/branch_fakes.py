@@ -105,11 +105,13 @@ def built(
     carries: tuple[Member, ...] = (),
     setting: bool = True,
     meanwhile: Callable[[Path], None] | None = None,
+    guidance: str = "",
     **options: Any,
 ) -> tuple[OnBranch, RunOutcome, Path]:
     """Build the unit over a branch holding `seeded` subjects. `groups` is each change's tasks,
     the unit's own change first; the unit builds the groups listed under its own change and
-    those the members in `carries` name. `meanwhile` acts on the branch before the build starts."""
+    those the members in `carries` name. `meanwhile` acts on the branch before the build starts,
+    and `guidance` is a person's note saved on the unit before it does."""
     activate_with(builders={"per_group_commits": setting})
     tasks = groups or {"add-marker": titled(1, 2, 3)}
     for change, listed in tasks.items():
@@ -119,6 +121,8 @@ def built(
         meanwhile(repo)
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored_unit(groups=tuple(tasks["add-marker"]), joined=carries)])
+    if guidance:
+        store.set_guidance(UNIT, guidance)
     recorder = OnBranch(store, **options)
     outcome = build(tmp_path, recorder, **recorder.overrides(tmp_path))
     return recorder, outcome, repo

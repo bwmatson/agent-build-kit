@@ -45,3 +45,16 @@ def test_a_unit_that_is_not_stubbed_is_counted_as_before(tmp_path: Path) -> None
     assert outcome.status == "open", "one pair for the unit, and its tests commit is work enough"
     assert subjects(repo) == ["test: Register the marker"]
     assert "review" in plain.events
+
+
+def test_a_middle_group_without_an_implementation_commit_stops_the_unit_at_that_group(
+    tmp_path: Path,
+) -> None:
+    recorder, outcome, repo = built(tmp_path, groups=GROUPS, no_commit_for="1")
+
+    assert outcome.status == "failed"
+    assert "group 1" in outcome.detail
+    assert "group 2" not in outcome.detail and "group 3" not in outcome.detail
+    assert recorder.events.count("claude:tests") == 1, "no later group's tests are written"
+    assert subjects(repo) == ["test: Parse the key"]
+    assert "review" not in recorder.events
