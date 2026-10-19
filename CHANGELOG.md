@@ -7,6 +7,10 @@
   `conftest.py` holding a `test_` function is no longer run by identifier without its
   environment. A unit that touched only such files runs nothing, and the skip line lists
   them. A custom `python_files` or `testpaths` is not read.
+- A unit parked on a held e2e-test split now follows its group's `Split:`. Edit the line
+  (and the group's tasks) and run `abk replan` or wait for the next tick: the unit is reworked
+  once with an automatic note, instead of staying parked on the old split. If the new split is
+  held, the rework waits until it is released, and `abk status` says so.
 
 - The build can commit per task group behind `builders.per_group_commits` (off by default):
   each group gets a `test:` commit of stubs and tests, checked for lint, format and types

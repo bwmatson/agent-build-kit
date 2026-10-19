@@ -1465,6 +1465,20 @@ cause `split_held`. The scheduled e2e-test run is one change per split and `rest
 `scheduled-e2e-<repo>-<date>-<split>`; an older change with no suffix or ending `-base`
 counts as `rest`.
 
+A parked unit follows its group's `Split:`. Each pass, after planning and before the release of
+split-held units, reads the groups of every planned unit with the cause `split_held`, parked splits
+and no run in flight, as `tasks.md` has them now. When they are all in one split that is not the
+split the unit is stored in and not one it is parked on, the park ends once: the unit is delivered
+a rework requeue (not a resume) with an automatic note that says the `Split:` changed from the old
+split to the new one, that the task text changed with it and that the group's tasks are to be read
+again; its parked fields are cleared and its stored split becomes the new one, so the next pass
+finds nothing to do. A new split that is itself held defers the rework: the unit stays parked, and
+releasing the old split does not resume it onto its old tests. A group that still says the stored
+split, or says a split the unit is parked on (the backstop), leaves the unit parked, as do groups
+that do not read as one split or a tasks file `abk tags` refuses. `abk status` shows a deferred
+unit on its parked line, a dry run says what it would rework, and `abk replan` runs the same step
+after it plans.
+
 A group of a change declares its split with a `Split:` line, because the planner cannot know where
 a test will land until it is written, and a unit must be started or left alone whole: the unit
 records the one split its groups share and groups of two splits are never joined. A planned unit

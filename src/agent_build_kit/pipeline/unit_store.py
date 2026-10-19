@@ -1184,6 +1184,10 @@ class UnitStore:
     ) -> None:
         self._update(unit_id, parked_splits=list(splits), parked_sha=sha, parked_snapshot=snapshot)
 
+    def set_split(self, unit_id: str, split: str) -> None:
+        """The e2e-test split the unit is stored in, where a started unit's group was edited."""
+        self._update(unit_id, split=split)
+
     def set_needs(self, unit_id: str, needs: Sequence[str]) -> None:
         self._update(unit_id, needs=tuple(needs))
 

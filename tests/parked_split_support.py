@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from types import EllipsisType
 from typing import Any
 
 import pytest
@@ -29,23 +30,26 @@ def installation(
     acp: bool | None = True,
     claude_code: bool | None = None,
     rest: bool | None = None,
-    gpu: bool | None = None,
+    gpu: bool | None | EllipsisType = ...,
     gate: dict[str, Any] | None = None,
     claude_code_gate: dict[str, Any] | None = None,
     **overrides: Any,
 ) -> Installation:
     """Two splits declared for every repo; `acp` and `claude_code` carry the configured `hold`
     given (None leaves the entry without one) and each the gate given for it. `gpu` declares a
-    third split, configured as given, and is left undeclared when None. The state directory
-    is the planning root; `rest` is the configured hold of the split every
+    third split, configured as given (None for no hold), and is left undeclared by default. The
+    state directory is the planning root; `rest` is the configured hold of the split every
     unmarked test is in, left undeclared when None."""
     splits: dict[str, dict[str, Any]] = {}
     for name, configured in (("acp", acp), ("claude_code", claude_code)):
         splits[name] = {"marker": f"runtime_{name}"}
         if configured is not None:
             splits[name]["hold"] = configured
-    if gpu is not None:
-        splits["gpu"] = {"marker": "runtime_gpu", "hold": gpu}
+    if not isinstance(gpu, EllipsisType):
+        entry: dict[str, Any] = {"marker": "runtime_gpu"}
+        if gpu is not None:
+            entry["hold"] = gpu
+        splits["gpu"] = entry
     if rest is not None:
         splits["rest"] = {"hold": rest}
     if gate is not None:

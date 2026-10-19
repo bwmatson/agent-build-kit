@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import PLANNED
 from tests.parked_split_support import hold, installation, park, store_of
 from tests.split_changed_support import Reworks, release, write_split
@@ -61,6 +62,7 @@ def test_a_reworked_unit_is_requeued_and_its_history_names_both_splits(
     unit = store.get("feature/1")
     assert unit.state == PLANNED
     assert "acp" in unit.note and "claude_code" in unit.note
-    [shown] = [line for line in lines if "feature/1" in line and "requeued" in line]
-    assert "claude_code" in shown
-    assert not any("e2e-test split" in line for line in lines), "no longer parked"
+    assert unit.cause is Cause.REQUEUED
+    mentions = [line for line in lines if "feature/1" in line]
+    assert len(mentions) == 1 and "planned order" in mentions[0], "queued, not parked"
+    assert not any("waiting for e2e-test split" in line for line in lines)

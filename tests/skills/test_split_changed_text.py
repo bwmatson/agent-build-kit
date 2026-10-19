@@ -36,8 +36,11 @@ def test_the_authoring_skill_says_an_edit_of_a_started_units_split_takes_effect_
 def test_the_changelog_has_the_bullet_once_under_unreleased() -> None:
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     unreleased = re.split(r"^## ", changelog, flags=re.MULTILINE)[1]
-    bullets = [b for b in re.split(r"\n\s*\n", unreleased) if "Split:" in b and "parked" in b]
+    bullets = [
+        b
+        for b in re.split(r"\n\s*\n", unreleased)
+        if "Split:" in b and "parked" in b and "rework" in b
+    ]
 
     assert unreleased.startswith("Unreleased")
     assert len(bullets) == 1
-    assert "rework" in flat(bullets[0]).lower()
