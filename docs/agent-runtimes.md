@@ -1088,8 +1088,8 @@ and `fixture.environment()` give them. The mode is `ABK_REPLAY_MODE`.
 
 ### The acceptance test
 
-`tests/integration/test_replay_unit.py` builds one scratch unit three times with the agent named
-by `ABK_ACCEPTANCE_ACP_COMMAND`, each time as a pytest session with the replay plugin over one
+`tests/integration/test_replay_unit.py` builds one scratch unit three times with the Claude Code
+agent, each time as a pytest session with the replay plugin over one
 cassette directory: in `record` mode, in `replay` mode with nothing changed, and in `replay`
 mode with the task text edited. Run it with `uv run pytest -m local_stack
 tests/integration/test_replay_unit.py`; it needs node, uv and an agent, bills on demand and

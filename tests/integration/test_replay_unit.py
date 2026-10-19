@@ -1,7 +1,7 @@
 """Replay proven on a real unit: a live pass, a replay of it, and a changed input going live.
 
-One scratch unit (`replay_unit_build.py`) is built three times by `abk tick` with the agent named
-by `ABK_ACCEPTANCE_ACP_COMMAND`, each time as a pytest session with the replay plugin over the
+One scratch unit (`replay_unit_build.py`) is built three times by `abk tick` with the Claude Code
+agent, each time as a pytest session with the replay plugin over the
 same cassette directory: in `record` mode, in `replay` mode with nothing changed, and in `replay`
 mode with the task text edited. What is asserted is read from what the sessions leave: the
 cassettes, `report.json` and the terminal summary.
@@ -39,14 +39,6 @@ pytestmark = [
     pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not on PATH"),
 ]
 
-# Each scenario drives the protocol runtime only: how Claude Code is pointed at the proxy is
-# unverified (docs/agent-runtimes.md), so there is no claude_code variant yet.
-POINTED_AT_ACP_ONLY = "the proxy is pointed at the protocol agent only"
-ACP_ONLY_REASONS = {
-    "test_a_live_pass_in_record_mode_is_promoted_to_cassettes": POINTED_AT_ACP_ONLY,
-    "test_an_unchanged_rerun_replays_the_deterministic_calls_and_is_labelled": POINTED_AT_ACP_ONLY,
-    "test_an_edited_task_sends_exactly_the_changed_calls_live": POINTED_AT_ACP_ONLY,
-}
 TEST_ID = "tests/integration/replay_unit_build.py::test_the_unit_is_built"
 LABEL = re.compile(r"replayed: (\d+) of (\d+) external calls replayed, (\d+) live")
 RECORDED_MARKER = "marked"
@@ -130,7 +122,7 @@ def edited_step(replayed_step: Step, cassettes: Path, scratch_root: Path) -> Ste
     return run_step(ReplayMode.replay, EDITED_MARKER, cassettes, scratch_root)
 
 
-@pytest.mark.runtime_acp
+@pytest.mark.runtime_claude_code
 def test_a_live_pass_in_record_mode_is_promoted_to_cassettes(recorded_step: Step) -> None:
     record = recorded_step
 
@@ -142,7 +134,7 @@ def test_a_live_pass_in_record_mode_is_promoted_to_cassettes(recorded_step: Step
     assert record.after, record.output
 
 
-@pytest.mark.runtime_acp
+@pytest.mark.runtime_claude_code
 def test_an_unchanged_rerun_replays_the_deterministic_calls_and_is_labelled(
     recorded_step: Step, replayed_step: Step, record_property: Callable[[str, object], None]
 ) -> None:
@@ -179,7 +171,7 @@ def test_an_unchanged_rerun_replays_the_deterministic_calls_and_is_labelled(
     assert replay.report.billed_calls_avoided <= len(replayed_model)
 
 
-@pytest.mark.runtime_acp
+@pytest.mark.runtime_claude_code
 def test_an_edited_task_sends_exactly_the_changed_calls_live(edited_step: Step) -> None:
     edited = edited_step
 
