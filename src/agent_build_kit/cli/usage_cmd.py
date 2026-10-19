@@ -16,11 +16,11 @@ from agent_build_kit.pipeline.usage_allowances import (
     allowances_line,
     calibrate_pairs,
     calibrated_allowances,
+    of_account,
     pairs,
-    since_last_change,
 )
-from agent_build_kit.pipeline.usage_calls import CALLS_NAME, read_calls
-from agent_build_kit.pipeline.usage_guard import WindowEstimate, claude_limits
+from agent_build_kit.pipeline.usage_calls import calls_path, read_calls
+from agent_build_kit.pipeline.usage_guard import WindowEstimate
 from agent_build_kit.pipeline.usage_ledger import (
     LEDGER_NAME,
     read_ledger,
@@ -47,10 +47,14 @@ def _points(value: str) -> int:
 
 def cmd_usage_replay(args: argparse.Namespace, inst: Installation) -> int:
     """Re-run the estimate over each usable gap of the record; writes and asks nothing."""
-    limits = claude_limits()
-    # Only the readings after the last change of account, as the calibration pairs them.
-    calls = since_last_change(read_calls(inst.state_dir / CALLS_NAME), claude_account.account_key())
-    ledger = read_ledger(inst.state_dir / LEDGER_NAME)
+    account = claude_account.resolve(inst, args.account)
+    limits = account.limits
+    # Only the readings of the account asked about (the default one without the flag).
+    calls, ledger = of_account(
+        read_calls(calls_path(inst.state_dir, account)),
+        read_ledger(inst.state_dir / LEDGER_NAME),
+        account,
+    )
     margin = limits.usage_headroom_margin_pct if args.margin is None else args.margin
     min_gap = timedelta(minutes=limits.usage_cache_minutes)
     now = datetime.now(UTC)
@@ -106,7 +110,8 @@ def cmd_usage_replay(args: argparse.Namespace, inst: Installation) -> int:
         )
     if not anywhere:
         print("no usable gap")
-    print(allowances_line(calibrated_allowances(calls, ledger, limits=limits, now=now), limits))
+    found = calibrated_allowances(calls, ledger, limits=limits, now=now, account=account)
+    print(allowances_line(found, limits))
     return 0
 
 
@@ -117,6 +122,11 @@ def register(sub: argparse._SubParsersAction) -> None:
     )
     commands = parser.add_subparsers(dest="usage_command", required=True)
     replay = commands.add_parser("replay", help="re-run the usage estimate over the history")
+    replay.add_argument(
+        "--account",
+        default=None,
+        help="the label of the account to replay (default: the default account)",
+    )
     replay.add_argument(
         "--since", type=_since, default=None, help="only gaps whose first reading is this late"
     )

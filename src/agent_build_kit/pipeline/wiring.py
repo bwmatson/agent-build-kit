@@ -2114,7 +2114,10 @@ Decide = Callable[[UsageReading | None], Decision]
 
 
 def _guard_decision(
-    usage: Reading | None, decide: Decide | None, start: Callable[[], Decision] | None
+    usage: Reading | None,
+    decide: Decide | None,
+    start: Callable[[], Decision] | None,
+    account: claude_account.Account | None = None,
 ) -> Callable[[], tuple[Decision, datetime | None]]:
     """One decision of the usage guard, and the reset time to fall back on when a refusal
     names no time of its own.
@@ -2124,7 +2127,7 @@ def _guard_decision(
     own `start`, or its own `usage` and `decide`, is asked as it says.
     """
     if start is None and usage is None and decide is None:
-        start = decide_start
+        start = partial(decide_start, account=account)
     if start is not None:
         decide_now = start
 
@@ -2194,6 +2197,7 @@ def build_usage_gate(
     usage: Reading | None = None,
     decide: Decide | None = None,
     start: Callable[[], Decision] | None = None,
+    account: claude_account.Account | None = None,
 ) -> tuple[Callable[[], tuple[bool, str]], Callable[[], datetime | None]]:
     """`may_start` and `resume_at` for one gate, taking one decision between them.
 
@@ -2201,7 +2205,7 @@ def build_usage_gate(
     again. Both answers come from the decision the first took, so a refusal is
     one decision of the guard and its reason and its deadline describe the same moment.
     """
-    decided = _guard_decision(usage, decide, start)
+    decided = _guard_decision(usage, decide, start, account)
     held: list[tuple[Decision, datetime | None]] = []
 
     def may_start() -> tuple[bool, str]:
@@ -3553,7 +3557,7 @@ def build_runner(
             installation.planning_paths if in_repo_name(installation) == unit.repo else ()
         ),
     )
-    gate_may_start, gate_resume_at = build_usage_gate()
+    gate_may_start, gate_resume_at = build_usage_gate(account=account)
     return UnitRunner(
         account=account,
         store=store,

@@ -128,6 +128,8 @@ class UsageRecord(BaseModel):
     # when both exist, so a report can show the difference.
     reported: Usage | None = None
     outcome: str = ""
+    # The account directory the call ran under; None for the default account.
+    account: str | None = None
 
     # A line written before the rename holds the old spelling of its kind; an empty kind stays.
     _read_old_kind = field_validator("tier", mode="before")(read_old_kind)

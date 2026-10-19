@@ -257,13 +257,13 @@ from agent_build_kit.pipeline.units import (
 )
 from agent_build_kit.pipeline.untouched_failures import preexisting_record, preview
 from agent_build_kit.pipeline.usage_allowances import (
-    ALLOWANCES_NAME,
     allowances_line,
+    allowances_path,
     read_allowances,
     refresh_allowances,
 )
 from agent_build_kit.pipeline.usage_calls import (
-    CALLS_NAME,
+    calls_path,
     derive_rate,
     interval_line,
     rate_line,
@@ -285,6 +285,7 @@ from agent_build_kit.pipeline.usage_guard import (
     held_estimate_line,
     held_usage,
     may_start_unit,
+    on_account,
     reading_as,
     refreshed_usage,
     threshold_at,
@@ -599,6 +600,55 @@ def _slots_line(inst: Installation, units: list[StoredUnit]) -> str | None:
     return f"slots: {taken}/{cap}{count}"
 
 
+def accounts_in_use(inst: Installation) -> list[claude_account.Account]:
+    """The accounts the repos run on, each once, in the order the repos are named; the default
+    account alone when no repo is named."""
+    found: dict[str | None, claude_account.Account] = {}
+    for name in inst.repos:
+        account = claude_account.for_repo(inst.config, name)
+        found.setdefault(claude_account.account_key(account), account)
+    return list(found.values()) or [claude_account.Account(limits=claude_limits())]
+
+
+def _whose(account: claude_account.Account) -> str:
+    """Which account a status line is about, when it is not the default."""
+    key = claude_account.account_key(account)
+    label = f"{account.label}, " if account.label else ""
+    return f" (account {label}{key})" if key else ""
+
+
+def _account_usage_lines(
+    args: argparse.Namespace, inst: Installation, account: claude_account.Account
+) -> list[str]:
+    """What `abk status` says of one account's usage: its reading judged on its own thresholds,
+    the estimate, the allowances in force, the call rate and the cache interval, each from the
+    account's own files and marked as its."""
+    whose = _whose(account)
+    lines = [_account_usage_line(args, account)]
+    with on_account(account):
+        if estimate := held_estimate_line():
+            lines.append(estimate + whose)
+        found = read_allowances(allowances_path(inst.state_dir, account))
+        lines.append(allowances_line(found, claude_limits()) + whose)
+        calls_file = calls_path(inst.state_dir, account)
+        if calls := read_calls(calls_file):
+            lines.append(rate_line(derive_rate(calls, now=datetime.now(UTC))) + whose)
+        lines.append(interval_line(current_cache_interval(calls_file)) + whose)
+    return lines
+
+
+def _account_usage_line(args: argparse.Namespace, account: claude_account.Account) -> str:
+    """The `usage:` line of one account: its reading judged on its own thresholds, and which
+    account it is when it is not the default."""
+    whose = _whose(account)
+    with on_account(account), reading_as("cli-status"):
+        reading = _status_reading(args)
+        if not reading:
+            return f"usage: unknown{whose}"
+        age = int(reading.age.total_seconds() // 60)
+        return f"usage: {_usage_line(reading)} ({reading.source}, {age}m old){whose}"
+
+
 def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     """What the pipeline thinks is going on, without changing anything."""
     if off := guard_off_line():
@@ -607,31 +657,19 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     if paused:
         log(pause_line(paused))
 
-    account = claude_account.account_key()
-    whose = f" (account {account})" if account else ""
     try:
         runtime = runtimes.active()
     except KeyError as exc:
         log(f"usage: runtime {config.runtime_name()} is not available: {exc}")
     else:
-        with reading_as("cli-status"):
-            reading = _status_reading(args) if runtime.supports_usage_tracking else None
         if not runtime.supports_usage_tracking:
             log(f"usage: runtime {runtime.name} has no usage window")
-        elif reading:
-            age = int(reading.age.total_seconds() // 60)
-            log(f"usage: {_usage_line(reading)} ({reading.source}, {age}m old){whose}")
-        else:
-            log(f"usage: unknown{whose}")
-        if runtime.supports_usage_tracking and (estimate := held_estimate_line()):
-            log(estimate)
         if runtime.supports_usage_tracking:
-            log(allowances_line(read_allowances(inst.state_dir / ALLOWANCES_NAME), claude_limits()))
-        calls = read_calls(inst.state_dir / CALLS_NAME)
-        if calls:
+            for account in accounts_in_use(inst):
+                for line in _account_usage_lines(args, inst, account):
+                    log(line)
+        elif calls := read_calls(calls_path(inst.state_dir, None)):
             log(rate_line(derive_rate(calls, now=datetime.now(UTC))))
-        if runtime.supports_usage_tracking:
-            log(interval_line(current_cache_interval(inst.state_dir / CALLS_NAME)))
 
     if line := lock_status_line(inst.e2e_lock):
         log(line)
@@ -1141,7 +1179,12 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
         log("dry run — the environment is not synced and waiting units are not resumed")
     else:
         # Once per tick, not on a dry run: every start decided on an estimate reads the result.
-        refresh_allowances(inst.state_dir, limits=claude_limits(), now=datetime.now(UTC))
+        refresh_allowances(
+            inst.state_dir,
+            limits=claude_limits(),
+            now=datetime.now(UTC),
+            accounts=accounts_in_use(inst),
+        )
         if not environment.ensure(inst, say=log):
             tick.outcome = "environment"
             return 1
@@ -1323,18 +1366,37 @@ def _needs_planning(inst: Installation, store: UnitStore) -> bool:
     return False
 
 
-def _start_decision() -> Decision:
-    """The guard's decision to start, under this module's names for reading and judging."""
-    return decide_start(read=current_usage, decide=may_start_unit)
+def _start_decision(accounts: Sequence[claude_account.Account | None] = (None,)) -> Decision:
+    """The guard's decision to start, under this module's names for reading and judging: a start
+    on any of `accounts` (None is the account in force) is a start. When every one refuses, the
+    refusal names each and waits for the earliest of their times."""
+    refusals: list[Decision] = []
+    for account in accounts:
+        decision = decide_start(read=current_usage, decide=may_start_unit, account=account)
+        if decision.may_start:
+            return decision
+        refusals.append(decision)
+    times = [each.resume_at for each in refusals if each.resume_at is not None]
+    return Decision(
+        may_start=False,
+        reason="; ".join(each.reason for each in refusals),
+        resume_at=min(times, default=None),
+        resets_at=min(
+            (each.resets_at for each in refusals if each.resets_at is not None), default=None
+        ),
+    )
 
 
-def _no_unit_can_start(
+def _startable(
     inst: Installation, store: UnitStore, *, only: frozenset[str], spared: Collection[str]
-) -> bool:
-    """Whether the round has planned units and every one that could start is left out of
-    it by `--only`, a lease or a backoff, so a decision about usage would decide nothing."""
+) -> tuple[list[StoredUnit], bool]:
+    """The units that could start this round, and whether a planned unit is left out of it.
+
+    A unit could start when it is planned or running and not left out by `--only`, a lease or a
+    backoff; one in `spared` is never left out."""
     leases = Leases(lease_dir(inst.state_dir))
     now = spans.clock.now()
+    startable: list[StoredUnit] = []
     left_out = False
     for unit in store.all():
         if unit.state not in (PLANNED, RUNNING):
@@ -1345,9 +1407,29 @@ def _no_unit_can_start(
             or backoff_remaining(unit, now) is not None
         )
         if not excluded or unit.id in spared:
-            return False
-        left_out = left_out or unit.state == PLANNED
-    return left_out
+            startable.append(unit)
+        else:
+            left_out = left_out or unit.state == PLANNED
+    return startable, left_out
+
+
+def _starting_accounts(
+    inst: Installation,
+    startable: Collection[StoredUnit],
+    *,
+    planning: bool,
+) -> list[claude_account.Account | None]:
+    """The accounts a round's start decision is asked of: each account of a unit that could start
+    (see `_startable`), and the default account when planning is due, since planning runs on it.
+    The account in force when none is."""
+    found: dict[str | None, claude_account.Account | None] = {}
+    for unit in startable:
+        account = claude_account.for_repo(inst.config, unit.repo)
+        found.setdefault(claude_account.account_key(account), account)
+    if planning:
+        default = claude_account.Account(limits=claude_limits())
+        found.setdefault(claude_account.account_key(default), default)
+    return list(found.values()) or [None]
 
 
 def _held_by_the_model(
@@ -1403,11 +1485,12 @@ def _may_build(
     # rate-limit refusal still pauses, above and in `_run_unit`.
     runtime = runtimes.active()
     if runtime.supports_usage_tracking:
-        if _no_unit_can_start(inst, store, only=only, spared=spared) and not _needs_planning(
-            inst, store
-        ):
+        startable, left_out = _startable(inst, store, only=only, spared=spared)
+        planning = _needs_planning(inst, store)
+        if left_out and not startable and not planning:
             return "idle"
-        decision = _start_decision()
+        accounts = _starting_accounts(inst, startable, planning=planning)
+        decision = _start_decision(accounts)
         if not decision.may_start:
             state = pause_until(
                 decision.resume_at, reason=decision.reason, marker=_paused_marker(inst)
@@ -3928,13 +4011,16 @@ class StackMoves(TypedDict):
 
 
 def gated_resolver(
-    unit_id: str, refused: Callable[[str, datetime | None], None] | None = None
+    unit_id: str,
+    refused: Callable[[str, datetime | None], None] | None = None,
+    account: claude_account.Account | None = None,
 ) -> ConflictSession:
     """A conflict resolver that asks the usage guard before each call, as a unit's agent step
-    does, naming `unit_id` so an admission on an estimate is kept under it. A refusal is raised
+    does, naming `unit_id` so an admission on an estimate is kept under it and judged on the
+    windows of `account`, the unit's own. A refusal is raised
     as the model's own, which the move answers by aborting the rebase, and `refused` is told
     when the guard expects to allow it again."""
-    may_start, resume_at = build_usage_gate()
+    may_start, resume_at = build_usage_gate(account=account)
 
     class Gated(ConflictSession):
         def __call__(self, prompt: str, *, cwd: Path, follow_up: str = "") -> None:
@@ -3963,7 +4049,11 @@ def build_turned_move(
     def move(path: Path, *args, **kwargs) -> Moved:
         name = names[path]
         if gated and "resolve" not in kwargs:
-            kwargs["resolve"] = gated_resolver(kwargs["moving_unit"], refused)
+            kwargs["resolve"] = gated_resolver(
+                kwargs["moving_unit"],
+                refused,
+                claude_account.for_repo(installation.config, name),
+            )
         return resolved_move(
             path,
             *args,
@@ -4680,7 +4770,8 @@ def _build_unit(
             # next unit would spend a call to be told the same thing.
             when = error.resets_at
             if when is None and runtimes.active().supports_usage_tracking:
-                reading = held_usage()
+                # The refusal is the unit's account's, so is the reset it waits for.
+                reading = held_usage(claude_account.for_repo(inst.config, unit.repo))
                 when = reading.resets_at if reading else None
             if on_pause is not None:
                 on_pause(error.resets_at)
@@ -4740,14 +4831,18 @@ def _build_unit(
             emit_metric(
                 "count", "abk.usage.pauses", 1, say, unit=unit.id, change=unit.change, kind="usage"
             )
-            _pause_for_usage(inst, outcome.pause or PauseInfo(reason=outcome.detail))
+            _pause_for_usage(
+                inst,
+                outcome.pause or PauseInfo(reason=outcome.detail),
+                claude_account.for_repo(inst.config, unit.repo),
+            )
         return True
     finally:
         if run_log is not None:
             run_log.close(ended)
 
 
-def _pause_for_usage(inst: Installation, pause: PauseInfo) -> None:
+def _pause_for_usage(inst: Installation, pause: PauseInfo, account: claude_account.Account) -> None:
     """Pause the pipeline for a run the usage guard stopped.
 
     Re-read rather than reuse the tick's reading: the guard said no after the
@@ -4756,7 +4851,7 @@ def _pause_for_usage(inst: Installation, pause: PauseInfo) -> None:
     to when, which counts the ramp towards the reset — not the reset itself,
     which it can be well before. A pause that names its own time keeps it.
     """
-    until = pause.until or build_resume_at(start=_start_decision)()
+    until = pause.until or build_resume_at(start=lambda: _start_decision([account]))()
     state = pause_until(until, reason=pause.reason, marker=_paused_marker(inst))
     log(pause_line(state, verb="pausing"))
 

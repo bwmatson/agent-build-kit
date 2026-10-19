@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import UTC, datetime
 
+from agent_build_kit import claude_account
 from agent_build_kit.pipeline.gateway_usage import Spend
 from agent_build_kit.pipeline.usage_ledger import (
     Cost,
@@ -95,6 +96,7 @@ def call_recorder(
     gateway: Callable[[], Spend] | None = None,
     baseline: Baseline = ledger_baseline,
     after: After | None = None,
+    account: str | None = None,
 ) -> Callable[..., None]:
     """What a runtime calls with the finished `AgentResult`, as
     `record(result, *, role, model, runtime, gateway=None)`. `baseline` finds the session's
@@ -144,6 +146,7 @@ def call_recorder(
             usage_source="gateway" if exact else result.usage_source,
             reported=result.usage if exact else None,
             outcome="ok" if result.succeeded else "failed",
+            account=account,
         )
         record_call(line, say)
 
@@ -174,6 +177,7 @@ def recorded(
         round=round,
         resumed=resumed,
         say=say,
+        account=claude_account.account_key(request.account),
     )
     earlier = request.on_result
 

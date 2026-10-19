@@ -10,8 +10,9 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from agent_build_kit.claude_account import Account
 from agent_build_kit.pipeline.usage_allowances import Calibrated
-from agent_build_kit.pipeline.usage_calls import CALLS_NAME, UsageCall
+from agent_build_kit.pipeline.usage_calls import UsageCall, calls_path
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, UsageRecord, append_record
 
 START = datetime(2026, 10, 1, 8, 0, tzinfo=UTC)
@@ -64,10 +65,17 @@ def per_unit(
     return segments(window, [(round(each * units), units) for each in gains])
 
 
-def keep(state_dir: Path, calls: list[UsageCall], ledger: list[UsageRecord]) -> None:
-    """The record and the ledger as files in the state directory."""
+def keep(
+    state_dir: Path,
+    calls: list[UsageCall],
+    ledger: list[UsageRecord],
+    *,
+    account: Account | None = None,
+) -> None:
+    """The record and the ledger as files in the state directory: the record where `account`'s
+    calls are written (a labelled account has a file of its own), the ledger shared."""
     state_dir.mkdir(parents=True, exist_ok=True)
-    (state_dir / CALLS_NAME).write_text("".join(c.model_dump_json() + "\n" for c in calls))
+    calls_path(state_dir, account).write_text("".join(c.model_dump_json() + "\n" for c in calls))
     for record in ledger:
         append_record(state_dir / LEDGER_NAME, record)
 

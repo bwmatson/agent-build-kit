@@ -152,6 +152,15 @@ class Account(Frozen):
     max_units_in_progress: int | None = None
 
 
+def file_for(path: Path, account: Account | None) -> Path:
+    """`path` for `account`: a labelled account keeps its own file beside it, as
+    `name.<label>.ext`, so accounts never share a reading, a cool-down, a call record or an
+    allowance. The default account (and none) keeps `path` itself."""
+    if account is None or account.label is None:
+        return path
+    return path.with_name(f"{path.stem}.{account.label}{path.suffix}")
+
+
 def resolve(inst: Installation, label: str | None) -> Account:
     """The account a repo's `account` label names on this machine: the labelled one when it has
     a `config_dir`, else the default account."""
