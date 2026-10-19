@@ -232,6 +232,9 @@ class BuildPath:
         # Whether a dirty tree is the running node's own, killed mid-agent, and what it holds.
         self._own = False
         self._leftovers: tuple[str, ...] = ()
+        # What `prepare` found uncommitted from a run stopped in the stub check loop, for the
+        # fix that follows it to tell its agent about.
+        self._stub_leftovers: tuple[str, ...] = ()
         # The last session an agent call of the running node ended in:
         # (id, runtime, model, the session's cumulative cost after the call).
         self._ended: tuple[str, str, str, float | None] | None = None
@@ -905,11 +908,19 @@ class BuildPath:
             try:
                 self._tree = self.runner.worktree(self.unit, base)
             except DirtyWorktree as dirty:
-                if not self._own or self._chat_changes():
+                if not (self._own or self._stopped_in_stub_loop()) or self._chat_changes():
                     raise
                 self._tree = self.runner.worktree(self.unit, base, allow_dirty=True)
                 self._leftovers = dirty.paths
+                if not self._own:
+                    self._stub_leftovers = dirty.paths
         return self._tree
+
+    def _stopped_in_stub_loop(self) -> bool:
+        """Whether the unit stopped in the stub check loop: the tests and stubs it left
+        uncommitted in the tree are its own, to be fixed, not a person's to remove."""
+        stored = self.runner.store.get(self.unit.id)
+        return bool(stored.feedback) and stored.feedback_source is FeedbackSource.STUB_CHECKS
 
     def ref(self, state: UnitRun) -> str:
         return local_ref(state.base or self.base, repo=self.unit.repo)
@@ -1306,6 +1317,7 @@ class BuildPath:
         feedback = redact_text(r.store.get(unit.id).feedback, where="fix prompt")
         note = person_guidance(r.store.get(unit.id).guidance)
         before = r.tree_state(tree)
+        self._leftovers, self._stub_leftovers = self._stub_leftovers, ()
         self.say(f"fix the failing static checks on the tests ({model}), round {attempt}")
         self.agent(
             r.run,
@@ -1379,8 +1391,11 @@ class BuildPath:
                 ),
             )
             r.commit(f"{CODE_PREFIX}{self.title(state)}", cwd=tree, base=self.ref(state))
-            r.store.set_guidance(unit.id, "")
-            kept["guidance_asked"] = guidance_asked(state, guidance)
+            more = self.group_step(state) is not None and state.group + 1 < len(r.group_steps(unit))
+            if not more:
+                # Kept until the last group, so every group's prompts carry the note.
+                r.store.set_guidance(unit.id, "")
+                kept["guidance_asked"] = guidance_asked(state, guidance)
         if self.group_step(state) is not None:
             # A group's pair is done: the next group's tests come before the checks.
             kept["group"] = state.group + 1
