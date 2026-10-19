@@ -79,27 +79,27 @@ def build_selection(
         raise ValueError(f"split {only!r} is asked for alone and also held")
     declared = [split for split in splits if split.marker is not None]
     markers = {split.name: split.marker for split in declared}
+    out = tuple(dict.fromkeys(unavailable))
     left_out = tuple(sorted(set(held)))
     base = E2eSelection(marker=marker)
     if only == REST_SPLIT:
         left_out = tuple(split.name for split in declared)
-        return base.model_copy(
-            update={
-                "left_out": left_out,
-                "only": only,
-                "none_of": tuple(markers[name] for name in left_out),
-            }
-        )
+        none_of = tuple(dict.fromkeys([*(markers[name] for name in left_out), *out]))
+        return base.model_copy(update={"left_out": left_out, "only": only, "none_of": none_of})
     if only is not None:
-        return base.model_copy(update={"only": only, "any_of": (markers[only],)})
+        if markers[only] in out:
+            return base.model_copy(update={"only": only, "empty": True})
+        return base.model_copy(update={"only": only, "any_of": (markers[only],), "none_of": out})
     if REST_SPLIT in left_out:
-        kept = tuple(markers[split.name] for split in declared if split.name not in left_out)
+        kept = tuple(
+            markers[split.name]
+            for split in declared
+            if split.name not in left_out and markers[split.name] not in out
+        )
         return base.model_copy(update={"left_out": left_out, "any_of": kept, "empty": not kept})
+    held_markers = [markers[s.name] for s in declared if s.name in left_out]
     return base.model_copy(
-        update={
-            "left_out": left_out,
-            "none_of": tuple(markers[s.name] for s in declared if s.name in left_out),
-        }
+        update={"left_out": left_out, "none_of": tuple(dict.fromkeys([*held_markers, *out]))}
     )
 
 

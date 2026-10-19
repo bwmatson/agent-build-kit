@@ -383,12 +383,20 @@ def e2e_dimensions(
 ) -> dict[str, dict[str, E2eDimensionValue]]:
     """The dimensions in effect for `repo`: its own `tests.e2e_dimensions` when set, else the
     top level's."""
-    raise NotImplementedError
+    own = repo.tests.e2e_dimensions
+    return config.tests.e2e_dimensions if own is None else own
 
 
 def unavailable_markers(repo: RepoConfig, config: WorkspaceConfig) -> tuple[str, ...]:
     """The markers of the values `tests.e2e_available` leaves out for `repo`."""
-    raise NotImplementedError
+    available = config.tests.e2e_available
+    return tuple(
+        entry.marker
+        for dimension, values in e2e_dimensions(repo, config).items()
+        if dimension in available
+        for value, entry in values.items()
+        if value not in available[dimension]
+    )
 
 
 def known_runtime_names(configured: Iterable[str] = ()) -> set[str]:
@@ -1384,6 +1392,43 @@ class WorkspaceConfig(Frozen):
                         f"{seen[entry.marker]}"
                     )
                 seen[entry.marker] = name
+        return self
+
+    @model_validator(mode="after")
+    def _e2e_dimensions_declared_well(self) -> WorkspaceConfig:
+        """A marker belongs to one value or split of a repo, and `e2e_available` names only
+        dimensions and values some scope declares."""
+        for key, repo in self.repos.items():
+            splits = repo.tests.e2e_splits
+            if splits is None:
+                splits = self.tests.e2e_splits
+            seen = {e.marker: f"split {n!r}" for n, e in splits.items() if e.marker}
+            for dimension, values in e2e_dimensions(repo, self).items():
+                for value, entry in values.items():
+                    if entry.marker in seen:
+                        raise ValueError(
+                            f"repos.{key}.tests.e2e_dimensions.{dimension}.{value}.marker: "
+                            f"{entry.marker!r} is also the marker of {seen[entry.marker]}"
+                        )
+                    seen[entry.marker] = f"{dimension}={value}"
+        declared: dict[str, set[str]] = {}
+        scopes = [self.tests.e2e_dimensions]
+        scopes += [r.tests.e2e_dimensions for r in self.repos.values() if r.tests.e2e_dimensions]
+        for scope in scopes:
+            for dimension, values in scope.items():
+                declared.setdefault(dimension, set()).update(values)
+        for dimension, wanted in self.tests.e2e_available.items():
+            if dimension not in declared:
+                raise ValueError(
+                    f"tests.e2e_available.{dimension}: no such dimension in `e2e_dimensions` "
+                    f"(declared: {', '.join(sorted(declared)) or 'none'})"
+                )
+            for value in wanted:
+                if value not in declared[dimension]:
+                    raise ValueError(
+                        f"tests.e2e_available.{dimension}: {value!r} is not a declared value "
+                        f"(declared: {', '.join(sorted(declared[dimension]))})"
+                    )
         return self
 
     @model_validator(mode="after")

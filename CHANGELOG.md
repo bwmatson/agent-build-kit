@@ -12,6 +12,12 @@
   (and the group's tasks) and run `abk replan` or wait for the next tick: the unit is reworked
   once with an automatic note, instead of staying parked on the old split. If the new split is
   held, the rework waits until it is released, and `abk status` says so.
+- `tests.e2e_dimensions` declares groups of values a live test may need (a runtime, a
+  telemetry sink), each value with a pytest marker, and `tests.e2e_available` (set per
+  machine, for example in `abk.local.yaml`) lists the values a machine has. An e2e run
+  leaves out the tests carrying an unavailable value's marker, so a machine without a
+  value no longer fails those tests. A marker shared by two values or a split, and an
+  availability naming something undeclared, are refused at load.
 
 - The build can commit per task group behind `builders.per_group_commits` (off by default):
   each group gets a `test:` commit of stubs and tests, checked for lint, format and types
