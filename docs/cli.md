@@ -719,8 +719,8 @@ default filled in; `--path` prints the `abk.yaml` in force. Exit 0.
 
 `--migrate` edits the file's text, so comments and spacing stay: the root `limits` block
 becomes `global_limits`, and the three scheduling settings left in it move to
-`project_limits`, and each old test-kind setting key (`tier1_*`, `tier2_*`) in the limits
-block and the `tests` blocks gets its new name (`unit_test_*`, `e2e_*`), in the same change.
+`project_limits`, and each setting key still named for a numbered tier, in the limits
+block and the `tests` blocks, gets its test-kind name (`unit_test_*`, `e2e_*`), in the same change.
 A file that sets both spellings of one setting, or a block with an anchor, a merge key or
 flow style, is refused. It prints the diff and asks; `--yes` skips the question and `--dry-run`
 prints the diff and writes nothing. The first original is kept as `abk.yaml.abk-backup`,

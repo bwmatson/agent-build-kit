@@ -19,7 +19,8 @@ SKIPPED_PARTS = frozenset({"__pycache__", "node_modules"})
 BUILT_WEB = Path("src/agent_build_kit/serve/static")
 
 # The files that write an old spelling on purpose: the table of them, the tool that rewrites
-# them, the tests of both, and the documents that explain the rename.
+# them, the tests of both and of the settings migration, and the documents that explain the
+# rename.
 EXEMPT_NAMES = frozenset(
     {
         "compat_names.py",
@@ -31,11 +32,11 @@ EXEMPT_NAMES = frozenset(
         "risk-tiered-review-design.md",
     }
 )
-EXEMPT_PREFIX = "test_rename_test_kinds"
+EXEMPT_PREFIXES = ("test_rename_test_kinds", "test_config_migrate_test_kind_keys")
 
 
 def exempt(path: Path) -> bool:
-    return path.name in EXEMPT_NAMES or path.name.startswith(EXEMPT_PREFIX)
+    return path.name in EXEMPT_NAMES or path.name.startswith(EXEMPT_PREFIXES)
 
 
 def candidates(root: Path) -> list[Path]:
