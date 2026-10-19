@@ -25,8 +25,9 @@ from agent_build_kit.runtimes.policy_apply import backup_and_replace
 
 
 def cmd_migrate(args: argparse.Namespace) -> int:
-    """Move the abk.yaml in force to the new limits blocks by text, without loading it: exit 0
-    when it wrote, was a dry run or had nothing to move, 1 when not confirmed, 2 when refused."""
+    """Move the abk.yaml in force to the new limits blocks and rename its old test-kind setting
+    keys, by text, without loading it: exit 0 when it wrote, was a dry run or had nothing to
+    change, 1 when not confirmed, 2 when refused."""
     try:
         path = locate(args.config)
     except ConfigError as error:

@@ -1,5 +1,6 @@
-"""Moving an abk.yaml from `limits` to `global_limits` and `project_limits` by editing its text
-(spec: limits-split-into-global-and-project).
+"""Moving an abk.yaml from `limits` to `global_limits` and `project_limits`, and renaming its old
+test-kind setting keys, by editing its text (specs: limits-split-into-global-and-project and
+open-changes-are-migrated-to-review-tiers).
 
 The parse finds the block and the lines of the moved settings; the lines are then edited with the
 helpers `abk policy apply` uses, so every other byte of the file is as it was. The document is
@@ -13,7 +14,8 @@ from typing import Any
 
 import yaml
 
-from agent_build_kit.config import DEPRECATED_ROOT_KEY
+from agent_build_kit.compat_names import Place, new_spelling
+from agent_build_kit.config import DEPRECATED_ROOT_KEY, old_setting_blocks, read_new_settings
 from agent_build_kit.model import Frozen
 from agent_build_kit.yaml_lines import insert_lines, node_end, split_lines, strip_comment
 
@@ -126,8 +128,14 @@ def _expected(old: dict[str, Any], source: str) -> dict[str, Any]:
 
 
 def migrate(text: str) -> Migrated:
-    """Rename a root `limits` to `global_limits` and move the three scheduling settings found
-    under it (or under `global_limits`) to a `project_limits` block straight after it."""
+    """Rename a root `limits` to `global_limits`, move the three scheduling settings found under
+    it (or under `global_limits`) to a `project_limits` block straight after it, and rename each
+    old test-kind setting key to its new name."""
+    moved = _move_limits(text)
+    return Migrated(text=_rename_test_kind_keys(moved.text), moved=moved.moved)
+
+
+def _move_limits(text: str) -> Migrated:
     try:
         documents = list(yaml.compose_all(text))
     except yaml.YAMLError as error:
@@ -236,3 +244,70 @@ def _verify(text: str, result: str, source: str) -> None:
         raise _refuse(source, f"the edited text would not parse ({error})") from error
     if new != _expected(old, source):
         raise _refuse(source, "the edited text would differ from the file in more than the move")
+
+
+def _block_node(root: yaml.MappingNode, path: tuple[str, ...]) -> yaml.Node | None:
+    node: yaml.Node | None = root
+    for name in path:
+        found = _pair(node, name) if isinstance(node, yaml.MappingNode) else None
+        node = found[1] if found else None
+    return node
+
+
+def _rename_test_kind_keys(text: str) -> str:
+    """`text` with each old test-kind setting key, in the limits block and in each `tests` block,
+    renamed on its own line; a block that cannot be edited by lines is refused."""
+    documents = list(yaml.compose_all(text))
+    root = documents[0] if documents else None
+    if not isinstance(root, yaml.MappingNode):
+        return text
+    old = yaml.safe_load(text)
+    try:
+        found = old_setting_blocks(old)
+    except ValueError as error:
+        raise _refuse("abk.yaml", str(error)) from error
+    if not found:
+        return text
+
+    lines = split_lines(text)
+    seen: set[int] = set()
+    for where, path, keys in found:
+        parent = _block_node(root, path[:-1])
+        held = _pair(parent, path[-1]) if isinstance(parent, yaml.MappingNode) else None
+        block_key, block = held if held else (None, None)
+        # A block that is not written at its path is one a merge key or an alias brought in, and
+        # one reached by two paths is written once for both.
+        if block_key is None or not isinstance(block, yaml.MappingNode) or id(block) in seen:
+            raise _refuse(
+                where,
+                "the block comes from a merge key or an alias, which cannot be renamed by lines",
+            )
+        seen.add(id(block))
+        if _MARKED.search(strip_comment(lines[block_key.start_mark.line])):
+            raise _refuse(where, "the block has an anchor or an alias, which cannot be edited")
+        if block.flow_style:
+            raise _refuse(where, "a flow-style block cannot be edited without rewriting the line")
+        if any(key.tag == _MERGE_TAG for key, _ in block.value):
+            raise _refuse(where, "the block uses a merge key, which cannot be renamed by lines")
+        for key, _ in block.value:
+            if not (isinstance(key, yaml.ScalarNode) and key.value in keys):
+                continue
+            line, col = key.start_mark.line, key.start_mark.column
+            if _MARKED.search(strip_comment(lines[line])):
+                raise _refuse(key.value, "it has an anchor or an alias, which cannot be edited")
+            if lines[line][col : col + len(key.value)] != key.value:
+                raise _refuse(
+                    key.value, "it is quoted or written across lines, so it is not renamed"
+                )
+            new = new_spelling(Place.SETTING, key.value)
+            lines[line] = lines[line][:col] + new + lines[line][col + len(key.value) :]
+    result = "".join(lines)
+    try:
+        written = yaml.safe_load(result)
+    except yaml.YAMLError as error:
+        raise _refuse("abk.yaml", f"the edited text would not parse ({error})") from error
+    if written != read_new_settings(old):
+        raise _refuse(
+            "abk.yaml", "the edited text would differ from the file in more than the rename"
+        )
+    return result

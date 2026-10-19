@@ -1568,7 +1568,7 @@ def _old_setting_keys(block: dict[str, Any], model: type[Frozen]) -> list[str]:
     ]
 
 
-def _read_new_settings(document: dict[str, Any]) -> dict[str, Any]:
+def read_new_settings(document: dict[str, Any]) -> dict[str, Any]:
     """`document` with each old test-kind settings key renamed to the new one; a block that
     sets both spellings of one setting is refused."""
     renamed = document
@@ -1588,6 +1588,17 @@ def _read_new_settings(document: dict[str, Any]) -> dict[str, Any]:
         }
         renamed = _with_block(renamed, found.path, fixed)
     return renamed
+
+
+def old_setting_blocks(document: dict[str, Any]) -> list[tuple[str, tuple[str, ...], set[str]]]:
+    """The test-kind settings blocks of `document` that hold old key names: where each is, its
+    path and its old keys. A block that sets both spellings of one setting raises `ValueError`."""
+    read_new_settings(document)
+    return [
+        (found.where, found.path, set(old))
+        for found in _setting_blocks(document)
+        if (old := _old_setting_keys(found.block, found.model))
+    ]
 
 
 def _refuse_moved_settings(document: dict[str, Any]) -> None:
@@ -1618,7 +1629,7 @@ def _renamed(document: dict[str, Any] | None, file: Path) -> dict[str, Any] | No
         return None
     try:
         _refuse_moved_settings(document)
-        return _read_new_settings(_alias_limits(document))
+        return read_new_settings(_alias_limits(document))
     except ValueError as error:
         raise ConfigError(f"{file}: {error}") from error
 
