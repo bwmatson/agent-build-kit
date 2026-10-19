@@ -209,6 +209,8 @@ tick output says which, and `abk status` shows the unit. A branch is checked
 (lint, types, tests) before a reviewer is asked, and sent back to the builder up
 to `global_limits.max_check_rounds` times (3 by default, counted per review round; `null` for no limit) before it fails with the output kept.
 
+A failed unit that waited on another unit is requeued once by the pipeline when its wait ends, in a mode chosen from its record (`global_limits.wait_end_requeue`: `auto`, `resume`, `rework` or `off`). `abk status` counts them as `failed units resumed when their wait ended: N today`; when a prerequisite was closed instead, the unit stays failed and its line says `wait ended: <prerequisite> closed, requeue to retry`.
+
 Fix the cause first where it is outside the branch — a missing credential, a
 broken toolchain, a branch someone deleted — then `abk requeue <unit>` resumes
 it where it stopped. Where the failure is in the branch's own work (a type

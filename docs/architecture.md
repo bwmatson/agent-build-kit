@@ -297,8 +297,9 @@ leave room, except a priority-0 unit in the project's emergency lane (above); so
 the cause of the wait, or a unit it depends on was outside review and merge since it last
 changed state), which stays planned until the other units in progress are below the limit.
 A failed unit that waits on another unit (`waiting_on`) does not count while it waits
-either; it stays failed, is never requeued by the pipeline, and counts again when the wait
-ends. A rework, resume, restack, review round, push and a unit paused by a usage pause or interrupted still run, so the count can
+either; it stays failed and counts again when the wait
+ends. A failed unit is requeued by a person or when its wait ends: the pipeline requeues it once
+when its wait ends (see `global_limits.wait_end_requeue`), never on a timer. A rework, resume, restack, review round, push and a unit paused by a usage pause or interrupted still run, so the count can
 pass it. A blocked unit that had work gives its place to a ready, never-run prerequisite
 it waits on (a handoff unit): one prerequisite starts for each blocked unit's
 place (one unit for each place; several by effective priority, then effective age; it

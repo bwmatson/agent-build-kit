@@ -268,6 +268,9 @@ global_limits:
                                 # alone is one recorded storm, no fix change per test
   checks_register_seconds: 120  # seconds after a push in which a pull request with no
                                 # checks yet still reads `checking`
+  wait_end_requeue: auto        # how a failed unit is requeued once when its wait ends:
+                                # auto (default; the mode follows its record), resume,
+                                # rework, or off (only a person requeues it)
   label_sweep_per_tick: 20      # finished units' pull requests whose stale state
                                 # label a round takes off (each tick and each
                                 # refresh of a pass), at least 1

@@ -512,6 +512,26 @@ those came from a wrong base, remove them first (`git worktree remove`, then
 `git branch -D`, after checking nothing on it is unpushed). Exit 2 for an
 unknown unit, 1 when the unit is not stuck, else 0.
 
+### Automatic requeue when a wait ends
+
+A failed unit that waited on another unit (a `Needs:` line added after it failed) is
+requeued once by the pipeline when its wait ends, with no `abk requeue`. The pass
+records the wait, and the step after releasing gated units requeues the unit in a mode
+chosen from its record: a failure whose cause is the environment's (toolchain,
+environment, host, network or service) is resumed, a saved unit-test or e2e-test failure
+with feedback is reworked, and anything else is resumed. It never restarts. A person's
+note stays in the guidance and does not change the mode. The history note reads
+`requeue: its wait ended (waiting on <change> group <n> is now merged)`.
+
+Left alone: a held unit, a plain failure that never waited, and a unit already parked
+planned by the failure-fix or flaky-test mechanisms. When a prerequisite was closed
+rather than merged, the unit stays failed and `abk status` says `wait ended:
+<prerequisite> closed, requeue to retry` until a later `abk requeue` clears it.
+`global_limits.wait_end_requeue` is `auto` (default), `resume`, `rework` (resume when
+no failure is saved and no note was left) or `off`, which restores requeueing by a person only. Once per wait:
+a unit that fails again and waits on nothing is not requeued again, and a prerequisite
+added later starts a new wait.
+
 A unit never has to be requeued out of `running` by hand. At the start of each
 pass, a `running` unit whose branch lock names a process that is gone is
 failed with the note "the run ended without recording its outcome", and can then
