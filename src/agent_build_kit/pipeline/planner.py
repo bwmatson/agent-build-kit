@@ -46,6 +46,7 @@ from agent_build_kit.pipeline.units import (
     Unit,
     UnitState,
     current_dependencies,
+    direct_dependencies,
     waiting_on_me,
 )
 from agent_build_kit.pipeline.vocabulary import OverheadNode
@@ -730,8 +731,9 @@ Rules the graph must satisfy:
   change and its callers land in the same commit.
 - The group flagged `[acceptance]` drives what the change built the way its
   consumer does. Give it a unit of its own, never combined with another group,
-  and make that unit depend on every unit building the change's other groups
-  (a `[narrow]` group aside, which comes after it).
+  and make that unit depend on the units it exercises: the last unit of each
+  chain building the change's other groups, which reaches the rest (a
+  `[narrow]` group aside, which comes after it).
 - A group with an `Independent: <reason>` line stands alone. Give it a unit of
   its own, never combined with another group. That unit depends on no unit of
   its own change; it still depends on what its `Needs:` lines name. The next
@@ -798,6 +800,7 @@ def _retired_ids(in_flight: Sequence[dict]) -> list[str]:
 def in_flight_item(unit: StoredUnit, graph: Sequence[StoredUnit]) -> dict:
     """A unit as the planner is shown it, and whether it may be joined. Its dependencies are
     read through `graph`, so one on a replaced unit shows as the units that carry its work."""
+    read = unit.model_copy(update={"depends_on": current_dependencies(unit, graph)})
     return {
         "id": unit.id,
         "repo": unit.repo,
@@ -809,7 +812,7 @@ def in_flight_item(unit: StoredUnit, graph: Sequence[StoredUnit]) -> dict:
         "tier": unit.tier,
         "priority": unit.priority,
         "estimated_lines": unit.estimated_lines,
-        "depends_on": list(current_dependencies(unit, graph)),
+        "depends_on": list(direct_dependencies(read, graph)),
         "replaced_by": list(unit.superseded_by),
         "taken": [[member.change, list(member.groups)] for member in unit.members()],
         "builds": "; ".join(

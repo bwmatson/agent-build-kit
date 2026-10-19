@@ -49,7 +49,11 @@
 - A unit now stores only its direct dependencies: one that a planned list, a `Needs:` line or a
   join would have added alongside a dependency that already reaches it is left out. A join is
   judged on those direct dependencies, so a unit that also listed the unit joined onto no
-  longer blocks the join.
+  longer blocks the join. A unit that has started builds on the same parent an unstarted one
+  would, whatever order its dependencies are listed in. The planner asks an acceptance or
+  narrow group to depend on the end of its chain and on independent units, and shows only
+  direct dependencies. The first tick or replan after updating reduces the units already
+  stored, logging what each lost, and a replan reports only direct changes.
 
 - The build prompts now name the commands an agent may run ("Commands you may run"), so an
   agent in a repo with no instruction file no longer picks a command the build refuses and

@@ -529,7 +529,7 @@ def test_the_group_after_an_independent_one_depends_on_the_last_chained_unit() -
     assert [u.depends_on for u in units] == [(), (), ("feature/1",)]
 
 
-def test_an_acceptance_group_depends_on_every_earlier_unit() -> None:
+def test_an_acceptance_group_depends_on_the_chain_tail_and_the_independent_unit() -> None:
     units = plan_units(
         "feature",
         [
@@ -543,7 +543,7 @@ def test_an_acceptance_group_depends_on_every_earlier_unit() -> None:
     )
 
     assert units[2].depends_on == ("feature/1",)
-    assert set(units[3].depends_on) == {"feature/1", "feature/2", "feature/3"}
+    assert set(units[3].depends_on) == {"feature/3", "feature/2"}
 
 
 def test_a_narrow_group_depends_on_every_earlier_unit() -> None:

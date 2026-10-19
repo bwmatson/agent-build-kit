@@ -3192,7 +3192,8 @@ def build_restack_onto(
 
 def predecessor(unit: Unit, base: str, store: UnitStore) -> StoredUnit | None:
     """The unit this one is built on: the base's own unit, or — when the base
-    is the trunk because the parent merged — the same-repo parent it depends on."""
+    is the trunk because the parent merged — the same-repo parent it depends on that comes
+    last in plan order, whatever order the dependencies are listed in."""
     units = store.all()
     by_branch = next((u for u in units if u.branch and u.branch == base), None)
     if by_branch is not None:
@@ -3203,7 +3204,8 @@ def predecessor(unit: Unit, base: str, store: UnitStore) -> StoredUnit | None:
         for d in through_satisfied(unit, units)
         if d in index and index[d].repo == unit.repo
     ]
-    return parents[-1] if parents else None
+    order = {u.id: place for place, u in enumerate(units)}
+    return max(parents, key=lambda parent: order[parent.id]) if parents else None
 
 
 def moving_onto(unit: StoredUnit, base: str, store: UnitStore) -> StoredUnit:

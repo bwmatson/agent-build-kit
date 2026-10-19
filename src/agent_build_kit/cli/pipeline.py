@@ -238,6 +238,7 @@ from agent_build_kit.pipeline.units import (
     current_dependencies,
     dependency_wait,
     depth_of,
+    direct_dependencies,
     effective_priority,
     emergency_start,
     failed_waiting_units,
@@ -1293,6 +1294,18 @@ def _step(name: str, step: Callable[..., object], *args, **kwargs) -> None:
         log(f"{name} failed — {type(error).__name__}: {error}")
 
 
+def reduce_stored_dependencies(store: UnitStore) -> None:
+    """Store the direct dependencies of every unit that lists one another of its dependencies
+    reaches, through `set_dependencies`, saying what each lost. A reduced store is untouched."""
+    graph = store.all()
+    for unit in graph:
+        direct = direct_dependencies(unit, graph)
+        if direct != unit.depends_on:
+            store.set_dependencies(unit.id, direct)
+            removed = [dep for dep in unit.depends_on if dep not in direct]
+            log(f"{unit.id}: dependencies reduced: {', '.join(removed)}")
+
+
 def _evaluate_gates(inst: Installation, *, dry_run: bool) -> None:
     """Hold or release each gated split by its gate; a dry run says what it would do."""
     for action in evaluate_gates(inst, now=spans.clock.now(), dry_run=dry_run):
@@ -1606,6 +1619,8 @@ def run_round(
         started = readmit.started
     spared = {*building, *started}
     _step("bounding the logs", _bound_logs, inst)
+    # Before anything reads a unit's dependencies: waits, bases and restacks go by direct ones.
+    _step("reducing dependencies", reduce_stored_dependencies, store)
     # Before planning and before any e2e-test selection reads the held set.
     _step("evaluating split gates", _evaluate_gates, inst, dry_run=dry_run)
     if not dry_run:
@@ -5375,6 +5390,7 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
         return 1 if refused else 0
 
     print(f"planning {', '.join(to_plan)}: {len(to_plan)} model call(s)")
+    reduce_stored_dependencies(store)
     before = {unit.id: unit for unit in store.all()}
     results = plan_all(inst, store=store, only=set(to_plan), force=True)
     refusals = link_needs(inst, store=store)
