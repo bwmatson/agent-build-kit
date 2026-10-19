@@ -93,6 +93,7 @@ markers = [
     "local_stack: drives the real CLI against a real agent on this host, bills on demand and takes minutes; excluded by default, run with `pytest -m local_stack`",
     "runtime_claude_code: a live-stack test that drives the claude_code runtime; at most one runtime tag per test, none is the untagged base that always runs",
     "runtime_acp: a live-stack test that drives the protocol (acp) runtime; at most one runtime tag per test",
+    "telemetry_otel: a live-stack test that needs the shared telemetry stack's dev instance and the `ABK_ACCEPTANCE_*` variables",
     "dev_stack: needs the repo's dev stack up; left out of acceptance runs",
     "serial: cannot share a process with other tests; excluded from the parallel pass and run by its own serial pass of `poe test`",
 ]
