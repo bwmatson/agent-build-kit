@@ -1,13 +1,13 @@
 """`abk init` as a person runs it, against a stand-in agent on the path.
 
-The real command runs as a process on a machine whose path holds only what it needs and the
-stand-ins a test installs (`tests/scripted_abk.py`). A stand-in is the protocol test agent under a
-known agent's program name: it records everything it is sent, and a test fails when a prompt
-reaches it that is not the policy check's own, so nothing here makes a model call or spends
-tokens. The runs pass `--skip-research --skip-propose` (those steps are model calls by design;
-the unit tests prove they receive the chosen runtime) and decline the policy check, which is a
-prompt for this runtime, in every run but the `--policy-only` ones. Needs node for the OpenSpec
-CLI, as the end-to-end init test does.
+The real command runs as a process on a machine whose path holds only what it needs, with a home
+of its own, and the stand-ins a test installs (`tests/scripted_abk.py`). A stand-in is the
+protocol test agent under a known agent's program name: it records everything it is sent, and
+every run asserts it was sent no `session/prompt`, so nothing here makes a model call or spends
+tokens. The policy step reads the agent's configuration and starts no agent. The runs pass
+`--skip-research --skip-propose` (those steps are model calls by design; the unit tests prove
+they receive the chosen runtime). The `--policy-only` runs read a configuration in a scratch
+agent home, never the host's. Needs node for the OpenSpec CLI, as the end-to-end init test does.
 
 Run with `uv run pytest -m local_stack tests/integration/test_init_runtime_live_stack.py`; the
 last test uses an agent installed on the host, and skips without one.
@@ -31,9 +31,12 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.runtimes.acp import AcpRuntime
 from agent_build_kit.runtimes.base import ModelSource
 from agent_build_kit.runtimes.known_agents import KNOWN_AGENTS, KnownAgent
+from agent_build_kit.runtimes.recommended_policy import matches, patterns
 from tests.factories import coded_repo, git, init_repo, recognised_planning
 from tests.runtimes.acp_agent import requests
 from tests.scripted_abk import Answers, Machine, Outcome, install_stand_in, machine, run_abk
+from tests.spelling_rows import AMEND
+from tests.split_sources import snapshot_tree
 
 pytestmark = [
     pytest.mark.local_stack,
@@ -49,8 +52,7 @@ COMMAND = (r"The command that starts the agent[^:]*: ", "")
 ANY_MODEL = (r"Model for \w+ \[[^\]]*\]: ", "")
 NOTIFICATIONS = (r"desktop notifications[^?]*\? \[y/N\] ", "n")
 PROCEED = (r"write it and proceed\? \[Y/n\] ", "y")
-DECLINE_CHECK = (r"spends tokens; run it\? \[y/N\] ", "n")
-INIT_ANSWERS: Answers = [PICK, COMMAND, ANY_MODEL, NOTIFICATIONS, PROCEED, DECLINE_CHECK]
+INIT_ANSWERS: Answers = [PICK, COMMAND, ANY_MODEL, NOTIFICATIONS, PROCEED]
 
 
 class Scratch(Frozen):
@@ -101,9 +103,9 @@ def prompts(record: Path) -> list[str]:
 def snapshot(root: Path) -> tuple[dict[str, bytes], str]:
     """Every file under `root` but the repository's own, and its commit."""
     files = {
-        str(path.relative_to(root)): path.read_bytes()
-        for path in sorted(root.rglob("*"))
-        if path.is_file() and ".git" not in path.relative_to(root).parts
+        name: content
+        for name, content in snapshot_tree(root).items()
+        if Path(name).parts[0] != ".git"
     }
     return files, git(root, "rev-parse", "HEAD") + git(root, "status", "--porcelain")
 
@@ -220,6 +222,77 @@ def test_yes_with_nothing_installed_says_so_and_writes_nothing(scratch: Scratch)
     for agent in KNOWN_AGENTS:
         assert f"not usable yet: {agent.program} is not on the path" in done.output
     assert repos_state(scratch) == before
+
+
+HERMES = next(a for a in KNOWN_AGENTS if a.apply is not None)
+UNREFUSED = "git -C . commit --amend --no-edit"
+
+
+class PolicyHome(Frozen):
+    record: Path
+    fix_dir: Path
+    config: Path
+
+
+def policy_home(scratch: Scratch) -> PolicyHome:
+    """An installation set up by an `init` run against the stand-in as an agent the kit can read
+    a policy of, whose scratch agent home holds a deny list that lets one spelling through."""
+    assert HERMES.apply is not None
+    record = stand_in(scratch, HERMES)
+    home = scratch.root / "agent-home"
+    home.mkdir()
+    scratch.on.env[HERMES.apply.home_env] = str(home)
+    config_file = home / HERMES.apply.file
+    complete = patterns()
+    leaky = [p for p in complete if not matches(p, UNREFUSED)]
+    assert len(leaky) < len(complete)
+
+    def write(deny: list[str]) -> str:
+        body = "approvals:\n  deny:\n" + "".join(f"    - {json.dumps(p)}\n" for p in deny)
+        return body
+
+    config_file.write_text(write(leaky))
+    (scratch.root / "complete.yaml").write_text(write(complete))
+    done = scratch.init("--yes", "--runtime", "acp")
+    assert done.returncode in (0, 1), done.output
+    assert prompts(record) == []
+    return PolicyHome(record=record, fix_dir=scratch.root, config=config_file)
+
+
+def policy_only(scratch: Scratch, fix_body: str, home: PolicyHome) -> Outcome:
+    fix = home.fix_dir / "fix.sh"
+    fix.write_text(f"#!/bin/sh\n{fix_body}\n")
+    fix.chmod(0o755)
+    return run_abk(
+        scratch.on,
+        ["init", str(scratch.planning), "--policy-only", "--yes", "--policy-fix", str(fix)],
+        cwd=scratch.planning,
+    )
+
+
+def test_a_fix_that_closes_the_spelling_is_seen_to_close_it(scratch: Scratch) -> None:
+    home = policy_home(scratch)
+    complete = home.fix_dir / "complete.yaml"
+
+    # Only builtins: the path of a stand-in's machine holds no `cp`.
+    copy = f'while IFS= read -r line; do printf "%s\\n" "$line"; done < {complete} > {home.config}'
+    done = policy_only(scratch, copy, home)
+
+    assert done.returncode == 0, done.output
+    assert f"{AMEND}: not refused as `{UNREFUSED}`" in done.output
+    assert re.search(rf"{AMEND}: refused as [^|\n]*`{re.escape(UNREFUSED)}`", done.output)
+    assert "now refuses every forbidden class" in done.output
+    assert prompts(home.record) == []
+
+
+def test_a_fix_that_changes_nothing_says_so_and_exits_one(scratch: Scratch) -> None:
+    home = policy_home(scratch)
+
+    done = policy_only(scratch, "exit 0", home)
+
+    assert done.returncode == 1, done.output
+    assert f"the fix made no change; still not refused: `{UNREFUSED}`" in done.output
+    assert prompts(home.record) == []
 
 
 class Installed(Frozen):

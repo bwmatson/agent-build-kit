@@ -51,7 +51,8 @@ class Outcome(Frozen):
 
 
 def machine(root: Path) -> Machine:
-    """A machine under `root` with only `TOOLS` on its path, and no `ABK_` setting of this host."""
+    """A machine under `root` with only `TOOLS` on its path, a home of its own, and no `ABK_`
+    setting of this host."""
     bin_dir = root / "bin"
     bin_dir.mkdir(parents=True)
     for tool in TOOLS:
@@ -63,6 +64,13 @@ def machine(root: Path) -> Machine:
         if not key.startswith("ABK_") and key not in ("GH_TOKEN",)
     }
     env["PATH"] = str(bin_dir)
+    # So no agent's configuration on this host is read, only the node package cache is kept.
+    cache = env.get("npm_config_cache") or str(Path(env.get("HOME", "~")).expanduser() / ".npm")
+    home = root / "home"
+    home.mkdir()
+    env["HOME"] = str(home)
+    env["XDG_CONFIG_HOME"] = str(home / ".config")
+    env["npm_config_cache"] = cache
     # So a prompt is on the pipe when it is asked, not when a buffer fills.
     env["PYTHONUNBUFFERED"] = "1"
     return Machine(bin_dir=bin_dir, env=env)
