@@ -731,6 +731,10 @@ repos:
 - `rest` is always declared: it is the tests in no split. It may carry `hold` but no
   `marker`, and needs no entry. With no splits declared, a repo's splits are `rest` alone.
 - A test is in at most one split. `abk e2e-test check` finds a test in two.
+- A test that needs the shared telemetry stack carries the marker `telemetry_otel` (it needs the
+  stack's dev instance and the `ABK_ACCEPTANCE_*` variables). A machine without the stack
+  declares `telemetry: {marker: telemetry_otel}` and holds that split, rather than skipping
+  the test: a live test whose dependency is missing still fails.
 - The splits a repo declares are what a `Split:` line in a change's e2e-test group may name (see
   `e2e_splits` of the repo, or the top level when the repo declares none of its own); a group with
   no line is in `rest`. A group is in one split, so a test that must run in two is written as two

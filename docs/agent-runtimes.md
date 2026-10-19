@@ -928,7 +928,11 @@ The markers the suite uses:
   its class, its module or a parameter, fail collection naming the test, so a
   scenario that needs two runtimes is two tests. Markers are strict: an
   unregistered one fails collection. `dev_stack` marks a test that needs the
-  repo's dev stack.
+  repo's dev stack. `telemetry_otel` marks a test that needs the shared telemetry stack's
+  dev instance and the `ABK_ACCEPTANCE_*` variables; every test of
+  `tests/integration/test_telemetry_stack.py` carries it. A machine without the stack holds
+  a split on it (`tests.e2e_splits.telemetry: {marker: telemetry_otel}`) and does not skip
+  the test: a live test whose dependency is missing still fails.
 
 ### Splits and their selectors
 

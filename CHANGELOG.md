@@ -8,6 +8,11 @@
   the stubbed red reading. Only toolchain profiles that support stubs are affected. Set
   the setting to `false`, or leave it out, to keep one pair of commits per unit.
 
+- The live tests that need the shared telemetry stack now carry a `telemetry_otel` marker, so
+  a split can select them. A machine without the stack holds a split on that marker
+  (`tests.e2e_splits.telemetry: {marker: telemetry_otel}`) instead of failing the test on
+  every scheduled run; a test whose dependency is missing still fails and never skips.
+
 - A repo can run on its own Claude account: `repos.<name>.account` in `abk.yaml` names a label,
   and each person gives that label's directory in `abk.local.yaml`. Units in progress are now
   counted per account against that account's `max_units_in_progress`, so one account's stalled

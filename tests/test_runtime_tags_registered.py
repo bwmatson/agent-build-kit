@@ -25,6 +25,10 @@ def test_the_dev_stack_marker_is_registered() -> None:
     assert "dev_stack" in registered_names()
 
 
+def test_the_telemetry_marker_is_registered() -> None:
+    assert "telemetry_otel" in registered_names()
+
+
 def test_the_default_options_turn_strict_markers_on() -> None:
     assert "--strict-markers" in project_options()["addopts"].split()
 
