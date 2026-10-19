@@ -8,7 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from tests.live_tag_drift import live_modules
+from tests.live_tag_drift import find_live_modules
+from tests.runtime_tag_collection import ROOT
 
 TESTS = Path(__file__).resolve().parent
 INTEGRATION = TESTS / "integration"
@@ -20,7 +21,7 @@ SHARED = TESTS / "scratch_tick.py"
 
 def live_files() -> list[Path]:
     """The three live tests and every other integration test marked `local_stack`."""
-    return sorted({GRAPH, BUILD, TELEMETRY, *live_modules()})
+    return sorted({GRAPH, BUILD, TELEMETRY, *find_live_modules(ROOT / "tests")})
 
 
 def strings_in(node: ast.AST) -> list[str]:

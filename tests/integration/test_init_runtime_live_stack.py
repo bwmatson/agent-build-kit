@@ -10,7 +10,7 @@ they receive the chosen runtime). The `--policy-only` runs read a configuration 
 agent home, never the host's. Needs node for the OpenSpec CLI, as the end-to-end init test does.
 
 Run with `uv run pytest -m local_stack tests/integration/test_init_runtime_live_stack.py`; the
-last test uses an agent installed on the host, and skips without one.
+last test starts the agent installed on the host, is in the `acp` split, and skips without one.
 """
 
 from __future__ import annotations
@@ -305,6 +305,19 @@ def installed_agents() -> list[Installed]:
     return [Installed(name=c.label, command=list(c.command)) for c in found if c.usable]
 
 
+# Why a scenario of this module has no Claude variant. Probed 2026-10-19 on a host with a protocol
+# agent installed: the listing finishes with the network proxy variables pointing at a closed port
+# and does not finish with an empty agent home, so it needs the agent installed and configured
+# with its own credentials, and no model backend.
+ACP_ONLY_REASONS = {
+    "test_listing_against_the_installed_agent_sends_no_prompt": (
+        "lists models through the protocol's session/new, which the Claude runtime does not use; "
+        "no model call is made, the installed and configured agent is the only requirement"
+    ),
+}
+
+
+@pytest.mark.runtime_acp
 def test_listing_against_the_installed_agent_sends_no_prompt(tmp_path: Path) -> None:
     agents = installed_agents()
     if not agents:
