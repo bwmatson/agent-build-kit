@@ -1387,44 +1387,16 @@ def _start_decision(accounts: Sequence[claude_account.Account | None] = (None,))
     )
 
 
-def _starting_accounts(
-    inst: Installation,
-    store: UnitStore,
-    *,
-    only: frozenset[str],
-    spared: Collection[str],
-    planning: bool,
-) -> list[claude_account.Account | None]:
-    """The accounts a round's start decision is asked of: each account of a unit that could start
-    (planned or running, and not left out by `--only`, a lease or a backoff), and the default
-    account when planning is due, since planning runs on it. The account in force when none is."""
-    leases = Leases(lease_dir(inst.state_dir))
-    now = spans.clock.now()
-    found: dict[str | None, claude_account.Account | None] = {}
-    for unit in store.all():
-        if unit.state not in (PLANNED, RUNNING):
-            continue
-        excluded = (
-            (only and unit.id not in only)
-            or leases.holder(unit.id) is not None
-            or backoff_remaining(unit, now) is not None
-        )
-        if not excluded or unit.id in spared:
-            account = claude_account.for_repo(inst.config, unit.repo)
-            found.setdefault(claude_account.account_key(account), account)
-    if planning:
-        default = claude_account.Account(limits=claude_limits())
-        found.setdefault(claude_account.account_key(default), default)
-    return list(found.values()) or [None]
-
-
-def _no_unit_can_start(
+def _startable(
     inst: Installation, store: UnitStore, *, only: frozenset[str], spared: Collection[str]
-) -> bool:
-    """Whether the round has planned units and every one that could start is left out of
-    it by `--only`, a lease or a backoff, so a decision about usage would decide nothing."""
+) -> tuple[list[StoredUnit], bool]:
+    """The units that could start this round, and whether a planned unit is left out of it.
+
+    A unit could start when it is planned or running and not left out by `--only`, a lease or a
+    backoff; one in `spared` is never left out."""
     leases = Leases(lease_dir(inst.state_dir))
     now = spans.clock.now()
+    startable: list[StoredUnit] = []
     left_out = False
     for unit in store.all():
         if unit.state not in (PLANNED, RUNNING):
@@ -1435,9 +1407,29 @@ def _no_unit_can_start(
             or backoff_remaining(unit, now) is not None
         )
         if not excluded or unit.id in spared:
-            return False
-        left_out = left_out or unit.state == PLANNED
-    return left_out
+            startable.append(unit)
+        else:
+            left_out = left_out or unit.state == PLANNED
+    return startable, left_out
+
+
+def _starting_accounts(
+    inst: Installation,
+    startable: Collection[StoredUnit],
+    *,
+    planning: bool,
+) -> list[claude_account.Account | None]:
+    """The accounts a round's start decision is asked of: each account of a unit that could start
+    (see `_startable`), and the default account when planning is due, since planning runs on it.
+    The account in force when none is."""
+    found: dict[str | None, claude_account.Account | None] = {}
+    for unit in startable:
+        account = claude_account.for_repo(inst.config, unit.repo)
+        found.setdefault(claude_account.account_key(account), account)
+    if planning:
+        default = claude_account.Account(limits=claude_limits())
+        found.setdefault(claude_account.account_key(default), default)
+    return list(found.values()) or [None]
 
 
 def _held_by_the_model(
@@ -1493,13 +1485,11 @@ def _may_build(
     # rate-limit refusal still pauses, above and in `_run_unit`.
     runtime = runtimes.active()
     if runtime.supports_usage_tracking:
-        if _no_unit_can_start(inst, store, only=only, spared=spared) and not _needs_planning(
-            inst, store
-        ):
+        startable, left_out = _startable(inst, store, only=only, spared=spared)
+        planning = _needs_planning(inst, store)
+        if left_out and not startable and not planning:
             return "idle"
-        accounts = _starting_accounts(
-            inst, store, only=only, spared=spared, planning=_needs_planning(inst, store)
-        )
+        accounts = _starting_accounts(inst, startable, planning=planning)
         decision = _start_decision(accounts)
         if not decision.may_start:
             state = pause_until(
