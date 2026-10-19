@@ -64,14 +64,18 @@ window: the widening lands alone, and something removes the old half later.
 
 **`[narrow]`** is that something. Required whenever a `[contract]` group
 exists, and it must be the last group of the change: its unit depends on
-every unit that migrates a consumer, and nothing depends on it.
+every unit that migrates a consumer, and nothing depends on it. A unit stores only its direct
+dependencies (`direct_dependencies`: a dependency another one of its dependencies reaches is
+not stored), and a `[narrow]` unit waits for every earlier unit of its change, computed at run
+time and not from stored edges.
 
 This is only for contracts that cross a repo boundary. A shape and its
 callers inside one repo land in the same commit; nothing needs flagging.
 
 **`[acceptance]`** marks the group that drives what the change built the way
 its consumer does — a scripted run of the tool as a real client, a request
-through the public route. It is always `e2e-test`, comes after every group it
+through the public route. It waits for every earlier unit of its change, computed at run time,
+while storing only the end of its chain and the independent units. It is always `e2e-test`, comes after every group it
 exercises (only a `[narrow]` group may follow it), and gets a unit of its
 own. Every change has one, or opts out with a line anywhere in `tasks.md`:
 
@@ -105,6 +109,10 @@ Needs: <other-change> group <n> — why
 The planner orders groups within a change on its own; across changes it only
 sees what is already in flight, so a dependency that must hold is written
 down and applied as code.
+
+A `Needs:` the chain already implies (the unit reaches the target through its dependencies) is
+recorded but not linked, and draws no edge on the graph; `direct_dependencies` stores only
+dependencies another does not reach.
 
 A same-repo `Needs:` starts the dependent on the parent's branch once the
 parent's pull request is in review; it does not wait for a merge. A cross-repo

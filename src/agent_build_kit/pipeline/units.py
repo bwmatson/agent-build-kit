@@ -639,6 +639,18 @@ def direct_dependencies(unit: Unit, graph: Sequence[Unit]) -> tuple[str, ...]:
     )
 
 
+def shown_dependencies(unit: Unit, graph: Sequence[Unit]) -> tuple[str, ...]:
+    """The dependencies a view shows for `unit`: `current_dependencies` cut to the direct ones."""
+    current = unit.model_copy(update={"depends_on": current_dependencies(unit, graph)})
+    return direct_dependencies(current, graph)
+
+
+def shown_waits(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
+    """`waiting_on(unit)` without a stored dependency that another dependency of `unit` reaches."""
+    redundant = set(unit.depends_on) - set(shown_dependencies(unit, graph))
+    return [parent for parent in waiting_on(unit, graph) if parent.id not in redundant]
+
+
 def repointed[U: Unit](units: Mapping[str, U], taken: str, onto: str) -> dict[str, U]:
     """The units that depended on `taken`, depending on `onto` instead, each list
     de-duplicated and reduced over the graph with `taken` gone."""

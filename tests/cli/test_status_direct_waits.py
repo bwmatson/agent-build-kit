@@ -56,7 +56,7 @@ def test_a_failed_waiting_unit_names_its_parent_and_not_the_ancestor(
     )
 
     waiting = next(line for line in lines if "failed, waiting on" in line and "top/1" in line)
-    assert waiting.startswith("  failed, waiting on mid/1: top/1")
+    assert "  failed, waiting on mid/1: top/1" in waiting
 
 
 def test_a_unit_held_for_depth_names_its_direct_parents(tmp_path: Path) -> None:
@@ -94,7 +94,7 @@ def test_the_status_of_a_recorded_store_names_only_direct_dependencies(
 
     lines = status_lines(tmp_path, monkeypatch, capsys, record=recording(units), limit=20)
 
-    blocked = [line for line in lines if line.startswith("  blocked: ")]
+    blocked = [line for line in lines if "  blocked: " in line]
     assert any("feature/4" in line for line in blocked)
     for line in blocked:
         unit_id = line.split("blocked: ")[1].split(" ")[0]

@@ -846,6 +846,23 @@ The framework brings `langchain-core`. Nothing else from LangChain is used:
 there are no LangChain models, prompts or tools, since agents are reached
 through `AgentRuntime`.
 
+## Direct dependencies
+
+A unit stores only its direct dependencies: `direct_dependencies` keeps the dependencies that
+no other of the unit's dependencies reaches (one that another reaches is dropped, and the walk
+does not reach through a satisfied unit), through stored edges in any state and repo, in the order
+given. Every write (planning, a `Needs:` link, a join) stores the reduced list, and the graph
+page, the unit's page, `abk status`, the pull request body and the planner show the same list. The
+first tick or replan after an update reduces a store that lists more, once, through the store's own
+methods.
+
+An acceptance or narrow unit waits for every earlier unit of its change, computed at run time and
+not from stored edges; that adds waits only, and its base, depth and open parents stay what its
+stored dependencies give. Any other unit follows the chain: a unit sent back restacks its child, and
+a unit in review follows its predecessor, with no wait on a grandparent. A `Needs:` the chain
+implies is recorded in `needs` but draws no edge. A plain chain keeps two gaps: a deferred restack
+leaves the units behind it where they are, and a thread that declines a move leaves its unit in review.
+
 ## Display statuses of a running unit
 
 The store holds `running` for every unit an agent is working on. The graph, `abk status` and the
