@@ -339,6 +339,23 @@ def split_of(item: pytest.Item) -> str:
     return tags[0].removeprefix(PREFIX) if tags else UNTAGGED_SPLIT
 
 
+def claude_without_acp(items: list[pytest.Item]) -> list[str]:
+    """The sorted `file::scenario` of every Claude-tagged scenario among `items` with no ACP
+    sibling and no entry in its module's `CLAUDE_ONLY_REASONS` (optional, never required)."""
+    raise NotImplementedError
+
+
+def documented_gaps(document: Path) -> list[str]:
+    """The bullets under "Claude scenarios without an ACP sibling" in `document`."""
+    raise NotImplementedError
+
+
+def warn_gap_list_drift(items: list[pytest.Item], document: Path) -> None:
+    """Warn (`UserWarning`), naming it, of each gap among `items` that `document` does not list
+    and each entry of `document` that is no longer a gap. Never fails."""
+    raise NotImplementedError
+
+
 def drifted(pytester: pytest.Pytester, **modules: str) -> list[str]:
     """The drift messages for fixture `modules`, collected the way the project collects its own."""
     pytester.syspathinsert(ROOT)
