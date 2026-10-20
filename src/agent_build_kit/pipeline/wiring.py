@@ -39,6 +39,7 @@ from agent_build_kit.config import (
     CONFIG_FILENAME,
     REST_SPLIT,
     TEMPLATE_PLACEHOLDERS,
+    E2eDimensionValue,
     E2eSplit,
     E2eUnitScope,
     ProjectConfig,
@@ -46,6 +47,7 @@ from agent_build_kit.config import (
     active,
     active_root,
     by_project,
+    e2e_dimensions,
     e2e_splits,
     e2e_unit_scope,
     models,
@@ -73,6 +75,7 @@ from agent_build_kit.pipeline.e2e import (
     TestTime,
     build_selection,
     build_snapshot,
+    needs_text,
     selection_unavailable,
     stack_lock,
 )
@@ -2411,8 +2414,12 @@ class E2eSession:
         only: str | None = None,
         splits: Collection[E2eSplit] = (),
         unavailable: Collection[str] = (),
+        dimensions: Mapping[str, Mapping[str, E2eDimensionValue]] | None = None,
     ) -> None:
         self.unit = unit
+        self._dimensions = dimensions or {}
+        # What the last run was skipped for (`<dimension>=<value>` text); empty when it ran.
+        self._skipped_for = ""
         self.verdict: E2eVerdict | None = None
         self._held = held
         self._unavailable = unavailable
@@ -2577,6 +2584,53 @@ class E2eSession:
 
         return listed
 
+    def _listed(
+        self,
+        scope: E2eScope,
+        toolchains: Mapping[Path, ToolchainProfile],
+        selection: E2eSelection,
+    ) -> list[str] | None:
+        """The tests `selection` holds in every command of the scope, found by listing without
+        running; None when any command's listing fails."""
+        found: list[str] = []
+        for run in scope.runs:
+            lister = self._lister(toolchains[run.where], run.where)
+            for command in run.commands:
+                ids = lister(command, selection)
+                if ids is None:
+                    return None
+                found += ids
+        return found
+
+    def _unrunnable(self, scope: E2eScope, toolchains: Mapping[Path, ToolchainProfile]) -> str:
+        """What the split this run is limited to needs, as `<dimension>=<value>` text, when it
+        holds tests and every one carries the marker of an unavailable value; else empty. Only
+        the values the split's own tests carry are named."""
+        if self._only is None or not self._unavailable or not scope.runs:
+            return ""
+
+        def excluding(marker: str) -> E2eSelection:
+            return build_selection(
+                self._marker, self._splits, only=self._only, unavailable=[marker]
+            )
+
+        if self._selection().empty:
+            return needs_text(
+                self._dimensions, [m for m in self._unavailable if excluding(m).empty]
+            )
+        wanted = self._listed(
+            scope, toolchains, build_selection(self._marker, self._splits, only=self._only)
+        )
+        if not wanted or self._listed(scope, toolchains, self._selection()) != []:
+            return ""
+        carried = [
+            marker
+            for marker in self._unavailable
+            if (left := self._listed(scope, toolchains, excluding(marker))) is None
+            or set(left) != set(wanted)
+        ]
+        return needs_text(self._dimensions, carried)
+
     def _park(
         self, scope: E2eScope, toolchains: Mapping[Path, ToolchainProfile]
     ) -> tuple[list[str], E2eScope]:
@@ -2590,14 +2644,7 @@ class E2eSession:
             held = build_selection(
                 self._marker, self._splits, only=name, unavailable=self._unavailable
             )
-            found: list[str] | None = []
-            for run in scope.runs:
-                lister = self._lister(toolchains[run.where], run.where)
-                for command in run.commands:
-                    ids = lister(command, held)
-                    found = None if ids is None or found is None else found + ids
-                if found is None:
-                    break
+            found = self._listed(scope, toolchains, held)
             if found is None:
                 self._log(f"e2e-test parked {name}: its tests could not be listed")
             if found is None or found:
@@ -2716,6 +2763,22 @@ class E2eSession:
             )
         }
         parked, scope = self._park(scope, toolchains) if left_out and not why else ([], scope)
+        self._skipped_for = ""
+        if not scope.dev_stack and (needs := self._unrunnable(scope, toolchains)):
+            self._log(f"e2e-test skipped {self._only}: nothing runnable: needs {needs}")
+            self._skipped_for = needs
+            self.result = E2eResult(
+                sha=self._sha(cwd),
+                passed=0,
+                failed=0,
+                skipped=0,
+                duration_seconds=0.0,
+                command="",
+                output="",
+                ran_no_tests=True,
+                parked=parked,
+            )
+            return True, build_snapshot(self.result)
         if scope.mode is E2eUnitScope.OWN and not scope.runs:
             self._log(scope.reason)
             self.result = E2eResult(
@@ -2860,6 +2923,8 @@ class E2eSession:
         result = self.result
         assert result is not None, "e2e-test has not run for this unit"
         of = f" for {self._only}" if self._only else ""
+        if self._skipped_for:
+            return f"scheduled e2e-test skipped{of}: nothing runnable: needs {self._skipped_for}"
         return (
             f"scheduled e2e-test passed{of}: {result.passed} passed, {result.skipped} skipped "
             f"on {result.sha}"
@@ -3626,6 +3691,7 @@ def build_runner(
         output_dir=e2e_output_dir(root),
         splits=declared,
         unavailable=unavailable_markers(repo, installation.config),
+        dimensions=e2e_dimensions(repo, installation.config),
     )
     planning_repo = installation.root
     # Units build in parallel, and two in one repo share its `.git`. Adding a

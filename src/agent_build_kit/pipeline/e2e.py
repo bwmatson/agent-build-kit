@@ -35,7 +35,7 @@ from pydantic import AliasChoices, Field
 from agent_build_kit import forges
 from agent_build_kit.budget import cut_head
 from agent_build_kit.compat_names import old_spelling
-from agent_build_kit.config import REST_SPLIT, E2eSplit, active
+from agent_build_kit.config import REST_SPLIT, E2eDimensionValue, E2eSplit, WorkspaceConfig, active
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.model import E2E_LOCK_FILE, Frozen, TestTier
 from agent_build_kit.pipeline import spans
@@ -102,6 +102,39 @@ def build_selection(
     held_markers = [markers[s.name] for s in declared if s.name in left_out]
     return base.model_copy(
         update={"left_out": left_out, "none_of": tuple(dict.fromkeys([*held_markers, *out]))}
+    )
+
+
+def dimension_lines(config: WorkspaceConfig) -> list[str]:
+    """One line per declared dimension, top level and repos' own, with each value and whether
+    `tests.e2e_available` has it; none when no dimension is declared."""
+    scopes = [config.tests.e2e_dimensions]
+    scopes += [r.tests.e2e_dimensions for r in config.repos.values() if r.tests.e2e_dimensions]
+    values: dict[str, list[str]] = {}
+    for scope in scopes:
+        for dimension, entries in scope.items():
+            known = values.setdefault(dimension, [])
+            known += [value for value in entries if value not in known]
+    available = config.tests.e2e_available
+    lines = []
+    for dimension, names in values.items():
+        have = available.get(dimension, names)
+        shown = ", ".join(
+            f"{value} ({'available' if value in have else 'unavailable'})" for value in names
+        )
+        lines.append(f"{dimension}: {shown}")
+    return lines
+
+
+def needs_text(
+    dimensions: Mapping[str, Mapping[str, E2eDimensionValue]], unavailable: Collection[str]
+) -> str:
+    """`<dimension>=<value>` for each value whose marker is in `unavailable`, comma-separated."""
+    return ", ".join(
+        f"{dimension}={value}"
+        for dimension, entries in dimensions.items()
+        for value, entry in entries.items()
+        if entry.marker in unavailable
     )
 
 

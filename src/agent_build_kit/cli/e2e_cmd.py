@@ -29,7 +29,7 @@ from agent_build_kit.config import (
 from agent_build_kit.config_text_edit import ConfigTextEditError, TextEdit, set_hold
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import TestTier
-from agent_build_kit.pipeline.e2e import listing_runner, selection_unavailable
+from agent_build_kit.pipeline.e2e import dimension_lines, listing_runner, selection_unavailable
 from agent_build_kit.pipeline.e2e_exclusive import SplitCheck, check_dimensions, check_splits
 from agent_build_kit.pipeline.e2e_holds import (
     HELD_FILE,
@@ -375,6 +375,8 @@ def cmd_e2e_status(args: argparse.Namespace, installation: Installation | None) 
                 print(f"  parked at e2e-test: {unit.id} ({project_tag(unit.repo, unit.project)})")
             elif gates.get(unit.id) is not None and unit.split == split.name:
                 print(f"  not started: {unit.id} ({project_tag(unit.repo, unit.project)})")
+    for line in dimension_lines(installation.config):
+        print(line)
     limits = installation.config.global_limits
     running = [
         split.name
