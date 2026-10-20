@@ -130,6 +130,20 @@ def test_a_tick_that_outlasts_its_wait_and_what_it_started_are_gone_when_it_rais
     program.chmod(program.stat().st_mode | stat.S_IXUSR)
     monkeypatch.setattr(scratch_tick, "ABK", program)
 
+    class SlowTick(subprocess.Popen):  # type: ignore[type-arg]
+        """Times out only once the stand-in has written both pids, never on the clock."""
+
+        def wait(self, timeout: float | None = None) -> int:
+            if timeout is None:
+                return super().wait()
+            wait_for(
+                lambda: pids.exists() and len(pids.read_text().split()) == 2,
+                what="the stand-in to write its pids",
+            )
+            raise subprocess.TimeoutExpired(str(program), timeout)
+
+    monkeypatch.setattr(subprocess, "Popen", SlowTick)
+
     with pytest.raises(subprocess.TimeoutExpired):
         run_tick(ticking(tmp_path), timeout=1)
 
