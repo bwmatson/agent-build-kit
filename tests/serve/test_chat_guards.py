@@ -47,8 +47,6 @@ from tests.serve.socket_api import (
 from tests.serving import seed_pipeline
 from tests.waiting import wait_for
 
-# A session id on a command line (an editor holding it, a fake agent listing it) is seen by
-# every server on the machine, so these cannot run beside each other.
 REVIEW = "/api/units/feature/2"
 
 

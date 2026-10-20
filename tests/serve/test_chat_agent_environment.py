@@ -30,9 +30,6 @@ ONLY_HERE = "ABK_TEST_ONLY_IN_THE_PROCESS"
 WATCHED = (GIVEN, ONLY_HERE, "PYTEST_CURRENT_TEST")
 REVIEW = "/api/units/feature/2"
 
-# A session id on a command line (a fake agent listing it) is seen by every server on the
-# machine, so these cannot run beside each other.
-
 
 @pytest.fixture(autouse=True)
 def process_only(monkeypatch: pytest.MonkeyPatch) -> None:

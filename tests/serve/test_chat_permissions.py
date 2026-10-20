@@ -22,8 +22,6 @@ from tests.serve.socket_api import (
 from tests.serving import seed_pipeline
 
 REVIEW = "/api/units/feature/2"
-# A session id on a command line (an editor holding it, a fake agent listing it) is seen by
-# every server on the machine, so these cannot run beside each other.
 ASK = [{"ask": "execute", "command": "ls src"}]
 
 

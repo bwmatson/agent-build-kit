@@ -95,3 +95,10 @@ def test_ci_runs_the_suite_with_the_poe_command() -> None:
     runs = [step["run"] for step in jobs["test"]["steps"] if "run" in step]
 
     assert any(re.search(r"\bpoe test\s*$", run.strip()) for run in runs), runs
+
+
+def test_no_pytest_command_selects_on_serial_and_no_serial_marker_is_registered() -> None:
+    for name in ("test", "test-integration", "test-local-stack"):
+        for argv in pytest_invocations(name):
+            assert "serial" not in marker_expression(argv), (name, argv)
+    assert not any(m.startswith("serial:") for m in pytest_options()["markers"])

@@ -22,8 +22,6 @@ from tests.runtimes.acp_agent import requests, use_agent
 from tests.runtimes.claude_cli import finished_build
 from tests.serving import seed_pipeline
 
-# A session id on a command line (an editor holding it, a fake agent listing it) is seen by
-# every server on the machine, so these cannot run beside each other.
 CHAT = "/api/units/feature/2/chat"
 
 MARKER = {
