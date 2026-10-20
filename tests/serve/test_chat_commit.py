@@ -177,11 +177,15 @@ def test_a_free_sessions_commit_carries_its_own_session_and_is_outside_the_build
 
 
 def test_a_free_session_opened_through_the_endpoint_commits_under_its_own_session(
-    inst: Installation, tree: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+    inst: Installation,
+    tree: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+    build_session: str,
 ) -> None:
     from tests.runtimes.claude_cli import SESSION
 
-    assert SESSION != BUILD_SESSION
+    assert SESSION != build_session
     scripted(monkeypatch, tree, {"notes.txt": "by a free session\n"})
     before = head(tree)
     turn(
@@ -203,8 +207,8 @@ def test_a_free_session_opened_through_the_endpoint_commits_under_its_own_sessio
     assert answer.status_code == 200, answer.text
     message = git(tree, "log", "-1", "--format=%B")
     assert f"Adopted-From: {SESSION}" in message
-    assert BUILD_SESSION not in message
-    [outside] = outside_commits(tree, before, BUILD_SESSION)
+    assert build_session not in message
+    [outside] = outside_commits(tree, before, build_session)
     assert (outside.commit, outside.session) == (head(tree), SESSION)
 
 
@@ -225,7 +229,11 @@ def test_a_free_session_on_a_unit_may_edit_the_planning_checkout_and_one_on_it_n
 
 
 def test_a_continued_free_session_on_a_unit_keeps_the_planning_checkout_and_the_builders_does_not(
-    inst: Installation, tree: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+    inst: Installation,
+    tree: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+    build_session: str,
 ) -> None:
     from agent_build_kit.settings import settings
     from tests.runtimes.claude_cli import SESSION
@@ -239,12 +247,12 @@ def test_a_continued_free_session_on_a_unit_keeps_the_planning_checkout_and_the_
     )
     api.delete(f"{REVIEW}/lease", params={"tab": "t1"})
     claude_session_file(settings.claude_home, SESSION, tree)
-    claude_session_file(settings.claude_home, BUILD_SESSION, tree)
+    claude_session_file(settings.claude_home, build_session, tree)
 
     turn(api, f"/api/sessions/claude_code/{SESSION}/continue", {"tab": "t1", "prompt": "More."})
     api.delete(f"{REVIEW}/lease", params={"tab": "t1"})
     turn(
-        api, f"/api/sessions/claude_code/{BUILD_SESSION}/continue", {"tab": "t1", "prompt": "More."}
+        api, f"/api/sessions/claude_code/{build_session}/continue", {"tab": "t1", "prompt": "More."}
     )
 
     free, builder = fake.calls[1][0], fake.calls[2][0]

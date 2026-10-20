@@ -21,8 +21,6 @@ from tests.runtimes.acp_agent import EARLIER_TURN, SESSION, requests
 from tests.runtimes.in_process_acp import use_in_process_agent
 from tests.serving import seed_pipeline
 
-pytestmark = pytest.mark.serial
-
 BUILD_SESSION = f"sess_{uuid.uuid4().hex[:16]}"
 UNIT = "/api/units/feature/2"
 
