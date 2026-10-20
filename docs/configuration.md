@@ -689,6 +689,46 @@ provider names, `.env` here. Nothing reads `.env` for the entry itself.
 A planning repo that plans only itself needs no other repo entries: its own entry, with path
 `.`, is the checkout naming itself.
 
+#### Which file holds a setting
+
+Put a value in `abk.local.yaml` when it names something on one machine or measures what one
+machine or subscription can do; keep it in `abk.yaml` when every checkout of the planning repo
+should agree on it. Keep the entry's other keys in `abk.yaml` and give `abk.local.yaml` only the
+key that differs, since mappings merge by key:
+
+| Setting | File | Why |
+|---|---|---|
+| `repos.<name>.path`, `repos.<name>.deploy.ssh_key`, `planning.worktree_root` | `abk.local.yaml` | a path on this machine; use `~` or a path relative to the planning root |
+| a `verify.env` entry that reads a file in the home directory or holds a home path | `abk.local.yaml` | the same value is a different path on another machine |
+| `runtimes.<name>.limits`, `runtimes.claude_code.accounts.<label>.config_dir` | `abk.local.yaml` | the pause thresholds belong to this person's subscription windows, and a config directory is a path |
+| `project_limits` | `abk.local.yaml` | how many units and stacks this machine can run at once |
+| the rest of a repo's entry (`slug`, `profile`, `tests`, `deploy.rules`, `consumes`, `relationships`) and `global_limits` | `abk.yaml` | how the work is planned, built and deployed, which every checkout shares |
+| a token, a port, an agent command | `.env`, read by a `from: env-file` provider | a secret or a single value, not structure |
+
+Split by key, not by block. For example the tracked file names the repo and the local file says
+where it is checked out:
+
+```yaml
+# abk.yaml
+repos:
+  platform:
+    slug: owner/platform
+    profile: python-uv
+```
+
+```yaml
+# abk.local.yaml
+repos:
+  platform:
+    path: ~/work/platform
+```
+
+A fresh clone has no `abk.local.yaml`: until its owner writes one with the checkout paths,
+`abk` has nothing to plan against, and `abk config --show` names the file it merged (and the
+top-level keys it set) on its first line, so a missing or misplaced entry is easy to see.
+Lists, text and `null` replace the tracked value, so a local `deploy.rules` or `consumes`
+discards the tracked list rather than extending it.
+
 Words that only this installation knows go in `scrub.local`, one per line (`!word` removes a
 derived term); `abk scrub-check` reads it. `abk doctor`'s `public content` check warns when
 `abk.local.yaml` or `scrub.local` is tracked or not ignored, and when a committed `abk.yaml`
