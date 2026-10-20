@@ -32,7 +32,8 @@ def with_outcome(
 ) -> dict[str, dict[str, Any]]:
     """`records` (verdict records by unit id) with the unit's record holding `outcome`, `reworks`
     (the count of history entries whose cause is `rework`) and `revert_checked` (false when the
-    forge could not say which commit the merge produced). A unit with no record is left alone."""
+    forge could not say which commit the merge produced, or the checkout could not be searched).
+    A unit with no record is left alone."""
     if unit.id not in records:
         return {uid: dict(record) for uid, record in records.items()}
     reworks = sum(1 for entry in unit.history if entry.get("cause") == Cause.REWORK)
@@ -43,10 +44,13 @@ def with_outcome(
         outcome = Outcome.OPEN
     else:
         merge = forge.merge_commit(repo, unit.pr) if unit.pr is not None else None
-        checked = merge is not None
-        if merge and reverts_merge(
-            checkout, trunk=trunk, merge_commit=merge, repo=repo, pr=unit.pr or 0
-        ):
+        found = (
+            reverts_merge(checkout, trunk=trunk, merge_commit=merge, repo=repo, pr=unit.pr or 0)
+            if merge
+            else None
+        )
+        checked = found is not None
+        if found:
             outcome = Outcome.REVERTED
         else:
             outcome = Outcome.REWORKED if reworks else Outcome.CLEAN

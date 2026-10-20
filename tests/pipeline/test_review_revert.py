@@ -39,7 +39,7 @@ def say(app: Path, message: str) -> str:
 
 
 def reverted(app: Path, merge: str) -> bool:
-    return reverts_merge(app, trunk="main", merge_commit=merge, repo=REPO, pr=PR)
+    return reverts_merge(app, trunk="main", merge_commit=merge, repo=REPO, pr=PR) is True
 
 
 def test_git_revert_wording_with_the_full_sha_marks_the_unit_reverted(app: Path) -> None:
@@ -131,3 +131,25 @@ def test_a_reverted_merge_makes_the_outcome_reverted_and_the_revert_checked(app:
 
     assert record["outcome"] == "reverted"
     assert record["revert_checked"] is True
+
+
+def test_a_merge_commit_the_checkout_does_not_hold_is_unchecked_not_clear_of_reverts(
+    app: Path,
+) -> None:
+    absent = "a" * 40
+    forge = StandInForge()
+    forge.merged[PR] = absent
+    unit = stored_unit(
+        UID,
+        state=UnitState.MERGED,
+        pr=PR,
+        history=({"state": "merged", "at": "2026-10-01T10:00:00+00:00", "cause": "merged"},),
+    )
+
+    record = with_outcome(
+        {UID: {"brief": True}}, unit, forge=forge, repo=REPO, checkout=app, trunk="main"
+    )[UID]
+
+    assert reverts_merge(app, trunk="main", merge_commit=absent, repo=REPO, pr=PR) is None
+    assert record["outcome"] == "clean"
+    assert record["revert_checked"] is False

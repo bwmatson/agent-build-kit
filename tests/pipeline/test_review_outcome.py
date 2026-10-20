@@ -1,7 +1,8 @@
 """A verdict record gains an outcome derived from the unit's history (spec: review-outcomes).
 
-The forge is the stand-in and the repository is a temporary one with no commits on it, so
-only the history decides here; the revert rule has its own tests."""
+The forge is the stand-in and answers a merge commit the temporary checkout does not hold, so
+the revert search cannot run and only the history decides here; the revert rule has its own
+tests."""
 
 from __future__ import annotations
 
@@ -52,6 +53,7 @@ def test_a_unit_merged_by_a_person_with_no_rework_is_clean(checkout: Path) -> No
 
     assert record["outcome"] == "clean"
     assert record["reworks"] == 0
+    assert record["revert_checked"] is False
     assert record["brief"] is True
 
 
