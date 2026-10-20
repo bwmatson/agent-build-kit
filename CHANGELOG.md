@@ -27,7 +27,10 @@
   value no longer fails those tests. A marker shared by two values or a split, and an
   availability naming something undeclared, are refused at load. `abk e2e-test check` also
   lists each value and reports a test carrying two values of one dimension, a marker used
-  twice and a marker the runner does not register.
+  twice and a marker the runner does not register. A scheduled split whose tests all need
+  an unavailable value is skipped with "nothing runnable: needs <dimension>=<value>"
+  instead of failing, and `abk e2e-test status` and `abk doctor` list each dimension with
+  the values this machine has.
 
 - The build can commit per task group behind `builders.per_group_commits` (off by default):
   each group gets a `test:` commit of stubs and tests, checked for lint, format and types

@@ -74,6 +74,7 @@ from agent_build_kit.pipeline.e2e import (
     TestTime,
     build_selection,
     build_snapshot,
+    needs_text,
     selection_unavailable,
     stack_lock,
 )
@@ -2580,6 +2581,29 @@ class E2eSession:
 
         return listed
 
+    def _unrunnable(self, scope: E2eScope, toolchains: Mapping[Path, ToolchainProfile]) -> str:
+        """What the split this run is limited to needs, as `<dimension>=<value>` text, when it
+        holds tests and every one carries the marker of an unavailable value; else empty."""
+        if self._only is None or not self._unavailable or not scope.runs:
+            return ""
+        needs = needs_text(self._dimensions, self._unavailable)
+        if self._selection().empty:
+            return needs
+
+        def listed(selection: E2eSelection) -> list[str] | None:
+            found: list[str] | None = []
+            for run in scope.runs:
+                lister = self._lister(toolchains[run.where], run.where)
+                for command in run.commands:
+                    ids = lister(command, selection)
+                    found = None if ids is None or found is None else found + ids
+            return found
+
+        wanted = build_selection(self._marker, self._splits, only=self._only)
+        if listed(wanted) and listed(self._selection()) == []:
+            return needs
+        return ""
+
     def _park(
         self, scope: E2eScope, toolchains: Mapping[Path, ToolchainProfile]
     ) -> tuple[list[str], E2eScope]:
@@ -2719,6 +2743,20 @@ class E2eSession:
             )
         }
         parked, scope = self._park(scope, toolchains) if left_out and not why else ([], scope)
+        if not scope.dev_stack and (needs := self._unrunnable(scope, toolchains)):
+            self._log(f"e2e-test skipped {self._only}: nothing runnable: needs {needs}")
+            self.result = E2eResult(
+                sha=self._sha(cwd),
+                passed=0,
+                failed=0,
+                skipped=0,
+                duration_seconds=0.0,
+                command="",
+                output="",
+                ran_no_tests=True,
+                parked=parked,
+            )
+            return True, build_snapshot(self.result)
         if scope.mode is E2eUnitScope.OWN and not scope.runs:
             self._log(scope.reason)
             self.result = E2eResult(

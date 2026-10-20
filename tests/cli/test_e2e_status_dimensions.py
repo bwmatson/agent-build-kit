@@ -68,7 +68,8 @@ def doctor_lines(tmp_path: Path, tests: str) -> list[str]:
     (root / "abk.yaml").write_text(f"version: 1\n{tests}")
     checks = run_doctor(root / "abk.yaml", run=Answers(), which=which_all)
     assert not [c for c in checks if c.status in ("warn", "FAIL") and "dimension" in c.detail]
-    return [f"{c.name}: {c.detail}" for c in checks]
+    # Other checks name a runtime or a local path; only one that speaks of availability counts.
+    return [f"{c.name}: {c.detail}" for c in checks if "available" in c.detail]
 
 
 def test_doctor_lists_each_dimension_and_value_with_what_is_available(tmp_path: Path) -> None:

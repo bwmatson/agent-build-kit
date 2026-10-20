@@ -71,6 +71,7 @@ from agent_build_kit.notify.windows import (
 )
 from agent_build_kit.path_patterns import matches
 from agent_build_kit.pipeline import agent_commands
+from agent_build_kit.pipeline.e2e import dimension_lines
 from agent_build_kit.pipeline.e2e_holds import HELD_FILE, current_holds, hold_text
 from agent_build_kit.pipeline.environment import matched_inputs
 from agent_build_kit.pipeline.gate_holds import gate_standing, split_gates
@@ -1469,6 +1470,11 @@ def _e2e_holds(inst: Installation) -> list[Check]:
     return checks
 
 
+def _e2e_dimensions(inst: Installation) -> list[Check]:
+    """Each declared e2e-test dimension with its values and which this machine has."""
+    return [_info("e2e-test dimensions", line) for line in dimension_lines(inst.config)]
+
+
 def _gate_usage(inst: Installation, run: Run, which: Which) -> list[Check]:
     """For each split with a gate: the provider's library is importable, the budget is set, a
     reading can be taken (read afresh, never from the cache) and what it says. A hold that
@@ -1571,6 +1577,7 @@ def run_doctor(
     checks += _live_installation(inst)
     checks += _repos(inst, run)
     checks += _e2e_holds(inst)
+    checks += _e2e_dimensions(inst)
     checks += _gate_usage(inst, run, which)
     checks += _pending_projects(inst)
     checks += _changelogs(inst)
