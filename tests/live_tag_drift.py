@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 import yaml
 
+from agent_build_kit.config import E2eDimensionValue
 from agent_build_kit.model import Frozen
 from agent_build_kit.runtimes.known_agents import KNOWN_AGENTS
 from tests.runtime_scratch import AGENT_COMMAND, RUNTIMES
@@ -397,3 +398,13 @@ def collected(pytester: pytest.Pytester, **modules: str) -> list[pytest.Item]:
 def drifted(pytester: pytest.Pytester, **modules: str) -> list[str]:
     """The drift messages for fixture `modules`, collected the way the project collects its own."""
     return drift(collected(pytester, **modules))
+
+
+def value_name_drift(
+    items: list[pytest.Item], dimensions: dict[str, dict[str, E2eDimensionValue]]
+) -> list[str]:
+    """One message per offence of the writing convention among the live `items`: two tests whose
+    names differ only by a dimension's value ("merge into one parametrized test"), and a
+    value-neutral test whose name holds a value as a whole underscore-delimited word when another
+    test also carries that value."""
+    raise NotImplementedError
