@@ -4,13 +4,26 @@ process that lists a split's tests, and an installation of two repos."""
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Collection, Mapping
 from pathlib import Path
 from typing import Any
 
 from agent_build_kit.installation import Installation
 from tests.conftest import make_installation
 
-__all__ = ["ACP", "BASE", "CLAUDE", "CLEAN", "MARKERS", "PLAIN", "SPLITS", "Pytest", "installation"]
+__all__ = [
+    "ACP",
+    "BASE",
+    "CLAUDE",
+    "CLEAN",
+    "MARKERS",
+    "PLAIN",
+    "SPLITS",
+    "Pytest",
+    "installation",
+    "markers_output",
+    "marker_matches",
+]
 
 SPLITS = {"acp": {"marker": "runtime_acp"}, "claude_code": {"marker": "runtime_claude_code"}}
 ACP = "tests/integration/test_live.py::test_acp"
@@ -24,9 +37,31 @@ MARKERS = (
 )
 
 
+class _Carries(dict[str, bool]):
+    """The names a marker expression is read with: true for a marker the test carries."""
+
+    def __init__(self, carried: Collection[str]) -> None:
+        super().__init__()
+        self.carried = set(carried)
+
+    def __missing__(self, name: str) -> bool:
+        return name in self.carried
+
+
+def marker_matches(expression: str, carried: Collection[str]) -> bool:
+    """Whether a test carrying the markers `carried` is selected by the `-m` expression."""
+    return bool(eval(expression, {"__builtins__": {}}, _Carries(carried)))  # noqa: S307
+
+
+def markers_output(names: Collection[str]) -> str:
+    """What `pytest --markers` prints for the registered markers `names`."""
+    return "".join(f"@pytest.mark.{name}: {name}\n\n" for name in names)
+
+
 class Pytest:
     """Stands in for the process run: answers `--markers` and each `--collect-only` by the
-    `-m` expression it was given."""
+    `-m` expression it was given: from a listing per expression, or from `carries`, the
+    markers each test carries."""
 
     def __init__(
         self,
@@ -34,8 +69,10 @@ class Pytest:
         *,
         markers: str = MARKERS,
         failing: str | None = None,
+        carries: Mapping[str, Collection[str]] | None = None,
     ) -> None:
         self.listings = listings or {}
+        self.carries = carries
         self.markers = markers
         self.failing = failing
         self.commands: list[list[str]] = []
@@ -51,7 +88,12 @@ class Pytest:
         expression = argv[argv.index("-m") + 1]
         if expression == self.failing:
             return self._result(argv, 4, "ERROR: usage\n", captured)
-        tests = self.listings.get(expression, [])
+        if self.carries is not None:
+            tests = [
+                t for t, carried in self.carries.items() if marker_matches(expression, carried)
+            ]
+        else:
+            tests = self.listings.get(expression, [])
         return self._result(argv, 0 if tests else 5, "\n".join(tests) + "\n", captured)
 
     @staticmethod
@@ -69,11 +111,15 @@ def installation(
     splits: dict[str, Any] | None = SPLITS,
     profile: str = "python-uv",
     projects: list[dict[str, str]] | None = None,
+    dimensions: dict[str, Any] | None = None,
 ) -> Installation:
     root = tmp_path / "planning"
+    tests: dict[str, Any] = {} if splits is None else {"e2e_splits": splits}
+    if dimensions is not None:
+        tests["e2e_dimensions"] = dimensions
     found = make_installation(
         root,
-        tests={} if splits is None else {"e2e_splits": splits},
+        tests=tests,
         verify={"env": {"SVC_TOKEN": {"from": "literal", "value": "secret"}}},
         repos={
             "app": {

@@ -20,6 +20,7 @@ from agent_build_kit.config import (
     E2eSchedule,
     E2eSplit,
     WorkspaceConfig,
+    e2e_dimensions,
     e2e_schedule,
     e2e_splits,
     load,
@@ -29,7 +30,7 @@ from agent_build_kit.config_text_edit import ConfigTextEditError, TextEdit, set_
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline.e2e import listing_runner, selection_unavailable
-from agent_build_kit.pipeline.e2e_exclusive import SplitCheck, check_splits
+from agent_build_kit.pipeline.e2e_exclusive import SplitCheck, check_dimensions, check_splits
 from agent_build_kit.pipeline.e2e_holds import (
     HELD_FILE,
     ORIGIN_CONFIGURATION,
@@ -112,7 +113,9 @@ def _check_repo(
     repo = installation.repo(name)
     config = installation.config
     splits = e2e_splits(repo, config)
-    if not any(split.marker is not None for split in splits):
+    dimensions = e2e_dimensions(repo, config)
+    declared = any(split.marker is not None for split in splits)
+    if not declared and not dimensions:
         print(f"{name}: no split is declared; every e2e-test test is in {REST_SPLIT}")
         return 0
     checkout = installation.checkouts[name]
@@ -121,12 +124,15 @@ def _check_repo(
     verify_env = installation.verify_env()
     env = {**os.environ, **verify_env} if verify_env else None
     listed: list[tuple[str, SplitCheck]] = []
+    dimension_checks: list[SplitCheck] = []
     for where, toolchain, commands in e2e_work(
         checkout, repo.projects, profiles.get(repo.profile), marker
     ):
-        why = selection_unavailable(toolchain, dev_stack_script=script, splits=splits)
+        why = selection_unavailable(
+            toolchain, dev_stack_script=script, splits=splits, dimensions=tuple(dimensions)
+        )
         if why is not None:
-            print(f"{name}: a declared split cannot be applied in {where}: {why}")
+            print(f"{name}: a declared split or dimension cannot be applied in {where}: {why}")
             return 1
         # `selection_unavailable` has said the profile applies a marker selector.
         assert isinstance(toolchain, AppliesE2eSelection)
@@ -140,14 +146,31 @@ def _check_repo(
             )
             for command in commands
         ]
+        dimension_checks += [
+            check_dimensions(
+                toolchain,
+                command,
+                marker,
+                dimensions,
+                splits,
+                run=listing_runner(run, where, env),
+            )
+            for command in commands
+        ]
     checks = [check for _, check in listed]
     print(f"{name}:")
-    for index, split in enumerate(splits):
+    for index, split in enumerate(splits if declared else ()):
         counts = [check.listings[index].tests for check in checks if check.listings]
         count = "unknown" if None in counts else sum(len(tests or ()) for tests in counts)
         shown = split.marker or f"{marker}, in none of the splits"
         print(f"  {split.name:<14} {shown}  {count} tests")
-    findings = [finding for check in checks for finding in check.findings]
+    for index, label in enumerate(
+        f"{dimension}={value}" for dimension, values in dimensions.items() for value in values
+    ):
+        counts = [check.listings[index].tests for check in dimension_checks]
+        count = "unknown" if None in counts else sum(len(tests or ()) for tests in counts)
+        print(f"  {label:<14} {count} tests")
+    findings = [finding for check in [*checks, *dimension_checks] for finding in check.findings]
     for finding in findings:
         print(f"  finding: {finding}")
     for warning in _split_declaration_warnings(installation, name, splits, listed, own_tests):

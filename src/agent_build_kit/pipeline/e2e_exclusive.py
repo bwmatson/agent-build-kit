@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import subprocess
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Mapping
 
-from agent_build_kit.config import E2eSplit
+from agent_build_kit.config import E2eDimensionValue, E2eSplit
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.e2e import build_selection
+from agent_build_kit.pipeline.e2e import E2eSelection, build_selection
 from agent_build_kit.profiles.base import AppliesE2eSelection, ListsRegisteredSelectors
 
 
@@ -74,5 +74,79 @@ def check_splits(
                 "the runner does not register it"
                 for split in declared
                 if split.marker not in known
+            )
+    return SplitCheck(listings=tuple(listings), findings=tuple(findings))
+
+
+def values_carried_twice(
+    markers: Collection[str], dimensions: Mapping[str, Mapping[str, E2eDimensionValue]]
+) -> dict[str, tuple[str, ...]]:
+    """For each dimension of which a test with `markers` carries two or more values, those values.
+    The one rule that a test carries at most one value of a dimension."""
+    carried = {
+        dimension: tuple(value for value, entry in values.items() if entry.marker in markers)
+        for dimension, values in dimensions.items()
+    }
+    return {dimension: found for dimension, found in carried.items() if len(found) > 1}
+
+
+def check_dimensions(
+    toolchain: AppliesE2eSelection,
+    command: list[str],
+    marker: str,
+    dimensions: Mapping[str, Mapping[str, E2eDimensionValue]],
+    splits: Collection[E2eSplit],
+    *,
+    run: Callable[..., subprocess.CompletedProcess],
+) -> SplitCheck:
+    """List each dimension value's tests through `toolchain` for `command`, and name every test
+    carrying two values of one dimension, every marker shared by two values or a split and every
+    marker the runner does not register."""
+    findings: list[str] = []
+    listings: list[SplitListing] = []
+    owners: dict[str, list[str]] = {}
+    for split in splits:
+        if split.marker is not None:
+            owners.setdefault(split.marker, []).append(f"split {split.name}")
+    for dimension, values in dimensions.items():
+        for value, entry in values.items():
+            owners.setdefault(entry.marker, []).append(f"{dimension}={value}")
+    for tag, names in owners.items():
+        if len(names) > 1:
+            findings.append(f"marker {tag} is used by {' and '.join(names)}")
+    markers_of: dict[str, set[str]] = {}
+    for dimension, values in dimensions.items():
+        for value, entry in values.items():
+            selection = E2eSelection(marker=marker, any_of=(entry.marker,))
+            tests = toolchain.list_tests(command, selection, run=run)
+            if tests is None:
+                findings.append(
+                    f"the listing of {dimension}={value} failed; it says nothing about it"
+                )
+            listings.append(
+                SplitListing(
+                    name=f"{dimension}={value}",
+                    marker=entry.marker,
+                    tests=None if tests is None else tuple(tests),
+                )
+            )
+            for test in tests or ():
+                markers_of.setdefault(test, set()).add(entry.marker)
+    for test, markers in markers_of.items():
+        for dimension, found in values_carried_twice(markers, dimensions).items():
+            findings.append(
+                f"{test} carries {len(found)} values of {dimension}: {' and '.join(found)}"
+            )
+    if isinstance(toolchain, ListsRegisteredSelectors):
+        known = toolchain.registered_selectors(command, run=run)
+        if known is None:
+            findings.append("the listing of the runner's registered selectors failed")
+        else:
+            findings.extend(
+                f"unknown selector {entry.marker} of {dimension}={value}: "
+                "the runner does not register it"
+                for dimension, values in dimensions.items()
+                for value, entry in values.items()
+                if entry.marker not in known
             )
     return SplitCheck(listings=tuple(listings), findings=tuple(findings))

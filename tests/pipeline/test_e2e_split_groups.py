@@ -25,6 +25,7 @@ from agent_build_kit.pipeline.e2e import (
 from agent_build_kit.pipeline.wiring import E2eSession
 from agent_build_kit.profiles.python_uv import PROFILE
 from tests.e2e_base_fakes import pytest_output
+from tests.e2e_check_support import marker_matches
 from tests.e2e_scope_fakes import PASSED, Ran, branch
 from tests.e2e_scope_fakes import session as shared_session
 
@@ -48,23 +49,12 @@ EDITED = "def test_{name}():\n    assert 1 == 1\n"
 SOURCE = {"src/app.py": "x = 1\n"}
 
 
-class Tags(dict[str, bool]):
-    """The names a marker expression is read with: the marker and the test's runtime tags."""
-
-    def __init__(self, tags: Collection[str]) -> None:
-        super().__init__()
-        self.tags = {MARKER, *(f"runtime_{tag}" for tag in tags)}
-
-    def __missing__(self, name: str) -> bool:
-        return name in self.tags
-
-
 def selected(expression: str, among: list[str]) -> list[str]:
     """The tests of the fixture repository `expression` selects, as pytest's `-m` would."""
     return [
         test
         for test, tags in TAGS.items()
-        if eval(expression, {"__builtins__": {}}, Tags(tags))  # noqa: S307
+        if marker_matches(expression, {MARKER, *(f"runtime_{tag}" for tag in tags)})
         and (not among or test in among)
     ]
 
