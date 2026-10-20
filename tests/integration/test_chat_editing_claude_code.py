@@ -84,8 +84,10 @@ Acceptance: none — a single function whose own test is its proof
 
 # Claude Code's recorder: the prompt arrives on standard input, which is copied to the prompts file
 # and handed on from a file the shell has already unlinked, so `exec` leaves Claude, with its own
-# arguments (and the session id among them), as the only process.
+# arguments (and the session id among them), as the only process. A call given no input, with
+# standard input a terminal, is not read, so it does not wait for one.
 CLAUDE_RECORDER = """#!/bin/sh
+[ -t 0 ] && exec claude "$@"
 tmp=$(mktemp)
 cat > "$tmp"
 cat "$tmp" >> "{prompts}"

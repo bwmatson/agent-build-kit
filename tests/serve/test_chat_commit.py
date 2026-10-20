@@ -35,7 +35,7 @@ from agent_build_kit.pipeline.wiring import COMMIT_FIX_ROUNDS
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from agent_build_kit.serve.server import start_server
 from tests.attach_driver import changed_files, checked_out, head, leave_lease
-from tests.chat_serving import prompt_of, record_session, turn
+from tests.chat_serving import prompt_of, record_session, turn, use_claude
 from tests.factories import git, init_repo
 from tests.runtimes.claude_cli import FakeClaude, finished_build
 from tests.serving import seed_pipeline
@@ -191,6 +191,22 @@ def test_a_free_session_opened_through_the_endpoint_commits_under_its_own_sessio
     assert BUILD_SESSION not in message
     [outside] = outside_commits(tree, before, BUILD_SESSION)
     assert (outside.commit, outside.session) == (head(tree), SESSION)
+
+
+def test_a_free_session_on_a_unit_may_edit_the_planning_checkout_and_one_on_it_needs_no_flag(
+    inst: Installation, tree: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = use_claude(monkeypatch, finished_build(tree, "Done."))
+    body = {"tab": "t1", "runtime": "claude_code", "model": "sonnet", "prompt": "Look around."}
+
+    turn(api, "/api/sessions", {**body, "unit": UNIT})
+    turn(api, "/api/sessions", {**body, "repo": "planning"})
+
+    on_unit, _ = fake.calls[0]
+    assert on_unit[on_unit.index("--add-dir") + 1] == str(inst.root), "the planning checkout"
+    on_planning, cwd = fake.calls[1]
+    assert cwd == inst.root
+    assert "--add-dir" not in on_planning, "its own working directory needs no flag"
 
 
 # --- the hooks ----------------------------------------------------------------------------------

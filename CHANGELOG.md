@@ -1475,7 +1475,9 @@
   (a planning session opened with the flag as its first message) and Cancel, and a review
   comment that contradicts the change is answered in its thread with the flag. A session on
   the planning repo can be opened with `repo` set to `planning`. A session that is not the
-  unit's own may change code and a change's task file together; its lease covers both
+  unit's own may change code and a change's task file together (a session opened on a unit
+  is given the planning checkout as an additional directory, so an agent that only edits
+  its working directory and added ones may); its lease covers both
   checkouts. A commit names one checkout (the worktree or the planning checkout), never
   both. The planning checkout is committed on its own through `abk check` and `abk tags`
   of the change, with the agent fixing what they reject, and the answer lists what the

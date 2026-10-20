@@ -523,6 +523,7 @@ class Chat:
         fork: bool = False,
         builder: StoredUnit | None = None,
         on_result: Callable[[AgentResult], None] | None = None,
+        add_dirs: tuple[Path, ...] = (),
     ) -> AgentRequest:
         """A turn's call. The unit's builder, resumed, is held to the pipeline's rules and is
         given its unit's change; any other session is the person's own. Neither commits nor
@@ -536,6 +537,7 @@ class Chat:
             resume_session=resume,
             fork_session=fork,
             environment=self.agent_environment,
+            add_dirs=add_dirs,
             policy=ToolPolicy(specs_dir=self.installation.specs_dir, no_commit=True)
             if builder is not None
             else ToolPolicy(scoped=False, no_commit=True),
@@ -1092,11 +1094,14 @@ def register(
         else:
             raise HTTPException(status_code=400, detail="name a unit or a repo")
         prompt = with_attachments(body.prompt, body.attachments)
+        # A session on a unit may change a change's task file as well as the worktree, and the
+        # planning checkout lies outside the worktree: it is named so edits there are allowed.
+        extra = (installation.root,) if body.unit and installation.root != cwd else ()
 
         def start() -> StreamingResponse:
             return chat.stream(
                 runtime,
-                lambda cb: chat.request(cb, prompt, cwd, model=body.model),
+                lambda cb: chat.request(cb, prompt, cwd, model=body.model, add_dirs=extra),
                 tab=body.tab,
                 unit=unit,
                 said=prompt,
