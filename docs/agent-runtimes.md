@@ -924,7 +924,8 @@ The markers the suite uses:
   without workers.
 - `runtime_<name>` (`runtime_claude_code`, `runtime_acp`) names the one agent
   runtime a `local_stack` test drives; a test with none is the untagged base and
-  needs no agent. Two different runtime tags on one live-stack test, from the test,
+  needs no agent. The tag is the runtime the test starts, as decided from `AGENT_SIGNALS`,
+  and the drift test fails a mismatch (see below). Two different runtime tags on one live-stack test, from the test,
   its class, its module or a parameter, fail collection naming the test, so a
   scenario that needs two runtimes is two tests. Markers are strict: an
   unregistered one fails collection. `dev_stack` marks a test that needs the
@@ -969,13 +970,39 @@ installation may name its splits anything. The repo's own collection plugin (at 
 runtime tag per live-stack test) is a repo-local convenience, not something the framework
 uses. A test keeps the example and the markers registered in `pyproject.toml` in step.
 
-A drift test (`tests/test_live_tests_are_tagged.py`) keeps the tags honest: it fails, naming
-each, a live-stack test that starts an agent (through the scratch helper, the agent-home
-helper or the agent command setting) without exactly one runtime tag, and a scenario with
-an `acp` variant and no `claude_code` variant that has no stated reason in its module's
-table of reasons (`ACP_ONLY_REASONS`, scenario name to reason; an empty reason fails too).
-No module defines a table today; a module that has none counts as empty. The test does
-not check that a `claude_code` scenario has an `acp` variant.
+A drift test (`tests/test_live_tests_are_tagged.py`) keeps the tags honest. It finds every
+live-stack module by syntax: any Python file under `tests/`, at any depth and whatever its
+name, that marks a test `local_stack`. Whether a test starts an agent is decided per test
+from the table `AGENT_SIGNALS` in `tests/live_tag_drift.py` (the shared helpers that start
+one, the program lookups and the agent command setting), through the fixtures the test
+requests and the functions of its module it calls; a stand-in agent is not counted. It
+fails, naming each, a test that starts an agent without exactly one runtime tag, and a tag
+that disagrees with what the test starts (the tag is compared with it: a `runtime_acp` test
+that starts `claude`, or a `runtime_claude_code` test that starts a protocol agent). A scenario with an `acp` variant
+and no `claude_code` variant needs a stated reason in its module's table of reasons
+(`ACP_ONLY_REASONS`, scenario name to reason; an empty reason fails too). A test also checks
+that the split names equal the registered `runtime_<name>` markers. A tagged test may need
+only the installed agent and not the model backend, so holding a split also holds such a
+test.
+
+### Claude scenarios without an ACP sibling
+
+A Claude scenario with no `acp` variant is listed here and never refused; a module may excuse
+one in an optional `CLAUDE_ONLY_REASONS` table. A difference between this list and the
+tests raises a warning, not a failure.
+
+- `test_build_unit.py::test_progress_is_visible_while_the_run_works`
+- `test_build_unit.py::test_the_pipeline_alone_pushed_and_only_what_review_approved`
+- `test_build_unit.py::test_the_report_has_one_agent_record_per_call_in_the_run_log`
+- `test_build_unit.py::test_the_report_totals_equal_the_ledger_and_name_each_figures_source`
+- `test_build_unit.py::test_the_unit_is_built_reviewed_and_pushed_through_the_runtime`
+- `test_graph_unit.py::test_a_unit_runs_to_review_is_reworked_on_a_comment_and_its_thread_ends_at_merge`
+- `test_telemetry_stack.py::test_a_tick_with_the_endpoint_pointing_at_nothing_finishes_and_writes_nothing`
+- `test_telemetry_stack.py::test_a_ticks_duration_series_are_in_the_metrics_store_without_a_unit_id`
+- `test_telemetry_stack.py::test_a_ticks_trace_is_found_in_the_trace_store_by_the_unit_id`
+
+An installation's other code repos get no such drift test or runtime markers from this rule;
+adding them is a follow-up and not part of this rule.
 
 ### Holding a split
 
