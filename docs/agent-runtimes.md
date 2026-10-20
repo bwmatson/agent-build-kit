@@ -978,6 +978,11 @@ the old account starts fresh) and set the usage windows for the new plan under
   a split on it (`tests.e2e_splits.telemetry: {marker: telemetry_otel}`) and does not skip
   the test: a live test whose dependency is missing still fails.
 
+The runtime and telemetry markers are the values of the `runtime` and `telemetry` dimensions
+(`tests.e2e_dimensions`, see `docs/configuration.md`): `telemetry_local` marks a test that reads
+a local sink instead of the shared stack. A machine lists the values it has in
+`tests.e2e_available`, and a run leaves out the tests of the others.
+
 ### Splits and their selectors
 
 A repo's e2e-test tests are divided by `tests.e2e_splits` (see `docs/configuration.md`).

@@ -79,7 +79,8 @@
   twice and a marker the runner does not register. A scheduled split whose tests all need
   an unavailable value is skipped with "nothing runnable: needs <dimension>=<value>"
   instead of failing, and `abk e2e-test status` and `abk doctor` list each dimension with
-  the values this machine has.
+  the values this machine has. The kit's own live tests are written once across the values,
+  and a drift test refuses two tests that differ in name only by a value.
 
 - The build can commit per task group behind `builders.per_group_commits` (off by default):
   each group gets a `test:` commit of stubs and tests, checked for lint, format and types

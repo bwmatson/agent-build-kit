@@ -229,6 +229,12 @@ to at most one split and the rest are `rest`. Before writing an `[e2e-test]` gro
 an e2e-test test, run `abk e2e-test check` to see that the test lands in one split only. A split held with `abk e2e-test hold` parks the
 units that wait on it until `abk e2e-test release`; `abk e2e-test status` shows what is held.
 
+A test that needs one of several runtimes or telemetry sinks carries the marker of that value
+from `tests.e2e_dimensions`, at most one value per dimension. A machine lists the values it has
+in `tests.e2e_available`; a run leaves out the others, and a split with nothing runnable there
+is skipped, not failed. Write a test that works across values once, parametrized, with a name
+that holds no value.
+
 ## Unit names
 
 The program names units, not the planner: a unit is `<change>/<lowest group>`, the lowest

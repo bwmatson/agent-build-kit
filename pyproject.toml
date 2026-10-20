@@ -94,6 +94,7 @@ markers = [
     "runtime_claude_code: a live-stack test that drives the claude_code runtime; at most one runtime tag per test, none is the untagged base that always runs",
     "runtime_acp: a live-stack test that drives the protocol (acp) runtime; at most one runtime tag per test",
     "telemetry_otel: a live-stack test that needs the shared telemetry stack's dev instance and the `ABK_ACCEPTANCE_*` variables",
+    "telemetry_local: a live-stack test that reads the telemetry its tick wrote to a local file instead of the shared stack",
     "dev_stack: needs the repo's dev stack up; left out of acceptance runs",
 ]
 addopts = "--strict-markers -m 'not integration and not local_stack'"

@@ -332,6 +332,12 @@ repo) maps a split name to a `marker`, an optional `hold` and an optional `gate`
 tests in no split, is always there and may carry `hold` or `gate` but no marker. The configuration wins over the state
 file `e2e-held.json`. The three runtime lists it replaced are gone, with no alias.
 
+`tests.e2e_dimensions` (top level, or per repo, which replaces it) maps a dimension to its values,
+each with a `marker`; a marker belongs to one value or split. `tests.e2e_available` (in `abk.yaml`
+or the machine-local `abk.local.yaml`) maps a dimension to the values this machine has; a dimension
+with no entry has every value, and an undeclared name is refused. A run leaves out the tests of
+unavailable values; a scheduled split with nothing runnable is skipped, not failed.
+
 `abk e2e-test hold <split>` and `abk e2e-test release <split>` set and clear `hold` and the state
 file entry together; `abk e2e-test status` shows what is held. A hand-set hold has no deadline.
 
