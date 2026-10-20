@@ -18,7 +18,6 @@ from tests.attach_driver import checked_out
 from tests.call_rows import agent_rows
 from tests.chat_serving import record_session
 from tests.serve.test_chat_commit import (
-    BUILD_SESSION,
     UNIT,
     chat_edit,
     commit,
@@ -27,13 +26,11 @@ from tests.serve.test_chat_commit import (
 )
 from tests.serving import seed_pipeline
 
-pytestmark = pytest.mark.serial
-
 
 @pytest.fixture
-def tree(inst: Installation) -> Path:
+def tree(inst: Installation, build_session: str) -> Path:
     seed_pipeline(inst)
-    record_session(inst, UNIT, BUILD_SESSION, runtime="claude_code", model="opus")
+    record_session(inst, UNIT, build_session, runtime="claude_code", model="opus")
     return checked_out(inst, UNIT)
 
 

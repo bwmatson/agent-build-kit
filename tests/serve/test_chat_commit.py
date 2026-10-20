@@ -46,9 +46,6 @@ from tests.factories import git, init_repo
 from tests.runtimes.claude_cli import FakeClaude, finished_build
 from tests.serving import seed_pipeline
 
-pytestmark = pytest.mark.serial
-
-BUILD_SESSION = "0b7e1d52-9c3a-4f8e-b1d6-2a5c7e9f0d41"
 REVIEW = "/api/units/feature/2"
 UNIT = "feature/2"
 
@@ -71,9 +68,9 @@ class ScriptedClaude(FakeClaude):
 
 
 @pytest.fixture
-def tree(inst: Installation) -> Path:
+def tree(inst: Installation, build_session: str) -> Path:
     seed_pipeline(inst)
-    record_session(inst, UNIT, BUILD_SESSION, runtime="claude_code", model="opus")
+    record_session(inst, UNIT, build_session, runtime="claude_code", model="opus")
     return checked_out(inst, UNIT)
 
 
@@ -122,7 +119,11 @@ def chat_edit(api: httpx.Client) -> None:
 
 
 def test_one_request_commits_releases_and_hands_the_unit_to_its_checks(
-    inst: Installation, tree: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+    inst: Installation,
+    tree: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+    build_session: str,
 ) -> None:
     scripted(monkeypatch, tree, {"notes.txt": "a change\n"})
     chat_edit(api)
@@ -143,16 +144,24 @@ def test_one_request_commits_releases_and_hands_the_unit_to_its_checks(
     message = git(tree, "log", "-1", "--format=%B")
     assert message.splitlines()[0] == "Add a note"
     assert f"Unit: {UNIT}" in message
-    assert f"Adopted-From: {BUILD_SESSION}" in message
+    assert f"Adopted-From: {build_session}" in message
 
 
 def test_a_free_sessions_commit_carries_its_own_session_and_is_outside_the_builders(
-    inst: Installation, tree: Path, api: httpx.Client
+    inst: Installation,
+    tree: Path,
+    api: httpx.Client,
+    build_session: str,
+    free_session: str,
 ) -> None:
-    free = "6d2a8f14-3e5b-4c7a-9f0e-1b8d3c6a2e41"
     leases = Leases(lease_dir(inst.state_dir))
     assert leases.take(
-        UNIT, "tab:t1", checkouts=("worktree",), session=free, runtime="claude_code", head="abc"
+        UNIT,
+        "tab:t1",
+        checkouts=("worktree",),
+        session=free_session,
+        runtime="claude_code",
+        head="abc",
     )
     (tree / "notes.txt").write_text("by a free session\n")
     before = head(tree)
@@ -161,18 +170,22 @@ def test_a_free_sessions_commit_carries_its_own_session_and_is_outside_the_build
 
     assert answer.status_code == 200
     message = git(tree, "log", "-1", "--format=%B")
-    assert f"Adopted-From: {free}" in message
-    assert BUILD_SESSION not in message
-    [outside] = outside_commits(tree, before, BUILD_SESSION)
-    assert (outside.commit, outside.session) == (head(tree), free)
+    assert f"Adopted-From: {free_session}" in message
+    assert build_session not in message
+    [outside] = outside_commits(tree, before, build_session)
+    assert (outside.commit, outside.session) == (head(tree), free_session)
 
 
 def test_a_free_session_opened_through_the_endpoint_commits_under_its_own_session(
-    inst: Installation, tree: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+    inst: Installation,
+    tree: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+    build_session: str,
 ) -> None:
     from tests.runtimes.claude_cli import SESSION
 
-    assert SESSION != BUILD_SESSION
+    assert SESSION != build_session
     scripted(monkeypatch, tree, {"notes.txt": "by a free session\n"})
     before = head(tree)
     turn(
@@ -194,8 +207,8 @@ def test_a_free_session_opened_through_the_endpoint_commits_under_its_own_sessio
     assert answer.status_code == 200, answer.text
     message = git(tree, "log", "-1", "--format=%B")
     assert f"Adopted-From: {SESSION}" in message
-    assert BUILD_SESSION not in message
-    [outside] = outside_commits(tree, before, BUILD_SESSION)
+    assert build_session not in message
+    [outside] = outside_commits(tree, before, build_session)
     assert (outside.commit, outside.session) == (head(tree), SESSION)
 
 
@@ -216,7 +229,11 @@ def test_a_free_session_on_a_unit_may_edit_the_planning_checkout_and_one_on_it_n
 
 
 def test_a_continued_free_session_on_a_unit_keeps_the_planning_checkout_and_the_builders_does_not(
-    inst: Installation, tree: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+    inst: Installation,
+    tree: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+    build_session: str,
 ) -> None:
     from agent_build_kit.settings import settings
     from tests.runtimes.claude_cli import SESSION
@@ -230,12 +247,12 @@ def test_a_continued_free_session_on_a_unit_keeps_the_planning_checkout_and_the_
     )
     api.delete(f"{REVIEW}/lease", params={"tab": "t1"})
     claude_session_file(settings.claude_home, SESSION, tree)
-    claude_session_file(settings.claude_home, BUILD_SESSION, tree)
+    claude_session_file(settings.claude_home, build_session, tree)
 
     turn(api, f"/api/sessions/claude_code/{SESSION}/continue", {"tab": "t1", "prompt": "More."})
     api.delete(f"{REVIEW}/lease", params={"tab": "t1"})
     turn(
-        api, f"/api/sessions/claude_code/{BUILD_SESSION}/continue", {"tab": "t1", "prompt": "More."}
+        api, f"/api/sessions/claude_code/{build_session}/continue", {"tab": "t1", "prompt": "More."}
     )
 
     free, builder = fake.calls[1][0], fake.calls[2][0]
@@ -266,7 +283,11 @@ def test_a_hook_that_reformats_the_files_is_retried_and_the_commit_succeeds(
 
 
 def test_a_hook_the_agent_must_fix_is_given_to_the_agent_and_the_commit_tried_again(
-    inst: Installation, tree: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+    inst: Installation,
+    tree: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+    build_session: str,
 ) -> None:
     fake = scripted(monkeypatch, tree, {"notes.txt": "BAD word\n"}, {"notes.txt": "fine\n"})
     chat_edit(api)
@@ -284,7 +305,7 @@ def test_a_hook_the_agent_must_fix_is_given_to_the_agent_and_the_commit_tried_ag
     argv, cwd = fake.calls[1]
     assert "lint: BAD word in notes.txt" in prompt_of(argv), "the hook's own output"
     assert cwd is not None and Path(cwd).resolve() == tree.resolve()
-    assert BUILD_SESSION in argv, "the unit's own session fixes it"
+    assert build_session in argv, "the unit's own session fixes it"
     assert git(tree, "show", "HEAD:notes.txt") == "fine"
     assert head(tree) != before
     assert attachment(inst) is None

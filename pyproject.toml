@@ -95,7 +95,6 @@ markers = [
     "runtime_acp: a live-stack test that drives the protocol (acp) runtime; at most one runtime tag per test",
     "telemetry_otel: a live-stack test that needs the shared telemetry stack's dev instance and the `ABK_ACCEPTANCE_*` variables",
     "dev_stack: needs the repo's dev stack up; left out of acceptance runs",
-    "serial: cannot share a process with other tests; excluded from the parallel pass and run by its own serial pass of `poe test`",
 ]
 addopts = "--strict-markers -m 'not integration and not local_stack'"
 
@@ -105,11 +104,7 @@ format = { sequence = [
     # web/: prettier --check, eslint, tsc and vitest (needs `npm install` in web/ once).
     { ref = "web-check" },
 ] }
-test = { sequence = [
-    { cmd = "pytest -n auto --maxprocesses=8 -m 'not serial and not integration and not local_stack'" },
-    # Exit 5 is "no tests collected": no test is serial yet, and that is not a failure.
-    { cmd = "pytest -m 'serial and not integration and not local_stack'", ignore_fail = [5] },
-] }
+test = "pytest -n auto --maxprocesses=8"
 test-integration = "pytest -m integration"
 test-local-stack = "pytest -m local_stack"
 scrub = "pytest tests/test_no_installation_leaks.py"

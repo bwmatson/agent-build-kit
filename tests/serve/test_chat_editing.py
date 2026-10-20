@@ -39,10 +39,6 @@ from tests.serve.socket_api import (
 )
 from tests.serving import seed_pipeline
 
-pytestmark = pytest.mark.serial
-
-BUILD_SESSION = "0b7e1d52-9c3a-4f8e-b1d6-2a5c7e9f0d41"
-FREE_SESSION = "6d2a8f14-3e5b-4c7a-9f0e-1b8d3c6a2e51"
 REVIEW = "/api/units/feature/2"
 UNIT = "feature/2"
 
@@ -63,9 +59,9 @@ class EditingClaude(FakeClaude):
 
 
 @pytest.fixture
-def tree(inst: Installation) -> Path:
+def tree(inst: Installation, build_session: str) -> Path:
     seed_pipeline(inst)
-    record_session(inst, UNIT, BUILD_SESSION, runtime="claude_code", model="opus")
+    record_session(inst, UNIT, build_session, runtime="claude_code", model="opus")
     return checked_out(inst, UNIT)
 
 
@@ -89,7 +85,11 @@ def attachment(inst: Installation, unit_id: str = UNIT):
 
 
 def test_a_turn_on_the_units_session_edits_the_worktree_and_leaves_the_branch_where_it_was(
-    inst: Installation, tree: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+    inst: Installation,
+    tree: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+    build_session: str,
 ) -> None:
     fake = edits(monkeypatch, tree)
     before = head(tree)
@@ -106,7 +106,7 @@ def test_a_turn_on_the_units_session_edits_the_worktree_and_leaves_the_branch_wh
     assert recorded is not None
     assert recorded.changed == 1, "the lease is marked as holding one changed file"
     assert "worktree" in recorded.checkouts
-    assert (recorded.session, recorded.runtime) == (BUILD_SESSION, "claude_code")
+    assert (recorded.session, recorded.runtime) == (build_session, "claude_code")
     assert recorded.head == before
 
 
@@ -139,18 +139,22 @@ def test_a_turn_that_changes_nothing_leaves_a_lease_marked_as_holding_nothing(
 
 
 def test_a_free_session_in_the_units_worktree_gets_none_of_the_builders_policy(
-    inst: Installation, tree: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+    inst: Installation,
+    tree: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+    free_session: str,
 ) -> None:
     from agent_build_kit.settings import settings
 
     assert settings.claude_home is not None
-    claude_session_file(settings.claude_home, FREE_SESSION, tree)
+    claude_session_file(settings.claude_home, free_session, tree)
     fake = edits(monkeypatch, tree)
     before = head(tree)
 
     turn(
         api,
-        f"/api/sessions/claude_code/{FREE_SESSION}/continue",
+        f"/api/sessions/claude_code/{free_session}/continue",
         {"tab": "t1", "prompt": "Change the notes."},
     )
 
@@ -162,7 +166,7 @@ def test_a_free_session_in_the_units_worktree_gets_none_of_the_builders_policy(
     assert head(tree) == before
     recorded = attachment(inst)
     assert recorded is not None
-    assert (recorded.changed, recorded.session) == (1, FREE_SESSION)
+    assert (recorded.changed, recorded.session) == (1, free_session)
 
 
 def test_a_session_started_in_the_ui_for_a_unit_is_free_and_refuses_commit_and_push(
@@ -284,11 +288,11 @@ def test_a_confirmed_discard_restores_the_tree_and_releases_the_lease_in_one_req
 
 
 def test_only_a_unit_in_a_stable_state_accepts_a_chat(
-    inst: Installation, tree: Path, api: httpx.Client
+    inst: Installation, tree: Path, api: httpx.Client, build_session: str, free_session: str
 ) -> None:
     for held_unit in ("feature/5", "feature/6"):
-        record_session(inst, held_unit, BUILD_SESSION, runtime="claude_code")
-    record_session(inst, "feature/7", FREE_SESSION, runtime="claude_code")
+        record_session(inst, held_unit, build_session, runtime="claude_code")
+    record_session(inst, "feature/7", free_session, runtime="claude_code")
     store = UnitStore(inst.state_dir / "units.json")
     # Paused for the usage window part-way through a rework of a review's comments.
     store.set_feedback("feature/7", "rename it", source=FeedbackSource.REVIEW)

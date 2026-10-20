@@ -47,19 +47,13 @@ from tests.serve.socket_api import (
 from tests.serving import seed_pipeline
 from tests.waiting import wait_for
 
-# A session id on a command line (an editor holding it, a fake agent listing it) is seen by
-# every server on the machine, so these cannot run beside each other.
-pytestmark = pytest.mark.serial
-
-BUILD_SESSION = "0b7e1d52-9c3a-4f8e-b1d6-2a5c7e9f0d34"
-OTHER_SESSION = "6d2a8f14-3e5b-4c7a-9f0e-1b8d3c6a2e48"
 REVIEW = "/api/units/feature/2"
 
 
 @pytest.fixture
-def pipeline(inst: Installation) -> Installation:
+def pipeline(inst: Installation, build_session: str) -> Installation:
     seed_pipeline(inst)
-    record_session(inst, "feature/2", BUILD_SESSION, runtime="claude_code", model="opus")
+    record_session(inst, "feature/2", build_session, runtime="claude_code", model="opus")
     unit_worktree(inst, "feature/2")
     return inst
 
@@ -133,16 +127,20 @@ def test_a_second_turn_on_a_session_is_refused_while_the_first_runs(
 
 
 def test_two_tabs_cannot_both_continue_an_idle_claude_session(
-    pipeline: Installation, tmp_path: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+    pipeline: Installation,
+    tmp_path: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+    other_session: str,
 ) -> None:
     from agent_build_kit.settings import settings
 
     project = tmp_path / "project"
     project.mkdir()
     assert settings.claude_home is not None
-    claude_session_file(settings.claude_home, OTHER_SESSION, project)
+    claude_session_file(settings.claude_home, other_session, project)
     fake = use_blocking_claude(monkeypatch, finished_build(project, "Done."))
-    url = f"/api/sessions/claude_code/{OTHER_SESSION}/continue"
+    url = f"/api/sessions/claude_code/{other_session}/continue"
     with api.stream("POST", url, json={"tab": "t1", "prompt": "A."}, timeout=WAIT) as reply:
         replies = events_of(reply)
         next(replies)
@@ -225,17 +223,17 @@ def test_a_turn_runs_on_the_model_the_session_recorded(
 
 
 def test_a_session_in_the_worktree_of_a_running_unit_cannot_be_continued_in_place(
-    pipeline: Installation, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+    pipeline: Installation, api: httpx.Client, monkeypatch: pytest.MonkeyPatch, other_session: str
 ) -> None:
     from agent_build_kit.settings import settings
 
     tree = unit_worktree(pipeline, "feature/7")
     assert settings.claude_home is not None
-    claude_session_file(settings.claude_home, OTHER_SESSION, tree)
+    claude_session_file(settings.claude_home, other_session, tree)
     fake = use_claude(monkeypatch, finished_build(tree, "Hi."))
 
     reply = api.post(
-        f"/api/sessions/claude_code/{OTHER_SESSION}/continue", json={"tab": "t1", "prompt": "Hi."}
+        f"/api/sessions/claude_code/{other_session}/continue", json={"tab": "t1", "prompt": "Hi."}
     )
 
     assert reply.status_code == 409
@@ -243,16 +241,16 @@ def test_a_session_in_the_worktree_of_a_running_unit_cannot_be_continued_in_plac
 
 
 def test_a_session_in_a_units_worktree_goes_under_its_lease_and_the_pipelines_policy(
-    pipeline: Installation, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+    pipeline: Installation, api: httpx.Client, monkeypatch: pytest.MonkeyPatch, other_session: str
 ) -> None:
     from agent_build_kit.settings import settings
 
     tree = unit_worktree(pipeline, "feature/2")
     assert settings.claude_home is not None
-    claude_session_file(settings.claude_home, OTHER_SESSION, tree)
+    claude_session_file(settings.claude_home, other_session, tree)
     fake = use_claude(monkeypatch, finished_build(tree, "Hi."))
 
-    turn(api, f"/api/sessions/claude_code/{OTHER_SESSION}/continue", {"tab": "t1", "prompt": "Hi."})
+    turn(api, f"/api/sessions/claude_code/{other_session}/continue", {"tab": "t1", "prompt": "Hi."})
 
     argv = fake.calls[0][0]
     assert holder(pipeline) == "tab:t1"
@@ -260,26 +258,30 @@ def test_a_session_in_a_units_worktree_goes_under_its_lease_and_the_pipelines_po
 
 
 def test_a_claude_working_in_a_directory_holds_its_newest_session_without_naming_it(
-    pipeline: Installation, tmp_path: Path, api: httpx.Client
+    pipeline: Installation,
+    tmp_path: Path,
+    api: httpx.Client,
+    build_session: str,
+    other_session: str,
 ) -> None:
     from agent_build_kit.settings import settings
 
     project = tmp_path / "project"
     project.mkdir()
     assert settings.claude_home is not None
-    older = claude_session_file(settings.claude_home, OTHER_SESSION, project)
-    newer = claude_session_file(settings.claude_home, BUILD_SESSION, project)
+    older = claude_session_file(settings.claude_home, other_session, project)
+    newer = claude_session_file(settings.claude_home, build_session, project)
     os.utime(older, (1_700_000_000, 1_700_000_000))
     os.utime(newer, (1_700_000_100, 1_700_000_100))
 
     with claude_working_in(project):
-        opened = api.get(f"/api/sessions/claude_code/{BUILD_SESSION}").json()
+        opened = api.get(f"/api/sessions/claude_code/{build_session}").json()
         listed = {s["id"]: s for s in api.get("/api/sessions").json()["sessions"]}
 
     assert opened["read_only"] is True
     assert "process" in opened["reason"].lower()
-    assert listed[BUILD_SESSION]["held"] is True
-    assert listed[OTHER_SESSION]["held"] is False
+    assert listed[build_session]["held"] is True
+    assert listed[other_session]["held"] is False
 
 
 # --- the live stream ----------------------------------------------------------------------------

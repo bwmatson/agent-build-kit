@@ -26,18 +26,17 @@ from tests.factories import git
 from tests.serving import seed_pipeline
 
 UNIT = "feature/2"
-SESSION = "0b7e1d52-9c3a-4f8e-b1d6-2a5c7e9f0d41"
 
 
 @pytest.fixture
-def inst(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Installation:
+def inst(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, build_session: str) -> Installation:
     installation = make_installation(
         tmp_path / "planning", planning={"worktree_root": str(tmp_path / "worktrees")}
     )
     (installation.root / "abk.yaml").write_text(dump(installation.config))
     monkeypatch.chdir(installation.root)
     seed_pipeline(installation)
-    record_session(installation, UNIT, SESSION, runtime="claude_code")
+    record_session(installation, UNIT, build_session, runtime="claude_code")
     return installation
 
 
@@ -47,7 +46,7 @@ def tree(inst: Installation) -> Path:
 
 
 def test_a_lock_the_branch_does_not_track_is_not_adopted_with_the_changes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, build_session: str
 ) -> None:
     env = FakeEnvironment(tmp_path / "control", locks=("deps.lock",))
     root = tmp_path / "planning"
@@ -59,7 +58,7 @@ def test_a_lock_the_branch_does_not_track_is_not_adopted_with_the_changes(
     (locked.root / "abk.yaml").write_text(dump(locked.config))
     monkeypatch.chdir(locked.root)
     seed_pipeline(locked)
-    record_session(locked, UNIT, SESSION, runtime="claude_code")
+    record_session(locked, UNIT, build_session, runtime="claude_code")
     tree = checked_out(locked, UNIT)
     (tree / "notes.txt").write_text("left by a chat\n")
     (tree / "deps.lock").write_text("created by the sync\n")

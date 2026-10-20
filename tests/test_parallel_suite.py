@@ -1,5 +1,4 @@
-"""The whole-suite command runs in parallel workers; a single file does not,
-and a test that cannot share a process runs in its own serial pass."""
+"""The whole-suite command runs in parallel workers; a single file does not."""
 
 from __future__ import annotations
 
@@ -98,43 +97,8 @@ def test_ci_runs_the_suite_with_the_poe_command() -> None:
     assert any(re.search(r"\bpoe test\s*$", run.strip()) for run in runs), runs
 
 
-def test_the_serial_marker_is_registered() -> None:
-    markers = pytest_options()["markers"]
-
-    assert any(marker.startswith("serial:") for marker in markers)
-
-
-def test_the_parallel_pass_excludes_serial_tests() -> None:
-    parallel = [argv for argv in pytest_invocations("test") if has_workers_flag(argv)]
-
-    assert parallel
-    for argv in parallel:
-        assert "not serial" in marker_expression(argv), argv
-
-
-def test_a_serial_pass_runs_the_serial_tests_without_workers() -> None:
-    serial = [
-        argv
-        for argv in pytest_invocations("test")
-        if not has_workers_flag(argv)
-        and re.search(r"\bserial\b", marker_expression(argv))
-        and "not serial" not in marker_expression(argv)
-    ]
-
-    assert serial
-
-
-def test_the_serial_pass_keeps_the_default_tier_exclusions() -> None:
-    serial = [
-        argv
-        for argv in pytest_invocations("test")
-        if not has_workers_flag(argv)
-        and re.search(r"\bserial\b", marker_expression(argv))
-        and "not serial" not in marker_expression(argv)
-    ]
-
-    assert serial
-    for argv in serial:
-        expression = marker_expression(argv)
-        assert "not integration" in expression, argv
-        assert "not local_stack" in expression, argv
+def test_no_pytest_command_selects_on_serial_and_no_serial_marker_is_registered() -> None:
+    for name in ("test", "test-integration", "test-local-stack"):
+        for argv in pytest_invocations(name):
+            assert "serial" not in marker_expression(argv), (name, argv)
+    assert not any(m.startswith("serial:") for m in pytest_options()["markers"])

@@ -25,6 +25,10 @@ def claude_home() -> Path:
     return claude_account.home()
 
 
+# The machine's own process table: the one the destructive steps trust.
+PROC = Path("/proc")
+
+
 def _arguments(entry: Path) -> list[bytes] | None:
     try:
         return (entry / "cmdline").read_bytes().split(b"\0")
@@ -44,7 +48,7 @@ def _parent(pid: int) -> int:
 def _is_ours(pid: int, proc: Path) -> bool:
     """Whether this process started `pid`, however many generations back: an agent the
     server runs is not an editor holding a session."""
-    if proc != Path("/proc"):
+    if proc != PROC:
         return False
     me = os.getpid()
     while pid > 1:
@@ -61,7 +65,7 @@ def _runs_claude(arguments: list[bytes]) -> bool:
 
 
 def holding_pids(
-    session_id: str, *, cwd: str = "", newest: bool = False, proc: Path = Path("/proc")
+    session_id: str, *, cwd: str = "", newest: bool = False, proc: Path = PROC
 ) -> list[int]:
     """The processes that have the session open: those with `session_id` among their
     arguments, as an editor running `claude --resume ID` has it, and, when `newest` says the

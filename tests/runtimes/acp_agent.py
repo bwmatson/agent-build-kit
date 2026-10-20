@@ -169,10 +169,17 @@ from acp.schema import (
 )
 from pydantic import ValidationError
 
-# Fresh per test run and handed to the agent process through the environment: a session id on
-# a command line is seen by every server on the machine, so another checkout's run with the
-# same id would look like a process holding this session.
-SESSION = os.environ.setdefault("ABK_TEST_ACP_SESSION", f"sess_{uuid.uuid4().hex[:16]}")
+# Fresh in each test process and handed to the agent process through the environment: a session
+# id on a command line is seen by every server on the machine, so another worker's or
+# checkout's run with the same id would look like a process holding this session. The agent
+# itself, run as a program, takes the id its parent made; a worker inheriting its parent's would
+# share it with the other workers.
+SESSION = (
+    os.environ.get("ABK_TEST_ACP_SESSION") or f"sess_{uuid.uuid4().hex[:16]}"
+    if __name__ == "__main__"
+    else f"sess_{uuid.uuid4().hex[:16]}"
+)
+os.environ["ABK_TEST_ACP_SESSION"] = SESSION
 
 # What the agent offers for its `model` config option, and runs on unless the
 # client picks another.

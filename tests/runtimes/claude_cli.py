@@ -26,7 +26,7 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
-SESSION = "3f1c2a9e-5b7d-4e2f-9a61-0c8d7e4b2a15"
+SESSION = "3f1c2a9e-5b7d-4e2f-9a61-0c8d7e567515"
 MODEL = "claude-opus-5-5"
 
 USAGE = {
@@ -265,7 +265,7 @@ def failed_build(cwd: Path, message: str) -> str:
         _assistant(
             [{"type": "text", "text": "The rate limit check reads 429 responses; let me look."}]
         )
-        | {"session_id": session, "uuid": "a1f94290-7e2b-4c6d-8b35-0d9e2f7c1a58"},
+        | {"session_id": session, "uuid": "a1f94290-7e2b-4c6d-8b35-0d9e2f2d93a6"},
         _assistant(
             [
                 {
@@ -291,7 +291,7 @@ def failed_build(cwd: Path, message: str) -> str:
             },
             "parent_tool_use_id": None,
             "session_id": session,
-            "uuid": "5b0d8e42-9f1a-4c73-b6e4-2a8c0f5d7e19",
+            "uuid": "5b0d8e42-9f1a-4c73-b6e4-2a8c0fb94446",
             "tool_use_result": {"type": "text", "file": {"filePath": str(guard)}},
         },
         _result(message, is_error=True, turns=2, subtype="error_during_execution")

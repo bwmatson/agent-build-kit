@@ -56,6 +56,7 @@ from agent_build_kit.runtimes.base import (
 from agent_build_kit.serve.bridge import AgUiEncoder, messages_snapshot
 from agent_build_kit.serve.review import unit_worktree
 from agent_build_kit.serve.sessions import (
+    PROC,
     claude_events,
     claude_home,
     claude_sessions,
@@ -272,10 +273,12 @@ class Chat:
     def busy(self, session: str) -> bool:
         return session in self._busy
 
-    def holders(self, session: str, cwd: str = "", newest: bool = False) -> list[int]:
-        return holding_pids(session, cwd=cwd, newest=newest)
+    def holders(
+        self, session: str, cwd: str = "", newest: bool = False, proc: Path = PROC
+    ) -> list[int]:
+        return holding_pids(session, cwd=cwd, newest=newest, proc=proc)
 
-    def claude_holders(self, session: str) -> list[int]:
+    def claude_holders(self, session: str, proc: Path = PROC) -> list[int]:
         """Processes that have a Claude session open: one with its id in its arguments, or a
         `claude` working in the directory the session is the newest of."""
         seen: set[str] = set()
@@ -283,11 +286,13 @@ class Chat:
             first = item.cwd not in seen
             seen.add(item.cwd)
             if item.id == session:
-                return self.holders(session, item.cwd, first)
-        return self.holders(session)
+                return self.holders(session, item.cwd, first, proc)
+        return self.holders(session, proc=proc)
 
-    def session_holders(self, runtime: str, session: str) -> list[int]:
-        return self.claude_holders(session) if runtime == CLAUDE else self.holders(session)
+    def session_holders(self, runtime: str, session: str, proc: Path = PROC) -> list[int]:
+        if runtime == CLAUDE:
+            return self.claude_holders(session, proc)
+        return self.holders(session, proc=proc)
 
     # --- tabs -------------------------------------------------------------------------
 

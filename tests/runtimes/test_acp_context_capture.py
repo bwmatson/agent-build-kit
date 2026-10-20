@@ -16,7 +16,7 @@ from agent_build_kit.runtimes.acp import AcpRuntime
 from agent_build_kit.usage import ContextBasis
 from tests.runtimes.acp_agent import CONTEXT_SIZE, use_agent
 
-EARLIER = "sess_Ln3Vt8QaRcXe5mJd"
+EARLIER = "sess_Qd5Ns8VtKwHy2cMz"
 K = 1000
 
 

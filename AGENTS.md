@@ -144,9 +144,9 @@ docs/              architecture, configuration, cli, toolchain-profiles, agent-r
   `local_stack`, are excluded by default and run with `uv run pytest -m
   local_stack`. A `local_stack` test is the only one the guards let start a real
   agent (the runtime's spawn, a `claude` program); the other guards (login refresh,
-  usage window, `gh`, code host) apply to it too. Mark a test `serial` when it cannot share a process with
-  others: `poe test` runs it in a serial pass after the parallel one, and
-  `pytest <file>` runs without workers. Test directories carry no `__init__.py`, so test file
+  usage window, `gh`, code host) apply to it too. `poe test` runs the suite in parallel workers, and
+  `pytest <file>` runs without workers, so a test never assumes the machine to itself: session
+  ids, ports and paths are made per test (the `new_session_id` fixture). Test directories carry no `__init__.py`, so test file
   basenames must be unique.
 - **A new live test is tagged by what it starts.** A live test that starts an agent carries exactly one
   runtime tag (`runtime_acp` or `runtime_claude_code`), the one of the runtime it starts; the drift
@@ -227,7 +227,7 @@ instead of adding another.
 
 ```bash
 uv sync --group dev
-uv run poe test              # the suite, fixture-only: parallel workers (capped at 8), then a serial pass of tests marked `serial`
+uv run poe test              # the suite, fixture-only: parallel workers (capped at 8)
 uv run poe test-integration  # needs node: runs the real OpenSpec CLI via npx
 uv run poe test-local-stack  # e2e-test: a real agent on this host (ABK_ACCEPTANCE_ACP_COMMAND), bills on demand
 uv run poe format            # pre-commit: ruff, ruff-format, pyrefly (from the lock), yamllint

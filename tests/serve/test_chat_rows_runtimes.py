@@ -24,13 +24,10 @@ from tests.runtimes.claude_cli import finished_build
 from tests.serve.test_chat_commit import ScriptedClaude, commit, pre_commit
 from tests.serving import seed_pipeline
 
-pytestmark = pytest.mark.serial
-
 CLAUDE = "claude_code"
 ACP = "acp"
 UNIT = "feature/2"
 REVIEW = "/api/units/feature/2"
-BUILD_SESSION = "0b7e1d52-9c3a-4f8e-b1d6-2a5c7e9f0d61"
 
 
 @pytest.fixture
@@ -46,9 +43,10 @@ def test_a_chat_turn_writes_exactly_one_chat_row(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     kind: str,
+    build_session: str,
 ) -> None:
     if kind == CLAUDE:
-        record_session(pipeline, UNIT, BUILD_SESSION, runtime=CLAUDE)
+        record_session(pipeline, UNIT, build_session, runtime=CLAUDE)
         use_claude(monkeypatch, finished_build(unit_worktree(pipeline, UNIT), "Hello."))
     else:
         record_session(pipeline, UNIT, ACP_SESSION, runtime=ACP)
@@ -70,6 +68,7 @@ def test_a_fix_turn_writes_exactly_one_chat_commit_row(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     kind: str,
+    build_session: str,
 ) -> None:
     tree = checked_out(pipeline, UNIT)
     (tree / "notes.txt").write_text("BAD word\n")
@@ -78,7 +77,7 @@ def test_a_fix_turn_writes_exactly_one_chat_commit_row(
         'if grep -q BAD notes.txt; then echo "lint: BAD word in notes.txt" >&2; exit 1; fi\n'
         "exit 0\n",
     )
-    session = BUILD_SESSION if kind == CLAUDE else ACP_SESSION
+    session = build_session if kind == CLAUDE else ACP_SESSION
     assert Leases(lease_dir(pipeline.state_dir)).take(
         UNIT, "tab:t1", checkouts=("worktree",), session=session, runtime=kind, head="abc"
     )

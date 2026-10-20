@@ -9,6 +9,11 @@
   with no ACP sibling are listed in `docs/agent-runtimes.md`; a difference from the tests is
   a warning, never a failure.
 
+- The chat tests no longer run in a pass of their own. Each test makes its own session id
+  (the `new_session_id` fixture), the chat object's holder lookups take an optional process
+  table to read, and a guard fails when two test files define the same session id. `poe test`
+  now runs every test in the parallel workers and the `serial` marker is gone.
+
 - A unit's own-test e2e-test selection now names only files the test runner collects by
   default (for Python, `test_*.py` and `*_test.py`). A helper module under `tests/` or a
   `conftest.py` holding a `test_` function is no longer run by identifier without its
