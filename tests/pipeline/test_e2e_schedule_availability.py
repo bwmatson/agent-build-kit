@@ -94,6 +94,30 @@ def test_a_split_with_nothing_runnable_is_skipped_naming_the_value_and_fails_not
     assert ran.runs == []
     assert gate.result is not None
     assert (gate.result.failed, gate.result.parked, gate.result.ran_no_tests) == (0, [], True)
+    note = gate.passed_note()
+    assert "nothing runnable: needs telemetry=otel" in note and "passed" not in note
+
+
+def test_the_skip_names_only_the_values_the_split_needs(tmp_path: Path) -> None:
+    ran, log = Collecting(), []
+    repo, base = branch(tmp_path, None, base_files=FILES)
+    gate = shared_session(
+        tmp_path,
+        ran,
+        scope=E2eUnitScope.FULL,
+        log=log,
+        splits=SPLITS,
+        unavailable=[*UNAVAILABLE, "runtime_claude_code"],
+        dimensions={
+            **DIMENSIONS,
+            "runtime": {"claude": E2eDimensionValue(marker="runtime_claude_code")},
+        },
+    )
+
+    gate.run(cwd=repo, base=base, only="acp")
+
+    [line] = [line for line in log if "nothing runnable" in line]
+    assert line.endswith("needs telemetry=otel"), line
 
 
 def test_a_split_with_some_runnable_tests_runs_only_those(tmp_path: Path) -> None:
