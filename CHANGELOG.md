@@ -1228,7 +1228,8 @@
   when a later passing run does not ask for it, even if another recording answered its call.
   Replay runs must not use xdist workers: a worker's session neither counts runs nor writes
   the report. `abk replay review --keep` or `--delete` exits 1 when no repository has the
-  section.
+  section. An acceptance test (`tests/integration/test_replay_unit.py`, `local_stack`) builds
+  one scratch unit live, from the recordings, and with its task text edited.
 
 - `abk init` now drafts a repository's `environment` section through its toolchain
   profile, so a profile can describe its own ecosystem and init needs no change for a

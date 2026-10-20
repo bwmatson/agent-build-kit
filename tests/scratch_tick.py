@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import signal
 import subprocess
 import sys
 import threading
 import time
 from collections import deque
 from collections.abc import Callable, Mapping
+from contextlib import suppress
 from pathlib import Path
 from typing import Protocol
 
@@ -84,6 +87,7 @@ def run_tick(scratch: Scratch, *, timeout: float = 3600) -> TickResult:
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        start_new_session=True,
     )
 
     def read() -> None:
@@ -95,8 +99,13 @@ def run_tick(scratch: Scratch, *, timeout: float = 3600) -> TickResult:
     reader.start()
     try:
         returncode = process.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        process.kill()
+    except BaseException:
+        # Whatever interrupted the wait (the timeout, a time limit, a key press), the tick and
+        # the agent it started are gone before this raises, so what the caller put up for them,
+        # such as a replay proxy, never goes away under a tick that is still running.
+        with suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
         raise
     finally:
         reader.join()
