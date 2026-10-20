@@ -196,7 +196,7 @@ def test_an_edited_task_sends_exactly_the_changed_calls_live(edited_step: Step) 
         assert miss.difference in edited.output
         # The cassette the live call replaced (its upstream's, at its index, asked for by no call)
         # is held for review, not deleted.
-        for old in replaced_cassettes(edited.before, edited.directory, test, after[miss.key]):
+        for old in replaced_cassettes(edited.before, test, after[miss.key]):
             kept = next((c for c in edited.after if c.key == old.key), None)
             assert kept is not None, f"the superseded cassette was deleted\n{edited.output}"
             # Superseded, not merely unasked: the reason names the live call that replaced it.

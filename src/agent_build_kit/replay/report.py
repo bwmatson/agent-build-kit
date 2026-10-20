@@ -24,6 +24,8 @@ class ReplayedTest(Frozen):
     # The calls answered from a cassette.
     hits: int = 0
     misses: list[Miss] = []
+    # The keys of the calls the test made, those answered from a cassette and those that went live.
+    asked: list[str] = []
     # The cassettes the test did not ask for, by path under the cassette directory.
     unused: list[str] = []
     # The keys of the cassettes that matched but were too old to answer.

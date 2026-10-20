@@ -193,6 +193,7 @@ class ReplayProxy:
                 test_id=self._test_id,
                 hits=len(self._hits),
                 misses=self._misses,
+                asked=sorted(self._asked),
                 unused=[cassette_name(directory, f.cassette) for f in found if f.unasked],
                 aged_out=self._aged_out,
                 rules=self._test_rules,

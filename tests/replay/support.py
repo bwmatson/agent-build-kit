@@ -141,11 +141,13 @@ def replayed_cassettes(
 
 
 def replaced_cassettes(
-    recorded: Sequence[Cassette], directory: Path, test: ReplayedTest, live: Cassette
+    recorded: Sequence[Cassette], test: ReplayedTest, live: Cassette
 ) -> list[Cassette]:
-    """The recorded cassettes a live call replaced: those of its upstream at its call index with
-    another key that no call asked for. The index counts a test's calls over all its upstreams, so
-    a cassette of another upstream at the same index is a different call, not a replaced one."""
+    """The recorded cassettes a live call replaced: those of its test and upstream at its call
+    index, not yet waiting for review, with another key that no call of the run asked for. The
+    index counts a test's calls over all its upstreams, so a cassette of another upstream at the
+    same index is a different call, not a replaced one. Which cassettes the run asked for is
+    read from the report (`test.asked`), not from how the run marked them."""
     return [
         c
         for c in recorded
@@ -153,5 +155,6 @@ def replaced_cassettes(
         and c.upstream == live.upstream
         and c.call_index == live.call_index
         and c.key != live.key
-        and cassette_name(directory, c) in test.unused
+        and c.key not in test.asked
+        and not c.needs_review
     ]
