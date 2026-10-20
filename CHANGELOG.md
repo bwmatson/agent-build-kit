@@ -8,6 +8,7 @@
   test starts, and checks the split names against the registered markers. Claude scenarios
   with no ACP sibling are listed in `docs/agent-runtimes.md`; a difference from the tests is
   a warning, never a failure.
+
 - The chat tests no longer run in a pass of their own. Each test makes its own session id
   (the `new_session_id` fixture), the chat object's holder lookups take an optional process
   table to read, and a guard fails when two test files define the same session id. `poe test`
