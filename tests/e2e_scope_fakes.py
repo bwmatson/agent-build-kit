@@ -4,12 +4,13 @@ each e2e-test command as pytest would, for the tests of what an e2e-test unit ru
 from __future__ import annotations
 
 import subprocess
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Mapping
 from pathlib import Path
 from typing import Any
 
 from agent_build_kit.config import (
     REST_SPLIT,
+    E2eDimensionValue,
     E2eSplit,
     E2eUnitScope,
     ProjectConfig,
@@ -94,6 +95,7 @@ def session(
     only: str | None = None,
     splits: Collection[E2eSplit] = KIT_SPLITS,
     unavailable: Collection[str] = (),
+    dimensions: Mapping[str, Mapping[str, E2eDimensionValue]] | None = None,
 ) -> E2eSession:
     lines = log if log is not None else []
     return E2eSession(
@@ -111,4 +113,5 @@ def session(
         only=only,
         splits=splits,
         unavailable=unavailable,
+        dimensions=dimensions,
     )

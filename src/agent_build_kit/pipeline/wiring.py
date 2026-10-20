@@ -39,6 +39,7 @@ from agent_build_kit.config import (
     CONFIG_FILENAME,
     REST_SPLIT,
     TEMPLATE_PLACEHOLDERS,
+    E2eDimensionValue,
     E2eSplit,
     E2eUnitScope,
     ProjectConfig,
@@ -2411,8 +2412,10 @@ class E2eSession:
         only: str | None = None,
         splits: Collection[E2eSplit] = (),
         unavailable: Collection[str] = (),
+        dimensions: Mapping[str, Mapping[str, E2eDimensionValue]] | None = None,
     ) -> None:
         self.unit = unit
+        self._dimensions = dimensions or {}
         self.verdict: E2eVerdict | None = None
         self._held = held
         self._unavailable = unavailable
