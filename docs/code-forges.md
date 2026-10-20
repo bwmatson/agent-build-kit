@@ -96,7 +96,7 @@ parts are free functions beside it rather than inherited behaviour.
 | `delete_remote_branch(repo, branch)` | `events` | remove a merged unit's branch |
 | `merges` | the landing step | whether the forge merges a pull request at all: GitHub and Azure DevOps do, the local forge does not |
 | `merge_pr(repo, pr, head)` | the landing step | squash-merge only if the pull request's head is still `head`, the approved commit, and return the merge commit; raises `MergeRefused` with the host's reason. GitHub merges by squash with `head` as the guard; Azure DevOps completes the pull request by squash with `head` as the last merge source commit and refuses when it is left active or abandoned; the local forge always refuses |
-| `merge_commit(repo, pr)` | the retry layer | the commit a merged pull request produced, None while it is not merged; the read that shows whether a repeated merge would merge twice |
+| `merge_commit(repo, pr)` | the retry layer | the commit a merged pull request produced; None while it is not merged, and when the forge cannot say (the local forge always; a pull request the host cannot find); the read that shows whether a repeated merge would merge twice |
 | `close_pr(repo, pr)` | the satisfied outcome | close without merging, raising if the host refuses |
 | `add_label(repo, pr, label)` | state labels | put the label on, creating it in the repo first if missing; raises if the host refuses |
 | `set_exclusive_label(repo, pr, label, family)` | state labels | put the label on and take off the rest of `family` only |

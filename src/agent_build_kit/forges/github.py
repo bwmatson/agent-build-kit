@@ -794,8 +794,11 @@ class GitHubForge:
         return _parse(made, MergeDoc, "PUT pulls merge").sha
 
     def merge_commit(self, repo: RepoId, pr: int) -> str | None:
-        with self._on(repo) as gh:
-            found = gh.rest.pulls.get(repo.account, repo.name, pr)
+        try:
+            with self._on(repo) as gh:
+                found = gh.rest.pulls.get(repo.account, repo.name, pr)
+        except NotFound:
+            return None
         pull = _parse(found, MergedPullDoc, "GET pull")
         return pull.merge_commit_sha if pull.merged else None
 

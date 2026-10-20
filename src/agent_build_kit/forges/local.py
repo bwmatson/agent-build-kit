@@ -315,7 +315,7 @@ class LocalForge:
         raise MergeRefused("a local pull request is merged by a person, with git")
 
     def merge_commit(self, repo: RepoId, pr: int) -> str | None:
-        raise NotImplementedError
+        return None
 
     def close_pr(self, repo: RepoId, pr: int) -> None:
         def close(pulls: list[Stored]) -> None:

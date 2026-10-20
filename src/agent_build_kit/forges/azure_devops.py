@@ -888,7 +888,10 @@ class AzureDevOpsForge:
         raise MergeRefused(f"the pull request is {done.status} after the completion: {reason}")
 
     def merge_commit(self, repo: RepoId, pr: int, *, run: Run | None = None) -> str | None:
-        merged = self._pull_doc(repo, pr, run=run)
+        try:
+            merged = self._pull_doc(repo, pr, run=run)
+        except NotFound:
+            return None
         if merged.status != "completed" or merged.last_merge_commit is None:
             return None
         return merged.last_merge_commit.commit_id
