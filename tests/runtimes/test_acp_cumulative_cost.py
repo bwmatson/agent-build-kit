@@ -16,7 +16,7 @@ from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.acp import AcpRuntime
 from tests.runtimes.acp_agent import COST_AMOUNT, use_agent
 
-EARLIER = "sess_Ln3Vt8QaRcXe5mJd"
+EARLIER = "sess_Bv6Mr9XcGaJe3uLp"
 
 
 @pytest.fixture

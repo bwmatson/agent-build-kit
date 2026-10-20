@@ -29,12 +29,6 @@ def inst(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Installation:
 
 
 @pytest.fixture
-def build_session(new_session_id: Callable[[], str]) -> str:
-    """The id of the session a unit's build recorded."""
-    return new_session_id()
-
-
-@pytest.fixture
 def free_session(new_session_id: Callable[[], str]) -> str:
     """The id of a session started outside any unit."""
     return new_session_id()

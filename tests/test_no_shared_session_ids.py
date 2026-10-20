@@ -30,3 +30,11 @@ def test_a_repeat_in_one_file_is_allowed_and_two_files_are_named(tmp_path: Path)
     third.write_text('NOT_AN_ID = "0b7e1d52-9c3a"\n')
 
     assert duplicated_session_ids(tmp_path) == {shared: [first, second]}
+
+
+def test_an_acp_shaped_id_in_two_files_is_named(tmp_path: Path) -> None:
+    first, second = tmp_path / "a.py", tmp_path / "b.py"
+    first.write_text('EARLIER = "sess_Ab3Cd4"\n')
+    second.write_text('sessions = ("sess_Ab3Cd4",)\n')
+
+    assert duplicated_session_ids(tmp_path) == {"sess_Ab3Cd4": [first, second]}

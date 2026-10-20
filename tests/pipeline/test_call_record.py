@@ -8,7 +8,6 @@ ledger is read back from disk as the report reads it.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 
 import pytest
 
@@ -27,11 +26,6 @@ from tests.redaction_fakes import NAME, SECRET, known
 from tests.runtimes.stand_in import StandInRuntime
 
 UNIT = "add-marker/1"
-
-
-@pytest.fixture
-def session(new_session_id: Callable[[], str]) -> str:
-    return new_session_id()
 
 
 @pytest.fixture(autouse=True)
@@ -140,7 +134,7 @@ def test_a_result_with_no_usage_records_absent_figures_and_never_zero(
 
 def test_a_resumed_calls_cost_is_derived_from_the_sessions_running_total(
     workspace: Installation,
-    session: str,
+    build_session: str,
 ) -> None:
     first = call_recorder("implement", unit=UNIT, change="add-marker", repo="app", say=print)
     resumed = call_recorder(
@@ -148,13 +142,13 @@ def test_a_resumed_calls_cost_is_derived_from_the_sessions_running_total(
     )
 
     first(
-        finished(session_id=session, cumulative_cost_usd=2.63),
+        finished(session_id=build_session, cumulative_cost_usd=2.63),
         role="implement",
         model="m",
         runtime="claude_code",
     )
     resumed(
-        finished(session_id=session, cumulative_cost_usd=5.49),
+        finished(session_id=build_session, cumulative_cost_usd=5.49),
         role="implement",
         model="m",
         runtime="claude_code",
@@ -167,18 +161,18 @@ def test_a_resumed_calls_cost_is_derived_from_the_sessions_running_total(
     assert continued["cost"]["incremental_usd"] == pytest.approx(2.86)
     assert continued["cost"]["cumulative_usd"] == pytest.approx(5.49)
     assert continued["cost"]["basis"] == "derived"
-    assert continued["session_id"] == session
+    assert continued["session_id"] == build_session
 
 
 def test_a_gateways_figures_replace_the_agents_and_the_agents_are_kept_beside_them(
     workspace: Installation,
-    session: str,
+    build_session: str,
 ) -> None:
     record = call_recorder("review", unit=UNIT, tier="unit-test", round=2, say=print)
 
     record(
         finished(
-            session_id=session,
+            session_id=build_session,
             usage=Usage(input_tokens=10, output_tokens=5),
             usage_source="reported",
         ),
@@ -200,19 +194,19 @@ def test_a_gateways_figures_replace_the_agents_and_the_agents_are_kept_beside_th
 
 def test_a_session_cost_that_fell_starts_a_new_baseline_and_says_so(
     workspace: Installation,
-    session: str,
+    build_session: str,
 ) -> None:
     said: list[str] = []
     record = call_recorder("fix_checks", unit=UNIT, say=said.append)
 
     record(
-        finished(session_id=session, cumulative_cost_usd=10.0),
+        finished(session_id=build_session, cumulative_cost_usd=10.0),
         role="implement",
         model="m",
         runtime="claude_code",
     )
     record(
-        finished(session_id=session, cumulative_cost_usd=1.2),
+        finished(session_id=build_session, cumulative_cost_usd=1.2),
         role="implement",
         model="m",
         runtime="claude_code",

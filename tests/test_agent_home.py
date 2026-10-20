@@ -208,7 +208,7 @@ def test_a_listed_session_passes(tmp_path: Path) -> None:
     assert_session_listed(AcpRuntime(), "sess_one", cwd)
 
 
-@pytest.mark.parametrize("held", [(), ("sess_other",)])
+@pytest.mark.parametrize("held", [(), ("sess_held_elsewhere",)])
 def test_an_unlisted_session_fails_naming_the_cause(held: tuple[str, ...], tmp_path: Path) -> None:
     cwd = tmp_path / "worktree"
     cwd.mkdir()

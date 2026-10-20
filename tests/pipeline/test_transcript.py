@@ -282,7 +282,7 @@ def test_the_replay_is_the_builds_and_the_chat_turns_in_order_tool_calls_include
 def test_a_session_that_was_not_recorded_is_read_from_the_runtimes_own_history(
     tmp_path: Path,
 ) -> None:
-    editor_session = "sess_Ln3Vt8QaRcXe5mJd"
+    editor_session = "sess_Hk2Wp7ZbYdTf4nQs"
     asked: list[str] = []
 
     def history(session: str) -> SessionHistory:
@@ -305,7 +305,9 @@ def test_a_runtime_that_keeps_tool_calls_is_not_reported_as_missing_them(tmp_pat
     def history(session: str) -> SessionHistory:
         return SessionHistory(events=(call(command="ls"),), tool_calls=True)
 
-    shown = replay(transcript_dir(tmp_path), "add-marker/1", "sess_other", runtime_history=history)
+    shown = replay(
+        transcript_dir(tmp_path), "add-marker/1", "sess_unrecorded", runtime_history=history
+    )
 
     assert shown.recorded is False
     assert shown.tool_calls_available is True

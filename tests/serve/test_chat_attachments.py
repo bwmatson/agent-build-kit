@@ -8,7 +8,6 @@ faked at their wires, as in the other chat tests; the composer's chips are the w
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -39,11 +38,6 @@ OTHER = {
 
 
 @pytest.fixture
-def claude_session(new_session_id: Callable[[], str]) -> str:
-    return new_session_id()
-
-
-@pytest.fixture
 def pipeline(inst: Installation) -> Installation:
     seed_pipeline(inst)
     unit_worktree(inst, "feature/2")
@@ -54,10 +48,10 @@ def claude_prompt(
     inst: Installation,
     api: httpx.Client,
     monkeypatch: pytest.MonkeyPatch,
-    claude_session: str,
+    build_session: str,
     attachments: list[Any],
 ) -> str:
-    record_session(inst, "feature/2", claude_session, runtime="claude_code")
+    record_session(inst, "feature/2", build_session, runtime="claude_code")
     fake = use_claude(monkeypatch, finished_build(unit_worktree(inst, "feature/2"), "Ok."))
     turn(api, CHAT, {"tab": "t1", "prompt": "Why this change?", "attachments": attachments})
     return prompt_of(fake.calls[0][0])
@@ -75,9 +69,9 @@ def acp_prompt(
 
 
 def test_the_prompt_sent_to_claude_contains_the_attachment(
-    pipeline: Installation, api: httpx.Client, monkeypatch: pytest.MonkeyPatch, claude_session: str
+    pipeline: Installation, api: httpx.Client, monkeypatch: pytest.MonkeyPatch, build_session: str
 ) -> None:
-    prompt = claude_prompt(pipeline, api, monkeypatch, claude_session, [MARKER])
+    prompt = claude_prompt(pipeline, api, monkeypatch, build_session, [MARKER])
 
     assert "Why this change?" in prompt
     assert "src/app/marker.py" in prompt
@@ -99,17 +93,17 @@ def test_the_prompt_sent_to_the_acp_agent_contains_the_attachment(
 
 
 def test_every_attachment_of_a_turn_is_in_the_prompt(
-    pipeline: Installation, api: httpx.Client, monkeypatch: pytest.MonkeyPatch, claude_session: str
+    pipeline: Installation, api: httpx.Client, monkeypatch: pytest.MonkeyPatch, build_session: str
 ) -> None:
-    prompt = claude_prompt(pipeline, api, monkeypatch, claude_session, [MARKER, OTHER])
+    prompt = claude_prompt(pipeline, api, monkeypatch, build_session, [MARKER, OTHER])
 
     assert MARKER["text"] in prompt and OTHER["text"] in prompt
 
 
 def test_an_attachment_removed_before_sending_is_not_in_the_prompt(
-    pipeline: Installation, api: httpx.Client, monkeypatch: pytest.MonkeyPatch, claude_session: str
+    pipeline: Installation, api: httpx.Client, monkeypatch: pytest.MonkeyPatch, build_session: str
 ) -> None:
-    prompt = claude_prompt(pipeline, api, monkeypatch, claude_session, [OTHER])
+    prompt = claude_prompt(pipeline, api, monkeypatch, build_session, [OTHER])
 
     assert "src/app/marker.py" not in prompt
     assert MARKER["text"] not in prompt
@@ -117,9 +111,9 @@ def test_an_attachment_removed_before_sending_is_not_in_the_prompt(
 
 
 def test_a_turn_without_attachments_is_its_prompt_alone(
-    pipeline: Installation, api: httpx.Client, monkeypatch: pytest.MonkeyPatch, claude_session: str
+    pipeline: Installation, api: httpx.Client, monkeypatch: pytest.MonkeyPatch, build_session: str
 ) -> None:
-    prompt = claude_prompt(pipeline, api, monkeypatch, claude_session, [])
+    prompt = claude_prompt(pipeline, api, monkeypatch, build_session, [])
 
     assert "Why this change?" in prompt
     assert "@@" not in prompt
@@ -129,10 +123,10 @@ def test_an_attachment_of_uncommitted_lines_is_marked_uncommitted_in_the_prompt(
     pipeline: Installation,
     api: httpx.Client,
     monkeypatch: pytest.MonkeyPatch,
-    claude_session: str,
+    build_session: str,
 ) -> None:
     prompt = claude_prompt(
-        pipeline, api, monkeypatch, claude_session, [{**MARKER, "uncommitted": True}]
+        pipeline, api, monkeypatch, build_session, [{**MARKER, "uncommitted": True}]
     )
 
     assert MARKER["text"] in prompt
@@ -140,9 +134,9 @@ def test_an_attachment_of_uncommitted_lines_is_marked_uncommitted_in_the_prompt(
 
 
 def test_an_attachment_of_committed_lines_is_not_marked_uncommitted(
-    pipeline: Installation, api: httpx.Client, monkeypatch: pytest.MonkeyPatch, claude_session: str
+    pipeline: Installation, api: httpx.Client, monkeypatch: pytest.MonkeyPatch, build_session: str
 ) -> None:
-    prompt = claude_prompt(pipeline, api, monkeypatch, claude_session, [MARKER])
+    prompt = claude_prompt(pipeline, api, monkeypatch, build_session, [MARKER])
 
     assert "uncommitted" not in prompt.lower()
 

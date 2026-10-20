@@ -60,6 +60,12 @@ def new_session_id() -> Callable[[], str]:
     return lambda: str(uuid.uuid4())
 
 
+@pytest.fixture
+def build_session(new_session_id: Callable[[], str]) -> str:
+    """The id of the session a unit's build recorded."""
+    return new_session_id()
+
+
 @pytest.fixture(autouse=True)
 def no_real_loginctl(monkeypatch: pytest.MonkeyPatch) -> None:
     """`loginctl` is the developer's machine, not the suite's.
