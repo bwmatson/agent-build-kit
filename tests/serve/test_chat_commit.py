@@ -35,7 +35,13 @@ from agent_build_kit.pipeline.wiring import COMMIT_FIX_ROUNDS
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from agent_build_kit.serve.server import start_server
 from tests.attach_driver import changed_files, checked_out, head, leave_lease
-from tests.chat_serving import prompt_of, record_session, turn, use_claude
+from tests.chat_serving import (
+    claude_session_file,
+    prompt_of,
+    record_session,
+    turn,
+    use_claude,
+)
 from tests.factories import git, init_repo
 from tests.runtimes.claude_cli import FakeClaude, finished_build
 from tests.serving import seed_pipeline
@@ -207,6 +213,34 @@ def test_a_free_session_on_a_unit_may_edit_the_planning_checkout_and_one_on_it_n
     on_planning, cwd = fake.calls[1]
     assert cwd == inst.root
     assert "--add-dir" not in on_planning, "its own working directory needs no flag"
+
+
+def test_a_continued_free_session_on_a_unit_keeps_the_planning_checkout_and_the_builders_does_not(
+    inst: Installation, tree: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agent_build_kit.settings import settings
+    from tests.runtimes.claude_cli import SESSION
+
+    assert settings.claude_home is not None
+    fake = use_claude(monkeypatch, finished_build(tree, "Done."))
+    turn(
+        api,
+        "/api/sessions",
+        {"tab": "t1", "runtime": "claude_code", "unit": UNIT, "prompt": "Look around."},
+    )
+    api.delete(f"{REVIEW}/lease", params={"tab": "t1"})
+    claude_session_file(settings.claude_home, SESSION, tree)
+    claude_session_file(settings.claude_home, BUILD_SESSION, tree)
+
+    turn(api, f"/api/sessions/claude_code/{SESSION}/continue", {"tab": "t1", "prompt": "More."})
+    api.delete(f"{REVIEW}/lease", params={"tab": "t1"})
+    turn(
+        api, f"/api/sessions/claude_code/{BUILD_SESSION}/continue", {"tab": "t1", "prompt": "More."}
+    )
+
+    free, builder = fake.calls[1][0], fake.calls[2][0]
+    assert free[free.index("--add-dir") + 1] == str(inst.root), "the free session's second turn"
+    assert "--add-dir" not in builder, "the unit's own resumed session is unchanged"
 
 
 # --- the hooks ----------------------------------------------------------------------------------

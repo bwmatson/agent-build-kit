@@ -720,6 +720,16 @@ def register(
 
         return StreamingResponse(body(), media_type="text/event-stream")
 
+    def planning_dirs(
+        unit: StoredUnit | None, builder: StoredUnit | None, cwd: Path
+    ) -> tuple[Path, ...]:
+        """The extra directories of a session that is a person's own on a unit: it may change a
+        change's task file as well as the worktree, and the planning checkout lies outside the
+        worktree, so it is named. Not the unit's builder, and not a session already there."""
+        if unit is None or builder is not None or installation.root == cwd:
+            return ()
+        return (installation.root,)
+
     def recorded_events(session: str) -> list[dict[str, Any]]:
         """The server's own record of an ACP session, as the seed of a session that goes on
         from it; empty when it recorded none."""
@@ -1014,6 +1024,7 @@ def register(
                     resume=session,
                     fork=fork,
                     builder=builder,
+                    add_dirs=planning_dirs(unit, builder, cwd),
                 ),
                 tab=body.tab,
                 unit=unit,
@@ -1033,7 +1044,10 @@ def register(
         recorded = recorded_session(unit.id)
         model = recorded.model if recorded and recorded.session_id == session else None
         builder = unit if recorded and recorded.session_id == session and not seeded else None
-        fresh = lambda cb: chat.request(cb, _seed(events, prompt), cwd, model=model)  # noqa: E731
+        extra = planning_dirs(unit, builder, cwd)
+        fresh = lambda cb: chat.request(  # noqa: E731
+            cb, _seed(events, prompt), cwd, model=model, add_dirs=extra
+        )
         return chat.leased(
             unit,
             body.tab,
@@ -1042,7 +1056,7 @@ def register(
                 fresh
                 if seeded
                 else lambda cb: chat.request(
-                    cb, prompt, cwd, model=model, resume=session, builder=builder
+                    cb, prompt, cwd, model=model, resume=session, builder=builder, add_dirs=extra
                 ),
                 tab=body.tab,
                 unit=unit,
@@ -1094,9 +1108,7 @@ def register(
         else:
             raise HTTPException(status_code=400, detail="name a unit or a repo")
         prompt = with_attachments(body.prompt, body.attachments)
-        # A session on a unit may change a change's task file as well as the worktree, and the
-        # planning checkout lies outside the worktree: it is named so edits there are allowed.
-        extra = (installation.root,) if body.unit and installation.root != cwd else ()
+        extra = planning_dirs(unit, None, cwd)
 
         def start() -> StreamingResponse:
             return chat.stream(
