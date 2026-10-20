@@ -78,6 +78,18 @@ def check_splits(
     return SplitCheck(listings=tuple(listings), findings=tuple(findings))
 
 
+def values_carried_twice(
+    markers: Collection[str], dimensions: Mapping[str, Mapping[str, E2eDimensionValue]]
+) -> dict[str, tuple[str, ...]]:
+    """For each dimension of which a test with `markers` carries two or more values, those values.
+    The one rule that a test carries at most one value of a dimension."""
+    carried = {
+        dimension: tuple(value for value, entry in values.items() if entry.marker in markers)
+        for dimension, values in dimensions.items()
+    }
+    return {dimension: found for dimension, found in carried.items() if len(found) > 1}
+
+
 def check_dimensions(
     toolchain: AppliesE2eSelection,
     command: list[str],
@@ -102,7 +114,7 @@ def check_dimensions(
     for tag, names in owners.items():
         if len(names) > 1:
             findings.append(f"marker {tag} is used by {' and '.join(names)}")
-    carried: dict[str, dict[str, list[str]]] = {}
+    markers_of: dict[str, set[str]] = {}
     for dimension, values in dimensions.items():
         for value, entry in values.items():
             selection = E2eSelection(marker=marker, any_of=(entry.marker,))
@@ -119,13 +131,12 @@ def check_dimensions(
                 )
             )
             for test in tests or ():
-                carried.setdefault(dimension, {}).setdefault(test, []).append(value)
-    for dimension, tests_values in carried.items():
-        for test, found in tests_values.items():
-            if len(found) > 1:
-                findings.append(
-                    f"{test} carries {len(found)} values of {dimension}: {' and '.join(found)}"
-                )
+                markers_of.setdefault(test, set()).add(entry.marker)
+    for test, markers in markers_of.items():
+        for dimension, found in values_carried_twice(markers, dimensions).items():
+            findings.append(
+                f"{test} carries {len(found)} values of {dimension}: {' and '.join(found)}"
+            )
     if isinstance(toolchain, ListsRegisteredSelectors):
         known = toolchain.registered_selectors(command, run=run)
         if known is None:

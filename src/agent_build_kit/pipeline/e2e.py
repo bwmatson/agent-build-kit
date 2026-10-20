@@ -124,13 +124,15 @@ def selection_unavailable(
     *,
     dev_stack_script: bool,
     splits: Collection[E2eSplit],
+    dimensions: Collection[str] = (),
 ) -> str | None:
-    """Why an e2e-test run of this profile cannot leave a split out, else None. A repo that
-    declares no split with a marker is never unable."""
+    """Why an e2e-test run of this profile cannot apply a marker selection (leave a split out or
+    list a dimension value), else None. A repo that declares no split with a marker and no
+    dimension is never unable."""
     from agent_build_kit.profiles.base import AppliesE2eSelection
 
     name = getattr(toolchain, "name", type(toolchain).__name__)
-    if not any(split.marker is not None for split in splits):
+    if not dimensions and not any(split.marker is not None for split in splits):
         return None
     if dev_stack_script:
         return "the repo's dev stack script runs e2e-test and takes no selection"

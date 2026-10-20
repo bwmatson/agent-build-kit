@@ -128,9 +128,11 @@ def _check_repo(
     for where, toolchain, commands in e2e_work(
         checkout, repo.projects, profiles.get(repo.profile), marker
     ):
-        why = selection_unavailable(toolchain, dev_stack_script=script, splits=splits)
+        why = selection_unavailable(
+            toolchain, dev_stack_script=script, splits=splits, dimensions=tuple(dimensions)
+        )
         if why is not None:
-            print(f"{name}: a declared split cannot be applied in {where}: {why}")
+            print(f"{name}: a declared split or dimension cannot be applied in {where}: {why}")
             return 1
         # `selection_unavailable` has said the profile applies a marker selector.
         assert isinstance(toolchain, AppliesE2eSelection)
