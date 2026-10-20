@@ -33,6 +33,9 @@ from tests.replay.proxy import ReplayProxy
 from tests.runtime_scratch import runtime_scratch
 from tests.scratch_tick import commits_on_unit_branch, register_scratch, run_tick
 
+# The acceptance is Claude-only (see test_replay_unit.py); this is the unit it builds.
+CLAUDE_ONLY_REASONS = {"test_the_unit_is_built": "the build is driven by Claude Code"}
+
 ROOT = "ABK_REPLAY_UNIT_ROOT"
 CASSETTES = "ABK_REPLAY_UNIT_CASSETTES"
 MARKER = "ABK_REPLAY_UNIT_MARKER"

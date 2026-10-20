@@ -39,6 +39,15 @@ pytestmark = [
     pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not on PATH"),
 ]
 
+# The acceptance is Claude-only: the scratch unit is built by the Claude Code agent, which honours
+# the endpoint it is handed through its environment.
+BUILT_BY_CLAUDE = "the build is driven by Claude Code"
+CLAUDE_ONLY_REASONS = {
+    "test_a_live_pass_in_record_mode_is_promoted_to_cassettes": BUILT_BY_CLAUDE,
+    "test_an_unchanged_rerun_replays_the_deterministic_calls_and_is_labelled": BUILT_BY_CLAUDE,
+    "test_an_edited_task_sends_exactly_the_changed_calls_live": BUILT_BY_CLAUDE,
+}
+
 TEST_ID = "tests/integration/replay_unit_build.py::test_the_unit_is_built"
 LABEL = re.compile(r"replayed: (\d+) of (\d+) external calls replayed, (\d+) live")
 RECORDED_MARKER = "marked"
