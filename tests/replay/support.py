@@ -138,3 +138,20 @@ def replayed_cassettes(
         for c in recorded
         if cassette_name(directory, c) not in test.unused and c.key not in test.aged_out
     ]
+
+
+def replaced_cassettes(
+    recorded: Sequence[Cassette], directory: Path, test: ReplayedTest, live: Cassette
+) -> list[Cassette]:
+    """The recorded cassettes a live call replaced: those of its upstream at its call index with
+    another key that no call asked for. The index counts a test's calls over all its upstreams, so
+    a cassette of another upstream at the same index is a different call, not a replaced one."""
+    return [
+        c
+        for c in recorded
+        if c.test_id == live.test_id
+        and c.upstream == live.upstream
+        and c.call_index == live.call_index
+        and c.key != live.key
+        and cassette_name(directory, c) in test.unused
+    ]

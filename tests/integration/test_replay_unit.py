@@ -31,7 +31,7 @@ from agent_build_kit.replay.report import ReplayedTest, RunReport
 from agent_build_kit.replay.state import REPORT_FILE
 from agent_build_kit.replay.store import cassette_name, read_cassettes
 from tests.integration import replay_unit_build as build
-from tests.replay.support import replayed_cassettes
+from tests.replay.support import replaced_cassettes, replayed_cassettes
 
 pytestmark = [
     pytest.mark.local_stack,
@@ -194,13 +194,13 @@ def test_an_edited_task_sends_exactly_the_changed_calls_live(edited_step: Step) 
     for miss in test.misses:
         assert miss.difference, edited.output
         assert miss.difference in edited.output
-        # The cassette the live call replaced at its index is held for review, not deleted.
-        for old in (c for c in edited.before if c.test_id == TEST_ID):
-            if old.call_index == miss.call_index and old.key != miss.key:
-                kept = next((c for c in edited.after if c.key == old.key), None)
-                assert kept is not None, f"the superseded cassette was deleted\n{edited.output}"
-                # Superseded, not merely unasked: the reason names the live call that replaced it.
-                assert kept.needs_review, edited.output
-                assert kept.review_reason.startswith("superseded by a live call"), (
-                    f"{kept.review_reason!r}\n{edited.output}"
-                )
+        # The cassette the live call replaced (its upstream's, at its index, asked for by no call)
+        # is held for review, not deleted.
+        for old in replaced_cassettes(edited.before, edited.directory, test, after[miss.key]):
+            kept = next((c for c in edited.after if c.key == old.key), None)
+            assert kept is not None, f"the superseded cassette was deleted\n{edited.output}"
+            # Superseded, not merely unasked: the reason names the live call that replaced it.
+            assert kept.needs_review, edited.output
+            assert kept.review_reason.startswith("superseded by a live call"), (
+                f"{kept.review_reason!r}\n{edited.output}"
+            )

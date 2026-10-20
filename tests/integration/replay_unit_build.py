@@ -50,6 +50,7 @@ pytestmark = [
     # An e2e test in its own session: it starts a real agent and takes minutes, so it is under
     # the e2e time limit and not the default one.
     pytest.mark.local_stack,
+    pytest.mark.runtime_claude_code,
     pytest.mark.skipif(
         bool(missing_environment()),
         reason=f"run by test_replay_unit.py; not set: {', '.join(missing_environment())}",
