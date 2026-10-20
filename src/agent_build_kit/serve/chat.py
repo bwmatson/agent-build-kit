@@ -437,6 +437,8 @@ class Chat:
                 self._busy.add(session_id)
                 owned.add(session_id)
             keep_question(session_id)
+            if unit is not None:
+                self.leases.record_session(unit.id, f"tab:{tab}", session_id)
             events.put({"type": "CUSTOM", "name": "session", "value": {"id": session_id}})
 
         callbacks = {
@@ -521,6 +523,7 @@ class Chat:
         fork: bool = False,
         builder: StoredUnit | None = None,
         on_result: Callable[[AgentResult], None] | None = None,
+        add_dirs: tuple[Path, ...] = (),
     ) -> AgentRequest:
         """A turn's call. The unit's builder, resumed, is held to the pipeline's rules and is
         given its unit's change; any other session is the person's own. Neither commits nor
@@ -534,6 +537,7 @@ class Chat:
             resume_session=resume,
             fork_session=fork,
             environment=self.agent_environment,
+            add_dirs=add_dirs,
             policy=ToolPolicy(specs_dir=self.installation.specs_dir, no_commit=True)
             if builder is not None
             else ToolPolicy(scoped=False, no_commit=True),
@@ -716,6 +720,22 @@ def register(
 
         return StreamingResponse(body(), media_type="text/event-stream")
 
+    def planning_dirs(
+        unit: StoredUnit | None, builder: StoredUnit | None, cwd: Path
+    ) -> tuple[Path, ...]:
+        """The extra directories of a session that is a person's own on a unit: it may change a
+        change's task file as well as the worktree, and the planning checkout lies outside the
+        worktree, so it is named. Not the unit's builder, and not a session already there."""
+        if unit is None or builder is not None or installation.root == cwd:
+            return ()
+        return (installation.root,)
+
+    def recorded_events(session: str) -> list[dict[str, Any]]:
+        """The server's own record of an ACP session, as the seed of a session that goes on
+        from it; empty when it recorded none."""
+        known = chat.acp_sessions().get(session)
+        return [e.model_dump() for e in known[1]] if known else []
+
     @app.post("/api/units/{change}/{number}/chat")
     def unit_chat(change: str, number: str, body: Turn) -> StreamingResponse:
         unit = chat.unit(change, number)
@@ -732,6 +752,13 @@ def register(
         except KeyError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
         prompt = with_attachments(body.prompt, body.attachments)
+
+        def fresh(cb: dict[str, Any]) -> AgentRequest:
+            """The turn in a new session, for an agent that cannot resume the build session:
+            seeded with what was recorded of it, and still the builder's turn."""
+            seed = _seed(recorded_events(recorded.session_id), prompt)
+            return chat.request(cb, seed, cwd, model=recorded.model, builder=unit)
+
         return chat.leased(
             unit,
             body.tab,
@@ -744,6 +771,7 @@ def register(
                 unit=unit,
                 said=prompt,
                 session=recorded.session_id,
+                fallback=fresh if recorded.runtime == ACP else None,
             ),
             session=recorded.session_id,
             runtime=recorded.runtime,
@@ -928,10 +956,9 @@ def register(
             path = chat.claude_file(session)
             if path is not None:
                 return claude_events(path), False
-        known = chat.acp_sessions().get(session)
-        if known is None:
+        if session not in chat.acp_sessions():
             raise HTTPException(status_code=404, detail=f"no session {session}")
-        return [e.model_dump() for e in known[1]], True
+        return recorded_events(session), True
 
     def resumable(session: str) -> bool:
         """Whether the agent would resume this ACP session in place: it advertises resume and
@@ -997,6 +1024,7 @@ def register(
                     resume=session,
                     fork=fork,
                     builder=builder,
+                    add_dirs=planning_dirs(unit, builder, cwd),
                 ),
                 tab=body.tab,
                 unit=unit,
@@ -1016,7 +1044,10 @@ def register(
         recorded = recorded_session(unit.id)
         model = recorded.model if recorded and recorded.session_id == session else None
         builder = unit if recorded and recorded.session_id == session and not seeded else None
-        fresh = lambda cb: chat.request(cb, _seed(events, prompt), cwd, model=model)  # noqa: E731
+        extra = planning_dirs(unit, builder, cwd)
+        fresh = lambda cb: chat.request(  # noqa: E731
+            cb, _seed(events, prompt), cwd, model=model, add_dirs=extra
+        )
         return chat.leased(
             unit,
             body.tab,
@@ -1025,7 +1056,7 @@ def register(
                 fresh
                 if seeded
                 else lambda cb: chat.request(
-                    cb, prompt, cwd, model=model, resume=session, builder=builder
+                    cb, prompt, cwd, model=model, resume=session, builder=builder, add_dirs=extra
                 ),
                 tab=body.tab,
                 unit=unit,
@@ -1077,11 +1108,12 @@ def register(
         else:
             raise HTTPException(status_code=400, detail="name a unit or a repo")
         prompt = with_attachments(body.prompt, body.attachments)
+        extra = planning_dirs(unit, None, cwd)
 
         def start() -> StreamingResponse:
             return chat.stream(
                 runtime,
-                lambda cb: chat.request(cb, prompt, cwd, model=body.model),
+                lambda cb: chat.request(cb, prompt, cwd, model=body.model, add_dirs=extra),
                 tab=body.tab,
                 unit=unit,
                 said=prompt,
