@@ -1004,12 +1004,16 @@ A Claude scenario with no `acp` variant is listed here and never refused; a modu
 one in an optional `CLAUDE_ONLY_REASONS` table. A difference between this list and the
 tests raises a warning, not a failure.
 
+- `replay_unit_build.py::test_the_unit_is_built`
 - `test_build_unit.py::test_progress_is_visible_while_the_run_works`
 - `test_build_unit.py::test_the_pipeline_alone_pushed_and_only_what_review_approved`
 - `test_build_unit.py::test_the_report_has_one_agent_record_per_call_in_the_run_log`
 - `test_build_unit.py::test_the_report_totals_equal_the_ledger_and_name_each_figures_source`
 - `test_build_unit.py::test_the_unit_is_built_reviewed_and_pushed_through_the_runtime`
 - `test_graph_unit.py::test_a_unit_runs_to_review_is_reworked_on_a_comment_and_its_thread_ends_at_merge`
+- `test_replay_unit.py::test_a_live_pass_in_record_mode_is_promoted_to_cassettes`
+- `test_replay_unit.py::test_an_edited_task_sends_exactly_the_changed_calls_live`
+- `test_replay_unit.py::test_an_unchanged_rerun_replays_the_deterministic_calls_and_is_labelled`
 - `test_telemetry_stack.py::test_a_tick_with_the_endpoint_pointing_at_nothing_finishes_and_writes_nothing`
 - `test_telemetry_stack.py::test_a_ticks_duration_series_are_in_the_metrics_store_without_a_unit_id`
 - `test_telemetry_stack.py::test_a_ticks_trace_is_found_in_the_trace_store_by_the_unit_id`

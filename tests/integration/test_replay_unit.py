@@ -191,16 +191,23 @@ def test_an_edited_task_sends_exactly_the_changed_calls_live(edited_step: Step) 
     assert all(after[key].kind is UpstreamKind.llm for key in live), edited.output
     # A new cassette for each call that went live, and for no other.
     assert {key for key in after if key not in before} == live
+    replaced: list[Cassette] = []
     for miss in test.misses:
         assert miss.difference, edited.output
         assert miss.difference in edited.output
         # The cassette the live call replaced (its upstream's, at its index, asked for by no call)
         # is held for review, not deleted.
-        for old in replaced_cassettes(edited.before, test, after[miss.key]):
-            kept = next((c for c in edited.after if c.key == old.key), None)
-            assert kept is not None, f"the superseded cassette was deleted\n{edited.output}"
-            # Superseded, not merely unasked: the reason names the live call that replaced it.
-            assert kept.needs_review, edited.output
-            assert kept.review_reason.startswith("superseded by a live call"), (
-                f"{kept.review_reason!r}\n{edited.output}"
-            )
+        replaced += replaced_cassettes(edited.before, test, after[miss.key])
+    # At least one old model cassette was checked, so a run that matches none is reported.
+    assert [c for c in replaced if c.kind is UpstreamKind.llm], (
+        "no old model cassette lines up with a call that went live, so nothing was superseded "
+        f"to check\n{edited.output}"
+    )
+    for old in replaced:
+        kept = next((c for c in edited.after if c.key == old.key), None)
+        assert kept is not None, f"the superseded cassette was deleted\n{edited.output}"
+        # Superseded, not merely unasked: the reason names the live call that replaced it.
+        assert kept.needs_review, edited.output
+        assert kept.review_reason.startswith("superseded by a live call"), (
+            f"{kept.review_reason!r}\n{edited.output}"
+        )
