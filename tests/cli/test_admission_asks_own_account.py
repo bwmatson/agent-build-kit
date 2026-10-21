@@ -3,7 +3,7 @@ capacity-checks, admission asks the unit's own account).
 
 `app` runs on the default account and `platform` on `personal`. The guard's decision is a stand-in
 that answers per account and counts how often it was asked; a round is `run_round`, which returns
-the units it would start, so nothing is prepared, branched or leased by these tests.
+the units it would start.
 """
 
 from __future__ import annotations
@@ -19,15 +19,13 @@ from agent_build_kit import claude_account
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.graph.checkpointer import unit_graphs_path
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import spans
-from agent_build_kit.pipeline.lease import Leases, lease_dir
+from agent_build_kit.pipeline import spans, wiring
 from agent_build_kit.pipeline.pause import is_paused
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import RUNNING
 from agent_build_kit.pipeline.usage_guard import Decision
 from agent_build_kit.pipeline.vocabulary import WaitReason
-from agent_build_kit.pipeline.wait_log import recorded_waits
-from agent_build_kit.pipeline.wiring import build_usage_gate
+from agent_build_kit.pipeline.wait_log import Wait, recorded_waits
 from tests.conftest import make_installation
 from tests.factories import own_group
 from tests.pipeline.test_cli_pipeline import stored
@@ -62,7 +60,9 @@ class Accounts:
 @pytest.fixture
 def accounts(monkeypatch: pytest.MonkeyPatch) -> Accounts:
     answers = Accounts()
+    # One source for admission and for the gate of an agent step (`build_usage_gate`).
     monkeypatch.setattr(cli, "decide_start", answers)
+    monkeypatch.setattr(wiring, "decide_start", answers)
     return answers
 
 
@@ -83,17 +83,16 @@ def unit(uid: str, repo: str) -> StoredUnit:
     return stored(uid, change=change, repo=repo, groups=own_group(uid, change))
 
 
-def workspace(tmp_path: Path, units: list[StoredUnit]) -> tuple[Installation, UnitStore]:
+def workspace(
+    tmp_path: Path, units: list[StoredUnit], *, one_account: bool = False
+) -> tuple[Installation, UnitStore]:
+    named = {} if one_account else {"account": PERSONAL}
     inst = make_installation(
         tmp_path / "planning",
         planning={"state_dir": ".", "worktree_root": str(tmp_path / "trees")},
         repos={
             "app": {"path": str(tmp_path / "app"), "slug": "example/app"},
-            "platform": {
-                "path": str(tmp_path / "platform"),
-                "slug": "example/platform",
-                "account": PERSONAL,
-            },
+            "platform": {"path": str(tmp_path / "platform"), "slug": "example/platform", **named},
         },
         runtimes={"claude_code": {"accounts": {PERSONAL: {"config_dir": str(tmp_path / "p")}}}},
     )
@@ -108,9 +107,9 @@ def round_of(inst: Installation, store: UnitStore) -> list[str]:
     return [each.id for each in ready]
 
 
-def waits(inst: Installation) -> dict[str, WaitReason]:
+def waits(inst: Installation) -> dict[str, Wait]:
     found = recorded_waits(inst.state_dir / cli.DECISIONS_NAME)
-    return {uid: wait.reason for uid, (wait, _since) in found.items()}
+    return {uid: wait for uid, (wait, _since) in found.items()}
 
 
 def test_a_round_starts_the_open_accounts_units_and_none_of_the_full_ones(
@@ -123,13 +122,49 @@ def test_a_round_starts_the_open_accounts_units_and_none_of_the_full_ones(
 
     assert round_of(inst, store) == ["one/1"]
 
-    assert waits(inst) == {"two/1": WaitReason.USAGE_PAUSE, "three/1": WaitReason.USAGE_PAUSE}
-    leases = Leases(lease_dir(inst.state_dir))
-    for uid in ("two/1", "three/1"):
-        assert not store.get(uid).branch
-        assert leases.holder(uid) is None
-    assert not (tmp_path / "trees").exists()
+    found = waits(inst)
+    assert set(found) == {"two/1", "three/1"}
+    for wait in found.values():
+        assert wait.reason is WaitReason.USAGE_PAUSE
+        assert f"account {PERSONAL}" in wait.detail
     assert is_paused(inst.state_dir / "paused.json") is None
+
+
+def test_a_round_with_only_the_full_accounts_units_is_paused_and_the_pause_names_it(
+    tmp_path: Path, accounts: Accounts
+) -> None:
+    inst, store = workspace(tmp_path, [unit("two/1", "platform"), unit("three/1", "platform")])
+    accounts.full = {PERSONAL}
+
+    assert round_of(inst, store) == []
+
+    paused = is_paused(inst.state_dir / "paused.json")
+    assert paused is not None
+    assert f"account {PERSONAL}" in paused.reason
+
+
+def test_an_installation_with_one_account_starts_its_units_while_the_account_has_room(
+    tmp_path: Path, accounts: Accounts
+) -> None:
+    inst, store = workspace(
+        tmp_path, [unit("one/1", "app"), unit("two/1", "platform")], one_account=True
+    )
+
+    assert round_of(inst, store) == ["one/1", "two/1"]
+    assert not waits(inst)
+
+
+def test_an_installation_with_one_account_pauses_when_the_account_is_full(
+    tmp_path: Path, accounts: Accounts
+) -> None:
+    inst, store = workspace(
+        tmp_path, [unit("one/1", "app"), unit("two/1", "platform")], one_account=True
+    )
+    accounts.full = {None}
+
+    assert round_of(inst, store) == []
+
+    assert is_paused(inst.state_dir / "paused.json") is not None
 
 
 def test_the_full_accounts_units_start_in_order_when_its_reading_clears(
@@ -176,22 +211,26 @@ def test_the_decision_for_an_account_is_made_once_a_round_however_many_units_are
     assert accounts.asked == {None: 1, PERSONAL: 1}
 
 
-@pytest.mark.parametrize(("repo", "full"), [("platform", PERSONAL), ("app", None)])
+@pytest.mark.parametrize("branched", [False, True])
+@pytest.mark.parametrize("full", [set(), {None}, {PERSONAL}, {None, PERSONAL}], ids=str)
+@pytest.mark.parametrize("repo", ["app", "platform"])
 def test_admission_is_allowed_exactly_when_the_first_agent_steps_gate_allows(
-    tmp_path: Path, accounts: Accounts, repo: str, full: str | None
+    tmp_path: Path, accounts: Accounts, repo: str, full: set[str | None], branched: bool
 ) -> None:
-    """One account is full and the other has room, so the round goes on: the unit on the full
-    account is refused by its gate and so must not be admitted, the other's must be."""
+    """A fresh unit is admitted exactly when the gate `build_runner` builds for its first agent
+    step (`build_usage_gate` on the unit's account) allows; one already started is never held
+    back by admission, so it goes whenever the round does."""
     other = "platform" if repo == "app" else "app"
     inst, store = workspace(tmp_path, [unit("mine/1", repo), unit("other/1", other)])
-    accounts.full = {full}
-    allowed = {}
-    for name in (repo, other):
-        account = claude_account.for_repo(inst.config, name)
-        may_start, _resume_at = build_usage_gate(start=lambda each=account: accounts.decide(each))
-        allowed[name] = may_start()[0]
+    if branched:
+        store.set_state("mine/1", RUNNING, branch="spec/mine/1")
+    accounts.full = full
+    may_start, _resume_at = wiring.build_usage_gate(
+        account=claude_account.for_repo(inst.config, repo)
+    )
+    allowed, _why = may_start()
+    round_goes_on = full != {None, PERSONAL}
 
     admitted = round_of(inst, store)
 
-    assert ("mine/1" in admitted) == allowed[repo]
-    assert ("other/1" in admitted) == allowed[other]
+    assert ("mine/1" in admitted) == (round_goes_on if branched else allowed)

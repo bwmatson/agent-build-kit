@@ -1842,17 +1842,16 @@ def run_round(
     )
     # A unit not yet started waits when its own account refuses: no worktree, branch or lease.
     stored_by_id = {unit.id: unit for unit in units}
-    refused = {
-        unit.id
-        for unit in evaluated
-        if runtimes.active().supports_usage_tracking
-        and not stored_by_id[unit.id].branch
-        and not _account_decision(
-            claude_account.for_repo(inst.config, unit.repo), decided
-        ).may_start
-    }
+    refused: dict[str, str] = {}
+    if runtimes.active().supports_usage_tracking:
+        for unit in evaluated:
+            if stored_by_id[unit.id].branch:
+                continue
+            decision = _account_decision(claude_account.for_repo(inst.config, unit.repo), decided)
+            if not decision.may_start:
+                refused[unit.id] = decision.reason
     evaluated = [unit for unit in evaluated if unit.id not in refused]
-    lane_starts = lane_starts - refused
+    lane_starts = lane_starts - refused.keys()
     ready = [*resumable, *evaluated]
     for unit in evaluated:
         if unit.id in lane_starts:
@@ -6315,7 +6314,7 @@ def _waits_in(
     skipped: set[str],
     only: frozenset[str],
     usage_paused: bool,
-    refused: Collection[str] = (),
+    refused: Mapping[str, str] | None = None,
 ) -> dict[str, Wait]:
     """The reasons of `wait_reasons` from an evaluation a pass has already made: a unit
     in `skipped` is running or started, and one in `startable` is ready."""
@@ -6350,7 +6349,8 @@ def _waits_in(
                 now,
                 startable,
                 gates,
-                usage_paused=usage_paused or unit.id in refused,
+                usage_paused=usage_paused,
+                refusal=(refused or {}).get(unit.id),
             )
     return waits
 
@@ -6365,6 +6365,7 @@ def _planned_wait(
     gates: Mapping[str, Hold],
     *,
     usage_paused: bool,
+    refusal: str | None = None,
 ) -> Wait:
     if leases.holder(unit.id) is not None:
         return Wait(reason=WaitReason.LEASE)
@@ -6381,6 +6382,9 @@ def _planned_wait(
             reason=WaitReason.SPLIT,
             detail=f"waiting for e2e-test split {unit.split}: {hold_text(gate)}",
         )
+    if refusal is not None:
+        # Its own account refused it at admission: the wait says which account and why.
+        return Wait(reason=WaitReason.USAGE_PAUSE, detail=refusal)
     if usage_paused:
         return Wait(reason=WaitReason.USAGE_PAUSE)
     if unit.id in startable:
