@@ -15,6 +15,12 @@
   compares the planner's estimate with the evidence tier in `abk.planner.accuracy`; nothing acts on
   it yet.
 
+- A model name is a runtime's own vocabulary, so the roles now belong under
+  `runtimes.<name>.models`. A top-level `models:` block still loads, for the active runtime
+  only, and `abk doctor` and `abk config` say where to move it (naming any role also set under
+  the runtime, whose value wins). `abk config --migrate` moves the block by text, keeping its
+  comments and what resolves.
+
 - The kit's drift test now checks each live test more strictly. It finds live-stack
   modules anywhere under `tests/` by syntax, decides per test from a table of signals
   (`AGENT_SIGNALS`) whether an agent starts, fails a runtime tag that disagrees with what the

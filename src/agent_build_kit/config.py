@@ -1886,6 +1886,55 @@ def deprecations(path: Path) -> list[str]:
     return []
 
 
+def _merged_raw(path: Path) -> dict[str, Any]:
+    """The file at `path` with its overlay laid over it, as they parse (no validation)."""
+    merged: dict[str, Any] = {}
+    for _, raw in _raw_files(path):
+        merged = merge_local(merged, raw)
+    return merged
+
+
+def runtime_for(path: Path) -> str:
+    """The runtime in force for the file at `path`: this machine's `ABK_RUNTIME`, then the
+    `runtime` of the file with its overlay laid over it, then the default runtime."""
+    from agent_build_kit.settings import settings
+
+    return settings.runtime or _merged_raw(path).get("runtime") or runtimes.DEFAULT
+
+
+class ModelsNotice(Frozen):
+    """A deprecation notice for a flat `models:` block, and what to do about it: the command when
+    the block is in the abk.yaml `--migrate` edits, a hand edit when it is in the overlay."""
+
+    text: str
+    fix: str
+
+
+def models_notices(path: Path) -> list[ModelsNotice]:
+    """The notice for a flat top-level `models:` block in the file at `path` or its overlay: it
+    names the runtime in force's block to move it to, and the roles that block also sets in the
+    file with its overlay (the runtime's value is the one used). `abk config --migrate` edits
+    the file alone, so a block in the overlay is to be moved by hand."""
+    name = runtime_for(path)
+    own = ((_merged_raw(path).get("runtimes") or {}).get(name) or {}).get("models") or {}
+    notices: list[ModelsNotice] = []
+    for file, raw in _raw_files(path):
+        flat = raw.get("models")
+        if not flat:
+            continue
+        if file == path:
+            move, fix = "`abk config --migrate` moves it there", "run `abk config --migrate`"
+        else:
+            move = f"move it there by hand, in {file}"
+            fix = "move it by hand in the file the warning names"
+        notice = f"`models` is deprecated for `runtimes.{name}.models`; {move}"
+        both = [role for role in flat if role in own]
+        if both:
+            notice += f"; {', '.join(both)} set in both, the runtime's value is used"
+        notices.append(ModelsNotice(text=notice, fix=fix))
+    return notices
+
+
 def old_setting_notices(path: Path) -> list[str]:
     """One notice for each old test-kind settings key in the file at `path` or its overlay."""
     notices: list[str] = []
