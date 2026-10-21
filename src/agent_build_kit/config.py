@@ -356,9 +356,20 @@ def e2e_unit_scope(repo: RepoConfig, limits: LimitsConfig) -> E2eUnitScope:
 def review_ceiling(repo: RepoConfig, config: WorkspaceConfig, tier: ReviewTier | None) -> int:
     """The changed-lines ceiling in effect for a unit of `repo` expected to get `tier`: the
     tier's own with `review.enabled`, the `full` one without it or when `tier` is None."""
-    if not config.review.enabled or tier is None or tier.value == "full":
-        return _full_ceiling(config)
-    return getattr(config.review.ceilings, tier.value)
+    ceilings = repo_ceilings(repo, config)
+    if not config.review.enabled or tier is None:
+        return ceilings.full
+    return getattr(ceilings, tier.value)
+
+
+def repo_ceilings(repo: RepoConfig, config: WorkspaceConfig) -> CeilingsConfig:
+    """The ceilings in effect for `repo`: its own value for a tier if set, else the workspace's."""
+    own = repo.review.ceilings
+    return CeilingsConfig(
+        auto=own.auto if own.auto is not None else config.review.ceilings.auto,
+        light=own.light if own.light is not None else config.review.ceilings.light,
+        full=own.full if own.full is not None else _full_ceiling(config),
+    )
 
 
 def _full_ceiling(config: WorkspaceConfig) -> int:
@@ -1310,6 +1321,20 @@ class CeilingsConfig(Frozen):
     full: int = 750
 
 
+def _check_ceilings(label: str, ceilings: CeilingsConfig, check_floor: bool, floor: int) -> None:
+    """Raise unless `auto` >= `light` >= `full`, and `full` is above `floor` when `check_floor`."""
+    if ceilings.auto < ceilings.light:
+        raise ValueError(
+            f"{label}: auto ({ceilings.auto}) must not be below light ({ceilings.light})"
+        )
+    if ceilings.light < ceilings.full:
+        raise ValueError(
+            f"{label}: light ({ceilings.light}) must not be below full ({ceilings.full})"
+        )
+    if check_floor and ceilings.full <= floor:
+        raise ValueError(f"{label}: full ({ceilings.full}) must exceed min_unit_lines ({floor})")
+
+
 class ReviewConfig(Frozen):
     """The review policy: which changes never land without a person, and how they are classed."""
 
@@ -1476,23 +1501,20 @@ class WorkspaceConfig(Frozen):
 
     @model_validator(mode="after")
     def _ceilings_ordered_above_floor(self) -> WorkspaceConfig:
-        """`auto` at least `light`, `light` at least `full`, `full` above the floor."""
-        ceilings = self.review.ceilings
-        if ceilings.auto < ceilings.light:
-            raise ValueError(
-                f"review.ceilings: auto ({ceilings.auto}) must not be below "
-                f"light ({ceilings.light})"
-            )
-        if ceilings.light < ceilings.full:
-            raise ValueError(
-                f"review.ceilings: light ({ceilings.light}) must not be below "
-                f"full ({ceilings.full})"
-            )
+        """`auto` at least `light`, `light` at least `full`, `full` above the floor, for the
+        workspace and for the ceilings in effect for each repo."""
         floor = self.global_limits.min_unit_lines
-        if "full" in ceilings.model_fields_set and ceilings.full <= floor:
-            raise ValueError(
-                f"review.ceilings: full ({ceilings.full}) must exceed min_unit_lines ({floor})"
-            )
+        ceilings = self.review.ceilings
+        _check_ceilings("review.ceilings", ceilings, "full" in ceilings.model_fields_set, floor)
+        for name, repo in self.repos.items():
+            own = repo.review.ceilings
+            if own.model_fields_set:
+                _check_ceilings(
+                    f"repos.{name}.review.ceilings",
+                    repo_ceilings(repo, self),
+                    own.full is not None,
+                    floor,
+                )
         return self
 
     @model_validator(mode="after")

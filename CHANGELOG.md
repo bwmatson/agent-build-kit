@@ -5,6 +5,8 @@
 - The `review` section accepts `ceilings` (`auto` 5000, `light` 2000, `full` 750 changed lines), checked
   for order and against `min_unit_lines` when the configuration loads. With `review.enabled` off
   every tier gets the `full` ceiling, which is `max_unit_lines` when `ceilings.full` is not set.
+  A repo's `review` block may override any tier; the ceilings in effect for each repo are checked
+  the same way, naming the repo.
 
 - A unit's review tier now has a deterministic verdict function over the plan's floors (the
   planned estimate, protected paths and `contract`, `narrow` or `acceptance` flags) and over the
