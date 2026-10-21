@@ -14,14 +14,20 @@
   `split_rounds` is 0 with review enabled. The review verdict also gains a size step, groundwork for the
   hold that a later change wires in.
 
+- `abk replan --report` shows, for each selected change, its plan state, its started and
+  unstarted units with their groups and whether a replan would call the planner, with the
+  total number of calls. It makes no model call and writes nothing.
+
 - `abk status` now names a started unit that a pause has parked before its agent step "paused", not
   "running", in the full-queue line; such a unit still holds its place against the limit. The
   documents and the `abk-pipeline` skill now say what admission checks (a ready unit's own account's
   usage decision, before `prepare`) and what the limit counts.
 
 - A plan made under other review sizing (a changed ceiling, `min_unit_lines` or `review.enabled`) is now
-  reported as stale by the tick, by `abk replan` with no argument and by `abk status`. It is not
-  planned again until `abk replan CHANGE` is run, which records the current sizing.
+  reported as stale by the tick, by `abk replan` with no argument and by `abk status`, each stale
+  plan on its own line saying whether the ceilings, the `review:` section or the lack of a recorded
+  policy caused it. It is not planned again until `abk replan CHANGE` is run, which records the
+  current sizing.
 
 - A task group tagged `[e2e-test]` is now test-only: a stubbed build commits its tests as a single
   `test:` commit with no implementation step, counts and resumes it by that commit, and the push
