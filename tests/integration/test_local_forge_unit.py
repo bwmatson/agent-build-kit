@@ -68,6 +68,8 @@ Acceptance: none — a single function whose own test is its proof
   `marker` is imported from `app.marker`.
 - [ ] 2.2 Add `second()` to `src/app/second.py`, built on `marker()` from group 1.
 
+Separate: the second function is reviewed and reverted on its own
+
 Acceptance: none — a single function whose own test is its proof
 """
 
@@ -112,7 +114,7 @@ def scratch(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Scratch]:
         "    profile: python-uv\n    languages: [python]\n"
         f"{runtime.runtimes_yaml}"
         # Size must not push the planner to fold the two small groups into one unit.
-        "limits:\n  min_unit_lines: 1\n"
+        "global_limits:\n  min_unit_lines: 1\n"
     )
     git(planning, "add", "-A")
     git(planning, "commit", "-q", "-m", "plan")
