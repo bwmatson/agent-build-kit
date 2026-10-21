@@ -61,6 +61,7 @@
   machine or a person (a repo's account, `project_limits`, a runtime's accounts,
   `tests.e2e_available`, a runtime command starting with an absolute path) and says to move
   it to `abk.local.yaml`. A default a team may commit gets a note instead.
+
 - A tick now asks a ready unit's own Claude account whether it may start, before the unit
   is prepared. A unit whose account is over its usage threshold waits as a usage pause, with
   no worktree, branch or lease, while other accounts' units start; before, the round went
