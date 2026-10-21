@@ -310,7 +310,8 @@ class StoredUnit(Unit):
     # it was requeued, as opposed to anything the pipeline or the host wrote.
     # Set only with the feedback (see `set_feedback`), so it never outlives it.
     feedback_from_person: bool = False
-    # The e2e state of the head last pushed; None for a record from before it was kept.
+    # The outcome of the unit's latest e2e-test step: cleared when a run begins and written by
+    # that run's result; None when no result is known, as for a record from before it was kept.
     e2e_state: E2eState | None = None
     # Where `feedback` came from (see `FeedbackSource`).
     feedback_source: FeedbackSource = FeedbackSource.NONE

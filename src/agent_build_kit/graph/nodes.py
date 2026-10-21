@@ -1060,7 +1060,7 @@ class BuildPath:
                 else:
                     self.say(f"restacked onto {base} cleanly")
                 existing = r.branch_commits(tree, ref)
-        # A run's pushed head is a new one: its e2e state is written by the run's own result.
+        # The state is the latest e2e-test step's: cleared here, written by this run's own result.
         r.store.record_e2e_state(unit.id, None)
         return {
             **FRESH,

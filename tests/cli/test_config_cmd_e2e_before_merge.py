@@ -66,3 +66,15 @@ def test_the_init_template_has_the_setting_commented_out_with_its_default(
 
     assert re.search(r"^\s*#\s*e2e_before_merge:\s*required\b", text, re.MULTILINE)
     assert not re.search(r"^\s*e2e_before_merge:", text, re.MULTILINE)
+
+
+def test_the_commented_setting_goes_inside_an_existing_global_limits_section(
+    tmp_path: Path,
+) -> None:
+    text = dump_with_notes(workspace(tmp_path, {"generated_files": ["*.lock"]}))
+
+    assert len(re.findall(r"^#?\s*global_limits:", text, re.MULTILINE)) == 1
+    uncommented = re.sub(r"^(\s*)# (e2e_before_merge:)", r"\1\2", text, flags=re.MULTILINE)
+    limits = yaml.safe_load(uncommented)["global_limits"]
+    assert limits["generated_files"] == ["*.lock"]
+    assert limits["e2e_before_merge"] == "required"
