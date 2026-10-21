@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.forges import FileChange, RepoId
 from agent_build_kit.pipeline.diagram import render_mermaid
 from agent_build_kit.pipeline.units import IN_REVIEW
 from agent_build_kit.pipeline.wiring import build_open_pr
@@ -17,38 +16,7 @@ from tests.conftest import make_installation
 from tests.factories import activate_with
 from tests.factories import stored_unit as unit
 from tests.factories import unit as plan_unit
-
-REPO = RepoId(forge="fake", account="example", name="app")
-
-
-class SizedForge:
-    name = "fake"
-    implemented = True
-    supports_stacks = False
-
-    def __init__(self, lines: int) -> None:
-        self.lines = lines
-
-    def find_pr(self, repo, *, head):
-        return None
-
-    def create_pr(self, repo, *, head, base, title, body):
-        return 1
-
-    def update_pr(self, repo, pr, *, base="", body=""):
-        pass
-
-    def pr_changes(self, repo, pr):
-        return [FileChange(path="src/app.py", additions=self.lines, deletions=0)]
-
-    def stack_of(self, repo, pr):
-        raise AssertionError("a host without stacks was asked about one")
-
-    def create_stack(self, repo, pulls):
-        raise AssertionError("a host without stacks was asked about one")
-
-    def add_to_stack(self, repo, stack, pulls):
-        raise AssertionError("a host without stacks was asked about one")
+from tests.sized_forge import REPO, SizedForge
 
 
 def node_of(diagram: str, unit_id: str) -> str:

@@ -26,7 +26,13 @@ from collections.abc import Callable, Collection, Mapping, Sequence
 
 from agent_build_kit import runtimes
 from agent_build_kit.compat_names import Place, new_spelling, old_spelling
-from agent_build_kit.config import REST_SPLIT, active
+from agent_build_kit.config import (
+    REST_SPLIT,
+    RepoConfig,
+    active,
+    ceilings_in_effect,
+    review_ceiling,
+)
 from agent_build_kit.model import Frozen, TestTier, pooled_kind
 from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
@@ -38,6 +44,7 @@ from agent_build_kit.pipeline.unit_size import (
     applied,
     calibrated,
     largest_raw,
+    unit_ceiling,
 )
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
@@ -50,7 +57,7 @@ from agent_build_kit.pipeline.units import (
     direct_dependencies,
     waiting_on_me,
 )
-from agent_build_kit.pipeline.verdict import REVIEW_TIERS
+from agent_build_kit.pipeline.verdict import REVIEW_TIERS, ReviewTier
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.work_graph import (
     GROUP_HEADING,
@@ -68,8 +75,9 @@ RunClaude = Callable[[str], str]
 
 REVIEW_PROMPT = """\
 Review tier: give each unit a `review_tier` of `auto`, `light` or `full`, the review you
-expect its finished change to need. It is a floor for review and sizes nothing: it never
-changes how work is grouped or how large a unit is. Go lower (`auto`) for a small, well-tested
+expect its finished change to need. It is a floor for review and sizes nothing itself: it
+never changes how work is grouped, and the ceilings below are what limit a unit. Go
+lower (`auto`) for a small, well-tested
 change to ordinary code that nothing else depends on. Raise it for a change to a boundary
 another system depends on, work that is hard to undo, or code the tests do not exercise. A
 unit that builds a `[contract]`, `[narrow]` or `[acceptance]` group, or a group whose tasks
@@ -215,6 +223,7 @@ def parse_plan(
                     review_tier=raw.get("review_tier") if active().review.enabled else None,
                 )
             )
+        unnamed = {unit.id for unit in units if not unit.review_tier}
         if active().review.enabled:
             units = [_with_review_tier(unit, groups or [], tasks) for unit in units]
         joins = _read_joins(payload.get("joins"))
@@ -224,7 +233,7 @@ def parse_plan(
             carried = {number for join in joins if not join.unit for number in join.groups}
             _check_groups(units, groups, built or set(), carried)
             check_flagged_groups(units, groups)
-        _check_ceiling(units, groups, calibrations)
+        _check_ceiling(units, groups, calibrations, unnamed)
         if joins:
             if context is None:
                 raise PlannerError("the planner proposed a join, and none is expected here")
@@ -236,7 +245,7 @@ def parse_plan(
                     change=change,
                     groups=groups or [],
                     built=built or set(),
-                    ceiling=active().global_limits.max_unit_lines,
+                    ceiling=review_ceiling(None, active(), None),
                     calibrations=calibrations,
                 )
             except JoinRefused as error:
@@ -431,19 +440,27 @@ def _check_ceiling(
     units: list[Unit],
     groups: Sequence[TaskGroup] | None = None,
     found: Mapping[Kind, Calibration] | None = None,
+    unnamed: Collection[str] = (),
 ) -> None:
     """No unit is estimated over the ceiling, after its kind's calibration ratio.
+
+    A unit in `unnamed` had no review tier in the planner's reply, so it is held to the `full`
+    ceiling although it is recorded at its floor.
 
     A single group over it is reported as `GroupTooLarge` before any combined
     unit is: that one is fixed in tasks.md, and re-asking would only spend
     attempts on it.
     """
-    ceiling = active().global_limits.max_unit_lines
+    units = [
+        unit.model_copy(update={"review_tier": None}) if unit.id in unnamed else unit
+        for unit in units
+    ]
+    ceilings = {unit.id: unit_ceiling(unit) for unit in units}
     applying = {unit.id: applied(found, plan_kind(unit, groups)) for unit in units}
     oversized = [
         unit
         for unit in units
-        if calibrated(unit.estimated_lines, applying[unit.id].ratio) > ceiling
+        if calibrated(unit.estimated_lines, applying[unit.id].ratio) > ceilings[unit.id]
     ]
 
     for unit in oversized:
@@ -452,17 +469,25 @@ def _check_ceiling(
                 f"group {unit.groups[0]} of {unit.change} is estimated at "
                 f"{unit.estimated_lines} changed lines"
                 f"{_calibration_note(unit, applying[unit.id])}, "
-                f"over the ceiling of {ceiling} — "
+                f"over the {_ceiling_name(unit)} of {ceilings[unit.id]} — "
                 "no unit can hold it, so its tasks must be split in tasks.md"
             )
     if oversized:
         unit = oversized[0]
+        ceiling = ceilings[unit.id]
         raise PlannerError(
             f"unit {unit.id} is estimated at {unit.estimated_lines} changed lines"
             f"{_calibration_note(unit, applying[unit.id])}, over "
-            f"the ceiling of {ceiling} — its groups must go in more than one unit"
+            f"the {_ceiling_name(unit)} of {ceiling} — its groups must go in more than one unit"
             f"{_split_advice(unit, applying[unit.id], ceiling, groups)}"
         )
+
+
+def _ceiling_name(unit: Unit) -> str:
+    """ "ceiling", or "<tier> ceiling" when per-tier sizing is on and the unit has a tier."""
+    if active().review.enabled and unit.review_tier:
+        return f"{unit.review_tier} ceiling"
+    return "ceiling"
 
 
 def _split_advice(
@@ -757,7 +782,7 @@ Rules the graph must satisfy:
   doesn't become a stack of trivial PRs. Groups in different repos are never
   combined, however small, and consecutive numbering does not imply the same
   repo. Stop earlier when finishing a group unblocks other units.
-- Never combine groups into a unit estimated over {max_lines} changed lines:
+- Never combine groups into a unit estimated over {max_lines}:
   a plan with such a unit is rejected. A single group estimated over it
   cannot be planned at all — give it its honest estimate in a unit of its own
   and it will be reported as needing its tasks split.
@@ -834,7 +859,7 @@ rejected:
 - neither has started — never name a unit not marked unstarted;
 - no group involved is flagged `[acceptance]`, `[contract]` or `[narrow]`, or
   has a `Separate:` or `Independent:` line;
-- the two estimates together stay at or under {max_lines} changed lines.{join_raw}
+- the two estimates together stay at or under {max_lines}.{join_raw}
 A unit joined to may be joined to again, in order along the line, while it
 stays under that ceiling.
 
@@ -928,11 +953,46 @@ def _listed(found: Mapping[Kind, Calibration] | None) -> list[Kind]:
     return above[: active().global_limits.calibration_kinds_listed]
 
 
+def _largest_raw_figures(kind: Kind, ratio: float) -> str:
+    """The largest raw estimate a unit of `kind` may carry: one figure from the `full` ceiling,
+    or with per-tier sizing on the figure for each tier's ceiling in the kind's repo."""
+    workspace = active()
+    repo = workspace.repos.get(kind.repo)
+    if not workspace.review.enabled:
+        return str(largest_raw(review_ceiling(repo, workspace, None), ratio))
+    return ", ".join(
+        f"{tier.value} {largest_raw(review_ceiling(repo, workspace, tier), ratio)}"
+        for tier in ReviewTier
+    )
+
+
+def _tier_figures(repo: RepoConfig | None) -> str:
+    """Each tier's ceiling in effect for `repo`, as `` `auto` 5000, `light` 2000, ... ``."""
+    workspace = active()
+    ceilings = ceilings_in_effect(repo, workspace)
+    return ", ".join(f"`{tier.value}` {getattr(ceilings, tier.value)}" for tier in ReviewTier)
+
+
+def _ceilings_text() -> str:
+    """Per-tier sizing: the ceiling of each review tier, and of each repo that overrides one."""
+    workspace = active()
+    lines = [
+        "Ceilings: a unit is held to the ceiling of the review tier you expect it to get, in "
+        f"changed lines: {_tier_figures(None)}. Plan to "
+        "those figures, which replace the one ceiling stated above; a unit with no "
+        "`review_tier` is held to the `full` ceiling."
+    ]
+    for name, repo in workspace.repos.items():
+        if repo.review.ceilings.model_fields_set:
+            lines.append(f"In {name}: {_tier_figures(repo)}.")
+    return "\n".join(lines) + "\n\n"
+
+
 def _kind_lines(kind: Kind, found: Calibration, shown: Sequence[StoredUnit]) -> list[str]:
     limits = active().global_limits
     lines = [
         f"- {kind.label}: {found.ratio:.2f} from {found.samples} samples; largest raw estimate "
-        f"{largest_raw(limits.max_unit_lines, found.ratio)}, group up to about "
+        f"{_largest_raw_figures(kind, found.ratio)}, group up to about "
         f"{largest_raw(limits.min_unit_lines, found.ratio)} raw"
     ]
     lines += [
@@ -998,9 +1058,8 @@ def _join_raw(
     kinds = _fitted(found, examples)[1]
     if not found or not kinds:
         return ""
-    ceiling = active().global_limits.max_unit_lines
     figures = ", ".join(
-        f"{kind.label}: {largest_raw(ceiling, found[kind].ratio)}" for kind in kinds
+        f"{kind.label}: {_largest_raw_figures(kind, found[kind].ratio)}" for kind in kinds
     )
     return f" For a calibrated kind that is the largest raw estimate it may carry ({figures})."
 
@@ -1095,10 +1154,10 @@ def _prompt_and_parts(
         old_unit_test=OLD_UNIT_TEST,
         old_e2e=OLD_E2E,
         min_lines=workspace.global_limits.min_unit_lines,
-        max_lines=workspace.global_limits.max_unit_lines,
+        max_lines=f"{review_ceiling(None, workspace, None)} changed lines",
         relationships=relationships,
         calibration=calibration,
-        review=REVIEW_PROMPT if workspace.review.enabled else "",
+        review=REVIEW_PROMPT + _ceilings_text() if workspace.review.enabled else "",
         join_raw=_join_raw(calibrations, examples),
         changes=changes_text,
         in_flight=in_flight_text,

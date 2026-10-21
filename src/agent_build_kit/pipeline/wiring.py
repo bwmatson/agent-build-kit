@@ -135,7 +135,7 @@ from agent_build_kit.pipeline.shell import changed_files, git, git_out, has_orig
 from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner, Worktree
 from agent_build_kit.pipeline.transcript import Transcript, transcript_dir
 from agent_build_kit.pipeline.ui_review import ui_notes_of, ui_reply_writer, unit_patch_of
-from agent_build_kit.pipeline.unit_size import actual_lines, branch_diff, over_ceiling
+from agent_build_kit.pipeline.unit_size import actual_lines, branch_diff, over_ceiling, unit_ceiling
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     BUILDS_NOTHING,
@@ -1914,10 +1914,10 @@ def build_open_pr(
         lines = actual_lines(changes)
         if store is not None:
             store.set_actual_lines(unit.id, lines)
-        if over_ceiling(lines):
+        if over_ceiling(lines, unit):
             log(
                 f"{unit.id}: estimated {unit.estimated_lines}, landed {lines}, "
-                f"over the ceiling of {active().global_limits.max_unit_lines}"
+                f"over the ceiling of {unit_ceiling(unit)}"
             )
 
     def _below(unit: Unit, base: str) -> int | None:

@@ -1,0 +1,128 @@
+You are planning units of work for a spec-driven pipeline. Return JSON only.
+
+A **unit** is one PR's worth of work in exactly ONE repo. Repos: platform, app.
+Tiers: unit-test, integration-test, e2e-test (e2e-test needs the live local stack and is serialized). A group tagged
+`[unit-test]` (or the old `[@OLD_UNIT_TEST@]`) is tier
+`unit-test`; one tagged `[integration-test]` is tier `integration-test`; one tagged
+`[e2e-test]` (or the old `[@OLD_E2E@]`) is tier `e2e-test`, and a
+unit's tier is the widest tier of its groups.
+
+Rules the graph must satisfy:
+- A unit never spans repos. Every task group heading carries its own repo
+  tag — `## 2. [platform] [unit-test] ...` — and that tag decides which unit
+  the group can belong to. A unit's `groups` must ALL carry that unit's repo
+  tag. Putting one repo's group in another repo's unit is the most common
+  mistake here and is rejected outright.
+- A unit is in one repo and one project. A group's project is shown on its
+  heading below as `(project <path>)` when it is not the repo's root; a unit
+  never takes groups tagged for different projects, and a join never crosses
+  projects.
+- A unit is in one e2e-test split: a group's `Split:` line, `rest` when it has none,
+  shown on its heading below as `(split <name>)` when it is not `rest`. Groups of
+  different splits are never in one unit, even when they are small and consecutive
+  in the same repo: write each split's groups as a unit of its own. A join never
+  crosses splits.
+- Every group in the change must be claimed by exactly one unit: none left
+  out, none in two units. The exception is a group whose heading is marked
+  `(built by <unit id>)`: it is taken, so never claim it and return no unit
+  for it. Dependencies on the unit that builds it stay valid.
+- Group consecutive task groups **in the same repo** together until the
+  estimate reaches about 400 changed lines, so a chain of small groups
+  doesn't become a stack of trivial PRs. Groups in different repos are never
+  combined, however small, and consecutive numbering does not imply the same
+  repo. Stop earlier when finishing a group unblocks other units.
+- Never combine groups into a unit estimated over 750 changed lines:
+  a plan with such a unit is rejected. A single group estimated over it
+  cannot be planned at all — give it its honest estimate in a unit of its own
+  and it will be reported as needing its tasks split.
+- `estimated_lines` is your estimate of additions plus deletions across
+  every file the group touches: source, tests, docs, fixtures and the
+  changelog included, and excluding generated files such as lockfiles. For a
+  group that removes or rewrites code, count the removed lines too. When
+  unsure, estimate high: the host counts what actually lands.
+- Dependencies in the same repo may be in_review — the unit stacks on them.
+  A cross-repo dependency means the dependent waits for a merge, so state it
+  and keep the order right.
+- Depend on a unit only for code it introduces that this one needs, for overlapping
+  files or modules the two touch, or for an API shape the other establishes; those are
+  the only reasons. Groups being next to each other is not one: do not make a more
+  urgent unit depend on a less urgent one merely because the groups are adjacent, and
+  do not chain independent groups. A unit takes the most urgent priority of its
+  groups. A group's priority is shown on its heading, and a unit's below.
+- A unit may list in `needs_less_urgent` a dependency it must keep on a less urgent unit
+  that has not started, each with the reason; a plan with such a dependency and no
+  reason is refused.
+- Place new work against what is already in flight below, not against main:
+  if an in-flight unit already adds what a new one needs, depend on it.
+- A unit shown below as unstarted must not be made to depend, directly or
+  through other units, on a unit of the change being planned: nothing earlier
+  waits for a unit of this change, and a dependency like that closes a cycle.
+- A group flagged `[contract]` widens a shape another repo consumes. The
+  group flagged `[narrow]` removes the old half, so its unit depends on every
+  unit that migrates a consumer, and nothing may depend on it. A consumer of
+  the old shape exists until it is migrated and picks the change up — that is
+  the window the narrowing unit waits out. This applies only across the repo
+  boundary; a contract inside one repo needs no such ordering, because a
+  change and its callers land in the same commit.
+- The group flagged `[acceptance]` drives what the change built the way its
+  consumer does. Give it a unit of its own, never combined with another group,
+  and make that unit depend on the units it exercises: the last unit of each
+  chain building the change's other groups, which reaches the rest (a
+  `[narrow]` group aside, which comes after it).
+- A group with an `Independent: <reason>` line stands alone. Give it a unit of
+  its own, never combined with another group. That unit depends on no unit of
+  its own change; it still depends on what its `Needs:` lines name. The next
+  group's unit depends on the last unit before the independent one, as if the
+  independent group were not there. An `[acceptance]` or `[narrow]` unit also
+  depends on the independent unit.
+
+How the repos relate:
+app consumes platform.
+
+Changes ready to plan (their tasks.md):
+### c
+## 1. [app] [unit-test] x
+
+
+Units already in flight:
+(none)
+
+Joining: a unit marked *unstarted* has no branch, commits or pull request yet,
+so it can take in more work. Those units, and the change above, are all
+candidates: any two unstarted units may be joined as well as a group of the
+change above onto one. Join work that belongs together first: groups of one change,
+or groups of different changes that touch the same or closely related files or
+modules. Among candidates that fit equally well, the more urgent work is joined first,
+so a less urgent item does not take a partner a more urgent one with similar files
+could use. A priority never overrides a better fit and never joins unrelated work. The
+unit takes the most urgent priority of its groups. Put a join in `joins` instead of a
+unit of its own when you would otherwise have made the later work depend on the earlier *because
+they overlap* — the same files or modules — and the pair is small. Do not join
+two units merely because both are small. The unit that stays is the earlier.
+Every join must satisfy all of these, and a plan with one that does not is
+rejected:
+- same repo and compatible kinds (`unit-test` and `integration-test` together, `e2e-test`
+  only with `e2e-test`), and the same e2e-test split (a unit in flight shows its split
+  when it is not `rest`);
+- a straight line: the later depends on the earlier (or would, for a group of
+  the change above), nothing else depends on the earlier, and the later waits
+  on nothing else unfinished;
+- neither has started — never name a unit not marked unstarted;
+- no group involved is flagged `[acceptance]`, `[contract]` or `[narrow]`, or
+  has a `Separate:` or `Independent:` line;
+- the two estimates together stay at or under 750 changed lines.
+A unit joined to may be joined to again, in order along the line, while it
+stays under that ceiling.
+
+Ids: the program assigns each unit's id from its groups. The `id` you give a unit is your
+own label for this one reply, short and unique. Refer to a unit of the reply by its label in
+`depends_on` and `needs_less_urgent`, and to a unit already in flight by the id shown. A
+label is never the id of a unit in flight that has started.
+
+Respond with exactly this shape and nothing else (`joins` may be empty):
+{"units": [{"id": "<label>", "change": "...", "title": "...",
+  "repo": "...", "tier": "unit-test|integration-test|e2e-test", "depends_on": ["<label or id>"],
+  "estimated_lines": 0, "groups": [1],
+  "needs_less_urgent": {"<label or id>": "<reason>"}}],
+  "joins": [{"onto": "<unit id>", "change": "<the change above>",
+  "groups": [1], "estimated_lines": 0}, {"onto": "<unit id>", "unit": "<unit id>"}]}

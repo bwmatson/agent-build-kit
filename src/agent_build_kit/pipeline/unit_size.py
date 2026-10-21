@@ -11,12 +11,13 @@ from pathlib import Path, PurePosixPath
 from statistics import median
 
 from agent_build_kit.compat_names import TestKind
-from agent_build_kit.config import active
+from agent_build_kit.config import active, review_ceiling
 from agent_build_kit.forges import FileChange
 from agent_build_kit.model import Frozen, pooled_kind
 from agent_build_kit.pipeline.shell import changed_files, git
 from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import MERGED
+from agent_build_kit.pipeline.units import MERGED, Unit
+from agent_build_kit.pipeline.verdict import ReviewTier
 
 
 def is_generated(path: str, patterns: Iterable[str]) -> bool:
@@ -53,8 +54,16 @@ def branch_diff(repo: Path, base: str) -> tuple[tuple[str, ...], int]:
     return tuple(changed_files(repo, base)), changed_lines(repo, base)
 
 
-def over_ceiling(lines: int | None) -> bool:
-    return lines is not None and lines > active().global_limits.max_unit_lines
+def unit_ceiling(unit: Unit) -> int:
+    """The ceiling of the unit's expected review tier in its repo (the workspace's for a repo not
+    configured); `full` when it has none."""
+    workspace = active()
+    tier = ReviewTier(unit.review_tier) if unit.review_tier else None
+    return review_ceiling(workspace.repos.get(unit.repo), workspace, tier)
+
+
+def over_ceiling(lines: int | None, unit: Unit) -> bool:
+    return lines is not None and lines > unit_ceiling(unit)
 
 
 class Kind(Frozen):

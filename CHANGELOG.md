@@ -21,7 +21,11 @@
   setting both to different values is refused. `abk config --migrate` moves `max_unit_lines` to
   `review.ceilings.full` by text, with its comments, in the same single change as its other moves,
   and refuses when `full` is already set to another value or the result would not load.
-  Units are not sized by these keys yet: plans are still held to `max_unit_lines`.
+  With `review.enabled` on, the plan check holds each unit to the ceiling of its expected tier
+  (a unit with no tier to `full`) and names the tier when it refuses one; with it off, plans are
+  still held to `max_unit_lines`. The planner is told each tier's ceiling (and a repo's
+  override), its calibration figures are worked out from them, and a pull request's size is
+  compared with its unit's tier ceiling in the log and in `abk status`.
 
 - A unit's review tier now has a deterministic verdict function over the plan's floors (the
   planned estimate, protected paths and `contract`, `narrow` or `acceptance` flags) and over the
