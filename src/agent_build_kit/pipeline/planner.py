@@ -35,7 +35,13 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.model import Frozen, TestTier, pooled_kind
 from agent_build_kit.pipeline.call_record import recorded
-from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
+from agent_build_kit.pipeline.joins import (
+    JoinContext,
+    JoinRefused,
+    check_joins,
+    group_names,
+    mixed_floors_text,
+)
 from agent_build_kit.pipeline.review_paths import is_protected
 from agent_build_kit.pipeline.unit_ids import assign_unit_ids, taken_ids
 from agent_build_kit.pipeline.unit_size import (
@@ -76,8 +82,8 @@ RunClaude = Callable[[str], str]
 REVIEW_PROMPT = """\
 Review tier: give each unit a `review_tier` of `auto`, `light` or `full`, the review you
 expect its finished change to need. It is a floor for review and sizes nothing itself: it
-never changes how work is grouped, and the ceilings below are what limit a unit. Go
-lower (`auto`) for a small, well-tested
+does not split a group, a `full` unit is made of such groups alone (see below), and
+the ceilings below are what limit a unit. Go lower (`auto`) for a small, well-tested
 change to ordinary code that nothing else depends on. Raise it for a change to a boundary
 another system depends on, work that is hard to undo, or code the tests do not exercise. A
 unit that builds a `[contract]`, `[narrow]` or `[acceptance]` group, or a group whose tasks
@@ -611,14 +617,8 @@ def _check_full_separation(units: list[Unit], groups: list[TaskGroup], tasks: st
         lower = sorted(n for n, tier in floors.items() if tier != "full")
         if full and lower:
             raise PlannerError(
-                f"unit {unit.id} puts {_groups_text(full)}, whose floor is `full`, with "
-                f"{_groups_text(lower)}, whose floor is lower — a group that needs full review "
-                "is a unit of its own or with others that do"
+                f"unit {unit.id} puts " + mixed_floors_text(group_names(full), group_names(lower))
             )
-
-
-def _groups_text(numbers: Sequence[int]) -> str:
-    return " and ".join(f"group {n}" for n in numbers)
 
 
 def _check_acceptance(units: list[Unit], groups: list[TaskGroup]) -> None:

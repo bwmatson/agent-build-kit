@@ -124,8 +124,8 @@ def test_two_auto_units_combined_at_2500_are_accepted() -> None:
     join_units("auto", "auto")
 
 
-def test_a_full_unit_joined_with_an_auto_unit_is_held_to_750() -> None:
-    message = refusal("full", "auto", onto_lines=300, taken_lines=500)
+def test_two_full_units_are_held_to_750() -> None:
+    message = refusal("full", "full", onto_lines=300, taken_lines=500)
 
     assert "full" in message
     assert "750" in message
@@ -169,6 +169,62 @@ def test_a_group_whose_floor_is_full_is_not_joined_to_a_lower_unit() -> None:
     assert "group 3" in str(refused.value)
 
     join_group("auto", 100)
+
+
+@pytest.mark.parametrize(("onto_tier", "taken_tier"), [("full", "auto"), ("auto", "full")])
+def test_a_full_unit_is_not_joined_with_a_unit_that_is_not(onto_tier: str, taken_tier: str) -> None:
+    message = refusal(onto_tier, taken_tier, onto_lines=100, taken_lines=100)
+
+    assert "floor is `full`" in message
+    assert "floor is lower" in message
+
+
+def test_two_full_units_are_joined_when_they_fit() -> None:
+    join_units("full", "full", onto_lines=100, taken_lines=100)
+
+
+def test_a_group_is_not_joined_onto_a_full_unit() -> None:
+    with pytest.raises(PlannerError) as refused:
+        join_group("full", 100, onto_lines=100)
+
+    message = str(refused.value)
+    assert "base/1, whose floor is `full`, with group 3, whose floor is lower" in message
+
+
+def test_a_protected_path_group_is_joined_onto_a_full_unit() -> None:
+    join_group(
+        "full", 100, onto_lines=100, bodies=("Test: it.", "Test: it.", f"Add `{MIGRATION}`.")
+    )
+
+
+def test_a_join_does_not_mix_floors_among_its_own_groups() -> None:
+    onto = stored_unit(
+        "base/1", change="base", groups=(1,), review_tier="full", estimated_lines=100
+    )
+    context = JoinContext(stored=(onto,), catalog={"base": (catalog_group(1),)})
+    unit = {
+        "id": "feature/1",
+        "change": "feature",
+        "title": "A unit",
+        "repo": "app",
+        "tier": "unit-test",
+        "estimated_lines": 100,
+        "groups": [1, 2],
+    }
+    join = {"onto": "base/1", "change": "feature", "groups": [3, 4], "estimated_lines": 100}
+    tasks = tasks_text("Test: it.", "Test: it.", f"Add `{MIGRATION}`.", "Test: it.")
+
+    with pytest.raises(PlannerError) as refused:
+        parse_plan(
+            json.dumps({"units": [unit], "joins": [join]}),
+            groups=[*GROUPS, catalog_group(4)],
+            change="feature",
+            context=context,
+            tasks=tasks,
+        )
+
+    message = str(refused.value)
+    assert "group 3 and base/1, whose floor is `full`, with group 4" in message
 
 
 def test_with_the_flag_off_a_join_is_held_to_the_old_ceiling() -> None:

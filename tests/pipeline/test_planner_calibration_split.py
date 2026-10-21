@@ -17,7 +17,7 @@ from agent_build_kit.pipeline.unit_size import Calibration, Kind
 from agent_build_kit.pipeline.units import Join
 from agent_build_kit.pipeline.work_graph import TaskGroup
 from tests.calibration_support import limits
-from tests.factories import stored_unit
+from tests.factories import ordinary_floor, stored_unit
 
 APP = Kind(repo="app", tier="unit-test")
 RATIO_1_5 = {APP: Calibration(ratio=1.5, samples=20)}
@@ -94,6 +94,7 @@ def refusal(found: dict | None, *, added: int = 250) -> str:
             groups=[group],
             built=set(),
             ceiling=750,
+            floor=ordinary_floor,
             calibrations=found,
         )
     return str(refused.value)

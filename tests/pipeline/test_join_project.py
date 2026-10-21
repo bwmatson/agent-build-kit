@@ -8,7 +8,7 @@ from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
 from agent_build_kit.pipeline.planner import in_flight_item
 from agent_build_kit.pipeline.units import Join
 from agent_build_kit.pipeline.work_graph import TaskGroup
-from tests.factories import stored_unit
+from tests.factories import ordinary_floor, stored_unit
 
 
 def tagged(project: str) -> TaskGroup:
@@ -32,6 +32,7 @@ def check(join: Join, *stored, catalog: dict, change: str | None = None, groups=
         groups=list(groups),
         built=set(),
         ceiling=750,
+        floor=ordinary_floor,
     )
 
 

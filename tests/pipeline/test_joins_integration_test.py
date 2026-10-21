@@ -12,7 +12,7 @@ from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
 from agent_build_kit.pipeline.units import Join
 from agent_build_kit.pipeline.work_graph import TaskGroup
 from tests.cli.replan_driver import Replan, answer, planned, tagged_md
-from tests.factories import stored_unit
+from tests.factories import ordinary_floor, stored_unit
 
 UNIT, INTEGRATION, E2E = "unit-test", "integration-test", "e2e-test"
 PAIRS = list(itertools.permutations((UNIT, INTEGRATION, E2E), 2))
@@ -34,6 +34,7 @@ def check_group(group_kind: str, onto_kind: str) -> None:
         groups=[tagged(group_kind)],
         built=set(),
         ceiling=750,
+        floor=ordinary_floor,
     )
 
 
@@ -51,6 +52,7 @@ def check_unit(taken_kind: str, onto_kind: str) -> None:
         groups=[],
         built=set(),
         ceiling=750,
+        floor=ordinary_floor,
     )
 
 

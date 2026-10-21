@@ -8,7 +8,7 @@ import pytest
 from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
 from agent_build_kit.pipeline.units import Join, UnitState
 from agent_build_kit.pipeline.work_graph import TaskGroup
-from tests.factories import stored_unit
+from tests.factories import ordinary_floor, stored_unit
 
 
 def group() -> TaskGroup:
@@ -38,4 +38,5 @@ def test_a_started_unit_whose_edge_names_a_unit_replaced_by_onto_refuses_the_joi
             groups=[],
             built=set(),
             ceiling=750,
+            floor=ordinary_floor,
         )
