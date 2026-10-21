@@ -45,6 +45,12 @@ def git_out(repo: Path, *args: str) -> str:
     return git(repo, *args).stdout.strip()
 
 
+def changed_files(repo: Path, base: str) -> list[str]:
+    """The paths the checked-out branch changes against `base` (`git diff base...HEAD`)."""
+    result = git(repo, "diff", "--name-only", f"{base}...HEAD", check=False)
+    return [line for line in result.stdout.splitlines() if line.strip()]
+
+
 def porcelain(path: Path, *pathspec: str) -> list[tuple[str, str]]:
     """The checkout's changes as (status code, exact path), every untracked file named, limited
     to `pathspec` when given. Raises `CalledProcessError` where `path` is not under git."""

@@ -50,11 +50,11 @@ def record_verdict(
     change: str,
     round: int,
     unit_class: str,
+    repo: str,
     facts: VerdictFacts,
     drivers: tuple[str, ...] = (),
     paths: tuple[str, ...] = (),
     lines: int = 0,
-    repo: str = "",
     history: ClassHistory = NO_HISTORY,
     policy: AutoLandConfig = DEFAULT_POLICY,
 ) -> VerdictEntry:
