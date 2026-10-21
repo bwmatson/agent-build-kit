@@ -350,6 +350,19 @@ def e2e_unit_scope(repo: RepoConfig, limits: LimitsConfig) -> E2eUnitScope:
     return repo.tests.e2e_unit_scope or limits.e2e_unit_scope
 
 
+class E2eBeforeMerge(StrEnum):
+    """Whether a unit's e2e-test step runs before its pull request merges or is left to verify."""
+
+    REQUIRED = "required"
+    DEFERRED = "deferred"
+
+
+def e2e_before_merge(repo: RepoConfig, limits: LimitsConfig) -> E2eBeforeMerge:
+    """The value in effect for `repo`: its own `tests.e2e_before_merge` when set, else the
+    `global_limits` one."""
+    raise NotImplementedError
+
+
 class E2eSchedule(StrEnum):
     """How often a repo's whole e2e-test suite is due to run on its own."""
 
