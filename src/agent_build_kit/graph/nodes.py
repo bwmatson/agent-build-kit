@@ -1874,6 +1874,8 @@ class BuildPath:
             # The next review judges the work against what the person asked, whichever
             # prompt the agent had it in, and pull request or not.
             kept["guidance_asked"] = guidance_asked(state, guidance)
+        # A new head has no e2e result yet: the one stored belongs to the head it ran on.
+        r.store.record_e2e_state(unit.id, None)
         return {
             **kept,
             "comments_pending": False,

@@ -790,8 +790,8 @@ repos:
     review: {protected_paths: []}   # added to the workspace's list for this repo, never narrowing it
 ```
 
-`auto_land.allow_deferred_e2e` (default false, read nowhere else) decides what a deferred e2e-test
-result is worth. The verdict reads a unit's e2e state as `passed`, `deferred`, `failed` or
+`auto_land.allow_deferred_e2e` (default false; accepted only under
+`review.auto_land`) decides what a deferred e2e-test result is worth. The verdict reads a unit's e2e state as `passed`, `deferred`, `failed` or
 `not-required`: `failed` is `full`, `deferred` holds the unit at `light` unless the key is true,
 and `passed` and `not-required` add no floor. A unit of the e2e-test kind with no recorded state
 is a missing gate and is `full`. No setting lowers a tier another floor set.

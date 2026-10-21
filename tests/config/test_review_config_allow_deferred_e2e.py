@@ -22,14 +22,10 @@ def test_the_key_loads_true_when_set_under_auto_land() -> None:
 
 
 def test_the_key_under_review_is_refused_as_unknown() -> None:
-    workspace({"auto_land": {KEY: True}})  # the key has a home, and it is not here
-
     assert KEY in refusal({KEY: True})
 
 
 def test_the_key_under_a_repos_review_block_is_refused_as_unknown() -> None:
-    workspace({"auto_land": {KEY: True}})
-
     assert KEY in refusal(app={KEY: True})
 
 

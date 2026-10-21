@@ -553,7 +553,9 @@ release could move. The steps:
    then the routing skips this step (after review, at an approved tip, after a clean move),
    takes no e2e lock, and the unit records its e2e state as `deferred`; `verify` runs the live
    tests after the merge. A deferred e2e result is not green evidence: the verdict holds such a
-   unit at `light` unless `review.auto_land.allow_deferred_e2e` is true. A scheduled whole-suite run is never skipped. If the repo has `dev_stack`, the unit's
+   unit at `light` unless `review.auto_land.allow_deferred_e2e` is true. A scheduled
+   whole-suite run is never skipped. A rework clears the stored e2e state, so the state always
+   belongs to the head that was pushed. If the repo has `dev_stack`, the unit's
    branch is brought up on it (`script up`, `script test`, `script down`,
    always torn down) — and first, when the repo `consumes` one with a dev
    stack of its own, that repo's stack from a detached worktree at its
