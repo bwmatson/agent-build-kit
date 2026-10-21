@@ -932,6 +932,19 @@ the old account starts fresh) and set the usage windows for the new plan under
   parameter, so a module for another runtime can import it. It needs node, uv
   and Claude Code, bills on demand and takes minutes. Run with `uv run pytest
   -m local_stack tests/integration/test_chat_editing_claude_code.py`.
+- The web UI acceptance run's Claude half
+  (`tests/integration/test_serve_over_scratch_installation.py`, also `local_stack`,
+  tagged `runtime_claude_code`) builds a unit with a real `claude`, then drives the API
+  of `abk serve` over the same state: the unit's page and recorded history, a live
+  step with its composer disabled, a chat turn and the unit resuming after the lease
+  is released, a new session, and a requeue. A second test continues a session a
+  separate `claude` run started: resumed in place when no process holds it, forked
+  when one does. The walk of the unit is `walk_unit_through_review`
+  (`tests/integration/unit_walk.py`), neutral to the runtime so that the ACP half,
+  which is a separate group of the same change, reuses it. The run needs node, uv and
+  a logged-in `claude` on PATH; the sessions it starts land in `claude`'s own home.
+  Run with `uv run pytest -m local_stack
+  tests/integration/test_serve_over_scratch_installation.py`.
 - `runtime_<name>` (`runtime_claude_code`, `runtime_acp`) names the one agent
   runtime a `local_stack` test drives; a test with none is the untagged base and
   needs no agent. The tag is the runtime the test starts, as decided from `AGENT_SIGNALS`,
