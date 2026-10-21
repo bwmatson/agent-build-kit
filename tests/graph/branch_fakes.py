@@ -64,7 +64,7 @@ class OnBranch(StubLoop):
     """A stubbed-loop recorder whose commits, head and commit count are the branch's own. Its
     agent writes a file for each tests, implementation and rework call, except for the
     implementation of the groups named in `no_commit_for`, which leaves the tree as it was, and
-    for every call about a group whose number is in `silent_groups`."""
+    for every call about groups all numbered in `silent_groups`."""
 
     def __init__(
         self,
@@ -83,7 +83,9 @@ class OnBranch(StubLoop):
         step = self.events[-1]
         built_group = group_named(prompt) if step in ("claude:tests", "claude:impl") else ""
         skipped = step == "claude:impl" and built_group == self.no_commit_for
-        skipped = skipped or built_group in self.silent_groups
+        skipped = skipped or (
+            bool(built_group) and set(built_group.split(", ")) <= self.silent_groups
+        )
         if step in ("claude:tests", "claude:impl", "claude:rework") and not skipped:
             (kwargs["cwd"] / f"work-{len(self.prompts)}.txt").write_text(f"{step}\n")
         return answer

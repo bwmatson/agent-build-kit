@@ -1358,15 +1358,11 @@ class BuildPath:
             if step is None or not step.test_only:
                 return {**done, "test_only_done": False}
             # A test-only group's lone tests commit satisfies it: no implementation follows.
-            settled = self.settle_group(state, ref)
+            commits = r.branch_commits(tree, ref)
+            settled = self.settle_group(state, ref, commits)
             if "stopped" in settled:
                 return settled
-            return {
-                **done,
-                **settled,
-                "test_only_done": True,
-                "produced_nothing": r.branch_commits(tree, ref) == 0,
-            }
+            return {**done, **settled, "test_only_done": True, "produced_nothing": commits == 0}
         self.say(output)
         # Kept before anything can stop the run, so a retry addresses this output.
         r.store.set_feedback(unit.id, output, source=FeedbackSource.STUB_CHECKS)
@@ -1444,12 +1440,13 @@ class BuildPath:
             return f"tests commit for group {step.number} ({step.title})"
         return f"tests and implementation pair for group {step.number} ({step.title})"
 
-    def settle_group(self, state: UnitRun, ref: str) -> Update:
-        """The update for the group just built: a stop when the branch holds no pair for it
-        and every group before it, else the next group's turn, with the person's note cleared
-        after the last."""
+    def settle_group(self, state: UnitRun, ref: str, commits: int) -> Update:
+        """The update for the group just built: a stop when the branch holds commits but no
+        pair for it and every group before it, else the next group's turn, with the person's
+        note cleared after the last. A branch with no commit of its own is not counted: the
+        work is already built, and the unit tests decide."""
         r, unit = self.runner, self.unit
-        if missing := self.unpaired(state, ref):
+        if commits and (missing := self.unpaired(state, ref)):
             # After every group, so a later group's tests are never written over a gap.
             return self.stop(f"the branch holds no {missing}")
         more = state.group + 1 < len(r.group_steps(unit))
@@ -1501,18 +1498,15 @@ class BuildPath:
             if self.group_step(state) is None:
                 r.store.set_guidance(unit.id, "")
                 kept["guidance_asked"] = guidance_asked(state, guidance)
-        if self.group_step(state) is not None:
-            # A group's pair is done: the next group's tests come before the checks.
-            kept = self.settle_group(state, ref)
-            if "stopped" in kept:
-                return kept
         # Counted on the branch, not taken from the commit step: an agent that
         # commits its own work leaves the pipeline nothing to commit.
-        return {
-            **kept,
-            "head": r.head(tree),
-            "produced_nothing": r.branch_commits(tree, ref) == 0,
-        }
+        commits = r.branch_commits(tree, ref)
+        if self.group_step(state) is not None:
+            # A group's pair is done: the next group's tests come before the checks.
+            kept = self.settle_group(state, ref, commits)
+            if "stopped" in kept:
+                return kept
+        return {**kept, "head": r.head(tree), "produced_nothing": commits == 0}
 
     def checks(self, state: UnitRun) -> Update:
         """Unit-test on the committed branch, before a reviewer is asked."""
