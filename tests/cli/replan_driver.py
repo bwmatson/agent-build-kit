@@ -21,7 +21,7 @@ from agent_build_kit.pipeline.units import FAILED, MERGED
 from agent_build_kit.pipeline.work_graph import specification_text
 from tests.calibration_support import write_store
 from tests.conftest import make_installation
-from tests.factories import new_unit
+from tests.factories import activate_with, new_unit
 from tests.runtimes.stand_in import StandInRuntime
 
 OPT_OUT = "Acceptance: none — a fixture about replanning\n"
@@ -79,6 +79,13 @@ def record_plan(inst: Installation, change: str, **fields) -> None:
     path = inst.state_dir / "planned.json"
     records = json.loads(path.read_text()) if path.exists() else {}
     path.write_text(json.dumps({**records, change: entry}))
+
+
+def enable_review(run: Replan) -> None:
+    """Turn `review.enabled` on, in the active configuration and in the `abk.yaml` a command
+    run through `main` loads, so a plan recorded with no `sizing` is stale."""
+    updated = activate_with(review={"enabled": True})
+    (run.inst.root / "abk.yaml").write_text(dump(updated))
 
 
 class Replan:
