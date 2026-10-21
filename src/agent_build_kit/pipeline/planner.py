@@ -30,6 +30,7 @@ from agent_build_kit.config import REST_SPLIT, active
 from agent_build_kit.model import Frozen, TestTier, pooled_kind
 from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
+from agent_build_kit.pipeline.review_paths import is_protected
 from agent_build_kit.pipeline.unit_ids import assign_unit_ids, taken_ids
 from agent_build_kit.pipeline.unit_size import (
     Calibration,
@@ -55,6 +56,7 @@ from agent_build_kit.pipeline.work_graph import (
     GROUP_NUMBER,
     TEST_KIND_TAGS,
     TaskGroup,
+    group_sections,
     known_repos,
     split_repo_tag,
 )
@@ -62,6 +64,22 @@ from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.base import AgentRuntime, PromptTooLarge, check_prompt_size
 
 RunClaude = Callable[[str], str]
+
+# The review tiers, least review first.
+REVIEW_TIERS = ("auto", "light", "full")
+
+REVIEW_PROMPT = """\
+Review tier: give each unit a `review_tier` of `auto`, `light` or `full`, the review you
+expect its finished change to need. It is a floor for review and sizes nothing: it never
+changes how work is grouped or how large a unit is. Go lower (`auto`) for a small, well-tested
+change to ordinary code that nothing else depends on. Raise it for a change to a boundary
+another system depends on, work that is hard to undo, or code the tests do not exercise. A
+unit that builds a `[contract]`, `[narrow]` or `[acceptance]` group, or a group whose tasks
+name a protected path (a migration, a CI or container definition, a secrets file, an
+ownership file or a path the installation protects), is `full` at least; a lower value is
+refused. Leave `review_tier` out and the unit takes that floor.
+
+"""
 
 # The old tag of each kind, which the prompt says a group may still carry.
 OLD_UNIT_TEST, OLD_E2E = old_spelling(TestTier.UNIT_TEST), old_spelling(TestTier.E2E_TEST)
@@ -172,6 +190,11 @@ def parse_plan(
                     f"unit {raw['id']} has unknown tier {raw['tier']!r} "
                     f"(expected one of {', '.join(TEST_KIND_TAGS)})"
                 )
+            if raw.get("review_tier") not in (None, *REVIEW_TIERS):
+                raise PlannerError(
+                    f"unit {raw['id']} has unknown review_tier {raw['review_tier']!r} "
+                    f"(expected one of {', '.join(REVIEW_TIERS)})"
+                )
             if raw["id"] in taken:
                 raise PlannerError(
                     f"unit label {raw['id']!r} is the id of a retired, started or finished "
@@ -195,8 +218,11 @@ def parse_plan(
                     depends_on=tuple(raw.get("depends_on") or ()),
                     estimated_lines=int(raw.get("estimated_lines") or 0),
                     groups=tuple(raw.get("groups") or ()),
+                    review_tier=raw.get("review_tier"),
                 )
             )
+        if active().review.enabled:
+            units = [_with_review_tier(unit, groups or [], tasks) for unit in units]
         joins = _read_joins(payload.get("joins"))
         _check_dependencies(units, known or set())
         if groups is not None:
@@ -227,6 +253,37 @@ def parse_plan(
     highest = max((group.number for group in groups or ()), default=0)
     assigned = assign_unit_ids(units, stored=stored, retired=retired, highest_group=highest)
     return Plan(units=assigned, joins=tuple(joins))
+
+
+def _group_floor(group: TaskGroup, repo: str, tasks: str) -> tuple[str, str]:
+    """The review tier a group's tags and task text put under its unit, and why."""
+    if group.flag in ("contract", "narrow", "acceptance"):
+        return "full", f"it is flagged [{group.flag}]"
+    for section in group_sections(tasks, [group.number]):
+        for word in section.split():
+            path = word.strip("`'\"()[],;:.")
+            if path and is_protected(active(), repo, path):
+                return "full", f"its tasks name the protected path {path}"
+    return "auto", ""
+
+
+def _with_review_tier(unit: Unit, groups: Sequence[TaskGroup], tasks: str) -> Unit:
+    """The unit with the review tier it is recorded at: the planner's, never below the floor of
+    the groups it builds, and the floor when the planner gave none."""
+    by_number = {group.number: group for group in groups}
+    floor, number, why = "auto", 0, ""
+    for n in unit.groups:
+        if n in by_number:
+            tier, reason = _group_floor(by_number[n], unit.repo, tasks)
+            if REVIEW_TIERS.index(tier) > REVIEW_TIERS.index(floor):
+                floor, number, why = tier, n, reason
+    asked = unit.review_tier or floor
+    if REVIEW_TIERS.index(asked) < REVIEW_TIERS.index(floor):
+        raise PlannerError(
+            f"unit {unit.id} asks for review tier {asked!r}, but group {number} sets its floor "
+            f"at {floor!r}: {why}"
+        )
+    return unit.model_copy(update={"review_tier": asked})
 
 
 def _read_excuses(raw: dict) -> dict[str, str]:
@@ -785,7 +842,7 @@ own label for this one reply, short and unique. Refer to a unit of the reply by 
 `depends_on` and `needs_less_urgent`, and to a unit already in flight by the id shown. A
 label is never the id of a unit in flight that has started.
 
-Respond with exactly this shape and nothing else (`joins` may be empty):
+{review}Respond with exactly this shape and nothing else (`joins` may be empty):
 {{"units": [{{"id": "<label>", "change": "...", "title": "...",
   "repo": "...", "tier": "unit-test|integration-test|e2e-test", "depends_on": ["<label or id>"],
   "estimated_lines": 0, "groups": [1],
@@ -1040,6 +1097,7 @@ def _prompt_and_parts(
         max_lines=workspace.global_limits.max_unit_lines,
         relationships=relationships,
         calibration=calibration,
+        review=REVIEW_PROMPT if workspace.review.enabled else "",
         join_raw=_join_raw(calibrations, examples),
         changes=changes_text,
         in_flight=in_flight_text,
@@ -1125,4 +1183,5 @@ def plan_round(
         context=context,
         calibrations=calibrations,
         retired=_retired_ids(in_flight),
+        tasks=next(iter(changes.values()), ""),
     )
