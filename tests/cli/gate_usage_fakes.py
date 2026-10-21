@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from modal.types import WorkspaceBillingSummary
 
+from agent_build_kit.pipeline import spans
 from agent_build_kit.runtimes import providers
 from tests.cli.e2e_hold_fakes import planning
 from tests.gate_hold_support import Probe
@@ -42,7 +43,7 @@ def gated_planning(tmp_path: Path, gate: str, *, split: str = "acp", extra: str 
 
 def this_month(cost: str) -> WorkspaceBillingSummary:
     """The library's summary for the month the clock is in, so a reading is never past its end."""
-    now = datetime.now(UTC)
+    now = spans.clock.now()
     start = datetime(now.year, now.month, 1, tzinfo=UTC)
     end = datetime(now.year + now.month // 12, now.month % 12 + 1, 1, tzinfo=UTC)
     return summary(start=start, end=end, metered_cost=Decimal(cost))
