@@ -6,7 +6,9 @@
   planned estimate, protected paths and `contract`, `narrow` or `acceptance` flags) and over the
   recorded gate results, open required findings, the reviewer's classification and the class's
   track record, naming the rule that decided it. With review enabled, each review round records
-  the verdict in `runs/verdicts.json`; nothing acts on it yet.
+  the verdict in `runs/verdicts.json`, counts it in `abk.verdict` by tier, estimate and class, and
+  compares the planner's estimate with the evidence tier in `abk.planner.accuracy`; nothing acts on
+  it yet.
 
 - The kit's drift test now checks each live test more strictly. It finds live-stack
   modules anywhere under `tests/` by syntax, decides per test from a table of signals

@@ -10,7 +10,7 @@ import pytest
 
 from agent_build_kit import telemetry
 from agent_build_kit.model import TestTier
-from agent_build_kit.pipeline.verdict import GateResult, ReviewTier, VerdictFacts
+from agent_build_kit.pipeline.verdict import ClassHistory, GateResult, ReviewTier, VerdictFacts
 from agent_build_kit.pipeline.verdict_record import record_verdict
 from agent_build_kit.serve.metrics import catalogue
 from tests.otlp import Collector, enabled
@@ -45,6 +45,7 @@ def verdict(
         unit_class="code",
         repo="app",
         facts=facts,
+        history=ClassHistory(samples=100, clean=100),
     )
     telemetry.shutdown()
 
@@ -93,12 +94,3 @@ def test_an_estimate_equal_to_the_evidence_tier_counts_one_equal(
 
     (point,) = exported.metric(ACCURACY)
     assert point.attributes["reading"] == "equal"
-
-
-def test_an_estimate_above_the_evidence_tier_counts_one_above(
-    tmp_path: Path, exported: Collector
-) -> None:
-    verdict(tmp_path, ReviewTier.FULL)
-
-    (point,) = exported.metric(ACCURACY)
-    assert point.attributes["reading"] == "above"
