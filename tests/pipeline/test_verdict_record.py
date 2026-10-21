@@ -12,7 +12,7 @@ import pytest
 from agent_build_kit import telemetry
 from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline.stack_runner import change_dir_of
-from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.unit_store import E2eState, UnitStore
 from agent_build_kit.pipeline.units import HELD
 from agent_build_kit.pipeline.verdict import ClassHistory, GateResult, ReviewTier, VerdictFacts
 from agent_build_kit.pipeline.verdict_record import VERDICTS, record_verdict
@@ -146,6 +146,24 @@ def test_a_pending_e2e_test_is_met_in_the_interim_entry_and_missing_in_the_final
     assert (interim["final"], interim["tier"]) == (False, "auto")
     assert (final["final"], final["tier"]) == (True, "full")
     assert final["reason"] == "the e2e-test gate has no result"
+
+
+def test_a_deferred_unit_is_recorded_light_with_the_deferral_as_the_reason(
+    tmp_path: Path,
+) -> None:
+    deferred = VerdictFacts(
+        kind=TestTier.E2E_TEST,
+        red_first=GateResult.PASSED,
+        unit_test=GateResult.PASSED,
+        e2e_state=E2eState.DEFERRED,
+        classification=ReviewTier.AUTO,
+        final=True,
+    )
+
+    entry = record(tmp_path / VERDICTS, deferred, history=TRACK_RECORD)[UNIT_ID]
+
+    assert (entry["tier"], entry["evidence_tier"]) == ("light", "light")
+    assert entry["reason"] == "the e2e-test result was deferred to verify"
 
 
 def test_a_unit_with_no_history_has_an_evidence_tier_below_its_tier(tmp_path: Path) -> None:

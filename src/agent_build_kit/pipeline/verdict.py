@@ -6,6 +6,7 @@ from enum import StrEnum
 
 from agent_build_kit.config import AutoLandConfig
 from agent_build_kit.model import Frozen, TestTier
+from agent_build_kit.pipeline.unit_store import E2eState
 
 
 class ReviewTier(StrEnum):
@@ -49,6 +50,8 @@ class VerdictFacts(Frozen):
     red_first: GateResult = GateResult.MISSING
     unit_test: GateResult = GateResult.MISSING
     e2e_test: GateResult = GateResult.MISSING
+    # What the unit's stored e2e state says; none when nothing is recorded.
+    e2e_state: E2eState | None = None
     open_required_findings: int = 0
     classification: ReviewTier | None = None
     final: bool = False

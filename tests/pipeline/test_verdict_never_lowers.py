@@ -8,7 +8,9 @@ from __future__ import annotations
 import itertools
 from typing import Any, NamedTuple
 
+from agent_build_kit.config import AutoLandConfig
 from agent_build_kit.model import TestTier
+from agent_build_kit.pipeline.unit_store import E2eState
 from agent_build_kit.pipeline.verdict import (
     ClassHistory,
     GateResult,
@@ -49,6 +51,11 @@ FLOORS = [
         "e2e-pending-final",
         FULL,
         {"kind": TestTier.E2E_TEST, "e2e_test": GateResult.PENDING, "final": True},
+    ),
+    Floor(
+        "e2e-deferred",
+        LIGHT,
+        {"kind": TestTier.E2E_TEST, "e2e_state": E2eState.DEFERRED, "e2e_test": GateResult.PASSED},
     ),
     Floor("thin-history", LIGHT, {}, ClassHistory(samples=1, clean=1)),
     Floor("low-clean-rate", LIGHT, {}, ClassHistory(samples=20, clean=10)),
@@ -91,3 +98,14 @@ def test_a_lower_classification_never_lowers_a_higher_floor() -> None:
             verdict = compute_verdict(green_facts(**changes), floor.history)
             assert verdict.tier is FULL, (floor.name, classification)
             assert verdict.evidence_tier is FULL, (floor.name, classification)
+
+
+def test_the_deferred_allowance_never_lowers_a_tier_another_floor_set() -> None:
+    allowing = AutoLandConfig.model_validate({"allow_deferred_e2e": True})
+    deferred = {"kind": TestTier.E2E_TEST, "e2e_state": E2eState.DEFERRED}
+    for floor in FLOORS:
+        if "kind" in floor.changes:
+            continue  # a floor of the e2e result is the one the allowance is about
+        facts = green_facts(**{**deferred, **floor.changes})
+        verdict = compute_verdict(facts, floor.history, allowing)
+        assert _rank(verdict.tier) >= _rank(floor.tier), floor.name
