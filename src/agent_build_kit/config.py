@@ -1304,6 +1304,8 @@ class ReviewConfig(Frozen):
     # Class name to path globs, in the order that decides which class a unit belongs to.
     classes: dict[str, list[str]] = {}
     auto_land: AutoLandConfig = AutoLandConfig()
+    # Whether the reviewer is asked for a focus and a skippable list.
+    brief: bool = True
 
     @field_validator("classes")
     @classmethod

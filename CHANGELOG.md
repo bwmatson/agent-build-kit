@@ -17,6 +17,12 @@
   compares the planner's estimate with the evidence tier in `abk.planner.accuracy`; nothing acts on
   it yet.
 
+- An approving review reply can now carry a ranked list of places a person should read first,
+  each with its reason, and a list of places that are safe to skip, each with why. Both are
+  capped at five entries, read defensively and stored with the description; a reply without
+  them reads as before. The review prompt asks for both lists (the `review.brief` setting,
+  default on, controls it), and a unit's recorded drivers lead the first.
+
 - The kit's drift test now checks each live test more strictly. It finds live-stack
   modules anywhere under `tests/` by syntax, decides per test from a table of signals
   (`AGENT_SIGNALS`) whether an agent starts, fails a runtime tag that disagrees with what the

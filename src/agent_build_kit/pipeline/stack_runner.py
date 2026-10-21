@@ -55,6 +55,9 @@ from agent_build_kit.pipeline.unit_store import (
     Cause,
     Description,
     FeedbackSource,
+    FocusEntry,
+    FocusKind,
+    SkipEntry,
     StoredUnit,
     UnitStore,
 )
@@ -587,9 +590,61 @@ def _parse_answers(raw: object) -> tuple[EarlierAnswer, ...] | None:
     return tuple(out)
 
 
+MAX_BRIEF_ENTRIES = 5
+BRIEF_TEXT_CHARS = 300
+
+
+def _brief_text(raw: object) -> str:
+    """One field of a focus or skippable entry: text, trimmed and cut; anything else is blank."""
+    if not isinstance(raw, str):
+        return ""
+    return cut_head(" ".join(raw.split()), BRIEF_TEXT_CHARS, "char", "…")
+
+
+def _brief_pairs(
+    raw: object, *, reason_required: bool, exclude: Collection[str] = ()
+) -> list[tuple[str, str]]:
+    """The (place, reason) pairs of a reviewer's list, in order; a list that is not one, an
+    entry that is not an object, one without a place (or, if required, a reason), one for a
+    place in `exclude` and a repeat of a place already kept are dropped. The first
+    MAX_BRIEF_ENTRIES kept stay."""
+    if not isinstance(raw, list):
+        return []
+    pairs: list[tuple[str, str]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        place, reason = _brief_text(item.get("place")), _brief_text(item.get("reason"))
+        if place and place not in exclude and (reason or not reason_required):
+            exclude = {*exclude, place}
+            pairs.append((place, reason))
+    return pairs[:MAX_BRIEF_ENTRIES]
+
+
+def _parse_focus(raw: object) -> tuple[FocusEntry, ...]:
+    kinds = {kind.value.casefold(): kind for kind in FocusKind}
+    return tuple(
+        FocusEntry(place=place, reason=reason, kind=kinds.get(reason.casefold()))
+        for place, reason in _brief_pairs(raw, reason_required=False)
+    )
+
+
+def _parse_skippable(raw: object, focused: Collection[str]) -> tuple[SkipEntry, ...]:
+    return tuple(
+        SkipEntry(place=place, reason=reason)
+        for place, reason in _brief_pairs(raw, reason_required=True, exclude=focused)
+    )
+
+
 def _parse_description(raw: object) -> Description | None:
     """The reviewer's description of the branch, blank entries dropped; one that
-    does not parse, or lists no core changes (all the pull request shows), is ignored."""
+    does not parse, or lists no core changes (all the pull request shows), is ignored.
+    The focus and skippable lists are read apart: a malformed one is empty and never
+    costs the description."""
+    lists = {}
+    if isinstance(raw, dict):
+        lists = {key: raw.get(key) for key in ("focus", "skippable")}
+        raw = {key: value for key, value in raw.items() if key not in lists}
     try:
         described = Description.model_validate(raw) if raw else None
     except ValueError:
@@ -598,7 +653,25 @@ def _parse_description(raw: object) -> Description | None:
         return None
     summary = described.summary.strip()
     changes = tuple(change.strip() for change in described.changes if change.strip())
-    return Description(summary=summary, changes=changes) if changes else None
+    focus = _parse_focus(lists.get("focus"))
+    skippable = _parse_skippable(lists.get("skippable"), {entry.place for entry in focus})
+    if not changes:
+        return None
+    return Description(summary=summary, changes=changes, focus=focus, skippable=skippable)
+
+
+def _drivers_lead(description: Description | None, drivers: tuple[str, ...]) -> Description | None:
+    """The description with the unit's drivers at the head of its focus list, in their
+    order and with the reviewer's reason where it named the place, and no place twice."""
+    if description is None or not drivers:
+        return description
+    named = {entry.place: entry for entry in description.focus}
+    leading = tuple(named.get(place) or FocusEntry(place=place) for place in dict.fromkeys(drivers))
+    rest = tuple(entry for entry in description.focus if entry.place not in set(drivers))
+    focus = (*leading, *rest)[:MAX_BRIEF_ENTRIES]
+    # The focus list wins over the skippable one, so a driver is no longer skippable.
+    skippable = tuple(entry for entry in description.skippable if entry.place not in set(drivers))
+    return description.model_copy(update={"focus": focus, "skippable": skippable})
 
 
 def _parse_classification(raw: object) -> str:
@@ -1688,7 +1761,10 @@ class UnitRunner(BaseModel):
             self.store.record_approval(
                 unit.id,
                 judged,
-                verdict.description,
+                _drivers_lead(
+                    verdict.description,
+                    verdict.drivers if classified else (),
+                ),
                 classification=verdict.classification if classified else None,
                 drivers=verdict.drivers if classified else (),
             )

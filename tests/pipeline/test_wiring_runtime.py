@@ -25,7 +25,7 @@ from agent_build_kit.pipeline.wiring import (
 )
 from agent_build_kit.runtimes import ToolPolicy
 from tests.conftest import make_installation
-from tests.factories import git, init_repo, unit
+from tests.factories import activate_with, git, init_repo, unit
 from tests.runtimes.stand_in import StandInRuntime
 
 MODEL = "m"
@@ -76,6 +76,7 @@ def test_a_failed_build_raises_what_the_runtime_said(tmp_path: Path) -> None:
 
 
 def test_a_review_asks_the_runtime_for_a_read_only_judgement(tmp_path: Path) -> None:
+    activate_with(review={"brief": False})
     runtime = StandInRuntime(answer='{"approved": true}')
 
     answer = build_run_review(runtime=runtime)(cwd=tmp_path)
@@ -90,6 +91,7 @@ def test_a_review_asks_the_runtime_for_a_read_only_judgement(tmp_path: Path) -> 
 
 
 def test_a_review_is_told_what_happened_to_the_branch_first(tmp_path: Path) -> None:
+    activate_with(review={"brief": False})
     runtime = StandInRuntime()
 
     build_run_review(runtime=runtime)(cwd=tmp_path, context="MOVED ONTO A CHANGED PREDECESSOR")

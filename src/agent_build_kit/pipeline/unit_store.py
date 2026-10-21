@@ -240,11 +240,38 @@ class GroupOwned(Exception):
         )
 
 
+class FocusKind(StrEnum):
+    """Why a place deserves a person's attention: the kinds the verdict floors on."""
+
+    BOUNDARY = "boundary"
+    BEHAVIOUR_CHANGE = "behaviour change"
+    HARD_TO_UNDO = "hard to undo"
+    THIN_COVERAGE = "thin test coverage"
+
+
+class FocusEntry(Frozen):
+    """A place to read first and the reason, with its kind when the reason names one."""
+
+    place: str
+    reason: str = ""
+    kind: FocusKind | None = None
+
+
+class SkipEntry(Frozen):
+    """A place that is safe to skip and the reason it is."""
+
+    place: str
+    reason: str
+
+
 class Description(Frozen):
-    """What the reviewer says an approved branch does: a summary and its core changes."""
+    """What the reviewer says an approved branch does: a summary, its core changes, where
+    to look first and what is safe to skip."""
 
     summary: str = ""
     changes: tuple[str, ...] = ()
+    focus: tuple[FocusEntry, ...] = ()
+    skippable: tuple[SkipEntry, ...] = ()
 
 
 class ClosePending(Frozen):
