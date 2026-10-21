@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from agent_build_kit.model import TestTier
+from agent_build_kit.pipeline.unit_store import E2eState
 from agent_build_kit.pipeline.verdict import GateResult, ReviewTier, VerdictFacts
 
 
@@ -15,7 +16,7 @@ def green_facts(**changes: Any) -> VerdictFacts:
         "kind": TestTier.UNIT_TEST,
         "red_first": GateResult.PASSED,
         "unit_test": GateResult.PASSED,
-        "e2e_test": GateResult.PASSED,
+        "e2e_state": E2eState.PASSED,
         "classification": ReviewTier.AUTO,
     }
     return VerdictFacts(**{**base, **changes})

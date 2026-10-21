@@ -1722,7 +1722,7 @@ class BuildPath:
                 planned_estimate=ReviewTier.parse(unit.review_tier),
                 red_first=GateResult.PASSED,
                 unit_test=GateResult.PASSED,
-                e2e_test=GateResult.PENDING if kind is TestTier.E2E_TEST else GateResult.PASSED,
+                e2e_state=r.store.get(unit.id).e2e_state,
                 classification=ReviewTier.parse(weighed.verdict.classification),
                 protected_paths=tuple(p for p in paths if is_protected(active(), unit.repo, p)),
                 flags=tuple(step.flag for step in r.group_steps(unit) if step.flag),

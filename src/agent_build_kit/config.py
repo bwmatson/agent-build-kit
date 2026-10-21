@@ -1344,6 +1344,8 @@ class AutoLandConfig(Frozen):
 
     min_samples: int = Field(default=20, ge=1)
     min_clean_rate: float = Field(default=0.95, ge=0, le=1)
+    # Whether a unit whose e2e result was deferred to verify may still reach `auto`.
+    allow_deferred_e2e: bool = False
 
 
 class CeilingsConfig(Frozen):

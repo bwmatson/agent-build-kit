@@ -52,7 +52,7 @@ def green(**fields: Any) -> VerdictFacts:
         kind=TestTier.UNIT_TEST,
         red_first=GateResult.PASSED,
         unit_test=GateResult.PASSED,
-        e2e_test=GateResult.PASSED,
+        e2e_state=E2eState.PASSED,
         classification=ReviewTier.AUTO,
     )
     return VerdictFacts(**{**base, **fields})
@@ -135,7 +135,7 @@ def test_a_later_round_replaces_the_units_entry_and_keeps_the_others(tmp_path: P
 def test_a_pending_e2e_test_is_met_in_the_interim_entry_and_missing_in_the_final(
     tmp_path: Path,
 ) -> None:
-    pending = green(kind=TestTier.E2E_TEST, e2e_test=GateResult.PENDING)
+    pending = green(kind=TestTier.E2E_TEST, e2e_state=None)
 
     interim = record(tmp_path / VERDICTS, pending, history=TRACK_RECORD)[UNIT_ID]
     final = record(

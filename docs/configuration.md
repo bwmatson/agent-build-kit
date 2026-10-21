@@ -784,11 +784,17 @@ review:
   protected_paths: []      # globs added to the framework's defaults
   protected_defaults: true # migrations, CI and deploy config, containers, secrets, CODEOWNERS
   classes: {}              # name -> path globs; no slash in a name; the first listed class wins
-  auto_land: {min_samples: 20, min_clean_rate: 0.95}
+  auto_land: {min_samples: 20, min_clean_rate: 0.95, allow_deferred_e2e: false}
 repos:
   app:
     review: {protected_paths: []}   # added to the workspace's list for this repo, never narrowing it
 ```
+
+`auto_land.allow_deferred_e2e` (default false, read nowhere else) decides what a deferred e2e-test
+result is worth. The verdict reads a unit's e2e state as `passed`, `deferred`, `failed` or
+`not-required`: `failed` is `full`, `deferred` holds the unit at `light` unless the key is true,
+and `passed` and `not-required` add no floor. A unit of the e2e-test kind with no recorded state
+is a missing gate and is `full`. No setting lowers a tier another floor set.
 
 A unit belongs to the first class whose globs match every path it changed, else `<repo>/<kind>`
 (`unit-test` or `e2e-test`; an `integration-test` unit is a `unit-test` one). `abk doctor` warns for a

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from agent_build_kit.config import AutoLandConfig
 from agent_build_kit.model import TestTier
+from agent_build_kit.pipeline.unit_store import E2eState
 from agent_build_kit.pipeline.verdict import (
     ClassHistory,
     GateResult,
@@ -32,8 +33,11 @@ EVIDENCE_CASES: dict[str, tuple[VerdictFacts, ReviewTier]] = {
     "red-first-failed": (green_facts(red_first=FAILED), FULL),
     "unit-test-missing": (green_facts(unit_test=MISSING), FULL),
     "unit-test-failed": (green_facts(unit_test=FAILED), FULL),
-    "e2e-test-missing": (green_facts(kind=TestTier.E2E_TEST, e2e_test=MISSING), FULL),
-    "e2e-test-failed": (green_facts(kind=TestTier.E2E_TEST, e2e_test=FAILED), FULL),
+    "e2e-test-missing": (
+        green_facts(kind=TestTier.E2E_TEST, e2e_state=None, final=True),
+        FULL,
+    ),
+    "e2e-test-failed": (green_facts(kind=TestTier.E2E_TEST, e2e_state=E2eState.FAILED), FULL),
     "open-required-finding": (green_facts(open_required_findings=1), FULL),
     "classified-light": (green_facts(classification=LIGHT), LIGHT),
     "classified-full": (green_facts(classification=FULL), FULL),
@@ -116,17 +120,17 @@ def test_the_policy_sets_the_sample_count_and_the_clean_rate() -> None:
 
 
 def test_the_e2e_gate_decides_only_for_a_unit_of_the_e2e_kind() -> None:
-    for result in (MISSING, FAILED, PENDING):
+    for result in (None, E2eState.FAILED, E2eState.DEFERRED):
         for kind in (TestTier.UNIT_TEST, TestTier.INTEGRATION_TEST):
-            facts = green_facts(kind=kind, e2e_test=result, final=True)
+            facts = green_facts(kind=kind, e2e_state=result, final=True)
             assert compute_verdict(facts, PROVEN).tier is AUTO, (kind, result)
-    for result in (MISSING, FAILED):
-        facts = green_facts(kind=TestTier.E2E_TEST, e2e_test=result)
+    for result in (None, E2eState.FAILED):
+        facts = green_facts(kind=TestTier.E2E_TEST, e2e_state=result, final=True)
         assert compute_verdict(facts, PROVEN).tier is FULL, result
 
 
 def test_a_pending_gate_is_met_in_an_interim_verdict_and_missing_in_the_final_one() -> None:
-    interim = green_facts(kind=TestTier.E2E_TEST, e2e_test=PENDING)
+    interim = green_facts(kind=TestTier.E2E_TEST, e2e_state=None)
     final = interim.model_copy(update={"final": True})
 
     assert compute_verdict(interim, PROVEN).tier is AUTO
