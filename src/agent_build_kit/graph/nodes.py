@@ -1165,6 +1165,7 @@ class BuildPath:
             ),
         )
         r.commit(f"adapt: {unit.title} onto {restacked.onto_unit}", cwd=tree, base=self.ref(state))
+        self.forget_e2e_result()
         # The session that did the port: the follow-up rounds continue it, and it is the one
         # recorded for the role whatever they do.
         ported = self._ended
@@ -1745,6 +1746,11 @@ class BuildPath:
         except Exception as error:
             r.log(f"verdict for {unit.id} not recorded: {error}")
 
+    def forget_e2e_result(self) -> None:
+        """A new head the agent wrote has no e2e result yet: the one stored belongs to the head it
+        ran on. Called wherever a rework or an adapt writes one."""
+        self.runner.store.record_e2e_state(self.unit.id, None)
+
     def rework(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit
         tree, ref = self.tree(), self.ref(state)
@@ -1874,8 +1880,7 @@ class BuildPath:
             # The next review judges the work against what the person asked, whichever
             # prompt the agent had it in, and pull request or not.
             kept["guidance_asked"] = guidance_asked(state, guidance)
-        # A new head has no e2e result yet: the one stored belongs to the head it ran on.
-        r.store.record_e2e_state(unit.id, None)
+        self.forget_e2e_result()
         return {
             **kept,
             "comments_pending": False,
