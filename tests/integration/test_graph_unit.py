@@ -29,15 +29,16 @@ from agent_build_kit.graph.state import Node
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from tests.factories import git
 from tests.forges.github_server import FakeGitHub
-from tests.runtime_scratch import CLAUDE_CODE_PARAMS, runtime_scratch
-from tests.scratch_marker import (
+from tests.marker_scratch import (
     BRANCH,
+    TASKS,
     Scratch,
     build_scratch,
     run_log,
     serving_host,
     thread_next,
 )
+from tests.runtime_scratch import CLAUDE_CODE_PARAMS, runtime_scratch
 from tests.scratch_tick import commits_on_unit_branch, run_tick
 
 pytestmark = [
@@ -68,7 +69,7 @@ def scratch(
 ) -> Scratch:
     """The scratch installation for the runtime the test is parametrized with."""
     runtime = runtime_scratch(request.param, tmp_path_factory, lambda command: None)
-    return build_scratch(tmp_path_factory.mktemp("graph-unit"), github_host, runtime)
+    return build_scratch(tmp_path_factory.mktemp("graph-unit"), github_host, runtime, tasks=TASKS)
 
 
 @pytest.mark.parametrize("scratch", CLAUDE_CODE_PARAMS, indirect=True)

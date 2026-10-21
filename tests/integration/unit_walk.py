@@ -21,7 +21,7 @@ from agent_build_kit.pipeline.units import FAILED
 from agent_build_kit.pipeline.workspaces import worktree_path
 from tests.agent_home import assert_unit_session_listed
 from tests.chat_serving import events_of, turn
-from tests.scratch_marker import BRANCH, CHANGE, UNIT_ID, Scratch, thread_next
+from tests.marker_scratch import BRANCH, CHANGE, UNIT_ID, Scratch, thread_next
 from tests.scratch_tick import commits_on_unit_branch, run_tick
 from tests.waiting import wait_for
 

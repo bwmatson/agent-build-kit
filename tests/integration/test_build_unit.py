@@ -29,7 +29,15 @@ from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, read_ledger
 from tests.factories import git
 from tests.factories import who_pushed as reflog_and_pushes
 from tests.forges.github_server import FakeGitHub
-from tests.marker_scratch import CHANGE, Scratch, build_scratch
+from tests.marker_scratch import (
+    BRANCH,
+    TASKS,
+    UNIT_ID,
+    Scratch,
+    build_scratch,
+    run_log,
+    serving_host,
+)
 from tests.runtime_scratch import CLAUDE_CODE_PARAMS, runtime_scratch
 from tests.scratch_tick import TickResult, commits_on_unit_branch, run_tick
 
@@ -39,29 +47,10 @@ pytestmark = [
     pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not on PATH"),
 ]
 
-BRANCH = f"spec/{CHANGE}/1"
-UNIT_ID = f"{CHANGE}/1"
-
-TASKS = """# Tasks
-
-## 1. [app] [unit-test] Add the marker
-
-- [ ] 1.1 Test: `marker()` in `src/app/marker.py` returns the string `"marked"`.
-- [ ] 1.2 Add `marker()` to `src/app/marker.py`.
-
-Acceptance: none — a single function whose own test is its proof
-"""
-
 
 @pytest.fixture(scope="module")
 def github_host() -> Iterator[FakeGitHub]:
-    """The fake host, numbering its first pull request 7."""
-    with FakeGitHub(first_number=7) as server:
-        yield server
-        # Checked for every test of the module: a route the fake does not serve
-        # fails here, naming it, even when no test looked.
-        missed = server.unrouted()
-        assert missed == [], f"the forge called routes the fake host does not serve: {missed}"
+    yield from serving_host()
 
 
 @pytest.fixture(scope="module")
@@ -114,16 +103,11 @@ def pushes_in(log: str) -> list[str]:
 def who_pushed(scratch: Scratch) -> str:
     """What says who put the branch on the remote: its reflog there, and each
     push the run log records."""
-    return reflog_and_pushes(scratch.remote, BRANCH, pushes_in(run_log(scratch)))
+    return reflog_and_pushes(scratch.remote, BRANCH, pushes_in(run_log(scratch.state)))
 
 
 def is_test(path: str) -> bool:
     return classify_paths([path])[path] == "test"
-
-
-def run_log(scratch: Scratch) -> str:
-    logs = sorted((scratch.state / "unit-logs").glob(f"{CHANGE}-01-*.log"))
-    return "\n".join(path.read_text() for path in logs)
 
 
 def test_the_unit_is_built_reviewed_and_pushed_through_the_runtime(
@@ -165,7 +149,7 @@ def test_the_unit_is_built_reviewed_and_pushed_through_the_runtime(
     assert any("src/app/marker.py" in paths for _, paths in commits[first_test + 1 :]), (
         f"no commit after the tests implements src/app/marker.py\n{found()}"
     )
-    log_lines = run_log(scratch).splitlines()
+    log_lines = run_log(scratch.state).splitlines()
     assert any(f"{Node.REVIEW}: review round" in line for line in log_lines), (
         log_lines,
         ticked.output,
@@ -183,7 +167,7 @@ def test_the_pipeline_alone_pushed_and_only_what_review_approved(
 
     assert ticked.returncode == 0, f"{ticked.output}\n{who_pushed(scratch)}"
     pushed_commits(scratch, ticked)
-    log = run_log(scratch)
+    log = run_log(scratch.state)
     tip = git(scratch.remote, "rev-parse", BRANCH).strip()
     approved = [line.rsplit(" ", 1)[-1] for line in log.splitlines() if "review approved " in line]
     # Who pushed is judged from the remote, not from what the log says the agent
@@ -283,7 +267,7 @@ def test_the_report_has_one_agent_record_per_call_in_the_run_log(
 
     assert ticked.returncode == 0, ticked.output
     pushed_commits(scratch, ticked)
-    log = run_log(scratch)
+    log = run_log(scratch.state)
     calls = [line for line in log.splitlines() if AGENT_STEP.search(line)]
     assert calls, f"the run log shows no agent call:\n{log}\n{ticked.output}"
     report = json.loads(abk_report(scratch, "--by", "node", "--json", "--include-estimates"))

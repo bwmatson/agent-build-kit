@@ -28,8 +28,8 @@ from agent_build_kit.serve.server import start_server
 from tests.chat_serving import holding_process, turn
 from tests.forges.github_server import FakeGitHub
 from tests.integration.unit_walk import SAY_OK, WAIT, finished, walk_unit_through_review
+from tests.marker_scratch import TASKS, Scratch, build_scratch, serving_host
 from tests.runtime_scratch import CLAUDE_CODE_PARAMS, runtime_scratch
-from tests.scratch_marker import Scratch, build_scratch, serving_host
 
 pytestmark = [
     pytest.mark.local_stack,
@@ -52,7 +52,7 @@ def scratch(
 ) -> Scratch:
     """The scratch installation for the runtime the test is parametrized with."""
     runtime = runtime_scratch(request.param, tmp_path_factory, lambda command: None)
-    return build_scratch(tmp_path_factory.mktemp("serve-live"), github_host, runtime)
+    return build_scratch(tmp_path_factory.mktemp("serve-live"), github_host, runtime, tasks=TASKS)
 
 
 @pytest.fixture
