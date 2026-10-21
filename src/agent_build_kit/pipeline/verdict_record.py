@@ -51,6 +51,7 @@ def record_verdict(
     drivers: tuple[str, ...] = (),
     paths: tuple[str, ...] = (),
     lines: int = 0,
+    repo: str = "",
     history: ClassHistory = NO_HISTORY,
     policy: AutoLandConfig = DEFAULT_POLICY,
 ) -> VerdictEntry:
