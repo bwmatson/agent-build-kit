@@ -400,6 +400,18 @@ def drifted(pytester: pytest.Pytester, **modules: str) -> list[str]:
     return drift(collected(pytester, **modules))
 
 
+DIMENSIONS = {
+    "runtime": {
+        "claude_code": E2eDimensionValue(marker="runtime_claude_code"),
+        "acp": E2eDimensionValue(marker="runtime_acp"),
+    },
+    "telemetry": {
+        "otel": E2eDimensionValue(marker="telemetry_otel"),
+        "local": E2eDimensionValue(marker="telemetry_local"),
+    },
+}
+
+
 def value_name_drift(
     items: list[pytest.Item], dimensions: dict[str, dict[str, E2eDimensionValue]]
 ) -> list[str]:
@@ -407,11 +419,11 @@ def value_name_drift(
     names differ only by a dimension's value ("merge into one parametrized test"), and a
     value-neutral test whose name holds a value as a whole underscore-delimited word when another
     test also carries that value."""
-    carried: dict[str, set[str]] = defaultdict(set)  # test name to the markers it carries
+    carried: dict[tuple[str, str], set[str]] = defaultdict(set)  # (module, test name) to markers
     for item in items:
         if item.get_closest_marker("local_stack") is not None:
-            name = getattr(item, "originalname", item.name)
-            carried[name] |= {m.name for m in item.iter_markers()}
+            key = (str(item.path), getattr(item, "originalname", item.name))
+            carried[key] |= {m.name for m in item.iter_markers()}
 
     def values_of(markers: set[str], dimension: str) -> set[str]:
         return {v for v, spec in dimensions[dimension].items() if spec.marker in markers}
@@ -420,31 +432,31 @@ def value_name_drift(
         return rf"(?<![^_]){re.escape(value)}(?![^_])"
 
     found: list[str] = []
-    names = sorted(carried)
+    tests = sorted(carried)
     for dimension, values in dimensions.items():
         neutralised = {
-            (re.sub(token(value), "<value>", name), name): value
-            for name in names
+            (re.sub(token(value), "<value>", test[1]), test): value
+            for test in tests
             for value in values
-            if re.search(token(value), name)
+            if re.search(token(value), test[1])
         }
-        for (shape, name), value in neutralised.items():
+        for (shape, test), value in neutralised.items():
             found += [
-                f"{name} and {other}: names differ only by the {dimension} value "
+                f"{test[1]} and {other[1]}: names differ only by the {dimension} value "
                 f"({value} and {other_value}): merge into one parametrized test"
                 for (other_shape, other), other_value in neutralised.items()
-                if other_shape == shape and name < other and other_value != value
+                if other_shape == shape and test < other and other_value != value
             ]
-        for name in names:
-            carrying = values_of(carried[name], dimension)
+        for test in tests:
+            carrying = values_of(carried[test], dimension)
             if len(carrying) < 2:
                 continue
             found += [
-                f"{name}: a name for every {dimension} value holds the value {value!r} that "
-                f"{other} also carries; leave the value out of the name"
+                f"{test[1]}: a name for every {dimension} value holds the value {value!r} that "
+                f"{other[1]} also carries; leave the value out of the name"
                 for value in sorted(values)
-                if re.search(token(value), name)
-                for other in names
-                if other != name and value in values_of(carried[other], dimension)
+                if re.search(token(value), test[1])
+                for other in tests
+                if other != test and value in values_of(carried[other], dimension)
             ][:1]
     return found

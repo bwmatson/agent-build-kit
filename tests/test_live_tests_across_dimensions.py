@@ -9,21 +9,10 @@ import tomllib
 
 import pytest
 
-from agent_build_kit.config import E2eDimensionValue
-from tests.live_tag_drift import collected, value_name_drift
+from tests.live_tag_drift import DIMENSIONS, collected, find_live_modules, value_name_drift
 from tests.prompt_text import flat
 from tests.runtime_tag_collection import ROOT
 
-DIMENSIONS = {
-    "runtime": {
-        "claude_code": E2eDimensionValue(marker="runtime_claude_code"),
-        "acp": E2eDimensionValue(marker="runtime_acp"),
-    },
-    "telemetry": {
-        "otel": E2eDimensionValue(marker="telemetry_otel"),
-        "local": E2eDimensionValue(marker="telemetry_local"),
-    },
-}
 HEADER = "import pytest\n\npytestmark = pytest.mark.local_stack\n"
 MERGE = "merge into one parametrized test"
 
@@ -48,6 +37,17 @@ def test_telemetry_local_is_registered_beside_telemetry_otel() -> None:
     names = {m.split(":")[0].strip() for m in options["markers"]}
 
     assert {"telemetry_otel", "telemetry_local"} <= names
+
+
+def test_no_two_live_tests_of_the_kit_differ_in_name_only_by_a_dimension_value(
+    pytester: pytest.Pytester,
+) -> None:
+    modules = find_live_modules(ROOT / "tests")
+    assert modules
+    items, _ = pytester.inline_genitems(*(str(m) for m in modules))
+
+    assert items
+    assert value_name_drift(items, DIMENSIONS) == []
 
 
 def test_two_tests_whose_names_differ_only_by_a_runtime_value_are_told_to_merge(
