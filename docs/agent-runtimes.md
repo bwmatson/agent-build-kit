@@ -915,6 +915,19 @@ the old account starts fresh) and set the usage windows for the new plan under
   run uses a service name of its own, so earlier runs in the stores do not
   answer for it. Run with `uv run pytest -m local_stack
   tests/integration/test_telemetry_stack.py`.
+- The dry-guidance acceptance run (`tests/integration/test_dry_guidance_build.py`
+  and `tests/integration/test_dry_guidance_review.py`) is `local_stack`, tagged
+  `runtime_claude_code` (the ACP form is a separate module), and needs a Claude
+  Code account. It bills per token and takes minutes per case. Each case runs
+  once: three builds (reuse, generalize, share) and two reviews (a seeded
+  duplicate, a clean branch), five agent runs in all, with no retry. Each tick is
+  limited to 25 minutes, under the e2e-test time limit above, so a stuck agent
+  fails with the unit's log. The assertions parse what the agent wrote and the
+  prompts it was sent, recorded by `tests/claude_recorder.py`, a wrapper set as
+  `runtimes.claude_code.command` that appends each run's arguments and prompt to a
+  file and then `exec`s `claude`; none is a model's judgement. Run with
+  `uv run pytest -m local_stack tests/integration/test_dry_guidance_build.py
+  tests/integration/test_dry_guidance_review.py`.
 - `replay` (the `tests/replay/` plugin, see "Record and replay of external calls"
   below) puts a reverse proxy in front of an e2e-test test's calls to the model
   provider and package index, so a rerun of an unchanged call is answered from a
@@ -1019,6 +1032,22 @@ tests raises a warning, not a failure.
 - `test_build_unit.py::test_the_report_has_one_agent_record_per_call_in_the_run_log`
 - `test_build_unit.py::test_the_report_totals_equal_the_ledger_and_name_each_figures_source`
 - `test_build_unit.py::test_the_unit_is_built_reviewed_and_pushed_through_the_runtime`
+- `test_dry_guidance_build.py::test_generalize_adds_no_function_carrying_the_existing_functions_logic`
+- `test_dry_guidance_build.py::test_generalize_changes_the_existing_function_and_keeps_its_literal_once`
+- `test_dry_guidance_build.py::test_generalize_has_the_new_entry_point_reach_the_one_definition_of_the_logic`
+- `test_dry_guidance_build.py::test_generalize_keeps_the_old_tests_of_the_function_passing`
+- `test_dry_guidance_build.py::test_no_continuation_prompt_holds_the_reuse_part`
+- `test_dry_guidance_build.py::test_reuse_adds_no_function_carrying_the_existing_helpers_logic`
+- `test_dry_guidance_build.py::test_reuse_has_the_function_the_task_names_call_the_existing_helper`
+- `test_dry_guidance_build.py::test_share_adds_the_two_named_functions_and_exactly_one_other`
+- `test_dry_guidance_build.py::test_share_defines_the_formatting_once`
+- `test_dry_guidance_build.py::test_share_has_both_named_functions_call_the_one_other_definition`
+- `test_dry_guidance_build.py::test_the_prompt_that_carries_the_do_not_weaken_sentence_holds_the_repointing_line`
+- `test_dry_guidance_build.py::test_the_tests_step_prompt_held_the_reuse_part_and_the_three_way_instruction`
+- `test_dry_guidance_review.py::test_a_review_of_a_clean_branch_returns_no_required_finding_naming_the_existing_function`
+- `test_dry_guidance_review.py::test_a_review_of_a_seeded_duplicate_returns_a_required_finding_naming_the_existing_function`
+- `test_dry_guidance_review.py::test_the_review_prompt_of_the_clean_branch_holds_the_prior_art_clause`
+- `test_dry_guidance_review.py::test_the_review_prompt_of_the_seeded_duplicate_holds_the_prior_art_clause`
 - `test_graph_unit.py::test_a_unit_runs_to_review_is_reworked_on_a_comment_and_its_thread_ends_at_merge`
 - `test_serve_over_scratch_installation.py::test_a_session_started_elsewhere_is_continued_in_place_or_forked_when_held`
 - `test_serve_over_scratch_installation.py::test_the_ui_shows_a_unit_a_real_claude_built_and_works_it_through_review`

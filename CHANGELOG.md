@@ -1385,7 +1385,10 @@
   agent may repoint a test whose stub duplicates existing code; the reviewer counts such a
   stub. The authoring skill now tells authors to describe behaviour and name code only when
   the name is a contract; copies of the skill in planning repositories stay as they were
-  until `abk install-skills` is run.
+  until `abk install-skills` is run. Two
+  live acceptance files now show it with a real Claude Code agent: it reuses, generalizes
+  and shares as asked, the prompts reached it (recorded by a wrapper around the `claude`
+  command), and the reviewer blocks a seeded duplicate and not a clean change.
 
 - Tests carrying the tier-2 marker now run under their own time limit, thirty minutes
   by default and set by `--tier2-test-time-limit` (zero turns it off), instead of the

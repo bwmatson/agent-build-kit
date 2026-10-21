@@ -275,7 +275,8 @@ def commit(repo: Path, name: str, content: str = "x") -> str:
 
 
 def commit_files(repo: Path, message: str, files: dict[str, str]) -> None:
-    """Write each file (making its folders) and commit everything with this message."""
+    """Write `files` (path to content, parents created) and commit them all with this message.
+    The one commit helper for tests that need several files in one commit."""
     for name, content in files.items():
         path = repo / name
         path.parent.mkdir(parents=True, exist_ok=True)
