@@ -233,6 +233,32 @@ class GroupStep(Frozen):
     title: str
     goal: str = ""  # the group's "Done when" sentence, "" when it has none
     flag: str = ""  # the group's flag, "" when it has none or its heading cannot be read
+    test_only: bool = False  # the group is `[e2e-test]`; false when its heading cannot be read
+
+
+def group_steps_of(planning_repo: Path | str, unit: Unit) -> tuple[GroupStep, ...]:
+    """Each task group the unit builds, in the order its members list them, with the
+    change directory and heading title a per-group prompt and commit use. A group whose
+    heading cannot be read is titled with the unit's."""
+    steps: list[GroupStep] = []
+    for member in unit.members():
+        change_dir = str(change_dir_of(planning_repo, member.change))
+        tasks = Path(change_dir) / "tasks.md"
+        found = (
+            {group.number: group for group in validate_tasks(tasks)[0]} if tasks.exists() else {}
+        )
+        steps.extend(
+            GroupStep(
+                change_dir=change_dir,
+                number=number,
+                title=found[number].title if number in found else unit.title,
+                goal=found[number].goal if number in found else "",
+                flag=found[number].flag if number in found else "",
+                test_only=found[number].test_only if number in found else False,
+            )
+            for number in member.groups
+        )
+    return tuple(steps)
 
 
 class WriteTestsTemplate(PromptTemplate):
@@ -1745,29 +1771,8 @@ class UnitRunner(BaseModel):
         )
 
     def group_steps(self, unit: Unit) -> tuple[GroupStep, ...]:
-        """Each task group the unit builds, in the order its members list them, with the
-        change directory and heading title a per-group prompt and commit use. A group whose
-        heading cannot be read is titled with the unit's."""
-        steps: list[GroupStep] = []
-        for member in unit.members():
-            change_dir = self.change_dir(member.change)
-            tasks = Path(change_dir) / "tasks.md"
-            found = (
-                {group.number: group for group in validate_tasks(tasks)[0]}
-                if tasks.exists()
-                else {}
-            )
-            steps.extend(
-                GroupStep(
-                    change_dir=change_dir,
-                    number=number,
-                    title=found[number].title if number in found else unit.title,
-                    goal=found[number].goal if number in found else "",
-                    flag=found[number].flag if number in found else "",
-                )
-                for number in member.groups
-            )
-        return tuple(steps)
+        """Each task group the unit builds; see `group_steps_of`."""
+        return group_steps_of(self.planning_repo, unit)
 
     def mark_tasks(self, unit: Unit, *, done: bool) -> None:
         """Tick or untick each change's groups in that change's own tasks file."""

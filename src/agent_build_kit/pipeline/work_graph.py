@@ -225,6 +225,11 @@ class TaskGroup(Frozen):
         """The first tag of the heading: the repo, and `/project` unless it is the root project."""
         return project_tag(self.repo, self.project)
 
+    @property
+    def test_only(self) -> bool:
+        """Whether the group builds no implementation: it is tagged `[e2e-test]`."""
+        return self.tier == TestTier.E2E_TEST
+
 
 class ValidationError(Frozen):
     """Something a human has to fix in tasks.md, with where to find it."""

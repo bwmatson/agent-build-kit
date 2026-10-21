@@ -7,6 +7,7 @@ present at the commit they run at, so a test chooses which tests commit fails wh
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, cast
 
@@ -14,6 +15,7 @@ import pytest
 
 from agent_build_kit.pipeline.check_runner import CheckCache
 from agent_build_kit.pipeline.gate import check_branch
+from agent_build_kit.pipeline.stack_runner import GroupStep
 from agent_build_kit.profiles.base import ToolchainProfile
 from agent_build_kit.profiles.python_uv import PROFILE as PYTHON
 from tests.factories import commit_files as commit
@@ -60,12 +62,30 @@ class ModeProfile:
         return getattr(PYTHON, name)
 
 
+def plan(*groups: tuple[str, bool]) -> list[GroupStep]:
+    """Groups in order, each a title and whether it is test-only."""
+    return [
+        GroupStep(change_dir="feature", number=number, title=title, test_only=test_only)
+        for number, (title, test_only) in enumerate(groups, start=1)
+    ]
+
+
 def judged(
-    repo: Path, profile: ModeProfile, *, cache: CheckCache | None = None, stubbed: bool = False
+    repo: Path,
+    profile: ModeProfile,
+    *,
+    cache: CheckCache | None = None,
+    stubbed: bool = False,
+    groups: Sequence[GroupStep] = (),
 ) -> list[str]:
     """The push gate over `repo` against `main` with this scripted profile."""
     return check_branch(
-        repo, "main", cache=cache, profile=cast(ToolchainProfile, profile), stubbed=stubbed
+        repo,
+        "main",
+        cache=cache,
+        profile=cast(ToolchainProfile, profile),
+        stubbed=stubbed,
+        groups=groups,
     )
 
 

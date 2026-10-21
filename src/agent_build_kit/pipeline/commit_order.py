@@ -25,9 +25,13 @@ import ast
 import subprocess
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.shell import git_out
+
+if TYPE_CHECKING:
+    from agent_build_kit.pipeline.stack_runner import GroupStep
 
 TESTS_PREFIX = "test: "
 CODE_PREFIX = "feat: "
@@ -165,12 +169,35 @@ def group_progress(subjects: list[str], titles: Sequence[str]) -> GroupProgress:
     return GroupProgress(done=len(titles), tests_made=False)
 
 
-def _pair_problems(subjects: list[str]) -> list[str]:
+def _test_only_commits(subjects: list[str], groups: Sequence[GroupStep]) -> list[bool]:
+    """For each subject, whether it is the tests commit of a test-only group: the n-th `test:`
+    commit is the n-th group's, so it is that group's when its subject carries the group's
+    title too. Position still tells two groups with one title apart."""
+    flags: list[bool] = []
+    made = 0
+    for subject in subjects:
+        is_tests = subject.startswith(TESTS_PREFIX)
+        group = groups[made] if is_tests and made < len(groups) else None
+        flags.append(
+            group is not None and group.test_only and subject == f"{TESTS_PREFIX}{group.title}"
+        )
+        made += is_tests
+    return flags
+
+
+def commits_of_test_only_groups(repo: Path, base: str, groups: Sequence[GroupStep]) -> set[str]:
+    """The commits of the branch that are the tests commit of a test-only group of `groups`."""
+    flags = _test_only_commits(branch_subjects(repo, base), groups)
+    return {sha for sha, only in zip(_commits(repo, base), flags, strict=True) if only}
+
+
+def _pair_problems(subjects: list[str], test_only: list[bool]) -> list[str]:
     """What is wrong with how `subjects` (oldest first) pair up: each `test:` commit is
-    followed directly by a `feat:` commit with the same title."""
+    followed directly by a `feat:` commit with the same title, unless it is the commit of a
+    test-only group (`test_only`, by position)."""
     problems: list[str] = []
     for index, subject in enumerate(subjects):
-        if not subject.startswith(TESTS_PREFIX):
+        if not subject.startswith(TESTS_PREFIX) or test_only[index]:
             continue
         following = subjects[index + 1] if index + 1 < len(subjects) else None
         if following is not None and following.startswith(TESTS_PREFIX):
@@ -194,12 +221,14 @@ def check_structure(
     is_test: Callable[[str], bool] | None = None,
     stubs: Callable[[str, str], list[str]] = stub_violations,
     paired: bool = False,
+    groups: Sequence[GroupStep] = (),
 ) -> list[str]:
     """Check a branch's commits read as tests-then-implementation.
 
     `stubs` is the toolchain's check of a code file's content shipped beside tests, by
     path and content; it defaults to the Python one. `paired` also requires every `test:`
-    commit to be followed directly by a `feat:` commit of the same title.
+    commit to be followed directly by a `feat:` commit of the same title. `groups` is the
+    unit's groups in order, each saying whether it is test-only; none given, none is.
 
     Returns every problem found, so one run shows the whole list rather than
     one problem per push.
@@ -207,6 +236,9 @@ def check_structure(
     shas = _commits(repo, base)
     if not shas:
         return [f"no commits between {base} and HEAD"]
+    subjects = branch_subjects(repo, base)
+    only_shas = commits_of_test_only_groups(repo, base, groups if paired else ())
+    test_only = [sha in only_shas for sha in shas]
 
     problems: list[str] = []
     kinds: list[str] = []
@@ -235,6 +267,8 @@ def check_structure(
             kinds.append("docs")
 
     substantive = [kind for kind in kinds if kind != "docs"]
+    # Whether each substantive commit is a test-only group's tests commit.
+    substantive_only = [only for kind, only in zip(kinds, test_only, strict=True) if kind != "docs"]
 
     if not substantive:
         return ["the branch changes no tests and no code"]
@@ -251,11 +285,14 @@ def check_structure(
     for index in sorted(stub_problems):
         problems.extend(stub_problems[index])
 
-    if "code" not in substantive:
+    all_test_only = paired and bool(groups) and all(group.test_only for group in groups)
+    if "code" not in substantive and not all_test_only:
         problems.append("the branch has no implementation commit, only tests")
 
-    for first, second in zip(substantive, substantive[1:], strict=False):
-        if first == "tests" and second == "tests":
+    for first, second, first_only in zip(
+        substantive, substantive[1:], substantive_only, strict=False
+    ):
+        if first == "tests" and second == "tests" and not first_only:
             problems.append(
                 "two tests commits in a row — each batch of tests is followed by the "
                 "implementation that makes it pass, so the pairs stay reviewable"
@@ -263,6 +300,6 @@ def check_structure(
             break
 
     if paired:
-        problems.extend(_pair_problems(branch_subjects(repo, base)))
+        problems.extend(_pair_problems(subjects, test_only))
 
     return problems
