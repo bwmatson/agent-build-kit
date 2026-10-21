@@ -83,7 +83,7 @@ def test_a_description_over_the_limit_gives_way_before_required_sections(tmp_pat
 
 def test_a_tight_limit_shrinks_the_changes_to_the_first_with_a_count(tmp_path: Path) -> None:
     write_change(tmp_path, why="Because.")
-    limit = 1_500
+    limit = 1_800  # the fixed "Start here" section takes its share of a tight limit
     huge = Description(
         summary="s" * 900, changes=tuple(f"change {n} " + "c" * 600 for n in range(12))
     )

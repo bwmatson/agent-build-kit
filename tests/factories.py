@@ -31,8 +31,7 @@ from agent_build_kit.pipeline.unit_store import (
     UnitStore,
 )
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED, Unit, ready_units
-from agent_build_kit.pipeline.verdict import ReviewTier
-from agent_build_kit.pipeline.verdict_record import VerdictEntry
+from agent_build_kit.pipeline.verdict import ReviewTier, TierVerdict
 from agent_build_kit.pipeline.wiring import build_commit
 from agent_build_kit.pipeline.work_graph import TaskGroup
 
@@ -58,7 +57,7 @@ __all__ = [
     "stored_unit",
     "superseded_store",
     "unit",
-    "verdict_entry",
+    "tier_verdict",
     "worked_unit",
 ]
 
@@ -319,26 +318,15 @@ def brief_description(
     )
 
 
-def verdict_entry(**overrides: Any) -> VerdictEntry:
-    """A recorded verdict of `add-marker/1`: light review, for a reason."""
+def tier_verdict(**overrides: Any) -> TierVerdict:
+    """A verdict of light review, for a reason."""
     fields: dict[str, Any] = {
-        "unit": "add-marker/1",
-        "change": "add-marker",
-        "round": 1,
-        "final": True,
-        "unit_class": "app/unit-test",
-        "planned_estimate": None,
-        "classification": ReviewTier.LIGHT,
-        "drivers": (),
-        "evidence_tier": ReviewTier.LIGHT,
         "tier": ReviewTier.LIGHT,
+        "evidence_tier": ReviewTier.LIGHT,
         "reason": "the reviewer classified it light",
-        "paths": (),
-        "lines": 40,
-        "brief": False,
         **overrides,
     }
-    return VerdictEntry(**fields)
+    return TierVerdict(**fields)
 
 
 def follow_ups(count: int) -> list[str]:

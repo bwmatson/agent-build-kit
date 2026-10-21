@@ -40,7 +40,8 @@ def test_the_pull_request_opened_for_a_unit_opens_with_its_why_and_goal(tmp_path
 
     assert bodies
     for opened in (bodies[0]["body"], bodies[0]["stacked_body"]):
-        assert opened.startswith("## Why")
+        assert opened.startswith("## Start here")
+        assert opened.index("## Why") < opened.index("## What this pull request does")
         assert REASON in opened
         assert GOAL in opened[opened.index("## What this pull request does") :]
 

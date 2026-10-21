@@ -59,7 +59,9 @@ def test_a_short_why_opens_the_description_in_full(tmp_path: Path) -> None:
 
     body = body_of(tmp_path)
 
-    assert body.startswith(WHY_HEADING)
+    assert body.startswith("## Start here")
+    assert body.index(WHY_HEADING) < body.index(DOES_HEADING), "Why opens what follows the brief"
+    assert body[: body.index(WHY_HEADING)].count("\n## ") == 0, "only the brief precedes Why"
     assert why in body
     assert "Something else entirely" not in body
 

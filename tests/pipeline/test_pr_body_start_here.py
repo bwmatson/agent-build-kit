@@ -8,7 +8,7 @@ from pathlib import Path
 from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline.pr_body import build_pr_body
 from agent_build_kit.pipeline.verdict import GateResult, VerdictFacts
-from tests.factories import activate_with, brief_description, verdict_entry
+from tests.factories import activate_with, brief_description, tier_verdict
 from tests.factories import stored_unit as unit
 from tests.pipeline.test_pr_body_why import write_change
 
@@ -42,7 +42,7 @@ def start_of(body: str) -> str:
 
 def test_the_section_leads_with_the_lists_then_the_tier_then_why(tmp_path: Path) -> None:
     activate_with(review={"enabled": True})
-    verdict = verdict_entry(reason=TIER_REASON)
+    verdict = tier_verdict(reason=TIER_REASON)
 
     body = body_of(tmp_path, focus=FOCUS, skippable=SKIP, verdict=verdict)
 
@@ -77,7 +77,7 @@ def test_an_empty_list_is_left_out_and_the_verified_list_is_always_there(tmp_pat
 
 
 def test_the_tier_line_needs_review_enabled_and_a_verdict(tmp_path: Path) -> None:
-    verdict = verdict_entry(reason=TIER_REASON)
+    verdict = tier_verdict(reason=TIER_REASON)
 
     activate_with(review={"enabled": False})
     off = body_of(tmp_path, focus=FOCUS, verdict=verdict)

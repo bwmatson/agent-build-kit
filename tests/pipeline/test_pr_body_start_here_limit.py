@@ -9,7 +9,7 @@ from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline.pr_body import build_pr_body
 from agent_build_kit.pipeline.unit_store import Description
 from agent_build_kit.pipeline.verdict import GateResult, VerdictFacts
-from tests.factories import brief_description, output_of, snapshot, verdict_entry
+from tests.factories import brief_description, output_of, snapshot, tier_verdict
 from tests.factories import stored_unit as unit
 from tests.pipeline.test_pr_body_why import write_change
 
@@ -43,7 +43,7 @@ def body_of(tmp_path: Path, described: Description, *, limit: int, **kw) -> str:
         limit=limit,
         facts=facts,
         rounds=2,
-        verdict=verdict_entry(),
+        verdict=tier_verdict(),
         **kw,
     )
 

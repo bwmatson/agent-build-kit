@@ -29,7 +29,7 @@ from agent_build_kit.config import active
 from agent_build_kit.forges.base import fit_description
 from agent_build_kit.installation import changes_dir_under
 from agent_build_kit.model import TestTier
-from agent_build_kit.pipeline.unit_store import Description, E2eState, StoredUnit
+from agent_build_kit.pipeline.unit_store import BriefEntry, Description, E2eState, StoredUnit
 from agent_build_kit.pipeline.units import (
     MERGED,
     Member,
@@ -37,8 +37,7 @@ from agent_build_kit.pipeline.units import (
     through_satisfied,
     trunk_of,
 )
-from agent_build_kit.pipeline.verdict import VerdictFacts
-from agent_build_kit.pipeline.verdict_record import VerdictEntry
+from agent_build_kit.pipeline.verdict import GateResult, TierVerdict, VerdictFacts
 from agent_build_kit.pipeline.work_graph import TaskGroup, validate_tasks
 
 
@@ -382,7 +381,71 @@ def _once_each(points: Sequence[str]) -> list[str]:
 def verified_list(facts: VerdictFacts | None, rounds: int | None) -> str:
     """What the pipeline itself checked, from the unit's recorded results: each one listed,
     a result that is not recorded as not recorded."""
-    raise NotImplementedError
+    facts = facts or VerdictFacts(kind=TestTier.UNIT_TEST)
+    lines = [
+        "- Tests were committed first and seen to fail first."
+        if facts.red_first == GateResult.PASSED
+        else "- The failing run before the implementation: not recorded",
+        _result_line("unit-test", facts.unit_test),
+    ]
+    if facts.kind == TestTier.E2E_TEST:
+        if facts.e2e_state == E2eState.DEFERRED:
+            lines.append("- e2e-test result: deferred to verify")
+        elif facts.e2e_state is None:
+            lines.append(_result_line("e2e-test", None))
+        else:
+            failed = facts.e2e_state == E2eState.FAILED
+            lines.append(
+                _result_line("e2e-test", GateResult.FAILED if failed else GateResult.PASSED)
+            )
+    if rounds is None:
+        lines.append("- Rounds of review: not recorded")
+    else:
+        lines.append(f"- Review took {rounds} review round{'s' * (rounds != 1)}")
+    return "\n".join(lines)
+
+
+def _result_line(name: str, result: GateResult | None) -> str:
+    if result in (GateResult.PASSED, GateResult.FAILED):
+        return f"- {name} result: {result.value}"
+    return f"- {name} result: not recorded"
+
+
+# The caps on the reviewer's lists, so the section stays small under the smallest host limit.
+_MAX_BRIEF_ENTRIES = 5
+_MAX_PLACE_CHARS = 100
+_MAX_REASON_CHARS = 160
+
+
+def _entry_lines(entries: Sequence[BriefEntry]) -> str:
+    return "\n".join(
+        f"- `{_capped(entry.place, _MAX_PLACE_CHARS)}` — {_capped(entry.reason, _MAX_REASON_CHARS)}"
+        for entry in entries[:_MAX_BRIEF_ENTRIES]
+        if entry.place.strip()
+    )
+
+
+def _start_here(
+    described: Description | None,
+    facts: VerdictFacts | None,
+    rounds: int | None,
+    verdict: TierVerdict | None,
+) -> Section:
+    """The section a person reads first: where to look, what to skip, what was verified, and
+    the review tier. The reviewer's lists are capped and the section is never shrunk."""
+    parts = ["## Start here"]
+    if described is not None:
+        for title, entries in (
+            ("Read first", described.focus),
+            ("Safe to skip", described.skippable),
+        ):
+            lines = _entry_lines(entries)
+            if lines:
+                parts.append(f"**{title}**\n\n{lines}")
+    parts.append(f"**Already verified by the pipeline**\n\n{verified_list(facts, rounds)}")
+    if verdict is not None and active().review.enabled:
+        parts.append(f"**Review tier: `{verdict.tier.value}`** — {verdict.reason}")
+    return _fixed("start_here", "\n\n".join(parts))
 
 
 def build_pr_body(
@@ -401,7 +464,7 @@ def build_pr_body(
     why_ceiling: int = 600,
     facts: VerdictFacts | None = None,
     rounds: int | None = None,
-    verdict: VerdictEntry | None = None,
+    verdict: TierVerdict | None = None,
 ) -> str:
     """The full description for a unit's PR."""
     if unit.e2e_state == E2eState.DEFERRED:
@@ -462,7 +525,7 @@ _Opened by the spec-driven pipeline. It never merges its own PRs — a human
 merges every one, after checking {order}._
 """
     members = unit.members()
-    sections = []
+    sections = [_start_here(unit.description, facts, rounds, verdict)]
     if changes_dir is not None:
         why = _why_section(changes_dir, members, why_ceiling)
         sections += [
