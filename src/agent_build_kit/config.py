@@ -26,7 +26,7 @@ import shlex
 from collections.abc import Callable, Iterable, Iterator
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import yaml
 from pydantic import (
@@ -44,6 +44,9 @@ from agent_build_kit.compat_names import Place, is_old_spelling, new_spelling, n
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.replay.models import DEFAULT_KEYED_HEADERS, UpstreamKind
 from agent_build_kit.runtimes import known_agents, providers
+
+if TYPE_CHECKING:
+    from agent_build_kit.pipeline.verdict import ReviewTier
 
 CONFIG_FILENAME = "abk.yaml"
 OVERLAY_FILENAME = "abk.local.yaml"
@@ -348,6 +351,12 @@ def e2e_unit_scope(repo: RepoConfig, limits: LimitsConfig) -> E2eUnitScope:
     """The scope in effect for `repo`: its own `tests.e2e_unit_scope` when set, else the
     `global_limits` one."""
     return repo.tests.e2e_unit_scope or limits.e2e_unit_scope
+
+
+def review_ceiling(repo: RepoConfig, config: WorkspaceConfig, tier: ReviewTier | None) -> int:
+    """The changed-lines ceiling in effect for a unit of `repo` expected to get `tier`: the
+    tier's own with `review.enabled`, the `full` one without it or when `tier` is None."""
+    raise NotImplementedError
 
 
 class E2eSchedule(StrEnum):

@@ -54,7 +54,7 @@ def test_each_key_loads_when_set() -> None:
     assert loaded.repos["app"].review.model_dump() == {"protected_paths": ["src/billing/**"]}
 
 
-@pytest.mark.parametrize("key", ["ceilings", "audit", "protected_path"])
+@pytest.mark.parametrize("key", ["audit", "protected_path"])
 def test_an_unknown_key_in_the_section_is_refused_naming_it(key: str) -> None:
     assert workspace({"enabled": True}).review.model_dump()["enabled"] is True
 
