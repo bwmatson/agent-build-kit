@@ -69,7 +69,7 @@ from agent_build_kit.notify.windows import (
     INSTALL_COMMAND,
     MODULE_CHECK_COMMAND,
 )
-from agent_build_kit.path_patterns import matches
+from agent_build_kit.path_patterns import matches, normalize
 from agent_build_kit.pipeline import agent_commands
 from agent_build_kit.pipeline.e2e import dimension_lines
 from agent_build_kit.pipeline.e2e_holds import HELD_FILE, current_holds, hold_text
@@ -187,6 +187,72 @@ def _cassettes(inst: Installation) -> list[Check]:
             checks.append(_warn(f"replay cassettes {name}", detail, fix))
         else:
             checks.append(_info(f"replay cassettes {name}", detail, fix))
+    return checks
+
+
+def _files_of_checkouts(inst: Installation) -> list[str] | None:
+    """Every file the repos' checkouts hold that git does not ignore, tracked or not; None when
+    one cannot be listed, so nothing is said about what it holds."""
+    files: list[str] = []
+    for path in inst.checkouts.values():
+        if not path.is_dir():
+            continue
+        try:
+            listed = git_out(path, "ls-files", "--cached", "--others", "--exclude-standard")
+        except (OSError, subprocess.CalledProcessError):
+            return None
+        files += listed.splitlines()
+    return files
+
+
+def _review(inst: Installation) -> list[Check]:
+    """The `review` section: a glob that does not parse is a failure, since it would make the
+    verdict wrong; a glob matching no file in any repo, and policy set while `enabled` is
+    false, are warnings."""
+    review = inst.config.review
+    globs: list[tuple[str, str]] = [("protected path", g) for g in review.protected_paths]
+    globs += [
+        (f"protected path of {name}", g)
+        for name, repo in inst.repos.items()
+        for g in repo.review.protected_paths
+    ]
+    globs += [(f"class {name}", g) for name, listed in review.classes.items() for g in listed]
+    checks: list[Check] = []
+    parsed: list[tuple[str, str]] = []
+    for label, glob in globs:
+        try:
+            normalize(glob)
+        except ValueError as error:
+            checks.append(
+                _fail(
+                    f"review {label}",
+                    f"{glob!r} does not parse: {error}",
+                    "fix the glob in the `review` section of abk.yaml",
+                )
+            )
+        else:
+            parsed.append((label, glob))
+    files = _files_of_checkouts(inst)
+    for label, glob in parsed:
+        if files is not None and not any(matches(glob, file) for file in files):
+            checks.append(
+                _warn(
+                    f"review {label}",
+                    f"{glob!r} matches no file in any repo",
+                    "check the glob for a typo in the `review` section of abk.yaml",
+                )
+            )
+    policy_set = bool(
+        globs or not review.protected_defaults or review.auto_land != type(review.auto_land)()
+    )
+    if policy_set and not review.enabled:
+        checks.append(
+            _warn(
+                "review enabled",
+                "the `review` section sets policy but `enabled` is false, so none of it applies",
+                "set `review.enabled: true`, or remove the policy",
+            )
+        )
     return checks
 
 
@@ -1581,6 +1647,7 @@ def run_doctor(
     checks += _gate_usage(inst, run, which)
     checks += _pending_projects(inst)
     checks += _changelogs(inst)
+    checks += _review(inst)
     checks += _cassettes(inst)
     checks += _forge_access(inst, run, transport=transport)
     checks += _merge_guards(inst, run)

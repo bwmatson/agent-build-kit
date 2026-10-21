@@ -188,7 +188,9 @@ def test_under_claude_code_propose_sends_the_command_it_sent_before(
 
     prompt = fake.prompt
     carried = flags(fake.argv, prompt)
-    assert json.loads(carried.pop("--settings") or "") == hook(None)
+    assert json.loads(carried.pop("--settings") or "") == hook(
+        None, fenced_file=planning / "abk.yaml"
+    )
     assert carried == {
         "-p": None,
         "--add-dir": str(app),

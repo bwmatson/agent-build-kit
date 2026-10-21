@@ -202,8 +202,21 @@ def _block(key: str, value: object, indent: str, note: str = "") -> list[str]:
     return comments + [f"{indent}{line}\n" for line in text.splitlines()]
 
 
+# The `review` section as a fresh abk.yaml shows it: off, with every default, commented out.
+REVIEW_BLOCK = """
+# The review policy (see docs/configuration.md). Only a person edits it; uncomment to use it.
+# review:
+#   enabled: false
+#   protected_paths: []
+#   protected_defaults: true
+#   classes: {}
+#   auto_land: {min_samples: 20, min_clean_rate: 0.95}
+"""
+
+
 def dump_with_notes(config: WorkspaceConfig) -> str:
-    """`dump(config)` with each drafted environment's note as comments above its section."""
+    """`dump(config)` with each drafted environment's note as comments above its section, and
+    the commented `review` block at the end."""
     lines = dump(config).splitlines(keepends=True)
     sections = [(None, config.environment)] + [(n, r.environment) for n, r in config.repos.items()]
     for name, environment in reversed(sections):
@@ -224,7 +237,7 @@ def dump_with_notes(config: WorkspaceConfig) -> str:
             continue
         indent = lines[found][: indent_of(lines[found])]
         lines[found:found] = [f"{indent}# {line}\n" for line in note.splitlines()]
-    return "".join(lines)
+    return "".join(lines) + REVIEW_BLOCK
 
 
 def child_indent(lines: list[str], at: int, parent: int) -> str:

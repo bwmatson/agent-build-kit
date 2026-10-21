@@ -96,6 +96,7 @@ from agent_build_kit.pipeline.command_policy import (
     check_command,
     check_no_commit,
     check_no_push,
+    policy_files,
 )
 from agent_build_kit.pipeline.command_spellings import probe_rows
 from agent_build_kit.pipeline.install_record import logged_lines
@@ -501,6 +502,7 @@ class _Session:
         # A run relying on headless permission denial (the planner's graph
         # call): every permission request is refused, whatever it names.
         self._grants_nothing = grants_nothing
+        self._policy = policy
         # Where a write or a command must resolve inside, and the read-only
         # subtree of it (None: no confinement asked for — a read-only call).
         self._worktree = worktree.resolve() if worktree is not None else None
@@ -915,7 +917,17 @@ class _Session:
         """`command` against the unit's command rules, when this run has them."""
         if not self._scoped:
             return Verdict(allowed=True)
-        return check_command(command, **where)
+        return check_command(command, fenced=self._config_files(), **where)
+
+    def _config_files(self) -> tuple[Path, ...]:
+        """The files that hold the review policy, which no command of this run may write."""
+        if self._policy is None:
+            return ()
+        return policy_files(
+            checkout=self._worktree,
+            planning_paths=self._policy.planning_paths,
+            fenced_files=self._policy.fenced_files,
+        )
 
     def _refusals(self, command: str) -> Verdict:
         """What no turn the server runs may do: push, and commit when asked not to."""
