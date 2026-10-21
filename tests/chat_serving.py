@@ -227,9 +227,11 @@ def in_process_client(installation: Installation) -> Iterator[TestClient]:
         yield client
 
 
-def turn(api: httpx.Client | TestClient, url: str, body: dict[str, Any]) -> list[dict[str, Any]]:
-    """Send a turn and read its whole reply."""
-    with api.stream("POST", url, json=body, timeout=WAIT) as response:
+def turn(
+    api: httpx.Client | TestClient, url: str, body: dict[str, Any], *, timeout: float = WAIT
+) -> list[dict[str, Any]]:
+    """Send a turn and read its whole reply, waiting up to `timeout` seconds for each chunk."""
+    with api.stream("POST", url, json=body, timeout=timeout) as response:
         assert response.status_code == 200, response.read()
         return list(events_of(response))
 

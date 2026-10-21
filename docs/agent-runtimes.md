@@ -932,6 +932,19 @@ the old account starts fresh) and set the usage windows for the new plan under
   parameter, so a module for another runtime can import it. It needs node, uv
   and Claude Code, bills on demand and takes minutes. Run with `uv run pytest
   -m local_stack tests/integration/test_chat_editing_claude_code.py`.
+- The web UI acceptance run's Claude half
+  (`tests/integration/test_serve_over_scratch_installation.py`, also `local_stack`,
+  tagged `runtime_claude_code`) builds a unit with a real `claude`, then drives the API
+  of `abk serve` over the same state: the unit's page and recorded history, a live
+  step with its composer disabled, a chat turn and the unit resuming after the lease
+  is released, a new session, and a requeue. A second test continues a session a
+  separate `claude` run started: resumed in place when no process holds it, forked
+  when one does. The walk of the unit is `walk_unit_through_review`
+  (`tests/integration/unit_walk.py`), neutral to the runtime so that the ACP half,
+  which is a separate group of the same change, reuses it. The run needs node, uv and
+  a logged-in `claude` on PATH; the sessions it starts land in `claude`'s own home.
+  Run with `uv run pytest -m local_stack
+  tests/integration/test_serve_over_scratch_installation.py`.
 - `runtime_<name>` (`runtime_claude_code`, `runtime_acp`) names the one agent
   runtime a `local_stack` test drives; a test with none is the untagged base and
   needs no agent. The tag is the runtime the test starts, as decided from `AGENT_SIGNALS`,
@@ -1007,6 +1020,8 @@ tests raises a warning, not a failure.
 - `test_build_unit.py::test_the_report_totals_equal_the_ledger_and_name_each_figures_source`
 - `test_build_unit.py::test_the_unit_is_built_reviewed_and_pushed_through_the_runtime`
 - `test_graph_unit.py::test_a_unit_runs_to_review_is_reworked_on_a_comment_and_its_thread_ends_at_merge`
+- `test_serve_over_scratch_installation.py::test_a_session_started_elsewhere_is_continued_in_place_or_forked_when_held`
+- `test_serve_over_scratch_installation.py::test_the_ui_shows_a_unit_a_real_claude_built_and_works_it_through_review`
 - `test_telemetry_stack.py::test_a_tick_with_the_endpoint_pointing_at_nothing_finishes_and_writes_nothing`
 - `test_telemetry_stack.py::test_a_ticks_duration_series_are_in_the_metrics_store_without_a_unit_id`
 - `test_telemetry_stack.py::test_a_ticks_trace_is_found_in_the_trace_store_by_the_unit_id`

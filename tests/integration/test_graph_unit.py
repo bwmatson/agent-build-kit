@@ -19,25 +19,25 @@ suite.
 
 from __future__ import annotations
 
-import asyncio
 import shutil
-import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from pydantic import Field
 
-from agent_build_kit import config
-from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
 from agent_build_kit.graph.state import Node
-from agent_build_kit.graph.unit import thread_position
-from agent_build_kit.installation import Installation
-from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
-from tests.factories import git, init_repo, scratch_app
+from tests.factories import git
 from tests.forges.github_server import FakeGitHub
-from tests.forges.process_host import process_env
+from tests.marker_scratch import (
+    BRANCH,
+    TASKS,
+    Scratch,
+    build_scratch,
+    run_log,
+    serving_host,
+    thread_next,
+)
 from tests.runtime_scratch import CLAUDE_CODE_PARAMS, runtime_scratch
 from tests.scratch_tick import commits_on_unit_branch, run_tick
 
@@ -47,42 +47,12 @@ pytestmark = [
     pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not on PATH"),
 ]
 
-CHANGE = "add-marker"
-BRANCH = f"spec/{CHANGE}/1"
-UNIT_ID = f"{CHANGE}/1"
 COMMENT = "Please add a one-line docstring to `marker()` saying what it returns."
-
-TASKS = """# Tasks
-
-## 1. [app] [unit-test] Add the marker
-
-- [ ] 1.1 Test: `marker()` in `src/app/marker.py` returns the string `"marked"`.
-- [ ] 1.2 Add `marker()` to `src/app/marker.py`.
-
-Acceptance: none — a single function whose own test is its proof
-"""
-
-
-class Scratch(Frozen):
-    model_config = {"arbitrary_types_allowed": True}
-
-    planning: Path
-    app: Path
-    remote: Path
-    state: Path
-    host: FakeGitHub
-    env: dict[str, str] = Field(repr=False)
 
 
 @pytest.fixture(scope="module")
 def github_host() -> Iterator[FakeGitHub]:
-    """The fake host, numbering its first pull request 7."""
-    with FakeGitHub(first_number=7) as server:
-        yield server
-        # Checked for every test of the module: a route the fake does not serve
-        # fails here, naming it, even when no test looked.
-        missed = server.unrouted()
-        assert missed == [], f"the forge called routes the fake host does not serve: {missed}"
+    yield from serving_host()
 
 
 @pytest.fixture(scope="module")
@@ -96,70 +66,10 @@ def scratch(
     request: pytest.FixtureRequest,
     tmp_path_factory: pytest.TempPathFactory,
     github_host: FakeGitHub,
-) -> Iterator[Scratch]:
+) -> Scratch:
     """The scratch installation for the runtime the test is parametrized with."""
-    tmp_path = tmp_path_factory.mktemp("graph-unit")
     runtime = runtime_scratch(request.param, tmp_path_factory, lambda command: None)
-
-    remote = tmp_path / "remote.git"
-    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
-    app = scratch_app(tmp_path / "app")
-    git(app, "remote", "add", "origin", str(remote))
-    git(app, "push", "-q", "origin", "main")
-
-    planning = init_repo(tmp_path / "planning")
-    change = planning / "openspec" / "changes" / CHANGE
-    (change / "specs" / "marker").mkdir(parents=True)
-    (planning / "openspec" / "config.yaml").write_text("schema: spec-driven\n")
-    (change / "proposal.md").write_text(
-        "## Why\n\nThe app needs a marker.\n\n## What Changes\n\n- Add `marker()`.\n\n"
-        "## Impact\n\n- app: one module.\n"
-    )
-    (change / "specs" / "marker" / "spec.md").write_text(
-        "## ADDED Requirements\n\n### Requirement: A marker\nThe app SHALL expose `marker()`.\n\n"
-        "#### Scenario: Reading it\n- **WHEN** `marker()` is called\n"
-        '- **THEN** it returns "marked"\n'
-    )
-    (change / "tasks.md").write_text(TASKS)
-    (planning / "abk.yaml").write_text(
-        f"repos:\n  app:\n    path: {app}\n    slug: example/app\n"
-        "    profile: python-uv\n    languages: [python]\n"
-        f"{runtime.runtimes_yaml}"
-    )
-    git(planning, "add", "-A")
-    git(planning, "commit", "-q", "-m", "plan")
-
-    env = {
-        **process_env(github_host, tmp_path / "bin", tmp_path / "gh-calls.txt"),
-        **runtime.env,
-        "ABK_CONFIG": str(planning / "abk.yaml"),
-        "ABK_WORKTREE_ROOT": str(tmp_path / "worktrees"),
-    }
-    yield Scratch(
-        planning=planning,
-        app=app,
-        remote=remote,
-        state=Installation(config.load(planning / "abk.yaml"), planning).state_dir,
-        host=github_host,
-        env=env,
-    )
-
-
-def thread_next(scratch: Scratch) -> tuple[Node, ...] | None:
-    """Where the unit's thread stands in the checkpoint store: the nodes still
-    to run, or None when there is no thread."""
-
-    async def look() -> tuple[Node, ...] | None:
-        async with open_checkpointer(unit_graphs_path(scratch.state)) as saver:
-            position = await thread_position(saver, UNIT_ID)
-            return None if position.state is None else position.next
-
-    return asyncio.run(look())
-
-
-def run_log(scratch: Scratch) -> str:
-    logs = sorted((scratch.state / "unit-logs").glob(f"{CHANGE}-01-*.log"))
-    return "\n".join(path.read_text() for path in logs)
+    return build_scratch(tmp_path_factory.mktemp("graph-unit"), github_host, runtime, tasks=TASKS)
 
 
 @pytest.mark.parametrize("scratch", CLAUDE_CODE_PARAMS, indirect=True)
@@ -174,32 +84,40 @@ def test_a_unit_runs_to_review_is_reworked_on_a_comment_and_its_thread_ends_at_m
         f"no pull request was opened\n{built.output}"
     )
     # Waiting in review is a thread parked at its wait, not a finished one.
-    assert thread_next(scratch) == (Node.AWAIT_REVIEW,), f"{run_log(scratch)}\n{built.output}"
+    assert thread_next(scratch.state) == (Node.AWAIT_REVIEW,), (
+        f"{run_log(scratch.state)}\n{built.output}"
+    )
 
     # A tick with nothing new changes nothing: the poller records the pull
     # request's comments as seen before the reviewer writes one.
     quiet = run_tick(scratch)
     assert quiet.returncode == 0, quiet.output
     assert commits_on_unit_branch(scratch, BRANCH, quiet) == first, quiet.output
-    assert thread_next(scratch) == (Node.AWAIT_REVIEW,), quiet.output
+    assert thread_next(scratch.state) == (Node.AWAIT_REVIEW,), quiet.output
 
     comment = scratch.host.add_review(7, "COMMENTED", "", inline=("src/app/marker.py", 1, COMMENT))
     reworked = run_tick(scratch)
     assert reworked.returncode == 0, reworked.output
     second = commits_on_unit_branch(scratch, BRANCH, reworked)
-    assert len(second) > len(first), f"no rework was pushed\n{reworked.output}\n{run_log(scratch)}"
+    assert len(second) > len(first), (
+        f"no rework was pushed\n{reworked.output}\n{run_log(scratch.state)}"
+    )
     assert set(first) <= set(second), "the rework rewrote what was already pushed"
     # Only the comment asks for a docstring: the rework that read it wrote one.
     marker = git(scratch.remote, "show", f"{BRANCH}:src/app/marker.py")
-    assert '"""' in marker, f"the rework did not act on the comment\n{marker}\n{run_log(scratch)}"
+    assert '"""' in marker, (
+        f"the rework did not act on the comment\n{marker}\n{run_log(scratch.state)}"
+    )
     # The agent answered in the comment's own thread, not under the review.
     thread = scratch.host.review_comments(7)
     assert any(c.get("in_reply_to_id") == comment for c in thread), (
-        f"no reply in the comment's thread\n{thread}\n{run_log(scratch)}\n{reworked.output}"
+        f"no reply in the comment's thread\n{thread}\n{run_log(scratch.state)}\n{reworked.output}"
     )
-    assert thread_next(scratch) == (Node.AWAIT_REVIEW,), f"{run_log(scratch)}\n{reworked.output}"
+    assert thread_next(scratch.state) == (Node.AWAIT_REVIEW,), (
+        f"{run_log(scratch.state)}\n{reworked.output}"
+    )
 
     scratch.host.merge(7)
     merged = run_tick(scratch)
     assert merged.returncode == 0, merged.output
-    assert thread_next(scratch) is None, f"the thread outlived the merge\n{merged.output}"
+    assert thread_next(scratch.state) is None, f"the thread outlived the merge\n{merged.output}"
