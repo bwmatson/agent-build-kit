@@ -191,6 +191,15 @@ class FeedbackSource(StrEnum):
         return None
 
 
+class E2eState(StrEnum):
+    """What became of a unit's e2e-test step for the head it pushed."""
+
+    PASSED = "passed"
+    DEFERRED = "deferred"
+    FAILED = "failed"
+    NOT_REQUIRED = "not-required"
+
+
 def feedback_source_of(rework: ReworkKind | None) -> FeedbackSource:
     """Where a rework's feedback comes from, by the kind that sent the unit back."""
     if rework is ReworkKind.FAILING_CHECKS:
@@ -301,6 +310,9 @@ class StoredUnit(Unit):
     # it was requeued, as opposed to anything the pipeline or the host wrote.
     # Set only with the feedback (see `set_feedback`), so it never outlives it.
     feedback_from_person: bool = False
+    # The outcome of the unit's latest e2e-test step: cleared when a run begins and written by
+    # that run's result; None when no result is known, as for a record from before it was kept.
+    e2e_state: E2eState | None = None
     # Where `feedback` came from (see `FeedbackSource`).
     feedback_source: FeedbackSource = FeedbackSource.NONE
     # Set when the unit was moved onto a predecessor that changed under it,
