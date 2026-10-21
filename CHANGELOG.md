@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A unit built group by group whose branch holds no commit of its own is now satisfied once the
+  unit tests pass, as a unit built in one piece is, instead of stopping for a missing tests and
+  implementation pair. A branch with some commits and a missing pair still stops, naming the
+  first group without one.
+
 - `review.ceiling_buffer` (default 0.2) and `review.split_rounds` (default 2, at most 2) are new
   settings, the first steps towards holding and splitting a unit that outgrows its review tier.
   A buffered `auto` ceiling that reaches the reviewer's 10,000-line reading limit now fails

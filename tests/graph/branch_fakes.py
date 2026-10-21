@@ -63,16 +63,29 @@ def write_tasks(
 class OnBranch(StubLoop):
     """A stubbed-loop recorder whose commits, head and commit count are the branch's own. Its
     agent writes a file for each tests, implementation and rework call, except for the
-    implementation of the groups named in `no_commit_for`, which leaves the tree as it was."""
+    implementation of the groups named in `no_commit_for`, which leaves the tree as it was, and
+    for every call about groups all numbered in `silent_groups`."""
 
-    def __init__(self, store: UnitStore, *, no_commit_for: str = "", **options: Any) -> None:
+    def __init__(
+        self,
+        store: UnitStore,
+        *,
+        no_commit_for: str = "",
+        silent_groups: Collection[int] = (),
+        **options: Any,
+    ) -> None:
         super().__init__(store, **options)
         self.no_commit_for = no_commit_for  # as the prompt names them: "3" or "1, 2, 3"
+        self.silent_groups = frozenset(str(number) for number in silent_groups)
 
     def claude(self, prompt: str, **kwargs: Any) -> str:
         answer = super().claude(prompt, **kwargs)
         step = self.events[-1]
-        skipped = step == "claude:impl" and group_named(prompt) == self.no_commit_for
+        built_group = group_named(prompt) if step in ("claude:tests", "claude:impl") else ""
+        skipped = step == "claude:impl" and built_group == self.no_commit_for
+        skipped = skipped or (
+            bool(built_group) and set(built_group.split(", ")) <= self.silent_groups
+        )
         if step in ("claude:tests", "claude:impl", "claude:rework") and not skipped:
             (kwargs["cwd"] / f"work-{len(self.prompts)}.txt").write_text(f"{step}\n")
         return answer
