@@ -66,6 +66,14 @@ reports each repo's agent commands:
 | agent commands `<repo>` | FAIL | a command (a profile's own, which is not a load error) is outside the allow-list; allow it in the profile or set `repos.<name>.agent_commands` |
 | agent commands `<repo>` | warn | the commands would not all fit the 600-character prompt section; the leading ones are listed |
 
+`abk.yaml` should read the same on every machine; settings that belong to a machine or a
+person go in the ignored `abk.local.yaml`. `abk doctor` reads the committed file alone
+and, under "machine keys", **warns** for `repos.<name>.account`, `project_limits`,
+`runtimes.<name>.accounts`, `tests.e2e_available` and a runtime `command` or `policy_fix`
+that starts with an absolute path. It only **notes** `runtimes.<name>.limits`, a split
+`hold` and `tests.e2e_schedule: "off"`, which a team may commit as defaults. It says
+nothing about `runtimes.<name>.models`, or about the same keys in `abk.local.yaml`.
+
 ## `abk.yaml` reference
 
 Every field, with its default. A key at its default can be left out;

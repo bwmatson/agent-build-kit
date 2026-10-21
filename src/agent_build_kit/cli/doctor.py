@@ -47,6 +47,7 @@ from agent_build_kit.config import (
     PolicyMarker,
     RepoConfig,
     WorkspaceConfig,
+    read_base,
 )
 from agent_build_kit.forges.transport import (
     Transport,
@@ -905,6 +906,67 @@ def _public_content(inst: Installation) -> list[Check]:
     return [_ok(PUBLIC_CONTENT, "nothing found" if tracked else "abk.yaml is not tracked")]
 
 
+MACHINE_KEYS = "machine keys"
+
+
+def _mapping(node: object, *path: str) -> dict:
+    for key in path:
+        node = node.get(key) if isinstance(node, dict) else None
+    return node if isinstance(node, dict) else {}
+
+
+def _machine_keys(inst: Installation) -> list[Check]:
+    """Settings in the committed abk.yaml that belong to a machine or a person: a warning
+    for a machine choice, a note for a default a team may commit."""
+    root = inst.root
+    if git(root, "rev-parse", "--show-toplevel", check=False).returncode:
+        return []
+    if not _is_tracked(root, "abk.yaml"):
+        return []
+    document = read_base(root / "abk.yaml")
+    move = f"move it to {OVERLAY_FILENAME}"
+    warned = []
+    noted = []
+    repos = _mapping(document, "repos")
+    for name, entry in repos.items():
+        if isinstance(entry, dict) and entry.get("account") is not None:
+            warned.append((f"repos.{name}.account", "names the account this machine builds on"))
+    if document.get("project_limits"):
+        warned.append(("project_limits", "is the scheduling this machine runs at"))
+    for name, entry in _mapping(document, "runtimes").items():
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("accounts"):
+            warned.append((f"runtimes.{name}.accounts", "lists the accounts of this person"))
+        for field in ("command", "policy_fix"):
+            argv = entry.get(field)
+            if isinstance(argv, list) and argv and str(argv[0]).startswith("/"):
+                warned.append((f"runtimes.{name}.{field}", "starts with an absolute program path"))
+        if entry.get("limits"):
+            noted.append((f"runtimes.{name}.limits", "a plan's thresholds differ per person"))
+    scopes = [("tests", _mapping(document, "tests"))]
+    scopes += [(f"repos.{n}.tests", _mapping(e, "tests")) for n, e in repos.items()]
+    for scope, tests in scopes:
+        if tests.get("e2e_available"):
+            warned.append((f"{scope}.e2e_available", "is what this machine has"))
+        if str(tests.get("e2e_schedule")).lower() in ("off", "false"):
+            noted.append(
+                (f"{scope}.e2e_schedule", "a scheduled run switched off suits one machine")
+            )
+        for split, entry in _mapping(tests, "e2e_splits").items():
+            if isinstance(entry, dict) and entry.get("hold") is not None:
+                noted.append((f"{scope}.e2e_splits.{split}.hold", "a hold may suit one machine"))
+    checks = [
+        _warn(MACHINE_KEYS, f"{key} in abk.yaml {why}: a machine choice", move)
+        for key, why in warned
+    ]
+    checks += [
+        _info(MACHINE_KEYS, f"{key} in abk.yaml: {why}", f"fine to commit; {move} to differ")
+        for key, why in noted
+    ]
+    return checks
+
+
 def _missing_inputs(environment: EnvironmentConfig, root: Path) -> list[str]:
     return [pattern for pattern, names in matched_inputs(environment, root).items() if not names]
 
@@ -1665,6 +1727,7 @@ def run_doctor(
     checks += _ssh_keys(inst)
     checks += _verify_env(inst, run)
     checks += _public_content(inst)
+    checks += _machine_keys(inst)
     checks += _weak_secrets()
     checks += _environment(inst, run)
     checks.append(_rules_drift(inst))
