@@ -958,6 +958,13 @@ the old account starts fresh) and set the usage windows for the new plan under
   a logged-in `claude` on PATH; the sessions it starts land in `claude`'s own home.
   Run with `uv run pytest -m local_stack
   tests/integration/test_serve_over_scratch_installation.py`.
+- The local forge acceptance run (`tests/integration/test_local_forge_unit.py`,
+  `local_stack`, tagged `runtime_claude_code`) builds a unit in a repo with no
+  remote and `forge: local`, sends it back with a comment posted to the web
+  UI's own endpoint, records Approve through the decision endpoint, merges the
+  branch with git as a person would, and checks the unit is recorded merged and
+  its dependent starts. It needs Claude Code, node and uv. Run with `uv run
+  pytest -m local_stack tests/integration/test_local_forge_unit.py`.
 - `runtime_<name>` (`runtime_claude_code`, `runtime_acp`) names the one agent
   runtime a `local_stack` test drives; a test with none is the untagged base and
   needs no agent. The tag is the runtime the test starts, as decided from `AGENT_SIGNALS`,
