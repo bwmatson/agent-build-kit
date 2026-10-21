@@ -136,7 +136,7 @@ from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner, Worktre
 from agent_build_kit.pipeline.transcript import Transcript, transcript_dir
 from agent_build_kit.pipeline.ui_review import ui_notes_of, ui_reply_writer, unit_patch_of
 from agent_build_kit.pipeline.unit_size import actual_lines, branch_diff, over_ceiling
-from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, FocusKind, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     BUILDS_NOTHING,
     IN_REVIEW,
@@ -702,17 +702,17 @@ JSON reply below as "classification": "auto|light|full" and "drivers": ["group o
 """
 
 # What review adds to the prompt when the brief is on: the two lists inside the description.
-REVIEW_BRIEF_PROMPT = """\
+REVIEW_BRIEF_PROMPT = f"""\
 **Tell the person reading where to look.** Inside the `description`, give a `focus` list
 and a `skippable` list. `focus` ranks the places a person should read first, most
 important first, at most five: each entry has a `place` (a file, or a file and a group)
-and a `reason`, which is one of `boundary another system depends on`, `behaviour change`,
-`hard to undo` or `thin test coverage`. `skippable` lists mechanical moves, renames,
-generated or formatting-only changes, at most five: each entry has a `place` and a
+and a `reason`, which is one of {", ".join(f"`{kind.value}`" for kind in FocusKind)}
+(`boundary` means a boundary another system depends on). `skippable` lists mechanical
+moves, renames, generated or formatting-only changes, at most five: each entry has a `place` and a
 `reason` it is safe to skip, and an entry without a reason is dropped. Give entries only
 where they are true: an empty list is correct for a change with nothing to point at.
-Write them as "focus": [{"place": "...", "reason": "..."}] and
-"skippable": [{"place": "...", "reason": "..."}] in the description.
+Write them as "focus": [{{"place": "...", "reason": "..."}}] and
+"skippable": [{{"place": "...", "reason": "..."}}] in the description.
 
 """
 

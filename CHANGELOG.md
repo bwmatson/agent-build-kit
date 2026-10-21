@@ -2,10 +2,6 @@
 
 ## Unreleased
 
-- The review prompt now asks the reviewer for a ranked list of places to read first, each with
-  one of four reasons, and a list of what is safe to skip with a reason each; a unit's recorded
-  drivers lead the first list. The `review.brief` setting (default on) controls it.
-
 - A unit's review tier now has a deterministic verdict function over the plan's floors (the
   planned estimate, protected paths and `contract`, `narrow` or `acceptance` flags) and over the
   recorded gate results, open required findings, the reviewer's classification and the class's
@@ -17,7 +13,8 @@
 - An approving review reply can now carry a ranked list of places a person should read first,
   each with its reason, and a list of places that are safe to skip, each with why. Both are
   capped at five entries, read defensively and stored with the description; a reply without
-  them reads as before.
+  them reads as before. The review prompt asks for both lists (the `review.brief` setting,
+  default on, controls it), and a unit's recorded drivers lead the first.
 
 - The kit's drift test now checks each live test more strictly. It finds live-stack
   modules anywhere under `tests/` by syntax, decides per test from a table of signals

@@ -1,11 +1,13 @@
 """A review reply's focus list and skippable list (spec: reviewers-are-told-where-to-look)."""
 
 import json
+import re
 
 import pytest
 
 from agent_build_kit.pipeline.stack_runner import parse_verdict
 from agent_build_kit.pipeline.unit_store import FocusEntry, FocusKind, SkipEntry
+from agent_build_kit.pipeline.wiring import REVIEW_BRIEF_PROMPT
 
 CHANGES = ["The marker registry exists."]
 
@@ -165,3 +167,30 @@ def test_the_lists_do_not_change_how_the_other_fields_are_read() -> None:
     assert verdict.findings == ()
     assert verdict.description is not None
     assert [e.place for e in verdict.description.focus] == ["src/a.py"]
+
+
+def prompt_reasons() -> list[str]:
+    """The reasons exactly as the brief prompt spells them, from its sentence naming them."""
+    sentence = (
+        " ".join(REVIEW_BRIEF_PROMPT.split()).split("which is one of ", 1)[1].split("(", 1)[0]
+    )
+    return re.findall(r"`([^`]+)`", sentence)
+
+
+def kind_of(reason: str) -> FocusKind | None:
+    description = parse_verdict(described(focus=[focus("src/a.py", reason)])).description
+    assert description is not None
+    return description.focus[0].kind
+
+
+def test_the_prompt_names_each_reason_kind() -> None:
+    assert len(prompt_reasons()) == len(FocusKind)
+
+
+@pytest.mark.parametrize("index", range(len(FocusKind)))
+def test_each_reason_as_the_prompt_spells_it_comes_back_with_its_kind(index: int) -> None:
+    assert kind_of(prompt_reasons()[index]) == list(FocusKind)[index]
+
+
+def test_a_reason_is_matched_ignoring_case() -> None:
+    assert kind_of("Behaviour Change") == FocusKind.BEHAVIOUR_CHANGE

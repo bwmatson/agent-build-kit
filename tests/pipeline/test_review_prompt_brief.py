@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from agent_build_kit.pipeline.wiring import build_run_review
+from agent_build_kit.pipeline.wiring import REVIEW_BRIEF_PROMPT, build_run_review
 from tests.factories import activate_with
 from tests.runtimes.stand_in import StandInRuntime
 
@@ -41,5 +41,6 @@ def test_with_the_brief_off_the_prompt_does_not_ask_for_the_lists(tmp_path: Path
 
     assert "`focus`" not in off
     assert "`skippable`" not in off
-    assert off != on
-    assert all(sentence in on for sentence in off.split(". ")), "the rest of the prompt is kept"
+    added = " ".join(REVIEW_BRIEF_PROMPT.split()).lower()
+    assert on.replace(f"{added} ", "", 1) == off, "the brief is the only difference"
+    assert on != off

@@ -601,10 +601,13 @@ def _brief_text(raw: object) -> str:
     return cut_head(" ".join(raw.split()), BRIEF_TEXT_CHARS, "char", "…")
 
 
-def _brief_pairs(raw: object, *, reason_required: bool) -> list[tuple[str, str]]:
+def _brief_pairs(
+    raw: object, *, reason_required: bool, exclude: Collection[str] = ()
+) -> list[tuple[str, str]]:
     """The (place, reason) pairs of a reviewer's list, in order; a list that is not one, an
-    entry that is not an object and one without a place (or, if required, a reason) are
-    dropped. The first MAX_BRIEF_ENTRIES kept stay."""
+    entry that is not an object, one without a place (or, if required, a reason), one for a
+    place in `exclude` and a repeat of a place already kept are dropped. The first
+    MAX_BRIEF_ENTRIES kept stay."""
     if not isinstance(raw, list):
         return []
     pairs: list[tuple[str, str]] = []
@@ -612,15 +615,16 @@ def _brief_pairs(raw: object, *, reason_required: bool) -> list[tuple[str, str]]
         if not isinstance(item, dict):
             continue
         place, reason = _brief_text(item.get("place")), _brief_text(item.get("reason"))
-        if place and (reason or not reason_required):
+        if place and place not in exclude and (reason or not reason_required):
+            exclude = {*exclude, place}
             pairs.append((place, reason))
     return pairs[:MAX_BRIEF_ENTRIES]
 
 
 def _parse_focus(raw: object) -> tuple[FocusEntry, ...]:
-    kinds = {kind.value: kind for kind in FocusKind}
+    kinds = {kind.value.casefold(): kind for kind in FocusKind}
     return tuple(
-        FocusEntry(place=place, reason=reason, kind=kinds.get(reason))
+        FocusEntry(place=place, reason=reason, kind=kinds.get(reason.casefold()))
         for place, reason in _brief_pairs(raw, reason_required=False)
     )
 
@@ -628,8 +632,7 @@ def _parse_focus(raw: object) -> tuple[FocusEntry, ...]:
 def _parse_skippable(raw: object, focused: Collection[str]) -> tuple[SkipEntry, ...]:
     return tuple(
         SkipEntry(place=place, reason=reason)
-        for place, reason in _brief_pairs(raw, reason_required=True)
-        if place not in focused
+        for place, reason in _brief_pairs(raw, reason_required=True, exclude=focused)
     )
 
 
@@ -665,7 +668,10 @@ def _drivers_lead(description: Description | None, drivers: tuple[str, ...]) -> 
     named = {entry.place: entry for entry in description.focus}
     leading = tuple(named.get(place) or FocusEntry(place=place) for place in dict.fromkeys(drivers))
     rest = tuple(entry for entry in description.focus if entry.place not in set(drivers))
-    return description.model_copy(update={"focus": (*leading, *rest)[:MAX_BRIEF_ENTRIES]})
+    focus = (*leading, *rest)[:MAX_BRIEF_ENTRIES]
+    # The focus list wins over the skippable one, so a driver is no longer skippable.
+    skippable = tuple(entry for entry in description.skippable if entry.place not in set(drivers))
+    return description.model_copy(update={"focus": focus, "skippable": skippable})
 
 
 def _parse_classification(raw: object) -> str:
