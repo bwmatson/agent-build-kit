@@ -1082,10 +1082,19 @@ class AgentCommand(Frozen):
         return self
 
 
+class RepoCeilingsConfig(Frozen):
+    """A repo's own ceilings; a tier left unset follows the workspace's."""
+
+    auto: int | None = None
+    light: int | None = None
+    full: int | None = None
+
+
 class RepoReviewConfig(Frozen):
     """A repo's own review policy: the protected paths that add to the workspace's."""
 
     protected_paths: list[str] = []
+    ceilings: RepoCeilingsConfig = RepoCeilingsConfig()
 
 
 class RepoConfig(Frozen):
