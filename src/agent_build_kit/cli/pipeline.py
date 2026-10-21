@@ -2617,6 +2617,7 @@ def _queue_full_by_project(inst: Installation, units: list[StoredUnit]) -> dict[
     of units in progress, with its own blocked and failed-waiting units; the slot is named when
     the workspace has more than one."""
     slot_of = _slot_of(inst)
+    parked = parked_units(inst, units)
     named = len(_live_projects(inst, units)) > 1 or slot_of is not project_key
     lines: dict[Hashable, str] = {}
     for key in sorted(project_counts(units, slot_of), key=_slot_order):
@@ -2626,7 +2627,7 @@ def _queue_full_by_project(inst: Installation, units: list[StoredUnit]) -> dict[
         held = [unit for unit in units if in_progress(unit, units) and slot_of(unit) == key]
         by_label: dict[str, int] = {}
         for unit in held:
-            label = in_progress_label(unit)
+            label = "paused" if unit.id in parked else in_progress_label(unit)
             by_label[label] = by_label.get(label, 0) + 1
         states = ", ".join(f"{count} {label}" for label, count in sorted(by_label.items()))
         name = f"{_slot_name(key, units)}: " if named else ""
