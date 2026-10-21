@@ -50,7 +50,11 @@ def recorded_waits(path: Path) -> dict[str, tuple[Wait, datetime]]:
             if raw["reason"] == ENDED:
                 current.pop(unit, None)
                 continue
-            wait = Wait(reason=WaitReason(raw["reason"]), waits_on=tuple(raw["waits_on"]))
+            wait = Wait(
+                reason=WaitReason(raw["reason"]),
+                waits_on=tuple(raw["waits_on"]),
+                detail=str(raw.get("detail", "")),
+            )
             current[unit] = (wait, datetime.fromisoformat(raw["at"]))
         except (ValueError, KeyError, TypeError):
             continue
@@ -85,7 +89,7 @@ class WaitRecorder:
             if before:
                 self._end(unit, before)
             self._current[unit] = (wait, now)
-            self._append(now, unit, wait.reason, wait.waits_on, tick)
+            self._append(now, unit, wait.reason, wait.waits_on, tick, wait.detail)
         for unit in [unit for unit in self._current if unit not in waits and unit not in keep]:
             self._end(unit, self._current.pop(unit))
             self._append(now, unit, ENDED, (), tick)
@@ -102,7 +106,13 @@ class WaitRecorder:
             )
 
     def _append(
-        self, at: datetime, unit: str, reason: str, waits_on: tuple[str, ...], tick: str
+        self,
+        at: datetime,
+        unit: str,
+        reason: str,
+        waits_on: tuple[str, ...],
+        tick: str,
+        detail: str = "",
     ) -> None:
         line = {
             "at": at.isoformat(),
@@ -110,6 +120,7 @@ class WaitRecorder:
             "reason": str(reason),
             "waits_on": list(waits_on),
             "tick": tick,
+            **({"detail": detail} if detail else {}),
         }
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)

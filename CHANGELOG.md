@@ -62,6 +62,11 @@
   `tests.e2e_available`, a runtime command starting with an absolute path) and says to move
   it to `abk.local.yaml`. A default a team may commit gets a note instead.
 
+- A tick now asks a ready unit's own Claude account whether it may start, before the unit
+  is prepared. A unit whose account is over its usage threshold waits as a usage pause, with
+  no worktree, branch or lease, while other accounts' units start; before, the round went
+  ahead when any account had room and the unit was parked at its first agent step.
+
 - The kit's drift test now checks each live test more strictly. It finds live-stack
   modules anywhere under `tests/` by syntax, decides per test from a table of signals
   (`AGENT_SIGNALS`) whether an agent starts, fails a runtime tag that disagrees with what the
