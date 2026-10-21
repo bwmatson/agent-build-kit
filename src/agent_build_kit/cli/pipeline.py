@@ -1405,13 +1405,30 @@ def _needs_planning(inst: Installation, store: UnitStore) -> bool:
     return False
 
 
-def _start_decision(accounts: Sequence[claude_account.Account | None] = (None,)) -> Decision:
+def _account_decision(
+    account: claude_account.Account | None, decided: dict[str | None, Decision] | None
+) -> Decision:
+    """The guard's decision for `account`, asked once for each account `decided` holds."""
+    key = claude_account.account_key(account)
+    if decided is not None and key in decided:
+        return decided[key]
+    decision = decide_start(read=current_usage, decide=may_start_unit, account=account)
+    if decided is not None:
+        decided[key] = decision
+    return decision
+
+
+def _start_decision(
+    accounts: Sequence[claude_account.Account | None] = (None,),
+    decided: dict[str | None, Decision] | None = None,
+) -> Decision:
     """The guard's decision to start, under this module's names for reading and judging: a start
     on any of `accounts` (None is the account in force) is a start. When every one refuses, the
-    refusal names each and waits for the earliest of their times."""
+    refusal names each and waits for the earliest of their times. `decided` keeps each account's
+    decision for the rest of the round."""
     refusals: list[Decision] = []
     for account in accounts:
-        decision = decide_start(read=current_usage, decide=may_start_unit, account=account)
+        decision = _account_decision(account, decided)
         if decision.may_start:
             return decision
         refusals.append(decision)
@@ -1489,6 +1506,7 @@ def _may_build(
     spared: Collection[str],
     quiet: bool,
     only: frozenset[str] = frozenset(),
+    decided: dict[str | None, Decision] | None = None,
 ) -> Literal["yes", "usage", "rate_limit", "idle"]:
     """The pause checks: whether this round may start builds. "usage" means the
     guard refused; "rate_limit" means the model's own pause is in force; "idle" means
@@ -1529,7 +1547,7 @@ def _may_build(
         if left_out and not startable and not planning:
             return "idle"
         accounts = _starting_accounts(inst, startable, planning=planning)
-        decision = _start_decision(accounts)
+        decision = _start_decision(accounts, decided)
         if not decision.may_start:
             state = pause_until(
                 decision.resume_at, reason=decision.reason, marker=_paused_marker(inst)
@@ -1645,7 +1663,8 @@ def run_round(
             say=log,
             say_existing=False,
         )
-    may = _may_build(inst, store, spared=spared, quiet=quiet, only=only)
+    decided: dict[str | None, Decision] = {}
+    may = _may_build(inst, store, spared=spared, quiet=quiet, only=only, decided=decided)
     if may == "rate_limit":
         _step("reconciling notifications", _reconcile_notifications, inst, store)
         units = store.all()
@@ -1821,6 +1840,19 @@ def run_round(
         | {unit.id for unit in units if unit.id in lane_waiting and unit.state == RUNNING},
         owed=owed,
     )
+    # A unit not yet started waits when its own account refuses: no worktree, branch or lease.
+    stored_by_id = {unit.id: unit for unit in units}
+    refused = {
+        unit.id
+        for unit in evaluated
+        if runtimes.active().supports_usage_tracking
+        and not stored_by_id[unit.id].branch
+        and not _account_decision(
+            claude_account.for_repo(inst.config, unit.repo), decided
+        ).may_start
+    }
+    evaluated = [unit for unit in evaluated if unit.id not in refused]
+    lane_starts = lane_starts - refused
     ready = [*resumable, *evaluated]
     for unit in evaluated:
         if unit.id in lane_starts:
@@ -1846,6 +1878,7 @@ def run_round(
             },
             only=only,
             usage_paused=False,
+            refused=refused,
         ),
     )
     return ready
@@ -6282,6 +6315,7 @@ def _waits_in(
     skipped: set[str],
     only: frozenset[str],
     usage_paused: bool,
+    refused: Collection[str] = (),
 ) -> dict[str, Wait]:
     """The reasons of `wait_reasons` from an evaluation a pass has already made: a unit
     in `skipped` is running or started, and one in `startable` is ready."""
@@ -6309,7 +6343,14 @@ def _waits_in(
             waits[unit.id] = Wait(reason=WaitReason.NEEDS_PERSON)
         elif unit.state == PLANNED:
             waits[unit.id] = _planned_wait(
-                inst, unit, view, leases, now, startable, gates, usage_paused=usage_paused
+                inst,
+                unit,
+                view,
+                leases,
+                now,
+                startable,
+                gates,
+                usage_paused=usage_paused or unit.id in refused,
             )
     return waits
 

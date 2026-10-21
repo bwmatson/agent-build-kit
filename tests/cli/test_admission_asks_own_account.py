@@ -126,7 +126,7 @@ def test_a_round_starts_the_open_accounts_units_and_none_of_the_full_ones(
     assert waits(inst) == {"two/1": WaitReason.USAGE_PAUSE, "three/1": WaitReason.USAGE_PAUSE}
     leases = Leases(lease_dir(inst.state_dir))
     for uid in ("two/1", "three/1"):
-        assert store.get(uid).branch is None
+        assert not store.get(uid).branch
         assert leases.holder(uid) is None
     assert not (tmp_path / "trees").exists()
     assert is_paused(inst.state_dir / "paused.json") is None
