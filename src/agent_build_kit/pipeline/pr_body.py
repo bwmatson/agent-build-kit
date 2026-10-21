@@ -37,6 +37,8 @@ from agent_build_kit.pipeline.units import (
     through_satisfied,
     trunk_of,
 )
+from agent_build_kit.pipeline.verdict import VerdictFacts
+from agent_build_kit.pipeline.verdict_record import VerdictEntry
 from agent_build_kit.pipeline.work_graph import TaskGroup, validate_tasks
 
 
@@ -377,6 +379,12 @@ def _once_each(points: Sequence[str]) -> list[str]:
     ]
 
 
+def verified_list(facts: VerdictFacts | None, rounds: int | None) -> str:
+    """What the pipeline itself checked, from the unit's recorded results: each one listed,
+    a result that is not recorded as not recorded."""
+    raise NotImplementedError
+
+
 def build_pr_body(
     unit: StoredUnit,
     *,
@@ -391,6 +399,9 @@ def build_pr_body(
     limit: int | None = None,
     changes_dir: Path | None = None,
     why_ceiling: int = 600,
+    facts: VerdictFacts | None = None,
+    rounds: int | None = None,
+    verdict: VerdictEntry | None = None,
 ) -> str:
     """The full description for a unit's PR."""
     if unit.e2e_state == E2eState.DEFERRED:
