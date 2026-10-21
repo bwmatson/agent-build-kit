@@ -3782,6 +3782,7 @@ def plan_all(
     """
     planned = planned_hashes(inst)
     max_attempts = inst.max_plan_attempts
+    sizing = sizing_digest()
     results: dict[str, PlanResult] = {}
     network_down = False
 
@@ -3847,7 +3848,7 @@ def plan_all(
             _set_priorities(store, _carrying_unstarted(store, change), _task_catalog(inst))
             record_plans(
                 inst,
-                {change: {"hash": digest, "sizing": sizing_digest(), "attempts": 0, "ok": True}},
+                {change: {"hash": digest, "sizing": sizing, "attempts": 0, "ok": True}},
             )
             log(f"{change}: {ALL_TAKEN}")
             results[change] = PlanResult(status="planned", recorded_only=True)
@@ -3921,7 +3922,7 @@ def plan_all(
             # once, so the change waits for that edit instead of re-asking.
             failure = {
                 "hash": digest,
-                "sizing": sizing_digest(),
+                "sizing": sizing,
                 "attempts": max_attempts,
                 "ok": False,
             }
@@ -3935,7 +3936,7 @@ def plan_all(
                 kind, fields = wait
                 record_plans(
                     inst,
-                    {change: {"hash": digest, "sizing": sizing_digest(), "ok": False, **fields}},
+                    {change: {"hash": digest, "sizing": sizing, "ok": False, **fields}},
                 )
                 if kind == "network":
                     pause_until(
@@ -3954,7 +3955,7 @@ def plan_all(
                 network_down = network_down or (kind == "network" and not force)
                 continue
             attempts = previous.get("attempts", 0) + 1
-            failure = {"hash": digest, "sizing": sizing_digest(), "attempts": attempts, "ok": False}
+            failure = {"hash": digest, "sizing": sizing, "attempts": attempts, "ok": False}
             if isinstance(error, PlannerError):
                 failure |= _refusal(error)
             else:
@@ -3998,7 +3999,7 @@ def plan_all(
                 )
             failure = {
                 "hash": digest,
-                "sizing": sizing_digest(),
+                "sizing": sizing,
                 "attempts": max_attempts,
                 "ok": False,
                 "owned": sorted({found.owner for found in error.collisions}),
@@ -4062,7 +4063,7 @@ def plan_all(
             {
                 change: {
                     "hash": digest,
-                    "sizing": sizing_digest(),
+                    "sizing": sizing,
                     "attempts": attempts_kept,
                     "ok": True,
                 }
@@ -4246,19 +4247,21 @@ def sizing_digest() -> str:
     return hashlib.sha256(json.dumps(sizing, sort_keys=True).encode()).hexdigest()
 
 
-def plan_is_stale(record: Mapping[str, Any]) -> bool:
-    """Whether a recorded plan was made under sizing other than the current one. A record with
-    no `sizing` reads as the empty digest."""
-    return record.get("sizing", "") != sizing_digest()
+def plan_is_stale(record: Mapping[str, Any], current: str | None = None) -> bool:
+    """Whether a recorded plan was made under sizing other than the current one (`current`, or
+    `sizing_digest()` when it is not given). A record with no `sizing` reads as the empty digest."""
+    return record.get("sizing", "") != (sizing_digest() if current is None else current)
 
 
 def stale_plans_line(inst: Installation) -> str | None:
     """The line that names the changes whose plan was made under other sizing and says how to
     plan them again; None when no plan is stale."""
+    records = planned_hashes(inst)
+    current = sizing_digest()
     names = [
         change
-        for change, record in planned_hashes(inst).items()
-        if record.get("ok") and plan_is_stale(record)
+        for change in (path.parent.name for path in inst.tasks_files())
+        if (record := records.get(change)) and record.get("ok") and plan_is_stale(record, current)
     ]
     if not names:
         return None

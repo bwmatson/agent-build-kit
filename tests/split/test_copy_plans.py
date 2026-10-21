@@ -10,7 +10,7 @@ from agent_build_kit.cli.report_cmd import cmd_report
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.work_graph import specification_text
 from agent_build_kit.split import scrubbing
-from agent_build_kit.split.copy import carry_out
+from agent_build_kit.split.copy import carry_out, outstanding
 from agent_build_kit.split.select import plan_split
 from tests.factories import new_unit
 from tests.split_sources import source_installation, write_change, write_units
@@ -41,7 +41,25 @@ def test_a_moved_changes_plan_record_is_written_with_a_hash_of_the_destination_t
 
     text = (destination.changes_dir / "moves" / "tasks.md").read_text()
     digest = hashlib.sha256(specification_text(text).encode()).hexdigest()
-    assert written_plans(destination) == {"moves": {"hash": digest, "attempts": 0, "ok": True}}
+    assert written_plans(destination) == {
+        "moves": {"hash": digest, "sizing": "", "attempts": 0, "ok": True}
+    }
+
+
+def test_a_moved_record_keeps_the_sizing_it_was_made_under_and_a_rerun_has_nothing_to_write(
+    tmp_path,
+):
+    source, destination = installations(tmp_path)
+    write_change(source, "moves", ["app"])
+    record_plans(
+        source, {"moves": {"hash": "h", "sizing": "its-digest", "attempts": 0, "ok": True}}
+    )
+    plan = plan_split(source, "app")
+
+    carry_out(source, destination, plan)
+
+    assert written_plans(destination)["moves"]["sizing"] == "its-digest"
+    assert not outstanding(source, destination, plan)
 
 
 def test_a_scrubbed_change_keeps_a_matching_hash(tmp_path, monkeypatch):

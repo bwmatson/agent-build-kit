@@ -82,9 +82,11 @@ def _plans_to_write(source: Installation, destination: Installation, plan: Split
     """The moved changes' plan records the destination does not already hold as they would be
     written: the hash is of the text as it is in the destination."""
     held = planned_hashes(destination)
+    recorded = planned_hashes(source)
     wanted = {
         name: {
             "hash": plan_digest(destination.changes_dir / name / "tasks.md"),
+            "sizing": recorded[name].get("sizing", ""),
             "attempts": 0,
             "ok": True,
         }

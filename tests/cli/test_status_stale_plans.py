@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,11 @@ def test_status_counts_and_names_the_stale_plans_and_is_silent_when_none_is(
     )
     activate_with(review={"enabled": True})
     UnitStore(tmp_path / "units.json").upsert([stored_unit("gamma/1", change="gamma")])
+    for change in ("alpha", "beta", "gamma"):
+        (inst.changes_dir / change).mkdir(parents=True)
+        (inst.changes_dir / change / "tasks.md").write_text("# Tasks\n")
+    (inst.changes_dir / "archive" / "2026-01-01-old").mkdir(parents=True)
+    (inst.changes_dir / "archive" / "2026-01-01-old" / "tasks.md").write_text("# Tasks\n")
     monkeypatch.setattr(cli, "current_usage", lambda: None)
     plans = tmp_path / "planned.json"
     plans.write_text(
@@ -34,6 +40,8 @@ def test_status_counts_and_names_the_stale_plans_and_is_silent_when_none_is(
                 "alpha": record("an-older-digest"),
                 "beta": record(""),
                 "gamma": record(cli.sizing_digest()),
+                "gone": record(""),
+                "2026-01-01-old": record(""),
             }
         )
     )
@@ -42,7 +50,7 @@ def test_status_counts_and_names_the_stale_plans_and_is_silent_when_none_is(
 
     out = capsys.readouterr().out
     line = next(line for line in out.splitlines() if "stale" in line)
-    assert "2" in line
+    assert re.search(r"\b2 plan\(s\) stale", line)
     assert "alpha" in line
     assert "beta" in line
     assert "gamma" not in line
