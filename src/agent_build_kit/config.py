@@ -360,7 +360,7 @@ class E2eBeforeMerge(StrEnum):
 def e2e_before_merge(repo: RepoConfig, limits: LimitsConfig) -> E2eBeforeMerge:
     """The value in effect for `repo`: its own `tests.e2e_before_merge` when set, else the
     `global_limits` one."""
-    raise NotImplementedError
+    return repo.tests.e2e_before_merge or limits.e2e_before_merge
 
 
 class E2eSchedule(StrEnum):
@@ -664,6 +664,9 @@ class LimitsConfig(TestKindSettings):
     # How much of a repo's e2e-test marker a unit's e2e-test step runs: `own` the tests its branch
     # added or changed, `full` the whole marker. A repo's `tests.e2e_unit_scope` wins.
     e2e_unit_scope: E2eUnitScope = Field(E2eUnitScope.OWN, alias="e2e_unit_scope")
+    # Whether a unit's e2e-test runs before its PR merges (`required`) or is left to verify
+    # after the merge (`deferred`). A repo's `tests.e2e_before_merge` wins.
+    e2e_before_merge: E2eBeforeMerge = Field(E2eBeforeMerge.REQUIRED, alias="e2e_before_merge")
     # How often a repo's whole e2e-test suite is due to run on its own; a repo's
     # `tests.e2e_schedule` wins.
     e2e_schedule: E2eSchedule = Field(E2eSchedule.WEEKLY, alias="e2e_schedule")
@@ -873,6 +876,8 @@ class TestsConfig(TestKindSettings):
     e2e_marker: str = Field("local_stack", alias="e2e_marker")
     # This repo's e2e-test scope; None follows `global_limits.e2e_unit_scope`.
     e2e_unit_scope: E2eUnitScope | None = Field(None, alias="e2e_unit_scope")
+    # This repo's e2e-before-merge choice; None follows `global_limits.e2e_before_merge`.
+    e2e_before_merge: E2eBeforeMerge | None = Field(None, alias="e2e_before_merge")
     # This repo's schedule; None follows `limits.e2e_schedule`.
     e2e_schedule: E2eSchedule | None = Field(None, alias="e2e_schedule")
     e2e_schedule_off = field_validator("e2e_schedule", mode="before")(_unquoted_off)

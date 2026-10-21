@@ -204,6 +204,11 @@ def _block(key: str, value: object, indent: str, note: str = "") -> list[str]:
 
 # The `review` section as a fresh abk.yaml shows it: off, with every default, commented out.
 REVIEW_BLOCK = """
+# e2e-test before the merge (see docs/configuration.md): required runs it before the PR
+# merges; deferred leaves it to verify after the merge. A repo's tests block can override.
+# global_limits:
+#   e2e_before_merge: required
+
 # The review policy (see docs/configuration.md). Only a person edits it; uncomment to use it.
 # review:
 #   enabled: false
