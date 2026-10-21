@@ -226,6 +226,15 @@ class Decision(Frozen):
     # When the session window of the reading behind an allowance resets: where a caller
     # that wants a time to look again at falls back to when the decision names none.
     resets_at: datetime | None = None
+    # What the decision was made on, for the admission record: the reading's source and age,
+    # the threshold and ramp value used, and whether it was a start on an estimate (and how
+    # many starts have been made on that estimate).
+    source: str = ""
+    age_seconds: float | None = None
+    threshold: float | None = None
+    ramp: float | None = None
+    estimate: bool = False
+    estimate_starts: int = 0
 
     @property
     def resume_after_seconds(self) -> float:
