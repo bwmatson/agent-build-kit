@@ -85,7 +85,9 @@
   twice and a marker the runner does not register. A scheduled split whose tests all need
   an unavailable value is skipped with "nothing runnable: needs <dimension>=<value>"
   instead of failing, and `abk e2e-test status` and `abk doctor` list each dimension with
-  the values this machine has.
+  the values this machine has. A `telemetry_local` marker is registered, the writing
+  convention for live tests (one parametrized test across the values) is documented, and a
+  drift test refuses two of the kit's live tests that differ in name only by a value.
 
 - The build can commit per task group behind `builders.per_group_commits` (off by default):
   each group gets a `test:` commit of stubs and tests, checked for lint, format and types

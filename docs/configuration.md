@@ -854,6 +854,43 @@ repos:
 - The three runtime lists this setting replaces are gone, with no alias, and are refused at
   load with a pointer to the split setting that replaces each (`tests.e2e_splits`).
 
+### `tests.e2e_dimensions` and `tests.e2e_available`
+
+A split divides tests by time and cost; a dimension says what a test needs. `tests.e2e_dimensions`
+(top level, or under a repo's own `tests`, which replaces it for that repo) declares groups of
+values, each value with a pytest marker, and `tests.e2e_available` lists the values a machine has.
+
+```yaml
+tests:
+  e2e_dimensions:
+    runtime:
+      claude_code: {marker: runtime_claude_code}
+      acp: {marker: runtime_acp}
+    telemetry:
+      otel: {marker: telemetry_otel}
+      local: {marker: telemetry_local}
+  e2e_available:
+    telemetry: [local]      # this machine has no telemetry stack
+```
+
+- A test carries at most one value of each dimension (its own marks, its class's, its module's
+  and a parameter's); a test with none in a dimension is neutral to it. `abk e2e-test check`
+  finds a test with two values of one dimension.
+- A marker belongs to one value or split only, and `e2e_available` may name only declared
+  dimensions and values; both are refused when the file loads.
+- `e2e_available` sits in the committed file or in the machine-local overlay `abk.local.yaml`, which
+  is merged key by key. A dimension with no entry has every value.
+- A run leaves out every test carrying the marker of an unavailable value, whatever the holds
+  and for a single split too. A scheduled split with nothing runnable is skipped with
+  "nothing runnable: needs <dimension>=<value>", fails nothing and parks no unit. A test whose
+  value is available but whose dependency is down still fails.
+- `abk e2e-test status` and `abk doctor` show each dimension, its values and which are available.
+
+Writing convention: a live test that works across a dimension's values is one parametrized test
+with a name that holds no value, the value appearing in the parameter id. No two live tests
+differ in name only by a value; the drift test says "merge into one parametrized test". A
+value-neutral name holds a value token only when it is the only test carrying that value.
+
 ## Environment variables and `.env`
 
 `settings.py` reads these with pydantic-settings: from the process
