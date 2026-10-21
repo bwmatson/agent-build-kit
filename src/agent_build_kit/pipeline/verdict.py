@@ -13,6 +13,11 @@ class ReviewTier(StrEnum):
     LIGHT = "light"
     FULL = "full"
 
+    @classmethod
+    def parse(cls, value: str | None) -> ReviewTier | None:
+        """The tier a stored word names, or None for none or a word that is no tier."""
+        return next((t for t in cls if t.value == value), None)
+
 
 class GateResult(StrEnum):
     """What is recorded of a gate: a result that passed or failed, none yet, or one that runs

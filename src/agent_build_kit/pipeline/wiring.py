@@ -131,11 +131,11 @@ from agent_build_kit.pipeline.restack import (
 )
 from agent_build_kit.pipeline.run_log import append_e2e_output, e2e_output_dir
 from agent_build_kit.pipeline.scratch import run_folder, selection_seed
-from agent_build_kit.pipeline.shell import git, git_out, has_origin, porcelain
+from agent_build_kit.pipeline.shell import changed_files, git, git_out, has_origin, porcelain
 from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner, Worktree
 from agent_build_kit.pipeline.transcript import Transcript, transcript_dir
 from agent_build_kit.pipeline.ui_review import ui_notes_of, ui_reply_writer, unit_patch_of
-from agent_build_kit.pipeline.unit_size import actual_lines, over_ceiling
+from agent_build_kit.pipeline.unit_size import actual_lines, branch_diff, over_ceiling
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     BUILDS_NOTHING,
@@ -954,11 +954,6 @@ def branch_commits(repo: Path, base: str, head: str = "HEAD") -> int:
     return int(git_out(repo, "rev-list", "--count", f"{base}..{head}"))
 
 
-def _changed_files(repo: Path, base: str) -> list[str]:
-    result = git(repo, "diff", "--name-only", f"{base}...HEAD", check=False)
-    return [line for line in result.stdout.splitlines() if line.strip()]
-
-
 def build_unit_test(
     *,
     run: Run | None = None,
@@ -1003,7 +998,7 @@ def build_unit_test(
     that make a unit satisfied are the repo's real unit-test, not an empty scope.
     """
     run = run or _run_limited
-    changed = changed or _changed_files
+    changed = changed or changed_files
     profile = profile or profiles.get("python-uv")
     affected = (
         repo.checks.affected if repo is not None and repo.checks.affected.mode != "off" else None
@@ -2967,7 +2962,7 @@ class E2eSession:
         """
         if self.result is None or base is None or self._on_dev_stack:
             return E2eClassification()
-        changed = set(_changed_files(cwd, base))
+        changed = set(changed_files(cwd, base))
         own: list[TestFailure] = []
         untouched: list[TestFailure] = []
         for failure in self.result.failures:
@@ -3813,6 +3808,7 @@ def build_runner(
         ),
         base_moved=build_base_moved(store),
         base_tip=tip,
+        branch_diff=branch_diff,
         restack_onto=build_restack_onto(store, repo=repo, turn=unit_repo_turn),
         run_unit_test=build_unit_test(
             profile=profile,

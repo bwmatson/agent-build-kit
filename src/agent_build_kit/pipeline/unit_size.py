@@ -7,13 +7,14 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 from fnmatch import fnmatchcase
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from statistics import median
 
 from agent_build_kit.compat_names import TestKind
 from agent_build_kit.config import active
 from agent_build_kit.forges import FileChange
 from agent_build_kit.model import Frozen, pooled_kind
+from agent_build_kit.pipeline.shell import changed_files, git
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import MERGED
 
@@ -32,6 +33,24 @@ def actual_lines(changes: Iterable[FileChange]) -> int:
         for change in changes
         if not is_generated(change.path, patterns)
     )
+
+
+def changed_lines(repo: Path, base: str) -> int:
+    """Additions plus deletions the checked-out branch makes against `base`, less generated
+    files (a binary file counts none)."""
+    result = git(repo, "diff", "--numstat", f"{base}...HEAD", check=False)
+    changes = []
+    for line in result.stdout.splitlines():
+        added, _, rest = line.partition("\t")
+        deleted, _, path = rest.partition("\t")
+        if added.isdigit() and deleted.isdigit():
+            changes.append(FileChange(path=path, additions=int(added), deletions=int(deleted)))
+    return actual_lines(changes)
+
+
+def branch_diff(repo: Path, base: str) -> tuple[tuple[str, ...], int]:
+    """The paths the checked-out branch changes against `base`, and its changed lines."""
+    return tuple(changed_files(repo, base)), changed_lines(repo, base)
 
 
 def over_ceiling(lines: int | None) -> bool:

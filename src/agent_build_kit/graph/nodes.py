@@ -63,6 +63,8 @@ from agent_build_kit.pipeline.outside_commits import outside_commits_note
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
 from agent_build_kit.pipeline.pr_replies import parse_answer
 from agent_build_kit.pipeline.restack import RESOLVER_TOOLS, BranchMoved, HostMoved
+from agent_build_kit.pipeline.review_classes import class_of
+from agent_build_kit.pipeline.review_paths import is_protected
 from agent_build_kit.pipeline.run_log import RunLog
 from agent_build_kit.pipeline.stack_runner import (
     ADAPT_CONTINUATION,
@@ -92,6 +94,7 @@ from agent_build_kit.pipeline.stack_runner import (
     RunStatus,
     UnitOutcome,
     UnitRunner,
+    Weighed,
     check_test_decisions,
     escalates,
     parse_test_decisions,
@@ -127,6 +130,8 @@ from agent_build_kit.pipeline.usage_guard import ask_before_call, starting
 from agent_build_kit.pipeline.usage_ledger import (
     session_cumulative,
 )
+from agent_build_kit.pipeline.verdict import GateResult, ReviewTier, VerdictFacts
+from agent_build_kit.pipeline.verdict_record import VERDICTS, record_verdict
 from agent_build_kit.pipeline.workspaces import DirtyWorktree
 from agent_build_kit.profiles.base import stubbed_build
 from agent_build_kit.redaction import redact_text
@@ -1620,6 +1625,7 @@ class BuildPath:
             r.run_review if first else r.run_rework_review, cwd=tree, state=state, **context
         )
         weighed = r.weigh_review(unit, raw, judged=judged, rounds=rounds)
+        self.record_round(round_number if zero else round_number + 1, weighed, state)
         update: Update = {
             "review_round": round_number if zero else round_number + 1,
             "adopted": False,
@@ -1690,6 +1696,44 @@ class BuildPath:
             # The last round's review is the verdict: a rework after it would never be reviewed.
             return {**update, "spent": True}
         return {**update, "verdict": Verdict.CHANGES, "fix_rounds": 0}
+
+    def record_round(self, number: int, weighed: Weighed, state: UnitRun) -> None:
+        """Record the verdict of a review round. It only records: a failure is logged and the
+        unit goes on."""
+        if not active().review.enabled:
+            return
+        r, unit = self.runner, self.unit
+        try:
+            kind = unit.tier
+            tree, base = self.tree(), self.ref(state)
+            paths, lines = r.branch_diff(tree, base)
+            facts = VerdictFacts(
+                kind=kind,
+                planned_estimate=ReviewTier.parse(unit.review_tier),
+                red_first=GateResult.PASSED,
+                unit_test=GateResult.PASSED,
+                e2e_test=GateResult.PENDING if kind is TestTier.E2E_TEST else GateResult.PASSED,
+                classification=ReviewTier.parse(weighed.verdict.classification),
+                protected_paths=tuple(p for p in paths if is_protected(active(), unit.repo, p)),
+                flags=tuple(step.flag for step in r.group_steps(unit) if step.flag),
+                open_required_findings=weighed.open_required,
+                final=weighed.approved,
+            )
+            record_verdict(
+                r.store.path.with_name(VERDICTS),
+                unit=unit.id,
+                change=unit.change,
+                round=number,
+                unit_class=class_of(active(), unit.repo, kind, paths),
+                repo=unit.repo,
+                facts=facts,
+                drivers=weighed.verdict.drivers,
+                paths=paths,
+                lines=lines,
+                policy=active().review.auto_land,
+            )
+        except Exception as error:
+            r.log(f"verdict for {unit.id} not recorded: {error}")
 
     def rework(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit

@@ -59,6 +59,8 @@ class Recorder:
         self.unit_test_failed_outputs: list[str] = []
         self.unit_test_moved_from: list[str | None] = []
         self.made = 0
+        self.changed: tuple[str, ...] = ("src/app.py",)  # what the fake build committed
+        self.changed_lines = 40
         self.subjects: list[str] = []  # the subject of each commit made, oldest first
         self.messages: list[str] = []  # the whole message of each: subject, blank line, body
         self.remote: list[str] = []  # every distinct head the remote has been given
@@ -118,6 +120,9 @@ class Recorder:
 
     def branch_commits(self, cwd: Path, base: str) -> int:
         return self.made
+
+    def branch_diff(self, cwd: Path, base: str) -> tuple[tuple[str, ...], int]:
+        return self.changed, self.changed_lines
 
     def branch_subjects(self, cwd: Path, base: str) -> list[str]:
         return list(self.subjects)
@@ -200,6 +205,7 @@ def make_runner(
         commit=recorder.commit,
         branch_commits=recorder.branch_commits,
         branch_subjects=recorder.branch_subjects,
+        branch_diff=recorder.branch_diff,
         base_tip=lambda tree, ref: ref,  # every base resolves, as `wiring.tip` finds one that does
         head=recorder.head,
         upstream_incomplete=lambda u: None,

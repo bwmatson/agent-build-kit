@@ -232,6 +232,7 @@ class GroupStep(Frozen):
     number: int
     title: str
     goal: str = ""  # the group's "Done when" sentence, "" when it has none
+    flag: str = ""  # the group's flag, "" when it has none or its heading cannot be read
 
 
 class WriteTestsTemplate(PromptTemplate):
@@ -1422,6 +1423,8 @@ class Weighed(Frozen):
     deferred: tuple[str, ...] = ()
     # This round's findings as shown (numbered, optional ones capped), approved or not.
     findings: tuple[dict, ...] = ()
+    # Required findings this round leaves open: its own, and earlier ones not resolved.
+    open_required: int = 0
 
 
 class Comment(Frozen):
@@ -1478,6 +1481,9 @@ class UnitRunner(BaseModel):
     # (`base_tip`). See `wiring.build_base_moved`.
     base_moved: Callable[..., tuple[Cause, str] | None] = lambda unit, base, **kwargs: None
     base_tip: Callable[[Path, str], str] = lambda tree, ref: ""
+    # The paths the branch changes against a base, and the lines it changes there less
+    # generated files; what a review round's verdict is recorded over.
+    branch_diff: Callable[[Path, str], tuple[tuple[str, ...], int]] = lambda tree, base: ((), 0)
     # Called with `resolve=False` before a push: then a conflict is reported as
     # `Restacked.conflict` with the branch left where it was, and no agent runs.
     restack_onto: Callable[..., Restacked | None]
@@ -1715,6 +1721,7 @@ class UnitRunner(BaseModel):
             earlier_rounds=answered,
             rounds=(*answered, recorded),
             findings=tuple(f.model_dump() for f in kept),
+            open_required=len(open_ids) + sum(f.required for f in verdict.findings),
         )
 
     def change_dir(self, change: str) -> str:
@@ -1756,6 +1763,7 @@ class UnitRunner(BaseModel):
                     number=number,
                     title=found[number].title if number in found else unit.title,
                     goal=found[number].goal if number in found else "",
+                    flag=found[number].flag if number in found else "",
                 )
                 for number in member.groups
             )
