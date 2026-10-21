@@ -161,7 +161,9 @@ def compute_verdict(
     return TierVerdict(tier=tier, evidence_tier=evidence_tier, reason=reason, split=split)
 
 
-_GROUP_DRIVER = re.compile(r"group\s+(\d+)", re.IGNORECASE)
+# A driver that starts with a group number, written plainly or as "group 3" or "task group 3";
+# whatever follows the number is ignored.
+_GROUP_DRIVER = re.compile(r"(?:task\s+)?(?:groups?\s+)?(\d+)\b", re.IGNORECASE)
 
 
 def _size_step(
@@ -188,11 +190,12 @@ def _driver_groups(facts: VerdictFacts) -> tuple[int, ...]:
     each in group order; a driver matching no group of the unit is dropped."""
     named: set[int] = set()
     for driver in facts.drivers:
-        match = _GROUP_DRIVER.fullmatch(driver.strip())
+        match = _GROUP_DRIVER.match(driver.strip())
         if match:
             named.add(int(match.group(1)))
         else:
-            named.update(g.number for g in facts.groups if driver.strip() in g.text)
+            path = re.compile(r"(?<![^\s`])" + re.escape(driver.strip()) + r"(?![^\s`])")
+            named.update(g.number for g in facts.groups if path.search(g.text))
     return tuple(sorted(g.number for g in facts.groups if g.number in named))
 
 

@@ -7,7 +7,8 @@ import subprocess
 
 import pytest
 
-from agent_build_kit.config import CeilingsConfig
+from agent_build_kit import config as config_module
+from agent_build_kit.config import CeilingsConfig, ceilings_in_effect
 from agent_build_kit.pipeline.verdict import (
     GroupText,
     ReviewTier,
@@ -16,6 +17,7 @@ from agent_build_kit.pipeline.verdict import (
     VerdictFacts,
     compute_verdict,
 )
+from tests.tier_ceiling_support import configure
 from tests.verdict_support import green_facts
 
 AUTO, LIGHT, FULL = ReviewTier.AUTO, ReviewTier.LIGHT, ReviewTier.FULL
@@ -84,7 +86,8 @@ def test_a_unit_planned_and_earning_light_at_2500_is_held_with_no_drivers() -> N
 
 
 def test_a_repos_override_is_the_ceiling_used() -> None:
-    roomy = CeilingsConfig(auto=5000, light=2000, full=1000)
+    configure(enabled=True, repo_ceilings={"full": 1000})
+    roomy = ceilings_in_effect(config_module.active().repos["app"], config_module.active())
 
     assert verdict(sized(1100, AUTO, FULL), roomy).split is None
     held = verdict(sized(1300, AUTO, FULL), roomy)
