@@ -5731,6 +5731,10 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
         )
         return 2
 
+    if args.dry_run and args.forget:
+        print("abk replan: --dry-run and --forget cannot be used together")
+        return 2
+
     selected: dict[str, None] = {}
     refused = 0
     verb = "reporting" if args.report else "previewing" if args.dry_run else "planning"
@@ -5887,6 +5891,16 @@ def _print_replan_dry_run(
             if unit.change == change and unit.state == UNPLANNED and old and old.state != UNPLANNED:
                 groups = ", ".join(str(n) for n in old.groups)
                 print(f"{unit.id}: would become unplanned (groups {groups})")
+        for unit in after.values():
+            old = before.get(unit.id)
+            if unit.change == change and unit.state not in (PLANNED, UNPLANNED, *BUILDS_NOTHING):
+                print(f"{unit.id}: kept, {unit.state.value}; not replanned")
+            elif old and old.state == unit.state == PLANNED:
+                if old.estimated_lines != unit.estimated_lines:
+                    print(
+                        f"{unit.id}: would take in a join, {old.estimated_lines} lines before,"
+                        f" {unit.estimated_lines} after"
+                    )
     return 1 if refused or failed else 0
 
 

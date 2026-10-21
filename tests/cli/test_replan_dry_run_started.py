@@ -45,7 +45,6 @@ def test_a_join_is_printed_with_the_unit_it_is_added_to_and_the_estimate_before_
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run = Replan(tmp_path, monkeypatch, feature=tasks_md(1), other=tasks_md(2))
-    enable_review(run)
     run.store.upsert([stored_unit("feature/1", change="feature", groups=(1,), estimated_lines=100)])
     run.record("feature")
     run.record("other")
