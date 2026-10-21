@@ -85,6 +85,11 @@ name a protected path (a migration, a CI or container definition, a secrets file
 ownership file or a path the installation protects), is `full` at least; a lower value is
 refused. Leave `review_tier` out and the unit takes that floor.
 
+Keep a group you expect to get full review in a unit with only such groups, and never put
+ordinary work in a unit with one, because a person must read a full-review unit in full,
+and work that did not need it would be held up and made larger to read. A plan that mixes
+them is refused.
+
 """
 
 # The old tag of each kind, which the prompt says a group may still carry.
@@ -233,6 +238,8 @@ def parse_plan(
             carried = {number for join in joins if not join.unit for number in join.groups}
             _check_groups(units, groups, built or set(), carried)
             check_flagged_groups(units, groups)
+            if active().review.enabled:
+                _check_full_separation(units, groups, tasks)
         _check_ceiling(units, groups, calibrations, unnamed)
         if joins:
             if context is None:
@@ -588,6 +595,29 @@ def check_flagged_groups(units: list[Unit], groups: list[TaskGroup]) -> None:
     """The acceptance and independence checks of a plan, for a caller that changed its edges."""
     _check_acceptance(units, groups)
     _check_independent(units, groups)
+
+
+def _check_full_separation(units: list[Unit], groups: list[TaskGroup], tasks: str) -> None:
+    """A unit holding a group whose floor is `full` holds only such groups."""
+    by_number = {group.number: group for group in groups}
+    for unit in units:
+        floors = {
+            n: _group_floor(by_number[n], unit.repo, tasks)[0]
+            for n in unit.groups
+            if n in by_number
+        }
+        full = sorted(n for n, tier in floors.items() if tier == "full")
+        lower = sorted(n for n, tier in floors.items() if tier != "full")
+        if full and lower:
+            raise PlannerError(
+                f"unit {unit.id} puts {_groups_text(full)}, whose floor is `full`, with "
+                f"{_groups_text(lower)}, whose floor is lower — a group that needs full review "
+                "is a unit of its own or with others that do"
+            )
+
+
+def _groups_text(numbers: Sequence[int]) -> str:
+    return " and ".join(f"group {n}" for n in numbers)
 
 
 def _check_acceptance(units: list[Unit], groups: list[TaskGroup]) -> None:

@@ -31,6 +31,8 @@
   still held to `max_unit_lines`. The planner is told each tier's ceiling (and a repo's
   override), its calibration figures are worked out from them, and a pull request's size is
   compared with its unit's tier ceiling in the log and in `abk status`.
+  With `review.enabled` on, a plan that puts a group whose floor is `full` in a unit with a group
+  whose floor is lower is refused, and the planner is told to keep such groups apart.
 
 - A unit's review tier now has a deterministic verdict function over the plan's floors (the
   planned estimate, protected paths and `contract`, `narrow` or `acceptance` flags) and over the
