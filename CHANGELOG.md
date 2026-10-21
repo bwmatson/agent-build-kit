@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- With `e2e_before_merge: deferred` for a repo, its e2e-test units skip the e2e-test step before
+  merge, and again when their base moves, and record their e2e state as `deferred`; scheduled
+  whole-suite runs are unaffected.
+
 - The `review` section accepts `ceilings` (`auto` 5000, `light` 2000, `full` 750 changed lines), checked
   for order and against `min_unit_lines` when the configuration loads. A repo's `review` block may
   override any tier; an override that breaks the order or the floor is refused, naming the repo.

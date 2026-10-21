@@ -14,7 +14,7 @@ from tests.conftest import make_installation
 from tests.factories import unit
 from tests.graph.test_build_path import build, restacked
 from tests.graph.test_fresh_base_builds import Moving
-from tests.graph_driver import fresh
+from tests.graph.test_remaining_paths import fresh
 from tests.runner_fakes import Recorder
 from tests.scheduled_e2e_fakes import ScheduledRun
 

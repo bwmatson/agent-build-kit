@@ -386,6 +386,12 @@ class E2eBeforeMerge(StrEnum):
     DEFERRED = "deferred"
 
 
+def e2e_before_merge(repo: RepoConfig, limits: LimitsConfig) -> E2eBeforeMerge:
+    """The value in effect for `repo`: its own `tests.e2e_before_merge` when set, else the
+    `global_limits` one."""
+    return repo.tests.e2e_before_merge or limits.e2e_before_merge
+
+
 class E2eSchedule(StrEnum):
     """How often a repo's whole e2e-test suite is due to run on its own."""
 

@@ -1262,6 +1262,11 @@ class UnitStore:
             unit_id, conflict_tip="", conflict_head="", conflict_attempts=0, conflict_at=None
         )
 
+    def record_e2e_state(self, unit_id: str, state: E2eState | None) -> None:
+        """That the unit's e2e-test step ended as `state`; None clears it, as a new head's
+        state is not yet known."""
+        self._update(unit_id, e2e_state=state)
+
     def record_push(self, unit_id: str, sha: str) -> None:
         """Remember what we published, so the next push can lease against it.
 
