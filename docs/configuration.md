@@ -325,6 +325,7 @@ global_limits:
   restack_check: affected           # unit-test after a clean move: scoped by the files the move brought in (affected) or the whole suite (full); a scoped move runs the unit's own tests and the profile's selection, and the profile selects only where `checks.affected` records data
   e2e_base_runs: 1                  # run the untouched failed e2e-test tests once on the base (0: off)
   e2e_unit_scope: own               # e2e-test per unit: only the tests it added or changed (own) or the whole marker (full); tests.e2e_unit_scope overrides per repo
+  e2e_before_merge: required        # required | deferred: run e2e-test before the PR merges, or leave it to verify after the merge (a live-stack failure is then found after the merge, covered only by what verify runs); tests.e2e_before_merge overrides per repo
   e2e_schedule: weekly              # whole e2e-test suite on the default branch: daily | weekly | monthly | 'off' (quote it); tests.e2e_schedule overrides per repo
   e2e_lock_wait_seconds: 5400       # longest post-merge verification waits for the e2e-test lock before reporting it busy
   e2e_durations_shown: 15           # slowest e2e-test test entries the posted result lists (0 = all)
@@ -428,6 +429,7 @@ repos:                          # ordered: deploy order is derived from
                                 # node project a file-name segment instead:
                                 # `<name>.local_stack.test.ts`
       e2e_unit_scope: null      # own | full for this repo; null follows limits
+      e2e_before_merge: null    # required | deferred for this repo; null follows limits
       e2e_schedule: null        # daily | weekly | monthly | 'off' for this repo; null follows limits
       dev_stack_marker: dev_stack
                                 # the marker on e2e-test tests only the dev stack

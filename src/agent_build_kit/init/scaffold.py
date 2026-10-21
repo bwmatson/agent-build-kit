@@ -214,9 +214,30 @@ REVIEW_BLOCK = """
 """
 
 
+# The note and commented default of `global_limits.e2e_before_merge`.
+E2E_BEFORE_MERGE_NOTE = (
+    "e2e-test before the merge (see docs/configuration.md): required runs it before the PR",
+    "merges; deferred leaves it to verify after the merge. A repo's tests block can override.",
+)
+
+
+def with_e2e_before_merge(lines: list[str]) -> list[str]:
+    """`lines` with the commented `e2e_before_merge` default inside the dumped `global_limits`
+    section as its child, or under a commented `global_limits:` header when the dump has none,
+    so the file never holds two `global_limits` keys."""
+    at = key_line(lines, "global_limits", top=True)
+    notes = [f"# {line}\n" for line in E2E_BEFORE_MERGE_NOTE]
+    if at is None:
+        return [*lines, "\n", *notes, "# global_limits:\n", "#   e2e_before_merge: required\n"]
+    indent = child_indent(lines, at, 0)
+    end = block_end(lines, at, lambda line: indent_of(line) > 0)
+    added = [f"{indent}{line}" for line in notes] + [f"{indent}# e2e_before_merge: required\n"]
+    return [*lines[:end], *added, *lines[end:]]
+
+
 def dump_with_notes(config: WorkspaceConfig) -> str:
-    """`dump(config)` with each drafted environment's note as comments above its section, and
-    the commented `review` block at the end."""
+    """`dump(config)` with each drafted environment's note as comments above its section, the
+    commented `e2e_before_merge` default, and the commented `review` block at the end."""
     lines = dump(config).splitlines(keepends=True)
     sections = [(None, config.environment)] + [(n, r.environment) for n, r in config.repos.items()]
     for name, environment in reversed(sections):
@@ -237,7 +258,7 @@ def dump_with_notes(config: WorkspaceConfig) -> str:
             continue
         indent = lines[found][: indent_of(lines[found])]
         lines[found:found] = [f"{indent}# {line}\n" for line in note.splitlines()]
-    return "".join(lines) + REVIEW_BLOCK
+    return "".join(with_e2e_before_merge(lines)) + REVIEW_BLOCK
 
 
 def child_indent(lines: list[str], at: int, parent: int) -> str:
