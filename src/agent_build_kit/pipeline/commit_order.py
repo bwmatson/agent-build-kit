@@ -148,21 +148,26 @@ def branch_subjects(repo: Path, base: str) -> list[str]:
 class GroupProgress(Frozen):
     """How far a stubbed build's branch has got through the unit's groups."""
 
-    done: int  # groups whose tests and implementation commits are both there
+    done: int  # groups done: each has its pair, or for a test-only group its tests commit
     tests_made: bool  # the next group's tests commit is there, its implementation not
 
 
-def group_progress(subjects: list[str], titles: Sequence[str]) -> GroupProgress:
+def group_progress(
+    subjects: list[str], titles: Sequence[str], test_only: Sequence[bool] = ()
+) -> GroupProgress:
     """Walk the groups in the unit's order, each taking a `test:` then a `feat:` commit with
-    its title from the front of `subjects` (oldest first). The position in the unit, not the
-    title, tells groups apart, so two groups with one title are told apart. A branch that does
-    not begin with the first group's tests has made no progress."""
+    its title from the front of `subjects` (oldest first); a group flagged in `test_only`
+    (by position, like `titles`) takes its `test:` commit alone. The position in the unit, not
+    the title, tells groups apart, so two groups with one title are told apart. A branch that
+    does not begin with the first group's tests has made no progress."""
     position = 0
     for done, title in enumerate(titles):
         tests = position < len(subjects) and subjects[position] == f"{TESTS_PREFIX}{title}"
         if not tests:
             return GroupProgress(done=done, tests_made=False)
         position += 1
+        if done < len(test_only) and test_only[done]:
+            continue
         if position >= len(subjects) or subjects[position] != f"{CODE_PREFIX}{title}":
             return GroupProgress(done=done, tests_made=True)
         position += 1

@@ -83,6 +83,7 @@ from agent_build_kit.pipeline.stack_runner import (
     REWORK_PROMPT,
     STUB_CHECKS_PROMPT,
     STUBBED_TESTS_FINISH,
+    TEST_ONLY_TESTS_FINISH,
     TESTS_FINISH,
     TESTS_PROMPT,
     TRIED_NOTE,
@@ -1086,7 +1087,9 @@ class BuildPath:
             return {}
         steps = self.runner.group_steps(self.unit)
         progress = group_progress(
-            self.runner.branch_subjects(self.tree(), ref), [s.title for s in steps]
+            self.runner.branch_subjects(self.tree(), ref),
+            [s.title for s in steps],
+            [s.test_only for s in steps],
         )
         if progress.done == len(steps) or not (progress.done or progress.tests_made):
             return {}  # finished, or not begun by this build: the path is the finished branch's
@@ -1319,7 +1322,7 @@ class BuildPath:
                 change_dir=change_dir,
                 boundary=build_boundary,
                 changelog=changelog_note(tree, r.repo_config),
-                finish=STUBBED_TESTS_FINISH if stubbed else TESTS_FINISH,
+                finish=self.tests_finish(state, stubbed=stubbed),
             )
             if note := r.follow_ups_note(unit):
                 prompt = f"{note}\n\n{prompt}"
@@ -1329,6 +1332,14 @@ class BuildPath:
                 return {"head": r.head(tree), "stub_loop": True}
             r.commit(self.message(TESTS_PREFIX, TESTS_BODY, state), cwd=tree, base=self.ref(state))
         return {"head": r.head(tree), "stub_loop": False}
+
+    def tests_finish(self, state: UnitRun, *, stubbed: bool) -> str:
+        """How the tests prompt ends; for a test-only group it says the group builds no
+        implementation."""
+        step = self.group_step(state)
+        if step is not None and step.test_only:
+            return TEST_ONLY_TESTS_FINISH
+        return STUBBED_TESTS_FINISH if stubbed else TESTS_FINISH
 
     def stub_checks(self, state: UnitRun) -> Update:
         """Lint, format and types over what the test agent wrote, no test run; the tests commit
@@ -1340,8 +1351,22 @@ class BuildPath:
         if ok:
             if state.stub_rounds:
                 r.store.set_feedback(unit.id, "")
-            r.commit(self.message(TESTS_PREFIX, TESTS_BODY, state), cwd=tree, base=self.ref(state))
-            return {"head": r.head(tree), "stub_loop": False, "stub_rounds": 0}
+            ref = self.ref(state)
+            r.commit(self.message(TESTS_PREFIX, TESTS_BODY, state), cwd=tree, base=ref)
+            done: Update = {"head": r.head(tree), "stub_loop": False, "stub_rounds": 0}
+            step = self.group_step(state)
+            if step is None or not step.test_only:
+                return {**done, "test_only_done": False}
+            # A test-only group's lone tests commit satisfies it: no implementation follows.
+            settled = self.settle_group(state, ref)
+            if "stopped" in settled:
+                return settled
+            return {
+                **done,
+                **settled,
+                "test_only_done": True,
+                "produced_nothing": r.branch_commits(tree, ref) == 0,
+            }
         self.say(output)
         # Kept before anything can stop the run, so a retry addresses this output.
         r.store.set_feedback(unit.id, output, source=FeedbackSource.STUB_CHECKS)
@@ -1407,14 +1432,34 @@ class BuildPath:
         return f"{prefix}{step.title}\n\n" + "\n\n".join(filter(None, (body, step.goal)))
 
     def unpaired(self, state: UnitRun, ref: str) -> str:
-        """The group just built, named, when the branch does not hold a pair for it and every
-        group before it; "" when it does."""
+        """What the branch lacks for the group just built or an earlier one, named: a tests
+        and implementation pair, or a tests commit for a test-only group; "" when it lacks none."""
         steps = self.runner.group_steps(self.unit)
         subjects = self.runner.branch_subjects(self.tree(), ref)
-        if group_progress(subjects, [s.title for s in steps]).done > state.group:
+        done = group_progress(subjects, [s.title for s in steps], [s.test_only for s in steps]).done
+        if done > state.group:
             return ""
-        step = steps[state.group]
-        return f"group {step.number} ({step.title})"
+        step = steps[done]
+        if step.test_only:
+            return f"tests commit for group {step.number} ({step.title})"
+        return f"tests and implementation pair for group {step.number} ({step.title})"
+
+    def settle_group(self, state: UnitRun, ref: str) -> Update:
+        """The update for the group just built: a stop when the branch holds no pair for it
+        and every group before it, else the next group's turn, with the person's note cleared
+        after the last."""
+        r, unit = self.runner, self.unit
+        if missing := self.unpaired(state, ref):
+            # After every group, so a later group's tests are never written over a gap.
+            return self.stop(f"the branch holds no {missing}")
+        more = state.group + 1 < len(r.group_steps(unit))
+        kept: Update = {"group": state.group + 1, "more_groups": more}
+        if not more:
+            # Kept until the last group, so every group's prompts carry the note.
+            note = r.store.get(unit.id).guidance
+            r.store.set_guidance(unit.id, "")
+            kept["guidance_asked"] = guidance_asked(state, note)
+        return kept
 
     def stubbed(self) -> bool:
         """Whether this unit is built stubbed: the setting is on and its profile supports stubs."""
@@ -1453,18 +1498,14 @@ class BuildPath:
                 ),
             )
             r.commit(self.message(CODE_PREFIX, CODE_BODY, state), cwd=tree, base=self.ref(state))
-            more = self.group_step(state) is not None and state.group + 1 < len(r.group_steps(unit))
-            if self.group_step(state) is not None and (missing := self.unpaired(state, ref)):
-                # After every group, so a later group's tests are never written over a gap.
-                return self.stop(f"the branch holds no tests and implementation pair for {missing}")
-            if not more:
-                # Kept until the last group, so every group's prompts carry the note.
+            if self.group_step(state) is None:
                 r.store.set_guidance(unit.id, "")
                 kept["guidance_asked"] = guidance_asked(state, guidance)
         if self.group_step(state) is not None:
             # A group's pair is done: the next group's tests come before the checks.
-            kept["group"] = state.group + 1
-            kept["more_groups"] = state.group + 1 < len(r.group_steps(unit))
+            kept = self.settle_group(state, ref)
+            if "stopped" in kept:
+                return kept
         # Counted on the branch, not taken from the commit step: an agent that
         # commits its own work leaves the pipeline nothing to commit.
         return {
@@ -2519,6 +2560,7 @@ class BuildPath:
             "stub_loop": False,
             "group": 0,
             "more_groups": False,
+            "test_only_done": False,
             "held": "",
             "hold_state": "",
             "hold_note": "",
@@ -2624,7 +2666,12 @@ def after_tests(state: UnitRun) -> Node:
 
 
 def after_stub_checks(state: UnitRun) -> Node:
-    return halted(state) or (Node.FIX_STUB_CHECKS if state.stub_loop else Node.IMPLEMENT)
+    if stop := halted(state):
+        return stop
+    if state.stub_loop:
+        return Node.FIX_STUB_CHECKS
+    # A test-only group has no implementation step: on to the next group or the checks.
+    return after_last_group(state) if state.test_only_done else Node.IMPLEMENT
 
 
 def after_fix_stub_checks(state: UnitRun) -> Node:
@@ -2632,8 +2679,11 @@ def after_fix_stub_checks(state: UnitRun) -> Node:
 
 
 def after_implement(state: UnitRun) -> Node:
-    if stop := halted(state):
-        return stop
+    return halted(state) or after_last_group(state)
+
+
+def after_last_group(state: UnitRun) -> Node:
+    """Where a finished group leads: the next group's tests, else the checks."""
     if state.more_groups:
         return Node.TESTS
     return Node.UNIT_TEST if state.produced_nothing else Node.CHECKS
@@ -2770,7 +2820,15 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
     Node.TESTS: (after_tests, (Node.HELD, Node.FAILED, Node.STUB_CHECKS, Node.IMPLEMENT)),
     Node.STUB_CHECKS: (
         after_stub_checks,
-        (Node.HELD, Node.FAILED, Node.FIX_STUB_CHECKS, Node.IMPLEMENT),
+        (
+            Node.HELD,
+            Node.FAILED,
+            Node.FIX_STUB_CHECKS,
+            Node.IMPLEMENT,
+            Node.UNIT_TEST,
+            Node.CHECKS,
+            Node.TESTS,
+        ),
     ),
     Node.FIX_STUB_CHECKS: (after_fix_stub_checks, (Node.HELD, Node.FAILED, Node.STUB_CHECKS)),
     Node.IMPLEMENT: (

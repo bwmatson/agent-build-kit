@@ -449,6 +449,14 @@ release could move. The steps:
    group without its pair (a unit stopped in the loop goes back to
    `fix_stub_checks`). A group left with no pair when the build ends stops the
    unit, naming the group.
+
+   **Test-only groups.** An `[e2e-test]` group is a test-only group. A stubbed build commits
+   it as a single `test:` commit once `stub_checks` passes, skips the implement step for it
+   and goes on to the next group's tests (or to the checks). The pair count treats that
+   commit as the group satisfied, and resume counts the group done once the commit is on the
+   branch. The push gate makes an exception for it: it runs no red command at that commit and
+   needs no `feat:` commit after it, while an ordinary group with no implementation still
+   stops the unit.
 5. **Checks, then review rounds.** Before each review round the branch has to
    pass unit-test (lint, formatting, types and the tests; see step 6): a reviewer's
    time goes on a branch that already builds. A failure is saved as feedback and
@@ -1227,7 +1235,10 @@ what its tests import; so are a syntax error, a missing fixture and an
 empty run. Each test file is judged by the profile of the project it belongs to, with that
 project's clean and red commands run in its directory; the repo's profile covers files outside
 every project, and the gate fails if any project fails. Results are cached by patch-id so a
-restack does not re-run them.
+restack does not re-run them. In a stubbed build a test-only (`[e2e-test]`) group's tests
+commit is the exception: no `feat:` commit follows it, it gets only the clean command (lint,
+format and types) and no red run, and its result is cached under its own mode; a unit made
+only of test-only groups needs no implementation commit.
 This is the command form of the rule, for a person or a hook; the runner's own
 push condition is the approved-SHA check above.
 

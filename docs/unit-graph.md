@@ -245,8 +245,11 @@ flowchart TD
     tests -->|not stubbed| implement
     tests -->|stubbed build| stub_checks
     stub_checks -->|passed, commits the tests| implement
+    stub_checks -->|passed, test-only group| tests
+    stub_checks -->|test-only last group, commits| checks
+    stub_checks -->|test-only last group, nothing new| unit-test
     stub_checks -->|failed, rounds left| fix_stub_checks
-    stub_checks -->|failed, rounds spent or nothing changed| failed
+    stub_checks -->|failed, rounds spent or nothing changed, or a group has no pair| failed
     fix_stub_checks --> stub_checks
     implement -->|stubbed build, a group is left| tests
     implement -->|a group has no pair| failed
@@ -340,9 +343,9 @@ are the reference for each condition. The nodes:
 |---|---|---|
 | `prepare` | Worktree, fetch, move the branch onto its base, settling a conflict with the restack's two resolver steps in the build session (hunks, then dependent files) and handing what they cannot settle to `adapt` (for a unit told its base moved, the restack lane runs this node and the nodes after it, and stops before any work that is not about the move (a rework of other feedback, a fix of checks, the end-to-end tests, tests or implementation)); picks the next node from what is on the branch and in state | worktree setup, `restack_onto`, `branch_commits` |
 | `tests` | The tests-first commit. A stubbed build makes one pair per group: the tests are written here and committed only once `stub_checks` passes, each commit's body holding the fixed sentence and the group's "Done when" | `run`, `commit` |
-| `stub_checks` | Stubbed build only: lint, format and types over the stubs and tests, with no test run, then commits `test:`. On failure it saves the output as `stub-checks` feedback and stops the unit once `global_limits.max_check_rounds` is spent | `run_stub_checks`, `commit` |
+| `stub_checks` | Stubbed build only: lint, format and types over the stubs and tests, with no test run, then commits `test:`; for a test-only group that commit is the group's last and the build goes past `implement` to the next group's `tests` or to `checks`. On failure it saves the output as `stub-checks` feedback and stops the unit once `global_limits.max_check_rounds` is spent | `run_stub_checks`, `commit` |
 | `fix_stub_checks` | Hands that output to the builder, stops if the round changed nothing, then back to `stub_checks` | `run`, `tree_state` |
-| `implement` | The implementation commit; a step that adds nothing is judged as any other, not against the usage window. A stubbed build makes one `feat:` per group, with the same body, and goes back to `tests` while a group is left; a group with no pair stops the unit | `run`, `commit`, `may_start` |
+| `implement` | The implementation commit; a step that adds nothing is judged as any other, not against the usage window. A stubbed build makes one `feat:` per group, with the same body, and goes back to `tests` while a group is left; a group with no pair stops the unit; a test-only group has no `implement` step | `run`, `commit`, `may_start` |
 | `checks` | Unit-test on the branch **before a reviewer is asked**, on the committed tree. Passing records the commit, so `unit-test` after approval is not repeated on it | `unit-test`, `commit` |
 | `fix_checks` | Hands the failed checks' output to the builder, bounded by `global_limits.max_check_rounds`, then back to `checks`. Records no reply, as there is no reviewer to answer | `run`, `commit`, `may_start` |
 | `review` | One review round; records the verdict, findings, follow-ups and the approved commit. After a person's rework it is also given their comments, quoted, each with the builder's reply or `(no reply)` | `run_review` / `run_rework_review` |
