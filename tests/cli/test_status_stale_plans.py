@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
+from tests.cli.plan_outage_fakes import raises, service
 from tests.cli.replan_driver import Replan, answer, enable_review, planned, tasks_md
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
@@ -50,13 +51,21 @@ def test_status_prints_the_line_of_a_stale_plan_that_waits_for_an_outage(
     enable_review(run, ceilings={"full": 750})
     code, _ = run.run(capsys, "alpha", reply=answer(planned("alpha/1", (1,))))
     assert code == 0
-    standing = run.records["alpha"]["sizing"]
-    run.record("alpha", ok=False, attempts=1, waiting="network", sizing=standing)
     enable_review(run, ceilings={"full": 900})
+    run.runtime.act = raises(service())
 
+    code, _ = run.run(capsys, "alpha")
+
+    assert code == 1
+    assert run.records["alpha"]["waiting"] == "service"
+    assert run.records["alpha"].get("attempts", 0) == 0, "an outage uses no attempt"
     lines = status_lines(run, capsys)
-
     assert any("alpha" in line and "ceilings changed" in line for line in lines)
+    code, listing = run.run(capsys)
+    assert code == 2
+    assert "ceilings changed" in next(
+        line for line in listing.splitlines() if line.startswith("alpha:")
+    )
 
 
 def test_a_waiting_first_plan_with_no_units_stored_is_not_called_stale(
@@ -65,7 +74,7 @@ def test_a_waiting_first_plan_with_no_units_stored_is_not_called_stale(
     monkeypatch.setattr(cli, "current_usage", lambda: None)
     run = Replan(tmp_path, monkeypatch, alpha=tasks_md(1))
     enable_review(run, ceilings={"full": 750})
-    run.record("alpha", ok=False, attempts=1, waiting="network", sizing={})
+    run.record("alpha", ok=False, attempts=1, waiting="network", sizing="")
 
     assert cli.stale_plan_lines(run.inst) == []
     assert status_lines(run, capsys) == []
@@ -79,7 +88,7 @@ def test_a_waiting_plan_with_a_unit_stored_is_called_stale(
     enable_review(run, ceilings={"full": 750})
     code, _ = run.run(capsys, "alpha", reply=answer(planned("alpha/1", (1,))))
     assert code == 0
-    run.record("alpha", ok=False, attempts=1, waiting="network", sizing={})
+    run.record("alpha", ok=False, attempts=1, waiting="network", sizing="")
 
     lines = cli.stale_plan_lines(run.inst)
 

@@ -3657,6 +3657,31 @@ def _gone_groups_reason(store: UnitStore, change: str, groups: Sequence[TaskGrou
     )
 
 
+def _without_planner(
+    inst: Installation,
+    store: UnitStore,
+    change: str,
+    task_groups: Sequence[TaskGroup],
+    errors: Sequence[object],
+) -> tuple[Literal["refused", "tag_problems", "all_taken"], str | list[str]] | None:
+    """Why a plan for `change` is made without the planner, or None when it would be called:
+    `refused` with the reason (broken task groups, or groups gone from `tasks.md`),
+    `tag_problems` with a line each when every group is taken and a tag disagrees, or
+    `all_taken` with `ALL_TAKEN`. The one place `plan_all` and `abk replan --report` decide."""
+    if errors:
+        return "refused", _task_group_problems(len(errors))
+    if gone := _gone_groups_reason(store, change, task_groups):
+        return "refused", gone
+    # Nothing is left for the planner when every group is taken: each started unit
+    # reads tasks.md at its next step, so an edit of the text needs no plan. Only the
+    # tags it copied at plan time can disagree with the file.
+    if task_groups and _taken_groups(store, change) >= {g.number for g in task_groups}:
+        if problems := _tag_problems(store, change, task_groups, _task_catalog(inst)):
+            return "tag_problems", problems
+        return "all_taken", ALL_TAKEN
+    return None
+
+
 def _gone_groups(store: UnitStore, change: str, groups: Sequence[TaskGroup]) -> list[int]:
     """The groups a started unit carries that `tasks.md` no longer has: renumbered or deleted."""
     carried = _carried(store, change, lambda u: u.state in _STARTED)
@@ -3866,39 +3891,30 @@ def plan_all(
         # against a broken one spends a model call to produce a graph that
         # cannot be built, so this refuses before paying for it.
         task_groups, errors = _validated(inst, tasks)
-        if errors:
-            log(f"not planning {change}: {_task_group_problems(len(errors))}")
-            results[change] = PlanResult(status="refused")
-            continue
-
         # A group a started unit carries must still be in tasks.md: renumbered or
         # deleted, the unit's branch and the groups no longer agree, so no plan is made.
-        if gone := _gone_groups_reason(store, change, task_groups):
-            log(f"not planning {change}: {gone}")
-            results[change] = PlanResult(status="refused")
-            continue
-
-        # Nothing is left for the planner when every group is taken: each started unit
-        # reads tasks.md at its next step, so an edit of the text needs no plan. Only the
-        # tags it copied at plan time can disagree with the file.
-        built = _taken_groups(store, change)
-        if task_groups and built >= {g.number for g in task_groups}:
-            problems = _tag_problems(store, change, task_groups, _task_catalog(inst))
-            for line in problems:
-                log(f"{change}: {line}")
-            if problems:
+        decided = _without_planner(inst, store, change, task_groups, errors)
+        if decided is not None:
+            kind, why = decided
+            if kind == "refused":
+                log(f"not planning {change}: {why}")
                 results[change] = PlanResult(status="refused")
-                continue
-            # A planned unit of another change that carries a group has its priority
-            # from the edited line, as the planning path gives it.
-            _set_priorities(store, _carrying_unstarted(store, change), _task_catalog(inst))
-            record_plans(
-                inst,
-                {change: {"hash": digest, "sizing": sizing, "attempts": 0, "ok": True}},
-            )
-            log(f"{change}: {ALL_TAKEN}")
-            results[change] = PlanResult(status="planned", recorded_only=True)
+            elif kind == "tag_problems":
+                for line in why:
+                    log(f"{change}: {line}")
+                results[change] = PlanResult(status="refused")
+            else:
+                # A planned unit of another change that carries a group has its priority
+                # from the edited line, as the planning path gives it.
+                _set_priorities(store, _carrying_unstarted(store, change), _task_catalog(inst))
+                record_plans(
+                    inst,
+                    {change: {"hash": digest, "sizing": sizing, "attempts": 0, "ok": True}},
+                )
+                log(f"{change}: {why}")
+                results[change] = PlanResult(status="planned", recorded_only=True)
             continue
+        built = _taken_groups(store, change)
 
         # Merged units included, not just in-flight ones: a re-plan after some
         # units merged has to know they exist, or it either re-plans work that
@@ -3980,9 +3996,20 @@ def plan_all(
             previous = record if record.get("hash") == digest else {}
             if (wait := _plan_wait(inst, error, previous)) is not None:
                 kind, fields = wait
+                # The plan that stands keeps the policy it was made under, so a change
+                # waiting for an outage is still reported stale; only a change with no
+                # earlier record takes the current one.
+                standing = planned.get(change)
                 record_plans(
                     inst,
-                    {change: {"hash": digest, "sizing": sizing, "ok": False, **fields}},
+                    {
+                        change: {
+                            "hash": digest,
+                            "sizing": standing.get("sizing", "") if standing else sizing,
+                            "ok": False,
+                            **fields,
+                        }
+                    },
                 )
                 if kind == "network":
                     pause_until(
@@ -4332,6 +4359,12 @@ def plan_stale_reason(record: Mapping[str, Any], current: str | None = None) -> 
     return " and ".join(f"the {name} changed" for name in changed) or "the review policy changed"
 
 
+def _plan_stands(record: Mapping[str, Any], has_units: bool) -> bool:
+    """Whether a recorded plan is one whose units stand: it succeeded, or it waits for an
+    outage while the change still has stored units."""
+    return bool(record.get("ok") or (record.get("waiting") in PLAN_WAITS and has_units))
+
+
 def stale_plan_lines(inst: Installation) -> list[str]:
     """One line for each change whose standing plan was made under another policy, naming the
     change and why, and saying how to plan it again."""
@@ -4343,7 +4376,7 @@ def stale_plan_lines(inst: Installation) -> list[str]:
         f"— `abk replan {change}` plans it again"
         for change in (path.parent.name for path in inst.tasks_files())
         if (record := records.get(change))
-        and (record.get("ok") or (record.get("waiting") in PLAN_WAITS and change in standing))
+        and _plan_stands(record, change in standing)
         and plan_is_stale(record, current)
     ]
 
@@ -5685,10 +5718,12 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
     )
     records = planned_hashes(inst)
     max_attempts = inst.max_plan_attempts
+    standing = {unit.change for unit in store.all()}
 
     if not (args.changes or args.all or args.failed):
         for change in (path.parent.name for path in inst.tasks_files()):
-            print(f"{change}: {_plan_state(records.get(change), max_attempts)}")
+            shown = _plan_state(records.get(change), max_attempts, change in standing)
+            print(f"{change}: {shown}")
         print("usage: abk replan CHANGE|UNIT... | --all | --failed [--forget] [--report]")
         return 2
 
@@ -5800,7 +5835,10 @@ def _print_replan_report(inst: Installation, store: UnitStore, changes: list[str
     units = store.all()
     calls = 0
     for change in changes:
-        print(f"{change}: {_plan_state(records.get(change), inst.max_plan_attempts)}")
+        state = _plan_state(
+            records.get(change), inst.max_plan_attempts, any(u.change == change for u in units)
+        )
+        print(f"{change}: {state}")
         mine = [unit for unit in units if unit.change == change]
         started = [unit for unit in mine if unit.state in _STARTED]
         unstarted = [unit for unit in mine if unit.state == PLANNED]
@@ -5809,27 +5847,19 @@ def _print_replan_report(inst: Installation, store: UnitStore, changes: list[str
             groups = ", ".join(str(n) for n in unit.groups)
             print(f"  {unit.id}: group {groups} ({unit.state.value})")
         task_groups, errors = _validated(inst, inst.changes_dir / change / "tasks.md")
-        all_taken = bool(task_groups) and _taken_groups(store, change) >= {
-            g.number for g in task_groups
-        }
-        problems = (
-            _tag_problems(store, change, task_groups, _task_catalog(inst)) if all_taken else []
-        )
-        if errors:
-            print(f"  would be refused, no planner call: {_task_group_problems(len(errors))}")
-        elif gone := _gone_groups_reason(store, change, task_groups):
-            print(f"  would be refused, no planner call: {gone}")
-        elif problems:
-            print(f"  would be refused, no planner call: {'; '.join(problems)}")
-        elif all_taken:
-            print(f"  would ask nothing of the planner; {ALL_TAKEN}")
-        else:
+        decided = _without_planner(inst, store, change, task_groups, errors)
+        if decided is None:
             calls += 1
             print("  would call the planner once")
+        elif decided[0] == "all_taken":
+            print(f"  would ask nothing of the planner; {decided[1]}")
+        else:
+            why = decided[1] if isinstance(decided[1], str) else "; ".join(decided[1])
+            print(f"  would be refused, no planner call: {why}")
     print(f"total: {calls} planner call{'' if calls == 1 else 's'}")
 
 
-def _plan_state(record: dict | None, max_attempts: int) -> str:
+def _plan_state(record: dict | None, max_attempts: int, has_units: bool = False) -> str:
     """How a change's recorded plan reads in the listing `abk replan` gives."""
     if not record:
         return "never planned"
@@ -5839,9 +5869,15 @@ def _plan_state(record: dict | None, max_attempts: int) -> str:
         )
     attempts = record.get("attempts", 0)
     if record.get("waiting") in PLAN_WAITS:
+        stale = (
+            f", stale: {plan_stale_reason(record)}"
+            if _plan_stands(record, has_units) and plan_is_stale(record)
+            else ""
+        )
         return (
             f"waiting for {PLAN_WAITS[record['waiting']]}{_since(record.get('since'))}"
             f"{_next_try(record.get('until'))} (attempts {attempts}/{max_attempts}, not used)"
+            f"{stale}"
         )
     if attempts >= max_attempts:
         reason = f": {record['reason']}" if record.get("reason") else ""
