@@ -698,7 +698,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     for line in held_status_lines(inst):
         log(line)
     for line in gate_status_lines(
-        inst, now=datetime.now(UTC), refresh=getattr(args, "refresh", False)
+        inst, now=spans.clock.now(), refresh=getattr(args, "refresh", False)
     ):
         print(redact_text(line, where="printed output"), flush=True)
 

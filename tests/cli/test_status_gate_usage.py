@@ -12,8 +12,10 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import pipeline as pipeline_cli
+from agent_build_kit.pipeline import usage_guard
 from agent_build_kit.pipeline.e2e_holds import SOURCE_GATE, write_hold
 from agent_build_kit.pipeline.usage_guard import GATE_USAGE_NAME
+from agent_build_kit.runtimes import claude_code
 from tests.cli.e2e_hold_fakes import abk, planning
 from tests.cli.gate_usage_fakes import (
     Reads,
@@ -22,13 +24,24 @@ from tests.cli.gate_usage_fakes import (
     month_end,
     provider_gate,
     provider_reads,
+    this_month,
 )
+from tests.fake_clock import FakeClock, install
 from tests.gate_hold_support import Probe
 
 
 @pytest.fixture(autouse=True)
 def no_claude_usage(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(pipeline_cli, "current_usage", lambda: None)
+
+
+@pytest.fixture
+def clock(monkeypatch: pytest.MonkeyPatch) -> FakeClock:
+    """The clock halfway through the month the machine is in, standing still until a test moves
+    it: the threshold, the age of a reading and the month a reading is for never depend on when,
+    or how slowly, the test runs."""
+    month = this_month("0")
+    return install(monkeypatch, month.start + (month.end - month.start) / 2)
 
 
 def gate_lines(config: Path, capsys: pytest.CaptureFixture[str], *flags: str) -> list[str]:
@@ -38,21 +51,28 @@ def gate_lines(config: Path, capsys: pytest.CaptureFixture[str], *flags: str) ->
 
 
 def test_a_split_over_its_threshold_shows_the_figures_the_threshold_the_reset_and_the_source(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    clock: FakeClock,
 ) -> None:
     provider_reads(monkeypatch, Reads("173.04285316"))
     config = gated_planning(tmp_path, provider_gate())
     gate_lines(config, capsys, "--refresh")
+    clock.advance(7 * 60)
 
     (line,) = gate_lines(config, capsys)
 
     assert line.startswith("gate usage: acp (modal) 173.04 of 200 USD (87%), threshold 70%, ")
     assert f"resets {month_end():%m-%d} 00:00 UTC" in line
-    assert re.search(r"held \(provider reading, \d+m old\)$", line), line
+    assert line.endswith("held (provider reading, 7m old)"), line
 
 
 def test_a_threshold_that_is_moving_shows_what_it_moves_towards_and_when(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    clock: FakeClock,
 ) -> None:
     provider_reads(monkeypatch, Reads("100"))
     config = gated_planning(
@@ -62,19 +82,50 @@ def test_a_threshold_that_is_moving_shows_what_it_moves_towards_and_when(
 
     (line,) = gate_lines(config, capsys)
 
-    assert re.search(r"ramping to 90% by \d\d-\d\d \d\d:\d\d", line), line
+    # Halfway through a month whose whole length is the ramp: 70 + (90 - 70) / 2.
+    assert f"threshold 80%, ramping to 90% by {month_end().astimezone():%m-%d %H:%M}" in line
 
 
 def test_a_split_with_room_says_usable(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    clock: FakeClock,
 ) -> None:
     provider_reads(monkeypatch, Reads("80"))
     config = gated_planning(tmp_path, provider_gate())
     gate_lines(config, capsys, "--refresh")
+    clock.advance(3 * 60)
 
     (line,) = gate_lines(config, capsys)
 
     assert "(40%)" in line and "usable" in line and "held" not in line
+    assert line.endswith("usable (provider reading, 3m old)"), line
+
+
+def test_status_refresh_neither_reads_this_machines_login_nor_calls_out(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+
+    def called(name: str):
+        def record(*args: object, **kwargs: object) -> None:
+            calls.append(name)
+            raise OSError(name)
+
+        return record
+
+    monkeypatch.setattr(usage_guard.urllib.request, "urlopen", called("endpoint"))
+    monkeypatch.setattr(claude_code, "refresh_login", called("login refresh"))
+    provider_reads(monkeypatch, Reads("80"))
+    config = gated_planning(tmp_path, provider_gate())
+
+    (line,) = gate_lines(config, capsys, "--refresh")
+
+    assert line.startswith("gate usage: acp (modal)")
+    assert calls == []
+    assert usage_guard.read_oauth_token() is None
+    assert usage_guard.CREDENTIALS_PATH != Path.home() / ".claude" / ".credentials.json"
 
 
 def test_an_unknown_result_says_unknown_with_its_reason_and_never_usable(

@@ -156,7 +156,10 @@ def no_real_usage_reading(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     that means to read usage injects `read_live=` and `read_cached=`. The
     guard's own default cache path points at a file that does not exist, so a
     fresh block in the machine's `~/.claude.json` cannot change a decision; a
-    test that wants a cache file sets `DEFAULT_ANCHOR_PATH` itself."""
+    test that wants a cache file sets `DEFAULT_ANCHOR_PATH` itself. Nor does the guard's own
+    reader find this machine's token: no `CLAUDE_CODE_OAUTH_TOKEN`, and a credentials file that
+    does not exist, so no call is made and no login is refreshed; a test that wants a token sets
+    one."""
 
     def refuse(*args, **kwargs):
         raise AssertionError(
@@ -167,6 +170,8 @@ def no_real_usage_reading(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     monkeypatch.setattr(claude_code, "read_live_usage", refuse)
     monkeypatch.setattr(claude_code, "read_cached_usage", refuse)
     monkeypatch.setattr(usage_guard, "DEFAULT_ANCHOR_PATH", tmp_path / "no-claude.json")
+    monkeypatch.setattr(usage_guard, "CREDENTIALS_PATH", tmp_path / "no-credentials.json")
+    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
 
 
 class _NoClaudePopen(subprocess.Popen):
