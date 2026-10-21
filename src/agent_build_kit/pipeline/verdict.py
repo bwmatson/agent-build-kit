@@ -70,7 +70,6 @@ def compute_verdict(
 
     Floors are tried in the order the spec lists them; the first of the highest wins the reason.
     The evidence tier leaves out the floor the class's `history` gives under `policy`."""
-    del history, policy
     floors: list[tuple[ReviewTier, str]] = []
     if facts.planned_estimate is not None:
         floors.append((facts.planned_estimate, f"the planned estimate is {facts.planned_estimate}"))
@@ -82,8 +81,48 @@ def compute_verdict(
         if flag in _FLOORED_FLAGS:
             floors.append((ReviewTier.FULL, f"a group it builds is flagged [{flag}]"))
             break
-    tier, reason = ReviewTier.AUTO, "the plan gives no floor above auto"
+    gates = [("red-first", facts.red_first), ("unit-test", facts.unit_test)]
+    if facts.kind == TestTier.E2E_TEST:
+        gates.append(("e2e-test", facts.e2e_test))
+    for name, result in gates:
+        if result == GateResult.FAILED:
+            floors.append((ReviewTier.FULL, f"the {name} gate failed"))
+        elif result == GateResult.MISSING or (result == GateResult.PENDING and facts.final):
+            floors.append((ReviewTier.FULL, f"the {name} gate has no result"))
+    if facts.open_required_findings:
+        floors.append((ReviewTier.FULL, "the reviewer has an open required finding"))
+    if facts.classification is None:
+        floors.append((ReviewTier.FULL, "the reviewer gave no classification"))
+    else:
+        floors.append((facts.classification, f"the reviewer classified it {facts.classification}"))
+    evidence_tier, reason = _highest(floors, ReviewTier.AUTO, "the plan gives no floor above auto")
+
+    if history.samples < policy.min_samples:
+        history_floor = (
+            ReviewTier.LIGHT,
+            f"its class has {history.samples} samples, fewer than the {policy.min_samples} needed",
+        )
+    elif history.clean / history.samples < policy.min_clean_rate:
+        history_floor = (
+            ReviewTier.LIGHT,
+            f"its class merges clean {history.clean / history.samples:.0%} of the time, "
+            f"below the {policy.min_clean_rate:.0%} needed",
+        )
+    else:
+        history_floor = None
+    tier, reason = _highest(
+        [(evidence_tier, reason), *([history_floor] if history_floor else [])],
+        ReviewTier.AUTO,
+        reason,
+    )
+    return Verdict(tier=tier, evidence_tier=evidence_tier, reason=reason)
+
+
+def _highest(
+    floors: list[tuple[ReviewTier, str]], tier: ReviewTier, reason: str
+) -> tuple[ReviewTier, str]:
+    """The highest floor; the first of equals keeps the reason."""
     for floor, why in floors:
         if _ORDER.index(floor) > _ORDER.index(tier):
             tier, reason = floor, why
-    return Verdict(tier=tier, evidence_tier=tier, reason=reason)
+    return tier, reason

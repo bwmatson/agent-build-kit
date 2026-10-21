@@ -3,8 +3,9 @@
 ## Unreleased
 
 - A unit's review tier now has a deterministic verdict function over the plan's floors (the
-  planned estimate, protected paths and `contract`, `narrow` or `acceptance` flags), naming the
-  rule that decided it. Nothing acts on it yet.
+  planned estimate, protected paths and `contract`, `narrow` or `acceptance` flags) and over the
+  recorded gate results, open required findings, the reviewer's classification and the class's
+  track record, naming the rule that decided it. Nothing acts on it yet.
 
 - The kit's drift test now checks each live test more strictly. It finds live-stack
   modules anywhere under `tests/` by syntax, decides per test from a table of signals
