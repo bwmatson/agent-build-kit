@@ -250,7 +250,7 @@ hand: a failed unit remembers its step, and putting it back to `planned` alone
 sends the next run past the agent to a check on the same branch.
 
 A plan is made when a change's `tasks.md` changes, not on every tick. A plan made under other review
-sizing (a changed `review.ceilings`, floor, `max_unit_lines`, repo `review` block or `review.enabled`) is a
+sizing (while `review.enabled` is on, a plan is stale when anything in the `review` section changes (its ceilings, protected paths, classes or auto_land), a repo's `review` block changes, `global_limits.min_unit_lines` or `max_unit_lines` changes, or `review.enabled` itself changes; turning the flag on marks every plan recorded before it as stale) is a
 stale plan: the tick names it and `abk replan <change>` without planning it, `abk status` counts the stale
 plans, and the `abk replan` listing shows it as stale. Run `abk replan <change>` to plan it under the current sizing. Run
 `abk replan <change>` (or a unit id, `--all`, `--failed`) to plan again now when a

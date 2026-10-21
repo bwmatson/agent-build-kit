@@ -809,7 +809,7 @@ for that repo; the merged ceilings must keep the same order. The ceilings take e
 `review.enabled` is true; with it off every unit is held to the `full` ceiling, as before.
 `global_limits.max_unit_lines` is deprecated: it is read as `review.ceilings.full` and
 `abk config` and `abk doctor` say so; setting both to different values is refused, and
-`abk config --migrate` moves the value. Plans recorded under other ceilings are stale
+`abk config --migrate` moves the value. A plan recorded under other sizing is stale: while `review.enabled` is on, a plan is stale when anything in the `review` section changes (its ceilings, protected paths, classes or auto_land), a repo's `review` block changes, `global_limits.min_unit_lines` or `max_unit_lines` changes, or `review.enabled` itself changes; turning the flag on marks every plan recorded before it as stale
 (see `abk replan` in `docs/cli.md`).
 
 `auto_land.allow_deferred_e2e` (default false; accepted only under

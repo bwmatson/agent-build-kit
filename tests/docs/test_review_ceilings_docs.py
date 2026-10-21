@@ -35,7 +35,7 @@ def test_the_ceilings_are_named_with_their_three_defaults(path: Path) -> None:
 def test_a_repo_can_override_the_ceilings(path: Path) -> None:
     text = squashed(path)
     assert re.search(r"repos?\b.{0,300}ceilings|ceilings.{0,500}\b(repo|repos)\b", text, re.I)
-    assert re.search(r"override", text, re.I)
+    assert re.search(r"ceilings.{0,300}override|override.{0,300}ceilings", text, re.I)
 
 
 @pytest.mark.parametrize("path", SETTING_DOCUMENTS, ids=SETTING_IDS)
@@ -45,7 +45,7 @@ def test_max_unit_lines_is_deprecated_in_favour_of_the_full_ceiling(path: Path) 
         r"deprecated.{0,400}max_unit_lines", text, re.I
     )
     assert re.search(r"max_unit_lines.{0,600}ceilings\.full", text, re.I)
-    assert "review.enabled" in text
+    assert re.search(r"ceilings.{0,600}review\.enabled", text, re.I)
 
 
 def test_the_authoring_skill_says_what_a_group_states_about_its_files() -> None:

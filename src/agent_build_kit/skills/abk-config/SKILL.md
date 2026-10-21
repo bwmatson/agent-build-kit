@@ -478,7 +478,7 @@ is 1 when anything failed.
 a unit whose e2e result was deferred to verify stays at `light` or above; accepted only under
 `review.auto_land`) and `ceilings` (`auto` 5000, `light` 2000, `full` 750 by default: the estimated lines
 a unit may carry, by its expected review tier; ordered `auto` >= `light` >= `full` > `min_unit_lines`; used only when
-`enabled` is true, otherwise every unit is held to the `full` ceiling). A repo's `review:` holds `protected_paths`,
+`review.enabled` is true, otherwise every unit is held to the `full` ceiling). A repo's `review:` holds `protected_paths`,
 which adds to the workspace's, and `ceilings`, a repo override of any one tier. `global_limits.max_unit_lines` is
 deprecated and read as `review.ceilings.full`; `abk config --migrate` moves it, and setting both to different values is refused. Only a person edits it: a build agent and a track are
 refused a write to `abk.yaml` or `abk.local.yaml` by the routes the command policy names, and a
