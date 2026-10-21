@@ -164,8 +164,15 @@ The plan's dependencies are also checked against every unit not finished: a plan
 dependency that would close a cycle with stored work is dropped and logged, and a
 `Needs:` dependency is checked as it is linked and refused if it would close one.
 
+With `review.enabled` a unit is sized by its expected tier: its ceiling is the `review.ceilings` figure
+for the highest review tier expected of its groups (a group counts at its floor, and a repo's override applies),
+a unit with no expected tier is held to `full`, and a join takes the higher tier of its two sides. With the
+flag off every unit is held to the `full` ceiling, which is the single ceiling described below.
+
 Unit size is bounded from both sides. Groups are combined until the estimate
-reaches `global_limits.min_unit_lines`, and never past `global_limits.max_unit_lines`: the
+reaches `global_limits.min_unit_lines`, and never past the unit's ceiling (its expected tier's
+`review.ceilings` figure with `review.enabled`, otherwise the `full` ceiling: `review.ceilings.full`, or
+the deprecated `global_limits.max_unit_lines` when only that is set): the
 planner's prompt states the ceiling, and a plan with a unit estimated over it
 is rejected and re-asked.
 The estimate is checked after being multiplied by a calibration ratio for the unit's kind
@@ -203,7 +210,7 @@ does, the later waits on nothing else unfinished); both unstarted; no
 `[acceptance]`, `[contract]` or `[narrow]` group; no group marked `Separate:` or
 `Independent:` (an `Independent: <reason>` group depends on no earlier unit of its
 change, and is never joined into a neighbour's unit); the estimates together at
-or under `global_limits.max_unit_lines`. Joins are checked in order against a copy of
+or under the joined unit's ceiling (the higher tier of its two sides). Joins are checked in order against a copy of
 the store, so three units in a line can become one in a round. On the write each join is applied under both units' branch locks with
 "unstarted" read again; a unit that has started since drops that join alone, the
 rest of the plan is written, and the change is planned again next round. A group

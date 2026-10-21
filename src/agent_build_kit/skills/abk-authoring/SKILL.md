@@ -97,6 +97,13 @@ group unreadable, and the change is not planned.
 ## 4. [platform] [unit-test] [narrow] Drop the old field
 ```
 
+## Say which files and paths a group touches
+
+The planner sizes a unit by the review tier it expects, and estimates the tier from the task text. Say in each
+group which files and paths its tasks touch (a migration, CI or deploy config, a protected path, a public
+contract) so the expected tier can be estimated. A group need not be split to dodge a size ceiling: the
+planner combines and separates groups itself, and a group over its unit's ceiling is reported for a person to split.
+
 ## `Needs:` lines
 
 A group that cannot pass until a group of *another* change has landed says

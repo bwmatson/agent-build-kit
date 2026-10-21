@@ -156,9 +156,9 @@ global_limits:
   bounce_span_seconds: 120    # a run shorter than this counts as a bounce (>= 1)
   label_sweep_per_tick: 20    # finished units' PRs a round takes a stale state label off (>= 1)
   min_unit_lines: 400         # estimated lines before a unit stops growing
-  max_unit_lines: 750         # estimated lines one unit may carry; above
-                              # min_unit_lines. Shapes plans; a unit landing
-                              # over it is reported, never blocked
+  max_unit_lines: 750         # DEPRECATED: read as review.ceilings.full;
+                              # `abk config --migrate` moves it. A unit landing
+                              # over its ceiling is reported, never blocked
   calibrate_estimates: true   # estimate x what the unit's kind (repo, tier, flag) landed at
                               # is held to the ceiling; false = the raw estimate
   calibration_window: 20      # newest merged units of a kind sampled (>= 1)
@@ -476,7 +476,11 @@ is 1 when anything failed.
 (default true), `classes` (name to path globs, no slash in a name, first listed wins) and
 `auto_land.min_samples` / `auto_land.min_clean_rate` / `auto_land.allow_deferred_e2e` (default false:
 a unit whose e2e result was deferred to verify stays at `light` or above; accepted only under
-`review.auto_land`); a repo's `review:` holds only `protected_paths`, which adds to the workspace's. Only a person edits it: a build agent and a track are
+`review.auto_land`) and `ceilings` (`auto` 5000, `light` 2000, `full` 750 by default: the estimated lines
+a unit may carry, by its expected review tier; ordered `auto` >= `light` >= `full` > `min_unit_lines`; used only when
+`review.enabled` is true, otherwise every unit is held to the `full` ceiling). A repo's `review:` holds `protected_paths`,
+which adds to the workspace's, and `ceilings`, a repo override of any one tier. `global_limits.max_unit_lines` is
+deprecated and read as `review.ceilings.full`; `abk config --migrate` moves it, and setting both to different values is refused. Only a person edits it: a build agent and a track are
 refused a write to `abk.yaml` or `abk.local.yaml` by the routes the command policy names, and a
 build or track run after which either file differs fails (not restored). See `docs/configuration.md`.
 

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- A plan made under other review sizing (a changed ceiling, floor or `review.enabled`) is now
+- A plan made under other review sizing (a changed ceiling, `min_unit_lines` or `review.enabled`) is now
   reported as stale by the tick, by `abk replan` with no argument and by `abk status`. It is not
   planned again until `abk replan CHANGE` is run, which records the current sizing.
 
@@ -34,6 +34,7 @@
   setting both to different values is refused. `abk config --migrate` moves `max_unit_lines` to
   `review.ceilings.full` by text, with its comments, in the same single change as its other moves,
   and refuses when `full` is already set to another value or the result would not load.
+  Nothing is sized differently until `review.enabled` is turned on.
   With `review.enabled` on, the plan check holds each unit to the ceiling of its expected tier
   (a unit with no tier to `full`) and names the tier when it refuses one; with it off, plans are
   still held to `max_unit_lines`. The planner is told each tier's ceiling (and a repo's

@@ -315,10 +315,11 @@ global_limits:
                                 # refresh of a pass), at least 1
   min_unit_lines: 400           # estimated changed lines before the planner
                                 # stops absorbing the next task group
-  max_unit_lines: 750           # estimated changed lines one unit may carry;
-                                # must exceed min_unit_lines. Shapes plans;
-                                # a unit that lands over it is logged and
-                                # listed by `abk status`, never blocked
+  max_unit_lines: 750           # DEPRECATED: read as review.ceilings.full (see
+                                # "The `review` section"); `abk config --migrate`
+                                # moves it. Shapes plans; a unit that lands over
+                                # its ceiling is logged and listed by
+                                # `abk status`, never blocked
   calibrate_estimates: true     # multiply a unit's estimate by what units of
                                 # its kind (repo, tier, group flag) landed at
                                 # before holding it to the ceiling; off, plans
@@ -793,10 +794,23 @@ review:
   protected_defaults: true # migrations, CI and deploy config, containers, secrets, CODEOWNERS
   classes: {}              # name -> path globs; no slash in a name; the first listed class wins
   auto_land: {min_samples: 20, min_clean_rate: 0.95, allow_deferred_e2e: false}
+  ceilings: {auto: 5000, light: 2000, full: 750}   # estimated changed lines a unit may carry, by expected tier
 repos:
   app:
-    review: {protected_paths: []}   # added to the workspace's list for this repo, never narrowing it
+    review:
+      protected_paths: []           # added to the workspace's list for this repo, never narrowing it
+      ceilings: {light: 1500}       # overrides this one tier for this repo; the others stay the workspace's
 ```
+
+`review.ceilings` sizes a unit by its expected review tier: `auto` 5000, `light` 2000 and `full` 750
+by default, and `full` must stay above `global_limits.min_unit_lines`, `light` must not be below
+`full` and `auto` must not be below `light`. A repo's `review.ceilings` may override any one tier
+for that repo; the merged ceilings must keep the same order. The ceilings take effect only when
+`review.enabled` is true; with it off every unit is held to the `full` ceiling, as before.
+`global_limits.max_unit_lines` is deprecated: it is read as `review.ceilings.full` and
+`abk config` and `abk doctor` say so; setting both to different values is refused, and
+`abk config --migrate` moves the value. A plan recorded under other sizing is stale: while `review.enabled` is on, a plan is stale when anything in the `review` section changes (its ceilings, protected paths, classes or auto_land), a repo's `review` block changes, `global_limits.min_unit_lines` or `max_unit_lines` changes, or `review.enabled` itself changes; turning the flag on marks every plan recorded before it as stale
+(see `abk replan` in `docs/cli.md`).
 
 `auto_land.allow_deferred_e2e` (default false; accepted only under
 `review.auto_land`) decides what a deferred e2e-test result is worth. The verdict reads a unit's e2e state as `passed`, `deferred`, `failed` or
