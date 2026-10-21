@@ -720,7 +720,7 @@ repos:
 # abk.local.yaml
 repos:
   platform:
-    path: ~/work/platform
+    path: ../platform
 ```
 
 A fresh clone has no `abk.local.yaml`: until its owner writes one with the checkout paths,
