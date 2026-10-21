@@ -179,7 +179,20 @@ def test_the_machine_override_wins_over_both_places_and_the_notice_stays(
 
 
 def notices_of(path: Path) -> list[str]:
-    return config.models_notices(path)
+    return [notice.text for notice in config.models_notices(path)]
+
+
+def test_the_doctor_does_not_send_an_overlay_block_to_migrate(tmp_path: Path) -> None:
+    planning = init_repo(tmp_path / "planning")
+    write(planning, "version: 1\n")
+    config.overlay_path(planning / "abk.yaml").write_text("models:\n  review: x\n")
+
+    checks = run_doctor(planning / "abk.yaml", run=Answers(), which=which_all)
+
+    [warned] = [c for c in checks if "runtimes.claude_code.models" in c.detail]
+    assert warned.status == "warn"
+    assert "--migrate" not in warned.detail + warned.fix
+    assert str(config.overlay_path(planning / "abk.yaml")) in warned.detail
 
 
 def test_a_runtime_chosen_in_the_overlay_is_the_one_the_notice_and_the_move_name(

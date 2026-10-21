@@ -1810,28 +1810,36 @@ def runtime_for(path: Path) -> str:
     return settings.runtime or _merged_raw(path).get("runtime") or runtimes.DEFAULT
 
 
-def models_notices(path: Path) -> list[str]:
+class ModelsNotice(Frozen):
+    """A deprecation notice for a flat `models:` block, and what to do about it: the command when
+    the block is in the abk.yaml `--migrate` edits, a hand edit when it is in the overlay."""
+
+    text: str
+    fix: str
+
+
+def models_notices(path: Path) -> list[ModelsNotice]:
     """The notice for a flat top-level `models:` block in the file at `path` or its overlay: it
     names the runtime in force's block to move it to, and the roles that block also sets in the
     file with its overlay (the runtime's value is the one used). `abk config --migrate` edits
     the file alone, so a block in the overlay is to be moved by hand."""
     name = runtime_for(path)
     own = ((_merged_raw(path).get("runtimes") or {}).get(name) or {}).get("models") or {}
-    notices: list[str] = []
+    notices: list[ModelsNotice] = []
     for file, raw in _raw_files(path):
         flat = raw.get("models")
         if not flat:
             continue
-        move = (
-            "`abk config --migrate` moves it there"
-            if file == path
-            else f"move it there by hand, in {file}"
-        )
+        if file == path:
+            move, fix = "`abk config --migrate` moves it there", "run `abk config --migrate`"
+        else:
+            move = f"move it there by hand, in {file}"
+            fix = "move it by hand in the file the warning names"
         notice = f"`models` is deprecated for `runtimes.{name}.models`; {move}"
         both = [role for role in flat if role in own]
         if both:
             notice += f"; {', '.join(both)} set in both, the runtime's value is used"
-        notices.append(notice)
+        notices.append(ModelsNotice(text=notice, fix=fix))
     return notices
 
 
