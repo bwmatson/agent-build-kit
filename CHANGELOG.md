@@ -15,6 +15,9 @@
 
 - A task group tagged `[e2e-test]` is now recognised as test-only, the first step towards building
   it as a single `test:` commit with no implementation commit.
+- A task group tagged `[e2e-test]` is now test-only: a stubbed build commits its tests as a single
+  `test:` commit with no implementation step, counts and resumes it by that commit, and the push
+  gate accepts it without a red run.
 
 - With per-tier sizing on, a join takes the higher review tier of its two sides and is held to that
   tier's ceiling after calibration, and a join is refused when its sides disagree on full review:

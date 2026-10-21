@@ -166,6 +166,8 @@ def group_progress(
         if not tests:
             return GroupProgress(done=done, tests_made=False)
         position += 1
+        if done < len(test_only) and test_only[done]:
+            continue
         if position >= len(subjects) or subjects[position] != f"{CODE_PREFIX}{title}":
             return GroupProgress(done=done, tests_made=True)
         position += 1
