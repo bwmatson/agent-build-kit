@@ -40,4 +40,8 @@ def test_a_drafted_file_still_loads_with_review_off_and_every_default(tmp_path: 
 
     assert loaded.review.model_dump() == WorkspaceConfig().review.model_dump()
     assert loaded.review.model_dump()["enabled"] is False
-    assert loaded.review.model_dump()["auto_land"] == {"min_samples": 20, "min_clean_rate": 0.95}
+    assert loaded.review.model_dump()["auto_land"] == {
+        "min_samples": 20,
+        "min_clean_rate": 0.95,
+        "allow_deferred_e2e": False,
+    }

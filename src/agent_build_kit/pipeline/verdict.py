@@ -6,6 +6,7 @@ from enum import StrEnum
 
 from agent_build_kit.config import AutoLandConfig
 from agent_build_kit.model import Frozen, TestTier
+from agent_build_kit.pipeline.unit_store import E2eState
 
 
 class ReviewTier(StrEnum):
@@ -48,7 +49,8 @@ class VerdictFacts(Frozen):
     flags: tuple[str, ...] = ()
     red_first: GateResult = GateResult.MISSING
     unit_test: GateResult = GateResult.MISSING
-    e2e_test: GateResult = GateResult.MISSING
+    # What the unit's stored e2e state says; none when nothing is recorded.
+    e2e_state: E2eState | None = None
     open_required_findings: int = 0
     classification: ReviewTier | None = None
     final: bool = False
@@ -89,7 +91,9 @@ def compute_verdict(
             break
     gates = [("red-first", facts.red_first), ("unit-test", facts.unit_test)]
     if facts.kind == TestTier.E2E_TEST:
-        gates.append(("e2e-test", facts.e2e_test))
+        gates.append(("e2e-test", _e2e_gate(facts.e2e_state)))
+        if facts.e2e_state == E2eState.DEFERRED and not policy.allow_deferred_e2e:
+            floors.append((ReviewTier.LIGHT, "the e2e-test result was deferred to verify"))
     for name, result in gates:
         if result == GateResult.FAILED:
             floors.append((ReviewTier.FULL, f"the {name} gate failed"))
@@ -124,6 +128,13 @@ def compute_verdict(
         reason,
     )
     return TierVerdict(tier=tier, evidence_tier=evidence_tier, reason=reason)
+
+
+def _e2e_gate(state: E2eState | None) -> GateResult:
+    """The gate result a stored e2e state stands for: none is a gate yet to run."""
+    if state is None:
+        return GateResult.PENDING
+    return GateResult.FAILED if state == E2eState.FAILED else GateResult.PASSED
 
 
 def _highest(

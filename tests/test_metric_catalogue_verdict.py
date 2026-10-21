@@ -10,6 +10,7 @@ import pytest
 
 from agent_build_kit import telemetry
 from agent_build_kit.model import TestTier
+from agent_build_kit.pipeline.unit_store import E2eState
 from agent_build_kit.pipeline.verdict import ClassHistory, GateResult, ReviewTier, VerdictFacts
 from agent_build_kit.pipeline.verdict_record import record_verdict
 from agent_build_kit.serve.metrics import catalogue
@@ -33,7 +34,7 @@ def verdict(
         kind=TestTier.UNIT_TEST,
         red_first=red_first,
         unit_test=GateResult.PASSED,
-        e2e_test=GateResult.PASSED,
+        e2e_state=E2eState.PASSED,
         planned_estimate=estimate,
         classification=ReviewTier.AUTO,
     )

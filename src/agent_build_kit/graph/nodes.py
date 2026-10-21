@@ -1165,6 +1165,7 @@ class BuildPath:
             ),
         )
         r.commit(f"adapt: {unit.title} onto {restacked.onto_unit}", cwd=tree, base=self.ref(state))
+        self.forget_e2e_result()
         # The session that did the port: the follow-up rounds continue it, and it is the one
         # recorded for the role whatever they do.
         ported = self._ended
@@ -1722,7 +1723,7 @@ class BuildPath:
                 planned_estimate=ReviewTier.parse(unit.review_tier),
                 red_first=GateResult.PASSED,
                 unit_test=GateResult.PASSED,
-                e2e_test=GateResult.PENDING if kind is TestTier.E2E_TEST else GateResult.PASSED,
+                e2e_state=e2e_state_of(state, r.store.get(unit.id).e2e_state),
                 classification=ReviewTier.parse(weighed.verdict.classification),
                 protected_paths=tuple(p for p in paths if is_protected(active(), unit.repo, p)),
                 flags=tuple(step.flag for step in r.group_steps(unit) if step.flag),
@@ -1744,6 +1745,11 @@ class BuildPath:
             )
         except Exception as error:
             r.log(f"verdict for {unit.id} not recorded: {error}")
+
+    def forget_e2e_result(self) -> None:
+        """A new head the agent wrote has no e2e result yet: the one stored belongs to the head it
+        ran on. Called wherever a rework or an adapt writes one."""
+        self.runner.store.record_e2e_state(self.unit.id, None)
 
     def rework(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit
@@ -1874,6 +1880,7 @@ class BuildPath:
             # The next review judges the work against what the person asked, whichever
             # prompt the agent had it in, and pull request or not.
             kept["guidance_asked"] = guidance_asked(state, guidance)
+        self.forget_e2e_result()
         return {
             **kept,
             "comments_pending": False,
@@ -2216,7 +2223,7 @@ class BuildPath:
         r, unit = self.runner, self.unit
         tree, base = self.tree(), state.base or self.base
         # Before the body is built from the stored unit, which says what became of the e2e step.
-        if state.e2e and not runs_e2e(state):
+        if e2e_state_of(state, None) is E2eState.DEFERRED:
             r.store.record_e2e_state(unit.id, E2eState.DEFERRED)
         stored = r.store.get(unit.id)
         # A re-run asks again: `open_pr` finds the branch's pull request and updates it.
@@ -2267,7 +2274,7 @@ class BuildPath:
         sha = r.head(tree)
         # After the push, never before: a status for a commit the host has not
         # seen is rejected.
-        if unit.tier == TestTier.E2E_TEST and runs_e2e(state):
+        if runs_e2e(state):
             r.post_status(sha, True)
         # What the host did not take stays owed, for the next pass to post.
         unposted = tuple(
@@ -2566,6 +2573,13 @@ def halted(state: UnitRun) -> Node | None:
     if state.stopped:
         return Node.FAILED
     return None
+
+
+def e2e_state_of(state: UnitRun, stored: E2eState | None) -> E2eState | None:
+    """The e2e state a unit has or is about to have: `deferred` when this run skips the e2e node,
+    otherwise the one stored. The one place the deferral is decided, for the record and the
+    verdict alike."""
+    return E2eState.DEFERRED if state.e2e and not runs_e2e(state) else stored
 
 
 def runs_e2e(state: UnitRun) -> bool:

@@ -468,8 +468,9 @@ is 1 when anything failed.
 
 `review:` holds the review policy: `enabled` (default false), `protected_paths`, `protected_defaults`
 (default true), `classes` (name to path globs, no slash in a name, first listed wins) and
-`auto_land.min_samples` / `auto_land.min_clean_rate`; a repo's `review:` holds only
-`protected_paths`, which adds to the workspace's. Only a person edits it: a build agent and a track are
+`auto_land.min_samples` / `auto_land.min_clean_rate` / `auto_land.allow_deferred_e2e` (default false:
+a unit whose e2e result was deferred to verify stays at `light` or above; accepted only under
+`review.auto_land`); a repo's `review:` holds only `protected_paths`, which adds to the workspace's. Only a person edits it: a build agent and a track are
 refused a write to `abk.yaml` or `abk.local.yaml` by the routes the command policy names, and a
 build or track run after which either file differs fails (not restored). See `docs/configuration.md`.
 

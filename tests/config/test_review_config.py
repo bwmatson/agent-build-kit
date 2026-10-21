@@ -25,7 +25,7 @@ def test_a_workspace_with_no_review_section_loads_with_the_defaults() -> None:
         "protected_paths": [],
         "protected_defaults": True,
         "classes": {},
-        "auto_land": {"min_samples": 20, "min_clean_rate": 0.95},
+        "auto_land": {"min_samples": 20, "min_clean_rate": 0.95, "allow_deferred_e2e": False},
         "ceilings": {"auto": 5000, "light": 2000, "full": 750},
     }
     assert loaded.repos["app"].review.model_dump() == {
@@ -41,7 +41,7 @@ def test_each_key_loads_when_set() -> None:
             "protected_paths": ["deploy/**"],
             "protected_defaults": False,
             "classes": {"docs": ["**/*.md"], "tests": ["tests/**"]},
-            "auto_land": {"min_samples": 5, "min_clean_rate": 0.5},
+            "auto_land": {"min_samples": 5, "min_clean_rate": 0.5, "allow_deferred_e2e": False},
         },
         app={"protected_paths": ["src/billing/**"]},
     )
@@ -52,7 +52,7 @@ def test_each_key_loads_when_set() -> None:
         "protected_paths": ["deploy/**"],
         "protected_defaults": False,
         "classes": {"docs": ["**/*.md"], "tests": ["tests/**"]},
-        "auto_land": {"min_samples": 5, "min_clean_rate": 0.5},
+        "auto_land": {"min_samples": 5, "min_clean_rate": 0.5, "allow_deferred_e2e": False},
         "ceilings": {"auto": 5000, "light": 2000, "full": 750},
     }
     assert list(dumped["classes"]) == ["docs", "tests"], "the order is kept"

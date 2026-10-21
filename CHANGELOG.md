@@ -8,7 +8,9 @@
 - With `e2e_before_merge: deferred` for a repo, its e2e-test units skip the e2e-test step before
   merge, and again when their base moves, and record their e2e state as `deferred`; scheduled
   whole-suite runs are unaffected. The pull request of such a unit says "e2e-test deferred to
-  verify", and a failed verification names the units of the change that deferred.
+  verify", and a failed verification names the units of the change that deferred. The review
+  verdict reads a unit's e2e state as `passed`, `deferred`, `failed` or `not-required`: a deferred
+  unit stays at `light` review unless `review.auto_land.allow_deferred_e2e` is set to true.
 
 - `abk requeue --rework` (with or without a note) and `--restart` now accept a unit parked on a held
   e2e-test split, so a person can ask the agent to run again when the park was a mistake in the
