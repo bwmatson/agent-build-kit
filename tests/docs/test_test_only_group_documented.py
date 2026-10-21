@@ -91,3 +91,11 @@ def test_the_pipeline_skill_stub_check_paragraph_names_the_lone_commit() -> None
     text = section(SKILLS / "abk-pipeline" / "SKILL.md", "### Stopped in the stub check loop")
     assert re.search(r"test-only", text, re.I)
     assert re.search(r"(lone|single|one) test: commit", text, re.I)
+
+
+def test_the_push_gate_paragraph_describes_the_test_only_exception() -> None:
+    text = (DOCS / "architecture.md").read_text(encoding="utf-8")
+    start = text.index("**The push gate**")
+    paragraph = squashed(text[start : text.index("\n\n", start)])
+    assert re.search(r"test-only.{0,300}no red run", paragraph, re.I)
+    assert re.search(r"only of test-only groups needs no implementation commit", paragraph, re.I)

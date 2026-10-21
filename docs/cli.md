@@ -457,8 +457,9 @@ check and the red reading is the stubbed one. Cached results are keyed by that m
 stubbed run never reuses an unstubbed one. With the setting off, or a profile without stub
 support, the checks are the ones above.
 
-The gate reads the task groups from the `Unit:` trailer of the branch's commits. In a stubbed
-build a test-only group (an `[e2e-test]` group) is the exception to the pairing: its single
+Inside an installation, the gate reads the task groups of the unit named by the `Unit:` trailer
+of the branch's tip commit; with no trailer, an unknown unit or no installation, no group is
+treated as test-only. In a stubbed build a test-only group (an `[e2e-test]` group) is the exception to the pairing: its single
 `test:` commit needs no `feat:` commit after it, and no red run is made at it.
 
 ### `abk approve UNIT`

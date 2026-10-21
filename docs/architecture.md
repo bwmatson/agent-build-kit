@@ -1235,7 +1235,10 @@ what its tests import; so are a syntax error, a missing fixture and an
 empty run. Each test file is judged by the profile of the project it belongs to, with that
 project's clean and red commands run in its directory; the repo's profile covers files outside
 every project, and the gate fails if any project fails. Results are cached by patch-id so a
-restack does not re-run them.
+restack does not re-run them. In a stubbed build a test-only (`[e2e-test]`) group's tests
+commit is the exception: no `feat:` commit follows it, it gets only the clean command (lint,
+format and types) and no red run, and its result is cached under its own mode; a unit made
+only of test-only groups needs no implementation commit.
 This is the command form of the rule, for a person or a hook; the runner's own
 push condition is the approved-SHA check above.
 
