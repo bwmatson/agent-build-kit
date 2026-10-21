@@ -9,20 +9,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent_build_kit.pipeline.commit_order import check_structure
-from agent_build_kit.pipeline.stack_runner import GroupStep
 from tests.stub_gate_support import (
     commit_feat,
     commit_tests,
+    plan,
     repo,  # noqa: F401  (the fixture)
 )
-
-
-def plan(*groups: tuple[str, bool]) -> list[GroupStep]:
-    """Groups in order, each a title and whether it is test-only."""
-    return [
-        GroupStep(change_dir="feature", number=number, title=title, test_only=test_only)
-        for number, (title, test_only) in enumerate(groups, start=1)
-    ]
 
 
 def test_a_lone_tests_commit_of_a_last_test_only_group_passes(repo: Path) -> None:  # noqa: F811 — fixture

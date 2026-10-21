@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from agent_build_kit import profiles
@@ -35,6 +35,7 @@ from agent_build_kit.config import ProjectConfig, by_project
 from agent_build_kit.pipeline.check_runner import CheckCache, run_at_commit
 from agent_build_kit.pipeline.commit_order import check_structure, classify_paths
 from agent_build_kit.pipeline.shell import git
+from agent_build_kit.pipeline.stack_runner import GroupStep
 from agent_build_kit.profiles.base import ToolchainProfile
 
 
@@ -66,6 +67,7 @@ def check_branch(
     profile: ToolchainProfile | None = None,
     projects: list[ProjectConfig] | None = None,
     stubbed: bool = False,
+    groups: Sequence[GroupStep] = (),
 ) -> list[str]:
     """Every reason this branch may not be pushed, or an empty list.
 
@@ -81,6 +83,8 @@ def check_branch(
     Whether the build is `stubbed` is the repo's profile's to say, and holds for every
     project. A `stubbed` build also needs its commits paired, runs the clean command with types and
     reads the red run as stubbed; its cached results are kept apart from the other mode's.
+    `groups` is the unit's groups in order, each saying whether it is test-only; none given,
+    none is.
     """
     profile = profile or profiles.get("python-uv")
     projects = projects or []
