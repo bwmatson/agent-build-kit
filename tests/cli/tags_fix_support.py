@@ -47,7 +47,7 @@ def tasks_text(
 def one_group_text(unit_test_tag: str) -> bytes:
     """A tasks.md of one group tagged `unit_test_tag`."""
     group = f"## 1. [app] [{unit_test_tag}] Only one\n\n- [ ] 1.1 Test: it.\n- [ ] 1.2 Do it.\n"
-    return f"# Tasks\n\n{group}".encode()
+    return f"# Tasks\n\nAcceptance: none — a fixture about tags\n\n{group}".encode()
 
 
 def planning(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Replan:

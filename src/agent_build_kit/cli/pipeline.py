@@ -21,6 +21,7 @@ import asyncio
 import contextvars
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -110,7 +111,7 @@ from agent_build_kit.pipeline.events import (
     build_retarget,
     conflict_phrase,
 )
-from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
+from agent_build_kit.pipeline.file_lock import atomic_write_bytes, atomic_write_text, file_lock
 from agent_build_kit.pipeline.flakes import flake_record
 from agent_build_kit.pipeline.gate_holds import evaluate_gates, gate_status_lines
 from agent_build_kit.pipeline.joins import JoinContext
@@ -192,6 +193,7 @@ from agent_build_kit.pipeline.stack_runner import (
     UnitRunner,
     group_steps_of,
 )
+from agent_build_kit.pipeline.tag_rewrite import rewritten
 from agent_build_kit.pipeline.transcript import remove_change_transcripts, transcript_dir
 from agent_build_kit.pipeline.ui_review import (
     ui_notes_of,
@@ -5593,19 +5595,72 @@ def _tag_warnings(inst: Installation, path: Path) -> list[str]:
     ]
 
 
+def _fix_change_tags(inst: Installation, change: str, *, dry_run: bool) -> bool:
+    """Rewrite the old test-kind tags of one change's tasks.md and print what happened; whether
+    it was handled, and not refused. A change is written only when the rewritten text parses to
+    the same groups and the original had no other tag problem."""
+    path = tasks_path(change, inst.changes_dir)
+
+    def refuse(reason: str) -> bool:
+        print(f"{change}: refused, {reason}")
+        return False
+
+    if not path.is_file():
+        return refuse(f"no tasks.md at {path}")
+    try:
+        text = path.read_bytes().decode()
+    except UnicodeDecodeError:
+        return refuse(f"{path} is not valid text")
+    except OSError as exc:
+        return refuse(f"could not read {path}: {exc}")
+    before, errors = _validated(inst, path)
+    if errors:
+        for error in errors:
+            print(f"{path}:{error}")
+        return refuse(f"{len(errors)} other problem(s), run `abk tags {change}`")
+    fixed, count = rewritten(text)
+    if not count:
+        print(f"{change}: unchanged")
+        return True
+    with tempfile.TemporaryDirectory() as scratch:
+        probe = Path(scratch) / "tasks.md"
+        probe.write_bytes(fixed.encode())
+        after, after_errors = _validated(inst, probe)
+    if (before, []) != (after, after_errors):
+        return refuse("the rewritten tags do not parse to the same groups; nothing written")
+    if dry_run:
+        print(f"{change}: would rewrite {count} tag(s)")
+        return True
+    if not os.access(path, os.W_OK):
+        return refuse(f"{path} is read-only")
+    try:
+        atomic_write_bytes(path, fixed.encode())
+    except OSError as exc:
+        return refuse(f"could not write {path}: {exc}")
+    print(f"{change}: rewrote {count} tag(s)")
+    return True
+
+
 def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
-    """Validate a change's task-group tags (or every change's)."""
+    """Validate a change's task-group tags (or every change's), or with `--fix` rewrite the old
+    test-kind tags of the open changes."""
+    fix = getattr(args, "fix", False)
+    command = "abk tags --fix" if fix else "abk tags"
     if args.all and args.change:
-        print("abk tags: give a change or --all, not both", file=sys.stderr)
+        print(f"{command}: give a change or --all, not both", file=sys.stderr)
         return 2
     if not args.all and not args.change:
-        print("abk tags: name a change, or pass --all for every change", file=sys.stderr)
+        print(f"{command}: name a change, or pass --all for every change", file=sys.stderr)
         return 2
     changes = [t.parent.name for t in inst.tasks_files()] if args.all else [args.change]
     if not changes:
         # Silence reads as a failure; an empty store is a normal state.
         print(f"no changes in {inst.changes_dir}")
         return 0
+    if fix:
+        dry_run = getattr(args, "dry_run", False)
+        handled = [_fix_change_tags(inst, change, dry_run=dry_run) for change in changes]
+        return 0 if all(handled) else 1
     failed = 0
     cycles = _needs_cycle_problems(inst)
     for change in changes:
