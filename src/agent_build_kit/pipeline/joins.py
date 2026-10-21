@@ -9,8 +9,9 @@ state, so a second join sees the first: three units in a line become one.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 
+from agent_build_kit.config import active, review_ceiling
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.unit_size import (
     Calibration,
@@ -31,6 +32,7 @@ from agent_build_kit.pipeline.units import (
     direct_dependencies,
     repointed,
 )
+from agent_build_kit.pipeline.verdict import REVIEW_TIERS, ReviewTier
 from agent_build_kit.pipeline.work_graph import TaskGroup
 
 
@@ -59,8 +61,14 @@ def check_joins(
     built: set[int],
     ceiling: int,
     calibrations: Mapping[Kind, Calibration] | None = None,
+    floor: Callable[[TaskGroup, str], str] | None = None,
 ) -> None:
     """Raise `JoinRefused` for the first join that breaks a rule.
+
+    With `review.enabled` a join is held to the ceiling of the higher review tier of its two
+    sides (a unit with none counting as `full`, a group at its `floor(group, repo)`), not to
+    `ceiling`, which applies without it. A group whose floor is `full` is not joined to a unit
+    that is not expected to get full review.
 
     `change` is the change being planned, whose own planned units the plan
     replaces, so they are neither candidates nor dependents here.
@@ -129,6 +137,7 @@ def check_joins(
             members = taken.members()
             added = taken.estimated_lines
             added_kinds = [taken.tier]
+            added_tier = taken.review_tier or "full"
         else:
             if change is None or join.change != change:
                 raise refuse(f"{join.change or 'the groups'} are not of the change being planned")
@@ -160,6 +169,13 @@ def check_joins(
                         raise refuse(f"group {number} also waits on {need[0]} group {need[1]}")
             claimed |= set(join.groups)
             added_kinds = [by_number[number].tier for number in join.groups]
+            floors = [floor(by_number[n], onto.repo) for n in join.groups] if floor else []
+            added_tier = max(floors, key=REVIEW_TIERS.index, default="auto")
+            if "full" in floors and onto.review_tier != "full" and active().review.enabled:
+                raise refuse(
+                    f"{' and '.join(f'group {n}' for n in join.groups)}, whose floor is `full`, "
+                    f"is not joined to {onto.id}, which is not a full-review unit"
+                )
             others = [u.id for u in state.values() if onto.id in direct(u)]
             members = (Member(change=join.change, groups=join.groups),)
             added = join.estimated_lines
@@ -172,24 +188,36 @@ def check_joins(
         _check_groups(involved, catalog, refuse)
 
         ratio = applied(calibrations, kind_of(onto))
-        if calibrated(onto.estimated_lines + added, ratio.ratio) > ceiling:
+        workspace = active()
+        tier = max(onto.review_tier or "full", added_tier, key=REVIEW_TIERS.index)
+        limit = (
+            review_ceiling(workspace.repos.get(onto.repo), workspace, ReviewTier(tier))
+            if workspace.review.enabled
+            else ceiling
+        )
+        name = f"{tier} ceiling" if workspace.review.enabled else "ceiling"
+        if calibrated(onto.estimated_lines + added, ratio.ratio) > limit:
             raise refuse(
                 f"{onto.estimated_lines}+{added} changed lines"
                 + (
-                    f" times {ratio.ratio:.2f} (from {ratio.samples} samples)"
+                    f" times {ratio.ratio:.2f} (from {ratio.samples} samples) is "
+                    f"{calibrated(onto.estimated_lines + added, ratio.ratio)} and"
                     if ratio.ratio != 1.0
                     else ""
                 )
-                + f" is over the ceiling of {ceiling}"
+                + f" is over the {name} of {limit}"
                 + (
                     f" (the largest raw estimate for {kind_of(onto).label} is "
-                    f"{largest_raw(ceiling, ratio.ratio)})"
+                    f"{largest_raw(limit, ratio.ratio)})"
                     if ratio.ratio != 1.0
                     else ""
                 )
             )
 
-        state[onto.id] = onto.taking(members, estimated_lines=added, kinds=added_kinds)
+        joined = onto.taking(members, estimated_lines=added, kinds=added_kinds)
+        state[onto.id] = (
+            joined.model_copy(update={"review_tier": tier}) if workspace.review.enabled else joined
+        )
         if taken is not None:
             del state[taken.id]
             moved = repointed({**state, **planned}, taken.id, onto.id)

@@ -254,6 +254,7 @@ def parse_plan(
                     built=built or set(),
                     ceiling=review_ceiling(None, active(), None),
                     calibrations=calibrations,
+                    floor=lambda group, repo: _group_floor(group, repo, tasks)[0],
                 )
             except JoinRefused as error:
                 raise PlannerError(str(error)) from error
