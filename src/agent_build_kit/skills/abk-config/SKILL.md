@@ -339,6 +339,24 @@ file entry together; `abk e2e-test status` shows what is held. A hand-set hold h
 exits 0 when no test is in two splits, no marker is unknown to the test runner and no
 listing fails; 1 for a finding or a split the profile cannot apply; 2 for an unknown repo. It runs no test.
 
+## Which file holds what
+
+`abk.yaml` reads the same on every machine that runs the pipeline. Ask of any line: *would this
+be wrong on another person's machine?* If so it goes in `abk.local.yaml` (ignored by git, merged
+over `abk.yaml` key by key), and a secret or a single per-machine value goes in `.env`.
+
+- **`abk.yaml`**: repo names, slugs, forges, default branches, profiles, projects, deploy rules,
+  test kinds and markers, split and dimension declarations, models, review settings, team policy.
+- **`abk.local.yaml`**: `repos.<name>.path` and `planning.worktree_root`; `verify.env.<NAME>.file`;
+  which Claude account builds a repo (`repos.<name>.account`) with each account's `config_dir`,
+  `limits` and slots, and the default account's usage thresholds; `project_limits` (how many units
+  this machine runs at once); `e2e_available`, split holds and
+  a machine's scheduled-run `off`. A person with one Claude account sets nothing for accounts.
+- **`.env`**: tokens, PATs, `ABK_*` switches, read through `from: env-file`.
+
+`abk config --path` names the files in force and `abk config --show` prints the merged result;
+check it after moving a value.
+
 ## Where an installation's facts live
 
 The tracked `abk.yaml` of a public repo holds neither consumer facts nor user-specific values:

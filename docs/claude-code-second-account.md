@@ -5,13 +5,23 @@ machine's default.
 
 ## The in-repo form
 
-An account is a Claude Code config directory, and which directory is specific to a person and
-a machine. The repo names an account by label, and each person supplies the directory:
+An account is a Claude Code config directory, and which account builds what depends on who runs the
+pipeline and which accounts they have. Both are machine choices, so both live in `abk.local.yaml`
+(ignored by git, one per machine), and the committed `abk.yaml` stays the same on every machine:
 
-- In `abk.yaml` (committed): `repos.<name>.account: kit`.
-- In `abk.local.yaml` (ignored by git, one per machine):
-  `runtimes.claude_code.accounts.<label>` as `accounts.kit.config_dir`, an absolute path, with
-  its own `limits` and `max_units_in_progress` if it needs them.
+```yaml
+# abk.local.yaml
+repos:
+  agent-build-kit:
+    account: kit                              # which account builds this repo
+runtimes:
+  claude_code:
+    accounts:
+      kit:
+        config_dir: /home/you/.claude-kit     # an absolute path
+        limits: {}                            # this plan's usage thresholds
+        max_units_in_progress: 3
+```
 
 A `config_dir` in the committed `abk.yaml` is refused. A person with one account sets nothing:
 a label with no `config_dir` on their machine falls back to the default account, with the

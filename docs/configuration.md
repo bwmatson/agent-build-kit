@@ -1,20 +1,51 @@
 # Configuration
 
-Two files configure an installation, and they answer different questions.
+Three files configure an installation, and they answer different questions. The rule that
+keeps them apart: **`abk.yaml` reads the same on every machine that runs the pipeline.**
 
-- **`abk.yaml`**, in the planning repo, committed and reviewed: everything
-  that describes *this workspace* — which repos, where they are checked out,
-  which host each lives on, how each deploys and tests, what the planner should
-  know about how they relate, the limits and models. The schema is strict
-  (`extra="forbid"`): a misspelled key fails at load, not later.
-- **`.env`**, in the planning repo, ignored by git: what differs *per machine*
-  or must not be committed — a token, a worktree root override, a model
-  override, the OpenSpec version pin.
+- **`abk.yaml`**, in the planning repo, committed and reviewed: everything that describes
+  *this workspace* and is true wherever it runs — which repos, which host each lives on,
+  how each deploys and tests, what the planner should know about how they relate, the
+  models and the team's policy limits. The schema is strict (`extra="forbid"`): a
+  misspelled key fails at load, not later.
+- **`abk.local.yaml`**, beside it, ignored by git, merged over it key by key: everything that
+  differs *per machine or per person* — where a repo is checked out, which Claude account
+  builds what, the usage thresholds of a person's plan, what a machine can run.
+- **`.env`**, in the planning repo, ignored by git: secrets and single per-machine values —
+  a token, a worktree root override, a model override, the OpenSpec version pin.
 
 **Installation facts live here.** The framework knows nothing about any
 particular installation; a fact that belongs to one (a path, an owner, a
 deploy command, a credential name) is a field in `abk.yaml` with a default,
 never a constant in code, a prompt or a skill.
+
+## Which file holds what
+
+Ask of any line: *would this be wrong on another person's machine?* If it would, it is local.
+
+| Setting | File | Why |
+|---|---|---|
+| Repo names, slugs, forges, default branches, `profile`, `languages`, `projects`, deploy rules, `consumes`, `relationships` | `abk.yaml` | describes the workspace |
+| Test kinds and markers, `e2e_splits` and `e2e_dimensions` declarations, `e2e_unit_scope` | `abk.yaml` | the same tests run wherever the code does |
+| Models, review settings, `global_limits` and the defaults that are safe everywhere | `abk.yaml` | one behaviour for everyone |
+| `project_limits` (`max_concurrent_stacks`, `max_units_in_progress`) | `abk.local.yaml` | how many units this machine can run at once |
+| `repos.<name>.path` (a checkout), `planning.worktree_root` | `abk.local.yaml` | a path on one disk |
+| `verify.env.<NAME>.file` (where a settings file sits) | `abk.local.yaml` | a path on one disk; the entry and its `path` stay in `abk.yaml` |
+| `repos.<name>.account` (which Claude account builds a repo) | `abk.local.yaml` | depends on who runs the pipeline and which accounts they have; a person with one account sets nothing |
+| `runtimes.claude_code.accounts.<label>`: `config_dir`, `limits`, `max_units_in_progress` | `abk.local.yaml` | a directory and a plan's allowances |
+| `runtimes.claude_code.limits` (the default account's usage thresholds) and `usage_cache_*` | `abk.local.yaml` | a plan's allowances differ per person |
+| `runtimes.<name>.models` (which model does which role) | `abk.yaml` | a model alias is that runtime's own name and describes the workspace |
+| `runtimes.<name>.command` and `policy_fix`, where the program is an absolute path | `abk.local.yaml` or `.env` | where a program sits differs per machine; a bare program name on the PATH is fine in `abk.yaml` |
+| `tests.e2e_available`, a split's `hold`, `tests.e2e_schedule: "off"` for a machine | `abk.local.yaml` | what this machine can run or should spend |
+| Tokens, PATs, `GH_TOKEN`, `ABK_*` switches, a worktree root | `.env` | secrets and per-machine values, read through `from: env-file` |
+
+How they combine: `abk.local.yaml` is merged over `abk.yaml` when the configuration loads;
+mappings merge by key, and a list, a string or `null` replaces the committed value whole. A
+`config_dir` in the committed file is refused. `abk config --path` prints the files in force
+and `abk config --show` the merged result. `abk doctor`'s `public content` check warns when
+a committed `abk.yaml` holds a path outside the checkout or a home directory. A committed file
+that needs a value from a machine reads it through the overlay or an `env-file` entry, never a
+path written into it; "Where an installation's facts live" below has the details.
 
 ## Locating `abk.yaml`
 
@@ -368,7 +399,8 @@ repos:                          # ordered: deploy order is derived from
                                 # this order. A task group's [repo] tag must
                                 # be one of these keys, spelled exactly.
   platform:
-    path: /srv/src/platform     # the checkout (~ is expanded)
+    path: /srv/src/platform     # the checkout (~ is expanded); a path on one disk,
+                                # so it belongs in abk.local.yaml
     slug: example/platform      # GitHub owner/name. The owner decides which
                                 # `gh` account's token is used.
     default_branch: main        # the branch units are built on and their pull
@@ -661,9 +693,11 @@ verify:
       key: EXTRA_TOKEN
 ```
 
-A second Claude account is set the same way: a repo names a label in `abk.yaml`
-(`repos.<name>.account: kit`), and each person gives that label's directory in
-`abk.local.yaml`. A label with no `config_dir` on a machine runs on the default account.
+A second Claude account is set the same way, wholly in `abk.local.yaml`: which account builds a
+repo (`repos.<name>.account: kit`) depends on who runs the pipeline and which accounts they have,
+so it is a machine choice, and the label's directory is given beside it. A person with one account
+sets nothing, and a repo with no `account`, or whose label has no `config_dir` on the machine, runs
+on the default account.
 
 ```yaml
 runtimes:
