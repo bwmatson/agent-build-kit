@@ -148,7 +148,7 @@ def branch_subjects(repo: Path, base: str) -> list[str]:
 class GroupProgress(Frozen):
     """How far a stubbed build's branch has got through the unit's groups."""
 
-    done: int  # groups whose tests and implementation commits are both there
+    done: int  # groups done: each has its pair, or for a test-only group its tests commit
     tests_made: bool  # the next group's tests commit is there, its implementation not
 
 

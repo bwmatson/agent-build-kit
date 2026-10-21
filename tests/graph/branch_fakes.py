@@ -25,6 +25,11 @@ BASE = "origin/main"
 Groups = Mapping[int, tuple[str, str]]  # number -> (title, "Done when" sentence or "")
 
 
+def agent_calls(events: list[str]) -> list[str]:
+    """The agent calls among a build's recorded events."""
+    return [event for event in events if event.startswith("claude:")]
+
+
 def titled(*numbers: int) -> Groups:
     """Groups titled `G<number>`, none with a "Done when" sentence."""
     return {number: (f"G{number}", "") for number in numbers}

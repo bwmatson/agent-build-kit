@@ -6,15 +6,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from tests.graph.branch_fakes import built, subjects
+from tests.graph.branch_fakes import agent_calls, built, subjects, titled
 from tests.graph.test_per_group_build import STEPS, group_named
 
 PARSE = {1: ("Parse the key", ""), 2: ("Drive the stack", "")}
-THREE = {1: ("G1", ""), 2: ("G2", ""), 3: ("G3", "")}
-
-
-def agent_calls(events: list[str]) -> list[str]:
-    return [event for event in events if event.startswith("claude:")]
+THREE = titled(1, 2, 3)
 
 
 def test_an_ordinary_group_then_a_test_only_group_gives_three_agent_calls(tmp_path: Path) -> None:
@@ -42,7 +38,9 @@ def test_the_tests_prompt_of_a_test_only_group_says_what_the_group_does_not_do(
     assert "no implementation" in test_only
     assert re.search(r"no stubs|stubs are not needed|need no stubs|not need stubs", test_only)
     assert re.search(r"(not|never) (to )?run[^.]*live", test_only)
+    assert re.search(r"every\s+task\s+of\s+the\s+group[^.]*test.support", test_only)
     assert "no implementation" not in ordinary
+    assert "every task" not in ordinary
     assert "live" not in ordinary
 
 

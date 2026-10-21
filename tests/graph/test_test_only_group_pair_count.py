@@ -6,10 +6,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tests.graph.branch_fakes import built, subjects
+from tests.graph.branch_fakes import built, subjects, titled
 
 TWO = {1: ("Parse the key", ""), 2: ("Drive the stack", "")}
-THREE = {1: ("G1", ""), 2: ("G2", ""), 3: ("G3", "")}
+THREE = titled(1, 2, 3)
 STOPPED = "the branch holds no tests and implementation pair for group 2 (Drive the stack)"
 
 
@@ -56,6 +56,6 @@ def test_a_short_count_with_a_test_only_last_group_names_the_earlier_group(
     )
 
     assert outcome.status == "failed"
-    assert "group 2 (G2)" in outcome.detail
+    assert "the branch holds no tests commit for group 2 (G2)" in outcome.detail
     assert "claude:impl" not in recorder.events, "no group here has an implementation step"
     assert "review" not in recorder.events

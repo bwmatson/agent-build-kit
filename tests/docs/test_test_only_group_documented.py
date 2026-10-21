@@ -56,9 +56,6 @@ def test_the_unit_graph_shows_the_edge_from_stub_checks_past_implement() -> None
     text = (DOCS / "unit-graph.md").read_text(encoding="utf-8")
     edges = [line for line in text.splitlines() if "stub_checks" in line and "-->" in line]
     assert any(
-        re.search(r"test-only", line, re.I) and re.search(r"-->\s*\w+", line) for line in edges
-    )
-    assert any(
         re.search(r"stub_checks\s*-->\|[^|]*test-only[^|]*\|\s*(tests|checks)\b", line, re.I)
         for line in edges
     )

@@ -245,10 +245,11 @@ flowchart TD
     tests -->|not stubbed| implement
     tests -->|stubbed build| stub_checks
     stub_checks -->|passed, commits the tests| implement
-    %% test-only group: stub_checks --> tests, past implement
     stub_checks -->|passed, test-only group| tests
+    stub_checks -->|test-only last group, commits| checks
+    stub_checks -->|test-only last group, nothing new| unit-test
     stub_checks -->|failed, rounds left| fix_stub_checks
-    stub_checks -->|failed, rounds spent or nothing changed| failed
+    stub_checks -->|failed, rounds spent or nothing changed, or a group has no pair| failed
     fix_stub_checks --> stub_checks
     implement -->|stubbed build, a group is left| tests
     implement -->|a group has no pair| failed

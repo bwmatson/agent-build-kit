@@ -1432,15 +1432,17 @@ class BuildPath:
         return f"{prefix}{step.title}\n\n" + "\n\n".join(filter(None, (body, step.goal)))
 
     def unpaired(self, state: UnitRun, ref: str) -> str:
-        """The group just built, named, when the branch does not hold a pair for it and every
-        group before it; "" when it does."""
+        """What the branch lacks for the group just built or an earlier one, named: a tests
+        and implementation pair, or a tests commit for a test-only group; "" when it lacks none."""
         steps = self.runner.group_steps(self.unit)
         subjects = self.runner.branch_subjects(self.tree(), ref)
         done = group_progress(subjects, [s.title for s in steps], [s.test_only for s in steps]).done
         if done > state.group:
             return ""
         step = steps[done]
-        return f"group {step.number} ({step.title})"
+        if step.test_only:
+            return f"tests commit for group {step.number} ({step.title})"
+        return f"tests and implementation pair for group {step.number} ({step.title})"
 
     def settle_group(self, state: UnitRun, ref: str) -> Update:
         """The update for the group just built: a stop when the branch holds no pair for it
@@ -1449,7 +1451,7 @@ class BuildPath:
         r, unit = self.runner, self.unit
         if missing := self.unpaired(state, ref):
             # After every group, so a later group's tests are never written over a gap.
-            return self.stop(f"the branch holds no tests and implementation pair for {missing}")
+            return self.stop(f"the branch holds no {missing}")
         more = state.group + 1 < len(r.group_steps(unit))
         kept: Update = {"group": state.group + 1, "more_groups": more}
         if not more:

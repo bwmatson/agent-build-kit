@@ -7,20 +7,15 @@ from pathlib import Path
 
 import pytest
 
-from tests.graph.branch_fakes import built, prepared, subjects
-from tests.graph.stub_loop_fakes import StubLoop
+from tests.graph.branch_fakes import agent_calls, built, prepared, subjects, titled
 from tests.graph.test_build_path import build, limited
 from tests.graph.test_per_group_build import group_named
 from tests.graph.test_per_group_resume import rewrite_every_hash
 from tests.runner_fakes import Killed
 
-TWO = {1: ("G1", ""), 2: ("G2", "")}
+TWO = titled(1, 2)
 SAME = {1: ("Wire it", ""), 2: ("Wire it", "")}
 PAIR = ["test: G1", "feat: G1"]
-
-
-def agent_calls(recorder: StubLoop) -> list[str]:
-    return [event for event in recorder.events if event.startswith("claude:")]
 
 
 def test_a_branch_holding_the_pair_and_the_test_only_commit_resumes_at_the_checks(
@@ -31,7 +26,7 @@ def test_a_branch_holding_the_pair_and_the_test_only_commit_resumes_at_the_check
     )
 
     assert outcome.status == "open"
-    assert agent_calls(recorder) == [], "nothing is written"
+    assert agent_calls(recorder.events) == [], "nothing is written"
     assert recorder.subjects == []
     assert "unit-test" in recorder.events and "review" in recorder.events
     assert subjects(repo) == [*PAIR, "test: G2"]
@@ -43,7 +38,7 @@ def test_a_branch_holding_only_the_first_pair_resumes_at_the_test_only_groups_te
     recorder, outcome, repo = built(tmp_path, groups={"add-marker": TWO}, e2e=(2,), seeded=PAIR)
 
     assert outcome.status == "open"
-    assert agent_calls(recorder) == ["claude:tests"], "tests, and no implementation"
+    assert agent_calls(recorder.events) == ["claude:tests"], "tests, and no implementation"
     assert group_named(recorder.prompts[0]) == "2"
     assert subjects(repo) == [*PAIR, "test: G2"]
 
@@ -84,7 +79,7 @@ def test_a_restack_that_rewrote_every_hash_resumes_the_same(tmp_path: Path) -> N
     )
 
     assert outcome.status == "open"
-    assert agent_calls(recorder) == []
+    assert agent_calls(recorder.events) == []
     assert subjects(repo) == [*PAIR, "test: G2"]
 
 
@@ -97,6 +92,6 @@ def test_two_groups_with_one_title_are_told_apart_by_position(tmp_path: Path) ->
     )
 
     assert outcome.status == "open"
-    assert agent_calls(recorder) == ["claude:tests"]
+    assert agent_calls(recorder.events) == ["claude:tests"]
     assert group_named(recorder.prompts[0]) == "2"
     assert subjects(repo) == ["test: Wire it", "feat: Wire it", "test: Wire it"]

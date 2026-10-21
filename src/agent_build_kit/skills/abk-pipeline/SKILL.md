@@ -215,7 +215,7 @@ checker's output as its feedback under the source `stub-checks`. `abk requeue <u
 back to `fix_stub_checks` with that output, so the next agent call is the fix, not a rework and
 not the tests written again; the rounds already used are kept. Ordinary review feedback still goes to rework.
 
-A test-only group (an `[e2e-test]` group) is committed there as a lone test: commit once its
+A test-only group (an `[e2e-test]` group) is committed there as a lone `test:` commit once its
 checks pass, with no implementation run; the build goes to the next group's tests, or to the checks when it was the last group.
 
 ### Attached to a chat

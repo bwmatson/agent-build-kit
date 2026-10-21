@@ -55,7 +55,7 @@ Rules `abk tags` enforces:
 - New test files go where the repo's layout says: mirroring the source
   folder, integration tests under `tests/integration/`.
 - A `[e2e-test]` group (every `[acceptance]` group is one) is test-only: a stubbed build
-  commits it as one test: commit and writes no implementation for it, so its tasks are tests
+  commits it as one `test:` commit and writes no implementation for it, so its tasks are tests
   alone. A `[unit-test]` or `[integration-test]` group still needs its implementation tasks.
 
 ## Flags

@@ -226,8 +226,9 @@ Do not write the implementation.
 
 
 TEST_ONLY_TESTS_FINISH = """\
-This group builds no implementation: its tests are committed on their own and no implementation
-step follows. Nothing it tests is missing, so it needs no stubs. Do not run tests that need the
+This is the only step this group gets: it builds no implementation and none follows, so work every
+task of the group here, test-support code included, not only the test tasks. Its work is committed
+on its own. Nothing it tests is missing, so it needs no stubs. Do not run tests that need the
 live stack; they are run later against the real stack.
 Before you finish: the tests you wrote must pass lint, format and types, so run those checks
 and fix what they report.
