@@ -142,4 +142,6 @@ def walk_unit_through_review(scratch: Scratch, api: httpx.Client, runtime: str) 
     requeued = api.post(f"{UNIT_URL}/actions/requeue", json={})
     assert requeued.status_code == 200, requeued.text
     after_requeue = api.get(UNIT_URL).json()
-    assert (after_requeue["state"], after_requeue["cause"]) == ("planned", Cause.REQUEUED.value)
+    # The unit's thread is parked, so the requeue resumes it rather than planning it afresh.
+    assert (after_requeue["state"], after_requeue["cause"]) == ("running", Cause.REQUEUED.value)
+    assert thread_next(scratch.state) == (Node.PREPARE,)
