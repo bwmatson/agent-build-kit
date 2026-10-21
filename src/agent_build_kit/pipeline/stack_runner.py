@@ -524,6 +524,10 @@ class Verdict(Frozen):
     # nothing to answer, so a prose-shaped reply still approves over them.
     earlier: tuple[EarlierAnswer, ...] | None = None
     description: Description | None = None
+    # The review tier the reviewer judges the unit deserves (`auto`, `light` or `full`) and
+    # the groups or files behind one above the planned estimate.
+    classification: str = ""
+    drivers: tuple[str, ...] = ()
 
     @property
     def blocking(self) -> tuple[FollowUp, ...]:

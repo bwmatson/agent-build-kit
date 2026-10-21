@@ -293,6 +293,10 @@ class StoredUnit(Unit):
     # What the reviewer said the approved branch does, shown in the pull
     # request description; None until an approval carried one.
     description: Description | None = None
+    # The review tier the reviewer last classified the unit at, and what drove it; None
+    # until a review round recorded one.
+    classification: str | None = None
+    drivers: tuple[str, ...] = ()
     # Whether `feedback` is a person's words, fetched from the pull request when
     # it was requeued, as opposed to anything the pipeline or the host wrote.
     # Set only with the feedback (see `set_feedback`), so it never outlives it.
