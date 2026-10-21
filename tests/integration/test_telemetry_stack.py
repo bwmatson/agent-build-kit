@@ -7,19 +7,21 @@ person would set. Only GitHub is faked: a fake server speaking the REST API,
 reached through `ABK_GITHUB_API_URL`, with `gh auth token` the one command left as
 a script.
 
-The stores are the stack's own, read back through the queries a person would
-use: the trace store's search API by unit id, and the metrics store's query API
-by metric name. The dev instance must be up; its published ports are named by:
+The sink is one of two telemetry values. `otel` is the stack's own stores, read back through the
+queries a person would use: the trace store's search API by unit id, and the metrics store's
+query API by metric name. `local` is a file written by a receiver on a free port, decoded from
+the OTLP/HTTP requests the tick sent. For `otel` the dev instance must be up; its published
+ports are named by:
 
 - `ABK_ACCEPTANCE_TRACES_ENDPOINT`   the trace intake, a full OTLP/HTTP URL
 - `ABK_ACCEPTANCE_METRICS_ENDPOINT`  the metrics intake, a full OTLP/HTTP URL
 - `ABK_ACCEPTANCE_TRACES_URL`        the trace store's base URL (search API)
 - `ABK_ACCEPTANCE_METRICS_URL`       the metrics store's base URL (query API)
 
-The fixture unit is built once, for `claude_code`, under that runtime's one tag. The
-`acp` parameters are added by a separate change.
+The fixture unit is built once per runtime and telemetry value, each parameter carrying its
+values' tags.
 
-Every run is told apart in the stores by a service name of its own, so a store
+Every run is told apart in the sink by a service name of its own, so a sink
 that already holds earlier runs does not answer for this one.
 
 Needs the dev stack, the host's Claude Code login, node for the OpenSpec CLI
@@ -29,8 +31,8 @@ from the default suite.
 
 from __future__ import annotations
 
+import base64
 import json
-import os
 import shutil
 import socket
 import subprocess
@@ -43,6 +45,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from opentelemetry.proto.collector.metrics.v1.metrics_service_pb2 import ExportMetricsServiceRequest
+from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
 from pydantic import Field
 
 from agent_build_kit import config
@@ -51,12 +55,17 @@ from agent_build_kit.model import Frozen
 from tests.factories import git, init_repo, scratch_app
 from tests.forges.github_server import FakeGitHub
 from tests.forges.process_host import process_env
-from tests.runtime_scratch import runtime_scratch
+from tests.runtime_scratch import (
+    RUNTIME_PARAMS,
+    TELEMETRY_PARAMS,
+    TelemetryScratch,
+    runtime_scratch,
+    telemetry_scratch,
+)
 from tests.scratch_tick import TickResult, commits_on_unit_branch, register_scratch, run_tick
 
 pytestmark = [
     pytest.mark.local_stack,
-    pytest.mark.telemetry_otel,
     pytest.mark.skipif(shutil.which("npx") is None, reason="npx is not on PATH"),
     pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not on PATH"),
 ]
@@ -64,21 +73,11 @@ pytestmark = [
 CHANGE = "add-marker"
 BRANCH = f"spec/{CHANGE}/1"
 UNIT_ID = f"{CHANGE}/1"
-TRACES_ENDPOINT = "ABK_ACCEPTANCE_TRACES_ENDPOINT"
-METRICS_ENDPOINT = "ABK_ACCEPTANCE_METRICS_ENDPOINT"
-TRACES_URL = "ABK_ACCEPTANCE_TRACES_URL"
-METRICS_URL = "ABK_ACCEPTANCE_METRICS_URL"
 
 # How long the stores get to make a pushed trace or series searchable.
 INGEST_WAIT = 90.0
 # How long a store that should hold nothing is given to prove it.
 QUIET_WAIT = 20.0
-
-# Why the dead-collector check runs on Claude alone: the exporter is the kit's own and sits
-# above the runtime, so a build on a second runtime would exercise the same code.
-DEAD_COLLECTOR_REASON = (
-    "the exporter does not depend on the agent; a build on a second runtime adds no coverage"
-)
 
 TASKS = """# Tasks
 
@@ -108,13 +107,7 @@ class Built(Frozen):
     scratch: Scratch
     tick: TickResult
     service: str
-
-
-def require_env(name: str) -> str:
-    value = os.environ.get(name, "")
-    if not value:
-        pytest.fail(f"{name} is not set: this run needs the shared stack's dev instance up")
-    return value
+    sink: TelemetryScratch
 
 
 def closed_endpoint() -> str:
@@ -129,13 +122,14 @@ def build_unit(
     tmp_path: Path,
     runtime: str,
     tmp_path_factory: pytest.TempPathFactory,
+    sink: TelemetryScratch,
     *,
     traces: str,
     metrics: str,
     service: str | None = None,
 ) -> Built:
     """Build the fixture unit in one tick on `runtime` with telemetry on, pointed at
-    `traces` and `metrics`, under a service name of its own."""
+    `traces` and `metrics` (the `sink`'s intake, or a dead one), under a service name of its own."""
     scratch = runtime_scratch(runtime, tmp_path_factory, lambda command: None)
     service = service or f"abk-acceptance-{uuid.uuid4().hex[:12]}"
 
@@ -191,7 +185,7 @@ def build_unit(
     assert missed == [], (
         f"the forge called routes the fake host does not serve: {missed}\n{tick.output}"
     )
-    return Built(scratch=scratch_state, tick=tick, service=service)
+    return Built(scratch=scratch_state, tick=tick, service=service, sink=sink)
 
 
 def get_json(url: str) -> Any:
@@ -212,18 +206,66 @@ def eventually(look: Callable[[], Any], wait: float) -> Any:
         time.sleep(3)
 
 
-def find_trace_ids(service: str) -> list[str]:
-    """The trace store's search API, by the unit id and the run's service name."""
-    base = require_env(TRACES_URL).rstrip("/")
+def logged(sink: TelemetryScratch, path: str) -> list[bytes]:
+    """The bodies the local sink's receiver was sent on `path`, in order."""
+    assert sink.log is not None
+    lines = [json.loads(line) for line in sink.log.read_text().splitlines()]
+    return [base64.b64decode(line["body"]) for line in lines if line["path"] == path]
+
+
+def service_of(resource: Any) -> str:
+    return next((a.value.string_value for a in resource.attributes if a.key == "service.name"), "")
+
+
+def attributes_of(attributes: Any) -> dict[str, str]:
+    return {a.key: a.value.string_value for a in attributes}
+
+
+def local_spans(sink: TelemetryScratch, service: str) -> list[Any]:
+    """Every span the run's service sent to the local sink."""
+    requests = [ExportTraceServiceRequest.FromString(b) for b in logged(sink, "/v1/traces")]
+    return [
+        span
+        for request in requests
+        for resource in request.resource_spans
+        if service_of(resource.resource) == service
+        for scope in resource.scope_spans
+        for span in scope.spans
+    ]
+
+
+def find_trace_ids(sink: TelemetryScratch, service: str) -> list[str]:
+    """The sink's traces by the unit id and the run's service name: the trace store's search API
+    for `otel`, the logged spans for `local`."""
+    if sink.log is not None:
+        return sorted(
+            {
+                span.trace_id.hex()
+                for span in local_spans(sink, service)
+                if attributes_of(span.attributes).get("unit.id") == UNIT_ID
+            }
+        )
+    base = sink.traces_url.rstrip("/")
     tags = urllib.parse.quote(f'unit.id="{UNIT_ID}" service.name="{service}"')
     found = get_json(f"{base}/api/search?tags={tags}&limit=20")
     return [trace["traceID"] for trace in found.get("traces", [])]
 
 
-def spans_of(trace_id: str) -> list[dict[str, Any]]:
-    """Every span of a trace, in the trace store's own JSON, whichever envelope
-    (`batches` or `resourceSpans`, possibly under `trace`) it answers with."""
-    base = require_env(TRACES_URL).rstrip("/")
+def spans_of(sink: TelemetryScratch, service: str, trace_id: str) -> list[dict[str, Any]]:
+    """Every span of a trace: the logged spans for `local`, in the trace store's own JSON for
+    `otel`, whichever envelope (`batches` or `resourceSpans`, possibly under `trace`) it answers
+    with."""
+    if sink.log is not None:
+        return [
+            {
+                "name": span.name,
+                "spanId": span.span_id.hex(),
+                "parentSpanId": span.parent_span_id.hex(),
+            }
+            for span in local_spans(sink, service)
+            if span.trace_id.hex() == trace_id
+        ]
+    base = sink.traces_url.rstrip("/")
     body = get_json(f"{base}/api/traces/{trace_id}")
     body = body.get("trace", body)
     resources = body.get("batches") or body.get("resourceSpans") or []
@@ -237,72 +279,93 @@ def spans_of(trace_id: str) -> list[dict[str, Any]]:
     ]
 
 
-def series_of(service: str, metric: str) -> list[dict[str, str]]:
-    """The metrics store's query API: every series of `metric` the run pushed."""
-    base = require_env(METRICS_URL).rstrip("/")
+def series_of(sink: TelemetryScratch, service: str, metric: str) -> list[dict[str, str]]:
+    """Every series of `metric` the run pushed: the labels of the logged data points for `local`,
+    the metrics store's query API for `otel`."""
+    if sink.log is not None:
+        requests = [ExportMetricsServiceRequest.FromString(b) for b in logged(sink, "/v1/metrics")]
+        return [
+            attributes_of(point.attributes)
+            for request in requests
+            for resource in request.resource_metrics
+            if service_of(resource.resource) == service
+            for scope in resource.scope_metrics
+            for found in scope.metrics
+            if found.name.replace(".", "_").startswith(metric)
+            for point in (*found.histogram.data_points, *found.sum.data_points)
+        ]
+    base = sink.metrics_url.rstrip("/")
     selector = f'{{__name__=~"{metric}.*",job=~".*{service}"}}'
     found = get_json(f"{base}/api/v1/series?match[]={urllib.parse.quote(selector)}")
     return found.get("data", [])
 
 
-@pytest.fixture(
-    scope="module", params=[pytest.param("claude_code", marks=pytest.mark.runtime_claude_code)]
-)
-def stack_tick(
+@pytest.fixture(scope="module", params=TELEMETRY_PARAMS)
+def sink(
     request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
-) -> Iterator[Built]:
-    """One tick on the parameter's runtime, pointed at the dev stack's intake."""
-    yield build_unit(
-        tmp_path_factory.mktemp("telemetry-stack"),
-        request.param,
+) -> Iterator[TelemetryScratch]:
+    """The telemetry value's sink, up for the module."""
+    with telemetry_scratch(request.param, tmp_path_factory.mktemp("telemetry-sink")) as scratch:
+        yield scratch
+
+
+@pytest.fixture(scope="module", params=RUNTIME_PARAMS)
+def runtime(request: pytest.FixtureRequest) -> str:
+    return request.param
+
+
+@pytest.fixture(scope="module")
+def sink_tick(
+    runtime: str, sink: TelemetryScratch, tmp_path_factory: pytest.TempPathFactory
+) -> Built:
+    """One tick on the runtime, pointed at the sink's intake."""
+    return build_unit(
+        tmp_path_factory.mktemp("telemetry-run"),
+        runtime,
         tmp_path_factory,
-        traces=require_env(TRACES_ENDPOINT),
-        metrics=require_env(METRICS_ENDPOINT),
+        sink,
+        traces=sink.traces_endpoint,
+        metrics=sink.metrics_endpoint,
     )
 
 
-def test_a_ticks_trace_is_found_in_the_trace_store_by_the_unit_id(stack_tick: Built) -> None:
-    assert stack_tick.tick.returncode == 0, stack_tick.tick.output
-    commits_on_unit_branch(stack_tick.scratch, BRANCH, stack_tick.tick)
+def test_a_ticks_trace_is_found_in_the_sink_by_the_unit_id(sink_tick: Built) -> None:
+    assert sink_tick.tick.returncode == 0, sink_tick.tick.output
+    commits_on_unit_branch(sink_tick.scratch, BRANCH, sink_tick.tick)
 
-    trace_ids = eventually(lambda: find_trace_ids(stack_tick.service), INGEST_WAIT)
-    assert trace_ids, f"no trace for {UNIT_ID} was found\n{stack_tick.tick.output}"
+    trace_ids = eventually(lambda: find_trace_ids(sink_tick.sink, sink_tick.service), INGEST_WAIT)
+    assert trace_ids, f"no trace for {UNIT_ID} was found\n{sink_tick.tick.output}"
 
-    spans = spans_of(trace_ids[0])
+    spans = spans_of(sink_tick.sink, sink_tick.service, trace_ids[0])
     by_id = {span["spanId"]: span for span in spans}
     roots = [span for span in spans if not span.get("parentSpanId")]
     assert [span["name"] for span in roots] == ["tick"], (
         [span["name"] for span in spans],
-        stack_tick.tick.output,
+        sink_tick.tick.output,
     )
     unit = next((span for span in spans if span["name"] == "unit"), None)
-    assert unit is not None, ([span["name"] for span in spans], stack_tick.tick.output)
+    assert unit is not None, ([span["name"] for span in spans], sink_tick.tick.output)
     assert by_id[unit["parentSpanId"]]["name"] == "tick"
     steps = [span for span in spans if span.get("parentSpanId") == unit["spanId"]]
-    assert steps, f"the unit span has no step span below it\n{stack_tick.tick.output}"
+    assert steps, f"the unit span has no step span below it\n{sink_tick.tick.output}"
 
 
-def test_a_ticks_duration_series_are_in_the_metrics_store_without_a_unit_id(
-    stack_tick: Built,
-) -> None:
-    assert stack_tick.tick.returncode == 0, stack_tick.tick.output
+def test_a_ticks_duration_series_are_in_the_sink_without_a_unit_id(sink_tick: Built) -> None:
+    assert sink_tick.tick.returncode == 0, sink_tick.tick.output
+    sink, service = sink_tick.sink, sink_tick.service
 
-    unit_series = eventually(
-        lambda: series_of(stack_tick.service, "abk_unit_duration"), INGEST_WAIT
-    )
-    step_series = eventually(
-        lambda: series_of(stack_tick.service, "abk_step_duration"), INGEST_WAIT
-    )
-    assert unit_series, f"no abk.unit.duration series\n{stack_tick.tick.output}"
-    assert step_series, f"no abk.step.duration series\n{stack_tick.tick.output}"
+    unit_series = eventually(lambda: series_of(sink, service, "abk_unit_duration"), INGEST_WAIT)
+    step_series = eventually(lambda: series_of(sink, service, "abk_step_duration"), INGEST_WAIT)
+    assert unit_series, f"no abk.unit.duration series\n{sink_tick.tick.output}"
+    assert step_series, f"no abk.step.duration series\n{sink_tick.tick.output}"
 
     assert any(
         {"repo", "tier", "outcome"} <= series.keys() and series["repo"] == "app"
         for series in unit_series
-    ), (unit_series, stack_tick.tick.output)
+    ), (unit_series, sink_tick.tick.output)
     assert any({"step", "outcome"} <= series.keys() for series in step_series), (
         step_series,
-        stack_tick.tick.output,
+        sink_tick.tick.output,
     )
 
     # Cardinality is bounded: no label of any series is, or names, a unit.
@@ -313,21 +376,16 @@ def test_a_ticks_duration_series_are_in_the_metrics_store_without_a_unit_id(
         assert CHANGE not in series.values(), series
 
 
-@pytest.mark.runtime_claude_code
-def test_a_tick_with_the_endpoint_pointing_at_nothing_finishes_and_writes_nothing(
-    tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+def test_a_tick_with_an_unreachable_sink_finishes_and_writes_nothing(
+    runtime: str, sink: TelemetryScratch, tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
 ) -> None:
-    """Claude alone: the exporter does not depend on the agent, so a build on a second runtime
-    adds no coverage."""
     dead = closed_endpoint()
-    # The stack must be up for "nothing was written" to mean anything.
-    require_env(TRACES_URL)
-    require_env(METRICS_URL)
 
     ticked = build_unit(
         tmp_path,
-        "claude_code",
+        runtime,
         tmp_path_factory,
+        sink,
         traces=f"{dead}/v1/traces",
         metrics=f"{dead}/v1/metrics",
     )
@@ -336,8 +394,8 @@ def test_a_tick_with_the_endpoint_pointing_at_nothing_finishes_and_writes_nothin
     commits_on_unit_branch(ticked.scratch, BRANCH, ticked.tick)
 
     # Guards against the exporter falling back to the SDK's default endpoint
-    # (localhost:4318), which the stack's intake may be listening on.
+    # (localhost:4318), which the sink's intake may be listening on.
     output = ticked.tick.output
-    assert not eventually(lambda: find_trace_ids(ticked.service), QUIET_WAIT), output
-    assert not series_of(ticked.service, "abk_unit_duration"), output
-    assert not series_of(ticked.service, "abk_step_duration"), output
+    assert not eventually(lambda: find_trace_ids(sink, ticked.service), QUIET_WAIT), output
+    assert not series_of(sink, ticked.service, "abk_unit_duration"), output
+    assert not series_of(sink, ticked.service, "abk_step_duration"), output

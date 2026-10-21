@@ -38,7 +38,7 @@ from tests.marker_scratch import (
     run_log,
     serving_host,
 )
-from tests.runtime_scratch import CLAUDE_CODE_PARAMS, runtime_scratch
+from tests.runtime_scratch import RUNTIME_PARAMS, runtime_scratch
 from tests.scratch_tick import TickResult, commits_on_unit_branch, run_tick
 
 pytestmark = [
@@ -59,7 +59,7 @@ def scratch_ledger(scratch: Scratch) -> Path:
     return scratch.state / LEDGER_NAME
 
 
-@pytest.fixture(scope="module", params=CLAUDE_CODE_PARAMS)
+@pytest.fixture(scope="module", params=RUNTIME_PARAMS)
 def scratch(
     request: pytest.FixtureRequest,
     tmp_path_factory: pytest.TempPathFactory,
