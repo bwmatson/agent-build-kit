@@ -176,6 +176,7 @@ class GitHubForge:
     general_threads: bool = False
     supports_stacks: bool = True
     merges: bool = True
+    any_remote: bool = False
     # Annotated, not inferred: the Protocol's attribute is read-write, so a
     # narrower literal type would not satisfy it.
     denied_commands: tuple[tuple[str, ...], ...] = (("gh", "pr", "merge"),)

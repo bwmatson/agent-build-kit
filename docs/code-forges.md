@@ -41,6 +41,13 @@ trunk by the pipeline, which holds no work of its own, leaves the pull request
 open. Once seen merged it stays merged, so deleting the branch afterwards loses
 nothing. Approving in the UI leaves it open.
 
+The forge also records where a pull request's branch left the trunk (its fork point)
+beside the tip, and moves both when the branch is reworked or rebased. `pr_files` is
+the diff between the two, so verify sees the files a unit changed even after a
+fast-forward or once the branch is deleted, and it raises `LocalPrUnreadable` instead of
+returning an empty list when a record lacks them. A track takes a local-forge repo
+whatever its `origin` names (`any_remote`).
+
 A repo with no `origin` is built against its own trunk: the push, the per-unit
 and per-pass fetch, `local_ref` and the dev-stack base use the local trunk and
 local branches. The push gate still refuses a head that is not the commit review
@@ -95,6 +102,7 @@ parts are free functions beside it rather than inherited behaviour.
 | `rerun_checks(repo, pull)` | `events` | run the pull request's cancelled checks again: GitHub re-runs the workflow runs behind them, Azure DevOps requeues the build policy evaluations whose build was cancelled |
 | `delete_remote_branch(repo, branch)` | `events` | remove a merged unit's branch |
 | `merges` | the landing step | whether the forge merges a pull request at all: GitHub and Azure DevOps do, the local forge does not |
+| `any_remote` | tracks (`eligible_projects`) | whether a repo on this forge works with any origin, since its pull requests are not kept at the remote: true for the local forge only |
 | `merge_pr(repo, pr, head)` | the landing step | squash-merge only if the pull request's head is still `head`, the approved commit, and return the merge commit; raises `MergeRefused` with the host's reason. GitHub merges by squash with `head` as the guard; Azure DevOps completes the pull request by squash with `head` as the last merge source commit and refuses when it is left active or abandoned; the local forge always refuses |
 | `merge_commit(repo, pr)` | the retry layer | the commit a merged pull request produced; None while it is not merged, and when the forge cannot say (the local forge always; a pull request the host cannot find); the read that shows whether a repeated merge would merge twice |
 | `close_pr(repo, pr)` | the satisfied outcome | close without merging, raising if the host refuses |

@@ -322,6 +322,13 @@
   each project, not across all repos. `abk status` prints a slots line such as
   `slots: 5/4, 1 restacking`, and the sample row and slot gauges report the same occupancy.
 
+- A repo on the local forge now works with the verify step and the scheduled tracks: the local
+  forge lists the files a pull request changed (so verify sees what to check and deploy; it
+  follows a rebase and fails loudly when it cannot tell, instead of reporting no files), and a
+  track no longer skips a local-forge repo because its `origin` is not a recognised host, or is
+  one for another host. A new live acceptance test drives a repo that is its own planning repo
+  from install to archive.
+
 - A prompt no longer travels as a command-line argument to Claude Code: it is written to the
   agent's standard input, so a large prompt (a long plan, a big diff) no longer fails with
   `Argument list too long`. A prompt over the safe size of its runtime's transport (100,000

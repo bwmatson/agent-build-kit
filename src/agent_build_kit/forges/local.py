@@ -42,6 +42,10 @@ T = TypeVar("T")
 Stored = dict[str, object]
 
 
+class LocalPrUnreadable(RuntimeError):
+    """A local pull request whose changed files cannot be worked out."""
+
+
 class LocalForge:
     name: str = "local"
     implemented: bool = True
@@ -50,6 +54,8 @@ class LocalForge:
     general_threads: bool = False
     supports_stacks: bool = False
     merges: bool = False
+    # Pull requests are kept here, so whatever `origin` is serves; it need not name this forge.
+    any_remote: bool = True
     denied_commands: tuple[tuple[str, ...], ...] = ()
     denied_requests: tuple[DeniedRequest, ...] = ()
     read_commands: tuple[tuple[str, ...], ...] = (("abk", "pr", "view"), ("abk", "pr", "diff"))
@@ -173,6 +179,10 @@ class LocalForge:
             settled: Stored = {}
             if tip and tip != pull.get("tip"):
                 settled["tip"] = tip
+                # A rework or a rebase moves the tip, and where it left the trunk with it.
+                fork = _fork(checkout, build_ref(checkout, str(pull["base"])), tip)
+                if fork:
+                    settled["fork"] = fork
             if merged:
                 settled["state"] = MERGED
             if settled:
@@ -219,6 +229,8 @@ class LocalForge:
     def create_pr(self, repo: RepoId, *, head: str, base: str, title: str, body: str) -> int:
         checkout = self._checkout(repo)
         tip = _seen(checkout, {"head": head, "base": base})[0] if checkout else ""
+        # Kept so the files the branch changed survive a fast-forward of the trunk.
+        fork = _fork(checkout, build_ref(checkout, base), tip) if checkout and tip else ""
 
         def add(pulls: list[Stored]) -> int:
             number = max((int(str(p["number"])) for p in pulls), default=0) + 1
@@ -231,6 +243,7 @@ class LocalForge:
                     "body": body,
                     "state": "open",
                     **({"tip": tip} if tip else {}),
+                    **({"fork": fork} if fork else {}),
                 }
             )
             return number
@@ -278,7 +291,27 @@ class LocalForge:
         return with_ui_review(lambda: pulls, review_of=review_of)()
 
     def pr_files(self, repo: RepoId, pr: int) -> list[str]:
-        return []
+        """The paths the branch changed since it left the trunk. Raises `LocalPrUnreadable`
+        when they cannot be worked out, since an empty list reads as "touched nothing"."""
+        label = f"{key(repo)} pull request {pr}"
+        pull = self.record(repo, pr)
+        if pull is None:
+            raise LocalPrUnreadable(f"{label}: this forge holds no such pull request")
+        checkout = self._checkout(repo)
+        if checkout is None:
+            raise LocalPrUnreadable(f"{label}: no checkout of the repo is configured")
+        fork, tip = str(pull.get("fork", "")), str(pull.get("tip", ""))
+        if not fork or not tip:
+            raise LocalPrUnreadable(
+                f"{label}: it records no fork point or tip (opened before they were kept, "
+                "or its branch never existed)"
+            )
+        # NUL-separated and without rename detection: git quotes odd names otherwise, and a
+        # moved file would be listed only under its new name.
+        shown = git(checkout, "diff", "--name-only", "-z", "--no-renames", fork, tip, check=False)
+        if shown.returncode:
+            raise LocalPrUnreadable(f"{label}: git could not diff {fork[:10]}..{tip[:10]}")
+        return [name for name in shown.stdout.split("\0") if name]
 
     def pr_changes(self, repo: RepoId, pr: int) -> list[FileChange]:
         return []
@@ -396,12 +429,17 @@ def _is_ancestor(checkout: Path, ancestor: str, ref: str) -> bool:
     return not git(checkout, "merge-base", "--is-ancestor", ancestor, ref, check=False).returncode
 
 
+def _fork(checkout: Path, trunk: str, tip: str) -> str:
+    """Where the tip left the trunk, or '' when git cannot say."""
+    return git(checkout, "merge-base", trunk, tip, check=False).stdout.strip()
+
+
 def _in_trunk(checkout: Path, tip: str, trunk: str) -> bool:
     """Is the tip in the trunk, or its change found there by patch identity: the whole branch as
     one commit (a squash), or each of its commits on its own (a rebase)?"""
     if _is_ancestor(checkout, tip, trunk):
         return True
-    fork = git(checkout, "merge-base", trunk, tip, check=False).stdout.strip()
+    fork = _fork(checkout, trunk, tip)
     ours = (
         _patch_ids(checkout, git(checkout, "diff", fork, tip, check=False).stdout) if fork else []
     )

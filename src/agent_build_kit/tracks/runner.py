@@ -207,9 +207,10 @@ def repo_reachable(name: str, inst: Installation) -> bool:
 
 def eligible_projects(inst: Installation, only: str | None = None) -> list[Project]:
     """abk.yaml's repos filtered down to the ones a track can work on: a git
-    checkout whose `origin` is the repo the config names, on a host that
-    answers for it. Anything else is logged and skipped — not an error, so a
-    repo can be listed before it has a remote."""
+    checkout with an `origin`, which names the repo the config names unless the
+    repo's forge takes any origin (`any_remote`), on a host that answers for it.
+    Anything else is logged and skipped — not an error, so a repo can be listed
+    before it has a remote."""
     projects: list[Project] = []
     for name, repo in inst.config.repos.items():
         if only and name != only:
@@ -222,11 +223,13 @@ def eligible_projects(inst: Installation, only: str | None = None) -> list[Proje
         if remote.returncode != 0:
             log(f"skip {name}: no `origin` remote (nothing to pull from or open PRs against)")
             continue
-        origin = forges.identify(remote.stdout.strip())
+        forge = forges.get(repo.forge)
+        declared = forge.identity(repo)
+        # A forge that keeps its pull requests locally takes any origin, even a host's URL.
+        origin = declared if forge.any_remote else forges.identify(remote.stdout.strip())
         if origin is None:
             log(f"skip {name}: no forge recognises origin {remote.stdout.strip()!r}")
             continue
-        declared = forges.get(repo.forge).identity(repo)
         if forges.key(origin).lower() != forges.key(declared).lower():
             log(
                 f"skip {name}: origin is {forges.key(origin)} "

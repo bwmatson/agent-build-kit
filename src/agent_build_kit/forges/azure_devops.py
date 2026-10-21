@@ -187,6 +187,7 @@ class AzureDevOpsForge:
     # Azure DevOps has no first-class stacks, so the stack calls are never made.
     supports_stacks: bool = False
     merges: bool = True
+    any_remote: bool = False
     # Annotated, not inferred: the Protocol's attribute is read-write, so a
     # narrower literal type would not satisfy it.
     denied_commands: tuple[tuple[str, ...], ...] = (

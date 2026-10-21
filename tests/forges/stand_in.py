@@ -36,6 +36,7 @@ class StandInForge:
     deletes_head_branch_on_merge: bool = False
     supports_stacks: bool = False
     merges: bool = True
+    any_remote: bool = False
     general_threads: bool = False
     denied_commands: tuple[tuple[str, ...], ...] = ()
     denied_requests: tuple[DeniedRequest, ...] = ()
