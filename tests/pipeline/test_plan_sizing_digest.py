@@ -40,7 +40,7 @@ def test_equal_configurations_give_equal_digests() -> None:
 @pytest.mark.parametrize(
     "review",
     [
-        {"ceilings": {"auto": 5000}},
+        {"ceilings": {"auto": 6000}},
         {"ceilings": {"light": 2500}},
         {"ceilings": {"full": 900}},
     ],

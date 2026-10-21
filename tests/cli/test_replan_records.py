@@ -27,7 +27,12 @@ def test_a_change_is_planned_although_its_hash_is_recorded(
 
     assert code == 0
     assert run.calls == 1
-    assert run.records["feature"] == {"hash": recorded, "attempts": 0, "ok": True}
+    assert run.records["feature"] == {
+        "hash": recorded,
+        "sizing": "",
+        "attempts": 0,
+        "ok": True,
+    }
     assert {u.id for u in run.store.all()} == {"feature/1", "feature/2"}
 
 

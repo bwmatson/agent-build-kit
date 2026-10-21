@@ -3840,7 +3840,10 @@ def plan_all(
             # A planned unit of another change that carries a group has its priority
             # from the edited line, as the planning path gives it.
             _set_priorities(store, _carrying_unstarted(store, change), _task_catalog(inst))
-            record_plans(inst, {change: {"hash": digest, "attempts": 0, "ok": True}})
+            record_plans(
+                inst,
+                {change: {"hash": digest, "sizing": sizing_digest(), "attempts": 0, "ok": True}},
+            )
             log(f"{change}: {ALL_TAKEN}")
             results[change] = PlanResult(status="planned", recorded_only=True)
             continue
@@ -3911,7 +3914,12 @@ def plan_all(
         except GroupTooLarge as error:
             # Fixed in tasks.md, not in the plan: every attempt is spent at
             # once, so the change waits for that edit instead of re-asking.
-            failure = {"hash": digest, "attempts": max_attempts, "ok": False}
+            failure = {
+                "hash": digest,
+                "sizing": sizing_digest(),
+                "attempts": max_attempts,
+                "ok": False,
+            }
             record_plans(inst, {change: failure | _refusal(error)})
             log(f"not planning {change}: {error}")
             results[change] = PlanResult(status="failed")
@@ -3920,7 +3928,10 @@ def plan_all(
             previous = record if record.get("hash") == digest else {}
             if (wait := _plan_wait(inst, error, previous)) is not None:
                 kind, fields = wait
-                record_plans(inst, {change: {"hash": digest, "ok": False, **fields}})
+                record_plans(
+                    inst,
+                    {change: {"hash": digest, "sizing": sizing_digest(), "ok": False, **fields}},
+                )
                 if kind == "network":
                     pause_until(
                         datetime.now(UTC) + PARK_BACKOFF[0],
@@ -3938,7 +3949,7 @@ def plan_all(
                 network_down = network_down or (kind == "network" and not force)
                 continue
             attempts = previous.get("attempts", 0) + 1
-            failure = {"hash": digest, "attempts": attempts, "ok": False}
+            failure = {"hash": digest, "sizing": sizing_digest(), "attempts": attempts, "ok": False}
             if isinstance(error, PlannerError):
                 failure |= _refusal(error)
             else:
@@ -3982,6 +3993,7 @@ def plan_all(
                 )
             failure = {
                 "hash": digest,
+                "sizing": sizing_digest(),
                 "attempts": max_attempts,
                 "ok": False,
                 "owned": sorted({found.owner for found in error.collisions}),
@@ -4040,7 +4052,17 @@ def plan_all(
             )
             continue
         attempts_kept = record.get("attempts", 0) if record.get("waiting") else 0
-        record_plans(inst, {change: {"hash": digest, "attempts": attempts_kept, "ok": True}})
+        record_plans(
+            inst,
+            {
+                change: {
+                    "hash": digest,
+                    "sizing": sizing_digest(),
+                    "attempts": attempts_kept,
+                    "ok": True,
+                }
+            },
+        )
         results[change] = PlanResult(status="planned", cycle=drops.cycle, kept=left_out)
     if any(result.status == "planned" for result in results.values()):
         _promote(inst, store)
@@ -4205,13 +4227,24 @@ def sizing_digest() -> str:
     """A digest of the sizing configuration the active workspace plans under: the `review`
     section (flag, ceilings, every repo's review block), `min_unit_lines` and `max_unit_lines`.
     Empty while `review.enabled` is false."""
-    raise NotImplementedError
+    workspace = config.active()
+    if not workspace.review.enabled:
+        return ""
+    sizing = {
+        "review": workspace.review.model_dump(mode="json"),
+        "repos": {
+            name: repo.review.model_dump(mode="json") for name, repo in workspace.repos.items()
+        },
+        "min_unit_lines": workspace.global_limits.min_unit_lines,
+        "max_unit_lines": workspace.global_limits.max_unit_lines,
+    }
+    return hashlib.sha256(json.dumps(sizing, sort_keys=True).encode()).hexdigest()
 
 
 def plan_is_stale(record: Mapping[str, Any]) -> bool:
     """Whether a recorded plan was made under sizing other than the current one. A record with
     no `sizing` reads as the empty digest."""
-    raise NotImplementedError
+    return record.get("sizing", "") != sizing_digest()
 
 
 def record_plans(inst: Installation, updates: Mapping[str, dict | None]) -> None:
