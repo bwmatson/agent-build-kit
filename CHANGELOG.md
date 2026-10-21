@@ -368,7 +368,11 @@
 
 - A unit now carries the review tier its plan estimated (`auto`, `light` or `full`), kept
   through a re-plan once the unit has started. A store written before this reads as no
-  estimate, and nothing acts on the field yet.
+  estimate, and nothing acts on the field yet. With review enabled, the reviewer also
+  classifies each unit `auto`, `light` or `full` and names the groups or files behind a
+  classification above the plan's estimate; a missing or unknown classification is recorded
+  as `full`, and both are stored with the approval. A classification can only raise the
+  review a unit gets, and nothing acts on it yet.
 
 - A task group heading can be tagged `[unit-test]` or `[e2e-test]`. The old `[tier1]` and
   `[tier2]` tags still read as the same kinds, and `abk tags` and `abk check` print a notice
