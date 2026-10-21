@@ -6,8 +6,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from agent_build_kit.config import active
 from agent_build_kit.pipeline.unit_store import E2eState, UnitStore
 from tests.graph_driver import fresh, tick
+from tests.runner_fakes import rejecting
 
 UNIT_ID = "add-marker/1"
 
@@ -46,11 +48,14 @@ def test_a_unit_test_unit_reaching_review_records_not_required(tmp_path: Path) -
 def test_a_rework_that_pushes_a_new_head_resets_the_state_before_the_next_result(
     tmp_path: Path,
 ) -> None:
+    total = active().global_limits.max_review_rounds
     recorder = fresh(tmp_path)
     recorder.store.record_e2e_state(UNIT_ID, E2eState.PASSED)
+    recorder.verdicts = [rejecting("not yet")] * total
 
-    recorder.store.record_push(UNIT_ID, "a-new-head")
+    tick(tmp_path, recorder, tier="e2e-test")
 
+    assert "e2e-test" not in recorder.events, "review ended the run before a new result"
     assert stored_state(tmp_path) is None
 
 

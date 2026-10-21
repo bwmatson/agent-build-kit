@@ -6,6 +6,8 @@
   whether a unit's e2e-test runs before its pull request merges (`required`, the default and
   today's behaviour) or is left to `verify` after the merge (`deferred`). `abk config` shows the
   value, and the documentation names the trade: a live-stack failure is found after the merge.
+  A unit now also records its e2e state (`passed`, `failed`, `not-required`, and later
+  `deferred`), reset when a new run begins.
 
 - A unit's review tier now has a deterministic verdict function over the plan's floors (the
   planned estimate, protected paths and `contract`, `narrow` or `acceptance` flags) and over the

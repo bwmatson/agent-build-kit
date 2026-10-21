@@ -105,6 +105,7 @@ from agent_build_kit.pipeline.stack_runner import (
 from agent_build_kit.pipeline.unit_store import (
     Cause,
     ClosePending,
+    E2eState,
     FeedbackSource,
     HeldBy,
     RequeueReason,
@@ -1059,6 +1060,8 @@ class BuildPath:
                 else:
                     self.say(f"restacked onto {base} cleanly")
                 existing = r.branch_commits(tree, ref)
+        # A run's pushed head is a new one: its e2e state is written by the run's own result.
+        r.store.record_e2e_state(unit.id, None)
         return {
             **FRESH,
             **remembered,
@@ -2019,6 +2022,7 @@ class BuildPath:
             r.store.set_parked(unit.id)
             if ok and resumed:
                 snapshot = f"{before.parked_snapshot}\n\n{snapshot}".strip()
+        r.store.record_e2e_state(unit.id, E2eState.PASSED if ok else E2eState.FAILED)
         ran_none = ok and r.e2e_ran_no_tests()
         self.say("e2e-test ran no test" if ran_none else f"e2e-test {'passed' if ok else 'failed'}")
         if ok:
@@ -2273,6 +2277,8 @@ class BuildPath:
             r.record_given(unit.repo, pr, list(state.given_comments))
         if state.had_feedback:
             r.store.set_feedback(unit.id, "")
+        if unit.tier != TestTier.E2E_TEST:
+            r.store.record_e2e_state(unit.id, E2eState.NOT_REQUIRED)
         r.store.set_state(unit.id, IN_REVIEW, pr=pr, note=NO_TEST_RAN if state.e2e_ran_none else "")
         if r.store.get(unit.id).predecessor_note:
             r.store.set_predecessor_note(unit.id, "")
