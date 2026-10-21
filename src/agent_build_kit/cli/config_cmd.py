@@ -18,6 +18,7 @@ from agent_build_kit.config import (
     old_setting_notices,
     overlay_path,
     read_overlay,
+    runtime_for,
 )
 from agent_build_kit.config_migrate import ConfigMigrateError, migrate
 from agent_build_kit.init.runtime_choice import confirmed
@@ -26,9 +27,10 @@ from agent_build_kit.runtimes.policy_apply import backup_and_replace
 
 
 def cmd_migrate(args: argparse.Namespace) -> int:
-    """Move the abk.yaml in force to the new limits blocks and rename its old test-kind setting
-    keys, by text, without loading it: exit 0 when it wrote, was a dry run or had nothing to
-    change, 1 when not confirmed, 2 when refused."""
+    """Move the abk.yaml in force to the new limits blocks, rename its old test-kind setting keys
+    and move a flat `models:` block under the runtime in force's `runtimes.<name>.models`, by
+    text, without loading it: exit 0 when it wrote, was a dry run or had nothing to change, 1
+    when not confirmed, 2 when refused."""
     try:
         path = locate(args.config)
     except ConfigError as error:
@@ -36,7 +38,7 @@ def cmd_migrate(args: argparse.Namespace) -> int:
         return 2
     try:
         before = path.read_bytes().decode()
-        migrated = migrate(before)
+        migrated = migrate(before, runtime_for(path))
     except (ConfigMigrateError, OSError, UnicodeDecodeError) as error:
         print(f"abk: {path}: {error}", file=sys.stderr)
         return 2
@@ -121,7 +123,8 @@ def register(sub: argparse._SubParsersAction) -> None:
     mode.add_argument(
         "--migrate",
         action="store_true",
-        help="move the abk.yaml in force to global_limits and project_limits, by text",
+        help="move the abk.yaml in force to global_limits and project_limits, and a flat models: "
+        "block under runtimes.<name>.models, by text",
     )
     parser.add_argument("--yes", action="store_true", help="with --migrate: do not ask")
     parser.add_argument(

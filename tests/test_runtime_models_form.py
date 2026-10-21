@@ -176,3 +176,62 @@ def test_the_machine_override_wins_over_both_places_and_the_notice_stays(
 
     assert models["review"] == "this-machine"
     assert about_models(tmp_path / "doctor", BOTH)
+
+
+def notices_of(path: Path) -> list[str]:
+    return config.models_notices(path)
+
+
+def test_a_runtime_chosen_in_the_overlay_is_the_one_the_notice_and_the_move_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    select(monkeypatch, SelectableRuntime("other"))
+    path = write(tmp_path, "version: 1\nmodels:\n  review: x\n")
+    config.overlay_path(path).write_text("runtime: other\n")
+    before = resolved(path)
+
+    assert "runtimes.other.models" in notices_of(path)[0]
+    assert main(["--config", str(path), "config", "--migrate", "--yes"]) == 0
+
+    assert config.load(path).runtimes["other"].models.review == "x"
+    assert "\nmodels:" not in path.read_text()
+    assert resolved(path) == before
+    capsys.readouterr()
+
+
+def test_a_flat_block_in_the_overlay_is_named_with_its_file_and_not_left_to_migrate(
+    tmp_path: Path,
+) -> None:
+    path = write(tmp_path, "version: 1\n")
+    config.overlay_path(path).write_text("models:\n  review: x\n")
+
+    [notice] = notices_of(path)
+
+    assert str(config.overlay_path(path)) in notice
+    assert "runtimes.claude_code.models" in notice
+    assert "--migrate" not in notice
+
+
+def test_a_role_in_the_overlay_s_flat_block_and_the_files_runtime_block_is_named(
+    tmp_path: Path,
+) -> None:
+    path = write(
+        tmp_path, "version: 1\nruntimes:\n  claude_code:\n    models:\n      review: opus\n"
+    )
+    config.overlay_path(path).write_text("models:\n  review: sonnet\n  implement: haiku\n")
+
+    [notice] = notices_of(path)
+
+    assert "review set in both" in notice
+    assert "implement" not in notice
+
+
+def test_an_empty_flat_block_neither_warns_nor_blocks_the_rest_of_the_migration(
+    tmp_path: Path,
+) -> None:
+    path = write(tmp_path, "version: 1\nmodels: {}\nlimits:\n  min_unit_lines: 300\n")
+
+    assert notices_of(path) == []
+    assert main(["--config", str(path), "config", "--migrate", "--yes"]) == 0
+
+    assert "global_limits:" in path.read_text()

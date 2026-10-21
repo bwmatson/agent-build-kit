@@ -1794,24 +1794,41 @@ def deprecations(path: Path) -> list[str]:
     return []
 
 
-def models_notices(path: Path) -> list[str]:
-    """The notice for a flat top-level `models:` block in the file at `path` or its overlay: it
-    names the active runtime's block to move it to, and the roles the runtime's block also sets
-    (the runtime's value is the one used)."""
+def _merged_raw(path: Path) -> dict[str, Any]:
+    """The file at `path` with its overlay laid over it, as they parse (no validation)."""
+    merged: dict[str, Any] = {}
+    for _, raw in _raw_files(path):
+        merged = merge_local(merged, raw)
+    return merged
+
+
+def runtime_for(path: Path) -> str:
+    """The runtime in force for the file at `path`: this machine's `ABK_RUNTIME`, then the
+    `runtime` of the file with its overlay laid over it, then the default runtime."""
     from agent_build_kit.settings import settings
 
+    return settings.runtime or _merged_raw(path).get("runtime") or runtimes.DEFAULT
+
+
+def models_notices(path: Path) -> list[str]:
+    """The notice for a flat top-level `models:` block in the file at `path` or its overlay: it
+    names the runtime in force's block to move it to, and the roles that block also sets in the
+    file with its overlay (the runtime's value is the one used). `abk config --migrate` edits
+    the file alone, so a block in the overlay is to be moved by hand."""
+    name = runtime_for(path)
+    own = ((_merged_raw(path).get("runtimes") or {}).get(name) or {}).get("models") or {}
     notices: list[str] = []
-    for _, raw in _raw_files(path):
+    for file, raw in _raw_files(path):
         flat = raw.get("models")
-        if flat is None:
+        if not flat:
             continue
-        name = settings.runtime or raw.get("runtime") or "claude_code"
-        own = ((raw.get("runtimes") or {}).get(name) or {}).get("models") or {}
-        both = [role for role in flat if role in own]
-        notice = (
-            f"`models` is deprecated for `runtimes.{name}.models`; "
+        move = (
             "`abk config --migrate` moves it there"
+            if file == path
+            else f"move it there by hand, in {file}"
         )
+        notice = f"`models` is deprecated for `runtimes.{name}.models`; {move}"
+        both = [role for role in flat if role in own]
         if both:
             notice += f"; {', '.join(both)} set in both, the runtime's value is used"
         notices.append(notice)

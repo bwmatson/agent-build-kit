@@ -17,7 +17,7 @@ import yaml
 from agent_build_kit.compat_names import Place, new_spelling
 from agent_build_kit.config import DEPRECATED_ROOT_KEY, old_setting_blocks, read_new_settings
 from agent_build_kit.model import Frozen
-from agent_build_kit.settings import settings
+from agent_build_kit.runtimes import DEFAULT as DEFAULT_RUNTIME
 from agent_build_kit.yaml_lines import insert_lines, node_end, split_lines, strip_comment
 
 __all__ = ["ConfigMigrateError", "Migrated", "migrate"]
@@ -130,14 +130,14 @@ def _expected(old: dict[str, Any], source: str) -> dict[str, Any]:
     return renamed
 
 
-def migrate(text: str) -> Migrated:
+def migrate(text: str, runtime: str = DEFAULT_RUNTIME) -> Migrated:
     """Rename a root `limits` to `global_limits`, move the three scheduling settings found under
-    it (or under `global_limits`) to a `project_limits` block straight after it, and rename each
-    old test-kind setting key to its new name, and move a flat `models:` block under the active
-    runtime's `runtimes.<name>.models`."""
+    it (or under `global_limits`) to a `project_limits` block straight after it, rename each
+    old test-kind setting key to its new name, and move a flat `models:` block under
+    `runtimes.<runtime>.models`, the runtime in force (`config.runtime_for`)."""
     moved = _move_limits(text)
     renamed = _rename_test_kind_keys(moved.text)
-    return Migrated(text=_move_models(renamed), moved=moved.moved)
+    return Migrated(text=_move_models(renamed, runtime), moved=moved.moved)
 
 
 def _move_limits(text: str) -> Migrated:
@@ -330,10 +330,9 @@ def _shifted(lines: list[str], by: int) -> list[str]:
     return out
 
 
-def _move_models(text: str) -> str:
+def _move_models(text: str, name: str) -> str:
     """Move a root `models:` block, its lines and comments as they are, under
-    `runtimes.<name>.models` of the active runtime: this machine's `ABK_RUNTIME`, or the file's
-    `runtime:`."""
+    `runtimes.<name>.models` of the runtime `name`, the one in force."""
     try:
         documents = list(yaml.compose_all(text))
     except yaml.YAMLError as error:
@@ -343,11 +342,14 @@ def _move_models(text: str) -> str:
     if not isinstance(root, yaml.MappingNode) or pair is None:
         return text
     old = yaml.safe_load(text)
-    name = settings.runtime or old.get("runtime") or "claude_code"
     target = f"{RUNTIMES}.{name}.{MODELS}"
     block_key, block = pair
-    if not isinstance(block, yaml.MappingNode) or not block.value:
+    if isinstance(block, yaml.ScalarNode) and block.tag == _NULL_TAG:
+        return text
+    if not isinstance(block, yaml.MappingNode):
         raise _refuse(MODELS, "the block is not a mapping of roles")
+    if not block.value:
+        return text  # `models: {}` names no role, so there is nothing to move
     if block.flow_style or any(key.tag == _MERGE_TAG for key, _ in block.value):
         raise _refuse(MODELS, "the block cannot be moved by lines (flow style or a merge key)")
 
