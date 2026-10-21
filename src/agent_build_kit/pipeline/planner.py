@@ -82,8 +82,8 @@ RunClaude = Callable[[str], str]
 REVIEW_PROMPT = """\
 Review tier: give each unit a `review_tier` of `auto`, `light` or `full`, the review you
 expect its finished change to need. It is a floor for review and sizes nothing itself: it
-does not split a group, a `full` unit is made of such groups alone (see below), and
-the ceilings below are what limit a unit. Go lower (`auto`) for a small, well-tested
+does not split a group, but a `full` unit holds just groups whose floor is `full` (see
+below), and the ceilings below are what limit a unit. Go lower (`auto`) for a small, well-tested
 change to ordinary code that nothing else depends on. Raise it for a change to a boundary
 another system depends on, work that is hard to undo, or code the tests do not exercise. A
 unit that builds a `[contract]`, `[narrow]` or `[acceptance]` group, or a group whose tasks

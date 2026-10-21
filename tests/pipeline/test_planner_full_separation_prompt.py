@@ -7,6 +7,7 @@ from __future__ import annotations
 import pytest
 
 from tests.calibration_support import limits
+from tests.prompt_text import flat
 from tests.tier_ceiling_support import configure
 from tests.tier_prompt_support import prompt_for
 
@@ -31,3 +32,7 @@ def test_the_instructions_say_why() -> None:
     paragraph = separation_paragraph(prompt_for([])).lower()
 
     assert "because" in paragraph or "so that" in paragraph or "otherwise" in paragraph
+
+
+def test_the_instructions_do_not_say_the_tier_never_changes_grouping() -> None:
+    assert "never changes how work is grouped" not in flat(prompt_for([]))
