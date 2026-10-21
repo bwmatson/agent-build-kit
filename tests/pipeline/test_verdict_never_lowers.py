@@ -43,12 +43,7 @@ FLOORS = [
     Floor("classified-full", FULL, {"classification": FULL}),
     Floor("no-classification", FULL, {"classification": None}),
     Floor(
-        "e2e-test-missing",
-        FULL,
-        {"kind": TestTier.E2E_TEST, "e2e_state": None, "final": True},
-    ),
-    Floor(
-        "e2e-pending-final",
+        "e2e-not-run-final",
         FULL,
         {"kind": TestTier.E2E_TEST, "e2e_state": None, "final": True},
     ),
