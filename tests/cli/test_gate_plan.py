@@ -82,6 +82,18 @@ def gate_in(inst: Installation, monkeypatch: pytest.MonkeyPatch, *, cwd: Path | 
     return main(["gate", "--repo", str(inst.root / "checkouts" / "app"), "--base", "main"])
 
 
+def record_checks(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    """`check_branch` recording the keyword arguments it is asked with, and finding nothing."""
+    asked: list[dict[str, Any]] = []
+
+    def record(repo: Path, base: str, **kwargs: Any) -> list[str]:
+        asked.append(kwargs)
+        return []
+
+    monkeypatch.setattr(gate, "check_branch", record)
+    return asked
+
+
 def test_the_lone_tests_commit_of_an_e2e_group_is_accepted_through_the_trailers_unit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -99,28 +111,24 @@ def test_the_same_branch_with_no_trailer_is_refused(
     assert "test: Drive it" in capsys.readouterr().out
 
 
-def test_the_same_branch_outside_an_installation_is_refused(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_the_same_branch_outside_an_installation_is_given_no_groups(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     inst = installation_with_branch(tmp_path, monkeypatch)
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
+    asked = record_checks(monkeypatch)
 
-    assert gate_in(inst, monkeypatch, cwd=elsewhere) == 1
-    assert capsys.readouterr().out
+    gate_in(inst, monkeypatch, cwd=elsewhere)
+
+    assert [call["groups"] for call in asked] == [()]
 
 
 def test_with_the_setting_off_the_gate_is_given_no_groups(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     inst = installation_with_branch(tmp_path, monkeypatch, setting=False)
-    asked: list[dict[str, Any]] = []
-
-    def record(repo: Path, base: str, **kwargs: Any) -> list[str]:
-        asked.append(kwargs)
-        return []
-
-    monkeypatch.setattr(gate, "check_branch", record)
+    asked = record_checks(monkeypatch)
 
     assert gate_in(inst, monkeypatch) == 0
 

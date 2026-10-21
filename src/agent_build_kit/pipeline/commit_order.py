@@ -169,7 +169,7 @@ def group_progress(subjects: list[str], titles: Sequence[str]) -> GroupProgress:
     return GroupProgress(done=len(titles), tests_made=False)
 
 
-def _test_only_commits(subjects: list[str], groups: Sequence[GroupStep]) -> list[bool]:
+def test_only_commits(subjects: list[str], groups: Sequence[GroupStep]) -> list[bool]:
     """For each subject, whether it is the tests commit of a test-only group. Each group
     makes one `test:` commit, so the n-th one belongs to the n-th group, whatever the titles."""
     flags: list[bool] = []
@@ -227,7 +227,7 @@ def check_structure(
     if not shas:
         return [f"no commits between {base} and HEAD"]
     subjects = branch_subjects(repo, base)
-    test_only = _test_only_commits(subjects, groups if paired else ())
+    test_only = test_only_commits(subjects, groups if paired else ())
 
     problems: list[str] = []
     kinds: list[str] = []

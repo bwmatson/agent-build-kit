@@ -33,7 +33,12 @@ from agent_build_kit import profiles
 from agent_build_kit.budget import cut_tail
 from agent_build_kit.config import ProjectConfig, by_project
 from agent_build_kit.pipeline.check_runner import CheckCache, run_at_commit
-from agent_build_kit.pipeline.commit_order import check_structure, classify_paths
+from agent_build_kit.pipeline.commit_order import (
+    branch_subjects,
+    check_structure,
+    classify_paths,
+    test_only_commits,
+)
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import GroupStep
 from agent_build_kit.profiles.base import ToolchainProfile
@@ -89,6 +94,18 @@ def check_branch(
     profile = profile or profiles.get("python-uv")
     projects = projects or []
     mode = "stubbed" if stubbed else ""
+    # A test-only group's tests commit is judged with no red run, so its result is kept apart.
+    only_mode = "test-only" if stubbed else ""
+    shas = git(repo, "rev-list", "--reverse", f"{base}..HEAD").stdout.split()
+    test_only = {
+        sha
+        for sha, only in zip(
+            shas,
+            test_only_commits(branch_subjects(repo, base), groups if stubbed else ()),
+            strict=False,
+        )
+        if only
+    }
 
     def is_test(path: str) -> bool:
         return profiles.for_path(projects, path, profile).is_test_path(path)
@@ -96,15 +113,16 @@ def check_branch(
     def stubs(path: str, content: str) -> list[str]:
         return profiles.for_path(projects, path, profile).stub_violations(path, content)
 
-    problems = check_structure(repo, base, is_test, stubs, paired=stubbed)
+    problems = check_structure(repo, base, is_test, stubs, paired=stubbed, groups=groups)
     if problems:
         # No point running anything: the shape is wrong, so "which commit is
         # the tests commit" isn't yet a meaningful question.
         return problems
 
     for sha in _tests_commits(repo, base, is_test):
+        commit_mode = only_mode if sha in test_only else mode
         if cache is not None:
-            cached = cache.lookup(repo, sha, mode=mode)
+            cached = cache.lookup(repo, sha, mode=commit_mode)
             if cached is True:
                 continue
             if cached is False:
@@ -120,30 +138,28 @@ def check_branch(
             toolchain = profiles.for_project(owner, profile)
             prefix = owner.prefix if owner else ""
             where = f"{sha[:8]}: " + (f"{owner.path}: " if prefix and owner else "")
-            clean, red = run_at_commit(
-                repo,
-                sha,
-                [
-                    toolchain.clean_command(types=True) if stubbed else toolchain.clean_command(),
-                    toolchain.red_command(owned),
-                ],
-                subdir=prefix or ".",
-            )
+            commands = [
+                toolchain.clean_command(types=True) if stubbed else toolchain.clean_command()
+            ]
+            if sha not in test_only:
+                commands.append(toolchain.red_command(owned))
+            clean, *red_run = run_at_commit(repo, sha, commands, subdir=prefix or ".")
             if not clean.ok:
                 commit_problems.append(
                     f"{where}lint/format did not pass at the tests commit\n"
                     f"{cut_tail(clean.stdout, 2000)}"
                 )
-            ok, red_problems = (
-                toolchain.interpret_red(red.stdout + red.stderr, red.exit_code, stubbed=True)
-                if stubbed
-                else toolchain.interpret_red(red.stdout + red.stderr, red.exit_code)
-            )
-            if not ok:
-                commit_problems.extend(f"{where}{problem}" for problem in red_problems)
+            for red in red_run:
+                ok, red_problems = (
+                    toolchain.interpret_red(red.stdout + red.stderr, red.exit_code, stubbed=True)
+                    if stubbed
+                    else toolchain.interpret_red(red.stdout + red.stderr, red.exit_code)
+                )
+                if not ok:
+                    commit_problems.extend(f"{where}{problem}" for problem in red_problems)
 
         if cache is not None:
-            cache.record(repo, sha, ok=not commit_problems, mode=mode)
+            cache.record(repo, sha, ok=not commit_problems, mode=commit_mode)
         problems.extend(commit_problems)
 
     return problems

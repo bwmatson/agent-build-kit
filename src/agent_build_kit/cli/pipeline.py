@@ -174,6 +174,7 @@ from agent_build_kit.pipeline.run_log import (
 )
 from agent_build_kit.pipeline.shell import git, has_origin
 from agent_build_kit.pipeline.stack_runner import (
+    GroupStep,
     PauseInfo,
     RunOutcome,
     RunStatus,
@@ -5977,6 +5978,22 @@ def _requeued(store: UnitStore, unit_id: str, clears_park: bool = False) -> int:
     return 0
 
 
+def unit_groups(inst: Installation | None, repo: Path) -> tuple[GroupStep, ...]:
+    """The groups of the unit named by the `Unit:` trailer of the checked-out branch's tip,
+    as the build reads them; none outside an installation, with no trailer or for an
+    unknown unit."""
+    if inst is None:
+        return ()
+    trailer = git(repo, "log", "-1", "--format=%(trailers:key=Unit,valueonly)", check=False)
+    unit_id = trailer.stdout.strip()
+    store = UnitStore(inst.state_dir / "units.json")
+    known = {stored.id: stored for stored in store.all()}
+    if unit_id not in known:
+        return ()
+    runner = build_runner(known[unit_id], store=store, installation=inst, log=lambda _: None)
+    return runner.group_steps(known[unit_id])
+
+
 def cmd_gate(args: argparse.Namespace, inst: Installation | None) -> int:
     """The push gate, for a branch in a checkout: tests-first order, clean
     and red at the tests commit."""
@@ -6003,13 +6020,15 @@ def cmd_gate(args: argparse.Namespace, inst: Installation | None) -> int:
                 break
     profile = profiles.get(profile_name or "python-uv")
     cache = CheckCache(args.cache) if args.cache else None
+    stubbed = stubbed_build(builders, profile)
     problems = check_branch(
         Path(args.repo),
         base or "main",
         cache=cache,
         profile=profile,
         projects=projects,
-        stubbed=stubbed_build(builders, profile),
+        stubbed=stubbed,
+        groups=unit_groups(inst, Path(args.repo)) if stubbed else (),
     )
     for problem in problems:
         print(f"✗ {problem}")
