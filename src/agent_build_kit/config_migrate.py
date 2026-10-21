@@ -17,6 +17,7 @@ import yaml
 from agent_build_kit.compat_names import Place, new_spelling
 from agent_build_kit.config import DEPRECATED_ROOT_KEY, old_setting_blocks, read_new_settings
 from agent_build_kit.model import Frozen
+from agent_build_kit.settings import settings
 from agent_build_kit.yaml_lines import insert_lines, node_end, split_lines, strip_comment
 
 __all__ = ["ConfigMigrateError", "Migrated", "migrate"]
@@ -24,6 +25,8 @@ __all__ = ["ConfigMigrateError", "Migrated", "migrate"]
 GLOBAL = "global_limits"
 PROJECT = "project_limits"
 MOVED = ("max_units_in_progress", "max_concurrent_stacks", "max_concurrent_restacks")
+MODELS = "models"
+RUNTIMES = "runtimes"
 _NULL_TAG = "tag:yaml.org,2002:null"
 _MERGE_TAG = "tag:yaml.org,2002:merge"
 _MARKED = re.compile(r"(?:^|[\s:])[&*][\w-]")
@@ -130,9 +133,11 @@ def _expected(old: dict[str, Any], source: str) -> dict[str, Any]:
 def migrate(text: str) -> Migrated:
     """Rename a root `limits` to `global_limits`, move the three scheduling settings found under
     it (or under `global_limits`) to a `project_limits` block straight after it, and rename each
-    old test-kind setting key to its new name."""
+    old test-kind setting key to its new name, and move a flat `models:` block under the active
+    runtime's `runtimes.<name>.models`."""
     moved = _move_limits(text)
-    return Migrated(text=_rename_test_kind_keys(moved.text), moved=moved.moved)
+    renamed = _rename_test_kind_keys(moved.text)
+    return Migrated(text=_move_models(renamed), moved=moved.moved)
 
 
 def _move_limits(text: str) -> Migrated:
@@ -310,4 +315,101 @@ def _rename_test_kind_keys(text: str) -> str:
         raise _refuse(
             "abk.yaml", "the edited text would differ from the file in more than the rename"
         )
+    return result
+
+
+def _shifted(lines: list[str], by: int) -> list[str]:
+    """`lines` without their endings, each non-blank one indented `by` more spaces (fewer if
+    negative)."""
+    out = []
+    for line in lines:
+        text = line.rstrip("\r\n")
+        if text.strip():
+            text = " " * by + text if by >= 0 else text[-by:]
+        out.append(text)
+    return out
+
+
+def _move_models(text: str) -> str:
+    """Move a root `models:` block, its lines and comments as they are, under
+    `runtimes.<name>.models` of the active runtime: this machine's `ABK_RUNTIME`, or the file's
+    `runtime:`."""
+    try:
+        documents = list(yaml.compose_all(text))
+    except yaml.YAMLError as error:
+        raise _refuse("abk.yaml", f"the text does not parse as YAML ({error})") from error
+    root = documents[0] if documents else None
+    pair = _pair(root, MODELS) if isinstance(root, yaml.MappingNode) else None
+    if not isinstance(root, yaml.MappingNode) or pair is None:
+        return text
+    old = yaml.safe_load(text)
+    name = settings.runtime or old.get("runtime") or "claude_code"
+    target = f"{RUNTIMES}.{name}.{MODELS}"
+    block_key, block = pair
+    if not isinstance(block, yaml.MappingNode) or not block.value:
+        raise _refuse(MODELS, "the block is not a mapping of roles")
+    if block.flow_style or any(key.tag == _MERGE_TAG for key, _ in block.value):
+        raise _refuse(MODELS, "the block cannot be moved by lines (flow style or a merge key)")
+
+    lines = split_lines(text)
+    eol = "\r\n" if "\r\n" in text else "\n"
+    first, col = block_key.start_mark.line, block_key.start_mark.column
+    if _MARKED.search(strip_comment(lines[first])):
+        raise _refuse(MODELS, "the block has an anchor or an alias, which cannot be moved by lines")
+    last = node_end(lines, first, col)
+    child = block.value[0][0].start_mark.column
+    body = lines[first + 1 : last + 1]
+    header = lines[first].strip()
+
+    def place(indent: int, parents: list[str]) -> list[str]:
+        """The headers down to `models:` at `indent`, then the body under it."""
+        return [*parents, " " * indent + header, *_shifted(body, indent + 2 - child)]
+
+    held = _pair(root, RUNTIMES)
+    if held is None:
+        new = place(col + 4, [" " * col + f"{RUNTIMES}:", " " * (col + 2) + f"{name}:"])
+        at = first
+    else:
+        key, entries = held
+        key_line, key_col = key.start_mark.line, key.start_mark.column
+        empty = isinstance(entries, yaml.MappingNode) and not entries.value
+        if not isinstance(entries, yaml.MappingNode) or (entries.flow_style and not empty):
+            raise _refuse(RUNTIMES, "the block cannot be edited by lines")
+        if empty:
+            lines[key_line] = lines[key_line].replace("{}", "").rstrip() + eol
+            indent = key_col + 2
+        else:
+            indent = entries.value[0][0].start_mark.column
+        entry = _pair(entries, name)
+        if entry is None:
+            at = node_end(lines, key_line, key_col) + 1
+            new = place(indent + 2, [" " * indent + f"{name}:"])
+        else:
+            entry_key, value = entry
+            if not isinstance(value, yaml.MappingNode) or value.flow_style or not value.value:
+                raise _refuse(target, "the entry cannot be edited by lines")
+            if _pair(value, MODELS):
+                raise _refuse(target, "it is already set there; merge the flat block into it")
+            at = node_end(lines, entry_key.start_mark.line, entry_key.start_mark.column) + 1
+            new = place(value.value[0][0].start_mark.column, [])
+    if at > last:
+        insert_lines(lines, at, new, eol)
+        del lines[first : last + 1]
+    else:
+        del lines[first : last + 1]
+        insert_lines(lines, at, new, eol)
+
+    result = "".join(lines)
+    if not text.endswith("\n"):
+        result = result.removesuffix("\n").removesuffix("\r")
+    expected = {key: value for key, value in old.items() if key != MODELS}
+    runtimes = {key: dict(value or {}) for key, value in (old.get(RUNTIMES) or {}).items()}
+    runtimes.setdefault(name, {})[MODELS] = old[MODELS]
+    expected[RUNTIMES] = runtimes
+    try:
+        written = yaml.safe_load(result)
+    except yaml.YAMLError as error:
+        raise _refuse(MODELS, f"the edited text would not parse ({error})") from error
+    if written != expected:
+        raise _refuse(MODELS, "the edited text would differ from the file in more than the move")
     return result

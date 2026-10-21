@@ -1794,6 +1794,30 @@ def deprecations(path: Path) -> list[str]:
     return []
 
 
+def models_notices(path: Path) -> list[str]:
+    """The notice for a flat top-level `models:` block in the file at `path` or its overlay: it
+    names the active runtime's block to move it to, and the roles the runtime's block also sets
+    (the runtime's value is the one used)."""
+    from agent_build_kit.settings import settings
+
+    notices: list[str] = []
+    for _, raw in _raw_files(path):
+        flat = raw.get("models")
+        if flat is None:
+            continue
+        name = settings.runtime or raw.get("runtime") or "claude_code"
+        own = ((raw.get("runtimes") or {}).get(name) or {}).get("models") or {}
+        both = [role for role in flat if role in own]
+        notice = (
+            f"`models` is deprecated for `runtimes.{name}.models`; "
+            "`abk config --migrate` moves it there"
+        )
+        if both:
+            notice += f"; {', '.join(both)} set in both, the runtime's value is used"
+        notices.append(notice)
+    return notices
+
+
 def old_setting_notices(path: Path) -> list[str]:
     """One notice for each old test-kind settings key in the file at `path` or its overlay."""
     notices: list[str] = []

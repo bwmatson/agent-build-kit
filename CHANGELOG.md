@@ -6,6 +6,11 @@
   planned estimate, protected paths and `contract`, `narrow` or `acceptance` flags) and over the
   recorded gate results, open required findings, the reviewer's classification and the class's
   track record, naming the rule that decided it. Nothing acts on it yet.
+- A model name is a runtime's own vocabulary, so the roles now belong under
+  `runtimes.<name>.models`. A top-level `models:` block still loads, for the active runtime
+  only, and `abk doctor` and `abk config` say where to move it (naming any role also set under
+  the runtime, whose value wins). `abk config --migrate` moves the block by text, keeping its
+  comments and what resolves.
 
 - The kit's drift test now checks each live test more strictly. It finds live-stack
   modules anywhere under `tests/` by syntax, decides per test from a table of signals

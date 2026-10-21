@@ -14,6 +14,7 @@ import pytest
 from agent_build_kit import config
 from agent_build_kit.cli import main
 from agent_build_kit.cli.doctor import Check, run_doctor
+from agent_build_kit.config import ModelsConfig
 from agent_build_kit.settings import settings
 from tests.cli.test_doctor import Answers, which_all
 from tests.factories import init_repo
@@ -145,7 +146,11 @@ def test_a_file_in_the_runtime_form_is_left_as_it_is_and_the_doctor_says_nothing
 def test_with_another_runtime_active_the_flat_block_moves_under_it_and_claude_code_names_stay_out(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    select(monkeypatch, SelectableRuntime("other"))
+    # The stand-in's own names, so a Claude Code name could only come from the wrong block.
+    own = ModelsConfig(
+        implement="own-builder", rework="own-reworker", review="own-reviewer", rework_review="own-2"
+    )
+    select(monkeypatch, SelectableRuntime("other", default_models=own))
     text = (
         "version: 1\nruntime: other\nmodels:\n  review: other-reviewer\n"
         "runtimes:\n  claude_code:\n    models:\n      review: opus\n      implement: sonnet\n"

@@ -14,6 +14,7 @@ from agent_build_kit.config import (
     deprecation_notice,
     deprecations,
     locate,
+    models_notices,
     old_setting_notices,
     overlay_path,
     read_overlay,
@@ -96,6 +97,8 @@ def cmd_config(args: argparse.Namespace, inst: Installation | None) -> int:
         print(deprecation_notice(key), file=sys.stderr)
     for old in old_setting_notices(path):
         print(old, file=sys.stderr)
+    for notice in models_notices(path):
+        print(notice, file=sys.stderr)
     local = read_overlay(path)
     if local:
         print(f"{overlay_path(path)} set: {', '.join(local)}", file=sys.stderr)

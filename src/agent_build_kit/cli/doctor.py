@@ -1628,6 +1628,10 @@ def run_doctor(
         for key in config.deprecations(path)
     ]
     checks += [
+        _warn("config", notice, "run `abk config --migrate`")
+        for notice in config.models_notices(path)
+    ]
+    checks += [
         _warn("config", old, "rename it in the file the warning names")
         for old in config.old_setting_notices(path)
     ]
