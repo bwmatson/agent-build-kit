@@ -29,6 +29,27 @@ class Verdict(Frozen):
     reason: str
 
 
+_ORDER = (ReviewTier.AUTO, ReviewTier.LIGHT, ReviewTier.FULL)
+_FLOORED_FLAGS = ("contract", "narrow", "acceptance")
+
+
 def compute_verdict(facts: VerdictFacts) -> Verdict:
-    """The highest floor the facts give, with the rule that decided it. Calls no model."""
-    raise NotImplementedError
+    """The highest floor the facts give, with the rule that decided it. Calls no model.
+
+    Floors are tried in the order the spec lists them; the first of the highest wins the reason."""
+    floors: list[tuple[ReviewTier, str]] = []
+    if facts.planned_estimate is not None:
+        floors.append((facts.planned_estimate, f"the planned estimate is {facts.planned_estimate}"))
+    if facts.protected_paths:
+        floors.append(
+            (ReviewTier.FULL, f"it changed the protected path {facts.protected_paths[0]}")
+        )
+    for flag in facts.flags:
+        if flag in _FLOORED_FLAGS:
+            floors.append((ReviewTier.FULL, f"a group it builds is flagged [{flag}]"))
+            break
+    tier, reason = ReviewTier.AUTO, "the plan gives no floor above auto"
+    for floor, why in floors:
+        if _ORDER.index(floor) > _ORDER.index(tier):
+            tier, reason = floor, why
+    return Verdict(tier=tier, evidence_tier=tier, reason=reason)

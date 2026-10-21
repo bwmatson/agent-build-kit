@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A unit's review tier now has a deterministic verdict function over the plan's floors (the
+  planned estimate, protected paths and `contract`, `narrow` or `acceptance` flags), naming the
+  rule that decided it. Nothing acts on it yet.
+
 - The kit's drift test now checks each live test more strictly. It finds live-stack
   modules anywhere under `tests/` by syntax, decides per test from a table of signals
   (`AGENT_SIGNALS`) whether an agent starts, fails a runtime tag that disagrees with what the
