@@ -353,22 +353,33 @@ def e2e_unit_scope(repo: RepoConfig, limits: LimitsConfig) -> E2eUnitScope:
     return repo.tests.e2e_unit_scope or limits.e2e_unit_scope
 
 
-def review_ceiling(repo: RepoConfig, config: WorkspaceConfig, tier: ReviewTier | None) -> int:
+def review_ceiling(
+    repo: RepoConfig | None, config: WorkspaceConfig, tier: ReviewTier | None
+) -> int:
     """The changed-lines ceiling in effect for a unit of `repo` expected to get `tier`: the
-    tier's own with `review.enabled`, the `full` one without it or when `tier` is None."""
+    tier's own with `review.enabled`, the `full` one without it or when `tier` is None. A repo
+    that is None, or not configured, has the workspace's ceilings."""
     ceilings = ceilings_in_effect(repo, config)
     if not config.review.enabled or tier is None:
         return ceilings.full
     return getattr(ceilings, tier.value)
 
 
-def ceilings_in_effect(repo: RepoConfig, config: WorkspaceConfig) -> CeilingsConfig:
-    """The ceilings in effect for `repo`: its own value for a tier if set, else the workspace's."""
-    own = repo.review.ceilings
+def ceilings_in_effect(repo: RepoConfig | None, config: WorkspaceConfig) -> CeilingsConfig:
+    """The ceilings in effect for `repo`: its own value for a tier if set, else the workspace's
+    (which is all of them for a repo that is None)."""
+    base = CeilingsConfig(
+        auto=config.review.ceilings.auto,
+        light=config.review.ceilings.light,
+        full=workspace_full_ceiling(config),
+    )
+    own = repo.review.ceilings if repo is not None else None
+    if own is None:
+        return base
     return CeilingsConfig(
-        auto=own.auto if own.auto is not None else config.review.ceilings.auto,
-        light=own.light if own.light is not None else config.review.ceilings.light,
-        full=own.full if own.full is not None else workspace_full_ceiling(config),
+        auto=own.auto if own.auto is not None else base.auto,
+        light=own.light if own.light is not None else base.light,
+        full=own.full if own.full is not None else base.full,
     )
 
 

@@ -196,6 +196,7 @@ from agent_build_kit.pipeline.unit_size import (
     calibrations,
     over_ceiling,
     recent_examples,
+    unit_ceiling,
 )
 from agent_build_kit.pipeline.unit_store import (
     PARK_BACKOFF,
@@ -828,9 +829,10 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             )
 
     for unit in units:
-        if over_ceiling(unit.actual_lines):
+        if over_ceiling(unit.actual_lines, unit):
+            figure = f" of {unit_ceiling(unit)}" if config.active().review.enabled else ""
             log(
-                f"  over the ceiling: {unit.id} ({unit_label(unit)}) estimated "
+                f"  over the ceiling{figure}: {unit.id} ({unit_label(unit)}) estimated "
                 f"{unit.estimated_lines}, landed {unit.actual_lines}"
             )
 
