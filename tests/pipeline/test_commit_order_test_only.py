@@ -8,7 +8,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_build_kit.pipeline.commit_order import check_structure
+from agent_build_kit.pipeline.commit_order import (
+    check_structure,
+    commits_of_test_only_groups,
+)
 from tests.stub_gate_support import (
     commit_feat,
     commit_tests,
@@ -121,3 +124,13 @@ def test_with_no_plan_a_lone_tests_commit_is_refused_as_before(repo: Path) -> No
     problems = check_structure(repo, "main", paired=True)
 
     assert any("test: Drive" in problem for problem in problems), problems
+
+
+def test_a_tests_commit_titled_for_another_group_is_not_the_test_only_groups(repo: Path) -> None:  # noqa: F811 — fixture
+    commit_tests(repo, "B", "b")
+    commit_feat(repo, "B", "b")
+
+    groups = plan(("Drive", True), ("B", False))
+
+    assert check_structure(repo, "main", paired=True, groups=groups) == []
+    assert commits_of_test_only_groups(repo, "main", groups) == set()

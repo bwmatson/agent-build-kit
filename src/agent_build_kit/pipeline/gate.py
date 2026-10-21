@@ -34,10 +34,9 @@ from agent_build_kit.budget import cut_tail
 from agent_build_kit.config import ProjectConfig, by_project
 from agent_build_kit.pipeline.check_runner import CheckCache, run_at_commit
 from agent_build_kit.pipeline.commit_order import (
-    branch_subjects,
     check_structure,
     classify_paths,
-    test_only_commits,
+    commits_of_test_only_groups,
 )
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import GroupStep
@@ -96,16 +95,7 @@ def check_branch(
     mode = "stubbed" if stubbed else ""
     # A test-only group's tests commit is judged with no red run, so its result is kept apart.
     only_mode = "test-only" if stubbed else ""
-    shas = git(repo, "rev-list", "--reverse", f"{base}..HEAD").stdout.split()
-    test_only = {
-        sha
-        for sha, only in zip(
-            shas,
-            test_only_commits(branch_subjects(repo, base), groups if stubbed else ()),
-            strict=False,
-        )
-        if only
-    }
+    test_only = commits_of_test_only_groups(repo, base, groups if stubbed else ())
 
     def is_test(path: str) -> bool:
         return profiles.for_path(projects, path, profile).is_test_path(path)

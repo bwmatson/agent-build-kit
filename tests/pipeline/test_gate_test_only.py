@@ -102,3 +102,14 @@ def test_a_test_only_commit_that_fails_the_type_check_is_refused_naming_the_comm
     assert problems
     assert all(drive[:8] in problem for problem in problems)
     assert any(TYPE_ERROR in problem for problem in problems)
+
+
+def test_a_tests_commit_titled_for_another_group_still_gets_its_red_run(
+    repo: Path,  # noqa: F811 — fixture
+) -> None:
+    passing = commit_tests(repo, "B", "pass", "def test_x(): assert True\n")
+    commit_feat(repo, "B", "pass")
+
+    problems = judged(repo, RedProfile(), stubbed=True, groups=plan(("Drive", True), ("B", False)))
+
+    assert any(passing[:8] in p and "nothing failed at the tests commit" in p for p in problems)

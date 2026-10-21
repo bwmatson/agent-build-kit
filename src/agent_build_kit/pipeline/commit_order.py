@@ -169,16 +169,26 @@ def group_progress(subjects: list[str], titles: Sequence[str]) -> GroupProgress:
     return GroupProgress(done=len(titles), tests_made=False)
 
 
-def test_only_commits(subjects: list[str], groups: Sequence[GroupStep]) -> list[bool]:
-    """For each subject, whether it is the tests commit of a test-only group. Each group
-    makes one `test:` commit, so the n-th one belongs to the n-th group, whatever the titles."""
+def _test_only_commits(subjects: list[str], groups: Sequence[GroupStep]) -> list[bool]:
+    """For each subject, whether it is the tests commit of a test-only group: the n-th `test:`
+    commit is the n-th group's, so it is that group's when its subject carries the group's
+    title too. Position still tells two groups with one title apart."""
     flags: list[bool] = []
     made = 0
     for subject in subjects:
         is_tests = subject.startswith(TESTS_PREFIX)
-        flags.append(is_tests and made < len(groups) and groups[made].test_only)
+        group = groups[made] if is_tests and made < len(groups) else None
+        flags.append(
+            group is not None and group.test_only and subject == f"{TESTS_PREFIX}{group.title}"
+        )
         made += is_tests
     return flags
+
+
+def commits_of_test_only_groups(repo: Path, base: str, groups: Sequence[GroupStep]) -> set[str]:
+    """The commits of the branch that are the tests commit of a test-only group of `groups`."""
+    flags = _test_only_commits(branch_subjects(repo, base), groups)
+    return {sha for sha, only in zip(_commits(repo, base), flags, strict=True) if only}
 
 
 def _pair_problems(subjects: list[str], test_only: list[bool]) -> list[str]:
@@ -227,7 +237,8 @@ def check_structure(
     if not shas:
         return [f"no commits between {base} and HEAD"]
     subjects = branch_subjects(repo, base)
-    test_only = test_only_commits(subjects, groups if paired else ())
+    only_shas = commits_of_test_only_groups(repo, base, groups if paired else ())
+    test_only = [sha in only_shas for sha in shas]
 
     problems: list[str] = []
     kinds: list[str] = []

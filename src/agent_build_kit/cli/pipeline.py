@@ -180,6 +180,7 @@ from agent_build_kit.pipeline.stack_runner import (
     RunStatus,
     UnitOutcome,
     UnitRunner,
+    group_steps_of,
 )
 from agent_build_kit.pipeline.transcript import remove_change_transcripts, transcript_dir
 from agent_build_kit.pipeline.ui_review import (
@@ -5990,8 +5991,7 @@ def unit_groups(inst: Installation | None, repo: Path) -> tuple[GroupStep, ...]:
     known = {stored.id: stored for stored in store.all()}
     if unit_id not in known:
         return ()
-    runner = build_runner(known[unit_id], store=store, installation=inst, log=lambda _: None)
-    return runner.group_steps(known[unit_id])
+    return group_steps_of(inst.root, known[unit_id])
 
 
 def cmd_gate(args: argparse.Namespace, inst: Installation | None) -> int:
