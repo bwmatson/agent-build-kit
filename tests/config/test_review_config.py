@@ -26,6 +26,7 @@ def test_a_workspace_with_no_review_section_loads_with_the_defaults() -> None:
         "protected_defaults": True,
         "classes": {},
         "auto_land": {"min_samples": 20, "min_clean_rate": 0.95},
+        "ceilings": {"auto": 5000, "light": 2000, "full": 750},
     }
     assert loaded.repos["app"].review.model_dump() == {"protected_paths": []}
 
@@ -49,6 +50,7 @@ def test_each_key_loads_when_set() -> None:
         "protected_defaults": False,
         "classes": {"docs": ["**/*.md"], "tests": ["tests/**"]},
         "auto_land": {"min_samples": 5, "min_clean_rate": 0.5},
+        "ceilings": {"auto": 5000, "light": 2000, "full": 750},
     }
     assert list(dumped["classes"]) == ["docs", "tests"], "the order is kept"
     assert loaded.repos["app"].review.model_dump() == {"protected_paths": ["src/billing/**"]}

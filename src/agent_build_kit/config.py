@@ -356,7 +356,16 @@ def e2e_unit_scope(repo: RepoConfig, limits: LimitsConfig) -> E2eUnitScope:
 def review_ceiling(repo: RepoConfig, config: WorkspaceConfig, tier: ReviewTier | None) -> int:
     """The changed-lines ceiling in effect for a unit of `repo` expected to get `tier`: the
     tier's own with `review.enabled`, the `full` one without it or when `tier` is None."""
-    raise NotImplementedError
+    if not config.review.enabled or tier is None or tier.value == "full":
+        return _full_ceiling(config)
+    return getattr(config.review.ceilings, tier.value)
+
+
+def _full_ceiling(config: WorkspaceConfig) -> int:
+    """`review.ceilings.full` when set, else the deprecated `global_limits.max_unit_lines`."""
+    if "full" in config.review.ceilings.model_fields_set:
+        return config.review.ceilings.full
+    return config.global_limits.max_unit_lines
 
 
 class E2eSchedule(StrEnum):
@@ -1284,6 +1293,14 @@ class AutoLandConfig(Frozen):
     min_clean_rate: float = Field(default=0.95, ge=0, le=1)
 
 
+class CeilingsConfig(Frozen):
+    """The changed-lines ceiling of a unit for each review tier."""
+
+    auto: int = 5000
+    light: int = 2000
+    full: int = 750
+
+
 class ReviewConfig(Frozen):
     """The review policy: which changes never land without a person, and how they are classed."""
 
@@ -1295,6 +1312,8 @@ class ReviewConfig(Frozen):
     # Class name to path globs, in the order that decides which class a unit belongs to.
     classes: dict[str, list[str]] = {}
     auto_land: AutoLandConfig = AutoLandConfig()
+    # Changed lines one unit may carry, by the review tier it is expected to get.
+    ceilings: CeilingsConfig = CeilingsConfig()
 
     @field_validator("classes")
     @classmethod
@@ -1444,6 +1463,27 @@ class WorkspaceConfig(Frozen):
                         f"{seen[entry.marker]}"
                     )
                 seen[entry.marker] = name
+        return self
+
+    @model_validator(mode="after")
+    def _ceilings_ordered_above_floor(self) -> WorkspaceConfig:
+        """`auto` at least `light`, `light` at least `full`, `full` above the floor."""
+        ceilings = self.review.ceilings
+        if ceilings.auto < ceilings.light:
+            raise ValueError(
+                f"review.ceilings: auto ({ceilings.auto}) must not be below "
+                f"light ({ceilings.light})"
+            )
+        if ceilings.light < ceilings.full:
+            raise ValueError(
+                f"review.ceilings: light ({ceilings.light}) must not be below "
+                f"full ({ceilings.full})"
+            )
+        floor = self.global_limits.min_unit_lines
+        if "full" in ceilings.model_fields_set and ceilings.full <= floor:
+            raise ValueError(
+                f"review.ceilings: full ({ceilings.full}) must exceed min_unit_lines ({floor})"
+            )
         return self
 
     @model_validator(mode="after")

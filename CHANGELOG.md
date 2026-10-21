@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The `review` section accepts `ceilings` (`auto` 5000, `light` 2000, `full` 750 changed lines), checked
+  for order and against `min_unit_lines` when the configuration loads. With `review.enabled` off
+  every tier gets the `full` ceiling, which is `max_unit_lines` when `ceilings.full` is not set.
+
 - A unit's review tier now has a deterministic verdict function over the plan's floors (the
   planned estimate, protected paths and `contract`, `narrow` or `acceptance` flags) and over the
   recorded gate results, open required findings, the reviewer's classification and the class's
