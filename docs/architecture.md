@@ -448,7 +448,11 @@ release could move. The steps:
    tests. Resume reads the branch's commit subjects and starts at the first
    group without its pair (a unit stopped in the loop goes back to
    `fix_stub_checks`). A group left with no pair when the build ends stops the
-   unit, naming the group.
+   unit, naming the first group without one. A stubbed unit whose branch holds
+   no commit of its own after a group (its work was already built) skips that
+   count and, after the last group, goes to unit-test and ends `satisfied` as
+   a build in one piece does; a branch with commits and a missing pair still
+   stops.
 
    **Test-only groups.** An `[e2e-test]` group is a test-only group. A stubbed build commits
    it as a single `test:` commit once `stub_checks` passes, skips the implement step for it
