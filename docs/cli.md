@@ -578,7 +578,10 @@ says how many model calls it will make.
   `--all` is every active change; `--failed` every change whose last plan failed
   or gave up. With none, the command lists each change with the state of its plan
   (`planned`, `failing 2/3: <reason>`, `given up` with `abk replan --failed` to plan it
-  again, `waiting for the network` or `waiting for the model service` with the time of
+  again, `stale` for a plan recorded under other review sizing (a changed `review.ceilings`,
+  floor, `max_unit_lines`, a repo's `review` block or `review.enabled`; `abk replan <change>`
+  plans it and records the current sizing, and a tick reports stale plans without planning
+  them or counting them as work), `waiting for the network` or `waiting for the model service` with the time of
   the next try and the attempts, which a wait does not use, `never planned`), plans
   nothing and exits 2. A change that meets the outage again prints that it is waiting
   and that no attempt was used, and exits 1. `--failed` selects a waiting change.

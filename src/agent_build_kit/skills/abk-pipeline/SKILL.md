@@ -249,7 +249,10 @@ it. With a note, `--rework` needs no saved failure; a plain requeue refuses a no
 hand: a failed unit remembers its step, and putting it back to `planned` alone
 sends the next run past the agent to a check on the same branch.
 
-A plan is made when a change's `tasks.md` changes, not on every tick. Run
+A plan is made when a change's `tasks.md` changes, not on every tick. A plan made under other review
+sizing (a changed `review.ceilings`, floor, `max_unit_lines`, repo `review` block or `review.enabled`) is a
+stale plan: the tick names it and `abk replan <change>` without planning it, `abk status` counts the stale
+plans, and the `abk replan` listing shows it as stale. Run `abk replan <change>` to plan it under the current sizing. Run
 `abk replan <change>` (or a unit id, `--all`, `--failed`) to plan again now when a
 unit waits on a dependency it no longer needs (a `Needs:` line changed in another
 change), when a change gave up planning (the tick logs it, and `abk replan` with no selector lists each change's plan state), or when

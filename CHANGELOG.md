@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `review.ceilings` (`auto` 5000, `light` 2000, `full` 750 by default, with a per-repo override) now
+  sets how large a unit may be by its expected review tier. `global_limits.max_unit_lines` is
+  deprecated and read as `review.ceilings.full`; `abk config --migrate` moves it. Nothing is sized
+  differently until `review.enabled` is turned on.
+
 - A plan made under other review sizing (a changed ceiling, floor or `review.enabled`) is now
   reported as stale by the tick, by `abk replan` with no argument and by `abk status`. It is not
   planned again until `abk replan CHANGE` is run, which records the current sizing.
