@@ -449,6 +449,14 @@ release could move. The steps:
    group without its pair (a unit stopped in the loop goes back to
    `fix_stub_checks`). A group left with no pair when the build ends stops the
    unit, naming the group.
+
+   **Test-only groups.** An `[e2e-test]` group is a test-only group. A stubbed build commits
+   it as a single `test:` commit once `stub_checks` passes, skips the implement step for it
+   and goes on to the next group's tests (or to the checks). The pair count treats that
+   commit as the group satisfied, and resume counts the group done once the commit is on the
+   branch. The push gate makes an exception for it: it runs no red command at that commit and
+   needs no `feat:` commit after it, while an ordinary group with no implementation still
+   stops the unit.
 5. **Checks, then review rounds.** Before each review round the branch has to
    pass unit-test (lint, formatting, types and the tests; see step 6): a reviewer's
    time goes on a branch that already builds. A failure is saved as feedback and
