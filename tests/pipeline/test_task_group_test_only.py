@@ -10,8 +10,11 @@ OPT_OUT = "Acceptance: none — a fixture about test-only groups\n"
 
 
 def read(heading: str, tmp_path: Path) -> TaskGroup:
+    # A change with a `[contract]` group must end with a `[narrow]` one.
+    closing = "\n## 2. [app] [e2e-test] [narrow] Close\n\n- [ ] 2.1 Test: it.\n"
     (tmp_path / "tasks.md").write_text(
         f"# Tasks\n\n{OPT_OUT}\n## {heading}\n\n- [ ] 1.1 Test: it.\n"
+        + (closing if "[contract]" in heading else "")
     )
     groups, errors = validate_tasks(tmp_path / "tasks.md")
     assert errors == []

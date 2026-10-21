@@ -1765,6 +1765,7 @@ class UnitRunner(BaseModel):
                     title=found[number].title if number in found else unit.title,
                     goal=found[number].goal if number in found else "",
                     flag=found[number].flag if number in found else "",
+                    test_only=found[number].test_only if number in found else False,
                 )
                 for number in member.groups
             )

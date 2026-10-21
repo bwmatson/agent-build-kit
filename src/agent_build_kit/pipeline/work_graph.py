@@ -228,7 +228,7 @@ class TaskGroup(Frozen):
     @property
     def test_only(self) -> bool:
         """Whether the group builds no implementation: it is tagged `[e2e-test]`."""
-        raise NotImplementedError
+        return self.tier == TestTier.E2E_TEST
 
 
 class ValidationError(Frozen):
