@@ -19,6 +19,7 @@ from agent_build_kit.config import (
     overlay_path,
     read_overlay,
     runtime_for,
+    workspace_full_ceiling,
 )
 from agent_build_kit.config_migrate import ConfigMigrateError, migrate
 from agent_build_kit.init.runtime_choice import confirmed
@@ -105,6 +106,7 @@ def cmd_config(args: argparse.Namespace, inst: Installation | None) -> int:
     if local:
         print(f"{overlay_path(path)} set: {', '.join(local)}", file=sys.stderr)
     data = inst.config.model_dump(by_alias=True, mode="json")
+    data["review"]["ceilings"]["full"] = workspace_full_ceiling(inst.config)
     print(yaml.safe_dump(data, sort_keys=False, default_flow_style=False), end="")
     return 0
 

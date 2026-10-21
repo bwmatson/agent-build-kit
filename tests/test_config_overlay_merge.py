@@ -125,6 +125,6 @@ def test_a_deprecated_root_key_in_one_file_merges_with_the_new_spelling_in_the_o
 
 def test_deprecations_reports_the_old_key_when_only_the_overlay_uses_it(tmp_path: Path) -> None:
     path = committed(tmp_path)
-    overlay(tmp_path, {"limits": {"max_unit_lines": 600}})
+    overlay(tmp_path, {"limits": {"min_unit_lines": 100}})
 
     assert deprecations(path) == ["limits"]

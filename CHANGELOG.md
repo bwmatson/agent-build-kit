@@ -10,6 +10,11 @@
 - The `review` section accepts `ceilings` (`auto` 5000, `light` 2000, `full` 750 changed lines), checked
   for order and against `min_unit_lines` when the configuration loads. A repo's `review` block may
   override any tier; an override that breaks the order or the floor is refused, naming the repo.
+  `global_limits.max_unit_lines` is deprecated for `review.ceilings.full`: it is still read as that
+  ceiling, `abk config` and `abk doctor` say so, `abk config` shows the ceilings in effect, and
+  setting both to different values is refused. `abk config --migrate` moves `max_unit_lines` to
+  `review.ceilings.full` by text, with its comments, in the same single change as its other moves,
+  and refuses when `full` is already set to another value or the result would not load.
   Units are not sized by these keys yet: plans are still held to `max_unit_lines`.
 
 - A unit's review tier now has a deterministic verdict function over the plan's floors (the
