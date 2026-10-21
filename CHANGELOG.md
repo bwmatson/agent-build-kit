@@ -13,8 +13,6 @@
   reported as stale by the tick, by `abk replan` with no argument and by `abk status`. It is not
   planned again until `abk replan CHANGE` is run, which records the current sizing.
 
-- A task group tagged `[e2e-test]` is now recognised as test-only, the first step towards building
-  it as a single `test:` commit with no implementation commit.
 - A task group tagged `[e2e-test]` is now test-only: a stubbed build commits its tests as a single
   `test:` commit with no implementation step, counts and resumes it by that commit, and the push
   gate accepts it without a red run.
