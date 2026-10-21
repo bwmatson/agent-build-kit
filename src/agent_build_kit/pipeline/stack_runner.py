@@ -233,6 +233,7 @@ class GroupStep(Frozen):
     title: str
     goal: str = ""  # the group's "Done when" sentence, "" when it has none
     flag: str = ""  # the group's flag, "" when it has none or its heading cannot be read
+    test_only: bool = False  # the group is `[e2e-test]`; false when its heading cannot be read
 
 
 class WriteTestsTemplate(PromptTemplate):
