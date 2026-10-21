@@ -7,6 +7,12 @@
   whole-suite runs are unaffected. The pull request of such a unit says "e2e-test deferred to
   verify", and a failed verification names the units of the change that deferred.
 
+- `abk requeue --rework` (with or without a note) and `--restart` now accept a unit parked on a held
+  e2e-test split, so a person can ask the agent to run again when the park was a mistake in the
+  code, such as a mis-tagged test. The park is cleared once the requeue is delivered, and the history
+  names the splits and the note. A plain requeue of a parked unit is refused while its split is
+  held, saying so; units that are running, in review, merged or have a pull request are still refused.
+
 - The `review` section accepts `ceilings` (`auto` 5000, `light` 2000, `full` 750 changed lines), checked
   for order and against `min_unit_lines` when the configuration loads. A repo's `review` block may
   override any tier; an override that breaks the order or the floor is refused, naming the repo.

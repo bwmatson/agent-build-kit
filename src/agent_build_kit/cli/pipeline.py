@@ -5479,7 +5479,12 @@ def cmd_openspec(args: argparse.Namespace, inst: Installation) -> int:
 
 
 def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
-    """Give a failed or held unit another go.
+    """Give a failed or held unit, or one parked on a held e2e-test split, another go.
+
+    A unit parked on a held split is requeued with `--rework` (with a note saying what
+    changed, or none) or `--restart`, which run the agent again and end the park; a plain
+    requeue of it is refused while the split is held. A parked unit with a pull request or
+    being built, and running, in-review and merged units, are refused as always.
 
     Three different things, and the command says which. By default the unit
     resumes where it stopped: a unit that failed its unit-test check because the
@@ -5766,6 +5771,13 @@ def requeue_refusal(unit: StoredUnit) -> str | None:
     """Why `unit` cannot be requeued as stored; None when it can."""
     if unit.state in (FAILED, HELD):
         return None
+    if unit.state == PLANNED and parked_on_split(unit):
+        if unit.pr is not None:
+            return (
+                f"{unit.id} is parked on a split and has pull request #{unit.pr}; "
+                "requeueing it would orphan the pull request"
+            )
+        return None
     return (
         f"{unit.id} is {unit.state}; only a failed or held unit can be requeued "
         "(a running one would be built twice, an in-review one has a PR to orphan)"
@@ -5811,12 +5823,30 @@ def requeue(
             "without running it; use --rework or --restart with --note"
         )
         return 1
+    parked = known[unit_id].state == PLANNED and parked_on_split(known[unit_id])
+    if parked and mode == "resume" and (refusal := _parked_resume_refusal(inst, known[unit_id])):
+        say(refusal)
+        return 1
+    # A rework or restart of a parked unit ends its park, once the delivery has been made.
+    clears_park = parked and mode != "resume"
+    names = ", ".join(known[unit_id].parked_splits)
+    # What the history says of a requeue of a parked unit: the splits and the person's note.
+    parked_said = guidance_excerpt(note) if clears_park else ""
+    if clears_park and not because:
+        because = ("reworking" if mode == "rework" else "starting over") + f", parked on {names}"
+    automatic = clears_park and mode == "rework" and not note
+    if automatic:
+        note = (
+            f"Automatic note: this unit was parked on e2e-test split {names} and the person "
+            "asked for the agent to run again. Read the group's tasks in tasks.md and the "
+            "failing or mis-tagged tests, and apply them."
+        )
     why = {
         "rework": RequeueReason.FROM_FAILURE,
         "restart": RequeueReason.RESTART,
         "resume": RequeueReason.RESUME,
     }[mode]
-    if mode == "rework" and not known[unit_id].feedback and not note:
+    if mode == "rework" and not known[unit_id].feedback and not note and not parked:
         say(
             f"{unit_id} has no saved failure to rework from; "
             "--restart starts it over, a plain requeue resumes it"
@@ -5824,10 +5854,16 @@ def requeue(
         return 1
     waits = waiting_on(known[unit_id], list(known.values()))
     # What the history entry of a requeue says of a note: its first 200 characters.
-    said = guidance_excerpt(note)
+    said = guidance_excerpt(note) if not clears_park else ""
     # With no saved failure the person's note is what the rework is from.
     saved = bool(known[unit_id].feedback)
-    source = "the saved failure" if saved else "the person's note"
+    source = (
+        "the saved failure"
+        if saved
+        else "an automatic note naming the splits it was parked on"
+        if automatic
+        else "the person's note"
+    )
     if waits and has_thread(inst, unit_id):
         # A dependency is unmet: the thread is left where it stopped, and the pass
         # delivers the event in this mode once nothing the unit waits on is left (a
@@ -5835,7 +5871,10 @@ def requeue(
         store.set_state(
             unit_id,
             PLANNED,
-            note=f"requeued: {dependency_wait(waits, repo=known[unit_id].repo)}{said}",
+            note=(
+                f"requeued: {dependency_wait(waits, repo=known[unit_id].repo)}"
+                + (f", parked on {names}{parked_said}" if clears_park else said)
+            ),
             cause=Cause.GATED,
             by=by,
         )
@@ -5843,7 +5882,7 @@ def requeue(
             store.set_guidance(unit_id, note)
         store.set_gated_requeue(unit_id, why)
         say(f"{unit_id} requeued ({mode}), {dependency_wait(waits, repo=known[unit_id].repo)}")
-        return _requeued(store, unit_id)
+        return _requeued(store, unit_id, clears_park)
     try:
         delivered = resume_thread(
             inst,
@@ -5863,20 +5902,24 @@ def requeue(
             f"{unit_id} thread resumed ({mode}): {outcome.status} — {outcome.detail}",
             error=delivered.raised,
         )
-        return 1 if delivered.raised else _requeued(store, unit_id)
+        return 1 if delivered.raised else _requeued(store, unit_id, clears_park)
     if note and mode != "restart":
         store.set_guidance(unit_id, note)
     if mode == "rework":
         store.set_state(
             unit_id,
             PLANNED,
-            note=f"requeue: {because}" if because else f"requeued: reworking from {source}{said}",
+            note=(
+                f"requeue: {because}{parked_said}"
+                if because
+                else f"requeued: reworking from {source}{said}"
+            ),
             cause=Cause.REQUEUED,
             by=by,
         )
         say(
             f"{unit_id} requeued, the agent will rework it from "
-            + ("the failure it saved" if saved else "the person's note")
+            + ("the failure it saved" if saved else source)
         )
     elif mode == "restart":
         store.set_feedback(unit_id, "")
@@ -5885,7 +5928,9 @@ def requeue(
         store.set_state(
             unit_id,
             PLANNED,
-            note=f"requeued: starting over{said}",
+            note=f"requeued: starting over{said}"
+            if not clears_park
+            else f"requeue: {because}{parked_said}",
             cause=Cause.REQUEUED,
             by=by,
         )
@@ -5899,12 +5944,32 @@ def requeue(
             by=by,
         )
         say(f"{unit_id} requeued, resuming where it stopped")
-    return _requeued(store, unit_id)
+    return _requeued(store, unit_id, clears_park)
 
 
-def _requeued(store: UnitStore, unit_id: str) -> int:
+def _parked_resume_refusal(inst: Installation, unit: StoredUnit) -> str | None:
+    """Why a plain requeue of a unit parked on a split would resume onto the wrong thing:
+    a split it is parked on is held, or its group moved to another split. None otherwise."""
+    if held := parked_holds(inst.config, inst.state_dir, unit):
+        return (
+            f"{unit.id} is parked on e2e-test split {', '.join(unit.parked_splits)} "
+            f"(held: {'; '.join(hold.reason for hold in held.values())}); "
+            "give --rework with a note saying what changed, or release the split"
+        )
+    if split_changes(inst, [unit]):
+        return (
+            f"{unit.id}'s group moved to another split; the pass reworks it, "
+            "and resuming would run the old tests (--rework asks for it now)"
+        )
+    return None
+
+
+def _requeued(store: UnitStore, unit_id: str, clears_park: bool = False) -> int:
     """The exit code of a requeue that took effect; the line a closed prerequisite left in
-    the status goes with it, and stays for a requeue that was refused."""
+    the status goes with it, and stays for a requeue that was refused. `clears_park` ends the
+    unit's park on a split, which a delivery has made unnecessary."""
+    if clears_park:
+        store.set_parked(unit_id)
     if store.get(unit_id).wait_ended:
         store.set_wait_ended(unit_id, "")
     return 0
@@ -5990,7 +6055,10 @@ def register(sub: argparse._SubParsersAction) -> None:
     check = sub.add_parser("check", help="openspec validate --all --strict --json")
     check.set_defaults(func=cmd_check)
 
-    requeue = sub.add_parser("requeue", help="give a failed or held unit another go")
+    requeue = sub.add_parser(
+        "requeue",
+        help="give a failed or held unit, or one parked on a held e2e-test split, another go",
+    )
     requeue.add_argument("unit", help="the unit id, e.g. add-marker/1")
     how = requeue.add_mutually_exclusive_group()
     how.add_argument(
@@ -6002,14 +6070,15 @@ def register(sub: argparse._SubParsersAction) -> None:
         "--rework",
         action="store_true",
         help="keep the work and have the agent rework it from the failure the unit saved "
-        "(a failed check), instead of resuming into the same failure",
+        "(a failed check), instead of resuming into the same failure; accepts a unit "
+        "parked on a held e2e-test split, with or without a note",
     )
     given = requeue.add_mutually_exclusive_group()
     given.add_argument(
         "--note",
         metavar="TEXT",
         help="a person's instruction for the agent's next run, shown ahead of any saved failure; "
-        "needs --rework or --restart",
+        "needs --rework or --restart (a unit parked on a held split is accepted by both)",
     )
     given.add_argument("--note-file", metavar="PATH", help="--note, read from a file")
     requeue.set_defaults(func=cmd_requeue)

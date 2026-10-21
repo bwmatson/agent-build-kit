@@ -8,8 +8,8 @@ machine's default.
 An account is a Claude Code config directory, and which account builds what depends on who runs the
 pipeline and which accounts they have. Both are machine choices, so both live in `abk.local.yaml`
 (ignored by git, one per machine), and the committed `abk.yaml` stays the same on every machine.
-`repos.<name>.account` names the account that builds a repo, and `accounts.<label>` under
-`runtimes.claude_code` says where that account lives:
+`repos.<name>.account` names the account that builds a repo by label, and `accounts.<label>`
+under `runtimes.claude_code` supplies its directory:
 
 ```yaml
 # abk.local.yaml
