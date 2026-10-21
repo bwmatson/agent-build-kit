@@ -321,6 +321,7 @@
   runs that include review; this limit, the occupancy and the other limits are counted for
   each project, not across all repos. `abk status` prints a slots line such as
   `slots: 5/4, 1 restacking`, and the sample row and slot gauges report the same occupancy.
+
 - A repo on the local forge now works with the verify step and the scheduled tracks: the local
   forge lists the files a pull request changed (so verify sees what to check and deploy; it
   follows a rebase and fails loudly when it cannot tell, instead of reporting no files), and a

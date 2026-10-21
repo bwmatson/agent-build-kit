@@ -11,7 +11,7 @@ process. Only the planning commit is made in-process, through the function chat 
 The tests share one scratch repository and run in file order: each leaves the pipeline worktree
 where the next expects it.
 
-Needs node for the OpenSpec CLI and uv. Marked tier 2 and excluded from the default suite.
+Needs node for the OpenSpec CLI and uv. Marked `local_stack` and excluded from the default suite.
 """
 
 from __future__ import annotations
@@ -41,7 +41,6 @@ from tests.runtimes import acp_agent
 
 pytestmark = [
     pytest.mark.local_stack,
-    pytest.mark.runtime_acp,
     pytest.mark.skipif(shutil.which("npx") is None, reason="npx is not on PATH"),
     pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not on PATH"),
 ]
