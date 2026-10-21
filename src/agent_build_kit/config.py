@@ -356,13 +356,13 @@ def e2e_unit_scope(repo: RepoConfig, limits: LimitsConfig) -> E2eUnitScope:
 def review_ceiling(repo: RepoConfig, config: WorkspaceConfig, tier: ReviewTier | None) -> int:
     """The changed-lines ceiling in effect for a unit of `repo` expected to get `tier`: the
     tier's own with `review.enabled`, the `full` one without it or when `tier` is None."""
-    ceilings = repo_ceilings(repo, config)
+    ceilings = ceilings_in_effect(repo, config)
     if not config.review.enabled or tier is None:
         return ceilings.full
     return getattr(ceilings, tier.value)
 
 
-def repo_ceilings(repo: RepoConfig, config: WorkspaceConfig) -> CeilingsConfig:
+def ceilings_in_effect(repo: RepoConfig, config: WorkspaceConfig) -> CeilingsConfig:
     """The ceilings in effect for `repo`: its own value for a tier if set, else the workspace's."""
     own = repo.review.ceilings
     return CeilingsConfig(
@@ -1321,13 +1321,21 @@ class CeilingsConfig(Frozen):
     full: int = 750
 
 
-def _check_ceilings(label: str, ceilings: CeilingsConfig, check_floor: bool, floor: int) -> None:
-    """Raise unless `auto` >= `light` >= `full`, and `full` is above `floor` when `check_floor`."""
-    if ceilings.auto < ceilings.light:
+def _check_ceilings(
+    label: str,
+    ceilings: CeilingsConfig,
+    check_floor: bool,
+    floor: int,
+    owned: frozenset[str] | None = None,
+) -> None:
+    """Raise unless `auto` >= `light` >= `full`, and `full` is above `floor` when `check_floor`.
+    With `owned`, a pair is checked only when one of its tiers is in it: a repo is not blamed
+    for a relation between two values it inherits."""
+    if (owned is None or {"auto", "light"} & owned) and ceilings.auto < ceilings.light:
         raise ValueError(
             f"{label}: auto ({ceilings.auto}) must not be below light ({ceilings.light})"
         )
-    if ceilings.light < ceilings.full:
+    if (owned is None or {"light", "full"} & owned) and ceilings.light < ceilings.full:
         raise ValueError(
             f"{label}: light ({ceilings.light}) must not be below full ({ceilings.full})"
         )
@@ -1508,12 +1516,16 @@ class WorkspaceConfig(Frozen):
         _check_ceilings("review.ceilings", ceilings, "full" in ceilings.model_fields_set, floor)
         for name, repo in self.repos.items():
             own = repo.review.ceilings
-            if own.model_fields_set:
+            owned = frozenset(
+                tier for tier in CeilingsConfig.model_fields if getattr(own, tier) is not None
+            )
+            if owned:
                 _check_ceilings(
                     f"repos.{name}.review.ceilings",
-                    repo_ceilings(repo, self),
-                    own.full is not None,
+                    ceilings_in_effect(repo, self),
+                    "full" in owned,
                     floor,
+                    owned,
                 )
         return self
 

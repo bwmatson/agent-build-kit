@@ -70,6 +70,13 @@ def test_a_repo_without_an_override_has_the_workspaces_ceilings() -> None:
     assert in_effect(config, "platform") == {"auto": 6000, "light": 2500, "full": 900}
 
 
+def test_an_override_is_not_blamed_for_a_relation_between_inherited_values() -> None:
+    config = load({"auto": 6000}, max_unit_lines=3000)
+
+    assert review_ceiling(config.repos["app"], config, ReviewTier.FULL) == 3000
+    assert review_ceiling(config.repos["app"], config, ReviewTier.AUTO) == 6000
+
+
 def test_an_override_out_of_order_with_the_workspaces_tiers_is_refused_naming_the_repo() -> None:
     message = refusal({"auto": 1500}, {"light": 2000})
 
