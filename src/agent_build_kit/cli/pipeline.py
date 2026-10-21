@@ -5717,6 +5717,9 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
             continue
         refused += 1
 
+    if args.report:
+        _print_replan_report(inst, store, to_plan)
+        return 1 if refused else 0
     if args.forget:
         record_plans(inst, dict.fromkeys(to_plan))
         for change in to_plan:
@@ -5772,6 +5775,31 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
     ) or any(results[change].cycle for change in to_plan)
     release_split_changed(inst, store, only=set(to_plan))
     return 1 if refused or failed or cyclic else 0
+
+
+def _print_replan_report(inst: Installation, store: UnitStore, changes: list[str]) -> None:
+    """What `abk replan` would do for `changes`, with no model call and no write: each
+    change's plan state, its started and unstarted units with their groups, and whether
+    the planner would be called."""
+    records = planned_hashes(inst)
+    units = store.all()
+    calls = 0
+    for change in changes:
+        print(f"{change}: {_plan_state(records.get(change), inst.max_plan_attempts)}")
+        mine = [unit for unit in units if unit.change == change]
+        started = [unit for unit in mine if unit.state in _STARTED]
+        unstarted = [unit for unit in mine if unit.state == PLANNED]
+        print(f"  {len(started)} started, {len(unstarted)} unstarted")
+        for unit in (*started, *unstarted):
+            groups = ", ".join(str(n) for n in unit.groups)
+            print(f"  {unit.id}: group {groups} ({unit.state.value})")
+        task_groups, _ = _validated(inst, inst.changes_dir / change / "tasks.md")
+        if task_groups and _taken_groups(store, change) >= {g.number for g in task_groups}:
+            print(f"  would ask nothing of the planner; {ALL_TAKEN}")
+        else:
+            calls += 1
+            print("  would call the planner once")
+    print(f"total: {calls} planner call{'' if calls == 1 else 's'}")
 
 
 def _plan_state(record: dict | None, max_attempts: int) -> str:
@@ -6272,6 +6300,11 @@ def register(sub: argparse._SubParsersAction) -> None:
     )
     replan.add_argument(
         "--forget", action="store_true", help="only clear the recorded plans; make no model call"
+    )
+    replan.add_argument(
+        "--report",
+        action="store_true",
+        help="only show what a replan would do for each change; no model call, no write",
     )
     replan.set_defaults(func=cmd_replan)
 

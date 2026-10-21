@@ -569,7 +569,7 @@ or one the pass is holding: a run killed in a node resumes from its thread. Reco
 once, after a second, when the first read fails; if the second fails too, the
 unit is logged as stranded and the error is raised as before.
 
-### `abk replan [CHANGE|UNIT ...] [--all] [--failed] [--forget]`
+### `abk replan [CHANGE|UNIT ...] [--all] [--failed] [--forget] [--report]`
 
 Plans changes again now, whatever their recorded plan says. A tick plans a change
 only when its `tasks.md` changes (or its last plan failed and attempts remain);
@@ -578,6 +578,11 @@ recorded plan, asks the planner, and links the `Needs:` lines, the two steps a t
 performs, so the units stored are what the next tick would have produced. It first
 says how many model calls it will make.
 
+- **Reporting.** `--report` shows what a replan would do and does none of it: for each
+  selected change its plan state, how many units are started and how many unstarted,
+  the groups each carries, and whether a replan would call the planner once or ask
+  nothing of it (every group already taken), then the total number of planner calls.
+  It makes no model call and writes nothing; names are refused as without it.
 - **Selecting.** Names are the folders of the active changes. A unit id
   (`feature/2`) is mapped to the change that carries it, and the command says so.
   `--all` is every active change; `--failed` every change whose last plan failed

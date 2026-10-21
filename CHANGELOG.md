@@ -8,6 +8,9 @@
   loading, and `abk doctor` prints the buffered ceilings and warns near the limit or when
   `split_rounds` is 0 with review enabled. The review verdict also gains a size step, groundwork for the
   hold that a later change wires in.
+- `abk replan --report` shows, for each selected change, its plan state, its started and
+  unstarted units with their groups and whether a replan would call the planner, with the
+  total number of calls. It makes no model call and writes nothing.
 
 - `abk status` now names a started unit that a pause has parked before its agent step "paused", not
   "running", in the full-queue line; such a unit still holds its place against the limit. The
