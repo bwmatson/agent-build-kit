@@ -452,7 +452,8 @@ is 1 when anything failed.
 (default true), `classes` (name to path globs, no slash in a name, first listed wins) and
 `auto_land.min_samples` / `auto_land.min_clean_rate`; a repo's `review:` holds only
 `protected_paths`, which adds to the workspace's. Only a person edits it: a build agent and a track are
-refused a write to `abk.yaml`. See `docs/configuration.md`.
+refused a write to `abk.yaml` or `abk.local.yaml` by the routes the command policy names, and a
+build or track run after which either file differs fails (not restored). See `docs/configuration.md`.
 
 ## Changing the config
 

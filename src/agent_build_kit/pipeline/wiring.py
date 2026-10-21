@@ -64,6 +64,7 @@ from agent_build_kit.pipeline.check_failures import failed_in
 from agent_build_kit.pipeline.check_runner import worktree_at
 from agent_build_kit.pipeline.command_limit import run_limited
 from agent_build_kit.pipeline.commit_order import branch_subjects
+from agent_build_kit.pipeline.config_guard import config_unchanged
 from agent_build_kit.pipeline.determinism_guidance import determinism_guidance
 from agent_build_kit.pipeline.e2e import (
     UNKNOWN_SPLIT,
@@ -279,11 +280,15 @@ def allowed_tools(
     return f"{BASE_TOOLS} {INSTALL_CONFIG_TOOL} {forge_read_tools(forge)} {' '.join(tools)}".strip()
 
 
-def _specs_dir(planning_repo: Path | None) -> Path:
+def _planning_root(planning_repo: Path | None) -> Path:
     root = planning_repo or active_root()
     if root is None:
         raise RuntimeError("no planning repo: load an installation (abk.yaml) first")
-    return root / active().planning.specs_dir
+    return root
+
+
+def _specs_dir(planning_repo: Path | None) -> Path:
+    return _planning_root(planning_repo) / active().planning.specs_dir
 
 
 def _run_limited(args: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -400,8 +405,8 @@ def build_run(
     it refuses to start the run at all, which is what the pilot pre-flight hit
     at $0.50.
     """
-    specs = _specs_dir(planning_repo)
-    config_file = (planning_repo or active_root() or Path()) / CONFIG_FILENAME
+    planning_root = _planning_root(planning_repo)
+    specs = planning_root / active().planning.specs_dir
     # Half-configured gateway settings already said, once for this runner.
     warned: set[str] = set()
 
@@ -490,7 +495,7 @@ def build_run(
                 branch_prefix=active().git.branch_prefix,
                 planning_paths=planning_paths,
                 # The review policy in abk.yaml is a person's: no command writes it.
-                fenced_files=(config_file,),
+                fenced_files=(planning_root / CONFIG_FILENAME,),
             ),
             on_event=journal or log or print,
             on_transcript=transcript,
@@ -502,7 +507,9 @@ def build_run(
             with run_folder(cwd) as out:
                 if out is not None:
                     request = request.model_copy(update={"env": {**env, "ABK_OUT": str(out)}})
-                result = agent.run(request)
+                # Neither configuration file may differ afterwards, whatever route a write took.
+                with config_unchanged(planning_root):
+                    result = agent.run(request)
         finally:
             spend()
         if branch and (after := _agent_pushed(cwd, branch, before)):

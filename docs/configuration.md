@@ -737,7 +737,12 @@ holds a repo path outside the checkout, a home path or another account's repo.
 ### `review`
 
 The review policy, a build-out section for risk-tiered review. A person edits it; a build agent
-and a track are refused any write to `abk.yaml`, by file write, shell redirect or editor command.
+and a track are refused a write to `abk.yaml` or `abk.local.yaml` by the routes the command policy
+names (a file write, a shell redirect, an editor command, and its copy and in-place edit programs).
+A command cannot be parsed for every route, so the pipeline also reads both files before every build
+and track run and again after it: a run after which either differs fails, naming the file and showing
+the difference. The file is not restored, and a person's edit during a run fails it the same way (the
+message says so, so the unit can be requeued once the edit is done).
 
 ```yaml
 review:

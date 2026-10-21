@@ -1,5 +1,7 @@
-"""No agent can change the review policy: the planning repo's abk.yaml is refused to a build
-agent and to a track's run by every route a write can take (spec: review-policy)."""
+"""The command policy refuses a build agent and a track's run a write to the planning repo's
+abk.yaml and abk.local.yaml by the routes it names: a file write, a shell redirect, an editor
+command, and the copy and in-place edit programs it lists. It does not claim every route; the
+pipeline's check after a run covers the rest (spec: review-policy)."""
 
 from __future__ import annotations
 
@@ -43,7 +45,7 @@ def code_worktree(tmp_path: Path) -> Path:
     return worktree
 
 
-def test_a_build_agent_is_refused_a_write_to_abk_yaml_by_every_route(
+def test_a_build_agent_is_refused_a_write_to_abk_yaml_by_the_named_routes(
     planning: Path, code_worktree: Path
 ) -> None:
     policy = planning / "abk.yaml"
@@ -61,7 +63,7 @@ def test_a_build_agent_is_refused_a_write_to_abk_yaml_by_every_route(
         assert_denied(decide(payload, planning_repo=planning), route)
 
 
-def test_a_build_agent_in_the_planning_repos_own_worktree_is_refused_by_every_route(
+def test_a_build_agent_in_the_planning_repos_own_worktree_is_refused_by_the_named_routes(
     tmp_path: Path,
 ) -> None:
     worktree = checkout(tmp_path.resolve() / "planning-unit")
@@ -78,7 +80,7 @@ def test_a_build_agent_in_the_planning_repos_own_worktree_is_refused_by_every_ro
         assert_denied(decide(payload, planning_paths=fenced), route)
 
 
-def test_a_track_run_is_refused_a_write_to_abk_yaml_by_every_route(planning: Path) -> None:
+def test_a_track_run_is_refused_a_write_to_abk_yaml_by_the_named_routes(planning: Path) -> None:
     change = planning / "openspec" / "changes" / "app-track-1"
     state = planning / "runs"
     routes = {
@@ -119,3 +121,23 @@ def test_a_write_inside_the_changes_own_folder_is_still_allowed(planning: Path) 
             planning_change_dir=change,
         )
         assert answer is None, payload
+
+
+def test_abk_local_yaml_is_fenced_as_abk_yaml_is(planning: Path, code_worktree: Path) -> None:
+    overlay = planning / "abk.local.yaml"
+    change = planning / "openspec" / "changes" / "app-track-1"
+    build_routes = {
+        "file write": write(overlay, cwd=code_worktree),
+        "shell redirect": bash(f"echo 'review:' > {overlay}", cwd=code_worktree),
+        "editor command": bash(f"sed -i 's/false/true/' {overlay}", cwd=code_worktree),
+        "copy over": bash(f"cp /tmp/mine.yaml {overlay}", cwd=code_worktree),
+    }
+    track_routes = {
+        "shell redirect": bash("echo 'review:' > abk.local.yaml", cwd=planning),
+        "editor command": bash("sed -i 's/false/true/' abk.local.yaml", cwd=planning),
+    }
+
+    for route, payload in build_routes.items():
+        assert_denied(decide(payload, planning_repo=planning), route)
+    for route, payload in track_routes.items():
+        assert_denied(decide(payload, planning_repo=planning, planning_change_dir=change), route)

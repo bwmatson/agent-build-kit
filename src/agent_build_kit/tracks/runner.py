@@ -61,6 +61,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import shell
 from agent_build_kit.pipeline.call_record import recorded
+from agent_build_kit.pipeline.config_guard import ConfigChanged, config_unchanged
 from agent_build_kit.pipeline.file_lock import append_missing_lines
 from agent_build_kit.pipeline.planning_repo import (
     current_branch,
@@ -742,8 +743,15 @@ def claude_phase(
     log(f"[{project.name}] phase: {name} (session window only)")
     before = record_planning(inst)
     try:
-        result = agent.run(request)
-    except (AgentRateLimited, AgentInterrupted, NetworkUnavailable, ServiceUnavailable) as error:
+        with config_unchanged(inst.root):
+            result = agent.run(request)
+    except (
+        AgentRateLimited,
+        AgentInterrupted,
+        NetworkUnavailable,
+        ServiceUnavailable,
+        ConfigChanged,
+    ) as error:
         log(f"[{project.name}] {name} phase stopped — {error}. Continuing regardless.")
         if before is not None and not settle_planning(inst, before, project, name):
             return STOPPED

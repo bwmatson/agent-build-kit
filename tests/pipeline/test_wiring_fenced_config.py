@@ -1,7 +1,8 @@
-"""A build run's hook is told the planning repo's abk.yaml, so no shell route writes the review
-policy from a unit's worktree (spec: review-policy). The test drives the real path: the request
-`build_runner` asks its runtime for, the hook command `build_argv` makes of it, and `policy.main`
-run with that command's arguments and a payload on stdin."""
+"""A build run's hook is told the planning repo's abk.yaml, so the shell routes the command
+policy names cannot write the review policy from a unit's worktree (spec: review-policy). The
+test drives the real path: the request `build_runner` asks its runtime for, the hook command
+`build_argv` makes of it, and `policy.main` run with that command's arguments and a payload on
+stdin."""
 
 from __future__ import annotations
 

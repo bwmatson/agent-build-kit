@@ -30,7 +30,7 @@ from collections.abc import Collection
 from pathlib import Path
 
 from agent_build_kit import forges
-from agent_build_kit.config import CONFIG_FILENAME, active
+from agent_build_kit.config import CONFIG_FILENAME, active, overlay_path
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.scratch import SCRATCH
 
@@ -579,13 +579,15 @@ def policy_files(
 ) -> tuple[Path, ...]:
     """The files that hold the review policy, which no command may write: the planning repo's
     configuration file, those a run is told of, and the one in the run's own checkout when it
-    is a unit of the planning repo's repository (`planning_paths` names it)."""
+    is a unit of the planning repo's repository (`planning_paths` names it), each with the local
+    overlay beside it."""
     files = [Path(f) for f in fenced_files]
     if planning_repo is not None:
         files.append(planning_repo.resolve() / CONFIG_FILENAME)
     if checkout is not None and CONFIG_FILENAME in planning_paths:
         files.append(checkout / CONFIG_FILENAME)
-    return tuple(dict.fromkeys(files))
+    # The local overlay beside each can set the same policy.
+    return tuple(dict.fromkeys([*files, *(overlay_path(f) for f in files)]))
 
 
 def _is_in_place(program: str, words: list[str]) -> bool:
