@@ -5,6 +5,10 @@
 - A task group tagged `[e2e-test]` is now recognised as test-only, the first step towards building
   it as a single `test:` commit with no implementation commit.
 
+- With per-tier sizing on, a join takes the higher review tier of its two sides and is held to that
+  tier's ceiling after calibration, and a join is refused when its sides disagree on full review:
+  work that needs it is never joined to work that does not, in either direction.
+
 - With `e2e_before_merge: deferred` for a repo, its e2e-test units skip the e2e-test step before
   merge, and again when their base moves, and record their e2e state as `deferred`; scheduled
   whole-suite runs are unaffected. The pull request of such a unit says "e2e-test deferred to
@@ -31,6 +35,8 @@
   still held to `max_unit_lines`. The planner is told each tier's ceiling (and a repo's
   override), its calibration figures are worked out from them, and a pull request's size is
   compared with its unit's tier ceiling in the log and in `abk status`.
+  With `review.enabled` on, a plan that puts a group whose floor is `full` in a unit with a group
+  whose floor is lower is refused, and the planner is told to keep such groups apart.
 
 - A unit's review tier now has a deterministic verdict function over the plan's floors (the
   planned estimate, protected paths and `contract`, `narrow` or `acceptance` flags) and over the

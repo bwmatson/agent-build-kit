@@ -95,6 +95,11 @@ def groups_at(*priorities: int, repo: str = "app") -> list[TaskGroup]:
     ]
 
 
+def ordinary_floor(group: object, repo: str) -> str:
+    """The `floor` for a join check where no group needs more than `auto`."""
+    return "auto"
+
+
 def stored_unit(uid: str = "add-marker/1", **overrides) -> StoredUnit:
     fields: dict[str, Any] = {**_DEFAULTS, "id": uid, **overrides}
     if "groups" not in overrides:

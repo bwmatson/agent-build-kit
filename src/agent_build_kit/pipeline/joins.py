@@ -9,8 +9,9 @@ state, so a second join sees the first: three units in a line become one.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 
+from agent_build_kit.config import active, review_ceiling
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.unit_size import (
     Calibration,
@@ -31,6 +32,7 @@ from agent_build_kit.pipeline.units import (
     direct_dependencies,
     repointed,
 )
+from agent_build_kit.pipeline.verdict import REVIEW_TIERS, ReviewTier
 from agent_build_kit.pipeline.work_graph import TaskGroup
 
 
@@ -58,9 +60,16 @@ def check_joins(
     groups: Sequence[TaskGroup],
     built: set[int],
     ceiling: int,
+    floor: Callable[[TaskGroup, str], str],
     calibrations: Mapping[Kind, Calibration] | None = None,
 ) -> None:
     """Raise `JoinRefused` for the first join that breaks a rule.
+
+    With `review.enabled` a join is held to the ceiling of the higher review tier of its two
+    sides (a unit with none counting as `full`, a group at its `floor(group, repo)`), not to
+    `ceiling`, which applies without it. A join is also refused when its two sides disagree on
+    `full`: a join leaves no unit holding a floor-`full` group or a `full` unit beside lower
+    work. A unit with no recorded tier counts as `full`, as it does for sizing.
 
     `change` is the change being planned, whose own planned units the plan
     replaces, so they are neither candidates nor dependents here.
@@ -97,6 +106,7 @@ def check_joins(
             raise refuse("no such unit")
         if not isinstance(onto, StoredUnit) or not onto.unstarted:
             raise refuse("it has started, and only a unit that has not is joined to")
+        onto_tier = onto.review_tier or "full"
 
         if join.unit:
             taken = state.get(join.unit)
@@ -129,6 +139,8 @@ def check_joins(
             members = taken.members()
             added = taken.estimated_lines
             added_kinds = [taken.tier]
+            added_tier = taken.review_tier or "full"
+            sides = [(onto.id, onto_tier), (taken.id, added_tier)]
         else:
             if change is None or join.change != change:
                 raise refuse(f"{join.change or 'the groups'} are not of the change being planned")
@@ -160,6 +172,10 @@ def check_joins(
                         raise refuse(f"group {number} also waits on {need[0]} group {need[1]}")
             claimed |= set(join.groups)
             added_kinds = [by_number[number].tier for number in join.groups]
+            floors = {n: floor(by_number[n], onto.repo) for n in join.groups}
+            added_tier = max(floors.values(), key=REVIEW_TIERS.index)
+            sides = [(f"group {n}", tier) for n, tier in floors.items()]
+            sides.append((onto.id, onto_tier))
             others = [u.id for u in state.values() if onto.id in direct(u)]
             members = (Member(change=join.change, groups=join.groups),)
             added = join.estimated_lines
@@ -168,28 +184,45 @@ def check_joins(
         if others:
             raise refuse(f"{', '.join(others)} already depends on {onto.id}, so it is not a line")
 
+        full = [side for side, tier in sides if tier == "full"]
+        lower = [side for side, tier in sides if tier != "full"]
+        if full and lower and active().review.enabled:
+            raise refuse(mixed_floors_text(full, lower))
+
         involved = [*onto.members(), *members]
         _check_groups(involved, catalog, refuse)
 
         ratio = applied(calibrations, kind_of(onto))
-        if calibrated(onto.estimated_lines + added, ratio.ratio) > ceiling:
+        workspace = active()
+        tier = max(onto_tier, added_tier, key=REVIEW_TIERS.index)
+        limit = (
+            review_ceiling(workspace.repos.get(onto.repo), workspace, ReviewTier(tier))
+            if workspace.review.enabled
+            else ceiling
+        )
+        name = f"{tier} ceiling" if workspace.review.enabled else "ceiling"
+        if calibrated(onto.estimated_lines + added, ratio.ratio) > limit:
             raise refuse(
                 f"{onto.estimated_lines}+{added} changed lines"
                 + (
-                    f" times {ratio.ratio:.2f} (from {ratio.samples} samples)"
+                    f" times {ratio.ratio:.2f} (from {ratio.samples} samples) is "
+                    f"{calibrated(onto.estimated_lines + added, ratio.ratio)},"
                     if ratio.ratio != 1.0
                     else ""
                 )
-                + f" is over the ceiling of {ceiling}"
+                + f" over the {name} of {limit}"
                 + (
                     f" (the largest raw estimate for {kind_of(onto).label} is "
-                    f"{largest_raw(ceiling, ratio.ratio)})"
+                    f"{largest_raw(limit, ratio.ratio)})"
                     if ratio.ratio != 1.0
                     else ""
                 )
             )
 
-        state[onto.id] = onto.taking(members, estimated_lines=added, kinds=added_kinds)
+        joined = onto.taking(members, estimated_lines=added, kinds=added_kinds)
+        state[onto.id] = (
+            joined.model_copy(update={"review_tier": tier}) if workspace.review.enabled else joined
+        )
         if taken is not None:
             del state[taken.id]
             moved = repointed({**state, **planned}, taken.id, onto.id)
@@ -199,6 +232,19 @@ def check_joins(
                     state[uid] = state[uid].model_copy(update=update)
                 else:
                     planned[uid] = planned[uid].model_copy(update=update)
+
+
+def group_names(numbers: Sequence[int]) -> list[str]:
+    """The groups as a refusal names them."""
+    return [f"group {n}" for n in numbers]
+
+
+def mixed_floors_text(full: Sequence[str], lower: Sequence[str]) -> str:
+    """The refusal for work that expects full review sharing a unit with work that does not."""
+    return (
+        f"{' and '.join(full)}, whose floor is `full`, with {' and '.join(lower)}, whose floor "
+        "is lower — work that needs full review is a unit of its own or with others that do"
+    )
 
 
 def _needs_stack(kind: TestTier) -> bool:

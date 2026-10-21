@@ -35,7 +35,13 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.model import Frozen, TestTier, pooled_kind
 from agent_build_kit.pipeline.call_record import recorded
-from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
+from agent_build_kit.pipeline.joins import (
+    JoinContext,
+    JoinRefused,
+    check_joins,
+    group_names,
+    mixed_floors_text,
+)
 from agent_build_kit.pipeline.review_paths import is_protected
 from agent_build_kit.pipeline.unit_ids import assign_unit_ids, taken_ids
 from agent_build_kit.pipeline.unit_size import (
@@ -76,14 +82,19 @@ RunClaude = Callable[[str], str]
 REVIEW_PROMPT = """\
 Review tier: give each unit a `review_tier` of `auto`, `light` or `full`, the review you
 expect its finished change to need. It is a floor for review and sizes nothing itself: it
-never changes how work is grouped, and the ceilings below are what limit a unit. Go
-lower (`auto`) for a small, well-tested
+does not split a group, but a `full` unit holds just groups whose floor is `full` (see
+below), and the ceilings below are what limit a unit. Go lower (`auto`) for a small, well-tested
 change to ordinary code that nothing else depends on. Raise it for a change to a boundary
 another system depends on, work that is hard to undo, or code the tests do not exercise. A
 unit that builds a `[contract]`, `[narrow]` or `[acceptance]` group, or a group whose tasks
 name a protected path (a migration, a CI or container definition, a secrets file, an
 ownership file or a path the installation protects), is `full` at least; a lower value is
 refused. Leave `review_tier` out and the unit takes that floor.
+
+Keep a group you expect to get full review in a unit with only such groups, and never put
+ordinary work in a unit with one, because a person must read a full-review unit in full,
+and work that did not need it would be held up and made larger to read. A plan that mixes
+them is refused.
 
 """
 
@@ -233,6 +244,8 @@ def parse_plan(
             carried = {number for join in joins if not join.unit for number in join.groups}
             _check_groups(units, groups, built or set(), carried)
             check_flagged_groups(units, groups)
+            if active().review.enabled:
+                _check_full_separation(units, groups, tasks)
         _check_ceiling(units, groups, calibrations, unnamed)
         if joins:
             if context is None:
@@ -247,6 +260,7 @@ def parse_plan(
                     built=built or set(),
                     ceiling=review_ceiling(None, active(), None),
                     calibrations=calibrations,
+                    floor=lambda group, repo: _group_floor(group, repo, tasks)[0],
                 )
             except JoinRefused as error:
                 raise PlannerError(str(error)) from error
@@ -588,6 +602,23 @@ def check_flagged_groups(units: list[Unit], groups: list[TaskGroup]) -> None:
     """The acceptance and independence checks of a plan, for a caller that changed its edges."""
     _check_acceptance(units, groups)
     _check_independent(units, groups)
+
+
+def _check_full_separation(units: list[Unit], groups: list[TaskGroup], tasks: str) -> None:
+    """A unit holding a group whose floor is `full` holds only such groups."""
+    by_number = {group.number: group for group in groups}
+    for unit in units:
+        floors = {
+            n: _group_floor(by_number[n], unit.repo, tasks)[0]
+            for n in unit.groups
+            if n in by_number
+        }
+        full = sorted(n for n, tier in floors.items() if tier == "full")
+        lower = sorted(n for n, tier in floors.items() if tier != "full")
+        if full and lower:
+            raise PlannerError(
+                f"unit {unit.id} puts " + mixed_floors_text(group_names(full), group_names(lower))
+            )
 
 
 def _check_acceptance(units: list[Unit], groups: list[TaskGroup]) -> None:
