@@ -24,7 +24,6 @@ from tests.agent_home import TempFactory, agent_home
 
 RUNTIMES = ("claude_code", "acp")
 TELEMETRY_VALUES = ("otel", "local")
-DIMENSIONS = {"runtime": RUNTIMES, "telemetry": TELEMETRY_VALUES}
 AGENT_COMMAND = "ABK_ACCEPTANCE_ACP_COMMAND"
 USAGE_GUARD = "ABK_USAGE_GUARD"
 

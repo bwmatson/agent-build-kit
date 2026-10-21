@@ -393,8 +393,10 @@ def test_a_tick_with_an_unreachable_sink_finishes_and_writes_nothing(
     assert ticked.tick.returncode == 0, ticked.tick.output
     commits_on_unit_branch(ticked.scratch, BRANCH, ticked.tick)
 
-    # Guards against the exporter falling back to the SDK's default endpoint
-    # (localhost:4318), which the sink's intake may be listening on.
+    # Only the `otel` value guards against the exporter falling back to the SDK's default
+    # endpoint (localhost:4318), which the shared stack's intake may be listening on. The `local`
+    # receiver is on a free port, so for it this proves only that the tick finishes and sends the
+    # receiver nothing.
     output = ticked.tick.output
     assert not eventually(lambda: find_trace_ids(sink, ticked.service), QUIET_WAIT), output
     assert not series_of(sink, ticked.service, "abk_unit_duration"), output

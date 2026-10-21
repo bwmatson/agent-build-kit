@@ -8,7 +8,7 @@ from collections import defaultdict
 
 import pytest
 
-from tests.live_tag_drift import DIMENSIONS, value_name_drift
+from tests.live_tag_drift import DIMENSIONS, value_name_drift, values_carried
 from tests.runtime_tag_collection import ROOT
 
 INTEGRATION = ROOT / "tests" / "integration"
@@ -34,8 +34,7 @@ def items_of(pytester: pytest.Pytester, *files: str) -> list[pytest.Item]:
 
 
 def values_of(item: pytest.Item, dimension: str) -> set[str]:
-    markers = {m.name for m in item.iter_markers()}
-    return {v for v, spec in DIMENSIONS[dimension].items() if spec.marker in markers}
+    return values_carried({m.name for m in item.iter_markers()}, dimension)
 
 
 def name_of(item: pytest.Item) -> str:
@@ -55,7 +54,7 @@ def assert_one_value_each(items: list[pytest.Item], *dimensions: str) -> None:
         for dimension in dimensions:
             carried = values_of(item, dimension)
             assert len(carried) == 1, f"{item.nodeid}: carries {sorted(carried)} of {dimension}"
-            assert carried <= set(item.nodeid.split("[")[-1].rstrip("]").split("-")), item.nodeid
+            assert carried <= set(item.callspec.params.values()), item.nodeid  # type: ignore[attr-defined]
 
 
 @pytest.mark.parametrize("file", [SETUP, USAGE_GUARD])

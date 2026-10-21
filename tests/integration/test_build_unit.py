@@ -1,9 +1,9 @@
-"""A unit built through the `claude_code` runtime, driven as an operator drives it.
+"""A unit built through each runtime, driven as an operator drives it.
 
-The one parameter carries its runtime tag, `runtime_claude_code`; the ACP variants are added by
-a separate change. `abk tick` is the real CLI run as a process, so what is asserted is what an
-operator would see: the branch on the remote, the order of its commits, the unit's run log, the
-tick's own output arriving while the run works, and what `abk report` says the unit used.
+The unit is built once per runtime, each parameter carrying its runtime tag. `abk tick` is the
+real CLI run as a process, so what is asserted is what an operator would see: the branch on the
+remote, the order of its commits, the unit's run log, the tick's own output arriving while the
+run works, and what `abk report` says the unit used.
 
 Needs node for the OpenSpec CLI and uv. Only GitHub is faked, at the host's API: a fake server
 reached through `ABK_GITHUB_API_URL`, with `gh auth token` the one command left as a script.
@@ -60,16 +60,20 @@ def scratch_ledger(scratch: Scratch) -> Path:
 
 
 @pytest.fixture(scope="module", params=RUNTIME_PARAMS)
-def scratch(
-    request: pytest.FixtureRequest,
-    tmp_path_factory: pytest.TempPathFactory,
-    github_host: FakeGitHub,
-) -> Iterator[Scratch]:
-    """The unit's installation for the runtime parameter, which carries its tag."""
-    tmp_path = tmp_path_factory.mktemp("build")
-    runtime = runtime_scratch(request.param, tmp_path_factory, lambda command: None)
+def runtime(request: pytest.FixtureRequest) -> str:
+    """The runtime parameter, which carries its tag."""
+    return request.param
 
-    yield build_scratch(tmp_path, github_host, runtime, tasks=TASKS)
+
+@pytest.fixture(scope="module")
+def scratch(
+    runtime: str, tmp_path_factory: pytest.TempPathFactory, github_host: FakeGitHub
+) -> Iterator[Scratch]:
+    """The unit's installation for the runtime."""
+    tmp_path = tmp_path_factory.mktemp("build")
+    setup = runtime_scratch(runtime, tmp_path_factory, lambda command: None)
+
+    yield build_scratch(tmp_path, github_host, setup, tasks=TASKS)
 
 
 @pytest.fixture(scope="module")
@@ -111,7 +115,7 @@ def is_test(path: str) -> bool:
 
 
 def test_the_unit_is_built_reviewed_and_pushed_through_the_runtime(
-    built: tuple[Scratch, TickResult],
+    built: tuple[Scratch, TickResult], runtime: str
 ) -> None:
     scratch, ticked = built
 
@@ -119,11 +123,15 @@ def test_the_unit_is_built_reviewed_and_pushed_through_the_runtime(
     # A Claude run has a usage window to read, so its round logs the start decision. The scratch
     # setup turns the guard off, so the decision's reason (`usage_guard.decide_start`) is the
     # guard-off reason on a line of its own. The banner `GUARD_OFF_LINE` is printed for every
-    # runtime, so it is no evidence; only a runtime without a window says it has none.
-    assert "has no usage window" not in ticked.output, ticked.output
-    assert any(line.endswith("usage guard off (ABK_USAGE_GUARD)") for _, line in ticked.lines), (
-        ticked.output
-    )
+    # runtime, so it is no evidence. A runtime without a window (ACP) says it has none, and sets
+    # no guard variable, so no guard-off reason is expected of it.
+    no_window = "runtime acp has no usage window"
+    guard_off = any(line.endswith("usage guard off (ABK_USAGE_GUARD)") for _, line in ticked.lines)
+    if runtime == "acp":
+        assert no_window in ticked.output, ticked.output
+    else:
+        assert "has no usage window" not in ticked.output, ticked.output
+        assert guard_off, ticked.output
     commits = pushed_commits(scratch, ticked)
 
     def found() -> str:

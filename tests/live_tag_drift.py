@@ -23,7 +23,7 @@ import yaml
 from agent_build_kit.config import E2eDimensionValue
 from agent_build_kit.model import Frozen
 from agent_build_kit.runtimes.known_agents import KNOWN_AGENTS
-from tests.runtime_scratch import AGENT_COMMAND, RUNTIMES
+from tests.runtime_scratch import AGENT_COMMAND, RUNTIMES, TELEMETRY_VALUES
 from tests.runtime_tag_collection import ROOT
 from tests.runtime_tags import PREFIX, runtime_tags
 
@@ -401,15 +401,18 @@ def drifted(pytester: pytest.Pytester, **modules: str) -> list[str]:
 
 
 DIMENSIONS = {
-    "runtime": {
-        "claude_code": E2eDimensionValue(marker="runtime_claude_code"),
-        "acp": E2eDimensionValue(marker="runtime_acp"),
-    },
-    "telemetry": {
-        "otel": E2eDimensionValue(marker="telemetry_otel"),
-        "local": E2eDimensionValue(marker="telemetry_local"),
-    },
+    "runtime": {v: E2eDimensionValue(marker=f"runtime_{v}") for v in RUNTIMES},
+    "telemetry": {v: E2eDimensionValue(marker=f"telemetry_{v}") for v in TELEMETRY_VALUES},
 }
+
+
+def values_carried(
+    markers: set[str],
+    dimension: str,
+    dimensions: dict[str, dict[str, E2eDimensionValue]] = DIMENSIONS,
+) -> set[str]:
+    """The values of `dimension` whose marker is among `markers`."""
+    return {v for v, spec in dimensions[dimension].items() if spec.marker in markers}
 
 
 def value_name_drift(
@@ -424,9 +427,6 @@ def value_name_drift(
         if item.get_closest_marker("local_stack") is not None:
             key = (str(item.path), getattr(item, "originalname", item.name))
             carried[key] |= {m.name for m in item.iter_markers()}
-
-    def values_of(markers: set[str], dimension: str) -> set[str]:
-        return {v for v, spec in dimensions[dimension].items() if spec.marker in markers}
 
     def token(value: str) -> str:
         return rf"(?<![^_]){re.escape(value)}(?![^_])"
@@ -448,7 +448,7 @@ def value_name_drift(
                 if other_shape == shape and test < other and other_value != value
             ]
         for test in tests:
-            carrying = values_of(carried[test], dimension)
+            carrying = values_carried(carried[test], dimension, dimensions)
             if len(carrying) < 2:
                 continue
             found += [
@@ -457,6 +457,6 @@ def value_name_drift(
                 for value in sorted(values)
                 if re.search(token(value), test[1])
                 for other in tests
-                if other != test and value in values_of(carried[other], dimension)
+                if other != test and value in values_carried(carried[other], dimension, dimensions)
             ][:1]
     return found
