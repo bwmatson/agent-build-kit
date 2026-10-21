@@ -1020,6 +1020,8 @@ tests raises a warning, not a failure.
 - `test_build_unit.py::test_the_report_totals_equal_the_ledger_and_name_each_figures_source`
 - `test_build_unit.py::test_the_unit_is_built_reviewed_and_pushed_through_the_runtime`
 - `test_graph_unit.py::test_a_unit_runs_to_review_is_reworked_on_a_comment_and_its_thread_ends_at_merge`
+- `test_serve_over_scratch_installation.py::test_a_session_started_elsewhere_is_continued_in_place_or_forked_when_held`
+- `test_serve_over_scratch_installation.py::test_the_ui_shows_a_unit_a_real_claude_built_and_works_it_through_review`
 - `test_telemetry_stack.py::test_a_tick_with_the_endpoint_pointing_at_nothing_finishes_and_writes_nothing`
 - `test_telemetry_stack.py::test_a_ticks_duration_series_are_in_the_metrics_store_without_a_unit_id`
 - `test_telemetry_stack.py::test_a_ticks_trace_is_found_in_the_trace_store_by_the_unit_id`
