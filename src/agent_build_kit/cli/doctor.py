@@ -39,6 +39,7 @@ from agent_build_kit import (
 from agent_build_kit import settings as settings_module
 from agent_build_kit.config import (
     OVERLAY_FILENAME,
+    REVIEWER_READING_LIMIT,
     CommandProvider,
     ConfigError,
     EnvironmentConfig,
@@ -47,6 +48,8 @@ from agent_build_kit.config import (
     PolicyMarker,
     RepoConfig,
     WorkspaceConfig,
+    buffered,
+    ceilings_in_effect,
     read_base,
 )
 from agent_build_kit.forges.transport import (
@@ -254,7 +257,39 @@ def _review(inst: Installation) -> list[Check]:
                 "set `review.enabled: true`, or remove the policy",
             )
         )
+    checks.append(_buffered_ceilings(inst))
+    near = REVIEWER_READING_LIMIT * 4 // 5
+    scopes = [("review.ceilings", None), *((f"repos.{n}", r) for n, r in inst.repos.items())]
+    for label, scope in scopes:
+        top = buffered(ceilings_in_effect(scope, inst.config).auto, review.ceiling_buffer)
+        if top > near and (scope is None or scope.review.ceilings.auto is not None):
+            checks.append(
+                _warn(
+                    f"review ceiling buffer of {label}",
+                    f"the buffered auto ceiling of {top} is near the reviewer's limit of "
+                    f"{REVIEWER_READING_LIMIT} lines",
+                    "lower the auto ceiling or `review.ceiling_buffer`",
+                )
+            )
+    if review.enabled and review.split_rounds == 0:
+        checks.append(
+            _warn(
+                "review split_rounds",
+                "`split_rounds` is 0, so every unit over its tier goes to a person",
+                "set `review.split_rounds` to 1 or 2",
+            )
+        )
     return checks
+
+
+def _buffered_ceilings(inst: Installation) -> Check:
+    review = inst.config.review
+    ceilings = ceilings_in_effect(None, inst.config)
+    shown = ", ".join(
+        f"{tier} {buffered(getattr(ceilings, tier), review.ceiling_buffer)}"
+        for tier in ("auto", "light", "full")
+    )
+    return _ok("review ceilings", f"buffered by {review.ceiling_buffer}: {shown}")
 
 
 def _changelogs(inst: Installation) -> list[Check]:

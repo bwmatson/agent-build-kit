@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `review.ceiling_buffer` (default 0.2) and `review.split_rounds` (default 2, at most 2) are new
+  settings, the first steps towards holding and splitting a unit that outgrows its review tier.
+  A buffered `auto` ceiling that reaches the reviewer's 10,000-line reading limit now fails
+  loading, and `abk doctor` prints the buffered ceilings and warns near the limit or when
+  `split_rounds` is 0 with review enabled. The review verdict also gains a size step, groundwork for the
+  hold that a later change wires in.
+
 - A plan made under other review sizing (a changed ceiling, `min_unit_lines` or `review.enabled`) is now
   reported as stale by the tick, by `abk replan` with no argument and by `abk status`. It is not
   planned again until `abk replan CHANGE` is run, which records the current sizing.

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 
-from agent_build_kit.config import AutoLandConfig
+from agent_build_kit.config import AutoLandConfig, CeilingsConfig, buffered
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.unit_store import E2eState
 
@@ -38,6 +39,25 @@ class ClassHistory(Frozen):
     clean: int = 0
 
 
+class GroupText(Frozen):
+    """A task group of the unit: its number and the text of its tasks, which a driver naming a
+    file is matched against."""
+
+    number: int
+    text: str = ""
+
+
+class SplitRequest(Frozen):
+    """Why a unit is held to be split: the tier it earned and was planned for, its changed lines,
+    the buffered-from ceiling of the earned tier, and the group numbers that drove the tier."""
+
+    earned: ReviewTier
+    planned: ReviewTier | None = None
+    lines: int
+    ceiling: int
+    drivers: tuple[int, ...] = ()
+
+
 class VerdictFacts(Frozen):
     """What is recorded about a unit: its estimate, the changed paths a protected glob matches,
     the flags of the groups it builds, its test kind, its gate results, the reviewer's open
@@ -54,12 +74,20 @@ class VerdictFacts(Frozen):
     open_required_findings: int = 0
     classification: ReviewTier | None = None
     final: bool = False
+    # For the size step: the unit's changed lines, the reviewer's drivers (groups or files), the
+    # unit's groups with their task text, and whether a person waived the unit's size.
+    changed_lines: int | None = None
+    drivers: tuple[str, ...] = ()
+    groups: tuple[GroupText, ...] = ()
+    size_waived: bool = False
 
 
 class TierVerdict(Frozen):
     tier: ReviewTier
     evidence_tier: ReviewTier
     reason: str
+    # Set when the unit is over its earned tier's buffered ceiling: hold it and split it.
+    split: SplitRequest | None = None
 
 
 NO_HISTORY = ClassHistory()
@@ -73,6 +101,8 @@ def compute_verdict(
     facts: VerdictFacts,
     history: ClassHistory = NO_HISTORY,
     policy: AutoLandConfig = DEFAULT_POLICY,
+    ceilings: CeilingsConfig | None = None,
+    buffer: float = 0.0,
 ) -> TierVerdict:
     """The highest floor the facts give, with the rule that decided it. Calls no model.
 
@@ -127,7 +157,46 @@ def compute_verdict(
         ReviewTier.AUTO,
         reason,
     )
-    return TierVerdict(tier=tier, evidence_tier=evidence_tier, reason=reason)
+    split = _size_step(facts, evidence_tier, ceilings, buffer)
+    return TierVerdict(tier=tier, evidence_tier=evidence_tier, reason=reason, split=split)
+
+
+# A driver that starts with a group number, written plainly or as "group 3" or "task group 3";
+# whatever follows the number is ignored.
+_GROUP_DRIVER = re.compile(r"(?:task\s+)?(?:groups?\s+)?(\d+)\b", re.IGNORECASE)
+
+
+def _size_step(
+    facts: VerdictFacts, earned: ReviewTier, ceilings: CeilingsConfig | None, buffer: float
+) -> SplitRequest | None:
+    """A request to split the unit when its changed lines pass the buffered ceiling of the tier
+    its evidence earned; none when the lines or ceilings are not known or a person waived it."""
+    if ceilings is None or facts.changed_lines is None or facts.size_waived:
+        return None
+    ceiling = getattr(ceilings, earned.value)
+    if facts.changed_lines <= buffered(ceiling, buffer):
+        return None
+    return SplitRequest(
+        earned=earned,
+        planned=facts.planned_estimate,
+        lines=facts.changed_lines,
+        ceiling=ceiling,
+        drivers=_driver_groups(facts),
+    )
+
+
+def _driver_groups(facts: VerdictFacts) -> tuple[int, ...]:
+    """The unit's groups the drivers name, by number or by a file the group's text names, once
+    each in group order; a driver matching no group of the unit is dropped."""
+    named: set[int] = set()
+    for driver in facts.drivers:
+        match = _GROUP_DRIVER.match(driver.strip())
+        if match:
+            named.add(int(match.group(1)))
+        else:
+            path = re.compile(r"(?<![^\s`])" + re.escape(driver.strip()) + r"(?![^\s`])")
+            named.update(g.number for g in facts.groups if path.search(g.text))
+    return tuple(sorted(g.number for g in facts.groups if g.number in named))
 
 
 def _e2e_gate(state: E2eState | None) -> GateResult:

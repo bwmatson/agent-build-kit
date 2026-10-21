@@ -31,9 +31,9 @@ def test_a_workspace_with_no_ceilings_loads_with_the_defaults() -> None:
 
 
 def test_each_key_loads_when_set() -> None:
-    loaded = load({"auto": 9000, "light": 3000, "full": 1000})
+    loaded = load({"auto": 8000, "light": 3000, "full": 1000})
 
-    assert loaded.review.model_dump()["ceilings"] == {"auto": 9000, "light": 3000, "full": 1000}
+    assert loaded.review.model_dump()["ceilings"] == {"auto": 8000, "light": 3000, "full": 1000}
 
 
 def test_an_unknown_tier_is_refused_naming_it() -> None:
