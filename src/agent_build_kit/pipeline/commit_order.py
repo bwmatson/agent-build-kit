@@ -169,12 +169,25 @@ def group_progress(subjects: list[str], titles: Sequence[str]) -> GroupProgress:
     return GroupProgress(done=len(titles), tests_made=False)
 
 
-def _pair_problems(subjects: list[str]) -> list[str]:
+def _test_only_commits(subjects: list[str], groups: Sequence[GroupStep]) -> list[bool]:
+    """For each subject, whether it is the tests commit of a test-only group. Each group
+    makes one `test:` commit, so the n-th one belongs to the n-th group, whatever the titles."""
+    flags: list[bool] = []
+    made = 0
+    for subject in subjects:
+        is_tests = subject.startswith(TESTS_PREFIX)
+        flags.append(is_tests and made < len(groups) and groups[made].test_only)
+        made += is_tests
+    return flags
+
+
+def _pair_problems(subjects: list[str], test_only: list[bool]) -> list[str]:
     """What is wrong with how `subjects` (oldest first) pair up: each `test:` commit is
-    followed directly by a `feat:` commit with the same title."""
+    followed directly by a `feat:` commit with the same title, unless it is the commit of a
+    test-only group (`test_only`, by position)."""
     problems: list[str] = []
     for index, subject in enumerate(subjects):
-        if not subject.startswith(TESTS_PREFIX):
+        if not subject.startswith(TESTS_PREFIX) or test_only[index]:
             continue
         following = subjects[index + 1] if index + 1 < len(subjects) else None
         if following is not None and following.startswith(TESTS_PREFIX):
@@ -213,6 +226,8 @@ def check_structure(
     shas = _commits(repo, base)
     if not shas:
         return [f"no commits between {base} and HEAD"]
+    subjects = branch_subjects(repo, base)
+    test_only = _test_only_commits(subjects, groups if paired else ())
 
     problems: list[str] = []
     kinds: list[str] = []
@@ -241,6 +256,8 @@ def check_structure(
             kinds.append("docs")
 
     substantive = [kind for kind in kinds if kind != "docs"]
+    # Whether each substantive commit is a test-only group's tests commit.
+    substantive_only = [only for kind, only in zip(kinds, test_only, strict=True) if kind != "docs"]
 
     if not substantive:
         return ["the branch changes no tests and no code"]
@@ -257,11 +274,14 @@ def check_structure(
     for index in sorted(stub_problems):
         problems.extend(stub_problems[index])
 
-    if "code" not in substantive:
+    all_test_only = paired and bool(groups) and all(group.test_only for group in groups)
+    if "code" not in substantive and not all_test_only:
         problems.append("the branch has no implementation commit, only tests")
 
-    for first, second in zip(substantive, substantive[1:], strict=False):
-        if first == "tests" and second == "tests":
+    for first, second, first_only in zip(
+        substantive, substantive[1:], substantive_only, strict=False
+    ):
+        if first == "tests" and second == "tests" and not first_only:
             problems.append(
                 "two tests commits in a row — each batch of tests is followed by the "
                 "implementation that makes it pass, so the pairs stay reviewable"
@@ -269,6 +289,6 @@ def check_structure(
             break
 
     if paired:
-        problems.extend(_pair_problems(branch_subjects(repo, base)))
+        problems.extend(_pair_problems(subjects, test_only))
 
     return problems
