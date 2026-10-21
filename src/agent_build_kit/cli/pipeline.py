@@ -4201,6 +4201,19 @@ def planned_hashes(inst: Installation) -> dict[str, dict]:
     return {k: v for k, v in loaded.items() if isinstance(v, dict)}
 
 
+def sizing_digest() -> str:
+    """A digest of the sizing configuration the active workspace plans under: the `review`
+    section (flag, ceilings, every repo's review block), `min_unit_lines` and `max_unit_lines`.
+    Empty while `review.enabled` is false."""
+    raise NotImplementedError
+
+
+def plan_is_stale(record: Mapping[str, Any]) -> bool:
+    """Whether a recorded plan was made under sizing other than the current one. A record with
+    no `sizing` reads as the empty digest."""
+    raise NotImplementedError
+
+
 def record_plans(inst: Installation, updates: Mapping[str, dict | None]) -> None:
     """Set (or, for None, remove) recorded plans by change, under a lock, atomically."""
     update_plans(inst, lambda _: updates)
