@@ -1378,6 +1378,15 @@ def _check_ceilings(
         raise ValueError(f"{label}: full ({ceilings.full}) must exceed min_unit_lines ({floor})")
 
 
+# Lines the reviewer model can read in one unit; a buffered `auto` ceiling must stay under it.
+REVIEWER_READING_LIMIT = 10_000
+
+
+def buffered(ceiling: int, buffer: float) -> int:
+    """A ceiling with the verdict's allowance on top."""
+    return round(ceiling * (1 + buffer))
+
+
 class ReviewConfig(Frozen):
     """The review policy: which changes never land without a person, and how they are classed."""
 
@@ -1391,6 +1400,10 @@ class ReviewConfig(Frozen):
     auto_land: AutoLandConfig = AutoLandConfig()
     # Changed lines one unit may carry, by the review tier it is expected to get.
     ceilings: CeilingsConfig = CeilingsConfig()
+    # The allowance over a tier's ceiling that only the verdict uses.
+    ceiling_buffer: float = Field(default=0.2, ge=0, le=1)
+    # How many times one unit's lineage may be split.
+    split_rounds: int = Field(default=2, ge=0, le=2)
 
     @field_validator("classes")
     @classmethod
@@ -1589,6 +1602,15 @@ class WorkspaceConfig(Frozen):
                     "full" in owned,
                     floor,
                     owned,
+                )
+        buffer = self.review.ceiling_buffer
+        for label, scope in [("review.ceilings", None), *self.repos.items()]:
+            auto = ceilings_in_effect(scope, self).auto
+            if buffered(auto, buffer) >= REVIEWER_READING_LIMIT:
+                where = label if scope is None else f"repos.{label}.review.ceilings"
+                raise ValueError(
+                    f"{where}: auto ceiling {auto} with ceiling_buffer {buffer} reaches the "
+                    f"reviewer's reading limit of {REVIEWER_READING_LIMIT}"
                 )
         return self
 
