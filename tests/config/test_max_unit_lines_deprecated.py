@@ -99,3 +99,24 @@ def test_the_key_set_in_the_overlay_is_read_the_same_way(tmp_path: Path) -> None
     with pytest.raises(ConfigError) as refused:
         load(clash)
     assert all(word in str(refused.value) for word in (DEPRECATED, "600", "700"))
+
+
+def test_a_full_ceiling_above_a_raised_floor_loads(tmp_path: Path) -> None:
+    path = write(
+        tmp_path,
+        {"global_limits": {"min_unit_lines": 800}, "review": {"ceilings": {"full": 1500}}},
+    )
+
+    assert full_ceiling(path) == 1500
+
+
+def test_the_deprecated_key_under_the_old_root_key_is_noticed_as_well(tmp_path: Path) -> None:
+    both = write(tmp_path / "both", {"limits": {"max_unit_lines": 600}})
+    split = write(
+        tmp_path / "split",
+        {"limits": {"min_unit_lines": 300}},
+        overlay={"global_limits": {"max_unit_lines": 600}},
+    )
+
+    assert deprecations(both) == ["limits", DEPRECATED]
+    assert deprecations(split) == ["limits", DEPRECATED]

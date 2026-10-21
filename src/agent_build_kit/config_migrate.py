@@ -166,15 +166,35 @@ def _holder(
     return None
 
 
-def _opened(lines: list[str], key: yaml.ScalarNode, value: yaml.Node, name: str) -> None:
-    """Refuse a block the moved lines cannot be put under: one with an anchor or alias, a flow
-    style or a merge key."""
+def _opened(
+    lines: list[str], key: yaml.ScalarNode, value: yaml.Node, as_key: str, name: str
+) -> None:
+    """Refuse, naming `as_key`, a block the lines under `key` cannot be edited in: one with an
+    anchor or alias on its key's line, a flow style or a merge key."""
     if _MARKED.search(strip_comment(lines[key.start_mark.line])):
-        raise _refuse(CEILING_KEY, f"{name} has an anchor or an alias, which cannot be edited")
+        raise _refuse(as_key, f"{name} has an anchor or an alias, which cannot be edited by lines")
     if isinstance(value, yaml.CollectionNode) and value.flow_style:
-        raise _refuse(CEILING_KEY, f"{name} is flow-style, which cannot be edited by lines")
+        raise _refuse(as_key, f"{name} is flow-style, which cannot be edited by lines")
     if isinstance(value, yaml.MappingNode) and any(k.tag == _MERGE_TAG for k, _ in value.value):
-        raise _refuse(CEILING_KEY, f"{name} uses a merge key, which cannot be edited by lines")
+        raise _refuse(as_key, f"{name} uses a merge key, which cannot be edited by lines")
+
+
+def _relocate(lines: list[str], first: int, last: int, at: int, new: list[str], eol: str) -> None:
+    """Delete lines `first` to `last` and insert `new` at line `at` (counted before the delete)."""
+    if at > last:
+        insert_lines(lines, at, new, eol)
+        del lines[first : last + 1]
+    else:
+        del lines[first : last + 1]
+        insert_lines(lines, at, new, eol)
+
+
+def _joined(lines: list[str], text: str) -> str:
+    """The edited lines as text, ending as `text` did: a final newline is not added."""
+    result = "".join(lines)
+    if not text.endswith("\n"):
+        result = result.removesuffix("\n").removesuffix("\r")
+    return result
 
 
 def _empty(lines: list[str], key: yaml.ScalarNode, value: yaml.Node, name: str) -> bool:
@@ -197,7 +217,7 @@ def _place(lines: list[str], root: yaml.MappingNode, after: int) -> tuple[int, l
     if held is None:
         return after, [" " * col + f"{REVIEW}:", " " * (col + 2) + f"{CEILINGS}:"], col + 4
     key, value = held
-    _opened(lines, key, value, REVIEW)
+    _opened(lines, key, value, CEILING_KEY, REVIEW)
     line = key.start_mark.line
     if _empty(lines, key, value, REVIEW):
         return line + 1, [" " * (col + 2) + f"{CEILINGS}:"], col + 4
@@ -209,7 +229,7 @@ def _place(lines: list[str], root: yaml.MappingNode, after: int) -> tuple[int, l
         at = node_end(lines, line, key.start_mark.column) + 1
         return at, [" " * child + f"{CEILINGS}:"], child + step
     ckey, cvalue = ceilings
-    _opened(lines, ckey, cvalue, CEILINGS)
+    _opened(lines, ckey, cvalue, CEILING_KEY, CEILINGS)
     cline = ckey.start_mark.line
     if _empty(lines, ckey, cvalue, CEILINGS):
         return cline + 1, [], ckey.start_mark.column + step
@@ -230,7 +250,12 @@ def _ceilings_loads(new: dict[str, Any], block: str, value: object) -> None:
     try:
         written = workspace_full_ceiling(load(new))
     except ValueError as error:
-        raise _refuse(CEILING_KEY, f"the edited text would not load ({error})") from error
+        hint = (
+            f"; raise {REVIEW}.{CEILINGS}.light and {REVIEW}.{CEILINGS}.auto to at least {value}"
+            if "must not be below" in str(error)
+            else ""
+        )
+        raise _refuse(CEILING_KEY, f"the edited text would not load ({error}){hint}") from error
     if written != value:
         raise _refuse(CEILING_KEY, "the edited text would put another ceiling in effect")
 
@@ -261,7 +286,7 @@ def _move_ceiling(text: str) -> str:
     lines = split_lines(text)
     eol = "\r\n" if "\r\n" in text else "\n"
     _check_block(lines, block_key, [key])
-    _opened(lines, block_key, block, block_key.value)
+    _opened(lines, block_key, block, CEILING_KEY, block_key.value)
     _check_line(lines, key, value)
     if lines[key.start_mark.line][key.start_mark.column :].split(":")[0] != CEILING_KEY:
         raise _refuse(CEILING_KEY, "it is quoted or written across lines, so it is not moved")
@@ -274,24 +299,26 @@ def _move_ceiling(text: str) -> str:
             "keep one of them",
         )
     first, last = _region(lines, key.start_mark.line, block_key.start_mark.line)
+    comments = [line.strip() for line in lines[first:last]]
     if set_full is None:
         at, headers, indent = _place(
             lines, root, node_end(lines, block_key.start_mark.line, block_key.start_mark.column) + 1
         )
         rest = lines[last].rstrip("\r\n")[key.start_mark.column + len(CEILING_KEY) :]
-        comments = [line.strip() for line in lines[first:last]]
         carried = [" " * indent + line for line in [*comments, FULL + rest]]
     else:
-        at, headers, carried = last + 1, [], []
-    if at > last:
-        insert_lines(lines, at, [*headers, *carried], eol)
-        del lines[first : last + 1]
-    else:
-        del lines[first : last + 1]
-        insert_lines(lines, at, [*headers, *carried], eol)
-    result = "".join(lines)
-    if not text.endswith("\n"):
-        result = result.removesuffix("\n").removesuffix("\r")
+        # Both are set to one value: the comments go above the `full` key that stays.
+        _place(lines, root, 0)
+        ceilings = _block_node(root, (REVIEW, CEILINGS))
+        kept = _pair(ceilings, FULL) if isinstance(ceilings, yaml.MappingNode) else None
+        if kept is None:
+            raise _refuse(CEILING_KEY, f"{REVIEW}.{CEILINGS}.{FULL} cannot be found by lines")
+        tail = re.search(r"\s#.*$", lines[last].rstrip("\r\n"))
+        notes = [*comments, *([tail.group().strip()] if tail else [])]
+        at, headers = kept[0].start_mark.line, []
+        carried = [" " * kept[0].start_mark.column + note for note in notes]
+    _relocate(lines, first, last, at, [*headers, *carried], eol)
+    result = _joined(lines, text)
     _verify_ceiling(old, result, block_key.value, ceiling)
     return result
 
@@ -309,10 +336,7 @@ def _verify_ceiling(old: dict[str, Any], result: str, block: str, ceiling: objec
         raise _refuse(
             CEILING_KEY, "the edited text would differ from the file in more than the move"
         )
-    # The old key stays for the check, so a file that set a floor above the default loads.
-    _ceilings_loads(
-        {**new, block: {**(new.get(block) or {}), CEILING_KEY: ceiling}}, block, ceiling
-    )
+    _ceilings_loads(new, block, ceiling)
 
 
 def _move_limits(text: str) -> Migrated:
@@ -395,9 +419,7 @@ def _move_limits(text: str) -> Migrated:
         at = node_end(lines, held_line, held[0].start_mark.column) + 1
         insert_lines(lines, at, carried, eol)
 
-    result = "".join(lines)
-    if not text.endswith("\n"):
-        result = result.removesuffix("\n").removesuffix("\r")
+    result = _joined(lines, text)
     _verify(text, result, block_key.value)
     return Migrated(text=result, moved=tuple(key.value for key, _ in moving))
 
@@ -463,12 +485,7 @@ def _rename_test_kind_keys(text: str) -> str:
                 "the block comes from a merge key or an alias, which cannot be renamed by lines",
             )
         seen.add(id(block))
-        if _MARKED.search(strip_comment(lines[block_key.start_mark.line])):
-            raise _refuse(where, "the block has an anchor or an alias, which cannot be edited")
-        if block.flow_style:
-            raise _refuse(where, "a flow-style block cannot be edited without rewriting the line")
-        if any(key.tag == _MERGE_TAG for key, _ in block.value):
-            raise _refuse(where, "the block uses a merge key, which cannot be renamed by lines")
+        _opened(lines, block_key, block, where, "the block")
         for key, _ in block.value:
             if not (isinstance(key, yaml.ScalarNode) and key.value in keys):
                 continue
@@ -525,14 +542,10 @@ def _move_models(text: str, name: str) -> str:
         raise _refuse(MODELS, "the block is not a mapping of roles")
     if not block.value:
         return text  # `models: {}` names no role, so there is nothing to move
-    if block.flow_style or any(key.tag == _MERGE_TAG for key, _ in block.value):
-        raise _refuse(MODELS, "the block cannot be moved by lines (flow style or a merge key)")
-
     lines = split_lines(text)
+    _opened(lines, block_key, block, MODELS, "the block")
     eol = "\r\n" if "\r\n" in text else "\n"
     first, col = block_key.start_mark.line, block_key.start_mark.column
-    if _MARKED.search(strip_comment(lines[first])):
-        raise _refuse(MODELS, "the block has an anchor or an alias, which cannot be moved by lines")
     last = node_end(lines, first, col)
     child = block.value[0][0].start_mark.column
     body = lines[first + 1 : last + 1]
@@ -569,16 +582,9 @@ def _move_models(text: str, name: str) -> str:
                 raise _refuse(target, "it is already set there; merge the flat block into it")
             at = node_end(lines, entry_key.start_mark.line, entry_key.start_mark.column) + 1
             new = place(value.value[0][0].start_mark.column, [])
-    if at > last:
-        insert_lines(lines, at, new, eol)
-        del lines[first : last + 1]
-    else:
-        del lines[first : last + 1]
-        insert_lines(lines, at, new, eol)
+    _relocate(lines, first, last, at, new, eol)
 
-    result = "".join(lines)
-    if not text.endswith("\n"):
-        result = result.removesuffix("\n").removesuffix("\r")
+    result = _joined(lines, text)
     expected = {key: value for key, value in old.items() if key != MODELS}
     runtimes = {key: dict(value or {}) for key, value in (old.get(RUNTIMES) or {}).items()}
     runtimes.setdefault(name, {})[MODELS] = old[MODELS]

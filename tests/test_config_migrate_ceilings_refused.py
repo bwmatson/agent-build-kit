@@ -47,3 +47,13 @@ def test_each_is_refused_with_the_key_and_a_reason(name: str) -> None:
 
     assert re.search(key, str(refused.value)), str(refused.value)
     assert re.search(reason, str(refused.value), re.IGNORECASE), str(refused.value)
+
+
+def test_a_result_with_ceilings_out_of_order_says_to_raise_light_and_auto() -> None:
+    text = "global_limits:\n  max_unit_lines: 3000\n"
+
+    with pytest.raises(ConfigMigrateError) as refused:
+        migrate(text)
+
+    assert "review.ceilings.light" in str(refused.value)
+    assert "review.ceilings.auto" in str(refused.value)

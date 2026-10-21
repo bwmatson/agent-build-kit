@@ -37,3 +37,11 @@ def test_the_absent_key_has_no_warning(tmp_path: Path) -> None:
     assert any("max_unit_lines" in check.detail for check in noisy)
     assert [check for check in quiet if check.name == "config"][0].status == "ok"
     assert not [check for check in quiet if "max_unit_lines" in check.detail + check.fix]
+
+
+def test_the_key_under_the_old_root_key_is_one_warning_for_each_notice(tmp_path: Path) -> None:
+    checks = doctor(tmp_path, "limits:\n  max_unit_lines: 600\n")
+
+    warned = [check for check in checks if check.status == "warn"]
+    assert len([c for c in warned if "global_limits.max_unit_lines" in c.detail]) == 1
+    assert len([c for c in warned if "`limits`" in c.detail]) == 1

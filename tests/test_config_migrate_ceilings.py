@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import yaml
 
+from agent_build_kit.config import load, review_ceiling
 from agent_build_kit.config_migrate import migrate
+from agent_build_kit.pipeline.verdict import ReviewTier
 
 WITH_KEY = (
     "version: 1\n"
@@ -128,3 +132,38 @@ def test_a_second_run_returns_the_same_text() -> None:
 
     assert once != WITH_KEY
     assert migrate(once).text == once
+
+
+def test_a_raised_floor_file_loads_after_the_move_with_the_same_ceiling(tmp_path: Path) -> None:
+    before = (
+        "version: 1\n"
+        "repos:\n  app:\n    path: /work/app\n    slug: example/app\n"
+        "global_limits:\n  min_unit_lines: 800\n  max_unit_lines: 1500\n"
+    )
+    path = tmp_path / "abk.yaml"
+    path.write_text(before)
+    unmoved = load(path)
+    path.write_text(migrate(before).text)
+
+    moved = load(path)
+
+    assert review_ceiling(moved.repos["app"], moved, ReviewTier.FULL) == 1500
+    assert review_ceiling(unmoved.repos["app"], unmoved, ReviewTier.FULL) == 1500
+
+
+def test_an_agreeing_full_ceiling_keeps_the_comments_of_the_key_it_replaces() -> None:
+    before = (
+        "global_limits:\n"
+        "  # why this size\n"
+        "  max_unit_lines: 900  # nine hundred\n"
+        "review:\n"
+        "  ceilings:\n"
+        "    full: 900\n"
+    )
+
+    migrated = migrate(before).text
+
+    assert "max_unit_lines" not in migrated
+    assert "# why this size" in migrated
+    assert "nine hundred" in migrated
+    assert yaml.safe_load(migrated)["review"] == {"ceilings": {"full": 900}}

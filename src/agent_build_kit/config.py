@@ -725,13 +725,9 @@ class LimitsConfig(TestKindSettings):
         return hosts
 
     @model_validator(mode="after")
-    def _ceiling_above_floor(self) -> LimitsConfig:
-        """A floor at or above the ceiling is a unit size no plan can meet."""
-        if self.max_unit_lines <= self.min_unit_lines:
-            raise ValueError(
-                f"max_unit_lines ({self.max_unit_lines}) must exceed "
-                f"min_unit_lines ({self.min_unit_lines})"
-            )
+    def _calibration_usable(self) -> LimitsConfig:
+        """The calibration settings must be usable. The floor against the ceiling is checked by
+        the workspace, where the ceiling in effect is known (`review.ceilings.full` or this)."""
         if self.calibration_min > self.calibration_window:
             raise ValueError(
                 f"calibration_min ({self.calibration_min}) must not exceed "
@@ -1563,6 +1559,11 @@ class WorkspaceConfig(Frozen):
         floor = self.global_limits.min_unit_lines
         ceilings = self.review.ceilings
         _check_ceilings("review.ceilings", ceilings, "full" in ceilings.model_fields_set, floor)
+        if "full" not in ceilings.model_fields_set and workspace_full_ceiling(self) <= floor:
+            raise ValueError(
+                f"max_unit_lines ({workspace_full_ceiling(self)}) must exceed "
+                f"min_unit_lines ({floor})"
+            )
         for name, repo in self.repos.items():
             own = repo.review.ceilings
             owned = frozenset(
@@ -1928,14 +1929,16 @@ def load(path: Path) -> WorkspaceConfig:
 
 
 def deprecations(path: Path) -> list[str]:
-    """The root keys of the file at `path`, or of its overlay, that are deprecated spellings."""
-    for _, raw in _raw_files(path):
-        if DEPRECATED_ROOT_KEY in raw:
-            return [DEPRECATED_ROOT_KEY]
-    for _, raw in _raw_files(path):
-        if "max_unit_lines" in (raw.get("global_limits") or {}):
-            return [DEPRECATED_MAX_UNIT_LINES]
-    return []
+    """The deprecated keys the file at `path`, or its overlay, sets: the root `limits` key, and
+    `max_unit_lines` under `global_limits` or `limits`; each once."""
+    raws = [raw for _, raw in _raw_files(path)]
+    found = []
+    if any(DEPRECATED_ROOT_KEY in raw for raw in raws):
+        found.append(DEPRECATED_ROOT_KEY)
+    blocks = [raw.get(name) for raw in raws for name in ("global_limits", DEPRECATED_ROOT_KEY)]
+    if any(isinstance(block, dict) and "max_unit_lines" in block for block in blocks):
+        found.append(DEPRECATED_MAX_UNIT_LINES)
+    return found
 
 
 def _merged_raw(path: Path) -> dict[str, Any]:

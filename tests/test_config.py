@@ -31,7 +31,7 @@ def test_a_unit_defaults_to_a_floor_of_400_and_a_ceiling_of_750_lines() -> None:
     assert (limits.min_unit_lines, limits.max_unit_lines) == (400, 750)
 
     with pytest.raises(ValidationError):
-        LimitsConfig(min_unit_lines=750)
+        WorkspaceConfig(global_limits=LimitsConfig(min_unit_lines=750))
 
 
 def test_a_workspace_that_sets_either_size_keeps_it() -> None:
@@ -54,7 +54,7 @@ def test_a_floor_above_the_ceiling_is_refused_naming_both() -> None:
     """No plan could satisfy both, so it fails here rather than producing
     units that miss one or the other."""
     with pytest.raises(ValidationError) as refused:
-        LimitsConfig(min_unit_lines=1200, max_unit_lines=800)
+        WorkspaceConfig(global_limits=LimitsConfig(min_unit_lines=1200, max_unit_lines=800))
 
     message = str(refused.value)
     assert "min_unit_lines" in message and "1200" in message
@@ -65,7 +65,7 @@ def test_a_floor_equal_to_the_ceiling_is_refused() -> None:
     """The ceiling must exceed the floor: at equality every unit would have to
     land on exactly one number."""
     with pytest.raises(ValidationError) as refused:
-        LimitsConfig(min_unit_lines=700, max_unit_lines=700)
+        WorkspaceConfig(global_limits=LimitsConfig(min_unit_lines=700, max_unit_lines=700))
 
     assert "min_unit_lines" in str(refused.value)
 
