@@ -4,6 +4,7 @@
 
 - A task group tagged `[e2e-test]` is now recognised as test-only, the first step towards building
   it as a single `test:` commit with no implementation commit.
+
 - With per-tier sizing on, a join takes the higher review tier of its two sides and is held to that
   tier's ceiling after calibration, and a join is refused when its sides disagree on full review:
   work that needs it is never joined to work that does not, in either direction.
