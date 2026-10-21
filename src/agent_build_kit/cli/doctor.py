@@ -940,7 +940,7 @@ def _machine_keys(inst: Installation) -> list[Check]:
             warned.append((f"runtimes.{name}.accounts", "lists the accounts of this person"))
         for field in ("command", "policy_fix"):
             argv = entry.get(field)
-            if isinstance(argv, list) and argv and str(argv[0]).startswith("/"):
+            if isinstance(argv, list) and argv and Path(str(argv[0])).is_absolute():
                 warned.append((f"runtimes.{name}.{field}", "starts with an absolute program path"))
         if entry.get("limits"):
             noted.append((f"runtimes.{name}.limits", "a plan's thresholds differ per person"))

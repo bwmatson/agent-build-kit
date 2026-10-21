@@ -11,6 +11,7 @@ import pytest
 import yaml
 
 from agent_build_kit.cli.doctor import Check, run_doctor
+from agent_build_kit.config import merge_local
 from tests.cli.public_content_repo import planning, said
 from tests.cli.test_doctor import Answers
 from tests.factories import git, which_all
@@ -25,6 +26,9 @@ MACHINE_CHOICES = {
     "runtimes.claude_code.accounts": ACCOUNTS,
     "tests.e2e_available": {"tests": {"e2e_available": {"os": ["linux"]}}},
     "runtimes.acp.command": {"runtimes": {"acp": {"command": ["/opt/tools/some-agent", "acp"]}}},
+    "runtimes.claude_code.policy_fix": {
+        "runtimes": {"claude_code": {"policy_fix": ["/opt/tools/fixer"]}}
+    },
 }
 # A default a team may commit: a note, not a warning.
 DEFAULTS = {
@@ -41,24 +45,14 @@ QUIET = {
 }
 
 
-def merged(base: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
-    for key, value in extra.items():
-        if isinstance(value, dict) and isinstance(base.get(key), dict):
-            merged(base[key], value)
-        else:
-            base[key] = value
-    return base
-
-
 def installation(root: Path, *, committed: dict[str, Any], overlay: dict[str, Any]) -> Path:
     """A committed planning repo holding `committed` in abk.yaml and `overlay` in the
     ignored abk.local.yaml; the path of abk.yaml."""
     config = planning(root, ignore=OVERLAY + "\n")
     document = yaml.safe_load(config.read_text())
     declared = {"tests": {"e2e_dimensions": {"os": {"linux": {"marker": "linux"}}}}}
-    config.write_text(
-        yaml.safe_dump(merged(merged(document, declared), committed), sort_keys=False)
-    )
+    document = merge_local(merge_local(document, declared), committed)
+    config.write_text(yaml.safe_dump(document, sort_keys=False))
     git(root, "commit", "-qam", "machine keys", "--allow-empty")
     (root / OVERLAY).write_text(yaml.safe_dump(overlay))
     return config
