@@ -657,6 +657,17 @@ def _parse_description(raw: object) -> Description | None:
     return Description(summary=summary, changes=changes, focus=focus, skippable=skippable)
 
 
+def _drivers_lead(description: Description | None, drivers: tuple[str, ...]) -> Description | None:
+    """The description with the unit's drivers at the head of its focus list, in their
+    order and with the reviewer's reason where it named the place, and no place twice."""
+    if description is None or not drivers:
+        return description
+    named = {entry.place: entry for entry in description.focus}
+    leading = tuple(named.get(place) or FocusEntry(place=place) for place in dict.fromkeys(drivers))
+    rest = tuple(entry for entry in description.focus if entry.place not in set(drivers))
+    return description.model_copy(update={"focus": (*leading, *rest)[:MAX_BRIEF_ENTRIES]})
+
+
 def _parse_classification(raw: object) -> str:
     """The reviewer's classification, `full` when it is missing or not one of the tiers:
     missing evidence is not green."""
@@ -1744,7 +1755,10 @@ class UnitRunner(BaseModel):
             self.store.record_approval(
                 unit.id,
                 judged,
-                verdict.description,
+                _drivers_lead(
+                    verdict.description,
+                    verdict.drivers if classified else (),
+                ),
                 classification=verdict.classification if classified else None,
                 drivers=verdict.drivers if classified else (),
             )

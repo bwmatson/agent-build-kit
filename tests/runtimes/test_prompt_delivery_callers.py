@@ -13,6 +13,7 @@ from agent_build_kit.pipeline.wiring import REVIEW_PROMPT, build_run_review
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime, refresh_login
 from agent_build_kit.tracks import runner
 from tests.conftest import make_installation
+from tests.factories import activate_with
 from tests.tracks.test_runner import described_installation, project
 
 
@@ -50,6 +51,7 @@ def test_a_restack_resolution_carries_its_prompt_as_input(tmp_path: Path) -> Non
 
 def test_a_review_carries_its_prompt_as_input(tmp_path: Path) -> None:
     make_installation(tmp_path / "planning")
+    activate_with(review={"brief": False})
     executor = Recording(reply='{"approved": true}')
 
     build_run_review(runtime=executor.runtime)(cwd=tmp_path)

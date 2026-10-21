@@ -78,6 +78,7 @@ def test_a_unit_with_no_drivers_gets_the_reviewers_list_unchanged(tmp_path: Path
 def test_a_unit_with_no_recorded_classification_gets_the_reviewers_list_unchanged(
     tmp_path: Path,
 ) -> None:
+    activate_with(review={"enabled": False})
     raw = reply(focus=[{"place": "src/x.py", "reason": "boundary"}], drivers=["src/d.py"])
 
     assert stored_focus(tmp_path, raw) == [("src/x.py", "boundary")]

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The review prompt now asks the reviewer for a ranked list of places to read first, each with
+  one of four reasons, and a list of what is safe to skip with a reason each; a unit's recorded
+  drivers lead the first list. The `review.brief` setting (default on) controls it.
+
 - A unit's review tier now has a deterministic verdict function over the plan's floors (the
   planned estimate, protected paths and `contract`, `narrow` or `acceptance` flags) and over the
   recorded gate results, open required findings, the reviewer's classification and the class's

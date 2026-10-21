@@ -701,6 +701,21 @@ JSON reply below as "classification": "auto|light|full" and "drivers": ["group o
 
 """
 
+# What review adds to the prompt when the brief is on: the two lists inside the description.
+REVIEW_BRIEF_PROMPT = """\
+**Tell the person reading where to look.** Inside the `description`, give a `focus` list
+and a `skippable` list. `focus` ranks the places a person should read first, most
+important first, at most five: each entry has a `place` (a file, or a file and a group)
+and a `reason`, which is one of `boundary another system depends on`, `behaviour change`,
+`hard to undo` or `thin test coverage`. `skippable` lists mechanical moves, renames,
+generated or formatting-only changes, at most five: each entry has a `place` and a
+`reason` it is safe to skip, and an entry without a reason is dropped. Give entries only
+where they are true: an empty list is correct for a change with nothing to point at.
+Write them as "focus": [{"place": "...", "reason": "..."}] and
+"skippable": [{"place": "...", "reason": "..."}] in the description.
+
+"""
+
 # Read-only. The reviewer physically cannot edit the branch, so the separation
 # between judging and authoring is enforced rather than asked for.
 REVIEW_TOOLS = "Read Grep Glob Bash(git diff*) Bash(git log*) Bash(git show*)"
@@ -751,6 +766,8 @@ def build_run_review(
         prompt = REVIEW_PROMPT + review_changelog_paragraph(cwd, repo)
         if active().review.enabled:
             prompt = REVIEW_CLASSIFICATION_PROMPT + prompt
+        if active().review.brief:
+            prompt = REVIEW_BRIEF_PROMPT + prompt
         # Its own model, not the implementation one a build call names.
         return inner(
             f"{context}\n\n{prompt}" if context else prompt,
