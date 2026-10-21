@@ -6,6 +6,7 @@
   planned estimate, protected paths and `contract`, `narrow` or `acceptance` flags) and over the
   recorded gate results, open required findings, the reviewer's classification and the class's
   track record, naming the rule that decided it. Nothing acts on it yet.
+
 - A model name is a runtime's own vocabulary, so the roles now belong under
   `runtimes.<name>.models`. A top-level `models:` block still loads, for the active runtime
   only, and `abk doctor` and `abk config` say where to move it (naming any role also set under
