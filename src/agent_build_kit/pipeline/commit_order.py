@@ -25,9 +25,13 @@ import ast
 import subprocess
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.shell import git_out
+
+if TYPE_CHECKING:
+    from agent_build_kit.pipeline.stack_runner import GroupStep
 
 TESTS_PREFIX = "test: "
 CODE_PREFIX = "feat: "
@@ -194,12 +198,14 @@ def check_structure(
     is_test: Callable[[str], bool] | None = None,
     stubs: Callable[[str, str], list[str]] = stub_violations,
     paired: bool = False,
+    groups: Sequence[GroupStep] = (),
 ) -> list[str]:
     """Check a branch's commits read as tests-then-implementation.
 
     `stubs` is the toolchain's check of a code file's content shipped beside tests, by
     path and content; it defaults to the Python one. `paired` also requires every `test:`
-    commit to be followed directly by a `feat:` commit of the same title.
+    commit to be followed directly by a `feat:` commit of the same title. `groups` is the
+    unit's groups in order, each saying whether it is test-only; none given, none is.
 
     Returns every problem found, so one run shows the whole list rather than
     one problem per push.
