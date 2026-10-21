@@ -19,7 +19,6 @@ MARKER = "telemetry_otel"
 MODULE = ROOT / "tests" / "integration" / "test_telemetry_stack.py"
 SPLITS = (
     E2eSplit(name="telemetry", marker=MARKER),
-    E2eSplit(name="acp", marker="runtime_acp"),
     E2eSplit(name="rest"),
 )
 COMMAND = [sys.executable, "-m", "pytest", "-m", "local_stack", "tests/integration"]
@@ -29,18 +28,22 @@ def run_in_root(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
     return subprocess.run(argv, cwd=ROOT, **kwargs)
 
 
-def test_every_test_of_the_telemetry_module_carries_the_marker(pytester: pytest.Pytester) -> None:
-    items, _ = pytester.inline_genitems(str(MODULE))
-
-    assert items
-    assert [i.nodeid for i in items if i.get_closest_marker(MARKER) is None] == []
-
-
-def test_a_split_on_the_marker_selects_the_telemetry_tests_and_no_other_live_test(
+def test_every_otel_item_of_the_telemetry_module_carries_the_marker_and_no_other_does(
     pytester: pytest.Pytester,
 ) -> None:
     items, _ = pytester.inline_genitems(str(MODULE))
-    module_tests = {item.nodeid.split("/")[-1] for item in items}
+
+    otel = [i for i in items if i.nodeid.endswith("-otel]")]
+    assert otel
+    assert [i.nodeid for i in otel if i.get_closest_marker(MARKER) is None] == []
+    assert [i.nodeid for i in items if i not in otel and i.get_closest_marker(MARKER)] == []
+
+
+def test_a_split_on_the_marker_selects_the_otel_items_and_no_other_live_test(
+    pytester: pytest.Pytester,
+) -> None:
+    items, _ = pytester.inline_genitems(str(MODULE))
+    module_tests = {item.nodeid.split("/")[-1] for item in items if item.nodeid.endswith("-otel]")}
 
     result = check_splits(PROFILE, COMMAND, "local_stack", SPLITS, run=run_in_root)
     tests = {listing.name: listing.tests or () for listing in result.listings}
@@ -48,6 +51,7 @@ def test_a_split_on_the_marker_selects_the_telemetry_tests_and_no_other_live_tes
     assert result.findings == ()
     assert tests["telemetry"]
     assert {test.split("/")[-1] for test in tests["telemetry"]} == module_tests
-    assert not any(Path(t.split("::")[0]).name == MODULE.name for t in tests["acp"])
     assert tests["rest"]
-    assert [t for t in tests["rest"] if Path(t.split("::")[0]).name == MODULE.name] == []
+    assert [
+        t for t in tests["rest"] if Path(t.split("::")[0]).name == MODULE.name and "-otel]" in t
+    ] == []

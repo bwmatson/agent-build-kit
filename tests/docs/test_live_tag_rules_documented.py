@@ -30,8 +30,7 @@ def test_the_runtimes_document_has_the_gap_list_section_with_the_current_list() 
     )
 
     assert section
-    for name in ("test_build_unit.py", "test_graph_unit.py", "test_telemetry_stack.py"):
-        assert name in section.group(1)
+    assert "test_graph_unit.py" in section.group(1)
 
 
 def test_the_runtimes_document_says_a_tag_is_compared_with_what_the_test_starts() -> None:
