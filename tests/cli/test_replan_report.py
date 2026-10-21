@@ -10,6 +10,7 @@ import pytest
 from agent_build_kit.pipeline.units import MERGED, PLANNED, RUNNING, UnitState
 from tests.cli.replan_driver import Replan, tasks_md
 from tests.factories import stored_unit
+from tests.split_sources import snapshot_tree
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -27,12 +28,6 @@ def partly_started(run: Replan) -> None:
     put(run, "feature/3", (3,))
     put(run, "feature/4", (4,))
     run.record("feature")
-
-
-def snapshot(root: Path) -> dict[str, bytes]:
-    return {
-        str(p.relative_to(root)): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()
-    }
 
 
 def section(out: str, change: str) -> str:
@@ -100,12 +95,12 @@ def test_a_report_writes_nothing_and_calls_no_planner(
     run = Replan(tmp_path, monkeypatch, feature=tasks_md(4), fresh=tasks_md(1))
     partly_started(run)
     (run.inst.state_dir / "notes.txt").write_text("kept\n")
-    before = snapshot(run.inst.root)
+    before = snapshot_tree(run.inst.root)
 
     code, _ = run.run(capsys, "--all", "--report")
 
     assert code == 0
-    assert snapshot(run.inst.root) == before
+    assert snapshot_tree(run.inst.root) == before
     assert run.calls == 0
 
 

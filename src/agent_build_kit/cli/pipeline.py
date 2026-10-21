@@ -3640,6 +3640,18 @@ def _taken_groups(store: UnitStore, change: str) -> set[int]:
     )
 
 
+def _gone_groups_reason(store: UnitStore, change: str, groups: Sequence[TaskGroup]) -> str | None:
+    """Why no plan is made while a started unit carries a group `tasks.md` no longer has,
+    or None when every such group is still there."""
+    if not (gone := _gone_groups(store, change, groups)):
+        return None
+    numbers = ", ".join(str(n) for n in gone)
+    return (
+        f"group(s) {numbers} are built by a started unit "
+        "but are no longer in tasks.md — restore or renumber them back"
+    )
+
+
 def _gone_groups(store: UnitStore, change: str, groups: Sequence[TaskGroup]) -> list[int]:
     """The groups a started unit carries that `tasks.md` no longer has: renumbered or deleted."""
     carried = _carried(store, change, lambda u: u.state in _STARTED)
@@ -3856,12 +3868,8 @@ def plan_all(
 
         # A group a started unit carries must still be in tasks.md: renumbered or
         # deleted, the unit's branch and the groups no longer agree, so no plan is made.
-        if gone := _gone_groups(store, change, task_groups):
-            numbers = ", ".join(str(n) for n in gone)
-            log(
-                f"not planning {change}: group(s) {numbers} are built by a started unit "
-                "but are no longer in tasks.md — restore or renumber them back"
-            )
+        if gone := _gone_groups_reason(store, change, task_groups):
+            log(f"not planning {change}: {gone}")
             results[change] = PlanResult(status="refused")
             continue
 
@@ -4324,12 +4332,13 @@ def stale_plan_lines(inst: Installation) -> list[str]:
     change and why, and saying how to plan it again."""
     records = planned_hashes(inst)
     current = sizing_digest()
+    standing = {unit.change for unit in store_for(inst).all()}
     return [
         f"{change}: plan is stale, {plan_stale_reason(record, current)} "
         f"— `abk replan {change}` plans it again"
         for change in (path.parent.name for path in inst.tasks_files())
         if (record := records.get(change))
-        and (record.get("ok") or record.get("waiting") in PLAN_WAITS)
+        and (record.get("ok") or (record.get("waiting") in PLAN_WAITS and change in standing))
         and plan_is_stale(record, current)
     ]
 
@@ -5675,20 +5684,21 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
     if not (args.changes or args.all or args.failed):
         for change in (path.parent.name for path in inst.tasks_files()):
             print(f"{change}: {_plan_state(records.get(change), max_attempts)}")
-        print("usage: abk replan CHANGE|UNIT... | --all | --failed [--forget]")
+        print("usage: abk replan CHANGE|UNIT... | --all | --failed [--forget] [--report]")
         return 2
 
     selected: dict[str, None] = {}
     refused = 0
+    verb = "reporting" if args.report else "planning"
     units = {unit.id: unit for unit in store.all()}
     for name in args.changes:
         change = name
         if name not in on_disk and name in units:
             change = units[name].change
-            print(f"{name} is in change {change}: planning {change}")
+            print(f"{name} is in change {change}: {verb} {change}")
         elif name not in on_disk and name.split("/")[0] in on_disk and "/" in name:
             change = name.split("/")[0]
-            print(f"{name} is in change {change}: planning {change}")
+            print(f"{name} is in change {change}: {verb} {change}")
         selected[change] = None
     if args.all:
         selected.update(dict.fromkeys(path.parent.name for path in inst.tasks_files()))
@@ -5794,7 +5804,17 @@ def _print_replan_report(inst: Installation, store: UnitStore, changes: list[str
             groups = ", ".join(str(n) for n in unit.groups)
             print(f"  {unit.id}: group {groups} ({unit.state.value})")
         task_groups, _ = _validated(inst, inst.changes_dir / change / "tasks.md")
-        if task_groups and _taken_groups(store, change) >= {g.number for g in task_groups}:
+        all_taken = bool(task_groups) and _taken_groups(store, change) >= {
+            g.number for g in task_groups
+        }
+        problems = (
+            _tag_problems(store, change, task_groups, _task_catalog(inst)) if all_taken else []
+        )
+        if gone := _gone_groups_reason(store, change, task_groups):
+            print(f"  would be refused, no planner call: {gone}")
+        elif problems:
+            print(f"  would be refused, no planner call: {'; '.join(problems)}")
+        elif all_taken:
             print(f"  would ask nothing of the planner; {ALL_TAKEN}")
         else:
             calls += 1
