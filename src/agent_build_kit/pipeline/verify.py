@@ -262,11 +262,8 @@ def verify_change(
 
     def result(passed: bool, detail: str = "", deployed: list[str] | None = None) -> Verification:
         if not passed and deferred:
-            detail = "\n".join(
-                [f"e2e-test was deferred to verify by: {', '.join(deferred)}", detail]
-                if detail
-                else [f"e2e-test was deferred to verify by: {', '.join(deferred)}"]
-            )
+            note = f"e2e-test was deferred to verify by: {', '.join(deferred)}"
+            detail = f"{note}\n{detail}" if detail else note
         return Verification(
             change=change,
             passed=passed,

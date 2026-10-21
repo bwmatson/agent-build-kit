@@ -2215,6 +2215,9 @@ class BuildPath:
     def open_pr(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit
         tree, base = self.tree(), state.base or self.base
+        # Before the body is built from the stored unit, which says what became of the e2e step.
+        if state.e2e and not runs_e2e(state):
+            r.store.record_e2e_state(unit.id, E2eState.DEFERRED)
         stored = r.store.get(unit.id)
         # A re-run asks again: `open_pr` finds the branch's pull request and updates it.
         body = partial(
@@ -2264,7 +2267,7 @@ class BuildPath:
         sha = r.head(tree)
         # After the push, never before: a status for a commit the host has not
         # seen is rejected.
-        if unit.tier == TestTier.E2E_TEST:
+        if unit.tier == TestTier.E2E_TEST and runs_e2e(state):
             r.post_status(sha, True)
         # What the host did not take stays owed, for the next pass to post.
         unposted = tuple(
@@ -2284,8 +2287,6 @@ class BuildPath:
             r.record_given(unit.repo, pr, list(state.given_comments))
         if state.had_feedback:
             r.store.set_feedback(unit.id, "")
-        if state.e2e_deferred:
-            r.store.record_e2e_state(unit.id, E2eState.DEFERRED)
         r.store.set_state(unit.id, IN_REVIEW, pr=pr, note=NO_TEST_RAN if state.e2e_ran_none else "")
         if r.store.get(unit.id).predecessor_note:
             r.store.set_predecessor_note(unit.id, "")

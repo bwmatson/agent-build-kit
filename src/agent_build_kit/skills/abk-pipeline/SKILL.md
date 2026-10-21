@@ -290,6 +290,12 @@ collects by default are named, so a helper module or `conftest.py` is not; the s
 ends with the touched test files it left out. It runs the whole marker
 where it cannot narrow, or under `full`; a scheduled unit is always `full`.
 
+With `e2e_before_merge: deferred` (global, or per repo under `tests`) an e2e-test unit skips the
+e2e-test step before merge and records its e2e state as `deferred`; a scheduled run still runs
+it. The pull request's verification section then says "e2e-test deferred to verify": the live
+tests run after the merge, against the deployed change. A failed `abk verify` names the change's
+units that deferred.
+
 `e2e_schedule` (`daily`, `weekly`, `monthly`, `off`; per repo `tests.e2e_schedule`) makes a
 round write `scheduled-e2e-<repo>-<date>-<split>` before planning, ahead of the usage guard,
 when a split of a repo is due; the date is read from the names of its open and archived

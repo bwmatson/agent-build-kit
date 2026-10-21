@@ -66,6 +66,8 @@ class Recorder:
         self.remote: list[str] = []  # every distinct head the remote has been given
         self.prs: dict[str, int] = {}  # branch -> pull request, as the forge holds them
         self.pr_calls = 0
+        self.bodies: list[str] = []
+        self.needs_result = False
         self.pr_opens = 0  # calls that found no pull request for the branch
         self.contexts: list[str] = []  # what each review was given
 
@@ -163,6 +165,7 @@ class Recorder:
     def open_pr(self, unit, *, body: str, base: str, cwd: Path, **bodies: str) -> int:
         """Opens on the first call, updates on later ones, as the forge does."""
         self.pr_calls += 1
+        self.bodies.append(body)
         if f"spec/{unit.id}" not in self.prs:
             self.pr_opens += 1
             self.prs[f"spec/{unit.id}"] = 7
@@ -170,6 +173,10 @@ class Recorder:
         return self.prs[f"spec/{unit.id}"]
 
     def post_status(self, sha: str, ok: bool) -> None:
+        """With `needs_result` set, as the real poster: a status is for a result, so none
+        without an e2e-test run."""
+        if self.needs_result and "e2e-test" not in self.events:
+            raise ValueError("e2e-test has not run for this unit, so there is no status to post")
         self.events.append("status")
 
     def close_pr(self, unit, pr: int, reason: str) -> None:
