@@ -6,7 +6,8 @@
   settings, the first steps towards holding and splitting a unit that outgrows its review tier.
   A buffered `auto` ceiling that reaches the reviewer's 10,000-line reading limit now fails
   loading, and `abk doctor` prints the buffered ceilings and warns near the limit or when
-  `split_rounds` is 0 with review enabled.
+  `split_rounds` is 0 with review enabled. The review verdict can now say a unit is over its
+  earned tier's buffered ceiling and name the task groups that drove the tier.
 
 - A plan made under other review sizing (a changed ceiling, `min_unit_lines` or `review.enabled`) is now
   reported as stale by the tick, by `abk replan` with no argument and by `abk status`. It is not

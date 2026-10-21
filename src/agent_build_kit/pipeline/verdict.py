@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 
-from agent_build_kit.config import AutoLandConfig, CeilingsConfig
+from agent_build_kit.config import AutoLandConfig, CeilingsConfig, buffered
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.unit_store import E2eState
 
@@ -156,7 +157,43 @@ def compute_verdict(
         ReviewTier.AUTO,
         reason,
     )
-    return TierVerdict(tier=tier, evidence_tier=evidence_tier, reason=reason)
+    split = _size_step(facts, evidence_tier, ceilings, buffer)
+    return TierVerdict(tier=tier, evidence_tier=evidence_tier, reason=reason, split=split)
+
+
+_GROUP_DRIVER = re.compile(r"group\s+(\d+)", re.IGNORECASE)
+
+
+def _size_step(
+    facts: VerdictFacts, earned: ReviewTier, ceilings: CeilingsConfig | None, buffer: float
+) -> SplitRequest | None:
+    """A request to split the unit when its changed lines pass the buffered ceiling of the tier
+    its evidence earned; none when the lines or ceilings are not known or a person waived it."""
+    if ceilings is None or facts.changed_lines is None or facts.size_waived:
+        return None
+    ceiling = getattr(ceilings, earned.value)
+    if facts.changed_lines <= buffered(ceiling, buffer):
+        return None
+    return SplitRequest(
+        earned=earned,
+        planned=facts.planned_estimate,
+        lines=facts.changed_lines,
+        ceiling=ceiling,
+        drivers=_driver_groups(facts),
+    )
+
+
+def _driver_groups(facts: VerdictFacts) -> tuple[int, ...]:
+    """The unit's groups the drivers name, by number or by a file the group's text names, once
+    each in group order; a driver matching no group of the unit is dropped."""
+    named: set[int] = set()
+    for driver in facts.drivers:
+        match = _GROUP_DRIVER.fullmatch(driver.strip())
+        if match:
+            named.add(int(match.group(1)))
+        else:
+            named.update(g.number for g in facts.groups if driver.strip() in g.text)
+    return tuple(sorted(g.number for g in facts.groups if g.number in named))
 
 
 def _e2e_gate(state: E2eState | None) -> GateResult:
