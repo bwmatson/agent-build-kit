@@ -38,6 +38,8 @@ LOG_TAIL = 6000
 # The key literals the cases count: `slugify`'s character class, and what the share case's
 # formatting is told to do to its prefix. Each occurs once in the tree the case starts from.
 SQUEEZE = "[^a-z0-9]+"
+# What every generalization of the class keeps: it may add characters before the closing bracket.
+SQUEEZE_PREFIX = SQUEEZE.removesuffix("]+")
 UPPER = ".upper()"
 
 SLUGIFY = """\

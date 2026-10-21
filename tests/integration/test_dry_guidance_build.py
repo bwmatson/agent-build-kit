@@ -35,6 +35,7 @@ from tests.dry_checks import (
 )
 from tests.dry_scratch import (
     SQUEEZE,
+    SQUEEZE_PREFIX,
     UPPER,
     DryRun,
     evidence,
@@ -136,7 +137,10 @@ def test_generalize_changes_the_existing_function_and_keeps_its_literal_once(
     assert [d.name for d in diff.changed if d.name == "slugify"] == ["slugify"], evidence(
         generalize
     )
-    assert literal_count(generalize.repo, generalize.branch, SQUEEZE) == 1, evidence(generalize)
+    # The generalized pattern takes the extra characters it keeps, so only its prefix is the same.
+    assert literal_count(generalize.repo, generalize.branch, SQUEEZE_PREFIX) == 1, evidence(
+        generalize
+    )
 
 
 def test_generalize_adds_no_function_carrying_the_existing_functions_logic(
@@ -149,12 +153,19 @@ def test_generalize_adds_no_function_carrying_the_existing_functions_logic(
     assert copies == [], evidence(generalize)
 
 
-def test_generalize_has_the_new_entry_point_call_the_existing_function(generalize: DryRun) -> None:
+def test_generalize_has_the_new_entry_point_reach_the_one_definition_of_the_logic(
+    generalize: DryRun,
+) -> None:
     entry = [d for d in added_by(generalize) if d.name == "file_stem"]
+    found = definitions(generalize.repo, generalize.branch)
+    holders = [d for d in found if SQUEEZE_PREFIX in d.source]
+    holder = only(holders, generalize, "definition holding the squeeze")
 
-    # The variant may go into the existing function alone, with no new entry point.
-    for definition in entry:
-        assert calls_by_name(definition.source, "file_stem", "slugify"), evidence(generalize)
+    # The variant may go into the existing function alone, with no new entry point. Otherwise
+    # the entry point reaches the one definition, whether it calls it directly or through
+    # `slugify` or a shared function the two call.
+    for _ in entry:
+        assert reaches_by_name(found, "file_stem", holder.name), evidence(generalize)
 
 
 def test_generalize_keeps_the_old_tests_of_the_function_passing(generalize: DryRun) -> None:
