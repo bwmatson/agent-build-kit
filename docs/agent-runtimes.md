@@ -939,8 +939,9 @@ the old account starts fresh) and set the usage windows for the new plan under
   policy hook. After each step the working copy's branch, HEAD, index and edit are
   asserted unchanged, and the run prints which code the tick ran. The agent is the
   scripted ACP agent the adapter's tests use, so it needs no real agent and does not
-  bill; it needs node (npx) and uv. The tests run in file order over one scratch
-  repository, so run the whole file: `uv run pytest -m local_stack
+  bill; it needs node (npx) and uv. The tests share one scratch repository, and a test
+  that needs another's effect asks for it through a module-scoped fixture, so any test
+  runs alone or in any order: `uv run pytest -m local_stack
   tests/integration/test_planning_in_repo_live_stack.py`.
 - `replay` (the `tests/replay/` plugin, see "Record and replay of external calls"
   below) puts a reverse proxy in front of an e2e-test test's calls to the model

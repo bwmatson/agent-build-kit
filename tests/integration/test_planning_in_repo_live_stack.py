@@ -8,8 +8,9 @@ pipeline worktree land under the temporary directory. The agent is the scripted 
 adapter's tests use, run over stdio, so nothing here bills; the policy hook is the real hook
 process. Only the planning commit is made in-process, through the function chat uses.
 
-The tests share one scratch repository and run in file order: each leaves the pipeline worktree
-where the next expects it.
+The tests share one scratch repository, and a test that needs another's effect (the install, the
+landed and archived change) asks for it through a module-scoped fixture that makes it once, so any
+test runs alone or in any order.
 
 Needs node for the OpenSpec CLI and uv. Marked `local_stack` and excluded from the default suite.
 """
@@ -257,10 +258,29 @@ def scratch(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Scratch]:
     )
 
 
+class Installed(Ran):
+    """The install's result and what the pipeline worktree held right after it."""
+
+    branch: str
+    head: str
+    origin_head: str
+    units: str
+
+
 @pytest.fixture(scope="module")
-def installed(scratch: Scratch) -> Ran:
+def installed(scratch: Scratch) -> Installed:
     """`abk install-timers --no-enable`, run in the working copy the way a person would."""
-    return abk(scratch, "install-timers", "--no-enable", cwd=scratch.working_copy)
+    ran = abk(scratch, "install-timers", "--no-enable", cwd=scratch.working_copy)
+    assert ran.returncode == 0, ran.output
+    worktree = scratch.worktree
+    return Installed(
+        returncode=ran.returncode,
+        output=ran.output,
+        branch=git(worktree, "rev-parse", "--abbrev-ref", "HEAD"),
+        head=git(worktree, "rev-parse", "HEAD"),
+        origin_head=git(scratch.origin, "rev-parse", "main"),
+        units=(worktree / "runs" / "units.json").read_text(),
+    )
 
 
 def installation_of(root: Path) -> Installation:
@@ -269,18 +289,65 @@ def installation_of(root: Path) -> Installation:
     return installation
 
 
+class Landed(Frozen):
+    """The verify step over a landed change: the refusal after a source edit, then the pass."""
+
+    refused: Ran
+    kept_after_refusal: bool
+    passed: Ran
+    change_left: bool
+    archives: int
+
+
+@pytest.fixture(scope="module")
+def landed(scratch: Scratch, installed: Installed, openspec_cli: None) -> Landed:
+    """A unit's work landing on the default branch, verified and archived once: it leaves the
+    archived `landed` spec and the unit in the pipeline worktree for the tests that need them."""
+    worktree = scratch.worktree
+    git(worktree, "fetch", "-q", "origin")
+    git(worktree, "merge", "-q", "--ff-only", "origin/main")
+    # The unit's branch and pull request, then its work landing on the default branch.
+    files = {**change_files("landed", done=True), "src/landed.py": "x = 1\n"}
+    commit_files(worktree, "landed", files)
+    git(worktree, "branch", "spec/landed/1", "HEAD")
+    forge, repo = installation_of(worktree).forge_of("app")
+    number = forge.create_pr(repo, head="spec/landed/1", base="main", title="landed", body="")
+    git(worktree, "push", "-q", "origin", "HEAD:main")
+    store = UnitStore(worktree / "runs" / "units.json")
+    store.upsert([stored_unit("landed/1", change="landed", repo="app")])
+    store.set_state("landed/1", MERGED, pr=number, branch="spec/landed/1")
+    # The store, a state file and the graph page are dirty: all planning paths.
+    (worktree / "runs" / "verified.note").write_text("state\n")
+    (worktree / "docs" / "unit_graph.md").write_text("graph, regenerated\n")
+    (worktree / SOURCE).write_text("def main() -> None: ...\n# edited in the worktree\n")
+
+    refused = in_pipeline(scratch, "verify", "landed")
+    kept = (worktree / "openspec/changes/landed").is_dir()
+
+    git(worktree, "checkout", "-q", "--", SOURCE)
+    passed = in_pipeline(scratch, "verify", "landed")
+    archives = list((worktree / "openspec/changes/archive").glob("*-landed"))
+    return Landed(
+        refused=refused,
+        kept_after_refusal=kept,
+        passed=passed,
+        change_left=(worktree / "openspec/changes/landed").exists(),
+        archives=len(archives),
+    )
+
+
 def test_install_makes_the_pipeline_worktree_and_leaves_the_working_copy_alone(
-    scratch: Scratch, installed: Ran
+    scratch: Scratch, installed: Installed
 ) -> None:
     assert installed.returncode == 0, installed.output
     worktree = scratch.worktree
     assert worktree.is_dir(), installed.output
     common = Path(git(worktree, "rev-parse", "--path-format=absolute", "--git-common-dir"))
     assert common.resolve() == (scratch.working_copy / ".git").resolve()
-    # Detached, at the tip of the default branch, holding the repository's own store untouched.
-    assert git(worktree, "rev-parse", "--abbrev-ref", "HEAD") == "HEAD"
-    assert git(worktree, "rev-parse", "HEAD") == git(scratch.origin, "rev-parse", "main")
-    assert (worktree / "runs" / "units.json").read_text() == UNITS
+    # Detached at install, at the tip of the default branch, holding the repository's own store.
+    assert installed.branch == "HEAD"
+    assert installed.head == installed.origin_head
+    assert installed.units == UNITS
 
     marker = scratch.working_copy / ".git" / "abk-pipeline-worktree"
     assert Path(marker.read_text().strip()).resolve() == worktree.resolve()
@@ -294,7 +361,7 @@ def test_install_makes_the_pipeline_worktree_and_leaves_the_working_copy_alone(
 
 
 def test_a_tick_in_the_pipeline_worktree_follows_origin_and_stops_on_a_divergence(
-    scratch: Scratch, installed: Ran
+    scratch: Scratch, installed: Installed
 ) -> None:
     assert installed.returncode == 0, installed.output
     tip = publish_elsewhere(
@@ -328,60 +395,38 @@ def test_a_tick_in_the_pipeline_worktree_follows_origin_and_stops_on_a_divergenc
     assert len(lines) == 1, stopped.output
     assert "diverged: 1 commits of its own, 1 new" in lines[0]
     assert_untouched(scratch)
-    # The next test starts from the tip.
+    # Drop only the commit made here, back to the tip: what other tests left uncommitted stays.
     git(scratch.worktree, "fetch", "-q", "origin")
-    git(scratch.worktree, "reset", "-q", "--hard", "origin/main")
+    git(scratch.worktree, "reset", "-q", "--keep", "origin/main")
 
 
 def test_verify_passes_with_only_planning_paths_dirty_refuses_a_source_edit_and_archives(
-    scratch: Scratch, installed: Ran, openspec_cli: None
+    scratch: Scratch, landed: Landed
 ) -> None:
-    assert installed.returncode == 0, installed.output
-    # The unit's branch and pull request, then its work landing on the default branch.
-    worktree = scratch.worktree
-    landed = {**change_files("landed", done=True), "src/landed.py": "x = 1\n"}
-    commit_files(worktree, "landed", landed)
-    git(worktree, "branch", "spec/landed/1", "HEAD")
-    forge, repo = installation_of(worktree).forge_of("app")
-    number = forge.create_pr(repo, head="spec/landed/1", base="main", title="landed", body="")
-    git(worktree, "push", "-q", "origin", "HEAD:main")
-    store = UnitStore(worktree / "runs" / "units.json")
-    store.upsert([stored_unit("landed/1", change="landed", repo="app")])
-    store.set_state("landed/1", MERGED, pr=number, branch="spec/landed/1")
-    # The store, a state file and the graph page are dirty: all planning paths.
-    (scratch.worktree / "runs" / "verified.note").write_text("state\n")
-    (scratch.worktree / "docs" / "unit_graph.md").write_text("graph, regenerated\n")
-    (scratch.worktree / SOURCE).write_text("def main() -> None: ...\n# edited in the worktree\n")
-
-    refused = in_pipeline(scratch, "verify", "landed")
+    refused, passed = landed.refused, landed.passed
 
     assert refused.returncode == 1, refused.output
     assert SOURCE in refused.output, refused.output
-    assert (scratch.worktree / "openspec/changes/landed").is_dir()
-
-    git(scratch.worktree, "checkout", "-q", "--", SOURCE)
-    passed = in_pipeline(scratch, "verify", "landed")
+    assert landed.kept_after_refusal
 
     assert passed.returncode == 0, passed.output
     assert "archived landed" in passed.output
     assert "nothing to deploy" not in passed.output, "the src/ rule did not see src/landed.py"
-    assert not (scratch.worktree / "openspec/changes/landed").exists()
-    archived = list((scratch.worktree / "openspec/changes/archive").glob("*-landed"))
-    assert len(archived) == 1, passed.output
+    assert not landed.change_left
+    assert landed.archives == 1, passed.output
     assert_untouched(scratch)
 
 
 def test_a_planning_commit_holds_only_planning_paths_and_a_track_publishes_both_ways(
-    scratch: Scratch, installed: Ran, openspec_cli: None
+    scratch: Scratch, landed: Landed
 ) -> None:
-    assert installed.returncode == 0, installed.output
     worktree = scratch.worktree
     inst = installation_of(worktree)
     (worktree / "openspec/changes" / CHANGE / "proposal.md").write_text(PROPOSAL + "\n- More.\n")
     (worktree / SOURCE).write_text("def main() -> None: ...\n# not for the planning commit\n")
     # The archive wrote the new capability's Purpose as a placeholder, which the check refuses.
     archived = worktree / "openspec/specs/landed/spec.md"
-    assert archived.is_file(), "run the verify test first: its archive writes this spec"
+    assert archived.is_file(), landed.passed.output
     archived.write_text(
         "\n".join(
             "The app exposes a marker function that other modules call to read the build marker."
@@ -477,9 +522,13 @@ def hook(scratch: Scratch, unit: Path, target: str) -> str:
 
 
 def test_a_unit_worktree_is_fenced_and_abk_run_there_finds_the_live_installation(
-    scratch: Scratch, installed: Ran
+    scratch: Scratch, installed: Installed
 ) -> None:
     assert installed.returncode == 0, installed.output
+    # Something only the live store holds, so the unit worktree's own copy reads differently.
+    UnitStore(scratch.worktree / "runs" / "units.json").upsert(
+        [stored_unit("fence/1", change="fence", repo="app")]
+    )
     unit = scratch.base / "unit"
     git(
         scratch.working_copy,
