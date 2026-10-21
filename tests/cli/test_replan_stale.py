@@ -8,20 +8,13 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.units import IN_REVIEW
-from tests.cli.replan_driver import Replan, answer, enable_review, planned, tasks_md
+from tests.cli.replan_driver import Replan, answer, enable_review, listing, planned, tasks_md
 from tests.factories import unit
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
 OLD_SIZING = "a-digest-of-other-ceilings"
 PLAN = answer(planned("alpha/1", (1,)))
-
-
-def listing(run: Replan, capsys: pytest.CaptureFixture[str]) -> dict[str, str]:
-    code, out = run.run(capsys)
-    assert code == 2
-    lines = (line for line in out.splitlines() if ": " in line and "usage" not in line)
-    return {line.split(": ", 1)[0]: line for line in lines}
 
 
 def test_the_listing_marks_a_stale_plan_and_not_a_current_one(

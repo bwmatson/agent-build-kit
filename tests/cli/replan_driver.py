@@ -6,6 +6,7 @@ sends (prose, then a JSON graph), and what was asked of it is counted in `calls`
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -14,6 +15,7 @@ import pytest
 
 from agent_build_kit import runtimes
 from agent_build_kit.cli import main
+from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.config import dump
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
@@ -23,6 +25,7 @@ from tests.calibration_support import write_store
 from tests.conftest import make_installation
 from tests.factories import activate_with, new_unit
 from tests.runtimes.stand_in import StandInRuntime
+from tests.tick_pass import isolate
 
 OPT_OUT = "Acceptance: none — a fixture about replanning\n"
 
@@ -81,10 +84,11 @@ def record_plan(inst: Installation, change: str, **fields) -> None:
     path.write_text(json.dumps({**records, change: entry}))
 
 
-def enable_review(run: Replan) -> None:
-    """Turn `review.enabled` on, in the active configuration and in the `abk.yaml` a command
-    run through `main` loads, so a plan recorded with no `sizing` is stale."""
-    updated = activate_with(review={"enabled": True})
+def enable_review(run: Replan, **review) -> None:
+    """Turn `review.enabled` on, with `review` settings beside it, in the active configuration
+    and in the `abk.yaml` a command run through `main` loads, so a plan recorded with no
+    `sizing` is stale. Calling it again with other settings changes the policy in force."""
+    updated = activate_with(review={"enabled": True, **review})
     (run.inst.root / "abk.yaml").write_text(dump(updated))
 
 
@@ -161,3 +165,32 @@ def seed_landed_and_planned(run: Replan, *, old: str, queued: str) -> None:
         ),
     ]
     write_store(run.store.path.parent, units)
+
+
+def ticking_replan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, changes: dict[str, str]
+) -> Replan:
+    """A planning repo whose tick plans for real, with everything else around it stubbed, and
+    review sizing on."""
+    plan_all = cli.plan_all
+    isolate(monkeypatch)
+    monkeypatch.setattr(cli, "plan_all", plan_all)
+    run = Replan(tmp_path, monkeypatch, **changes)  # pyrefly: ignore[bad-argument-type]
+    enable_review(run)
+    return run
+
+
+def tick(run: Replan, capsys: pytest.CaptureFixture[str]) -> tuple[int, str]:
+    """One tick over `run`'s planning repo: its exit status and everything it printed."""
+    capsys.readouterr()
+    code = cli.cmd_tick(argparse.Namespace(dry_run=False), run.inst)
+    seen = capsys.readouterr()
+    return code, seen.out + seen.err
+
+
+def listing(run: Replan, capsys: pytest.CaptureFixture[str]) -> dict[str, str]:
+    """The line `abk replan` with no arguments prints for each change, by change name."""
+    code, out = run.run(capsys)
+    assert code == 2
+    lines = (line for line in out.splitlines() if ": " in line and "usage" not in line)
+    return {line.split(": ", 1)[0]: line for line in lines}

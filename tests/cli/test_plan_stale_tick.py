@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.units import IN_REVIEW
-from tests.cli.replan_driver import Replan, answer, enable_review, planned, tasks_md
+from tests.cli.replan_driver import Replan, answer, planned, tasks_md, tick, ticking_replan
 from tests.factories import unit
-from tests.tick_pass import isolate
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -21,22 +19,8 @@ OLD_SIZING = "a-digest-of-other-ceilings"
 def run_in(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, feature: str, other: str = ""
 ) -> Replan:
-    """A planning repo whose tick plans for real, with everything else around it stubbed."""
-    plan_all = cli.plan_all
-    isolate(monkeypatch)
-    monkeypatch.setattr(cli, "plan_all", plan_all)
-    run = Replan(tmp_path, monkeypatch, feature=feature)
-    if other:
-        run.write("other", other)
-    enable_review(run)
-    return run
-
-
-def tick(run: Replan, capsys: pytest.CaptureFixture[str]) -> tuple[int, str]:
-    capsys.readouterr()
-    code = cli.cmd_tick(argparse.Namespace(dry_run=False), run.inst)
-    seen = capsys.readouterr()
-    return code, seen.out + seen.err
+    changes = {"feature": feature, **({"other": other} if other else {})}
+    return ticking_replan(tmp_path, monkeypatch, changes)
 
 
 def test_a_stale_plan_is_not_planned_is_named_and_is_not_work(
