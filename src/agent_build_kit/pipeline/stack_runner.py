@@ -47,7 +47,6 @@ from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.flakes import OnFlake
 from agent_build_kit.pipeline.install_record import ALWAYS_INSTALLABLE, STAGING
 from agent_build_kit.pipeline.lease import Leases
-from agent_build_kit.pipeline.planner import REVIEW_TIERS
 from agent_build_kit.pipeline.pr_replies import last_json, parse_answer
 from agent_build_kit.pipeline.reuse_guidance import reuse_guidance
 from agent_build_kit.pipeline.scratch import output_convention
@@ -64,6 +63,7 @@ from agent_build_kit.pipeline.units import (
     UnitState,
     later_groups_by_change,
 )
+from agent_build_kit.pipeline.verdict import REVIEW_TIERS
 from agent_build_kit.pipeline.work_graph import validate_tasks
 
 

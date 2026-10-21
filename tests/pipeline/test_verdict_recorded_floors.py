@@ -165,3 +165,10 @@ def test_a_missing_classification_is_named() -> None:
 
     assert verdict.tier is FULL
     assert "classification" in verdict.reason
+
+
+def test_an_auto_verdict_names_no_single_source_for_its_reason() -> None:
+    verdict = compute_verdict(green_facts(), PROVEN)
+
+    assert verdict.tier is AUTO
+    assert "no recorded fact" in verdict.reason

@@ -8,6 +8,7 @@ from __future__ import annotations
 import itertools
 from typing import Any, NamedTuple
 
+from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline.verdict import (
     ClassHistory,
     GateResult,
@@ -39,7 +40,18 @@ FLOORS = [
     Floor("classified-light", LIGHT, {"classification": LIGHT}),
     Floor("classified-full", FULL, {"classification": FULL}),
     Floor("no-classification", FULL, {"classification": None}),
+    Floor(
+        "e2e-test-missing",
+        FULL,
+        {"kind": TestTier.E2E_TEST, "e2e_test": GateResult.MISSING},
+    ),
+    Floor(
+        "e2e-pending-final",
+        FULL,
+        {"kind": TestTier.E2E_TEST, "e2e_test": GateResult.PENDING, "final": True},
+    ),
     Floor("thin-history", LIGHT, {}, ClassHistory(samples=1, clean=1)),
+    Floor("low-clean-rate", LIGHT, {}, ClassHistory(samples=20, clean=10)),
 ]
 
 
@@ -51,7 +63,9 @@ def _verdict(*floors: Floor) -> ReviewTier:
     changes: dict[str, Any] = {}
     for floor in floors:
         changes.update(floor.changes)
-    history = min((f.history for f in floors), key=lambda h: h.samples)
+    # Two histories cannot both be the class's; every history floor here gives `light`, so the
+    # thinner one stands for them and the combined tier is the same either way.
+    history = min((f.history for f in floors), key=lambda h: (h.clean / h.samples, h.samples))
     return compute_verdict(green_facts(**changes), history).tier
 
 

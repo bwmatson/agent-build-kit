@@ -50,6 +50,7 @@ from agent_build_kit.pipeline.units import (
     direct_dependencies,
     waiting_on_me,
 )
+from agent_build_kit.pipeline.verdict import REVIEW_TIERS
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.work_graph import (
     GROUP_HEADING,
@@ -64,9 +65,6 @@ from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.base import AgentRuntime, PromptTooLarge, check_prompt_size
 
 RunClaude = Callable[[str], str]
-
-# The review tiers, least review first.
-REVIEW_TIERS = ("auto", "light", "full")
 
 REVIEW_PROMPT = """\
 Review tier: give each unit a `review_tier` of `auto`, `light` or `full`, the review you

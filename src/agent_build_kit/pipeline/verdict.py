@@ -49,7 +49,7 @@ class VerdictFacts(Frozen):
     final: bool = False
 
 
-class Verdict(Frozen):
+class TierVerdict(Frozen):
     tier: ReviewTier
     evidence_tier: ReviewTier
     reason: str
@@ -57,7 +57,8 @@ class Verdict(Frozen):
 
 NO_HISTORY = ClassHistory()
 DEFAULT_POLICY = AutoLandConfig()
-_ORDER = (ReviewTier.AUTO, ReviewTier.LIGHT, ReviewTier.FULL)
+# The review tiers, least review first: the one order every comparison of tiers uses.
+REVIEW_TIERS = tuple(ReviewTier)
 _FLOORED_FLAGS = ("contract", "narrow", "acceptance")
 
 
@@ -65,7 +66,7 @@ def compute_verdict(
     facts: VerdictFacts,
     history: ClassHistory = NO_HISTORY,
     policy: AutoLandConfig = DEFAULT_POLICY,
-) -> Verdict:
+) -> TierVerdict:
     """The highest floor the facts give, with the rule that decided it. Calls no model.
 
     Floors are tried in the order the spec lists them; the first of the highest wins the reason.
@@ -95,7 +96,9 @@ def compute_verdict(
         floors.append((ReviewTier.FULL, "the reviewer gave no classification"))
     else:
         floors.append((facts.classification, f"the reviewer classified it {facts.classification}"))
-    evidence_tier, reason = _highest(floors, ReviewTier.AUTO, "the plan gives no floor above auto")
+    evidence_tier, reason = _highest(
+        floors, ReviewTier.AUTO, "no recorded fact gives a floor above auto"
+    )
 
     if history.samples < policy.min_samples:
         history_floor = (
@@ -115,7 +118,7 @@ def compute_verdict(
         ReviewTier.AUTO,
         reason,
     )
-    return Verdict(tier=tier, evidence_tier=evidence_tier, reason=reason)
+    return TierVerdict(tier=tier, evidence_tier=evidence_tier, reason=reason)
 
 
 def _highest(
@@ -123,6 +126,6 @@ def _highest(
 ) -> tuple[ReviewTier, str]:
     """The highest floor; the first of equals keeps the reason."""
     for floor, why in floors:
-        if _ORDER.index(floor) > _ORDER.index(tier):
+        if REVIEW_TIERS.index(floor) > REVIEW_TIERS.index(tier):
             tier, reason = floor, why
     return tier, reason
