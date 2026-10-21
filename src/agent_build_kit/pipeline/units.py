@@ -1068,13 +1068,16 @@ def _worked_on(unit: Unit) -> bool:
     )
 
 
-def in_progress_label(unit: Unit) -> str:
+def in_progress_label(unit: Unit, *, parked: Collection[str] = ()) -> str:
     """Why an in-progress unit counts, for the report of a full queue.
 
     A planned or unplanned unit is in progress only because something was
     already done to it, so it is named for that, not `planned`: "reworking"
-    with a pull request, "paused" with only a branch of work.
+    with a pull request, "paused" with only a branch of work. A unit in `parked`
+    (the started units a pause holds) is "paused" whatever its state.
     """
+    if unit.id in parked:
+        return "paused"
     if unit.state in (PLANNED, UnitState.UNPLANNED):
         return "reworking" if getattr(unit, "pr", None) is not None else "paused"
     if unit.state == FAILED and getattr(unit, "cause", None) == "environment":

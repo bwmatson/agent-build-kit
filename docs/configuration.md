@@ -724,6 +724,12 @@ account. From then on `project_limits.max_units_in_progress` bounds the default 
 across all its projects together, not each project, and that includes a repo whose label has no
 directory on this machine, so a person with one account sees the one limit shared by every repo. `abk report --by account` groups the ledger by account.
 
+What counts against `max_units_in_progress` includes a started unit (`running` with a branch) that a
+usage pause parked before its agent step: it holds its place and shows as `paused` in the full-queue
+line. At admission, before `prepare`, a ready unit is checked against its own account's usage decision;
+a refused unit waits with `usage_pause` naming the account. `max_concurrent_stacks` is counted for each
+project, not for each account.
+
 They are independent layers, and both may be used. For a fact either could carry, the loader
 reads the entry itself (which `verify.env` variable exists, and its provider) from `abk.yaml`
 merged with `abk.local.yaml`, and reads that entry's value from the file its `env-file`
