@@ -4,7 +4,7 @@ run left, and what a commit says can be read back from the branch."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -30,15 +30,26 @@ def titled(*numbers: int) -> Groups:
     return {number: (f"G{number}", "") for number in numbers}
 
 
-def write_tasks(tmp_path: Path, change: str, groups: Groups) -> None:
-    """The change's tasks file in the planning repo, where titles and goals are read from."""
+def write_tasks(
+    tmp_path: Path,
+    change: str,
+    groups: Groups,
+    *,
+    e2e: Collection[int] = (),
+    tests_only: Collection[int] = (),
+) -> None:
+    """The change's tasks file in the planning repo, where titles and goals are read from.
+    The groups in `e2e` are headed `[e2e-test]`, the others `[unit-test]`; those in
+    `tests_only` hold nothing but `Test:` tasks."""
     path = tmp_path / "meta" / "openspec" / "changes" / change / "tasks.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         "".join(
-            f"## {n}. [app] [unit-test] {title}\n\n"
+            f"## {n}. [app] [{'e2e-test' if n in e2e else 'unit-test'}] {title}\n\n"
             + (f"{goal}\n\n" if goal else "")
-            + f"- [ ] {n}.1 Test: a\n- [ ] {n}.2 Do a\n\n"
+            + f"- [ ] {n}.1 Test: a\n"
+            + ("" if n in tests_only else f"- [ ] {n}.2 Do a\n")
+            + "\n"
             for n, (title, goal) in groups.items()
         )
     )
@@ -97,7 +108,7 @@ def subjects(repo: Path) -> list[str]:
     return [message.split("\n", 1)[0] for message in messages(repo)]
 
 
-def built(
+def prepared(
     tmp_path: Path,
     *,
     seeded: list[str] | None = None,
@@ -106,16 +117,27 @@ def built(
     setting: bool = True,
     meanwhile: Callable[[Path], None] | None = None,
     guidance: str = "",
+    e2e: Collection[int] = (),
+    tests_only: Collection[int] = (),
     **options: Any,
-) -> tuple[OnBranch, RunOutcome, Path]:
-    """Build the unit over a branch holding `seeded` subjects. `groups` is each change's tasks,
-    the unit's own change first; the unit builds the groups listed under its own change and
-    those the members in `carries` name. `meanwhile` acts on the branch before the build starts,
-    and `guidance` is a person's note saved on the unit before it does."""
+) -> tuple[OnBranch, Path]:
+    """The recorder and the branch for building the unit over a branch holding `seeded`
+    subjects. `groups` is each change's tasks, the unit's own change first; the unit builds
+    the groups listed under its own change and those the members in `carries` name. `e2e` and
+    `tests_only` are the numbers of its own change's groups headed `[e2e-test]` and holding only
+    tests. `meanwhile` acts on the branch before the build starts, and `guidance` is a person's
+    note saved on the unit before it does."""
     activate_with(builders={"per_group_commits": setting})
     tasks = groups or {"add-marker": titled(1, 2, 3)}
     for change, listed in tasks.items():
-        write_tasks(tmp_path, change, listed)
+        own = change == "add-marker"
+        write_tasks(
+            tmp_path,
+            change,
+            listed,
+            e2e=e2e if own else (),
+            tests_only=tests_only if own else (),
+        )
     repo = seeded_branch(tmp_path, seeded or [])
     if meanwhile:
         meanwhile(repo)
@@ -123,6 +145,11 @@ def built(
     store.upsert([stored_unit(groups=tuple(tasks["add-marker"]), joined=carries)])
     if guidance:
         store.set_guidance(UNIT, guidance)
-    recorder = OnBranch(store, **options)
+    return OnBranch(store, **options), repo
+
+
+def built(tmp_path: Path, **kwargs: Any) -> tuple[OnBranch, RunOutcome, Path]:
+    """Build the unit over the branch `prepared` makes."""
+    recorder, repo = prepared(tmp_path, **kwargs)
     outcome = build(tmp_path, recorder, **recorder.overrides(tmp_path))
     return recorder, outcome, repo
