@@ -106,9 +106,38 @@ def test_a_reply_may_raise_a_unit_above_its_floor() -> None:
     assert units[0].review_tier == "full"
 
 
-def test_an_unknown_value_is_refused() -> None:
-    with pytest.raises(PlannerError, match="ful"):
+def test_an_unknown_value_is_refused_naming_unit_group_and_floor() -> None:
+    with pytest.raises(PlannerError) as refused:
         plan((1,), flags=("",), tier="ful")
+
+    message = str(refused.value)
+    assert "ful" in message
+    assert "feature/1" in message
+    assert "group 1" in message
+    assert "'auto'" in message
+
+
+def test_with_review_disabled_the_field_is_ignored() -> None:
+    activate_with(review={"enabled": False})
+
+    units = plan((1,), flags=("",), tier="ful")
+
+    assert units[0].review_tier is None
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Edit `.github/workflows/ci.yml` to run it.",
+        "Add .env for the key.",
+        "Update .gitlab-ci.yml.",
+        "Change the CI definition (.github/workflows/ci.yml).",
+    ],
+)
+def test_a_protected_path_that_begins_with_a_dot_makes_the_floor_full(body: str) -> None:
+    assert plan((1,), flags=("",), bodies=(body,), tier=None)[0].review_tier == "full"
+    with pytest.raises(PlannerError, match=r"feature/1.*group 1.*full"):
+        plan((1,), flags=("",), bodies=(body,), tier="auto")
 
 
 def test_an_omitted_value_takes_the_floor() -> None:

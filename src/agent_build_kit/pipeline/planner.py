@@ -190,11 +190,6 @@ def parse_plan(
                     f"unit {raw['id']} has unknown tier {raw['tier']!r} "
                     f"(expected one of {', '.join(TEST_KIND_TAGS)})"
                 )
-            if raw.get("review_tier") not in (None, *REVIEW_TIERS):
-                raise PlannerError(
-                    f"unit {raw['id']} has unknown review_tier {raw['review_tier']!r} "
-                    f"(expected one of {', '.join(REVIEW_TIERS)})"
-                )
             if raw["id"] in taken:
                 raise PlannerError(
                     f"unit label {raw['id']!r} is the id of a retired, started or finished "
@@ -218,7 +213,8 @@ def parse_plan(
                     depends_on=tuple(raw.get("depends_on") or ()),
                     estimated_lines=int(raw.get("estimated_lines") or 0),
                     groups=tuple(raw.get("groups") or ()),
-                    review_tier=raw.get("review_tier"),
+                    # Read only with review enabled; `_with_review_tier` checks the value.
+                    review_tier=raw.get("review_tier") if active().review.enabled else None,
                 )
             )
         if active().review.enabled:
@@ -261,7 +257,8 @@ def _group_floor(group: TaskGroup, repo: str, tasks: str) -> tuple[str, str]:
         return "full", f"it is flagged [{group.flag}]"
     for section in group_sections(tasks, [group.number]):
         for word in section.split():
-            path = word.strip("`'\"()[],;:.")
+            # Sentence punctuation ends a word; a leading dot belongs to the path.
+            path = word.lstrip("`'\"([").rstrip("`'\")],;:.")
             if path and is_protected(active(), repo, path):
                 return "full", f"its tasks name the protected path {path}"
     return "auto", ""
@@ -271,13 +268,19 @@ def _with_review_tier(unit: Unit, groups: Sequence[TaskGroup], tasks: str) -> Un
     """The unit with the review tier it is recorded at: the planner's, never below the floor of
     the groups it builds, and the floor when the planner gave none."""
     by_number = {group.number: group for group in groups}
-    floor, number, why = "auto", 0, ""
+    floor, number, why = "auto", unit.groups[0] if unit.groups else 0, ""
     for n in unit.groups:
         if n in by_number:
             tier, reason = _group_floor(by_number[n], unit.repo, tasks)
             if REVIEW_TIERS.index(tier) > REVIEW_TIERS.index(floor):
                 floor, number, why = tier, n, reason
     asked = unit.review_tier or floor
+    if asked not in REVIEW_TIERS:
+        raise PlannerError(
+            f"unit {unit.id} has unknown review tier {asked!r} "
+            f"(expected {', '.join(REVIEW_TIERS[:-1])} or {REVIEW_TIERS[-1]}); "
+            f"group {number} sets its floor at {floor!r}"
+        )
     if REVIEW_TIERS.index(asked) < REVIEW_TIERS.index(floor):
         raise PlannerError(
             f"unit {unit.id} asks for review tier {asked!r}, but group {number} sets its floor "
