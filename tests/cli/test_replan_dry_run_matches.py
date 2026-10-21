@@ -12,8 +12,8 @@ from tests.cli.replan_driver import Replan, answer, enable_review, planned, task
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
 REPLY = answer(
-    {**planned("feature/left", (1, 2), lines=300), "review_tier": "light"},
-    {**planned("feature/right", (3,), lines=120), "review_tier": "auto"},
+    {**planned("feature/1", (1, 2), lines=300), "review_tier": "light"},
+    {**planned("feature/3", (3,), lines=120), "review_tier": "auto"},
 )
 
 
@@ -33,7 +33,7 @@ def test_the_units_a_dry_run_prints_are_the_units_a_replan_stores(
 
     assert code == 0
     assert run.calls == 2
-    assert {unit.id for unit in stored} == {"feature/left", "feature/right"}
+    assert {unit.id for unit in stored} == {"feature/1", "feature/3"}
     for unit in stored:
         line = next(line for line in dry_out.splitlines() if unit.id in line)
         assert str(unit.estimated_lines) in line

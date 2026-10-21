@@ -569,7 +569,7 @@ or one the pass is holding: a run killed in a node resumes from its thread. Reco
 once, after a second, when the first read fails; if the second fails too, the
 unit is logged as stranded and the error is raised as before.
 
-### `abk replan [CHANGE|UNIT ...] [--all] [--failed] [--forget] [--report]`
+### `abk replan [CHANGE|UNIT ...] [--all] [--failed] [--forget] [--report] [--dry-run]`
 
 Plans changes again now, whatever their recorded plan says. A tick plans a change
 only when its `tasks.md` changes (or its last plan failed and attempts remain);
@@ -583,6 +583,12 @@ says how many model calls it will make.
   the groups each carries, and whether a replan would call the planner once or ask
   nothing of it (every group already taken), then the total number of planner calls.
   It makes no model call and writes nothing; names are refused as without it.
+- **Previewing.** `--dry-run` asks the planner as a replan does, against copies of the unit
+  store and the plan records in a temporary directory, and prints the planner-call count
+  first, then each unit the plan would store with its groups, expected review tier and
+  estimated lines against that tier's ceiling, and each unit that would become `unplanned`.
+  Nothing stored is written. A plan that is refused or fails prints that the old plan stands
+  and exits 1.
 - **Selecting.** Names are the folders of the active changes. A unit id
   (`feature/2`) is mapped to the change that carries it, and the command says so.
   `--all` is every active change; `--failed` every change whose last plan failed

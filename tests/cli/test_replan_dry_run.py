@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline.units import MERGED
+from agent_build_kit.pipeline.units import PLANNED
 from tests.cli.plan_outage_fakes import raises, service
 from tests.cli.replan_driver import Replan, answer, enable_review, planned, tasks_md
 from tests.factories import stored_unit
@@ -16,7 +16,9 @@ from tests.split_sources import snapshot_tree
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
 OLD = tuple(f"feature/{n}" for n in range(1, 5))
-LIGHT_600 = answer({**planned("feature/all", (1, 2, 3, 4), lines=600), "review_tier": "light"})
+# A unit takes the id of its lowest group, so the new unit reuses `feature/1`.
+DROPPED = OLD[1:]
+LIGHT_600 = answer({**planned("feature/1", (1, 2, 3, 4), lines=600), "review_tier": "light"})
 
 
 def four_small_units(run: Replan) -> None:
@@ -45,9 +47,9 @@ def test_a_dry_run_lists_the_unit_with_its_tier_and_the_old_units_as_unplanned(
     code, out = run.run(capsys, "feature", "--dry-run", reply=LIGHT_600)
 
     assert code == 0
-    unit_line = line_with(out, "feature/all")
+    unit_line = line_with(out, "feature/1")
     assert "light" in unit_line and "600 of 2000" in unit_line
-    for uid in OLD:
+    for uid in DROPPED:
         assert "unplanned" in line_with(out, uid)
     assert run.calls == 1
 
@@ -102,7 +104,7 @@ def test_a_dry_run_writes_nothing_when_the_plan_is_refused(
     run = Replan(tmp_path, monkeypatch, feature=tasks_md(2))
     enable_review(run)
     run.store.upsert([stored_unit("feature/1", change="feature", groups=(1, 2))])
-    run.store.set_state("feature/1", MERGED, branch="spec/feature/1", pr=1)
+    run.store.set_state("feature/1", PLANNED, branch="spec/feature/1")
     run.record("feature")
     before = snapshot_tree(run.inst.root)
     reply = answer(planned("feature/a", (1,)), planned("feature/b", (2,)))

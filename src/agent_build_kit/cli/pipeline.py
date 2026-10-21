@@ -21,8 +21,10 @@ import asyncio
 import contextvars
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from collections.abc import Callable, Collection, Hashable, Iterable, Mapping, Sequence
@@ -5724,12 +5726,14 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
         for change in (path.parent.name for path in inst.tasks_files()):
             shown = _plan_state(records.get(change), max_attempts, change in standing)
             print(f"{change}: {shown}")
-        print("usage: abk replan CHANGE|UNIT... | --all | --failed [--forget] [--report]")
+        print(
+            "usage: abk replan CHANGE|UNIT... | --all | --failed [--forget] [--report] [--dry-run]"
+        )
         return 2
 
     selected: dict[str, None] = {}
     refused = 0
-    verb = "reporting" if args.report else "planning"
+    verb = "reporting" if args.report else "previewing" if args.dry_run else "planning"
     units = {unit.id: unit for unit in store.all()}
     for name in args.changes:
         change = name
@@ -5770,6 +5774,8 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
     if args.report:
         _print_replan_report(inst, store, to_plan)
         return 1 if refused else 0
+    if args.dry_run:
+        return _print_replan_dry_run(inst, store, to_plan, refused)
     if args.forget:
         record_plans(inst, dict.fromkeys(to_plan))
         for change in to_plan:
@@ -5825,6 +5831,63 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
     ) or any(results[change].cycle for change in to_plan)
     release_split_changed(inst, store, only=set(to_plan))
     return 1 if refused or failed or cyclic else 0
+
+
+def _print_replan_dry_run(
+    inst: Installation, store: UnitStore, changes: list[str], refused: int
+) -> int:
+    """What `abk replan` would store for `changes`: the planner is asked as a replan asks it,
+    against copies of the unit store and the plan records in a temporary directory, so
+    nothing stored is written."""
+    if not changes:
+        print("no change to plan")
+        return 1 if refused else 0
+    print(f"dry run for {', '.join(changes)}: {len(changes)} planner call(s)")
+    with tempfile.TemporaryDirectory(prefix="abk-dry-run-") as tmp:
+        scratch = Path(tmp)
+        for name in ("units.json", "planned.json"):
+            if (inst.state_dir / name).is_file():
+                shutil.copy2(inst.state_dir / name, scratch / name)
+        planning = inst.config.planning.model_copy(
+            update={
+                "state_dir": str(scratch),
+                "graph_page": str(scratch / "graph.html"),
+                "usage_page": str(scratch / "usage.html"),
+            }
+        )
+        copy = Installation(inst.config.model_copy(update={"planning": planning}), inst.root)
+        trial = UnitStore(scratch / "units.json")
+        reduce_stored_dependencies(trial)
+        before = {unit.id: unit for unit in trial.all()}
+        results = plan_all(copy, store=trial, only=set(changes), force=True)
+        link_needs(copy, store=trial)
+        after = {unit.id: unit for unit in trial.all()}
+        reasons = {
+            change: planned_hashes(copy).get(change, {}).get("reason", "") for change in changes
+        }
+    failed = 0
+    for change in changes:
+        if results[change].status != "planned":
+            failed += 1
+            suffix = f": {reasons[change]}" if reasons[change] else ""
+            if results[change].status == "waiting":
+                print(f"{change}: the planner is unavailable; the change waits, no attempt used")
+            else:
+                print(f"{change}: the plan would be refused or fail{suffix}; the old plan stands")
+            continue
+        for unit in after.values():
+            if unit.change == change and unit.state == PLANNED:
+                tier = unit.review_tier or "full"
+                print(
+                    f"{unit.id}: would be stored, groups {', '.join(str(n) for n in unit.groups)},"
+                    f" {tier}, {unit.estimated_lines} of {unit_ceiling(unit)} lines"
+                )
+        for unit in after.values():
+            old = before.get(unit.id)
+            if unit.change == change and unit.state == UNPLANNED and old and old.state != UNPLANNED:
+                groups = ", ".join(str(n) for n in old.groups)
+                print(f"{unit.id}: would become unplanned (groups {groups})")
+    return 1 if refused or failed else 0
 
 
 def _print_replan_report(inst: Installation, store: UnitStore, changes: list[str]) -> None:
@@ -6368,6 +6431,11 @@ def register(sub: argparse._SubParsersAction) -> None:
         "--report",
         action="store_true",
         help="only show what a replan would do for each change; no model call, no write",
+    )
+    replan.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="ask the planner and show the units each change would get; write nothing",
     )
     replan.set_defaults(func=cmd_replan)
 
