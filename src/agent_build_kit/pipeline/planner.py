@@ -106,9 +106,10 @@ def parse_graph(
     groups: list[TaskGroup] | None = None,
     built: set[int] | None = None,
     known: set[str] | None = None,
+    tasks: str = "",
 ) -> list[Unit]:
     """Read and verify a proposed graph, or raise `PlannerError`."""
-    return list(parse_plan(output, groups=groups, built=built, known=known).units)
+    return list(parse_plan(output, groups=groups, built=built, known=known, tasks=tasks).units)
 
 
 def parse_plan(
@@ -121,10 +122,12 @@ def parse_plan(
     context: JoinContext | None = None,
     calibrations: Mapping[Kind, Calibration] | None = None,
     retired: Collection[str] = (),
+    tasks: str = "",
 ) -> Plan:
     """Read and verify a proposed graph and its joins, or raise `PlannerError`.
 
-    `retired` is the ids of retired units: taken, so a label may not be one. A unit's `id` in
+    `tasks` is the change's tasks.md text, where the review tier's floor looks for protected
+    paths. `retired` is the ids of retired units: taken, so a label may not be one. A unit's `id` in
     the reply is a label; the returned units carry the ids assigned from their groups.
 
     Joins are checked against `context`; without one, none may be proposed.
