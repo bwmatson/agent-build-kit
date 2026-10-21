@@ -368,11 +368,11 @@ def ceilings_in_effect(repo: RepoConfig, config: WorkspaceConfig) -> CeilingsCon
     return CeilingsConfig(
         auto=own.auto if own.auto is not None else config.review.ceilings.auto,
         light=own.light if own.light is not None else config.review.ceilings.light,
-        full=own.full if own.full is not None else _full_ceiling(config),
+        full=own.full if own.full is not None else workspace_full_ceiling(config),
     )
 
 
-def _full_ceiling(config: WorkspaceConfig) -> int:
+def workspace_full_ceiling(config: WorkspaceConfig) -> int:
     """`review.ceilings.full` when set, else the deprecated `global_limits.max_unit_lines`."""
     if "full" in config.review.ceilings.model_fields_set:
         return config.review.ceilings.full
@@ -1279,9 +1279,17 @@ SESSION_REUSE_ROLES = ("build", "review")
 # The root key `global_limits` was called `limits` before; the old name still loads.
 DEPRECATED_ROOT_KEY = "limits"
 
+# The setting `review.ceilings.full` replaces, as `abk config` and `abk doctor` name it.
+DEPRECATED_MAX_UNIT_LINES = "global_limits.max_unit_lines"
+
 
 def deprecation_notice(key: str) -> str:
-    """What `abk config` and `abk doctor` say of a deprecated root key."""
+    """What `abk config` and `abk doctor` say of a deprecated key."""
+    if key == DEPRECATED_MAX_UNIT_LINES:
+        return (
+            f"`{key}` is deprecated for `review.ceilings.full`; "
+            "`abk config --migrate` moves it, or set `review.ceilings.full` yourself"
+        )
     return (
         f"`{key}` is deprecated for `global_limits`; "
         "`abk config --migrate` moves it to the new names"
@@ -1524,6 +1532,29 @@ class WorkspaceConfig(Frozen):
                     )
                 seen[entry.marker] = name
         return self
+
+    @model_validator(mode="before")
+    @classmethod
+    def _max_unit_lines_agrees_with_full_ceiling(cls, data: Any) -> Any:
+        """Both the deprecated `global_limits.max_unit_lines` and `review.ceilings.full` set to
+        different values are refused (`workspace_full_ceiling` reads the one that is set)."""
+        if not isinstance(data, dict):
+            return data
+        limits, review = data.get("global_limits"), data.get("review") or {}
+        if not isinstance(limits, dict) or "max_unit_lines" not in limits:
+            return data
+        if not isinstance(review, dict):
+            return data
+        ceilings = review.get("ceilings") or {}
+        if not isinstance(ceilings, dict):
+            return data
+        old = limits["max_unit_lines"]
+        if "full" in ceilings and ceilings["full"] != old:
+            raise ValueError(
+                f"{DEPRECATED_MAX_UNIT_LINES} ({old}) and review.ceilings.full "
+                f"({ceilings['full']}) disagree; set only review.ceilings.full"
+            )
+        return data
 
     @model_validator(mode="after")
     def _ceilings_ordered_above_floor(self) -> WorkspaceConfig:
@@ -1901,6 +1932,9 @@ def deprecations(path: Path) -> list[str]:
     for _, raw in _raw_files(path):
         if DEPRECATED_ROOT_KEY in raw:
             return [DEPRECATED_ROOT_KEY]
+    for _, raw in _raw_files(path):
+        if "max_unit_lines" in (raw.get("global_limits") or {}):
+            return [DEPRECATED_MAX_UNIT_LINES]
     return []
 
 
