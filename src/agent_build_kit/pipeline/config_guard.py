@@ -50,11 +50,19 @@ def _difference(path: Path, before: bytes | None, after: bytes | None) -> str:
 @contextmanager
 def config_unchanged(root: Path) -> Iterator[None]:
     """Run the block, then raise `ConfigChanged` if `abk.yaml` or `abk.local.yaml` under `root`
-    differs from what it was on entry, naming the file and showing the difference. A block that
-    raises is left to raise."""
+    differs from what it was on entry, naming the file and showing the difference.
+
+    A block that raised is compared too: a run that stops (the usage window, an interruption) is
+    often resumed, and the resumed run would take the changed file as its own start. When a file
+    differs, `ConfigChanged` replaces the error, chained from it, so the unit fails instead of
+    being parked; when nothing differs, the block's error propagates unchanged."""
     watched = config_files(root)
     before = {path: _read(path) for path in watched}
-    yield
+    raised: BaseException | None = None
+    try:
+        yield
+    except BaseException as error:
+        raised = error
     problems = [
         _difference(path, before[path], after)
         for path in watched
@@ -65,4 +73,6 @@ def config_unchanged(root: Path) -> Iterator[None]:
             "\n".join(problems)
             + "\nThe file is a person's to change and is left as it is now. If a person edited it "
             "while the run was in progress, requeue the unit once the edit is done."
-        )
+        ) from raised
+    if raised is not None:
+        raise raised
