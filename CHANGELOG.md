@@ -8,6 +8,7 @@
   loading, and `abk doctor` prints the buffered ceilings and warns near the limit or when
   `split_rounds` is 0 with review enabled. The review verdict also gains a size step, groundwork for the
   hold that a later change wires in.
+
 - `abk status` now names a started unit that a pause has parked before its agent step "paused", not
   "running", in the full-queue line; such a unit still holds its place against the limit. The
   documents and the `abk-pipeline` skill now say what admission checks (a ready unit's own account's
