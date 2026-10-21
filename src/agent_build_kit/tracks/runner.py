@@ -207,9 +207,10 @@ def repo_reachable(name: str, inst: Installation) -> bool:
 
 def eligible_projects(inst: Installation, only: str | None = None) -> list[Project]:
     """abk.yaml's repos filtered down to the ones a track can work on: a git
-    checkout whose `origin` is the repo the config names, on a host that
-    answers for it. Anything else is logged and skipped — not an error, so a
-    repo can be listed before it has a remote."""
+    checkout with an `origin`, which names the repo the config names unless the
+    repo's forge takes any origin (`any_remote`), on a host that answers for it.
+    Anything else is logged and skipped — not an error, so a repo can be listed
+    before it has a remote."""
     projects: list[Project] = []
     for name, repo in inst.config.repos.items():
         if only and name != only:

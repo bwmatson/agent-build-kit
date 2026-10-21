@@ -306,10 +306,12 @@ class LocalForge:
                 f"{label}: it records no fork point or tip (opened before they were kept, "
                 "or its branch never existed)"
             )
-        shown = git(checkout, "diff", "--name-only", fork, tip, check=False)
+        # NUL-separated and without rename detection: git quotes odd names otherwise, and a
+        # moved file would be listed only under its new name.
+        shown = git(checkout, "diff", "--name-only", "-z", "--no-renames", fork, tip, check=False)
         if shown.returncode:
             raise LocalPrUnreadable(f"{label}: git could not diff {fork[:10]}..{tip[:10]}")
-        return shown.stdout.splitlines()
+        return [name for name in shown.stdout.split("\0") if name]
 
     def pr_changes(self, repo: RepoId, pr: int) -> list[FileChange]:
         return []

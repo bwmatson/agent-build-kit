@@ -111,6 +111,19 @@ class Scratch(Frozen):
         data directory of the home it ran in."""
         return self.home / ".local" / "share" / "app" / "planning"
 
+    # What `tests.scratch_tick.Scratch` asks of a scratch, so a failure prints the SCRATCH STATE.
+    @property
+    def planning(self) -> Path:
+        return self.worktree
+
+    @property
+    def remote(self) -> Path:
+        return self.origin
+
+    @property
+    def state(self) -> Path:
+        return self.worktree / "runs"
+
     @property
     def origin(self) -> Path:
         assert self.setup.origin is not None
@@ -464,7 +477,11 @@ def test_a_planning_commit_holds_only_planning_paths_and_a_track_publishes_both_
 
     abk_file = worktree / "abk.yaml"
     abk_file.write_text(abk_file.read_text().replace('"direct"', '"branch"'))
-    branch = track_run(scratch, "branch")
+    try:
+        branch = track_run(scratch, "branch")
+    finally:
+        # The shared scratch goes back to publishing directly for the tests that follow.
+        git(worktree, "checkout", "-q", "--", "abk.yaml")
     assert branch.returncode == 0, branch.output
     published = planning_branches(scratch)
     assert len(published) == 1, branch.output
