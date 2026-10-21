@@ -26,7 +26,7 @@ import shlex
 from collections.abc import Callable, Iterable, Iterator
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import yaml
 from pydantic import (
@@ -44,6 +44,9 @@ from agent_build_kit.compat_names import Place, is_old_spelling, new_spelling, n
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.replay.models import DEFAULT_KEYED_HEADERS, UpstreamKind
 from agent_build_kit.runtimes import known_agents, providers
+
+if TYPE_CHECKING:
+    from agent_build_kit.pipeline.verdict import ReviewTier
 
 CONFIG_FILENAME = "abk.yaml"
 OVERLAY_FILENAME = "abk.local.yaml"
@@ -348,6 +351,32 @@ def e2e_unit_scope(repo: RepoConfig, limits: LimitsConfig) -> E2eUnitScope:
     """The scope in effect for `repo`: its own `tests.e2e_unit_scope` when set, else the
     `global_limits` one."""
     return repo.tests.e2e_unit_scope or limits.e2e_unit_scope
+
+
+def review_ceiling(repo: RepoConfig, config: WorkspaceConfig, tier: ReviewTier | None) -> int:
+    """The changed-lines ceiling in effect for a unit of `repo` expected to get `tier`: the
+    tier's own with `review.enabled`, the `full` one without it or when `tier` is None."""
+    ceilings = ceilings_in_effect(repo, config)
+    if not config.review.enabled or tier is None:
+        return ceilings.full
+    return getattr(ceilings, tier.value)
+
+
+def ceilings_in_effect(repo: RepoConfig, config: WorkspaceConfig) -> CeilingsConfig:
+    """The ceilings in effect for `repo`: its own value for a tier if set, else the workspace's."""
+    own = repo.review.ceilings
+    return CeilingsConfig(
+        auto=own.auto if own.auto is not None else config.review.ceilings.auto,
+        light=own.light if own.light is not None else config.review.ceilings.light,
+        full=own.full if own.full is not None else _full_ceiling(config),
+    )
+
+
+def _full_ceiling(config: WorkspaceConfig) -> int:
+    """`review.ceilings.full` when set, else the deprecated `global_limits.max_unit_lines`."""
+    if "full" in config.review.ceilings.model_fields_set:
+        return config.review.ceilings.full
+    return config.global_limits.max_unit_lines
 
 
 class E2eSchedule(StrEnum):
@@ -1064,10 +1093,19 @@ class AgentCommand(Frozen):
         return self
 
 
+class RepoCeilingsConfig(Frozen):
+    """A repo's own ceilings; a tier left unset follows the workspace's."""
+
+    auto: int | None = None
+    light: int | None = None
+    full: int | None = None
+
+
 class RepoReviewConfig(Frozen):
     """A repo's own review policy: the protected paths that add to the workspace's."""
 
     protected_paths: list[str] = []
+    ceilings: RepoCeilingsConfig = RepoCeilingsConfig()
 
 
 class RepoConfig(Frozen):
@@ -1275,6 +1313,36 @@ class AutoLandConfig(Frozen):
     min_clean_rate: float = Field(default=0.95, ge=0, le=1)
 
 
+class CeilingsConfig(Frozen):
+    """The changed-lines ceiling of a unit for each review tier."""
+
+    auto: int = 5000
+    light: int = 2000
+    full: int = 750
+
+
+def _check_ceilings(
+    label: str,
+    ceilings: CeilingsConfig,
+    check_floor: bool,
+    floor: int,
+    owned: frozenset[str] | None = None,
+) -> None:
+    """Raise unless `auto` >= `light` >= `full`, and `full` is above `floor` when `check_floor`.
+    With `owned`, a pair is checked only when one of its tiers is in it: a repo is not blamed
+    for a relation between two values it inherits."""
+    if (owned is None or {"auto", "light"} & owned) and ceilings.auto < ceilings.light:
+        raise ValueError(
+            f"{label}: auto ({ceilings.auto}) must not be below light ({ceilings.light})"
+        )
+    if (owned is None or {"light", "full"} & owned) and ceilings.light < ceilings.full:
+        raise ValueError(
+            f"{label}: light ({ceilings.light}) must not be below full ({ceilings.full})"
+        )
+    if check_floor and ceilings.full <= floor:
+        raise ValueError(f"{label}: full ({ceilings.full}) must exceed min_unit_lines ({floor})")
+
+
 class ReviewConfig(Frozen):
     """The review policy: which changes never land without a person, and how they are classed."""
 
@@ -1286,6 +1354,8 @@ class ReviewConfig(Frozen):
     # Class name to path globs, in the order that decides which class a unit belongs to.
     classes: dict[str, list[str]] = {}
     auto_land: AutoLandConfig = AutoLandConfig()
+    # Changed lines one unit may carry, by the review tier it is expected to get.
+    ceilings: CeilingsConfig = CeilingsConfig()
 
     @field_validator("classes")
     @classmethod
@@ -1435,6 +1505,28 @@ class WorkspaceConfig(Frozen):
                         f"{seen[entry.marker]}"
                     )
                 seen[entry.marker] = name
+        return self
+
+    @model_validator(mode="after")
+    def _ceilings_ordered_above_floor(self) -> WorkspaceConfig:
+        """`auto` at least `light`, `light` at least `full`, `full` above the floor, for the
+        workspace and for the ceilings in effect for each repo."""
+        floor = self.global_limits.min_unit_lines
+        ceilings = self.review.ceilings
+        _check_ceilings("review.ceilings", ceilings, "full" in ceilings.model_fields_set, floor)
+        for name, repo in self.repos.items():
+            own = repo.review.ceilings
+            owned = frozenset(
+                tier for tier in CeilingsConfig.model_fields if getattr(own, tier) is not None
+            )
+            if owned:
+                _check_ceilings(
+                    f"repos.{name}.review.ceilings",
+                    ceilings_in_effect(repo, self),
+                    "full" in owned,
+                    floor,
+                    owned,
+                )
         return self
 
     @model_validator(mode="after")

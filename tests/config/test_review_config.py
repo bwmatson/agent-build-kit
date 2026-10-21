@@ -26,8 +26,12 @@ def test_a_workspace_with_no_review_section_loads_with_the_defaults() -> None:
         "protected_defaults": True,
         "classes": {},
         "auto_land": {"min_samples": 20, "min_clean_rate": 0.95},
+        "ceilings": {"auto": 5000, "light": 2000, "full": 750},
     }
-    assert loaded.repos["app"].review.model_dump() == {"protected_paths": []}
+    assert loaded.repos["app"].review.model_dump() == {
+        "protected_paths": [],
+        "ceilings": {"auto": None, "light": None, "full": None},
+    }
 
 
 def test_each_key_loads_when_set() -> None:
@@ -49,12 +53,16 @@ def test_each_key_loads_when_set() -> None:
         "protected_defaults": False,
         "classes": {"docs": ["**/*.md"], "tests": ["tests/**"]},
         "auto_land": {"min_samples": 5, "min_clean_rate": 0.5},
+        "ceilings": {"auto": 5000, "light": 2000, "full": 750},
     }
     assert list(dumped["classes"]) == ["docs", "tests"], "the order is kept"
-    assert loaded.repos["app"].review.model_dump() == {"protected_paths": ["src/billing/**"]}
+    assert loaded.repos["app"].review.model_dump() == {
+        "protected_paths": ["src/billing/**"],
+        "ceilings": {"auto": None, "light": None, "full": None},
+    }
 
 
-@pytest.mark.parametrize("key", ["ceilings", "audit", "protected_path"])
+@pytest.mark.parametrize("key", ["audit", "protected_path"])
 def test_an_unknown_key_in_the_section_is_refused_naming_it(key: str) -> None:
     assert workspace({"enabled": True}).review.model_dump()["enabled"] is True
 
@@ -68,9 +76,9 @@ def test_an_unknown_key_under_auto_land_is_refused_naming_it() -> None:
 
 
 @pytest.mark.parametrize("key", ["enabled", "classes", "auto_land"])
-def test_a_repo_block_holds_only_protected_paths(key: str) -> None:
+def test_a_repo_block_holds_only_protected_paths_and_ceilings(key: str) -> None:
     loaded = workspace(app={"protected_paths": ["src/billing/**"]})
-    assert loaded.repos["app"].review.model_dump() == {"protected_paths": ["src/billing/**"]}
+    assert loaded.repos["app"].review.model_dump()["protected_paths"] == ["src/billing/**"]
 
     assert key in refusal(app={key: True})
 
