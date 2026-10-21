@@ -3640,6 +3640,11 @@ def _taken_groups(store: UnitStore, change: str) -> set[int]:
     )
 
 
+def _task_group_problems(count: int) -> str:
+    """How refusing a change with broken task groups reads in a tick, a replan and its report."""
+    return f"{count} task-group problem(s) — run `abk tags`"
+
+
 def _gone_groups_reason(store: UnitStore, change: str, groups: Sequence[TaskGroup]) -> str | None:
     """Why no plan is made while a started unit carries a group `tasks.md` no longer has,
     or None when every such group is still there."""
@@ -3862,7 +3867,7 @@ def plan_all(
         # cannot be built, so this refuses before paying for it.
         task_groups, errors = _validated(inst, tasks)
         if errors:
-            log(f"not planning {change}: {len(errors)} task-group problem(s) — run `abk tags`")
+            log(f"not planning {change}: {_task_group_problems(len(errors))}")
             results[change] = PlanResult(status="refused")
             continue
 
@@ -5803,14 +5808,16 @@ def _print_replan_report(inst: Installation, store: UnitStore, changes: list[str
         for unit in (*started, *unstarted):
             groups = ", ".join(str(n) for n in unit.groups)
             print(f"  {unit.id}: group {groups} ({unit.state.value})")
-        task_groups, _ = _validated(inst, inst.changes_dir / change / "tasks.md")
+        task_groups, errors = _validated(inst, inst.changes_dir / change / "tasks.md")
         all_taken = bool(task_groups) and _taken_groups(store, change) >= {
             g.number for g in task_groups
         }
         problems = (
             _tag_problems(store, change, task_groups, _task_catalog(inst)) if all_taken else []
         )
-        if gone := _gone_groups_reason(store, change, task_groups):
+        if errors:
+            print(f"  would be refused, no planner call: {_task_group_problems(len(errors))}")
+        elif gone := _gone_groups_reason(store, change, task_groups):
             print(f"  would be refused, no planner call: {gone}")
         elif problems:
             print(f"  would be refused, no planner call: {'; '.join(problems)}")

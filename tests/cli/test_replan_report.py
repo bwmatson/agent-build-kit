@@ -114,3 +114,32 @@ def test_a_name_that_is_not_a_change_is_refused_as_replan_refuses_it(
     assert code == 1
     assert "abk replan: 'nowhere' is not a change (changes: feature)" in out
     assert run.calls == 0
+
+
+def test_a_change_with_a_tag_problem_is_refused_and_not_counted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = Replan(tmp_path, monkeypatch, broken=tasks_md(1).replace("[app]", "[nowhere]"))
+
+    code, out = run.run(capsys, "broken", "--report")
+
+    assert code == 1
+    assert "task-group problem" in out and "run `abk tags`" in out
+    assert "would call the planner" not in out
+    assert "total: 0 planner calls" in out
+    assert run.calls == 0
+
+
+def test_a_started_unit_whose_group_left_tasks_md_is_refused_and_not_counted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = Replan(tmp_path, monkeypatch, feature=tasks_md(1))
+    put(run, "feature/1", (1, 2), MERGED)
+    run.record("feature")
+
+    code, out = run.run(capsys, "feature", "--report")
+
+    assert code == 0
+    assert "would be refused, no planner call: group(s) 2 are built by a started unit" in out
+    assert "total: 0 planner calls" in out
+    assert run.calls == 0
