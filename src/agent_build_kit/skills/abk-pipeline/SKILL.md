@@ -427,7 +427,10 @@ cannot do, and what a person does about it:
   on another, do not. Once an installation names a Claude account (`repos.<name>.account`
   or `runtimes.claude_code.accounts`), they count per resolved account against that
   account's `max_units_in_progress` instead, and a label with no directory counts as the default account. A failed unit holds its slot until it is requeued and
-  finishes, or closed: free one that way.
+  finishes, or closed: free one that way. A started unit that a usage pause parked before its
+  agent step also holds its slot, and the full-queue line names it `paused`. Before `prepare`, a
+  ready unit is checked against its own account's usage decision, and a refused one waits with
+  `usage_pause` naming the account.
 - Usage is read with `abk report --by role|model|change|account` (cost) and
   `abk report --context` (context window use). The ledger does not record
   what a runtime does not report.
