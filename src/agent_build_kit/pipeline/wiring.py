@@ -685,6 +685,22 @@ Reply with JSON and nothing else:
 """
 )
 
+# What review adds to the prompt when it is enabled: the classification the reviewer gives.
+REVIEW_CLASSIFICATION_PROMPT = """\
+**Classify the review this unit deserves.** Besides your verdict, give a `classification`
+of `auto`, `light` or `full`: how much review a person should give the finished change.
+Judge it by three criteria: whether the change crosses a boundary another system depends
+on, whether it is hard to undo, and what behaviour the tests do not exercise. A change that
+does none of these is `auto`; one that does a little is `light`; the rest is `full`. Your
+classification can raise the review a unit gets and never lower it: the planned estimate and
+the checks keep their floors whatever you say. When your classification is above the unit's
+planned estimate, give `drivers`, the groups or files that account for it. A classification
+is not an escalation: `needs_human` and `escalate` answer a different question, whether a
+person must decide something now, and neither changes the classification. Put both in the
+JSON reply below as "classification": "auto|light|full" and "drivers": ["group or file"].
+
+"""
+
 # Read-only. The reviewer physically cannot edit the branch, so the separation
 # between judging and authoring is enforced rather than asked for.
 REVIEW_TOOLS = "Read Grep Glob Bash(git diff*) Bash(git log*) Bash(git show*)"
@@ -733,6 +749,8 @@ def build_run_review(
         # `context` is the runner's word on this branch — e.g. that it was
         # moved onto a predecessor that changed — ahead of the standing prompt.
         prompt = REVIEW_PROMPT + review_changelog_paragraph(cwd, repo)
+        if active().review.enabled:
+            prompt = REVIEW_CLASSIFICATION_PROMPT + prompt
         # Its own model, not the implementation one a build call names.
         return inner(
             f"{context}\n\n{prompt}" if context else prompt,

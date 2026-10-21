@@ -293,6 +293,10 @@ class StoredUnit(Unit):
     # What the reviewer said the approved branch does, shown in the pull
     # request description; None until an approval carried one.
     description: Description | None = None
+    # The review tier the reviewer last classified the unit at, and what drove it; None
+    # until a review round recorded one.
+    classification: str | None = None
+    drivers: tuple[str, ...] = ()
     # Whether `feedback` is a person's words, fetched from the pull request when
     # it was requeued, as opposed to anything the pipeline or the host wrote.
     # Set only with the feedback (see `set_feedback`), so it never outlives it.
@@ -1204,14 +1208,24 @@ class UnitStore:
         self._update(unit_id, stack_refusal=reason)
 
     def record_approval(
-        self, unit_id: str, sha: str, description: Description | None = None
+        self,
+        unit_id: str,
+        sha: str,
+        description: Description | None = None,
+        *,
+        classification: str | None = None,
+        drivers: tuple[str, ...] = (),
     ) -> None:
         """The commit review approved — the only one the runner may push — and,
-        when the reviewer described the branch, that description in place of any earlier."""
-        if description is None:
-            self._update(unit_id, approved=sha)
-        else:
-            self._update(unit_id, approved=sha, description=description)
+        when the reviewer described the branch, that description in place of any earlier,
+        and, when it classified the unit, that classification and its drivers in place of
+        any earlier."""
+        changes: dict = {"approved": sha}
+        if description is not None:
+            changes["description"] = description
+        if classification is not None:
+            changes.update(classification=classification, drivers=drivers)
+        self._update(unit_id, **changes)
 
     def record_check_rerun(self, unit_id: str, head: str, count: int) -> None:
         """That the cancelled checks of commit `head` have been re-run `count` times."""

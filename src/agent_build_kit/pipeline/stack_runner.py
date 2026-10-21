@@ -47,6 +47,7 @@ from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.flakes import OnFlake
 from agent_build_kit.pipeline.install_record import ALWAYS_INSTALLABLE, STAGING
 from agent_build_kit.pipeline.lease import Leases
+from agent_build_kit.pipeline.planner import REVIEW_TIERS
 from agent_build_kit.pipeline.pr_replies import last_json, parse_answer
 from agent_build_kit.pipeline.reuse_guidance import reuse_guidance
 from agent_build_kit.pipeline.scratch import output_convention
@@ -524,6 +525,10 @@ class Verdict(Frozen):
     # nothing to answer, so a prose-shaped reply still approves over them.
     earlier: tuple[EarlierAnswer, ...] | None = None
     description: Description | None = None
+    # The review tier the reviewer judges the unit deserves (`auto`, `light` or `full`) and
+    # the groups or files behind one above the planned estimate.
+    classification: str = ""
+    drivers: tuple[str, ...] = ()
 
     @property
     def blocking(self) -> tuple[FollowUp, ...]:
@@ -595,6 +600,19 @@ def _parse_description(raw: object) -> Description | None:
     return Description(summary=summary, changes=changes) if changes else None
 
 
+def _parse_classification(raw: object) -> str:
+    """The reviewer's classification, `full` when it is missing or not one of the tiers:
+    missing evidence is not green."""
+    return raw if isinstance(raw, str) and raw in REVIEW_TIERS else "full"
+
+
+def _parse_drivers(raw: object) -> tuple[str, ...]:
+    """The groups or files behind a classification; anything but a list of text is dropped."""
+    if not isinstance(raw, list):
+        return ()
+    return tuple(item.strip() for item in raw if isinstance(item, str) and item.strip())
+
+
 def escalates(verdict: Verdict, earlier_rounds: Sequence[dict]) -> bool:
     """Whether a rejection is a person's call instead of another round.
 
@@ -618,12 +636,15 @@ def parse_verdict(output: str) -> Verdict:
     reviewer that rejects everything.
     """
     match = re.search(r"\{.*\}", output, re.DOTALL)
+    unreadable = Verdict(
+        feedback="the reviewer's reply was not readable as a verdict", classification="full"
+    )
     if not match:
-        return Verdict(feedback="the reviewer's reply was not readable as a verdict")
+        return unreadable
     try:
         payload = json.loads(match.group(0))
     except ValueError:
-        return Verdict(feedback="the reviewer's reply was not readable as a verdict")
+        return unreadable
     follow_ups = []
     raw = payload.get("follow_ups") or []
     if not isinstance(raw, list):
@@ -649,6 +670,8 @@ def parse_verdict(output: str) -> Verdict:
         escalate=Escalation(escalate) if escalate in set(Escalation) else None,
         reasoning=str(payload.get("reasoning") or "").strip(),
         description=_parse_description(payload.get("description")),
+        classification=_parse_classification(payload.get("classification")),
+        drivers=_parse_drivers(payload.get("drivers")),
     )
 
 
@@ -1654,7 +1677,15 @@ class UnitRunner(BaseModel):
                 )
                 if p
             )
-            self.store.record_approval(unit.id, judged, verdict.description)
+            # Recorded only when the reviewer was asked to classify.
+            classified = active().review.enabled
+            self.store.record_approval(
+                unit.id,
+                judged,
+                verdict.description,
+                classification=verdict.classification if classified else None,
+                drivers=verdict.drivers if classified else (),
+            )
             self.log(f"review approved {judged[:9]}")
             if points:
                 self.log(f"deferred {len(points)} follow-up(s) to the change")
