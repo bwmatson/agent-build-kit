@@ -132,7 +132,6 @@ from agent_build_kit.pipeline.usage_ledger import (
 )
 from agent_build_kit.pipeline.verdict import GateResult, ReviewTier, VerdictFacts
 from agent_build_kit.pipeline.verdict_record import VERDICTS, record_verdict
-from agent_build_kit.pipeline.work_graph import validate_tasks
 from agent_build_kit.pipeline.workspaces import DirtyWorktree
 from agent_build_kit.profiles.base import stubbed_build
 from agent_build_kit.redaction import redact_text
@@ -1716,7 +1715,7 @@ class BuildPath:
                 e2e_test=GateResult.PENDING if kind is TestTier.E2E_TEST else GateResult.PASSED,
                 classification=ReviewTier.parse(weighed.verdict.classification),
                 protected_paths=tuple(p for p in paths if is_protected(active(), unit.repo, p)),
-                flags=self.group_flags(unit),
+                flags=tuple(step.flag for step in r.group_steps(unit) if step.flag),
                 open_required_findings=weighed.open_required,
                 final=weighed.approved,
             )
@@ -1735,18 +1734,6 @@ class BuildPath:
             )
         except Exception as error:
             r.log(f"verdict for {unit.id} not recorded: {error}")
-
-    def group_flags(self, unit: Unit) -> tuple[str, ...]:
-        """The flags of the task groups the unit builds, one for each flagged group."""
-        flags: list[str] = []
-        for member in unit.members():
-            tasks = Path(self.runner.change_dir(member.change)) / "tasks.md"
-            try:
-                groups, _ = validate_tasks(tasks)
-            except OSError:
-                continue
-            flags += [g.flag for g in groups if g.number in member.groups and g.flag]
-        return tuple(flags)
 
     def rework(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit

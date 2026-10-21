@@ -232,6 +232,7 @@ class GroupStep(Frozen):
     number: int
     title: str
     goal: str = ""  # the group's "Done when" sentence, "" when it has none
+    flag: str = ""  # the group's flag, "" when it has none or its heading cannot be read
 
 
 class WriteTestsTemplate(PromptTemplate):
@@ -1762,6 +1763,7 @@ class UnitRunner(BaseModel):
                     number=number,
                     title=found[number].title if number in found else unit.title,
                     goal=found[number].goal if number in found else "",
+                    flag=found[number].flag if number in found else "",
                 )
                 for number in member.groups
             )
