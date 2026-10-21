@@ -6478,6 +6478,12 @@ def register(sub: argparse._SubParsersAction) -> None:
     tags = sub.add_parser("tags", help=tags_help, description=tags_help)
     tags.add_argument("change", nargs="?", help="the change to check")
     tags.add_argument("--all", action="store_true", help="every change in the store")
+    tags.add_argument(
+        "--fix", action="store_true", help="rewrite the old test-kind tags of open changes"
+    )
+    tags.add_argument(
+        "--dry-run", action="store_true", help="with --fix, print what would be rewritten"
+    )
     tags.set_defaults(func=cmd_tags)
 
     check = sub.add_parser("check", help="openspec validate --all --strict --json")
