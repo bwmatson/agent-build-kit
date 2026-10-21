@@ -56,6 +56,11 @@
   the runtime, whose value wins). `abk config --migrate` moves the block by text, keeping its
   comments and what resolves.
 
+- `abk doctor` now warns when the committed `abk.yaml` holds a setting that belongs to a
+  machine or a person (a repo's account, `project_limits`, a runtime's accounts,
+  `tests.e2e_available`, a runtime command starting with an absolute path) and says to move
+  it to `abk.local.yaml`. A default a team may commit gets a note instead.
+
 - The kit's drift test now checks each live test more strictly. It finds live-stack
   modules anywhere under `tests/` by syntax, decides per test from a table of signals
   (`AGENT_SIGNALS`) whether an agent starts, fails a runtime tag that disagrees with what the
