@@ -6,43 +6,31 @@ import pytest
 
 from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline.verdict import ReviewTier, VerdictFacts, compute_verdict
+from tests.verdict_support import green_facts
 
 AUTO, LIGHT, FULL = ReviewTier.AUTO, ReviewTier.LIGHT, ReviewTier.FULL
 
 CASES = [
-    pytest.param(VerdictFacts(kind=TestTier.UNIT_TEST), AUTO, id="no-floor"),
-    pytest.param(VerdictFacts(kind=TestTier.UNIT_TEST, planned_estimate=AUTO), AUTO, id="auto"),
-    pytest.param(VerdictFacts(kind=TestTier.UNIT_TEST, planned_estimate=LIGHT), LIGHT, id="light"),
-    pytest.param(VerdictFacts(kind=TestTier.UNIT_TEST, planned_estimate=FULL), FULL, id="full"),
+    pytest.param(green_facts(), AUTO, id="no-floor"),
+    pytest.param(green_facts(planned_estimate=AUTO), AUTO, id="auto"),
+    pytest.param(green_facts(planned_estimate=LIGHT), LIGHT, id="light"),
+    pytest.param(green_facts(planned_estimate=FULL), FULL, id="full"),
     pytest.param(
-        VerdictFacts(kind=TestTier.UNIT_TEST, protected_paths=("db/migrations/001.sql",)),
-        FULL,
-        id="protected-path",
+        green_facts(protected_paths=("db/migrations/001.sql",)), FULL, id="protected-path"
     ),
-    pytest.param(VerdictFacts(kind=TestTier.UNIT_TEST, flags=("contract",)), FULL, id="contract"),
-    pytest.param(VerdictFacts(kind=TestTier.UNIT_TEST, flags=("narrow",)), FULL, id="narrow"),
+    pytest.param(green_facts(flags=("contract",)), FULL, id="contract"),
+    pytest.param(green_facts(flags=("narrow",)), FULL, id="narrow"),
+    pytest.param(green_facts(flags=("acceptance",)), FULL, id="acceptance"),
     pytest.param(
-        VerdictFacts(kind=TestTier.UNIT_TEST, flags=("acceptance",)), FULL, id="acceptance"
-    ),
-    pytest.param(
-        VerdictFacts(kind=TestTier.UNIT_TEST, planned_estimate=LIGHT, flags=("contract",)),
-        FULL,
-        id="light-and-flag",
+        green_facts(planned_estimate=LIGHT, flags=("contract",)), FULL, id="light-and-flag"
     ),
     pytest.param(
-        VerdictFacts(
-            kind=TestTier.UNIT_TEST, planned_estimate=AUTO, protected_paths=("Dockerfile",)
-        ),
+        green_facts(planned_estimate=AUTO, protected_paths=("Dockerfile",)),
         FULL,
         id="auto-and-path",
     ),
     pytest.param(
-        VerdictFacts(
-            kind=TestTier.UNIT_TEST,
-            planned_estimate=FULL,
-            protected_paths=("Dockerfile",),
-            flags=("narrow",),
-        ),
+        green_facts(planned_estimate=FULL, protected_paths=("Dockerfile",), flags=("narrow",)),
         FULL,
         id="all-three",
     ),
@@ -67,11 +55,6 @@ def test_an_integration_test_unit_gets_the_floors_a_unit_test_unit_gets(
 
 
 def test_the_same_facts_give_equal_verdicts() -> None:
-    facts = VerdictFacts(
-        kind=TestTier.UNIT_TEST,
-        planned_estimate=LIGHT,
-        flags=("narrow",),
-        protected_paths=("a",),
-    )
+    facts = green_facts(planned_estimate=LIGHT, flags=("narrow",), protected_paths=("a",))
 
     assert compute_verdict(facts) == compute_verdict(facts)
