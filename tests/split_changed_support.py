@@ -3,17 +3,25 @@ the tasks file the groups are read from, and the thread a rework is delivered to
 
 from __future__ import annotations
 
+import json
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import pytest
 
+from agent_build_kit.cli.pipeline import Resumed
+from agent_build_kit.graph.state import EventKind, ResumeEvent
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.unit_store import Cause, UnitStore
-from agent_build_kit.pipeline.units import RUNNING
+from agent_build_kit.pipeline.stack_runner import RunOutcome, UnitOutcome
+from agent_build_kit.pipeline.unit_store import Cause, UnitStore, guidance_excerpt
+from agent_build_kit.pipeline.units import PLANNED, RUNNING
+from tests.graph_driver import tick
 from tests.parked_split_support import Deliveries
+from tests.runner_fakes import Recorder
 from tests.split_workspace import group, tasks_text
 
-__all__ = ["UNIT", "Reworks", "write_split"]
+__all__ = ["UNIT", "Reworks", "deliver_to_graph", "park_after_tick", "write_split"]
 
 UNIT = "feature/1"
 
@@ -26,6 +34,33 @@ def write_split(inst: Installation, *splits: str | None, change: str = "feature"
     path.write_text(
         tasks_text(*(group(n, *([f"Split: {s}"] if s else [])) for n, s in enumerate(splits, 1)))
     )
+
+
+def park_after_tick(store: UnitStore, unit_id: str, *splits: str) -> None:
+    """Park the unit on the splits as the e2e step leaves it after a tick: no pull request, not
+    pushed or approved (the fake forge opened one on the way), `planned` with cause `split_held`."""
+    payload = json.loads(store.path.read_text())
+    for record in payload["units"]:
+        record.update(pr=None, pushed="", approved="")
+    store.path.write_text(json.dumps(payload))
+    store.set_state(unit_id, PLANNED, cause=Cause.SPLIT_HELD, note="e2e tests of acp did not run")
+    store.set_parked(unit_id, splits, "abc1234", "snapshot")
+
+
+def deliver_to_graph(tmp_path: Path, recorder: Recorder, tier: str) -> Callable[..., Resumed]:
+    """A replacement for `resume_thread` that hands the delivery to the graph as a resume event
+    and runs a tick with it."""
+
+    def deliver(inst: Installation, stored: Any, kind: str, **kwargs: Any) -> Resumed:
+        event = ResumeEvent(
+            kind=EventKind(kind),
+            reason=kwargs["reason"],
+            guidance=kwargs["guidance"],
+            requeue=kwargs["requeue"],
+        )
+        return Resumed(outcome=tick(tmp_path, recorder, event=event, tier=tier))
+
+    return deliver
 
 
 class Reworks(Deliveries):
@@ -47,6 +82,10 @@ class Reworks(Deliveries):
         if not self.thread:
             return None
         self.store.set_state(
-            unit.id, RUNNING, note=f"requeued: {kwargs.get('reason', '')}", cause=Cause.REQUEUED
+            unit.id,
+            RUNNING,
+            note=f"requeued: {kwargs.get('reason', '')}"
+            + guidance_excerpt(kwargs.get("guidance", "")),
+            cause=Cause.REQUEUED,
         )
-        return object()
+        return Resumed(outcome=RunOutcome(status=UnitOutcome.OPEN, detail="waiting for the tick"))

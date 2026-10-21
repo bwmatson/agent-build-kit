@@ -1482,6 +1482,11 @@ that do not read as one split or a tasks file `abk tags` refuses. `abk status` s
 unit on its parked line, a dry run says what it would rework, and `abk replan` runs the same step
 after it plans.
 
+A unit parked on a held split can also be requeued with `--rework` (with or
+without a note) or `--restart`, which deliver a rework or restart requeue, then clear the park, and the
+agent runs again from `prepare`. A plain requeue is refused while a parked split is held, and a
+unit with a pull request or a step on its branch is refused as any other unit is.
+
 A group of a change declares its split with a `Split:` line, because the planner cannot know where
 a test will land until it is written, and a unit must be started or left alone whole: the unit
 records the one split its groups share and groups of two splits are never joined. A planned unit

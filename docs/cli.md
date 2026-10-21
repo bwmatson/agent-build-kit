@@ -515,9 +515,22 @@ its thread, branch and saved failure, and the command names the group it waits f
 `abk status` lists it as waiting. Once the dependency is ready, the next tick
 delivers the requeue in the mode it was given (default, `--rework` or `--restart`).
 
-Any other state is refused: a running unit would be built twice, an in-review
-one has a pull request that would be orphaned, and a planned or merged one has
-nothing to retry. `--rework` and `--restart` cannot be combined. `--restart` does not touch the unit's branch or worktree; if
+**A unit parked on a held split.** A `planned` unit parked on an e2e-test split (cause
+`split_held`, or `parked_splits` set) is accepted by `--rework`, with or without a note, and
+by `--restart`, when it has no pull request and no step is running on its branch. Use it when
+the park was a mistake in the code, such as a mis-tagged test: the agent runs again from
+`prepare` on what is on the branch, the note is its guidance (with none, an automatic one names the
+splits), and the park is cleared once the requeue is delivered. The history entry names the
+splits and the note. A plain requeue is refused while a split the unit is parked on is held,
+naming it and its reason, and pointing at `--rework` or `abk e2e-test release`; once the split
+is released a plain requeue resumes the unit as the release does. A unit whose group's `Split:`
+moved is refused a plain requeue too, since the pass reworks it. A step holding the branch
+refuses it with "is being built" and changes nothing.
+
+Any other state is refused: a running unit would be built twice, an in review
+unit has a pull request that would be orphaned, a merged unit is done, and a parked
+unit with a pull request is refused naming it. A planned unit that is not parked, and an unplanned
+one, have nothing to retry. `--rework` and `--restart` cannot be combined. `--restart` does not touch the unit's branch or worktree; if
 those came from a wrong base, remove them first (`git worktree remove`, then
 `git branch -D`, after checking nothing on it is unpushed). Exit 2 for an
 unknown unit, 1 when the unit is not stuck, else 0.

@@ -10,15 +10,13 @@ from typing import Any
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.graph.state import EventKind, ResumeEvent
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.unit_store import Cause, UnitStore
-from agent_build_kit.pipeline.units import PLANNED
+from agent_build_kit.pipeline.unit_store import UnitStore
 from tests.factories import unit
 from tests.graph_driver import tick
 from tests.parked_split_support import installation
 from tests.runner_fakes import Recorder
-from tests.split_changed_support import write_split
+from tests.split_changed_support import deliver_to_graph, park_after_tick, write_split
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -34,21 +32,10 @@ def test_the_released_unit_reworks_from_the_note_and_the_e2e_step_does_not_come_
     store.upsert([unit(split="acp")])
     recorder = Recorder(store)
     tick(tmp_path, recorder, tier=TIER)
-    store.set_state(UNIT, PLANNED, cause=Cause.SPLIT_HELD, note="e2e tests of acp did not run")
-    store.set_parked(UNIT, ("acp",), "abc1234", "snapshot")
+    park_after_tick(store, UNIT, "acp")
     write_split(inst, "claude_code", change="add-marker")
     guidance_seen: list[str] = []
     prompts: list[str] = []
-
-    def deliver(inst: Installation, stored: Any, kind: str, **kwargs: Any) -> object:
-        event = ResumeEvent(
-            kind=EventKind(kind),
-            reason=kwargs["reason"],
-            guidance=kwargs["guidance"],
-            requeue=kwargs["requeue"],
-        )
-        tick(tmp_path, recorder, event=event, tier=TIER)
-        return object()
 
     def agent(prompt: str, **kwargs: Any) -> str:
         guidance_seen.append(store.get(UNIT).guidance)
@@ -56,7 +43,7 @@ def test_the_released_unit_reworks_from_the_note_and_the_e2e_step_does_not_come_
         return recorder.claude(prompt, **kwargs)
 
     monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: True)
-    monkeypatch.setattr(cli, "resume_thread", deliver)
+    monkeypatch.setattr(cli, "resume_thread", deliver_to_graph(tmp_path, recorder, TIER))
     recorder.events.clear()
 
     cli.release_split_changed(inst, store)

@@ -188,6 +188,14 @@ new split is held, the unit stays parked and defers the rework until that split 
 release of the old split does not resume it. A group still saying the split it is parked on, or a
 file `abk tags` refuses, changes nothing.
 
+A unit parked on a held split because a test was mis-tagged (the code is wrong, not the plan) is
+requeued with `abk requeue <unit> --rework --note "what changed"` (the note is optional) or
+`--restart`: the agent runs again from `prepare` on what is on the branch, and the park is cleared
+once the requeue is delivered. A plain requeue is refused while the split is held, saying which split
+and why, and pointing at `--rework` or `abk e2e-test release`; after the release it resumes the unit.
+A running, in review or merged unit, one with a pull request, and one a step is building are still
+refused.
+
 ### Parked for its worktree
 
 A `held` unit with the cause `dirty_worktree` found uncommitted changes in its
