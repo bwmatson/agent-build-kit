@@ -706,6 +706,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         if record.get("waiting") in PLAN_WAITS:
             log(f"planning {change}: {_plan_state(record, inst.max_plan_attempts)}")
 
+    if line := stale_plans_line(inst):
+        log(line)
+
     units = store_for(inst).all()
     if not units:
         log("no units planned")
@@ -1676,6 +1679,8 @@ def run_round(
     _step("creating the thread store", _create_thread_store, inst)
     if admitted:
         _step("planning", plan_all, inst, store=store)
+        if line := stale_plans_line(inst):
+            log(line)
     _step("recording successors", record_successors, store)
     _step(
         "linking needs",
@@ -4247,6 +4252,22 @@ def plan_is_stale(record: Mapping[str, Any]) -> bool:
     return record.get("sizing", "") != sizing_digest()
 
 
+def stale_plans_line(inst: Installation) -> str | None:
+    """The line that names the changes whose plan was made under other sizing and says how to
+    plan them again; None when no plan is stale."""
+    names = [
+        change
+        for change, record in planned_hashes(inst).items()
+        if record.get("ok") and plan_is_stale(record)
+    ]
+    if not names:
+        return None
+    return (
+        f"{len(names)} plan(s) stale, made under other sizing: {', '.join(names)} "
+        "— `abk replan CHANGE` plans one again"
+    )
+
+
 def record_plans(inst: Installation, updates: Mapping[str, dict | None]) -> None:
     """Set (or, for None, remove) recorded plans by change, under a lock, atomically."""
     update_plans(inst, lambda _: updates)
@@ -5692,7 +5713,7 @@ def _plan_state(record: dict | None, max_attempts: int) -> str:
     if not record:
         return "never planned"
     if record.get("ok"):
-        return "planned"
+        return "planned, stale: made under other sizing" if plan_is_stale(record) else "planned"
     attempts = record.get("attempts", 0)
     if record.get("waiting") in PLAN_WAITS:
         return (
