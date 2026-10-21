@@ -15,8 +15,10 @@
   usage decision, before `prepare`) and what the limit counts.
 
 - A plan made under other review sizing (a changed ceiling, `min_unit_lines` or `review.enabled`) is now
-  reported as stale by the tick, by `abk replan` with no argument and by `abk status`. It is not
-  planned again until `abk replan CHANGE` is run, which records the current sizing.
+  reported as stale by the tick, by `abk replan` with no argument and by `abk status`, each stale
+  plan on its own line saying whether the ceilings, the `review:` section or the lack of a recorded
+  policy caused it. It is not planned again until `abk replan CHANGE` is run, which records the
+  current sizing.
 
 - A task group tagged `[e2e-test]` is now test-only: a stubbed build commits its tests as a single
   `test:` commit with no implementation step, counts and resumes it by that commit, and the push

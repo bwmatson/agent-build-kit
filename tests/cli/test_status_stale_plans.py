@@ -26,11 +26,12 @@ def test_status_prints_a_line_for_each_stale_plan_naming_the_change_and_the_reas
     monkeypatch.setattr(cli, "current_usage", lambda: None)
     run = Replan(tmp_path, monkeypatch, alpha=tasks_md(1), beta=tasks_md(1), gamma=tasks_md(1))
     enable_review(run, ceilings={"full": 750})
-    for change in ("alpha", "gamma"):
-        code, _ = run.run(capsys, change, reply=answer(planned(f"{change}/1", (1,))))
-        assert code == 0
-    run.record("beta")
+    code, _ = run.run(capsys, "alpha", reply=answer(planned("alpha/1", (1,))))
+    assert code == 0
     enable_review(run, ceilings={"full": 900})
+    code, _ = run.run(capsys, "gamma", reply=answer(planned("gamma/1", (1,))))
+    assert code == 0
+    run.record("beta")
 
     lines = status_lines(run, capsys)
 

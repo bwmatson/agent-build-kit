@@ -706,7 +706,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         if record.get("waiting") in PLAN_WAITS:
             log(f"planning {change}: {_plan_state(record, inst.max_plan_attempts)}")
 
-    if line := stale_plans_line(inst):
+    for line in stale_plan_lines(inst):
         log(line)
 
     units = store_for(inst).all()
@@ -1698,7 +1698,7 @@ def run_round(
     _step("creating the thread store", _create_thread_store, inst)
     if admitted:
         _step("planning", plan_all, inst, store=store)
-        if line := stale_plans_line(inst):
+        for line in stale_plan_lines(inst):
             log(line)
     _step("recording successors", record_successors, store)
     _step(
@@ -4263,45 +4263,75 @@ def planned_hashes(inst: Installation) -> dict[str, dict]:
 
 
 def sizing_digest() -> str:
-    """A digest of the sizing configuration the active workspace plans under: the `review`
-    section (flag, ceilings, every repo's review block), `min_unit_lines` and `max_unit_lines`.
-    Empty while `review.enabled` is false."""
+    """A digest of the policy the active workspace plans under, in two parts joined by a dot so a
+    difference can be told apart: the ceilings (every tier's, each repo's own, `min_unit_lines`
+    and `max_unit_lines`), then the rest of the `review` section. Empty while `review.enabled`
+    is false."""
     workspace = config.active()
     if not workspace.review.enabled:
         return ""
-    sizing = {
-        "review": workspace.review.model_dump(mode="json"),
+
+    def digest(part: object) -> str:
+        return hashlib.sha256(json.dumps(part, sort_keys=True).encode()).hexdigest()
+
+    ceilings = {
+        "review": workspace.review.ceilings.model_dump(mode="json"),
         "repos": {
-            name: repo.review.model_dump(mode="json") for name, repo in workspace.repos.items()
+            name: repo.review.ceilings.model_dump(mode="json")
+            for name, repo in workspace.repos.items()
         },
         "min_unit_lines": workspace.global_limits.min_unit_lines,
         "max_unit_lines": workspace.global_limits.max_unit_lines,
     }
-    return hashlib.sha256(json.dumps(sizing, sort_keys=True).encode()).hexdigest()
+    rest = {
+        "review": workspace.review.model_dump(mode="json", exclude={"ceilings"}),
+        "repos": {
+            name: repo.review.model_dump(mode="json", exclude={"ceilings"})
+            for name, repo in workspace.repos.items()
+        },
+    }
+    return f"{digest(ceilings)}.{digest(rest)}"
 
 
 def plan_is_stale(record: Mapping[str, Any], current: str | None = None) -> bool:
-    """Whether a recorded plan was made under sizing other than the current one (`current`, or
+    """Whether a recorded plan was made under a policy other than the current one (`current`, or
     `sizing_digest()` when it is not given). A record with no `sizing` reads as the empty digest."""
     return record.get("sizing", "") != (sizing_digest() if current is None else current)
 
 
-def stale_plans_line(inst: Installation) -> str | None:
-    """The line that names the changes whose plan was made under other sizing and says how to
-    plan them again; None when no plan is stale."""
+def plan_stale_reason(record: Mapping[str, Any], current: str | None = None) -> str:
+    """Why a stale plan is stale: it predates the review policy, the policy was turned off, the
+    ceilings changed, the rest of the `review` section changed, or both did."""
+    now = sizing_digest() if current is None else current
+    was = record.get("sizing", "")
+    if not was:
+        return "planned before the review policy"
+    if not now:
+        return "the review policy was turned off"
+    old, new = was.split("."), now.split(".")
+    if len(old) != 2:
+        return "the review policy changed"
+    changed = [
+        name
+        for name, before, after in zip(("ceilings", "review section"), old, new, strict=True)
+        if before != after
+    ]
+    return " and ".join(f"the {name} changed" for name in changed) or "the review policy changed"
+
+
+def stale_plan_lines(inst: Installation) -> list[str]:
+    """One line for each change whose standing plan was made under another policy, naming the
+    change and why, and saying how to plan it again."""
     records = planned_hashes(inst)
     current = sizing_digest()
-    names = [
-        change
+    return [
+        f"{change}: plan is stale, {plan_stale_reason(record, current)} "
+        f"— `abk replan {change}` plans it again"
         for change in (path.parent.name for path in inst.tasks_files())
-        if (record := records.get(change)) and record.get("ok") and plan_is_stale(record, current)
+        if (record := records.get(change))
+        and (record.get("ok") or record.get("waiting") in PLAN_WAITS)
+        and plan_is_stale(record, current)
     ]
-    if not names:
-        return None
-    return (
-        f"{len(names)} plan(s) stale, made under other sizing: {', '.join(names)} "
-        "— `abk replan CHANGE` plans one again"
-    )
 
 
 def record_plans(inst: Installation, updates: Mapping[str, dict | None]) -> None:
@@ -5749,7 +5779,9 @@ def _plan_state(record: dict | None, max_attempts: int) -> str:
     if not record:
         return "never planned"
     if record.get("ok"):
-        return "planned, stale: made under other sizing" if plan_is_stale(record) else "planned"
+        return (
+            f"planned, stale: {plan_stale_reason(record)}" if plan_is_stale(record) else "planned"
+        )
     attempts = record.get("attempts", 0)
     if record.get("waiting") in PLAN_WAITS:
         return (
