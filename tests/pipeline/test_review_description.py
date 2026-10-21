@@ -174,7 +174,12 @@ def test_a_stored_description_round_trips(tmp_path: Path) -> None:
     store.record_approval(unit().id, "sha-1", FIRST)
 
     written = json.loads(store.path.read_text())["units"][0]
-    assert written["description"] == {"summary": FIRST.summary, "changes": list(FIRST.changes)}
+    assert written["description"] == {
+        "summary": FIRST.summary,
+        "changes": list(FIRST.changes),
+        "focus": [],
+        "skippable": [],
+    }
     assert UnitStore(store.path).get(unit().id).description == FIRST
 
 

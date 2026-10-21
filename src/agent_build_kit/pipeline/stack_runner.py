@@ -55,6 +55,9 @@ from agent_build_kit.pipeline.unit_store import (
     Cause,
     Description,
     FeedbackSource,
+    FocusEntry,
+    FocusKind,
+    SkipEntry,
     StoredUnit,
     UnitStore,
 )
@@ -587,9 +590,58 @@ def _parse_answers(raw: object) -> tuple[EarlierAnswer, ...] | None:
     return tuple(out)
 
 
+MAX_BRIEF_ENTRIES = 5
+BRIEF_TEXT_CHARS = 300
+
+
+def _brief_text(raw: object) -> str:
+    """One field of a focus or skippable entry: text, trimmed and cut; anything else is blank."""
+    if not isinstance(raw, str):
+        return ""
+    return cut_head(" ".join(raw.split()), BRIEF_TEXT_CHARS, "char", "…")
+
+
+def _brief_pairs(raw: object, *, reason_required: bool) -> list[tuple[str, str]]:
+    """The (place, reason) pairs of a reviewer's list, in order; a list that is not one, an
+    entry that is not an object and one without a place (or, if required, a reason) are
+    dropped. The first MAX_BRIEF_ENTRIES kept stay."""
+    if not isinstance(raw, list):
+        return []
+    pairs: list[tuple[str, str]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        place, reason = _brief_text(item.get("place")), _brief_text(item.get("reason"))
+        if place and (reason or not reason_required):
+            pairs.append((place, reason))
+    return pairs[:MAX_BRIEF_ENTRIES]
+
+
+def _parse_focus(raw: object) -> tuple[FocusEntry, ...]:
+    kinds = {kind.value: kind for kind in FocusKind}
+    return tuple(
+        FocusEntry(place=place, reason=reason, kind=kinds.get(reason))
+        for place, reason in _brief_pairs(raw, reason_required=False)
+    )
+
+
+def _parse_skippable(raw: object, focused: Collection[str]) -> tuple[SkipEntry, ...]:
+    return tuple(
+        SkipEntry(place=place, reason=reason)
+        for place, reason in _brief_pairs(raw, reason_required=True)
+        if place not in focused
+    )
+
+
 def _parse_description(raw: object) -> Description | None:
     """The reviewer's description of the branch, blank entries dropped; one that
-    does not parse, or lists no core changes (all the pull request shows), is ignored."""
+    does not parse, or lists no core changes (all the pull request shows), is ignored.
+    The focus and skippable lists are read apart: a malformed one is empty and never
+    costs the description."""
+    lists = {}
+    if isinstance(raw, dict):
+        lists = {key: raw.get(key) for key in ("focus", "skippable")}
+        raw = {key: value for key, value in raw.items() if key not in lists}
     try:
         described = Description.model_validate(raw) if raw else None
     except ValueError:
@@ -598,7 +650,11 @@ def _parse_description(raw: object) -> Description | None:
         return None
     summary = described.summary.strip()
     changes = tuple(change.strip() for change in described.changes if change.strip())
-    return Description(summary=summary, changes=changes) if changes else None
+    focus = _parse_focus(lists.get("focus"))
+    skippable = _parse_skippable(lists.get("skippable"), {entry.place for entry in focus})
+    if not changes:
+        return None
+    return Description(summary=summary, changes=changes, focus=focus, skippable=skippable)
 
 
 def _parse_classification(raw: object) -> str:

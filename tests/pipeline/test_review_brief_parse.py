@@ -148,9 +148,13 @@ def test_a_reply_that_is_not_json_still_reads_without_raising_beside_a_good_one(
 
 def test_the_lists_do_not_change_how_the_other_fields_are_read() -> None:
     verdict = parse_verdict(
-        described(
-            focus=[focus("src/a.py", "r")],
-            skippable="nope",
+        reply(
+            {
+                "summary": "Registers markers.",
+                "changes": CHANGES,
+                "focus": [focus("src/a.py", "r")],
+                "skippable": "nope",
+            },
             findings=[],
             needs_human=True,
             feedback="see this",

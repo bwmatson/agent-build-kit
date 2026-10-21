@@ -56,7 +56,7 @@ def test_a_record_from_before_the_lists_reads_with_both_empty(tmp_path: Path) ->
     store, runner = weighing(tmp_path)
     runner.weigh_review(unit(), reply(), judged="sha-1")
     raw = json.loads(store.path.read_text())
-    for record in raw.values() if UNIT_ID not in raw else [raw[UNIT_ID]]:
+    for record in raw["units"]:
         record["description"].pop("focus", None)
         record["description"].pop("skippable", None)
     store.path.write_text(json.dumps(raw))
