@@ -29,7 +29,7 @@ from agent_build_kit.config import active
 from agent_build_kit.forges.base import fit_description
 from agent_build_kit.installation import changes_dir_under
 from agent_build_kit.model import TestTier
-from agent_build_kit.pipeline.unit_store import Description, StoredUnit
+from agent_build_kit.pipeline.unit_store import Description, E2eState, StoredUnit
 from agent_build_kit.pipeline.units import (
     MERGED,
     Member,
@@ -393,7 +393,13 @@ def build_pr_body(
     why_ceiling: int = 600,
 ) -> str:
     """The full description for a unit's PR."""
-    if unit.tier == TestTier.E2E_TEST:
+    if unit.e2e_state == E2eState.DEFERRED:
+        verification = (
+            "## Verification\n\n"
+            "**e2e-test deferred to verify.** The live tests run after the merge, against the "
+            "deployed change, so a failure in them is found after the merge, not before it."
+        )
+    elif unit.tier == TestTier.E2E_TEST:
         verification = (
             e2e_snapshot
             or "## e2e-test results\n\n_Not recorded — this PR should not have been pushed._"

@@ -549,7 +549,10 @@ release could move. The steps:
    branch go last, once its run has left the tree, by the rules a merged
    unit's removal follows: the branch stays while a dependent builds on it,
    is held for depth or was not moved off it.
-7. **E2e-test**, for `e2e-test` units. If the repo has `dev_stack`, the unit's
+7. **E2e-test**, for `e2e-test` units, unless the repo's `e2e_before_merge` is `deferred`:
+   then the routing skips this step (after review, at an approved tip, after a clean move),
+   takes no e2e lock, and the unit records its e2e state as `deferred`; `verify` runs the live
+   tests after the merge. A scheduled whole-suite run is never skipped. If the repo has `dev_stack`, the unit's
    branch is brought up on it (`script up`, `script test`, `script down`,
    always torn down) — and first, when the repo `consumes` one with a dev
    stack of its own, that repo's stack from a detached worktree at its

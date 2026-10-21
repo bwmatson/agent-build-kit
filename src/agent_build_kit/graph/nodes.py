@@ -21,7 +21,7 @@ from langgraph.types import interrupt
 
 from agent_build_kit import claude_account, forges, profiles, telemetry
 from agent_build_kit.budget import cut_head
-from agent_build_kit.config import active, active_root, models
+from agent_build_kit.config import E2eBeforeMerge, active, active_root, e2e_before_merge, models
 from agent_build_kit.forges.base import BaseMissing
 from agent_build_kit.graph.state import (
     RESUME_IMPLEMENT,
@@ -105,6 +105,7 @@ from agent_build_kit.pipeline.stack_runner import (
 from agent_build_kit.pipeline.unit_store import (
     Cause,
     ClosePending,
+    E2eState,
     FeedbackSource,
     HeldBy,
     RequeueReason,
@@ -426,7 +427,15 @@ class BuildPath:
         """The `e2e` flag from the unit's kind, when the thread lacks it."""
         if state.e2e or "e2e" in update or self.unit.tier != TestTier.E2E_TEST:
             return {}
-        return {"e2e": True}
+        return {"e2e": True, "e2e_deferred": self.e2e_deferred()}
+
+    def e2e_deferred(self) -> bool:
+        """Whether this unit's repo leaves e2e-test to verify, after the merge."""
+        config = active()
+        repo = config.repos.get(self.unit.repo)
+        return repo is not None and (
+            e2e_before_merge(repo, config.global_limits) is E2eBeforeMerge.DEFERRED
+        )
 
     def account_key(self) -> str:
         """The key of the account this unit's calls run on: its directory, never empty. A stored
@@ -1067,6 +1076,7 @@ class BuildPath:
             **self.standing(existing, feedback or (saved.guidance if existing else ""), ref),
             "start": start,
             "e2e": unit.tier == TestTier.E2E_TEST,
+            "e2e_deferred": unit.tier == TestTier.E2E_TEST and self.e2e_deferred(),
         }
 
     def resumed(self, existing: int, ref: str) -> Update:
@@ -2019,6 +2029,7 @@ class BuildPath:
             r.store.set_parked(unit.id)
             if ok and resumed:
                 snapshot = f"{before.parked_snapshot}\n\n{snapshot}".strip()
+        r.store.record_e2e_state(unit.id, E2eState.PASSED if ok else E2eState.FAILED)
         ran_none = ok and r.e2e_ran_no_tests()
         self.say("e2e-test ran no test" if ran_none else f"e2e-test {'passed' if ok else 'failed'}")
         if ok:
@@ -2204,6 +2215,9 @@ class BuildPath:
     def open_pr(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit
         tree, base = self.tree(), state.base or self.base
+        # Before the body is built from the stored unit, which says what became of the e2e step.
+        if state.e2e and not runs_e2e(state):
+            r.store.record_e2e_state(unit.id, E2eState.DEFERRED)
         stored = r.store.get(unit.id)
         # A re-run asks again: `open_pr` finds the branch's pull request and updates it.
         body = partial(
@@ -2253,7 +2267,7 @@ class BuildPath:
         sha = r.head(tree)
         # After the push, never before: a status for a commit the host has not
         # seen is rejected.
-        if unit.tier == TestTier.E2E_TEST:
+        if unit.tier == TestTier.E2E_TEST and runs_e2e(state):
             r.post_status(sha, True)
         # What the host did not take stays owed, for the next pass to post.
         unposted = tuple(
@@ -2554,6 +2568,12 @@ def halted(state: UnitRun) -> Node | None:
     return None
 
 
+def runs_e2e(state: UnitRun) -> bool:
+    """Whether the unit goes through the e2e node before merge: an e2e-test unit, unless its
+    repo defers the tier to verify. A scheduled run is the suite itself and never defers."""
+    return state.e2e and (state.scheduled or not state.e2e_deferred)
+
+
 def after_prepare(state: UnitRun) -> Node:
     if stop := halted(state):
         return stop
@@ -2581,7 +2601,7 @@ def after_prepare(state: UnitRun) -> Node:
         return Node.TESTS
     if state.head_approved:
         # Review approved exactly this commit: nothing was written since.
-        return Node.E2E if state.e2e else Node.VERIFY_BASE
+        return Node.E2E if runs_e2e(state) else Node.VERIFY_BASE
     return Node.CHECKS
 
 
@@ -2620,7 +2640,7 @@ def after_review(state: UnitRun) -> Node:
         return Node.PUSH
     if state.verdict is not Verdict.APPROVED:
         return Node.REWORK
-    return Node.E2E if state.e2e else Node.VERIFY_BASE
+    return Node.E2E if runs_e2e(state) else Node.VERIFY_BASE
 
 
 def after_rework(state: UnitRun) -> Node:
@@ -2636,7 +2656,7 @@ def after_unit_test(state: UnitRun) -> Node:
         return Node.SATISFIED
     if state.moved:
         # verify_base already moved the unit onto the base: nothing left to check there.
-        return Node.E2E if state.e2e else Node.NEW_COMMENTS
+        return Node.E2E if runs_e2e(state) else Node.NEW_COMMENTS
     return Node.VERIFY_BASE
 
 

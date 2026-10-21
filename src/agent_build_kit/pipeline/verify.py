@@ -50,7 +50,7 @@ from agent_build_kit.pipeline.planning_sync import (
     planning_mode,
     sync_planning,
 )
-from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.unit_store import E2eState, StoredUnit
 from agent_build_kit.profiles.base import AppliesE2eSelection, ToolchainProfile, is_doc_path
 
 Run = Callable[..., subprocess.CompletedProcess]
@@ -257,9 +257,13 @@ def verify_change(
         files.setdefault(unit.repo, [])
         files[unit.repo] += [f for f in pr_files(unit.repo, unit.pr) if f not in files[unit.repo]]
 
+    deferred = sorted(u.id for u in mine if u.e2e_state == E2eState.DEFERRED)
     notes: list[str] = []  # what the planning sync said, kept in whatever detail results
 
     def result(passed: bool, detail: str = "", deployed: list[str] | None = None) -> Verification:
+        if not passed and deferred:
+            note = f"e2e-test was deferred to verify by: {', '.join(deferred)}"
+            detail = f"{note}\n{detail}" if detail else note
         return Verification(
             change=change,
             passed=passed,
