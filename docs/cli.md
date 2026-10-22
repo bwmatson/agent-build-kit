@@ -449,6 +449,14 @@ name that is not a split. Both refusals leave `abk.yaml` and the state file as t
 Prints each split and `rest` as `usable` or `held` (with the reason, and a file entry the
 configuration overrides) and the splits the scheduled e2e-test run covers. Changes nothing.
 
+### `abk manual list [--done]`, `abk manual raise`, `abk manual check`
+
+Steps only a person can do, declared with a `Manual:` line (see abk-authoring). `abk manual list`
+shows every outstanding step with its unit, description, runbook link and the last check's
+output and time; `--done` adds the finished ones, and it says so when none is outstanding.
+`abk manual raise <slug> --text … --check .abk/manual/<slug>.sh` is how a builder registers a
+step, and never marks it done. `abk manual check [<slug>]` runs the checks now, as a tick pass does.
+
 ### `abk archive CHANGE`
 
 `openspec archive CHANGE --yes` in the planning repo, without the

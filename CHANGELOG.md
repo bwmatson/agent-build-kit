@@ -10,7 +10,8 @@
   keeps its place, and shows `waiting for manual step <slug>: <last line>` in `abk status`. Each
   tick pass runs every unmet check in the unit's worktree with no agent call, marks a passing
   step done for good and resumes the unit; `abk manual check [<slug>]` runs them now.
-  `limits.manual_check_seconds` (default 30) bounds how long a check may run.
+  `limits.manual_check_seconds` (default 30) bounds how long a check may run. `abk manual list
+  [--done]` lists every outstanding step with its runbook link and last result.
 
 - `abk tags --fix [CHANGE | --all]` rewrites the old test-kind tags in the group headings of open
   changes to `[unit-test]` and `[e2e-test]`, touching no other byte of `tasks.md`. A change it
