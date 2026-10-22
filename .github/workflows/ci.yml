@@ -77,8 +77,9 @@ jobs:
           enable-cache: true
       - name: Fetch the pinned OpenSpec CLI
         # One retried fetch here, so a failed download is one clear failure
-        # before any test. The pin is read from the kit's settings.
-        timeout-minutes: 10
+        # before any test. The pin is read from the kit's settings. The limits
+        # (300 s per attempt, 20 minutes for the step) are for a slow registry.
+        timeout-minutes: 20
         run: >-
           bash .github/scripts/warm-openspec.sh "$(uv run --group dev python -c
           'from agent_build_kit.openspec import PACKAGE;
