@@ -30,9 +30,10 @@ class Counted(Frozen):
 
 
 class UsageFacts(Frozen):
-    """The unit's own account's usage decision, as made."""
+    """The unit's own account's usage decision, as made. `may_start` is None when the round did
+    not ask the guard about the account, because none of its units came up for a start."""
 
-    may_start: bool
+    may_start: bool | None
     reason: str
     source: str = ""
     age_seconds: float | None = None
@@ -43,12 +44,12 @@ class UsageFacts(Frozen):
 
 
 class AdmissionRecord(Frozen):
-    """One admission (`admitted`) or one wait for a slot (`slot`). The slot is the account's
-    label (`default` for the default account), or the project's tag when units are counted per
-    project."""
+    """One admission (`admitted`), one wait for a slot (`slot`) or one refusal by the unit's own
+    account (`usage`). The slot is the account's label (`default` for the default account), or
+    the project's tag when units are counted per project."""
 
     at: datetime
-    kind: Literal["admitted", "slot"]
+    kind: Literal["admitted", "slot", "usage"]
     unit: str
     tick: str
     slot: str
@@ -109,7 +110,7 @@ def _lines(path: Path) -> list[dict]:
 
 
 def read_admissions(path: Path) -> list[AdmissionRecord]:
-    """The admission and slot-wait records in the file at `path`, oldest first."""
+    """The admission, slot-wait and usage-refusal records in the file at `path`, oldest first."""
     found: list[AdmissionRecord] = []
     for raw in _lines(path):
         if raw.get("kind") == COUNTS:

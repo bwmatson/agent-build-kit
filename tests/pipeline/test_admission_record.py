@@ -11,12 +11,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import pytest
-
-from agent_build_kit import claude_account
-from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import wiring
 from agent_build_kit.pipeline.admission_record import (
     ADMISSIONS_NAME,
     AdmissionRecord,
@@ -26,7 +21,6 @@ from agent_build_kit.pipeline.admission_record import (
 )
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED
-from agent_build_kit.pipeline.usage_guard import Decision
 from tests.cli.test_admission_asks_own_account import (  # noqa: F401 — fixtures
     PERSONAL,
     Accounts,
@@ -38,31 +32,6 @@ from tests.cli.test_admission_asks_own_account import (  # noqa: F401 — fixtur
 from tests.conftest import make_installation
 
 APP_HAS_SPEC_BRANCH = "spec/busy/1"
-
-
-class Readings(Accounts):
-    """Accounts whose decisions say what they were made on."""
-
-    def decide(self, account: claude_account.Account | None) -> Decision:
-        decision = super().decide(account)
-        return decision.model_copy(
-            update={
-                "source": "usage cache",
-                "age_seconds": 42.0,
-                "threshold": 93.0,
-                "ramp": 71.5,
-                "estimate": True,
-                "estimate_starts": 2,
-            }
-        )
-
-
-@pytest.fixture
-def readings(monkeypatch: pytest.MonkeyPatch) -> Readings:
-    answers = Readings()
-    monkeypatch.setattr(cli, "decide_start", answers)
-    monkeypatch.setattr(wiring, "decide_start", answers)
-    return answers
 
 
 def installation(
@@ -154,20 +123,58 @@ def test_without_accounts_the_slot_is_the_project(tmp_path: Path, accounts: Acco
     assert record.slot == "app"
 
 
-def test_a_record_carries_the_unit_accounts_usage_decision_with_its_reading(
-    tmp_path: Path, readings: Readings
+def test_a_record_carries_the_unit_accounts_usage_decision(
+    tmp_path: Path, accounts: Accounts
 ) -> None:
     inst, store = installation(tmp_path, [unit("one/1", "app")])
 
     round_of(inst, store)
 
     [record] = records(inst)
-    usage = record.usage
-    assert (usage.may_start, usage.reason) == (True, "plenty")
-    assert usage.source == "usage cache"
-    assert usage.age_seconds == 42.0
-    assert (usage.threshold, usage.ramp) == (93.0, 71.5)
-    assert (usage.estimate, usage.estimate_starts) == (True, 2)
+    assert (record.usage.may_start, record.usage.reason) == (True, "plenty")
+
+
+def test_the_second_admission_of_a_round_counts_the_first_and_the_held_unit_counts_both(
+    tmp_path: Path, accounts: Accounts
+) -> None:
+    inst, store = installation(
+        tmp_path, [unit("one/1", "app"), unit("one/2", "app"), unit("one/3", "app")], limit=2
+    )
+
+    started = round_of(inst, store)
+
+    assert len(started) == 2
+    first, second, held = records(inst)
+    assert [each.kind for each in (first, second, held)] == ["admitted", "admitted", "slot"]
+    assert first.counted == ()
+    assert [each.id for each in second.counted] == [first.unit]
+    assert held.unit not in started
+    assert [each.id for each in held.counted] == started
+    assert (held.limit, len(held.counted)) == (2, 2)
+    [counts] = read_counts(inst.state_dir / ADMISSIONS_NAME)
+    [slot] = counts.slots
+    assert (slot.ids, slot.limit, slot.room) == (tuple(started), 2, 0)
+
+
+def test_an_account_none_of_whose_units_came_up_for_a_start_is_not_asked_by_the_recorder(
+    tmp_path: Path, accounts: Accounts
+) -> None:
+    inst, store = installation(
+        tmp_path,
+        [unit("one/1", "app"), unit("busy/1", "platform"), unit("next/1", "platform")],
+        limit=1,
+    )
+    in_review(store, "busy/1", 12)
+
+    assert round_of(inst, store) == ["one/1"]
+
+    assert PERSONAL not in accounts.asked
+    [held] = [each for each in records(inst) if each.unit == "next/1"]
+    assert (held.kind, held.usage.may_start, held.usage.reason) == (
+        "slot",
+        None,
+        "not asked this round",
+    )
 
 
 def test_a_wait_for_a_slot_records_the_ids_counted_against_the_limit(
@@ -250,6 +257,51 @@ def test_a_unit_refused_by_its_account_has_one_usage_pause_entry_per_episode(
     assert not [e for e in store.history("two/1") if e.get("event") == "usage_resume"]
 
 
+def test_a_refusal_by_the_account_is_recorded_once_per_episode_with_the_counts_and_the_usage(
+    tmp_path: Path, accounts: Accounts
+) -> None:
+    inst, store = installation(
+        tmp_path, [unit("held/1", "platform"), unit("one/1", "app"), unit("two/1", "platform")]
+    )
+    in_review(store, "held/1", 9)
+    accounts.full = {PERSONAL}
+
+    for _ in range(3):
+        round_of(inst, store)
+
+    [refusal] = [each for each in records(inst) if each.kind == "usage"]
+    assert (refusal.unit, refusal.slot) == ("two/1", PERSONAL)
+    assert [each.id for each in refusal.counted] == ["held/1"]
+    assert refusal.usage.may_start is False
+    assert "weekly usage at 93%" in refusal.usage.reason
+    assert refusal.tick
+    assert refusal.fingerprint == config_fingerprint(inst)
+
+
+def test_the_admission_records_are_trimmed_to_the_decision_log_limit(
+    tmp_path: Path, accounts: Accounts
+) -> None:
+    inst = make_installation(
+        tmp_path / "planning",
+        planning={"state_dir": ".", "worktree_root": str(tmp_path / "trees")},
+        repos={"app": {"path": str(tmp_path / "app"), "slug": "example/app"}},
+        retention={"decision_log_mb": 0.002},
+    )
+    inst.state_dir.mkdir(parents=True, exist_ok=True)
+    store = UnitStore(inst.state_dir / "units.json")
+    store.upsert([])
+    path = inst.state_dir / ADMISSIONS_NAME
+    path.write_text(
+        "".join(f'{{"kind": "slot", "padding": "{"x" * 90}", "n": {n}}}\n' for n in range(100))
+    )
+    assert path.stat().st_size > 2 * 1024
+
+    round_of(inst, store)
+
+    assert path.stat().st_size <= int(0.002 * 1024 * 1024)
+    assert path.read_text().splitlines()[-1].endswith('"n": 99}')
+
+
 def test_the_resume_is_one_entry_and_a_second_refusal_is_a_new_episode(
     tmp_path: Path, accounts: Accounts
 ) -> None:
@@ -288,7 +340,12 @@ def test_a_tick_that_starts_or_refuses_records_each_accounts_ids_limit_and_room(
     assert counts.tick
     assert counts.fingerprint == config_fingerprint(inst)
     by_slot = {each.slot: each for each in counts.slots}
-    assert (by_slot["default"].ids, by_slot["default"].limit, by_slot["default"].room) == ((), 4, 4)
+    # `one/1` is started by this round, so it counts.
+    assert (by_slot["default"].ids, by_slot["default"].limit, by_slot["default"].room) == (
+        ("one/1",),
+        4,
+        3,
+    )
     assert by_slot[PERSONAL].ids == ("held/1",)
     assert (by_slot[PERSONAL].limit, by_slot[PERSONAL].room) == (4, 3)
 

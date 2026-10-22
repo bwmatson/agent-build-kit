@@ -712,14 +712,20 @@ interrupts happen only at node boundaries.
 
 ### The admission records
 
-Each admission of a never-started unit and each `slot` wait writes a line to `admissions.jsonl`
-beside the decision log: the unit, the tick, the slot (an account's label, or the project), the
-limit, the ids counted in the slot each with its state and why it counts, the unit's own account's
-usage decision with its reading, and a fingerprint of the merged configuration. A slot wait is
-written again only when the counted set or the limit changes. A tick that starts or refuses a
-unit also writes each slot's ids, limit and room. A unit its account refuses at admission gets one
-`usage_pause` entry in its history for the episode and one `usage_resume` when it is admitted
-again. `abk explain <unit>` reads these back.
+Each admission of a never-started unit, each `slot` wait and each refusal by the unit's own
+account (`usage`) writes a line to `admissions.jsonl` beside the decision log: the unit, the tick,
+the slot (an account's label, or the project), the limit, the ids counted in the slot each with
+its state and why it counts, the unit's own account's usage decision with its reading (source and
+age, the threshold and the ceiling it ramps to, and whether the start was made on an estimate and
+how many starts have been made on it), and a fingerprint of the merged configuration. The ids
+counted are the units in progress and the units this round admitted before it, in start order. A
+slot wait is written again only when the counted set or the limit changes. A tick that starts or
+refuses a unit also writes each slot's ids, limit and room, after the round's starts. A unit its
+account refuses at admission gets one `usage_pause` entry in its history, and one `usage` line,
+for the episode, and one `usage_resume` when it is admitted again. An account no unit of came up
+for a start in the round is recorded as not asked: the records never ask the guard. The file is
+trimmed to `retention.decision_log_mb`, as the decision log is. `abk explain <unit>` reads these
+back.
 
 ## Session capture and resume
 

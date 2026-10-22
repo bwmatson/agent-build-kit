@@ -1408,9 +1408,10 @@ def evaluate_manual_waits(
 
 
 def _bound_logs(inst: Installation) -> None:
-    """Keep the decision log and the unit run logs within `retention`."""
+    """Keep the decision log, the admission records and the unit run logs within `retention`."""
     retention = inst.config.retention
     trim_decision_log(inst.state_dir / DECISIONS_NAME, limit_mb=retention.decision_log_mb)
+    trim_decision_log(inst.state_dir / ADMISSIONS_NAME, limit_mb=retention.decision_log_mb)
     remove_old_logs(
         run_log_dir(inst.state_dir),
         inst.state_dir / LEDGER_NAME,
@@ -1998,10 +1999,15 @@ def _why_counted(unit: StoredUnit) -> str:
 
 
 def _usage_facts(inst: Installation, unit: StoredUnit, decided: dict[str | None, Decision]):
-    """The usage decision of the unit's own account, as the round made it."""
+    """The usage decision of the unit's own account, as the round made it. The guard is never
+    asked from here: an account the round did not ask about says so."""
     if not runtimes.active().supports_usage_tracking:
         return UsageFacts(may_start=True, reason="runtime has no usage window")
-    decision = _account_decision(claude_account.for_repo(inst.config, unit.repo), decided)
+    decision = decided.get(
+        claude_account.account_key(claude_account.for_repo(inst.config, unit.repo))
+    )
+    if decision is None:
+        return UsageFacts(may_start=None, reason="not asked this round")
     return UsageFacts.model_validate(decision.model_dump(include=set(UsageFacts.model_fields)))
 
 
@@ -2052,50 +2058,67 @@ def _write_admissions(
     limit_of = _slot_limit(inst)
     by_id = {unit.id: unit for unit in units}
     counting = {unit.id for unit in view if in_progress(unit, view)}
+    # The units this round starts, in start order: the view is the graph before any of them.
+    fresh = [uid for uid in admitted if not by_id[uid].branch]
 
-    def counted(slot: Hashable, besides: str) -> tuple[Counted, ...]:
-        return tuple(
-            Counted(id=unit.id, state=str(unit.state), why=_why_counted(unit))
-            for unit in units
-            if unit.id in counting and unit.id != besides and slot_of(unit) == slot
+    def counted(slot: Hashable, besides: str, started: Sequence[str]) -> tuple[Counted, ...]:
+        """The units counted in `slot`: those in progress, then `started` (units this round
+        has started); not `besides`."""
+        return (
+            *(
+                Counted(id=unit.id, state=str(unit.state), why=_why_counted(unit))
+                for unit in units
+                if unit.id in counting and unit.id != besides and slot_of(unit) == slot
+            ),
+            *(
+                Counted(id=uid, state=str(by_id[uid].state), why="admitted earlier in this round")
+                for uid in started
+                if uid not in counting and uid != besides and slot_of(by_id[uid]) == slot
+            ),
         )
 
     last: dict[str, AdmissionRecord] = {}
     for each in read_admissions(path):
         last[each.unit] = each
 
-    def record(kind: Literal["admitted", "slot"], unit: StoredUnit) -> None:
+    def record(
+        kind: Literal["admitted", "slot", "usage"], unit: StoredUnit, started: Sequence[str]
+    ) -> None:
         slot = slot_of(unit)
-        found = AdmissionRecord(
-            at=now,
-            kind=kind,
-            unit=unit.id,
-            tick=_PROCESS_TICK,
-            slot=_slot_label(slot),
-            limit=limit_of(slot),
-            counted=counted(slot, unit.id),
-            usage=_usage_facts(inst, unit, decided),
-            fingerprint=fingerprint,
-        )
+        found_counted = counted(slot, unit.id, started)
         before = last.get(unit.id)
-        same = (
-            before is not None
+        if (
+            kind == "slot"
+            and before is not None
             and before.kind == "slot"
             and (before.slot, before.limit, [c.id for c in before.counted])
-            == (found.slot, found.limit, [c.id for c in found.counted])
+            == (_slot_label(slot), limit_of(slot), [c.id for c in found_counted])
+        ):
+            return
+        append_admission(
+            path,
+            AdmissionRecord(
+                at=now,
+                kind=kind,
+                unit=unit.id,
+                tick=_PROCESS_TICK,
+                slot=_slot_label(slot),
+                limit=limit_of(slot),
+                counted=found_counted,
+                usage=_usage_facts(inst, unit, decided),
+                fingerprint=fingerprint,
+            ),
         )
-        if kind == "admitted" or not same:
-            append_admission(path, found)
 
-    fresh = [uid for uid in admitted if not by_id[uid].branch]
-    for uid in fresh:
-        record("admitted", by_id[uid])
+    for k, uid in enumerate(fresh):
+        record("admitted", by_id[uid], fresh[:k])
     for uid, waited in waits.items():
         if waited.reason in (WaitReason.QUEUE_FULL, WaitReason.SLOT):
-            record("slot", by_id[uid])
+            record("slot", by_id[uid], fresh)
 
     if fresh or refused:
         slots = dict.fromkeys(slot_of(unit) for unit in units)
+        slot_counts = {slot: counted(slot, "", fresh) for slot in slots}
         append_counts(
             path,
             TickCounts(
@@ -2106,8 +2129,8 @@ def _write_admissions(
                     SlotCount(
                         slot=_slot_label(slot),
                         limit=limit_of(slot),
-                        ids=tuple(c.id for c in counted(slot, "")),
-                        room=start_room(view, limit_of(slot), slot, slot_of),
+                        ids=tuple(c.id for c in slot_counts[slot]),
+                        room=max(0, limit_of(slot) - len(slot_counts[slot])),
                     )
                     for slot in slots
                 ),
@@ -2120,13 +2143,8 @@ def _write_admissions(
         account = _slot_label(claude_account.for_repo(inst.config, unit.repo).label)
         if unit.id in refused:
             if latest.get("event") != "usage_pause" or latest.get("account") != account:
-                store.record_event(
-                    unit.id,
-                    "usage_pause",
-                    refused[unit.id],
-                    account=account,
-                    reason=refused[unit.id],
-                )
+                store.record_event(unit.id, "usage_pause", account=account, reason=refused[unit.id])
+                record("usage", unit, fresh)
         elif unit.id in admitted and latest.get("event") == "usage_pause":
             store.record_event(unit.id, "usage_resume", account=account)
 

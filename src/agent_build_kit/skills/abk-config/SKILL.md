@@ -129,7 +129,8 @@ session_reuse:                # per agent role: continue the role's latest sessi
   review: false               # always false: a review starts fresh; a role left out is off
 
 retention:
-  decision_log_mb: 50         # decision log size; the oldest lines are dropped past it
+  decision_log_mb: 50         # size of the decision log and of the admission records; the oldest
+                              # lines are dropped past it
   unit_log_days: 30           # age at which a summarised unit's run log is removed
 
 context:

@@ -84,6 +84,24 @@ def test_it_says_a_unit_was_paused_by_its_account_and_why(
     assert "paused" in out
     assert f"account {PERSONAL}" in out
     assert "weekly usage at 93%" in out
+    [refusal] = [
+        each for each in read_admissions(inst.state_dir / ADMISSIONS_NAME) if each.kind == "usage"
+    ]
+    assert f"tick {refusal.tick}" in out
+    assert config_fingerprint(inst) in out
+    assert "limit 5" in out
+    assert "stale configuration" not in out
+
+
+def test_an_at_that_is_not_an_iso_time_is_refused_with_what_is_expected(
+    tmp_path: Path, accounts: Accounts, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inst, _store = installation(tmp_path, [unit("one/1", "app")])
+
+    code = cmd_explain(argparse.Namespace(unit="one/1", at="yesterday"), inst)
+
+    assert code == 2
+    assert "--at expects an ISO time" in capsys.readouterr().err
 
 
 def test_at_selects_the_record_in_force_at_that_time(

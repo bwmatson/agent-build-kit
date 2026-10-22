@@ -104,8 +104,9 @@ soonest (`ready`, `slot`, `lease`, `backoff`) come first; at most 10 are shown, 
 against". From the admission records (`admissions.jsonl` in the state directory) it prints the
 slot, the limit and the units counted with why each counts, the usage decision of the unit's own
 account (reading source and age, threshold, ramp, estimate), the tick, and the configuration
-fingerprint; a unit its account refused is said to be paused, with the account and the reason.
-`--at` is an ISO time; with none it is the latest record. A decision made on a configuration the
+fingerprint; a unit its account refused is said to be paused, with the account and the reason and
+the same counts, usage decision, tick and fingerprint of the refusal.
+`--at` is an ISO time (anything else exits 2); with none it is the latest record. A decision made on a configuration the
 files no longer match is marked `stale configuration`, and when no record covers the time it says
 so. A tick prints the fingerprint when it starts.
 

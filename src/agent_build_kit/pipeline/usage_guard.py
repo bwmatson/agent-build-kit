@@ -1026,6 +1026,18 @@ def rate_limit_reset(text: str) -> datetime | None | Literal[False]:
     return datetime.fromtimestamp(int(match.group(1)), UTC) if match else None
 
 
+def _reading_facts(reading: UsageReading) -> dict:
+    """The reading's source and age, as a decision records them."""
+    return {"source": reading.source, "age_seconds": reading.age.total_seconds()}
+
+
+def _ramp_of(name: str, limits: Limits) -> int | None:
+    """The ceiling the named window's threshold ramps to, or None for a window that does not
+    ramp."""
+    band = limits.session if name == "session" else limits.weekly
+    return band.ceiling_pct if band.ramps else None
+
+
 def may_start_unit(reading: UsageReading | None, *, trust_age: bool = False) -> Decision:
     """Decide whether a new unit may start now.
 
@@ -1056,6 +1068,7 @@ def may_start_unit(reading: UsageReading | None, *, trust_age: bool = False) -> 
         )
 
     limits = Limits.configured()
+    facts = _reading_facts(reading)
 
     # Backstops first, so they can only make the answer stricter. Past the
     # plan limit the next call is billed to credits, which is never something
@@ -1069,6 +1082,7 @@ def may_start_unit(reading: UsageReading | None, *, trust_age: bool = False) -> 
                 f"(${reading.credits_used_dollars:.2f} used)"
             ),
             resume_at=_resume_after(reading),
+            **facts,
         )
 
     if reading.credits_enabled and max(reading.session_pct, reading.weekly_pct) >= 100:
@@ -1076,6 +1090,7 @@ def may_start_unit(reading: UsageReading | None, *, trust_age: bool = False) -> 
             may_start=False,
             reason="a usage window is full and credits are enabled, so further work costs money",
             resume_at=_resume_after(reading),
+            **facts,
         )
 
     # A live reading was just taken, so only a reading from a cache can be stale.
@@ -1087,6 +1102,7 @@ def may_start_unit(reading: UsageReading | None, *, trust_age: bool = False) -> 
                 f"from {reading.source}); headless runs don't refresh it"
             ),
             resume_at=now + _stale_retry(),
+            **facts,
         )
 
     for window in reading.windows:
@@ -1099,14 +1115,25 @@ def may_start_unit(reading: UsageReading | None, *, trust_age: bool = False) -> 
                     f"({_threshold_note(window, threshold, limits)}, {reading.source})"
                 ),
                 resume_at=_resume_to(window, now=now, limits=limits),
+                threshold=threshold,
+                ramp=_ramp_of(window.name, limits),
+                **facts,
             )
 
+    # The window nearest its threshold is the one that came closest to refusing.
+    thresholds = {each.name: threshold_at(each, now=now, limits=limits) for each in reading.windows}
+    nearest = min(
+        reading.windows, key=lambda each: thresholds[each.name] - each.used_pct, default=None
+    )
     return Decision(
         may_start=True,
         reason=(
             f"session {reading.session_pct}%, weekly {reading.weekly_pct}% "
             f"({_thresholds_note(reading, now=now, limits=limits)}, {reading.source})"
         ),
+        threshold=thresholds[nearest.name] if nearest is not None else None,
+        ramp=_ramp_of(nearest.name, limits) if nearest is not None else None,
+        **facts,
     )
 
 
@@ -1272,8 +1299,15 @@ def _decide_on_estimate(
     asked. An allowance is recorded in the cache file under its lock."""
     estimates = _estimates(held, cached, cache_path, now)
     text = _estimate_text(held, estimates, now)
+    nearest = min(estimates, key=lambda each: each.threshold - each.estimate)
+    facts = {
+        "source": held.source,
+        "age_seconds": (now - held.observed_at).total_seconds(),
+        "threshold": nearest.threshold,
+        "ramp": _ramp_of(nearest.name, Limits.configured()),
+    }
     if not all(each.ample for each in estimates):
-        return Decision(may_start=False, reason=text, resume_at=next_call)
+        return Decision(may_start=False, reason=text, resume_at=next_call, **facts)
     admitted = _admitted(cached)
     cap = claude_limits().usage_estimate_max_starts
     if (unit is None or unit not in admitted) and len(admitted) >= cap:
@@ -1284,10 +1318,19 @@ def _decide_on_estimate(
                 f"(at most {cap} for one reading)"
             ),
             resume_at=next_call or now + _stale_retry(),
+            **facts,
         )
     if unit is not None:
         _record_admitted(cache_path, held, unit)
-    return Decision(may_start=True, reason=f"{text}, allowing starts", resets_at=held.resets_at)
+    return Decision(
+        may_start=True,
+        reason=f"{text}, allowing starts",
+        resets_at=held.resets_at,
+        estimate=True,
+        # The unit being admitted counts once it is recorded.
+        estimate_starts=len(admitted) + (1 if unit is not None and unit not in admitted else 0),
+        **facts,
+    )
 
 
 def _record_admitted(cache_path: Path, held: UsageReading, unit: str) -> None:
@@ -1378,7 +1421,7 @@ def _decide_start(
     reading is taken, for a caller that has its own.
     """
     if settings.usage_guard == "off":
-        return Decision(may_start=True, reason="usage guard off (ABK_USAGE_GUARD)")
+        return Decision(may_start=True, reason="usage guard off (ABK_USAGE_GUARD)", source="off")
     unit = unit or _starting.get()
     read = read or current_usage
     judge = decide or may_start_unit
@@ -1453,6 +1496,8 @@ def _decide_start(
     allowed = next_call_at(calls_file, now=now)
     if allowed is not None:
         soon = _too_soon(allowed, now)
+        if held is not None:
+            soon = soon.model_copy(update=_reading_facts(held))
         base = _estimable(held)
         return soon if base is None else on_estimate(base, soon, next_call=allowed)
     return fresh()

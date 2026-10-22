@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from datetime import UTC, datetime
 
 from agent_build_kit.cli.pipeline import store_for
@@ -27,12 +28,21 @@ def _usage_line(record: AdmissionRecord) -> str:
         f"on an estimate, {usage.estimate_starts} starts made on it" if usage.estimate else "",
     ]
     detail = "; ".join(fact for fact in facts if fact)
+    if usage.may_start is None:
+        return f"usage: {usage.reason}"
     verdict = "may start" if usage.may_start else "may not start"
     return f"usage: {verdict} — {usage.reason}" + (f" ({detail})" if detail else "")
 
 
+_OUTCOMES = {
+    "admitted": "admitted",
+    "slot": "held, waiting for a slot",
+    "usage": "refused by its account, so not started",
+}
+
+
 def _describe(record: AdmissionRecord, now_fingerprint: str) -> list[str]:
-    outcome = "admitted" if record.kind == "admitted" else "held, waiting for a slot"
+    outcome = _OUTCOMES[record.kind]
     lines = [
         f"{record.unit} was {outcome} at {record.at.isoformat()} (tick {record.tick})",
         f"slot {record.slot}: {len(record.counted)} counted, limit {record.limit}",
@@ -62,7 +72,11 @@ def register(sub: argparse._SubParsersAction) -> None:
 def cmd_explain(args: argparse.Namespace, inst: Installation) -> int:
     """Print why `args.unit` was admitted, held or paused at `args.at` (an ISO time, or None for
     the latest record)."""
-    at = datetime.fromisoformat(args.at) if args.at else spans.clock.now()
+    try:
+        at = datetime.fromisoformat(args.at) if args.at else spans.clock.now()
+    except ValueError:
+        print("--at expects an ISO time", file=sys.stderr)
+        return 2
     if at.tzinfo is None:
         at = at.replace(tzinfo=UTC)
     records = [
@@ -80,12 +94,14 @@ def cmd_explain(args: argparse.Namespace, inst: Installation) -> int:
         and stamp <= at
     ]
     paused = events[-1] if events and events[-1][1]["event"] == "usage_pause" else None
-    if paused and (record is None or paused[0] >= record.at):
+    if paused and (record is None or record.kind == "usage" or paused[0] >= record.at):
         stamp, entry = paused
         print(
             f"{args.unit} was paused since {stamp.isoformat()} by account {entry['account']}: "
             f"{entry['reason']}"
         )
+        if record is not None and record.kind == "usage":
+            print("\n".join(_describe(record, config_fingerprint(inst))))
         return 0
     if record is None:
         print(f"no record covers {args.unit} at {at.isoformat()}")

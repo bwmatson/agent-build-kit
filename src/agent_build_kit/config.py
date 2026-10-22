@@ -155,7 +155,8 @@ class OpenSpecConfig(Frozen):
 class RetentionConfig(Frozen):
     """How long the files the pipeline writes for diagnosis are kept."""
 
-    # The decision log's size, in megabytes; past it the oldest lines are dropped.
+    # The size, in megabytes, of the decision log and of the admission records; past it the
+    # oldest lines are dropped.
     decision_log_mb: Annotated[float, Field(gt=0)] = 50
     # How old a unit's run log may get once its summary is in the usage ledger.
     unit_log_days: Annotated[int, Field(ge=0)] = 30
