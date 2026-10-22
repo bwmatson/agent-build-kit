@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, mo
 from agent_build_kit import config, telemetry
 from agent_build_kit.compat_names import read_old_kind
 from agent_build_kit.installation import Installation
+from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.redaction import redact_leaves
 from agent_build_kit.usage import Context, Usage, UsageSource
@@ -361,6 +362,21 @@ def spend_times(records: list[UsageRecord]) -> list[tuple[datetime, str]]:
         except ValueError:
             continue
     return spent
+
+
+class SpendRow(Frozen):
+    """One record's spend: when it was made, its unit (blank for a call with none), its node
+    and its recorded incremental cost (zero when it reported none)."""
+
+    at: datetime
+    unit: str
+    node: str
+    cost_usd: float
+
+
+def spend_costs(records: list[UsageRecord]) -> list[SpendRow]:
+    """What each record spent, by cost, with or without a unit; see `SpendRow`."""
+    raise NotImplementedError
 
 
 def records_in(lines: list[str]) -> list[UsageRecord]:
