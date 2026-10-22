@@ -14,8 +14,9 @@ from tests.factories import activate_with
 from tests.graph.test_build_path import build, fresh
 
 UNIT_ID = "add-marker/1"
-# The recording module, the review node that writes through it, and the status listing.
-ALLOWED = {"pipeline/verdict_record.py", "graph/nodes.py", "cli/pipeline.py"}
+# The recording module, the review node that writes through it, the status listing, and the
+# review labels (spec: review-triage allows a label to read a verdict).
+ALLOWED = {"pipeline/verdict_record.py", "graph/nodes.py", "cli/pipeline.py", "pipeline/labels.py"}
 NAMES = re.compile(r"verdicts\.json|verdict_record|\bVERDICTS\b")
 
 

@@ -34,7 +34,11 @@ def test_github_creates_and_sets_a_review_label_by_its_own_name() -> None:
 @pytest.mark.usefixtures("github_env")
 def test_github_replacing_a_review_label_leaves_the_others_off() -> None:
     host = GitHubHost(
-        repo_labels=[(AUTO.name, AUTO.color, AUTO.description or ""), ("bug", "d73a4a", "x")],
+        repo_labels=[
+            (AUTO.name, AUTO.color, AUTO.description or ""),
+            (LIGHT.name, LIGHT.color, LIGHT.description or ""),
+            ("bug", "d73a4a", "x"),
+        ],
         pr_labels={7: [AUTO.name, LIGHT.name, "bug"]},
     )
 

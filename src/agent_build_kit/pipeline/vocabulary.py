@@ -158,14 +158,31 @@ def change_label(change: str) -> Label:
     )
 
 
+_REVIEW_COLOURS = {
+    ReviewTier.AUTO: "16a34a",
+    ReviewTier.LIGHT: "ca8a04",
+    ReviewTier.FULL: "dc2626",
+}
+
+_REVIEW_DESCRIPTIONS = {
+    ReviewTier.AUTO: "Review found nothing that needs a person",
+    ReviewTier.LIGHT: "Review asks for a light look from a person",
+    ReviewTier.FULL: "Review asks for a full read from a person",
+}
+
+
 def review_label(tier: ReviewTier) -> Label:
     """The label naming the review tier a unit's verdict gave its pull request."""
-    raise NotImplementedError
+    return Label(
+        name=f"review-{tier.value}",
+        color=_REVIEW_COLOURS[tier],
+        description=_REVIEW_DESCRIPTIONS[tier],
+    )
 
 
 def review_label_names() -> frozenset[str]:
     """Every label the pipeline maintains as a unit's review tier."""
-    raise NotImplementedError
+    return frozenset(review_label(tier).name for tier in ReviewTier)
 
 
 # A unit's pull request's checks, as the last poll recorded them.

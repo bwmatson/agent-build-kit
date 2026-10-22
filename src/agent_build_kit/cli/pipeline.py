@@ -353,6 +353,7 @@ from agent_build_kit.pipeline.usage_guard import (
 )
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.verdict import ReviewTier, SplitRequest
+from agent_build_kit.pipeline.verdict_record import VERDICTS
 from agent_build_kit.pipeline.verify import SplitHeld, Verification, VerifyRecord, verify_change
 from agent_build_kit.pipeline.vocabulary import (
     WaitReason,
@@ -463,6 +464,7 @@ def store_for(inst: Installation) -> UnitStore:
             checks_of=recorded_checks(inst.state_dir),
             paused=parked_units(inst, units),
         )
+        labels.follow_review(unit, inst.state_dir / VERDICTS)
         drafts.follow(unit, units, opened=opened)
         # Equal, and only on the write that counted it (from `running`), so it is named once.
         counted = len(unit.history) > 1 and unit.history[-2].get("state") == RUNNING
