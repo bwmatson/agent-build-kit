@@ -860,10 +860,41 @@ def edge_kind(unit: Unit, parent: Unit, repos: Mapping[str, RepoConfig]) -> Edge
     return Edge(kind=EdgeKind.REVIEW)
 
 
-def merge_parents(unit: Unit, parents: Sequence[Unit], repos: Mapping[str, RepoConfig]) -> set[str]:
-    """The ids among `parents` that `unit` has a merge edge to: what `dependency_wait` words
-    as waiting to merge."""
-    return {p.id for p in parents if edge_kind(unit, p, repos).kind is EdgeKind.MERGE}
+def parent_landed(parent: Unit, graph: Sequence[Unit]) -> bool:
+    """Whether `parent` is merged, or satisfied with its work landed."""
+    return parent.state == MERGED or (parent.state == SATISFIED and satisfied_landed(parent, graph))
+
+
+def _merge_missing(parent: Unit, graph: Sequence[Unit], loaded: LoadedCode | None) -> str:
+    """What a merge wait on `parent` is for: its merge, the next tick that loads it, or the kit
+    checkout to include it."""
+    names = group_names([parent])
+    if not parent_landed(parent, graph):
+        return f"{names} to merge"
+    sha = getattr(parent, "merge_sha", None)
+    if (
+        loaded is not None
+        and sha is not None
+        and parent.repo == loaded.kit_repo
+        and loaded.contains(sha) is False
+        and not loaded.checkout_contains(sha)
+    ):
+        return f"the kit checkout to include {names}'s merge"
+    return f"the next tick to load {names}'s merge"
+
+
+def merge_parents(
+    unit: Unit, parents: Sequence[Unit], graph: Sequence[Unit], repos: Mapping[str, RepoConfig]
+) -> dict[str, str]:
+    """For each of `parents` that `unit` has a merge edge to, what it waits for and why the edge
+    is a merge edge, as `dependency_wait` words it (keyed by the parent's id)."""
+    loaded = loaded_code.current()
+    found: dict[str, str] = {}
+    for parent in parents:
+        edge = edge_kind(unit, parent, repos)
+        if edge.kind is EdgeKind.MERGE:
+            found[parent.id] = f"{_merge_missing(parent, graph, loaded)} (merge: {edge.reason})"
+    return found
 
 
 def merge_loaded(parent: Unit, graph: Sequence[Unit], loaded: LoadedCode) -> bool:
@@ -929,11 +960,6 @@ def waiting_on(unit: Unit, graph: Sequence[Unit], loaded: LoadedCode | None = No
     if loaded is None:
         loaded = loaded_code.current()
 
-    def landed(parent: Unit) -> bool:
-        return parent.state == MERGED or (
-            parent.state == SATISFIED and satisfied_landed(parent, graph)
-        )
-
     followed = followed_dependencies(unit, graph)
     for dep in [*followed, *(dep for dep in unit.merge_needs if dep not in followed)]:
         parent = index.get(dep)
@@ -941,7 +967,12 @@ def waiting_on(unit: Unit, graph: Sequence[Unit], loaded: LoadedCode | None = No
         if parent is None or parent.state in BUILDS_NOTHING or parent in waiting:
             continue
         if edge_kind(unit, parent, repos).kind is EdgeKind.MERGE:
-            if not landed(parent) or (loaded and not merge_loaded(parent, graph, loaded)):
+            # A closed parent will never merge: a failed unit's wait is over (it ends as closed).
+            if parent.state == CLOSED and unit.state == FAILED:
+                continue
+            if not parent_landed(parent, graph) or (
+                loaded and not merge_loaded(parent, graph, loaded)
+            ):
                 waiting.append(parent)
         elif parent.state not in REVIEWED:
             waiting.append(parent)
@@ -996,17 +1027,12 @@ def blocked(unit: Unit, graph: Sequence[Unit]) -> bool:
     return unit.state == PLANNED and bool(waiting_on(unit, graph))
 
 
-def dependency_wait(units: Sequence[Unit], *, repo: str, merging: Collection[str] = ()) -> str:
-    """What a unit of `repo` held by these dependencies is waiting for, in a person's words.
+def dependency_wait(units: Sequence[Unit], *, merging: Mapping[str, str] = {}) -> str:
+    """What a unit held by these dependencies is waiting for, in a person's words.
 
-    A dependency in another repository is waited for until it has merged, so it is
-    named as such, as is one the unit has a merge edge to (`merging`); a same-repo one
-    only until it is in review.
-    """
-    names = [
-        group_names([unit]) + (" to merge" if unit.repo != repo or unit.id in merging else "")
-        for unit in units
-    ]
+    A dependency the unit has a merge edge to is named by `merging` (`merge_parents`): what is
+    missing of its merge and why the edge is one; any other only by its task group."""
+    names = [merging.get(unit.id) or group_names([unit]) for unit in units]
     return f"waiting for {', '.join(names)}"
 
 

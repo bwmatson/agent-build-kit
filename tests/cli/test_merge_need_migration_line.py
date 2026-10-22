@@ -61,7 +61,8 @@ def test_the_line_names_each_unfinished_dependent_on_an_unmerged_parent_once_and
     for name in ("plan", "fail", "held", "live"):
         merge_need(store, f"{name}/1", "base/1")
     merge_need(store, "calm/1", "ok/1")
-    before = {unit.id: (unit.state, unit.cause) for unit in store.all()}
+    named = ("plan/1", "fail/1", "held/1")
+    before = {unit.id: (unit.state, unit.cause) for unit in store.all() if unit.id in named}
     capsys.readouterr()
 
     assert tick(inst) == 0
@@ -73,4 +74,5 @@ def test_the_line_names_each_unfinished_dependent_on_an_unmerged_parent_once_and
     assert "live/1: now waits" not in out, "a running unit is not stopped or told"
     assert "calm/1: now waits" not in out, "its parent has merged"
     assert "old/2: now waits" not in out, "archived changes are not read"
-    assert before == {unit.id: (unit.state, unit.cause) for unit in store.all()}
+    after = {unit.id: (unit.state, unit.cause) for unit in store.all() if unit.id in named}
+    assert before == after, "the units the line names are neither changed nor requeued"

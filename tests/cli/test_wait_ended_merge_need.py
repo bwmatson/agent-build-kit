@@ -130,7 +130,9 @@ def test_a_requeue_by_a_person_is_parked_gated_and_released_after_the_merge_is_l
 
     [delivery] = pipe.host.deliveries
     assert delivery["requeue"] is RequeueReason.RESUME
+    pipe.pass_()
     assert pipe.store.get(CHILD).waited_on == ()
+    assert len(pipe.host.deliveries) == 1
 
 
 def test_a_closed_merge_parent_leaves_the_unit_failed_and_says_so(

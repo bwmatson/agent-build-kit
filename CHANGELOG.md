@@ -9,7 +9,11 @@
   another repository and a failed unit waiting on a fix now start only once the parent has merged
   and a later tick has the merge in the code it runs; the tick records its number, start time and
   the kit checkout's head in `tick.json`, and a plain same-repo `Needs:` still starts on the
-  parent's branch once the parent is in review.
+  parent's branch once the parent is in review. A failed unit is requeued only after that merge is
+  loaded, and its history says which tick loaded it. `abk status` and the log word each such wait
+  as waiting for the merge, for the next tick to load it, or for the kit checkout to include it,
+  followed by why the edge is a merge edge. The first round of a tick names each unfinished
+  dependent that now waits for an unmerged parent.
 
 - A task group can declare a step only a person can do with `Manual: <slug> — <what to do> —
   runbook: <path>#<heading>` and an optional `Check: <command>`, and a builder can register one
