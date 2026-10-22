@@ -936,6 +936,9 @@ class E2eDimensionValue(Frozen):
 class TestsConfig(TestKindSettings):
     # Extra packages the repo-root tests (outside every workspace member) need.
     root_extras: list[str] = []
+    # The command that applies this repo's fixers, to which the file names are appended; None
+    # follows the profile and the empty list turns the fixer pass off.
+    fix_command: list[str] | None = None
     # The pytest marker on tests that need the real local stack (e2e-test).
     e2e_marker: str = Field("local_stack", alias="e2e_marker")
     # This repo's e2e-test scope; None follows `global_limits.e2e_unit_scope`.

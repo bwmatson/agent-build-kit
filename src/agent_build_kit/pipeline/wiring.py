@@ -19,6 +19,7 @@ Two guarantees are enforced here rather than trusted to the prompt:
 from __future__ import annotations
 
 import ast
+import hashlib
 import logging
 import os
 import shlex
@@ -58,6 +59,7 @@ from agent_build_kit.config import (
 from agent_build_kit.forges import FileChange, Forge, RegistersStacks, RepoId, StackRefused
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
+from agent_build_kit.path_patterns import matches_any
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.changelog_convention import review_changelog_paragraph
 from agent_build_kit.pipeline.check_failures import failed_in
@@ -129,10 +131,11 @@ from agent_build_kit.pipeline.restack import (
     resolved_move,
     retried_once,
 )
+from agent_build_kit.pipeline.review_paths import is_protected
 from agent_build_kit.pipeline.run_log import append_e2e_output, e2e_output_dir
 from agent_build_kit.pipeline.scratch import run_folder, selection_seed
 from agent_build_kit.pipeline.shell import changed_files, git, git_out, has_origin, porcelain
-from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner, Worktree
+from agent_build_kit.pipeline.stack_runner import FixResult, Restacked, UnitRunner, Worktree
 from agent_build_kit.pipeline.transcript import Transcript, transcript_dir
 from agent_build_kit.pipeline.ui_review import ui_notes_of, ui_reply_writer, unit_patch_of
 from agent_build_kit.pipeline.unit_size import actual_lines, branch_diff, over_ceiling, unit_ceiling
@@ -966,6 +969,96 @@ def build_stub_checks(
         return not failures, "\n\n".join(failures)
 
     return checks
+
+
+def build_fixers(
+    *,
+    profile: ToolchainProfile,
+    projects: list[ProjectConfig] | None = None,
+    repo_name: str,
+    run: Callable[..., subprocess.CompletedProcess] | None = None,
+) -> Callable[..., FixResult]:
+    """The runner's `run_fixers(*, cwd)`: the unit's own changed and untracked files, per
+    project, through the repo's fix command or the profile's.
+
+    The files are the ones a commit is about to stage, less the lock files and artifacts it
+    unstages and the ones the review policy protects. The exit status is ignored: a fixer
+    exits non-zero for what it changed or could not fix, so what it did is read from the
+    files. A command that cannot run is reported and the build goes on."""
+    run = run or _run
+
+    def run_fixers(*, cwd: Path) -> FixResult:
+        repo = active().repos.get(repo_name)
+        setting = repo.tests.fix_command if repo else None
+        if setting is not None and not setting:
+            return FixResult()
+        skip = (*lock_paths(repo, cwd), *artifact_patterns(repo, cwd))
+        names = [
+            name for code, name in porcelain(cwd) if "D" not in code and not matches_any(skip, name)
+        ]
+        protected = [name for name in names if is_protected(active(), repo_name, name)]
+        names = [name for name in names if name not in protected]
+        skipped = dict.fromkeys(protected)
+        # Protected files as they are now, the unit's changed ones and the committed ones a
+        # hook might rewrite although it was not given them.
+        held = {
+            name: (cwd / name).read_bytes() if (cwd / name).is_file() else None
+            for name in {*git_out(cwd, "ls-files").splitlines(), *protected}
+            if is_protected(active(), repo_name, name)
+        }
+        present = {name for _, name in porcelain(cwd)}
+        changed: dict[str, None] = {}
+        failed: list[str] = []
+        for owner, relative in by_project(projects or [], names):
+            toolchain = profiles.for_project(owner, profile)
+            prefix = owner.prefix if owner else ""
+            if setting is not None:
+                command = [*setting, *relative]
+            else:
+                command = getattr(toolchain, "fix_command", lambda files: None)(relative)
+            if not command:
+                continue
+            files = [f"{prefix}{name}" for name in relative]
+            first = {name: _digest(cwd / name) for name in files}
+            last = first
+            for _ in range(FIXER_PASSES):
+                try:
+                    run(command, cwd=cwd / prefix)
+                except OSError as exc:
+                    failed.append(f"{command[0]}: {exc}")
+                    break
+                now = {name: _digest(cwd / name) for name in files}
+                moved = now != last
+                last = now
+                if not moved:
+                    break
+            changed.update(dict.fromkeys(name for name in files if last[name] != first[name]))
+        for name, content in held.items():
+            target = cwd / name
+            if (target.read_bytes() if target.is_file() else None) != content:
+                if content is None:
+                    target.unlink()
+                else:
+                    target.write_bytes(content)
+                skipped[name] = None
+        # A protected file a hook created from nothing is taken away, or the next commit
+        # would stage it.
+        for _, name in porcelain(cwd):
+            if name not in present and is_protected(active(), repo_name, name):
+                (cwd / name).unlink(missing_ok=True)
+                skipped[name] = None
+        return FixResult(changed=tuple(changed), skipped=tuple(skipped), failed=tuple(failed))
+
+    return run_fixers
+
+
+# The passes a project's fixers make at most: a second covers a hook that reformats the
+# first one's output, and no loop is needed beyond it.
+FIXER_PASSES = 2
+
+
+def _digest(path: Path) -> str | None:
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
 
 
 def build_tree_state(*, run: Callable[..., subprocess.CompletedProcess] | None = None):
@@ -3838,6 +3931,7 @@ def build_runner(
         ),
         commit_built=build_commit_built(unit_id=unit.id),
         run_stub_checks=build_stub_checks(profile=profile, projects=repo.projects),
+        run_fixers=build_fixers(profile=profile, projects=repo.projects, repo_name=unit.repo),
         tree_state=build_tree_state(),
         branch_commits=branch_commits,
         branch_subjects=branch_subjects,

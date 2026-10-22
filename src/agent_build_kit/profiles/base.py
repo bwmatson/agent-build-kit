@@ -87,6 +87,18 @@ class CreatedFiles(Protocol):
         ...
 
 
+@runtime_checkable
+class AppliesFixers(Protocol):
+    """The optional hook a profile adds to say how its formatters and auto-fixers are applied
+    to files. A profile without it gets no fixer pass."""
+
+    def fix_command(self, files: list[str]) -> list[str] | None:
+        """The argv that applies the profile's fixers to `files`, relative to the project's
+        directory, run with the files already in it; None when none of them is one the
+        profile fixes."""
+        ...
+
+
 def supports_stubs(profile: object) -> bool:
     """Whether `profile` declares `supports_stubs` true; a profile without it, or one that
     says anything but true, does not support them."""
