@@ -156,7 +156,12 @@ from agent_build_kit.pipeline.verdict import (
     TierVerdict,
     VerdictFacts,
 )
-from agent_build_kit.pipeline.verdict_record import VERDICTS, latest_verdict, record_verdict
+from agent_build_kit.pipeline.verdict_record import (
+    VERDICTS,
+    latest_verdict,
+    mark_brief,
+    record_verdict,
+)
 from agent_build_kit.pipeline.work_graph import group_sections
 from agent_build_kit.pipeline.workspaces import DirtyWorktree
 from agent_build_kit.profiles.base import stubbed_build
@@ -2543,6 +2548,12 @@ class BuildPath:
             return self.rebase(
                 state, str(error), base=base, lead="base gone before its pull request"
             )
+        if active().review.enabled and active().review.brief:
+            # The record is no input to anything: a failure is logged and never holds the body.
+            try:
+                mark_brief(r.store.path.with_name(VERDICTS), unit.id)
+            except Exception as failed:  # noqa: BLE001
+                self.say(f"could not mark the verdict record as carrying the brief:{failed}")
         if state.spent:
             outstanding = cut_head(" ".join(stored.feedback.split()), 300, "char")
             note = f"rounds spent with work outstanding: {outstanding}"

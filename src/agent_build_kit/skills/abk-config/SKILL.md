@@ -476,7 +476,8 @@ is 1 when anything failed.
 
 ## The `review` section
 
-`review:` holds the review policy: `enabled` (default false), `protected_paths`, `protected_defaults`
+`review:` holds the review policy: `enabled` (default false), `brief` (default true: a pull request body
+opens with a "Start here" section; false builds the body as before and changes no verdict record), `protected_paths`, `protected_defaults`
 (default true), `classes` (name to path globs, no slash in a name, first listed wins) and
 `auto_land.min_samples` / `auto_land.min_clean_rate` / `auto_land.allow_deferred_e2e` (default false:
 a unit whose e2e result was deferred to verify stays at `light` or above; accepted only under

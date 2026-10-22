@@ -528,7 +528,9 @@ _Opened by the spec-driven pipeline. It never merges its own PRs — a human
 merges every one, after checking {order}._
 """
     members = unit.members()
-    sections = [_start_here(unit.description, facts, rounds, verdict)]
+    sections = (
+        [_start_here(unit.description, facts, rounds, verdict)] if active().review.brief else []
+    )
     if changes_dir is not None:
         why = _why_section(changes_dir, members, why_ceiling)
         sections += [

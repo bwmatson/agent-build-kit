@@ -1469,6 +1469,8 @@ class ReviewConfig(Frozen):
     ceiling_buffer: float = Field(default=0.2, ge=0, le=1)
     # How many times one unit's lineage may be split.
     split_rounds: int = Field(default=2, ge=0, le=2)
+    # Whether a pull request body opens with the "Start here" section, and the review asks for it.
+    brief: bool = True
 
     @field_validator("classes")
     @classmethod
