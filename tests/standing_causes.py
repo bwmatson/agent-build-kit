@@ -46,6 +46,7 @@ EVENT = [
     Cause.AUTO_LANDED,
     Cause.CLOSED,
     Cause.RETIRED,
+    Cause.SUPERSEDED,
     Cause.FAILED,
 ]
 

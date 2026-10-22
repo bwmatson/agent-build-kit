@@ -14,7 +14,7 @@ from pathlib import Path
 
 from agent_build_kit.compat_names import moved_to_current_name, old_spelling
 from agent_build_kit.model import TestTier
-from agent_build_kit.pipeline.units import Unit, unit_number
+from agent_build_kit.pipeline.units import Unit, unit_id_parts
 from agent_build_kit.redaction import redact_text
 
 # How many runs of one unit are kept; older ones go when a new one is written.
@@ -27,7 +27,7 @@ CONTINUATION = "    "
 
 # What follows a unit's prefix in a log's name: the run's start stamp and its dash.
 _STAMP = r"\d{8}-\d{6}-"
-_UNIT_LOG = re.compile(rf"(?P<change>.+)-(?P<number>\d{{2,}})-{_STAMP}")
+_UNIT_LOG = re.compile(rf"(?P<change>.+)-(?P<number>\d{{2,}})(?P<suffix>(?:-s\d+)*)-{_STAMP}")
 
 
 _OUTPUT_DIR = "e2e-output"
@@ -63,7 +63,8 @@ def append_e2e_output(directory: Path, unit: Unit, started: datetime, text: str)
 
 
 def _unit_prefix(unit: Unit) -> str:
-    return f"{unit.change}-{unit_number(unit):02d}-"
+    number, suffix = unit_id_parts(unit.id)
+    return f"{unit.change}-{number:02d}{suffix}-"
 
 
 def run_log_name(unit: Unit, started: datetime, step: str) -> str:
@@ -191,7 +192,7 @@ def remove_old_logs(directory: Path, ledger: Path, *, days: int, now: datetime) 
             continue
     for path in candidates:
         match = _UNIT_LOG.match(path.name)
-        if match and f"{match['change']}/{int(match['number'])}" in summarised:
+        if match and f"{match['change']}/{int(match['number'])}{match['suffix']}" in summarised:
             try:
                 path.unlink(missing_ok=True)
             except OSError:

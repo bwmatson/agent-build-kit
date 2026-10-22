@@ -74,7 +74,7 @@ def test_a_pieces_run_logs_are_pruned_by_its_own_id_and_not_its_parents(tmp_path
 
     assert sum(name.startswith("app-03-s1-") for name in names) == RUNS_KEPT
     assert [name for name in names if not name.startswith("app-03-s1-")] == [
-        run_log_name(unit(PARENT, change="app"), START, "implement")
+        run_log_name(unit(PARENT, change="app"), START.replace(second=0), "implement")
     ]
 
 
@@ -86,7 +86,7 @@ def test_a_parents_run_logs_are_pruned_without_touching_its_pieces(tmp_path: Pat
     names = sorted(path.name for path in directory.iterdir())
 
     assert [name for name in names if name.startswith("app-03-s1-")] == [
-        run_log_name(unit(PIECE, change="app"), START, "implement")
+        run_log_name(unit(PIECE, change="app"), START.replace(second=0), "implement")
     ]
     assert sum(not name.startswith("app-03-s1-") for name in names) == RUNS_KEPT
 

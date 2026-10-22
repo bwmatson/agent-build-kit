@@ -151,6 +151,7 @@ EVENT_CAUSES: frozenset[Cause] = frozenset(
         Cause.AUTO_LANDED,
         Cause.CLOSED,
         Cause.RETIRED,
+        Cause.SUPERSEDED,
         Cause.FAILED,
     }
 )
@@ -1236,11 +1237,40 @@ class UnitStore:
         """Record that a person let a unit held for its size go on; its size is not held again."""
         self._update(unit_id, size_waived=waived)
 
+    @_exclusive
     def supersede(self, unit_id: str, pieces: Sequence[Unit]) -> None:
         """Close a unit held for its size with the cause superseded and name `pieces`, which
-        replace it, in one write; `pieces` arrive planned with the dependencies they carry, and
-        what depended on the unit depends on the last piece."""
-        raise NotImplementedError
+        replace it, in one write; `pieces` arrive with the dependencies they carry and are added
+        as planned, and what depended on the unit depends on the last piece. A unit not held for
+        its size, or a piece whose id is taken, is refused with `ValueError` and nothing changes."""
+        stored = self._read()
+        old = stored[unit_id]
+        if old.state != HELD or old.held_by != HeldBy.SIZE:
+            raise ValueError(f"{unit_id} is not held for its size")
+        if not pieces or (taken := [p.id for p in pieces if p.id in stored]):
+            raise ValueError(f"cannot supersede {unit_id} by {taken if pieces else 'no pieces'}")
+        last = pieces[-1].id
+
+        stored.update(repointed(stored, unit_id, last))
+        _repoint_references(stored, unit_id, last)
+        for piece in pieces:
+            stored[piece.id] = StoredUnit(
+                **piece.model_dump(include=set(Unit.model_fields) - {"superseded_by", "state"}),
+                state=PLANNED,
+                split_from=unit_id,
+            )
+        stored[unit_id] = old.model_copy(
+            update={
+                "state": UnitState.CLOSED,
+                "held_by": HeldBy.NONE,
+                "superseded_by": tuple(piece.id for piece in pieces),
+                "history": (
+                    *old.history,
+                    _entry(old, UnitState.CLOSED, Cause.SUPERSEDED, "split into smaller units"),
+                ),
+            }
+        )
+        self._write(stored)
 
     @_exclusive
     def mark_ready(self, unit_id: str) -> None:

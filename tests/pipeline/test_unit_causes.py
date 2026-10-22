@@ -65,6 +65,7 @@ def test_the_causes_are_the_fixed_set_the_design_names() -> None:
         "split_held",
         "manual_step",
         "too_big_for_tier",
+        "superseded",
     }
 
 

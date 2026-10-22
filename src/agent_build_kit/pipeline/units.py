@@ -16,6 +16,7 @@ cannot be named here. Given plain `Unit`s they would see no pull request and no 
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Collection, Hashable, Iterable, Mapping, Sequence
 from datetime import datetime
 from enum import IntEnum, StrEnum
@@ -799,9 +800,22 @@ def satisfied_landed(unit: Unit, graph: Sequence[Unit]) -> bool:
     return landed(unit, frozenset())
 
 
+_ID_TAIL = re.compile(r"(?P<number>\d+)(?P<suffix>(?:-s\d+)*)")
+
+
+def unit_id_parts(unit_id: str) -> tuple[int, str]:
+    """The integer after the change in a `<change>/<n>` id, and the `-s<k>` suffix a piece of a
+    split adds to its parent's id (`""` for an ordinary id). The one place an id is taken apart."""
+    tail = _ID_TAIL.fullmatch(unit_id.rsplit("/", 1)[1])
+    if tail is None:
+        raise ValueError(f"not a unit id: {unit_id}")
+    return int(tail["number"]), tail["suffix"]
+
+
 def unit_number(unit: Unit) -> int:
-    """The `<n>` of a unit's `<change>/<n>` id: its place in its change's plan order."""
-    return int(unit.id.rsplit("/", 1)[1])
+    """The `<n>` of a unit's `<change>/<n>` id: its place in its change's plan order. A piece
+    of a split sorts where its root did."""
+    return unit_id_parts(unit.id)[0]
 
 
 def earlier_units(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
