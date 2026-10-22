@@ -40,6 +40,19 @@ def start_of(body: str) -> str:
     return body[body.index(START) : body.index(WHY)]
 
 
+def test_blank_places_do_not_use_up_the_cap_and_a_backtick_in_a_place_is_replaced(
+    tmp_path: Path,
+) -> None:
+    blanks = [(" ", "ignored")] * 3
+    named = [(f"src/f{n}.py", "a behaviour change") for n in range(5)]
+    ticked = [("src/a`b.py", "a behaviour change")]
+
+    section = start_of(body_of(tmp_path, focus=[*blanks, *named], skippable=ticked))
+
+    assert "src/f4.py" in section
+    assert "`src/a'b.py`" in section
+
+
 def test_the_section_leads_with_the_lists_then_the_tier_then_why(tmp_path: Path) -> None:
     activate_with(review={"enabled": True})
     verdict = tier_verdict(reason=TIER_REASON)

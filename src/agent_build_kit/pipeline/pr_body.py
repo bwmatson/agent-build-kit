@@ -385,6 +385,8 @@ def verified_list(facts: VerdictFacts | None, rounds: int | None) -> str:
     lines = [
         "- Tests were committed first and seen to fail first."
         if facts.red_first == GateResult.PASSED
+        else "- The failing run before the implementation: failed"
+        if facts.red_first == GateResult.FAILED
         else "- The failing run before the implementation: not recorded",
         _result_line("unit-test", facts.unit_test),
     ]
@@ -418,10 +420,11 @@ _MAX_REASON_CHARS = 160
 
 
 def _entry_lines(entries: Sequence[BriefEntry]) -> str:
+    named = [entry for entry in entries if entry.place.strip()][:_MAX_BRIEF_ENTRIES]
     return "\n".join(
-        f"- `{_capped(entry.place, _MAX_PLACE_CHARS)}` — {_capped(entry.reason, _MAX_REASON_CHARS)}"
-        for entry in entries[:_MAX_BRIEF_ENTRIES]
-        if entry.place.strip()
+        f"- `{_capped(entry.place, _MAX_PLACE_CHARS).replace('`', "'")}` — "
+        f"{_capped(entry.reason, _MAX_REASON_CHARS)}"
+        for entry in named
     )
 
 

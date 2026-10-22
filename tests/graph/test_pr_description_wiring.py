@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from agent_build_kit.pipeline.verdict_record import VERDICTS
+from tests.factories import activate_with
 from tests.graph.test_build_path import build, fresh
 from tests.graph.test_remaining_paths import capturing
 
@@ -88,3 +90,37 @@ def test_a_point_given_twice_is_recorded_whole_and_listed_once_in_the_descriptio
     assert f"- {located}" in body
     assert bare not in body
     assert f"- {other}" in body
+
+
+def start_section(body: str) -> str:
+    return body[body.index("## Start here") :].split("\n## ")[0]
+
+
+def test_the_start_here_section_lists_the_recorded_results_and_the_verdict_tier(
+    tmp_path: Path,
+) -> None:
+    activate_with(review={"enabled": True})
+    recorder = fresh(tmp_path)
+    bodies: list[dict[str, str]] = []
+
+    build(tmp_path, recorder, open_pr=capturing(recorder, bodies))
+
+    start = start_section(bodies[0]["body"])
+    assert "seen to fail first" in start
+    assert "unit-test result: passed" in start
+    assert "Review took 1 review round" in start
+    reason = json.loads((tmp_path / VERDICTS).read_text())["add-marker/1"]["reason"]
+    assert f"— {reason}" in start, "the tier line carries the recorded verdict's reason"
+
+
+def test_with_no_verdict_record_the_section_has_no_tier_line(tmp_path: Path) -> None:
+    activate_with(review={"enabled": False})
+    recorder = fresh(tmp_path)
+    bodies: list[dict[str, str]] = []
+
+    build(tmp_path, recorder, open_pr=capturing(recorder, bodies))
+
+    start = start_section(bodies[0]["body"])
+    assert not (tmp_path / VERDICTS).exists()
+    assert "Review tier" not in start
+    assert "seen to fail first" in start

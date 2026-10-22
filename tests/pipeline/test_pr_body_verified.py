@@ -68,3 +68,11 @@ def test_the_same_results_give_the_same_text() -> None:
 
     assert verified_list(recorded, rounds=3) == verified_list(recorded, rounds=3)
     assert verified_list(recorded, rounds=3) != verified_list(recorded, rounds=1)
+
+
+def test_a_recorded_failed_red_run_is_listed_as_failed_not_as_not_recorded() -> None:
+    text = verified_list(facts(red_first=GateResult.FAILED), rounds=1)
+
+    line = line_with(text, "failing run")
+    assert "failed" in line
+    assert "not recorded" not in line

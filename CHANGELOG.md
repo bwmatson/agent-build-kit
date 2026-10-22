@@ -173,9 +173,6 @@
   as passed, failed or not recorded), and the review tier with its reason. The section is
   never shrunk to fit a host's limit, and a unit held for a person carries it too.
 
-- A task group tagged `[e2e-test]` is now recognised as test-only, the first step towards building
-  it as a single `test:` commit with no implementation commit.
-
 - With `e2e_before_merge: deferred` for a repo, its e2e-test units skip the e2e-test step before
   merge, and again when their base moves, and record their e2e state as `deferred`; scheduled
   whole-suite runs are unaffected. The pull request of such a unit says "e2e-test deferred to
