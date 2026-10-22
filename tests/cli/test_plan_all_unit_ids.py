@@ -32,7 +32,7 @@ def test_a_change_planned_twice_with_different_labels_keeps_every_id(
     run.run(capsys, "feature", reply=first)
     before = snapshot(run)
     second = answer(planned("feature/p", (1, 2)), planned("feature/q", (3,)))
-    run.run(capsys, "feature", reply=second)
+    run.run(capsys, "feature", "--accept-unplanned", reply=second)
 
     assert set(before) == {"feature/1", "feature/3"}
     assert snapshot(run) == before
@@ -64,7 +64,7 @@ def test_a_replan_that_joins_groups_gives_the_lowest_groups_id_and_unplans_the_o
     seed(run, "feature/2", (2,))
     run.record("feature")
 
-    run.run(capsys, "feature", reply=answer(planned("feature/z", (1, 2))))
+    run.run(capsys, "feature", "--accept-unplanned", reply=answer(planned("feature/z", (1, 2))))
 
     assert run.store.get("feature/1").groups == (1, 2)
     assert run.store.get("feature/1").state == PLANNED

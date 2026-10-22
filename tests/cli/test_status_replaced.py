@@ -28,7 +28,9 @@ def test_a_replan_reports_each_replaced_unit_with_its_successor_and_a_dropped_on
     seed(run, "feature/9", 9)
     run.record("feature")
 
-    _, out = run.run(capsys, "feature", reply=answer(planned("feature/7", (1, 2, 3))))
+    _, out = run.run(
+        capsys, "feature", "--accept-unplanned", reply=answer(planned("feature/7", (1, 2, 3)))
+    )
 
     lines = out.splitlines()
     assert "feature/2: now unplanned, replaced by feature/1" in lines

@@ -9,7 +9,16 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.units import MERGED
-from tests.cli.replan_driver import Replan, answer, enable_review, listing, planned, tasks_md
+from tests.cli.replan_driver import (
+    Replan,
+    answer,
+    enable_review,
+    listing,
+    planned,
+    tasks_md,
+    tick,
+    ticking_replan,
+)
 from tests.factories import stored_unit
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
@@ -48,12 +57,13 @@ def test_a_refused_plan_keeps_the_units_and_the_old_digest_and_uses_an_attempt(
 def test_a_change_that_has_used_every_attempt_is_given_up_and_named_for_failed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run = Replan(tmp_path, monkeypatch, feature=tasks_md(2))
-    enable_review(run)
+    """A replan counts its attempts from none, so the last one is spent by a tick."""
+    run = ticking_replan(tmp_path, monkeypatch, {"feature": tasks_md(2)})
     last = run.inst.max_plan_attempts - 1
     stale_with_a_merged_unit(run, attempts=last, ok=False, reason="an earlier refusal")
+    run.runtime.answer = REFUSED
 
-    run.run(capsys, "feature", reply=REFUSED)
+    tick(run, capsys)
 
     record = run.records["feature"]
     assert record["attempts"] == run.inst.max_plan_attempts

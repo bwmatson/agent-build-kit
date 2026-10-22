@@ -4123,6 +4123,12 @@ def _plan_wait(inst: Installation, error: Exception, previous: Mapping) -> tuple
     }
 
 
+def _standing_sizing(standing: dict | None, current: str) -> str:
+    """The policy digest to record for a plan that failed or waits: the one of the plan that
+    stands, so the change still reads as stale; the current one when nothing stands."""
+    return standing.get("sizing", "") if standing else current
+
+
 def plan_all(
     inst: Installation,
     *,
@@ -4271,7 +4277,7 @@ def plan_all(
             # once, so the change waits for that edit instead of re-asking.
             failure = {
                 "hash": digest,
-                "sizing": sizing,
+                "sizing": _standing_sizing(planned.get(change), sizing),
                 "attempts": max_attempts,
                 "ok": False,
             }
@@ -4286,13 +4292,12 @@ def plan_all(
                 # The plan that stands keeps the policy it was made under, so a change
                 # waiting for an outage is still reported stale; only a change with no
                 # earlier record takes the current one.
-                standing = planned.get(change)
                 record_plans(
                     inst,
                     {
                         change: {
                             "hash": digest,
-                            "sizing": standing.get("sizing", "") if standing else sizing,
+                            "sizing": _standing_sizing(planned.get(change), sizing),
                             "ok": False,
                             **fields,
                         }
@@ -4315,7 +4320,12 @@ def plan_all(
                 network_down = network_down or (kind == "network" and not force)
                 continue
             attempts = previous.get("attempts", 0) + 1
-            failure = {"hash": digest, "sizing": sizing, "attempts": attempts, "ok": False}
+            failure = {
+                "hash": digest,
+                "sizing": _standing_sizing(planned.get(change), sizing),
+                "attempts": attempts,
+                "ok": False,
+            }
             if isinstance(error, PlannerError):
                 failure |= _refusal(error)
             else:
@@ -6119,7 +6129,8 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
             shown = _plan_state(records.get(change), max_attempts, change in standing)
             print(f"{change}: {shown}")
         print(
-            "usage: abk replan CHANGE|UNIT... | --all | --failed [--forget] [--report] [--dry-run]"
+            "usage: abk replan CHANGE|UNIT... | --all | --failed [--forget] [--report] "
+            "[--dry-run] [--accept-unplanned]"
         )
         return 2
 
@@ -6182,14 +6193,48 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
         return 1 if refused else 0
 
     print(f"planning {', '.join(to_plan)}: {len(to_plan)} model call(s)")
-    outcome = _plan_changes(inst, store, to_plan)
-    for line in _replan_lines(outcome):
-        print(line)
-    failed = [change for change in to_plan if outcome.results[change].status != "planned"]
-    # Each refusal was printed above as the plan or the linking logged it.
-    cyclic = _cyclic(outcome)
+    failed: list[str] = []
+    cyclic = False
+    for change in to_plan:
+        with plan_apart(inst, store, [change]) as outcome:
+            drops = _dropped(outcome)
+            held = bool(drops) and not args.accept_unplanned
+            if held:
+                failed.append(change)
+                for line in _held_back_lines(change, drops):
+                    print(line)
+            else:
+                apply_planned(inst, store, outcome)
+                for line in _replan_lines(outcome):
+                    print(line)
+                if outcome.results[change].status != "planned":
+                    failed.append(change)
+                # Each refusal was printed above as the plan or the linking logged it.
+                cyclic = cyclic or _cyclic(outcome)
     release_split_changed(inst, store, only=set(to_plan))
     return 1 if refused or failed or cyclic else 0
+
+
+def _dropped(outcome: ReplanOutcome) -> list[StoredUnit]:
+    """The units of the planned changes that `outcome` leaves `unplanned` and were not before,
+    as they stood before."""
+    return [
+        old
+        for uid, old in outcome.before.items()
+        if old.change in outcome.changes
+        and old.state != UNPLANNED
+        and outcome.after[uid].state == UNPLANNED
+    ]
+
+
+def _held_back_lines(change: str, dropped: list[StoredUnit]) -> list[str]:
+    """What a replan prints for a change whose plan it did not apply because it drops units."""
+    lines = [f"{change}: the plan would leave {len(dropped)} unit(s) unplanned; nothing applied"]
+    for unit in dropped:
+        groups = ", ".join(str(n) for n in unit.groups)
+        lines.append(f"  {unit.id}: {unit.state.value}, group(s) {groups}")
+    lines.append("  run again with --accept-unplanned to store the plan")
+    return lines
 
 
 def _print_replan_dry_run(
@@ -6324,7 +6369,7 @@ def _replan_lines(outcome: ReplanOutcome, *, dry: bool = False) -> list[str]:
         lines.append(
             f"{change}: the plan would fail or be refused — the old plan stands"
             if dry
-            else f"{change}: the plan failed — see above"
+            else f"{change}: the plan failed — the old plan stands; see above"
         )
         if record.get("reason"):
             lines.append(f"{change}: {record['reason']}")
@@ -6945,6 +6990,11 @@ def register(sub: argparse._SubParsersAction) -> None:
         "--report",
         action="store_true",
         help="only show what a replan would do for each change; no model call, no write",
+    )
+    replan.add_argument(
+        "--accept-unplanned",
+        action="store_true",
+        help="store a plan that leaves units of a change unplanned; without it nothing is applied",
     )
     replan.add_argument(
         "--dry-run",
