@@ -7,8 +7,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from agent_build_kit.config import RepoConfig
-from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.unit_store import FeedbackSource, UnitStore
 from tests.factories import activate_with, unit
 from tests.runner_fakes import Killed, Recorder
 
@@ -78,3 +80,18 @@ def with_three_groups(tmp_path: Path, **options: Any) -> StubLoop:
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit(groups=(1, 2, 3))])
     return StubLoop(store, **options)
+
+
+def feedback_writes(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+) -> list[tuple[str, FeedbackSource]]:
+    """Wrap the recorder store's `set_feedback`; the list gains (feedback, source) per write."""
+    saved: list[tuple[str, FeedbackSource]] = []
+    original = recorder.store.set_feedback
+
+    def record(unit_id: str, feedback: str, **kwargs: Any) -> None:
+        saved.append((feedback, kwargs.get("source", FeedbackSource.NONE)))
+        original(unit_id, feedback, **kwargs)
+
+    monkeypatch.setattr(recorder.store, "set_feedback", record)
+    return saved
