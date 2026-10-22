@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, mo
 from agent_build_kit import config, telemetry
 from agent_build_kit.compat_names import read_old_kind
 from agent_build_kit.installation import Installation
+from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.redaction import redact_leaves
 from agent_build_kit.usage import Context, Usage, UsageSource
@@ -363,6 +364,37 @@ def spend_times(records: list[UsageRecord]) -> list[tuple[datetime, str]]:
     return spent
 
 
+class SpendRow(Frozen):
+    """One record's spend: when it was made, its unit (blank for a call with none), its node
+    and its recorded incremental cost (zero when it reported none)."""
+
+    at: datetime
+    unit: str
+    node: str
+    cost_usd: float
+
+
+def spend_costs(records: list[UsageRecord]) -> list[SpendRow]:
+    """What each record spent, by cost, with or without a unit, skipping one whose time does
+    not parse. A cost that is absent or negative counts zero."""
+    spent = []
+    for record in records:
+        try:
+            at = datetime.fromisoformat(record.at)
+        except ValueError:
+            continue
+        cost = record.cost.incremental_usd if record.cost else None
+        spent.append(
+            SpendRow(
+                at=at,
+                unit=record.unit,
+                node=record.node,
+                cost_usd=cost if cost is not None and cost > 0 else 0.0,
+            )
+        )
+    return spent
+
+
 def records_in(lines: list[str]) -> list[UsageRecord]:
     """The ledger's records, one per unit, node and round; see `grouped_records`."""
     return [combine_records(parts) for parts in grouped_records(lines)]
@@ -381,9 +413,9 @@ def grouped_records(lines: list[str]) -> list[list[UsageRecord]]:
     re-run of the same call and replaces what came before it. Calls with no
     session id cannot be told apart from a re-run, so each stays a record of
     its own, and so does every call of a node outside the unit graph's (a restack, a plan, a
-    chat turn), whatever its session. A line that is not
-    a record (half written) is skipped."""
-    calls: dict[tuple[str, str, int, str], list[UsageRecord]] = {}
+    chat turn), whatever its session. Two accounts' calls are never one call, whatever they
+    share. A line that is not a record (half written) is skipped."""
+    calls: dict[tuple[str, str, int, str, str], list[UsageRecord]] = {}
     for line in lines:
         try:
             raw = json.loads(line)
@@ -393,7 +425,7 @@ def grouped_records(lines: list[str]) -> list[list[UsageRecord]]:
         except (ValueError, AttributeError, ValidationError):
             continue
         unnamed = "" if record.session_id and record.node in UNIT_CALL_NODES else record.at
-        key = (record.unit, record.node, record.round, unnamed)
+        key = (record.unit, record.node, record.round, unnamed, record.account or "")
         if record.resumed and key in calls:
             calls[key].append(record)
         else:

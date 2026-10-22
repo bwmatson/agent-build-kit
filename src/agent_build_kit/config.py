@@ -254,6 +254,12 @@ class UsageWindowConfig(WindowLimits):
     usage_unit_allowance_pct: Annotated[int, Field(ge=0)] | Literal["auto"] = "auto"
     # The least a calibrated allowance of this window may be, in points per unit.
     usage_allowance_floor_pct: Annotated[int, Field(ge=0)] = 1
+    # What this window's estimate is built from: the recorded cost of the work (`cost`, used
+    # once a fit has earned it) or the flat allowance per unit (`units`).
+    usage_estimate_basis: Literal["cost", "units"] = "cost"
+    # Whether the cost fit also has a points-per-hour term. The session defaults on and the
+    # week off (see ClaudeLimitsConfig).
+    usage_estimate_intercept: bool = False
 
     @model_validator(mode="after")
     def _floor_not_above_cap(self) -> UsageWindowConfig:
@@ -275,7 +281,7 @@ class ClaudeLimitsConfig(Frozen):
     """The Claude subscription's two usage windows (`runtimes.claude_code.limits`).
     They fill independently, so each has its own section."""
 
-    session: UsageWindowConfig = UsageWindowConfig()
+    session: UsageWindowConfig = UsageWindowConfig(usage_estimate_intercept=True)
     weekly: UsageWindowConfig = UsageWindowConfig()
     # How long a start is refused when the only reading is too old to trust.
     usage_stale_retry_minutes: Annotated[int, Field(gt=0)] = 5
@@ -304,6 +310,10 @@ class ClaudeLimitsConfig(Frozen):
     usage_allowance_quantile: Annotated[float, Field(gt=0, le=1)] = 0.9
     usage_allowance_window: Annotated[int, Field(ge=1)] = 30
     usage_allowance_min_pairs: Annotated[int, Field(ge=1)] = 8
+    # The cost fit needs at least this many pairs with a cost, within `usage_allowance_window`,
+    # and is scaled by this quantile of the gain over its prediction.
+    usage_cost_min_pairs: Annotated[int, Field(ge=1)] = 8
+    usage_cost_quantile: Annotated[float, Field(gt=0, le=1)] = 0.9
 
     def configured_allowance(self, window: Literal["session", "weekly"]) -> int:
         """The allowance a window has without calibration: its number, else the built-in one."""
@@ -322,7 +332,21 @@ class ClaudeLimitsConfig(Frozen):
                 f"usage_allowance_min_pairs ({self.usage_allowance_min_pairs}) is above "
                 f"usage_allowance_window ({self.usage_allowance_window})"
             )
+        if self.usage_cost_min_pairs > self.usage_allowance_window:
+            raise ValueError(
+                f"usage_cost_min_pairs ({self.usage_cost_min_pairs}) is above "
+                f"usage_allowance_window ({self.usage_allowance_window})"
+            )
         return self
+
+    @model_validator(mode="before")
+    @classmethod
+    def _session_fit_has_an_intercept(cls, data: object) -> object:
+        """The session window's `usage_estimate_intercept` is on where it is not set."""
+        if not isinstance(data, dict) or not isinstance(data.get("session", {}), dict):
+            return data
+        session = {"usage_estimate_intercept": True, **data.get("session", {})}
+        return {**data, "session": session}
 
     @model_validator(mode="before")
     @classmethod
