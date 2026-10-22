@@ -54,7 +54,7 @@ def test_a_unit_killed_after_the_empty_tests_commit_records_only_the_feat_commit
     outcome = build(tmp_path, recorder, **recorder.overrides(tmp_path))
 
     assert outcome.status == "open", outcome.detail
-    assert recorder.events[:2] == ["claude:impl", "unit-test:whole_repo"], "resumed at implement"
+    assert recorder.events[:3] == ["claude:impl", "commit:feat", "unit-test:whole_repo"]
     assert [group_named(prompt) for prompt in recorder.prompts[:1]] == ["4"]
     assert recorder.events.count("commit_built:feat") == 1
     assert "commit_built:test" not in recorder.events, "the empty tests commit is not made again"

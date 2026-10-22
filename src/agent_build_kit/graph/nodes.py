@@ -54,6 +54,7 @@ from agent_build_kit.pipeline.commit_order import (
     TESTS_BODY,
     TESTS_PREFIX,
     group_progress,
+    recorded_built,
 )
 from agent_build_kit.pipeline.e2e import NO_TEST_RAN, E2eVerdict
 from agent_build_kit.pipeline.e2e_schedule import is_scheduled, scheduled_split
@@ -183,6 +184,8 @@ FRESH: Update = {
 
 # Paths of uncommitted work named in a prompt or a hold; the rest are counted.
 LEFTOVER_PATHS_SHOWN = 40
+ACCOUNT_LIMIT = 2000  # characters of the builder's account a recorded group keeps
+ACCOUNT_HEADING = "Already built, the builder's account:"
 
 # Lines of a failing e2e-test's report written to the run log.
 E2E_LOG_TAIL = 40
@@ -1365,10 +1368,10 @@ class BuildPath:
             )
             if note := r.follow_ups_note(unit):
                 prompt = f"{note}\n\n{prompt}"
-            self.agent(r.run, prompt, cwd=tree, state=state, model=models().implement)
+            account = self.agent(r.run, prompt, cwd=tree, state=state, model=models().implement)
             if stubbed:
                 # Committed by `stub_checks`, once the stubs and tests pass the static checks.
-                return {"head": r.head(tree), "stub_loop": True}
+                return {"head": r.head(tree), "stub_loop": True, "tests_account": account}
             r.commit(self.message(TESTS_PREFIX, TESTS_BODY, state), cwd=tree, base=self.ref(state))
         return {"head": r.head(tree), "stub_loop": False}
 
@@ -1391,12 +1394,15 @@ class BuildPath:
             if state.stub_rounds:
                 r.store.set_feedback(unit.id, "")
             ref = self.ref(state)
-            r.commit(self.message(TESTS_PREFIX, TESTS_BODY, state), cwd=tree, base=ref)
+            made = r.commit(self.message(TESTS_PREFIX, TESTS_BODY, state), cwd=tree, base=ref)
             done: Update = {"head": r.head(tree), "stub_loop": False, "stub_rounds": 0}
             step = self.group_step(state)
             if step is None or not step.test_only:
                 return {**done, "test_only_done": False}
             # A test-only group's lone tests commit satisfies it: no implementation follows.
+            if (stopped := self.record_built(state, ref, made, state.tests_account)) is not None:
+                return stopped
+            done["head"] = r.head(tree)
             commits = r.branch_commits(tree, ref)
             settled = self.settle_group(state, ref, commits)
             if "stopped" in settled:
@@ -1479,6 +1485,72 @@ class BuildPath:
             return f"tests commit for group {step.number} ({step.title})"
         return f"tests and implementation pair for group {step.number} ({step.title})"
 
+    def half_recorded(self, state: UnitRun, ref: str) -> bool:
+        """Whether a killed run left this group's marked empty tests commit as the tip, with its
+        implementation still to be recorded."""
+        r = self.runner
+        if self.group_step(state) is None:
+            return False
+        steps = r.group_steps(self.unit)
+        tree = self.tree()
+        progress = group_progress(
+            r.branch_subjects(tree, ref),
+            [s.title for s in steps],
+            [s.test_only for s in steps],
+        )
+        return (
+            progress.done == state.group
+            and progress.tests_made
+            and recorded_built(tree, r.head(tree))
+        )
+
+    def record_built(self, state: UnitRun, ref: str, made: int, account: str) -> Update | None:
+        """Record a group its agents left nothing to commit for, once the whole repository's unit
+        tests pass: an empty marked `test:` and `feat:` (a test-only group's `test:` alone).
+        None when nothing is to be recorded; a stop or a block when the tests do not pass."""
+        r, unit = self.runner, self.unit
+        step = self.group_step(state)
+        tree = self.tree()
+        resumed = self.half_recorded(state, ref)
+        if step is None or made or not r.branch_commits(tree, ref):
+            return None
+        if r.head(tree) != state.head and not resumed:
+            return None
+        steps = r.group_steps(unit)
+        progress = group_progress(
+            r.branch_subjects(tree, ref),
+            [s.title for s in steps],
+            [s.test_only for s in steps],
+        )
+        if progress.done != state.group:
+            return None
+        if progress.tests_made and not resumed:
+            return None  # real stubs and tests with no implementation after them
+        if (broken := self.environment_problem()) is not None:
+            return self.blocked(broken)
+        try:
+            ok, output = r.run_unit_test(cwd=tree, base=ref, whole_repo=True)
+        except FlakeFound as found:
+            ok, output = False, found.flakes[0].output
+        if not ok and (broken := self.environment_problem()) is not None:
+            return self.blocked(broken)
+        if not ok:
+            self.say(output)
+            r.store.set_feedback(
+                unit.id, f"{UNIT_TEST_FAILED}\n{output}".strip(), source=FeedbackSource.UNIT_TEST
+            )
+            return self.stop(f"the branch holds no {self.unpaired(state, ref)}")
+        self.say(f"group {step.number} is already built and the unit tests pass: recorded")
+        if not resumed:
+            r.commit_built(self.message(TESTS_PREFIX, TESTS_BODY, state), cwd=tree)
+        if not step.test_only:
+            reason = redact_text(account, where="built group account")[:ACCOUNT_LIMIT].strip()
+            body = self.message(CODE_PREFIX, CODE_BODY, state)
+            if reason:
+                body = f"{body}\n\n{ACCOUNT_HEADING}\n{reason}"
+            r.commit_built(body, cwd=tree)
+        return None
+
     def settle_group(self, state: UnitRun, ref: str, commits: int) -> Update:
         """The update for the group just built: a stop when the branch holds commits but no
         pair for it and every group before it, else the next group's turn, with the person's
@@ -1506,7 +1578,7 @@ class BuildPath:
         r, unit = self.runner, self.unit
         tree, ref = self.tree(), self.ref(state)
         kept: Update = {}
-        if r.head(tree) != state.head:
+        if r.head(tree) != state.head and not self.half_recorded(state, ref):
             self.say("the implementation commit is already on the branch")
         else:
             change_dir, groups = self.scope(state)
@@ -1523,7 +1595,7 @@ class BuildPath:
             )
             if note := r.follow_ups_note(unit):
                 prompt = f"{note}\n\n{prompt}"
-            self.agent(
+            account = self.agent(
                 r.run,
                 prompt,
                 cwd=tree,
@@ -1533,7 +1605,9 @@ class BuildPath:
                     changelog=changelog_note(tree, r.repo_config)
                 ),
             )
-            r.commit(self.message(CODE_PREFIX, CODE_BODY, state), cwd=tree, base=self.ref(state))
+            made = r.commit(self.message(CODE_PREFIX, CODE_BODY, state), cwd=tree, base=ref)
+            if (stopped := self.record_built(state, ref, made, account)) is not None:
+                return stopped
             if self.group_step(state) is None:
                 r.store.set_guidance(unit.id, "")
                 kept["guidance_asked"] = guidance_asked(state, guidance)
@@ -2646,6 +2720,7 @@ class BuildPath:
             "group": 0,
             "more_groups": False,
             "test_only_done": False,
+            "tests_account": "",
             "held": "",
             "hold_state": "",
             "hold_note": "",

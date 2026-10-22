@@ -195,8 +195,7 @@ def built_after_a_pair(tmp_path: Path, **options: Any) -> tuple[OnBranch, RunOut
         tmp_path,
         groups={"add-marker": titled(3, 4)},
         silent_groups=(4,),
-        accounts={"4": ACCOUNT},
-        **options,
+        **{"accounts": {"4": ACCOUNT}, **options},
     )
 
 

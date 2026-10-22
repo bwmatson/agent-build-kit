@@ -83,7 +83,7 @@ def test_a_flake_found_on_that_run_counts_as_the_same_failure(tmp_path: Path) ->
     assert subjects(repo) == ["test: G3", "feat: G3"]
     stored = recorder.store.get(UNIT)
     assert stored.feedback_source == FeedbackSource.UNIT_TEST
-    assert FLAKE.output in stored.feedback
+    assert FLAKE.output.strip() in stored.feedback
 
 
 def test_a_broken_environment_blocks_the_unit_and_is_not_read_as_missing_work(
