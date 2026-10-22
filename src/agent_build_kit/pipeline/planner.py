@@ -159,8 +159,6 @@ def parse_plan(
     calibrations: Mapping[Kind, Calibration] | None = None,
     retired: Collection[str] = (),
     tasks: str = "",
-    split: SplitRequest | None = None,
-    held: StoredUnit | None = None,
 ) -> Plan:
     """Read and verify a proposed graph and its joins, or raise `PlannerError`.
 
@@ -168,11 +166,8 @@ def parse_plan(
     paths. `retired` is the ids of retired units: taken, so a label may not be one. A unit's `id` in
     the reply is a label; the returned units carry the ids assigned from their groups.
 
-    Joins are checked against `context`; without one, none may be proposed. With a `split`
-    request, `held` is the unit being split and only its groups are planned.
+    Joins are checked against `context`; without one, none may be proposed.
     """
-    if split is not None:
-        raise NotImplementedError
     match = JSON_BLOCK.search(output)
     if not match:
         raise PlannerError("no JSON object in the planner's output")
@@ -1180,6 +1175,40 @@ def build_prompt(
     )[0]
 
 
+def _split_text(split: SplitRequest, held: StoredUnit, retired: Sequence[str]) -> str:
+    """The instructions for re-planning a held unit's groups as pieces; one block."""
+    workspace = active()
+    repo = workspace.repos.get(held.repo)
+    planned = split.planned or split.earned
+    earned_ceiling = review_ceiling(repo, workspace, split.earned)
+    planned_ceiling = review_ceiling(repo, workspace, planned)
+    numbers = ", ".join(str(n) for n in held.groups)
+    text = (
+        f"This is a split. Unit {held.id} is held as too big ({split.lines} changed lines, over "
+        f"the {split.earned.value} ceiling of {split.ceiling}). Plan only its groups, in order: "
+        f"{numbers}; every other group is already built, and tasks.md is not changed. "
+        f"Keep the groups in their order and give the pieces the ids {held.id}-s1, "
+        f"{held.id}-s2 and so on, in order. Chain them by dependency: the first depends on "
+        f"what {held.id} depends on ({', '.join(held.depends_on) or 'nothing'}), each later "
+        "one on the piece before it, and none on any other unit. "
+    )
+    if split.drivers:
+        pinned = ", ".join(f"group {n}" for n in split.drivers)
+        text += (
+            f"Pin {pinned} in a unit of its own at the {split.earned.value} tier, within "
+            f"that tier's ceiling of {earned_ceiling}; keep the rest together at the "
+            f"{planned.value} tier, within its ceiling of {planned_ceiling}."
+        )
+    else:
+        text += (
+            f"No group is a driver: every piece takes the {split.earned.value} tier and is to "
+            f"be brought under its ceiling of {earned_ceiling}."
+        )
+    if retired:
+        text += f" These ids are retired and taken: {', '.join(retired)}."
+    return text
+
+
 def omitted_line(count: int) -> str:
     """The one line that stands for the landed units of other changes left out of the list."""
     return f"{count} merged or satisfied units of other changes are in the trunk and omitted"
@@ -1197,8 +1226,6 @@ def _prompt_and_parts(
     held: StoredUnit | None = None,
 ) -> tuple[str, dict[str, int]]:
     """The prompt, and the size in bytes of the parts a person can cut."""
-    if split is not None:
-        raise NotImplementedError
     first = next(iter(changes), "")
     changes_text = (
         "\n\n".join(
@@ -1239,6 +1266,8 @@ def _prompt_and_parts(
         changes=changes_text,
         in_flight=in_flight_text,
     )
+    if split is not None and held is not None:
+        prompt += "\n\n" + _split_text(split, held, _retired_ids(in_flight))
     if previous_refusal:
         prompt += (
             "\n\nYour previous plan was refused. Plan again so that it does not recur:\n"
@@ -1308,6 +1337,9 @@ def plan_round(
     prompt, parts = _prompt_and_parts(
         changes, in_flight, calibrations, examples, omitted, groups, previous_refusal, split, held
     )
+    if split is not None and held is not None and groups is not None:
+        # Only the held unit's groups are planned; every other one is as built.
+        built = {group.number for group in groups} - set(held.groups)
     answer = (
         run_claude(prompt)
         if run_claude
@@ -1323,6 +1355,4 @@ def plan_round(
         calibrations=calibrations,
         retired=_retired_ids(in_flight),
         tasks=next(iter(changes.values()), ""),
-        split=split,
-        held=held,
     )
