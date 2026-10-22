@@ -254,6 +254,10 @@ class UsageWindowConfig(WindowLimits):
     usage_unit_allowance_pct: Annotated[int, Field(ge=0)] | Literal["auto"] = "auto"
     # The least a calibrated allowance of this window may be, in points per unit.
     usage_allowance_floor_pct: Annotated[int, Field(ge=0)] = 1
+    # Stub: how this window's usage is estimated, `cost` or `units`, and whether the cost fit
+    # has an intercept per hour.
+    usage_estimate_basis: Literal["cost", "units"] = "units"
+    usage_estimate_intercept: bool = False
 
     @model_validator(mode="after")
     def _floor_not_above_cap(self) -> UsageWindowConfig:
@@ -304,6 +308,9 @@ class ClaudeLimitsConfig(Frozen):
     usage_allowance_quantile: Annotated[float, Field(gt=0, le=1)] = 0.9
     usage_allowance_window: Annotated[int, Field(ge=1)] = 30
     usage_allowance_min_pairs: Annotated[int, Field(ge=1)] = 8
+    # Stub: the cost fit's minimum pairs and quantile.
+    usage_cost_min_pairs: int = 1
+    usage_cost_quantile: float = 1.0
 
     def configured_allowance(self, window: Literal["session", "weekly"]) -> int:
         """The allowance a window has without calibration: its number, else the built-in one."""
