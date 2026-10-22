@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline.unit_store import Cause, HeldBy, StoredSplitRequest
-from agent_build_kit.pipeline.units import HELD, MERGED
+from agent_build_kit.pipeline.units import HELD, MERGED, Member
 from tests.cli.replan_driver import Replan, enable_review, tasks_md
 from tests.factories import stored_unit
 
@@ -21,9 +21,17 @@ PIECES = tuple(f"{HELD_ID}-s{k}" for k in (1, 2, 3))
 
 
 def scene(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, rounds: int = 2, used: int = 0
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    rounds: int = 2,
+    used: int = 0,
+    groups: tuple[int, ...] = (1, 2, 3, 4, 5),
+    drivers: tuple[int, ...] = (3,),
+    joined: tuple[Member, ...] = (),
 ) -> Replan:
-    """Per-tier sizing on with `rounds` split rounds, and the held unit having used `used`."""
+    """Per-tier sizing on with `rounds` split rounds, and the held unit having used `used`, with
+    `groups`, the `drivers` its request names and the groups of other changes it `joined`."""
     run = Replan(tmp_path, monkeypatch, feature=tasks_md(6))
     enable_review(run, split_rounds=rounds)
     run.store.import_units(
@@ -32,9 +40,10 @@ def scene(
             stored_unit(
                 HELD_ID,
                 change="feature",
-                groups=(1, 2, 3, 4, 5),
+                groups=groups,
                 depends_on=("base/1",),
                 split_rounds_used=used,
+                joined=joined,
             ),
             stored_unit(DEPENDENT, change="feature", groups=(6,), depends_on=(HELD_ID,)),
         ]
@@ -49,7 +58,7 @@ def scene(
     )
     run.store.set_split_request(
         HELD_ID,
-        StoredSplitRequest(earned="full", planned="auto", lines=900, ceiling=750, drivers=(3,)),
+        StoredSplitRequest(earned="full", planned="auto", lines=900, ceiling=750, drivers=drivers),
     )
     return run
 
