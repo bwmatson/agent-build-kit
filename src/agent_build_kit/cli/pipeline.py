@@ -2522,6 +2522,12 @@ def _requeue_ended_wait(
         store.set_waited_on(unit.id, ())
 
 
+def split_held_units(inst: Installation, store: UnitStore) -> None:
+    """Ask for a split of each unit held for its size, in priority order, and supersede it by the
+    pieces; a round is recorded for each attempt that succeeds or fails, none for an outage."""
+    raise NotImplementedError
+
+
 def release_split_held(
     inst: Installation, store: UnitStore, *, in_flight: Collection[str] = ()
 ) -> None:
