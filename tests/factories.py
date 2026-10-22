@@ -22,13 +22,16 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.e2e import E2eResult, TestFailure, build_snapshot
 from agent_build_kit.pipeline.shell import git_out as git
 from agent_build_kit.pipeline.unit_store import (
+    BriefEntry,
     Cause,
+    Description,
     HeldBy,
     StoredSplitRequest,
     StoredUnit,
     UnitStore,
 )
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED, Unit, ready_units
+from agent_build_kit.pipeline.verdict import ReviewTier, TierVerdict
 from agent_build_kit.pipeline.wiring import build_commit
 from agent_build_kit.pipeline.work_graph import TaskGroup
 
@@ -38,6 +41,7 @@ __all__ = [
     "commit",
     "commit_files",
     "commit_unit_work",
+    "brief_description",
     "deep_store",
     "fake_openspec",
     "follow_ups",
@@ -53,6 +57,7 @@ __all__ = [
     "stored_unit",
     "superseded_store",
     "unit",
+    "tier_verdict",
     "worked_unit",
 ]
 
@@ -298,6 +303,30 @@ def snapshot(output: str, *, failures: list[TestFailure] | None = None) -> str:
             failures=failures or [],
         )
     )
+
+
+def brief_description(
+    focus: Sequence[tuple[str, str]] = (), skippable: Sequence[tuple[str, str]] = ()
+) -> Description:
+    """What an approving reviewer described: a summary, one core change and the two lists, each
+    entry a (place, reason) pair."""
+    return Description(
+        summary="Adds the marker.",
+        changes=("Adds a marker to the reader.",),
+        focus=tuple(BriefEntry(place=place, reason=reason) for place, reason in focus),
+        skippable=tuple(BriefEntry(place=place, reason=reason) for place, reason in skippable),
+    )
+
+
+def tier_verdict(**overrides: Any) -> TierVerdict:
+    """A verdict of light review, for a reason."""
+    fields: dict[str, Any] = {
+        "tier": ReviewTier.LIGHT,
+        "evidence_tier": ReviewTier.LIGHT,
+        "reason": "the reviewer classified it light",
+        **overrides,
+    }
+    return TierVerdict(**fields)
 
 
 def follow_ups(count: int) -> list[str]:

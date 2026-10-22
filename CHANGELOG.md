@@ -167,6 +167,12 @@
   tier's ceiling after calibration, and a join is refused when its sides disagree on full review:
   work that needs it is never joined to work that does not, in either direction.
 
+- A pull request body now opens with a "Start here" section: the places the reviewer says to
+  read first, the places it says are safe to skip, what the pipeline itself verified (the
+  failing run before the implementation, the test results and the review rounds, each listed
+  as passed, failed or not recorded), and the review tier with its reason. The section is
+  never shrunk to fit a host's limit, and a unit held for a person carries it too.
+
 - With `e2e_before_merge: deferred` for a repo, its e2e-test units skip the e2e-test step before
   merge, and again when their base moves, and record their e2e state as `deferred`; scheduled
   whole-suite runs are unaffected. The pull request of such a unit says "e2e-test deferred to

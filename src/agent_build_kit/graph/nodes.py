@@ -149,9 +149,10 @@ from agent_build_kit.pipeline.verdict import (
     GroupText,
     ReviewTier,
     SplitRequest,
+    TierVerdict,
     VerdictFacts,
 )
-from agent_build_kit.pipeline.verdict_record import VERDICTS, record_verdict
+from agent_build_kit.pipeline.verdict_record import VERDICTS, latest_verdict, record_verdict
 from agent_build_kit.pipeline.work_graph import group_sections
 from agent_build_kit.pipeline.workspaces import DirtyWorktree
 from agent_build_kit.profiles.base import stubbed_build
@@ -2430,6 +2431,16 @@ class BuildPath:
         if e2e_state_of(state, None) is E2eState.DEFERRED:
             r.store.record_e2e_state(unit.id, E2eState.DEFERRED)
         stored = r.store.get(unit.id)
+        reviewed = active().review.enabled
+        recorded = latest_verdict(r.store.path.with_name(VERDICTS), unit.id) if reviewed else None
+        # A unit reaching a pull request has had its tests seen to fail first and its unit-test
+        # pass: the same facts `record_round` hands the verdict.
+        facts = VerdictFacts(
+            kind=stored.tier,
+            red_first=GateResult.PASSED,
+            unit_test=GateResult.PASSED,
+            e2e_state=stored.e2e_state,
+        )
         # A re-run asks again: `open_pr` finds the branch's pull request and updates it.
         body = partial(
             build_pr_body,
@@ -2442,6 +2453,13 @@ class BuildPath:
             linear=r.linear(tree, local_ref(base, repo=unit.repo)),
             limit=forges.description_limit(),
             changes_dir=changes_dir_under(Path(r.planning_repo), active().planning.specs_dir),
+            facts=facts,
+            rounds=state.review_round if reviewed else None,
+            verdict=TierVerdict(
+                tier=recorded.tier, evidence_tier=recorded.evidence_tier, reason=recorded.reason
+            )
+            if recorded
+            else None,
         )
         try:
             pr = r.open_pr(

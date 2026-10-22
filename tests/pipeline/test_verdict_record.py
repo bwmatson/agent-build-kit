@@ -15,7 +15,7 @@ from agent_build_kit.pipeline.stack_runner import change_dir_of
 from agent_build_kit.pipeline.unit_store import E2eState, UnitStore
 from agent_build_kit.pipeline.units import HELD
 from agent_build_kit.pipeline.verdict import ClassHistory, GateResult, ReviewTier, VerdictFacts
-from agent_build_kit.pipeline.verdict_record import VERDICTS, record_verdict
+from agent_build_kit.pipeline.verdict_record import VERDICTS, latest_verdict, record_verdict
 from tests.factories import activate_with, unit
 from tests.graph.test_build_path import build, fresh
 from tests.otlp import enabled
@@ -324,3 +324,36 @@ def test_the_planner_accuracy_point_carries_the_units_repo(tmp_path: Path) -> No
 
     (point,) = collector.metric("abk.planner.accuracy")
     assert point.attributes["repo"] == unit().repo
+
+
+def test_the_latest_verdict_is_the_entry_record_verdict_wrote(tmp_path: Path) -> None:
+    path = tmp_path / VERDICTS
+    written = record_verdict(
+        path,
+        unit=UNIT_ID,
+        change="add-marker",
+        round=1,
+        unit_class="app/unit-test",
+        repo="app",
+        facts=green(),
+    )
+
+    assert latest_verdict(path, UNIT_ID) == written
+
+
+@pytest.mark.parametrize("content", [None, "{not json", "[]", "{}", '{"other/1": {}}'])
+def test_a_missing_unreadable_or_unrelated_record_gives_no_verdict(
+    tmp_path: Path, content: str | None
+) -> None:
+    path = tmp_path / VERDICTS
+    if content is not None:
+        path.write_text(content)
+
+    assert latest_verdict(path, UNIT_ID) is None
+
+
+def test_a_record_that_cannot_be_read_as_a_file_gives_no_verdict(tmp_path: Path) -> None:
+    path = tmp_path / VERDICTS
+    path.mkdir()
+
+    assert latest_verdict(path, UNIT_ID) is None

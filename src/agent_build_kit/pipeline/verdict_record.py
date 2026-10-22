@@ -92,6 +92,16 @@ def record_verdict(
     return entry
 
 
+def latest_verdict(path: Path, unit: str) -> VerdictEntry | None:
+    """The unit's recorded verdict, or None when the file is missing, unreadable or holds none
+    for the unit."""
+    try:
+        recorded = json.loads(path.read_text())[unit]
+        return VerdictEntry.model_validate(recorded)
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
 def _count(entry: VerdictEntry, repo: str) -> None:
     """Count the verdict, and the planner's estimate against its evidence tier."""
     estimate = entry.planned_estimate

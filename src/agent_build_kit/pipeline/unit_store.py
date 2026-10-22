@@ -248,11 +248,21 @@ class GroupOwned(Exception):
         )
 
 
+class BriefEntry(Frozen):
+    """One place the reviewer points a person at, or away from, and why."""
+
+    place: str
+    reason: str
+
+
 class Description(Frozen):
-    """What the reviewer says an approved branch does: a summary and its core changes."""
+    """What the reviewer says an approved branch does: a summary and its core changes, the
+    places a person should read first and the places that are safe to skip."""
 
     summary: str = ""
     changes: tuple[str, ...] = ()
+    focus: tuple[BriefEntry, ...] = ()
+    skippable: tuple[BriefEntry, ...] = ()
 
 
 class ClosePending(Frozen):
