@@ -22,6 +22,11 @@
   unit tests pass, as a unit built in one piece is, instead of stopping for a missing tests and
   implementation pair. A branch with some commits and a missing pair still stops, naming the
   first group without one.
+- `abk explain UNIT [--at TIME]` says why a unit was admitted, held or paused: the slot, its limit,
+  the units counted against it and why each counts, the usage decision of the unit's own account
+  and its reading, and the tick. Each admission and slot wait is now recorded, a tick prints a
+  fingerprint of its configuration and marks decisions made on stale configuration, and a unit
+  its account refuses gets one pause and one resume entry in its history per episode.
 
 - `review.ceiling_buffer` (default 0.2) and `review.split_rounds` (default 2, at most 2) are new
   settings, the first steps towards holding and splitting a unit that outgrows its review tier.

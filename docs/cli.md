@@ -98,6 +98,17 @@ reasons are those `abk status` and the decision log give. Units a person can act
 soonest (`ready`, `slot`, `lease`, `backoff`) come first; at most 10 are shown, then
 `  (+M more)`. If the reasons cannot be worked out, one line names the error.
 
+### `abk explain`
+
+`abk explain <unit> [--at TIME]` answers "why was this unit admitted, and what did it count
+against". From the admission records (`admissions.jsonl` in the state directory) it prints the
+slot, the limit and the units counted with why each counts, the usage decision of the unit's own
+account (reading source and age, threshold, ramp, estimate), the tick, and the configuration
+fingerprint; a unit its account refused is said to be paused, with the account and the reason.
+`--at` is an ISO time; with none it is the latest record. A decision made on a configuration the
+files no longer match is marked `stale configuration`, and when no record covers the time it says
+so. A tick prints the fingerprint when it starts.
+
 ### `abk status`
 
 Prints whether the pipeline is paused (until when, why), the usage reading held

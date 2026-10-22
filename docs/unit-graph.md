@@ -710,6 +710,17 @@ way once the guard allows: it asks again on every tick, as the pause marker
 does (`pipeline/pause.py`). The graph page draws such a unit as `running`. A step is never interrupted while it runs:
 interrupts happen only at node boundaries.
 
+### The admission records
+
+Each admission of a never-started unit and each `slot` wait writes a line to `admissions.jsonl`
+beside the decision log: the unit, the tick, the slot (an account's label, or the project), the
+limit, the ids counted in the slot each with its state and why it counts, the unit's own account's
+usage decision with its reading, and a fingerprint of the merged configuration. A slot wait is
+written again only when the counted set or the limit changes. A tick that starts or refuses a
+unit also writes each slot's ids, limit and room. A unit its account refuses at admission gets one
+`usage_pause` entry in its history for the episode and one `usage_resume` when it is admitted
+again. `abk explain <unit>` reads these back.
+
 ## Session capture and resume
 
 An agent node, `review` included, passes `on_session` to the runtime, which

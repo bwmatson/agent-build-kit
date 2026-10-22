@@ -1228,6 +1228,22 @@ class UnitStore:
     def set_predecessor_note(self, unit_id: str, note: str) -> None:
         self._update(unit_id, predecessor_note=note)
 
+    @_exclusive
+    def record_event(self, unit_id: str, event: str, note: str = "", **fields: str) -> None:
+        """Add a history entry for something that happened to the unit and did not change its
+        state (a usage pause or its end)."""
+        stored = self._read()
+        unit = stored[unit_id]
+        entry = {
+            "state": unit.state,
+            "at": _now(),
+            "event": event,
+            **({"note": note} if note else {}),
+            **fields,
+        }
+        stored[unit_id] = unit.model_copy(update={"history": (*unit.history, entry)})
+        self._write(stored)
+
     def set_stack_refusal(self, unit_id: str, reason: str) -> None:
         """Why the host would not stack this unit's PR, or `""` once it did.
         Not a state change: the refusal changes nothing about the unit."""

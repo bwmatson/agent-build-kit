@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline.admission_record import ADMISSIONS_NAME, config_fingerprint, read_admissions
+from agent_build_kit.pipeline.admission_record import (
+    ADMISSIONS_NAME,
+    config_fingerprint,
+    read_admissions,
+)
 from tests.tick_pass import (
     Builder,
     install_builder,

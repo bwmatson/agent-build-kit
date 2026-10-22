@@ -1,3 +1,4 @@
+# ruff: noqa: F811 — the imported fixture is requested by name
 """Each admission and each wait for a slot leaves a record that says what it counted and what the
 unit's account answered (spec: capacity-checks, admission leaves a record that explains it).
 
@@ -108,7 +109,12 @@ def test_an_admission_records_the_slot_the_limit_and_the_units_counted_with_why(
     assert round_of(inst, store) == ["one/1"]
 
     [record] = records(inst)
-    assert (record.kind, record.unit, record.slot, record.limit) == ("admitted", "one/1", "default", 3)
+    assert (record.kind, record.unit, record.slot, record.limit) == (
+        "admitted",
+        "one/1",
+        "default",
+        3,
+    )
     [counted] = record.counted
     assert (counted.id, counted.state) == ("busy/1", "in_review")
     assert "12" in counted.why
@@ -181,14 +187,13 @@ def test_a_wait_for_a_slot_records_the_ids_counted_against_the_limit(
 def test_a_slot_wait_is_recorded_again_only_when_the_counted_set_changes(
     tmp_path: Path, accounts: Accounts
 ) -> None:
-    inst, store = installation(
-        tmp_path, [unit("busy/1", "app"), unit("busy/2", "app"), unit("next/1", "app")], limit=1
-    )
+    inst, store = installation(tmp_path, [unit("busy/1", "app"), unit("next/1", "app")], limit=1)
     in_review(store, "busy/1", 12)
     round_of(inst, store)
     round_of(inst, store)
     assert len(records(inst)) == 1
 
+    store.upsert([unit("busy/2", "app")])
     in_review(store, "busy/2", 13)
     round_of(inst, store)
 
@@ -260,7 +265,9 @@ def test_the_resume_is_one_entry_and_a_second_refusal_is_a_new_episode(
 
     accounts.full = {PERSONAL}
     round_of(inst, store)
-    events = [e["event"] for e in store.history("two/1") if str(e.get("event", "")).startswith("usage_")]
+    events = [
+        e["event"] for e in store.history("two/1") if str(e.get("event", "")).startswith("usage_")
+    ]
     assert events == ["usage_pause", "usage_resume", "usage_pause"]
 
 
@@ -268,7 +275,8 @@ def test_a_tick_that_starts_or_refuses_records_each_accounts_ids_limit_and_room(
     tmp_path: Path, accounts: Accounts
 ) -> None:
     inst, store = installation(
-        tmp_path, [unit("held/1", "platform"), unit("one/1", "app"), unit("two/1", "platform")],
+        tmp_path,
+        [unit("held/1", "platform"), unit("one/1", "app"), unit("two/1", "platform")],
         limit=4,
     )
     in_review(store, "held/1", 9)

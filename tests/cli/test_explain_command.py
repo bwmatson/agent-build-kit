@@ -1,3 +1,4 @@
+# ruff: noqa: F811 — the imported fixture is requested by name
 """`abk explain <unit> [--at TIME]` says, from the admission records, why a unit was admitted,
 held or paused at a time (spec: capacity-checks, admission leaves a record that explains it)."""
 
@@ -11,7 +12,11 @@ import pytest
 
 from agent_build_kit.cli.explain_cmd import cmd_explain
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.admission_record import ADMISSIONS_NAME, config_fingerprint, read_admissions
+from agent_build_kit.pipeline.admission_record import (
+    ADMISSIONS_NAME,
+    config_fingerprint,
+    read_admissions,
+)
 from tests import fake_clock
 from tests.cli.test_admission_asks_own_account import (  # noqa: F401 — fixtures
     PERSONAL,
