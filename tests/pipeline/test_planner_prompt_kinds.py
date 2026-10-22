@@ -17,7 +17,7 @@ def test_the_join_rule_says_which_kinds_go_together(tmp_path: Path) -> None:
     assert "same repo and compatible kinds" in prompt
     assert "same repo and same tier" not in prompt
     assert "`unit-test` and `integration-test` together" in prompt
-    assert "`e2e-test` only with `e2e-test`" in prompt
+    assert "an `e2e-test` group is never joined" in prompt
 
 
 def test_the_schema_example_lists_the_three_kinds(tmp_path: Path) -> None:

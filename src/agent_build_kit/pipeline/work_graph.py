@@ -852,6 +852,23 @@ def old_test_kind_warnings(path: Path) -> list[str]:
     return warnings
 
 
+def redundant_separate_warnings(path: Path) -> list[str]:
+    """One warning per `Separate:` line inside an `[e2e-test]` group of a tasks file: such a group
+    always has a unit of its own, as `abk tags` and `abk check` print it."""
+    warnings: list[str] = []
+    current: re.Match[str] | None = None
+    for index, text in enumerate(path.read_text().splitlines(), start=1):
+        if heading := GROUP_HEADING.match(text):
+            current = heading
+        elif current and SEPARATE_LINE.match(text.strip()):
+            if current_tag(current["tier"]) == TestTier.E2E_TEST:
+                warnings.append(
+                    f"{path}:line {index}: warning: group {current['number']}: `Separate:` is "
+                    "redundant in an [e2e-test] group, which always has a unit of its own"
+                )
+    return warnings
+
+
 def _group_parents(groups: list[TaskGroup]) -> dict[int, list[int]]:
     """The groups each group of one change depends on, as the planner chains them: the one
     before, and past an `Independent:` group the one before that, up to one that is not; an

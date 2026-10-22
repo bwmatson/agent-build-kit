@@ -388,6 +388,7 @@ from agent_build_kit.pipeline.work_graph import (
     inverted_group_warnings,
     manual_runbook_warnings,
     old_test_kind_warnings,
+    redundant_separate_warnings,
     retag_headings,
     specification_text,
     tasks_path,
@@ -6099,6 +6100,7 @@ def _tag_warnings(inst: Installation, path: Path) -> list[str]:
             projects=declared_projects(inst.repos),
         ),
         *old_test_kind_warnings(path),
+        *redundant_separate_warnings(path),
         *manual_runbook_warnings(path, inst.root),
         *inverted_group_warnings(
             path,

@@ -335,7 +335,7 @@ def test_the_acceptance_group_is_a_unit_of_its_own() -> None:
     assert [u.id for u in parse_graph(output, groups=ACCEPTING)] == ["c/1", "c/3"]
 
     folded = graph_json([si(id="c/1", groups=[1]), si(id="c/2", groups=[2, 3], tier="e2e-test")])
-    with pytest.raises(PlannerError, match="acceptance"):
+    with pytest.raises(PlannerError, match="unit of its own"):
         parse_graph(folded, groups=ACCEPTING)
 
 

@@ -50,18 +50,18 @@ def declaring_splits(tmp_path: Path) -> None:
 
 
 def test_a_unit_planned_from_groups_in_acp_records_acp() -> None:
-    plan = parse_plan(plan_of([1, 2]), groups=[e2e_group(1, "acp"), e2e_group(2, "acp")])
+    plan = parse_plan(plan_of([1], [2]), groups=[e2e_group(1, "acp"), e2e_group(2, "acp")])
 
-    assert [u.split for u in plan.units] == ["acp"]
+    assert [u.split for u in plan.units] == ["acp", "acp"]
 
 
 def test_groups_of_different_splits_are_separate_units_each_with_its_own() -> None:
     groups = [e2e_group(1, "claude_code"), e2e_group(2, "acp"), e2e_group(3), e2e_group(4, "rest")]
 
-    plan = parse_plan(plan_of([1], [2], [3, 4]), groups=groups)
+    plan = parse_plan(plan_of([1], [2], [3], [4]), groups=groups)
 
     # A group with no line, or with `rest` written out, is in rest.
-    assert [u.split for u in plan.units] == ["claude_code", "acp", "rest"]
+    assert [u.split for u in plan.units] == ["claude_code", "acp", "rest", "rest"]
 
 
 def test_a_plan_with_groups_of_two_splits_in_one_unit_is_refused_naming_groups_and_splits() -> None:
