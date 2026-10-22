@@ -8,6 +8,7 @@ the usage cache is kept per account. A network pause is about the machine and st
 
 from __future__ import annotations
 
+import argparse
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -15,8 +16,15 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.cli.scrub_store_cmd import cmd_scrub_store
 from agent_build_kit.pipeline import network_probe
-from agent_build_kit.pipeline.pause import is_paused, pause_until
+from agent_build_kit.pipeline.pause import (
+    NETWORK_MARKER,
+    is_paused,
+    network_marker,
+    network_pause,
+    pause_until,
+)
 from agent_build_kit.pipeline.usage_guard import RateLimited
 from agent_build_kit.pipeline.vocabulary import WaitReason
 from tests.cli.test_admission_asks_own_account import (  # noqa: F401 — fixtures
@@ -159,18 +167,111 @@ def test_a_network_pause_holds_every_account_and_ends_for_all_while_one_account_
     pause_until(
         datetime.now(UTC) + timedelta(minutes=5),
         reason="network unreachable during one/1",
-        marker=inst.state_dir / DEFAULT_MARKER,
+        marker=network_marker(inst.state_dir),
         kind="network",
     )
     write_marker(inst.state_dir / PERSONAL_MARKER, reason="rate limited", account=PERSONAL)
 
     assert round_of(inst, store) == []
-    assert not (inst.state_dir / "paused.platform.json").exists()
+    assert markers_in(inst) == {NETWORK_MARKER, PERSONAL_MARKER}
+    personal = is_paused(inst.state_dir / PERSONAL_MARKER)
+    assert personal is not None
+    assert (personal.kind, personal.reason) == ("rate_limit", "rate limited")
 
     reachable = True
 
     assert round_of(inst, store) == ["one/1"]
     assert is_paused(inst.state_dir / PERSONAL_MARKER) is not None
+    assert network_pause(inst.state_dir) is None
+
+
+def markers_in(inst) -> set[str]:
+    return {path.name for path in inst.state_dir.glob("*paused*.json")}
+
+
+def test_a_network_pause_recorded_over_the_default_accounts_rate_limit_holds_every_account(
+    tmp_path: Path,
+    accounts: Accounts,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inst, store = workspace(tmp_path, [unit("one/1", "app"), unit("two/1", "platform")])
+    reachable = False
+    monkeypatch.setattr(network_probe, "control_reachable", lambda *a, **k: reachable)
+    until = write_marker(inst.state_dir / DEFAULT_MARKER, reason="rate limited during one/1")
+    pause_until(
+        datetime.now(UTC) + timedelta(minutes=5),
+        reason="network unreachable during two/1",
+        marker=network_marker(inst.state_dir),
+        kind="network",
+    )
+
+    assert round_of(inst, store) == []
+
+    reachable = True
+
+    assert round_of(inst, store) == ["two/1"]
+    default = is_paused(inst.state_dir / DEFAULT_MARKER)
+    assert default is not None and default.kind == "rate_limit"
+    assert default.until == until
+
+
+def test_a_refusal_of_the_default_account_during_a_network_pause_does_not_end_the_pause(
+    tmp_path: Path,
+    accounts: Accounts,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inst, store = workspace(tmp_path, [unit("one/1", "app"), unit("two/1", "platform")])
+    reachable = False
+    monkeypatch.setattr(network_probe, "control_reachable", lambda *a, **k: reachable)
+    pause_until(
+        datetime.now(UTC) + timedelta(minutes=5),
+        reason="network unreachable during two/1",
+        marker=network_marker(inst.state_dir),
+        kind="network",
+    )
+    refuse_next_build(monkeypatch)
+
+    assert cli.build_unit(inst, store.get("one/1"), store=store) is False
+
+    assert round_of(inst, store) == []
+    assert network_pause(inst.state_dir) is not None
+
+    reachable = True
+
+    assert round_of(inst, store) == ["two/1"]
+    assert is_paused(inst.state_dir / DEFAULT_MARKER) is not None
+
+
+def test_a_network_pause_left_by_an_older_version_in_the_default_marker_still_holds(
+    tmp_path: Path,
+    accounts: Accounts,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inst, store = workspace(tmp_path, [unit("two/1", "platform")])
+    monkeypatch.setattr(network_probe, "control_reachable", lambda *a, **k: False)
+    write_marker(
+        inst.state_dir / DEFAULT_MARKER, reason="network unreachable", kind="network", hours=1
+    )
+
+    assert round_of(inst, store) == []
+    assert network_pause(inst.state_dir) is not None
+
+
+def test_a_pause_of_one_account_does_not_let_the_store_be_rewritten(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    inst, _store = workspace(tmp_path, [unit("one/1", "app"), unit("two/1", "platform")])
+    write_marker(inst.state_dir / PERSONAL_MARKER, reason="rate limited", account=PERSONAL)
+    before = (inst.state_dir / "units.json").read_bytes()
+
+    assert cmd_scrub_store(argparse.Namespace(apply=True), inst) == 1
+    assert (inst.state_dir / "units.json").read_bytes() == before
+    assert "refused" in capsys.readouterr().err
+
+    write_marker(inst.state_dir / DEFAULT_MARKER, reason="rate limited")
+
+    assert cmd_scrub_store(argparse.Namespace(apply=True), inst) == 0
 
 
 def test_each_accounts_usage_pause_is_cleared_and_logged_once_when_its_reading_clears(

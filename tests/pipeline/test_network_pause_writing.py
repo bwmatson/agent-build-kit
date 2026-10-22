@@ -1,6 +1,6 @@
 """Parking a unit for the network writes the pause that stops agent runs; nothing else does.
 
-The marker is the pipeline's one `paused.json`, of kind `network`, with a reason naming the
+The marker is the pipeline's one `network-paused.json`, of kind `network`, with a reason naming the
 unit. A second parking while it stands leaves its time alone; a parking for the model service
 writes none; and a unit that runs while it stands still fails for a reason of its own.
 """
@@ -33,7 +33,7 @@ def probe(monkeypatch: pytest.MonkeyPatch) -> Probe:
 
 
 def marker(tmp_path: Path) -> dict:
-    return json.loads((tmp_path / "paused.json").read_text())
+    return json.loads((tmp_path / "network-paused.json").read_text())
 
 
 @pytest.mark.parametrize(
@@ -80,13 +80,13 @@ def test_parking_for_the_model_service_writes_no_pause(
     store = fresh_store(tmp_path)
     build_once(tmp_path, monkeypatch, store, run=raises_in_implement(outage("strong"), ""))
     assert marker(tmp_path)["kind"] == "network"
-    (tmp_path / "paused.json").unlink()
+    (tmp_path / "network-paused.json").unlink()
     probe.answer = Reachability(api=False, control=True)
 
     build_once(tmp_path, monkeypatch, store, run=raises_in_implement(outage("weak"), ""))
 
     assert store.get(UNIT).cause == "service_unavailable"
-    assert not (tmp_path / "paused.json").exists()
+    assert not (tmp_path / "network-paused.json").exists()
 
 
 def test_a_unit_that_runs_while_the_pause_stands_and_fails_for_its_own_reason_fails(

@@ -18,8 +18,10 @@
   each refused account's own marker and cleared only when that account's own reading clears. A
   pass keeps starting the other accounts after one is refused, and planning, which runs on the
   default account, waits while that account is refused. A round stops early only when every
-  account with a startable unit is paused; a network outage still pauses all of them, and a
-  `paused.json` left by an older version is read as the default account's. `abk status` prints one
+  account with a startable unit is paused; a network outage still pauses all of them, from a
+  marker of its own (`network-paused.json`) that no account's pause replaces, and a `paused.json`
+  left by an older version is read as the default account's (or the network's). `abk scrub-store
+  --apply` and `abk redact-history --apply` now require every account to be paused. `abk status` prints one
   pause line for each paused account.
 
 - A task group can declare a step only a person can do with `Manual: <slug> — <what to do> —

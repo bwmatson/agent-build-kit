@@ -726,9 +726,10 @@ marker and for its own reason (a round in which every open account refuses write
 Planning runs on the default account, so a rate limit on it holds planning too. Its units wait with
 `usage_pause` naming the account and the time, while the units of every other account are admitted
 and run. A round exits early only when every account with a unit that could start is paused. A
-network outage is the whole installation's: it stays one marker (`paused.json`) and holds every
+network outage is the whole installation's: it is one marker of its own (`network-paused.json`),
+so no account's pause replaces it or is replaced by it, and it holds every
 account. A `paused.json` written by an older version, with no account on it, is the default
-account's. Each account's pause is cleared and logged once, when its own reading clears, and
+account's (or the network's, when its kind is `network`). Each account's pause is cleared and logged once, when its own reading clears, and
 `abk status` prints one pause line for each paused account (account, kind, end and reason).
 
 ### The admission records

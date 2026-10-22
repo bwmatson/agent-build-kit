@@ -179,6 +179,34 @@ def test_a_scan_does_not_hand_a_unit_over_again_while_its_last_attempt_left_it_a
     assert restacks.started == ["feature/1", "feature/1"]
 
 
+def test_a_deferred_move_is_tried_again_once_its_pause_ends_while_another_pause_stands(
+    locks: Path, restacks: Restacks
+) -> None:
+    unit = stored_unit("feature/1", change="feature")
+    paused: set[object] = {"a", "b"}
+    restacks.release_all()
+    lane = RestackLane(
+        2,
+        move=restacks,
+        claim=build_claim(locks),
+        owed=lambda graph: ["feature/1"],
+        stamp=lambda unit: "branch@1, base@1",
+        paused=lambda: paused,
+    )
+    with lane:
+        lane.scan([unit])
+        lane.drain()
+        lane.scan([unit])
+        lane.drain()
+        assert restacks.started == ["feature/1"], "nothing changed, and both pauses stand"
+
+        paused.discard("a")
+        lane.scan([unit])
+        lane.drain()
+
+    assert restacks.started == ["feature/1", "feature/1"]
+
+
 def test_a_lane_that_is_idle_gives_a_finished_future_that_is_already_done(
     lane: RestackLane, restacks: Restacks
 ) -> None:

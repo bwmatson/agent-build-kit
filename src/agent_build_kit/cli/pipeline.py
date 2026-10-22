@@ -144,6 +144,8 @@ from agent_build_kit.pipeline.pause import (
     clear_pause,
     end_network_pause,
     is_paused,
+    network_marker,
+    network_pause,
     pause_for,
     pause_in_force,
     pause_line,
@@ -477,14 +479,14 @@ def _paused_marker(inst: Installation, account: claude_account.Account | None = 
     return pause_marker(inst.state_dir, account)
 
 
-def _paused_for(inst: Installation, unit: StoredUnit) -> Pause | None:
+def _paused_for(inst: Installation, unit: StoredUnit | Unit) -> Pause | None:
     """The pause in force for the unit's own account: its marker's, or a network outage."""
     return pause_for(inst.state_dir, claude_account.for_repo(inst.config, unit.repo))
 
 
 def _refused_by_model(inst: Installation, unit: StoredUnit | Unit) -> bool:
     """Whether the model's refusal is in force for the unit's own account."""
-    held = pause_for(inst.state_dir, claude_account.for_repo(inst.config, unit.repo))
+    held = _paused_for(inst, unit)
     return held is not None and held.kind == "rate_limit"
 
 
@@ -1328,7 +1330,12 @@ def _tick_with(
     )
     if not ready:
         held = pauses_in_force(inst.state_dir)
-        if any(each.kind == "rate_limit" for each in held):
+        # As `_may_build` holds a round: when the model has refused every account a unit could
+        # start on. One account's refusal beside idle accounts is an idle tick.
+        refused = {each.account for each in held if each.kind == "rate_limit"}
+        startable, _left_out = _startable(inst, store, only=only, spared=())
+        starting = _starting_accounts(inst, startable, planning=_needs_planning(inst, store))
+        if refused and all(_label_of(each) in refused for each in starting):
             tick.outcome = "paused"
             return 0
         log(_nothing_started_reason(inst, store.all(), only=only, paused=bool(held)))
@@ -1663,8 +1670,7 @@ def _may_build(
     """
     _step("reconciling running units", reconcile_running, inst, store, in_flight=spared)
     held = {} if held is None else held
-    paused = is_paused(_paused_marker(inst))
-    if paused and paused.kind == "network":
+    if paused := network_pause(inst.state_dir):
         if not network_probe.control_reachable(inst):
             # Held like a usage refusal: the round polls and records, and starts and
             # plans nothing, which costs no model call.
@@ -1672,7 +1678,7 @@ def _may_build(
                 log(pause_line(paused))
             _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
             return "usage"
-        end_network_pause(_paused_marker(inst))
+        end_network_pause(inst.state_dir)
         _release_network_waits(inst)
         log("the network is back; resuming")
 
@@ -1854,6 +1860,11 @@ def run_round(
     may = _may_build(
         inst, store, spared=spared, quiet=quiet, only=only, decided=decided, held=model_refused
     )
+    # The guard is not asked of a refused account; its admission record says why it holds.
+    for label, refusal in model_refused.items():
+        decided[claude_account.account_key(claude_account.resolve(inst, label))] = Decision(
+            may_start=False, reason=_pause_report(inst, refusal), resume_at=refusal.until
+        )
     if may == "rate_limit":
         _step("reconciling notifications", _reconcile_notifications, inst, store)
         units = store.all()
@@ -4447,7 +4458,7 @@ def plan_all(
                     pause_until(
                         datetime.now(UTC) + PARK_BACKOFF[0],
                         reason=f"network unreachable while planning {change}",
-                        marker=_paused_marker(inst),
+                        marker=network_marker(inst.state_dir),
                         kind="network",
                     )
                 log(
@@ -5140,7 +5151,10 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
             move=move_unit,
             claim=moves["claim"],
             stamp=stamp,
-            paused=lambda: pause_in_force(inst.state_dir),
+            # One key for each pause in force: an account's, or the network's.
+            paused=lambda: [
+                (each.kind == "network", each.account) for each in pauses_in_force(inst.state_dir)
+            ],
             record=record_path(inst.state_dir, key),
             base=lambda owed: base_of(owed, store.all()),
             runs=in_a_lane_run,
@@ -5568,7 +5582,7 @@ def _build_unit(
             pause_until(
                 datetime.now(UTC) + PARK_BACKOFF[0],
                 reason=f"network unreachable during {unit.id}",
-                marker=_paused_marker(inst),
+                marker=network_marker(inst.state_dir),
                 kind="network",
             )
         try:
@@ -6562,8 +6576,8 @@ def apply_planned(inst: Installation, store: UnitStore, outcome: ReplanOutcome) 
         raise ValueError("the outcome was not planned apart")
     # The outage was met in the copy, whose state directory goes with it: the pause is the
     # real one's to stand, and `record_pause` keeps one that already does.
-    if pause := is_paused(pause_marker(outcome.scratch)):
-        record_pause(pause, marker=_paused_marker(inst))
+    if pause := network_pause(outcome.scratch):
+        record_pause(pause, marker=network_marker(inst.state_dir))
 
     def record_plan_records() -> None:
         update_plans(

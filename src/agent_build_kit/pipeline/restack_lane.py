@@ -14,7 +14,7 @@ import hashlib
 import json
 import os
 import threading
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable, Collection, Hashable, Mapping
 from concurrent.futures import Future
 from datetime import datetime
 from pathlib import Path
@@ -332,7 +332,7 @@ class RestackLane:
         claim: Claim,
         owed: Owed = lambda units: (),
         stamp: Stamp | None = None,
-        paused: Callable[[], bool] = lambda: False,
+        paused: Callable[[], Collection[Hashable]] = lambda: (),
         record: Path | None = None,
         base: Callable[[StoredUnit], str] = lambda unit: "",
         runs: Callable[[StoredUnit], bool] = lambda unit: False,
@@ -341,13 +341,15 @@ class RestackLane:
         """`stamp` reads what a restack of the unit depends on (its branch head and base).
         A unit whose attempt left it as it was is not handed over again by `scan` until
         the stamp changes: a deferred move is not retried on a loop of its own, only when a
-        usage pause that stood has ended. `record` is where the lane says what it holds, each
+        usage pause that stood has ended. `paused` names the pauses in force, one key for each
+        (an account's, or the network's): the moves are tried again when any key has left it,
+        whatever the others do. `record` is where the lane says what it holds, each
         unit with the `base` it moves onto. `runs` says of a unit that the lane is making its whole
         run, which the scan hands over with no claim: the run takes the branch lock itself."""
         self._cap, self._move, self._claim, self._owed, self._log = cap, move, claim, owed, log
         self._stamp, self._paused, self._record, self._base = stamp, paused, record, base
         self._runs = runs
-        self._was_paused = False
+        self._was_paused: frozenset[Hashable] = frozenset()
         self._until: dict[str, datetime] = {}
         self._tried: dict[str, object] = {}
         self._changed = threading.Condition()
@@ -389,14 +391,14 @@ class RestackLane:
 
     def scan_owed(self, units: list[StoredUnit], owed: Collection[str]) -> None:
         """Hand over each of `units` that `owed` names and that is not already queued."""
-        if self._paused():
-            self._was_paused = True
-        elif self._was_paused:
-            # The pause ended: what it left deferred is moved again, asking the guard again.
-            self._was_paused = False
+        paused = frozenset(self._paused())
+        if self._was_paused - paused:
+            # A pause ended, whatever others still stand: what it left deferred is moved again,
+            # asking the guard again (a unit of a pause that stands is deferred again).
             with self._changed:
                 self._tried.clear()
                 self._until.clear()
+        self._was_paused = paused
         for unit in units:
             if unit.id in owed and not self._unchanged_since_tried(unit):
                 self.hand_over(unit, claimed=not self._runs(unit))

@@ -30,13 +30,16 @@ from pathlib import Path
 from typing import Literal
 
 from agent_build_kit import claude_account
+from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 
-# The marker's file name in the state directory: the default account's, and the whole
-# installation's for a network pause. A named account keeps its own beside it, as the usage
-# cache is kept (`claude_account.file_for`).
+# The marker's file name in the state directory: the default account's. A named account keeps its
+# own beside it, as the usage cache is kept (`claude_account.file_for`).
 PAUSE_MARKER = "paused.json"
+
+# The network outage's marker: one for the whole installation, apart from every account's.
+NETWORK_MARKER = "network-paused.json"
 
 # Just after the reset, never exactly on it: a resume racing the window
 # boundary finds it still full and pauses again.
@@ -106,20 +109,39 @@ def is_paused(marker: Path) -> Pause | None:
     )
 
 
+def network_marker(state_dir: Path) -> Path:
+    """The marker of a network outage: the whole installation's, in a file of its own so that no
+    account's pause can replace it or be replaced by it."""
+    return state_dir / NETWORK_MARKER
+
+
+def network_pause(state_dir: Path) -> Pause | None:
+    """The network pause in force: its own marker's, else a `paused.json` of kind `network` left
+    by a version that kept every pause in one file."""
+    held = is_paused(network_marker(state_dir))
+    if held is not None:
+        return held
+    legacy = is_paused(state_dir / PAUSE_MARKER)
+    return legacy if legacy is not None and legacy.kind == "network" else None
+
+
 def pauses_in_force(state_dir: Path) -> list[Pause]:
-    """Every pause in force in `state_dir`, the default account's (and the network's) first."""
+    """Every pause in force in `state_dir`: the network's, then the default account's, then the
+    named accounts'."""
     markers = sorted(state_dir.glob(f"{Path(PAUSE_MARKER).stem}*.json"))
     markers.sort(key=lambda marker: marker.name != PAUSE_MARKER)
-    return [held for marker in markers if (held := is_paused(marker)) is not None]
+    network = network_pause(state_dir)
+    found = [network] if network is not None else []
+    for marker in markers:
+        if (held := is_paused(marker)) is not None and held.kind != "network":
+            found.append(held)
+    return found
 
 
 def pause_for(state_dir: Path, account: claude_account.Account | None) -> Pause | None:
     """The pause in force for `account`'s units: its own, or a network outage, which is every
     account's."""
-    network = is_paused(state_dir / PAUSE_MARKER)
-    if network is not None and network.kind == "network":
-        return network
-    return is_paused(pause_marker(state_dir, account))
+    return network_pause(state_dir) or is_paused(pause_marker(state_dir, account))
 
 
 def pause_in_force(state_dir: Path) -> bool:
@@ -127,9 +149,25 @@ def pause_in_force(state_dir: Path) -> bool:
     return bool(pauses_in_force(state_dir))
 
 
-def paused_or_refused(command: str, state_dir: Path, why: str) -> bool:
-    """Whether a pause is in force in `state_dir`; when not, say `command` refuses, for `why`."""
-    if pause_in_force(state_dir):
+def every_account_paused(inst: Installation) -> bool:
+    """Whether no account in use can start a build: a network outage, or a pause in force for
+    each account the repos run on (the default account alone when none is named)."""
+    if network_pause(inst.state_dir) is not None:
+        return True
+    accounts = {
+        account.label: account
+        for account in (claude_account.for_repo(inst.config, name) for name in inst.config.repos)
+    }
+    return all(
+        pause_for(inst.state_dir, account) is not None
+        for account in accounts.values() or [claude_account.Account()]
+    )
+
+
+def paused_or_refused(command: str, inst: Installation, why: str) -> bool:
+    """Whether every account is paused (`every_account_paused`); when not, say `command` refuses,
+    for `why`: a run of an account that is not paused may be writing the store."""
+    if every_account_paused(inst):
         return True
     print(
         f"{command}: refused; {why}, so pause the pipeline first (nothing was changed)",
@@ -233,11 +271,14 @@ def clear_pause(marker: Path) -> Pause | None:
     return None
 
 
-def end_network_pause(marker: Path) -> bool:
-    """End a network pause because the network is back; whether there was one."""
-    with _locked(marker):
-        held = is_paused(marker)
-        if held is None or held.kind != "network":
-            return False
-        marker.unlink(missing_ok=True)
-    return True
+def end_network_pause(state_dir: Path) -> bool:
+    """End a network pause because the network is back; whether there was one. Every account's
+    own pause is left as it was."""
+    ended = False
+    for marker in (network_marker(state_dir), state_dir / PAUSE_MARKER):
+        with _locked(marker):
+            held = is_paused(marker)
+            if held is not None and held.kind == "network":
+                marker.unlink(missing_ok=True)
+                ended = True
+    return ended
