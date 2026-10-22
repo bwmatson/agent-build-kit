@@ -387,11 +387,11 @@ def choose(
             ordered = show(candidates)
     runtime = runtime or ""
     # Models given as the deprecated flat block (`--set models.review=...`) are the chosen
-    # runtime's own, so they are written under it, where the drafted defaults do not outrank them.
+    # runtime's own, so they are written under it, where the drafted defaults do not outrank them;
+    # a role the runtime's block also names keeps the runtime's value.
     if "models" in values:
-        flat = values["models"]
-        values = {k: v for k, v in values.items() if k != "models"}
-        values = merge_values(values, {"runtimes": {runtime: {"models": flat}}})
+        rest = {k: v for k, v in values.items() if k != "models"}
+        values = merge_values({"runtimes": {runtime: {"models": values["models"]}}}, rest)
     if not yes:
         if not _current(values, f"runtimes.{runtime}.models"):
             values = merge_values(values, _models(runtime, values, ask=ask))

@@ -279,6 +279,31 @@ def test_another_runtimes_choice_drops_the_drafted_claude_code_names_and_keeps_i
     assert document["runtimes"]["alpha"]["models"] == {"review": "a-2"}
 
 
+def test_a_role_given_flat_and_under_the_runtime_keeps_the_runtimes_value(
+    planning: Path,
+    app: Path,  # noqa: F811 — fixture
+    events: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    machine(monkeypatch, ("alpha-bin",), Offering("alpha", events=events), events=events)
+    flags = [
+        "--set",
+        "runtimes.alpha.command=alpha-bin serve",
+        "--set",
+        "runtimes.alpha.models.review=b",
+        "--set",
+        "models.review=a",
+        "--set",
+        "models.implement=c",
+    ]
+
+    assert main(init_args(planning, app, "--yes", "--runtime", "alpha", *flags)) == 0
+
+    document = written(planning)
+    assert "models" not in document
+    assert document["runtimes"]["alpha"]["models"] == {"review": "b", "implement": "c"}
+
+
 def test_an_offered_runtime_is_listed_against_the_command_chosen_before_it_is_written(
     planning: Path,
     app: Path,  # noqa: F811 — fixture
