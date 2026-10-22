@@ -3,7 +3,8 @@
 The limit, on each of a test's setup, call and teardown, is `--test-time-limit`
 seconds (default `DEFAULT_TEST_TIME_LIMIT`), or for a test with the `local_stack`
 (e2e-test) marker `--e2e-test-time-limit` seconds (default
-`DEFAULT_E2E_TEST_TIME_LIMIT`); zero turns a limit off. A timer thread
+`DEFAULT_E2E_TEST_TIME_LIMIT`); a test marked `time_limit(<seconds>)` gets that limit in
+place of the first; zero turns a limit off. A timer thread
 signals the main thread when it passes, which interrupts the test wherever it is,
 including in a blocking call. The test fails (or errors, in setup or teardown) with
 "test exceeded the [e2e-test ]time limit of <n> seconds" and the run goes on.
@@ -60,7 +61,16 @@ def e2e_limit(config: pytest.Config) -> float:
 def _under_limit(item: pytest.Item, phase: str):
     """Run the rest of a hook, setup, call or teardown, under the limit."""
     e2e = item.get_closest_marker("local_stack") is not None
-    limit = e2e_limit(item.config) if e2e else item.config.getoption("--test-time-limit")
+    own = item.get_closest_marker("time_limit")
+    if e2e:
+        limit = e2e_limit(item.config)
+    elif own is not None:
+        value = own.kwargs.get("seconds", own.args[0] if own.args else None)
+        if value is None:
+            pytest.fail("the time_limit marker needs a number of seconds", pytrace=False)
+        limit = float(value)
+    else:
+        limit = item.config.getoption("--test-time-limit")
     kind = "e2e-test " if e2e else ""
     if limit <= 0 or threading.current_thread() is not threading.main_thread():
         return (yield)

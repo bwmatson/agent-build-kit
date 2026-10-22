@@ -110,6 +110,18 @@ def test_fast_is_slow():
 )
 
 
+MARKED_E2E = (
+    SPIN
+    + """
+
+@pytest.mark.local_stack
+@pytest.mark.time_limit(1)
+def test_e2e_keeps_the_e2e_limit():
+    spin(3)
+"""
+)
+
+
 def run_child(folder: Path, source: str, *args: str) -> tuple[int, str]:
     (folder / "pytest.ini").write_text(INI)
     (folder / "test_child.py").write_text(source)
@@ -197,3 +209,12 @@ def test_setting_the_old_and_the_new_flag_is_refused_naming_both(tmp_path: Path)
 
     assert code != 0, output
     assert time_limit.OLD_FLAG in output and time_limit.NEW_FLAG in output, output
+
+
+def test_an_e2e_test_with_a_time_limit_marker_keeps_the_e2e_limit(tmp_path: Path) -> None:
+    code, output = run_child(
+        tmp_path, MARKED_E2E, "--test-time-limit=20", "--e2e-test-time-limit=2"
+    )
+
+    assert code == 1, output
+    assert "e2e-test time limit of 2 seconds" in output, output

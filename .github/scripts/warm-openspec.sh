@@ -7,11 +7,12 @@ set -e
 spec="${1:?usage: warm-openspec.sh <package>@<version>}"
 attempts=3
 delay="${OPENSPEC_RETRY_DELAY:-10}"
+attempt_timeout="${OPENSPEC_ATTEMPT_TIMEOUT:-300}"
 cache="${npm_config_cache:-$HOME/.npm}"
 
 for attempt in $(seq 1 "$attempts"); do
   echo "attempt $attempt of $attempts: npx --yes $spec --version"
-  if timeout 120 npx --yes "$spec" --version; then
+  if timeout "$attempt_timeout" npx --yes "$spec" --version; then
     exit 0
   fi
   echo "attempt $attempt failed"

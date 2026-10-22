@@ -21,6 +21,8 @@ pytestmark = pytest.mark.integration
 TEST = "import {{ expect, test }} from 'vitest';\ntest('t', () => {{ expect(1).toBe({n}); }});\n"
 
 
+# npx downloads vitest at test time, which a slow registry can stretch past the default limit.
+@pytest.mark.time_limit(180)
 def test_the_report_names_each_test_file_so_files_outside_the_given_ones_can_be_told_apart(
     tmp_path: Path,
 ) -> None:

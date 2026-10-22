@@ -95,6 +95,7 @@ markers = [
     "runtime_acp: a live-stack test that drives the protocol (acp) runtime; at most one runtime tag per test",
     "telemetry_otel: a live-stack test that needs the shared telemetry stack's dev instance and the `ABK_ACCEPTANCE_*` variables",
     "telemetry_local: a live-stack test that reads the telemetry its tick wrote to a local file instead of the shared stack",
+    "time_limit(seconds): hold this test to its own time limit in place of --test-time-limit; for a test whose time is outside its control, such as a download",
     "dev_stack: needs the repo's dev stack up; left out of acceptance runs",
 ]
 addopts = "--strict-markers -m 'not integration and not local_stack'"

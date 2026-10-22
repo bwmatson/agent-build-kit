@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import stat
 import subprocess
 from pathlib import Path
@@ -35,6 +34,14 @@ if [ "$count" -lt "$FAILURES" ]; then echo "npm error fetch failed" >&2; exit 1;
 exit 0
 """
 
+# Stands in for timeout: keeps its first argument (the limit), then runs the rest.
+FAKE_TIMEOUT = """\
+#!/bin/sh
+echo "$1" >> "$LIMITS"
+shift
+exec "$@"
+"""
+
 
 def steps_of(job: str) -> list[dict]:
     return ci_jobs()[job]["steps"]
@@ -53,13 +60,17 @@ class Fetch:
         self.root = root
         self.calls = root / "calls.log"
         self.stale = root / "stale.log"
+        self.limits = root / "limits.log"
 
-    def run(self, failures: int, spec: str = SPEC) -> subprocess.CompletedProcess[str]:
+    def run(
+        self, failures: int, spec: str = SPEC, extra_env: dict[str, str] | None = None
+    ) -> subprocess.CompletedProcess[str]:
         bin_dir = self.root / "bin"
         bin_dir.mkdir()
-        npx = bin_dir / "npx"
-        npx.write_text(FAKE_NPX)
-        npx.chmod(npx.stat().st_mode | stat.S_IEXEC)
+        for name, text in (("npx", FAKE_NPX), ("timeout", FAKE_TIMEOUT)):
+            fake = bin_dir / name
+            fake.write_text(text)
+            fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
         home = self.root / "home"
         home.mkdir()
         return subprocess.run(
@@ -78,6 +89,8 @@ class Fetch:
                 "STALE": str(self.stale),
                 "COUNT": str(self.root / "count"),
                 "FAILURES": str(failures),
+                "LIMITS": str(self.limits),
+                **(extra_env or {}),
             },
         )
 
@@ -86,6 +99,10 @@ class Fetch:
             return []
         return [c.splitlines() for c in self.calls.read_text().split("--- call\n")[1:]]
 
+    def limits_used(self) -> list[str]:
+        """The limit each attempt passed to timeout, in order."""
+        return self.limits.read_text().split() if self.limits.exists() else []
+
     def stale_calls(self) -> int:
         """How many calls found the previous attempt's cache directory still there."""
         return len(self.stale.read_text().splitlines()) if self.stale.exists() else 0
@@ -93,8 +110,6 @@ class Fetch:
 
 @pytest.fixture
 def fetch(tmp_path: Path) -> Fetch:
-    if shutil.which("timeout") is None:
-        pytest.skip("the script needs GNU timeout")
     return Fetch(tmp_path)
 
 
@@ -201,3 +216,26 @@ def test_the_test_step_still_runs_pytest_integration_with_no_time_limit_option()
     assert run.strip() == "uv run --group dev pytest -m integration"
     assert "timeout" not in run
     assert "time-limit" not in run
+
+
+def test_each_attempt_defaults_to_a_limit_of_300_seconds(fetch: Fetch) -> None:
+    fetch.run(failures=99)
+
+    assert fetch.limits_used() == ["300"] * ATTEMPTS
+
+
+def test_the_attempt_limit_comes_from_the_environment(fetch: Fetch) -> None:
+    result = fetch.run(failures=1, extra_env={"OPENSPEC_ATTEMPT_TIMEOUT": "7"})
+
+    assert result.returncode == 0
+    assert fetch.limits_used() == ["7", "7"]
+
+
+def test_the_fetch_step_allows_the_attempts_and_their_delays() -> None:
+    (step,) = warm_steps("integration")
+
+    assert step["timeout-minutes"] >= 16
+
+
+def test_the_script_no_longer_holds_the_old_literal_limit() -> None:
+    assert "timeout 120" not in SCRIPT.read_text()

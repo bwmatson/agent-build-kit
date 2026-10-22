@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A test can carry its own time limit with `@pytest.mark.time_limit(<seconds>)`, in place of
+  `--test-time-limit`, and the test that downloads vitest carries 180 seconds, so a slow npm
+  registry no longer fails it at 60. CI's fetch of the OpenSpec CLI waits up to 300 seconds per
+  attempt and the step allows 20 minutes.
+
 - A stubbed build no longer stops when a group's agents find nothing to commit because the work is
   already built: once the whole-repository unit tests pass, the group is recorded with an empty
   commit pair (a test-only group, one empty tests commit) marked `Already-built: yes`, holding the
