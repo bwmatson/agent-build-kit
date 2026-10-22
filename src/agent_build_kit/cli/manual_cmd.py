@@ -14,12 +14,11 @@ import sys
 from pathlib import Path
 
 from agent_build_kit.cli.install_config import Refused, worktree_root
+from agent_build_kit.cli.pipeline import evaluate_manual_waits, store_for
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.manual_steps import MANUAL_FOLDER
 from agent_build_kit.pipeline.shell import git
-from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import ManualStep
-
-MANUAL_FOLDER = ".abk/manual"
 
 
 def _unit_id(worktree: Path, prefix: str) -> str:
@@ -61,7 +60,7 @@ def cmd_manual_raise(args: argparse.Namespace, inst: Installation) -> int:
     try:
         worktree = worktree_root()
         unit_id = _unit_id(worktree, inst.config.git.branch_prefix)
-        store = UnitStore(inst.state_dir / "units.json")
+        store = store_for(inst)
         try:
             held = store.get(unit_id)
         except KeyError:
@@ -79,6 +78,20 @@ def cmd_manual_raise(args: argparse.Namespace, inst: Installation) -> int:
     return 0
 
 
+def cmd_manual_check(args: argparse.Namespace, inst: Installation) -> int:
+    """Run the checks of the outstanding steps now, as a tick pass does."""
+    store = store_for(inst)
+    if args.slug and not any(
+        step.slug == args.slug and not step.done
+        for unit in store.all()
+        for step in unit.manual_steps
+    ):
+        print(f"abk manual check: no outstanding step `{args.slug}`", file=sys.stderr)
+        return 1
+    evaluate_manual_waits(inst, store, slug=args.slug)
+    return 0
+
+
 def register(sub: argparse._SubParsersAction) -> None:
     parser = sub.add_parser("manual", help="steps only a person can do, checked by the tick")
     actions = parser.add_subparsers(dest="manual_command", required=True)
@@ -87,3 +100,6 @@ def register(sub: argparse._SubParsersAction) -> None:
     raised.add_argument("--text", required=True, help="what a person does")
     raised.add_argument("--check", required=True, help="a script under .abk/manual/")
     raised.set_defaults(func=cmd_manual_raise)
+    checked = actions.add_parser("check", help="run the checks of the outstanding steps now")
+    checked.add_argument("slug", nargs="?", default="", help="only the step with this name")
+    checked.set_defaults(func=cmd_manual_check)

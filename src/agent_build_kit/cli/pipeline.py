@@ -119,6 +119,11 @@ from agent_build_kit.pipeline.joins import JoinContext
 from agent_build_kit.pipeline.label_sweep import sweep_finished
 from agent_build_kit.pipeline.labels import StateLabels
 from agent_build_kit.pipeline.lease import Leases, lease_dir
+from agent_build_kit.pipeline.manual_steps import (
+    evaluate_manual_steps,
+    manual_status_line,
+    unmet_steps,
+)
 from agent_build_kit.pipeline.metric_records import emit_metric
 from agent_build_kit.pipeline.pause import (
     PAUSE_MARKER,
@@ -265,6 +270,7 @@ from agent_build_kit.pipeline.units import (
     in_progress,
     in_progress_label,
     local_ref,
+    parked_for_manual_step,
     parked_on_split,
     priority_note,
     project_counts,
@@ -794,6 +800,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         log(line)
     for line in [
         *_split_wait_lines(inst, units),
+        *_manual_wait_lines(units),
         *_blocked_lines(units),
         *_retire_lines(units),
         *_failed_waiting_lines(units),
@@ -1342,6 +1349,51 @@ def _evaluate_gates(inst: Installation, *, dry_run: bool) -> None:
             log(f"gate {action.action}: {action.split} — {action.reason}")
 
 
+def evaluate_manual_waits(
+    inst: Installation,
+    store: UnitStore,
+    *,
+    dry_run: bool = False,
+    in_flight: Collection[str] = (),
+    slug: str = "",
+) -> None:
+    """Run the checks of the manual steps units wait on, with no agent call and no usage
+    reading, and deliver the resume to each unit whose last step is now done. A dry run says
+    what it found and changes nothing."""
+    for action in evaluate_manual_steps(
+        inst, store, now=spans.clock.now(), dry_run=dry_run, slug=slug
+    ):
+        said = f"{action.unit}: manual step {action.slug} {action.outcome}"
+        log(f"{said}: {action.line}" if action.line else said)
+    if dry_run:
+        return
+    for unit in store.all():
+        if (
+            unit.state != PLANNED
+            or unit.cause is not Cause.MANUAL_STEP
+            or not unit.manual_steps
+            or unmet_steps(unit)
+            or unit.id in in_flight
+        ):
+            continue
+        names = ", ".join(step.slug for step in unit.manual_steps)
+        try:
+            delivered = resume_thread(
+                inst,
+                unit,
+                "requeue",
+                store=store,
+                reason=f"manual step {names} done",
+                requeue=RequeueReason.RESUME,
+            )
+        except BranchBusy:
+            continue
+        if delivered is None:
+            store.set_state(
+                unit.id, PLANNED, note=f"requeued: manual step {names} done", cause=Cause.REQUEUED
+            )
+
+
 def _bound_logs(inst: Installation) -> None:
     """Keep the decision log and the unit run logs within `retention`."""
     retention = inst.config.retention
@@ -1667,6 +1719,14 @@ def run_round(
     _step("reducing dependencies", reduce_stored_dependencies, store)
     # Before planning and before any e2e-test selection reads the held set.
     _step("evaluating split gates", _evaluate_gates, inst, dry_run=dry_run)
+    _step(
+        "checking manual steps",
+        evaluate_manual_waits,
+        inst,
+        store,
+        dry_run=dry_run,
+        in_flight=spared,
+    )
     if not dry_run:
         # No model call, so ahead of the usage guard: planning it is what the guard holds back.
         _step(
@@ -2335,6 +2395,17 @@ def _split_wait_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[s
             + (f" — {why}" if why else f" — {released}")
         )
     return lines
+
+
+def _manual_wait_lines(units: Sequence[StoredUnit]) -> list[str]:
+    """One line for each manual step a planned unit waits on: the last line of its check and
+    where the runbook is."""
+    return [
+        f"  {unit.id}: {manual_status_line(step)}"
+        for unit in units
+        if unit.state == PLANNED
+        for step in unmet_steps(unit)
+    ]
 
 
 def _preview_split_releases(
@@ -6804,6 +6875,11 @@ def _planned_wait(
         return Wait(reason=WaitReason.BACKOFF)
     if parents := shown_waits(unit, view):
         return Wait(reason=WaitReason.BLOCKED, waits_on=tuple(parent.id for parent in parents))
+    if steps := unmet_steps(unit):
+        return Wait(reason=WaitReason.MANUAL, detail=manual_status_line(steps[0]))
+    if parked_for_manual_step(unit):
+        # Its steps are done and the resume is yet to be delivered: not ready, whatever follows.
+        return Wait(reason=WaitReason.MANUAL, detail="manual steps done, readmitting")
     # Not ready for want of work another unit has to finish: a requeue gated on a merge,
     # or a stack deeper than may be built until what it stacks on merges.
     if awaits_release(unit) or depth_of(unit, view) > inst.stack_depth_build_cap:

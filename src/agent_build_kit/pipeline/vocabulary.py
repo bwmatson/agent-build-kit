@@ -47,6 +47,7 @@ class WaitReason(StrEnum):
     SPLIT = "split"
     WAITING_REVIEW = "waiting_review"
     NEEDS_PERSON = "needs_person"
+    MANUAL = "manual"
     READY = "ready"
 
 

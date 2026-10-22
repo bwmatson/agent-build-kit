@@ -41,6 +41,7 @@ from agent_build_kit.pipeline.units import (
     FAILED,
     HELD,
     IN_REVIEW,
+    MANUAL_STEP_CAUSE,
     PLANNED,
     RUNNING,
     SPLIT_HELD_CAUSE,
@@ -125,6 +126,7 @@ class Cause(StrEnum):
     SERVICE_UNAVAILABLE = "service_unavailable"
     ENVIRONMENT = "environment"
     SPLIT_HELD = SPLIT_HELD_CAUSE
+    MANUAL_STEP = MANUAL_STEP_CAUSE
 
 
 class Keep:
@@ -1027,7 +1029,9 @@ class UnitStore:
                 "held_base": held_base if state == HELD else "",
                 # The step belongs to the failure or parking it describes (recorded just
                 # before it); any other state forgets it.
-                "step": unit.step if state == FAILED or resolved in PARKED_CAUSES else "",
+                "step": unit.step
+                if state == FAILED or resolved in (*PARKED_CAUSES, Cause.MANUAL_STEP)
+                else "",
                 # Parked again, or the count of parkings in a row starts over.
                 "parked_attempts": unit.parked_attempts + 1
                 if not isinstance(cause, Keep) and cause in PARKED_CAUSES

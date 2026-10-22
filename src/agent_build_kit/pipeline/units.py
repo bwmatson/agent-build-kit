@@ -130,6 +130,13 @@ class ManualStep(Frozen):
     check: str = ""
     # The `Manual:` line it was declared on, 0 for a raised step.
     line: int = 0
+    # Set once by the tick when the check passes; a step done stays done.
+    done: bool = False
+    # What the last check came to: `met`, `unmet`, `failed` or `timeout`; empty before the first.
+    outcome: str = ""
+    # The last line the last check printed, bounded and redacted.
+    last_line: str = ""
+    checked_at: datetime | None = None
 
 
 class Unit(Frozen):
@@ -872,6 +879,16 @@ _WAIT_CAUSES = ("gated", "upstream_went_back")
 SPLIT_HELD_CAUSE = "split_held"
 
 
+# The cause of a planned unit parked for a manual step (`Cause.MANUAL_STEP`'s value).
+MANUAL_STEP_CAUSE = "manual_step"
+
+
+def parked_for_manual_step(unit: Unit) -> bool:
+    """Whether a planned unit is parked for a step only a person can do. It keeps its place,
+    as any started unit does, and is not started again until the tick has readmitted it."""
+    return unit.state == PLANNED and getattr(unit, "cause", None) == MANUAL_STEP_CAUSE
+
+
 def parked_on_split(unit: Unit) -> bool:
     """Whether a planned or unplanned unit waits on a held e2e-test split, so it holds no place.
 
@@ -1232,7 +1249,7 @@ def ready_units(
 
     ready: list[Unit] = []
     for unit in graph:
-        if unit.state != PLANNED:
+        if unit.state != PLANNED or parked_for_manual_step(unit):
             continue
 
         if waiting_on(unit, graph):
