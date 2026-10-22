@@ -1504,6 +1504,8 @@ class UnitRunner(BaseModel):
     run_review: Callable[..., str]
     run_rework_review: Callable[..., str]
     commit: Callable[..., int]
+    # An empty commit marking a group the branch already holds the work of; 0 when unset.
+    commit_built: Callable[..., int] = lambda message, *, cwd: 0
     branch_commits: Callable[..., int]
     # The subject of each commit on the branch beyond its base, oldest first: where a stubbed
     # build reads the groups it has already built.

@@ -63,7 +63,7 @@ from agent_build_kit.pipeline.changelog_convention import review_changelog_parag
 from agent_build_kit.pipeline.check_failures import failed_in
 from agent_build_kit.pipeline.check_runner import worktree_at
 from agent_build_kit.pipeline.command_limit import run_limited
-from agent_build_kit.pipeline.commit_order import branch_subjects
+from agent_build_kit.pipeline.commit_order import ALREADY_BUILT_TRAILER, branch_subjects
 from agent_build_kit.pipeline.config_guard import config_unchanged
 from agent_build_kit.pipeline.determinism_guidance import determinism_guidance
 from agent_build_kit.pipeline.e2e import (
@@ -790,6 +790,17 @@ or reconfigure the gate: the pipeline commits once you are done.
 COMMIT_FIX_ROUNDS = 2
 
 
+def with_trailers(message: str, *, unit_id: str, adopted_from: str, built: bool = False) -> str:
+    """`message` followed by the trailer block a unit's commits carry: the unit, the chat
+    session adopted from, and for a group recorded as built the mark, last."""
+    trailers = (
+        ([f"Unit: {unit_id}"] if unit_id else [])
+        + ([f"Adopted-From: {adopted_from}"] if adopted_from else [])
+        + ([f"{ALREADY_BUILT_TRAILER}: yes"] if built else [])
+    )
+    return f"{message}\n\n" + "\n".join(trailers) + "\n" if trailers else message
+
+
 def build_commit(
     *,
     unit_id: str = "",
@@ -838,10 +849,7 @@ def build_commit(
     def commit(message: str, *, cwd: Path, base: str = "") -> int:
         # The unit id in the trailer keeps a branch's history readable without
         # the planning repo open beside it.
-        trailers = ([f"Unit: {unit_id}"] if unit_id else []) + (
-            [f"Adopted-From: {adopted_from}"] if adopted_from else []
-        )
-        body = f"{message}\n\n" + "\n".join(trailers) + "\n" if trailers else message
+        body = with_trailers(message, unit_id=unit_id, adopted_from=adopted_from)
 
         def attempt() -> subprocess.CompletedProcess | None:
             restore_unchanged_locks(repo, cwd, base or default_base)
@@ -905,6 +913,30 @@ def build_commit(
         )
 
     return commit
+
+
+def build_commit_built(
+    *,
+    unit_id: str = "",
+    run: Run | None = None,
+    adopted_from: str = "",
+) -> Callable[..., int]:
+    """The runner's `commit_built(message, *, cwd)`: an empty commit marking a group built.
+
+    Hooks run, and the gate does not; one attempt, since a rejected empty commit leaves
+    nothing for an agent to change."""
+    run = run or _run
+
+    def commit_built(message: str, *, cwd: Path) -> int:
+        body = with_trailers(message, unit_id=unit_id, adopted_from=adopted_from, built=True)
+        result = run(["git", "commit", "-q", "--allow-empty", "-m", body], cwd=cwd)
+        if result.returncode:
+            raise CommitRejected(
+                f"git commit was rejected in {cwd}:\n{result.stdout}\n{result.stderr}".strip()
+            )
+        return 1
+
+    return commit_built
 
 
 def build_stub_checks(
@@ -3804,6 +3836,7 @@ def build_runner(
             repo=repo,
             base=local_ref(repo.default_branch, repo=unit.repo),
         ),
+        commit_built=build_commit_built(unit_id=unit.id),
         run_stub_checks=build_stub_checks(profile=profile, projects=repo.projects),
         tree_state=build_tree_state(),
         branch_commits=branch_commits,

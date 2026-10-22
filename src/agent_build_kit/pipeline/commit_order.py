@@ -38,6 +38,7 @@ CODE_PREFIX = "feat: "
 # What a per-group commit's body says it holds, before the group's "Done when" sentence.
 TESTS_BODY = "Stubs and tests for this task group; they fail until its implementation."
 CODE_BODY = "The implementation of this task group, which makes its tests pass."
+ALREADY_BUILT_TRAILER = "Already-built"  # the trailer key; its one value is `yes`
 STUB_BODY_HINT = "only `raise NotImplementedError`"
 
 # A path is a test if any part of it is a tests directory, so this holds for a
@@ -135,6 +136,15 @@ def _file_at(repo: Path, sha: str, path: str) -> str:
         return git_out(repo, "show", f"{sha}:{path}")
     except subprocess.CalledProcessError:
         return ""  # Deleted in this commit; nothing to vouch for.
+
+
+def recorded_built(repo: Path, sha: str) -> bool:
+    """Whether the commit is marked `Already-built: yes` and holds no file. A file keeps the
+    marker from excusing real work."""
+    marked = git_out(
+        repo, "log", "-1", f"--format=%(trailers:key={ALREADY_BUILT_TRAILER},valueonly)", sha
+    )
+    return marked.strip() == "yes" and not _files_in(repo, sha)
 
 
 def branch_subjects(repo: Path, base: str) -> list[str]:
