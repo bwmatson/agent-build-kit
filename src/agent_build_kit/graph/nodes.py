@@ -30,6 +30,8 @@ from agent_build_kit.config import (
     models,
 )
 from agent_build_kit.forges.base import BaseMissing
+from agent_build_kit.graph import check_loop
+from agent_build_kit.graph.check_loop import CheckLoop, CheckParked
 from agent_build_kit.graph.state import (
     RESUME_IMPLEMENT,
     RESUME_TESTS,
@@ -1382,65 +1384,59 @@ class BuildPath:
     def stub_checks(self, state: UnitRun) -> Update:
         """Lint, format and types over what the test agent wrote, no test run; the tests commit
         is made once they pass."""
-        r, unit = self.runner, self.unit
+        r = self.runner
         tree = self.tree()
         self.say("static checks on the stubs and tests")
-        ok, output = r.run_stub_checks(cwd=tree)
-        if ok:
-            if state.stub_rounds:
-                r.store.set_feedback(unit.id, "")
-            ref = self.ref(state)
-            made = r.commit(self.message(TESTS_PREFIX, TESTS_BODY, state), cwd=tree, base=ref)
-            done: Update = {"head": r.head(tree), "stub_loop": False, "stub_rounds": 0}
-            step = self.group_step(state)
-            if step is None or not step.test_only:
-                return {**done, "test_only_done": False}
-            # A test-only group's lone tests commit satisfies it: no implementation follows.
-            if (stopped := self.record_built(state, ref, made, state.tests_account)) is not None:
-                return stopped
-            done["head"] = r.head(tree)
-            commits = r.branch_commits(tree, ref)
-            settled = self.settle_group(state, ref, commits)
-            if "stopped" in settled:
-                return settled
-            return {**done, **settled, "test_only_done": True, "produced_nothing": commits == 0}
-        self.say(output)
-        # Kept before anything can stop the run, so a retry addresses this output.
-        r.store.set_feedback(unit.id, output, source=FeedbackSource.STUB_CHECKS)
-        if (budget := out_of_rounds(state.stub_rounds)) is not None:
-            return self.stop(
-                f"static checks still failing after {budget} fix round(s) on the tests"
-            )
-        return {}
+        result = check_loop.check_round(self, state, self.stub_check_loop(state))
+        if not result.get("ok"):
+            return result
+        ref = self.ref(state)
+        made = r.commit(self.message(TESTS_PREFIX, TESTS_BODY, state), cwd=tree, base=ref)
+        done: Update = {"head": r.head(tree), "stub_loop": False, "stub_rounds": 0}
+        step = self.group_step(state)
+        if step is None or not step.test_only:
+            return {**done, "test_only_done": False}
+        # A test-only group's lone tests commit satisfies it: no implementation follows.
+        if (stopped := self.record_built(state, ref, made, state.tests_account)) is not None:
+            return stopped
+        done["head"] = r.head(tree)
+        commits = r.branch_commits(tree, ref)
+        settled = self.settle_group(state, ref, commits)
+        if "stopped" in settled:
+            return settled
+        return {**done, **settled, "test_only_done": True, "produced_nothing": commits == 0}
 
     def fix_stub_checks(self, state: UnitRun) -> Update:
-        r, unit = self.runner, self.unit
-        tree = self.tree()
-        change_dir, groups = self.scope(state)
-        attempt = state.stub_rounds + 1
-        model = state.build_model or models().implement
-        feedback = redact_text(r.store.get(unit.id).feedback, where="fix prompt")
-        note = person_guidance(r.store.get(unit.id).guidance)
-        before = r.tree_state(tree)
         self._leftovers = self._leftovers or self._stub_leftovers
         self._stub_leftovers = ()
-        self.say(f"fix the failing static checks on the tests ({model}), round {attempt}")
-        self.agent(
-            r.run,
-            STUB_CHECKS_PROMPT.format(
+        return check_loop.fix_round(self, state, self.stub_check_loop(state))
+
+    def stub_check_loop(self, state: UnitRun) -> CheckLoop:
+        """The stub loop's parameters for the shared routine: the static checks, no test run
+        and no fix commit (the tests commit follows the pass)."""
+        r = self.runner
+        tree = self.tree()
+        change_dir, groups = self.scope(state)
+        return CheckLoop(
+            check=lambda: r.run_stub_checks(cwd=tree),
+            source=FeedbackSource.STUB_CHECKS,
+            heading="",
+            rounds="stub_rounds",
+            commit=None,
+            prompt=lambda feedback, note: STUB_CHECKS_PROMPT.format(
                 commands=commands_note(r.repo_config),
                 guidance=note,
                 change_dir=change_dir,
                 groups=groups,
                 feedback=feedback,
             ),
-            cwd=tree,
-            state=state,
-            model=model,
+            label="static checks on the tests",
+            clears=lambda run: bool(run.stub_rounds),
+            spent_message=lambda budget: (
+                f"static checks still failing after {budget} fix round(s) on the tests"
+            ),
+            unchanged_message=lambda n: f"static checks failing and fix round {n} changed nothing",
         )
-        if r.tree_state(tree) == before:
-            return self.stop(f"static checks failing and fix round {attempt} changed nothing")
-        return {"stub_rounds": attempt}
 
     def group_step(self, state: UnitRun) -> GroupStep | None:
         """The task group a stubbed build is on, None when the build is not stubbed."""
@@ -1633,7 +1629,7 @@ class BuildPath:
 
     def checks(self, state: UnitRun) -> Update:
         """Unit-test on the committed branch, before a reviewer is asked."""
-        r, unit = self.runner, self.unit
+        r = self.runner
         tree = self.tree()
         self.say("checks before review")
         if (broken := self.environment_problem()) is not None:
@@ -1641,39 +1637,81 @@ class BuildPath:
         fault = self.worktree_fault(state)
         if fault is not None and fault.environment:
             return {**self.blocked(fault.output), "checks_ok": False}
-        try:
-            if fault is not None:
-                ok, output = False, fault.output
-            else:
-                ok, output = r.run_unit_test(
-                    cwd=tree, base=self.ref(state), whole_repo=False, **self.answering(state)
-                )
-        except FlakeFound as found:
-            if (parked := self.wait_for_fix(found)) is not None:
-                return parked
-            ok, output = False, found.flakes[0].output
-        if not ok and (broken := self.environment_problem()) is not None:
-            return {**self.blocked(broken), "checks_ok": False}
-        self.say(f"checks {'passed' if ok else 'failed'}")
+
+        def run_checks() -> tuple[bool, str]:
+            try:
+                if fault is not None:
+                    ok, output = False, fault.output
+                else:
+                    ok, output = r.run_unit_test(
+                        cwd=tree, base=self.ref(state), whole_repo=False, **self.answering(state)
+                    )
+            except FlakeFound as found:
+                if (parked := self.wait_for_fix(found)) is not None:
+                    raise CheckParked({**parked, "checks_ok": False}) from found
+                ok, output = False, found.flakes[0].output
+            if not ok and (broken := self.environment_problem()) is not None:
+                raise CheckParked({**self.blocked(broken), "checks_ok": False})
+            self.say("checks passed" if ok else "checks failed")
+            return ok, output
+
+        result = check_loop.check_round(self, state, self.checks_loop(state, run_checks))
         head = r.head(tree)
-        if ok:
-            if r.store.get(unit.id).feedback_source is FeedbackSource.UNIT_TEST:
-                # Fixed: left saved, a resume would redo a fix already on the branch.
-                r.store.set_feedback(unit.id, "")
+        if result.get("ok"):
             return {"checks_ok": True, "head": head}
-        self.say(output)
-        self.record_check_failure(output, state.fix_rounds + 1)
-        # Kept before anything can stop the run, so a retry addresses this output.
-        r.store.set_feedback(
-            unit.id, f"{UNIT_TEST_FAILED}\n{output}".strip(), source=FeedbackSource.UNIT_TEST
+        if "checks_ok" in result:  # parked or blocked: the routine hands the update back as is
+            return result
+        return {**result, "checks_ok": False, "head": head}
+
+    def checks_loop(
+        self, state: UnitRun, check: Callable[[], tuple[bool, str]] | None = None
+    ) -> CheckLoop:
+        """The checks loop's parameters for the shared routine: the unit-test run, and the
+        `fix:` commit of each round. A fix round passes no check: only a check round runs it."""
+        r, unit = self.runner, self.unit
+        tree = self.tree()
+        change_dir, groups = r.scope(unit)
+        build_boundary, _ = r.boundary_notes(unit, self.graph)
+
+        def fix_prompt(feedback: str, note: str) -> str:
+            return self.told(
+                CHECKS_PROMPT.format(
+                    commands=commands_note(r.repo_config),
+                    guidance=note,
+                    change_dir=change_dir,
+                    groups=groups,
+                    feedback=feedback,
+                    boundary=build_boundary,
+                ),
+                self.outside_note(state, tree),
+            )
+
+        def continuation(feedback: str, note: str) -> str:
+            return self.told(
+                CHECKS_CONTINUATION.format(guidance=note, feedback=feedback),
+                self.outside_note(state, tree),
+            )
+
+        return CheckLoop(
+            check=check or (lambda: (True, "")),
+            source=FeedbackSource.UNIT_TEST,
+            heading=UNIT_TEST_FAILED,
+            rounds="fix_rounds",
+            commit="fix: {title} (checks, round {n})",
+            prompt=fix_prompt,
+            follow_up=continuation,
+            label="checks",
+            # Fixed: left saved, a resume would redo a fix already on the branch.
+            clears=lambda _: r.store.get(unit.id).feedback_source is FeedbackSource.UNIT_TEST,
+            already_done=lambda: r.head(tree) != state.head,
+            on_failure=self.record_check_failure,
+            spent_message=lambda budget: (
+                f"checks still failing after {budget} fix round(s), before review"
+            ),
+            unchanged_message=lambda n: (
+                f"checks failing and fix round {n} changed nothing, before review"
+            ),
         )
-        if (budget := out_of_rounds(state.fix_rounds)) is not None:
-            return {
-                **self.stop(f"checks still failing after {budget} fix round(s), before review"),
-                "checks_ok": False,
-                "head": head,
-            }
-        return {"checks_ok": False, "head": head}
 
     def answering(self, state: UnitRun) -> dict[str, str]:
         """The failed check a fix has just answered, for the run to select its tests by;
@@ -1718,46 +1756,10 @@ class BuildPath:
         return update
 
     def fix_checks(self, state: UnitRun) -> Update:
-        r, unit = self.runner, self.unit
-        tree = self.tree()
-        change_dir, groups = r.scope(unit)
-        build_boundary, _ = r.boundary_notes(unit, self.graph)
-        attempt = state.fix_rounds + 1
-        if r.head(tree) == state.head:
-            # The model that wrote the code fixes it, whatever the configuration says now.
-            model = state.build_model or models().implement
-            feedback = redact_text(r.store.get(unit.id).feedback, where="fix prompt")
-            note = person_guidance(r.store.get(unit.id).guidance)
-            self.say(f"fix the failing checks ({model}), round {attempt}")
-            outside = self.outside_note(state, tree)
-            self.agent(
-                r.run,
-                self.told(
-                    CHECKS_PROMPT.format(
-                        commands=commands_note(r.repo_config),
-                        guidance=note,
-                        change_dir=change_dir,
-                        groups=groups,
-                        feedback=feedback,
-                        boundary=build_boundary,
-                    ),
-                    outside,
-                ),
-                cwd=tree,
-                state=state,
-                model=model,
-                follow_up=self.told(
-                    CHECKS_CONTINUATION.format(guidance=note, feedback=feedback), outside
-                ),
-            )
-            r.commit(f"fix: {unit.title} (checks, round {attempt})", cwd=tree, base=self.ref(state))
-            if r.head(tree) == state.head:
-                return self.stop(
-                    f"checks failing and fix round {attempt} changed nothing, before review"
-                )
-        else:
-            self.say(f"fix round {attempt} is already on the branch")
-        return {"fix_rounds": attempt, "head": r.head(tree)}
+        result = check_loop.fix_round(self, state, self.checks_loop(state))
+        if "stopped" in result:
+            return result
+        return {**result, "head": self.runner.head(self.tree())}
 
     def review(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit
@@ -2781,13 +2783,6 @@ def _round(node: Node, state: UnitRun) -> int:
     if node is Node.REWORK:
         return state.review_round
     return 0
-
-
-def out_of_rounds(used: int) -> int | None:
-    """`global_limits.max_check_rounds` when `used` fix rounds have spent it, else None;
-    `null` is no limit and 0 is spent at once."""
-    budget = active().global_limits.max_check_rounds
-    return budget if budget is not None and used >= budget else None
 
 
 def halted(state: UnitRun) -> Node | None:

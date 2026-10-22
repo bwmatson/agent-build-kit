@@ -1369,7 +1369,9 @@ def _no_stub_checks(*, cwd: Path) -> tuple[bool, str]:
 
 
 def _no_tree_state(cwd: Path) -> str:
-    raise RuntimeError("this runner was not given a way to read a working tree's state")
+    """A runner with no way to read the tree: the head alone says whether a fix round changed
+    anything, as it did in the checks loop before the loops shared a routine."""
+    return ""
 
 
 def parse_test_decisions(answer: str) -> list[PortedTest]:
