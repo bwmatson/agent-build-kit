@@ -101,12 +101,11 @@ repos:
         languages: [python]
         profile: python-uv
 
-models:                         # bare aliases, so they track new releases
-  implement: sonnet
-  review: opus
-
 runtimes:
   claude_code:
+    models:                     # bare aliases, so they track new releases
+      implement: sonnet
+      review: opus
     limits:
       session:
         usage_pause_pct: 70     # no new unit starts above this share of the
@@ -125,7 +124,7 @@ The decisions worth knowing you can make:
 | `repos.<name>.projects` | A repo whose projects are not at its root. Without it, a toolchain command runs where there is no project to run it in. |
 | `repos.<name>.forge` | `github` or `azure_devops`. Inferred from the origin URL. |
 | `repos.<name>.profile` | Which toolchain runs the checks — see [docs/toolchain-profiles.md](docs/toolchain-profiles.md). |
-| `models.*` | Which model does which part of a unit: `implement`, `rework`, `review`, `rework_review`. |
+| `runtimes.<name>.models.*` | Which model does which part of a unit: `implement`, `rework`, `review`, `rework_review`. |
 | `runtimes.claude_code.limits.session.usage_pause_pct`, `…weekly.usage_pause_pct` | How much of each usage window the pipeline may spend before it stops starting work. Add the matching `usage_pause_ceiling_pct` to let the limit rise as that window's reset nears. |
 | `review.ceilings` (`auto`/`light`/`full`) | How large a unit the planner may produce, by its expected review tier; only `full` is in use until `review.enabled` is on. |
 | `runtime`, `runtimes.*` | Which agent runs the work — see [docs/agent-runtimes.md](docs/agent-runtimes.md). |

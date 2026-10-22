@@ -531,7 +531,7 @@ release could move. The steps:
    a missing test a task asked for, or anything the command policy forbids is
    never deferrable and blocks approval whatever `approved` says. Rejected
    feedback goes to a rework run, which commits and accounts for each point;
-   the next round is judged by `models.rework_review` and shown the earlier
+   the next round is judged by the runtime's `rework_review` model and shown the earlier
    rounds. A reviewer that finds another instance of a kind it cannot
    enumerate, or that still disagrees after the builder declined a point once,
    sets `escalate` (`class` or `disagreement`) with its `reasoning`, and the
@@ -2093,7 +2093,7 @@ review written through the server is what the in-process host sees.
   a lease after a fetch.
 - **E2e-test is a queue, branch locks fail fast.** A second unit's live tests
   are valid and merely have to wait; a second run on one branch is a bug.
-- **A rework is reviewed by a different model** (`models.rework_review`): a
+- **A rework is reviewed by a different model** (the runtime's `rework_review` model): a
   small targeted edit, and the model that made it is the worst judge of
   whether it landed. This holds by default because the author is `sonnet`
   and both reviews are `opus`.

@@ -22,7 +22,9 @@
 - `abk init` now writes the model roles under the runtime it configures
   (`runtimes.claude_code.models`) instead of a top-level `models:` block, and the
   configuration documents and the `abk-config` skill show that form and describe the flat
-  block as deprecated, since a model name is one runtime's own vocabulary.
+  block as deprecated, since a model name is one runtime's own vocabulary. Models picked or
+  given with `--set models.<role>` during init are written under the runtime they belong to,
+  and another runtime's choice leaves out the Claude Code names.
 
 - `Needs: <change> group <n> merged — why` is now accepted by `abk tags` and `abk check` without a
   deprecation warning, and each unit records which of its `Needs:` targets wait for a merge (the

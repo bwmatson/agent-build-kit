@@ -731,7 +731,7 @@ an installation rather than reading one. Step by step in [init.md](init.md).
   and stops.
 - The runtime is chosen after the repos are detected and before any agent step:
   `--runtime` and `--agent-command` name it, `--set key=value` (repeatable, the
-  key being where the answer is written in `abk.yaml`, e.g. `models.review`)
+  key being where the answer is written in `abk.yaml`, e.g. `runtimes.claude_code.models.review`)
   and `--runtime-config FILE` (a YAML fragment of `abk.yaml`) give any other
   answer. Every route is validated like a typed answer, and an unknown key
   exits 2 naming it. Without `--yes` it also asks what a candidate needs and
