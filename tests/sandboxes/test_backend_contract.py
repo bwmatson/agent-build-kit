@@ -1,26 +1,17 @@
 """What every real sandbox backend promises, run with the real restrictions in subprocesses.
 
-Each backend is a parameter; one that cannot be applied on this machine is skipped with its
-own cause. A later backend adds its name to `BACKENDS`.
+Each backend is a parameter (the `backend` fixture in `conftest.py`); one that cannot be
+applied on this machine is skipped with its own cause.
 """
 
 from __future__ import annotations
 
 import sys
-from collections.abc import Iterator
 
 import pytest
 
-from agent_build_kit import sandboxes
 from agent_build_kit.sandboxes import SandboxBackend
-from tests.sandboxes.landlock_support import (
-    Scene,
-    launcher_args,
-    require_working,
-    run_confined,
-)
-
-BACKENDS = ["landlock"]
+from tests.sandboxes.landlock_support import Scene, launcher_args, run_confined
 
 # A write route that may land on a file, as an argv; `{path}` is where it writes.
 WRITE_ROUTES = {
@@ -35,13 +26,6 @@ WRITE_ROUTES = {
     "sed": ["sed", "-i", "s/original/pwned/", "{path}"],
     "cp": ["cp", "{source}", "{path}"],
 }
-
-
-@pytest.fixture(params=BACKENDS)
-def backend(request: pytest.FixtureRequest) -> Iterator[SandboxBackend]:
-    found = sandboxes.get(request.param)
-    require_working(found)
-    yield found
 
 
 def _route(name: str, scene: Scene, path: str) -> list[str]:
