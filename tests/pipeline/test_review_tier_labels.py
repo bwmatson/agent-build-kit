@@ -6,7 +6,6 @@ pull request carries, and no failure of a label write is a unit's problem.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -15,10 +14,10 @@ from agent_build_kit.pipeline.labels import StateLabels
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED
 from agent_build_kit.pipeline.verdict import ReviewTier
-from agent_build_kit.pipeline.verdict_record import VerdictEntry
 from agent_build_kit.pipeline.vocabulary import review_label, review_label_names, state_label_names
 from tests.factories import activate_with, stored_unit
 from tests.forges.stand_in import NoLabelsForge, StandInForge, lookup
+from tests.verdict_fakes import write_verdicts
 
 PR = 7
 UNIT = "add-marker/1"
@@ -50,23 +49,7 @@ def verdicts(tmp_path: Path) -> Path:
 
 
 def record(path: Path, tier: ReviewTier) -> None:
-    entry = VerdictEntry(
-        unit=UNIT,
-        change="add-marker",
-        round=1,
-        final=True,
-        unit_class="app/unit-test",
-        planned_estimate=None,
-        classification=tier,
-        drivers=(),
-        evidence_tier=tier,
-        tier=tier,
-        reason="because",
-        paths=(),
-        lines=3,
-        brief=True,
-    )
-    path.write_text(json.dumps({UNIT: entry.model_dump(mode="json", exclude={"split"})}))
+    write_verdicts(path, {UNIT: tier})
 
 
 def in_review() -> StoredUnit:
