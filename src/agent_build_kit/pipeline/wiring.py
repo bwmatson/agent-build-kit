@@ -3836,6 +3836,7 @@ def build_runner(
             repo=repo,
             base=local_ref(repo.default_branch, repo=unit.repo),
         ),
+        commit_built=build_commit_built(unit_id=unit.id),
         run_stub_checks=build_stub_checks(profile=profile, projects=repo.projects),
         tree_state=build_tree_state(),
         branch_commits=branch_commits,

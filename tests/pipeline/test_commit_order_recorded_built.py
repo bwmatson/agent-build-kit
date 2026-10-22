@@ -89,6 +89,7 @@ def test_the_gate_accepts_the_pair_and_runs_nothing_for_the_empty_tests_commit(
 
     assert problems == []
     assert profile.cleans == [True], "only the real tests commit is run"
+    assert profile.reads == [True], "one red reading, for the real tests commit only"
 
 
 def test_a_test_only_group_s_empty_marked_tests_commit_needs_no_implementation(
@@ -102,6 +103,7 @@ def test_a_test_only_group_s_empty_marked_tests_commit_needs_no_implementation(
 
     assert problems == []
     assert profile.cleans == [True]
+    assert profile.reads == [True]
 
 
 def test_a_restack_keeps_the_empty_pair_with_its_subjects_and_trailers(
