@@ -21,8 +21,14 @@ from agent_build_kit.config import RepoConfig, dump
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.e2e import E2eResult, TestFailure, build_snapshot
 from agent_build_kit.pipeline.shell import git_out as git
-from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, Unit, ready_units
+from agent_build_kit.pipeline.unit_store import (
+    Cause,
+    HeldBy,
+    StoredSplitRequest,
+    StoredUnit,
+    UnitStore,
+)
+from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED, Unit, ready_units
 from agent_build_kit.pipeline.wiring import build_commit
 from agent_build_kit.pipeline.work_graph import TaskGroup
 
@@ -45,6 +51,7 @@ __all__ = [
     "snapshot",
     "started_ids",
     "stored_unit",
+    "superseded_store",
     "unit",
     "worked_unit",
 ]
@@ -127,6 +134,33 @@ def deep_store(directory: Path, name: str = "units.json") -> UnitStore:
     )
     for n in (1, 2, 3, 4, 9):
         store.set_state(f"c/{n}", IN_REVIEW, pr=n, branch=f"spec/c/{n}")
+    return store
+
+
+def superseded_store(directory: Path, name: str = "units.json") -> UnitStore:
+    """`app/3` (groups 3 and 4, pull request 17), held for its size at 950 lines over a ceiling of
+    750, then superseded by `app/3-s1` and `app/3-s2`; `app/5` depended on it and `app/2` merged."""
+    store = UnitStore(directory / name)
+    store.import_units(
+        [
+            stored_unit("app/2", change="app", groups=(2,), state=MERGED),
+            stored_unit("app/3", change="app", groups=(3, 4), depends_on=("app/2",)),
+            stored_unit("app/5", change="app", groups=(5,), depends_on=("app/3",)),
+        ]
+    )
+    store.set_state(
+        "app/3", HELD, held_by=HeldBy.SIZE, cause=Cause.TOO_BIG_FOR_TIER, branch="spec/app/3", pr=17
+    )
+    store.set_split_request(
+        "app/3", StoredSplitRequest(earned="full", planned="auto", lines=950, ceiling=750)
+    )
+    store.supersede(
+        "app/3",
+        [
+            unit("app/3-s1", change="app", groups=(3,), depends_on=("app/2",)),
+            unit("app/3-s2", change="app", groups=(4,), depends_on=("app/3-s1",)),
+        ],
+    )
     return store
 
 
