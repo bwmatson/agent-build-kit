@@ -51,6 +51,7 @@ def test_a_dry_run_lists_the_unit_with_its_tier_and_the_old_units_as_unplanned(
     assert "light" in unit_line and "600 of 2000" in unit_line
     for uid in DROPPED:
         assert "unplanned" in line_with(out, uid)
+    assert not [line for line in out.splitlines() if "join" in line]
     assert run.calls == 1
 
 

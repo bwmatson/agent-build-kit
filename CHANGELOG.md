@@ -18,7 +18,9 @@
   their groups, expected review tier and estimated lines against that tier's ceiling, and the
   units that would become `unplanned`, the started units it leaves alone and the joins it
   would make, without writing the unit store or the plan records. A refused plan is printed
-  with its reason, and `--dry-run` with `--forget` is a usage error.
+  with its reason and the unit ids the planner returned, and `--dry-run` with `--forget` is
+  a usage error. A replan prints the same lines (review tier, estimate against the ceiling,
+  joins) as the preview, from one place.
 
 - `abk replan --report` shows, for each selected change, its plan state, its started and
   unstarted units with their groups and whether a replan would call the planner, with the

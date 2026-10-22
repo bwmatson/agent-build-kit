@@ -587,8 +587,13 @@ says how many model calls it will make.
   store and the plan records in a temporary directory, and prints the planner-call count
   first, then each unit the plan would store with its groups, expected review tier and
   estimated lines against that tier's ceiling, and each unit that would become `unplanned`.
-  Nothing stored is written. A plan that is refused or fails prints that the old plan stands
-  and exits 1.
+  Nothing stored is written. It prints what a replan prints, with the verbs in the
+  conditional: the started units it keeps, a change's groups that would join a unit of another
+  change (with that unit's estimate before and after), and for a refused or failed plan the
+  reason and the ids of the units the planner returned, saying the old plan stands (exit 1).
+  During an outage it says the change waits and uses no attempt. The branch locks held now
+  are copied, so a join onto a unit being built is dropped as it would be. `--dry-run` with
+  `--forget` is a usage error.
 - **Selecting.** Names are the folders of the active changes. A unit id
   (`feature/2`) is mapped to the change that carries it, and the command says so.
   `--all` is every active change; `--failed` every change whose last plan failed

@@ -27,9 +27,17 @@ import sys
 import tempfile
 import time
 import uuid
-from collections.abc import Callable, Collection, Hashable, Iterable, Mapping, Sequence
+from collections.abc import (
+    Callable,
+    Collection,
+    Hashable,
+    Iterable,
+    Iterator,
+    Mapping,
+    Sequence,
+)
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
-from contextlib import AbstractContextManager, ExitStack
+from contextlib import AbstractContextManager, ExitStack, contextmanager
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
@@ -5790,49 +5798,12 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
         return 1 if refused else 0
 
     print(f"planning {', '.join(to_plan)}: {len(to_plan)} model call(s)")
-    reduce_stored_dependencies(store)
-    before = {unit.id: unit for unit in store.all()}
-    results = plan_all(inst, store=store, only=set(to_plan), force=True)
-    refusals = link_needs(inst, store=store)
-    _promote(inst, store)
-    after = {unit.id: unit for unit in store.all()}
-
-    failed = [change for change in to_plan if results[change].status != "planned"]
-    stored = planned_hashes(inst)
-    for change in to_plan:
-        if results[change].recorded_only:
-            print(f"{change}: nothing was asked of the planner; {ALL_TAKEN}; the plan is recorded")
-    for change in failed:
-        if results[change].status == "waiting":
-            record = stored[change]
-            print(
-                f"{change}: waiting for {PLAN_WAITS[record['waiting']]} — no attempt used; "
-                f"next try {_shown_time(record.get('until')) or 'later'}"
-            )
-        else:
-            print(f"{change}: the plan failed — see above")
-    for change in to_plan:
-        if results[change].dropped_joins:
-            print(f"{change}: {results[change].dropped_joins} join(s) dropped, a unit started")
-    differences = _replan_differences(before, after)
-    for line in differences or ["nothing changed"]:
+    outcome = _plan_changes(inst, store, to_plan)
+    for line in _replan_lines(outcome):
         print(line)
-    for change in to_plan:
-        for unit_id in results[change].kept:
-            print(f"kept: {unit_id} has work; not in the plan")
-            print(f"  `abk retire {unit_id} --reason TEXT` ends it and releases its groups")
-    for unit in after.values():
-        if unit.change in to_plan and unit.state not in (PLANNED, *BUILDS_NOTHING):
-            print(f"kept: {unit.id}, {unit.state.value}")
-    # Each was printed above as the plan or the linking logged it.
-    # Only a refusal in a cycle through a change planned here: another change's is left to
-    # the tick that links it, and does not fail this replan.
-    cyclic = any(
-        after[unit_id].change in to_plan
-        for edge in refusals
-        for unit_id in edge.cycle
-        if unit_id in after
-    ) or any(results[change].cycle for change in to_plan)
+    failed = [change for change in to_plan if outcome.results[change].status != "planned"]
+    # Each refusal was printed above as the plan or the linking logged it.
+    cyclic = _cyclic(outcome)
     release_split_changed(inst, store, only=set(to_plan))
     return 1 if refused or failed or cyclic else 0
 
@@ -5840,18 +5811,70 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
 def _print_replan_dry_run(
     inst: Installation, store: UnitStore, changes: list[str], refused: int
 ) -> int:
-    """What `abk replan` would store for `changes`: the planner is asked as a replan asks it,
-    against copies of the unit store and the plan records in a temporary directory, so
+    """What `abk replan` would store for `changes`, printed as a replan prints its result;
     nothing stored is written."""
     if not changes:
         print("no change to plan")
         return 1 if refused else 0
     print(f"dry run for {', '.join(changes)}: {len(changes)} planner call(s)")
-    with tempfile.TemporaryDirectory(prefix="abk-dry-run-") as tmp:
+    with plan_apart(inst, store, changes) as outcome:
+        for line in _replan_lines(outcome, dry=True):
+            print(line)
+    print("nothing was stored: the log lines above count no attempt and no wait")
+    failed = any(outcome.results[change].status != "planned" for change in changes)
+    return 1 if refused or failed or _cyclic(outcome) else 0
+
+
+class ReplanOutcome(Frozen):
+    """What planning some changes produced: the planner's results, the units before and after,
+    and the plan records of the changes. `scratch` is the directory of copies it was planned
+    in, when it was planned apart (`plan_apart`)."""
+
+    changes: tuple[str, ...]
+    results: dict[str, PlanResult]
+    refusals: tuple[CycleEdge, ...]
+    before: dict[str, StoredUnit]
+    after: dict[str, StoredUnit]
+    records: dict[str, dict]
+    scratch: Path | None = None
+
+
+def _plan_changes(inst: Installation, store: UnitStore, changes: Sequence[str]) -> ReplanOutcome:
+    """Ask for the plan of each of `changes` as a replan does, link the `Needs:` lines and
+    promote, in `store` and `inst`'s plan records."""
+    reduce_stored_dependencies(store)
+    before = {unit.id: unit for unit in store.all()}
+    results = plan_all(inst, store=store, only=set(changes), force=True)
+    refusals = link_needs(inst, store=store)
+    _promote(inst, store)
+    records = planned_hashes(inst)
+    return ReplanOutcome(
+        changes=tuple(changes),
+        results=results,
+        refusals=tuple(refusals),
+        before=before,
+        after={unit.id: unit for unit in store.all()},
+        records={change: records.get(change, {}) for change in changes},
+    )
+
+
+@contextmanager
+def plan_apart(
+    inst: Installation, store: UnitStore, changes: Sequence[str]
+) -> Iterator[ReplanOutcome]:
+    """Plan `changes` against copies of the unit store, the plan records and the branch locks
+    in a temporary directory, which lives as long as the block: nothing stored is written.
+
+    The planner is asked once; `apply_planned` stores the outcome without asking again.
+    """
+    with tempfile.TemporaryDirectory(prefix="abk-plan-apart-") as tmp:
         scratch = Path(tmp)
-        for name in ("units.json", "planned.json"):
-            if (inst.state_dir / name).is_file():
-                shutil.copy2(inst.state_dir / name, scratch / name)
+        for source in (store.path, inst.state_dir / "planned.json"):
+            if source.is_file():
+                shutil.copy2(source, scratch / source.name)
+        # A branch a live process holds is a unit that has started: a join onto it is dropped.
+        if (inst.state_dir / "locks").is_dir():
+            shutil.copytree(inst.state_dir / "locks", scratch / "locks")
         planning = inst.config.planning.model_copy(
             update={
                 "state_dir": str(scratch),
@@ -5860,48 +5883,110 @@ def _print_replan_dry_run(
             }
         )
         copy = Installation(inst.config.model_copy(update={"planning": planning}), inst.root)
-        trial = UnitStore(scratch / "units.json")
-        reduce_stored_dependencies(trial)
-        before = {unit.id: unit for unit in trial.all()}
-        results = plan_all(copy, store=trial, only=set(changes), force=True)
-        link_needs(copy, store=trial)
-        after = {unit.id: unit for unit in trial.all()}
-        reasons = {
-            change: planned_hashes(copy).get(change, {}).get("reason", "") for change in changes
-        }
-    failed = 0
+        trial = UnitStore(scratch / store.path.name)
+        yield _plan_changes(copy, trial, changes).model_copy(update={"scratch": scratch})
+
+
+def apply_planned(inst: Installation, store: UnitStore, outcome: ReplanOutcome) -> None:
+    """Store a planned-apart `outcome`, inside its `plan_apart` block: its units and plan
+    records replace the stored ones, under the locks every other write takes. The planner
+    is not asked."""
+    if outcome.scratch is None:
+        raise ValueError("the outcome was not planned apart")
+    units, records = outcome.scratch / store.path.name, outcome.scratch / "planned.json"
+    with store.locked(), file_lock(inst.state_dir / "planned.lock"):
+        if units.is_file():
+            atomic_write_text(store.path, units.read_text())
+        if records.is_file():
+            atomic_write_text(inst.state_dir / "planned.json", records.read_text())
+    if store.on_write is not None:
+        store.on_write(store.all())
+
+
+def _cyclic(outcome: ReplanOutcome) -> bool:
+    """Whether a refusal runs in a cycle through a change planned here: another change's is
+    left to the tick that links it, and does not fail this replan."""
+    return any(
+        outcome.after[unit_id].change in outcome.changes
+        for edge in outcome.refusals
+        for unit_id in edge.cycle
+        if unit_id in outcome.after
+    ) or any(outcome.results[change].cycle for change in outcome.changes)
+
+
+def _replan_lines(outcome: ReplanOutcome, *, dry: bool = False) -> list[str]:
+    """What a replan reports of `outcome` (`dry`: would report), a line each: a change taken
+    without the planner, one that waits or failed (with the units the planner returned and
+    why), joins dropped, each difference in the units with the joins, and the units kept."""
+    lines: list[str] = []
+    changes, results = outcome.changes, outcome.results
     for change in changes:
-        if results[change].status != "planned":
-            failed += 1
-            suffix = f": {reasons[change]}" if reasons[change] else ""
-            if results[change].status == "waiting":
-                print(f"{change}: the planner is unavailable; the change waits, no attempt used")
-            else:
-                print(f"{change}: the plan would be refused or fail{suffix}; the old plan stands")
+        if results[change].recorded_only:
+            recorded = "would be recorded" if dry else "is recorded"
+            lines.append(
+                f"{change}: nothing was asked of the planner; {ALL_TAKEN}; the plan {recorded}"
+            )
+    for change in changes:
+        if results[change].status == "planned":
             continue
-        for unit in after.values():
-            if unit.change == change and unit.state == PLANNED:
-                tier = unit.review_tier or "full"
-                print(
-                    f"{unit.id}: would be stored, groups {', '.join(str(n) for n in unit.groups)},"
-                    f" {tier}, {unit.estimated_lines} of {unit_ceiling(unit)} lines"
+        record = outcome.records[change]
+        if results[change].status == "waiting":
+            lines.append(
+                f"{change}: {'would wait' if dry else 'waiting'} for "
+                f"{PLAN_WAITS[record['waiting']]} — no attempt used; "
+                f"next try {_shown_time(record.get('until')) or 'later'}"
+            )
+            continue
+        lines.append(
+            f"{change}: the plan would fail or be refused — the old plan stands"
+            if dry
+            else f"{change}: the plan failed — see above"
+        )
+        if record.get("reason"):
+            lines.append(f"{change}: {record['reason']}")
+        if record.get("units"):
+            lines.append(f"{change}: the planner returned {', '.join(record['units'])}")
+    for change in changes:
+        if results[change].dropped_joins:
+            lines.append(
+                f"{change}: {results[change].dropped_joins} join(s) dropped, a unit started"
+            )
+    differences = [
+        *_replan_differences(outcome.before, outcome.after, dry=dry),
+        *_join_lines(outcome, dry=dry),
+    ]
+    lines.extend(differences or ["nothing would change" if dry else "nothing changed"])
+    for change in changes:
+        for unit_id in results[change].kept:
+            lines.append(f"kept: {unit_id} has work; not in the plan")
+            lines.append(f"  `abk retire {unit_id} --reason TEXT` ends it and releases its groups")
+    for unit in outcome.after.values():
+        if unit.change in changes and unit.state not in (PLANNED, *BUILDS_NOTHING):
+            lines.append(f"kept: {unit.id}, {unit.state.value}")
+    return lines
+
+
+def _carried_groups(unit: StoredUnit, change: str) -> set[int]:
+    """The numbers of `change`'s groups `unit` builds, its own or joined."""
+    return {n for member in unit.members() if member.change == change for n in member.groups}
+
+
+def _join_lines(outcome: ReplanOutcome, *, dry: bool) -> list[str]:
+    """A line, under the change, for its groups that joined a unit of another change: the
+    unit joined onto and its estimate before and after."""
+    lines: list[str] = []
+    for change in outcome.changes:
+        for unit in outcome.after.values():
+            old = outcome.before.get(unit.id)
+            if old is None or unit.change == change:
+                continue
+            if gained := _carried_groups(unit, change) - _carried_groups(old, change):
+                groups = ", ".join(str(n) for n in sorted(gained))
+                lines.append(
+                    f"{change}: group(s) {groups} {'would join' if dry else 'joined'} onto "
+                    f"{unit.id}, {old.estimated_lines} lines before, {unit.estimated_lines} after"
                 )
-        for unit in after.values():
-            old = before.get(unit.id)
-            if unit.change == change and unit.state == UNPLANNED and old and old.state != UNPLANNED:
-                groups = ", ".join(str(n) for n in old.groups)
-                print(f"{unit.id}: would become unplanned (groups {groups})")
-        for unit in after.values():
-            old = before.get(unit.id)
-            if unit.change == change and unit.state not in (PLANNED, UNPLANNED, *BUILDS_NOTHING):
-                print(f"{unit.id}: kept, {unit.state.value}; not replanned")
-            elif old and old.state == unit.state == PLANNED:
-                if old.estimated_lines != unit.estimated_lines:
-                    print(
-                        f"{unit.id}: would take in a join, {old.estimated_lines} lines before,"
-                        f" {unit.estimated_lines} after"
-                    )
-    return 1 if refused or failed else 0
+    return lines
 
 
 def _print_replan_report(inst: Installation, store: UnitStore, changes: list[str]) -> None:
@@ -5981,15 +6066,22 @@ def _next_try(moment: object) -> str:
 
 
 def _replan_differences(
-    before: Mapping[str, StoredUnit], after: Mapping[str, StoredUnit]
+    before: Mapping[str, StoredUnit], after: Mapping[str, StoredUnit], *, dry: bool = False
 ) -> list[str]:
     """What a replan changed in the store, a line for each difference and none for
-    a unit that is the same."""
+    a unit that is the same. A new or re-estimated unit shows its review tier and its
+    estimate against the ceiling of that tier."""
     lines: list[str] = []
     for uid, unit in after.items():
         old = before.get(uid)
+        review = unit.review_tier or "full"
+        sized = f"{unit.estimated_lines} of {unit_ceiling(unit)} lines"
         if old is None:
-            lines.append(f"{uid}: planned, {unit.estimated_lines} lines, {unit.tier}")
+            groups = ", ".join(str(n) for n in unit.groups)
+            lines.append(
+                f"{uid}: {'would be stored' if dry else 'planned'}, groups {groups}, {sized}, "
+                f"{review}, {unit.tier}"
+            )
             continue
         if unit.state == UNPLANNED and old.state != UNPLANNED:
             reason = (
@@ -5997,15 +6089,25 @@ def _replan_differences(
                 if unit.superseded_by
                 else "the plan no longer has it"
             )
-            lines.append(f"{uid}: now unplanned, {reason}")
+            lines.append(f"{uid}: {'would become' if dry else 'now'} unplanned, {reason}")
         if removed := [x for x in old.depends_on if x not in unit.depends_on]:
             lines.append(f"{uid}: no longer depends on {', '.join(removed)}")
         if added := [x for x in unit.depends_on if x not in old.depends_on]:
             lines.append(f"{uid}: now depends on {', '.join(added)}")
         if unit.estimated_lines != old.estimated_lines:
-            lines.append(f"{uid}: estimate {old.estimated_lines} -> {unit.estimated_lines} lines")
+            lines.append(
+                f"{uid}: estimate {old.estimated_lines} -> {unit.estimated_lines} lines "
+                f"({sized}, {review})"
+            )
+        if unit.groups != old.groups:
+            lines.append(
+                f"{uid}: groups {', '.join(str(n) for n in old.groups)} -> "
+                f"{', '.join(str(n) for n in unit.groups)}"
+            )
         if unit.tier != old.tier:
             lines.append(f"{uid}: tier {old.tier} -> {unit.tier}")
+        if unit.review_tier != old.review_tier:
+            lines.append(f"{uid}: review tier {old.review_tier or 'full'} -> {review}")
     return lines
 
 
