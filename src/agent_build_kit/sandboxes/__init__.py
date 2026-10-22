@@ -56,8 +56,8 @@ def detect(platform: str | None = None) -> SandboxBackend:
 
 @contextmanager
 def isolated() -> Iterator[None]:
-    """Inside, the registry holds only the `unavailable` backend; leaving puts back what was
-    registered."""
+    """Inside, the registry holds only the built-in backends (`landlock`, `unavailable`); leaving
+    puts back what was registered."""
     saved = dict(_REGISTRY)
     _REGISTRY.clear()
     try:
@@ -71,9 +71,10 @@ def isolated() -> Iterator[None]:
 def _load_builtin() -> None:
     if _REGISTRY:
         return
-    from agent_build_kit.sandboxes import unavailable
+    from agent_build_kit.sandboxes import landlock, unavailable
 
-    _REGISTRY[unavailable.BACKEND.name] = unavailable.BACKEND
+    for backend in (landlock.BACKEND, unavailable.BACKEND):
+        _REGISTRY[backend.name] = backend
 
 
 __all__ = [
