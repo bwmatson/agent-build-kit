@@ -34,11 +34,11 @@ def test_the_next_unit_is_the_same_whatever_the_tiers(
     assigned: tuple[ReviewTier | None, ...], tmp_path: Path
 ) -> None:
     verdicts = tmp_path / "verdicts.json"
+    without = started_ids(graph(), slots=3)
     write_verdicts(
         verdicts,
         {f"r{n}/1": tier for n, tier in enumerate(assigned, start=1) if tier is not None},
     )
-    without = started_ids(graph(), slots=3)
 
     ordered = review_order(graph(), verdicts)
 

@@ -203,7 +203,7 @@ from agent_build_kit.pipeline.restack_lane import (
     record_path,
     record_run_attempt,
 )
-from agent_build_kit.pipeline.review_order import review_order, review_tier
+from agent_build_kit.pipeline.review_order import review_order, review_tiers
 from agent_build_kit.pipeline.run_log import (
     RunLog,
     e2e_output_dir,
@@ -924,7 +924,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             log(f"  attached: {held.unit_id}{where} — a chat is open with {files} changed")
 
     verdicts = inst.state_dir / VERDICTS
-    shown_units = review_order(units, verdicts) if config.active().review.enabled else units
+    tiers = review_tiers(units, verdicts) if config.active().review.enabled else {}
+    shown_units = review_order(units, verdicts, tiers) if tiers else units
     for unit in shown_units:
         where = unit_label(unit)
         if unit.tier == TestTier.INTEGRATION_TEST and unit.state not in (
@@ -1000,7 +1001,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
                 else "awaiting review"
             )
             ran_none = f" — {NO_TEST_RAN}" if unit.note == NO_TEST_RAN else ""
-            tier = review_tier(unit, verdicts) if config.active().review.enabled else None
+            tier = tiers.get(unit.id)
             shown_tier = f" — tier {tier.value}" if tier else ""
             log(f"  {waiting}: {unit.id} ({where}) #{unit.pr or '?'}{shown_tier}{mark}{ran_none}")
     return 0

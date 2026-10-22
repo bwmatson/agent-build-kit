@@ -13,9 +13,9 @@ from pathlib import Path
 
 from agent_build_kit.config import active
 from agent_build_kit.forges import Forge, RepoId
+from agent_build_kit.pipeline.review_order import review_tier
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.verdict import ReviewTier
-from agent_build_kit.pipeline.verdict_record import latest_verdict
 from agent_build_kit.pipeline.vocabulary import (
     FINISHED,
     ChecksOf,
@@ -91,9 +91,9 @@ class StateLabels:
         """
         if not active().review.enabled or unit.pr is None:
             return
-        recorded = latest_verdict(verdicts, unit.id)
-        if recorded is not None:
-            self.set_review(unit.repo, unit.pr, recorded.tier)
+        tier = review_tier(unit, verdicts)
+        if tier is not None:
+            self.set_review(unit.repo, unit.pr, tier)
 
     def clear_state(self, repo: str, pr: int) -> ClearOutcome:
         """Take every state label off the pull request of a finished unit.
