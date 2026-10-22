@@ -1202,7 +1202,9 @@ out is the pause percent, and a window whose two are equal does not ramp: the
 ramp is skipped, not computed flat. The ceiling is validated below 100, so
 relief never reaches the point where credits pay.
 
-A pause writes `runs/paused.json` with a deadline, a reason and a kind. The
+A pause is kept per account: it writes `runs/paused.json` for the default account (and for a
+network outage, which holds every account) and `runs/paused.<label>.json` for a named one, with the
+account recorded, a deadline, a reason and a kind. The
 deadline is the moment the ramp would clear the current usage plus
 `runtimes.claude_code.limits.<window>.usage_resume_buffer_pct`, else just after the window resets, else
 thirty minutes later when nothing says when, and never more than six hours out.
@@ -1570,7 +1572,7 @@ The planning repo's state directory (`planning.state_dir`, default `runs/`):
 | `landing.json` | the landings in progress: one record per pull request the pipeline is about to merge, naming the repo and unit, written before the forge is asked and removed once the merge is recorded. A merged event for a pull request with a record is recorded with the cause `auto_landed`, not as a person's merge. Replaced atomically; a record that cannot be written stops the landing. | a merge after a crash is recorded as a person's. |
 | `verdicts.json` | the verdict of each unit after its latest review round: the class, planned estimate, classification, evidence tier, tier and reason, whether it is final (only the approving round's is), and the changed paths and lines. Replaced atomically; nothing reads it to decide anything. | the record of what review would have needed. |
 | `held-waiting.json` | the held units that have already logged that a comment is waiting on them. | the wait is logged once more. |
-| `paused.json` | the current pause, until when and why. | one usage check. |
+| `paused.json`, `paused.<label>.json` | the current pause of the default account (and a network outage, which is every account's), and of each named account: whose, until when and why. | one usage check. |
 | `usage-ledger.jsonl` | the usage ledger: one JSON line per agent call (see below), plus `span`, `sample` and `affected` lines (a fix round's selected run: tests selected and in all, estimated seconds saved, whether the full run agreed). Gitignored. | the spend history, not the work. |
 | `decisions.jsonl` | the decision log: `{at, unit, reason, waits_on, tick}`, appended only when a waiting unit's reason (`WaitReason`) or what it waits on changes, with a `none` record when the wait ends. Read from its tail when the pipeline starts; trimmed to `retention.decision_log_mb`, newest lines kept. Gitignored. | why a unit waited, and for how long. |
 | `usage-cache.json.lock` | the lock one process holds while it refreshes the reading. | never needed. |

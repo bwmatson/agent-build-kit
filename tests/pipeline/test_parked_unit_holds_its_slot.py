@@ -21,15 +21,17 @@ from tests.factories import new_unit
 from tests.pipeline.test_slots_per_account import kit, repos
 
 
-def park_two(tmp_path: Path) -> Callable[[UnitStore], None]:
-    """Two units that ran `prepare` and no more, and a usage pause in force that parks them."""
+def park_two(tmp_path: Path, account: str | None = None) -> Callable[[UnitStore], None]:
+    """Two units that ran `prepare` and no more, and a usage pause of their account (the default
+    account's unless one is named) in force that parks them."""
+    marker = tmp_path / (PAUSE_MARKER if account is None else f"paused.{account}.json")
 
     def record(store: UnitStore) -> None:
         store.upsert([new_unit(f"parked{n}/1") for n in range(2)])
         for n in range(2):
             store.set_state(f"parked{n}/1", RUNNING, branch=f"spec/parked{n}/1")
         pause_until(
-            None, reason="weekly usage at 93% (threshold 93%)", marker=tmp_path / PAUSE_MARKER
+            None, reason="weekly usage at 93% (threshold 93%)", marker=marker, account=account
         )
 
     return record
@@ -68,7 +70,7 @@ def test_the_full_queue_line_of_an_account_names_its_parked_units_paused(
         [new_unit("fresh/1")],
         repos=repos(tmp_path, {"app": "kit"}),
         runtimes={"claude_code": {"accounts": kit(tmp_path, max_units_in_progress=2)}},
-        record=park_two(tmp_path),
+        record=park_two(tmp_path, account="kit"),
     )
 
     line = full_line(lines)

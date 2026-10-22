@@ -138,9 +138,10 @@ def test_a_round_with_only_the_full_accounts_units_is_paused_and_the_pause_names
 
     assert round_of(inst, store) == []
 
-    paused = is_paused(inst.state_dir / "paused.json")
+    paused = is_paused(inst.state_dir / f"paused.{PERSONAL}.json")
     assert paused is not None
     assert f"account {PERSONAL}" in paused.reason
+    assert is_paused(inst.state_dir / "paused.json") is None
 
 
 def test_an_installation_with_one_account_starts_its_units_while_the_account_has_room(

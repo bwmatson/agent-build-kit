@@ -140,14 +140,16 @@ from agent_build_kit.pipeline.manual_steps import (
 )
 from agent_build_kit.pipeline.metric_records import emit_metric
 from agent_build_kit.pipeline.pause import (
-    PAUSE_MARKER,
     Pause,
     clear_pause,
     end_network_pause,
     is_paused,
+    pause_for,
     pause_in_force,
     pause_line,
+    pause_marker,
     pause_until,
+    pauses_in_force,
     record_pause,
 )
 from agent_build_kit.pipeline.planner import (
@@ -469,8 +471,32 @@ def store_for(inst: Installation) -> UnitStore:
     )
 
 
-def _paused_marker(inst: Installation) -> Path:
-    return inst.state_dir / PAUSE_MARKER
+def _paused_marker(inst: Installation, account: claude_account.Account | None = None) -> Path:
+    """The marker of `account`'s pause: the default account's, which is also the network's, when
+    none is named."""
+    return pause_marker(inst.state_dir, account)
+
+
+def _paused_for(inst: Installation, unit: StoredUnit) -> Pause | None:
+    """The pause in force for the unit's own account: its marker's, or a network outage."""
+    return pause_for(inst.state_dir, claude_account.for_repo(inst.config, unit.repo))
+
+
+def _refused_by_model(inst: Installation, unit: StoredUnit | Unit) -> bool:
+    """Whether the model's refusal is in force for the unit's own account."""
+    held = pause_for(inst.state_dir, claude_account.for_repo(inst.config, unit.repo))
+    return held is not None and held.kind == "rate_limit"
+
+
+def _pause_report(inst: Installation, pause: Pause, *, verb: str = "paused") -> str:
+    """`pause_line`, naming the account and kind of a pause when the installation keeps accounts
+    apart. A network pause is the whole installation's, so it names none."""
+    line = pause_line(pause, verb=verb)
+    if pause.kind == "network" or not (
+        pause.account or claude_account.slots_per_account(inst.config)
+    ):
+        return line
+    return f"account {pause.account or 'default'} ({pause.kind}): {line}"
 
 
 # --- status / graph -------------------------------------------------------------
@@ -630,9 +656,9 @@ def _restack_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
     for entry in [*running, *waiting]:
         where = f" ({unit_label(by_id[entry['unit']])})" if entry["unit"] in by_id else ""
         lines.append(f"  {entry['unit']}{where} restacking onto {entry['base']}")
-    pause = is_paused(_paused_marker(inst))
     for unit_id in owed:
         unit = by_id[unit_id]
+        pause = _paused_for(inst, unit)
         if pause is None or unit.cause is not Cause.RESTACK_DEFERRED:
             # Not deferred by a pause: a clean move proceeds during one.
             lines.append(f"  {unit.id} ({unit_label(unit)}) restacking onto {base_of(unit, units)}")
@@ -715,9 +741,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     """What the pipeline thinks is going on, without changing anything."""
     if off := guard_off_line():
         log(off)
-    paused = is_paused(_paused_marker(inst))
-    if paused:
-        log(pause_line(paused))
+    for paused in pauses_in_force(inst.state_dir):
+        log(_pause_report(inst, paused))
 
     try:
         runtime = runtimes.active()
@@ -950,7 +975,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             if since is not None:
                 if branch_is_held(inst, unit.branch or branch_name(unit)):
                     waits = "its branch is being built"
-                elif is_paused(_paused_marker(inst)):
+                elif _paused_for(inst, unit):
                     waits = "waiting for the usage pause to end"
                 elif not unit.is_new_conflict(since) and unit.attempts_spent(
                     config.active().global_limits.max_review_rounds
@@ -1302,11 +1327,11 @@ def _tick_with(
         dry_run=args.dry_run,
     )
     if not ready:
-        held = is_paused(_paused_marker(inst))
-        if held and held.kind == "rate_limit":
+        held = pauses_in_force(inst.state_dir)
+        if any(each.kind == "rate_limit" for each in held):
             tick.outcome = "paused"
             return 0
-        log(_nothing_started_reason(inst, store.all(), only=only, paused=held is not None))
+        log(_nothing_started_reason(inst, store.all(), only=only, paused=bool(held)))
         tick.outcome = "idle"
         return 0
 
@@ -1593,14 +1618,21 @@ def _starting_accounts(
 
 
 def _held_by_the_model(
-    inst: Installation, store: UnitStore, paused: Pause, *, spared: Collection[str]
+    inst: Installation, store: UnitStore, pauses: Iterable[Pause], *, spared: Collection[str]
 ) -> Literal["rate_limit"]:
-    """A round held by the model's own pause: say so, and read stranded units as planned."""
-    log(pause_line(paused))
+    """A round held by the model's own pauses, one for each account it cannot start on: say so,
+    and read stranded units as planned."""
+    for paused in pauses:
+        log(_pause_report(inst, paused))
     # A pause builds nothing, so a unit no run holds should read `planned`
     # for as long as it lasts. Not otherwise: a round that goes on resumes it.
     _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
     return "rate_limit"
+
+
+def _label_of(account: claude_account.Account | None) -> str | None:
+    """The label of a named account; None for the default account (and for none)."""
+    return account.label if account else None
 
 
 def _may_build(
@@ -1611,11 +1643,16 @@ def _may_build(
     quiet: bool,
     only: frozenset[str] = frozenset(),
     decided: dict[str | None, Decision] | None = None,
+    held: dict[str | None, Pause] | None = None,
 ) -> Literal["yes", "usage", "rate_limit", "idle"]:
     """The pause checks: whether this round may start builds. "usage" means the
-    guard refused; "rate_limit" means the model's own pause is in force; "idle" means
-    every unit that could start is left out of the round, so no reading was asked for and
-    no pause was written or cleared.
+    guard refused; "rate_limit" means the model's own pause holds every account a unit could
+    start on; "idle" means every unit that could start is left out of the round, so no
+    reading was asked for and no pause was written or cleared.
+
+    The model's refusal pauses the account that was refused and no other: `held` is given the
+    pause of each such account (by its label, None for the default account), so the round can
+    leave those accounts' units waiting and start the rest. A network outage pauses them all.
 
     A pause is not a lock: the guard is asked again on every round, so a
     threshold raised by hand, or the ramp offering room before the reset,
@@ -1625,9 +1662,8 @@ def _may_build(
     says it, the refreshes of a pass would repeat it.
     """
     _step("reconciling running units", reconcile_running, inst, store, in_flight=spared)
+    held = {} if held is None else held
     paused = is_paused(_paused_marker(inst))
-    if paused and paused.kind == "rate_limit":
-        return _held_by_the_model(inst, store, paused, spared=spared)
     if paused and paused.kind == "network":
         if not network_probe.control_reachable(inst):
             # Held like a usage refusal: the round polls and records, and starts and
@@ -1639,39 +1675,76 @@ def _may_build(
         end_network_pause(_paused_marker(inst))
         _release_network_waits(inst)
         log("the network is back; resuming")
-        paused = None
 
     # The usage window is Claude Code's. A runtime without one is not held by it:
     # the account's window says nothing about an on-demand agent. Its own
-    # rate-limit refusal still pauses, above and in `_run_unit`.
+    # rate-limit refusal still pauses, and holds its account.
     runtime = runtimes.active()
-    if runtime.supports_usage_tracking:
+    held.update(
+        {
+            each.account: each
+            for each in pauses_in_force(inst.state_dir)
+            if each.kind == "rate_limit"
+        }
+    )
+    accounts: list[claude_account.Account | None] = [None]
+    startable: list[StoredUnit] = []
+    left_out = planning = False
+    if held or runtime.supports_usage_tracking:
         startable, left_out = _startable(inst, store, only=only, spared=spared)
         planning = _needs_planning(inst, store)
+        accounts = _starting_accounts(inst, startable, planning=planning)
+    open_accounts = [each for each in accounts if _label_of(each) not in held]
+    if not open_accounts:
+        return _held_by_the_model(
+            inst, store, [held[_label_of(each)] for each in accounts], spared=spared
+        )
+
+    if runtime.supports_usage_tracking:
         if left_out and not startable and not planning:
             return "idle"
-        accounts = _starting_accounts(inst, startable, planning=planning)
-        decision = _start_decision(accounts, decided)
+        decision = _start_decision(open_accounts, decided)
         if not decision.may_start:
-            state = pause_until(
-                decision.resume_at, reason=decision.reason, marker=_paused_marker(inst)
-            )
-            log(pause_line(state, verb="paused" if paused else "pausing"))
-            if not paused:
-                # A new pause; the rounds that find it still in force are not more of them.
-                emit_metric("count", "abk.usage.pauses", 1, log, kind="usage")
+            # Every open account refused: each is paused on its own marker, for its own reason.
+            for each in open_accounts:
+                refusal = _account_decision(each, decided)
+                marker = _paused_marker(inst, each)
+                before = is_paused(marker)
+                state = pause_until(
+                    refusal.resume_at,
+                    reason=refusal.reason,
+                    marker=marker,
+                    account=_label_of(each),
+                )
+                log(_pause_report(inst, state, verb="paused" if before else "pausing"))
+                if not before:
+                    # A new pause; the rounds that find it still in force are not more of them.
+                    emit_metric("count", "abk.usage.pauses", 1, log, kind="usage")
             _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
             return "usage"
         reason = decision.reason
     else:
         reason = f"runtime {runtime.name} has no usage window; not checking one"
 
-    if paused:
-        log(f"resuming a pause that was to last until {paused.until.astimezone():%H:%M}")
-    # A refusal recorded while this round was deciding is kept, and holds the round too.
-    refused = clear_pause(_paused_marker(inst))
-    if refused:
-        return _held_by_the_model(inst, store, refused, spared=spared)
+    # Each account's pause ends when its own reading allows a start, not when another's does.
+    for each in open_accounts:
+        marker = _paused_marker(inst, each)
+        before = is_paused(marker)
+        if (
+            before is not None
+            and runtime.supports_usage_tracking
+            and not _account_decision(each, decided).may_start
+        ):
+            continue
+        # A refusal recorded while this round was deciding is kept, and holds its account.
+        if refusal := clear_pause(marker):
+            held[refusal.account] = refusal
+        elif before:
+            whose = f" (account {each.label})" if each and each.label else ""
+            log(f"resuming a pause that was to last until {before.until.astimezone():%H:%M}{whose}")
+    open_accounts = [each for each in open_accounts if _label_of(each) not in held]
+    if not open_accounts:
+        return _held_by_the_model(inst, store, held.values(), spared=spared)
     if not quiet:
         log(reason)
     return "yes"
@@ -1776,7 +1849,11 @@ def run_round(
             say_existing=False,
         )
     decided: dict[str | None, Decision] = {}
-    may = _may_build(inst, store, spared=spared, quiet=quiet, only=only, decided=decided)
+    # The accounts the model has refused, by label: their units wait while the others start.
+    model_refused: dict[str | None, Pause] = {}
+    may = _may_build(
+        inst, store, spared=spared, quiet=quiet, only=only, decided=decided, held=model_refused
+    )
     if may == "rate_limit":
         _step("reconciling notifications", _reconcile_notifications, inst, store)
         units = store.all()
@@ -1808,7 +1885,8 @@ def run_round(
     _refresh(inst, store=store, lane=lane)
     _step("finishing chat commits", deliver_committed, inst, store)
     _step("creating the thread store", _create_thread_store, inst)
-    if admitted:
+    # Planning runs on the default account: not while the model has refused it.
+    if admitted and None not in model_refused:
         _step("planning", plan_all, inst, store=store)
         for line in stale_plan_lines(inst):
             log(line)
@@ -1930,11 +2008,17 @@ def run_round(
     # Owed a restack, or in the lane for one: a unit whose branch the lane holds is no longer
     # owed by the branch lock's reading, and a worker started for it would find it claimed.
     owed = owed_units(inst, units) | ({*lane.running, *lane.waiting} if lane else set())
+
+    def model_refusal(repo: str) -> Pause | None:
+        """The pause of the model's refusal of the account a repo's units run on."""
+        return model_refused.get(_label_of(claude_account.for_repo(inst.config, repo)))
+
     resumable = _within_workers(
         [
             unit
             for unit in resumable_units(inst, units, only=only, spared=in_flight, owed=owed)
-            if readmit is None or unit.id not in started or readmit.may_resume(unit.id)
+            if model_refusal(unit.repo) is None
+            and (readmit is None or unit.id not in started or readmit.may_resume(unit.id))
         ],
         taken,
         cap=inst.max_concurrent_stacks,
@@ -1955,9 +2039,13 @@ def run_round(
     # A unit not yet started waits when its own account refuses: no worktree, branch or lease.
     stored_by_id = {unit.id: unit for unit in units}
     refused: dict[str, str] = {}
+    for unit in evaluated:
+        # The model's refusal holds its account's units, one already started among them.
+        if (pause := model_refusal(unit.repo)) is not None:
+            refused[unit.id] = _pause_report(inst, pause)
     if runtimes.active().supports_usage_tracking:
         for unit in evaluated:
-            if stored_by_id[unit.id].branch:
+            if stored_by_id[unit.id].branch or unit.id in refused:
                 continue
             decision = _account_decision(claude_account.for_repo(inst.config, unit.repo), decided)
             if not decision.may_start:
@@ -3556,16 +3644,23 @@ def _schedule(
             for future in done:
                 if future not in building:
                     continue
-                building.pop(future)
-                if not future.result():
+                ended = building.pop(future)
+                # A build the model refused returns False too, and pauses its own account: that
+                # stops the pass only when it leaves no account to start on (below).
+                if not future.result() and not _refused_by_model(inst, ended):
                     failed = True
             lane.scan(store.all())
             lane_busy = bool(lane.running or lane.waiting)
             # A build still in flight — or another tick — may already have
             # recorded the model's refusal; its report is not needed to stop
-            # here. A usage pause is not one: the round asks the guard again.
-            held = is_paused(_paused_marker(inst))
-            stopping = failed or bool(held and held.kind == "rate_limit")
+            # here. A usage pause is not one: the round asks the guard again. One account's
+            # refusal does not stop the others, so it takes every account in use.
+            refused_labels = {
+                each.account
+                for each in pauses_in_force(inst.state_dir)
+                if each.kind == "rate_limit"
+            }
+            stopping = failed or {each.label for each in accounts_in_use(inst)} <= refused_labels
             if stopping or refused:
                 sample()
                 continue
@@ -3670,7 +3765,9 @@ def parked_units(inst: Installation, units: Sequence[StoredUnit]) -> frozenset[s
     return frozenset(
         unit.id
         for unit in units
-        if unit.state == RUNNING and not branch_is_held(inst, unit.branch or branch_name(unit))
+        if unit.state == RUNNING
+        and _paused_for(inst, unit) is not None
+        and not branch_is_held(inst, unit.branch or branch_name(unit))
     )
 
 
@@ -5159,7 +5256,7 @@ def _dispatch(
         ),
         base_tip=build_base_tip(store, inst.checkouts),
         fork_point=build_fork_point(store, inst.checkouts),
-        paused=lambda: pause_in_force(inst.state_dir),
+        paused=lambda unit: _paused_for(inst, unit) is not None,
         fetch_review=build_fetch_review(
             extra_notes=ui_notes_of(inst, store), patch_of=unit_patch_of(inst, store)
         ),
@@ -5607,19 +5704,22 @@ def _build_unit(
             # Not the unit's fault and not retried: the account is out of room, so
             # marking it failed would drop real work from the plan, and trying the
             # next unit would spend a call to be told the same thing.
+            refused_account = claude_account.for_repo(inst.config, unit.repo)
             when = error.resets_at
             if when is None and runtimes.active().supports_usage_tracking:
                 # The refusal is the unit's account's, so is the reset it waits for.
-                reading = held_usage(claude_account.for_repo(inst.config, unit.repo))
+                reading = held_usage(refused_account)
                 when = reading.resets_at if reading else None
             if on_pause is not None:
                 on_pause(error.resets_at)
 
+            # Only the account that was refused is paused.
             state = pause_until(
                 when,
                 reason=f"rate limited during {unit.id}",
-                marker=_paused_marker(inst),
+                marker=_paused_marker(inst, refused_account),
                 kind="rate_limit",
+                account=refused_account.label,
             )
             emit_metric(
                 "count",
@@ -5691,8 +5791,10 @@ def _pause_for_usage(inst: Installation, pause: PauseInfo, account: claude_accou
     which it can be well before. A pause that names its own time keeps it.
     """
     until = pause.until or build_resume_at(start=lambda: _start_decision([account]))()
-    state = pause_until(until, reason=pause.reason, marker=_paused_marker(inst))
-    log(pause_line(state, verb="pausing"))
+    state = pause_until(
+        until, reason=pause.reason, marker=_paused_marker(inst, account), account=account.label
+    )
+    log(_pause_report(inst, state, verb="pausing"))
 
 
 def _starting_step(inst: Installation, unit: StoredUnit) -> tuple[str, str]:
@@ -6460,7 +6562,7 @@ def apply_planned(inst: Installation, store: UnitStore, outcome: ReplanOutcome) 
         raise ValueError("the outcome was not planned apart")
     # The outage was met in the copy, whose state directory goes with it: the pause is the
     # real one's to stand, and `record_pause` keeps one that already does.
-    if pause := is_paused(outcome.scratch / PAUSE_MARKER):
+    if pause := is_paused(pause_marker(outcome.scratch)):
         record_pause(pause, marker=_paused_marker(inst))
 
     def record_plan_records() -> None:

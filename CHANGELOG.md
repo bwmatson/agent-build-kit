@@ -11,6 +11,17 @@
   the kit checkout's head in `tick.json`, and a plain same-repo `Needs:` still starts on the
   parent's branch once the parent is in review.
 
+- A rate limit now pauses only the Claude account that was refused. The pause is recorded in that
+  account's own marker (`paused.<label>.json` in the state directory, `paused.json` for the default
+  account), the units of the other accounts keep starting while it lasts, and the units of the
+  paused account wait with a reason naming it and the time. A usage refusal is likewise kept on
+  each refused account's own marker and cleared only when that account's own reading clears. A
+  pass keeps starting the other accounts after one is refused, and planning, which runs on the
+  default account, waits while that account is refused. A round stops early only when every
+  account with a startable unit is paused; a network outage still pauses all of them, and a
+  `paused.json` left by an older version is read as the default account's. `abk status` prints one
+  pause line for each paused account.
+
 - A task group can declare a step only a person can do with `Manual: <slug> — <what to do> —
   runbook: <path>#<heading>` and an optional `Check: <command>`, and a builder can register one
   with `abk manual raise <slug> --text … --check .abk/manual/<slug>.sh`. `abk tags` rejects a

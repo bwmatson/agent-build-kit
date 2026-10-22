@@ -1407,7 +1407,7 @@ def on_conflict(
     restack: Restack,
     base_tip: Callable[[StoredUnit], str] | None,
     fork_point: Callable[[StoredUnit], str] | None,
-    paused: Callable[[], bool] = lambda: False,
+    paused: Callable[[StoredUnit], bool] = lambda unit: False,
     claim: Claim = _unclaimed,
     resume: Resume = _no_thread,
     lane: Lane | None = None,
@@ -1419,11 +1419,11 @@ def on_conflict(
     the same tip is never attempted twice, and a new tip starts the count at zero, as does a
     definite answer that the pull request merges (`since` later than the last attempt). The
     first attempt of a unit built on the trunk is the stack move; any other, and any the stack
-    move cannot settle, is the conflict rework. Under a usage pause (`paused()`) the move is
-    made with a resolver that refuses before any agent run, so a clean move still goes through
-    and one that needs the resolver waits, in review, uncounted. With a `lane` the move is handed
-    to it and runs there, under the lane's claim of the branch, not in the poll. False when the
-    unit's branch is busy, so the poller offers the event again.
+    move cannot settle, is the conflict rework. Under a usage pause of the unit's account
+    (`paused(unit)`) the move is made with a resolver that refuses before any agent run, so a
+    clean move still goes through and one that needs the resolver waits, in review, uncounted.
+    With a `lane` the move is handed to it and runs there, under the lane's claim of the branch,
+    not in the poll. False when the unit's branch is busy, so the poller offers the event again.
     """
     from agent_build_kit.config import active
 
@@ -1493,7 +1493,7 @@ def on_conflict(
                 # Onto the trunk it lands on, not onto itself: the resolver is told both sides.
                 parent=moving_onto(current, trunk, store),
                 reason=CONFLICT_MOVE_REASON,
-                **({"resolve": _paused_resolver} if paused() else {}),
+                **({"resolve": _paused_resolver} if paused(current) else {}),
             )
         except BranchBusy:
             raise
@@ -2313,7 +2313,7 @@ def build_dispatch(
     lane: Lane | None = None,
     base_tip: Callable[[StoredUnit], str] | None = None,
     fork_point: Callable[[StoredUnit], str] | None = None,
-    paused: Callable[[], bool] = lambda: False,
+    paused: Callable[[StoredUnit], bool] = lambda unit: False,
     landing_path: Path | None = None,
     merge_record: MergeRecord | None = None,
     log: Log = print,

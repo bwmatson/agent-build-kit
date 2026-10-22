@@ -717,6 +717,20 @@ way once the guard allows: it asks again on every tick, as the pause marker
 does (`pipeline/pause.py`). The graph page draws such a unit as `running`. A step is never interrupted while it runs:
 interrupts happen only at node boundaries.
 
+### What pauses what
+
+A pause is a marker in the state directory, kept per account as the usage cache is: `paused.json`
+for the default account and `paused.<label>.json` for a named one, with the account on the record.
+A rate limit (the model refused a build) or a usage refusal pauses its account, each on its own
+marker and for its own reason (a round in which every open account refuses writes one for each).
+Planning runs on the default account, so a rate limit on it holds planning too. Its units wait with
+`usage_pause` naming the account and the time, while the units of every other account are admitted
+and run. A round exits early only when every account with a unit that could start is paused. A
+network outage is the whole installation's: it stays one marker (`paused.json`) and holds every
+account. A `paused.json` written by an older version, with no account on it, is the default
+account's. Each account's pause is cleared and logged once, when its own reading clears, and
+`abk status` prints one pause line for each paused account (account, kind, end and reason).
+
 ### The admission records
 
 Each admission of a never-started unit, each `slot` wait and each refusal by the unit's own

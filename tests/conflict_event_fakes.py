@@ -104,7 +104,7 @@ class ConflictRig:
             restack=self.restack,
             base_tip=self.base_tip,
             fork_point=self.fork_point,
-            paused=lambda: pause_in_force(self.state_dir),
+            paused=lambda unit: pause_in_force(self.state_dir),
             log=self.logged.append,
             **options,
         )

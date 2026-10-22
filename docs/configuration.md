@@ -711,6 +711,10 @@ so it is a machine choice, and the label's directory is given beside it. A perso
 sets nothing, and a repo with no `account`, or whose label has no `config_dir` on the machine, runs
 on the default account.
 
+A pause follows the account: a rate limit or a usage refusal on one account pauses that account
+(`paused.<label>.json` in the state directory, `paused.json` for the default account) and no other,
+so the other accounts' units keep starting. A network outage pauses every account.
+
 ```yaml
 runtimes:
   claude_code:
