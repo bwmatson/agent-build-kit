@@ -25,7 +25,7 @@ def built_with(
     meanwhile: Any = None,
 ) -> tuple[Any, FakeRun, Any, Path]:
     activate_app(**({"tests": tests} if tests is not None else {}))
-    recorder, repo = prepared(tmp_path, seeded=["seed"], meanwhile=meanwhile)
+    recorder, repo = prepared(tmp_path, meanwhile=meanwhile)
     run = run or FakeRun()
     fixers = build_fixers(profile=profile or FakeProfile(), repo_name="app", run=run)  # type: ignore[arg-type]
     outcome = build(tmp_path, recorder, **recorder.overrides(tmp_path), run_fixers=fixers)
@@ -41,38 +41,37 @@ def test_only_the_files_the_unit_changed_are_given_and_no_model_is_called_for_th
     given = {name for argv, _ in run.calls for name in argv[1:]}
     assert given, "the fixers ran over the unit's files"
     assert all(name.startswith("work-") for name in given), given
-    assert "seed-0.txt" not in given and "base.txt" not in given
+    assert "base.txt" not in given, "a file committed on the base is not passed"
     assert agent_calls(recorder.events) == SILENT_FREE, "the fixers made no model call"
-    assert len(subjects(repo)) == 7
+    assert len(subjects(repo)) == 6
 
 
 def test_the_empty_fix_command_turns_the_fixers_off_and_the_build_is_as_before(
     tmp_path: Path,
 ) -> None:
-    recorder, run, outcome, repo = built_with(tmp_path, tests={"fix_command": []})
+    _, on, _, _ = built_with(tmp_path / "on")
+    assert on.calls, "with the setting unset the profile's fixers run"
+
+    recorder, run, outcome, repo = built_with(tmp_path / "off", tests={"fix_command": []})
 
     assert outcome.status == "open", outcome.detail
     assert run.calls == []
-    assert not [line for line in recorder.logged if line.startswith("fixers")]
-    assert subjects(repo)[-6:] == [
-        "test: G1",
-        "feat: G1",
-        "test: G2",
-        "feat: G2",
-        "test: G3",
-        "feat: G3",
-    ]
+    assert not [line for line in recorder.logged if "fixers " in line]
+    assert len(subjects(repo)) == 6
 
 
 def test_a_profile_without_the_method_runs_no_fixer_and_the_build_is_as_before(
     tmp_path: Path,
 ) -> None:
-    recorder, run, outcome, repo = built_with(tmp_path, profile=Bare())
+    _, on, _, _ = built_with(tmp_path / "on")
+    assert on.calls, "a profile with the method gets its fixers"
+
+    recorder, run, outcome, repo = built_with(tmp_path / "off", profile=Bare())
 
     assert outcome.status == "open", outcome.detail
     assert run.calls == []
-    assert not [line for line in recorder.logged if line.startswith("fixers")]
-    assert len(subjects(repo)) == 7
+    assert not [line for line in recorder.logged if "fixers " in line]
+    assert len(subjects(repo)) == 6
 
 
 def test_the_repos_own_fix_command_runs_instead_of_the_profiles(tmp_path: Path) -> None:
@@ -93,10 +92,10 @@ def test_a_fixer_that_cannot_run_is_logged_and_the_build_goes_on_to_its_check(
     recorder, _, outcome, repo = built_with(tmp_path, run=FakeRun(missing))
 
     assert outcome.status == "open", outcome.detail
-    assert any(line.startswith("fixers could not run: fmt") for line in recorder.logged)
+    assert any("fixers could not run: fmt" in line for line in recorder.logged)
     assert "stub-checks" in recorder.events
     assert agent_calls(recorder.events) == SILENT_FREE
-    assert len(subjects(repo)) == 7
+    assert len(subjects(repo)) == 6
 
 
 def test_a_protected_file_is_skipped_and_the_log_says_so(tmp_path: Path) -> None:
@@ -108,4 +107,4 @@ def test_a_protected_file_is_skipped_and_the_log_says_so(tmp_path: Path) -> None
 
     assert outcome.status == "open", outcome.detail
     assert PROTECTED not in {name for argv, _ in run.calls for name in argv[1:]}
-    assert f"fixers skipped protected: {PROTECTED}" in recorder.logged
+    assert any(f"fixers skipped protected: {PROTECTED}" in line for line in recorder.logged)

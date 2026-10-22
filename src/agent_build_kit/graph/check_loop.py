@@ -64,6 +64,8 @@ def check_round(nodes: BuildPath, state: UnitRun, loop: CheckLoop) -> Update:
     """Run the check. `{"ok": True}` on a pass; on a failure the failure is said, counted,
     saved as feedback and, when the rounds are spent, the stop; a parked check's own update."""
     r, unit = nodes.runner, nodes.unit
+    if loop.commit is None:
+        nodes.apply_fixers()  # the check sees the formatted tree; the commit follows the pass
     try:
         ok, output = loop.check()
     except CheckParked as parked:
@@ -108,6 +110,7 @@ def fix_round(nodes: BuildPath, state: UnitRun, loop: CheckLoop) -> Update:
         follow_up=loop.follow_up(feedback, note) if loop.follow_up else "",
     )
     if loop.commit is not None:
+        nodes.apply_fixers()
         r.commit(loop.commit.format(title=unit.title, n=attempt), cwd=tree, base=nodes.ref(state))
     if (r.head(tree), r.tree_state(tree)) == before:
         return nodes.stop(loop.unchanged_message(attempt))

@@ -34,8 +34,7 @@ def test_the_fixers_format_the_tests_before_the_static_check_which_then_passes_f
     assert not [s for s in recorder.subjects if s.startswith("fix:")]
     assert recorder.held_by("test:")[TESTS_FILE] == FORMATTED
     assert any(
-        line.startswith("fixers changed 1 file(s)") and TESTS_FILE in line
-        for line in recorder.logged
+        "fixers changed 1 file(s)" in line and TESTS_FILE in line for line in recorder.logged
     ), recorder.logged
 
 

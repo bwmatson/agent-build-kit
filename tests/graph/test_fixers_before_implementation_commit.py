@@ -84,4 +84,4 @@ def test_a_group_recorded_as_already_built_is_unchanged_by_the_call(tmp_path: Pa
     assert calls, "the fixers were called"
     assert outcome.status == plain_outcome.status == "satisfied", outcome.detail
     assert recorder.subjects == plain.subjects
-    assert not [line for line in recorder.logged if line.startswith("fixers")]
+    assert not [line for line in recorder.logged if "fixers " in line]

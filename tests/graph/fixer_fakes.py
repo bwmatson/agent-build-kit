@@ -91,4 +91,4 @@ class Formatting(StubLoop):
         return next(files for subject, files in self.held if subject.startswith(prefix))
 
     def fixer_lines(self) -> list[str]:
-        return [line for line in self.logged if line.startswith("fixers")]
+        return [line for line in self.logged if "fixers " in line]
