@@ -29,7 +29,7 @@ def graph() -> list:
     return [*planned[:2], *reviewed, *planned[2:]]
 
 
-@pytest.mark.parametrize("assigned", set(permutations(TIERS)), ids=str)
+@pytest.mark.parametrize("assigned", list(permutations(TIERS)), ids=str)
 def test_the_next_unit_is_the_same_whatever_the_tiers(
     assigned: tuple[ReviewTier | None, ...], tmp_path: Path
 ) -> None:
