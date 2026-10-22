@@ -7,22 +7,35 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent_build_kit.pipeline.units import SATISFIED
-from tests.graph.branch_fakes import UNIT, built, subjects, titled
+from tests.graph.branch_fakes import UNIT, built, messages, subjects, titled
 
 SILENT = {"silent_groups": (1, 2, 3)}
 NOTE = "nothing to add and unit-test passes — satisfied"
 
 
-def test_a_last_implementation_that_made_no_commit_still_stops_naming_group_3(
+def test_a_last_group_that_made_nothing_stops_naming_it_when_the_unit_tests_fail(
     tmp_path: Path,
 ) -> None:
-    recorder, outcome, repo = built(tmp_path, no_commit_for="3")
+    recorder, outcome, repo = built(tmp_path, silent_groups=(3,), unit_test_ok=False)
 
     assert outcome.status == "failed"
     assert "the branch holds no tests and implementation pair for group 3" in outcome.detail
-    assert "unit-test:whole_repo" not in recorder.events, "not sent as having produced nothing"
+    assert recorder.events.count("unit-test:whole_repo") == 1
+    assert "unit-test" not in recorder.events, "not sent on to the checks"
     assert recorder.store.get(UNIT).state != SATISFIED
-    assert subjects(repo)[-1] == "test: G3"
+    assert subjects(repo) == ["test: G1", "feat: G1", "test: G2", "feat: G2"]
+
+
+def test_a_last_group_that_made_nothing_is_recorded_with_an_empty_pair_when_they_pass(
+    tmp_path: Path,
+) -> None:
+    recorder, outcome, repo = built(tmp_path, silent_groups=(3,))
+
+    assert outcome.status == "open", outcome.detail
+    assert recorder.events.count("unit-test:whole_repo") == 1
+    assert subjects(repo)[-2:] == ["test: G3", "feat: G3"]
+    assert "Already-built: yes" in messages(repo)[-1]
+    assert recorder.store.get(UNIT).state != SATISFIED
 
 
 def test_a_first_group_that_made_nothing_is_named_when_the_second_committed_a_pair(

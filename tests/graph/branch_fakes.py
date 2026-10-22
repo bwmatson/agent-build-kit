@@ -12,7 +12,7 @@ from agent_build_kit.pipeline.commit_order import branch_subjects
 from agent_build_kit.pipeline.stack_runner import RunOutcome
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import Member
-from agent_build_kit.pipeline.wiring import branch_commits, build_commit
+from agent_build_kit.pipeline.wiring import branch_commits, build_commit, build_commit_built
 from tests.factories import activate_with, git, stored_unit
 from tests.graph.stub_loop_fakes import StubLoop
 from tests.graph.test_build_path import build
@@ -23,6 +23,7 @@ UNIT = "add-marker/1"
 TRAILER = f"Unit: {UNIT}"
 BASE = "origin/main"
 Groups = Mapping[int, tuple[str, str]]  # number -> (title, "Done when" sentence or "")
+ACCOUNT = "Nothing needed changing. The four tests already pass"
 
 
 def agent_calls(events: list[str]) -> list[str]:
@@ -64,7 +65,8 @@ class OnBranch(StubLoop):
     """A stubbed-loop recorder whose commits, head and commit count are the branch's own. Its
     agent writes a file for each tests, implementation and rework call, except for the
     implementation of the groups named in `no_commit_for`, which leaves the tree as it was, and
-    for every call about groups all numbered in `silent_groups`."""
+    for every call about groups all numbered in `silent_groups`. `accounts` is what the
+    implementation agent says last, by the group it is asked about (as the prompt names it)."""
 
     def __init__(
         self,
@@ -72,9 +74,11 @@ class OnBranch(StubLoop):
         *,
         no_commit_for: str = "",
         silent_groups: Collection[int] = (),
+        accounts: Mapping[str, str] | None = None,
         **options: Any,
     ) -> None:
         super().__init__(store, **options)
+        self.accounts = accounts or {}
         self.no_commit_for = no_commit_for  # as the prompt names them: "3" or "1, 2, 3"
         self.silent_groups = frozenset(str(number) for number in silent_groups)
 
@@ -88,11 +92,18 @@ class OnBranch(StubLoop):
         )
         if step in ("claude:tests", "claude:impl", "claude:rework") and not skipped:
             (kwargs["cwd"] / f"work-{len(self.prompts)}.txt").write_text(f"{step}\n")
+        if step == "claude:impl" and built_group in self.accounts:
+            return self.accounts[built_group]
         return answer
 
     def commit(self, message: str, *, cwd: Path, base: str = "") -> int:
         made = build_commit(unit_id=UNIT)(message, cwd=cwd, base=base)
         super().commit(message, cwd=cwd, base=base)  # recorded, and the run may die here
+        return made
+
+    def commit_built(self, message: str, *, cwd: Path) -> int:
+        made = build_commit_built(unit_id=UNIT)(message, cwd=cwd)
+        self._after(f"commit_built:{message.split(':')[0]}")  # recorded, and the run may die here
         return made
 
     def head(self, cwd: Path) -> str:
@@ -105,7 +116,11 @@ class OnBranch(StubLoop):
         return branch_subjects(cwd, base)
 
     def overrides(self, tmp_path: Path) -> dict[str, Any]:
-        return {**super().overrides(tmp_path), "worktree": lambda u, base: tmp_path / "tree"}
+        return {
+            **super().overrides(tmp_path),
+            "worktree": lambda u, base: tmp_path / "tree",
+            "commit_built": self.commit_built,
+        }
 
 
 def seeded_branch(tmp_path: Path, subjects: list[str]) -> Path:
@@ -171,3 +186,30 @@ def built(tmp_path: Path, **kwargs: Any) -> tuple[OnBranch, RunOutcome, Path]:
     recorder, repo = prepared(tmp_path, **kwargs)
     outcome = build(tmp_path, recorder, **recorder.overrides(tmp_path))
     return recorder, outcome, repo
+
+
+def built_after_a_pair(tmp_path: Path, **options: Any) -> tuple[OnBranch, RunOutcome, Path]:
+    """Groups 3 and 4 built, group 3 by a pair of its agents' commits and group 4 by agents who
+    commit nothing, the implementation agent saying `ACCOUNT` last."""
+    return built(
+        tmp_path,
+        groups={"add-marker": titled(3, 4)},
+        silent_groups=(4,),
+        accounts={"4": ACCOUNT},
+        **options,
+    )
+
+
+def files_in(repo: Path, rev: str) -> list[str]:
+    """The files a commit changes."""
+    return git(repo, "diff-tree", "--no-commit-id", "--name-only", "-r", rev).split()
+
+
+def recorded_pair(repo: Path) -> None:
+    """Assert the branch ends with an empty, marked pair for group 4 after group 3's real one."""
+    assert subjects(repo) == ["test: G3", "feat: G3", "test: G4", "feat: G4"]
+    for rev, marked in (("HEAD~3", False), ("HEAD~2", False), ("HEAD~1", True), ("HEAD", True)):
+        message = git(repo, "log", "-1", "--format=%B", rev)
+        assert TRAILER in message
+        assert ("Already-built: yes" in message) is marked, message
+        assert (files_in(repo, rev) == []) is marked, rev
