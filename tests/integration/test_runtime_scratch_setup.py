@@ -10,11 +10,11 @@ import yaml
 
 from agent_build_kit import claude_account
 from tests.agent_home import HOME_VAR
-from tests.runtime_scratch import RUNTIME_PARAMS, RUNTIMES, runtime_scratch
+from tests.runtime_scratch import AGENT_COMMAND, RUNTIME_PARAMS, RUNTIMES, runtime_scratch
 
 pytestmark = pytest.mark.integration
 
-AGENT_COMMAND = "ABK_ACCEPTANCE_ACP_COMMAND"
+LINE = "some-agent --stdio 'a b'"
 
 
 class Factory:
@@ -32,47 +32,57 @@ def no_agent_home(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(HOME_VAR, raising=False)
 
 
-def test_acp_gets_a_runtimes_entry_and_the_override_from_the_agent_command_setting(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    line = "some-agent --stdio 'a b'"
-    monkeypatch.setenv(AGENT_COMMAND, line)
-    checked: list[list[str]] = []
-
-    scratch = runtime_scratch("acp", Factory(tmp_path), checked.append)
-
-    expected = shlex.split(line)
-    assert yaml.safe_load(scratch.runtimes_yaml) == {"runtimes": {"acp": {"command": expected}}}
-    assert scratch.env["ABK_RUNTIME"] == "acp"
-    assert scratch.command == expected
-    assert checked == [expected]
-
-
-def test_claude_code_gets_no_entry_and_pins_the_runtime_and_sets_its_account_variables(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("runtime", RUNTIME_PARAMS)
+def test_each_runtime_gets_its_entry_and_pins_the_runtime_and_its_agent(
+    runtime: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     account = tmp_path / "account"
     account.mkdir()
     monkeypatch.setenv(claude_account.VARIABLE, str(account))
+    monkeypatch.setenv(AGENT_COMMAND, LINE)
+    checked: list[list[str]] = []
+    command = shlex.split(LINE)
+    expected = {
+        "acp": {
+            "runtimes_yaml": {"runtimes": {"acp": {"command": command}}},
+            "command": command,
+            "checked": [command],
+            "account": None,
+        },
+        "claude_code": {
+            "runtimes_yaml": None,
+            "command": [],
+            "checked": [],
+            "account": str(account),
+        },
+    }[runtime]
 
-    scratch = runtime_scratch("claude_code", Factory(tmp_path), lambda command: None)
+    scratch = runtime_scratch(runtime, Factory(tmp_path), checked.append)
 
-    assert scratch.runtimes_yaml == ""
-    assert scratch.env["ABK_RUNTIME"] == "claude_code"
-    assert scratch.env[claude_account.VARIABLE] == str(account)
+    assert (yaml.safe_load(scratch.runtimes_yaml) or None) == expected["runtimes_yaml"]
+    assert scratch.env["ABK_RUNTIME"] == runtime
+    assert scratch.command == expected["command"]
+    assert checked == expected["checked"]
+    assert scratch.env.get(claude_account.VARIABLE) == expected["account"]
 
 
-def test_acp_without_a_command_fails_naming_the_setting_and_does_not_skip(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("runtime", RUNTIME_PARAMS)
+def test_a_missing_agent_command_fails_naming_the_setting_only_where_the_runtime_needs_it(
+    runtime: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv(AGENT_COMMAND, raising=False)
 
-    with pytest.raises(pytest.fail.Exception, match=AGENT_COMMAND):
-        runtime_scratch("acp", Factory(tmp_path), lambda command: None)
+    if runtime == "acp":
+        with pytest.raises(pytest.fail.Exception, match=AGENT_COMMAND):
+            runtime_scratch(runtime, Factory(tmp_path), lambda command: None)
+    else:
+        assert runtime_scratch(runtime, Factory(tmp_path), lambda command: None).command == []
 
 
-def test_each_runtime_parameter_has_exactly_one_tag_named_for_its_runtime() -> None:
-    assert [p.values[0] for p in RUNTIME_PARAMS] == list(RUNTIMES)
-    for param in RUNTIME_PARAMS:
-        tags = [m.name for m in param.marks if m.name.startswith("runtime_")]
-        assert tags == [f"runtime_{param.values[0]}"]
+@pytest.mark.parametrize("runtime", RUNTIME_PARAMS)
+def test_the_runtime_parameter_has_exactly_one_tag_named_for_its_runtime(
+    runtime: str, request: pytest.FixtureRequest
+) -> None:
+    assert runtime in RUNTIMES
+    tags = [m.name for m in request.node.iter_markers() if m.name.startswith("runtime_")]
+    assert tags == [f"runtime_{runtime}"]

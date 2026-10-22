@@ -11,14 +11,14 @@ MODULE = INTEGRATION / "test_init_runtime_live_stack.py"
 LISTING = "test_listing_against_the_installed_agent_sends_no_prompt"
 
 
-def test_the_listing_test_carries_runtime_acp_alone_and_the_stand_in_tests_carry_none(
+def test_every_test_of_the_module_carries_runtime_acp_alone(
     pytester: pytest.Pytester,
 ) -> None:
     items, _ = pytester.inline_genitems(str(MODULE))
     tags = {item.name: runtime_tags(item) for item in items}
 
     assert tags[LISTING] == ["runtime_acp"]
-    assert {name: t for name, t in tags.items() if name != LISTING and t} == {}
+    assert {name: t for name, t in tags.items() if t != ["runtime_acp"]} == {}
     assert len(tags) > 1
 
 

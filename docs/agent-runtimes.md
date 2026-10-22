@@ -905,8 +905,10 @@ the old account starts fresh) and set the usage windows for the new plan under
   Run with `uv run pytest -m local_stack
   tests/integration/test_init_runtime_live_stack.py`.
 - The telemetry acceptance run (`tests/integration/test_telemetry_stack.py`,
-  also `local_stack`) ticks a fixture unit with `ABK_OTEL_ENABLED` on and reads
-  the trace and the duration series back from the shared stack's stores. It
+  also `local_stack`) ticks a fixture unit with `ABK_OTEL_ENABLED` on, once per
+  runtime and telemetry value, and reads the trace and the duration series back
+  from the sink: the shared stack's stores (`otel`) or a file written by a local
+  receiver (`local`). The `otel` value
   needs the stack's dev instance up, plus node, uv and the agent above, and
   these set to the instance's published ports:
   `ABK_ACCEPTANCE_TRACES_ENDPOINT` and `ABK_ACCEPTANCE_METRICS_ENDPOINT` (the
@@ -988,8 +990,9 @@ the old account starts fresh) and set the usage windows for the new plan under
   scenario that needs two runtimes is two tests. Markers are strict: an
   unregistered one fails collection. `dev_stack` marks a test that needs the
   repo's dev stack. `telemetry_otel` marks a test that needs the shared telemetry stack's
-  dev instance and the `ABK_ACCEPTANCE_*` variables; every test of
-  `tests/integration/test_telemetry_stack.py` carries it. A machine without the stack holds
+  dev instance and the `ABK_ACCEPTANCE_*` variables; the `otel` parameter of every test of
+  `tests/integration/test_telemetry_stack.py` carries it, and its `local` parameter carries
+  `telemetry_local` and reads a file instead. A machine without the stack holds
   a split on it (`tests.e2e_splits.telemetry: {marker: telemetry_otel}`) and does not skip
   the test: a live test whose dependency is missing still fails.
 
@@ -1054,11 +1057,6 @@ A Claude scenario with no `acp` variant is listed here and never refused; a modu
 one in an optional `CLAUDE_ONLY_REASONS` table. A difference between this list and the
 tests raises a warning, not a failure.
 
-- `test_build_unit.py::test_progress_is_visible_while_the_run_works`
-- `test_build_unit.py::test_the_pipeline_alone_pushed_and_only_what_review_approved`
-- `test_build_unit.py::test_the_report_has_one_agent_record_per_call_in_the_run_log`
-- `test_build_unit.py::test_the_report_totals_equal_the_ledger_and_name_each_figures_source`
-- `test_build_unit.py::test_the_unit_is_built_reviewed_and_pushed_through_the_runtime`
 - `test_dry_guidance_build.py::test_generalize_adds_no_function_carrying_the_existing_functions_logic`
 - `test_dry_guidance_build.py::test_generalize_changes_the_existing_function_and_keeps_its_literal_once`
 - `test_dry_guidance_build.py::test_generalize_has_the_new_entry_point_reach_the_one_definition_of_the_logic`
@@ -1078,9 +1076,6 @@ tests raises a warning, not a failure.
 - `test_graph_unit.py::test_a_unit_runs_to_review_is_reworked_on_a_comment_and_its_thread_ends_at_merge`
 - `test_serve_over_scratch_installation.py::test_a_session_started_elsewhere_is_continued_in_place_or_forked_when_held`
 - `test_serve_over_scratch_installation.py::test_the_ui_shows_a_unit_a_real_claude_built_and_works_it_through_review`
-- `test_telemetry_stack.py::test_a_tick_with_the_endpoint_pointing_at_nothing_finishes_and_writes_nothing`
-- `test_telemetry_stack.py::test_a_ticks_duration_series_are_in_the_metrics_store_without_a_unit_id`
-- `test_telemetry_stack.py::test_a_ticks_trace_is_found_in_the_trace_store_by_the_unit_id`
 
 An installation's other code repos get no such drift test or runtime markers from this rule;
 adding them is a follow-up and not part of this rule.

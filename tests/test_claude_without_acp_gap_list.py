@@ -127,9 +127,5 @@ def test_the_kits_current_list_matches_the_documents_without_a_warning(
     current = claude_without_acp(items)
 
     assert current == sorted(current)
-    assert {entry.split("::")[0] for entry in current} >= {
-        "test_build_unit.py",
-        "test_graph_unit.py",
-        "test_telemetry_stack.py",
-    }
+    assert {entry.split("::")[0] for entry in current} >= {"test_graph_unit.py"}
     warn_gap_list_drift(items, DOCUMENT)

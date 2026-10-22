@@ -40,6 +40,7 @@ from tests.split_sources import snapshot_tree
 
 pytestmark = [
     pytest.mark.local_stack,
+    pytest.mark.runtime_acp,
     pytest.mark.skipif(shutil.which("npx") is None, reason="npx is not on PATH"),
 ]
 
@@ -309,7 +310,21 @@ def installed_agents() -> list[Installed]:
 # agent installed: the listing finishes with the network proxy variables pointing at a closed port
 # and does not finish with an empty agent home, so it needs the agent installed and configured
 # with its own credentials, and no model backend.
+#
+# The rest drive `abk init` against a scripted stand-in for a protocol agent, so they are about the
+# protocol agents `abk init` lists and configures, which Claude Code is not.
+STAND_IN = "drives abk init against a scripted protocol agent; Claude Code is not one"
 ACP_ONLY_REASONS = {
+    "test_the_list_puts_the_stand_in_first_and_the_choice_is_recorded": STAND_IN,
+    "test_advertised_models_are_shown_with_the_current_one_default_and_the_choice_is_written": (
+        STAND_IN
+    ),
+    "test_an_agent_that_advertises_no_models_says_so_and_leaves_the_roles_empty": STAND_IN,
+    "test_nothing_is_written_when_the_confirmation_is_answered_no": STAND_IN,
+    "test_yes_with_several_usable_agents_names_them_and_writes_nothing": STAND_IN,
+    "test_yes_with_nothing_installed_says_so_and_writes_nothing": STAND_IN,
+    "test_a_fix_that_closes_the_spelling_is_seen_to_close_it": STAND_IN,
+    "test_a_fix_that_changes_nothing_says_so_and_exits_one": STAND_IN,
     "test_listing_against_the_installed_agent_sends_no_prompt": (
         "lists models through the protocol's session/new, which the Claude runtime does not use; "
         "no model call is made, the installed and configured agent is the only requirement"
@@ -317,7 +332,6 @@ ACP_ONLY_REASONS = {
 }
 
 
-@pytest.mark.runtime_acp
 def test_listing_against_the_installed_agent_sends_no_prompt(tmp_path: Path) -> None:
     agents = installed_agents()
     if not agents:
