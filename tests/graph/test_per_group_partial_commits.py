@@ -23,7 +23,8 @@ def test_a_last_group_that_made_nothing_stops_naming_it_when_the_unit_tests_fail
     assert recorder.events.count("unit-test:whole_repo") == 1
     assert "unit-test" not in recorder.events, "not sent on to the checks"
     assert recorder.store.get(UNIT).state != SATISFIED
-    assert subjects(repo) == ["test: G1", "feat: G1", "test: G2", "feat: G2"]
+    assert subjects(repo) == ["test: G1", "feat: G1", "test: G2", "feat: G2", "test: G3"]
+    assert "Already-built: yes" in messages(repo)[-1], "the empty test: is there, the feat: is not"
 
 
 def test_a_last_group_that_made_nothing_is_recorded_with_an_empty_pair_when_they_pass(
@@ -54,7 +55,9 @@ def test_a_first_group_that_made_nothing_is_named_when_the_second_committed_a_pa
 def test_a_tests_agent_that_leaves_uncommitted_files_has_them_committed_and_is_not_satisfied(
     tmp_path: Path,
 ) -> None:
-    recorder, outcome, repo = built(tmp_path, groups={"add-marker": titled(1)}, no_commit_for="1")
+    recorder, outcome, repo = built(
+        tmp_path, groups={"add-marker": titled(1)}, no_commit_for="1", unit_test_ok=False
+    )
 
     assert subjects(repo) == ["test: G1"], "the tests agent's files are committed"
     assert outcome.status == "failed"
