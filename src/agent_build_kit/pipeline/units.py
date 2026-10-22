@@ -1128,9 +1128,14 @@ def start_room(
     """How many never-started units may begin before `limit` is reached, in `project` (a slot of
     `slot_of`; every unit counts when `EVERY_SLOT`)."""
     counts = project_counts(graph, slot_of)
-    return max(
-        0, limit - (sum(counts.values()) if project is EVERY_SLOT else counts.get(project, 0))
+    return room_left(
+        limit, sum(counts.values()) if project is EVERY_SLOT else counts.get(project, 0)
     )
+
+
+def room_left(limit: int, counted: int) -> int:
+    """How many more units may begin when `counted` are counted against `limit`."""
+    return max(0, limit - counted)
 
 
 def _start_rank(unit: Unit) -> int:

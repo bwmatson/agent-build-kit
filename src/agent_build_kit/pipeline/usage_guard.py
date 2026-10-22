@@ -1327,7 +1327,8 @@ def _decide_on_estimate(
         reason=f"{text}, allowing starts",
         resets_at=held.resets_at,
         estimate=True,
-        # The unit being admitted counts once it is recorded.
+        # The starts already made on this estimate, and this unit when one is named. A caller
+        # that names none (the round's own ask) adds the unit's place among its starts itself.
         estimate_starts=len(admitted) + (1 if unit is not None and unit not in admitted else 0),
         **facts,
     )

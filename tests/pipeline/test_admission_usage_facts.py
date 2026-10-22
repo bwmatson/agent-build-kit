@@ -100,8 +100,27 @@ def test_a_start_on_an_estimate_records_the_estimate_and_the_starts_made_on_it(
     usage = only_record(inst).usage
     assert usage.may_start is True
     assert usage.estimate is True
-    assert usage.estimate_starts == 1
+    # `feature/1` was the first start on the estimate; this unit is the second.
+    assert usage.estimate_starts == 2
     assert usage.source
     assert usage.age_seconds is not None
     assert usage.age_seconds >= 170 * 60
     assert usage.threshold == 92
+
+
+def test_two_units_admitted_on_one_estimate_in_a_round_record_successive_start_counts(
+    tmp_path: Path, host: Host
+) -> None:
+    inst, store = workspace(
+        tmp_path, host, session={"usage_pause_pct": 92}, weekly={"usage_pause_pct": 80}
+    )
+    store.upsert([unit("one/2", "app")])
+    host.keep_reading(180 * MINUTE, payload(session=70.0, weekly=6.0))
+    refused(host, cooling=3 * MINUTE)
+    kept = json.loads(host.cache.read_text())
+    host.cache.write_text(json.dumps({**kept, "estimate_units": ["feature/1"]}))
+
+    assert len(round_of(inst, store)) == 2
+
+    first, second = read_admissions(inst.state_dir / ADMISSIONS_NAME)
+    assert [first.usage.estimate_starts, second.usage.estimate_starts] == [2, 3]

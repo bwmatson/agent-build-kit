@@ -290,6 +290,7 @@ from agent_build_kit.pipeline.units import (
     project_tag,
     ready_units,
     resolve_replaced,
+    room_left,
     second_parent_wait,
     shown_dependencies,
     shown_waits,
@@ -2086,6 +2087,15 @@ def _write_admissions(
     ) -> None:
         slot = slot_of(unit)
         found_counted = counted(slot, unit.id, started)
+        usage = _usage_facts(inst, unit, decided)
+        if kind == "admitted" and usage.estimate:
+            # The round asked the guard naming no unit: this unit is the next start on the
+            # estimate after those the guard counted and those admitted before it on the account.
+            def account_of(each: StoredUnit) -> str | None:
+                return claude_account.account_key(claude_account.for_repo(inst.config, each.repo))
+
+            place = 1 + sum(1 for uid in started if account_of(by_id[uid]) == account_of(unit))
+            usage = usage.model_copy(update={"estimate_starts": usage.estimate_starts + place})
         before = last.get(unit.id)
         if (
             kind == "slot"
@@ -2105,7 +2115,7 @@ def _write_admissions(
                 slot=_slot_label(slot),
                 limit=limit_of(slot),
                 counted=found_counted,
-                usage=_usage_facts(inst, unit, decided),
+                usage=usage,
                 fingerprint=fingerprint,
             ),
         )
@@ -2130,7 +2140,7 @@ def _write_admissions(
                         slot=_slot_label(slot),
                         limit=limit_of(slot),
                         ids=tuple(c.id for c in slot_counts[slot]),
-                        room=max(0, limit_of(slot) - len(slot_counts[slot])),
+                        room=room_left(limit_of(slot), len(slot_counts[slot])),
                     )
                     for slot in slots
                 ),
