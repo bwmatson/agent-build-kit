@@ -157,6 +157,7 @@ class GroupProgress(Frozen):
 
     done: int  # groups done: each has its pair, or for a test-only group its tests commit
     tests_made: bool  # the next group's tests commit is there, its implementation not
+    lone_feat: str = ""  # the `feat:` subject of the next group found where its `test:` belongs
 
 
 def group_progress(
