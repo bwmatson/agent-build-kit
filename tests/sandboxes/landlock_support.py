@@ -13,6 +13,9 @@ import pytest
 import agent_build_kit
 from agent_build_kit.sandboxes import Coverage, SandboxBackend, SandboxPolicy
 
+# The backends the contract suites run against; a later backend adds its name.
+BACKENDS = ["landlock"]
+
 SYSTEM_FOLDERS = ("/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/proc")
 
 
@@ -71,6 +74,22 @@ def require_working(backend: SandboxBackend) -> None:
     availability = backend.availability()
     if not availability.ok:
         pytest.skip(f"{backend.name} not usable here: {availability.cause} ({availability.fix})")
+
+
+# The Landlock ABI that introduced the TCP connect rule.
+NETWORK_ABI = 4
+
+
+def require_network_rules(backend: SandboxBackend) -> None:
+    """Skip where the kernel cannot confine the network. Landlock's ABI is read from the kernel
+    itself, not from `availability()`, which is part of what the tests check."""
+    require_working(backend)
+    if backend.name == "landlock":
+        from agent_build_kit.sandboxes import landlock
+
+        found = landlock.abi_version()
+        if found < NETWORK_ABI:
+            pytest.skip(f"Landlock ABI {found} has no TCP rule (needs {NETWORK_ABI})")
 
 
 def run_confined(

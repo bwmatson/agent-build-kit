@@ -39,6 +39,8 @@ class SandboxPolicy(Frozen):
     hosts: tuple[str, ...]
     # The least coverage a step may run with; `none` lets it run unconfined.
     required: Coverage
+    # The local port of the allowlisting proxy: the only one a confined process may connect to.
+    proxy_port: int | None = None
 
 
 class SandboxUnavailable(Exception):

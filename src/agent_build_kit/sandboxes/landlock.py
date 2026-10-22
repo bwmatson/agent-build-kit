@@ -18,6 +18,11 @@ FIX = "use Linux kernel 5.13 or later with Landlock enabled, or set `required: n
 _PROBE_READ = ("/usr", "/bin", "/lib", "/lib64", "/etc")
 
 
+def abi_version() -> int:
+    """The Landlock ABI version this kernel reports; the TCP rule needs 4 or later."""
+    raise NotImplementedError
+
+
 def _policy_text(policy: SandboxPolicy) -> str:
     lines = [f"required={policy.required.value}"]
     lines += [f"write={path}" for path in policy.write]

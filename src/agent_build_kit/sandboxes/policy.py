@@ -58,6 +58,11 @@ def build_policy(
     )
 
 
+def proxy_environment(port: int) -> dict[str, str]:
+    """The environment that points a step's HTTP clients at the proxy on `port`."""
+    raise NotImplementedError
+
+
 def _blocks(document: dict[str, Any], repo: str) -> list[ProjectSandboxConfig]:
     """The repo's sandbox block in one file and then each of its projects', validated."""
     entry = (document.get("repos") or {}).get(repo) or {}

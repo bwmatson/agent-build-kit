@@ -8,7 +8,16 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit import sandboxes
-from tests.sandboxes.landlock_support import Scene
+from agent_build_kit.sandboxes import SandboxBackend
+from tests.sandboxes.landlock_support import BACKENDS, Scene, require_working
+
+
+@pytest.fixture(params=BACKENDS)
+def backend(request: pytest.FixtureRequest) -> Iterator[SandboxBackend]:
+    """Each real backend in turn, skipped with its own cause where it cannot be applied."""
+    found = sandboxes.get(request.param)
+    require_working(found)
+    yield found
 
 
 @pytest.fixture
