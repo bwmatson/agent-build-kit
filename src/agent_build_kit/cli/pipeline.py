@@ -1529,13 +1529,7 @@ def _needs_planning(inst: Installation, store: UnitStore) -> bool:
     has some to do is one the usage guard has to be asked about."""
     # A unit held for its size with a round left is split by a planning call.
     rounds = config.active().review.split_rounds
-    if any(
-        u.state == HELD
-        and u.held_by == HeldBy.SIZE
-        and u.split_request
-        and u.split_rounds_used < rounds
-        for u in store.all()
-    ):
+    if any(_awaiting_split(u) and u.split_rounds_used < rounds for u in store.all()):
         return True
     planned = planned_hashes(inst)
     now = spans.clock.now()
@@ -1920,9 +1914,15 @@ def run_round(
         store=store,
         reported=refused_needs,
     )
-    # A split is a planning call too: not while the guard refuses planning.
-    if admitted and None not in model_refused:
-        _step("splitting units held for their size", split_held_units, inst, store)
+    # A split is a planning call too: not while the guard refuses planning, though a unit that
+    # cannot be split is still held for a person.
+    _step(
+        "splitting units held for their size",
+        split_held_units,
+        inst,
+        store,
+        may_plan=admitted and None not in model_refused,
+    )
     _step("promoting prerequisites", _promote, inst, store)
     _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
     _step("following predecessors", park_dependents, inst, store)
@@ -2538,13 +2538,20 @@ def _requeue_ended_wait(
         store.set_waited_on(unit.id, ())
 
 
-def split_held_units(inst: Installation, store: UnitStore) -> None:
+def _awaiting_split(unit: StoredUnit) -> bool:
+    """Whether a unit is held for its size with a split to make."""
+    return unit.state == HELD and unit.held_by == HeldBy.SIZE and unit.split_request is not None
+
+
+def split_held_units(inst: Installation, store: UnitStore, *, may_plan: bool = True) -> None:
     """Ask for a split of each unit held for its size, in priority order, and supersede it by the
-    pieces; a round is recorded for each attempt that succeeds or fails, none for an outage."""
+    pieces; a round is recorded for each attempt that succeeds or fails, none for an outage.
+    Without `may_plan` (the usage guard refuses planning) a unit that cannot be split is still
+    held for a person, and no planner call is made."""
     units = store.all()
-    held = [u for u in units if u.state == HELD and u.held_by == HeldBy.SIZE and u.split_request]
+    held = [u for u in units if _awaiting_split(u)]
     for unit in sorted(held, key=lambda u: (effective_priority(u, units), u.id)):
-        _split_one(inst, store, unit)
+        _split_one(inst, store, unit, may_plan=may_plan)
 
 
 def _hold_for_a_person(store: UnitStore, unit: StoredUnit, note: str) -> None:
@@ -2556,7 +2563,9 @@ def _hold_for_a_person(store: UnitStore, unit: StoredUnit, note: str) -> None:
 def _cannot_split(unit: StoredUnit, units: Sequence[StoredUnit]) -> str:
     """Why a unit held for its size cannot be split, or an empty string when it can."""
     if len(unit.groups) <= 1:
-        return "too big for its tier, and it holds one group, which cannot be split"
+        return (
+            f"too big for its tier, and it holds one group, {unit.groups[0]}, which cannot be split"
+        )
     if any(member.change != unit.change for member in unit.joined):
         return (
             "too big for its tier, and it carries groups of another change, "
@@ -2603,7 +2612,9 @@ def _pins_of(units: Sequence[StoredUnit], change: str) -> list[Pin]:
     ]
 
 
-def _split_one(inst: Installation, store: UnitStore, unit: StoredUnit) -> None:
+def _split_one(
+    inst: Installation, store: UnitStore, unit: StoredUnit, *, may_plan: bool = True
+) -> None:
     """Hold `unit` for a person when it cannot be split or its rounds are used, else ask for a
     split and supersede it. A branch held by a live process defers it, with no round."""
     rounds = config.active().review.split_rounds
@@ -2618,6 +2629,8 @@ def _split_one(inst: Installation, store: UnitStore, unit: StoredUnit) -> None:
     units = store.all()
     if why := _cannot_split(unit, units):
         _hold_for_a_person(store, unit, why)
+        return
+    if not may_plan:
         return
     stored = unit.split_request
     assert stored is not None
@@ -4924,6 +4937,7 @@ def has_work(inst: Installation, store: UnitStore) -> bool:
         return True
     if any(
         unit.state in NEEDS_TICKS
+        or _awaiting_split(unit)
         or unit.close_pending
         or (unit.state == FAILED and unit.cause is Cause.ENVIRONMENT)
         for unit in units

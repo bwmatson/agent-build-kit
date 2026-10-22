@@ -35,7 +35,7 @@ def test_a_unit_of_one_group_is_held_for_a_person_without_a_planner_call_or_a_ro
 
     cli.split_held_units(run.inst, run.store)
 
-    assert_held_for_a_person(run, "group")
+    assert_held_for_a_person(run, "one group, 1,")
     assert run.store.get(HELD_ID).split_rounds_used == 0
     assert run.calls == 0
 

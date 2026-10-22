@@ -81,7 +81,7 @@ def test_a_round_runs_the_split_step_after_planning_and_linking(tmp_path, monkey
     seen: list[str] = []
     monkeypatch.setattr(cli, "plan_all", lambda inst, **kwargs: seen.append("plan"))
     monkeypatch.setattr(cli, "link_needs", lambda inst, **kwargs: seen.append("link"))
-    monkeypatch.setattr(cli, "split_held_units", lambda inst, store: seen.append("split"))
+    monkeypatch.setattr(cli, "split_held_units", lambda inst, store, **kwargs: seen.append("split"))
 
     cli.run_round(run.inst, run.store, building=(), only=frozenset(), submit=False)
 

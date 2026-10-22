@@ -29,9 +29,11 @@ def scene(
     groups: tuple[int, ...] = (1, 2, 3, 4, 5),
     drivers: tuple[int, ...] = (3,),
     joined: tuple[Member, ...] = (),
+    dependent: bool = True,
 ) -> Replan:
     """Per-tier sizing on with `rounds` split rounds, and the held unit having used `used`, with
-    `groups`, the `drivers` its request names and the groups of other changes it `joined`."""
+    `groups`, the `drivers` its request names and the groups of other changes it `joined`; the unit
+    `feature/6` waits on it unless `dependent` is false."""
     run = Replan(tmp_path, monkeypatch, feature=tasks_md(6))
     enable_review(run, split_rounds=rounds)
     run.store.import_units(
@@ -45,7 +47,11 @@ def scene(
                 split_rounds_used=used,
                 joined=joined,
             ),
-            stored_unit(DEPENDENT, change="feature", groups=(6,), depends_on=(HELD_ID,)),
+            *(
+                [stored_unit(DEPENDENT, change="feature", groups=(6,), depends_on=(HELD_ID,))]
+                if dependent
+                else []
+            ),
         ]
     )
     run.store.set_state(
