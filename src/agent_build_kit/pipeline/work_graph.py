@@ -173,11 +173,12 @@ def retag_headings(text: str, spell: Callable[[str], str]) -> tuple[str, int]:
     return "".join(out), count
 
 
-def _current_tag(tag: str) -> str:
+def current_tag(tag: str) -> str:
+    """A test-kind tag in its current spelling."""
     return new_spelling(Place.TAG, tag)
 
 
-def specification_text(text: str, spell: Callable[[str], str] = _current_tag) -> str:
+def specification_text(text: str, spell: Callable[[str], str] = current_tag) -> str:
     """A tasks file's text with progress stripped out, and the test-kind tags spelled by `spell`
     (their current spelling unless a plan recorded before the rename is being matched).
 

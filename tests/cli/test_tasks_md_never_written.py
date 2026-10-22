@@ -9,7 +9,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from tests.cli.replan_driver import Replan, answer, planned, tagged_md, tick, ticking_replan
-from tests.cli.tags_fix_support import OLD_E2E_TAG, OLD_UNIT_TEST_TAG
+from tests.cli.tags_fix_support import OLD_E2E_TAG, OLD_UNIT_TEST_TAG, digest_of
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -25,10 +25,7 @@ def files(run: Replan) -> dict[Path, bytes]:
 def with_old_tags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Replan:
     """Two changes with old tags, `feature` already planned as the rewritten text reads."""
     run = ticking_replan(tmp_path, monkeypatch, {"feature": OLD, "other": OLD})
-    rewritten = tmp_path / "rewritten" / "tasks.md"
-    rewritten.parent.mkdir()
-    rewritten.write_text(NEW)
-    run.record("feature", sizing=cli.sizing_digest(), hash=cli.plan_digest(rewritten))
+    run.record("feature", sizing=cli.sizing_digest(), hash=digest_of(tmp_path, NEW))
     run.runtime.answer = PLAN
     return run
 

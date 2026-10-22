@@ -48,7 +48,7 @@ from agent_build_kit import claude_account, config, forges, profiles, runtimes, 
 from agent_build_kit.budget import cut_head
 from agent_build_kit.cli.e2e_cmd import held_status_lines
 from agent_build_kit.cli.retire_cmd import cmd_retire
-from agent_build_kit.compat_names import Place, new_spelling, old_tag
+from agent_build_kit.compat_names import old_tag
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun
@@ -348,6 +348,7 @@ from agent_build_kit.pipeline.work_graph import (
     TaskGroup,
     ValidationError,
     check_tags,
+    current_tag,
     declared_projects,
     declared_split_names,
     group_needs,
@@ -4262,7 +4263,11 @@ def plan_digest(tasks: Path, recorded: str | None = None) -> str:
     It ignores the spelling of the test-kind tags. `recorded` is the hash the plan record holds:
     when it is the hash of this text in the earlier spelling, it is returned, so a plan made
     before the rename counts as current for the same text after `abk tags --fix`."""
-    text = tasks.read_text()
+    return text_digest(tasks.read_text(), recorded)
+
+
+def text_digest(text: str, recorded: str | None = None) -> str:
+    """`plan_digest` of a tasks file's text."""
 
     def hashed(spell: Callable[[str], str]) -> str:
         return hashlib.sha256(specification_text(text, spell).encode()).hexdigest()
@@ -4270,7 +4275,7 @@ def plan_digest(tasks: Path, recorded: str | None = None) -> str:
     # An earlier release hashed the text as written: every tag old, or the two spellings mixed.
     if recorded is not None and recorded in (hashed(old_tag), hashed(lambda tag: tag)):
         return recorded
-    return hashed(lambda tag: new_spelling(Place.TAG, tag))
+    return hashed(current_tag)
 
 
 # Units that still need a tick: being built, waiting to be, or open for review
@@ -5618,9 +5623,14 @@ def _tag_warnings(inst: Installation, path: Path) -> list[str]:
     ]
 
 
-def _rehashed(records: Mapping[str, dict], change: str, digest: str) -> dict[str, dict]:
-    """The update that gives `change`'s plan record `digest` as its hash, if it has a record."""
-    return {change: records[change] | {"hash": digest}} if change in records else {}
+def _rehashed(records: Mapping[str, dict], change: str, read: str, written: str) -> dict[str, dict]:
+    """The update that moves `change`'s plan record to the hash of `written`, when the record is
+    current for `read`, the text before the rewrite; nothing otherwise."""
+    record = records.get(change)
+    recorded = record.get("hash") if record else None
+    if record is None or recorded is None or text_digest(read, recorded) != recorded:
+        return {}
+    return {change: record | {"hash": text_digest(written)}}
 
 
 def _fix_change_tags(
@@ -5637,45 +5647,47 @@ def _fix_change_tags(
 
     if not path.is_file():
         return refuse(f"no tasks.md at {path}")
-    try:
-        text = path.read_bytes().decode()
-    except UnicodeDecodeError:
-        return refuse(f"{path} is not valid text")
-    except OSError as exc:
-        return refuse(f"could not read {path}: {exc}")
-    before, errors = _validated(inst, path)
-    if change.lower() in cycles:
-        print(cycles[change.lower()])
-        return refuse(f"a Needs: cycle, run `abk tags {change}`")
-    if errors:
-        for error in errors:
-            print(f"{path}:{error}")
-        return refuse(f"{len(errors)} other problem(s), run `abk tags {change}`")
-    fixed, count = retag_headings(text, lambda tag: new_spelling(Place.TAG, tag))
-    if not count:
-        print(f"{change}: unchanged")
-        return True
-    with tempfile.TemporaryDirectory() as scratch:
-        probe = Path(scratch) / "tasks.md"
-        probe.write_bytes(fixed.encode())
-        after, after_errors = _validated(inst, probe)
-    if (before, []) != (after, after_errors):
-        return refuse("the rewritten tags do not parse to the same groups; nothing written")
-    if dry_run:
-        print(f"{change}: would rewrite {count} tag(s)")
-        return True
-    if not os.access(path, os.W_OK):
-        return refuse(f"{path} is read-only")
-    recorded = (planned_hashes(inst).get(change) or {}).get("hash")
-    was_current = recorded is not None and plan_digest(path, recorded) == recorded
-    try:
-        atomic_write_bytes(path, fixed.encode())
-    except OSError as exc:
-        return refuse(f"could not write {path}: {exc}")
-    if was_current:
-        # The plan stood before the rewrite, so it stands after it: keep the record's other
-        # fields and move its hash to the rewritten text, whatever mix of spellings it hashed.
-        update_plans(inst, lambda records: _rehashed(records, change, plan_digest(path)))
+    # Read and replaced under the lock a tick holds to tick the boxes, so neither loses the
+    # other's write.
+    with file_lock(path.with_name(f"{path.name}.lock")):
+        try:
+            text = path.read_bytes().decode()
+        except UnicodeDecodeError:
+            return refuse(f"{path} is not valid text")
+        except OSError as exc:
+            return refuse(f"could not read {path}: {exc}")
+        before, errors = _validated(inst, path)
+        if change.lower() in cycles:
+            print(cycles[change.lower()])
+            return refuse(f"a Needs: cycle, run `abk tags {change}`")
+        if errors:
+            for error in errors:
+                print(f"{path}:{error}")
+            return refuse(f"{len(errors)} other problem(s), run `abk tags {change}`")
+        fixed, count = retag_headings(text, current_tag)
+        if not count:
+            print(f"{change}: unchanged")
+            return True
+        with tempfile.TemporaryDirectory() as scratch:
+            probe = Path(scratch) / change / "tasks.md"
+            probe.parent.mkdir()
+            probe.write_bytes(fixed.encode())
+            after, after_errors = _validated(inst, probe)
+        if (before, []) != (after, after_errors):
+            return refuse("the rewritten tags do not parse to the same groups; nothing written")
+        if not os.access(path, os.W_OK):
+            return refuse(f"{path} is read-only")
+        if dry_run:
+            print(f"{change}: would rewrite {count} tag(s)")
+            return True
+        try:
+            atomic_write_bytes(path, fixed.encode())
+        except OSError as exc:
+            return refuse(f"could not write {path}: {exc}")
+        # A plan that stood before the rewrite stands after it: keep the record's other fields
+        # and move its hash to the rewritten text, whatever mix of spellings it hashed. Judged
+        # under the plans lock, against the record as it is and the text that was read.
+        update_plans(inst, lambda records: _rehashed(records, change, text, fixed))
     print(f"{change}: rewrote {count} tag(s)")
     return True
 

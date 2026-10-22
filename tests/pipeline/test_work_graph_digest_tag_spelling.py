@@ -4,32 +4,24 @@ and a plan recorded from the old spelling still counts as current for the rewrit
 
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from tests.cli.replan_driver import tagged_md, tick, ticking_replan
-from tests.cli.tags_fix_support import OLD_E2E_TAG, OLD_UNIT_TEST_TAG, run_tags
+from tests.cli.tags_fix_support import (
+    OLD_E2E_TAG,
+    OLD_UNIT_TEST_TAG,
+    digest_of,
+    recorded_before_the_tag_was_renamed,
+    run_tags,
+)
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
 OLD = tagged_md(OLD_UNIT_TEST_TAG, OLD_E2E_TAG)
 NEW = tagged_md("unit-test", "e2e-test")
-
-
-def digest_of(tmp_path: Path, text: str) -> str:
-    path = tmp_path / "digest" / "tasks.md"
-    path.parent.mkdir(exist_ok=True)
-    path.write_text(text)
-    return cli.plan_digest(path)
-
-
-def recorded_before_the_tag_was_renamed(text: str) -> str:
-    """The digest an earlier release recorded: the text's non-blank lines, hashed as written."""
-    lines = "\n".join(line for line in text.splitlines() if line.strip())
-    return hashlib.sha256(lines.encode()).hexdigest()
 
 
 def test_the_digest_is_the_same_for_the_old_and_the_new_spelling(tmp_path: Path) -> None:

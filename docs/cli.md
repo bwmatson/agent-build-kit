@@ -383,7 +383,9 @@ compares it with the parse of the text it read; a change with any other tag prob
 or read-only file, text that is not valid text, or a parse that differs is refused with the reason
 and nothing is written for it, while the other selected changes are still handled. Exit 1 if any
 change was refused. `--dry-run` prints what would be rewritten and writes nothing. Archived
-changes are skipped. Only this command edits a `tasks.md`; the pipeline never does.
+changes are skipped. Only this command rewrites a tag in a `tasks.md`; the pipeline ticks task boxes there but never
+rewrites a tag. A text that mixes both spellings should be rewritten with this command, not by
+hand, so that a plan made from it stays current.
 
 ### `abk check`
 

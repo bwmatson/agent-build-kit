@@ -6,11 +6,13 @@ missing final newline reaches the command as the test wrote it.
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit.cli import main
+from agent_build_kit.cli.pipeline import plan_digest
 from tests.cli.replan_driver import Replan
 
 OLD_UNIT_TEST_TAG = "tier" + "1"
@@ -48,6 +50,20 @@ def one_group_text(unit_test_tag: str) -> bytes:
     """A tasks.md of one group tagged `unit_test_tag`."""
     group = f"## 1. [app] [{unit_test_tag}] Only one\n\n- [ ] 1.1 Test: it.\n- [ ] 1.2 Do it.\n"
     return f"# Tasks\n\nAcceptance: none — a fixture about tags\n\n{group}".encode()
+
+
+def recorded_before_the_tag_was_renamed(text: str) -> str:
+    """The digest an earlier release recorded: the text's non-blank lines, hashed as written."""
+    lines = "\n".join(line for line in text.splitlines() if line.strip())
+    return hashlib.sha256(lines.encode()).hexdigest()
+
+
+def digest_of(directory: Path, text: str) -> str:
+    """The plan digest of `text`, written as a tasks.md under `directory`."""
+    path = directory / "digest" / "tasks.md"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(text)
+    return plan_digest(path)
 
 
 def planning(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Replan:
