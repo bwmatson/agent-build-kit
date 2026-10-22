@@ -39,11 +39,14 @@ def test_the_migration_section_names_tags_fix_and_the_config_migration() -> None
     section = migrating_section()
     assert "abk tags --fix" in section
     assert "abk config --migrate" in section
+    for setting in ("global_limits", "project_limits", "unit_test_", "e2e_"):
+        assert setting in section, setting
 
 
 def test_the_migration_section_gives_the_order() -> None:
     section = migrating_section()
     positions = [
+        section.index("abk config --migrate"),
         section.index("abk tags --fix"),
         section.index("replan --stale --report"),
         section.index("replan --stale --dry-run"),

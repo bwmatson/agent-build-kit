@@ -697,8 +697,9 @@ planned or rewritten before you have seen what it would do:
 
 1. `abk config --migrate` moves the settings still under their old names (the root `limits`
    block and the numbered test-tier keys) to `global_limits`, `project_limits` and the
-   `unit_test_*` and `e2e_*` names.
-2. `abk tags --fix --all` first. It does not make a plan stale, since the sizing digest ignores
+   `unit_test_*` and `e2e_*` names, `max_unit_lines` to `review.ceilings.full`, and a flat
+   `models:` block under `runtimes.<name>.models`.
+2. `abk tags --fix --all`, before any replan. It does not make a plan stale, since the sizing digest ignores
    how a tag is spelled, and it clears the old-tag warnings `abk tags` and `abk check` print;
    the plans made in the later steps are then read from the new spelling.
 3. `abk replan --stale --report` (or a change name, or `--all`) shows each change's plan state, its started and unstarted units and
@@ -910,7 +911,8 @@ default filled in; `--path` prints the `abk.yaml` in force. Exit 0.
 `--migrate` edits the file's text, so comments and spacing stay: the root `limits` block
 becomes `global_limits`, and the three scheduling settings left in it move to
 `project_limits`, and each setting key still named for a numbered tier, in the limits
-block and the `tests` blocks, gets its test-kind name (`unit_test_*`, `e2e_*`), in the same change.
+block and the `tests` blocks, gets its test-kind name (`unit_test_*`, `e2e_*`), in the same change. `max_unit_lines` moves to
+`review.ceilings.full`, and a flat `models:` block moves under `runtimes.<name>.models`.
 A file that sets both spellings of one setting, or a block with an anchor, a merge key or
 flow style, is refused. It prints the diff and asks; `--yes` skips the question and `--dry-run`
 prints the diff and writes nothing. The first original is kept as `abk.yaml.abk-backup`,
