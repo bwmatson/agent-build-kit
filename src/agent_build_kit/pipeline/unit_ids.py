@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Collection, Sequence
 
 from agent_build_kit.pipeline.unit_store import UNPLANNED, StoredUnit
-from agent_build_kit.pipeline.units import PLANNED, Unit
-
-_LEADING_NUMBER = re.compile(r"\d+")
+from agent_build_kit.pipeline.units import PLANNED, Unit, unit_id_parts
 
 
 def is_reusable(stored: StoredUnit, retired: Collection[str] = ()) -> bool:
@@ -31,8 +28,10 @@ def taken_ids(stored: Sequence[StoredUnit], retired: Collection[str] = ()) -> se
 
 
 def _number(unit_id: str) -> int:
-    found = _LEADING_NUMBER.match(unit_id.rsplit("/", 1)[-1])
-    return int(found.group()) if found else 0
+    try:
+        return unit_id_parts(unit_id)[0]
+    except ValueError:
+        return 0
 
 
 def assign_unit_ids(

@@ -14,7 +14,7 @@ from pathlib import Path
 
 from agent_build_kit.compat_names import moved_to_current_name, old_spelling
 from agent_build_kit.model import TestTier
-from agent_build_kit.pipeline.units import Unit, unit_id_parts
+from agent_build_kit.pipeline.units import Unit, unit_file_prefix
 from agent_build_kit.redaction import redact_text
 
 # How many runs of one unit are kept; older ones go when a new one is written.
@@ -63,8 +63,7 @@ def append_e2e_output(directory: Path, unit: Unit, started: datetime, text: str)
 
 
 def _unit_prefix(unit: Unit) -> str:
-    number, suffix = unit_id_parts(unit.id)
-    return f"{unit.change}-{number:02d}{suffix}-"
+    return unit_file_prefix(unit.id, unit.change)
 
 
 def run_log_name(unit: Unit, started: datetime, step: str) -> str:

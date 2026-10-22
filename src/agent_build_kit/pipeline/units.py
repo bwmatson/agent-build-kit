@@ -812,6 +812,14 @@ def unit_id_parts(unit_id: str) -> tuple[int, str]:
     return int(tail["number"]), tail["suffix"]
 
 
+def unit_file_prefix(unit_id: str, change: str | None = None) -> str:
+    """The start of the names of a unit's run logs and transcripts, `<change>-<nn><suffix>-`
+    (the change is the id's own unless given), which a timestamp follows directly. A piece of a
+    split has its suffix in it, so no unit's files are matched by another's prefix."""
+    number, suffix = unit_id_parts(unit_id)
+    return f"{change if change is not None else unit_id.rsplit('/', 1)[0]}-{number:02d}{suffix}-"
+
+
 def unit_number(unit: Unit) -> int:
     """The `<n>` of a unit's `<change>/<n>` id: its place in its change's plan order. A piece
     of a split sorts where its root did."""

@@ -1089,6 +1089,9 @@ def on_closed(
     decision about one unit, and the branches above it hold work that nobody
     asked to drop.
 
+    A superseded unit is left alone too: the pipeline closes its pull request after a comment
+    naming its pieces, and the closed event must not replace its cause.
+
     A satisfied unit is left alone. Its own close — posted, then closed, by
     `wiring.build_close_pr` once its work turned up already implemented
     elsewhere — is this same OPEN→CLOSED transition, and the poller cannot

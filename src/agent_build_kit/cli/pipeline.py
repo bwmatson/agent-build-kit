@@ -499,8 +499,8 @@ def _usage_line(reading: UsageReading) -> str:
 
 
 def retry_closes(store: UnitStore, *, close_pr: Callable[[Unit, int, str], None]) -> None:
-    """Close again each satisfied or retired unit's pull request that is still open, removing
-    the record of those that closed."""
+    """Close again each satisfied, retired or superseded unit's pull request that is still open,
+    removing the record of those that closed."""
     for unit in store.all():
         pending = unit.close_pending
         if pending is None:

@@ -69,10 +69,9 @@ def _prefix(unit: Unit) -> str:
 
 
 def _id_prefix(unit_id: str) -> str:
-    from agent_build_kit.pipeline.units import unit_id_parts  # a module-level import would cycle
+    from agent_build_kit.pipeline.units import unit_file_prefix  # a module-level import would cycle
 
-    number, suffix = unit_id_parts(unit_id)
-    return f"{unit_id.rsplit('/', 1)[0]}-{number:02d}{suffix}-"
+    return unit_file_prefix(unit_id)
 
 
 def _unit_files(directory: Path, prefix: str) -> list[Path]:

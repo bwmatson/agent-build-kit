@@ -41,6 +41,7 @@ def store_of(tmp_path: Path, *, writes: list[int] | None = None) -> UnitStore:
                 groups=(5,),
                 depends_on=(HELD_ID,),
                 needs=(HELD_ID,),
+                merge_needs=(HELD_ID,),
                 waited_on=(HELD_ID,),
             ),
         ]
@@ -95,6 +96,7 @@ def test_a_dependent_is_re_pointed_to_the_last_piece_in_dependency_and_needs(
     dependent = store.get("app/5")
     assert dependent.depends_on == (LAST,)
     assert dependent.needs == (LAST,)
+    assert dependent.merge_needs == (LAST,)
     assert dependent.waited_on == (LAST,)
 
 

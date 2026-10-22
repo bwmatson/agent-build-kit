@@ -1259,14 +1259,14 @@ class UnitStore:
                 f"over the {request.ceiling}-line ceiling of its {request.earned} tier."
             )
 
-        stored.update(repointed(stored, unit_id, last))
-        _repoint_references(stored, unit_id, last)
         for piece in pieces:
             stored[piece.id] = StoredUnit(
                 **piece.model_dump(include=set(Unit.model_fields) - {"superseded_by", "state"}),
                 state=PLANNED,
                 split_from=unit_id,
             )
+        stored.update(repointed(stored, unit_id, last))
+        _repoint_references(stored, unit_id, last)
         stored[unit_id] = old.model_copy(
             update={
                 "state": UnitState.CLOSED,
@@ -1482,13 +1482,13 @@ def _record_successors(
 
 
 def _repoint_references(stored: dict[str, StoredUnit], old: str, new: str) -> None:
-    """Name `new` wherever a unit's `needs`, `waited_on` or `superseded_by` names `old`, once
-    each. `depends_on` is left to `repointed`, the one path that stores only direct
+    """Name `new` wherever a unit's `needs`, `merge_needs`, `waited_on` or `superseded_by` names
+    `old`, once each. `depends_on` is left to `repointed`, the one path that stores only direct
     dependencies."""
     for unit_id, unit in stored.items():
         update = {
             field: tuple(dict.fromkeys(new if item == old else item for item in current))
-            for field in ("needs", "waited_on", "superseded_by")
+            for field in ("needs", "merge_needs", "waited_on", "superseded_by")
             if old in (current := getattr(unit, field))
         }
         if update:

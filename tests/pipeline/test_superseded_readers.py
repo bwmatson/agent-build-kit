@@ -9,7 +9,7 @@ import pytest
 
 from agent_build_kit.pipeline.archive import is_ready_to_archive
 from agent_build_kit.pipeline.unit_store import Cause
-from agent_build_kit.pipeline.units import MERGED, UnitState, waiting_on
+from agent_build_kit.pipeline.units import MERGED, UnitState, in_progress, start_room, waiting_on
 from tests.conftest import make_installation, run_status
 from tests.factories import stored_unit, superseded_store, unit
 
@@ -28,6 +28,17 @@ def test_a_change_whose_pieces_merged_is_ready_to_archive_without_the_superseded
     store.set_state(LAST, MERGED)
 
     assert is_ready_to_archive("app", store.all())
+
+
+def test_a_superseded_unit_with_a_branch_and_a_pull_request_is_not_in_progress(
+    tmp_path: Path,
+) -> None:
+    store = superseded_store(tmp_path)
+    graph = store.all()
+
+    assert store.get(OLD).branch and store.get(OLD).pr
+    assert not in_progress(store.get(OLD), graph)
+    assert start_room(graph, 1) == 1
 
 
 def test_nothing_waits_on_a_superseded_unit_a_dependent_still_names(tmp_path: Path) -> None:
