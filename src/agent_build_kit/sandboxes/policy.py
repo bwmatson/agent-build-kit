@@ -9,6 +9,7 @@ from typing import Any
 from agent_build_kit import config as config_module
 from agent_build_kit.config import ProjectSandboxConfig, RepoSandboxConfig
 from agent_build_kit.installation import Installation
+from agent_build_kit.model import Frozen
 from agent_build_kit.sandboxes.base import (
     SandboxPathsProfile,
     SandboxPathsRuntime,
@@ -57,6 +58,28 @@ def build_policy(
         hosts=_unique(listed("hosts")),
         required=installation.config.repos[repo].sandbox.required,
     )
+
+
+class PolicyEntry(Frozen):
+    """One line of a policy: the list it is in (`read`, `write` or `hosts`), the entry as
+    listed and where it came from (`built-in`, `runtime`, a profile name, `abk.yaml` or
+    `abk.local.yaml`)."""
+
+    kind: str
+    value: str
+    source: str
+
+
+def policy_entries(
+    installation: Installation,
+    repo: str,
+    worktree: Path,
+    *,
+    runtime: object,
+    profile: object,
+) -> list[PolicyEntry]:
+    """The entries `build_policy` assembles, each with its source, in the order it takes them."""
+    raise NotImplementedError
 
 
 def proxy_environment(port: int) -> dict[str, str]:
