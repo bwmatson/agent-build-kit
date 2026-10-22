@@ -14,6 +14,7 @@ from agent_build_kit.sandboxes.base import (
     SandboxPathsRuntime,
     SandboxPolicy,
 )
+from agent_build_kit.sandboxes.proxy import LOCALHOST
 
 # The parts of a repository's git directory a commit writes. Landlock rules only add access,
 # so they are granted one at a time and never `hooks` or `config`.
@@ -60,7 +61,8 @@ def build_policy(
 
 def proxy_environment(port: int) -> dict[str, str]:
     """The environment that points a step's HTTP clients at the proxy on `port`."""
-    raise NotImplementedError
+    url = f"http://{LOCALHOST}:{port}"
+    return {name: url for key in ("HTTPS_PROXY", "HTTP_PROXY") for name in (key, key.lower())}
 
 
 def _blocks(document: dict[str, Any], repo: str) -> list[ProjectSandboxConfig]:

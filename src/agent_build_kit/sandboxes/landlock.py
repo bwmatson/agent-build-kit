@@ -12,6 +12,8 @@ from pathlib import Path
 from agent_build_kit.sandboxes import launcher
 from agent_build_kit.sandboxes.base import Availability, Coverage, SandboxPolicy
 
+NETWORK_ABI = launcher.NETWORK_ABI
+
 FIX = "use Linux kernel 5.13 or later with Landlock enabled, or set `required: none` on the repo"
 
 # What the probe's trivial command needs to read.
@@ -20,7 +22,7 @@ _PROBE_READ = ("/usr", "/bin", "/lib", "/lib64", "/etc")
 
 def abi_version() -> int:
     """The Landlock ABI version this kernel reports; the TCP rule needs 4 or later."""
-    raise NotImplementedError
+    return launcher.abi_version()
 
 
 def _policy_text(policy: SandboxPolicy) -> str:
@@ -28,6 +30,8 @@ def _policy_text(policy: SandboxPolicy) -> str:
     lines += [f"write={path}" for path in policy.write]
     lines += [f"read={path}" for path in policy.read]
     lines += [f"host={host}" for host in policy.hosts]
+    if policy.proxy_port is not None:
+        lines.append(f"proxy_port={policy.proxy_port}")
     return "\n".join(lines) + "\n"
 
 
@@ -71,7 +75,15 @@ class Landlock:
                 result.stderr.strip() or "a Landlock restriction did not stop a write in the probe"
             )
             return Availability(ok=False, coverage=Coverage.NONE, cause=cause, fix=FIX)
-        return Availability(ok=True, coverage=Coverage.FILES)
+        abi = abi_version()
+        if abi < NETWORK_ABI:
+            return Availability(
+                ok=True,
+                coverage=Coverage.FILES,
+                cause=f"Landlock ABI {abi} cannot confine the network (it needs {NETWORK_ABI})",
+                fix=FIX,
+            )
+        return Availability(ok=True, coverage=Coverage.PROCESS)
 
     def command(self, policy: SandboxPolicy, argv: Sequence[str]) -> list[str]:
         handle, name = tempfile.mkstemp(prefix="abk-sandbox-", suffix=".policy")

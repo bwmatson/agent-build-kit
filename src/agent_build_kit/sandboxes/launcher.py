@@ -19,7 +19,7 @@ Restrict = Callable[[Mapping[str, list[str]]], None]
 EXIT_NOT_APPLIED = 97
 
 # The policy file's list keys; `required` is a single value beside them.
-LIST_KEYS = ("write", "read", "host")
+LIST_KEYS = ("write", "read", "host", "proxy_port")
 
 _SYS_CREATE_RULESET = 444
 _SYS_ADD_RULE = 445
@@ -27,6 +27,9 @@ _SYS_RESTRICT_SELF = 446
 _PR_SET_NO_NEW_PRIVS = 38
 _CREATE_RULESET_VERSION = 1
 _RULE_PATH_BENEATH = 1
+_RULE_NET_PORT = 2
+_CONNECT_TCP = 1 << 1
+NETWORK_ABI = 4
 
 # Filesystem rights, by the ABI that introduced them.
 _EXECUTE, _WRITE_FILE, _READ_FILE, _READ_DIR = 1 << 0, 1 << 1, 1 << 2, 1 << 3
@@ -44,6 +47,14 @@ class _PathBeneath(ctypes.Structure):
     _fields_ = (("allowed_access", ctypes.c_uint64), ("parent_fd", ctypes.c_int32))
 
 
+class _RulesetAttr(ctypes.Structure):
+    _fields_ = (("handled_access_fs", ctypes.c_uint64), ("handled_access_net", ctypes.c_uint64))
+
+
+class _NetPort(ctypes.Structure):
+    _fields_ = (("allowed_access", ctypes.c_uint64), ("port", ctypes.c_uint64))
+
+
 def _libc() -> ctypes.CDLL:
     return ctypes.CDLL(None, use_errno=True)
 
@@ -58,6 +69,11 @@ def _call(libc: ctypes.CDLL, *args: object) -> int:
 
 def _abi(libc: ctypes.CDLL) -> int:
     return _call(libc, _SYS_CREATE_RULESET, None, 0, _CREATE_RULESET_VERSION)
+
+
+def abi_version() -> int:
+    """The Landlock ABI version this kernel reports; the TCP rule needs 4 or later."""
+    return _abi(_libc())
 
 
 def _rights(abi: int) -> tuple[int, int, int]:
@@ -81,9 +97,15 @@ def apply_restrictions(lists: Mapping[str, list[str]], libc: ctypes.CDLL | None 
     libc = libc or _libc()
     abi = _abi(libc)
     handled, file_rights, folder_rights = _rights(abi)
-    attr = ctypes.c_uint64(handled)
-    ruleset = _call(libc, _SYS_CREATE_RULESET, ctypes.byref(attr), 8, 0)
+    port = next(iter(lists.get("proxy_port", [])), "")
+    # The TCP rule needs ABI 4; on an older kernel the network is left as it is.
+    net = _CONNECT_TCP if port and abi >= NETWORK_ABI else 0
+    attr = _RulesetAttr(handled, net)
+    ruleset = _call(libc, _SYS_CREATE_RULESET, ctypes.byref(attr), ctypes.sizeof(attr), 0)
     try:
+        if net:
+            allowed = _NetPort(net, int(port))
+            _call(libc, _SYS_ADD_RULE, ruleset, _RULE_NET_PORT, ctypes.byref(allowed), 0)
         rules = [(path, folder_rights) for path in lists.get("write", [])]
         rules += [(path, _READ_RIGHTS & handled) for path in lists.get("read", [])]
         rules.append((_DEVICE_FOLDER, file_rights & ~_EXECUTE))
