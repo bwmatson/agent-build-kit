@@ -16,6 +16,7 @@ REPLANS = ("a replan", "a demotion and a promotion")
 STANDING = [
     Cause.SPLIT_HELD,
     Cause.MANUAL_STEP,
+    Cause.TOO_BIG_FOR_TIER,
     Cause.GATED,
     Cause.UPSTREAM_WENT_BACK,
     Cause.BASE_CHANGED,

@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from agent_build_kit import telemetry
-from agent_build_kit.config import AutoLandConfig
+from agent_build_kit.config import AutoLandConfig, CeilingsConfig
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.verdict import (
@@ -14,6 +14,7 @@ from agent_build_kit.pipeline.verdict import (
     NO_HISTORY,
     ClassHistory,
     ReviewTier,
+    SplitRequest,
     VerdictFacts,
     compute_verdict,
 )
@@ -41,6 +42,8 @@ class VerdictEntry(Frozen):
     paths: tuple[str, ...]
     lines: int
     brief: bool
+    # Set when the unit is over its earned tier's buffered ceiling; not written to the file.
+    split: SplitRequest | None = None
 
 
 def record_verdict(
@@ -57,11 +60,13 @@ def record_verdict(
     lines: int = 0,
     history: ClassHistory = NO_HISTORY,
     policy: AutoLandConfig = DEFAULT_POLICY,
+    ceilings: CeilingsConfig | None = None,
+    buffer: float = 0.0,
 ) -> VerdictEntry:
     """Compute the verdict of `facts` and write it over the unit's entry in `path`, atomically.
 
     The entry is final when `facts.final`."""
-    verdict = compute_verdict(facts, history, policy)
+    verdict = compute_verdict(facts, history, policy, ceilings, buffer)
     entry = VerdictEntry(
         unit=unit,
         change=change,
@@ -77,10 +82,11 @@ def record_verdict(
         paths=paths,
         lines=lines,
         brief=False,
+        split=verdict.split,
     )
     with file_lock(path.with_name(f"{path.name}.lock")):
         recorded = json.loads(path.read_text()) if path.exists() else {}
-        recorded[unit] = entry.model_dump(mode="json")
+        recorded[unit] = entry.model_dump(mode="json", exclude={"split"})
         atomic_write_text(path, json.dumps(recorded, indent=2, sort_keys=True))
     _count(entry, repo)
     return entry

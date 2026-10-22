@@ -6645,6 +6645,14 @@ def requeue(
             "--restart starts it over, a plain requeue resumes it"
         )
         return 1
+    if (
+        by == REQUEUE_BY
+        and known[unit_id].state == HELD
+        and known[unit_id].held_by == HeldBy.REVIEW
+        and known[unit_id].cause is Cause.TOO_BIG_FOR_TIER
+    ):
+        # A person who reads an oversized unit and lets it through is not held by the same rule.
+        store.set_size_waived(unit_id)
     waits = waiting_on(known[unit_id], list(known.values()))
     # What the history entry of a requeue says of a note: its first 200 characters.
     said = guidance_excerpt(note) if not clears_park else ""

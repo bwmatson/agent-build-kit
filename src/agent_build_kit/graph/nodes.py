@@ -21,7 +21,14 @@ from langgraph.types import interrupt
 
 from agent_build_kit import claude_account, forges, profiles, telemetry
 from agent_build_kit.budget import cut_head
-from agent_build_kit.config import E2eBeforeMerge, active, active_root, e2e_before_merge, models
+from agent_build_kit.config import (
+    E2eBeforeMerge,
+    active,
+    active_root,
+    ceilings_in_effect,
+    e2e_before_merge,
+    models,
+)
 from agent_build_kit.forges.base import BaseMissing
 from agent_build_kit.graph.state import (
     RESUME_IMPLEMENT,
@@ -111,6 +118,7 @@ from agent_build_kit.pipeline.unit_store import (
     FeedbackSource,
     HeldBy,
     RequeueReason,
+    StoredSplitRequest,
     StoredUnit,
     guidance_excerpt,
 )
@@ -133,8 +141,15 @@ from agent_build_kit.pipeline.usage_guard import ask_before_call, starting
 from agent_build_kit.pipeline.usage_ledger import (
     session_cumulative,
 )
-from agent_build_kit.pipeline.verdict import GateResult, ReviewTier, VerdictFacts
+from agent_build_kit.pipeline.verdict import (
+    GateResult,
+    GroupText,
+    ReviewTier,
+    SplitRequest,
+    VerdictFacts,
+)
 from agent_build_kit.pipeline.verdict_record import VERDICTS, record_verdict
+from agent_build_kit.pipeline.work_graph import group_sections
 from agent_build_kit.pipeline.workspaces import DirtyWorktree
 from agent_build_kit.profiles.base import stubbed_build
 from agent_build_kit.redaction import redact_text
@@ -1695,7 +1710,7 @@ class BuildPath:
             r.run_review if first else r.run_rework_review, cwd=tree, state=state, **context
         )
         weighed = r.weigh_review(unit, raw, judged=judged, rounds=rounds)
-        self.record_round(round_number if zero else round_number + 1, weighed, state)
+        split = self.record_round(round_number if zero else round_number + 1, weighed, state)
         update: Update = {
             "review_round": round_number if zero else round_number + 1,
             "adopted": False,
@@ -1705,6 +1720,8 @@ class BuildPath:
             "last_findings": weighed.findings,
         }
         if weighed.approved:
+            if split:
+                return self.hold_too_big(update, split)
             return {
                 **update,
                 "verdict": Verdict.APPROVED,
@@ -1756,6 +1773,8 @@ class BuildPath:
                     held_by=HeldBy.REVIEW,
                 ),
             }
+        if split:
+            return self.hold_too_big(update, split)
         # Kept as feedback, so the rework addresses what this round asked for, or
         # a person who inherits the branch reads what is outstanding.
         r.store.set_feedback(unit.id, weighed.why)
@@ -1767,11 +1786,51 @@ class BuildPath:
             return {**update, "spent": True}
         return {**update, "verdict": Verdict.CHANGES, "fix_rounds": 0}
 
-    def record_round(self, number: int, weighed: Weighed, state: UnitRun) -> None:
-        """Record the verdict of a review round. It only records: a failure is logged and the
-        unit goes on."""
+    def hold_too_big(self, update: Update, split: SplitRequest) -> Update:
+        """Hold the unit as too big for its tier, with the request to split it. The round is not
+        counted: the unit is neither failed nor sent back for rework."""
+        r, unit = self.runner, self.unit
+        r.store.set_split_request(
+            unit.id,
+            StoredSplitRequest(
+                earned=split.earned.value,
+                planned=split.planned.value if split.planned else None,
+                lines=split.lines,
+                ceiling=split.ceiling,
+                drivers=split.drivers,
+            ),
+        )
+        note = (
+            f"too big for its tier: {split.lines} changed lines, over the {split.earned} "
+            f"ceiling of {split.ceiling}"
+        )
+        kept = {k: v for k, v in update.items() if k != "review_round"}
+        return {
+            **kept,
+            **self.hold(HELD, note, note, cause=Cause.TOO_BIG_FOR_TIER, held_by=HeldBy.SIZE),
+        }
+
+    def group_texts(self) -> tuple[GroupText, ...]:
+        """The unit's groups with the text of their tasks, as the verdict matches a driver."""
+        steps = self.runner.group_steps(self.unit)
+        texts: dict[str, str] = {}
+        for step in steps:
+            tasks = Path(step.change_dir) / "tasks.md"
+            if step.change_dir not in texts:
+                texts[step.change_dir] = tasks.read_text() if tasks.exists() else ""
+        return tuple(
+            GroupText(
+                number=step.number,
+                text="".join(group_sections(texts[step.change_dir], [step.number])),
+            )
+            for step in steps
+        )
+
+    def record_round(self, number: int, weighed: Weighed, state: UnitRun) -> SplitRequest | None:
+        """Record the verdict of a review round and return its request to split the unit, if it
+        has one. A failure is logged and the unit goes on, as if the verdict said nothing."""
         if not active().review.enabled:
-            return
+            return None
         r, unit = self.runner, self.unit
         try:
             kind = unit.tier
@@ -1788,8 +1847,12 @@ class BuildPath:
                 flags=tuple(step.flag for step in r.group_steps(unit) if step.flag),
                 open_required_findings=weighed.open_required,
                 final=weighed.approved,
+                changed_lines=lines,
+                drivers=weighed.verdict.drivers,
+                groups=self.group_texts(),
+                size_waived=r.store.get(unit.id).size_waived,
             )
-            record_verdict(
+            entry = record_verdict(
                 r.store.path.with_name(VERDICTS),
                 unit=unit.id,
                 change=unit.change,
@@ -1801,9 +1864,13 @@ class BuildPath:
                 paths=paths,
                 lines=lines,
                 policy=active().review.auto_land,
+                ceilings=ceilings_in_effect(r.repo_config, active()),
+                buffer=active().review.ceiling_buffer,
             )
+            return entry.split
         except Exception as error:
             r.log(f"verdict for {unit.id} not recorded: {error}")
+            return None
 
     def forget_e2e_result(self) -> None:
         """A new head the agent wrote has no e2e result yet: the one stored belongs to the head it
