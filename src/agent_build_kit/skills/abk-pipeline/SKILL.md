@@ -524,8 +524,12 @@ when it allows, whatever time the pause named. `abk status` prints each window a
 reset, which is what explains a pause at a percentage the configured floor
 alone doesn't account for. A refusal by the guard pauses only the unit that asked: the
 pass keeps running its rounds, asks the guard again at each, and resumes the unit once it
-allows. Only a pause written because the model refused a build holds every start until its
-deadline.
+allows. Only a pause written because the model refused a build holds starts until its
+deadline, and it holds only the account that was refused: with several accounts `abk status`
+prints one pause line for each paused account (`account <label> (<kind>): paused until …`), the
+units of the other accounts keep starting, and the round stops only when every account with a
+startable unit is paused. A rate limit or a usage refusal pauses its account; a network outage
+pauses all.
 
 A `network` pause is written when a unit parks for the network (never for the model
 service) and `abk status` shows it as `waiting for the network — <reason>`. It ignores its

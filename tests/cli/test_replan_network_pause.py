@@ -32,7 +32,7 @@ def test_a_replan_that_meets_a_network_outage_writes_the_network_pause(
     code, _ = run.run(capsys, "feature")
 
     assert code == 1
-    pause = json.loads((run.inst.state_dir / "paused.json").read_text())
+    pause = json.loads((run.inst.state_dir / "network-paused.json").read_text())
     assert pause["kind"] == "network"
     assert "feature" in pause["reason"]
 
@@ -46,7 +46,7 @@ def test_the_real_pause_ends_when_the_planning_wrote_it_to_end_with_no_grace_add
 
     after = datetime.now(UTC)
     until = datetime.fromisoformat(
-        json.loads((run.inst.state_dir / "paused.json").read_text())["until"]
+        json.loads((run.inst.state_dir / "network-paused.json").read_text())["until"]
     )
     # The backoff and the grace once, as a tick writes for the same outage, not the grace twice.
     assert until >= before + PARK_BACKOFF[0] + RESUME_GRACE
@@ -58,4 +58,4 @@ def test_a_dry_run_that_meets_a_network_outage_writes_no_pause(
 ) -> None:
     run.run(capsys, "feature", "--dry-run")
 
-    assert not (run.inst.state_dir / "paused.json").exists()
+    assert not (run.inst.state_dir / "network-paused.json").exists()

@@ -82,12 +82,12 @@ def test_a_tick_that_finds_a_control_host_plans_a_change_waiting_though_its_time
     assert tick(monkeypatch) == []
     assert planner.requests == []
     assert stored_record(tmp_path) == before
-    assert (tmp_path / "paused.json").exists()
+    assert (tmp_path / "network-paused.json").exists()
 
     probe.up = True
     tick(monkeypatch)
 
-    assert not (tmp_path / "paused.json").exists()
+    assert not (tmp_path / "network-paused.json").exists()
     assert len(planner.requests) == 1
     record = stored_record(tmp_path)
     assert record["ok"] is True

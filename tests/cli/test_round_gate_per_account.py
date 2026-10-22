@@ -97,10 +97,11 @@ def test_a_round_pauses_when_every_account_with_a_unit_is_full_and_the_pause_nam
 
     assert cli.cmd_tick(argv_namespace(dry_run=True), inst) == 0
 
-    paused = is_paused(inst.state_dir / "paused.json")
-    assert paused is not None
-    assert "account kit" in paused.reason
-    assert "session" in paused.reason
+    default = is_paused(inst.state_dir / "paused.json")
+    kit = is_paused(inst.state_dir / "paused.kit.json")
+    assert default is not None and kit is not None
+    assert "session" in default.reason and "kit" not in default.reason
+    assert "account kit" in kit.reason and "session" in kit.reason
 
 
 def test_an_account_with_no_unit_able_to_start_does_not_hold_the_round(

@@ -58,7 +58,7 @@ def _lock_of(inst: Installation, path: Path) -> AbstractContextManager[None]:
 
 def cmd_redact_history(args: argparse.Namespace, inst: Installation) -> int:
     if args.apply and not paused_or_refused(
-        "redact-history --apply", inst.state_dir, "a run log or transcript may be open"
+        "redact-history --apply", inst, "a run log or transcript may be open"
     ):
         return 1
     redactor = redaction.gather(inst)

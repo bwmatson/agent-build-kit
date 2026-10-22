@@ -196,7 +196,7 @@ def test_a_wait_found_by_the_probe_is_not_capped(
 
 
 def marker(run: Replan) -> dict:
-    return json.loads((run.inst.state_dir / "paused.json").read_text())
+    return json.loads((run.inst.state_dir / "network-paused.json").read_text())
 
 
 def test_a_network_wait_writes_the_network_pause_naming_the_change(
@@ -215,7 +215,7 @@ def test_a_network_wait_does_not_replace_a_pause_that_stands(run: Replan, clock:
         "kind": "network",
         "at": datetime.now(UTC).isoformat(),
     }
-    (run.inst.state_dir / "paused.json").write_text(json.dumps(standing))
+    (run.inst.state_dir / "network-paused.json").write_text(json.dumps(standing))
 
     plan(run, network())
 
@@ -228,7 +228,7 @@ def test_a_service_wait_writes_no_pause(run: Replan, clock: FakeClock) -> None:
     plan(run, service())
 
     assert run.records[CHANGE]["waiting"] == "service"
-    assert not (run.inst.state_dir / "paused.json").exists()
+    assert not (run.inst.state_dir / "network-paused.json").exists()
 
 
 def test_waits_the_network_made_do_not_count_toward_the_status_cap(

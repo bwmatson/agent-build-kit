@@ -29,11 +29,17 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
+from agent_build_kit import claude_account
+from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 
-# The marker's file name in the state directory.
+# The marker's file name in the state directory: the default account's. A named account keeps its
+# own beside it, as the usage cache is kept (`claude_account.file_for`).
 PAUSE_MARKER = "paused.json"
+
+# The network outage's marker: one for the whole installation, apart from every account's.
+NETWORK_MARKER = "network-paused.json"
 
 # Just after the reset, never exactly on it: a resume racing the window
 # boundary finds it still full and pauses again.
@@ -53,6 +59,24 @@ class Pause(Frozen):
     until: datetime
     reason: str
     kind: PauseKind = "usage"
+    # The label of the named account the pause belongs to, read from the marker's file name; None
+    # is the default account's, which a marker written before accounts were kept apart is.
+    account: str | None = None
+
+
+def pause_marker(state_dir: Path, account: claude_account.Account | None = None) -> Path:
+    """The marker of `account`'s pause in `state_dir`; the default account's is `PAUSE_MARKER`.
+    A network outage has `network_marker` of its own, never this."""
+    return claude_account.file_for(state_dir / PAUSE_MARKER, account)
+
+
+def _account_of(marker: Path) -> str | None:
+    """The label a marker's file name carries (`paused.<label>.json`); None for `paused.json`."""
+    stem, suffix = Path(PAUSE_MARKER).stem, Path(PAUSE_MARKER).suffix
+    name = marker.name
+    if name == PAUSE_MARKER or not (name.startswith(f"{stem}.") and name.endswith(suffix)):
+        return None
+    return name[len(stem) + 1 : -len(suffix)] or None
 
 
 def _locked(marker: Path) -> AbstractContextManager[None]:
@@ -79,17 +103,67 @@ def is_paused(marker: Path) -> Pause | None:
         kind = data["kind"]
     if until <= datetime.now(UTC) and kind != "network":
         return None
-    return Pause(until=until, reason=str(data.get("reason", "")), kind=kind)
+    # The file name says whose pause it is; the record's own `account` only repeats it.
+    return Pause(
+        until=until, reason=str(data.get("reason", "")), kind=kind, account=_account_of(marker)
+    )
+
+
+def network_marker(state_dir: Path) -> Path:
+    """The marker of a network outage: the whole installation's, in a file of its own so that no
+    account's pause can replace it or be replaced by it."""
+    return state_dir / NETWORK_MARKER
+
+
+def network_pause(state_dir: Path) -> Pause | None:
+    """The network pause in force: its own marker's, else a `paused.json` of kind `network` left
+    by a version that kept every pause in one file."""
+    held = is_paused(network_marker(state_dir))
+    if held is not None:
+        return held
+    legacy = is_paused(state_dir / PAUSE_MARKER)
+    return legacy if legacy is not None and legacy.kind == "network" else None
+
+
+def pauses_in_force(state_dir: Path) -> list[Pause]:
+    """Every pause in force in `state_dir`: the network's, then the default account's, then the
+    named accounts'."""
+    markers = sorted(state_dir.glob(f"{Path(PAUSE_MARKER).stem}*.json"))
+    markers.sort(key=lambda marker: marker.name != PAUSE_MARKER)
+    network = network_pause(state_dir)
+    found = [network] if network is not None else []
+    for marker in markers:
+        if (held := is_paused(marker)) is not None and held.kind != "network":
+            found.append(held)
+    return found
+
+
+def pause_for(state_dir: Path, account: claude_account.Account | None) -> Pause | None:
+    """The pause in force for `account`'s units: its own, or a network outage, which is every
+    account's."""
+    return network_pause(state_dir) or is_paused(pause_marker(state_dir, account))
 
 
 def pause_in_force(state_dir: Path) -> bool:
-    """Whether a pause is in force in `state_dir`, for what only shows it."""
-    return is_paused(state_dir / PAUSE_MARKER) is not None
+    """Whether a pause of any account is in force in `state_dir`, for what only shows it."""
+    return bool(pauses_in_force(state_dir))
 
 
-def paused_or_refused(command: str, state_dir: Path, why: str) -> bool:
-    """Whether a pause is in force in `state_dir`; when not, say `command` refuses, for `why`."""
-    if pause_in_force(state_dir):
+def every_account_paused(inst: Installation) -> bool:
+    """Whether no account in use can start a build: a network outage, or a pause in force for
+    each account the repos run on (the default account alone when none is named)."""
+    if network_pause(inst.state_dir) is not None:
+        return True
+    return all(
+        pause_for(inst.state_dir, account) is not None
+        for account in claude_account.in_use(inst.config)
+    )
+
+
+def paused_or_refused(command: str, inst: Installation, why: str) -> bool:
+    """Whether every account is paused (`every_account_paused`); when not, say `command` refuses,
+    for `why`: a run of an account that is not paused may be writing the store."""
+    if every_account_paused(inst):
         return True
     print(
         f"{command}: refused; {why}, so pause the pipeline first (nothing was changed)",
@@ -111,9 +185,14 @@ def resume_deadline(until: datetime | None, *, now: datetime | None = None) -> d
 
 
 def pause_until(
-    until: datetime | None, *, reason: str, marker: Path, kind: PauseKind = "usage"
+    until: datetime | None,
+    *,
+    reason: str,
+    marker: Path,
+    kind: PauseKind = "usage",
+    account: str | None = None,
 ) -> Pause:
-    """Record a pause: until when, why, and what kind.
+    """Record a pause: until when, why, what kind, and the label of the account it belongs to.
 
     A usage pause replaces the one before it, sooner or later: it is the guard's
     latest answer, and the one before was worked out from an older reading. A
@@ -121,14 +200,15 @@ def pause_until(
     pause, since the usage endpoint can show room the model has just refused.
     """
     return record_pause(
-        Pause(until=resume_deadline(until), reason=reason, kind=kind), marker=marker
+        Pause(until=resume_deadline(until), reason=reason, kind=kind, account=account),
+        marker=marker,
     )
 
 
 def record_pause(pause: Pause, *, marker: Path) -> Pause:
     """Record a pause whose deadline is already worked out, with no grace added again: the
     rules of `pause_until` hold, and it is what `pause_until` records through."""
-    deadline, reason, kind = pause.until, pause.reason, pause.kind
+    deadline, reason, kind, account = pause.until, pause.reason, pause.kind, pause.account
 
     # Read, compared and written under one lock: builds record pauses from
     # threads, and a round clearing one must not interleave with them.
@@ -142,20 +222,16 @@ def record_pause(pause: Pause, *, marker: Path) -> Pause:
 
         # Written aside and renamed into place, as `is_paused` reads without
         # the lock and a torn file would read as "not paused".
-        atomic_write_text(
-            marker,
-            json.dumps(
-                {
-                    "until": deadline.isoformat(),
-                    "reason": reason,
-                    "kind": kind,
-                    "at": datetime.now(UTC).isoformat(),
-                },
-                indent=2,
-            )
-            + "\n",
-        )
-    return Pause(until=deadline, reason=reason, kind=kind)
+        record = {
+            "until": deadline.isoformat(),
+            "reason": reason,
+            "kind": kind,
+            "at": datetime.now(UTC).isoformat(),
+        }
+        if account is not None:
+            record["account"] = account
+        atomic_write_text(marker, json.dumps(record, indent=2) + "\n")
+    return Pause(until=deadline, reason=reason, kind=kind, account=account)
 
 
 def pause_line(pause: Pause, *, verb: str = "paused", now: datetime | None = None) -> str:
@@ -191,11 +267,14 @@ def clear_pause(marker: Path) -> Pause | None:
     return None
 
 
-def end_network_pause(marker: Path) -> bool:
-    """End a network pause because the network is back; whether there was one."""
-    with _locked(marker):
-        held = is_paused(marker)
-        if held is None or held.kind != "network":
-            return False
-        marker.unlink(missing_ok=True)
-    return True
+def end_network_pause(state_dir: Path) -> bool:
+    """End a network pause because the network is back; whether there was one. Every account's
+    own pause is left as it was."""
+    ended = False
+    for marker in (network_marker(state_dir), state_dir / PAUSE_MARKER):
+        with _locked(marker):
+            held = is_paused(marker)
+            if held is not None and held.kind == "network":
+                marker.unlink(missing_ok=True)
+                ended = True
+    return ended

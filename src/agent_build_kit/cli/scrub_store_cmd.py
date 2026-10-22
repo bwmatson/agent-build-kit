@@ -44,7 +44,7 @@ def _counts(store: UnitStore) -> Iterator[tuple[str, str, int]]:
 
 def cmd_scrub_store(args: argparse.Namespace, inst: Installation) -> int:
     if args.apply and not paused_or_refused(
-        "scrub-store --apply", inst.state_dir, "a run may be writing the store"
+        "scrub-store --apply", inst, "a run may be writing the store"
     ):
         return 1
     store = UnitStore(inst.state_dir / "units.json")
