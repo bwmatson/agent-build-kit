@@ -71,9 +71,10 @@ def isolated() -> Iterator[None]:
 def _load_builtin() -> None:
     if _REGISTRY:
         return
-    from agent_build_kit.sandboxes import unavailable
+    from agent_build_kit.sandboxes import landlock, unavailable
 
-    _REGISTRY[unavailable.BACKEND.name] = unavailable.BACKEND
+    for backend in (landlock.BACKEND, unavailable.BACKEND):
+        _REGISTRY[backend.name] = backend
 
 
 __all__ = [
