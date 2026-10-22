@@ -22,6 +22,7 @@ from agent_build_kit.runtimes import (
     UsageStatus,
 )
 from agent_build_kit.runtimes.base import PolicyCoverage, PromptTransport
+from agent_build_kit.sandboxes import Coverage
 
 
 class _Double:
@@ -29,6 +30,7 @@ class _Double:
 
     implemented = True
     policy_coverage: PolicyCoverage = "none"
+    sandbox_coverage: Coverage = Coverage.NONE
     policy_check_prompts_agent = False
     supports_usage_tracking = False
     supports_streaming = False

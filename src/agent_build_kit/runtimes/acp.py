@@ -132,6 +132,7 @@ from agent_build_kit.runtimes.base import (
 )
 from agent_build_kit.runtimes.network import network_failure
 from agent_build_kit.runtimes.traced import traced
+from agent_build_kit.sandboxes import Coverage
 from agent_build_kit.tool_patterns import (  # noqa: F401  (`allows` is re-exported)
     allows,
     command_patterns,
@@ -1237,6 +1238,8 @@ class AcpRuntime:
     name: str = NAME
     implemented: bool = True
     policy_coverage: PolicyCoverage = "agent_flagged"
+    # Nothing launches this runtime under a backend yet; `sandbox-acp` raises it.
+    sandbox_coverage: Coverage = Coverage.NONE
     supports_usage_tracking: bool = False
     supports_streaming: bool = True
     supports_session_resume: bool = True

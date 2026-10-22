@@ -140,6 +140,7 @@ module ends with `_: AgentRuntime = RUNTIME`, so the type checker in
 | `name` | attr | the key an installation names in `abk.yaml` |
 | `implemented` | attr | False while an adapter is declared but unfinished |
 | `policy_coverage` | attr | `all_calls`, `agent_flagged` or `none` — how much of what an agent does abk can interpose on |
+| `sandbox_coverage` | attr | `process`, `files` or `none` — how much of the agent's processes the kernel confines (see `sandbox-design.md`) |
 | `supports_usage_tracking` | attr | whether `get_usage_status` can ever answer |
 | `supports_streaming` | attr | whether `AgentRequest.on_event` is ever called |
 | `supports_session_resume` | attr | whether `AgentRequest.resume_session` continues an earlier session; `on_session` is told each session's id as soon as it is known. A runtime without it is never sent a session to resume, and a session it cannot continue raises `SessionUnavailable`. The `acp` runtime supports it where the agent advertises both `session/resume` and `session/list`; see ACP sessions below |
@@ -285,6 +286,7 @@ class AgentRuntime(Protocol):
     name: str
     implemented: bool
     policy_coverage: PolicyCoverage
+    sandbox_coverage: Coverage
     supports_usage_tracking: bool
     supports_streaming: bool
     supports_session_resume: bool

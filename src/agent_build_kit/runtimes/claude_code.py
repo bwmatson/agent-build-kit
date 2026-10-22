@@ -71,6 +71,7 @@ from agent_build_kit.runtimes.base import (
 from agent_build_kit.runtimes.claude_output import AgentFailure, agent_failure
 from agent_build_kit.runtimes.network import network_failure
 from agent_build_kit.runtimes.traced import traced
+from agent_build_kit.sandboxes import Coverage
 from agent_build_kit.settings import named_value
 from agent_build_kit.usage import Context, ContextBasis, context_of
 
@@ -302,6 +303,8 @@ class ClaudeCodeRuntime:
     implemented: bool = True
     # The hook sees every tool call before it runs.
     policy_coverage: PolicyCoverage = "all_calls"
+    # Nothing launches this runtime under a backend yet; `sandbox-claude-code` raises it.
+    sandbox_coverage: Coverage = Coverage.NONE
     supports_usage_tracking: bool = True
     supports_streaming: bool = True
     # `--resume <id>`, with the id its init event reports.

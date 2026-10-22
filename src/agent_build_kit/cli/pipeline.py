@@ -47,6 +47,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict
 from agent_build_kit import claude_account, config, forges, profiles, runtimes, telemetry
 from agent_build_kit.budget import cut_head
 from agent_build_kit.cli.e2e_cmd import held_status_lines
+from agent_build_kit.cli.policy_cmd import coverage_line
 from agent_build_kit.cli.retire_cmd import cmd_retire
 from agent_build_kit.compat_names import old_tag
 from agent_build_kit.forges import PullRequest
@@ -750,6 +751,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     except KeyError as exc:
         log(f"usage: runtime {config.runtime_name()} is not available: {exc}")
     else:
+        log(coverage_line(runtime))
         if not runtime.supports_usage_tracking:
             log(f"usage: runtime {runtime.name} has no usage window")
         if runtime.supports_usage_tracking:

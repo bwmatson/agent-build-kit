@@ -15,12 +15,14 @@ from pathlib import Path
 from agent_build_kit.config import ModelsConfig
 from agent_build_kit.runtimes import AgentRequest, AgentResult, AgentRuntime, PolicyReport
 from agent_build_kit.runtimes.base import PolicyCoverage, PromptTransport
+from agent_build_kit.sandboxes import Coverage
 
 
 class StandInRuntime:
     name: str = "stand_in"
     implemented: bool = True
     policy_coverage: PolicyCoverage = "all_calls"
+    sandbox_coverage: Coverage = Coverage.NONE
     policy_check_prompts_agent: bool = False
     supports_usage_tracking: bool = False
     supports_streaming: bool = False

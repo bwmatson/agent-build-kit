@@ -12,6 +12,13 @@
   record as having carried the section, and a failure to write the record is logged and never
   holds the body.
 
+- `abk doctor` and `abk init` report whether the agent sandbox works on this machine by running
+  the backend's own probe, and print the cause and the fix when it does not; with
+  `sandbox.enabled` off they say so in one line. `abk policy check` and `abk status` show each
+  runtime's `sandbox_coverage` (`process`, `files` or `none`) beside its `policy_coverage`. The
+  README names the platforms the sandbox needs and `docs/configuration.md` lists its keys and
+  which file holds what.
+
 - An `[e2e-test]` task group, flagged or not, always has a unit of its own: a join that carries
   or joins one is refused, a plan that puts one with another group is refused and asked again,
   and the planner prompt says so. `abk tags` and `abk check` call a `Separate:` line in such a

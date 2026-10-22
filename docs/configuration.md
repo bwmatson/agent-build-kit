@@ -760,6 +760,7 @@ key that differs, since mappings merge by key:
 | a `verify.env` entry that reads a file in the home directory or holds a home path | `abk.local.yaml` | the same value is a different path on another machine |
 | `runtimes.<name>.limits`, `runtimes.claude_code.accounts.<label>.config_dir` | `abk.local.yaml` | the pause thresholds belong to this person's subscription windows, and a config directory is a path |
 | `project_limits` | `abk.local.yaml` | how many units and stacks this machine can run at once |
+| `sandbox.write`, `sandbox.read` (paths) and `sandbox.hosts` | `abk.local.yaml` for a path on this machine, `abk.yaml` for what every checkout shares | what an agent step may write, read and reach; `sandbox.enabled`, `sandbox.backend` and a repo's `sandbox.required` stay in `abk.yaml` |
 | the rest of a repo's entry (`slug`, `profile`, `tests`, `deploy.rules`, `consumes`, `relationships`) and `global_limits` | `abk.yaml` | how the work is planned, built and deployed, which every checkout shares |
 | a token, a port, an agent command | `.env`, read by a `from: env-file` provider | a secret or a single value, not structure |
 
@@ -791,6 +792,23 @@ Words that only this installation knows go in `scrub.local`, one per line (`!wor
 derived term); `abk scrub-check` reads it. `abk doctor`'s `public content` check warns when
 `abk.local.yaml` or `scrub.local` is tracked or not ignored, and when a committed `abk.yaml`
 holds a repo path outside the checkout, a home path or another account's repo.
+
+### `sandbox`
+
+The kernel confines what an agent step can write and reach. Keys:
+
+- `sandbox.enabled` (default `false`): turn the sandbox on.
+- `sandbox.backend` (default `auto`): `auto` picks the first backend whose probe passes on this
+  machine; or name one (`landlock` today; `seatbelt` arrives with the macOS backend and is refused at
+  load until then).
+- `repos.<name>.sandbox.required` (default `files`): the least coverage a step may run with
+  (`process`, `files` or `none`; `none` lets it run unconfined).
+- `sandbox.write`, `sandbox.read` and `sandbox.hosts`, on a repo or a project: extra paths and
+  hosts, in `abk.yaml` and `abk.local.yaml` (see the table above for which holds what).
+
+`abk doctor` and `abk init` run the backend's probe and print the cause and the fix when it fails;
+`abk policy check` and `abk status` show each runtime's `sandbox_coverage` beside its
+`policy_coverage`. The design is in [sandbox-design.md](sandbox-design.md).
 
 ### `review`
 
