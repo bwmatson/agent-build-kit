@@ -24,6 +24,11 @@ from tests.tick_pass import Builder, install_builder, isolate, stored, tick, wor
 # upper bound for a pass that does not.
 WAIT = 5
 
+# The longest the refill test waits on an event before it gives up on a hang. Unlike
+# `WAIT` it is far past anything a loaded machine takes, so running out means a hang and
+# never changes what the test concludes.
+HANG_GUARD = 120
+
 # Refreshes a test lets pass to show a unit is not started.
 SEVERAL_REFRESHES = 5
 
@@ -108,7 +113,7 @@ def test_one_project_starts_its_next_unit_as_one_of_its_builds_ends_and_the_othe
 
     def web1() -> None:
         arrive("web1/1")
-        everyone.wait(WAIT)  # ends web's first build once eight are building
+        everyone.wait(HANG_GUARD)  # ends web's first build once eight are building
         with lock:
             active.remove("web1/1")
 
@@ -117,15 +122,15 @@ def test_one_project_starts_its_next_unit_as_one_of_its_builds_ends_and_the_othe
             if uid == "web5/1":
                 next_started.set()
             arrive(uid)
-            released.wait(WAIT)
+            released.wait(HANG_GUARD)
             with lock:
                 active.remove(uid)
 
         return script
 
     def releaser() -> None:
-        if next_started.wait(WAIT):
-            refreshes.wait_for(refreshes.count + SEVERAL_REFRESHES, timeout=WAIT)
+        if next_started.wait(HANG_GUARD):
+            refreshes.wait_for(refreshes.count + SEVERAL_REFRESHES, timeout=HANG_GUARD)
         at_release.extend(builder.started)
         released.set()
 
