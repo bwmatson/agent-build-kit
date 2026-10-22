@@ -39,11 +39,12 @@ from pydantic import (
     model_validator,
 )
 
-from agent_build_kit import forges, infra, path_patterns, runtimes
+from agent_build_kit import forges, infra, path_patterns, runtimes, sandboxes
 from agent_build_kit.compat_names import Place, is_old_spelling, new_spelling, notice, old_spelling
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.replay.models import DEFAULT_KEYED_HEADERS, UpstreamKind
 from agent_build_kit.runtimes import known_agents, providers
+from agent_build_kit.sandboxes.base import Coverage
 
 if TYPE_CHECKING:
     from agent_build_kit.pipeline.verdict import ReviewTier
@@ -1049,6 +1050,38 @@ class DeployConfig(Frozen):
     credentials: CredentialsConfig | None = None
 
 
+class SandboxConfig(Frozen):
+    """Whether agent steps run confined by the kernel, and by which backend."""
+
+    enabled: bool = False
+    # `auto` picks the first backend whose probe passes on this machine.
+    backend: str = "auto"
+
+    @field_validator("backend")
+    @classmethod
+    def _known_backend(cls, value: str) -> str:
+        known = sandboxes.names()
+        if value != "auto" and value not in known:
+            raise ValueError(f"unknown sandbox backend {value!r} (known: auto, {', '.join(known)})")
+        return value
+
+
+class ProjectSandboxConfig(Frozen):
+    """What a project's steps may touch beyond the built-ins, as `abk.yaml` and
+    `abk.local.yaml` list it: paths to write and to read, and hosts the proxy lets through."""
+
+    write: list[str] = []
+    read: list[str] = []
+    hosts: list[str] = []
+
+
+class RepoSandboxConfig(ProjectSandboxConfig):
+    """A repo's lists, and how much confinement its steps need."""
+
+    # The least coverage a step may run with; `none` lets it run unconfined. Per repo only.
+    required: Coverage = Coverage.FILES
+
+
 class ProjectConfig(Frozen):
     """One project inside a repo: where it is, and what it is written in.
 
@@ -1061,6 +1094,7 @@ class ProjectConfig(Frozen):
     path: str
     languages: list[str] = []
     profile: str = "python-uv"
+    sandbox: ProjectSandboxConfig = ProjectSandboxConfig()
 
     @property
     def prefix(self) -> str:
@@ -1200,6 +1234,7 @@ class RepoConfig(Frozen):
     # How this repo's environment is kept current in a unit's worktree.
     environment: EnvironmentConfig | None = None
     review: RepoReviewConfig = RepoReviewConfig()
+    sandbox: RepoSandboxConfig = RepoSandboxConfig()
 
 
 # --- verify env providers -----------------------------------------------------
@@ -1477,6 +1512,8 @@ class WorkspaceConfig(Frozen):
     # latest session. A role the mapping does not name is off.
     session_reuse: dict[str, bool] = {"build": True, "review": False}
     review: ReviewConfig = ReviewConfig()
+    # Off by default: no step runs confined until an installation turns it on.
+    sandbox: SandboxConfig = SandboxConfig()
 
     @model_validator(mode="before")
     @classmethod
