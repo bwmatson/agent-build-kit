@@ -129,6 +129,13 @@ class InFlight(Frozen):
     state: str
 
 
+class Pin(Frozen):
+    """The pins of a unit that was split: the superseded unit and the request it was split by."""
+
+    held: StoredUnit
+    split: SplitRequest
+
+
 class Plan(Frozen):
     """A verified answer: the change's own units, and the joins to apply."""
 
@@ -161,8 +168,12 @@ def parse_plan(
     tasks: str = "",
     split: SplitRequest | None = None,
     held: StoredUnit | None = None,
+    pins: Sequence[Pin] = (),
 ) -> Plan:
     """Read and verify a proposed graph and its joins, or raise `PlannerError`.
+
+    `pins` are those of the change's superseded units whose pieces have not started: a plan
+    that regroups a pinned driver, or puts it at another tier, is refused.
 
     `tasks` is the change's tasks.md text, where the review tier's floor looks for protected
     paths. `retired` is the ids of retired units: taken, so a label may not be one. A unit's `id` in
@@ -255,6 +266,8 @@ def parse_plan(
         if split is not None and held is not None:
             _check_split_shape(units, held)
             _check_pins(units, split)
+        for pin in pins:
+            _check_pins([u for u in units if set(u.groups) & set(pin.held.groups)], pin.split)
         if joins:
             if context is None:
                 raise PlannerError("the planner proposed a join, and none is expected here")
@@ -1253,9 +1266,18 @@ def build_prompt(
     groups: Sequence[TaskGroup] | None = None,
     split: SplitRequest | None = None,
     held: StoredUnit | None = None,
+    pins: Sequence[Pin] = (),
 ) -> str:
     return _prompt_and_parts(
-        changes, in_flight, calibrations, examples, omitted, groups, split=split, held=held
+        changes,
+        in_flight,
+        calibrations,
+        examples,
+        omitted,
+        groups,
+        split=split,
+        held=held,
+        pins=pins,
     )[0]
 
 
@@ -1314,6 +1336,32 @@ def _split_text(split: SplitRequest, held: StoredUnit, retired: Sequence[str]) -
     return text
 
 
+def _pins_text(pins: Sequence[Pin]) -> str:
+    """What an earlier split fixed, which this plan keeps: one line for each superseded unit."""
+    lines = ["These units were split, and their pins stand in this plan:"]
+    for pin in pins:
+        split = pin.split
+        planned = split.planned or split.earned
+        groups = ", ".join(str(n) for n in pin.held.groups)
+        if split.drivers:
+            runs = _driver_runs(split.drivers, pin.held.groups)
+            pinned = "; ".join(
+                f"{'group' if len(run) == 1 else 'groups'} {' and '.join(str(n) for n in run)}"
+                for run in runs
+            )
+            lines.append(
+                f"- {pin.held.id} (groups {groups}): {pinned}, each in a unit of its own at the "
+                f"{split.earned.value} tier; its other groups at the {planned.value} tier, never "
+                "in a unit beside a pinned group."
+            )
+        else:
+            lines.append(
+                f"- {pin.held.id} (groups {groups}): every unit holding them is at the "
+                f"{split.earned.value} tier."
+            )
+    return "\n".join(lines)
+
+
 def omitted_line(count: int) -> str:
     """The one line that stands for the landed units of other changes left out of the list."""
     return f"{count} merged or satisfied units of other changes are in the trunk and omitted"
@@ -1329,6 +1377,7 @@ def _prompt_and_parts(
     previous_refusal: str = "",
     split: SplitRequest | None = None,
     held: StoredUnit | None = None,
+    pins: Sequence[Pin] = (),
 ) -> tuple[str, dict[str, int]]:
     """The prompt, and the size in bytes of the parts a person can cut."""
     _check_split_pair(split, held)
@@ -1374,6 +1423,8 @@ def _prompt_and_parts(
     )
     if split is not None and held is not None:
         prompt += "\n\n" + _split_text(split, held, _retired_ids(in_flight))
+    if pins:
+        prompt += "\n\n" + _pins_text(pins)
     if previous_refusal:
         prompt += (
             "\n\nYour previous plan was refused. Plan again so that it does not recur:\n"
@@ -1433,6 +1484,7 @@ def plan_round(
     previous_refusal: str = "",
     split: SplitRequest | None = None,
     held: StoredUnit | None = None,
+    pins: Sequence[Pin] = (),
 ) -> Plan:
     """Ask for a graph and return it, or raise `PlannerError`.
 
@@ -1441,7 +1493,16 @@ def plan_round(
     the units; a caller that passes no `context` accepts none.
     """
     prompt, parts = _prompt_and_parts(
-        changes, in_flight, calibrations, examples, omitted, groups, previous_refusal, split, held
+        changes,
+        in_flight,
+        calibrations,
+        examples,
+        omitted,
+        groups,
+        previous_refusal,
+        split,
+        held,
+        pins,
     )
     if split is not None and held is not None and groups is not None:
         # Only the held unit's groups are planned; every other one is as built.
@@ -1463,4 +1524,5 @@ def plan_round(
         tasks=next(iter(changes.values()), ""),
         split=split,
         held=held,
+        pins=pins,
     )
