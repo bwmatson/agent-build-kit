@@ -112,6 +112,8 @@ if TYPE_CHECKING:
     from agent_build_kit.pipeline.restack_lane import Lane
 
 Log = Callable[[str], None]
+# What a unit just seen merged has recorded: its merge commit and the tick that saw it.
+MergeRecord = Callable[["StoredUnit"], tuple[str | None, int | None]]
 
 
 class RestackOutcome(StrEnum):
@@ -255,6 +257,7 @@ def on_merged(
     lane: Lane | None = None,
     cause: Cause = Cause.MERGED,
     landing_path: Path | None = None,
+    merge_record: MergeRecord | None = None,
     log: Log = print,
 ) -> bool:
     """Record the merge, move what was stacked on it, then clean up after it.
@@ -305,6 +308,7 @@ def on_merged(
                 rebase_cap=rebase_cap,
                 resume=resume,
                 lane=lane,
+                merge_record=merge_record,
                 log=log,
             )
         if landing_path is not None:
@@ -647,8 +651,11 @@ def _record_merge(
     rebase_cap: int | None,
     resume: Resume,
     lane: Lane | None,
+    merge_record: MergeRecord | None,
     log: Log,
 ) -> None:
+    if merge_record is not None:
+        store.set_merge_record(merged.id, *merge_record(merged))
     store.set_state(merged.id, MERGED, cause=cause)
     log(f"merged #{merged.pr}: {merged.id}")
 
@@ -2308,6 +2315,7 @@ def build_dispatch(
     fork_point: Callable[[StoredUnit], str] | None = None,
     paused: Callable[[], bool] = lambda: False,
     landing_path: Path | None = None,
+    merge_record: MergeRecord | None = None,
     log: Log = print,
 ) -> Callable[..., bool]:
     """The callable `pr_poller` hands each event to.
@@ -2345,6 +2353,7 @@ def build_dispatch(
                 resume=resume,
                 lane=lane,
                 landing_path=landing_path,
+                merge_record=merge_record,
                 log=log,
             )
         if event == "closed":

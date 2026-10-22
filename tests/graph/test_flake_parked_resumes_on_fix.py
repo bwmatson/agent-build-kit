@@ -1,5 +1,5 @@
-"""A unit parked for a flaky test resumes once the fix's unit is in review, restacked onto
-the fix's branch (spec: flaky-tests), not once the fix has merged."""
+"""A unit parked for a flaky test resumes once the fix's unit has merged, restacked onto
+the trunk (spec: flaky-tests, needs-can-wait-for-a-merge), not while the fix is in review."""
 
 from __future__ import annotations
 
@@ -7,14 +7,14 @@ from typing import Any
 
 from agent_build_kit.pipeline.flakes import wait_on_fix
 from agent_build_kit.pipeline.unit_store import Cause, RequeueReason
-from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED
+from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED, PLANNED
 from tests.factories import new_unit
 from tests.graph.test_flake_parking import FLAKE, Flaking
 from tests.pipeline.test_flake_fix_change import TASKS, code_repo
 from tests.tick_driver import UNIT, Setup
 
 
-def test_the_parked_unit_stays_gated_while_the_fix_is_held_then_restacks_onto_its_branch(
+def test_the_parked_unit_stays_gated_while_the_fix_is_held_then_restacks_onto_the_trunk_once_merged(
     graph: Setup,
 ) -> None:
     code_repo(graph.inst)
@@ -45,6 +45,11 @@ def test_the_parked_unit_stays_gated_while_the_fix_is_held_then_restacks_onto_it
 
     graph.store.set_state(f"{fix}/1", IN_REVIEW, branch=f"spec/{fix}/1", pr=9)
     assert graph.tick() == 0
+    assert graph.store.get(UNIT).state == PLANNED, "a fix in review is not enough"
+    assert bases == []
+
+    graph.store.set_state(f"{fix}/1", MERGED, branch=f"spec/{fix}/1", pr=9)
+    assert graph.tick() == 0
 
     assert graph.store.get(UNIT).state == IN_REVIEW
-    assert any(base.endswith(f"spec/{fix}/1") for base in bases)
+    assert bases and all(base == "origin/main" for base in bases)

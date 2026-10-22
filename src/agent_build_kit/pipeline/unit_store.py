@@ -276,6 +276,10 @@ class StoredUnit(Unit):
 
     branch: str = ""
     pr: int | None = None
+    # The merge commit and the tick number that first saw the unit merged; None before it
+    # merged, and for a unit merged before they were kept.
+    merge_sha: str | None = None
+    merged_tick: int | None = None
     # The pull request's changed lines as the reviewer sees them, generated
     # files left out; None until it has a pull request.
     actual_lines: int | None = None
@@ -721,12 +725,19 @@ class UnitStore:
             fresh = StoredUnit(
                 # A unit the plan holds is live, so it never carries what replaced it.
                 **unit.model_dump(
-                    include=set(Unit.model_fields) - {"superseded_by", "manual_steps"}
+                    include=set(Unit.model_fields)
+                    - {"superseded_by", "manual_steps", "merge_needs"}
                 ),
+                # The author's kind of an edge: the plan writes plain edges only and a replan
+                # must not loosen it; `link_needs` rebuilds it from the tasks each tick.
+                merge_needs=unit.merge_needs or (existing.merge_needs if existing else ()),
                 # The plan's declared steps, then the ones a builder raised, which no plan holds.
                 manual_steps=_with_raised_steps(unit, existing),
                 branch=existing.branch if existing else "",
                 pr=existing.pr if existing else None,
+                # Where the merge landed and which tick saw it: a replan must not forget them.
+                merge_sha=existing.merge_sha if existing else None,
+                merged_tick=existing.merged_tick if existing else None,
                 pushed=existing.pushed if existing else None,
                 pushed_at=existing.pushed_at if existing else None,
                 actual_lines=existing.actual_lines if existing else None,
@@ -1252,6 +1263,14 @@ class UnitStore:
 
     def set_needs(self, unit_id: str, needs: Sequence[str]) -> None:
         self._update(unit_id, needs=tuple(needs))
+
+    def set_merge_needs(self, unit_id: str, merge_needs: Sequence[str]) -> None:
+        self._update(unit_id, merge_needs=tuple(merge_needs))
+
+    def set_merge_record(
+        self, unit_id: str, merge_sha: str | None, merged_tick: int | None
+    ) -> None:
+        self._update(unit_id, merge_sha=merge_sha, merged_tick=merged_tick)
 
     def set_close_pending(self, unit_id: str, pending: ClosePending | None) -> None:
         """The close a satisfied unit still owes its pull request, or None once done."""

@@ -13,7 +13,7 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.flakes import add_needs, add_needs_to_unit
 from agent_build_kit.pipeline.stack_runner import RunStatus
 from agent_build_kit.pipeline.unit_store import Cause, RequeueReason
-from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED
+from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED
 from tests.e2e_gate_fakes import GATE_CLEARED, OLD, OTHER_OLD, Planning
 from tests.factories import stored_unit
 
@@ -92,7 +92,7 @@ def test_the_parked_unit_holds_no_place_and_is_listed_as_waiting_on_the_fix_chan
     assert f"{fix}/1" in blocked[0]
 
 
-def test_the_unit_resumes_once_the_fix_is_in_review_and_is_not_parked_again(
+def test_the_unit_resumes_once_the_fix_is_merged_and_is_not_parked_again(
     tmp_path: Path,
 ) -> None:
     planning = Planning(tmp_path)
@@ -106,7 +106,9 @@ def test_the_unit_resumes_once_the_fix_is_in_review_and_is_not_parked_again(
 
     assert not released(), "the fix change's unit has not been reviewed"
     planning.store.set_state(f"{fix}/1", IN_REVIEW, pr=3)
-    assert released(), "released once the fix is in review, as for any same-repo wait"
+    assert not released(), "a fix in review is not enough"
+    planning.store.set_state(f"{fix}/1", MERGED, pr=3)
+    assert released(), "released once the fix is merged"
 
     planning.tick(event=GATE_CLEARED, restack_onto=restacked)
     outcome = planning.tick(restack_onto=restacked)

@@ -316,7 +316,7 @@ def test_a_unit_sent_back_while_a_parent_in_another_repo_is_unmerged_waits_for_t
     assert "feature/1" in builder.started
 
 
-def test_a_failed_child_requeued_while_its_parent_reworks_waits_until_the_parent_is_back_in_review(
+def test_a_failed_child_requeued_while_its_parent_reworks_waits_until_the_parent_is_merged(
     inst: Installation,
     store: UnitStore,
     thread: Thread,
@@ -334,9 +334,13 @@ def test_a_failed_child_requeued_while_its_parent_reworks_waits_until_the_parent
     assert thread.delivered == []
     out = capsys.readouterr().out
     assert "dep group 1" in out
-    assert "to merge" not in out
+    assert "to merge" in out, "a failed unit waits for the merge, and the note says so"
 
     store.set_state("dep/1", IN_REVIEW, pr=3)
+    assert tick(inst) == 0
+    assert thread.delivered == [], "a failed unit waits for the merge, not the review"
+
+    store.set_state("dep/1", MERGED, pr=3)
     assert tick(inst) == 0
 
     (call,) = thread.delivered

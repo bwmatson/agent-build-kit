@@ -127,9 +127,10 @@ dependencies another does not reach.
 A same-repo `Needs:` starts the dependent on the parent's branch once the
 parent's pull request is in review; it does not wait for a merge. A cross-repo
 `Needs:` waits for the parent's merge. A never-started unit with two unrelated
-same-repo parents builds on one and waits for the others to merge. The old
-`merged` qualifier after the group number is deprecated: `abk tags` and
-`abk check` warn about it and it changes nothing, so leave it out. A `Needs:` on
+same-repo parents builds on one and waits for the others to merge. The word
+`merged` straight after the group number marks a line that waits for the parent's merge, and a
+plain `Needs:` to a group of another repository is read the same way (`abk tags` and `abk check`
+say so in an info note). A `Needs:` on
 a group of the change's own is an error: groups within a change are already
 ordered.
 

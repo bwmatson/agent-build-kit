@@ -55,7 +55,7 @@ def test_a_held_unit_requeued_before_its_parent_is_reviewed_waits_with_its_work_
     assert "parent group 1" in capsys.readouterr().out
 
 
-def test_the_pass_resumes_the_gated_unit_restacked_onto_the_parents_branch_once_it_is_reviewed(
+def test_the_pass_resumes_the_gated_unit_restacked_onto_the_trunk_once_the_parent_is_merged(
     graph: Setup,
 ) -> None:
     held_then_needing(graph)
@@ -77,11 +77,15 @@ def test_the_pass_resumes_the_gated_unit_restacked_onto_the_parents_branch_once_
 
     graph.store.set_state("parent/1", IN_REVIEW, branch="spec/parent/1", pr=9)
     assert graph.tick() == 0
+    assert graph.store.get(UNIT).state == PLANNED, "a requeued unit waits for the merge"
+
+    graph.store.set_state("parent/1", MERGED, pr=9)
+    assert graph.tick() == 0
 
     assert graph.store.get(UNIT).state == IN_REVIEW
     assert graph.next() == (Node.AWAIT_REVIEW,)
-    assert any(str(call["base"]).endswith("spec/parent/1") for call in restacked)
-    assert pr_bases[-1] == "spec/parent/1", "its pull request is updated onto the parent's branch"
+    assert all(call["base"] == "origin/main" for call in restacked), "onto the trunk it merged to"
+    assert pr_bases[-1] == "main", "its pull request is updated onto the trunk"
 
 
 def test_a_cross_repo_parent_in_review_still_holds_the_unit_until_it_has_merged(

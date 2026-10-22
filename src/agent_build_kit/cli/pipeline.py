@@ -62,6 +62,7 @@ from agent_build_kit.pipeline import (
     emergency_lane,
     environment,
     landing_intent,
+    loaded_code,
     network_probe,
     retirement,
     spans,
@@ -261,6 +262,7 @@ from agent_build_kit.pipeline.units import (
     REVIEWED,
     RUNNING,
     SATISFIED,
+    EdgeKind,
     Join,
     Priority,
     ProjectKey,
@@ -273,6 +275,7 @@ from agent_build_kit.pipeline.units import (
     dependency_wait,
     depth_of,
     direct_dependencies,
+    edge_kind,
     effective_priority,
     emergency_start,
     failed_waiting_units,
@@ -282,6 +285,7 @@ from agent_build_kit.pipeline.units import (
     in_progress,
     in_progress_label,
     local_ref,
+    merge_parents,
     parked_for_manual_step,
     parked_on_split,
     priority_note,
@@ -367,6 +371,7 @@ from agent_build_kit.pipeline.work_graph import (
     TaskGroup,
     ValidationError,
     check_tags,
+    cross_repo_needs_notes,
     current_tag,
     declared_projects,
     declared_split_names,
@@ -374,7 +379,6 @@ from agent_build_kit.pipeline.work_graph import (
     group_promotions,
     inverted_group_warnings,
     manual_runbook_warnings,
-    merged_needs_warnings,
     old_test_kind_warnings,
     retag_headings,
     specification_text,
@@ -919,7 +923,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         if unit.state == PLANNED and (unit.cause is Cause.GATED or unit.gated_requeue is not None):
             waits = shown_waits(unit, units)
             if waits:
-                log(f"  {unit.id} ({where}) {dependency_wait(waits, repo=unit.repo)}")
+                merging = merge_parents(unit, waits, config.active().repos)
+                wait = dependency_wait(waits, repo=unit.repo, merging=merging)
+                log(f"  {unit.id} ({where}) {wait}")
         if unit.close_pending:
             log(
                 f"  close pending: {unit.id} ({where}) #{unit.close_pending.pr} is "
@@ -1173,6 +1179,9 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     if off := guard_off_line():
         log(off)
     forget_logged_failures()
+    # Before the planning sync: it may pull the kit's own checkout, and the head recorded must
+    # be the code this process imported, not what a pull brings after.
+    record = None if args.dry_run else loaded_code.start_record(inst.state_dir, inst.checkouts)
     if planning_mode(inst) == PlanningMode.SEPARATE:
         if is_repo(inst.root) and not restore_default_branch(
             inst.root, default_branch_of(inst.root), log
@@ -1191,6 +1200,10 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     if not has_work(inst, store_for(inst)):
         return 0
 
+    if record is not None:
+        loaded_code.write_record(inst.state_dir, record)
+        loaded_code.running_tick(record)
+
     recording = telemetry.init()
     tick = _Tick()
     started = time.monotonic()
@@ -1205,6 +1218,7 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
         tick.outcome = "error"
         raise
     finally:
+        loaded_code.running_tick(None)
         elapsed = time.monotonic() - started
         emit_metric("duration", "abk.tick.duration", elapsed, log, outcome=tick.outcome)
         if recording:
@@ -2224,21 +2238,25 @@ def reconcile_running(
 
 
 def gate_sent_back(store: UnitStore) -> None:
-    """Park a unit a poll sent back for rework while a dependency in another
-    repository has not merged (only those; a same-repo parent is waited for by
-    `waiting_on` alone): it is `gated`, so the readmission rule leaves it for the
-    pass that finds the gate clear, instead of starting it again."""
+    """Park a unit a poll sent back for rework while a merge edge (a dependency in another
+    repository, or one marked `merged`) is unmet (only those; a same-repo parent on a review
+    edge is waited for by `waiting_on` alone): it is `gated`, so the readmission rule leaves it
+    for the pass that finds the gate clear, instead of starting it again."""
     units = store.all()
+    repos = config.active().repos
     for unit in units:
         # The cause is standing, so a replan between the send-back and here keeps it.
         if unit.state != PLANNED or unit.cause not in READMITTED_CAUSES:
             continue
-        waits = [parent for parent in waiting_on(unit, units) if parent.repo != unit.repo]
+        waits = [
+            parent
+            for parent in waiting_on(unit, units)
+            if edge_kind(unit, parent, repos).kind is EdgeKind.MERGE
+        ]
         if waits:
-            store.set_state(
-                unit.id, PLANNED, note=dependency_wait(waits, repo=unit.repo), cause=Cause.GATED
-            )
-            log(f"{unit.id}: {dependency_wait(waits, repo=unit.repo)}")
+            why = dependency_wait(waits, repo=unit.repo, merging={parent.id for parent in waits})
+            store.set_state(unit.id, PLANNED, note=why, cause=Cause.GATED)
+            log(f"{unit.id}: {why}")
 
 
 def deliver_committed(inst: Installation, store: UnitStore) -> None:
@@ -3704,16 +3722,18 @@ def link_needs(
     """
     units = store.all()
     live = [unit for unit in units if unit.state not in BUILDS_NOTHING]
-    wanted = declared_needs(
+    declared = declared_needs(
         inst,
         live,
         missing=lambda change, group, need: log(
             f"{change} group {group} needs {need.change} group {need.group}, not planned yet"
         ),
     )
+    wanted = {unit_id: [d.target for d in found] for unit_id, found in declared.items()}
     refused = _repoint_replaced(units, wanted, store, reported)
     units = _drop_stale_edges(store, store.all(), wanted)
     graph = {u.id: list(current_dependencies(u, units)) for u in units if u.state not in FINISHED}
+    written = {tasks.parent.name for tasks in inst.tasks_files()}
     # Every stored edge, of units in any state: a merged unit between two still links them.
     stored = {u.id: list(current_dependencies(u, units)) for u in units}
     for unit in units:
@@ -3721,6 +3741,7 @@ def link_needs(
             continue
         added: list[str] = []
         needs: list[str] = []
+        merge_targets = {d.target for d in declared.get(unit.id, []) if d.merge}
         for target in dict.fromkeys(wanted.get(unit.id, [])):
             if path_between(stored, unit.id, target):
                 needs.append(target)
@@ -3741,6 +3762,10 @@ def link_needs(
         # removed line removes the mark.
         if tuple(needs) != unit.needs:
             store.set_needs(unit.id, needs)
+        # A change with no tasks to read has nothing to recompute the kind from, so it keeps it.
+        merge = tuple(t for t in needs if t in merge_targets)
+        if unit.change in written and merge != unit.merge_needs:
+            store.set_merge_needs(unit.id, merge)
     return refused
 
 
@@ -3849,13 +3874,21 @@ def _repoint_replaced(
     return refused
 
 
+class DeclaredNeed(Frozen):
+    """A unit a `Needs:` line names, and whether the line waits for its merge."""
+
+    target: str
+    merge: bool = False
+
+
 def declared_needs(
     inst: Installation,
     units: Sequence[Unit],
     *,
     missing: Callable[[str, int, Need], object] | None = None,
-) -> dict[str, list[str]]:
-    """The unit ids each unit's `Needs:` lines name, for the `units` that cover the groups.
+) -> dict[str, list[DeclaredNeed]]:
+    """The units each unit's `Needs:` lines name, for the `units` that cover the groups.
+    A line waits for the merge when it says `merged` or the target is in another repository.
 
     A line naming a group none of them covers adds nothing; `missing` hears of it."""
     covering = {
@@ -3864,7 +3897,8 @@ def declared_needs(
         for member in unit.members()
         for group in member.groups
     }
-    wanted: dict[str, list[str]] = {}
+    repo_of = {unit.id: unit.repo for unit in units}
+    wanted: dict[str, list[DeclaredNeed]] = {}
     for tasks in inst.tasks_files():
         change = tasks.parent.name
         for group, found in group_needs(tasks).items():
@@ -3874,7 +3908,10 @@ def declared_needs(
             for unit in units:
                 if any(m.change == change and group in m.groups for m in unit.members()):
                     wanted.setdefault(unit.id, []).extend(
-                        covering[(n.change, n.group)]
+                        DeclaredNeed(
+                            target=covering[(n.change, n.group)],
+                            merge=n.merged or repo_of[covering[(n.change, n.group)]] != unit.repo,
+                        )
                         for n in found
                         if (n.change, n.group) in covering
                     )
@@ -4460,7 +4497,14 @@ def _drop_cycle_edges(
         for u in stored
         if u.state not in BUILDS_NOTHING and not (u.change == change and u.state == PLANNED)
     ]
-    drops = drop_cycle_edges(plan_units, stored, declared_needs(inst, [*kept, *plan_units]))
+    drops = drop_cycle_edges(
+        plan_units,
+        stored,
+        {
+            unit_id: [found.target for found in found_needs]
+            for unit_id, found_needs in declared_needs(inst, [*kept, *plan_units]).items()
+        },
+    )
     if drops.dropped:
         check_flagged_groups(list(drops.units), groups)
     return drops
@@ -5109,8 +5153,23 @@ def _dispatch(
         # building; the handlers leave it to a later poll. See `events`.
         waiting_path=inst.state_dir / "held-waiting.json",
         landing_path=inst.state_dir / landing_intent.LANDING,
+        merge_record=lambda unit: _merge_record(inst, unit),
         log=say,
     )
+
+
+def _merge_record(inst: Installation, unit: StoredUnit) -> tuple[str | None, int | None]:
+    """The merge commit of a unit just seen merged and the number of the tick that saw it;
+    None for what cannot be read (a forge that answers nothing, no tick record yet)."""
+    sha = None
+    if unit.pr is not None:
+        try:
+            forge, repo_id = inst.forge_of(unit.repo)
+            sha = forge.merge_commit(repo_id, unit.pr)
+        except Exception as error:  # noqa: BLE001 — a merge is recorded without its commit.
+            log(f"{unit.id}: merge commit unknown — {error}")
+    record = loaded_code.current()
+    return sha, record.number if record else None
 
 
 def deliver_hold_event(
@@ -5877,7 +5936,12 @@ def _validated(inst: Installation, path: Path) -> tuple[list[TaskGroup], list[Va
 def _tag_warnings(inst: Installation, path: Path) -> list[str]:
     """What `abk tags` and `abk check` warn of in a tasks file, none of it a problem."""
     return [
-        *merged_needs_warnings(path),
+        *cross_repo_needs_notes(
+            path,
+            inst.changes_dir,
+            repos=tuple(inst.repos),
+            projects=declared_projects(inst.repos),
+        ),
         *old_test_kind_warnings(path),
         *manual_runbook_warnings(path, inst.root),
         *inverted_group_warnings(
@@ -6654,6 +6718,7 @@ def requeue(
         # A person who reads an oversized unit and lets it through is not held by the same rule.
         store.set_size_waived(unit_id)
     waits = waiting_on(known[unit_id], list(known.values()))
+    merging = merge_parents(known[unit_id], waits, config.active().repos)
     # What the history entry of a requeue says of a note: its first 200 characters.
     said = guidance_excerpt(note) if not clears_park else ""
     # With no saved failure the person's note is what the rework is from.
@@ -6673,7 +6738,7 @@ def requeue(
             unit_id,
             PLANNED,
             note=(
-                f"requeued: {dependency_wait(waits, repo=known[unit_id].repo)}"
+                f"requeued: {dependency_wait(waits, repo=known[unit_id].repo, merging=merging)}"
                 + (f", parked on {names}{parked_said}" if clears_park else said)
             ),
             cause=Cause.GATED,
@@ -6682,7 +6747,8 @@ def requeue(
         if note:
             store.set_guidance(unit_id, note)
         store.set_gated_requeue(unit_id, why)
-        say(f"{unit_id} requeued ({mode}), {dependency_wait(waits, repo=known[unit_id].repo)}")
+        wait = dependency_wait(waits, repo=known[unit_id].repo, merging=merging)
+        say(f"{unit_id} requeued ({mode}), {wait}")
         return _requeued(store, unit_id, clears_park)
     try:
         delivered = resume_thread(

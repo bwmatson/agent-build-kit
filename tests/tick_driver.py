@@ -77,6 +77,9 @@ class Setup:
     def tick(self) -> int:
         return cli.cmd_tick(argparse.Namespace(dry_run=False, only=None), self.inst)
 
+    def dry_tick(self) -> int:
+        return cli.cmd_tick(argparse.Namespace(dry_run=True, only=None), self.inst)
+
     def next(self, unit_id: str = UNIT) -> tuple[Node, ...]:
         async def look() -> tuple[Node, ...]:
             async with open_checkpointer(unit_graphs_path(self.inst.state_dir)) as saver:
