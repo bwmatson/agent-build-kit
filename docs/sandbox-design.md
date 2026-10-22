@@ -190,7 +190,7 @@ settings. An agent that does its own file access, outside the client's methods, 
 macOS needs a different backend, and **no package is needed for it**: Seatbelt is built into macOS and its command-line front end,
 `sandbox-exec`, ships with it. The kit generates a Seatbelt profile (SBPL, a small Lisp-like language) from the same policy and runs
 `sandbox-exec -f <profile> -- <agent command>` in the launcher's place. Anthropic's own sandbox runtime does the same on macOS and uses
-`bubblewrap` on Linux, so the approach has a precedent ([the runtime](https://github.com/anthropic-experimental/sandbox-runtime),
+`bubblewrap` on Linux, so the approach has a precedent (the agent vendor's open-source sandbox runtime,
 [Anthropic's write-up](https://anthropic.com/engineering/claude-code-sandboxing)).
 
 How the policy maps, from published descriptions of the profile language (not tried here):
@@ -277,8 +277,8 @@ sandbox:
    for ACP, per agent in `known_agents`, since each agent keeps its own state).
 3. **The language profile.** `ToolchainProfile` (`profiles/base.py`) gains an optional member, `sandbox_paths(repo)`, declared like
    `created_files` (a profile without it adds nothing): the toolchain folders to read, the cache folders to write, and the package
-   index hosts. `python-uv` names its cache and data folders (`.cache/uv` and `.local/share/uv` under the home directory) and `pypi.org` /
-   `files.pythonhosted.org`; `node-npm` names its cache folder (`.npm` under the home directory) and `registry.npmjs.org`. A repo's profile, and the profile of each of its projects, contribute.
+   index hosts. `python-uv` names uv's cache and data directories (`.cache/uv` and `.local/share/uv` under the home directory) and `pypi.org` /
+   `files.pythonhosted.org`; `node-npm` names npm's cache directory (`.npm` under the home directory) and `registry.npmjs.org`. A repo's profile, and the profile of each of its projects, contribute.
 4. **`abk.yaml`, appended per repo (and per project):** `repos.<name>.sandbox.read`, `.write` and `.hosts` add to the lists, for what a
    repo needs that no profile knows (a vendored tool, a private package index).
 5. **`abk.local.yaml`, for this machine:** the same three keys, for paths and hosts that differ by machine (a cache folder somewhere
