@@ -149,9 +149,13 @@ def render_mermaid(
             if restacking and unit.id in restacking:
                 name = f"restacking onto {restacking[unit.id]}"
             if failed_waiting(unit, graph):
-                waits = ", ".join(parent.id for parent in shown_waits(unit, graph))
-                name = f"{name}, waiting on {waits}"
-            elif merging := merge_parents(unit, waits := shown_waits(unit, graph), graph, repos):
+                waits = shown_waits(unit, graph)
+                ids = ", ".join(parent.id for parent in waits)
+                wait = dependency_wait(waits, merging=merge_parents(unit, waits, graph, repos))
+                name = f"{name}, waiting on {ids}, {wait}"
+            elif unit.state == PLANNED and (
+                merging := merge_parents(unit, waits := shown_waits(unit, graph), graph, repos)
+            ):
                 name = f"{name}, {dependency_wait(waits, merging=merging)}"
             if wait := second_parent_wait(unit, graph):
                 name = f"{name}, {wait}"
@@ -264,11 +268,12 @@ view, titled with the project's path (`.` for the root).
   edge) must *merge* first; a same-repo one must be through its build/review
   loop, so there is a reviewed branch to stack on. A thick edge labelled
   `needs` (`==>`) is a dependency its dependent wrote as a `Needs:` line, not
-  one the planner inferred; it releases the dependent once the parent is in
-  review (same repo) or merged (other repo). An edge labelled `needs, merge` is a `Needs:` line
-  that waits for the parent's merge and the next tick; a dashed edge labelled `merge` is a
-  cross-repo dependency no `Needs:` line wrote. A `Needs:` line the chain already
-  implies draws no edge, and nor does a dependency another one reaches. An edge to a unit a replan
+  one the planner inferred; it releases a planned dependent once the same-repo
+  parent is in review, and a failed dependent waits for the merge whatever the label says. An
+  edge labelled `needs, merge` is a `Needs:` line that waits for the parent's merge and the next
+  tick; a dashed edge labelled `merge` is a cross-repo dependency no `Needs:` line wrote.
+  A `Needs:` line the chain already implies draws no edge, and nor does a dependency another
+  one reaches. An edge to a unit a replan
   replaced is drawn from the unit that carries its groups now.{gate_legend}
 - **running** — in the build/review loop: an agent is working in a worktree,
   or the run is interrupted before an agent step until the usage window allows

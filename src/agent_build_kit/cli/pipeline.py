@@ -1301,7 +1301,6 @@ def _tick_with(
         refused_needs=readmission.refused,
         lane=lane,
         dry_run=args.dry_run,
-        first_round=True,
     )
     if not ready:
         held = is_paused(_paused_marker(inst))
@@ -1733,11 +1732,9 @@ def run_round(
     refused_needs: set[tuple[str, str]] | None = None,
     lane: Lane | None = None,
     dry_run: bool = False,
-    first_round: bool = False,
 ) -> list[Unit]:
     """One round: everything a tick does before it starts builds, safe to repeat
-    beside builds in flight. Returns the units to start when `submit`. The tick's `first_round`
-    also says which dependents now wait for a merge (`note_merge_waits`).
+    beside builds in flight. Returns the units to start when `submit`.
 
     The usage check comes first. The model's own refusal (a `rate_limit` pause)
     ends the round there. A usage refusal skips planning, which spends a model
@@ -1824,8 +1821,6 @@ def run_round(
         store=store,
         reported=refused_needs,
     )
-    if first_round:
-        _step("noting merge waits", note_merge_waits, store)
     _step("promoting prerequisites", _promote, inst, store)
     _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
     _step("following predecessors", park_dependents, inst, store)
@@ -2343,24 +2338,6 @@ def release_gated(inst: Installation, store: UnitStore, *, in_flight: Collection
             )
         else:
             store.set_gated_requeue(unit.id, None)
-
-
-def note_merge_waits(store: UnitStore) -> None:
-    """Say which unfinished dependents (planned, failed or held) now wait for a merge parent that
-    has not merged; nothing is edited or requeued, and a unit that has started is not named."""
-    units = store.all()
-    by_id = {unit.id: unit for unit in units}
-    for unit in units:
-        if unit.state not in (PLANNED, FAILED, HELD):
-            continue
-        for parent_id in unit.merge_needs:
-            parent = by_id.get(parent_id)
-            if parent is None or parent.state in (CLOSED, *BUILDS_NOTHING):
-                continue
-            if not parent_landed(parent, units):
-                log(
-                    f"{unit.id}: now waits for {parent_id} to merge (Needs: ... merged in tasks.md)"
-                )
 
 
 def requeue_wait_ended(
@@ -3806,7 +3783,24 @@ def link_needs(
         merge = tuple(t for t in needs if t in merge_targets)
         if unit.change in written and merge != unit.merge_needs:
             store.set_merge_needs(unit.id, merge)
+            _note_merge_waits(unit, [t for t in merge if t not in unit.merge_needs], units)
     return refused
+
+
+def _note_merge_waits(unit: StoredUnit, gained: list[str], units: list[StoredUnit]) -> None:
+    """Say that an unfinished `unit` (planned, failed or held) now waits for each `gained` merge
+    target in its own repository, which only a written `merged` makes a merge wait, when that
+    parent has not landed; nothing is edited or requeued and a started unit is not named."""
+    if unit.state not in (PLANNED, FAILED, HELD):
+        return
+    by_id = {u.id: u for u in units}
+    for parent_id in gained:
+        parent = by_id.get(parent_id)
+        if parent is None or parent.repo != unit.repo:
+            continue
+        if parent.state in (CLOSED, *BUILDS_NOTHING) or parent_landed(parent, units):
+            continue
+        log(f"{unit.id}: now waits for {parent_id} to merge (Needs: ... merged in tasks.md)")
 
 
 def _drop_stale_edges(

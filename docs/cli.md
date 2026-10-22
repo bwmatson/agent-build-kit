@@ -588,7 +588,7 @@ chosen from its record: a failure whose cause is the environment's (toolchain,
 environment, host, network or service) is resumed, a saved unit-test or e2e-test failure
 with feedback is reworked, and anything else is resumed. It never restarts. A person's
 note stays in the guidance and does not change the mode. The history note reads
-`requeue: its wait ended (waiting on <change> group <n> is now merged and loaded by tick <number>)`
+`requeue: its wait ended (waiting on <change> group <n> is now merged, loaded by tick <number>)`
 for a merge edge, which ends only once the parent has merged and the next tick has the merge in
 the code it runs; a failed unit waits the same way, and a review edge ends once the parent is in review.
 

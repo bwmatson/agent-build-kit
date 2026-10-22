@@ -73,3 +73,34 @@ def test_the_page_draws_both_edges_and_the_legend_names_both_labels() -> None:
     assert "==>|needs|" in diagram
     assert "`needs, merge`" in legend
     assert "`merge`" in legend
+
+
+def test_a_running_unit_that_gained_a_merge_needs_is_not_drawn_as_waiting() -> None:
+    parent = new_unit("p/1", state="in_review", pr=1)
+    building = new_unit(
+        "b/1",
+        state="running",
+        branch="spec/b/1",
+        depends_on=("p/1",),
+        needs=("p/1",),
+        merge_needs=("p/1",),
+    )
+
+    nodes = [line for line in render_mermaid([parent, building]).splitlines() if "<small>" in line]
+
+    [node] = [line for line in nodes if line.strip().startswith("b_1[")]
+    assert "waiting for" not in node
+
+
+def test_a_failed_node_waiting_on_a_parent_carries_the_merge_wording_status_gives() -> None:
+    parent = new_unit("p/1", state="in_review", pr=1)
+    failed = new_unit("f/1", state="failed", branch="spec/f/1", depends_on=("p/1",), needs=("p/1",))
+
+    nodes = [line for line in render_mermaid([parent, failed]).splitlines() if "<small>" in line]
+
+    [node] = [line for line in nodes if line.strip().startswith("f_1[")]
+    assert "failed, waiting on p/1" in node
+    assert (
+        "waiting for p group 1 to merge (merge: a failed unit resumes after the fix is merged)"
+        in node
+    )
