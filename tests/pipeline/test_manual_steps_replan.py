@@ -24,7 +24,11 @@ def test_a_declared_step_marked_done_stays_done_when_the_unit_is_replanned(
     store.upsert([planned(fresh)])
     store.set_manual_steps(
         "feature/1",
-        (fresh.model_copy(update=dict(done=True, outcome="met", last_line="ok", checked_at=CHECKED)),),
+        (
+            fresh.model_copy(
+                update=dict(done=True, outcome="met", last_line="ok", checked_at=CHECKED)
+            ),
+        ),
     )
 
     store.upsert([planned(fresh)])
