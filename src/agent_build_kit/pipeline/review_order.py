@@ -6,6 +6,17 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.units import IN_REVIEW
+from agent_build_kit.pipeline.verdict import ReviewTier
+from agent_build_kit.pipeline.verdict_record import latest_verdict
+
+_RANK = {ReviewTier.FULL: 0, ReviewTier.LIGHT: 1, None: 2, ReviewTier.AUTO: 3}
+
+
+def review_tier(unit: StoredUnit, verdicts: Path) -> ReviewTier | None:
+    """The tier recorded for the unit, or None when it has no readable verdict."""
+    recorded = latest_verdict(verdicts, unit.id)
+    return recorded.tier if recorded else None
 
 
 def review_order(units: Sequence[StoredUnit], verdicts: Path) -> list[StoredUnit]:
@@ -13,4 +24,9 @@ def review_order(units: Sequence[StoredUnit], verdicts: Path) -> list[StoredUnit
 
     The rank is the unit's recorded tier in `verdicts`: `full`, `light`, none, `auto`, and
     arrival order (the order in `units`) within a rank. A unit not in review keeps its place."""
-    raise NotImplementedError
+    reviewed = sorted(
+        (unit for unit in units if unit.state == IN_REVIEW),
+        key=lambda unit: _RANK[review_tier(unit, verdicts)],
+    )
+    refill = iter(reviewed)
+    return [next(refill) if unit.state == IN_REVIEW else unit for unit in units]
