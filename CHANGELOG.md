@@ -9,6 +9,7 @@
   next plan. Such a group holds tests, test support, docs and the changelog: a
   `Support: `<paths>` — <reason>` line declares further files for it, and `abk tags` and
   `abk check` warn of a task that names any other path in backticks.
+
 - A toolchain profile can declare `fix_command(files)`, the command that applies its formatters
   and auto-fixers (python-uv: the pre-commit hooks; node-npm: `oxfmt` then `oxlint --fix` over
   source files), and a repo can replace it with `repos.<name>.tests.fix_command` (`[]` turns it
