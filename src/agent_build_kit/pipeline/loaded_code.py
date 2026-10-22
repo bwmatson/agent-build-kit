@@ -48,6 +48,15 @@ class LoadedCode(Frozen):
             return None
         return _is_ancestor(self.kit_root, self.kit_head, merge_sha)
 
+    def checkout_contains(self, merge_sha: str) -> bool:
+        """Whether the checkout's head as it is now has the merge commit: what the next tick
+        will load. False when the checkout is unknown or cannot be read."""
+        if self.kit_root is None:
+            return False
+        found = git(Path(self.kit_root), "rev-parse", "HEAD", check=False)
+        head = found.stdout.strip()
+        return found.returncode == 0 and bool(head) and _is_ancestor(self.kit_root, head, merge_sha)
+
 
 class TickRecord(LoadedCode):
     """The record `tick.json` holds: the loaded code and when the tick started."""

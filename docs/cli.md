@@ -112,6 +112,12 @@ so. A tick prints the fingerprint when it starts.
 
 ### `abk status`
 
+A wait on a dependency is worded by what is missing: `waiting for <change> group <n> to merge`
+while the parent is not merged; `waiting for the next tick to load <change> group <n>'s merge`
+when it is merged, the last tick's code lacks the merge and the kit checkout's head has it; and
+`waiting for the kit checkout to include <change> group <n>'s merge` when neither has it. A merge
+edge's wait ends `(merge: <reason>)`. The pipeline log and the graph use the same wording.
+
 Prints whether the pipeline is paused (until when, why), the usage reading held
 (session %, weekly %, source and age; no call is made, and `--refresh` asks the endpoint for a
 fresh one, no more often than the cache time allows), the count of units by state, and each
@@ -547,8 +553,8 @@ A note with a plain requeue is refused (exit 1, nothing changed): a resume
 re-runs a step without reading it. Pull request comments are unchanged, and the
 note is not posted to the pull request.
 
-A unit with a `Needs:` line whose dependency is not yet in review (or, in another
-repo, merged) is not resumed: it goes to `planned` with the cause `gated`, keeping
+A unit with a `Needs:` line whose dependency is not yet in review (or, on a merge edge,
+merged) is not resumed by `abk requeue` until the merge is loaded by a later tick: it goes to `planned` with the cause `gated`, keeping
 its thread, branch and saved failure, and the command names the group it waits for.
 `abk status` lists it as waiting. Once the dependency is ready, the next tick
 delivers the requeue in the mode it was given (default, `--rework` or `--restart`).
@@ -582,7 +588,9 @@ chosen from its record: a failure whose cause is the environment's (toolchain,
 environment, host, network or service) is resumed, a saved unit-test or e2e-test failure
 with feedback is reworked, and anything else is resumed. It never restarts. A person's
 note stays in the guidance and does not change the mode. The history note reads
-`requeue: its wait ended (waiting on <change> group <n> is now merged)`.
+`requeue: its wait ended (waiting on <change> group <n> is now merged, loaded by tick <number>)`
+for a merge edge, which ends only once the parent has merged and the next tick has the merge in
+the code it runs; a failed unit waits the same way, and a review edge ends once the parent is in review.
 
 Left alone: a held unit, a plain failure that never waited, and a unit already parked
 planned by the failure-fix or flaky-test mechanisms. When a prerequisite was closed

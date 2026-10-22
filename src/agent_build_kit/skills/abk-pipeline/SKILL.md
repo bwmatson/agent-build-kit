@@ -240,6 +240,16 @@ to `global_limits.max_check_rounds` times (3 by default, counted per review roun
 
 A failed unit that waited on another unit is requeued once by the pipeline when its wait ends, in a mode chosen from its record (`global_limits.wait_end_requeue`: `auto`, `resume`, `rework` or `off`). `abk status` counts them as `failed units resumed when their wait ended: N today`; when a prerequisite was closed instead, the unit stays failed and its line says `wait ended: <prerequisite> closed, requeue to retry`.
 
+A merge dependency (a `Needs:` that crosses repositories, says `merged`, or sits under a failed unit)
+holds its dependent until the parent has merged and a later tick has the merge in the code it runs.
+`abk status` and the graph (a `needs, merge` edge) say which wait it is:
+
+- `waiting for <change> group <n> to merge` — the parent is not merged yet; review and merge it.
+- `waiting for the next tick to load <change> group <n>'s merge` — merged; nothing to do, the next
+  tick starts or requeues the unit.
+- `waiting for the kit checkout to include <change> group <n>'s merge` — the checkout the tick runs
+  from lacks the merge; pull or update that checkout (the usual pull at the start of a tick does it).
+
 Fix the cause first where it is outside the branch — a missing credential, a
 broken toolchain, a branch someone deleted — then `abk requeue <unit>` resumes
 it where it stopped. Where the failure is in the branch's own work (a type

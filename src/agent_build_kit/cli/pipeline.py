@@ -293,6 +293,7 @@ from agent_build_kit.pipeline.units import (
     is_superseded,
     local_ref,
     merge_parents,
+    parent_landed,
     parked_for_manual_step,
     parked_on_split,
     priority_note,
@@ -945,8 +946,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         if unit.state == PLANNED and (unit.cause is Cause.GATED or unit.gated_requeue is not None):
             waits = shown_waits(unit, units)
             if waits:
-                merging = merge_parents(unit, waits, config.active().repos)
-                wait = dependency_wait(waits, repo=unit.repo, merging=merging)
+                merging = merge_parents(unit, waits, units, config.active().repos)
+                wait = dependency_wait(waits, merging=merging)
                 log(f"  {unit.id} ({where}) {wait}")
         if is_superseded(unit):
             log(f"  superseded: {unit.id} ({where}) by {', '.join(unit.superseded_by)}")
@@ -2356,7 +2357,7 @@ def gate_sent_back(store: UnitStore) -> None:
             if edge_kind(unit, parent, repos).kind is EdgeKind.MERGE
         ]
         if waits:
-            why = dependency_wait(waits, repo=unit.repo, merging={parent.id for parent in waits})
+            why = dependency_wait(waits, merging=merge_parents(unit, waits, units, repos))
             store.set_state(unit.id, PLANNED, note=why, cause=Cause.GATED)
             log(f"{unit.id}: {why}")
 
@@ -2504,6 +2505,9 @@ def _requeue_ended_wait(
     named = " and ".join(
         f"{group_names([parent])} is now {states[parent.state]}" for parent in landed
     )
+    tick = loaded_code.current()
+    if tick is not None and all(parent.state in (MERGED, SATISFIED) for parent in landed):
+        named += f", loaded by tick {tick.number}"
     code = requeue(
         inst,
         unit.id,
@@ -3215,11 +3219,16 @@ def _replaced_lines(units: list[StoredUnit]) -> list[str]:
 
 def _failed_waiting_lines(units: list[StoredUnit]) -> list[str]:
     """One line for each failed unit that waits on another unit, with what it waits on."""
-    return [
-        f"  failed, waiting on {', '.join(parent.id for parent in shown_waits(unit, units))}: "
-        f"{unit.id} ({unit_label(unit)})"
-        for unit in failed_waiting_units(units)
-    ]
+    repos = config.active().repos
+    lines = []
+    for unit in failed_waiting_units(units):
+        waits = shown_waits(unit, units)
+        wait = dependency_wait(waits, merging=merge_parents(unit, waits, units, repos))
+        lines.append(
+            f"  failed, waiting on {', '.join(parent.id for parent in waits)}: "
+            f"{unit.id} ({unit_label(unit)}) — {wait}"
+        )
+    return lines
 
 
 def _wait_ended_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
@@ -3880,7 +3889,24 @@ def link_needs(
         merge = tuple(t for t in needs if t in merge_targets)
         if unit.change in written and merge != unit.merge_needs:
             store.set_merge_needs(unit.id, merge)
+            _note_merge_waits(unit, [t for t in merge if t not in unit.merge_needs], units)
     return refused
+
+
+def _note_merge_waits(unit: StoredUnit, gained: list[str], units: list[StoredUnit]) -> None:
+    """Say that an unfinished `unit` (planned, failed or held) now waits for each `gained` merge
+    target in its own repository, which only a written `merged` makes a merge wait, when that
+    parent has not landed; nothing is edited or requeued and a started unit is not named."""
+    if unit.state not in (PLANNED, FAILED, HELD):
+        return
+    by_id = {u.id: u for u in units}
+    for parent_id in gained:
+        parent = by_id.get(parent_id)
+        if parent is None or parent.repo != unit.repo:
+            continue
+        if parent.state in (CLOSED, *BUILDS_NOTHING) or parent_landed(parent, units):
+            continue
+        log(f"{unit.id}: now waits for {parent_id} to merge (Needs: ... merged in tasks.md)")
 
 
 def _drop_stale_edges(
@@ -6956,7 +6982,7 @@ def requeue(
         # A person who reads an oversized unit and lets it through is not held by the same rule.
         store.set_size_waived(unit_id)
     waits = waiting_on(known[unit_id], list(known.values()))
-    merging = merge_parents(known[unit_id], waits, config.active().repos)
+    merging = merge_parents(known[unit_id], waits, list(known.values()), config.active().repos)
     # What the history entry of a requeue says of a note: its first 200 characters.
     said = guidance_excerpt(note) if not clears_park else ""
     # With no saved failure the person's note is what the rework is from.
@@ -6976,7 +7002,7 @@ def requeue(
             unit_id,
             PLANNED,
             note=(
-                f"requeued: {dependency_wait(waits, repo=known[unit_id].repo, merging=merging)}"
+                f"requeued: {dependency_wait(waits, merging=merging)}"
                 + (f", parked on {names}{parked_said}" if clears_park else said)
             ),
             cause=Cause.GATED,
@@ -6985,7 +7011,7 @@ def requeue(
         if note:
             store.set_guidance(unit_id, note)
         store.set_gated_requeue(unit_id, why)
-        wait = dependency_wait(waits, repo=known[unit_id].repo, merging=merging)
+        wait = dependency_wait(waits, merging=merging)
         say(f"{unit_id} requeued ({mode}), {wait}")
         return _requeued(store, unit_id, clears_park)
     try:

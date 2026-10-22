@@ -127,6 +127,24 @@ The planner orders groups within a change on its own; across changes it only
 sees what is already in flight, so a dependency that must hold is written
 down and applied as code.
 
+Two kinds of edge come from a `Needs:` line. A review edge starts the dependent on the
+parent's branch once the parent is in review. A merge edge holds the dependent until the parent
+has merged and a later tick has the merge in the code it runs. An edge is a merge edge for three
+reasons only: it crosses repositories, the line says `merged` straight after the group number,
+or its dependent is a failed unit waiting on the parent. A plain `Needs:` to a group of another
+repository is read as a merge dependency, and `abk tags` and `abk check` say so in an info note.
+A fix change a failed unit waits on needs no `merged` line.
+
+Write `merged` only when the dependent must run against a parent's change that is loaded
+by the tools that build and check it (shared code, a generated file, a setting the pipeline
+reads), where a branch stacked on the parent would not show it. Otherwise write a plain line.
+
+```
+Needs: add-marker group 2 — the dependent only reads the marker the parent registers
+Needs: shared-config group 1 merged — the build reads the setting this group adds
+Needs: api-change group 3 — another repository; read as a merge dependency
+```
+
 A `Needs:` the chain already implies (the unit reaches the target through its dependencies) is
 recorded but not linked, and draws no edge on the graph; `direct_dependencies` stores only
 dependencies another does not reach.

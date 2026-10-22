@@ -6,12 +6,13 @@ from tests.factories import stored_unit as unit
 _ROOT_PROJECTS = """\
 flowchart LR
     subgraph app
-        b["b<br/>Register the marker<br/><small>unit-test · blocked</small>"]
+        b["b<br/>Register the marker<br/><small>unit-test · blocked, waiting for add-marker group \
+1 to merge (merge: another repository)</small>"]
     end
     subgraph platform
         a["a<br/>Register the marker<br/><small>unit-test · in-review</small>"]
     end
-    a -.-> b
+    a -.->|merge| b
 """
 
 _UNDECLARED_PROJECT = """\

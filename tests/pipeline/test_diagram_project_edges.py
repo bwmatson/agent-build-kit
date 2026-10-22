@@ -28,7 +28,7 @@ def test_a_dependency_across_repos_is_dashed() -> None:
         projects=_PROJECTS,
     )
 
-    assert "a -.-> b" in diagram
+    assert "a -.->|merge| b" in diagram
 
 
 def test_a_needs_edge_between_projects_keeps_its_thick_style() -> None:
