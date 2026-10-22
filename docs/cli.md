@@ -690,6 +690,24 @@ task-group tag errors (run `abk tags`) are refused and nothing is planned for th
 Exit 0 when every selected change planned, 1 when any failed or was refused, 2 for
 a usage error.
 
+#### Migrating open changes
+
+Open changes planned under the old sizing move to review tiers in this order, so nothing is
+planned or rewritten before you have seen what it would do:
+
+1. `abk config --migrate` moves the settings still under their old names (the root `limits`
+   block and the numbered test-tier keys) to `global_limits`, `project_limits` and the
+   `unit_test_*` and `e2e_*` names.
+2. `abk tags --fix --all` first, because a change with old test-kind tags is refused by the
+   planner.
+3. `abk replan --report` shows each change's plan state, its started and unstarted units and
+   whether the planner would be called. It makes no model call.
+4. `abk replan --dry-run` asks the planner and prints the units each change would get,
+   changing nothing stored.
+5. `abk replan --stale --limit N`, repeated, replans a few changes at a time. A plan that would
+   leave units `unplanned` stores nothing and exits 1 until you read the list and rerun with
+   `--accept-unplanned`.
+
 ## Setting up
 
 ### `abk init [PLANNING_DIR] [--repo PATH ...] [--consumes REPO:CONSUMED[,CONSUMED] ...] [--yes] [--skip-research] [--skip-propose] [--force] [--update-rules] [--dry-run] [--runtime NAME] [--agent-command ARGV] [--set KEY=VALUE ...] [--runtime-config FILE] [--policy-only] [--policy-fix ARGV] [--run-policy-fix] [--register-store ID]`
