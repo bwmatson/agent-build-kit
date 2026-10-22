@@ -27,7 +27,6 @@ from pathlib import Path
 from typing import Protocol
 
 from agent_build_kit.compat_names import (
-    KIND_FORMS,
     Place,
     TestKind,
     is_old_spelling,
@@ -159,24 +158,28 @@ NEEDS_LINE = re.compile(
 _CHECKBOX = re.compile(r"^(\s*-\s*\[)[ xX](\])", re.MULTILINE)
 
 
-def _retagged(text: str, spell: Callable[[str], str]) -> str:
-    """`text` with each group heading's test-kind tag spelled by `spell`, nothing else changed."""
-    lines = text.split("\n")
-    for index, line in enumerate(lines):
-        found = GROUP_HEADING.match(line.rstrip("\r"))
-        if found and spell(found["tier"]) != found["tier"]:
+def retag_headings(text: str, spell: Callable[[str], str]) -> tuple[str, int]:
+    """`text` with the test-kind tag of each group heading spelled by `spell`, and how many
+    changed; every other byte, line endings included, comes back as it was."""
+    out: list[str] = []
+    count = 0
+    for line in text.splitlines(keepends=True):
+        found = GROUP_HEADING.match(line.splitlines()[0])
+        if found and (tag := spell(found["tier"])) != found["tier"]:
             start, end = found.span("tier")
-            lines[index] = line[:start] + spell(found["tier"]) + line[end:]
-    return "\n".join(lines)
+            line = line[:start] + tag + line[end:]
+            count += 1
+        out.append(line)
+    return "".join(out), count
 
 
-def _old_tag(tag: str) -> str:
-    return next((old for old, forms in KIND_FORMS.items() if forms.tag == tag), tag)
+def _current_tag(tag: str) -> str:
+    return new_spelling(Place.TAG, tag)
 
 
-def specification_text(text: str, *, old_tags: bool = False) -> str:
-    """A tasks file's text with progress stripped out, and the test-kind tags in their current
-    spelling (`old_tags`: in the earlier one, which a plan recorded before the rename hashed).
+def specification_text(text: str, spell: Callable[[str], str] = _current_tag) -> str:
+    """A tasks file's text with progress stripped out, and the test-kind tags spelled by `spell`
+    (their current spelling unless a plan recorded before the rename is being matched).
 
     What a re-plan should key on is what the change *asks for*, not how much
     of it is done. The pipeline ticks these boxes as units land, and hashing
@@ -187,7 +190,7 @@ def specification_text(text: str, *, old_tags: bool = False) -> str:
     # applies on its own. Re-planning a change for one would be a model call
     # that can reshuffle units already built. Blank lines go with them: a
     # `Needs:` line comes with the blank line that sets it off.
-    spelled = _retagged(text, _old_tag if old_tags else lambda tag: new_spelling(Place.TAG, tag))
+    spelled, _ = retag_headings(text, spell)
     stripped = _CHECKBOX.sub(r"\1 \2", spelled)
     return "\n".join(
         line

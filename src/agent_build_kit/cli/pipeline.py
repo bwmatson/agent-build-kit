@@ -48,6 +48,7 @@ from agent_build_kit import claude_account, config, forges, profiles, runtimes, 
 from agent_build_kit.budget import cut_head
 from agent_build_kit.cli.e2e_cmd import held_status_lines
 from agent_build_kit.cli.retire_cmd import cmd_retire
+from agent_build_kit.compat_names import Place, new_spelling, old_tag
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun
@@ -193,7 +194,6 @@ from agent_build_kit.pipeline.stack_runner import (
     UnitRunner,
     group_steps_of,
 )
-from agent_build_kit.pipeline.tag_rewrite import rewritten
 from agent_build_kit.pipeline.transcript import remove_change_transcripts, transcript_dir
 from agent_build_kit.pipeline.ui_review import (
     ui_notes_of,
@@ -356,6 +356,7 @@ from agent_build_kit.pipeline.work_graph import (
     manual_runbook_warnings,
     merged_needs_warnings,
     old_test_kind_warnings,
+    retag_headings,
     specification_text,
     tasks_path,
     unrelated_parent_warnings,
@@ -4262,9 +4263,14 @@ def plan_digest(tasks: Path, recorded: str | None = None) -> str:
     when it is the hash of this text in the earlier spelling, it is returned, so a plan made
     before the rename counts as current for the same text after `abk tags --fix`."""
     text = tasks.read_text()
-    current = hashlib.sha256(specification_text(text).encode()).hexdigest()
-    earlier = hashlib.sha256(specification_text(text, old_tags=True).encode()).hexdigest()
-    return recorded if recorded is not None and recorded == earlier else current
+
+    def hashed(spell: Callable[[str], str]) -> str:
+        return hashlib.sha256(specification_text(text, spell).encode()).hexdigest()
+
+    # An earlier release hashed the text as written: every tag old, or the two spellings mixed.
+    if recorded is not None and recorded in (hashed(old_tag), hashed(lambda tag: tag)):
+        return recorded
+    return hashed(lambda tag: new_spelling(Place.TAG, tag))
 
 
 # Units that still need a tick: being built, waiting to be, or open for review
@@ -5602,7 +5608,9 @@ def _tag_warnings(inst: Installation, path: Path) -> list[str]:
     ]
 
 
-def _fix_change_tags(inst: Installation, change: str, *, dry_run: bool) -> bool:
+def _fix_change_tags(
+    inst: Installation, change: str, cycles: Mapping[str, str], *, dry_run: bool
+) -> bool:
     """Rewrite the old test-kind tags of one change's tasks.md and print what happened; whether
     it was handled, and not refused. A change is written only when the rewritten text parses to
     the same groups and the original had no other tag problem."""
@@ -5621,11 +5629,14 @@ def _fix_change_tags(inst: Installation, change: str, *, dry_run: bool) -> bool:
     except OSError as exc:
         return refuse(f"could not read {path}: {exc}")
     before, errors = _validated(inst, path)
+    if change.lower() in cycles:
+        print(cycles[change.lower()])
+        return refuse(f"a Needs: cycle, run `abk tags {change}`")
     if errors:
         for error in errors:
             print(f"{path}:{error}")
         return refuse(f"{len(errors)} other problem(s), run `abk tags {change}`")
-    fixed, count = rewritten(text)
+    fixed, count = retag_headings(text, lambda tag: new_spelling(Place.TAG, tag))
     if not count:
         print(f"{change}: unchanged")
         return True
@@ -5653,6 +5664,9 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
     test-kind tags of the open changes."""
     fix = getattr(args, "fix", False)
     command = "abk tags --fix" if fix else "abk tags"
+    if getattr(args, "dry_run", False) and not fix:
+        print("abk tags: --dry-run needs --fix", file=sys.stderr)
+        return 2
     if args.all and args.change:
         print(f"{command}: give a change or --all, not both", file=sys.stderr)
         return 2
@@ -5666,7 +5680,11 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
         return 0
     if fix:
         dry_run = getattr(args, "dry_run", False)
-        handled = [_fix_change_tags(inst, change, dry_run=dry_run) for change in changes]
+        try:
+            cycles = _needs_cycle_problems(inst)
+        except UnicodeDecodeError:
+            cycles = {}  # a file that is not text is refused by name below
+        handled = [_fix_change_tags(inst, change, cycles, dry_run=dry_run) for change in changes]
         return 0 if all(handled) else 1
     failed = 0
     cycles = _needs_cycle_problems(inst)
