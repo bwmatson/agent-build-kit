@@ -58,8 +58,12 @@ def still_alive(
 
 
 def started(record: Path) -> bool:
-    """Whether the fake has written both pid files."""
-    return all((record / name).exists() for name in ("agent.pid", "child.pid"))
+    """Whether the fake has written both pid files: a file that exists but is still empty has been
+    created and not yet written, so it does not count."""
+    return all(
+        (record / name).exists() and (record / name).read_text().strip()
+        for name in ("agent.pid", "child.pid")
+    )
 
 
 def pids(record: Path) -> list[int]:
