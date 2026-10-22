@@ -61,9 +61,9 @@ def planned(*pieces: dict, groups: list[TaskGroup] | None = None) -> Plan:
 
 def correct() -> tuple[dict, ...]:
     return (
-        piece("a", [2], "auto", 200),
-        piece("b", [3], "full", 300, after="a"),
-        piece("c", [4], "auto", 200, after="b"),
+        piece("c/2-s1", [2], "auto", 200),
+        piece("c/2-s2", [3], "full", 300, after="c/2-s1"),
+        piece("c/2-s3", [4], "auto", 200, after="c/2-s2"),
     )
 
 
@@ -75,7 +75,7 @@ def test_a_plan_of_the_held_units_groups_alone_is_accepted_with_the_rest_as_buil
 
 
 def test_a_plan_claiming_a_group_outside_the_held_unit_is_refused_as_built() -> None:
-    claiming_five = (*correct()[:2], piece("c", [4, 5], "auto", 200, after="b"))
+    claiming_five = (*correct()[:2], piece("c/2-s3", [4, 5], "auto", 200, after="c/2-s2"))
 
     with pytest.raises(PlannerError, match="group 5"):
         planned(*claiming_five)
@@ -84,23 +84,25 @@ def test_a_plan_claiming_a_group_outside_the_held_unit_is_refused_as_built() -> 
 def test_the_ceiling_is_the_ceiling_of_each_pieces_tier() -> None:
     # 3000 lines is fine for an auto piece and would be over the full ceiling.
     big_rest = (
-        piece("a", [2], "auto", 3000),
-        piece("b", [3], "full", 300, after="a"),
-        piece("c", [4], "auto", 200, after="b"),
+        piece("c/2-s1", [2], "auto", 3000),
+        piece("c/2-s2", [3], "full", 300, after="c/2-s1"),
+        piece("c/2-s3", [4], "auto", 200, after="c/2-s2"),
     )
     assert planned(*big_rest).units[0].estimated_lines == 3000
 
     with pytest.raises(PlannerError, match="750") as refused:
-        planned(piece("a", [2, 3], "full", 800), piece("c", [4], "auto", 200, after="a"))
+        planned(
+            piece("c/2-s1", [2, 3], "full", 800), piece("c/2-s2", [4], "auto", 200, after="c/2-s1")
+        )
     assert not isinstance(refused.value, GroupTooLarge)
 
 
 def test_a_single_driver_group_alone_over_the_earned_ceiling_is_too_large() -> None:
     with pytest.raises(GroupTooLarge, match="750"):
         planned(
-            piece("a", [2], "auto", 200),
-            piece("b", [3], "full", 800, after="a"),
-            piece("c", [4], "auto", 200, after="b"),
+            piece("c/2-s1", [2], "auto", 200),
+            piece("c/2-s2", [3], "full", 800, after="c/2-s1"),
+            piece("c/2-s3", [4], "auto", 200, after="c/2-s2"),
         )
 
 
