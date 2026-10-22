@@ -32,5 +32,6 @@ def test_a_group_owned_refusal_leaves_the_change_stale(
     assert code == 1
     record = run.records["feature"]
     assert record["ok"] is False
+    assert record["owned"] == ["feature/1"]
     assert record["sizing"] == OLD_SIZING
     assert cli.plan_is_stale(record)

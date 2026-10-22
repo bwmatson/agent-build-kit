@@ -1444,6 +1444,14 @@ def _plan_is_current(record: dict, digest: str, max_attempts: int) -> bool:
     )
 
 
+def _plan_rests(record: dict, digest: str, max_attempts: int, now: datetime) -> bool:
+    """Whether a tick leaves a change's recorded plan alone: its `tasks.md` is as planned and
+    the plan worked, has used its attempts, or waits for an outage whose next try is ahead."""
+    return _plan_is_current(record, digest, max_attempts) or (
+        record.get("hash") == digest and _plan_waiting(record, now)
+    )
+
+
 def _plan_waiting(record: Mapping, now: datetime) -> bool:
     """Whether a change's recorded plan waits for an outage and its next try is ahead."""
     if not record.get("waiting"):
@@ -1475,9 +1483,7 @@ def _needs_planning(inst: Installation, store: UnitStore) -> bool:
     for tasks in inst.tasks_files():
         record = planned.get(tasks.parent.name) or {}
         digest = plan_digest(tasks, record.get("hash"))
-        if _plan_is_current(record, digest, inst.max_plan_attempts):
-            continue
-        if record.get("hash") == digest and _plan_waiting(record, now):
+        if _plan_rests(record, digest, inst.max_plan_attempts, now):
             continue
         groups, errors = _validated(inst, tasks)
         # A change whose groups are all taken is recorded with no model call.
@@ -4174,9 +4180,7 @@ def plan_all(
 
         # Attempts are counted against the content, not the change, so editing
         # tasks.md — which is the actual fix — starts them over.
-        if _plan_is_current(record, digest, max_attempts) or (
-            record.get("hash") == digest and _plan_waiting(record, spans.clock.now())
-        ):
+        if _plan_rests(record, digest, max_attempts, spans.clock.now()):
             results[change] = PlanResult(status="skipped")
             continue
 
@@ -6172,9 +6176,7 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
             record = records.get(change)
             if not record or not plan_is_stale(record):
                 continue
-            if _plan_waiting(record, now) or (
-                not record.get("ok") and record.get("attempts", 0) >= max_attempts
-            ):
+            if not record.get("ok") and _plan_rests(record, plan_digest(path), max_attempts, now):
                 shown = _plan_state(record, max_attempts, change in standing)
                 print(f"{change}: skipped — {shown}")
                 continue
@@ -6373,21 +6375,28 @@ def plan_apart(
 def apply_planned(inst: Installation, store: UnitStore, outcome: ReplanOutcome) -> bool:
     """Store a planned-apart `outcome`, inside its `plan_apart` block, and say whether it was
     stored. Only what the planning changed is written: the units that differ and the plan
-    records of the planned changes and of those it orphaned, under the locks every other write
-    takes. A tick may have run while the planner was asked; when one of the units to write is no
-    longer as the copy had it, nothing is written. The planner is not asked."""
+    records of the planned changes and of those it orphaned, both under the store lock and
+    the records' own, so neither is seen without the other. A network pause the planning
+    recorded is recorded in the real state directory. A tick may have run while the planner
+    was asked; when one of the units to write is no longer as the copy had it, nothing is
+    written. The planner is not asked."""
     if outcome.scratch is None:
         raise ValueError("the outcome was not planned apart")
-    if store.replace_if_unchanged(outcome.base, outcome.after):
-        return False
-    update_plans(
-        inst,
-        lambda _: {
-            **dict.fromkeys(outcome.orphaned),
-            **{change: outcome.records[change] or None for change in outcome.changes},
-        },
-    )
-    return True
+    # The outage was met in the copy, whose state directory goes with it: the pause is the
+    # real one's to stand, and `pause_until` keeps one that already does.
+    if pause := is_paused(outcome.scratch / PAUSE_MARKER):
+        pause_until(pause.until, reason=pause.reason, marker=_paused_marker(inst), kind=pause.kind)
+
+    def record_plan_records() -> None:
+        update_plans(
+            inst,
+            lambda _: {
+                **dict.fromkeys(outcome.orphaned),
+                **{change: outcome.records[change] or None for change in outcome.changes},
+            },
+        )
+
+    return not store.replace_if_unchanged(outcome.base, outcome.after, also=record_plan_records)
 
 
 def _cyclic(outcome: ReplanOutcome) -> bool:

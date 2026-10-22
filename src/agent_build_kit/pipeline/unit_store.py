@@ -867,18 +867,25 @@ class UnitStore:
 
     @_exclusive
     def replace_if_unchanged(
-        self, before: Mapping[str, StoredUnit], after: Mapping[str, StoredUnit]
+        self,
+        before: Mapping[str, StoredUnit],
+        after: Mapping[str, StoredUnit],
+        *,
+        also: Callable[[], None] | None = None,
     ) -> list[str]:
         """Store the units `after` holds that differ from `before`, and no other: it is
         for a plan made apart from the store, from a copy taken as `before`. When any of those
         units is no longer as `before` has it in the store (changed, or added, since), nothing
-        is written and their ids are returned."""
+        is written and their ids are returned. `also` is called after the write, with the
+        store still locked, so a record kept beside the units changes with them."""
         stored = self._read()
         changed = [uid for uid, unit in after.items() if before.get(uid) != unit]
         if moved := [uid for uid in changed if stored.get(uid) != before.get(uid)]:
             return moved
         if changed:
             self._write({**stored, **{uid: after[uid] for uid in changed}})
+        if also is not None:
+            also()
         return []
 
     @_exclusive

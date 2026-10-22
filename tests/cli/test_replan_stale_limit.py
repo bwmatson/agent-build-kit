@@ -138,3 +138,23 @@ def test_an_outage_ends_the_run_says_the_rest_were_not_tried_and_uses_no_attempt
     assert run.records["alpha"]["attempts"] == 0
     assert run.records["alpha"]["waiting"] == "service"
     assert run.records["bravo"].get("waiting") is None
+
+
+def test_a_change_that_gave_up_on_text_since_edited_is_planned(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = stale_run(tmp_path, monkeypatch, {"alpha": None})
+    run.record(
+        "alpha",
+        sizing=OLD_SIZING,
+        hash="the-digest-of-the-text-before-the-edit",
+        ok=False,
+        attempts=run.inst.max_plan_attempts,
+        reason="the graph call failed",
+    )
+
+    code, out = run.run(capsys, "--stale")
+
+    assert code == 0
+    assert planned_changes(run) == {"alpha"}
+    assert "skipped" not in out
