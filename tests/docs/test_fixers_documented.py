@@ -71,9 +71,32 @@ def test_the_fix_rows_keep_the_changed_nothing_stop(name: str) -> None:
     assert re.search(r"changed nothing", node_row(name), re.I)
 
 
-def test_the_unit_graph_stub_check_edges_mention_the_fixers() -> None:
-    text = squashed(DOCS / "unit-graph.md")
-    assert re.search(r"stub_checks.{0,800}fixers", text, re.I)
+def test_the_unit_graph_stub_check_edge_that_commits_names_the_fixers() -> None:
+    edges = [
+        line
+        for line in (DOCS / "unit-graph.md").read_text(encoding="utf-8").splitlines()
+        if "stub_checks -->" in line and "commits the tests" in line
+    ]
+    assert edges
+    assert all("fixers" in edge for edge in edges)
+
+
+def test_the_architecture_checks_step_names_the_fixers_before_the_fix_commit() -> None:
+    text = squashed(DOCS / "architecture.md")
+    step = text[text.index("Checks, then review rounds") :]
+    step = step[: step.index("A read-only reviewer")]
+    assert re.search(r"fixers.{0,200}no model call", step, re.I)
+    assert re.search(
+        r"fix: .{0,40}checks, round N.{0,200}fixers|fixers.{0,200}fix: .{0,40}checks, round", step
+    )
+    assert "check_loop.py" in step
+
+
+def test_the_architecture_tests_and_implementation_steps_name_the_fixers() -> None:
+    text = squashed(DOCS / "architecture.md")
+    steps = text[text.index("Tests, commit.") : text.index("Checks, then review rounds")]
+    assert re.search(r"fixers.{0,300}per_group_commits off", steps, re.I)
+    assert re.search(r"runs the fixers, then commits feat:", steps)
 
 
 def test_the_toolchain_profiles_document_lists_fix_command_as_optional() -> None:

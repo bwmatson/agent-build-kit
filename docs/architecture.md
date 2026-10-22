@@ -439,9 +439,11 @@ release could move. The steps:
    full, and an agent that has just built what a later group depends on has
    every reason to finish it too — and say why: each group is a later unit's
    own pull request, and pulling its work forward makes this one bigger than
-   the plan intended.
+   the plan intended. The pipeline runs the profile's fixers (no model call,
+   over the unit's own files) before this commit, in a build with
+   `builders.per_group_commits` off as in a stubbed one.
 4. **Implementation, commit.** A second run makes those tests pass and may
-   not weaken them; commit `feat: <title>`. A branch left
+   not weaken them; the pipeline runs the fixers, then commits `feat: <title>`. A branch left
    with no commits of its own — neither step added one — is not failed
    outright; see the satisfied outcome after unit-test, below.
 
@@ -490,7 +492,11 @@ release could move. The steps:
    handed to the builder with the check prompt, then unit-test runs again, up to
    `global_limits.max_check_rounds` times (3; `null` is no limit; 0 means no fix
    attempt, not no check), before the unit is `failed` with the output kept. A
-   fix that changes nothing ends it too, whatever the limit. It runs again
+   fix that changes nothing ends it too, whatever the limit. Before each
+   `fix: <title> (checks, round N)` commit the pipeline runs the profile's
+   fixers over the unit's own files with no model call; a round the fixers
+   alone changed moves the head and is not the "changed nothing" stop. This
+   loop and the stub loop share one routine, `graph/check_loop.py`. It runs again
    before every later review round with the budget started over, since a
    rework can break the build as easily as the first draft. Nothing runs unit-test after the review: a reviewer reports and the
    builder fixes, so approval leaves the branch as the checks judged it.
