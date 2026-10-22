@@ -660,7 +660,12 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
                 "abk.yaml is kept: its runtime and command are left as they are; "
                 "--runtime (with confirmation) or --force changes them"
             )
-        applied = chosen.applied_to(config) if chosen else config
+        # The drafted models are the default runtime's own names: another runtime's choice
+        # does not write them.
+        base = config
+        if chosen and chosen.runtime != config_module.CLAUDE_CODE:
+            base = config.model_copy(update={"runtimes": {}})
+        applied = chosen.applied_to(base) if chosen else config
         if not keeps:
             config = applied
     except RuntimeChoiceError as error:

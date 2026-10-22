@@ -70,6 +70,12 @@ runtime: claude_code          # the agent runtime every step runs on;
 runtimes:                     # only for a runtime needing a fact abk cannot
                               # default; only the selected one is checked
   claude_code:                # the subscription's two usage windows, each a section
+    models:                   # bare aliases, not pinned ids: this runtime's own names for
+      implement: sonnet       # the roles; ABK_*_MODEL overrides win over these. A role
+      rework: sonnet          # named nowhere takes the runtime's own default.
+      review: opus
+      rework_review: opus     # both reviews are made by a different model from
+                              # the author; if the author is opus, set this to another
     limits:                   # with the same settings
       session:                # the 5-hour window
         usage_pause_pct: 70            # % at which no unit starts
@@ -111,18 +117,10 @@ runtimes:                     # only for a runtime needing a fact abk cannot
   #                                       # warns and sends no prompt until `abk init --policy-only`
   #                                       # passes and the line is removed
   #                                       # confirming the agent refuses what abk forbids
-  #   models: {review: "..."}             # this runtime's names for roles;
-  #                                       # a role left out keeps models:'s
+  #   models: {review: "..."}             # this runtime's names for roles
 
-models:                       # bare aliases, not pinned ids; ABK_*_MODEL
-                              # overrides win over these and runtimes' own.
-                              # A role named nowhere takes the active
-                              # runtime's own default (these, on claude_code)
-  implement: sonnet
-  rework: sonnet
-  review: opus
-  rework_review: opus         # both reviews are made by a different model from
-                              # the author; if the author is opus, set this to another
+# The flat top-level models: block is deprecated: it still loads for the active runtime with
+# a notice naming runtimes.<name>.models (the active runtime's), and `abk config --migrate` moves it there.
 
 session_reuse:                # per agent role: continue the role's latest session
   build: true                 # tests/implement/fix/rework/restack/adapt share one session

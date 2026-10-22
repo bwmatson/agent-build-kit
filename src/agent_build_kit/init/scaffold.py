@@ -28,6 +28,7 @@ import yaml
 
 from agent_build_kit import forges, openspec, skills
 from agent_build_kit.config import (
+    CLAUDE_CODE,
     CONFIG_FILENAME,
     OVERLAY_FILENAME,
     CredentialsConfig,
@@ -37,9 +38,12 @@ from agent_build_kit.config import (
     DraftedEnvironment,
     EnvironmentConfig,
     LimitsConfig,
+    ModelsConfig,
     NamesFrom,
     ProjectConfig,
     RepoConfig,
+    RuntimeConfig,
+    RuntimeModelsConfig,
     WorkspaceConfig,
     dump,
 )
@@ -179,6 +183,12 @@ def draft_config(
         environment=planning_environment,
         repos=repos,
         global_limits=LimitsConfig(generated_files=tuple(patterns)),
+        # The roles are the runtime's own names, written under it and not as a flat block.
+        runtimes={
+            CLAUDE_CODE: RuntimeConfig(
+                models=RuntimeModelsConfig.model_validate(ModelsConfig().model_dump())
+            )
+        },
     )
 
 

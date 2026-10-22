@@ -145,6 +145,19 @@ runtimes:                       # one entry per runtime that needs a fact abk
                                 # fails at load; only the selected runtime's
                                 # entry is checked.
   claude_code:                  # the Claude subscription: a five-hour session
+    models:                     # bare aliases, not pinned ids: this runtime's own
+                                # names for the roles. A role left out takes the
+                                # runtime's own default (these, on claude_code);
+                                # ABK_*_MODEL overrides win over both. A second
+                                # runtime names its own models under its own entry
+      implement: sonnet         # the tests, implementation and check-fix runs
+      rework: sonnet            # reworks, restack conflict resolution, adapt, when they
+                                # start a new session; a continued build session
+                                # keeps its model
+      review: opus              # the first review of a fresh build
+      rework_review: opus       # every review of a rework. Both reviews default
+                                # to a different model from the author's; if the
+                                # author is set to opus, set this to another
     context_windows: {}         # model id or alias -> window in tokens, for when the
                                 # result does not name it (read by this runtime only;
                                 # an acp agent says its own window); recorded as an
@@ -206,23 +219,7 @@ runtimes:                       # one entry per runtime that needs a fact abk
   #   policy: unchecked                   # the only value: carried on without
   #                                       # confirming the agent refuses what
   #                                       # the command policy forbids
-  #   models: {implement: "..."}          # only when a second runtime's model
-  #                                       # names must coexist with the block
-  #                                       # below
-
-models:                         # bare aliases, not pinned ids. These are the
-                                # ACTIVE runtime's models; a runtimes.<name>.
-                                # models block overrides them when present,
-                                # and a role left out of both takes the
-                                # runtime's own default (these, on claude_code).
-  implement: sonnet             # the tests, implementation and check-fix runs
-  rework: sonnet                # reworks, restack conflict resolution, adapt, when they
-                                # start a new session; a continued build session
-                                # keeps its model
-  review: opus                  # the first review of a fresh build
-  rework_review: opus           # every review of a rework. Both reviews default
-                                # to a different model from the author's; if the
-                                # author is set to opus, set this to another
+  #   models: {implement: "..."}          # this runtime's own model names
 
 session_reuse:                  # per agent role, whether its nodes continue the
   build: true                   # role's latest session. build: the tests,
@@ -960,6 +957,11 @@ loaded (`abk init` writes `.env.example` to copy).
 A bad collector cannot fail or slow a run: exports are batched, a failure is
 at most a warning, and `shutdown()` is bounded. `abk doctor` warns when
 telemetry is enabled with no endpoint or one that does not answer.
+
+The flat top-level `models:` block is deprecated. It still loads, for the active
+runtime only, with a notice naming `runtimes.<active>.models` (which
+`abk config --migrate` moves it to); a role set in both places takes the runtime's
+value. Set the roles under `runtimes.<name>.models`.
 
 The model overrides name the *active* runtime's models: a role's model is
 resolved against whichever runtime is selected, so an override naming a model
