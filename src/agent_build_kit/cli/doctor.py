@@ -1708,7 +1708,7 @@ def sandbox_check(loaded: WorkspaceConfig) -> Check:
     """Whether the sandbox backend works here, found by running its probe; `abk init` shows the
     same result."""
     if not loaded.sandbox.enabled:
-        return _ok("sandbox", "off (`sandbox.enabled` is false)")
+        return _info("sandbox", "off (`sandbox.enabled` is false)")
     backend, found = sandboxes.probe(loaded.sandbox.backend)
     if found.ok:
         return _ok("sandbox", f"{backend.name}: confines {found.coverage.value} of a step")

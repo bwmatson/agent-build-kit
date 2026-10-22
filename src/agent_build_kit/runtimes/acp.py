@@ -1238,7 +1238,8 @@ class AcpRuntime:
     name: str = NAME
     implemented: bool = True
     policy_coverage: PolicyCoverage = "agent_flagged"
-    sandbox_coverage: Coverage = Coverage.FILES
+    # Nothing launches this runtime under a backend yet; `sandbox-acp` raises it.
+    sandbox_coverage: Coverage = Coverage.NONE
     supports_usage_tracking: bool = False
     supports_streaming: bool = True
     supports_session_resume: bool = True

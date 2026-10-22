@@ -799,7 +799,8 @@ The kernel confines what an agent step can write and reach. Keys:
 
 - `sandbox.enabled` (default `false`): turn the sandbox on.
 - `sandbox.backend` (default `auto`): `auto` picks the first backend whose probe passes on this
-  machine; or name one (`landlock`, `seatbelt`).
+  machine; or name one (`landlock` today; `seatbelt` arrives with the macOS backend and is refused at
+  load until then).
 - `repos.<name>.sandbox.required` (default `files`): the least coverage a step may run with
   (`process`, `files` or `none`; `none` lets it run unconfined).
 - `sandbox.write`, `sandbox.read` and `sandbox.hosts`, on a repo or a project: extra paths and

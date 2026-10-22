@@ -30,8 +30,12 @@ def beside(lines: list[str], coverage: Coverage) -> bool:
 
 def test_every_built_in_runtime_has_a_sandbox_coverage() -> None:
     for name in runtimes.names():
-        # Read by name: the runtime protocol does not declare the member until it is added.
-        assert getattr(runtimes.get(name), "sandbox_coverage", None) in set(Coverage), name
+        assert runtimes.get(name).sandbox_coverage in set(Coverage), name
+
+
+def test_no_built_in_runtime_claims_confinement_nothing_provides_yet() -> None:
+    assert runtimes.get("claude_code").sandbox_coverage is Coverage.NONE
+    assert runtimes.get("acp").sandbox_coverage is Coverage.NONE
 
 
 @pytest.mark.parametrize("coverage", list(Coverage))

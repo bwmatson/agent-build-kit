@@ -42,21 +42,30 @@ def names() -> list[str]:
     return sorted(_REGISTRY)
 
 
-def detect(platform: str | None = None) -> SandboxBackend:
-    """The first of `landlock`, `seatbelt`, `unavailable` whose platform matches `platform`
-    (default `sys.platform`) and whose `availability()` is ok."""
+def _detect(platform: str | None) -> tuple[SandboxBackend, Availability]:
     _load_builtin()
     here = sys.platform if platform is None else platform
     for name in _ORDER:
         backend = _REGISTRY.get(name)
-        if backend and here.startswith(backend.platform) and backend.availability().ok:
-            return backend
-    return _REGISTRY["unavailable"]
+        if backend and here.startswith(backend.platform):
+            found = backend.availability()
+            if found.ok:
+                return backend, found
+    fallback = _REGISTRY["unavailable"]
+    return fallback, fallback.availability()
+
+
+def detect(platform: str | None = None) -> SandboxBackend:
+    """The first of `landlock`, `seatbelt`, `unavailable` whose platform matches `platform`
+    (default `sys.platform`) and whose `availability()` is ok."""
+    return _detect(platform)[0]
 
 
 def probe(name: str = "auto") -> tuple[SandboxBackend, Availability]:
     """The backend `name` picks (`auto` detects one) and the result of running its probe."""
-    backend = detect() if name == "auto" else get(name)
+    if name == "auto":
+        return _detect(None)
+    backend = get(name)
     return backend, backend.availability()
 
 

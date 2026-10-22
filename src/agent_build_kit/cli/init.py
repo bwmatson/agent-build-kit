@@ -598,14 +598,16 @@ def _choose_runtime(
     )
 
 
-def _activate(planning: Path, fallback: WorkspaceConfig) -> None:
+def _activate(planning: Path, fallback: WorkspaceConfig) -> WorkspaceConfig:
     """Make abk.yaml as it now stands the active configuration, so each runtime reads
-    the command and models recorded there; `fallback` when the file does not load."""
+    the command and models recorded there; `fallback` when the file does not load. Returns
+    the configuration made active."""
     try:
         config = load_config(planning / CONFIG_FILENAME)
     except config_module.ConfigError:
         config = fallback
     config_module.activate(config, planning)
+    return config
 
 
 def _agent(chosen: Choice | None, kept: str | None) -> AgentRuntime | None:
@@ -617,13 +619,8 @@ def _agent(chosen: Choice | None, kept: str | None) -> AgentRuntime | None:
         return None
 
 
-def _sandbox_lines(planning: Path, fallback: WorkspaceConfig) -> None:
-    """What `abk doctor` finds about the sandbox, for the abk.yaml now in the planning repo;
-    `fallback` when the file does not load."""
-    try:
-        config = load_config(planning / CONFIG_FILENAME)
-    except config_module.ConfigError:
-        config = fallback
+def _sandbox_lines(config: WorkspaceConfig) -> None:
+    """What `abk doctor` finds about the sandbox, for the configuration init activated."""
     found = sandbox_check(config)
     print(f"sandbox: {found.detail}")
     if found.status == "FAIL":
@@ -742,8 +739,7 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
             record_in_file(planning / CONFIG_FILENAME, chosen.fragment)
             print(f"recorded runtime {chosen.runtime} in abk.yaml")
 
-    _activate(planning, applied)
-    _sandbox_lines(planning, applied)
+    _sandbox_lines(_activate(planning, applied))
 
     # Before the agent steps and the commit: what the step records is part of init's commit.
     _policy_step(planning, args)
