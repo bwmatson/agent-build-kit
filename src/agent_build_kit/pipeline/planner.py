@@ -64,7 +64,7 @@ from agent_build_kit.pipeline.units import (
     direct_dependencies,
     waiting_on_me,
 )
-from agent_build_kit.pipeline.verdict import REVIEW_TIERS, ReviewTier
+from agent_build_kit.pipeline.verdict import REVIEW_TIERS, ReviewTier, SplitRequest
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.work_graph import (
     GROUP_HEADING,
@@ -159,6 +159,8 @@ def parse_plan(
     calibrations: Mapping[Kind, Calibration] | None = None,
     retired: Collection[str] = (),
     tasks: str = "",
+    split: SplitRequest | None = None,
+    held: StoredUnit | None = None,
 ) -> Plan:
     """Read and verify a proposed graph and its joins, or raise `PlannerError`.
 
@@ -166,8 +168,11 @@ def parse_plan(
     paths. `retired` is the ids of retired units: taken, so a label may not be one. A unit's `id` in
     the reply is a label; the returned units carry the ids assigned from their groups.
 
-    Joins are checked against `context`; without one, none may be proposed.
+    Joins are checked against `context`; without one, none may be proposed. With a `split`
+    request, `held` is the unit being split and only its groups are planned.
     """
+    if split is not None:
+        raise NotImplementedError
     match = JSON_BLOCK.search(output)
     if not match:
         raise PlannerError("no JSON object in the planner's output")
@@ -1167,8 +1172,12 @@ def build_prompt(
     examples: Mapping[Kind, Sequence[StoredUnit]] | None = None,
     omitted: int = 0,
     groups: Sequence[TaskGroup] | None = None,
+    split: SplitRequest | None = None,
+    held: StoredUnit | None = None,
 ) -> str:
-    return _prompt_and_parts(changes, in_flight, calibrations, examples, omitted, groups)[0]
+    return _prompt_and_parts(
+        changes, in_flight, calibrations, examples, omitted, groups, split=split, held=held
+    )[0]
 
 
 def omitted_line(count: int) -> str:
@@ -1184,8 +1193,12 @@ def _prompt_and_parts(
     omitted: int,
     groups: Sequence[TaskGroup] | None = None,
     previous_refusal: str = "",
+    split: SplitRequest | None = None,
+    held: StoredUnit | None = None,
 ) -> tuple[str, dict[str, int]]:
     """The prompt, and the size in bytes of the parts a person can cut."""
+    if split is not None:
+        raise NotImplementedError
     first = next(iter(changes), "")
     changes_text = (
         "\n\n".join(
@@ -1283,6 +1296,8 @@ def plan_round(
     runtime: AgentRuntime | None = None,
     omitted: int = 0,
     previous_refusal: str = "",
+    split: SplitRequest | None = None,
+    held: StoredUnit | None = None,
 ) -> Plan:
     """Ask for a graph and return it, or raise `PlannerError`.
 
@@ -1291,7 +1306,7 @@ def plan_round(
     the units; a caller that passes no `context` accepts none.
     """
     prompt, parts = _prompt_and_parts(
-        changes, in_flight, calibrations, examples, omitted, groups, previous_refusal
+        changes, in_flight, calibrations, examples, omitted, groups, previous_refusal, split, held
     )
     answer = (
         run_claude(prompt)
@@ -1308,4 +1323,6 @@ def plan_round(
         calibrations=calibrations,
         retired=_retired_ids(in_flight),
         tasks=next(iter(changes.values()), ""),
+        split=split,
+        held=held,
     )
