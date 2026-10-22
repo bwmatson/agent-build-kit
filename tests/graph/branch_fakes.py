@@ -66,7 +66,8 @@ class OnBranch(StubLoop):
     agent writes a file for each tests, implementation and rework call, except for the
     implementation of the groups named in `no_commit_for`, which leaves the tree as it was, and
     for every call about groups all numbered in `silent_groups`. `accounts` is what the
-    implementation agent says last, by the group it is asked about (as the prompt names it)."""
+    implementation agent says last, and `tests_accounts` what the tests agent does, by the
+    group it is asked about (as the prompt names it)."""
 
     def __init__(
         self,
@@ -75,10 +76,12 @@ class OnBranch(StubLoop):
         no_commit_for: str = "",
         silent_groups: Collection[int] = (),
         accounts: Mapping[str, str] | None = None,
+        tests_accounts: Mapping[str, str] | None = None,
         **options: Any,
     ) -> None:
         super().__init__(store, **options)
         self.accounts = accounts or {}
+        self.tests_accounts = tests_accounts or {}
         self.no_commit_for = no_commit_for  # as the prompt names them: "3" or "1, 2, 3"
         self.silent_groups = frozenset(str(number) for number in silent_groups)
 
@@ -94,6 +97,8 @@ class OnBranch(StubLoop):
             (kwargs["cwd"] / f"work-{len(self.prompts)}.txt").write_text(f"{step}\n")
         if step == "claude:impl" and built_group in self.accounts:
             return self.accounts[built_group]
+        if step == "claude:tests" and built_group in self.tests_accounts:
+            return self.tests_accounts[built_group]
         return answer
 
     def commit(self, message: str, *, cwd: Path, base: str = "") -> int:

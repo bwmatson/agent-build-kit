@@ -53,6 +53,7 @@ from agent_build_kit.pipeline.commit_order import (
     CODE_PREFIX,
     TESTS_BODY,
     TESTS_PREFIX,
+    GroupProgress,
     group_progress,
     recorded_built,
 )
@@ -1128,11 +1129,7 @@ class BuildPath:
         if not (existing and self.stubbed()):
             return {}
         steps = self.runner.group_steps(self.unit)
-        progress = group_progress(
-            self.runner.branch_subjects(self.tree(), ref),
-            [s.title for s in steps],
-            [s.test_only for s in steps],
-        )
+        progress = self.branch_progress(ref)
         if progress.done == len(steps) or not (progress.done or progress.tests_made):
             return {}  # finished, or not begun by this build: the path is the finished branch's
         return {
@@ -1371,7 +1368,9 @@ class BuildPath:
             account = self.agent(r.run, prompt, cwd=tree, state=state, model=models().implement)
             if stubbed:
                 # Committed by `stub_checks`, once the stubs and tests pass the static checks.
-                return {"head": r.head(tree), "stub_loop": True, "tests_account": account}
+                step = self.group_step(state)
+                kept = account if step is not None and step.test_only else ""
+                return {"head": r.head(tree), "stub_loop": True, "tests_account": kept}
             r.commit(self.message(TESTS_PREFIX, TESTS_BODY, state), cwd=tree, base=self.ref(state))
         return {"head": r.head(tree), "stub_loop": False}
 
@@ -1476,8 +1475,7 @@ class BuildPath:
         """What the branch lacks for the group just built or an earlier one, named: a tests
         and implementation pair, or a tests commit for a test-only group; "" when it lacks none."""
         steps = self.runner.group_steps(self.unit)
-        subjects = self.runner.branch_subjects(self.tree(), ref)
-        done = group_progress(subjects, [s.title for s in steps], [s.test_only for s in steps]).done
+        done = self.branch_progress(ref).done
         if done > state.group:
             return ""
         step = steps[done]
@@ -1485,70 +1483,82 @@ class BuildPath:
             return f"tests commit for group {step.number} ({step.title})"
         return f"tests and implementation pair for group {step.number} ({step.title})"
 
-    def half_recorded(self, state: UnitRun, ref: str) -> bool:
-        """Whether a killed run left this group's marked empty tests commit as the tip, with its
-        implementation still to be recorded."""
+    def branch_progress(self, ref: str) -> GroupProgress:
+        """How far the branch's commits get through the unit's groups, read from their subjects:
+        the one reading resume, the pair count and the recorded-group decision share."""
         r = self.runner
-        if self.group_step(state) is None:
-            return False
         steps = r.group_steps(self.unit)
-        tree = self.tree()
-        progress = group_progress(
-            r.branch_subjects(tree, ref),
+        return group_progress(
+            r.branch_subjects(self.tree(), ref),
             [s.title for s in steps],
             [s.test_only for s in steps],
         )
+
+    def half_recorded(self, state: UnitRun, progress: GroupProgress) -> bool:
+        """Whether a killed run left this group's marked empty tests commit as the tip, with its
+        implementation still to be recorded."""
+        tree = self.tree()
         return (
             progress.done == state.group
             and progress.tests_made
-            and recorded_built(tree, r.head(tree))
+            and recorded_built(tree, self.runner.head(tree))
         )
+
+    def with_account(self, message: str, account: str) -> str:
+        """A recorded group's commit message with the builder's account, redacted and cut,
+        under its heading; the message as it is when the builder said nothing."""
+        reason = redact_text(account, where="built group account")[:ACCOUNT_LIMIT].strip()
+        return f"{message}\n\n{ACCOUNT_HEADING}\n{reason}" if reason else message
+
+    def failed_unit_test(self, output: str) -> Update | None:
+        """A failed unit-test run of this unit: the block when the environment is at fault,
+        else the failure counted, said and saved as the feedback an agent is told of (None, and
+        the caller picks its own stop)."""
+        if (broken := self.environment_problem()) is not None:
+            return self.blocked(broken)
+        self.say(output)
+        self.record_check_failure(output, 0)
+        self.runner.store.set_feedback(
+            self.unit.id, f"{UNIT_TEST_FAILED}\n{output}".strip(), source=FeedbackSource.UNIT_TEST
+        )
+        return None
 
     def record_built(self, state: UnitRun, ref: str, made: int, account: str) -> Update | None:
         """Record a group its agents left nothing to commit for, once the whole repository's unit
-        tests pass: an empty marked `test:` and `feat:` (a test-only group's `test:` alone).
-        None when nothing is to be recorded; a stop or a block when the tests do not pass."""
-        r, unit = self.runner, self.unit
+        tests pass: an empty marked `test:` and `feat:` (a test-only group's `test:` alone, which
+        holds the account). None when nothing is to be recorded; a stop or a block when the
+        tests do not pass."""
+        r = self.runner
         step = self.group_step(state)
         tree = self.tree()
-        resumed = self.half_recorded(state, ref)
         if step is None or made or not r.branch_commits(tree, ref):
             return None
-        if r.head(tree) != state.head and not resumed:
-            return None
-        steps = r.group_steps(unit)
-        progress = group_progress(
-            r.branch_subjects(tree, ref),
-            [s.title for s in steps],
-            [s.test_only for s in steps],
-        )
+        progress = self.branch_progress(ref)
         if progress.done != state.group:
             return None
+        resumed = self.half_recorded(state, progress)
         if progress.tests_made and not resumed:
             return None  # real stubs and tests with no implementation after them
+        if r.head(tree) != state.head and not resumed:
+            return None
         if (broken := self.environment_problem()) is not None:
             return self.blocked(broken)
         try:
             ok, output = r.run_unit_test(cwd=tree, base=ref, whole_repo=True)
         except FlakeFound as found:
             ok, output = False, found.flakes[0].output
-        if not ok and (broken := self.environment_problem()) is not None:
-            return self.blocked(broken)
         if not ok:
-            self.say(output)
-            r.store.set_feedback(
-                unit.id, f"{UNIT_TEST_FAILED}\n{output}".strip(), source=FeedbackSource.UNIT_TEST
-            )
+            if (broken := self.failed_unit_test(output)) is not None:
+                return broken
             return self.stop(f"the branch holds no {self.unpaired(state, ref)}")
         self.say(f"group {step.number} is already built and the unit tests pass: recorded")
+        tests = self.message(TESTS_PREFIX, TESTS_BODY, state)
         if not resumed:
-            r.commit_built(self.message(TESTS_PREFIX, TESTS_BODY, state), cwd=tree)
+            r.commit_built(self.with_account(tests, account) if step.test_only else tests, cwd=tree)
         if not step.test_only:
-            reason = redact_text(account, where="built group account")[:ACCOUNT_LIMIT].strip()
-            body = self.message(CODE_PREFIX, CODE_BODY, state)
-            if reason:
-                body = f"{body}\n\n{ACCOUNT_HEADING}\n{reason}"
-            r.commit_built(body, cwd=tree)
+            r.commit_built(
+                self.with_account(self.message(CODE_PREFIX, CODE_BODY, state), account), cwd=tree
+            )
         return None
 
     def settle_group(self, state: UnitRun, ref: str, commits: int) -> Update:
@@ -1578,7 +1588,10 @@ class BuildPath:
         r, unit = self.runner, self.unit
         tree, ref = self.tree(), self.ref(state)
         kept: Update = {}
-        if r.head(tree) != state.head and not self.half_recorded(state, ref):
+        if r.head(tree) != state.head and not (
+            self.group_step(state) is not None
+            and self.half_recorded(state, self.branch_progress(ref))
+        ):
             self.say("the implementation commit is already on the branch")
         else:
             change_dir, groups = self.scope(state)
@@ -2169,15 +2182,10 @@ class BuildPath:
                 return parked
             else:
                 ok, output = False, found.flakes[0].output
-        if not ok and (broken := self.environment_problem()) is not None:
-            return self.blocked(broken)
         self.say(f"unit-test {'passed' if ok else 'failed'}")
         if not ok:
-            self.say(output)
-            self.record_check_failure(output, 0)
-            r.store.set_feedback(
-                unit.id, f"{UNIT_TEST_FAILED}\n{output}".strip(), source=FeedbackSource.UNIT_TEST
-            )
+            if (broken := self.failed_unit_test(output)) is not None:
+                return broken
             if state.moved:
                 return self.rebase(state, f"unit-test failed on {base}", base=base)
             return self.stop("unit-test failed")
