@@ -13,7 +13,8 @@ from tests.sandboxes.landlock_support import Scene
 
 @pytest.fixture
 def registry() -> Iterator[None]:
-    """A registry holding only the `unavailable` backend; what a test registers is gone after."""
+    """A registry holding only the built-in backends (`landlock`, `unavailable`); what a test
+    registers is gone after."""
     with sandboxes.isolated():
         yield
 

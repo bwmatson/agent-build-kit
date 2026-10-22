@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import ctypes
 import errno
 import os
 import socket
+import subprocess
 import sys
 import tempfile
 from collections.abc import Iterator, Mapping
@@ -38,6 +40,17 @@ def refusing(code: int):
         raise OSError(code, os.strerror(code))
 
     return restrict
+
+
+class FailingLibc:
+    """Stands in for libc: every `syscall` fails with the errno it was given, as a kernel would."""
+
+    def __init__(self, code: int) -> None:
+        self.code = code
+
+    def syscall(self, *args: object) -> int:
+        ctypes.set_errno(self.code)
+        return -1
 
 
 def started(policy: SandboxPolicy, marker: Path) -> list[str]:
@@ -183,3 +196,44 @@ def test_required_none_runs_the_command_unconfined_and_says_so(
 
     assert run.calls == [("touch", ["touch", str(marker)])]
     assert "unconfined" in capsys.readouterr().err
+
+
+def test_the_kernels_errno_reaches_the_launchers_message(
+    scene: Scene, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def restrict(lists: Mapping[str, list[str]]) -> None:
+        launcher.apply_restrictions(lists, FailingLibc(errno.ENOSYS))  # pyrefly: ignore
+
+    with pytest.raises(SystemExit) as stopped:
+        launcher.main(started(scene.policy(), tmp_path / "ran"), restrict=restrict, execvp=Exec())
+
+    assert stopped.value.code == 97
+    assert "kernel" in capsys.readouterr().err
+
+
+def test_a_launcher_that_never_ran_the_command_is_not_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def crashing(self: object, policy: SandboxPolicy, argv: object) -> list[str]:
+        return [sys.executable, "-c", "raise SystemExit(1)"]
+
+    monkeypatch.setattr(landlock.Landlock, "command", crashing)
+
+    assert landlock.BACKEND.availability().ok is False
+
+
+def test_a_probe_that_times_out_is_not_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    def expire(*args: object, **kwargs: object) -> object:
+        raise subprocess.TimeoutExpired("probe", 30)
+
+    monkeypatch.setattr(landlock.subprocess, "run", expire)
+
+    assert landlock.BACKEND.availability().ok is False
+
+
+def test_the_launcher_removes_its_policy_file_once_read(scene: Scene, tmp_path: Path) -> None:
+    args = started(scene.policy(required=Coverage.NONE), tmp_path / "ran")
+
+    launcher.main(args, restrict=refusing(errno.ENOSYS), execvp=Exec())
+
+    assert not Path(args[0]).exists()

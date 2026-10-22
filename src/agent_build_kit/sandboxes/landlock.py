@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import atexit
 import os
 import subprocess
 import sys
@@ -34,39 +33,45 @@ class Landlock:
     def availability(self) -> Availability:
         """Applies a restriction in a subprocess and checks it held; no file is looked for."""
         with tempfile.TemporaryDirectory(prefix="abk-probe-") as folder:
+            granted = Path(folder) / "granted"
+            granted.mkdir()
+            ran = granted / "ok"
             probe = Path(folder) / "probe"
             policy = SandboxPolicy(
-                write=(),
+                write=(granted,),
                 read=tuple(Path(path) for path in _PROBE_READ if Path(path).exists()),
                 hosts=(),
                 required=Coverage.FILES,
             )
-            result = subprocess.run(
-                self.command(policy, ["sh", "-c", f": > {probe}"]),
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=False,
-            )
-            held = result.returncode != 0 and not probe.exists()
-        if result.returncode == launcher.EXIT_NOT_APPLIED:
-            return Availability(
-                ok=False, coverage=Coverage.NONE, cause=result.stderr.strip(), fix=FIX
-            )
+            try:
+                result = subprocess.run(
+                    self.command(policy, ["sh", "-c", f": > {ran}; : > {probe}"]),
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired:
+                return Availability(
+                    ok=False,
+                    coverage=Coverage.NONE,
+                    cause="the Landlock probe did not finish in 30 seconds",
+                    fix=FIX,
+                )
+            # Only a command that ran under the restriction proves it held: the granted write
+            # happened and the ungranted one did not.
+            held = result.returncode != 0 and ran.exists() and not probe.exists()
         if not held:
-            return Availability(
-                ok=False,
-                coverage=Coverage.NONE,
-                cause="a Landlock restriction did not stop a write in the probe",
-                fix=FIX,
+            cause = (
+                result.stderr.strip() or "a Landlock restriction did not stop a write in the probe"
             )
+            return Availability(ok=False, coverage=Coverage.NONE, cause=cause, fix=FIX)
         return Availability(ok=True, coverage=Coverage.FILES)
 
     def command(self, policy: SandboxPolicy, argv: Sequence[str]) -> list[str]:
         handle, name = tempfile.mkstemp(prefix="abk-sandbox-", suffix=".policy")
         with os.fdopen(handle, "w") as written:
             written.write(_policy_text(policy))
-        atexit.register(Path(name).unlink, missing_ok=True)
         script = Path(launcher.__file__).resolve()
         return [sys.executable, "-S", str(script), name, "--", *argv]
 

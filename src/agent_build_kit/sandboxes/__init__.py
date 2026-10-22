@@ -56,8 +56,8 @@ def detect(platform: str | None = None) -> SandboxBackend:
 
 @contextmanager
 def isolated() -> Iterator[None]:
-    """Inside, the registry holds only the `unavailable` backend; leaving puts back what was
-    registered."""
+    """Inside, the registry holds only the built-in backends (`landlock`, `unavailable`); leaving
+    puts back what was registered."""
     saved = dict(_REGISTRY)
     _REGISTRY.clear()
     try:

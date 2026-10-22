@@ -75,10 +75,10 @@ def _rights(abi: int) -> tuple[int, int, int]:
     return handled, file_rights, handled
 
 
-def apply_restrictions(lists: Mapping[str, list[str]]) -> None:
+def apply_restrictions(lists: Mapping[str, list[str]], libc: ctypes.CDLL | None = None) -> None:
     """Restrict this process and everything it starts: writes only under `write`, reads (and
     runs) only under `read`. Raises `OSError` with the kernel's errno when it cannot."""
-    libc = _libc()
+    libc = libc or _libc()
     abi = _abi(libc)
     handled, file_rights, folder_rights = _rights(abi)
     attr = ctypes.c_uint64(handled)
@@ -115,12 +115,18 @@ def _read_policy(path: str) -> tuple[str, dict[str, list[str]]]:
     required = "files"
     lists: dict[str, list[str]] = {key: [] for key in LIST_KEYS}
     with open(path) as handle:
-        for line in handle.read().splitlines():
-            key, _, value = line.partition("=")
-            if key == "required":
-                required = value
-            elif key in lists:
-                lists[key].append(value)
+        text = handle.read()
+    # Read once, then gone: a sibling step that can write the temp folder cannot rewrite it.
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+    for line in text.splitlines():
+        key, _, value = line.partition("=")
+        if key == "required":
+            required = value
+        elif key in lists:
+            lists[key].append(value)
     return required, lists
 
 

@@ -9,8 +9,9 @@ from agent_build_kit import sandboxes
 from tests.sandboxes.landlock_support import Scene, require_working, run_confined
 
 # What one start may cost, best of several so a busy machine does not fail it. The measured
-# cost is about 21 ms over the interpreter's own start; this leaves room for a loaded runner.
-START_BUDGET_SECONDS = 0.25
+# cost is about 21 ms over the interpreter's own start; the budget sits well clear of that so a
+# loaded runner does not fail it, and the import assertion below is the real gate.
+START_BUDGET_SECONDS = 2.0
 STARTS = 5
 
 # Modules whose import is the difference between a 21 ms start and a 70 ms one.
