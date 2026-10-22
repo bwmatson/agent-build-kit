@@ -15,9 +15,7 @@ import pytest
 
 from agent_build_kit.cli import main
 from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.cli.pipeline import Resumed
 from agent_build_kit.config import dump
-from agent_build_kit.graph.state import EventKind, ResumeEvent
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.manual_steps import evaluate_manual_steps
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
@@ -31,6 +29,7 @@ from tests.graph.test_session_continuation import Sessions, agents
 from tests.graph_driver import fresh, tick
 from tests.parked_split_support import stub_round
 from tests.redaction_fakes import SECRET, known
+from tests.split_changed_support import deliver_to_graph
 
 NOW = datetime(2026, 10, 11, tzinfo=UTC)
 UNIT = "feature/1"
@@ -429,11 +428,11 @@ def test_a_readmitted_unit_goes_on_at_the_agent_step_it_was_parked_before(
     checkout.mkdir(parents=True)
     delivered: list[str] = []
 
-    def deliver(_inst: Any, held: Any, kind: str, *, store: Any, reason: str, **kw: Any) -> Any:
-        """The thread's side of the resume, as `resume_thread` makes it."""
-        delivered.append(reason)
-        event = ResumeEvent(kind=EventKind(kind), reason=reason, requeue=kw["requeue"])
-        return Resumed(outcome=tick(tmp_path, recorder, event=event, **agents(runtime)))
+    to_graph = deliver_to_graph(tmp_path, recorder, **agents(runtime))
+
+    def deliver(*args: Any, **kwargs: Any) -> Any:
+        delivered.append(kwargs["reason"])
+        return to_graph(*args, **kwargs)
 
     monkeypatch.setattr(cli, "resume_thread", deliver)
 

@@ -47,18 +47,21 @@ def park_after_tick(store: UnitStore, unit_id: str, *splits: str) -> None:
     store.set_parked(unit_id, splits, "abc1234", "snapshot")
 
 
-def deliver_to_graph(tmp_path: Path, recorder: Recorder, tier: str) -> Callable[..., Resumed]:
+def deliver_to_graph(
+    tmp_path: Path, recorder: Recorder, tier: str | None = None, **overrides: Any
+) -> Callable[..., Resumed]:
     """A replacement for `resume_thread` that hands the delivery to the graph as a resume event
-    and runs a tick with it."""
+    and runs a tick with it, in `tier` when given and with the tick's `overrides`."""
+    options: dict[str, Any] = {**overrides, **({} if tier is None else {"tier": tier})}
 
     def deliver(inst: Installation, stored: Any, kind: str, **kwargs: Any) -> Resumed:
         event = ResumeEvent(
             kind=EventKind(kind),
             reason=kwargs["reason"],
-            guidance=kwargs["guidance"],
+            guidance=kwargs.get("guidance", ""),
             requeue=kwargs["requeue"],
         )
-        return Resumed(outcome=tick(tmp_path, recorder, event=event, tier=tier))
+        return Resumed(outcome=tick(tmp_path, recorder, event=event, **options))
 
     return deliver
 
