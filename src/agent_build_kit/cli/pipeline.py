@@ -4639,7 +4639,7 @@ def _drop_cycle_edges(
     groups: list[TaskGroup],
 ) -> CycleDrops:
     """The plan without the dependencies that would close a cycle with stored work, and
-    its acceptance and independence checks run again on what is left."""
+    its e2e stand-alone, acceptance and independence checks run again on what is left."""
     stored = store.all()
     # What the plan replaces covers no group: the plan's units do.
     kept = [
@@ -6102,7 +6102,7 @@ def _tag_warnings(inst: Installation, path: Path) -> list[str]:
         ),
         *old_test_kind_warnings(path),
         *redundant_separate_warnings(path),
-        *product_path_warnings(inst, path),
+        *product_path_warnings(path, _validated(inst, path)[0], inst.repos),
         *manual_runbook_warnings(path, inst.root),
         *inverted_group_warnings(
             path,

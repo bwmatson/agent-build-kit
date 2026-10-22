@@ -608,7 +608,8 @@ def _check_groups(
 
 
 def check_flagged_groups(units: list[Unit], groups: list[TaskGroup]) -> None:
-    """The acceptance and independence checks of a plan, for a caller that changed its edges."""
+    """The e2e stand-alone, acceptance and independence checks of a plan, for a caller that
+    changed its edges."""
     _check_e2e_alone(units, groups)
     _check_acceptance(units, groups)
     _check_independent(units, groups)
@@ -623,9 +624,11 @@ def _check_e2e_alone(units: list[Unit], groups: list[TaskGroup]) -> None:
             n for n in unit.groups if n in by_number and by_number[n].tier == TestTier.E2E_TEST
         )
         if holding and len(unit.groups) > 1:
-            named = ", ".join(f"group {n}" for n in unit.groups)
+            others = [n for n in unit.groups if n not in holding]
+            named = ", ".join(f"group {n}" for n in holding)
+            beside = f" with {', '.join(f'group {n}' for n in others)}" if others else ""
             raise PlannerError(
-                f"unit {unit.id} combines [{TestTier.E2E_TEST}] {named} — an [e2e-test] "
+                f"unit {unit.id} combines [{TestTier.E2E_TEST}] {named}{beside} — an [e2e-test] "
                 "group always has a unit of its own"
             )
 

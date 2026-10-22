@@ -59,6 +59,7 @@ from agent_build_kit.pipeline.commit_order import (
 )
 from agent_build_kit.pipeline.e2e import NO_TEST_RAN, E2eVerdict
 from agent_build_kit.pipeline.e2e_schedule import is_scheduled, scheduled_split
+from agent_build_kit.pipeline.e2e_scope import is_test_path
 from agent_build_kit.pipeline.events import (
     held_cause,
     held_for_its_own_reason,
@@ -995,16 +996,11 @@ class BuildPath:
         """The prompt part listing commits made to the branch outside the build session."""
         held = state.sessions.get(SessionRole.BUILD)
         repo = self.runner.repo_config
-
-        fallback = profiles.get(repo.profile if repo else "python-uv")
-
-        def is_test(path: str) -> bool:
-            return profiles.for_path(repo.projects if repo else [], path, fallback).is_test_path(
-                path
-            )
-
         return outside_commits_note(
-            tree, self.ref(state), held.session_id if held else "", is_test=is_test
+            tree,
+            self.ref(state),
+            held.session_id if held else "",
+            is_test=lambda path: is_test_path(path, repo),
         )
 
     @staticmethod
