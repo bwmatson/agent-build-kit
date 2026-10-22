@@ -38,6 +38,9 @@ class Scene:
         self.graph = graph
         self.calls: list[bool] = []
         self.lane: Lane | None = None
+        if unit_fields.get("tier") == "e2e-test":
+            # A diff of tests only, which the e2e scope guard allows.
+            graph.options["branch_diff"] = lambda cwd, base: (("tests/e2e/test_app.py",), 40)
         graph.tick()
         graph.store.upsert([stored_unit(OTHER, depends_on=(UNIT,), **unit_fields)])
         graph.tick()

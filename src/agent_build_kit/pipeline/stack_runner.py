@@ -172,6 +172,27 @@ with a saved failure or review text, follow it and say so.
 WHOLE_ASK = "(No failure was saved for this unit: the person's instruction above is the whole ask.)"
 
 
+# Said in the first-build prompts of an `[e2e-test]` unit.
+E2E_SCOPE_NOTE = """\
+This unit is an e2e-test group: it holds tests and test support only (test files, fixtures and
+helpers under the test paths, docs, the changelog and files its group declares with `Support:`),
+and no product code."""
+
+# Said in the rework prompt after a failed e2e-test step or a scope stop.
+PRODUCT_DEFECT_ADVICE = """\
+First decide whether the fault is in the test or its support (a wrong assertion, fixture, helper,
+selector, expectation or timing) or in the product under test. Fix a test or support fault
+in place, as usual. If the test asserts what the specification requires and the product does not
+do it, do not edit product code: finish your account with a fenced block marked `product-defect`
+holding JSON, and the pipeline files a unit-test change that reproduces and fixes it:
+```product-defect
+{{"test": "<the failing e2e test id>", "files": ["<product file>", ...],
+ "reproduction": "<smallest steps or request, expected vs actual>",
+ "sketch": "<optional: a failing unit test that reproduces it>",
+ "repo": "<optional: a declared repo>"}}
+```"""
+
+
 class ChecksTemplate(PromptTemplate):
     """A checks prompt with a `{rerun}` place, which is unit-test's sentence (`unit_test`) unless a
     caller fills it, so a unit-test failure renders as it always did."""
@@ -191,16 +212,20 @@ class ChecksTemplate(PromptTemplate):
         own sentence, to run the checks; for e2e-test, which a builder cannot rerun, the file
         holding the latest run's full output when the saved failure names one that was not
         withheld."""
+        if source is FeedbackSource.SCOPE:
+            return f"{self.unit_test}\n\n{PRODUCT_DEFECT_ADVICE.format()}"
         if source is not FeedbackSource.E2E:
             return self.unit_test
         cut = "The output above is cut short, and you cannot rerun the live tests."
         path, withheld = latest_full_output(feedback)
         if not path or withheld:
-            return cut
-        return (
-            f"The output above is cut short; the full output is in {path}: read it "
-            "with `grep` or `sed`. You cannot rerun the live tests."
-        )
+            seen = cut
+        else:
+            seen = (
+                f"The output above is cut short; the full output is in {path}: read it "
+                "with `grep` or `sed`. You cannot rerun the live tests."
+            )
+        return f"{seen}\n\n{PRODUCT_DEFECT_ADVICE.format()}"
 
 
 def person_guidance(note: str) -> str:
@@ -244,6 +269,7 @@ class GroupStep(Frozen):
     goal: str = ""  # the group's "Done when" sentence, "" when it has none
     flag: str = ""  # the group's flag, "" when it has none or its heading cannot be read
     test_only: bool = False  # the group is `[e2e-test]`; false when its heading cannot be read
+    support: tuple[str, ...] = ()  # the paths its `Support:` lines declare
 
 
 def group_steps_of(planning_repo: Path | str, unit: Unit) -> tuple[GroupStep, ...]:
@@ -265,6 +291,7 @@ def group_steps_of(planning_repo: Path | str, unit: Unit) -> tuple[GroupStep, ..
                 goal=found[number].goal if number in found else "",
                 flag=found[number].flag if number in found else "",
                 test_only=found[number].test_only if number in found else False,
+                support=found[number].support if number in found else (),
             )
             for number in member.groups
         )
@@ -379,6 +406,16 @@ the unit has passed review, unit-test and been pushed.
 # What unit-test's output is saved under, for people reading it: which step it came
 # from is the feedback's source, never this text.
 UNIT_TEST_FAILED = "unit-test failed:"
+
+# The feedback an `[e2e-test]` unit is stopped with when its diff changes product code.
+SCOPE_FEEDBACK = """\
+The e2e-test unit changes product code: {files}
+
+These are not tests or test support. Restore them to their state on the base in this
+unit (`git restore --source=<base> -- <files>`), and keep the diff to tests and test support.
+If the change fixed a real defect in the product, do not keep the fix here: report it as a
+`product-defect` block so the pipeline files a unit-test change that reproduces and fixes
+it. A support file is declared by a person with a `Support:` line."""
 
 
 CHECKS_PROMPT = ChecksTemplate(

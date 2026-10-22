@@ -62,8 +62,10 @@ def tick(
     tick does: a run under the branch's lock (`build_graph`'s), a delivery
     taking it itself. `base` is the one the store names for the unit; `subject`
     is the unit run, where it is not the factory's."""
-    runner = make_runner(recorder.store, recorder, tmp_path, **overrides)
     subject = subject or unit(tier=tier)
+    if subject.tier == "e2e-test":
+        overrides.setdefault("branch_diff", recorder.e2e_branch_diff)
+    runner = make_runner(recorder.store, recorder, tmp_path, **overrides)
     common: dict[str, Any] = dict(base=base, graph=[], run_log=run_log, tracer=tracer)
     locks = tmp_path / "locks"
 

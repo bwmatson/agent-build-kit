@@ -8,7 +8,13 @@
   group redundant. Units already started keep their groups; unstarted ones are split by the
   next plan. Such a group holds tests, test support, docs and the changelog: a
   `Support: `<paths>` — <reason>` line declares further files for it, and `abk tags` and
-  `abk check` warn of a task that names any other path in backticks.
+  `abk check` warn of a task that names any other path in backticks. A unit of such a group
+  whose branch changes any other file is stopped before its checks, with feedback telling the
+  builder to restore the files and report a product defect; only the plan's `Support:` lines
+  allow a file, never the branch's. The builder of such a unit is told it holds tests and test
+  support only, and after a failed live run or a stop it fixes a test fault in place and reports
+  a product fault as a `product-defect` block; a deterministic reader for that block is in
+  place, and acting on a report follows.
 
 - A toolchain profile can declare `fix_command(files)`, the command that applies its formatters
   and auto-fixers (python-uv: the pre-commit hooks; node-npm: `oxfmt` then `oxlint --fix` over

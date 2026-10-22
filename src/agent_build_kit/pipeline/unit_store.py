@@ -190,6 +190,7 @@ class FeedbackSource(StrEnum):
     UNIT_TEST = "unit-test"
     E2E = "e2e-test"
     STUB_CHECKS = "stub-checks"
+    SCOPE = "scope"
 
     @classmethod
     def _missing_(cls, value: object) -> FeedbackSource | None:

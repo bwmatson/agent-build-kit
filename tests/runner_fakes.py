@@ -22,6 +22,11 @@ class Killed(BaseException):
     """The process dying: not an error a node may catch."""
 
 
+# What an e2e-test unit's fake build commits when a test sets nothing: tests only, as the scope
+# guard allows.
+E2E_CHANGED = ("tests/e2e/test_app.py",)
+
+
 class Recorder:
     """Stands in for every side effect, recording what happened in order."""
 
@@ -59,7 +64,8 @@ class Recorder:
         self.unit_test_failed_outputs: list[str] = []
         self.unit_test_moved_from: list[str | None] = []
         self.made = 0
-        self.changed: tuple[str, ...] = ("src/app.py",)  # what the fake build committed
+        # What the fake build committed; None when a test set nothing.
+        self.changed: tuple[str, ...] | None = None
         self.changed_lines = 40
         self.subjects: list[str] = []  # the subject of each commit made, oldest first
         self.messages: list[str] = []  # the whole message of each: subject, blank line, body
@@ -124,7 +130,15 @@ class Recorder:
         return self.made
 
     def branch_diff(self, cwd: Path, base: str) -> tuple[tuple[str, ...], int]:
-        return self.changed, self.changed_lines
+        # A run over a store of e2e-test units only is the built unit's, whichever it is.
+        if all(stored.tier == "e2e-test" for stored in self.store.all()):
+            return self.e2e_branch_diff(cwd, base)
+        return self.changed or ("src/app.py",), self.changed_lines
+
+    def e2e_branch_diff(self, cwd: Path, base: str) -> tuple[tuple[str, ...], int]:
+        """`branch_diff` for an e2e-test unit: what a test set, else tests only, which the
+        scope guard allows."""
+        return self.changed or E2E_CHANGED, self.changed_lines
 
     def branch_subjects(self, cwd: Path, base: str) -> list[str]:
         return list(self.subjects)

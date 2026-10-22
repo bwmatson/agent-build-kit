@@ -61,7 +61,7 @@ from agent_build_kit.pipeline.commit_order import (
 )
 from agent_build_kit.pipeline.e2e import NO_TEST_RAN, E2eVerdict
 from agent_build_kit.pipeline.e2e_schedule import is_scheduled, scheduled_split
-from agent_build_kit.pipeline.e2e_scope import is_test_path
+from agent_build_kit.pipeline.e2e_scope import is_product_path, is_test_path
 from agent_build_kit.pipeline.events import (
     held_cause,
     held_for_its_own_reason,
@@ -85,6 +85,7 @@ from agent_build_kit.pipeline.stack_runner import (
     ADAPT_PROMPT,
     CHECKS_CONTINUATION,
     CHECKS_PROMPT,
+    E2E_SCOPE_NOTE,
     IMPLEMENTATION_CONTINUATION,
     IMPLEMENTATION_PROMPT,
     LEFTOVERS_NOTE,
@@ -94,6 +95,7 @@ from agent_build_kit.pipeline.stack_runner import (
     REVIEW_FEEDBACK_PROMPT,
     REWORK_CONTINUATION,
     REWORK_PROMPT,
+    SCOPE_FEEDBACK,
     STUB_CHECKS_PROMPT,
     STUBBED_TESTS_FINISH,
     TEST_ONLY_TESTS_FINISH,
@@ -330,7 +332,12 @@ class BuildPath:
         match source:
             case FeedbackSource.CONFLICT:
                 return "conflict"
-            case FeedbackSource.CI | FeedbackSource.UNIT_TEST | FeedbackSource.E2E:
+            case (
+                FeedbackSource.CI
+                | FeedbackSource.UNIT_TEST
+                | FeedbackSource.E2E
+                | FeedbackSource.SCOPE
+            ):
                 return "check"
             case _:
                 return "review"
@@ -1010,6 +1017,11 @@ class BuildPath:
     def told(text: str, note: str) -> str:
         return f"{text}\n\n{note}" if note else text
 
+    def scope_note(self) -> str:
+        """What the first-build prompts of an `[e2e-test]` unit add: it holds tests and test
+        support only; nothing for a unit of another tier."""
+        return E2E_SCOPE_NOTE if self.unit.tier == TestTier.E2E_TEST else ""
+
     def prepare(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit
         branch = branch_name(unit)
@@ -1362,6 +1374,7 @@ class BuildPath:
                 changelog=changelog_note(tree, r.repo_config),
                 finish=self.tests_finish(state, stubbed=stubbed),
             )
+            prompt = self.told(prompt, self.scope_note())
             if note := r.follow_ups_note(unit):
                 prompt = f"{note}\n\n{prompt}"
             account = self.agent(r.run, prompt, cwd=tree, state=state, model=models().implement)
@@ -1599,6 +1612,7 @@ class BuildPath:
                 boundary=build_boundary,
                 changelog=changelog_note(tree, r.repo_config),
             )
+            prompt = self.told(prompt, self.scope_note())
             if note := r.follow_ups_note(unit):
                 prompt = f"{note}\n\n{prompt}"
             account = self.agent(
@@ -1637,6 +1651,8 @@ class BuildPath:
         fault = self.worktree_fault(state)
         if fault is not None and fault.environment:
             return {**self.blocked(fault.output), "checks_ok": False}
+        if (stopped := self.product_files(state)) is not None:
+            return {**stopped, "checks_ok": False}
 
         def run_checks() -> tuple[bool, str]:
             try:
@@ -1719,6 +1735,25 @@ class BuildPath:
                 f"checks failing and fix round {n} changed nothing, before review"
             ),
         )
+
+    def product_files(self, state: UnitRun) -> Update | None:
+        """The stop for an `[e2e-test]` unit whose branch changes a file that is no test path,
+        doc, changelog or `Support:` path of its groups (read from the plan, so the builder
+        cannot allow itself one); the files are saved as feedback of their own. None for a
+        unit of another tier or a diff of tests and support."""
+        r, unit = self.runner, self.unit
+        if unit.tier != TestTier.E2E_TEST:
+            return None
+        support = [path for step in r.group_steps(unit) for path in step.support]
+        files, _ = r.branch_diff(self.tree(), self.ref(state))
+        product = [path for path in files if is_product_path(path, r.repo_config, support)]
+        if not product:
+            return None
+        named = ", ".join(product)
+        r.store.set_feedback(
+            unit.id, SCOPE_FEEDBACK.format(files=named), source=FeedbackSource.SCOPE
+        )
+        return self.stop(f"the e2e-test unit changes product code: {named}")
 
     def answering(self, state: UnitRun) -> dict[str, str]:
         """The failed check a fix has just answered, for the run to select its tests by;
@@ -1980,7 +2015,11 @@ class BuildPath:
         feedback = redact_text(
             stored.feedback or (WHOLE_ASK if guidance else ""), where="rework prompt"
         )
-        failed_check = stored.feedback_source in (FeedbackSource.UNIT_TEST, FeedbackSource.E2E)
+        failed_check = stored.feedback_source in (
+            FeedbackSource.UNIT_TEST,
+            FeedbackSource.E2E,
+            FeedbackSource.SCOPE,
+        )
         in_loop = state.verdict is Verdict.CHANGES
         note = person_guidance(guidance)
         kept: Update = {}
