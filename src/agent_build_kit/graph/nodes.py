@@ -1672,6 +1672,13 @@ class BuildPath:
         tree = self.tree()
         change_dir, groups = r.scope(unit)
         build_boundary, _ = r.boundary_notes(unit, self.graph)
+        outside: list[str] = []
+
+        def outside_once() -> str:
+            """The note on commits outside the unit, read from git once, on the first fix."""
+            if not outside:
+                outside.append(self.outside_note(state, tree))
+            return outside[0]
 
         def fix_prompt(feedback: str, note: str) -> str:
             return self.told(
@@ -1683,13 +1690,13 @@ class BuildPath:
                     feedback=feedback,
                     boundary=build_boundary,
                 ),
-                self.outside_note(state, tree),
+                outside_once(),
             )
 
         def continuation(feedback: str, note: str) -> str:
             return self.told(
                 CHECKS_CONTINUATION.format(guidance=note, feedback=feedback),
-                self.outside_note(state, tree),
+                outside_once(),
             )
 
         return CheckLoop(

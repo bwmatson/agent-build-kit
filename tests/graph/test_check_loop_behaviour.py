@@ -19,7 +19,7 @@ from agent_build_kit.pipeline.flakes import Flake, FlakeFound
 from agent_build_kit.pipeline.stack_runner import UNIT_TEST_FAILED
 from agent_build_kit.pipeline.unit_store import FeedbackSource
 from tests.factories import unit
-from tests.graph.stub_loop_fakes import StubLoop, stubbed_build
+from tests.graph.stub_loop_fakes import StubLoop, feedback_writes, stubbed_build
 from tests.graph.test_build_path import build, limited
 from tests.graph_driver import fresh as fresh_store
 from tests.runner_fakes import Recorder, make_runner
@@ -62,18 +62,6 @@ def routine(monkeypatch: pytest.MonkeyPatch) -> Routine:
 def stub_looping(tmp_path: Path, **options: Any) -> StubLoop:
     stubbed_build()
     return StubLoop(fresh_store(tmp_path).store, **options)
-
-
-def feedback_writes(recorder: Recorder, monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, Any]]:
-    saved: list[tuple[str, Any]] = []
-    original = recorder.store.set_feedback
-
-    def record(unit_id: str, feedback: str, **kwargs: Any) -> None:
-        saved.append((feedback, kwargs.get("source", FeedbackSource.NONE)))
-        original(unit_id, feedback, **kwargs)
-
-    monkeypatch.setattr(recorder.store, "set_feedback", record)
-    return saved
 
 
 def test_a_failing_static_check_is_saved_fixed_without_a_commit_and_the_pass_commits_the_tests(

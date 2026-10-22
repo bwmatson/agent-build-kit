@@ -20,7 +20,7 @@ from agent_build_kit.graph.state import UnitRun
 from agent_build_kit.pipeline.stack_runner import UNIT_TEST_FAILED
 from agent_build_kit.pipeline.unit_store import FeedbackSource
 from tests.factories import unit
-from tests.graph.stub_loop_fakes import StubLoop, stubbed_build
+from tests.graph.stub_loop_fakes import StubLoop, feedback_writes, stubbed_build
 from tests.graph_driver import fresh as fresh_store
 from tests.runner_fakes import make_runner
 
@@ -80,14 +80,7 @@ def path_over(
     """A build path over a stubbed-loop recorder, and the feedback writes made to its store."""
     stubbed_build()
     recorder = Spied(fresh_store(tmp_path).store, **options)
-    saved: list[tuple[str, FeedbackSource]] = []
-    original = recorder.store.set_feedback
-
-    def record(unit_id: str, feedback: str, **kwargs: Any) -> None:
-        saved.append((feedback, kwargs.get("source", FeedbackSource.NONE)))
-        original(unit_id, feedback, **kwargs)
-
-    monkeypatch.setattr(recorder.store, "set_feedback", record)
+    saved = feedback_writes(recorder, monkeypatch)
     runner = make_runner(recorder.store, recorder, tmp_path, **recorder.overrides(tmp_path))
     return (
         BuildPath(runner, unit(), base="main", graph=[], run_log=None, tracer=None),
