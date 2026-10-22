@@ -21,6 +21,14 @@ class _Upstream(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def do_POST(self) -> None:
+        body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(body)
+
     def log_message(self, format: str, *args: object) -> None:
         pass
 
@@ -45,6 +53,14 @@ def plain_get(proxy_port: int, url: str) -> tuple[int, str]:
     target. Returns the status code and the rest of the response."""
     host = url.split("//", 1)[1].split("/", 1)[0]
     request = f"GET {url} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+    with socket.create_connection(("127.0.0.1", proxy_port), timeout=10) as client:
+        client.sendall(request.encode())
+        return split_response(_read_all(client))
+
+
+def send_raw(proxy_port: int, request: str) -> tuple[int, str]:
+    """`request` written to the proxy in one `sendall`; returns the status code and the rest of
+    what the proxy sends before it closes the connection."""
     with socket.create_connection(("127.0.0.1", proxy_port), timeout=10) as client:
         client.sendall(request.encode())
         return split_response(_read_all(client))

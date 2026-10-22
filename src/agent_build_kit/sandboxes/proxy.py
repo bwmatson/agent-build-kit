@@ -35,7 +35,15 @@ def _split_target(target: str, default_port: int) -> tuple[str, int]:
     return host.strip("[]"), int(port)
 
 
+def _is_connection_header(header: str) -> bool:
+    name = header.lower()
+    return name.startswith("proxy-") or name.startswith("connection:")
+
+
 class _Handler(socketserver.StreamRequestHandler):
+    # Unbuffered, so nothing past the headers is pulled out of the socket before the relay.
+    rbufsize = 0
+
     def _hosts(self) -> tuple[str, ...]:
         server = self.server
         assert isinstance(server, _Server)
@@ -77,8 +85,11 @@ class _Handler(socketserver.StreamRequestHandler):
             else:
                 url = urlsplit(target)
                 path = (url.path or "/") + (f"?{url.query}" if url.query else "")
-                kept = [h for h in headers if not h.lower().startswith("proxy-")]
-                head = f"{method} {path} {version}\r\n" + "".join(kept) + "\r\n"
+                # One request per connection: a later one on it could name another host.
+                kept = [h for h in headers if not _is_connection_header(h)]
+                head = (
+                    f"{method} {path} {version}\r\n" + "".join(kept) + "Connection: close\r\n\r\n"
+                )
                 upstream.sendall(head.encode("latin-1"))
             self._relay(upstream)
 
@@ -106,14 +117,11 @@ class _Handler(socketserver.StreamRequestHandler):
 
 class _Server(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
-    daemon_threads = True
+    daemon_threads = False  # closing the server joins its handlers, so none outlives `Proxy`
 
     def __init__(self, hosts: Sequence[str]) -> None:
         super().__init__((LOCALHOST, 0), _Handler)
         self.hosts = tuple(hosts)
-
-    def handle_error(self, request: object, client_address: object) -> None:
-        pass  # a connection the client reset is not an error of the proxy
 
 
 class Proxy:

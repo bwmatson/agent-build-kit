@@ -12,8 +12,6 @@ from pathlib import Path
 from agent_build_kit.sandboxes import launcher
 from agent_build_kit.sandboxes.base import Availability, Coverage, SandboxPolicy
 
-NETWORK_ABI = launcher.NETWORK_ABI
-
 FIX = "use Linux kernel 5.13 or later with Landlock enabled, or set `required: none` on the repo"
 
 # What the probe's trivial command needs to read.
@@ -76,11 +74,14 @@ class Landlock:
             )
             return Availability(ok=False, coverage=Coverage.NONE, cause=cause, fix=FIX)
         abi = abi_version()
-        if abi < NETWORK_ABI:
+        if abi < launcher.NETWORK_ABI:
             return Availability(
                 ok=True,
                 coverage=Coverage.FILES,
-                cause=f"Landlock ABI {abi} cannot confine the network (it needs {NETWORK_ABI})",
+                cause=(
+                    f"Landlock ABI {abi} cannot confine the network "
+                    f"(it needs {launcher.NETWORK_ABI})"
+                ),
                 fix=FIX,
             )
         return Availability(ok=True, coverage=Coverage.PROCESS)

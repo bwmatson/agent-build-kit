@@ -9,8 +9,8 @@ import threading
 import pytest
 
 from agent_build_kit.sandboxes.policy import proxy_environment
-from agent_build_kit.sandboxes.proxy import Proxy
-from tests.sandboxes.proxy_support import UPSTREAM_BODY, connect, plain_get, upstream
+from agent_build_kit.sandboxes.proxy import Proxy, host_allowed
+from tests.sandboxes.proxy_support import UPSTREAM_BODY, connect, plain_get, send_raw, upstream
 
 GET_THROUGH_TUNNEL = "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
 
@@ -47,15 +47,44 @@ def test_connect_to_another_host_is_refused_naming_it() -> None:
     assert "example.com" in body
 
 
-def test_a_suffix_pattern_allows_a_subdomain_and_refuses_the_rest() -> None:
-    with Proxy(["*.example.test"]) as proxy:
-        allowed, _ = connect(proxy.port, "a.example.test:443")
-        refused, body = connect(proxy.port, "example.org:443")
+@pytest.mark.parametrize("host", ["a.example.test", "x.a.example.test", "A.Example.Test."])
+def test_a_suffix_pattern_matches_a_subdomain(host: str) -> None:
+    assert host_allowed(host, ["*.example.test"])
 
-    # The allowed name does not resolve here, so the proxy fails to reach it; that is not a refusal.
-    assert allowed != 403
-    assert refused == 403
-    assert "example.org" in body
+
+@pytest.mark.parametrize("host", ["example.test", "badexample.test", "example.org"])
+def test_a_suffix_pattern_does_not_match_the_rest(host: str) -> None:
+    assert not host_allowed(host, ["*.example.test"])
+
+
+def test_a_post_body_sent_with_its_headers_reaches_the_upstream() -> None:
+    request = "POST {url} HTTP/1.1\r\nHost: x\r\nContent-Length: 4\r\nConnection: close\r\n\r\nping"
+    with upstream() as port, Proxy(["127.0.0.1"]) as proxy:
+        code, body = send_raw(proxy.port, request.format(url=f"http://127.0.0.1:{port}/"))
+
+    assert code == 200
+    assert body == "ping"
+
+
+def test_tunnel_bytes_sent_with_the_connect_reach_the_upstream() -> None:
+    with upstream() as port, Proxy(["127.0.0.1"]) as proxy:
+        target = f"127.0.0.1:{port}"
+        code, body = send_raw(
+            proxy.port, f"CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n\r\n{GET_THROUGH_TUNNEL}"
+        )
+
+    assert code == 200
+    assert UPSTREAM_BODY in body
+
+
+def test_a_second_request_on_the_connection_is_not_sent_to_the_first_host() -> None:
+    first = "GET http://127.0.0.1:{port}/ HTTP/1.1\r\nHost: x\r\nConnection: keep-alive\r\n\r\n"
+    second = "GET http://other.example.test/ HTTP/1.1\r\nHost: other.example.test\r\n\r\n"
+    with upstream() as port, Proxy(["127.0.0.1"]) as proxy:
+        code, body = send_raw(proxy.port, first.format(port=port) + second)
+
+    assert code == 200
+    assert body == UPSTREAM_BODY  # the answer to the first request only, then the close
 
 
 def test_a_suffix_pattern_does_not_allow_a_name_that_only_ends_alike() -> None:
@@ -80,6 +109,7 @@ def test_a_connection_reset_by_the_client_does_not_raise(
 
         code, body = plain_get(proxy.port, f"http://127.0.0.1:{port}/")
 
+    # Leaving `Proxy` joined every handler, the one that took the reset included.
     assert code == 200
     assert body == UPSTREAM_BODY
     assert thread_errors == []

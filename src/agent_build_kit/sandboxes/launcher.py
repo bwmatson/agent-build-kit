@@ -98,12 +98,13 @@ def apply_restrictions(lists: Mapping[str, list[str]], libc: ctypes.CDLL | None 
     abi = _abi(libc)
     handled, file_rights, folder_rights = _rights(abi)
     port = next(iter(lists.get("proxy_port", [])), "")
-    # The TCP rule needs ABI 4; on an older kernel the network is left as it is.
-    net = _CONNECT_TCP if port and abi >= NETWORK_ABI else 0
+    # The TCP rule needs ABI 4; on an older kernel the network is left as it is. From ABI 4 on,
+    # TCP connect is always handled, so a policy with no proxy port denies every connect.
+    net = _CONNECT_TCP if abi >= NETWORK_ABI else 0
     attr = _RulesetAttr(handled, net)
     ruleset = _call(libc, _SYS_CREATE_RULESET, ctypes.byref(attr), ctypes.sizeof(attr), 0)
     try:
-        if net:
+        if net and port:
             allowed = _NetPort(net, int(port))
             _call(libc, _SYS_ADD_RULE, ruleset, _RULE_NET_PORT, ctypes.byref(allowed), 0)
         rules = [(path, folder_rights) for path in lists.get("write", [])]
@@ -160,6 +161,20 @@ def _cause(number: int) -> str:
     return f"Landlock refused the restrictions: {os.strerror(number)}"
 
 
+def _require_network_rules() -> None:
+    """Stop the step when `process` coverage is required and this kernel cannot confine TCP."""
+    try:
+        abi = abi_version()
+    except OSError:
+        return  # the restriction step reports why Landlock is not there
+    if abi < NETWORK_ABI:
+        sys.stderr.write(
+            f"sandbox could not start: Landlock ABI {abi} cannot confine the network "
+            f"(it needs {NETWORK_ABI}), and this repo requires `process` coverage\n"
+        )
+        raise SystemExit(EXIT_NOT_APPLIED)
+
+
 def main(
     args: Sequence[str],
     *,
@@ -169,6 +184,8 @@ def main(
     separator = list(args).index("--")
     required, lists = _read_policy(args[0])
     argv = list(args[separator + 1 :])
+    if required == "process":
+        _require_network_rules()
     try:
         (restrict or apply_restrictions)(lists)
     except OSError as failure:

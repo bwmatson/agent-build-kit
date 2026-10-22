@@ -12,6 +12,7 @@ import pytest
 
 import agent_build_kit
 from agent_build_kit.sandboxes import Coverage, SandboxBackend, SandboxPolicy
+from agent_build_kit.sandboxes.launcher import NETWORK_ABI
 
 # The backends the contract suites run against; a later backend adds its name.
 BACKENDS = ["landlock"]
@@ -74,10 +75,6 @@ def require_working(backend: SandboxBackend) -> None:
     availability = backend.availability()
     if not availability.ok:
         pytest.skip(f"{backend.name} not usable here: {availability.cause} ({availability.fix})")
-
-
-# The Landlock ABI that introduced the TCP connect rule.
-NETWORK_ABI = 4
 
 
 def require_network_rules(backend: SandboxBackend) -> None:

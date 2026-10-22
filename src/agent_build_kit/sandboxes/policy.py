@@ -60,9 +60,11 @@ def build_policy(
 
 
 def proxy_environment(port: int) -> dict[str, str]:
-    """The environment that points a step's HTTP clients at the proxy on `port`."""
+    """The environment that points a step's HTTP clients at the proxy on `port`, and empties
+    `NO_PROXY` so no host is reached around it."""
     url = f"http://{LOCALHOST}:{port}"
-    return {name: url for key in ("HTTPS_PROXY", "HTTP_PROXY") for name in (key, key.lower())}
+    pointed = {name: url for key in ("HTTPS_PROXY", "HTTP_PROXY") for name in (key, key.lower())}
+    return pointed | {"NO_PROXY": "", "no_proxy": ""}
 
 
 def _blocks(document: dict[str, Any], repo: str) -> list[ProjectSandboxConfig]:

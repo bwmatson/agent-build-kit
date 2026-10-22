@@ -86,6 +86,19 @@ def test_a_connection_to_another_local_port_fails(
         assert _connect(backend, scene, proxy_port, "127.0.0.1", port) == "PermissionError"
 
 
+def test_a_policy_without_a_proxy_port_denies_every_connection(
+    backend: SandboxBackend, proxied: tuple[int, Scene]
+) -> None:
+    _, scene = proxied
+    with listening("127.0.0.1") as port:
+        result = run_confined(
+            backend, scene.policy(), [sys.executable, "-c", CONNECT, "127.0.0.1", str(port)]
+        )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "PermissionError"
+
+
 def test_the_connection_to_the_proxy_works(
     backend: SandboxBackend, proxied: tuple[int, Scene]
 ) -> None:
@@ -96,9 +109,7 @@ def test_the_connection_to_the_proxy_works(
 
 def _fetch(backend: SandboxBackend, scene: Scene, proxy_port: int, url: str) -> str:
     policy = scene.policy().model_copy(update={"proxy_port": proxy_port})
-    environment = {
-        key: value for key, value in os.environ.items() if key.lower() != "no_proxy"
-    } | proxy_environment(proxy_port)
+    environment = {**os.environ, **proxy_environment(proxy_port)}
     result = run_confined(backend, policy, [sys.executable, "-c", FETCH, url], env=environment)
     assert result.returncode == 0, result.stderr
     return result.stdout.strip()
