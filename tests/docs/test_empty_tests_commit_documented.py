@@ -17,7 +17,7 @@ def stubbed_paragraph() -> str:
 
 def push_gate_paragraph() -> str:
     text = squashed((DOCS / "architecture.md").read_text(encoding="utf-8"))
-    start = text.index("The push gate (")
+    start = text.index("The push gate** (")
     return text[start : start + 4000]
 
 
