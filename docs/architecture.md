@@ -439,9 +439,11 @@ release could move. The steps:
    full, and an agent that has just built what a later group depends on has
    every reason to finish it too — and say why: each group is a later unit's
    own pull request, and pulling its work forward makes this one bigger than
-   the plan intended.
+   the plan intended. The pipeline runs the profile's fixers (no model call,
+   over the unit's own files) before this commit, in a build with
+   `builders.per_group_commits` off as in a stubbed one.
 4. **Implementation, commit.** A second run makes those tests pass and may
-   not weaken them; commit `feat: <title>`. A branch left
+   not weaken them; the pipeline runs the fixers, then commits `feat: <title>`. A branch left
    with no commits of its own — neither step added one — is not failed
    outright; see the satisfied outcome after unit-test, below.
 
@@ -450,7 +452,14 @@ release could move. The steps:
    of once per unit, making one `test:`/`feat:` pair per group. The tests run
    writes the group's tests and stubs and the pipeline does not commit them
    yet: `stub_checks` runs lint, format and types over the stubs and tests
-   (no test run), and only then commits `test:`. A failure is saved as
+   (no test run), and only then commits `test:`. Before that check the pipeline
+   runs the profile's fixers (formatters and auto-fixers, see `fix_command` in
+   `toolchain-profiles.md`) with no model call, so before the tests commit, and
+   it does the same before the implementation commit and before each checks-loop `fix: <title> (checks,
+   round N)` commit, over the unit's own files only, so a formatter's edit is
+   never what fails a check. The stub loop and the checks loop share one
+   routine (`graph/check_loop.py`) for the check, the saved feedback, the fix
+   round and the "changed nothing" stop. A failure is saved as
    `stub-checks` feedback and `fix_stub_checks` hands it to the builder, then
    back to `stub_checks`, up to `global_limits.max_check_rounds`; a round that
    changes nothing, or the rounds spent, stops the unit. Each commit's body
@@ -483,7 +492,11 @@ release could move. The steps:
    handed to the builder with the check prompt, then unit-test runs again, up to
    `global_limits.max_check_rounds` times (3; `null` is no limit; 0 means no fix
    attempt, not no check), before the unit is `failed` with the output kept. A
-   fix that changes nothing ends it too, whatever the limit. It runs again
+   fix that changes nothing ends it too, whatever the limit. Before each
+   `fix: <title> (checks, round N)` commit the pipeline runs the profile's
+   fixers over the unit's own files with no model call; a round the fixers
+   alone changed moves the head and is not the "changed nothing" stop. This
+   loop and the stub loop share one routine, `graph/check_loop.py`. It runs again
    before every later review round with the budget started over, since a
    rework can break the build as easily as the first draft. Nothing runs unit-test after the review: a reviewer reports and the
    builder fixes, so approval leaves the branch as the checks judged it.
