@@ -5565,9 +5565,19 @@ def resume_thread(
 # --- tags / gate / check / archive / openspec ----------------------------------------
 
 
+def _is_text(path: Path) -> bool:
+    """Whether `path` reads as text; a file that does not is left out of the cycle check and
+    is reported for itself where it is selected."""
+    try:
+        path.read_bytes().decode()
+    except (UnicodeDecodeError, OSError):
+        return False
+    return True
+
+
 def _needs_cycle_problems(inst: Installation) -> dict[str, str]:
     """The message for each change that has a `Needs:` line on a cycle of the changes' groups."""
-    cycle = needs_cycle(inst.tasks_files())
+    cycle = needs_cycle([path for path in inst.tasks_files() if _is_text(path)])
     if not cycle:
         return {}
     chain = " -> ".join(f"{change} group {group}" for change, group in cycle)
@@ -5606,6 +5616,11 @@ def _tag_warnings(inst: Installation, path: Path) -> list[str]:
             projects=declared_projects(inst.repos),
         ),
     ]
+
+
+def _rehashed(records: Mapping[str, dict], change: str, digest: str) -> dict[str, dict]:
+    """The update that gives `change`'s plan record `digest` as its hash, if it has a record."""
+    return {change: records[change] | {"hash": digest}} if change in records else {}
 
 
 def _fix_change_tags(
@@ -5651,10 +5666,16 @@ def _fix_change_tags(
         return True
     if not os.access(path, os.W_OK):
         return refuse(f"{path} is read-only")
+    recorded = (planned_hashes(inst).get(change) or {}).get("hash")
+    was_current = recorded is not None and plan_digest(path, recorded) == recorded
     try:
         atomic_write_bytes(path, fixed.encode())
     except OSError as exc:
         return refuse(f"could not write {path}: {exc}")
+    if was_current:
+        # The plan stood before the rewrite, so it stands after it: keep the record's other
+        # fields and move its hash to the rewritten text, whatever mix of spellings it hashed.
+        update_plans(inst, lambda records: _rehashed(records, change, plan_digest(path)))
     print(f"{change}: rewrote {count} tag(s)")
     return True
 
@@ -5680,10 +5701,7 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
         return 0
     if fix:
         dry_run = getattr(args, "dry_run", False)
-        try:
-            cycles = _needs_cycle_problems(inst)
-        except UnicodeDecodeError:
-            cycles = {}  # a file that is not text is refused by name below
+        cycles = _needs_cycle_problems(inst)
         handled = [_fix_change_tags(inst, change, cycles, dry_run=dry_run) for change in changes]
         return 0 if all(handled) else 1
     failed = 0

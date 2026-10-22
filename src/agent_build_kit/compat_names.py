@@ -69,7 +69,7 @@ def old_tag(tag: str) -> str:
 def old_spelling(kind: TestTier) -> str:
     """The old name of `kind`: `tier1` for the unit-test kind, `tier2` for the e2e-test kind."""
     if (old := old_tag(kind.value)) == kind.value:
-        raise StopIteration(kind)
+        raise ValueError(f"{kind} has no old spelling")
     return old
 
 

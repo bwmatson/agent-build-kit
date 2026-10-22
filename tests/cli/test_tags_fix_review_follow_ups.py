@@ -41,3 +41,24 @@ def test_a_change_on_a_needs_cycle_is_refused_and_left_as_it_was(
     assert code == 1, out
     assert "refused" in out
     assert path.read_text() == first
+
+
+def test_a_file_that_is_not_text_does_not_turn_off_the_cycle_check_for_the_others(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = planning(tmp_path, monkeypatch)
+    first = tagged_md(OLD_UNIT_TEST_TAG).replace(
+        "\n- [ ] 1.1", "\nNeeds: second group 1 — a reason\n\n- [ ] 1.1", 1
+    )
+    second = tagged_md(OLD_UNIT_TEST_TAG).replace(
+        "\n- [ ] 1.1", "\nNeeds: first group 1 — a reason\n\n- [ ] 1.1", 1
+    )
+    path = write_change(run, "first", first.encode())
+    write_change(run, "second", second.encode())
+    write_change(run, "binary", b"\xff\xfe not text")
+
+    code, out = run_tags(capsys, "--fix", "first")
+
+    assert code == 1, out
+    assert "refused" in out
+    assert path.read_text() == first
