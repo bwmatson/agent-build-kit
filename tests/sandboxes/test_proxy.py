@@ -79,12 +79,16 @@ def test_tunnel_bytes_sent_with_the_connect_reach_the_upstream() -> None:
 
 def test_a_second_request_on_the_connection_is_not_sent_to_the_first_host() -> None:
     first = "GET http://127.0.0.1:{port}/ HTTP/1.1\r\nHost: x\r\nConnection: keep-alive\r\n\r\n"
-    second = "GET http://other.example.test/ HTTP/1.1\r\nHost: other.example.test\r\n\r\n"
-    with upstream() as port, Proxy(["127.0.0.1"]) as proxy:
+    second = (
+        "GET http://other.example.test/ HTTP/1.1\r\nHost: other.example.test\r\n"
+        "Connection: close\r\n\r\n"
+    )
+    with upstream(keep_alive=True) as port, Proxy(["127.0.0.1"]) as proxy:
         code, body = send_raw(proxy.port, first.format(port=port) + second)
 
     assert code == 200
-    assert body == UPSTREAM_BODY  # the answer to the first request only, then the close
+    # The answer to the first request only: the upstream was told to close after it.
+    assert body.count(UPSTREAM_BODY) == 1
 
 
 def test_a_suffix_pattern_does_not_allow_a_name_that_only_ends_alike() -> None:
@@ -122,3 +126,10 @@ def test_the_environment_points_both_spellings_at_the_proxy(scheme: str) -> None
 
     assert environment[f"{scheme.upper()}_PROXY"] == "http://127.0.0.1:8123"
     assert environment[f"{scheme}_proxy"] == "http://127.0.0.1:8123"
+
+
+def test_the_environment_empties_no_proxy_so_no_host_goes_around_the_proxy() -> None:
+    environment = proxy_environment(8123)
+
+    assert environment["NO_PROXY"] == ""
+    assert environment["no_proxy"] == ""

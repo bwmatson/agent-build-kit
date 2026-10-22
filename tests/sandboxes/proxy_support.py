@@ -33,10 +33,26 @@ class _Upstream(http.server.BaseHTTPRequestHandler):
         pass
 
 
+class _KeepAliveUpstream(_Upstream):
+    """An HTTP/1.1 server that keeps the connection open for the next request unless the
+    request asked for it to close, as a real server does."""
+
+    protocol_version = "HTTP/1.1"
+
+    def do_GET(self) -> None:
+        body = UPSTREAM_BODY.encode()
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
 @contextmanager
-def upstream() -> Iterator[int]:
-    """A local HTTP server answering every GET with `UPSTREAM_BODY`; yields its port."""
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Upstream)
+def upstream(*, keep_alive: bool = False) -> Iterator[int]:
+    """A local HTTP server answering every GET with `UPSTREAM_BODY`; yields its port. With
+    `keep_alive` it speaks HTTP/1.1 and answers further requests on the same connection."""
+    handler = _KeepAliveUpstream if keep_alive else _Upstream
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     with serving(server):
         yield server.server_address[1]
 
