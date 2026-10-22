@@ -64,7 +64,7 @@ from agent_build_kit.pipeline.units import (
     direct_dependencies,
     waiting_on_me,
 )
-from agent_build_kit.pipeline.verdict import REVIEW_TIERS, ReviewTier
+from agent_build_kit.pipeline.verdict import REVIEW_TIERS, ReviewTier, SplitRequest
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.work_graph import (
     GROUP_HEADING,
@@ -159,6 +159,8 @@ def parse_plan(
     calibrations: Mapping[Kind, Calibration] | None = None,
     retired: Collection[str] = (),
     tasks: str = "",
+    split: SplitRequest | None = None,
+    held: StoredUnit | None = None,
 ) -> Plan:
     """Read and verify a proposed graph and its joins, or raise `PlannerError`.
 
@@ -168,6 +170,7 @@ def parse_plan(
 
     Joins are checked against `context`; without one, none may be proposed.
     """
+    _check_split_pair(split, held)
     match = JSON_BLOCK.search(output)
     if not match:
         raise PlannerError("no JSON object in the planner's output")
@@ -249,6 +252,9 @@ def parse_plan(
             if active().review.enabled:
                 _check_full_separation(units, groups, tasks)
         _check_ceiling(units, groups, calibrations, unnamed)
+        if split is not None and held is not None:
+            _check_split_shape(units, held)
+            _check_pins(units, split)
         if joins:
             if context is None:
                 raise PlannerError("the planner proposed a join, and none is expected here")
@@ -269,6 +275,9 @@ def parse_plan(
     except PlannerError as error:
         error.units = tuple(u.id for u in units)
         raise
+    if split is not None:
+        # `_check_split_shape` fixed every id and edge: the pieces keep their `-s<k>` ids.
+        return Plan(units=tuple(units), joins=tuple(joins))
     highest = max((group.number for group in groups or ()), default=0)
     assigned = assign_unit_ids(units, stored=stored, retired=retired, highest_group=highest)
     return Plan(units=assigned, joins=tuple(joins))
@@ -504,6 +513,76 @@ def _check_ceiling(
             f"the {_ceiling_name(unit)} of {ceiling} — its groups must go in more than one unit"
             f"{_split_advice(unit, applying[unit.id], ceiling, groups)}"
         )
+
+
+def _check_split_pair(split: SplitRequest | None, held: StoredUnit | None) -> None:
+    """A split request and the unit it splits only mean something together."""
+    if (split is None) != (held is None):
+        raise ValueError("a split request and the held unit it splits are given together")
+
+
+def _check_split_shape(units: Sequence[Unit], held: StoredUnit) -> None:
+    """The pieces of a split are the held unit's groups in order as contiguous runs, with ids
+    the parent's and `-s<k>`, chained from what the held unit waited on, and on nothing else."""
+    for place, unit in enumerate(units, start=1):
+        expected = f"{held.id}-s{place}"
+        if unit.id != expected:
+            raise PlannerError(
+                f"piece {place} of the split of {held.id} has the id {unit.id!r}; "
+                f"it must be {expected}"
+            )
+    position = {number: index for index, number in enumerate(held.groups)}
+    flat = [number for unit in units for number in unit.groups]
+    for unit in units:
+        places = sorted(position.get(number, -1) for number in unit.groups)
+        if not places or places[0] < 0 or places != list(range(places[0], places[0] + len(places))):
+            raise PlannerError(
+                f"unit {unit.id} does not hold a contiguous run of the groups of {held.id} "
+                f"({', '.join(str(n) for n in held.groups)})"
+            )
+    if flat != list(held.groups):
+        raise PlannerError(
+            f"the pieces of {held.id} must hold its groups "
+            f"({', '.join(str(n) for n in held.groups)}) in order, one run after another; "
+            f"they hold {', '.join(str(n) for n in flat)}"
+        )
+    for index, unit in enumerate(units):
+        required = {units[index - 1].id} if index else set(held.depends_on)
+        missing = sorted(required - set(unit.depends_on))
+        if missing:
+            raise PlannerError(
+                f"unit {unit.id} must depend on {', '.join(missing)} "
+                f"({'the piece before it' if index else f'what {held.id} depends on'})"
+            )
+        extra = sorted(set(unit.depends_on) - required)
+        if extra:
+            raise PlannerError(
+                f"unit {unit.id} depends on {', '.join(extra)}, another unit; a piece waits only "
+                "for the one before it"
+            )
+
+
+def _check_pins(units: Sequence[Unit], split: SplitRequest) -> None:
+    """Driver groups are units of their own at the earned tier, every other unit at the planned
+    tier; with no drivers every unit is at the earned tier."""
+    earned = split.earned.value
+    planned = (split.planned or split.earned).value
+    drivers = set(split.drivers)
+    for unit in units:
+        pinned = [n for n in unit.groups if n in drivers]
+        others = [n for n in unit.groups if n not in drivers]
+        if pinned and others:
+            raise PlannerError(
+                f"unit {unit.id} puts driver group {pinned[0]} beside group {others[0]}; "
+                f"a driver group is in a unit of driver groups at the {earned} tier"
+            )
+        wanted = earned if pinned or not drivers else planned
+        if unit.review_tier != wanted:
+            raise PlannerError(
+                f"unit {unit.id} is at the {unit.review_tier} tier and must be at the {wanted} "
+                f"tier ({'it holds driver groups' if pinned else 'it holds no driver group'}, "
+                f"the earned tier being {earned} and the planned {planned})"
+            )
 
 
 def _ceiling_name(unit: Unit) -> str:
@@ -944,7 +1023,12 @@ label is never the id of a unit in flight that has started.
 
 def _retired_ids(in_flight: Sequence[dict]) -> list[str]:
     """The ids of the retired units among the items the planner is shown."""
-    return [item["id"] for item in in_flight if item.get("state") == UnitState.RETIRED]
+    return [
+        item["id"]
+        for item in in_flight
+        if item.get("state") == UnitState.RETIRED
+        or (item.get("state") == UnitState.CLOSED and item.get("replaced_by"))
+    ]
 
 
 def in_flight_item(unit: StoredUnit, graph: Sequence[StoredUnit]) -> dict:
@@ -1167,8 +1251,67 @@ def build_prompt(
     examples: Mapping[Kind, Sequence[StoredUnit]] | None = None,
     omitted: int = 0,
     groups: Sequence[TaskGroup] | None = None,
+    split: SplitRequest | None = None,
+    held: StoredUnit | None = None,
 ) -> str:
-    return _prompt_and_parts(changes, in_flight, calibrations, examples, omitted, groups)[0]
+    return _prompt_and_parts(
+        changes, in_flight, calibrations, examples, omitted, groups, split=split, held=held
+    )[0]
+
+
+def _driver_runs(drivers: Sequence[int], groups: Sequence[int]) -> list[list[int]]:
+    """The drivers as runs of groups adjacent in `groups`, in order."""
+    places = sorted((groups.index(n), n) for n in drivers if n in groups)
+    runs: list[list[int]] = []
+    last = -2
+    for place, number in places:
+        if runs and place == last + 1:
+            runs[-1].append(number)
+        else:
+            runs.append([number])
+        last = place
+    return runs
+
+
+def _split_text(split: SplitRequest, held: StoredUnit, retired: Sequence[str]) -> str:
+    """The instructions for re-planning a held unit's groups as pieces; one block."""
+    workspace = active()
+    repo = workspace.repos.get(held.repo)
+    planned = split.planned or split.earned
+    earned_ceiling = review_ceiling(repo, workspace, split.earned)
+    planned_ceiling = review_ceiling(repo, workspace, planned)
+    numbers = ", ".join(str(n) for n in held.groups)
+    text = (
+        f"This is a split. Unit {held.id} is held as too big ({split.lines} changed lines, over "
+        f"the {split.earned.value} ceiling of {split.ceiling}). Plan only its groups, in order: "
+        f"{numbers}; every other group is already built, and tasks.md is not changed. "
+        f"Keep the groups in their order and give the pieces the ids {held.id}-s1, "
+        f"{held.id}-s2 and so on, in order. Chain them by dependency: the first depends on "
+        f"what {held.id} depends on ({', '.join(held.depends_on) or 'nothing'}), each later "
+        "one on the piece before it, and none on any other unit. "
+    )
+    if split.drivers:
+        runs = _driver_runs(split.drivers, held.groups)
+        pinned = "; ".join(
+            f"{'group' if len(run) == 1 else 'groups'} {' and '.join(str(n) for n in run)}"
+            for run in runs
+        )
+        text += (
+            "Each piece holds a contiguous run of those groups, in order. Pin each run of "
+            f"adjacent driver groups in a unit of its own at the {split.earned.value} tier, "
+            f"within that tier's ceiling of {earned_ceiling}: {pinned}, each its own pin. The "
+            "groups before and after a pinned run go in their own separate units at the "
+            f"{planned.value} tier, within its ceiling of {planned_ceiling}; never put groups "
+            "on both sides of a pinned run in one unit."
+        )
+    else:
+        text += (
+            f"No group is a driver: every piece takes the {split.earned.value} tier and is to "
+            f"be brought under its ceiling of {earned_ceiling}."
+        )
+    if retired:
+        text += f" These ids are retired and taken: {', '.join(retired)}."
+    return text
 
 
 def omitted_line(count: int) -> str:
@@ -1184,8 +1327,11 @@ def _prompt_and_parts(
     omitted: int,
     groups: Sequence[TaskGroup] | None = None,
     previous_refusal: str = "",
+    split: SplitRequest | None = None,
+    held: StoredUnit | None = None,
 ) -> tuple[str, dict[str, int]]:
     """The prompt, and the size in bytes of the parts a person can cut."""
+    _check_split_pair(split, held)
     first = next(iter(changes), "")
     changes_text = (
         "\n\n".join(
@@ -1226,6 +1372,8 @@ def _prompt_and_parts(
         changes=changes_text,
         in_flight=in_flight_text,
     )
+    if split is not None and held is not None:
+        prompt += "\n\n" + _split_text(split, held, _retired_ids(in_flight))
     if previous_refusal:
         prompt += (
             "\n\nYour previous plan was refused. Plan again so that it does not recur:\n"
@@ -1283,6 +1431,8 @@ def plan_round(
     runtime: AgentRuntime | None = None,
     omitted: int = 0,
     previous_refusal: str = "",
+    split: SplitRequest | None = None,
+    held: StoredUnit | None = None,
 ) -> Plan:
     """Ask for a graph and return it, or raise `PlannerError`.
 
@@ -1291,8 +1441,11 @@ def plan_round(
     the units; a caller that passes no `context` accepts none.
     """
     prompt, parts = _prompt_and_parts(
-        changes, in_flight, calibrations, examples, omitted, groups, previous_refusal
+        changes, in_flight, calibrations, examples, omitted, groups, previous_refusal, split, held
     )
+    if split is not None and held is not None and groups is not None:
+        # Only the held unit's groups are planned; every other one is as built.
+        built = {group.number for group in groups} - set(held.groups)
     answer = (
         run_claude(prompt)
         if run_claude
@@ -1308,4 +1461,6 @@ def plan_round(
         calibrations=calibrations,
         retired=_retired_ids(in_flight),
         tasks=next(iter(changes.values()), ""),
+        split=split,
+        held=held,
     )

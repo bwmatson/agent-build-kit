@@ -108,7 +108,10 @@
   depended on it, with its branch kept under `refs/spec-driven/superseded/<unit id>`. Its pull
   request is closed with a comment naming the pieces, the lines and the ceiling (retried until it
   closes), the host's closed event leaves it as it is, a plan cannot revive it, nothing waits on
-  it, `abk status` names its pieces, and a change archives once the pieces merge.
+  it, `abk status` names its pieces, and a change archives once the pieces merge. A plan that
+  splits a held unit is refused unless a driver group is alone at the earned tier, the rest are
+  at the planned tier, the pieces hold its groups in order under the `-s<k>` ids and chain from
+  what it waited on, and no plan of any change may use a superseded unit's id.
 
 - `abk replan --dry-run` asks the planner and prints the units each change would get, with
   their groups, expected review tier and estimated lines against that tier's ceiling, and the
