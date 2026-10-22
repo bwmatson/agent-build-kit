@@ -907,6 +907,16 @@ def build_commit(
     return commit
 
 
+def build_commit_built(
+    *,
+    unit_id: str = "",
+    run: Run | None = None,
+    adopted_from: str = "",
+) -> Callable[..., int]:
+    """The runner's `commit_built(message, *, cwd)`: an empty commit marking a group built."""
+    raise NotImplementedError
+
+
 def build_stub_checks(
     *,
     profile: ToolchainProfile,
