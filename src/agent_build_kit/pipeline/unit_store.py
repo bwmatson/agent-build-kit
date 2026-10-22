@@ -866,6 +866,34 @@ class UnitStore:
             self.on_state(unit, everything, opened)
 
     @_exclusive
+    def replace_if_unchanged(
+        self,
+        before: Mapping[str, StoredUnit],
+        after: Mapping[str, StoredUnit],
+        *,
+        also: Callable[[], None] | None = None,
+    ) -> list[str]:
+        """Store the units `after` holds that differ from `before`, remove those it lacks, and
+        touch no other: it is
+        for a plan made apart from the store, from a copy taken as `before`. When any of those
+        units is no longer as `before` has it in the store (changed, or added, since), nothing
+        is written and their ids are returned. `also` is called after the write, with the
+        store still locked, so a record kept beside the units changes with them. `on_write` fires
+        only when units are written: a plan that changed none has nothing for it to see."""
+        stored = self._read()
+        # A unit `after` lacks was removed by the planning (joined onto another): it goes too.
+        removed = [uid for uid in before if uid not in after]
+        changed = [uid for uid, unit in after.items() if before.get(uid) != unit]
+        if moved := [uid for uid in (*changed, *removed) if stored.get(uid) != before.get(uid)]:
+            return moved
+        if changed or removed:
+            kept = {uid: unit for uid, unit in stored.items() if uid not in removed}
+            self._write({**kept, **{uid: after[uid] for uid in changed}})
+        if also is not None:
+            also()
+        return []
+
+    @_exclusive
     def import_units(self, units: Sequence[StoredUnit]) -> None:
         """Add records from another store with every field kept; an equal one is skipped and a
         differing one with the same id is a conflict naming the id, with nothing written."""

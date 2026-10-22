@@ -83,7 +83,9 @@ def test_an_unstarted_unit_the_plan_drops_becomes_unplanned_and_is_reported(
     seed(run, "feature/9")
     run.record("feature")
 
-    _, out = run.run(capsys, "feature", reply=answer(planned("feature/1", (1,))))
+    _, out = run.run(
+        capsys, "feature", "--accept-unplanned", reply=answer(planned("feature/1", (1,)))
+    )
 
     assert run.store.get("feature/9").state == UNPLANNED
     assert any("feature/9" in ln and "unplanned" in ln for ln in out.splitlines())
