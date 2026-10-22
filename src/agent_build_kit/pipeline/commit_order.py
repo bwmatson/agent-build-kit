@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.shell import git_out
+from agent_build_kit.pipeline.shell import git, git_out
 
 if TYPE_CHECKING:
     from agent_build_kit.pipeline.stack_runner import GroupStep
@@ -187,6 +187,41 @@ def group_progress(
             return GroupProgress(done=done, tests_made=True)
         position += 1
     return GroupProgress(done=len(titles), tests_made=False)
+
+
+def superseded_pairs(
+    repo: Path, ref: str, base: str, titles: Sequence[str], test_only: Sequence[bool]
+) -> list[list[str]] | None:
+    """The commits of each group on the branch at `ref`, oldest group first, when the branch
+    beyond `base` is exactly a pair for each of the groups (`titles`, by position, with
+    `test_only` groups taking their `test:` commit alone), in order; None for any other branch,
+    which has a commit that belongs to no group or lacks one."""
+    out = git_out(repo, "rev-list", "--reverse", f"{base}..{ref}")
+    shas = out.splitlines()
+    subjects = [git_out(repo, "log", "-1", "--format=%s", sha) for sha in shas]
+    if group_progress(subjects, titles, test_only).done != len(titles):
+        return None
+    sizes = [
+        1 if index < len(test_only) and test_only[index] else 2 for index in range(len(titles))
+    ]
+    if sum(sizes) != len(shas):
+        return None
+    taken = 0
+    groups: list[list[str]] = []
+    for size in sizes:
+        groups.append(shas[taken : taken + size])
+        taken += size
+    return groups
+
+
+def cherry_pick(repo: Path, shas: Sequence[str]) -> bool:
+    """Pick `shas` onto the checked-out branch in order; False, with the branch as it was
+    before the failing pick and a clean tree, at the first that does not apply."""
+    for sha in shas:
+        if git(repo, "cherry-pick", sha, check=False).returncode:
+            git(repo, "cherry-pick", "--abort", check=False)
+            return False
+    return True
 
 
 def _test_only_commits(subjects: list[str], groups: Sequence[GroupStep]) -> list[bool]:

@@ -222,7 +222,10 @@
   ceiling (a card is raised for each). A split waits, using no round, while the usage guard
   refuses planning or a live process holds the unit's branch. Every later plan of a change is
   given the pins of its superseded units whose pieces have not started, and is refused if it
-  regroups a pinned driver or changes its tier.
+  regroups a pinned driver or changes its tier. When a piece's run is prepared, the `test:` and
+  `feat:` pair of each of its groups is cherry-picked from the kept branch of the unit it
+  replaces, if that branch is exactly one pair per group in order, and the run goes on from
+  there; a branch with any other commit is rebuilt, the reason said once.
 
 - `abk replan --dry-run` asks the planner and prints the units each change would get, with
   their groups, expected review tier and estimated lines against that tier's ceiling, and the

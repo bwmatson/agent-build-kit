@@ -55,8 +55,10 @@ from agent_build_kit.pipeline.commit_order import (
     CODE_PREFIX,
     TESTS_PREFIX,
     GroupProgress,
+    cherry_pick,
     group_progress,
     recorded_built,
+    superseded_pairs,
 )
 from agent_build_kit.pipeline.e2e import NO_TEST_RAN, E2eVerdict
 from agent_build_kit.pipeline.e2e_schedule import is_scheduled, scheduled_split
@@ -78,6 +80,7 @@ from agent_build_kit.pipeline.restack import RESOLVER_TOOLS, BranchMoved, HostMo
 from agent_build_kit.pipeline.review_classes import class_of
 from agent_build_kit.pipeline.review_paths import is_protected
 from agent_build_kit.pipeline.run_log import RunLog
+from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import (
     ADAPT_CONTINUATION,
     ADAPT_FOLLOWUP_PROMPT,
@@ -1065,6 +1068,9 @@ class BuildPath:
             self.say(f"scheduled run on {base}: straight to e2e-test")
             return {**FRESH, **remembered, "start": start, "e2e": True, "scheduled": True}
         existing = r.branch_commits(tree, ref)
+        if not existing and (parent := saved.split_from) and self.stubbed():
+            self.reuse_superseded(parent, tree, ref)
+            existing = r.branch_commits(tree, ref)
         self.say(
             f"on {base}, {existing} commit(s) on the branch"
             + (", with feedback to address" if feedback else "")
@@ -1143,6 +1149,34 @@ class BuildPath:
             "e2e": unit.tier == TestTier.E2E_TEST,
             "e2e_deferred": unit.tier == TestTier.E2E_TEST and self.e2e_deferred(),
         }
+
+    def reuse_superseded(self, parent_id: str, tree: Path, ref: str) -> None:
+        """Pick the commit pair of each of this piece's groups from the superseded unit's kept
+        branch onto the piece's branch, when that branch is exactly a pair per group of the unit;
+        otherwise say once that the piece is built from scratch."""
+        r = self.runner
+        kept = f"refs/spec-driven/superseded/{parent_id}"
+        try:
+            parent = r.store.get(parent_id)
+        except KeyError:
+            return
+        if git(tree, "rev-parse", "--verify", "-q", kept, check=False).returncode:
+            return
+        steps = r.group_steps(parent)
+        found = superseded_pairs(
+            tree, kept, ref, [s.title for s in steps], [s.test_only for s in steps]
+        )
+        if found is None:
+            self.say(f"commits of {parent_id} not reused: they are not a pair for each group")
+            return
+        where = {(s.change_dir, s.number): index for index, s in enumerate(steps)}
+        picked = 0
+        for step in r.group_steps(self.unit):
+            shas = found[where[(step.change_dir, step.number)]]
+            if not cherry_pick(tree, shas):
+                break
+            picked += 1
+        self.say(f"reused the commits of {picked} group(s) from {parent_id}")
 
     def resumed(self, existing: int, ref: str) -> Update:
         """In a stubbed build, the group the branch says is next: the first without its
