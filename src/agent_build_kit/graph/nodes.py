@@ -197,6 +197,11 @@ FRESH: Update = {
 LEFTOVER_PATHS_SHOWN = 40
 ACCOUNT_LIMIT = 2000  # characters of the builder's account a recorded group keeps
 ACCOUNT_HEADING = "Already built, the builder's account:"
+NO_NEW_TESTS = "This group adds no new tests: the tests it needs already exist on the branch."
+TESTS_ALREADY_PASS = (
+    "The tests for this group pass without further implementation: "
+    "the implementation already exists."
+)
 
 # Lines of a failing e2e-test's report written to the run log.
 E2E_LOG_TAIL = 40
@@ -1424,10 +1429,12 @@ class BuildPath:
             return result
         ref = self.ref(state)
         made = r.commit(self.message(TESTS_PREFIX, True, state), cwd=tree, base=ref)
-        done: Update = {"head": r.head(tree), "stub_loop": False, "stub_rounds": 0}
         step = self.group_step(state)
         if step is None or not step.test_only:
+            self.record_no_new_tests(state, ref, made)
+            done: Update = {"head": r.head(tree), "stub_loop": False, "stub_rounds": 0}
             return {**done, "test_only_done": False}
+        done = {"head": r.head(tree), "stub_loop": False, "stub_rounds": 0}
         # A test-only group's lone tests commit satisfies it: no implementation follows.
         if (stopped := self.record_built(state, ref, made, state.tests_account)) is not None:
             return stopped
@@ -1437,6 +1444,21 @@ class BuildPath:
         if "stopped" in settled:
             return settled
         return {**done, **settled, "test_only_done": True, "produced_nothing": commits == 0}
+
+    def record_no_new_tests(self, state: UnitRun, ref: str, made: int) -> bool:
+        """A group of a branch with commits whose tests step committed nothing gets an empty
+        marked `test:`, so its implementation completes a pair. Not made when the group has a
+        `test:` or a lone `feat:` already, or the earlier groups lack a pair."""
+        r = self.runner
+        tree = self.tree()
+        if made or not r.branch_commits(tree, ref):
+            return False
+        progress = self.branch_progress(ref)
+        if progress.done != state.group or progress.tests_made or progress.lone_feat:
+            return False
+        self.say("the group adds no new tests: an empty tests commit is recorded")
+        r.commit_built(f"{self.message(TESTS_PREFIX, True, state)}\n\n{NO_NEW_TESTS}", cwd=tree)
+        return True
 
     def fix_stub_checks(self, state: UnitRun) -> Update:
         self._leftovers = self._leftovers or self._stub_leftovers
@@ -1571,11 +1593,9 @@ class BuildPath:
         if step is None or made or not r.branch_commits(tree, ref):
             return None
         progress = self.branch_progress(ref)
-        if progress.done != state.group:
-            return None
+        if progress.done != state.group or progress.lone_feat:
+            return None  # a lone feat: is named by the stop, not mended by an empty pair
         resumed = self.half_recorded(state, progress)
-        if progress.tests_made and not resumed:
-            return None  # real stubs and tests with no implementation after them
         if r.head(tree) != state.head and not resumed:
             return None
         if (broken := self.environment_problem()) is not None:
@@ -1590,12 +1610,13 @@ class BuildPath:
             return self.stop(self.unpaired(state, ref))
         self.say(f"group {step.number} is already built and the unit tests pass: recorded")
         tests = self.message(TESTS_PREFIX, True, state)
-        if not resumed:
+        if not (resumed or progress.tests_made):
             r.commit_built(self.with_account(tests, account) if step.test_only else tests, cwd=tree)
         if not step.test_only:
-            r.commit_built(
-                self.with_account(self.message(CODE_PREFIX, False, state), account), cwd=tree
-            )
+            code = self.message(CODE_PREFIX, False, state)
+            if progress.tests_made and not resumed:
+                code = f"{code}\n\n{TESTS_ALREADY_PASS}"
+            r.commit_built(self.with_account(code, account), cwd=tree)
         return None
 
     def settle_group(self, state: UnitRun, ref: str, commits: int) -> Update:

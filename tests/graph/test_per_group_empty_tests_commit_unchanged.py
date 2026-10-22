@@ -43,7 +43,7 @@ def test_a_test_only_group_keeps_its_earlier_tests_commit_and_gets_no_second_one
 ) -> None:
     made_beside(tmp_path)
     recorder, outcome, repo = built(
-        tmp_path / "test-only", groups=GROUPS, tests_only=(4,), silent_groups=(4,)
+        tmp_path / "test-only", groups=GROUPS, e2e=(4,), silent_groups=(4,)
     )
 
     assert outcome.status == "open", outcome.detail
@@ -77,7 +77,7 @@ def test_a_lone_feat_commit_of_the_group_stops_the_unit_and_no_empty_test_commit
         tmp_path / "lone",
         groups=GROUPS,
         seeded=[*PAIR_3, "feat: G4"],
-        no_tests_for="4",
+        silent_groups=(4,),
     )
 
     outcome = build(tmp_path / "lone", recorder, **recorder.overrides(tmp_path / "lone"))

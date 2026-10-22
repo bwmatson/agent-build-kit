@@ -1,5 +1,5 @@
 """A run killed after the empty `test:` of a group with no new tests resumes at that group's
-implementation step, and one killed before it repeats the tests step and makes it (spec:
+implementation step, and one killed before it runs the group's checks again and makes it (spec:
 built-group-recorded-as-empty-pair). The branch is real and the second run starts with what
 the first left."""
 
@@ -53,7 +53,7 @@ def test_a_run_killed_after_the_empty_test_commit_resumes_and_an_unchanged_tree_
     assert recorder.events.count("unit-test:whole_repo") == 1
 
 
-def test_a_run_killed_before_the_empty_test_commit_repeats_the_tests_step_and_makes_it(
+def test_a_run_killed_before_the_empty_test_commit_runs_the_checks_again_and_makes_it(
     tmp_path: Path,
 ) -> None:
     recorder, repo = prepared(
@@ -71,6 +71,6 @@ def test_a_run_killed_before_the_empty_test_commit_repeats_the_tests_step_and_ma
     outcome = build(tmp_path, recorder, **recorder.overrides(tmp_path))
 
     assert outcome.status == "open", outcome.detail
-    assert recorder.events[seen] == "claude:tests", "the group's tests step is repeated"
+    assert "stub-checks" in recorder.events[seen:], "the static checks run again before the commit"
     assert subjects(repo) == [*PAIR_3, "test: G4", "feat: G4"]
     assert recorder.events.count("commit_built:test") == 1
