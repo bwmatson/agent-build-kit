@@ -171,6 +171,7 @@ from agent_build_kit.pipeline.vocabulary import effective_state
 from agent_build_kit.pipeline.workspaces import BranchBusy, prepare_detached, prepare_worktree
 from agent_build_kit.profiles.base import (
     AppliesE2eSelection,
+    AppliesFixers,
     ProjectChecks,
     RecordsSelectionData,
     RepeatsTests,
@@ -1015,7 +1016,11 @@ def build_fixers(
             if setting is not None:
                 command = [*setting, *relative]
             else:
-                command = getattr(toolchain, "fix_command", lambda files: None)(relative)
+                command = (
+                    toolchain.fix_command(relative)
+                    if isinstance(toolchain, AppliesFixers)
+                    else None
+                )
             if not command:
                 continue
             files = [f"{prefix}{name}" for name in relative]

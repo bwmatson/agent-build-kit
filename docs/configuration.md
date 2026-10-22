@@ -468,6 +468,11 @@ repos:                          # ordered: deploy order is derived from
                                 # stack (e2e-test, and post-merge verify); for a
                                 # node project a file-name segment instead:
                                 # `<name>.local_stack.test.ts`
+      fix_command: null         # argv that applies this repo's formatters and
+                                # fixers; the unit's file names are appended and
+                                # it runs in each project's directory; null
+                                # follows the profile's fix_command, [] turns the
+                                # fixer pass off
       e2e_unit_scope: null      # own | full for this repo; null follows limits
       e2e_schedule: null        # daily | weekly | monthly | 'off' for this repo; null follows limits
       dev_stack_marker: dev_stack

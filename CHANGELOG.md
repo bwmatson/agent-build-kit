@@ -13,7 +13,7 @@
 - A toolchain profile can declare `fix_command(files)`, the command that applies its formatters
   and auto-fixers (python-uv: the pre-commit hooks; node-npm: `oxfmt` then `oxlint --fix` over
   source files), and a repo can replace it with `repos.<name>.tests.fix_command` (`[]` turns it
-  off). The runner's fixer pass touches only the unit's own changed and untracked files, per
+  off). The runner's fixer pass is given only the unit's own changed and untracked files, per
   project, skips and restores protected files, ignores exit status and makes at most two passes.
 
 - The Claude limits take settings for estimating usage from recorded cost: per window

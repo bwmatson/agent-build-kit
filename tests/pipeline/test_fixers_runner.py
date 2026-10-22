@@ -80,6 +80,15 @@ def test_a_deleted_file_and_the_files_a_commit_unstages_are_left_out(tree: Path)
     assert passed(run) == ["src/a.py"]
 
 
+def test_a_renamed_file_is_passed_under_its_new_name_only(tree: Path) -> None:
+    git(tree, "mv", "src/old.py", "src/moved.py")
+    run = FakeRun()
+
+    fixers(run)(cwd=tree)
+
+    assert passed(run) == ["src/moved.py"]
+
+
 def test_each_project_runs_in_its_own_directory_with_its_own_profile(tree: Path) -> None:
     commit_files(tree, "more", {"web/src/a.ts": "a\n", "tools/b.py": "b\n"})
     (tree / "web" / "src" / "a.ts").write_text("a;\n")
