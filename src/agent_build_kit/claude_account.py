@@ -188,6 +188,16 @@ def resolve_in(config: WorkspaceConfig, label: str | None) -> Account:
     )
 
 
+def in_use(config: WorkspaceConfig) -> list[Account]:
+    """The accounts the repos run on, each once, in the order the repos are named; the default
+    account alone when no repo is named."""
+    found: dict[str | None, Account] = {}
+    for name in config.repos:
+        account = for_repo(config, name)
+        found.setdefault(account_key(account), account)
+    return list(found.values()) or [resolve_in(config, None)]
+
+
 def slots_per_account(config: WorkspaceConfig) -> bool:
     """Whether units in progress are counted per account: the installation names an account or a
     repo's label. With neither, they are counted per project, as before."""

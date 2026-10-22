@@ -65,8 +65,8 @@ class Pause(Frozen):
 
 
 def pause_marker(state_dir: Path, account: claude_account.Account | None = None) -> Path:
-    """The marker of `account`'s pause in `state_dir`; the default account's, and the network's,
-    is `PAUSE_MARKER`."""
+    """The marker of `account`'s pause in `state_dir`; the default account's is `PAUSE_MARKER`.
+    A network outage has `network_marker` of its own, never this."""
     return claude_account.file_for(state_dir / PAUSE_MARKER, account)
 
 
@@ -154,13 +154,9 @@ def every_account_paused(inst: Installation) -> bool:
     each account the repos run on (the default account alone when none is named)."""
     if network_pause(inst.state_dir) is not None:
         return True
-    accounts = {
-        account.label: account
-        for account in (claude_account.for_repo(inst.config, name) for name in inst.config.repos)
-    }
     return all(
         pause_for(inst.state_dir, account) is not None
-        for account in accounts.values() or [claude_account.Account()]
+        for account in claude_account.in_use(inst.config)
     )
 
 

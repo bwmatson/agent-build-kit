@@ -64,7 +64,7 @@ def probe(monkeypatch: pytest.MonkeyPatch) -> Control:
 
 def write_marker(tmp_path: Path, *, until: datetime) -> None:
     """A `network` marker as parking writes it, with `until` as given."""
-    (tmp_path / "paused.json").write_text(
+    (tmp_path / "network-paused.json").write_text(
         json.dumps(
             {
                 "until": until.isoformat(),
@@ -105,7 +105,7 @@ def test_a_tick_whose_control_group_is_down_starts_nothing_and_says_so_once(
     ]
     assert len(said) == 1
     assert REASON in said[0]
-    assert (tmp_path / "paused.json").exists()
+    assert (tmp_path / "network-paused.json").exists()
     after = store.get("add-marker/1")
     assert (after.state, after.cause, after.parked_attempts) == (
         before.state,
@@ -127,7 +127,7 @@ def test_a_marker_whose_time_has_passed_stays_while_the_control_group_is_down(
     built = tick(monkeypatch)
 
     assert built == []
-    assert json.loads((tmp_path / "paused.json").read_text())["kind"] == "network"
+    assert json.loads((tmp_path / "network-paused.json").read_text())["kind"] == "network"
 
 
 def test_a_reachable_control_host_clears_the_marker_whatever_its_time_and_work_starts(
@@ -143,14 +143,14 @@ def test_a_reachable_control_host_clears_the_marker_whatever_its_time_and_work_s
     pause_until(
         datetime.now(UTC) + timedelta(hours=3),
         reason=REASON,
-        marker=tmp_path / "paused.json",
+        marker=tmp_path / "network-paused.json",
         kind="network",
     )
 
     built = tick(monkeypatch)
 
     assert built == ["add-marker/2"]
-    assert not (tmp_path / "paused.json").exists()
+    assert not (tmp_path / "network-paused.json").exists()
     standing = store.get("add-marker/1")
     assert (standing.state, standing.cause) == (PLANNED, Cause.SERVICE_UNAVAILABLE)
 
@@ -173,7 +173,7 @@ def test_a_usage_reading_that_allows_work_does_not_clear_the_marker(
     write_marker(tmp_path, until=datetime.now(UTC) + timedelta(hours=1))
 
     assert tick(monkeypatch) == []
-    assert (tmp_path / "paused.json").exists()
+    assert (tmp_path / "network-paused.json").exists()
     assert len(probe.asked) == 1
 
 
@@ -195,7 +195,7 @@ def test_a_usage_or_rate_limit_pause_never_asks_the_probe(
     assert cli.cmd_tick(argv_namespace(dry_run=True), base.inst) == 0
     assert len(probe.asked) == 1, "the network marker is asked about first"
     probe.asked.clear()
-    (tmp_path / "paused.json").unlink()
+    (tmp_path / "network-paused.json").unlink()
     pause_until(
         datetime.now(UTC) + timedelta(hours=1),
         reason="held",
@@ -227,7 +227,7 @@ def test_status_shows_the_pause_as_waiting_for_the_network_with_its_reason(
     assert len(shown) == 1
     assert REASON in shown[0]
     assert probe.asked == [], "status only reads"
-    assert (tmp_path / "paused.json").exists()
+    assert (tmp_path / "network-paused.json").exists()
 
 
 def test_a_probe_that_breaks_under_a_network_marker_ends_it_and_work_starts(
@@ -248,4 +248,4 @@ def test_a_probe_that_breaks_under_a_network_marker_ends_it_and_work_starts(
     built = tick(monkeypatch)
 
     assert built == ["add-marker/1"]
-    assert not (tmp_path / "paused.json").exists()
+    assert not (tmp_path / "network-paused.json").exists()

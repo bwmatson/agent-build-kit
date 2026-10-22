@@ -690,16 +690,6 @@ def _slots_line(inst: Installation, units: list[StoredUnit]) -> str | None:
     return f"slots: {taken}/{cap}{count}"
 
 
-def accounts_in_use(inst: Installation) -> list[claude_account.Account]:
-    """The accounts the repos run on, each once, in the order the repos are named; the default
-    account alone when no repo is named."""
-    found: dict[str | None, claude_account.Account] = {}
-    for name in inst.repos:
-        account = claude_account.for_repo(inst.config, name)
-        found.setdefault(claude_account.account_key(account), account)
-    return list(found.values()) or [claude_account.Account(limits=claude_limits())]
-
-
 def _whose(account: claude_account.Account) -> str:
     """Which account a status line is about, when it is not the default."""
     key = claude_account.account_key(account)
@@ -754,7 +744,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         if not runtime.supports_usage_tracking:
             log(f"usage: runtime {runtime.name} has no usage window")
         if runtime.supports_usage_tracking:
-            for account in accounts_in_use(inst):
+            for account in claude_account.in_use(inst.config):
                 for line in _account_usage_lines(args, inst, account):
                     log(line)
         elif calls := read_calls(calls_path(inst.state_dir, None)):
@@ -1289,7 +1279,7 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
             inst.state_dir,
             limits=claude_limits(),
             now=datetime.now(UTC),
-            accounts=accounts_in_use(inst),
+            accounts=claude_account.in_use(inst.config),
         )
         if not environment.ensure(inst, say=log):
             tick.outcome = "environment"
@@ -3671,7 +3661,10 @@ def _schedule(
                 for each in pauses_in_force(inst.state_dir)
                 if each.kind == "rate_limit"
             }
-            stopping = failed or {each.label for each in accounts_in_use(inst)} <= refused_labels
+            stopping = (
+                failed
+                or {each.label for each in claude_account.in_use(inst.config)} <= refused_labels
+            )
             if stopping or refused:
                 sample()
                 continue
