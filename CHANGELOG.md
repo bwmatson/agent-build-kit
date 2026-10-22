@@ -8,6 +8,7 @@
   repeated slug or an empty description and warns when the runbook file or heading is missing.
   The step is recorded on the unit; the tick does not run its check yet. `limits.manual_check_seconds`
   (default 30) bounds how long a check may run.
+
 - `abk tags --fix [CHANGE | --all]` rewrites the old test-kind tags in the group headings of open
   changes to `[unit-test]` and `[e2e-test]`, touching no other byte of `tasks.md`. A change it
   cannot be sure of is refused with the reason and left as it was; `--dry-run` shows what it
