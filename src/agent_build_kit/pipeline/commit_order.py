@@ -139,8 +139,12 @@ def _file_at(repo: Path, sha: str, path: str) -> str:
 
 
 def recorded_built(repo: Path, sha: str) -> bool:
-    """Whether the commit is marked `Already-built: yes` and holds no file."""
-    raise NotImplementedError
+    """Whether the commit is marked `Already-built: yes` and holds no file. A file keeps the
+    marker from excusing real work."""
+    marked = git_out(
+        repo, "log", "-1", f"--format=%(trailers:key={ALREADY_BUILT_TRAILER},valueonly)", sha
+    )
+    return marked.strip() == "yes" and not _files_in(repo, sha)
 
 
 def branch_subjects(repo: Path, base: str) -> list[str]:
