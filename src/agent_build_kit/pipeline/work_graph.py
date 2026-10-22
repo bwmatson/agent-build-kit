@@ -36,7 +36,7 @@ from agent_build_kit.config import (
     e2e_splits,
 )
 from agent_build_kit.model import Frozen, TestTier
-from agent_build_kit.pipeline.units import Priority, project_tag, reachable
+from agent_build_kit.pipeline.units import ManualStep, Priority, project_tag, reachable
 
 
 class HasPath(Protocol):
@@ -219,6 +219,8 @@ class TaskGroup(Frozen):
     goal: str = ""
     # The e2e-test split of an e2e-test group, from its `Split:` line; `rest` when it has none.
     split: str = REST_SPLIT
+    # The `Manual:` lines of the group, each with its optional `Check:` line.
+    manual_steps: tuple[ManualStep, ...] = ()
 
     @property
     def tag(self) -> str:
