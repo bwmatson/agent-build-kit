@@ -57,7 +57,9 @@ class World:
         it stopped at."""
         self.store.set_manual_steps(uid, steps)
         self.store.record_step(uid, "open_pr")
-        self.store.set_state(uid, PLANNED, branch=f"spec/{uid}", note="raised a step")
+        self.store.set_state(
+            uid, PLANNED, branch=f"spec/{uid}", note="raised a step", cause=Cause.MANUAL_STEP
+        )
 
     def step(self, slug: str = SLUG) -> ManualStep:
         return next(s for s in self.store.get(UNIT).manual_steps if s.slug == slug)

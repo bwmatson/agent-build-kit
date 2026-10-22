@@ -706,7 +706,7 @@ A standing cause names a situation that lasts until a state change passes anothe
 `base_changed`, `upstream_went_back`, `usage`, `depth`, `toolchain`, `review_escalated_class`,
 `review_escalated_disagreement`, `needs_human`, `reviewer_hold`, `gated`, `restack_conflict`,
 `restack_deferred`, `restack_handed_back`, `dirty_worktree`, `attached`, `host_unavailable`,
-`network_unavailable`, `service_unavailable`, `environment` and `split_held`.
+`network_unavailable`, `service_unavailable`, `environment`, `split_held` and `manual_step`.
 An event cause names a transition that has happened and is over: `requeued`, `released`,
 `adopted`, `merged`, `auto_landed`, `closed`, `retired` and `failed`. Recording an event cause ends a standing
 one explicitly. A state change the store makes on its own account (a replan's demotion and

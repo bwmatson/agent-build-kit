@@ -58,6 +58,7 @@ from agent_build_kit.pipeline.events import (
 )
 from agent_build_kit.pipeline.flakes import FlakeFound, waiting_note
 from agent_build_kit.pipeline.gateway_usage import attribution
+from agent_build_kit.pipeline.manual_steps import unmet_steps
 from agent_build_kit.pipeline.metric_records import emit_metric
 from agent_build_kit.pipeline.outside_commits import outside_commits_note
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
@@ -366,7 +367,10 @@ class BuildPath:
                         "running_node": "",
                     }
                     # The waiting node's own return must not clear what a requeue routes on.
-                    return done if node is Node.HELD else {**done, "parked_node": ""}
+                    if node is Node.HELD:
+                        return done
+                    # A park before a node names it, which a release goes back to.
+                    return {**done, "parked_node": update.get("parked_node", "")}
                 except DirtyWorktree as error:
                     outcome = UnitOutcome.HELD
                     # A node that follows a park by a fixed edge (tests to implement) parks
@@ -523,6 +527,8 @@ class BuildPath:
 
     def _step(self, node: Node, body: Callable[[UnitRun], Update], state: UnitRun) -> Update:
         # Between steps, never inside one: a held unit has finished the step it was in.
+        if node in AGENT_NODES and (waiting := self.manual_wait(node)):
+            return waiting
         gated = (
             node in GATED
             or (node is Node.UNIT_TEST and state.produced_nothing and not state.moved)
@@ -538,6 +544,21 @@ class BuildPath:
                 cause=cause,
             )
         return body(state)
+
+    def manual_wait(self, node: Node) -> Update | None:
+        """Park the unit, planned, before `node` while a step only a person can do is unmet,
+        declared by its groups or raised by a build. A release goes back to `node`. None when
+        no step is unmet."""
+        unmet = unmet_steps(self.runner.store.get(self.unit.id))
+        if not unmet:
+            return None
+        names = ", ".join(step.slug for step in unmet)
+        note = f"waiting for manual step {names} before {node.value}"
+        self.record_step(node)
+        return {
+            **self.hold(PLANNED, note, note, cause=Cause.MANUAL_STEP),
+            "parked_node": node.value,
+        }
 
     def upstream_changed(self, state: UnitRun) -> tuple[Cause, str] | None:
         """Why the unit should not go on yet, with the cause: something upstream

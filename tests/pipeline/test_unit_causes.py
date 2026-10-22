@@ -63,6 +63,7 @@ def test_the_causes_are_the_fixed_set_the_design_names() -> None:
         "service_unavailable",
         "environment",
         "split_held",
+        "manual_step",
     }
 
 

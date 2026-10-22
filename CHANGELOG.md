@@ -6,8 +6,11 @@
   runbook: <path>#<heading>` and an optional `Check: <command>`, and a builder can register one
   with `abk manual raise <slug> --text … --check .abk/manual/<slug>.sh`. `abk tags` rejects a
   repeated slug or an empty description and warns when the runbook file or heading is missing.
-  The step is recorded on the unit; the tick does not run its check yet. `limits.manual_check_seconds`
-  (default 30) bounds how long a check may run.
+  A unit with an unmet step parks as waiting before its next agent step (not failed, not held),
+  keeps its place, and shows `waiting for manual step <slug>: <last line>` in `abk status`. Each
+  tick pass runs every unmet check in the unit's worktree with no agent call, marks a passing
+  step done for good and resumes the unit; `abk manual check [<slug>]` runs them now.
+  `limits.manual_check_seconds` (default 30) bounds how long a check may run.
 
 - A unit built group by group whose branch holds no commit of its own is now satisfied once the
   unit tests pass, as a unit built in one piece is, instead of stopping for a missing tests and

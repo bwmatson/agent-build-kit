@@ -14,12 +14,12 @@ import sys
 from pathlib import Path
 
 from agent_build_kit.cli.install_config import Refused, worktree_root
+from agent_build_kit.cli.pipeline import evaluate_manual_waits
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.manual_steps import MANUAL_FOLDER
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import ManualStep
-
-MANUAL_FOLDER = ".abk/manual"
 
 
 def _unit_id(worktree: Path, prefix: str) -> str:
@@ -80,7 +80,17 @@ def cmd_manual_raise(args: argparse.Namespace, inst: Installation) -> int:
 
 
 def cmd_manual_check(args: argparse.Namespace, inst: Installation) -> int:
-    raise NotImplementedError
+    """Run the checks of the outstanding steps now, as a tick pass does."""
+    store = UnitStore(inst.state_dir / "units.json")
+    if args.slug and not any(
+        step.slug == args.slug and not step.done
+        for unit in store.all()
+        for step in unit.manual_steps
+    ):
+        print(f"abk manual check: no outstanding step `{args.slug}`", file=sys.stderr)
+        return 1
+    evaluate_manual_waits(inst, store, slug=args.slug)
+    return 0
 
 
 def register(sub: argparse._SubParsersAction) -> None:
