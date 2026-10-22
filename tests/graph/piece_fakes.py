@@ -4,7 +4,7 @@ trunk."""
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path
 
 from agent_build_kit.pipeline.stack_runner import RunOutcome
@@ -31,16 +31,22 @@ def piece_built(
     old: Sequence[str],
     piece_groups: Collection[int],
     parent_groups: Sequence[int] = (1, 2, 3),
+    files: Mapping[int, dict[str, str]] | None = None,
+    split_from: bool = True,
+    keep_ref: bool = True,
 ) -> tuple[OnBranch, RunOutcome, Path]:
     """Build the piece of `piece_groups` of a unit that held `parent_groups` and was superseded,
-    its branch holding commits with the subjects `old`, each in a file of its own. The repo is
-    left on the piece's branch, started at the trunk."""
+    its branch holding commits with the subjects `old`, each in a file of its own unless `files`
+    gives the one at that index its files. Without `split_from` the unit is no piece, and
+    without `keep_ref` the superseded branch's ref is not there. The repo is left on the
+    piece's branch, started at the trunk."""
     activate_with(builders={"per_group_commits": True})
     write_tasks(tmp_path, "add-marker", titled(*parent_groups))
     repo = branch(tmp_path)
     for index, subject in enumerate(old):
-        land(repo, subject, {f"old-{index}.txt": f"{subject}\n"})
-    git(repo, "update-ref", KEPT, "HEAD")
+        land(repo, subject, (files or {}).get(index, {f"old-{index}.txt": f"{subject}\n"}))
+    if keep_ref:
+        git(repo, "update-ref", KEPT, "HEAD")
     git(repo, "checkout", "-q", "-b", f"spec/{PIECE}", "origin/main")
     store = UnitStore(tmp_path / "units.json")
     store.import_units(
@@ -51,7 +57,7 @@ def piece_built(
                 state=UnitState.CLOSED,
                 superseded_by=(PIECE,),
             ),
-            stored_unit(PIECE, groups=tuple(piece_groups), split_from=PARENT),
+            stored_unit(PIECE, groups=tuple(piece_groups), split_from=PARENT if split_from else ""),
         ]
     )
     recorder = OnBranch(store)
