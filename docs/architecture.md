@@ -1086,7 +1086,9 @@ window are its own. The `acp` runtime, when selected, is not held by the usage
 window (`cmd_tick` in `cli/pipeline.py` and `wiring.build_may_start` skip it),
 and it enforces the command rules through client capabilities and permission
 answers instead of the hook. The details are in
-[agent-runtimes.md](agent-runtimes.md).
+[agent-runtimes.md](agent-runtimes.md). A proposed layer under all of them, a
+kernel-enforced sandbox for agent steps, is in
+[sandbox-design.md](sandbox-design.md).
 
 **The policy hook** (`hooks/policy.py`, `pipeline/command_policy.py`). Every
 agent run passes `--settings` registering a `PreToolUse` hook for `Bash`,

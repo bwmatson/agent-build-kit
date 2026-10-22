@@ -511,6 +511,10 @@ must be documented per runtime, never assumed equivalent.
 **`none`** — an agent with no interception point at all can only be as strict
 as its own configuration makes it. `abk doctor` says so plainly.
 
+These read a call. What a command can then *do* is a separate layer, proposed in
+[sandbox-design.md](sandbox-design.md): the kernel confines the files and network of an agent step, so
+the rules above no longer have to name every way of writing a file.
+
 ## Recommended policy
 
 `runtimes/recommended_policy.py` holds the policy the kit recommends for a build
