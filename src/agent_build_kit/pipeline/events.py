@@ -94,6 +94,7 @@ from agent_build_kit.pipeline.units import (
     branch_name,
     current_dependencies,
     depth_of,
+    is_superseded,
     local_ref,
     through_satisfied,
     trunk_of,
@@ -1067,6 +1068,12 @@ def build_remove_worktree(repos: dict[str, Path], *, root: Path) -> Callable[...
     return remove
 
 
+def _closed_by_us(unit: StoredUnit) -> bool:
+    """Whether the pipeline closes this unit's pull request itself (a satisfied or superseded
+    unit), so the host's closed event is its own and records nothing."""
+    return unit.state == SATISFIED or is_superseded(unit)
+
+
 def on_closed(
     pr: int,
     *,
@@ -1095,15 +1102,15 @@ def on_closed(
         return True
 
     try:
-        if store.get(unit.id).state == SATISFIED:
-            log(f"closed #{pr}: {unit.id} is satisfied — its own close, leaving it as it is")
+        if _closed_by_us(store.get(unit.id)):
+            log(f"closed #{pr}: {unit.id} is closed by the pipeline — leaving it as it is")
             return True
         resume(unit, "closed", "", "")
         with claim(unit):
             # Re-read under the lock, as `on_rework` does: a build that has
             # just ended may have moved it.
-            if store.get(unit.id).state == SATISFIED:
-                log(f"closed #{pr}: {unit.id} is satisfied — its own close, leaving it as it is")
+            if _closed_by_us(store.get(unit.id)):
+                log(f"closed #{pr}: {unit.id} is closed by the pipeline — leaving it as it is")
                 return True
             store.set_state(unit.id, CLOSED, cause=Cause.CLOSED)
     except BranchBusy as error:

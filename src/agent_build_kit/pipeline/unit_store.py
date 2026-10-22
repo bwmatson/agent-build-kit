@@ -54,6 +54,7 @@ from agent_build_kit.pipeline.units import (
     carried_pairs,
     direct_dependencies,
     history_stamp,
+    is_superseded,
     repointed,
     successors_of,
 )
@@ -718,8 +719,8 @@ class UnitStore:
 
         for unit in units:
             existing = stored.get(unit.id)
-            if existing and existing.state == UnitState.RETIRED:
-                # Ended by a person: no plan revives or reshapes it.
+            if existing and (existing.state == UnitState.RETIRED or is_superseded(existing)):
+                # Ended by a person, or replaced by its pieces: no plan revives or reshapes it.
                 continue
             # Only the planned shape: `StoredUnit` is a `Unit`, so a caller
             # may hand back what `all()` returned, and those extra fields
@@ -1250,6 +1251,13 @@ class UnitStore:
         if not pieces or (taken := [p.id for p in pieces if p.id in stored]):
             raise ValueError(f"cannot supersede {unit_id} by {taken if pieces else 'no pieces'}")
         last = pieces[-1].id
+        named = ", ".join(piece.id for piece in pieces)
+        reason = f"Replaced by smaller units: {named}."
+        if request := old.split_request:
+            reason = (
+                f"Replaced by smaller units: {named}. This unit changed {request.lines} lines, "
+                f"over the {request.ceiling}-line ceiling of its {request.earned} tier."
+            )
 
         stored.update(repointed(stored, unit_id, last))
         _repoint_references(stored, unit_id, last)
@@ -1264,6 +1272,7 @@ class UnitStore:
                 "state": UnitState.CLOSED,
                 "held_by": HeldBy.NONE,
                 "superseded_by": tuple(piece.id for piece in pieces),
+                "close_pending": ClosePending(pr=old.pr, reason=reason) if old.pr else None,
                 "history": (
                     *old.history,
                     _entry(old, UnitState.CLOSED, Cause.SUPERSEDED, "split into smaller units"),
