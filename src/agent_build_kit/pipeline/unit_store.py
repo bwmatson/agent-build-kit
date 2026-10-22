@@ -1245,6 +1245,10 @@ class UnitStore:
         """What a unit held for its size is to be split by, or none once it has been."""
         self._update(unit_id, split_request=request)
 
+    def set_split_rounds_used(self, unit_id: str, used: int) -> None:
+        """The split rounds the unit's lineage has used."""
+        self._update(unit_id, split_rounds_used=used)
+
     def set_size_waived(self, unit_id: str, waived: bool = True) -> None:
         """Record that a person let a unit held for its size go on; its size is not held again."""
         self._update(unit_id, size_waived=waived)
@@ -1275,6 +1279,7 @@ class UnitStore:
                 **piece.model_dump(include=set(Unit.model_fields) - {"superseded_by", "state"}),
                 state=PLANNED,
                 split_from=unit_id,
+                split_rounds_used=old.split_rounds_used,
             )
         stored.update(repointed(stored, unit_id, last))
         _repoint_references(stored, unit_id, last)

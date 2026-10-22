@@ -350,6 +350,7 @@ from agent_build_kit.pipeline.usage_guard import (
     threshold_at,
 )
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
+from agent_build_kit.pipeline.verdict import ReviewTier, SplitRequest
 from agent_build_kit.pipeline.verify import SplitHeld, Verification, VerifyRecord, verify_change
 from agent_build_kit.pipeline.vocabulary import (
     WaitReason,
@@ -1907,6 +1908,7 @@ def run_round(
         store=store,
         reported=refused_needs,
     )
+    _step("splitting units held for their size", split_held_units, inst, store)
     _step("promoting prerequisites", _promote, inst, store)
     _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
     _step("following predecessors", park_dependents, inst, store)
@@ -2525,7 +2527,64 @@ def _requeue_ended_wait(
 def split_held_units(inst: Installation, store: UnitStore) -> None:
     """Ask for a split of each unit held for its size, in priority order, and supersede it by the
     pieces; a round is recorded for each attempt that succeeds or fails, none for an outage."""
-    raise NotImplementedError
+    units = store.all()
+    held = [u for u in units if u.state == HELD and u.held_by == HeldBy.SIZE and u.split_request]
+    for unit in sorted(held, key=lambda u: (effective_priority(u, units), u.id)):
+        _split_one(inst, store, unit)
+
+
+def _split_one(inst: Installation, store: UnitStore, unit: StoredUnit) -> None:
+    """Hold `unit` for a person when its rounds are used, else ask for a split and supersede it."""
+    rounds = config.active().review.split_rounds
+    if unit.split_rounds_used >= rounds:
+        note = (
+            "too big for its tier, and `split_rounds` is 0, so it is not split"
+            if rounds == 0
+            else f"too big for its tier, and split {unit.split_rounds_used} of {rounds} rounds used"
+        )
+        store.set_state(
+            unit.id, HELD, note=note, held_by=HeldBy.REVIEW, cause=Cause.TOO_BIG_FOR_TIER
+        )
+        log(f"{unit.id}: {note}; held for a person")
+        return
+    stored = unit.split_request
+    assert stored is not None
+    request = SplitRequest(
+        earned=ReviewTier(stored.earned),
+        planned=ReviewTier(stored.planned) if stored.planned else None,
+        lines=stored.lines,
+        ceiling=stored.ceiling,
+        drivers=stored.drivers,
+    )
+    tasks = inst.changes_dir / unit.change / "tasks.md"
+    task_groups, errors = _validated(inst, tasks)
+    if errors:
+        log(f"not splitting {unit.id}: the tags of {unit.change} are broken")
+        return
+    units = store.all()
+    try:
+        plan = plan_round(
+            changes={unit.change: tasks.read_text()},
+            in_flight=_plan_context(units, unit.change),
+            groups=task_groups,
+            known={u.id for u in units},
+            split=request,
+            held=unit,
+        )
+        store.set_split_rounds_used(unit.id, unit.split_rounds_used + 1)
+        store.supersede(unit.id, plan.units)
+    except Exception as error:  # noqa: BLE001
+        if _plan_wait(inst, error, {}) is not None:
+            log(f"splitting {unit.id} is waiting for an outage, no round used — {error}")
+            return
+        used = unit.split_rounds_used + 1
+        store.set_split_rounds_used(unit.id, used)
+        log(
+            f"splitting {unit.id} failed ({used} of {rounds} rounds used) — "
+            f"{type(error).__name__}: {error}"
+        )
+        return
+    log(f"split {unit.id} into {', '.join(piece.id for piece in plan.units)}")
 
 
 def release_split_held(
@@ -4404,16 +4463,7 @@ def plan_all(
         # Once a round: the plan check, the prompt and the figures stored all use one set.
         units = store.all()
         landed = {MERGED, SATISFIED}
-        context = [
-            in_flight_item(u, units)
-            for u in units
-            if (u.state in _STARTED and (u.state not in landed or u.change == change))
-            or (u.state == PLANNED and u.change != change)
-            # Shown with what replaced it, so the planner knows its groups are carried.
-            or (u.state == UnitState.UNPLANNED and u.superseded_by and u.change == change)
-            # Shown so the planner leaves the id alone, though nothing is built on it.
-            or (u.state == UnitState.RETIRED and u.change == change)
-        ]
+        context = _plan_context(units, change)
         omitted = sum(1 for u in units if u.state in landed and u.change != change)
         ratios = calibrations(units)
         try:
@@ -4626,6 +4676,22 @@ def plan_all(
     if any(result.status == "planned" for result in results.values()):
         _promote(inst, store)
     return results
+
+
+def _plan_context(units: Sequence[StoredUnit], change: str) -> list[dict]:
+    """The units a plan of `change` is shown: those started, the planned ones of other changes,
+    the unplanned ones of the change with what replaced them and its retired ids."""
+    landed = {MERGED, SATISFIED}
+    return [
+        in_flight_item(u, units)
+        for u in units
+        if (u.state in _STARTED and (u.state not in landed or u.change == change))
+        or (u.state == PLANNED and u.change != change)
+        # Shown with what replaced it, so the planner knows its groups are carried.
+        or (u.state == UnitState.UNPLANNED and u.superseded_by and u.change == change)
+        # Shown so the planner leaves the id alone, though nothing is built on it.
+        or (u.state == UnitState.RETIRED and u.change == change)
+    ]
 
 
 def _promote(inst: Installation, store: UnitStore) -> None:

@@ -133,7 +133,11 @@
   it, `abk status` names its pieces, and a change archives once the pieces merge. A plan that
   splits a held unit is refused unless a driver group is alone at the earned tier, the rest are
   at the planned tier, the pieces hold its groups in order under the `-s<k>` ids and chain from
-  what it waited on, and no plan of any change may use a superseded unit's id.
+  what it waited on, and no plan of any change may use a superseded unit's id. Each tick, after
+  planning, asks for such a split of every unit held for its size, in priority order: a success
+  replaces the unit by its pieces, a refused plan or invalid reply uses one of the
+  `split_rounds` of its lineage and is tried again next tick, an outage uses none, and a unit
+  with no round left is held for a person.
 
 - `abk replan --dry-run` asks the planner and prints the units each change would get, with
   their groups, expected review tier and estimated lines against that tier's ceiling, and the
