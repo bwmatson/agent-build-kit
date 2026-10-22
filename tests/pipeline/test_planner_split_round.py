@@ -10,17 +10,9 @@ import pytest
 from agent_build_kit.pipeline.planner import GroupTooLarge, Plan, PlannerError, plan_round
 from agent_build_kit.pipeline.verdict import ReviewTier, SplitRequest
 from agent_build_kit.pipeline.work_graph import TaskGroup
-from tests.calibration_support import limits
 from tests.factories import stored_unit
-from tests.tier_ceiling_support import configure
+from tests.split_plan_support import ALL, TASKS, piece, use_per_tier_sizing
 
-TASKS = "".join(
-    f"## {n}. [app] [unit-test] Group {n}\n\n- [ ] {n}.1 Test: it.\n\n" for n in range(1, 6)
-)
-ALL = [
-    TaskGroup(number=n, repo="app", tier="unit-test", title=f"G{n}", line=3 + 6 * n, task_count=1)
-    for n in range(1, 6)
-]
 HELD = stored_unit("c/2", change="c", groups=(2, 3, 4))
 SPLIT = SplitRequest(
     earned=ReviewTier.FULL, planned=ReviewTier.AUTO, lines=900, ceiling=750, drivers=(3,)
@@ -29,22 +21,7 @@ SPLIT = SplitRequest(
 
 @pytest.fixture(autouse=True)
 def per_tier_sizing() -> None:
-    limits()
-    configure(enabled=True)
-
-
-def piece(label: str, groups: list[int], tier: str, lines: int, after: str = "") -> dict:
-    return {
-        "id": label,
-        "change": "c",
-        "title": f"Piece {label}",
-        "repo": "app",
-        "tier": "unit-test",
-        "depends_on": [after] if after else [],
-        "estimated_lines": lines,
-        "groups": groups,
-        "review_tier": tier,
-    }
+    use_per_tier_sizing()
 
 
 def planned(*pieces: dict, groups: list[TaskGroup] | None = None) -> Plan:
@@ -52,7 +29,6 @@ def planned(*pieces: dict, groups: list[TaskGroup] | None = None) -> Plan:
         changes={"c": TASKS},
         in_flight=[],
         groups=groups or ALL,
-        built={1, 5},
         split=SPLIT,
         held=HELD,
         run_claude=lambda _: json.dumps({"units": list(pieces)}),
@@ -62,8 +38,8 @@ def planned(*pieces: dict, groups: list[TaskGroup] | None = None) -> Plan:
 def correct() -> tuple[dict, ...]:
     return (
         piece("c/2-s1", [2], "auto", 200),
-        piece("c/2-s2", [3], "full", 300, after="c/2-s1"),
-        piece("c/2-s3", [4], "auto", 200, after="c/2-s2"),
+        piece("c/2-s2", [3], "full", 300, after=("c/2-s1",)),
+        piece("c/2-s3", [4], "auto", 200, after=("c/2-s2",)),
     )
 
 
@@ -75,7 +51,7 @@ def test_a_plan_of_the_held_units_groups_alone_is_accepted_with_the_rest_as_buil
 
 
 def test_a_plan_claiming_a_group_outside_the_held_unit_is_refused_as_built() -> None:
-    claiming_five = (*correct()[:2], piece("c/2-s3", [4, 5], "auto", 200, after="c/2-s2"))
+    claiming_five = (*correct()[:2], piece("c/2-s3", [4, 5], "auto", 200, after=("c/2-s2",)))
 
     with pytest.raises(PlannerError, match="group 5"):
         planned(*claiming_five)
@@ -85,14 +61,15 @@ def test_the_ceiling_is_the_ceiling_of_each_pieces_tier() -> None:
     # 3000 lines is fine for an auto piece and would be over the full ceiling.
     big_rest = (
         piece("c/2-s1", [2], "auto", 3000),
-        piece("c/2-s2", [3], "full", 300, after="c/2-s1"),
-        piece("c/2-s3", [4], "auto", 200, after="c/2-s2"),
+        piece("c/2-s2", [3], "full", 300, after=("c/2-s1",)),
+        piece("c/2-s3", [4], "auto", 200, after=("c/2-s2",)),
     )
     assert planned(*big_rest).units[0].estimated_lines == 3000
 
     with pytest.raises(PlannerError, match="750") as refused:
         planned(
-            piece("c/2-s1", [2, 3], "full", 800), piece("c/2-s2", [4], "auto", 200, after="c/2-s1")
+            piece("c/2-s1", [2, 3], "full", 800),
+            piece("c/2-s2", [4], "auto", 200, after=("c/2-s1",)),
         )
     assert not isinstance(refused.value, GroupTooLarge)
 
@@ -101,8 +78,8 @@ def test_a_single_driver_group_alone_over_the_earned_ceiling_is_too_large() -> N
     with pytest.raises(GroupTooLarge, match="750"):
         planned(
             piece("c/2-s1", [2], "auto", 200),
-            piece("c/2-s2", [3], "full", 800, after="c/2-s1"),
-            piece("c/2-s3", [4], "auto", 200, after="c/2-s2"),
+            piece("c/2-s2", [3], "full", 800, after=("c/2-s1",)),
+            piece("c/2-s3", [4], "auto", 200, after=("c/2-s2",)),
         )
 
 

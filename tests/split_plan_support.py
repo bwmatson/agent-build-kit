@@ -29,7 +29,9 @@ def use_per_tier_sizing() -> None:
     configure(enabled=True)
 
 
-def piece(label: str, groups: list[int], tier: str, lines: int, after: tuple[str, ...]) -> dict:
+def piece(
+    label: str, groups: list[int], tier: str, lines: int, after: tuple[str, ...] = ()
+) -> dict:
     return {
         "id": label,
         "change": "c",

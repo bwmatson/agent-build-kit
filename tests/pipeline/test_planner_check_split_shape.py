@@ -21,6 +21,8 @@ def test_the_correct_split_around_a_driver_is_accepted_and_out_of_order_is_refus
     plan = split_plan(*correct())
     assert [unit.groups for unit in plan.units] == [(1, 2), (3,), (4, 5)]
     assert [unit.review_tier for unit in plan.units] == ["auto", "full", "auto"]
+    assert [unit.id for unit in plan.units] == list(PIECES)
+    assert [unit.depends_on for unit in plan.units] == [("c/0",), (PIECES[0],), (PIECES[1],)]
 
     with pytest.raises(PlannerError, match="order"):
         split_plan(
@@ -91,3 +93,15 @@ def test_a_piece_depending_on_another_unit_of_the_change_is_refused() -> None:
 
     text = str(refused.value)
     assert THIRD in text and "c/9" in text, text
+
+
+def test_a_later_piece_depending_on_what_the_held_unit_depended_on_as_well_is_refused() -> None:
+    with pytest.raises(PlannerError) as refused:
+        split_plan(
+            piece(FIRST, [1, 2], "auto", 300, after=("c/0",)),
+            piece(SECOND, [3], "full", 300, after=(FIRST,)),
+            piece(THIRD, [4, 5], "auto", 300, after=(SECOND, "c/0")),
+        )
+
+    text = str(refused.value)
+    assert THIRD in text and "c/0" in text, text

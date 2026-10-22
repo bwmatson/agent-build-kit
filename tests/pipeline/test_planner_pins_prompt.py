@@ -66,3 +66,36 @@ def test_with_no_drivers_they_give_the_ceiling_and_ask_only_that_each_unit_come_
 
     assert "750" in block and "ceiling" in block and "under" in block
     assert "pin" not in block
+
+
+def test_non_adjacent_drivers_are_each_their_own_pin() -> None:
+    block = asked(
+        SplitRequest(
+            earned=ReviewTier.FULL, planned=ReviewTier.AUTO, lines=900, ceiling=750, drivers=(1, 3)
+        )
+    )
+
+    assert "contiguous" in block
+    assert "group 1;" in block and "group 3," in block
+
+
+def test_adjacent_drivers_are_pinned_together() -> None:
+    block = asked(
+        SplitRequest(
+            earned=ReviewTier.FULL, planned=ReviewTier.AUTO, lines=900, ceiling=750, drivers=(2, 3)
+        )
+    )
+
+    assert "groups 2 and 3" in block
+
+
+def test_a_middle_driver_leaves_the_groups_before_and_after_in_separate_units() -> None:
+    block = asked(DRIVEN)
+
+    assert "before and after" in block and "separate units" in block
+    assert "together" not in block
+
+
+def test_a_split_request_without_its_held_unit_is_refused() -> None:
+    with pytest.raises(ValueError, match="together"):
+        build_prompt({"c": TASKS}, [], groups=GROUPS, split=DRIVEN)
