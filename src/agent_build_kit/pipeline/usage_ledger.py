@@ -375,8 +375,24 @@ class SpendRow(Frozen):
 
 
 def spend_costs(records: list[UsageRecord]) -> list[SpendRow]:
-    """What each record spent, by cost, with or without a unit; see `SpendRow`."""
-    raise NotImplementedError
+    """What each record spent, by cost, with or without a unit, skipping one whose time does
+    not parse. A cost that is absent or negative counts zero."""
+    spent = []
+    for record in records:
+        try:
+            at = datetime.fromisoformat(record.at)
+        except ValueError:
+            continue
+        cost = record.cost.incremental_usd if record.cost else None
+        spent.append(
+            SpendRow(
+                at=at,
+                unit=record.unit,
+                node=record.node,
+                cost_usd=cost if cost is not None and cost > 0 else 0.0,
+            )
+        )
+    return spent
 
 
 def records_in(lines: list[str]) -> list[UsageRecord]:

@@ -12,7 +12,8 @@
 - The Claude limits take settings for estimating usage from recorded cost: per window
   `usage_estimate_basis` (`cost` or `units`, `cost` by default) and `usage_estimate_intercept`
   (on for the session, off for the week), and for both `usage_cost_min_pairs` (8) and
-  `usage_cost_quantile` (0.9). A bad value is refused naming the key.
+  `usage_cost_quantile` (0.9). A bad value is refused naming the key. The usage ledger can be
+  read as what each call spent, by cost, including calls that belong to no unit.
 
 - A test can carry its own time limit with `@pytest.mark.time_limit(<seconds>)`, in place of
   `--test-time-limit`, and the test that downloads vitest carries 180 seconds, so a slow npm
