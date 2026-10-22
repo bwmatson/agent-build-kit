@@ -1389,9 +1389,12 @@ def _no_reset() -> None:
 
 
 class FixResult(Frozen):
-    """What a fixer pass did: the files it changed, the protected files it left alone or put
-    back, and the reasons a command could not run."""
+    """What a fixer pass did: the files it was given, the ones it changed, the protected files
+    it left alone or put back, and the reasons a command could not run. `given` is empty when
+    no command ran or was attempted, which tells a pass over files that changed nothing from a
+    pass with nothing to do."""
 
+    given: tuple[str, ...] = ()
     changed: tuple[str, ...] = ()
     skipped: tuple[str, ...] = ()
     failed: tuple[str, ...] = ()

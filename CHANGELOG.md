@@ -20,7 +20,8 @@
   and auto-fixers (python-uv: the pre-commit hooks; node-npm: `oxfmt` then `oxlint --fix` over
   source files), and a repo can replace it with `repos.<name>.tests.fix_command` (`[]` turns it
   off). The runner's fixer pass is given only the unit's own changed and untracked files, per
-  project, skips and restores protected files, ignores exit status and makes at most two passes.
+  project, skips and restores protected files, ignores exit status and makes at most two passes. A build runs it before every commit it
+  makes, and its log says which files the fixers changed, or that they changed nothing.
 
 - The Claude limits take settings for estimating usage from recorded cost: per window
   `usage_estimate_basis` (`cost` or `units`, `cost` by default) and `usage_estimate_intercept`

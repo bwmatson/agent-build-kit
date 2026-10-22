@@ -1008,6 +1008,7 @@ def build_fixers(
             if is_protected(active(), repo_name, name)
         }
         present = {name for _, name in porcelain(cwd)}
+        given: dict[str, None] = {}
         changed: dict[str, None] = {}
         failed: list[str] = []
         for owner, relative in by_project(projects or [], names):
@@ -1024,6 +1025,7 @@ def build_fixers(
             if not command:
                 continue
             files = [f"{prefix}{name}" for name in relative]
+            given.update(dict.fromkeys(files))
             first = {name: _digest(cwd / name) for name in files}
             last = first
             for _ in range(FIXER_PASSES):
@@ -1052,7 +1054,12 @@ def build_fixers(
             if name not in present and is_protected(active(), repo_name, name):
                 (cwd / name).unlink(missing_ok=True)
                 skipped[name] = None
-        return FixResult(changed=tuple(changed), skipped=tuple(skipped), failed=tuple(failed))
+        return FixResult(
+            given=tuple(given),
+            changed=tuple(changed),
+            skipped=tuple(skipped),
+            failed=tuple(failed),
+        )
 
     return run_fixers
 

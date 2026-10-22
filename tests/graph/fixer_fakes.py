@@ -53,11 +53,12 @@ class Formatting(StubLoop):
         if (name := self.surprises.get(self.events[-1])) is not None:
             self.files[name] = UNFORMATTED
         self.events.append(FIXERS)
+        given = tuple(self.files)
         if not self.fixers_change:
-            return FixResult()
+            return FixResult(given=given)
         changed = tuple(name for name, text in self.files.items() if text != formatted(text))
         self.files = {name: formatted(text) for name, text in self.files.items()}
-        return FixResult(changed=changed)
+        return FixResult(given=given, changed=changed)
 
     def run_stub_checks(self, *, cwd: Path) -> tuple[bool, str]:
         self.formatted_at_check.append(self.clean())

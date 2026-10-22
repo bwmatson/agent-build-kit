@@ -46,6 +46,18 @@ def test_only_the_files_the_unit_changed_are_given_and_no_model_is_called_for_th
     assert len(subjects(repo)) == 6
 
 
+def test_fixers_given_files_that_they_leave_alone_log_one_changed_nothing_line_per_call(
+    tmp_path: Path,
+) -> None:
+    recorder, run, outcome, _ = built_with(tmp_path)
+
+    assert outcome.status == "open", outcome.detail
+    lines = [line for line in recorder.logged if "fixers " in line]
+    assert run.calls, "the fixers ran over the unit's files"
+    assert len(lines) == len(run.calls), lines
+    assert all("fixers changed nothing" in line for line in lines), lines
+
+
 def test_the_empty_fix_command_turns_the_fixers_off_and_the_build_is_as_before(
     tmp_path: Path,
 ) -> None:

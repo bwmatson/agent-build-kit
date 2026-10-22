@@ -1389,10 +1389,13 @@ class BuildPath:
 
     def apply_fixers(self) -> None:
         """Run the profile's fixers over the unit's own files, with no agent, and log what they
-        did; a tree with nothing to fix logs nothing."""
+        did; the files changed, or that they changed nothing when files were given. A pass given
+        no files logs nothing."""
         result = self.runner.run_fixers(cwd=self.tree())
         if result.changed:
             self.say(f"fixers changed {len(result.changed)} file(s): {', '.join(result.changed)}")
+        elif result.given:
+            self.say("fixers changed nothing")
         if result.skipped:
             self.say(f"fixers skipped protected: {', '.join(result.skipped)}")
         if result.failed:
