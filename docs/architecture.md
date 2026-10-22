@@ -455,7 +455,8 @@ release could move. The steps:
    stops. A group whose agents left nothing to commit, in a
    unit that has commits, is recorded once the whole-repository unit tests pass:
    an empty `test:`/`feat:` pair, each commit marked `Already-built: yes`, with
-   the agent's account in the `feat:` body. If those unit tests fail, nothing is
+   the agent's account in the `feat:` body (a test-only group has no `feat:`, so it
+   gets a lone empty `test:` commit marked `Already-built: yes` that holds the account). If those unit tests fail, nothing is
    recorded and the unit stops, so a forgotten implementation still stops the unit.
 
    **Test-only groups.** An `[e2e-test]` group is a test-only group. A stubbed build commits

@@ -3,24 +3,10 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+from tests.doc_text import ROOT, squashed, unreleased_bullets
+
 DOCS = ROOT / "docs"
-
-
-def squashed(text: str) -> str:
-    """The text on one line with the code ticks dropped, so a wrapped sentence matches."""
-    return " ".join(text.replace("`", "").split())
-
-
-def unreleased_bullets() -> list[str]:
-    """The squashed bullets between `## Unreleased` and the next `## ` heading."""
-    text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    start = text.index("## Unreleased")
-    end = text.find("\n## ", start + 1)
-    body = text[start : end if end != -1 else None]
-    return [squashed(b) for b in re.split(r"\n\s*\n", body) if b.lstrip().startswith("- ")]
 
 
 def says_empty_marked_pair_after_passing_tests(text: str) -> bool:
@@ -38,6 +24,9 @@ def test_the_architecture_document_says_a_group_with_nothing_to_commit_is_record
     paragraph = text[start : text.index("Test-only groups.", start)]
     assert says_empty_marked_pair_after_passing_tests(paragraph)
     assert re.search(r"feat: .{0,40}(body|commit).{0,120}account", paragraph, re.I)
+    assert re.search(
+        r"test-only.{0,200}(lone|single|one) empty .{0,20}test: commit", paragraph, re.I
+    )
     assert re.search(
         r"forgotten implementation.{0,200}stops|stops.{0,200}forgotten implementation",
         paragraph,
@@ -63,7 +52,11 @@ def test_the_unit_graph_implement_row_says_a_built_group_is_recorded() -> None:
 def test_the_unit_graph_stub_checks_row_says_a_test_only_group_already_built_is_recorded() -> None:
     text = (DOCS / "unit-graph.md").read_text(encoding="utf-8")
     row = next(line for line in text.splitlines() if line.startswith("| `stub_checks` |"))
-    assert re.search(r"test-only.{0,300}Already-built", squashed(row), re.I)
+    squashed_row = squashed(row)
+    assert re.search(
+        r"test-only.{0,300}empty .{0,20}test: commit.{0,100}Already-built", squashed_row, re.I
+    )
+    assert not re.search(r"test-only.{0,300}empty pair", squashed_row, re.I)
 
 
 def test_the_changelog_holds_one_bullet_for_the_recorded_built_group() -> None:
