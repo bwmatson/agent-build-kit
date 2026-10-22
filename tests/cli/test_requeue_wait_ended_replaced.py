@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline.unit_store import Cause
-from agent_build_kit.pipeline.units import FAILED, IN_REVIEW, UnitState
+from agent_build_kit.pipeline.units import FAILED, IN_REVIEW, MERGED, UnitState
 from tests.factories import new_unit
 from tests.wait_end_support import CHILD, Pipeline, pipeline
 
@@ -28,11 +28,11 @@ def failed_on_replaced(
     pipe.store.set_state(CHILD, FAILED, branch=f"spec/{CHILD}", cause=Cause.FAILED)
 
 
-def test_a_successor_in_review_requeues_the_unit_once_and_records_no_wait_ended(
+def test_a_merged_successor_requeues_the_unit_once_and_records_no_wait_ended(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pipe = pipeline(tmp_path, monkeypatch)
-    failed_on_replaced(pipe, IN_REVIEW)
+    failed_on_replaced(pipe, MERGED)
 
     pipe.passes(2)
 

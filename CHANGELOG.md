@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- `Needs: <change> group <n> merged — why` is now accepted by `abk tags` and `abk check` without a
+  deprecation warning, and each unit records which of its `Needs:` targets wait for a merge (the
+  `merged` word, or a group of another repository). A plain `Needs:` to a group of another
+  repository gets an info note saying it waits for the merge. Such a dependent, a dependent on
+  another repository and a failed unit waiting on a fix now start only once the parent has merged
+  and a later tick has the merge in the code it runs; the tick records its number, start time and
+  the kit checkout's head in `tick.json`, and a plain same-repo `Needs:` still starts on the
+  parent's branch once the parent is in review.
+
 - A task group can declare a step only a person can do with `Manual: <slug> — <what to do> —
   runbook: <path>#<heading>` and an optional `Check: <command>`, and a builder can register one
   with `abk manual raise <slug> --text … --check .abk/manual/<slug>.sh`. `abk tags` rejects a

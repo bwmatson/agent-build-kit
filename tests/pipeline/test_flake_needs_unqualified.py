@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.flakes import Flake, wait_on_fix
-from agent_build_kit.pipeline.work_graph import group_needs, merged_needs_warnings
+from agent_build_kit.pipeline.work_graph import group_needs
 from tests.factories import stored_unit
 
 TEST = "tests/test_widget.py::test_renders_the_label"
@@ -36,4 +36,3 @@ def test_the_needs_line_written_for_a_flake_does_not_say_merged(
     (need,) = group_needs(tasks)[1]
     assert (need.change, need.group, need.merged) == (fix, 1, False)
     assert TEST in need.reason
-    assert merged_needs_warnings(tasks) == []

@@ -145,10 +145,9 @@ def group_sections(tasks: str, groups: Iterable[int]) -> list[str]:
 # a group of *another* change has. The planner orders groups within a change;
 # across changes it only sees what is already in flight, and its answer is a
 # model's, so a dependency that must hold is written down and applied as code.
-# A single word `merged` straight after the group number is deprecated and means
-# nothing (the line is a plain dependency); it is recognised so it is not read into
-# the reason, and `merged_needs_warnings` reports it. Anywhere else the word is part
-# of the reason.
+# A single word `merged` straight after the group number makes the line wait for the
+# parent's merge; it is recognised so it is not read into the reason. Anywhere else the
+# word is part of the reason.
 NEEDS_LINE = re.compile(
     r"^Needs:\s*(?P<change>[a-z0-9][a-z0-9-]*)\s+group\s+(?P<group>\d+)\b"
     r"(?:\s+(?P<merged>merged)(?=\s|$))?\s*[—–-]*\s*(?P<reason>.*?)\s*$",
@@ -817,15 +816,27 @@ def merged_needs(path: Path) -> list[tuple[int, Need]]:
     ]
 
 
-def merged_needs_warnings(path: Path) -> list[str]:
-    """One warning per `Needs: ... merged` line of a tasks file, as `abk tags` and
-    `abk check` print it. A line on the change's own group is left to the error."""
+def cross_repo_needs_notes(
+    path: Path,
+    changes_dir: Path,
+    *,
+    repos: tuple[str, ...],
+    projects: Mapping[str, tuple[str, ...]],
+) -> list[str]:
+    """One info note per plain `Needs:` line of a tasks file naming a group of another
+    repository, which waits for the merge as a `merged` line does; `abk tags` and `abk check`
+    print them. A line on the change's own group is left to the error."""
+    groups, _ = validate_tasks(path, repos=repos, projects=projects)
+    own = {g.number: g.repo for g in groups}
     return [
-        f"{path}:line {need.line}: warning: group {group}: `Needs: ... merged` is "
-        "deprecated; the dependent now starts on the parent's branch once the "
-        "parent is in review"
-        for group, need in merged_needs(path)
-        if not names_own_change(need, path)
+        f"{path}:line {need.line}: info: group {group}: Needs: {need.change} group {need.group} "
+        "is in another repository, so it waits for the merge"
+        for group, found in group_needs(path).items()
+        for need in found
+        if not need.merged
+        and not names_own_change(need, path)
+        and (repo := _needed_repo(need, changes_dir, repos, projects))
+        and repo != own.get(group)
     ]
 
 

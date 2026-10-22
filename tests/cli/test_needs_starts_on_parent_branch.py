@@ -1,7 +1,8 @@
 """A `Needs:` line is only a dependency: the dependent starts on the parent's branch.
 
-Every scenario writes the line with the old word `merged` after the group number, which
-used to hold the dependent for the parent's merge and now means the same as without it.
+The scenarios that ask what a dependent waits for write a plain line: the word `merged`
+after the group number is a merge dependency (see the merge-need tests), so a plain line
+is the one that starts on the parent's branch.
 The lines go through `link_needs`, as every tick applies them, and the scheduling
 questions are asked of the units it leaves in the store.
 """
@@ -64,7 +65,7 @@ def link(run: Replan):
 def test_a_same_repo_parent_in_review_releases_the_dependent_onto_its_branch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run = needing(tmp_path, monkeypatch, "base group 1 merged", base=IN_REVIEW)
+    run = needing(tmp_path, monkeypatch, "base group 1", base=IN_REVIEW)
 
     dependent, graph = link(run)
 
@@ -77,7 +78,7 @@ def test_a_same_repo_parent_in_review_releases_the_dependent_onto_its_branch(
 def test_a_same_repo_parent_still_building_keeps_the_dependent_waiting(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, state: UnitState
 ) -> None:
-    run = needing(tmp_path, monkeypatch, "base group 1 merged", base=IN_REVIEW)
+    run = needing(tmp_path, monkeypatch, "base group 1", base=IN_REVIEW)
     run.store.set_state("base/1", state, branch="spec/base/1")
 
     dependent, graph = link(run)
@@ -91,7 +92,7 @@ def test_a_same_repo_parent_still_building_keeps_the_dependent_waiting(
 def test_a_parent_sent_back_for_rework_pauses_the_dependent_until_it_is_back_in_review(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run = needing(tmp_path, monkeypatch, "base group 1 merged", base=IN_REVIEW)
+    run = needing(tmp_path, monkeypatch, "base group 1", base=IN_REVIEW)
     run.store.set_state("base/1", PLANNED, pr=4)
     run.store.set_feedback("base/1", "use a Sequence")
 
@@ -111,8 +112,8 @@ def test_a_cross_repo_parent_still_has_to_merge_and_a_same_repo_one_in_review_do
     run = needing(
         tmp_path,
         monkeypatch,
-        "base group 1 merged",
-        "shared group 1 merged",
+        "base group 1",
+        "shared group 1",
         base=IN_REVIEW,
         shared=IN_REVIEW,
     )
@@ -142,7 +143,7 @@ def test_an_edit_that_changes_only_a_needs_line_asks_the_planner_nothing_and_app
     run.record("base")
     run.record("feature")
 
-    run.write("feature", tasks_md(1, needs={1: "base group 1 merged"}))
+    run.write("feature", tasks_md(1, needs={1: "base group 1"}))
     cli.plan_all(run.inst, store=run.store)
 
     assert run.calls == 0
@@ -155,7 +156,7 @@ def test_an_edit_that_changes_only_a_needs_line_asks_the_planner_nothing_and_app
 def test_a_stored_merge_gate_no_longer_holds_a_unit_whose_parent_is_in_review(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run = needing(tmp_path, monkeypatch, "base group 1 merged", base=IN_REVIEW)
+    run = needing(tmp_path, monkeypatch, "base group 1", base=IN_REVIEW)
     run.store.set_dependencies("feature/1", ("base/1",))
     # What an earlier version left in the store: the key is written beside the record.
     path = run.inst.state_dir / "units.json"
@@ -193,7 +194,7 @@ def warnings_in(capsys: pytest.CaptureFixture[str]) -> list[str]:
     return [line for line in (seen.out + seen.err).splitlines() if "deprecated" in line]
 
 
-def test_abk_tags_warns_once_per_merged_needs_line_and_still_succeeds(
+def test_abk_tags_does_not_warn_of_a_merged_needs_line(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run = Replan(tmp_path, monkeypatch, feature=tasks_md(1))
@@ -203,13 +204,10 @@ def test_abk_tags_warns_once_per_merged_needs_line_and_still_succeeds(
 
     warned = warnings_in(capsys)
     assert status == 0
-    assert len(warned) == 2
-    assert all("feature" in line and "merged" in line for line in warned)
-    assert "group 2" in warned[0]
-    assert "group 3" in warned[1]
+    assert warned == []
 
 
-def test_abk_check_warns_once_per_merged_needs_line_and_still_succeeds(
+def test_abk_check_does_not_warn_of_a_merged_needs_line(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run = Replan(tmp_path, monkeypatch, feature=tasks_md(1))
@@ -220,11 +218,10 @@ def test_abk_check_warns_once_per_merged_needs_line_and_still_succeeds(
 
     warned = warnings_in(capsys)
     assert status == 0
-    assert len(warned) == 2
-    assert all("feature" in line for line in warned)
+    assert warned == []
 
 
-def test_merged_on_the_changes_own_group_is_an_error_beside_the_warning_for_another(
+def test_merged_on_the_changes_own_group_is_an_error_and_another_is_not(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run = Replan(tmp_path, monkeypatch, feature=tasks_md(1))
@@ -242,4 +239,4 @@ def test_merged_on_the_changes_own_group_is_an_error_beside_the_warning_for_anot
     seen = capsys.readouterr()
     assert status == 1
     assert "own group" in seen.out + seen.err
-    assert len([line for line in (seen.out + seen.err).splitlines() if "deprecated" in line]) == 1
+    assert "deprecated" not in seen.out + seen.err

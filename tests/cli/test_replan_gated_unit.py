@@ -9,7 +9,7 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.unit_store import Cause, RequeueReason, UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED
+from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED
 from tests.factories import unit
 from tests.parked_split_support import Deliveries, installation, store_of
 
@@ -37,7 +37,7 @@ def store(inst: Installation) -> UnitStore:
     return store
 
 
-def test_a_gated_unit_still_waits_after_a_replan_and_is_delivered_once_the_parent_is_in_review(
+def test_a_gated_unit_still_waits_after_a_replan_and_is_delivered_once_the_parent_is_merged(
     inst: Installation, store: UnitStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     thread = Deliveries(monkeypatch)
@@ -51,6 +51,10 @@ def test_a_gated_unit_still_waits_after_a_replan_and_is_delivered_once_the_paren
     assert thread.delivered == [], "the parent is not in review"
 
     store.set_state(PARENT, IN_REVIEW, pr=3)
+    cli.release_gated(inst, store)
+    assert thread.delivered == [], "in review is not enough"
+
+    store.set_state(PARENT, MERGED, pr=3)
     cli.release_gated(inst, store)
     cli.release_gated(inst, store)
 

@@ -77,12 +77,14 @@ def test_a_failed_unit_whose_cross_repo_dependency_has_not_merged_does_not_count
 
 
 @pytest.mark.parametrize("merged", [False, True], ids=["in review", "merged"])
-def test_a_failed_unit_whose_predecessor_is_in_review_or_merged_counts(merged: bool) -> None:
+def test_a_failed_unit_counts_once_its_predecessor_is_merged_and_not_while_in_review(
+    merged: bool,
+) -> None:
     ahead = new("base/1", state=MERGED, pr=1) if merged else review("base/1")
     graph = [ahead, waiter()]
 
-    assert not failed_waiting(graph[1], graph)
-    assert in_progress(graph[1], graph)
+    assert failed_waiting(graph[1], graph) is not merged
+    assert in_progress(graph[1], graph) is merged
 
 
 def test_a_failed_unit_with_no_dependency_counts() -> None:
@@ -114,11 +116,12 @@ def test_the_room_rises_for_every_waiting_failed_unit() -> None:
 # --- 1.2 the wait ends -------------------------------------------------------------
 
 
-def test_a_failed_unit_counts_again_still_failed_once_the_prerequisite_is_reviewed() -> None:
+def test_a_failed_unit_counts_again_still_failed_once_the_prerequisite_is_merged() -> None:
     unit = waiter()
     assert not in_progress(unit, [new("base/1", state=RUNNING), unit])
 
-    reviewed = [review("base/1"), unit]
+    assert failed_waiting(unit, [review("base/1"), unit])
+    reviewed = [new("base/1", state=MERGED, pr=1), unit]
 
     assert in_progress(unit, reviewed)
     assert not failed_waiting(unit, reviewed)
@@ -164,7 +167,7 @@ def test_when_the_wait_ends_work_in_progress_proceeds_over_the_limit_and_nothing
     assert not in_progress(graph[2], graph)
     assert "n/1" in chosen(graph, limit=6)
 
-    ended = [graph[0], review("base/1", pr=2), *graph[2:]]
+    ended = [graph[0], new("base/1", state=MERGED, pr=2), *graph[2:]]
 
     started = chosen(ended, limit=3)
     assert in_progress(ended[2], ended)
@@ -191,7 +194,9 @@ def test_a_planned_unit_no_longer_blocked_stays_planned_until_the_count_is_below
     ]
     assert chosen(graph, limit=4) == ["back/1"]
 
-    ended = [*graph[:3], review("q/1", pr=2), graph[4]]
+    # The merge frees the place q held; another unit in review fills it, so the count is the
+    # one the wait ending alone brought (q in review used to stand there).
+    ended = [*graph[:3], new("q/1", state=MERGED, pr=2), review("other/1", pr=7), graph[4]]
 
     assert chosen(ended, limit=4) == []
     assert chosen(ended, limit=5) == ["back/1"]
