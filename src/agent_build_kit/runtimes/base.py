@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.transcript import TranscriptEvent
+from agent_build_kit.sandboxes import SandboxPolicy
 from agent_build_kit.usage import Context, Usage, UsageSource
 
 if TYPE_CHECKING:
@@ -100,6 +101,8 @@ class ToolPolicy(Frozen):
     # the review policy a person owns.
     fenced_files: tuple[Path, ...] = ()
     scoped: bool = True  # False: only commit and push are refused, nothing of the unit's rules
+    # What the kernel confines the process to; None leaves the process unconfined.
+    sandbox: SandboxPolicy | None = None
 
 
 class PermissionChoice(Frozen):
