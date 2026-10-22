@@ -13,7 +13,7 @@ import pytest
 from agent_build_kit.cli import main
 from agent_build_kit.config import dump
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import PLANNED, ManualStep
+from agent_build_kit.pipeline.units import MERGED, PLANNED, ManualStep, UnitState
 from tests.conftest import make_installation
 from tests.factories import unit
 
@@ -105,3 +105,17 @@ def test_with_nothing_outstanding_the_list_says_so(
 
     assert "no manual steps outstanding" in out.lower()
     assert "finished" not in out
+
+
+def test_a_unit_the_tick_no_longer_checks_has_no_outstanding_step(
+    listing: Listing, capsys: pytest.CaptureFixture[str]
+) -> None:
+    listing.waiting("feature/1", step("dropped"))
+    listing.store.set_state("feature/1", UnitState.UNPLANNED)
+    listing.waiting("feature/2", step("landed"))
+    listing.store.set_state("feature/2", MERGED)
+
+    out = listing.run(capsys)
+
+    assert "no manual steps outstanding" in out.lower()
+    assert "dropped" not in out and "landed" not in out
