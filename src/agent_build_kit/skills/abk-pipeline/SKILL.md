@@ -385,8 +385,16 @@ cannot do, and what a person does about it:
   the result, or reword the task so it needs none.
 - It cannot write a sensitive file the agent harness refuses to let it edit (a
   hook configuration, for instance): make that edit by hand on the branch.
+- It cannot do a step only a person can do: it raises one with `abk manual raise`, and the unit
+  waits until the check passes.
 - It cannot run `uv lock` where the agent's tool list lacks it: run it by hand
   and push the lock file.
+
+## Waiting for a manual step
+
+`waiting for manual step <slug>: <last line> (runbook: <path>)` in `abk status` means the unit
+stopped on a step only a person can do. Each tick runs its check; when it exits 0 the unit
+resumes. `abk manual list` shows every outstanding step with its runbook and last check output.
 
 ## When nothing is moving
 

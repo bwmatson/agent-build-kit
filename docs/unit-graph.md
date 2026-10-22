@@ -671,6 +671,13 @@ e2e-test, review or rework from saved feedback. Known limitation: a unit started
 has no e2e-test snapshot in its run state, so the pull request it opens lacks the e2e-test result
 section.
 
+## Manual steps
+
+Declare a `Manual: <slug> — <what to do> — runbook: <path>#<heading>` line, with an optional
+`Check: <command>`, for any step only a person can do. The runbook is prose for people, one
+document per change with the step slugs as headings; the unit waits (`waiting for manual step`)
+until the tick's check exits 0. `abk manual list` shows what is outstanding.
+
 ## Held e2e-test splits
 
 A repo can hold one of its e2e-test splits for a reason (the hold, with its reason and until when, is

@@ -107,6 +107,13 @@ group which files and paths its tasks touch (a migration, CI or deploy config, a
 contract) so the expected tier can be estimated. A group need not be split to dodge a size ceiling: the
 planner combines and separates groups itself, and a group over its unit's ceiling is reported for a person to split.
 
+## `Manual:` lines
+
+Declare `Manual: <slug> — <what to do> — runbook: <path>#<heading>`, with an optional
+`Check: <command>`, for any step only a person can do. Give it a runbook entry (the slug as a
+heading); `abk tags` warns when the file or heading is missing. The unit waits until the check
+exits 0.
+
 ## `Needs:` lines
 
 A group that cannot pass until a group of *another* change has landed says

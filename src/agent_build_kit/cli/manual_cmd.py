@@ -16,9 +16,10 @@ from pathlib import Path
 from agent_build_kit.cli.install_config import Refused, worktree_root
 from agent_build_kit.cli.pipeline import evaluate_manual_waits, store_for
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.manual_steps import MANUAL_FOLDER
+from agent_build_kit.pipeline.manual_steps import MANUAL_FOLDER, unmet_steps
 from agent_build_kit.pipeline.shell import git
-from agent_build_kit.pipeline.units import ManualStep
+from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.units import BUILDS_NOTHING, FINISHED_STATES, ManualStep
 
 
 def _unit_id(worktree: Path, prefix: str) -> str:
@@ -92,6 +93,34 @@ def cmd_manual_check(args: argparse.Namespace, inst: Installation) -> int:
     return 0
 
 
+def _outstanding(unit: StoredUnit) -> list[ManualStep]:
+    """The unmet steps of a unit the tick still checks; a unit that builds nothing or has
+    finished waits on none."""
+    if unit.state in (*BUILDS_NOTHING, *FINISHED_STATES):
+        return []
+    return unmet_steps(unit)
+
+
+def cmd_manual_list(args: argparse.Namespace, inst: Installation) -> int:
+    """List the steps a person has to do, or with `--done` the finished ones too."""
+    rows = [
+        (unit, step)
+        for unit in store_for(inst).all()
+        for step in (unit.manual_steps if args.done else _outstanding(unit))
+    ]
+    if not rows:
+        print("no manual steps outstanding")
+        return 0
+    for unit, step in rows:
+        print(f"{unit.id}  {step.slug}{'  (done)' if step.done else ''}: {step.text}")
+        if step.runbook:
+            print(f"  runbook: {step.runbook}")
+        if step.outcome:
+            when = f" at {step.checked_at.isoformat()}" if step.checked_at else ""
+            print(f"  last check{when}: {step.outcome}: {step.last_line}")
+    return 0
+
+
 def register(sub: argparse._SubParsersAction) -> None:
     parser = sub.add_parser("manual", help="steps only a person can do, checked by the tick")
     actions = parser.add_subparsers(dest="manual_command", required=True)
@@ -103,3 +132,6 @@ def register(sub: argparse._SubParsersAction) -> None:
     checked = actions.add_parser("check", help="run the checks of the outstanding steps now")
     checked.add_argument("slug", nargs="?", default="", help="only the step with this name")
     checked.set_defaults(func=cmd_manual_check)
+    listed = actions.add_parser("list", help="list the steps a person has to do")
+    listed.add_argument("--done", action="store_true", help="include the finished steps")
+    listed.set_defaults(func=cmd_manual_list)
