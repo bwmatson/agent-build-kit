@@ -1404,8 +1404,8 @@ def _needs_planning(inst: Installation, store: UnitStore) -> bool:
     planned = planned_hashes(inst)
     now = spans.clock.now()
     for tasks in inst.tasks_files():
-        digest = plan_digest(tasks)
         record = planned.get(tasks.parent.name) or {}
+        digest = plan_digest(tasks, record.get("hash"))
         if _plan_is_current(record, digest, inst.max_plan_attempts):
             continue
         if record.get("hash") == digest and _plan_waiting(record, now):
@@ -3889,8 +3889,8 @@ def plan_all(
         if network_down:
             results[change] = PlanResult(status="skipped")
             continue
-        digest = plan_digest(tasks)
         record = {} if force else planned.get(change) or {}
+        digest = plan_digest(tasks, record.get("hash"))
 
         # Attempts are counted against the content, not the change, so editing
         # tasks.md — which is the actual fix — starts them over.
@@ -4255,9 +4255,16 @@ def specification(tasks: Path) -> str:
     return specification_text(tasks.read_text())
 
 
-def plan_digest(tasks: Path) -> str:
-    """The hash a change's plan record keeps: a re-plan happens when this one moves."""
-    return hashlib.sha256(specification(tasks).encode()).hexdigest()
+def plan_digest(tasks: Path, recorded: str | None = None) -> str:
+    """The hash a change's plan record keeps: a re-plan happens when this one moves.
+
+    It ignores the spelling of the test-kind tags. `recorded` is the hash the plan record holds:
+    when it is the hash of this text in the earlier spelling, it is returned, so a plan made
+    before the rename counts as current for the same text after `abk tags --fix`."""
+    text = tasks.read_text()
+    current = hashlib.sha256(specification_text(text).encode()).hexdigest()
+    earlier = hashlib.sha256(specification_text(text, old_tags=True).encode()).hexdigest()
+    return recorded if recorded is not None and recorded == earlier else current
 
 
 # Units that still need a tick: being built, waiting to be, or open for review
@@ -4296,7 +4303,7 @@ def has_work(inst: Installation, store: UnitStore) -> bool:
     planned = planned_hashes(inst)
     for tasks in inst.tasks_files():
         record = planned.get(tasks.parent.name) or {}
-        digest = plan_digest(tasks)
+        digest = plan_digest(tasks, record.get("hash"))
         if record.get("hash") != digest or not record.get("ok"):
             return True
     return False

@@ -11,7 +11,8 @@
 - `abk tags --fix [CHANGE | --all]` rewrites the old test-kind tags in the group headings of open
   changes to `[unit-test]` and `[e2e-test]`, touching no other byte of `tasks.md`. A change it
   cannot be sure of is refused with the reason and left as it was; `--dry-run` shows what it
-  would do.
+  would do. A rewritten `tasks.md` is not an edit: the plan digest ignores the tag's spelling, so
+  no plan goes stale and nothing is replanned.
 
 - A unit built group by group whose branch holds no commit of its own is now satisfied once the
   unit tests pass, as a unit built in one piece is, instead of stopping for a missing tests and
