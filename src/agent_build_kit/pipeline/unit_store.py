@@ -1340,9 +1340,25 @@ class UnitStore:
 
 def _with_raised_steps(unit: Unit, existing: StoredUnit | None) -> tuple[ManualStep, ...]:
     """The plan's declared steps, then the steps raised on the unit (no `Manual:` line, so
-    `line` is 0) that the plan does not name, one per slug."""
-    steps = {step.slug: step for step in unit.manual_steps}
-    for step in existing.manual_steps if existing else ():
+    `line` is 0) that the plan does not name, one per slug. A declared step the unit already
+    held keeps its recorded result, so a step marked done stays done across a replan."""
+    held = {step.slug: step for step in existing.manual_steps} if existing else {}
+    steps = {
+        step.slug: (
+            step.model_copy(
+                update={
+                    "done": held[step.slug].done,
+                    "outcome": held[step.slug].outcome,
+                    "last_line": held[step.slug].last_line,
+                    "checked_at": held[step.slug].checked_at,
+                }
+            )
+            if step.slug in held
+            else step
+        )
+        for step in unit.manual_steps
+    }
+    for step in held.values():
         if step.line == 0:
             steps.setdefault(step.slug, step)
     return tuple(steps.values())
