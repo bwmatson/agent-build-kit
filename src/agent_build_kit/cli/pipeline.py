@@ -147,6 +147,7 @@ from agent_build_kit.pipeline.pause import (
     pause_in_force,
     pause_line,
     pause_until,
+    record_pause,
 )
 from agent_build_kit.pipeline.planner import (
     GroupTooLarge,
@@ -6181,7 +6182,7 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
             if (
                 change not in selected
                 and not record.get("ok")
-                and _plan_rests(record, plan_digest(path), max_attempts, now)
+                and _plan_rests(record, plan_digest(path, record.get("hash")), max_attempts, now)
             ):
                 shown = _plan_state(record, max_attempts, change in standing)
                 print(f"{change}: skipped — {shown}")
@@ -6394,9 +6395,9 @@ def apply_planned(inst: Installation, store: UnitStore, outcome: ReplanOutcome) 
     if outcome.scratch is None:
         raise ValueError("the outcome was not planned apart")
     # The outage was met in the copy, whose state directory goes with it: the pause is the
-    # real one's to stand, and `pause_until` keeps one that already does.
+    # real one's to stand, and `record_pause` keeps one that already does.
     if pause := is_paused(outcome.scratch / PAUSE_MARKER):
-        pause_until(pause.until, reason=pause.reason, marker=_paused_marker(inst), kind=pause.kind)
+        record_pause(pause, marker=_paused_marker(inst))
 
     def record_plan_records() -> None:
         update_plans(

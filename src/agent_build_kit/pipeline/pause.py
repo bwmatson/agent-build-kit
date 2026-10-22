@@ -120,7 +120,15 @@ def pause_until(
     rate-limit pause is never shortened — not by another, and not by a usage
     pause, since the usage endpoint can show room the model has just refused.
     """
-    deadline = resume_deadline(until)
+    return record_pause(
+        Pause(until=resume_deadline(until), reason=reason, kind=kind), marker=marker
+    )
+
+
+def record_pause(pause: Pause, *, marker: Path) -> Pause:
+    """Record a pause whose deadline is already worked out, with no grace added again: the
+    rules of `pause_until` hold, and it is what `pause_until` records through."""
+    deadline, reason, kind = pause.until, pause.reason, pause.kind
 
     # Read, compared and written under one lock: builds record pauses from
     # threads, and a round clearing one must not interleave with them.

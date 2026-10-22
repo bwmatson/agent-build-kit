@@ -9,7 +9,8 @@ import pytest
 
 from agent_build_kit.runtimes import AgentRequest
 from tests.cli.plan_outage_fakes import raises, service
-from tests.cli.replan_driver import Replan, answer, enable_review, planned
+from tests.cli.replan_driver import Replan, answer, enable_review, planned, tagged_md
+from tests.cli.tags_fix_support import OLD_UNIT_TEST_TAG, recorded_before_the_tag_was_renamed
 from tests.fake_clock import install
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
@@ -158,3 +159,51 @@ def test_a_change_that_gave_up_on_text_since_edited_is_planned(
     assert code == 0
     assert planned_changes(run) == {"alpha"}
     assert "skipped" not in out
+
+
+def test_a_plan_recorded_before_the_tag_was_renamed_that_gave_up_is_skipped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    text = tagged_md(OLD_UNIT_TEST_TAG)
+    run = Replan(tmp_path, monkeypatch, alpha=text)
+    enable_review(run)
+    run.record(
+        "alpha",
+        hash=recorded_before_the_tag_was_renamed(text),
+        sizing=OLD_SIZING,
+        ok=False,
+        attempts=run.inst.max_plan_attempts,
+        reason="the graph call failed",
+    )
+
+    code, out = run.run(capsys, "--stale")
+
+    assert code == 0
+    assert run.calls == 0
+    line = line_with(out, "alpha", "skipped")
+    assert "given up" in line and "--failed" in line
+    assert planned_changes(run) == set()
+
+
+def test_limit_with_names_keeps_the_first_of_them_by_urgency_and_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = stale_run(tmp_path, monkeypatch, {"alpha": None, "bravo": None})
+
+    code, out = run.run(capsys, "bravo", "alpha", "--limit", "1")
+
+    assert code == 0
+    assert planned_changes(run) == {"alpha"}
+    assert "not yet planned" in line_with(out, "bravo")
+
+
+def test_a_limit_below_one_is_a_usage_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = stale_run(tmp_path, monkeypatch, {"alpha": None})
+
+    code, out = run.run(capsys, "alpha", "--limit", "0")
+
+    assert code == 2
+    assert "--limit must be at least 1" in out
+    assert run.calls == 0

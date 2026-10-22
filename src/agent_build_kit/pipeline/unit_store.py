@@ -878,7 +878,8 @@ class UnitStore:
         for a plan made apart from the store, from a copy taken as `before`. When any of those
         units is no longer as `before` has it in the store (changed, or added, since), nothing
         is written and their ids are returned. `also` is called after the write, with the
-        store still locked, so a record kept beside the units changes with them."""
+        store still locked, so a record kept beside the units changes with them. `on_write` fires
+        only when units are written: a plan that changed none has nothing for it to see."""
         stored = self._read()
         # A unit `after` lacks was removed by the planning (joined onto another): it goes too.
         removed = [uid for uid in before if uid not in after]
