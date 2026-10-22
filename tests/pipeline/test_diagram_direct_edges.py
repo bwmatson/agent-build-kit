@@ -11,7 +11,7 @@ from agent_build_kit.pipeline.units import direct_dependencies
 from tests.factories import stored_unit as unit
 
 RECORDED = Path(__file__).parent.parent / "fixtures" / "stores" / "recorded_units.json"
-EDGE = re.compile(r"^\s+(\w+) (?:-->|-\.->|==>\|needs\|) (\w+)$", re.MULTILINE)
+EDGE = re.compile(r"^\s+(\w+) (?:-->|-\.->\|merge\||==>\|needs(?:, merge)?\|) (\w+)$", re.MULTILINE)
 
 
 def node(unit_id: str) -> str:
@@ -71,9 +71,9 @@ def test_a_cross_repo_direct_edge_is_dashed_and_the_redundant_one_is_not_drawn()
         ]
     )
 
-    assert "p_1 -.-> a_1" in diagram
+    assert "p_1 -.->|merge| a_1" in diagram
     assert "a_1 --> a_2" in diagram
-    assert "p_1 -.-> a_2" not in diagram
+    assert "p_1 -.->|merge| a_2" not in diagram
 
 
 def test_the_legend_says_a_needs_the_chain_implies_draws_no_edge_and_keeps_the_rest() -> None:

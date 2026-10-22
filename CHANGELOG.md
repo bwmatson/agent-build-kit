@@ -13,7 +13,9 @@
   loaded, and its history says which tick loaded it. `abk status` and the log word each such wait
   as waiting for the merge, for the next tick to load it, or for the kit checkout to include it,
   followed by why the edge is a merge edge. The first round of a tick names each unfinished
-  dependent that now waits for an unmerged parent.
+  dependent that now waits for an unmerged parent. The unit graph draws a merge dependency as a
+  thick edge labelled `needs, merge` and a cross-repository dependency that is no `Needs:` line
+  as a dashed edge labelled `merge`, and a waiting node carries the same wait wording.
 
 - A task group can declare a step only a person can do with `Manual: <slug> — <what to do> —
   runbook: <path>#<heading>` and an optional `Check: <command>`, and a builder can register one

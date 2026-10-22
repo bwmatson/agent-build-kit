@@ -7,7 +7,11 @@ from tests.factories import new_unit
 
 
 def edges(diagram: str) -> list[str]:
-    return [line.strip() for line in diagram.splitlines() if "->" in line]
+    return [
+        line.strip()
+        for line in diagram.splitlines()
+        if any(a in line for a in ("-->", "==>", "-.->"))
+    ]
 
 
 def test_a_plain_and_a_merge_needs_are_two_kinds_of_thick_edge() -> None:

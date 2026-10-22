@@ -29,6 +29,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit import forges
+from agent_build_kit.config import active
 from agent_build_kit.pipeline.unit_store import StoredUnit, backoff_ends, waiting_for
 from agent_build_kit.pipeline.units import (
     HELD,
@@ -37,7 +38,9 @@ from agent_build_kit.pipeline.units import (
     PLANNED,
     RUNNING,
     SATISFIED,
+    dependency_wait,
     failed_waiting,
+    merge_parents,
     priority_note,
     second_parent_wait,
     shown_dependencies,
@@ -121,6 +124,7 @@ def render_mermaid(
     index = {unit.id: unit for unit in units}
     ordered = sorted(units, key=lambda unit: (unit.repo, unit.project, unit.id))
 
+    repos = active().repos
     lines = ["flowchart LR"]
 
     if not units:
@@ -147,6 +151,8 @@ def render_mermaid(
             if failed_waiting(unit, graph):
                 waits = ", ".join(parent.id for parent in shown_waits(unit, graph))
                 name = f"{name}, waiting on {waits}"
+            elif merging := merge_parents(unit, waits := shown_waits(unit, graph), graph, repos):
+                name = f"{name}, {dependency_wait(waits, merging=merging)}"
             if wait := second_parent_wait(unit, graph):
                 name = f"{name}, {wait}"
             head = f"{unit.id}<br/>{unit.title}<br/>{_carried(unit)}"
@@ -164,12 +170,17 @@ def render_mermaid(
             parent = index.get(dependency)
             if parent is None:
                 continue
-            if dependency in unit.needs:
+            if dependency in unit.merge_needs:
+                # Thick, and a merge: the `Needs:` line waits for the parent's merge.
+                arrow = "==>|needs, merge|"
+            elif dependency in unit.needs:
                 # Thick: the dependency was written as a `Needs:` line, not inferred.
                 arrow = "==>|needs|"
+            elif parent.repo == unit.repo:
+                arrow = "-->"
             else:
                 # Dashed across repos: that edge cannot be stacked, only waited on.
-                arrow = "-->" if parent.repo == unit.repo else "-.->"
+                arrow = "-.->|merge|"
             lines.append(f"    {_node_id(dependency)} {arrow} {_node_id(unit.id)}")
 
     for state, style in STATES.items():
@@ -254,7 +265,9 @@ view, titled with the project's path (`.` for the root).
   loop, so there is a reviewed branch to stack on. A thick edge labelled
   `needs` (`==>`) is a dependency its dependent wrote as a `Needs:` line, not
   one the planner inferred; it releases the dependent once the parent is in
-  review (same repo) or merged (other repo). A `Needs:` line the chain already
+  review (same repo) or merged (other repo). An edge labelled `needs, merge` is a `Needs:` line
+  that waits for the parent's merge and the next tick; a dashed edge labelled `merge` is a
+  cross-repo dependency no `Needs:` line wrote. A `Needs:` line the chain already
   implies draws no edge, and nor does a dependency another one reaches. An edge to a unit a replan
   replaced is drawn from the unit that carries its groups now.{gate_legend}
 - **running** — in the build/review loop: an agent is working in a worktree,
