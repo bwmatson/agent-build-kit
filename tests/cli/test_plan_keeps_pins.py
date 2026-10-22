@@ -32,20 +32,20 @@ def tiered(uid: str, groups: tuple[int, ...], tier: str, after: tuple[str, ...] 
 def regrouped() -> str:
     """A plan that puts the pinned group 3 beside group 2."""
     return answer(
-        tiered("feature/1", (1,), "auto", ("base/1",)),
-        tiered("feature/2", (2, 3), "full", ("feature/1",)),
-        tiered("feature/4", (4, 5), "auto", ("feature/2",)),
-        tiered("feature/6", (6,), "auto", ("feature/4",)),
+        tiered("feature/11", (1,), "auto", ("base/1",)),
+        tiered("feature/12", (2, 3), "full", ("feature/11",)),
+        tiered("feature/14", (4, 5), "auto", ("feature/12",)),
+        tiered("feature/16", (6,), "auto", ("feature/14",)),
     )
 
 
 def kept() -> str:
     """A plan that keeps the pinned group 3 in a unit of its own at the earned tier."""
     return answer(
-        tiered("feature/1", (1, 2), "auto", ("base/1",)),
-        tiered("feature/3", (3,), "full", ("feature/1",)),
-        tiered("feature/4", (4, 5), "auto", ("feature/3",)),
-        tiered("feature/6", (6,), "auto", ("feature/4",)),
+        tiered("feature/11", (1, 2), "auto", ("base/1",)),
+        tiered("feature/13", (3,), "full", ("feature/11",)),
+        tiered("feature/14", (4, 5), "auto", ("feature/13",)),
+        tiered("feature/16", (6,), "auto", ("feature/14",)),
     )
 
 
@@ -98,7 +98,7 @@ def test_pieces_that_have_started_are_given_no_pins(tmp_path, monkeypatch) -> No
     for number, uid in enumerate(PIECES, start=1):
         run.store.set_state(uid, IN_REVIEW, branch=f"spec/{uid}", pr=20 + number)
     run.runtime.requests.clear()
-    run.runtime.answer = answer(tiered("feature/6", (6,), "auto", (PIECES[-1],)))
+    run.runtime.answer = answer(tiered("feature/16", (6,), "auto", (PIECES[-1],)))
 
     result = cli.plan_all(run.inst, store=run.store, force=True)[CHANGE]
 

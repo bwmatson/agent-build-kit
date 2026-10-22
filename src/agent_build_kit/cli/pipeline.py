@@ -38,7 +38,7 @@ from collections.abc import (
     Sequence,
 )
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
-from contextlib import AbstractContextManager, ExitStack, contextmanager
+from contextlib import AbstractContextManager, ExitStack, contextmanager, nullcontext
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
@@ -157,6 +157,7 @@ from agent_build_kit.pipeline.pause import (
 )
 from agent_build_kit.pipeline.planner import (
     GroupTooLarge,
+    Pin,
     PlannerError,
     check_flagged_groups,
     in_flight_item,
@@ -248,6 +249,7 @@ from agent_build_kit.pipeline.unit_store import (
     HeldBy,
     RequeueReason,
     ReworkKind,
+    StoredSplitRequest,
     StoredUnit,
     UnitStore,
     awaits_release,
@@ -1525,6 +1527,16 @@ def _release_network_waits(inst: Installation) -> None:
 def _needs_planning(inst: Installation, store: UnitStore) -> bool:
     """Whether some change would be planned now: planning is a model call, so a round that
     has some to do is one the usage guard has to be asked about."""
+    # A unit held for its size with a round left is split by a planning call.
+    rounds = config.active().review.split_rounds
+    if any(
+        u.state == HELD
+        and u.held_by == HeldBy.SIZE
+        and u.split_request
+        and u.split_rounds_used < rounds
+        for u in store.all()
+    ):
+        return True
     planned = planned_hashes(inst)
     now = spans.clock.now()
     for tasks in inst.tasks_files():
@@ -1908,7 +1920,9 @@ def run_round(
         store=store,
         reported=refused_needs,
     )
-    _step("splitting units held for their size", split_held_units, inst, store)
+    # A split is a planning call too: not while the guard refuses planning.
+    if admitted and None not in model_refused:
+        _step("splitting units held for their size", split_held_units, inst, store)
     _step("promoting prerequisites", _promote, inst, store)
     _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
     _step("following predecessors", park_dependents, inst, store)
@@ -2533,35 +2547,103 @@ def split_held_units(inst: Installation, store: UnitStore) -> None:
         _split_one(inst, store, unit)
 
 
-def _split_one(inst: Installation, store: UnitStore, unit: StoredUnit) -> None:
-    """Hold `unit` for a person when its rounds are used, else ask for a split and supersede it."""
-    rounds = config.active().review.split_rounds
-    if unit.split_rounds_used >= rounds:
-        note = (
-            "too big for its tier, and `split_rounds` is 0, so it is not split"
-            if rounds == 0
-            else f"too big for its tier, and split {unit.split_rounds_used} of {rounds} rounds used"
+def _hold_for_a_person(store: UnitStore, unit: StoredUnit, note: str) -> None:
+    """Hold a unit that was held for its size for a person, with the reason."""
+    store.set_state(unit.id, HELD, note=note, held_by=HeldBy.REVIEW, cause=Cause.TOO_BIG_FOR_TIER)
+    log(f"{unit.id}: {note}; held for a person")
+
+
+def _cannot_split(unit: StoredUnit, units: Sequence[StoredUnit]) -> str:
+    """Why a unit held for its size cannot be split, or an empty string when it can."""
+    if len(unit.groups) <= 1:
+        return "too big for its tier, and it holds one group, which cannot be split"
+    if any(member.change != unit.change for member in unit.joined):
+        return (
+            "too big for its tier, and it carries groups of another change, "
+            "which a plan of one change cannot split"
         )
-        store.set_state(
-            unit.id, HELD, note=note, held_by=HeldBy.REVIEW, cause=Cause.TOO_BIG_FOR_TIER
+    started = [u.id for u in units if unit.id in u.depends_on and u.state in _STARTED]
+    if started:
+        return (
+            f"too big for its tier, and {', '.join(started)} is stacked on it and has started, "
+            "so replacing it would orphan that branch"
         )
-        log(f"{unit.id}: {note}; held for a person")
-        return
-    stored = unit.split_request
-    assert stored is not None
-    request = SplitRequest(
+    return ""
+
+
+def _request_of(stored: StoredSplitRequest) -> SplitRequest:
+    return SplitRequest(
         earned=ReviewTier(stored.earned),
         planned=ReviewTier(stored.planned) if stored.planned else None,
         lines=stored.lines,
         ceiling=stored.ceiling,
         drivers=stored.drivers,
     )
+
+
+def _pins_of(units: Sequence[StoredUnit], change: str) -> list[Pin]:
+    """The pins of the change's superseded units whose pieces have not all started."""
+    if not config.active().review.enabled:
+        return []
+    by_id = {u.id: u for u in units}
+
+    def unstarted(unit: StoredUnit) -> bool:
+        if unit.state == CLOSED and unit.superseded_by:
+            return any(unstarted(by_id[uid]) for uid in unit.superseded_by if uid in by_id)
+        return unit.state == PLANNED
+
+    return [
+        Pin(held=u, split=_request_of(u.split_request))
+        for u in units
+        if u.change == change
+        and u.state == CLOSED
+        and u.superseded_by
+        and u.split_request
+        and unstarted(u)
+    ]
+
+
+def _split_one(inst: Installation, store: UnitStore, unit: StoredUnit) -> None:
+    """Hold `unit` for a person when it cannot be split or its rounds are used, else ask for a
+    split and supersede it. A branch held by a live process defers it, with no round."""
+    rounds = config.active().review.split_rounds
+    if unit.split_rounds_used >= rounds:
+        used = (
+            "`split_rounds` is 0, so it is not split"
+            if rounds == 0
+            else f"split {unit.split_rounds_used} of {rounds} rounds used"
+        )
+        _hold_for_a_person(store, unit, f"too big for its tier, and {used}")
+        return
+    units = store.all()
+    if why := _cannot_split(unit, units):
+        _hold_for_a_person(store, unit, why)
+        return
+    stored = unit.split_request
+    assert stored is not None
     tasks = inst.changes_dir / unit.change / "tasks.md"
     task_groups, errors = _validated(inst, tasks)
     if errors:
         log(f"not splitting {unit.id}: the tags of {unit.change} are broken")
         return
-    units = store.all()
+    lock = branch_lock(unit.branch, root=inst.state_dir / "locks") if unit.branch else nullcontext()
+    try:
+        with lock:
+            _plan_and_supersede(inst, store, unit, _request_of(stored), task_groups, units, rounds)
+    except BranchBusy as error:
+        log(f"splitting {unit.id} is waiting for its branch, no round used — {error}")
+
+
+def _plan_and_supersede(
+    inst: Installation,
+    store: UnitStore,
+    unit: StoredUnit,
+    request: SplitRequest,
+    task_groups: list[TaskGroup],
+    units: Sequence[StoredUnit],
+    rounds: int,
+) -> None:
+    tasks = inst.changes_dir / unit.change / "tasks.md"
     try:
         plan = plan_round(
             changes={unit.change: tasks.read_text()},
@@ -2573,6 +2655,9 @@ def _split_one(inst: Installation, store: UnitStore, unit: StoredUnit) -> None:
         )
         store.set_split_rounds_used(unit.id, unit.split_rounds_used + 1)
         store.supersede(unit.id, plan.units)
+    except GroupTooLarge as error:
+        _hold_for_a_person(store, unit, str(error))
+        return
     except Exception as error:  # noqa: BLE001
         if _plan_wait(inst, error, {}) is not None:
             log(f"splitting {unit.id} is waiting for an outage, no round used — {error}")
@@ -4495,6 +4580,7 @@ def plan_all(
                 # Units the store already has: a dependency naming one of
                 # them is not a dependency on nothing.
                 known={u.id for u in units},
+                pins=_pins_of(units, change),
                 context=JoinContext(
                     stored=tuple(units),
                     catalog=catalog,

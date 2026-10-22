@@ -22,6 +22,7 @@ def test_a_tick_does_not_split_while_the_usage_guard_refuses_planning(
     run = scene(tmp_path, monkeypatch)
     run.runtime.answer = reply(*correct())
     isolate(monkeypatch)
+    run.runtime.supports_usage_tracking = True
     monkeypatch.setattr(
         cli, "may_start_unit", lambda r, **_: Decision(may_start=False, reason="session at 88%")
     )
