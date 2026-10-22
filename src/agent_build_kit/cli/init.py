@@ -617,9 +617,14 @@ def _agent(chosen: Choice | None, kept: str | None) -> AgentRuntime | None:
         return None
 
 
-def _sandbox_lines(planning: Path) -> None:
-    """What `abk doctor` finds about the sandbox, for the abk.yaml now in the planning repo."""
-    found = sandbox_check(config_module.load(planning / CONFIG_FILENAME))
+def _sandbox_lines(planning: Path, fallback: WorkspaceConfig) -> None:
+    """What `abk doctor` finds about the sandbox, for the abk.yaml now in the planning repo;
+    `fallback` when the file does not load."""
+    try:
+        config = load_config(planning / CONFIG_FILENAME)
+    except config_module.ConfigError:
+        config = fallback
+    found = sandbox_check(config)
     print(f"sandbox: {found.detail}")
     if found.status == "FAIL":
         print(f"sandbox fix: {found.fix}")
@@ -738,7 +743,7 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
             print(f"recorded runtime {chosen.runtime} in abk.yaml")
 
     _activate(planning, applied)
-    _sandbox_lines(planning)
+    _sandbox_lines(planning, applied)
 
     # Before the agent steps and the commit: what the step records is part of init's commit.
     _policy_step(planning, args)
