@@ -45,12 +45,11 @@ def test_the_migration_section_gives_the_order() -> None:
     section = migrating_section()
     positions = [
         section.index("abk tags --fix"),
-        section.index("--report"),
-        section.index("--dry-run"),
-        section.index("--stale"),
+        section.index("replan --stale --report"),
+        section.index("replan --stale --dry-run"),
+        section.index("replan --stale --limit"),
     ]
     assert positions == sorted(positions)
-    assert "--limit" in section[positions[-1] :]
 
 
 def test_one_unreleased_entry_names_the_migration_commands() -> None:

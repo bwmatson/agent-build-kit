@@ -698,11 +698,12 @@ planned or rewritten before you have seen what it would do:
 1. `abk config --migrate` moves the settings still under their old names (the root `limits`
    block and the numbered test-tier keys) to `global_limits`, `project_limits` and the
    `unit_test_*` and `e2e_*` names.
-2. `abk tags --fix --all` first, because a change with old test-kind tags is refused by the
-   planner.
-3. `abk replan --report` shows each change's plan state, its started and unstarted units and
+2. `abk tags --fix --all` first. It does not make a plan stale, since the sizing digest ignores
+   how a tag is spelled, and it clears the old-tag warnings `abk tags` and `abk check` print;
+   the plans made in the later steps are then read from the new spelling.
+3. `abk replan --stale --report` (or a change name, or `--all`) shows each change's plan state, its started and unstarted units and
    whether the planner would be called. It makes no model call.
-4. `abk replan --dry-run` asks the planner and prints the units each change would get,
+4. `abk replan --stale --dry-run` asks the planner and prints the units each change would get,
    changing nothing stored.
 5. `abk replan --stale --limit N`, repeated, replans a few changes at a time. A plan that would
    leave units `unplanned` stores nothing and exits 1 until you read the list and rerun with
