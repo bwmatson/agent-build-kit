@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A stubbed build no longer stops when a group's agents find nothing to commit because the work is
+  already built: once the whole-repository unit tests pass, the group is recorded with an empty
+  commit pair (a test-only group, one empty tests commit) marked `Already-built: yes`, holding the
+  agent's account. A restack keeps the pair and the squash merge drops it; a forgotten
+  implementation still stops the unit.
+
 - `Needs: <change> group <n> merged — why` is now accepted by `abk tags` and `abk check` without a
   deprecation warning, and each unit records which of its `Needs:` targets wait for a merge (the
   `merged` word, or a group of another repository). A plain `Needs:` to a group of another
