@@ -221,6 +221,7 @@ REVIEW_BLOCK = """
 #   protected_defaults: true
 #   classes: {}
 #   auto_land: {min_samples: 20, min_clean_rate: 0.95}
+#   brief: true
 """
 
 

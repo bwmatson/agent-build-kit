@@ -35,9 +35,6 @@ if TYPE_CHECKING:
 
 TESTS_PREFIX = "test: "
 CODE_PREFIX = "feat: "
-# What a per-group commit's body says it holds, before the group's "Done when" sentence.
-TESTS_BODY = "Stubs and tests for this task group; they fail until its implementation."
-CODE_BODY = "The implementation of this task group, which makes its tests pass."
 ALREADY_BUILT_TRAILER = "Already-built"  # the trailer key; its one value is `yes`
 STUB_BODY_HINT = "only `raise NotImplementedError`"
 

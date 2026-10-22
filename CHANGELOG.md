@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- The `test:` and `feat:` commits of a build now carry a short body saying why: the first sentence
+  of the change's proposal Why, then the task group's goal, with a line on what the commit holds.
+  A body is bounded, cut at a word boundary, and never reads to git as a trailer or comment; a
+  group with neither a Why nor a goal commits with the title alone.
+
+- `review.brief` (default true) turns the "Start here" section of a pull request body off; off, the
+  body keeps its older layout. With it on, opening or updating a body marks the unit's verdict
+  record as having carried the section, and a failure to write the record is logged and never
+  holds the body.
+
 - An `[e2e-test]` task group, flagged or not, always has a unit of its own: a join that carries
   or joins one is refused, a plan that puts one with another group is refused and asked again,
   and the planner prompt says so. `abk tags` and `abk check` call a `Separate:` line in such a

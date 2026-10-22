@@ -208,7 +208,7 @@ _LOCATED = re.compile(r"^(?P<file>[\w./-]*[./][\w./-]*?)(?::\d+)? — ")
 _PATH = re.compile(r"[\w-]+(?:/[\w.-]+)+|[\w-]+\.\w+")
 
 
-def _why_text(changes_dir: Path, change: str) -> str:
+def why_text(changes_dir: Path, change: str) -> str:
     """The proposal's `Why` text, empty when it cannot be read or has none."""
     try:
         proposal = (changes_dir / change / "proposal.md").read_text()
@@ -250,7 +250,7 @@ def _why_section(changes_dir: Path, members: Sequence[Member], ceiling: int) -> 
     the pointers alone. Room one change's reason leaves unused goes to the others."""
     blocks: list[Section] = []
     for member in members:
-        text = _why_text(changes_dir, member.change)
+        text = why_text(changes_dir, member.change)
         if not text:
             continue
         numbers = {group.number for group in _groups_of(changes_dir, member.change)}
@@ -528,7 +528,9 @@ _Opened by the spec-driven pipeline. It never merges its own PRs — a human
 merges every one, after checking {order}._
 """
     members = unit.members()
-    sections = [_start_here(unit.description, facts, rounds, verdict)]
+    sections = (
+        [_start_here(unit.description, facts, rounds, verdict)] if active().review.brief else []
+    )
     if changes_dir is not None:
         why = _why_section(changes_dir, members, why_ceiling)
         sections += [

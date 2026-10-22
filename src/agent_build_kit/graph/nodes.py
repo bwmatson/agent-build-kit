@@ -50,10 +50,9 @@ from agent_build_kit.pipeline.agent_commands import commands_note
 from agent_build_kit.pipeline.call_record import call_recorder
 from agent_build_kit.pipeline.changelog_convention import changelog_note
 from agent_build_kit.pipeline.check_failures import failed_check
+from agent_build_kit.pipeline.commit_body import commit_body
 from agent_build_kit.pipeline.commit_order import (
-    CODE_BODY,
     CODE_PREFIX,
-    TESTS_BODY,
     TESTS_PREFIX,
     GroupProgress,
     group_progress,
@@ -156,7 +155,12 @@ from agent_build_kit.pipeline.verdict import (
     TierVerdict,
     VerdictFacts,
 )
-from agent_build_kit.pipeline.verdict_record import VERDICTS, latest_verdict, record_verdict
+from agent_build_kit.pipeline.verdict_record import (
+    VERDICTS,
+    latest_verdict,
+    mark_brief,
+    record_verdict,
+)
 from agent_build_kit.pipeline.work_graph import group_sections
 from agent_build_kit.pipeline.workspaces import DirtyWorktree
 from agent_build_kit.profiles.base import stubbed_build
@@ -1384,7 +1388,7 @@ class BuildPath:
                 kept = account if step is not None and step.test_only else ""
                 return {"head": r.head(tree), "stub_loop": True, "tests_account": kept}
             self.apply_fixers()
-            r.commit(self.message(TESTS_PREFIX, TESTS_BODY, state), cwd=tree, base=self.ref(state))
+            r.commit(self.message(TESTS_PREFIX, True, state), cwd=tree, base=self.ref(state))
         return {"head": r.head(tree), "stub_loop": False}
 
     def apply_fixers(self) -> None:
@@ -1419,7 +1423,7 @@ class BuildPath:
         if not result.get("ok"):
             return result
         ref = self.ref(state)
-        made = r.commit(self.message(TESTS_PREFIX, TESTS_BODY, state), cwd=tree, base=ref)
+        made = r.commit(self.message(TESTS_PREFIX, True, state), cwd=tree, base=ref)
         done: Update = {"head": r.head(tree), "stub_loop": False, "stub_rounds": 0}
         step = self.group_step(state)
         if step is None or not step.test_only:
@@ -1484,13 +1488,16 @@ class BuildPath:
         step = self.group_step(state)
         return step.title if step else self.unit.title
 
-    def message(self, prefix: str, body: str, state: UnitRun) -> str:
-        """A commit message: in a stubbed build the group's subject, then a body saying what the
-        commit holds and the group's "Done when" sentence when it has one; else the subject."""
+    def message(self, prefix: str, tests: bool, state: UnitRun) -> str:
+        """A commit message: the subject (the group's in a stubbed build, else the unit's), then a
+        body saying why the change exists when it can: from the group being built, or from every
+        group the unit builds when it is not stubbed."""
         step = self.group_step(state)
-        if step is None:
-            return f"{prefix}{self.unit.title}"
-        return f"{prefix}{step.title}\n\n" + "\n\n".join(filter(None, (body, step.goal)))
+        steps = [step] if step else self.runner.group_steps(self.unit)
+        body = commit_body(steps, tests=tests)
+        return f"{prefix}{step.title if step else self.unit.title}" + (
+            f"\n\n{body}" if body else ""
+        )
 
     def unpaired(self, state: UnitRun, ref: str) -> str:
         """What the branch lacks for the group just built or an earlier one, named: a tests
@@ -1573,12 +1580,12 @@ class BuildPath:
                 return broken
             return self.stop(f"the branch holds no {self.unpaired(state, ref)}")
         self.say(f"group {step.number} is already built and the unit tests pass: recorded")
-        tests = self.message(TESTS_PREFIX, TESTS_BODY, state)
+        tests = self.message(TESTS_PREFIX, True, state)
         if not resumed:
             r.commit_built(self.with_account(tests, account) if step.test_only else tests, cwd=tree)
         if not step.test_only:
             r.commit_built(
-                self.with_account(self.message(CODE_PREFIX, CODE_BODY, state), account), cwd=tree
+                self.with_account(self.message(CODE_PREFIX, False, state), account), cwd=tree
             )
         return None
 
@@ -1641,7 +1648,7 @@ class BuildPath:
                 ),
             )
             self.apply_fixers()
-            made = r.commit(self.message(CODE_PREFIX, CODE_BODY, state), cwd=tree, base=ref)
+            made = r.commit(self.message(CODE_PREFIX, False, state), cwd=tree, base=ref)
             if (stopped := self.record_built(state, ref, made, account)) is not None:
                 return stopped
             if self.group_step(state) is None:
@@ -2543,6 +2550,12 @@ class BuildPath:
             return self.rebase(
                 state, str(error), base=base, lead="base gone before its pull request"
             )
+        if active().review.enabled and active().review.brief:
+            # The record is no input to anything: a failure is logged and never holds the body.
+            try:
+                mark_brief(r.store.path.with_name(VERDICTS), unit.id)
+            except Exception as failed:  # noqa: BLE001
+                self.say(f"could not mark the verdict record as carrying the brief: {failed}")
         if state.spent:
             outstanding = cut_head(" ".join(stored.feedback.split()), 300, "char")
             note = f"rounds spent with work outstanding: {outstanding}"

@@ -810,6 +810,7 @@ review:
   classes: {}              # name -> path globs; no slash in a name; the first listed class wins
   auto_land: {min_samples: 20, min_clean_rate: 0.95, allow_deferred_e2e: false}
   ceilings: {auto: 5000, light: 2000, full: 750}   # estimated changed lines a unit may carry, by expected tier
+  brief: true              # a pull request body opens with "Start here"; false keeps the older layout
 repos:
   app:
     review:

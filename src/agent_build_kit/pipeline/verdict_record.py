@@ -102,6 +102,17 @@ def latest_verdict(path: Path, unit: str) -> VerdictEntry | None:
         return None
 
 
+def mark_brief(path: Path, unit: str) -> None:
+    """Set the unit's recorded `brief` to true; a unit with no readable record is left as it is."""
+    entry = latest_verdict(path, unit)
+    if entry is None:
+        return
+    with file_lock(path.with_name(f"{path.name}.lock")):
+        recorded = json.loads(path.read_text())
+        recorded[unit]["brief"] = True
+        atomic_write_text(path, json.dumps(recorded, indent=2, sort_keys=True))
+
+
 def _count(entry: VerdictEntry, repo: str) -> None:
     """Count the verdict, and the planner's estimate against its evidence tier."""
     estimate = entry.planned_estimate
