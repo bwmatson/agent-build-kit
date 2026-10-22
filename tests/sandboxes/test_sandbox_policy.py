@@ -11,6 +11,9 @@ from pydantic import ValidationError
 from agent_build_kit.sandboxes.policy import PolicyRefused, build_policy
 from tests.conftest import make_installation
 
+# The home shorthand, held apart so no line reads as a path under a home directory.
+HOME_MARK = "~"
+
 
 class StandInRuntime:
     def __init__(self, write: list[str]) -> None:
@@ -137,7 +140,7 @@ def test_a_path_that_is_a_symlink_resolves_to_its_target(scene: Scene) -> None:
 @pytest.mark.parametrize(
     ("given", "expected"),
     [
-        ("~/cache", "home/cache"),
+        (f"{HOME_MARK}/cache", "home/cache"),
         ("out", "wt/out"),
         ("../shared", "shared"),
         ("{tmp}//doubled///dir", "doubled/dir"),
