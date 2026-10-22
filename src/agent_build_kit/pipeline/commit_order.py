@@ -172,7 +172,14 @@ def group_progress(
     for done, title in enumerate(titles):
         tests = position < len(subjects) and subjects[position] == f"{TESTS_PREFIX}{title}"
         if not tests:
-            return GroupProgress(done=done, tests_made=False)
+            lone = (
+                position < len(subjects)
+                and not (done < len(test_only) and test_only[done])
+                and subjects[position] == f"{CODE_PREFIX}{title}"
+            )
+            return GroupProgress(
+                done=done, tests_made=False, lone_feat=subjects[position] if lone else ""
+            )
         position += 1
         if done < len(test_only) and test_only[done]:
             continue

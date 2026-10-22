@@ -18,6 +18,8 @@
   tier first (`full`, then `light`, then units with no verdict, then `auto`) and shows each
   unit's tier. A unit with an `auto` verdict is still listed as awaiting review. The order only
   changes what is shown, never which unit the pipeline works on next.
+- A build that finds an implementation commit with no tests commit before it now stops saying
+  exactly that, naming the commit, instead of reporting a missing pair.
 
 - With review enabled, a unit in review whose recorded verdict is `auto` no longer raises a
   notification card, since it needs no person; `light`, `full` and units with no verdict raise

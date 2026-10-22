@@ -1500,16 +1500,25 @@ class BuildPath:
         )
 
     def unpaired(self, state: UnitRun, ref: str) -> str:
-        """What the branch lacks for the group just built or an earlier one, named: a tests
-        and implementation pair, or a tests commit for a test-only group; "" when it lacks none."""
+        """The stop for what the branch lacks for the group just built or an earlier one: a tests
+        and implementation pair, a tests commit for a test-only group, or the tests commit a
+        lone `feat:` has none before; "" when it lacks none."""
         steps = self.runner.group_steps(self.unit)
-        done = self.branch_progress(ref).done
-        if done > state.group:
+        progress = self.branch_progress(ref)
+        if progress.done > state.group:
             return ""
-        step = steps[done]
+        step = steps[progress.done]
         if step.test_only:
-            return f"tests commit for group {step.number} ({step.title})"
-        return f"tests and implementation pair for group {step.number} ({step.title})"
+            return f"the branch holds no tests commit for group {step.number} ({step.title})"
+        if progress.lone_feat:
+            return (
+                f"a feat: commit for group {step.number} has no test: commit before it "
+                f"({progress.lone_feat})"
+            )
+        return (
+            f"the branch holds no tests and implementation pair for group {step.number} "
+            f"({step.title})"
+        )
 
     def branch_progress(self, ref: str) -> GroupProgress:
         """How far the branch's commits get through the unit's groups, read from their subjects:
@@ -1578,7 +1587,7 @@ class BuildPath:
         if not ok:
             if (broken := self.failed_unit_test(output)) is not None:
                 return broken
-            return self.stop(f"the branch holds no {self.unpaired(state, ref)}")
+            return self.stop(self.unpaired(state, ref))
         self.say(f"group {step.number} is already built and the unit tests pass: recorded")
         tests = self.message(TESTS_PREFIX, True, state)
         if not resumed:
@@ -1597,7 +1606,7 @@ class BuildPath:
         r, unit = self.runner, self.unit
         if commits and (missing := self.unpaired(state, ref)):
             # After every group, so a later group's tests are never written over a gap.
-            return self.stop(f"the branch holds no {missing}")
+            return self.stop(missing)
         more = state.group + 1 < len(r.group_steps(unit))
         kept: Update = {"group": state.group + 1, "more_groups": more}
         if not more:
