@@ -121,6 +121,17 @@ class Join(Frozen):
     estimated_lines: int = 0
 
 
+class ManualStep(Frozen):
+    """A step only a person can do, with the check the tick runs to see it is done."""
+
+    slug: str
+    text: str
+    runbook: str = ""
+    check: str = ""
+    # The `Manual:` line it was declared on, 0 for a raised step.
+    line: int = 0
+
+
 class Unit(Frozen):
     id: str
     change: str
@@ -150,6 +161,8 @@ class Unit(Frozen):
     # The units that carry this one's groups after a replan replaced it; empty for a unit the
     # plan holds.
     superseded_by: tuple[str, ...] = ()
+    # The steps only a person can do that this unit waits on, declared by its groups or raised.
+    manual_steps: tuple[ManualStep, ...] = ()
 
     def members(self) -> tuple[Member, ...]:
         """Every change's groups this unit builds: its own first, then carried ones."""

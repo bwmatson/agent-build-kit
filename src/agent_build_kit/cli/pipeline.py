@@ -351,6 +351,7 @@ from agent_build_kit.pipeline.work_graph import (
     group_needs,
     group_promotions,
     inverted_group_warnings,
+    manual_runbook_warnings,
     merged_needs_warnings,
     old_test_kind_warnings,
     specification_text,
@@ -5576,6 +5577,7 @@ def _tag_warnings(inst: Installation, path: Path) -> list[str]:
     return [
         *merged_needs_warnings(path),
         *old_test_kind_warnings(path),
+        *manual_runbook_warnings(path, inst.root),
         *inverted_group_warnings(
             path,
             inst.changes_dir,

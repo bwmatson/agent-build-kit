@@ -637,6 +637,8 @@ class LimitsConfig(TestKindSettings):
     # pass) takes their stale state label off, so a backlog does not spend the code
     # host's rate limit at once.
     label_sweep_per_tick: Annotated[int, Field(ge=1)] = 20
+    # Seconds a manual step's check script may run before it counts as timed out.
+    manual_check_seconds: Annotated[int, Field(ge=1)] = 30
     # Estimated changed lines before a unit stops absorbing the next task group.
     min_unit_lines: int = 400
     # Estimated changed lines one unit may carry. It shapes plans; a unit whose
