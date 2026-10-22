@@ -129,6 +129,7 @@ class Cause(StrEnum):
     SPLIT_HELD = SPLIT_HELD_CAUSE
     MANUAL_STEP = MANUAL_STEP_CAUSE
     TOO_BIG_FOR_TIER = "too_big_for_tier"
+    SUPERSEDED = "superseded"
 
 
 class Keep:
@@ -1234,6 +1235,12 @@ class UnitStore:
     def set_size_waived(self, unit_id: str, waived: bool = True) -> None:
         """Record that a person let a unit held for its size go on; its size is not held again."""
         self._update(unit_id, size_waived=waived)
+
+    def supersede(self, unit_id: str, pieces: Sequence[Unit]) -> None:
+        """Close a unit held for its size with the cause superseded and name `pieces`, which
+        replace it, in one write; `pieces` arrive planned with the dependencies they carry, and
+        what depended on the unit depends on the last piece."""
+        raise NotImplementedError
 
     @_exclusive
     def mark_ready(self, unit_id: str) -> None:
