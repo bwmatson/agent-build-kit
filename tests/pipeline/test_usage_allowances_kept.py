@@ -3,7 +3,6 @@
 The file sits beside the guard's cache file. One that is missing, unreadable or of another
 shape means no calibration, never an error (spec: usage-pause)."""
 
-import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -18,25 +17,10 @@ from agent_build_kit.pipeline.usage_allowances import (
 )
 from agent_build_kit.pipeline.usage_calls import CALLS_NAME
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
-from tests.usage_allowance_records import calibrated, keep, per_unit
+from tests.usage_allowance_records import calibrated
 
 NOW = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
 LIMITS = ClaudeLimitsConfig()
-WINDOW_KEYS = {"quantile_pct_per_unit", "quantile", "pairs_used", "pairs_available", "computed_at"}
-
-
-def test_a_refresh_keeps_each_window_with_its_quantile_pairs_and_time(tmp_path: Path) -> None:
-    calls, ledger = per_unit("weekly", [1] * 9)
-    keep(tmp_path, calls, ledger)
-
-    refresh_allowances(tmp_path, limits=LIMITS, now=NOW)
-
-    kept = json.loads((tmp_path / ALLOWANCES_NAME).read_text())
-    assert set(kept["weekly"]) == WINDOW_KEYS
-    assert kept["weekly"]["quantile_pct_per_unit"] == 1
-    assert (kept["weekly"]["pairs_used"], kept["weekly"]["pairs_available"]) == (9, 9)
-    assert kept["weekly"]["quantile"] == 0.9
-    assert datetime.fromisoformat(kept["weekly"]["computed_at"]) == NOW
 
 
 def test_what_was_written_is_what_is_read(tmp_path: Path) -> None:

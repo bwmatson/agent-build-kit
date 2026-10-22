@@ -54,6 +54,17 @@ class UsagePair(Frozen):
     units: int  # distinct units with an agent record in [earlier, later)
 
 
+class CostPair(Frozen):
+    """Two good readings of a window and what the account recorded spending between them."""
+
+    at: datetime  # the earlier reading
+    before: int  # the figure at the earlier reading
+    gain: int  # points gained between the readings
+    cost_usd: float  # recorded incremental cost of the rows in [earlier, later)
+    hours: float  # the length of the gap
+    units: int  # distinct units with a row in the gap, none for a gap of unit-less rows
+
+
 class Calibrated(Frozen):
     """What the history gave for one window, kept with the inputs behind it."""
 
@@ -62,6 +73,15 @@ class Calibrated(Frozen):
     pairs_used: int
     pairs_available: int
     computed_at: datetime
+    basis: Literal["cost", "units"] = "units"  # the basis in force
+    reason: str | None = None  # why it is not `cost`, or that it came from the previous file
+    points_per_usd: float | None = None  # the kept cost fit, safety scale included
+    intercept_per_hour: float | None = None
+    safety_scale: float | None = None
+    cost_pairs_held: int = 0
+    cost_pairs_judged: int = 0  # gaps judged walk-forward
+    false_allows_cost: int = 0
+    false_allows_flat: int = 0
 
 
 def pairs(
@@ -77,6 +97,14 @@ def pairs(
         if high >= low and after - before <= SPANS[window] and units:
             made.append(UsagePair(at=before, before=low, gain=high - low, units=units))
     return made
+
+
+def cost_pairs(
+    calls: list[UsageCall], ledger: list[UsageRecord], window: Window, *, min_gap: timedelta
+) -> list[CostPair]:
+    """The usable cost pairs of `window`, oldest first: as `pairs`, but a gap counts by the
+    cost of its rows, with a unit or without one."""
+    raise NotImplementedError
 
 
 def calibrate_pairs(
