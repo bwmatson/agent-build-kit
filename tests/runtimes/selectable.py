@@ -19,6 +19,7 @@ from agent_build_kit.config import ModelsConfig
 from agent_build_kit.pipeline.command_spellings import SpellingName, probe_rows
 from agent_build_kit.runtimes import AgentRequest, AgentResult, AgentRuntime, PolicyReport
 from agent_build_kit.runtimes.base import PolicyCoverage, PromptTransport, SpellingResult
+from agent_build_kit.sandboxes import Coverage
 
 
 class SelectableRuntime:
@@ -35,6 +36,7 @@ class SelectableRuntime:
         *,
         implemented: bool = True,
         policy_coverage: PolicyCoverage = "all_calls",
+        sandbox_coverage: Coverage = Coverage.PROCESS,
         requires: tuple[str, ...] = (),
         reports: tuple[PolicyReport, ...] = (PolicyReport(ok=True),),
         log: list[str] | None = None,
@@ -44,6 +46,7 @@ class SelectableRuntime:
         self.name = name
         self.implemented = implemented
         self.policy_coverage: PolicyCoverage = policy_coverage
+        self.sandbox_coverage = sandbox_coverage
         self.requires = requires
         self.agent_command = agent_command
         self.default_models = default_models or ModelsConfig()
