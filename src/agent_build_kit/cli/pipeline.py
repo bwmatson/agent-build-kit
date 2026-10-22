@@ -6124,18 +6124,21 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
     max_attempts = inst.max_plan_attempts
     standing = {unit.change for unit in store.all()}
 
-    if not (args.changes or args.all or args.failed):
+    if not (args.changes or args.all or args.failed or args.stale):
         for change in (path.parent.name for path in inst.tasks_files()):
             shown = _plan_state(records.get(change), max_attempts, change in standing)
             print(f"{change}: {shown}")
         print(
-            "usage: abk replan CHANGE|UNIT... | --all | --failed [--forget] [--report] "
-            "[--dry-run] [--accept-unplanned]"
+            "usage: abk replan CHANGE|UNIT... | --all | --failed | --stale [--limit N] [--forget] "
+            "[--report] [--dry-run] [--accept-unplanned]"
         )
         return 2
 
     if args.dry_run and args.forget:
         print("abk replan: --dry-run and --forget cannot be used together")
+        return 2
+    if args.limit is not None and args.limit < 1:
+        print("abk replan: --limit must be at least 1")
         return 2
 
     selected: dict[str, None] = {}
@@ -6162,6 +6165,23 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
             )
         )
 
+    skipped = 0
+    if args.stale:
+        now = spans.clock.now()
+        for path in inst.tasks_files():
+            change = path.parent.name
+            record = records.get(change)
+            if not record or not plan_is_stale(record):
+                continue
+            if _plan_waiting(record, now) or (
+                not record.get("ok") and record.get("attempts", 0) >= max_attempts
+            ):
+                shown = _plan_state(record, max_attempts, change in standing)
+                print(f"{change}: skipped — {shown}")
+                skipped += 1
+                continue
+            selected[change] = None
+
     to_plan: list[str] = []
     for change in selected:
         tasks = inst.changes_dir / change / "tasks.md"
@@ -6178,6 +6198,13 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
             continue
         refused += 1
 
+    if args.stale or args.limit is not None:
+        to_plan.sort(key=lambda change: (_urgency(inst, change), change))
+    if args.limit is not None:
+        for change in to_plan[args.limit :]:
+            print(f"{change}: not yet planned (over --limit {args.limit})")
+        to_plan = to_plan[: args.limit]
+
     if args.report:
         _print_replan_report(inst, store, to_plan)
         return 1 if refused else 0
@@ -6192,10 +6219,13 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
         print("no change to plan")
         return 1 if refused else 0
 
-    print(f"planning {', '.join(to_plan)}: {len(to_plan)} model call(s)")
+    ends_on_outage = args.stale or args.limit is not None
+    # A run that stops at an outage names each change once, as it is planned or not tried.
+    planning = f"{len(to_plan)} change(s)" if ends_on_outage else ", ".join(to_plan)
+    print(f"planning {planning}: {len(to_plan)} model call(s)")
     failed: list[str] = []
     cyclic = False
-    for change in to_plan:
+    for index, change in enumerate(to_plan):
         with plan_apart(inst, store, [change]) as outcome:
             drops = _dropped(outcome)
             held = bool(drops) and not args.accept_unplanned
@@ -6211,8 +6241,20 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
                     failed.append(change)
                 # Each refusal was printed above as the plan or the linking logged it.
                 cyclic = cyclic or _cyclic(outcome)
+            met_outage = outcome.results[change].status == "waiting"
+        if ends_on_outage and met_outage:
+            # The rest would meet the same outage.
+            for rest in to_plan[index + 1 :]:
+                print(f"{rest}: not tried — {change} met an outage")
+            break
     release_split_changed(inst, store, only=set(to_plan))
     return 1 if refused or failed or cyclic else 0
+
+
+def _urgency(inst: Installation, change: str) -> int:
+    """The most urgent priority among a change's task groups; normal when none is readable."""
+    groups, _ = _validated(inst, inst.changes_dir / change / "tasks.md")
+    return min((group.priority for group in groups), default=Priority.NORMAL)
 
 
 def _dropped(outcome: ReplanOutcome) -> list[StoredUnit]:
@@ -6982,6 +7024,15 @@ def register(sub: argparse._SubParsersAction) -> None:
     replan.add_argument("--all", action="store_true", help="every active change")
     replan.add_argument(
         "--failed", action="store_true", help="every change whose last plan failed or gave up"
+    )
+    replan.add_argument(
+        "--stale", action="store_true", help="every change whose plan is stale and may be tried"
+    )
+    replan.add_argument(
+        "--limit",
+        type=int,
+        metavar="N",
+        help="plan only the first N selected changes, the most urgent first",
     )
     replan.add_argument(
         "--forget", action="store_true", help="only clear the recorded plans; make no model call"

@@ -49,6 +49,11 @@
   a usage error. A replan prints the same lines (review tier, estimate against the ceiling,
   joins) as the preview, from one place.
 
+- `abk replan --stale` selects every change whose plan is stale and `--limit N` keeps the first N
+  of any selection, the most urgent `Priority:` first and then by name, so a migration can go a
+  few changes at a time. Changes waiting for an outage or given up are skipped and listed, and
+  the first outage ends the run without using an attempt.
+
 - `abk replan --report` shows, for each selected change, its plan state, its started and
   unstarted units with their groups and whether a replan would call the planner, with the
   total number of calls. It makes no model call and writes nothing.

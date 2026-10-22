@@ -594,7 +594,7 @@ or one the pass is holding: a run killed in a node resumes from its thread. Reco
 once, after a second, when the first read fails; if the second fails too, the
 unit is logged as stranded and the error is raised as before.
 
-### `abk replan [CHANGE|UNIT ...] [--all] [--failed] [--forget] [--report] [--dry-run]`
+### `abk replan [CHANGE|UNIT ...] [--all] [--failed] [--stale] [--limit N] [--forget] [--report] [--dry-run]`
 
 Plans changes again now, whatever their recorded plan says. A tick plans a change
 only when its `tasks.md` changes (or its last plan failed and attempts remain);
@@ -619,6 +619,13 @@ says how many model calls it will make.
   During an outage it says the change waits and uses no attempt. The branch locks held now
   are copied, so a join onto a unit being built is dropped as it would be. `--dry-run` with
   `--forget` is a usage error.
+- **Migrating.** `--stale` selects every change whose plan is stale, and `--limit N` keeps the
+  first N of any selection, ordered by the most urgent `Priority:` among the change's groups and
+  then by name; the changes over the limit are listed as `not yet planned`. A change waiting for
+  an outage whose next try is ahead, and one that has given up on its current text, are skipped and
+  listed with the reason (`--failed` plans those). The first change to meet an outage ends the run,
+  names the rest as `not tried` and uses no attempt. To migrate after a change of ceilings or
+  review policy, run `abk replan --stale --limit N` repeatedly, a few changes at a time.
 - **Selecting.** Names are the folders of the active changes. A unit id
   (`feature/2`) is mapped to the change that carries it, and the command says so.
   `--all` is every active change; `--failed` every change whose last plan failed
