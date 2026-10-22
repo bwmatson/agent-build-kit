@@ -22,11 +22,17 @@ from __future__ import annotations
 import argparse
 import re
 import sys
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Protocol
 
-from agent_build_kit.compat_names import Place, TestKind, is_old_spelling, new_spelling, notice
+from agent_build_kit.compat_names import (
+    Place,
+    TestKind,
+    is_old_spelling,
+    new_spelling,
+    notice,
+)
 from agent_build_kit.config import (
     REST_SPLIT,
     SPLIT_NAME,
@@ -152,8 +158,29 @@ NEEDS_LINE = re.compile(
 _CHECKBOX = re.compile(r"^(\s*-\s*\[)[ xX](\])", re.MULTILINE)
 
 
-def specification_text(text: str) -> str:
-    """A tasks file's text with progress stripped out.
+def retag_headings(text: str, spell: Callable[[str], str]) -> tuple[str, int]:
+    """`text` with the test-kind tag of each group heading spelled by `spell`, and how many
+    changed; every other byte, line endings included, comes back as it was."""
+    out: list[str] = []
+    count = 0
+    for line in text.splitlines(keepends=True):
+        found = GROUP_HEADING.match(line.splitlines()[0])
+        if found and (tag := spell(found["tier"])) != found["tier"]:
+            start, end = found.span("tier")
+            line = line[:start] + tag + line[end:]
+            count += 1
+        out.append(line)
+    return "".join(out), count
+
+
+def current_tag(tag: str) -> str:
+    """A test-kind tag in its current spelling."""
+    return new_spelling(Place.TAG, tag)
+
+
+def specification_text(text: str, spell: Callable[[str], str] = current_tag) -> str:
+    """A tasks file's text with progress stripped out, and the test-kind tags spelled by `spell`
+    (their current spelling unless a plan recorded before the rename is being matched).
 
     What a re-plan should key on is what the change *asks for*, not how much
     of it is done. The pipeline ticks these boxes as units land, and hashing
@@ -164,7 +191,8 @@ def specification_text(text: str) -> str:
     # applies on its own. Re-planning a change for one would be a model call
     # that can reshuffle units already built. Blank lines go with them: a
     # `Needs:` line comes with the blank line that sets it off.
-    stripped = _CHECKBOX.sub(r"\1 \2", text)
+    spelled, _ = retag_headings(text, spell)
+    stripped = _CHECKBOX.sub(r"\1 \2", spelled)
     return "\n".join(
         line
         for line in stripped.splitlines()

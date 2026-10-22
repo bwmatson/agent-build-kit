@@ -374,6 +374,19 @@ without failing, when a group can give its unit unrelated open parents: an `[acc
 group of its repo, or a `Needs:` to another change's same-repo group beside a same-repo
 predecessor. Exit 1 if any change has a problem or no `tasks.md`.
 
+`abk tags --fix [CHANGE | --all] [--dry-run]` rewrites the old test-kind tags in the group
+headings of open changes to `[unit-test]` and `[e2e-test]`. It edits the text of `tasks.md` and
+changes nothing else: prose, code spans and titles that mention an old name, line endings and a
+missing final newline stay as they are. It prints each change with the number of tags rewritten,
+or "unchanged", and writes a file atomically. For each change it parses the text it would write and
+compares it with the parse of the text it read; a change with any other tag problem, an unreadable
+or read-only file, text that is not valid text, or a parse that differs is refused with the reason
+and nothing is written for it, while the other selected changes are still handled. Exit 1 if any
+change was refused. `--dry-run` prints what would be rewritten and writes nothing. Archived
+changes are skipped. Only this command rewrites a tag in a `tasks.md`; the pipeline ticks task boxes there but never
+rewrites a tag. A text that mixes both spellings should be rewritten with this command, not by
+hand, so that a plan made from it stays current.
+
 ### `abk check`
 
 `openspec validate --all --strict --json` in the planning repo. Prints

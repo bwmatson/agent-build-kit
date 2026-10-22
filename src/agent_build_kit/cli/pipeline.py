@@ -21,6 +21,7 @@ import asyncio
 import contextvars
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -47,6 +48,7 @@ from agent_build_kit import claude_account, config, forges, profiles, runtimes, 
 from agent_build_kit.budget import cut_head
 from agent_build_kit.cli.e2e_cmd import held_status_lines
 from agent_build_kit.cli.retire_cmd import cmd_retire
+from agent_build_kit.compat_names import old_tag
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun
@@ -110,7 +112,7 @@ from agent_build_kit.pipeline.events import (
     build_retarget,
     conflict_phrase,
 )
-from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
+from agent_build_kit.pipeline.file_lock import atomic_write_bytes, atomic_write_text, file_lock
 from agent_build_kit.pipeline.flakes import flake_record
 from agent_build_kit.pipeline.gate_holds import evaluate_gates, gate_status_lines
 from agent_build_kit.pipeline.joins import JoinContext
@@ -346,6 +348,7 @@ from agent_build_kit.pipeline.work_graph import (
     TaskGroup,
     ValidationError,
     check_tags,
+    current_tag,
     declared_projects,
     declared_split_names,
     group_needs,
@@ -354,6 +357,7 @@ from agent_build_kit.pipeline.work_graph import (
     manual_runbook_warnings,
     merged_needs_warnings,
     old_test_kind_warnings,
+    retag_headings,
     specification_text,
     tasks_path,
     unrelated_parent_warnings,
@@ -1402,8 +1406,8 @@ def _needs_planning(inst: Installation, store: UnitStore) -> bool:
     planned = planned_hashes(inst)
     now = spans.clock.now()
     for tasks in inst.tasks_files():
-        digest = plan_digest(tasks)
         record = planned.get(tasks.parent.name) or {}
+        digest = plan_digest(tasks, record.get("hash"))
         if _plan_is_current(record, digest, inst.max_plan_attempts):
             continue
         if record.get("hash") == digest and _plan_waiting(record, now):
@@ -3887,8 +3891,8 @@ def plan_all(
         if network_down:
             results[change] = PlanResult(status="skipped")
             continue
-        digest = plan_digest(tasks)
         record = {} if force else planned.get(change) or {}
+        digest = plan_digest(tasks, record.get("hash"))
 
         # Attempts are counted against the content, not the change, so editing
         # tasks.md — which is the actual fix — starts them over.
@@ -4253,9 +4257,25 @@ def specification(tasks: Path) -> str:
     return specification_text(tasks.read_text())
 
 
-def plan_digest(tasks: Path) -> str:
-    """The hash a change's plan record keeps: a re-plan happens when this one moves."""
-    return hashlib.sha256(specification(tasks).encode()).hexdigest()
+def plan_digest(tasks: Path, recorded: str | None = None) -> str:
+    """The hash a change's plan record keeps: a re-plan happens when this one moves.
+
+    It ignores the spelling of the test-kind tags. `recorded` is the hash the plan record holds:
+    when it is the hash of this text in the earlier spelling, it is returned, so a plan made
+    before the rename counts as current for the same text after `abk tags --fix`."""
+    return text_digest(tasks.read_text(), recorded)
+
+
+def text_digest(text: str, recorded: str | None = None) -> str:
+    """`plan_digest` of a tasks file's text."""
+
+    def hashed(spell: Callable[[str], str]) -> str:
+        return hashlib.sha256(specification_text(text, spell).encode()).hexdigest()
+
+    # An earlier release hashed the text as written: every tag old, or the two spellings mixed.
+    if recorded is not None and recorded in (hashed(old_tag), hashed(lambda tag: tag)):
+        return recorded
+    return hashed(current_tag)
 
 
 # Units that still need a tick: being built, waiting to be, or open for review
@@ -4294,7 +4314,7 @@ def has_work(inst: Installation, store: UnitStore) -> bool:
     planned = planned_hashes(inst)
     for tasks in inst.tasks_files():
         record = planned.get(tasks.parent.name) or {}
-        digest = plan_digest(tasks)
+        digest = plan_digest(tasks, record.get("hash"))
         if record.get("hash") != digest or not record.get("ok"):
             return True
     return False
@@ -5550,9 +5570,19 @@ def resume_thread(
 # --- tags / gate / check / archive / openspec ----------------------------------------
 
 
+def _is_text(path: Path) -> bool:
+    """Whether `path` reads as text; a file that does not is left out of the cycle check and
+    is reported for itself where it is selected."""
+    try:
+        path.read_bytes().decode()
+    except (UnicodeDecodeError, OSError):
+        return False
+    return True
+
+
 def _needs_cycle_problems(inst: Installation) -> dict[str, str]:
     """The message for each change that has a `Needs:` line on a cycle of the changes' groups."""
-    cycle = needs_cycle(inst.tasks_files())
+    cycle = needs_cycle([path for path in inst.tasks_files() if _is_text(path)])
     if not cycle:
         return {}
     chain = " -> ".join(f"{change} group {group}" for change, group in cycle)
@@ -5593,19 +5623,99 @@ def _tag_warnings(inst: Installation, path: Path) -> list[str]:
     ]
 
 
+def _rehashed(records: Mapping[str, dict], change: str, read: str, written: str) -> dict[str, dict]:
+    """The update that moves `change`'s plan record to the hash of `written`, when the record is
+    current for `read`, the text before the rewrite; nothing otherwise."""
+    record = records.get(change)
+    recorded = record.get("hash") if record else None
+    if record is None or recorded is None or text_digest(read, recorded) != recorded:
+        return {}
+    return {change: record | {"hash": text_digest(written)}}
+
+
+def _fix_change_tags(
+    inst: Installation, change: str, cycles: Mapping[str, str], *, dry_run: bool
+) -> bool:
+    """Rewrite the old test-kind tags of one change's tasks.md and print what happened; whether
+    it was handled, and not refused. A change is written only when the rewritten text parses to
+    the same groups and the original had no other tag problem."""
+    path = tasks_path(change, inst.changes_dir)
+
+    def refuse(reason: str) -> bool:
+        print(f"{change}: refused, {reason}")
+        return False
+
+    if not path.is_file():
+        return refuse(f"no tasks.md at {path}")
+    # Read and replaced under the lock a tick holds to tick the boxes, so neither loses the
+    # other's write.
+    with file_lock(path.with_name(f"{path.name}.lock")):
+        try:
+            text = path.read_bytes().decode()
+        except UnicodeDecodeError:
+            return refuse(f"{path} is not valid text")
+        except OSError as exc:
+            return refuse(f"could not read {path}: {exc}")
+        before, errors = _validated(inst, path)
+        if change.lower() in cycles:
+            print(cycles[change.lower()])
+            return refuse(f"a Needs: cycle, run `abk tags {change}`")
+        if errors:
+            for error in errors:
+                print(f"{path}:{error}")
+            return refuse(f"{len(errors)} other problem(s), run `abk tags {change}`")
+        fixed, count = retag_headings(text, current_tag)
+        if not count:
+            print(f"{change}: unchanged")
+            return True
+        with tempfile.TemporaryDirectory() as scratch:
+            probe = Path(scratch) / change / "tasks.md"
+            probe.parent.mkdir()
+            probe.write_bytes(fixed.encode())
+            after, after_errors = _validated(inst, probe)
+        if (before, []) != (after, after_errors):
+            return refuse("the rewritten tags do not parse to the same groups; nothing written")
+        if not os.access(path, os.W_OK):
+            return refuse(f"{path} is read-only")
+        if dry_run:
+            print(f"{change}: would rewrite {count} tag(s)")
+            return True
+        try:
+            atomic_write_bytes(path, fixed.encode())
+        except OSError as exc:
+            return refuse(f"could not write {path}: {exc}")
+        # A plan that stood before the rewrite stands after it: keep the record's other fields
+        # and move its hash to the rewritten text, whatever mix of spellings it hashed. Judged
+        # under the plans lock, against the record as it is and the text that was read.
+        update_plans(inst, lambda records: _rehashed(records, change, text, fixed))
+    print(f"{change}: rewrote {count} tag(s)")
+    return True
+
+
 def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
-    """Validate a change's task-group tags (or every change's)."""
+    """Validate a change's task-group tags (or every change's), or with `--fix` rewrite the old
+    test-kind tags of the open changes."""
+    fix = getattr(args, "fix", False)
+    command = "abk tags --fix" if fix else "abk tags"
+    if getattr(args, "dry_run", False) and not fix:
+        print("abk tags: --dry-run needs --fix", file=sys.stderr)
+        return 2
     if args.all and args.change:
-        print("abk tags: give a change or --all, not both", file=sys.stderr)
+        print(f"{command}: give a change or --all, not both", file=sys.stderr)
         return 2
     if not args.all and not args.change:
-        print("abk tags: name a change, or pass --all for every change", file=sys.stderr)
+        print(f"{command}: name a change, or pass --all for every change", file=sys.stderr)
         return 2
     changes = [t.parent.name for t in inst.tasks_files()] if args.all else [args.change]
     if not changes:
         # Silence reads as a failure; an empty store is a normal state.
         print(f"no changes in {inst.changes_dir}")
         return 0
+    if fix:
+        dry_run = getattr(args, "dry_run", False)
+        cycles = _needs_cycle_problems(inst)
+        handled = [_fix_change_tags(inst, change, cycles, dry_run=dry_run) for change in changes]
+        return 0 if all(handled) else 1
     failed = 0
     cycles = _needs_cycle_problems(inst)
     for change in changes:
@@ -6478,6 +6588,12 @@ def register(sub: argparse._SubParsersAction) -> None:
     tags = sub.add_parser("tags", help=tags_help, description=tags_help)
     tags.add_argument("change", nargs="?", help="the change to check")
     tags.add_argument("--all", action="store_true", help="every change in the store")
+    tags.add_argument(
+        "--fix", action="store_true", help="rewrite the old test-kind tags of open changes"
+    )
+    tags.add_argument(
+        "--dry-run", action="store_true", help="with --fix, print what would be rewritten"
+    )
     tags.set_defaults(func=cmd_tags)
 
     check = sub.add_parser("check", help="openspec validate --all --strict --json")

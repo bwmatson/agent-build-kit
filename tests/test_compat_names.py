@@ -75,5 +75,5 @@ def test_integration_test_is_returned_unchanged_and_is_not_an_old_spelling() -> 
     assert kind not in {old for _, old, _ in OLD_TO_NEW}
     assert kind not in {new for _, _, new in OLD_TO_NEW}
     assert all(forms.tag != kind for forms in KIND_FORMS.values())
-    with pytest.raises(StopIteration):
+    with pytest.raises(ValueError):
         old_spelling(TestTier.INTEGRATION_TEST)
