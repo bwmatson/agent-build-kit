@@ -113,6 +113,22 @@ def test_the_start_here_section_lists_the_recorded_results_and_the_verdict_tier(
     assert f"— {reason}" in start, "the tier line carries the recorded verdict's reason"
 
 
+def test_with_review_on_and_no_readable_verdict_the_pull_request_opens_without_a_tier_line(
+    tmp_path: Path,
+) -> None:
+    activate_with(review={"enabled": True})
+    (tmp_path / VERDICTS).mkdir()  # a directory where the file goes: nothing can be recorded
+    recorder = fresh(tmp_path)
+    bodies: list[dict[str, str]] = []
+
+    build(tmp_path, recorder, open_pr=capturing(recorder, bodies))
+
+    assert bodies, "the pull request was still opened"
+    start = start_section(bodies[0]["body"])
+    assert "Review tier" not in start
+    assert "seen to fail first" in start
+
+
 def test_with_no_verdict_record_the_section_has_no_tier_line(tmp_path: Path) -> None:
     activate_with(review={"enabled": False})
     recorder = fresh(tmp_path)
