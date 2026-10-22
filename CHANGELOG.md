@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- With review enabled, a pull request now carries one `review-auto`, `review-light` or
+  `review-full` label matching its unit's recorded verdict, on GitHub and Azure DevOps. A new
+  verdict swaps the label, and it stays on the pull request after the unit finishes. Like the
+  state labels it is cosmetic: a host without labels, or a failed call, is logged and ignored.
+
+- With review enabled, `abk status` lists the units awaiting review with the highest recorded
+  tier first (`full`, then `light`, then units with no verdict, then `auto`) and shows each
+  unit's tier. A unit with an `auto` verdict is still listed as awaiting review. The order only
+  changes what is shown, never which unit the pipeline works on next.
+
 - The `test:` and `feat:` commits of a build now carry a short body saying why: the first sentence
   of the change's proposal Why, then the task group's goal, with a line on what the commit holds.
   A body is bounded, cut at a word boundary, and never reads to git as a trailer or comment; a

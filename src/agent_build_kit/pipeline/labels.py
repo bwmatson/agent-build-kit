@@ -9,14 +9,20 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection
 from enum import StrEnum
+from pathlib import Path
 
+from agent_build_kit.config import active
 from agent_build_kit.forges import Forge, RepoId
+from agent_build_kit.pipeline.review_order import review_tier
 from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.verdict import ReviewTier
 from agent_build_kit.pipeline.vocabulary import (
     FINISHED,
     ChecksOf,
     change_label,
     effective_state,
+    review_label,
+    review_label_names,
     state_label,
     state_label_names,
 )
@@ -66,6 +72,28 @@ class StateLabels:
             ),
             repo,
         )
+
+    def set_review(self, repo: str, pr: int, tier: ReviewTier) -> None:
+        """Make `tier` the one review label on the pull request."""
+        label = review_label(tier)
+        self._try(
+            f"setting {label.name} on #{pr}",
+            lambda forge, repo_id: forge.set_exclusive_label(
+                repo_id, pr, label, family=review_label_names()
+            ),
+            repo,
+        )
+
+    def follow_review(self, unit: StoredUnit, verdicts: Path) -> None:
+        """Put the review label of the unit's recorded verdict on its pull request.
+
+        Nothing is written with review disabled, with no pull request or with no verdict.
+        """
+        if not active().review.enabled or unit.pr is None:
+            return
+        tier = review_tier(unit, verdicts)
+        if tier is not None:
+            self.set_review(unit.repo, unit.pr, tier)
 
     def clear_state(self, repo: str, pr: int) -> ClearOutcome:
         """Take every state label off the pull request of a finished unit.

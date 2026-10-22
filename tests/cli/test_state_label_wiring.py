@@ -15,10 +15,14 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING
-from agent_build_kit.pipeline.vocabulary import change_label
+from agent_build_kit.pipeline.verdict import ReviewTier
+from agent_build_kit.pipeline.verdict_record import VERDICTS
+from agent_build_kit.pipeline.vocabulary import change_label, review_label_names
 from tests.conftest import make_installation
+from tests.factories import activate_with
 from tests.factories import stored_unit as unit
 from tests.forges.stand_in import StandInForge
+from tests.verdict_fakes import write_verdicts
 
 PR = 7
 UNIT = "add-marker/1"
@@ -63,6 +67,37 @@ def test_the_store_the_cli_builds_labels_a_pull_request_as_its_unit_changes(
     store.set_state(UNIT, IN_REVIEW, pr=PR, branch=f"spec/{UNIT}")
 
     assert {"in-review", change_label("add-marker").name} <= forge.on_pr[PR]
+
+
+def test_the_store_the_cli_builds_puts_the_review_label_of_the_recorded_verdict_on_the_pull_request(
+    inst: Installation, forge: StandInForge
+) -> None:
+    activate_with(review={"enabled": True})
+    inst.state_dir.mkdir(parents=True, exist_ok=True)
+    write_verdicts(inst.state_dir / VERDICTS, {UNIT: ReviewTier.LIGHT})
+    store = cli.store_for(inst)
+    store.upsert([unit(UNIT)])
+
+    store.set_state(UNIT, IN_REVIEW, pr=PR, branch=f"spec/{UNIT}")
+    assert forge.on_pr[PR] & review_label_names() == {"review-light"}
+
+    write_verdicts(inst.state_dir / VERDICTS, {UNIT: ReviewTier.FULL})
+    store.set_state(UNIT, IN_REVIEW)
+    assert forge.on_pr[PR] & review_label_names() == {"review-full"}
+
+
+def test_the_store_the_cli_builds_writes_no_review_label_with_review_disabled(
+    inst: Installation, forge: StandInForge
+) -> None:
+    activate_with(review={"enabled": False})
+    inst.state_dir.mkdir(parents=True, exist_ok=True)
+    write_verdicts(inst.state_dir / VERDICTS, {UNIT: ReviewTier.LIGHT})
+    store = cli.store_for(inst)
+    store.upsert([unit(UNIT)])
+
+    store.set_state(UNIT, IN_REVIEW, pr=PR, branch=f"spec/{UNIT}")
+
+    assert forge.on_pr[PR] & review_label_names() == set()
 
 
 def test_the_store_the_cli_builds_makes_a_pull_request_a_draft_while_its_unit_runs(

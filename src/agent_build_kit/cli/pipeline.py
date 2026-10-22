@@ -204,6 +204,7 @@ from agent_build_kit.pipeline.restack_lane import (
     record_path,
     record_run_attempt,
 )
+from agent_build_kit.pipeline.review_order import review_order, review_tiers
 from agent_build_kit.pipeline.run_log import (
     RunLog,
     e2e_output_dir,
@@ -354,6 +355,7 @@ from agent_build_kit.pipeline.usage_guard import (
 )
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.verdict import ReviewTier, SplitRequest
+from agent_build_kit.pipeline.verdict_record import VERDICTS
 from agent_build_kit.pipeline.verify import SplitHeld, Verification, VerifyRecord, verify_change
 from agent_build_kit.pipeline.vocabulary import (
     WaitReason,
@@ -464,6 +466,7 @@ def store_for(inst: Installation) -> UnitStore:
             checks_of=recorded_checks(inst.state_dir),
             paused=parked_units(inst, units),
         )
+        labels.follow_review(unit, inst.state_dir / VERDICTS)
         drafts.follow(unit, units, opened=opened)
         # Equal, and only on the write that counted it (from `running`), so it is named once.
         counted = len(unit.history) > 1 and unit.history[-2].get("state") == RUNNING
@@ -922,7 +925,10 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         else:
             log(f"  attached: {held.unit_id}{where} — a chat is open with {files} changed")
 
-    for unit in units:
+    verdicts = inst.state_dir / VERDICTS
+    tiers = review_tiers(units, verdicts) if config.active().review.enabled else {}
+    shown_units = review_order(units, verdicts, tiers) if tiers else units
+    for unit in shown_units:
         where = unit_label(unit)
         if unit.tier == TestTier.INTEGRATION_TEST and unit.state not in (
             MERGED,
@@ -997,7 +1003,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
                 else "awaiting review"
             )
             ran_none = f" — {NO_TEST_RAN}" if unit.note == NO_TEST_RAN else ""
-            log(f"  {waiting}: {unit.id} ({where}) #{unit.pr or '?'}{mark}{ran_none}")
+            tier = tiers.get(unit.id)
+            shown_tier = f" — tier {tier.value}" if tier else ""
+            log(f"  {waiting}: {unit.id} ({where}) #{unit.pr or '?'}{shown_tier}{mark}{ran_none}")
     return 0
 
 

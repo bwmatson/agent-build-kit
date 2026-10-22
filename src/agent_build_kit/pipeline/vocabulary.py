@@ -29,6 +29,7 @@ from agent_build_kit.pipeline.units import (
     UnitState,
     waiting_on,
 )
+from agent_build_kit.pipeline.verdict import ReviewTier
 
 # A label a person adds to instruct the pipeline starts with this; one the
 # pipeline maintains never does.
@@ -155,6 +156,33 @@ def change_label(change: str) -> Label:
         color="64748b",
         description="The change this pull request belongs to",
     )
+
+
+_REVIEW_COLOURS = {
+    ReviewTier.AUTO: "16a34a",
+    ReviewTier.LIGHT: "ca8a04",
+    ReviewTier.FULL: "dc2626",
+}
+
+_REVIEW_DESCRIPTIONS = {
+    ReviewTier.AUTO: "Review found nothing that needs a person",
+    ReviewTier.LIGHT: "Review asks for a light look from a person",
+    ReviewTier.FULL: "Review asks for a full read from a person",
+}
+
+
+def review_label(tier: ReviewTier) -> Label:
+    """The label naming the review tier a unit's verdict gave its pull request."""
+    return Label(
+        name=f"review-{tier.value}",
+        color=_REVIEW_COLOURS[tier],
+        description=_REVIEW_DESCRIPTIONS[tier],
+    )
+
+
+def review_label_names() -> frozenset[str]:
+    """Every label the pipeline maintains as a unit's review tier."""
+    return frozenset(review_label(tier).name for tier in ReviewTier)
 
 
 # A unit's pull request's checks, as the last poll recorded them.
