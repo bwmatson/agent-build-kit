@@ -28,6 +28,7 @@ from agent_build_kit import claude_account, openspec, runtimes, skills, timers
 from agent_build_kit import config as config_module
 from agent_build_kit.cli.policy_cmd import PATTERNS_COMMAND, preview, write_recommended
 from agent_build_kit.config import (
+    CLAUDE_CODE,
     CONFIG_FILENAME,
     ConfigError,
     NotificationProvider,
@@ -660,7 +661,13 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
                 "abk.yaml is kept: its runtime and command are left as they are; "
                 "--runtime (with confirmation) or --force changes them"
             )
-        applied = chosen.applied_to(config) if chosen else config
+        # The drafted models are the default runtime's own names: another runtime's choice
+        # does not write them.
+        base = config
+        if chosen and chosen.runtime != CLAUDE_CODE:
+            kept_runtimes = {k: v for k, v in config.runtimes.items() if k != CLAUDE_CODE}
+            base = config.model_copy(update={"runtimes": kept_runtimes})
+        applied = chosen.applied_to(base) if chosen else config
         if not keeps:
             config = applied
     except RuntimeChoiceError as error:

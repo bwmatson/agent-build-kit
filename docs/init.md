@@ -74,7 +74,7 @@ agent runtime runs. Nothing in this step calls a model.
   marked default and listed first), Claude Code's documented aliases (one
   question first: `1` the default models, `2` choose per role, `3` type names),
   or, for an agent that lists none, a typed name that is not checked now. The
-  choice lands under `models:`; an empty role is the agent's own default.
+  choice lands under `runtimes.<name>.models`; an empty role is the agent's own default.
 - **A fallback.** When another runtime is usable, init offers to configure it
   too under `runtimes:`; `runtime:` still names the first. Declining its needs
   leaves it out.
@@ -84,7 +84,7 @@ agent runtime runs. Nothing in this step calls a model.
 
 The same answers can be given without a prompt: `--runtime NAME`,
 `--agent-command ARGV`, repeatable `--set key=value` (the key is where the
-answer is written, e.g. `models.review`) and `--runtime-config FILE` (a YAML
+answer is written, e.g. `runtimes.claude_code.models.review`) and `--runtime-config FILE` (a YAML
 fragment of `abk.yaml`). Every route is validated like a typed answer and an
 unknown key exits 2 naming it, also on a kept `abk.yaml`. With `--yes`, a
 single usable runtime is taken; none, or several without `--runtime`, exits 2

@@ -145,6 +145,19 @@ runtimes:                       # one entry per runtime that needs a fact abk
                                 # fails at load; only the selected runtime's
                                 # entry is checked.
   claude_code:                  # the Claude subscription: a five-hour session
+    models:                     # bare aliases, not pinned ids: this runtime's own
+                                # names for the roles. A role left out takes the
+                                # runtime's own default (these, on claude_code);
+                                # ABK_*_MODEL overrides win over both. A second
+                                # runtime names its own models under its own entry
+      implement: sonnet         # the tests, implementation and check-fix runs
+      rework: sonnet            # reworks, restack conflict resolution, adapt, when they
+                                # start a new session; a continued build session
+                                # keeps its model
+      review: opus              # the first review of a fresh build
+      rework_review: opus       # every review of a rework. Both reviews default
+                                # to a different model from the author's; if the
+                                # author is set to opus, set this to another
     context_windows: {}         # model id or alias -> window in tokens, for when the
                                 # result does not name it (read by this runtime only;
                                 # an acp agent says its own window); recorded as an
@@ -206,23 +219,7 @@ runtimes:                       # one entry per runtime that needs a fact abk
   #   policy: unchecked                   # the only value: carried on without
   #                                       # confirming the agent refuses what
   #                                       # the command policy forbids
-  #   models: {implement: "..."}          # only when a second runtime's model
-  #                                       # names must coexist with the block
-  #                                       # below
-
-models:                         # bare aliases, not pinned ids. These are the
-                                # ACTIVE runtime's models; a runtimes.<name>.
-                                # models block overrides them when present,
-                                # and a role left out of both takes the
-                                # runtime's own default (these, on claude_code).
-  implement: sonnet             # the tests, implementation and check-fix runs
-  rework: sonnet                # reworks, restack conflict resolution, adapt, when they
-                                # start a new session; a continued build session
-                                # keeps its model
-  review: opus                  # the first review of a fresh build
-  rework_review: opus           # every review of a rework. Both reviews default
-                                # to a different model from the author's; if the
-                                # author is set to opus, set this to another
+  #   models: {implement: "..."}          # this runtime's own model names
 
 session_reuse:                  # per agent role, whether its nodes continue the
   build: true                   # role's latest session. build: the tests,
@@ -947,7 +944,7 @@ loaded (`abk init` writes `.env.example` to copy).
 | `ABK_OPENSPEC_VERSION` | the `@fission-ai/openspec` version run through `npx`; a pin, so an upgrade is a deliberate change | `1.13.1` |
 | `ABK_USAGE_GUARD` | `on` or `off`; `off` makes the process take no usage reading and never pause for usage. For scratch installations of live tests; it is not an `abk.yaml` key and is never read from the file. Any other value is refused | `on` |
 | `ABK_RUNTIME` | overrides `runtime` on this machine, so a runtime can be tried on one invocation without moving every repo in the workspace | unset: the file's |
-| `ABK_IMPLEMENT_MODEL`, `ABK_REWORK_MODEL`, `ABK_REVIEW_MODEL`, `ABK_REWORK_REVIEW_MODEL` | per-machine overrides of `models.*` | unset: the file's |
+| `ABK_IMPLEMENT_MODEL`, `ABK_REWORK_MODEL`, `ABK_REVIEW_MODEL`, `ABK_REWORK_REVIEW_MODEL` | per-machine overrides of the active runtime's `runtimes.<name>.models.*` | unset: the file's |
 | `ABK_GATEWAY_URL`, `ABK_GATEWAY_MASTER_KEY` | the model gateway and the master key that may mint keys on it. Set both and each agent call gets a key of its own, its usage is read from the gateway's records and the key is revoked afterwards; set neither for no gateway; one alone is said once and mints nothing | unset |
 | `ABK_OTEL_ENABLED` | the one switch for telemetry (traces and metrics, see `telemetry.py`); nothing OpenTelemetry is imported while it is false. Needs the `telemetry` extra (`pip install agent-build-kit[telemetry]`); without it one line says so and the run carries on | `false` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | the OTLP/HTTP collector base URL; `/v1/traces` and `/v1/metrics` are appended | unset |
@@ -960,6 +957,11 @@ loaded (`abk init` writes `.env.example` to copy).
 A bad collector cannot fail or slow a run: exports are batched, a failure is
 at most a warning, and `shutdown()` is bounded. `abk doctor` warns when
 telemetry is enabled with no endpoint or one that does not answer.
+
+The flat top-level `models:` block is deprecated. It still loads, for the active
+runtime only, with a notice naming `runtimes.<active>.models` (which
+`abk config --migrate` moves it to); a role set in both places takes the runtime's
+value. Set the roles under `runtimes.<name>.models`.
 
 The model overrides name the *active* runtime's models: a role's model is
 resolved against whichever runtime is selected, so an override naming a model

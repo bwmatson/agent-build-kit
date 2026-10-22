@@ -323,15 +323,19 @@ no plugin discovery.
 ## Selecting a runtime, and per-role models
 
 An existing `abk.yaml` needs no edit. `runtime` defaults to `claude_code`,
-which requires no installation facts, and the flat `models:` block keeps
-meaning "the active runtime's models":
+which requires no installation facts. The roles are named under the runtime
+that uses them, `runtimes.<name>.models`; the flat top-level `models:` block is
+deprecated, still loads for the active runtime with a notice, and
+`abk config --migrate` moves it:
 
 ```yaml
-models:                   # unchanged; no runtimes: block needed at all
-  implement: sonnet
-  rework: sonnet
-  review: opus
-  rework_review: opus
+runtimes:
+  claude_code:
+    models:
+      implement: sonnet
+      rework: sonnet
+      review: opus
+      rework_review: opus
 ```
 
 A `runtimes:` entry appears only for a runtime that needs a fact abk cannot
@@ -344,7 +348,7 @@ runtimes:
   acp:
     command: [some-agent, acp]                  # how to spawn the ACP agent
     policy_fix: [scripts/constrain-agent.sh]    # what `abk init` offers to run
-    models: {implement: "..."}                  # only when two runtimes' names must coexist
+    models: {implement: "..."}                  # this runtime's own model names
 ```
 
 **Workspace-level, not per-repo.** A repo's `forge`/`profile` choice is about

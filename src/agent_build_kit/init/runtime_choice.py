@@ -256,8 +256,8 @@ def _pick_model(ask: Ask, role: str, names: list[str], *, listed: bool) -> str:
 
 
 def _models(runtime_name: str, values: Mapping[str, Any], *, ask: Ask) -> dict[str, Any]:
-    """The `models:` fragment the person chooses from what needs no model call: the agent's
-    advertised list, documented names, or a typed name."""
+    """The `runtimes.<name>.models` fragment the person chooses from what needs no model call:
+    the agent's advertised list, documented names, or a typed name."""
     runtime = runtimes.get(runtime_name)
     command = next(
         (
@@ -294,7 +294,7 @@ def _models(runtime_name: str, values: Mapping[str, Any], *, ask: Ask) -> dict[s
         for role in ModelsConfig.model_fields
         if (name := _pick_model(ask, role, names, listed=per_role))
     }
-    return {"models": chosen} if chosen else {}
+    return {"runtimes": {runtime_name: {"models": chosen}}} if chosen else {}
 
 
 def _first_usable(candidates: list[Candidate], runtime: str) -> Candidate | None:
@@ -386,8 +386,14 @@ def choose(
                 break
             ordered = show(candidates)
     runtime = runtime or ""
+    # Models given as the deprecated flat block (`--set models.review=...`) are the chosen
+    # runtime's own, so they are written under it, where the drafted defaults do not outrank them;
+    # a role the runtime's block also names keeps the runtime's value.
+    if "models" in values:
+        rest = {k: v for k, v in values.items() if k != "models"}
+        values = merge_values({"runtimes": {runtime: {"models": values["models"]}}}, rest)
     if not yes:
-        if "models" not in values:
+        if not _current(values, f"runtimes.{runtime}.models"):
             values = merge_values(values, _models(runtime, values, ask=ask))
         values = _fallbacks(candidates, runtime, values, **common)
     return Choice(runtime=runtime, values=values)

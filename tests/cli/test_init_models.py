@@ -11,9 +11,10 @@ from typing import Any
 import pytest
 import yaml
 
+from agent_build_kit import config as config_module
 from agent_build_kit.cli import init as init_cmd
 from agent_build_kit.cli import main
-from agent_build_kit.config import ModelsConfig
+from agent_build_kit.config import CLAUDE_CODE, ModelsConfig, load
 from agent_build_kit.runtimes import PolicyReport, policy_check
 from agent_build_kit.runtimes.known_agents import KnownAgent, StartVariant
 from tests.cli.init_choice_fakes import (
@@ -45,8 +46,10 @@ def written(planning: Path) -> dict[str, Any]:
 
 
 def named_models(planning: Path) -> dict[str, str]:
-    """The roles abk.yaml's `models:` block names, with the names it gives."""
-    return {k: v for k, v in (written(planning).get("models") or {}).items() if v}
+    """The roles `runtimes.<written runtime>.models` names, with the names it gives."""
+    document = written(planning)
+    own = (document.get("runtimes") or {}).get(document.get("runtime", CLAUDE_CODE)) or {}
+    return {k: v for k, v in (own.get("models") or {}).items() if v}
 
 
 # --- what a known agent needs --------------------------------------------------------------
@@ -144,6 +147,10 @@ def test_a_model_is_chosen_per_role_from_the_documented_aliases(
     assert "documented" in shown
     assert named_models(planning)["review"] == "sonnet"
     assert named_models(planning)["implement"] == "haiku"
+    assert "models" not in written(planning)
+    config_module.activate(load(planning / "abk.yaml"))
+    resolved = config_module.models()
+    assert (resolved.implement, resolved.review) == ("haiku", "sonnet")
 
 
 def test_typed_model_names_are_written_as_given_and_not_tested_by_asking(
@@ -253,6 +260,48 @@ def test_listing_models_opens_a_session_and_sends_no_prompt_to_an_agent_that_fai
     assert code == 0
     assert len(requests(record, "session/new")) >= 1
     assert requests(record, "session/prompt") == []
+
+
+def test_another_runtimes_choice_drops_the_drafted_claude_code_names_and_keeps_its_own(
+    planning: Path,
+    app: Path,  # noqa: F811 — fixture
+    events: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    machine(monkeypatch, ("alpha-bin",), Offering("alpha", events=events), events=events)
+    flags = ["--set", "runtimes.alpha.command=alpha-bin serve", "--set", "models.review=a-2"]
+
+    assert main(init_args(planning, app, "--yes", "--runtime", "alpha", *flags)) == 0
+
+    document = written(planning)
+    assert CLAUDE_CODE not in document["runtimes"]
+    assert "models" not in document
+    assert document["runtimes"]["alpha"]["models"] == {"review": "a-2"}
+
+
+def test_a_role_given_flat_and_under_the_runtime_keeps_the_runtimes_value(
+    planning: Path,
+    app: Path,  # noqa: F811 — fixture
+    events: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    machine(monkeypatch, ("alpha-bin",), Offering("alpha", events=events), events=events)
+    flags = [
+        "--set",
+        "runtimes.alpha.command=alpha-bin serve",
+        "--set",
+        "runtimes.alpha.models.review=b",
+        "--set",
+        "models.review=a",
+        "--set",
+        "models.implement=c",
+    ]
+
+    assert main(init_args(planning, app, "--yes", "--runtime", "alpha", *flags)) == 0
+
+    document = written(planning)
+    assert "models" not in document
+    assert document["runtimes"]["alpha"]["models"] == {"review": "b", "implement": "c"}
 
 
 def test_an_offered_runtime_is_listed_against_the_command_chosen_before_it_is_written(

@@ -82,7 +82,10 @@ def test_typed_answers_set_and_a_runtime_config_file_write_the_same_fragment(
     fragment.write_text(yaml.safe_dump(FRAGMENT))
     assert main(init_args(filed, app, "--yes", "--runtime-config", str(fragment))) == 0
 
-    assert answered(typed)["models"] == {"review": "a-2"}
+    assert answered(typed)["runtimes"]["alpha"]["models"] == {"review": "a-2"}
+    assert "models" not in answered(flagged), (
+        "the deprecated flat block is written under the runtime"
+    )
     assert answered(typed) == answered(flagged) == answered(filed)
     assert answered(filed)["runtimes"]["alpha"]["command"] == ["alpha-bin", "serve"]
 

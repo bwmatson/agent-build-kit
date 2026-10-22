@@ -30,6 +30,8 @@ EXEMPT_NAMES = frozenset(
         "CHANGELOG.md",
         "agent-efficient-coding-philosophy.md",
         "risk-tiered-review-design.md",
+        "migrate-to-risk-tiered-review.md",
+        "hold-a-e2e-split.md",
     }
 )
 EXEMPT_PREFIXES = ("test_rename_test_kinds", "test_config_migrate_test_kind_keys")
