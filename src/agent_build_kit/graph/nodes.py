@@ -187,6 +187,9 @@ AGENT_NODES = frozenset(
         Node.ADAPT,
     }
 )
+# The nodes a unit with a step only a person can do is parked before: each agent step, and the
+# two that put the branch on the host.
+MANUAL_GATED = AGENT_NODES | {Node.PUSH, Node.OPEN_PR}
 # The agent nodes that edit the tree: a dirty tree left by a killed run of one of
 # these is that node's own work to carry on from. Review writes nothing.
 EDITING_NODES = frozenset(
@@ -527,7 +530,7 @@ class BuildPath:
 
     def _step(self, node: Node, body: Callable[[UnitRun], Update], state: UnitRun) -> Update:
         # Between steps, never inside one: a held unit has finished the step it was in.
-        if node in AGENT_NODES and (waiting := self.manual_wait(node)):
+        if node in MANUAL_GATED and (waiting := self.manual_wait(node)):
             return waiting
         gated = (
             node in GATED

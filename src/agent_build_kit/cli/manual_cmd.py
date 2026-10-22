@@ -14,11 +14,10 @@ import sys
 from pathlib import Path
 
 from agent_build_kit.cli.install_config import Refused, worktree_root
-from agent_build_kit.cli.pipeline import evaluate_manual_waits
+from agent_build_kit.cli.pipeline import evaluate_manual_waits, store_for
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.manual_steps import MANUAL_FOLDER
 from agent_build_kit.pipeline.shell import git
-from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import ManualStep
 
 
@@ -61,7 +60,7 @@ def cmd_manual_raise(args: argparse.Namespace, inst: Installation) -> int:
     try:
         worktree = worktree_root()
         unit_id = _unit_id(worktree, inst.config.git.branch_prefix)
-        store = UnitStore(inst.state_dir / "units.json")
+        store = store_for(inst)
         try:
             held = store.get(unit_id)
         except KeyError:
@@ -81,7 +80,7 @@ def cmd_manual_raise(args: argparse.Namespace, inst: Installation) -> int:
 
 def cmd_manual_check(args: argparse.Namespace, inst: Installation) -> int:
     """Run the checks of the outstanding steps now, as a tick pass does."""
-    store = UnitStore(inst.state_dir / "units.json")
+    store = store_for(inst)
     if args.slug and not any(
         step.slug == args.slug and not step.done
         for unit in store.all()

@@ -15,7 +15,9 @@ import pytest
 
 from agent_build_kit.cli import main
 from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.cli.pipeline import Resumed
 from agent_build_kit.config import dump
+from agent_build_kit.graph.state import EventKind, ResumeEvent
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.manual_steps import evaluate_manual_steps
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
@@ -65,7 +67,7 @@ class World:
         return next(s for s in self.store.get(UNIT).manual_steps if s.slug == slug)
 
     def evaluate(self) -> None:
-        evaluate_manual_steps(self.inst, now=NOW)
+        evaluate_manual_steps(self.inst, self.store, now=NOW)
 
     def waits(self, **kw: Any) -> dict[str, Wait]:
         return cli.wait_reasons(
@@ -79,7 +81,7 @@ class World:
         )
 
 
-def make_world(tmp_path: Path, *, slots: int = 50, seconds: int = 2) -> World:
+def make_world(tmp_path: Path, *, slots: int = 50, seconds: int = 30) -> World:
     inst = make_installation(
         tmp_path / "planning",
         planning=dict(state_dir=".", worktree_root=str(tmp_path / "trees")),
@@ -120,7 +122,7 @@ def test_a_failing_check_leaves_the_step_unmet_and_keeps_the_line_it_printed(wor
     assert step.checked_at == NOW
 
 
-def test_a_passing_check_marks_the_step_done_and_readmits_the_unit_where_it_stopped(
+def test_a_passing_check_marks_the_step_done_and_records_it_on_the_unit_where_it_stopped(
     world: World,
 ) -> None:
     world.wait_on(raised(passing_once_flagged(world)))
@@ -132,7 +134,6 @@ def test_a_passing_check_marks_the_step_done_and_readmits_the_unit_where_it_stop
     stored = world.store.get(UNIT)
     assert world.step().done is True
     assert stored.state == PLANNED and stored.step == "open_pr"
-    assert world.waits()[UNIT].reason is not WaitReason.MANUAL
     added = world.store.history(UNIT)[before:]
     assert len(added) == 1 and SLUG in added[0]["note"]
 
@@ -177,7 +178,19 @@ def test_a_unit_with_two_steps_is_readmitted_only_when_both_are_done(world: Worl
     assert world.waits()[UNIT].reason is WaitReason.MANUAL
     (world.tree / "flag").write_text("")
     world.evaluate()
-    assert world.waits()[UNIT].reason is not WaitReason.MANUAL
+    assert (world.step("first").done, world.step("second").done) == (True, True)
+    assert "readmitting" in world.waits()[UNIT].detail
+
+
+def test_a_unit_whose_steps_are_done_but_not_yet_readmitted_does_not_read_as_ready(
+    world: World,
+) -> None:
+    world.wait_on(raised(world.script("exit 0")))
+
+    world.evaluate()
+
+    wait = world.waits()[UNIT]
+    assert wait.reason is WaitReason.MANUAL and "readmitting" in wait.detail
 
 
 @pytest.mark.parametrize(
@@ -275,6 +288,9 @@ def test_a_round_runs_each_check_once_and_readmits_the_unit(
 
     assert len(runs.read_text().splitlines()) == 3
     assert world.step().done is True
+    stored = world.store.get(UNIT)
+    assert stored.cause is Cause.REQUEUED
+    assert stored.history[-1]["note"] == f"requeued: manual step {SLUG} done"
 
 
 def test_a_dry_run_changes_nothing_in_the_store(world: World) -> None:
@@ -282,7 +298,7 @@ def test_a_dry_run_changes_nothing_in_the_store(world: World) -> None:
     world.wait_on(raised(passing_once_flagged(world)))
     before = world.store.get(UNIT)
 
-    evaluate_manual_steps(world.inst, now=NOW, dry_run=True)
+    evaluate_manual_steps(world.inst, world.store, now=NOW, dry_run=True)
 
     assert world.store.get(UNIT) == before
 
@@ -344,16 +360,31 @@ def test_a_unit_with_a_declared_unmet_step_is_not_started_past_prepare(tmp_path:
 
 
 class Raising(Sessions):
-    """A builder that raises a step in its first call, as `abk manual raise` does."""
+    """A builder that raises a step in its call number `at` (the first is the tests, the second
+    the implementation, the third the review), as `abk manual raise` does."""
 
-    def __init__(self, recorder: Any) -> None:
+    def __init__(self, recorder: Any, at: int = 1, check: str = "exit 1") -> None:
         super().__init__()
         self.recorder = recorder
+        self.at = at
+        self.check = check
 
     def run(self, request: Any) -> Any:
-        if not self.requests:
-            self.recorder.store.set_manual_steps(unit().id, (raised("exit 1"),))
+        if len(self.requests) + 1 == self.at:
+            self.recorder.store.set_manual_steps(unit().id, (raised(self.check),))
         return super().run(request)
+
+
+def parked_waits(tmp_path: Path, recorder: Any) -> dict[str, Wait]:
+    inst = make_installation(tmp_path / "planning")
+    return cli.wait_reasons(
+        inst,
+        recorder.store.all(),
+        started=set(),
+        building=set(),
+        only=frozenset(),
+        usage_paused=False,
+    )
 
 
 def test_a_unit_that_raises_a_step_mid_run_parks_as_waiting_and_is_not_failed(
@@ -366,8 +397,55 @@ def test_a_unit_that_raises_a_step_mid_run_parks_as_waiting_and_is_not_failed(
 
     stored = recorder.store.get(unit().id)
     assert stored.state == PLANNED and stored.state not in (FAILED, HELD)
-    assert stored.cause is not Cause.FAILED
+    assert stored.cause is Cause.MANUAL_STEP
     assert "push" not in recorder.events
+    assert parked_waits(tmp_path, recorder)[unit().id].reason is WaitReason.MANUAL
+
+
+def test_a_step_raised_in_the_review_call_parks_the_unit_before_anything_is_pushed(
+    tmp_path: Path,
+) -> None:
+    recorder = fresh(tmp_path)
+    runtime = Raising(recorder, at=3)
+
+    tick(tmp_path, recorder, **agents(runtime))
+
+    stored = recorder.store.get(unit().id)
+    assert len(runtime.requests) == 3, "the review was the last call"
+    assert "push" not in recorder.events and "open_pr" not in recorder.events
+    assert stored.state == PLANNED and stored.cause is Cause.MANUAL_STEP
+    assert parked_waits(tmp_path, recorder)[unit().id].reason is WaitReason.MANUAL
+
+
+def test_a_readmitted_unit_goes_on_at_the_agent_step_it_was_parked_before(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recorder = fresh(tmp_path)
+    runtime = Raising(recorder, at=2, check="test -f flag")
+    tick(tmp_path, recorder, **agents(runtime))
+    assert len(runtime.requests) == 2, "the tests and the implementation have run"
+    inst = make_installation(tmp_path / "planning")
+    checkout = inst.checkouts["app"]
+    checkout.mkdir(parents=True)
+    delivered: list[str] = []
+
+    def deliver(_inst: Any, held: Any, kind: str, *, store: Any, reason: str, **kw: Any) -> Any:
+        """The thread's side of the resume, as `resume_thread` makes it."""
+        delivered.append(reason)
+        event = ResumeEvent(kind=EventKind(kind), reason=reason, requeue=kw["requeue"])
+        return Resumed(outcome=tick(tmp_path, recorder, event=event, **agents(runtime)))
+
+    monkeypatch.setattr(cli, "resume_thread", deliver)
+
+    cli.evaluate_manual_waits(inst, recorder.store)
+    assert delivered == [], "the step is not done yet"
+    (checkout / "flag").write_text("")
+    cli.evaluate_manual_waits(inst, recorder.store)
+    tick(tmp_path, recorder, **agents(runtime))
+
+    assert delivered == [f"manual step {SLUG} done"]
+    assert len(runtime.built) == 2, "no restart from the tests"
+    assert [request.role for request in runtime.requests[2:3]] == ["review"]
 
 
 # --- abk manual check -----------------------------------------------------------------------

@@ -124,12 +124,17 @@ def _removed(installation: Installation, unit: StoredUnit, step: ManualStep) -> 
 
 
 def evaluate_manual_steps(
-    installation: Installation, *, now: datetime, dry_run: bool = False, slug: str = ""
+    installation: Installation,
+    store: UnitStore,
+    *,
+    now: datetime,
+    dry_run: bool = False,
+    slug: str = "",
 ) -> list[ManualAction]:
-    """Run the check of every unmet step of every waiting unit (only the step `slug` when
-    given), record the result, and mark a passing step done. A unit whose last step is done gets
-    a history entry that says so, which its readmission follows. With `dry_run` only report."""
-    store = UnitStore(installation.state_dir / "units.json")
+    """Run the check of every unmet step of every waiting unit in `store` (only the step `slug`
+    when given), record the result, and mark a passing step done. A unit whose last step is done
+    gets a history entry that says so, which its readmission follows. With `dry_run` only
+    report."""
     actions: list[ManualAction] = []
     for unit in store.all():
         if unit.state != PLANNED:

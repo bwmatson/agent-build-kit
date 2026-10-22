@@ -268,6 +268,7 @@ from agent_build_kit.pipeline.units import (
     in_progress,
     in_progress_label,
     local_ref,
+    parked_for_manual_step,
     parked_on_split,
     priority_note,
     project_counts,
@@ -1355,7 +1356,9 @@ def evaluate_manual_waits(
     """Run the checks of the manual steps units wait on, with no agent call and no usage
     reading, and deliver the resume to each unit whose last step is now done. A dry run says
     what it found and changes nothing."""
-    for action in evaluate_manual_steps(inst, now=spans.clock.now(), dry_run=dry_run, slug=slug):
+    for action in evaluate_manual_steps(
+        inst, store, now=spans.clock.now(), dry_run=dry_run, slug=slug
+    ):
         said = f"{action.unit}: manual step {action.slug} {action.outcome}"
         log(f"{said}: {action.line}" if action.line else said)
     if dry_run:
@@ -6758,6 +6761,9 @@ def _planned_wait(
         return Wait(reason=WaitReason.BLOCKED, waits_on=tuple(parent.id for parent in parents))
     if steps := unmet_steps(unit):
         return Wait(reason=WaitReason.MANUAL, detail=manual_status_line(steps[0]))
+    if parked_for_manual_step(unit):
+        # Its steps are done and the resume is yet to be delivered: not ready, whatever follows.
+        return Wait(reason=WaitReason.MANUAL, detail="manual steps done, readmitting")
     # Not ready for want of work another unit has to finish: a requeue gated on a merge,
     # or a stack deeper than may be built until what it stacks on merges.
     if awaits_release(unit) or depth_of(unit, view) > inst.stack_depth_build_cap:
