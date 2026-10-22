@@ -208,6 +208,12 @@ SEPARATE_LINE = re.compile(r"^Separate:\s*(?P<reason>.*?)\s*$", re.I)
 # group of its change. The reason is what review agrees to.
 INDEPENDENT_LINE = re.compile(r"^Independent:\s*(?P<reason>.*?)\s*$", re.I)
 
+# "Support: `scripts/seed.sh`, `compose.e2e.yml` — <reason>", inside an e2e-test group: the
+# files it may hold beside tests, docs and the changelog; a trailing `/` covers a directory.
+SUPPORT_LINE = re.compile(
+    r"^Support:\s*(?P<paths>(?:`[^`]+`[\s,]*)+)(?:[—–-]+\s*(?P<reason>.*?))?\s*$", re.I
+)
+
 # "Manual: <slug> — <what a person does> — runbook: <path>#<heading>", inside a group: a step
 # only a person can do, with the runbook entry that says how. A `Check: <command>` line after
 # it is the deterministic check the tick runs to see the step is done.
@@ -373,6 +379,7 @@ def validate_tasks(
     independent: dict[int, int] = {}
     manual: dict[int, list[ManualStep]] = {}
     manual_slugs: set[str] = set()
+    support: dict[int, list[str]] = {}
     current: int | None = None
     default_priority: int | None = None
     priorities: dict[int, int] = {}
@@ -476,6 +483,26 @@ def validate_tasks(
                             "what review agrees to",
                         )
                     )
+            if current is not None and text.strip().lower().startswith("support:"):
+                found = SUPPORT_LINE.match(text.strip())
+                if reading is not None and reading[2] != TestTier.E2E_TEST:
+                    errors.append(
+                        ValidationError(
+                            line=index,
+                            message="`Support:` is for an [e2e-test] group, which holds tests "
+                            f"only; group {reading[0]} is a {reading[2]} group",
+                        )
+                    )
+                elif found is None or not found["reason"]:
+                    errors.append(
+                        ValidationError(
+                            line=index,
+                            message="`Support:` reads `Support: `<path>`, ... — <reason>`, "
+                            "with a reason after the paths — the reason is what review agrees to",
+                        )
+                    )
+                elif reading is not None:
+                    support.setdefault(current, []).extend(re.findall(r"`([^`]+)`", found["paths"]))
             if current is not None and text.strip().lower().startswith("manual:"):
                 step = MANUAL_LINE.match(text.strip())
                 if step is None or not step["text"]:
@@ -623,6 +650,7 @@ def validate_tasks(
             separate=g.line in separate,
             independent=g.line in independent,
             manual_steps=tuple(manual.get(g.line, ())),
+            support=tuple(support.get(g.line, ())),
             priority=priorities.get(
                 g.line, Priority.NORMAL if default_priority is None else default_priority
             ),

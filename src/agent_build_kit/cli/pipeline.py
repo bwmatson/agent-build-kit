@@ -111,6 +111,7 @@ from agent_build_kit.pipeline.e2e_holds import (
     split_gates,
 )
 from agent_build_kit.pipeline.e2e_schedule import any_due, write_due
+from agent_build_kit.pipeline.e2e_scope import product_path_warnings
 from agent_build_kit.pipeline.events import (
     Restack,
     build_base_tip,
@@ -6101,6 +6102,7 @@ def _tag_warnings(inst: Installation, path: Path) -> list[str]:
         ),
         *old_test_kind_warnings(path),
         *redundant_separate_warnings(path),
+        *product_path_warnings(inst, path),
         *manual_runbook_warnings(path, inst.root),
         *inverted_group_warnings(
             path,
