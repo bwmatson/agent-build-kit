@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from agent_build_kit.pipeline.verdict_record import VERDICTS
+from agent_build_kit.pipeline.verdict_record import VERDICTS, mark_brief
 from tests.factories import activate_with
 from tests.graph.test_build_path import build, fresh
 from tests.runner_fakes import Recorder, approving
@@ -52,14 +52,34 @@ def test_a_body_without_the_section_leaves_brief_false(tmp_path: Path) -> None:
 
 
 def test_a_unit_with_no_record_is_left_with_none_and_logs_no_failure(tmp_path: Path) -> None:
-    activate_with(review={"enabled": False, "brief": True})
+    path = tmp_path / VERDICTS
+
+    mark_brief(path, UNIT_ID)
+    assert not path.exists()
+
+    other = json.dumps({"other/1": {"brief": False}})
+    path.write_text(other)
+    mark_brief(path, UNIT_ID)
+    assert path.read_text() == other
+
+
+def test_opening_a_pr_for_a_unit_with_no_record_logs_nothing_of_the_verdict(
+    tmp_path: Path,
+) -> None:
+    activate_with(review={"enabled": True, "brief": True})
     recorder = fresh(tmp_path)
     recorder.verdicts = [approving()]
+    push = recorder.push
 
-    build(tmp_path, recorder)
+    def push_then_forget(branch: str, *, cwd: Path) -> str:
+        sha = push(branch, cwd=cwd)
+        (tmp_path / VERDICTS).unlink(missing_ok=True)
+        return sha
 
-    assert not (tmp_path / VERDICTS).exists()
+    build(tmp_path, recorder, push=push_then_forget)
+
     assert recorder.pr_calls == 1
+    assert not (tmp_path / VERDICTS).exists()
     assert not [line for line in recorder.logged if "verdict" in line.lower()]
 
 

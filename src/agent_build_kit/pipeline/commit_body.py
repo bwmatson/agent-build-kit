@@ -6,7 +6,7 @@ import re
 from collections.abc import Sequence
 from pathlib import Path
 
-from agent_build_kit.pipeline.pr_body import _why_text
+from agent_build_kit.pipeline.pr_body import why_text
 from agent_build_kit.pipeline.stack_runner import GroupStep
 
 SENTENCE_LIMIT = 200
@@ -51,7 +51,7 @@ def commit_body(steps: Sequence[GroupStep], *, tests: bool) -> str:
         if step.change_dir in seen:
             continue
         seen.add(step.change_dir)
-        why = _first_sentence(_why_text(directory.parent, directory.name))
+        why = _first_sentence(why_text(directory.parent, directory.name))
         if why:
             sentences.append(why)
     sentences.extend(step.goal for step in steps if step.goal)

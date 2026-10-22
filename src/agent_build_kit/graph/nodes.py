@@ -1489,13 +1489,15 @@ class BuildPath:
         return step.title if step else self.unit.title
 
     def message(self, prefix: str, tests: bool, state: UnitRun) -> str:
-        """A commit message: in a stubbed build the group's subject, then a body saying why the
-        change exists when it can (the tests commit or the implementation's); else the subject."""
+        """A commit message: the subject (the group's in a stubbed build, else the unit's), then a
+        body saying why the change exists when it can: from the group being built, or from every
+        group the unit builds when it is not stubbed."""
         step = self.group_step(state)
-        if step is None:
-            return f"{prefix}{self.unit.title}"
-        body = commit_body([step], tests=tests)
-        return f"{prefix}{step.title}" + (f"\n\n{body}" if body else "")
+        steps = [step] if step else self.runner.group_steps(self.unit)
+        body = commit_body(steps, tests=tests)
+        return f"{prefix}{step.title if step else self.unit.title}" + (
+            f"\n\n{body}" if body else ""
+        )
 
     def unpaired(self, state: UnitRun, ref: str) -> str:
         """What the branch lacks for the group just built or an earlier one, named: a tests
@@ -2553,7 +2555,7 @@ class BuildPath:
             try:
                 mark_brief(r.store.path.with_name(VERDICTS), unit.id)
             except Exception as failed:  # noqa: BLE001
-                self.say(f"could not mark the verdict record as carrying the brief:{failed}")
+                self.say(f"could not mark the verdict record as carrying the brief: {failed}")
         if state.spent:
             outstanding = cut_head(" ".join(stored.feedback.split()), 300, "char")
             note = f"rounds spent with work outstanding: {outstanding}"

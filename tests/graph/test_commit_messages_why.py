@@ -41,6 +41,26 @@ def test_each_commit_is_title_body_and_trailer(tmp_path: Path) -> None:
     assert made[0].split("\n\n")[1:] != made[1].split("\n\n")[1:]
 
 
+def test_an_unstubbed_build_commits_carry_the_why_and_every_groups_goal(tmp_path: Path) -> None:
+    proposal(tmp_path, WHY)
+    groups: Groups = {
+        1: ("Parse the key", "Done when the key parses."),
+        2: ("Use the key", "Done when the key is used."),
+    }
+    _, outcome, repo = built(tmp_path, setting=False, groups={"add-marker": groups})
+
+    assert outcome.status == "open"
+    made = messages(repo)
+    assert len(made) == 2
+    for message, prefix in zip(made, ("test: ", "feat: "), strict=True):
+        parts = message.split("\n\n")
+        assert parts[0].startswith(prefix)
+        assert parts[-1] == TRAILER
+        body = "\n\n".join(parts[1:-1])
+        assert body.count(WHY) == 1
+        assert "Done when the key parses." in body and "Done when the key is used." in body
+
+
 def test_a_unit_with_no_body_keeps_the_message_of_before(tmp_path: Path) -> None:
     _, outcome, repo = built(tmp_path, groups={"add-marker": {1: ("Parse the key", "")}})
 

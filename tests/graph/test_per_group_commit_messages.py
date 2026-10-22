@@ -1,6 +1,6 @@
-"""Each commit of a per-group build says why: a fixed sentence for what it holds, then the group's
-"Done when" sentence when it has one, and the unit trailer stays (spec: per-group-commits). The
-branch is real, so the messages are read back from git."""
+"""Each commit of a per-group build says why: a fixed sentence for what it holds, the change's Why
+sentence and the group's "Done when" sentence when it has one, and the unit trailer stays (spec:
+per-group-commits). The branch is real, so the messages are read back from git."""
 
 from __future__ import annotations
 
