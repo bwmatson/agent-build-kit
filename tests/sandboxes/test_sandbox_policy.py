@@ -6,10 +6,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
+from agent_build_kit.config import ConfigError
+from agent_build_kit.installation import Installation, load_installation
+from agent_build_kit.sandboxes import Coverage
 from agent_build_kit.sandboxes.policy import PolicyRefused, build_policy
-from tests.conftest import make_installation
 
 # The home shorthand, held apart so no line reads as a path under a home directory.
 HOME_MARK = "~"
@@ -58,6 +61,23 @@ class Scene:
             }
         }
 
+    def installation(
+        self,
+        sandbox: dict[str, Any] | None = None,
+        projects: list | None = None,
+        local: dict[str, Any] | None = None,
+    ) -> Installation:
+        """The installation a real load gives: abk.yaml and abk.local.yaml written to disk."""
+        self.root.mkdir(exist_ok=True)
+        (self.root / "abk.yaml").write_text(
+            yaml.safe_dump({"repos": self.repos(sandbox, projects)})
+        )
+        overlay = self.root / "abk.local.yaml"
+        overlay.unlink(missing_ok=True)
+        if local is not None:
+            overlay.write_text(yaml.safe_dump(local))
+        return load_installation(self.root / "abk.yaml")
+
     def policy(
         self,
         sandbox: dict[str, Any] | None = None,
@@ -67,11 +87,9 @@ class Scene:
         profile: object = BareProfile(),
         local: dict[str, Any] | None = None,
     ):
-        installation = make_installation(self.root, repos=self.repos(sandbox, projects))
+        installation = self.installation(sandbox, projects, local)
         self.worktree.mkdir(exist_ok=True)
-        return build_policy(
-            installation, "app", self.worktree, runtime=runtime, profile=profile, local=local
-        )
+        return build_policy(installation, "app", self.worktree, runtime=runtime, profile=profile)
 
 
 @pytest.fixture
@@ -103,9 +121,40 @@ def test_the_policy_is_frozen_and_carries_the_lists_and_required(scene: Scene) -
     assert "pypi.org" in policy.hosts
     assert isinstance(policy.write, tuple)
     assert isinstance(policy.read, tuple)
-    assert policy.required.value in {"process", "files", "none"}
     with pytest.raises(ValidationError, match="frozen"):
         policy.hosts = ()  # type: ignore[misc]
+
+
+def test_required_comes_from_the_repos_configuration(scene: Scene) -> None:
+    assert scene.policy({"required": "none"}).required is Coverage.NONE
+    assert scene.policy({"required": "process"}).required is Coverage.PROCESS
+
+
+def test_the_committed_file_is_kept_when_the_local_file_sets_the_same_keys(scene: Scene) -> None:
+    """The loaded configuration has the overlay's list in place of the committed one; the policy
+    still takes the committed entries first, then the local ones, once each."""
+    a, e, shared = (str(scene.tmp / name) for name in ("a", "e", "shared"))
+    policy = scene.policy(
+        {"write": [a, shared], "hosts": ["h-committed", "h-both"]},
+        local={
+            "repos": {"app": {"sandbox": {"write": [e, shared], "hosts": ["h-both", "h-local"]}}}
+        },
+    )
+
+    named_paths = [scene.tmp / name for name in ("a", "shared", "e")]
+    assert [p for p in policy.write if p in named_paths] == named_paths
+    named = {"h-committed", "h-both", "h-local"}
+    assert [h for h in policy.hosts if h in named] == ["h-committed", "h-both", "h-local"]
+
+
+def test_a_local_list_that_is_not_a_list_is_refused(scene: Scene) -> None:
+    with pytest.raises(ConfigError):
+        scene.policy(local={"repos": {"app": {"sandbox": {"write": "some/path"}}}})
+
+
+def test_a_local_key_the_schema_does_not_know_is_refused(scene: Scene) -> None:
+    with pytest.raises(ConfigError):
+        scene.policy(local={"repos": {"app": {"sandbox": {"writes": ["x"]}}}})
 
 
 def test_a_profile_and_a_runtime_without_the_member_add_nothing(scene: Scene) -> None:
@@ -157,8 +206,24 @@ def test_a_path_resolves_to_one_absolute_path(scene: Scene, given: str, expected
 
 @pytest.mark.parametrize(
     "grant",
-    ["{root}/abk.yaml", "{root}/abk.local.yaml", "{root}/openspec", "{root}", "{parent}"],
-    ids=["abk.yaml", "abk.local.yaml", "specs", "planning root", "a parent of it"],
+    [
+        "{root}/abk.yaml",
+        "{root}/abk.local.yaml",
+        "{root}/openspec",
+        "{root}/openspec/changes",
+        "{root}/openspec/specs/x",
+        "{root}",
+        "{parent}",
+    ],
+    ids=[
+        "abk.yaml",
+        "abk.local.yaml",
+        "specs",
+        "inside specs",
+        "deep inside specs",
+        "planning root",
+        "a parent of it",
+    ],
 )
 def test_a_grant_of_what_a_person_owns_is_refused_with_the_reason(scene: Scene, grant: str) -> None:
     given = grant.format(root=scene.root, parent=scene.root.parent)

@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from enum import StrEnum
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from agent_build_kit.model import Frozen
 
@@ -43,6 +43,20 @@ class SandboxPolicy(Frozen):
 
 class SandboxUnavailable(Exception):
     """No backend can be applied here; the message names the cause and the fix."""
+
+
+@runtime_checkable
+class SandboxPathsRuntime(Protocol):
+    """The optional member a runtime adds to grant paths and hosts to its own steps."""
+
+    def sandbox_paths(self) -> dict[str, list[str]]: ...
+
+
+@runtime_checkable
+class SandboxPathsProfile(Protocol):
+    """The optional member a toolchain profile adds to grant what its tools write."""
+
+    def sandbox_paths(self, worktree: Path) -> dict[str, list[str]]: ...
 
 
 class SandboxBackend(Protocol):

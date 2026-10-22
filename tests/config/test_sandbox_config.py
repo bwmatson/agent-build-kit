@@ -34,5 +34,21 @@ def test_a_backend_name_is_checked_at_load_and_the_known_ones_are_named(tmp_path
         assert known in str(caught.value)
 
 
+def test_required_is_a_repo_setting_and_a_project_refuses_it(tmp_path: Path) -> None:
+    repo = (
+        "repos:\n  app:\n    path: /srv/app\n    slug: example/app\n"
+        "    sandbox:\n      required: none\n"
+    )
+    path = tmp_path / "abk.yaml"
+    path.write_text(repo)
+    assert load(path).repos["app"].sandbox.required == "none"
+
+    path.write_text(
+        repo + "    projects:\n      - path: web\n        sandbox:\n          required: none\n"
+    )
+    with pytest.raises(ConfigError, match="required"):
+        load(path)
+
+
 def test_the_runtime_tool_policy_has_no_sandbox_by_default() -> None:
     assert ToolPolicy().model_dump()["sandbox"] is None

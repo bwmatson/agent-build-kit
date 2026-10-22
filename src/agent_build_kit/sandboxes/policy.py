@@ -6,8 +6,14 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+from agent_build_kit import config as config_module
+from agent_build_kit.config import ProjectSandboxConfig, RepoSandboxConfig
 from agent_build_kit.installation import Installation
-from agent_build_kit.sandboxes.base import SandboxPolicy
+from agent_build_kit.sandboxes.base import (
+    SandboxPathsProfile,
+    SandboxPathsRuntime,
+    SandboxPolicy,
+)
 
 # The parts of a repository's git directory a commit writes. Landlock rules only add access,
 # so they are granted one at a time and never `hooks` or `config`.
@@ -25,23 +31,22 @@ def build_policy(
     *,
     runtime: object,
     profile: object,
-    local: dict[str, Any] | None = None,
 ) -> SandboxPolicy:
     """The policy for a step in `worktree` of `repo`: built-ins, then the runtime's and the
-    profile's optional `sandbox_paths`, then `repos.<name>.sandbox` and each project's, then
-    `local` (the parsed abk.local.yaml)."""
-    config = installation.config.repos[repo]
-    layers: list[dict[str, Any]] = []
-    for source, args in ((runtime, ()), (profile, (worktree,))):
-        member = getattr(source, "sandbox_paths", None)
-        if member is not None:
-            layers.append(member(*args))
-    layers.append(config.sandbox.model_dump())
-    layers.extend(project.sandbox.model_dump() for project in config.projects)
-    layers.append(((local or {}).get("repos", {}).get(repo) or {}).get("sandbox") or {})
+    profile's optional `sandbox_paths`, then `repos.<name>.sandbox` and each project's from
+    abk.yaml, then the same keys from abk.local.yaml. The two files are read apart: the loaded
+    configuration holds the overlay laid over the committed file, which replaces a list whole."""
+    layers: list[ProjectSandboxConfig] = []
+    if isinstance(runtime, SandboxPathsRuntime):
+        layers.append(ProjectSandboxConfig.model_validate(runtime.sandbox_paths()))
+    if isinstance(profile, SandboxPathsProfile):
+        layers.append(ProjectSandboxConfig.model_validate(profile.sandbox_paths(worktree)))
+    path = installation.root / config_module.CONFIG_FILENAME
+    for document in (config_module.read_base(path), config_module.read_overlay(path)):
+        layers.extend(_blocks(document or {}, repo))
 
     def listed(key: str) -> list[str]:
-        return [item for layer in layers for item in layer.get(key, [])]
+        return [item for layer in layers for item in getattr(layer, key)]
 
     write = _resolved(listed("write"), worktree)
     _refuse_owned(listed("write"), write, installation)
@@ -49,8 +54,19 @@ def build_policy(
         write=_unique([worktree.resolve(), *git_parts(worktree), *write]),
         read=_unique(_resolved(listed("read"), worktree)),
         hosts=_unique(listed("hosts")),
-        required=config.sandbox.required,
+        required=installation.config.repos[repo].sandbox.required,
     )
+
+
+def _blocks(document: dict[str, Any], repo: str) -> list[ProjectSandboxConfig]:
+    """The repo's sandbox block in one file and then each of its projects', validated."""
+    entry = (document.get("repos") or {}).get(repo) or {}
+    blocks: list[ProjectSandboxConfig] = [
+        RepoSandboxConfig.model_validate(entry.get("sandbox") or {})
+    ]
+    for project in entry.get("projects") or []:
+        blocks.append(ProjectSandboxConfig.model_validate(project.get("sandbox") or {}))
+    return blocks
 
 
 def git_parts(worktree: Path) -> list[Path]:
@@ -86,16 +102,20 @@ def _unique[T](items: Iterable[T]) -> tuple[T, ...]:
 
 
 def _refuse_owned(given: list[str], resolved: list[Path], installation: Installation) -> None:
-    """Refuse a write grant of what a person owns, or of a parent that would include it."""
+    """Refuse a write grant of what a person owns: the file itself, a parent that would
+    include it, and anything inside the specs folder."""
+    specs = installation.specs_dir.resolve()
     owned = [
-        installation.root / "abk.yaml",
-        installation.root / "abk.local.yaml",
-        installation.specs_dir,
+        installation.root / config_module.CONFIG_FILENAME,
+        installation.root / config_module.OVERLAY_FILENAME,
+        specs,
     ]
     for item, path in zip(given, resolved, strict=True):
-        for protected in owned:
-            if protected.resolve().is_relative_to(path):
-                raise PolicyRefused(
-                    f"{item}: refused, it would let a step write {protected}, which a person "
-                    "owns in the planning repo"
-                )
+        reached = [p for p in owned if p.resolve().is_relative_to(path)]
+        if path.is_relative_to(specs):
+            reached.append(specs)
+        if reached:
+            raise PolicyRefused(
+                f"{item}: refused, it would let a step write {reached[0]}, which a person "
+                "owns in the planning repo"
+            )

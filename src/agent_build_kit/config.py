@@ -1042,14 +1042,19 @@ class SandboxConfig(Frozen):
         return value
 
 
-class RepoSandboxConfig(Frozen):
-    """What a repo's steps may touch beyond the built-ins, as `abk.yaml` and `abk.local.yaml`
-    list it: paths to write and to read, and hosts the proxy lets through."""
+class ProjectSandboxConfig(Frozen):
+    """What a project's steps may touch beyond the built-ins, as `abk.yaml` and
+    `abk.local.yaml` list it: paths to write and to read, and hosts the proxy lets through."""
 
     write: list[str] = []
     read: list[str] = []
     hosts: list[str] = []
-    # The least coverage a step may run with; `none` lets it run unconfined.
+
+
+class RepoSandboxConfig(ProjectSandboxConfig):
+    """A repo's lists, and how much confinement its steps need."""
+
+    # The least coverage a step may run with; `none` lets it run unconfined. Per repo only.
     required: Coverage = Coverage.FILES
 
 
@@ -1065,7 +1070,7 @@ class ProjectConfig(Frozen):
     path: str
     languages: list[str] = []
     profile: str = "python-uv"
-    sandbox: RepoSandboxConfig = RepoSandboxConfig()
+    sandbox: ProjectSandboxConfig = ProjectSandboxConfig()
 
     @property
     def prefix(self) -> str:
