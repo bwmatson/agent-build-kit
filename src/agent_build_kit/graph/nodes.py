@@ -1383,8 +1383,23 @@ class BuildPath:
                 step = self.group_step(state)
                 kept = account if step is not None and step.test_only else ""
                 return {"head": r.head(tree), "stub_loop": True, "tests_account": kept}
+            self.apply_fixers()
             r.commit(self.message(TESTS_PREFIX, TESTS_BODY, state), cwd=tree, base=self.ref(state))
         return {"head": r.head(tree), "stub_loop": False}
+
+    def apply_fixers(self) -> None:
+        """Run the profile's fixers over the unit's own files, with no agent, and log what they
+        did; the files changed, or that they changed nothing when files were given. A pass given
+        no files logs nothing."""
+        result = self.runner.run_fixers(cwd=self.tree())
+        if result.changed:
+            self.say(f"fixers changed {len(result.changed)} file(s): {', '.join(result.changed)}")
+        elif result.given:
+            self.say("fixers changed nothing")
+        if result.skipped:
+            self.say(f"fixers skipped protected: {', '.join(result.skipped)}")
+        if result.failed:
+            self.say(f"fixers could not run: {'; '.join(result.failed)}")
 
     def tests_finish(self, state: UnitRun, *, stubbed: bool) -> str:
         """How the tests prompt ends; for a test-only group it says the group builds no
@@ -1625,6 +1640,7 @@ class BuildPath:
                     changelog=changelog_note(tree, r.repo_config)
                 ),
             )
+            self.apply_fixers()
             made = r.commit(self.message(CODE_PREFIX, CODE_BODY, state), cwd=tree, base=ref)
             if (stopped := self.record_built(state, ref, made, account)) is not None:
                 return stopped
