@@ -450,7 +450,14 @@ release could move. The steps:
    of once per unit, making one `test:`/`feat:` pair per group. The tests run
    writes the group's tests and stubs and the pipeline does not commit them
    yet: `stub_checks` runs lint, format and types over the stubs and tests
-   (no test run), and only then commits `test:`. A failure is saved as
+   (no test run), and only then commits `test:`. Before that check the pipeline
+   runs the profile's fixers (formatters and auto-fixers, see `fix_command` in
+   `toolchain-profiles.md`) with no model call, so before the tests commit, and
+   it does the same before the implementation commit and before each checks-loop `fix: <title> (checks,
+   round N)` commit, over the unit's own files only, so a formatter's edit is
+   never what fails a check. The stub loop and the checks loop share one
+   routine (`graph/check_loop.py`) for the check, the saved feedback, the fix
+   round and the "changed nothing" stop. A failure is saved as
    `stub-checks` feedback and `fix_stub_checks` hands it to the builder, then
    back to `stub_checks`, up to `global_limits.max_check_rounds`; a round that
    changes nothing, or the rounds spent, stops the unit. Each commit's body

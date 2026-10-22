@@ -21,7 +21,10 @@
   source files), and a repo can replace it with `repos.<name>.tests.fix_command` (`[]` turns it
   off). The runner's fixer pass is given only the unit's own changed and untracked files, per
   project, skips and restores protected files, ignores exit status and makes at most two passes. A build runs it before every commit it
-  makes, and its log says which files the fixers changed, or that they changed nothing.
+  makes, and its log says which files the fixers changed, or that they changed nothing. A
+  formatter's edit no longer stops a stubbed build, because the fixers run before every commit;
+  this removes the third known stop of the stubbed build. The stub loop and the checks loop now
+  share one check-and-fix routine.
 
 - The Claude limits take settings for estimating usage from recorded cost: per window
   `usage_estimate_basis` (`cost` or `units`, `cost` by default) and `usage_estimate_intercept`

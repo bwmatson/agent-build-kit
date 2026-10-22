@@ -246,6 +246,10 @@ repos:                        # ordered; a task group's [repo] tag is a key here
     relationships: ""         # prose for the planner about the other repos
     tests:
       root_extras: []         # extra packages the repo-root tests need
+      fix_command: null       # repos.<name>.tests.fix_command: the argv that applies the repo's
+                              # formatters and fixers (file names appended) before each commit;
+                              # unset follows the profile, [] turns the pass off. Policy, so it
+                              # goes in abk.yaml, not abk.local.yaml
       e2e_marker: local_stack    # for a node project the marker is a file-name segment:
                                  # `<name>.local_stack.test.ts[x]` (`<name>.<marker>.test.<ext>`)
                                  # is e2e-test. Unit-test still runs the whole Vitest run, marked
