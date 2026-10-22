@@ -89,6 +89,7 @@ class HeldBy(StrEnum):
     REVIEW = "review"
     DEPTH = "depth"
     TOOLCHAIN = "toolchain"
+    SIZE = "size"
 
 
 class Cause(StrEnum):
@@ -127,6 +128,7 @@ class Cause(StrEnum):
     ENVIRONMENT = "environment"
     SPLIT_HELD = SPLIT_HELD_CAUSE
     MANUAL_STEP = MANUAL_STEP_CAUSE
+    TOO_BIG_FOR_TIER = "too_big_for_tier"
 
 
 class Keep:
@@ -258,6 +260,17 @@ class ClosePending(Frozen):
     reason: str
 
 
+class StoredSplitRequest(Frozen):
+    """Why a unit held for its size is to be split: the tiers, its changed lines, the ceiling
+    of the tier it earned and the group numbers that drove the tier."""
+
+    earned: str
+    planned: str | None = None
+    lines: int
+    ceiling: int
+    drivers: tuple[int, ...] = ()
+
+
 class StoredUnit(Unit):
     """A unit plus what has happened to it."""
 
@@ -355,6 +368,12 @@ class StoredUnit(Unit):
     parked_splits: list[str] = []
     parked_sha: str = ""
     parked_snapshot: str = ""
+    # What a unit held for its size is to be split by (see `Cause.TOO_BIG_FOR_TIER`), the split
+    # rounds its lineage has used, whether a person waived its size, and the unit it is a piece of.
+    split_request: StoredSplitRequest | None = None
+    split_rounds_used: int = 0
+    size_waived: bool = False
+    split_from: str = ""
     # The close of a satisfied unit's pull request, kept until it is done.
     close_pending: ClosePending | None = None
     # The step the unit last stopped in, and how many times in a row the code host
@@ -746,6 +765,11 @@ class UnitStore:
                 waited_on=existing.waited_on if existing else (),
                 wait_ended=existing.wait_ended if existing else "",
                 close_pending=existing.close_pending if existing else None,
+                # What a hold for size and a split of the unit rest on is not the plan's shape.
+                split_request=existing.split_request if existing else None,
+                split_rounds_used=existing.split_rounds_used if existing else 0,
+                size_waived=existing.size_waived if existing else False,
+                split_from=existing.split_from if existing else "",
                 step=existing.step if existing else "",
                 guidance=existing.guidance if existing else "",
                 ready_at=existing.ready_at if existing else None,
@@ -1163,6 +1187,14 @@ class UnitStore:
     def set_guidance(self, unit_id: str, guidance: str) -> None:
         """A person's note for the next prompt, or `""` once a run has acted on it."""
         self._update(unit_id, guidance=guidance)
+
+    def set_split_request(self, unit_id: str, request: StoredSplitRequest | None) -> None:
+        """What a unit held for its size is to be split by, or none once it has been."""
+        self._update(unit_id, split_request=request)
+
+    def set_size_waived(self, unit_id: str, waived: bool = True) -> None:
+        """Record that a person let a unit held for its size go on; its size is not held again."""
+        self._update(unit_id, size_waived=waived)
 
     @_exclusive
     def mark_ready(self, unit_id: str) -> None:

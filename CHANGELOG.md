@@ -32,11 +32,14 @@
   already admitted, and are trimmed to `retention.decision_log_mb` like the decision log.
 
 - `review.ceiling_buffer` (default 0.2) and `review.split_rounds` (default 2, at most 2) are new
-  settings, the first steps towards holding and splitting a unit that outgrows its review tier.
+  settings for holding and splitting a unit that outgrows its review tier.
   A buffered `auto` ceiling that reaches the reviewer's 10,000-line reading limit now fails
   loading, and `abk doctor` prints the buffered ceilings and warns near the limit or when
-  `split_rounds` is 0 with review enabled. The review verdict also gains a size step, groundwork for the
-  hold that a later change wires in.
+  `split_rounds` is 0 with review enabled. With review enabled, a unit over its earned tier's
+  buffered ceiling is now held as too big for its tier (`too_big_for_tier`), which is neither a
+  failure nor a review round and raises no card; the split request is kept on the unit. A person's
+  `abk requeue` of a unit held for a person for its size now records that the size is waived, so
+  the same rule does not hold it again.
 
 - `abk replan --dry-run` asks the planner and prints the units each change would get, with
   their groups, expected review tier and estimated lines against that tier's ceiling, and the
