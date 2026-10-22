@@ -1351,6 +1351,19 @@ def _no_reset() -> None:
     raise RuntimeError("this runner was not given a way to reset a branch")
 
 
+class FixResult(Frozen):
+    """What a fixer pass did: the files it changed, the protected files it left alone or put
+    back, and the reasons a command could not run."""
+
+    changed: tuple[str, ...] = ()
+    skipped: tuple[str, ...] = ()
+    failed: tuple[str, ...] = ()
+
+
+def _no_fixers(*, cwd: Path) -> FixResult:
+    return FixResult()
+
+
 def _no_stub_checks(*, cwd: Path) -> tuple[bool, str]:
     raise RuntimeError("this runner was not given a way to run the stub checks")
 
@@ -1529,6 +1542,10 @@ class UnitRunner(BaseModel):
     # The static checks of a stubbed build's test step, given `cwd=`: whether lint, format and
     # types pass over the tree with its new files, and the output. See `wiring.build_stub_checks`.
     run_stub_checks: Callable[..., tuple[bool, str]] = _no_stub_checks
+    # Applies the repo's formatters and auto-fixers to the unit's own changed files, given
+    # `cwd=`, before a commit; what it changed, skipped and could not run. A runner given none
+    # changes nothing. See `wiring.build_fixers`.
+    run_fixers: Callable[..., FixResult] = _no_fixers
     # A digest of the working tree, which says whether a fix changed it.
     tree_state: Callable[[Path], str] = _no_tree_state
     # Told the unit and each flake when unit-test raises `FlakeFound`: records it, and with

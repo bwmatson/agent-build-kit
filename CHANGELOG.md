@@ -10,6 +10,12 @@
   `Support: `<paths>` — <reason>` line declares further files for it, and `abk tags` and
   `abk check` warn of a task that names any other path in backticks.
 
+- A toolchain profile can declare `fix_command(files)`, the command that applies its formatters
+  and auto-fixers (python-uv: the pre-commit hooks; node-npm: `oxfmt` then `oxlint --fix` over
+  source files), and a repo can replace it with `repos.<name>.tests.fix_command` (`[]` turns it
+  off). The runner's fixer pass is given only the unit's own changed and untracked files, per
+  project, skips and restores protected files, ignores exit status and makes at most two passes.
+
 - The Claude limits take settings for estimating usage from recorded cost: per window
   `usage_estimate_basis` (`cost` or `units`, `cost` by default) and `usage_estimate_intercept`
   (on for the session, off for the week), and for both `usage_cost_min_pairs` (8) and

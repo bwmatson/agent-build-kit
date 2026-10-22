@@ -279,6 +279,15 @@ class NodeNpmProfile:
             commands.append(["sh", "-c", _FILTERED, "sh", member or _HERE, *relative])
         return commands
 
+    def fix_command(self, files: list[str]) -> list[str] | None:
+        """The formatter, then the fixable lint findings, over the source files; the type
+        check cannot be fixed and is left to the check. The `;` lets the formatter's work
+        stand when the linter exits non-zero for a finding it cannot fix."""
+        sources = [f for f in files if f.endswith(tuple(f".{ext}" for ext in _SOURCE))]
+        if not sources:
+            return None
+        return ["sh", "-c", 'npx oxfmt "$@"; npx oxlint --fix "$@"', "sh", *sources]
+
     def clean_command(self, *, types: bool = False) -> str:
         """Lint and the format check over the project; with `types`, the project's type check
         too. Without it none runs, since in a build that is not stubbed a test importing what

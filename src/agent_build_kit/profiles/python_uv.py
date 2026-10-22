@@ -343,6 +343,10 @@ class PythonUvProfile:
         # then means judging the whole repo at its tip, not an empty range.
         return ["uv", "run", "pre-commit", "run", "--all-files"]
 
+    def fix_command(self, files: list[str]) -> list[str] | None:
+        # The repository's own hooks are the authority on what is fixed, so no tool is named.
+        return ["uv", "run", "pre-commit", "run", "--files", *files] if files else None
+
     def clean_command(self, *, types: bool = False) -> str:
         # Type checking is skipped unless asked for: in a build that is not stubbed a test
         # importing a function that doesn't exist yet is the expected state at the tests commit.
