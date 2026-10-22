@@ -170,6 +170,7 @@ Details, arguments and exit codes: [docs/cli.md](docs/cli.md).
 - [docs/tracks.md](docs/tracks.md) — the scheduled health/improve/recommend/implement tracks.
 - [docs/agent-efficient-coding-philosophy.md](docs/agent-efficient-coding-philosophy.md) — where abk is heading: verify every change, have a person review by risk.
 - [docs/risk-tiered-review-design.md](docs/risk-tiered-review-design.md) — what has to change to get there, and the order to change it in.
+- [docs/runbooks/](docs/runbooks/) — person-run procedures: migrating to risk-tiered review, holding an e2e-test split, moving a repo's planning into its own repo.
 
 Contributing conventions are in [AGENTS.md](AGENTS.md). One rule matters
 more than the rest: this repo never names an installation — no repo names,

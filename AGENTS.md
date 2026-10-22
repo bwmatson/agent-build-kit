@@ -137,7 +137,7 @@ web/               the web UI `abk serve` shows (React, TypeScript, Tailwind; Vi
 tests/             mirrors src/ (tests/pipeline/test_<module>.py, tests/hooks/, ...);
                    tests/integration/ holds what needs node or the network (marked `integration`)
 docs/              architecture, configuration, cli, toolchain-profiles, agent-runtimes, unit-graph,
-                   init, tracks
+                   init, tracks, runbooks/ (person-run migration procedures)
 ```
 
 ## Conventions
