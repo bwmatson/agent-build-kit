@@ -166,6 +166,7 @@
 - With per-tier sizing on, a join takes the higher review tier of its two sides and is held to that
   tier's ceiling after calibration, and a join is refused when its sides disagree on full review:
   work that needs it is never joined to work that does not, in either direction.
+
 - A pull request body now opens with a "Start here" section: the places the reviewer says to
   read first, the places it says are safe to skip, what the pipeline itself verified (the
   failing run before the implementation, the test results and the review rounds, each listed
