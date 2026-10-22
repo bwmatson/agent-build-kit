@@ -594,7 +594,7 @@ or one the pass is holding: a run killed in a node resumes from its thread. Reco
 once, after a second, when the first read fails; if the second fails too, the
 unit is logged as stranded and the error is raised as before.
 
-### `abk replan [CHANGE|UNIT ...] [--all] [--failed] [--stale] [--limit N] [--forget] [--report] [--dry-run]`
+### `abk replan [CHANGE|UNIT ...] [--all] [--failed] [--stale] [--limit N] [--forget] [--report] [--dry-run] [--accept-unplanned]`
 
 Plans changes again now, whatever their recorded plan says. A tick plans a change
 only when its `tasks.md` changes (or its last plan failed and attempts remain);
@@ -619,6 +619,13 @@ says how many model calls it will make.
   During an outage it says the change waits and uses no attempt. The branch locks held now
   are copied, so a join onto a unit being built is dropped as it would be. `--dry-run` with
   `--forget` is a usage error.
+- **Dropped units.** A replan whose plan would leave units of a change `unplanned` prints each
+  with its id, state and groups, stores nothing for that change and exits 1 for it;
+  `--accept-unplanned` stores the plan. The planner is called once for the change either way,
+  and each selected change is decided apart. A plan that drops no unit needs no flag. A replan
+  writes only the units and plan records it changed; when a unit it would write was changed
+  meanwhile (a tick started it), nothing is stored for that change, it says so and exits 1, and
+  the replan is run again.
 - **Migrating.** `--stale` selects every change whose plan is stale, and `--limit N` keeps the
   first N of any selection, ordered by the most urgent `Priority:` among the change's groups and
   then by name; the changes over the limit are listed as `not yet planned`. A change waiting for

@@ -866,6 +866,22 @@ class UnitStore:
             self.on_state(unit, everything, opened)
 
     @_exclusive
+    def replace_if_unchanged(
+        self, before: Mapping[str, StoredUnit], after: Mapping[str, StoredUnit]
+    ) -> list[str]:
+        """Store the units `after` holds that differ from `before`, and no other: it is
+        for a plan made apart from the store, from a copy taken as `before`. When any of those
+        units is no longer as `before` has it in the store (changed, or added, since), nothing
+        is written and their ids are returned."""
+        stored = self._read()
+        changed = [uid for uid, unit in after.items() if before.get(uid) != unit]
+        if moved := [uid for uid in changed if stored.get(uid) != before.get(uid)]:
+            return moved
+        if changed:
+            self._write({**stored, **{uid: after[uid] for uid in changed}})
+        return []
+
+    @_exclusive
     def import_units(self, units: Sequence[StoredUnit]) -> None:
         """Add records from another store with every field kept; an equal one is skipped and a
         differing one with the same id is a conflict naming the id, with nothing written."""

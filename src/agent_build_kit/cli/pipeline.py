@@ -4369,7 +4369,7 @@ def plan_all(
                 )
             failure = {
                 "hash": digest,
-                "sizing": sizing,
+                "sizing": _standing_sizing(planned.get(change), sizing),
                 "attempts": max_attempts,
                 "ok": False,
                 "owned": sorted({found.owner for found in error.collisions}),
@@ -6165,7 +6165,6 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
             )
         )
 
-    skipped = 0
     if args.stale:
         now = spans.clock.now()
         for path in inst.tasks_files():
@@ -6178,7 +6177,6 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
             ):
                 shown = _plan_state(record, max_attempts, change in standing)
                 print(f"{change}: skipped — {shown}")
-                skipped += 1
                 continue
             selected[change] = None
 
@@ -6234,7 +6232,13 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
                 for line in _held_back_lines(change, drops):
                     print(line)
             else:
-                apply_planned(inst, store, outcome)
+                if not apply_planned(inst, store, outcome):
+                    failed.append(change)
+                    print(
+                        f"{change}: the store changed while it was planned; nothing applied — "
+                        f"run `abk replan {change}` again"
+                    )
+                    continue
                 for line in _replan_lines(outcome):
                     print(line)
                 if outcome.results[change].status != "planned":
@@ -6307,14 +6311,20 @@ class ReplanOutcome(Frozen):
     before: dict[str, StoredUnit]
     after: dict[str, StoredUnit]
     records: dict[str, dict]
+    # The units as the stored file had them when copied, before dependencies were reduced.
+    base: dict[str, StoredUnit] = {}
+    # Other changes whose plan records the planning removed, their groups being carried again.
+    orphaned: tuple[str, ...] = ()
     scratch: Path | None = None
 
 
 def _plan_changes(inst: Installation, store: UnitStore, changes: Sequence[str]) -> ReplanOutcome:
     """Ask for the plan of each of `changes` as a replan does, link the `Needs:` lines and
     promote, in `store` and `inst`'s plan records."""
+    base = {unit.id: unit for unit in store.all()}
     reduce_stored_dependencies(store)
     before = {unit.id: unit for unit in store.all()}
+    recorded = set(planned_hashes(inst))
     results = plan_all(inst, store=store, only=set(changes), force=True)
     refusals = link_needs(inst, store=store)
     _promote(inst, store)
@@ -6324,8 +6334,10 @@ def _plan_changes(inst: Installation, store: UnitStore, changes: Sequence[str]) 
         results=results,
         refusals=tuple(refusals),
         before=before,
+        base=base,
         after={unit.id: unit for unit in store.all()},
         records={change: records.get(change, {}) for change in changes},
+        orphaned=tuple(sorted(recorded - set(records) - set(changes))),
     )
 
 
@@ -6358,20 +6370,24 @@ def plan_apart(
         yield _plan_changes(copy, trial, changes).model_copy(update={"scratch": scratch})
 
 
-def apply_planned(inst: Installation, store: UnitStore, outcome: ReplanOutcome) -> None:
-    """Store a planned-apart `outcome`, inside its `plan_apart` block: its units and plan
-    records replace the stored ones, under the locks every other write takes. The planner
-    is not asked."""
+def apply_planned(inst: Installation, store: UnitStore, outcome: ReplanOutcome) -> bool:
+    """Store a planned-apart `outcome`, inside its `plan_apart` block, and say whether it was
+    stored. Only what the planning changed is written: the units that differ and the plan
+    records of the planned changes and of those it orphaned, under the locks every other write
+    takes. A tick may have run while the planner was asked; when one of the units to write is no
+    longer as the copy had it, nothing is written. The planner is not asked."""
     if outcome.scratch is None:
         raise ValueError("the outcome was not planned apart")
-    units, records = outcome.scratch / store.path.name, outcome.scratch / "planned.json"
-    with store.locked(), file_lock(inst.state_dir / "planned.lock"):
-        if units.is_file():
-            atomic_write_text(store.path, units.read_text())
-        if records.is_file():
-            atomic_write_text(inst.state_dir / "planned.json", records.read_text())
-    if store.on_write is not None:
-        store.on_write(store.all())
+    if store.replace_if_unchanged(outcome.base, outcome.after):
+        return False
+    update_plans(
+        inst,
+        lambda _: {
+            **dict.fromkeys(outcome.orphaned),
+            **{change: outcome.records[change] or None for change in outcome.changes},
+        },
+    )
+    return True
 
 
 def _cyclic(outcome: ReplanOutcome) -> bool:
