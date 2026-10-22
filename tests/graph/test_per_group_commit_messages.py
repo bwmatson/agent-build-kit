@@ -15,6 +15,13 @@ GOALS: Groups = {
 }
 
 
+def proposal(tmp_path: Path) -> None:
+    """The change's proposal, whose Why every body opens with."""
+    directory = tmp_path / "meta" / "openspec" / "changes" / "add-marker"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "proposal.md").write_text("## Why\n\nThe key is unread. More.\n\n## What\n\nx\n")
+
+
 def body_of(message: str) -> str:
     """What is between the subject and the trailer."""
     _, _, rest = message.partition("\n")
@@ -24,6 +31,7 @@ def body_of(message: str) -> str:
 def test_each_body_has_the_fixed_sentence_and_the_groups_goal_when_it_has_one(
     tmp_path: Path,
 ) -> None:
+    proposal(tmp_path)
     _, outcome, repo = built(tmp_path, groups={"add-marker": GOALS})
 
     assert outcome.status == "open"
@@ -46,6 +54,7 @@ def test_each_body_has_the_fixed_sentence_and_the_groups_goal_when_it_has_one(
 
 
 def test_every_commit_keeps_the_unit_trailer(tmp_path: Path) -> None:
+    proposal(tmp_path)
     _, _, repo = built(tmp_path, groups={"add-marker": GOALS})
 
     made = messages(repo)

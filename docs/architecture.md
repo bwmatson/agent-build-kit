@@ -463,7 +463,7 @@ release could move. The steps:
    `stub-checks` feedback and `fix_stub_checks` hands it to the builder, then
    back to `stub_checks`, up to `global_limits.max_check_rounds`; a round that
    changes nothing, or the rounds spent, stops the unit. Each commit's body
-   holds a fixed sentence and the group's "Done when". The implementation run
+   holds the change's Why sentence and the group's "Done when". The implementation run
    then commits `feat:` for the group, and the next group starts with its own
    tests. Resume reads the branch's commit subjects and starts at the first
    group without its pair (a unit stopped in the loop goes back to
