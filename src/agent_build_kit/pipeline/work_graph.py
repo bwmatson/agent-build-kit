@@ -258,6 +258,9 @@ class TaskGroup(Frozen):
     split: str = REST_SPLIT
     # The `Manual:` lines of the group, each with its optional `Check:` line.
     manual_steps: tuple[ManualStep, ...] = ()
+    # The paths of the `Support:` lines of an e2e-test group: files it may hold beside tests, docs
+    # and the changelog. A trailing `/` covers a directory.
+    support: tuple[str, ...] = ()
 
     @property
     def tag(self) -> str:
