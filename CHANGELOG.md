@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- An `[e2e-test]` task group, flagged or not, always has a unit of its own: a join that carries
+  or joins one is refused, a plan that puts one with another group is refused and asked again,
+  and the planner prompt says so. `abk tags` and `abk check` call a `Separate:` line in such a
+  group redundant. Units already started keep their groups; unstarted ones are split by the
+  next plan. Such a group holds tests, test support, docs and the changelog: a
+  `Support: `<paths>` — <reason>` line declares further files for it, and `abk tags` and
+  `abk check` warn of a task that names any other path in backticks.
+
 - A test can carry its own time limit with `@pytest.mark.time_limit(<seconds>)`, in place of
   `--test-time-limit`, and the test that downloads vitest carries 180 seconds, so a slow npm
   registry no longer fails it at 60. CI's fetch of the OpenSpec CLI waits up to 300 seconds per

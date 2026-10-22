@@ -266,6 +266,11 @@ def _check_groups(
             group = known.get(number)
             if group is None:
                 raise refuse(f"group {number} of {member.change} is not in its tasks.md")
+            if group.tier == TestTier.E2E_TEST:
+                raise refuse(
+                    f"{member.change} group {number} is [{TestTier.E2E_TEST}], which always "
+                    "has a unit of its own"
+                )
             if group.flag:
                 raise refuse(
                     f"{member.change} group {number} is flagged [{group.flag}], which keeps "

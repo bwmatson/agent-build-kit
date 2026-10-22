@@ -608,9 +608,29 @@ def _check_groups(
 
 
 def check_flagged_groups(units: list[Unit], groups: list[TaskGroup]) -> None:
-    """The acceptance and independence checks of a plan, for a caller that changed its edges."""
+    """The e2e stand-alone, acceptance and independence checks of a plan, for a caller that
+    changed its edges."""
+    _check_e2e_alone(units, groups)
     _check_acceptance(units, groups)
     _check_independent(units, groups)
+
+
+def _check_e2e_alone(units: list[Unit], groups: list[TaskGroup]) -> None:
+    """An `[e2e-test]` group is a unit of its own: it holds the stack lock and is the unit most
+    often rerun, so a failure in one group must not cost the others."""
+    by_number = {group.number: group for group in groups}
+    for unit in units:
+        holding = sorted(
+            n for n in unit.groups if n in by_number and by_number[n].tier == TestTier.E2E_TEST
+        )
+        if holding and len(unit.groups) > 1:
+            others = [n for n in unit.groups if n not in holding]
+            named = ", ".join(f"group {n}" for n in holding)
+            beside = f" with {', '.join(f'group {n}' for n in others)}" if others else ""
+            raise PlannerError(
+                f"unit {unit.id} combines [{TestTier.E2E_TEST}] {named}{beside} — an [e2e-test] "
+                "group always has a unit of its own"
+            )
 
 
 def _check_full_separation(units: list[Unit], groups: list[TaskGroup], tasks: str) -> None:
@@ -819,7 +839,8 @@ Rules the graph must satisfy:
   for it. Dependencies on the unit that builds it stay valid.
 - Group consecutive task groups **in the same repo** together until the
   estimate reaches about {min_lines} changed lines, so a chain of small groups
-  doesn't become a stack of trivial PRs. Groups in different repos are never
+  doesn't become a stack of trivial PRs, except `[e2e-test]` groups: each is a
+  unit of its own, however small. Groups in different repos are never
   combined, however small, and consecutive numbering does not imply the same
   repo. Stop earlier when finishing a group unblocks other units.
 - Never combine groups into a unit estimated over {max_lines}:
@@ -860,6 +881,9 @@ Rules the graph must satisfy:
   and make that unit depend on the units it exercises: the last unit of each
   chain building the change's other groups, which reaches the rest (a
   `[narrow]` group aside, which comes after it).
+- An `[e2e-test]` group, flagged or not, stands alone. Give it a unit of its
+  own, never combined with another group; that unit depends on the groups before
+  it as the chain gives.
 - A group with an `Independent: <reason>` line stands alone. Give it a unit of
   its own, never combined with another group. That unit depends on no unit of
   its own change; it still depends on what its `Needs:` lines name. The next
@@ -890,14 +914,14 @@ they overlap* — the same files or modules — and the pair is small. Do not jo
 two units merely because both are small. The unit that stays is the earlier.
 Every join must satisfy all of these, and a plan with one that does not is
 rejected:
-- same repo and compatible kinds (`unit-test` and `integration-test` together, `e2e-test`
-  only with `e2e-test`), and the same e2e-test split (a unit in flight shows its split
-  when it is not `rest`);
+- same repo and compatible kinds (`unit-test` and `integration-test` together; an `e2e-test`
+  group is never joined, not even with another `e2e-test` unit), and the same e2e-test
+  split (a unit in flight shows its split when it is not `rest`);
 - a straight line: the later depends on the earlier (or would, for a group of
   the change above), nothing else depends on the earlier, and the later waits
   on nothing else unfinished;
 - neither has started — never name a unit not marked unstarted;
-- no group involved is flagged `[acceptance]`, `[contract]` or `[narrow]`, or
+- no group involved is `[e2e-test]`, or flagged `[acceptance]`, `[contract]` or `[narrow]`, or
   has a `Separate:` or `Independent:` line;
 - the two estimates together stay at or under {max_lines}.{join_raw}
 A unit joined to may be joined to again, in order along the line, while it

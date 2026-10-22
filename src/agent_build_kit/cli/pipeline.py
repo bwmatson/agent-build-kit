@@ -111,6 +111,7 @@ from agent_build_kit.pipeline.e2e_holds import (
     split_gates,
 )
 from agent_build_kit.pipeline.e2e_schedule import any_due, write_due
+from agent_build_kit.pipeline.e2e_scope import product_path_warnings
 from agent_build_kit.pipeline.events import (
     Restack,
     build_base_tip,
@@ -388,6 +389,7 @@ from agent_build_kit.pipeline.work_graph import (
     inverted_group_warnings,
     manual_runbook_warnings,
     old_test_kind_warnings,
+    redundant_separate_warnings,
     retag_headings,
     specification_text,
     tasks_path,
@@ -4637,7 +4639,7 @@ def _drop_cycle_edges(
     groups: list[TaskGroup],
 ) -> CycleDrops:
     """The plan without the dependencies that would close a cycle with stored work, and
-    its acceptance and independence checks run again on what is left."""
+    its e2e stand-alone, acceptance and independence checks run again on what is left."""
     stored = store.all()
     # What the plan replaces covers no group: the plan's units do.
     kept = [
@@ -6099,6 +6101,8 @@ def _tag_warnings(inst: Installation, path: Path) -> list[str]:
             projects=declared_projects(inst.repos),
         ),
         *old_test_kind_warnings(path),
+        *redundant_separate_warnings(path),
+        *product_path_warnings(path, _validated(inst, path)[0], inst.repos),
         *manual_runbook_warnings(path, inst.root),
         *inverted_group_warnings(
             path,

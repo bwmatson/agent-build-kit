@@ -60,9 +60,11 @@ def check_unit(taken_split: str, onto_split: str) -> None:
 @pytest.mark.parametrize("split", ["acp", "rest"])
 def test_a_group_of_the_same_split_is_accepted_and_one_of_another_is_not(split: str) -> None:
     other = "rest" if split == "acp" else "acp"
-    check_group(split, split)
+    # Within a split an e2e-test group is still never joined; across splits the split is named.
+    with pytest.raises(JoinRefused, match="always has a unit of its own"):
+        check_group(split, split)
 
-    with pytest.raises(JoinRefused):
+    with pytest.raises(JoinRefused, match="split"):
         check_group(other, split)
 
 
@@ -71,9 +73,10 @@ def test_an_unstarted_unit_of_the_same_split_is_accepted_and_one_of_another_is_n
     split: str,
 ) -> None:
     other = "rest" if split == "acp" else "acp"
-    check_unit(split, split)
+    with pytest.raises(JoinRefused, match="always has a unit of its own"):
+        check_unit(split, split)
 
-    with pytest.raises(JoinRefused):
+    with pytest.raises(JoinRefused, match="split"):
         check_unit(other, split)
 
 
