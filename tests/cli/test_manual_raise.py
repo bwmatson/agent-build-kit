@@ -49,15 +49,18 @@ class Tree:
         return UnitStore(self.store.path).get(UNIT).manual_steps
 
 
-@pytest.fixture
-def tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Tree:
+def make_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, prefix: str = "spec/") -> Tree:
     repo = init_repo(tmp_path / "app")
     (repo / "keep.txt").write_text("keep\n")
     git(repo, "add", "keep.txt")
     git(repo, "commit", "-q", "-m", "base")
     root = tmp_path / "trees" / "unit"
-    git(repo, "worktree", "add", "-q", "-b", f"spec/{UNIT}", str(root))
-    installation = make_installation(tmp_path / "planning", limits=dict(manual_check_seconds=1))
+    git(repo, "worktree", "add", "-q", "-b", f"{prefix}{UNIT}", str(root))
+    installation = make_installation(
+        tmp_path / "planning",
+        limits=dict(manual_check_seconds=1),
+        git=dict(branch_prefix=prefix),
+    )
     config = installation.root / "abk.yaml"
     config.write_text(dump(installation.config))
     store = UnitStore(installation.state_dir / "units.json")
@@ -65,6 +68,23 @@ def tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Tree:
     store.set_state(UNIT, RUNNING)
     monkeypatch.chdir(root)
     return Tree(root, config, store)
+
+
+@pytest.fixture
+def tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Tree:
+    return make_tree(tmp_path, monkeypatch)
+
+
+def test_a_worktree_on_the_installations_own_branch_prefix_is_its_units(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree = make_tree(tmp_path, monkeypatch, prefix="agent/")
+    check = tree.script("exit 1")
+
+    code = tree.raise_step(check)
+
+    assert code == 0
+    assert [step.slug for step in tree.steps()] == [SLUG]
 
 
 def test_a_raised_step_is_registered_on_the_unit_of_the_worktree(tree: Tree) -> None:

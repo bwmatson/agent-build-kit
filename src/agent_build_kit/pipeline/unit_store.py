@@ -699,7 +699,11 @@ class UnitStore:
             # would collide with the recorded ones set just below.
             fresh = StoredUnit(
                 # A unit the plan holds is live, so it never carries what replaced it.
-                **unit.model_dump(include=set(Unit.model_fields) - {"superseded_by"}),
+                **unit.model_dump(
+                    include=set(Unit.model_fields) - {"superseded_by", "manual_steps"}
+                ),
+                # The plan's declared steps, then the ones a builder raised, which no plan holds.
+                manual_steps=_with_raised_steps(unit, existing),
                 branch=existing.branch if existing else "",
                 pr=existing.pr if existing else None,
                 pushed=existing.pushed if existing else None,
@@ -1280,6 +1284,16 @@ class UnitStore:
         is pushed several times — once per restack — while staying `open`.
         """
         self._update(unit_id, pushed=sha, pushed_at=spans.clock.now())
+
+
+def _with_raised_steps(unit: Unit, existing: StoredUnit | None) -> tuple[ManualStep, ...]:
+    """The plan's declared steps, then the steps raised on the unit (no `Manual:` line, so
+    `line` is 0) that the plan does not name, one per slug."""
+    steps = {step.slug: step for step in unit.manual_steps}
+    for step in existing.manual_steps if existing else ():
+        if step.line == 0:
+            steps.setdefault(step.slug, step)
+    return tuple(steps.values())
 
 
 def _record_successors(

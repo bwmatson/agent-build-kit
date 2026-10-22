@@ -20,14 +20,13 @@ from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import ManualStep
 
 MANUAL_FOLDER = ".abk/manual"
-BRANCH_PREFIX = "spec/"
 
 
-def _unit_id(worktree: Path) -> str:
+def _unit_id(worktree: Path, prefix: str) -> str:
     branch = git(worktree, "rev-parse", "--abbrev-ref", "HEAD", check=False).stdout.strip()
-    if not branch.startswith(BRANCH_PREFIX):
-        raise Refused(f"the worktree is on `{branch}`, not on a unit's {BRANCH_PREFIX}<change>/<n>")
-    return branch.removeprefix(BRANCH_PREFIX)
+    if not branch.startswith(prefix):
+        raise Refused(f"the worktree is on `{branch}`, not on a unit's {prefix}<change>/<n>")
+    return branch.removeprefix(prefix)
 
 
 def _script(worktree: Path, check: str) -> Path:
@@ -61,7 +60,7 @@ def _runs_in_time(script: Path, worktree: Path, seconds: int) -> None:
 def cmd_manual_raise(args: argparse.Namespace, inst: Installation) -> int:
     try:
         worktree = worktree_root()
-        unit_id = _unit_id(worktree)
+        unit_id = _unit_id(worktree, inst.config.git.branch_prefix)
         store = UnitStore(inst.state_dir / "units.json")
         try:
             held = store.get(unit_id)
