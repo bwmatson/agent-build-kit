@@ -12,7 +12,7 @@ from agent_build_kit import runtimes
 from agent_build_kit.config import ConfigError, RuntimeConfig
 from agent_build_kit.init.runtime_choice import confirmed
 from agent_build_kit.installation import Installation, load_installation
-from agent_build_kit.runtimes import known_agents, policy_apply, policy_check
+from agent_build_kit.runtimes import AgentRuntime, known_agents, policy_apply, policy_check
 from agent_build_kit.runtimes.known_agents import ApplyPolicy, KnownAgent, agent_for_command
 from agent_build_kit.runtimes.policy_apply import ApplyRefused, ApplyResult, Status
 from agent_build_kit.runtimes.recommended_policy import (
@@ -287,6 +287,14 @@ def cmd_policy_apply(args: argparse.Namespace, installation: Installation | None
     return 0
 
 
+def coverage_line(runtime: AgentRuntime) -> str:
+    """The runtime's two coverages side by side; `abk status` prints the same line."""
+    return (
+        f"runtime {runtime.name}: policy_coverage: {runtime.policy_coverage}, "
+        f"sandbox_coverage: {runtime.sandbox_coverage.value}"
+    )
+
+
 def cmd_policy_check(args: argparse.Namespace, installation: Installation | None) -> int:
     """Judge every probe command against the agent's configuration and print the verdicts:
     exit 0 when every covered class is refused, 1 when not or when it could not be checked."""
@@ -303,6 +311,7 @@ def cmd_policy_check(args: argparse.Namespace, installation: Installation | None
     except _Usage as error:
         print(f"abk: {error}", file=sys.stderr)
         return 2
+    print(coverage_line(runtime))
     report = policy_check.check_policy(runtime, entry, installation)
     if report.cannot_check:
         print(report.cannot_check)

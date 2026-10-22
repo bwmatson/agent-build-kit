@@ -77,7 +77,8 @@ their systemd user manager does, and without lingering that is only while a logi
 session is open. `abk install-timers` tries to turn it on and otherwise prints
 `sudo loginctl enable-linger <user>`.
 
-Requirements: Python 3.12+, `uv`, `git`, and a client for each host a repo
+Requirements: Linux (kernel 5.13 or later with Landlock), WSL2 or macOS for the agent sandbox,
+Python 3.12+, `uv`, `git`, and a client for each host a repo
 lives on: `gh` (logged in for every GitHub
 owner in `abk.yaml`), `claude` (Claude Code), and `node` on the PATH — the
 OpenSpec CLI runs through `npx`.

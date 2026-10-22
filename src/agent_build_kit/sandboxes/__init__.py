@@ -54,6 +54,12 @@ def detect(platform: str | None = None) -> SandboxBackend:
     return _REGISTRY["unavailable"]
 
 
+def probe(name: str = "auto") -> tuple[SandboxBackend, Availability]:
+    """The backend `name` picks (`auto` detects one) and the result of running its probe."""
+    backend = detect() if name == "auto" else get(name)
+    return backend, backend.availability()
+
+
 @contextmanager
 def isolated() -> Iterator[None]:
     """Inside, the registry holds only the built-in backends (`landlock`, `unavailable`); leaving
@@ -87,5 +93,6 @@ __all__ = [
     "get",
     "isolated",
     "names",
+    "probe",
     "register",
 ]

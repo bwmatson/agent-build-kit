@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.transcript import TranscriptEvent
-from agent_build_kit.sandboxes import SandboxPolicy
+from agent_build_kit.sandboxes import Coverage, SandboxPolicy
 from agent_build_kit.usage import Context, Usage, UsageSource
 
 if TYPE_CHECKING:
@@ -320,6 +320,8 @@ class AgentRuntime(Protocol):
     name: str
     implemented: bool
     policy_coverage: PolicyCoverage
+    # How much of the agent a sandbox backend confines when this runtime launches it.
+    sandbox_coverage: Coverage
     supports_usage_tracking: bool
     supports_streaming: bool
     # Whether `AgentRequest.resume_session` continues an earlier session; one

@@ -359,7 +359,8 @@ sandbox is required on every platform the kit supports.
 The recommended steps are written as seven changes in the planning repo, all priority 3: `sandbox-backends` (the base layer, the policy, the Linux
 backend, the proxy, doctor and init), `sandbox-profile-paths`, `sandbox-claude-code` (with the config guard demoted to a warning),
 `sandbox-acp`, `sandbox-e2e-policy`, `sandbox-macos-backend` (specced before the Mac proof of concept was run) and
-`sandbox-retire-duplicate-guards`.
+`sandbox-retire-duplicate-guards`. Once built, what each does is specified in `openspec/specs/sandbox-backends` and its sibling
+capability folders under `openspec/specs/`.
 
 ## Alternatives considered
 

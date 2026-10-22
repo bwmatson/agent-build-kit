@@ -26,6 +26,7 @@ import yaml
 
 from agent_build_kit import claude_account, openspec, runtimes, skills, timers
 from agent_build_kit import config as config_module
+from agent_build_kit.cli.doctor import sandbox_check
 from agent_build_kit.cli.policy_cmd import PATTERNS_COMMAND, preview, write_recommended
 from agent_build_kit.config import (
     CLAUDE_CODE,
@@ -616,6 +617,14 @@ def _agent(chosen: Choice | None, kept: str | None) -> AgentRuntime | None:
         return None
 
 
+def _sandbox_lines(planning: Path) -> None:
+    """What `abk doctor` finds about the sandbox, for the abk.yaml now in the planning repo."""
+    found = sandbox_check(config_module.load(planning / CONFIG_FILENAME))
+    print(f"sandbox: {found.detail}")
+    if found.status == "FAIL":
+        print(f"sandbox fix: {found.fix}")
+
+
 def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
     planning = Path(args.planning_dir).expanduser().resolve()
     if args.policy_fix:
@@ -729,6 +738,7 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
             print(f"recorded runtime {chosen.runtime} in abk.yaml")
 
     _activate(planning, applied)
+    _sandbox_lines(planning)
 
     # Before the agent steps and the commit: what the step records is part of init's commit.
     _policy_step(planning, args)

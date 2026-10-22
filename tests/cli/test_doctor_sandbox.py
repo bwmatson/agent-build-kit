@@ -38,7 +38,7 @@ def test_a_backend_that_does_not_work_fails_naming_the_cause_and_the_fix(
 
     found = sandbox_checks(workspace / "abk.yaml")
 
-    assert [c.status for c in found] == ["fail"]
+    assert [c.status for c in found] == ["FAIL"]
     assert "stand-in off" in found[0].detail
     assert "turn on" in found[0].fix
     assert broken_stand_in.probes >= 1

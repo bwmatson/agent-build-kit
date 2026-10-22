@@ -33,6 +33,7 @@ from agent_build_kit import (
     openspec,
     profiles,
     runtimes,
+    sandboxes,
     skills,
     timers,
 )
@@ -1703,6 +1704,17 @@ def _gate_usage(inst: Installation, run: Run, which: Which) -> list[Check]:
     return checks
 
 
+def sandbox_check(loaded: WorkspaceConfig) -> Check:
+    """Whether the sandbox backend works here, found by running its probe; `abk init` shows the
+    same result."""
+    if not loaded.sandbox.enabled:
+        return _ok("sandbox", "off (`sandbox.enabled` is false)")
+    backend, found = sandboxes.probe(loaded.sandbox.backend)
+    if found.ok:
+        return _ok("sandbox", f"{backend.name}: confines {found.coverage.value} of a step")
+    return _fail("sandbox", f"{backend.name}: {found.cause}", found.fix)
+
+
 def run_doctor(
     config_path: Path | None,
     *,
@@ -1756,6 +1768,7 @@ def run_doctor(
     checks += _toolchain(inst, run, which)
     checks += _agent_commands(inst)
     checks += _runtime(inst, which, run)
+    checks.append(sandbox_check(inst.config))
     if config.runtime_name(inst.config) == config.CLAUDE_CODE:
         checks += _labelled_accounts(inst, run)
     checks += _notifications(inst, run, which)
