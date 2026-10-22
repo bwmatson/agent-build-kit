@@ -132,7 +132,14 @@ def test_ten_session_pairs_costing_more_than_the_default_give_a_figure_above_it(
 def test_only_the_newest_pairs_in_the_window_count() -> None:
     calls, ledger = per_unit("weekly", [10] * 6 + [1, 1, 1, 2], units=1)
 
-    result = found("weekly", calls, ledger, usage_allowance_window=4, usage_allowance_min_pairs=2)
+    result = found(
+        "weekly",
+        calls,
+        ledger,
+        usage_allowance_window=4,
+        usage_allowance_min_pairs=2,
+        usage_cost_min_pairs=2,
+    )
 
     assert result is not None
     assert (result.quantile_pct_per_unit, result.pairs_used, result.pairs_available) == (2, 4, 10)

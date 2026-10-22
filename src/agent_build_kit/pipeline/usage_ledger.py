@@ -413,9 +413,9 @@ def grouped_records(lines: list[str]) -> list[list[UsageRecord]]:
     re-run of the same call and replaces what came before it. Calls with no
     session id cannot be told apart from a re-run, so each stays a record of
     its own, and so does every call of a node outside the unit graph's (a restack, a plan, a
-    chat turn), whatever its session. A line that is not
-    a record (half written) is skipped."""
-    calls: dict[tuple[str, str, int, str], list[UsageRecord]] = {}
+    chat turn), whatever its session. Two accounts' calls are never one call, whatever they
+    share. A line that is not a record (half written) is skipped."""
+    calls: dict[tuple[str, str, int, str, str], list[UsageRecord]] = {}
     for line in lines:
         try:
             raw = json.loads(line)
@@ -425,7 +425,7 @@ def grouped_records(lines: list[str]) -> list[list[UsageRecord]]:
         except (ValueError, AttributeError, ValidationError):
             continue
         unnamed = "" if record.session_id and record.node in UNIT_CALL_NODES else record.at
-        key = (record.unit, record.node, record.round, unnamed)
+        key = (record.unit, record.node, record.round, unnamed, record.account or "")
         if record.resumed and key in calls:
             calls[key].append(record)
         else:

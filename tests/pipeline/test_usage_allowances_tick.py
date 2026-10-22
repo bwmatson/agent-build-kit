@@ -50,4 +50,4 @@ def test_a_tick_with_two_units_calibrates_once_and_keeps_the_result(
     assert sorted(built) == ["add-marker/1", "add-marker/2"]
     assert computed == [1]
     kept = json.loads((tmp_path / ALLOWANCES_NAME).read_text())
-    assert kept["weekly"]["pairs_used"] == 9
+    assert kept["windows"]["weekly"]["pairs_used"] == 9

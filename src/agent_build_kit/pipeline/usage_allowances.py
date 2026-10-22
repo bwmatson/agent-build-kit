@@ -26,7 +26,13 @@ from agent_build_kit.pipeline.usage_calls import (
     consecutive_readings,
     parse_calls,
 )
-from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, UsageRecord, read_ledger, spend_times
+from agent_build_kit.pipeline.usage_ledger import (
+    LEDGER_NAME,
+    UsageRecord,
+    read_ledger,
+    spend_costs,
+    spend_times,
+)
 
 ALLOWANCES_NAME = "usage-allowances.json"
 
@@ -103,8 +109,173 @@ def cost_pairs(
     calls: list[UsageCall], ledger: list[UsageRecord], window: Window, *, min_gap: timedelta
 ) -> list[CostPair]:
     """The usable cost pairs of `window`, oldest first: as `pairs`, but a gap counts by the
-    cost of its rows, with a unit or without one."""
-    raise NotImplementedError
+    cost of its rows, with a unit or without one. A gap with no recorded cost, or with a unit
+    none of whose rows has a cost, makes no pair."""
+    spent = spend_costs(ledger)
+    made = []
+    for before, low, after, high in consecutive_readings(calls, window, min_gap=min_gap):
+        if high < low or after - before > SPANS[window]:
+            continue
+        in_gap = [row for row in spent if before <= row.at < after]
+        total = sum(row.cost_usd for row in in_gap)
+        by_unit: dict[str, float] = {}
+        for row in in_gap:
+            if row.unit:
+                by_unit[row.unit] = by_unit.get(row.unit, 0.0) + row.cost_usd
+        if total > 0 and all(cost > 0 for cost in by_unit.values()):
+            hours = (after - before).total_seconds() / 3600
+            made.append(
+                CostPair(
+                    at=before,
+                    before=low,
+                    gain=high - low,
+                    cost_usd=total,
+                    hours=hours,
+                    units=len(by_unit),
+                )
+            )
+    return made
+
+
+class CostFit(Frozen):
+    """The kept cost fit of one window: points per dollar and per hour, scale included."""
+
+    points_per_usd: float
+    intercept_per_hour: float
+    safety_scale: float
+
+
+def _round_up(value: float, step: float = 0.01) -> float:
+    return math.ceil(round(value / step, 6)) * step if value > 0 else 0.0
+
+
+def _fit_coefficients(usable: list[CostPair], intercept: bool) -> tuple[float, float] | None:
+    """The non-negative least-squares coefficients of gain on cost (and hours), else None."""
+    sxx = sum(p.cost_usd**2 for p in usable)
+    sxy = sum(p.cost_usd * p.gain for p in usable)
+    if intercept:
+        shh = sum(p.hours**2 for p in usable)
+        sxh = sum(p.cost_usd * p.hours for p in usable)
+        shy = sum(p.hours * p.gain for p in usable)
+        det = sxx * shh - sxh**2
+        if det > 1e-9 * sxx * shh:
+            per_usd = (sxy * shh - shy * sxh) / det
+            per_hour = (sxx * shy - sxh * sxy) / det
+            if per_usd <= 1e-9:
+                return None
+            if per_hour >= 0:
+                return per_usd, per_hour
+    per_usd = sxy / sxx
+    return (per_usd, 0.0) if per_usd > 1e-9 else None
+
+
+def fit_cost(
+    usable: list[CostPair], *, limits: ClaudeLimitsConfig, window: Window
+) -> CostFit | None:
+    """The cost fit of `window` over the newest pairs of `usable`: the non-negative line of
+    gain on cost (and hours where the window's intercept is on), times the residual-quantile
+    safety scale kept between 1 and 2, rounded up to 0.01. None for no fit."""
+    newest = usable[-limits.usage_allowance_window :]
+    if len(newest) < limits.usage_cost_min_pairs:
+        return None
+    found = _fit_coefficients(newest, getattr(limits, window).usage_estimate_intercept)
+    if found is None:
+        return None
+    per_usd, per_hour = found
+    ratios = sorted(
+        round(p.gain / predicted, 9)
+        for p in newest
+        if (predicted := per_usd * p.cost_usd + per_hour * p.hours) > 0
+    )
+    scale = 1.0
+    if ratios:
+        rank = math.ceil(round(limits.usage_cost_quantile * len(ratios), 9))
+        scale = min(max(ratios[max(rank, 1) - 1], 1.0), 2.0)
+    return CostFit(
+        points_per_usd=_round_up(per_usd * scale),
+        intercept_per_hour=_round_up(per_hour * scale),
+        safety_scale=scale,
+    )
+
+
+def _false_allows(
+    newest: list[CostPair],
+    offset: int,
+    usable: list[CostPair],
+    flat_pairs: list[UsagePair],
+    *,
+    limits: ClaudeLimitsConfig,
+    window: Window,
+    now: datetime,
+) -> tuple[int, int, int]:
+    """(gaps judged, false allows of the cost fit, false allows of the flat figure) walk-forward
+    over `newest`, each gap estimated from the pairs before it."""
+    threshold = getattr(limits, window).usage_pause_pct
+    margin = limits.usage_headroom_margin_pct
+    judged = cost_false = flat_false = 0
+    for index in range(limits.usage_cost_min_pairs, len(newest)):
+        pair = newest[index]
+        before = usable[: offset + index]
+        flat = calibrate_pairs([p for p in flat_pairs if p.at < pair.at], limits=limits, now=now)
+        flat_estimate = pair.units * allowance_for(window, flat, limits)
+        fit = fit_cost(before, limits=limits, window=window)
+        estimate = (
+            flat_estimate
+            if fit is None
+            else fit.points_per_usd * pair.cost_usd + fit.intercept_per_hour * pair.hours
+        )
+        reached = pair.before + pair.gain >= threshold
+        judged += 1
+        cost_false += reached and pair.before + estimate + margin < threshold
+        flat_false += reached and pair.before + flat_estimate + margin < threshold
+    return judged, cost_false, flat_false
+
+
+def calibrate_cost(
+    flat: Calibrated,
+    usable: list[CostPair],
+    flat_pairs: list[UsagePair],
+    *,
+    limits: ClaudeLimitsConfig,
+    window: Window,
+    now: datetime,
+) -> Calibrated:
+    """`flat` with the cost fit of `window`, and the basis in force with its reason."""
+    held = {"cost_pairs_held": len(usable)}
+    if len(usable) < limits.usage_cost_min_pairs:
+        return flat.model_copy(update={**held, "reason": "too_few_pairs"})
+    fit = fit_cost(usable, limits=limits, window=window)
+    if fit is None:
+        return flat.model_copy(update={**held, "reason": "no_fit"})
+    newest = usable[-limits.usage_allowance_window :]
+    judged, cost_false, flat_false = _false_allows(
+        newest,
+        len(usable) - len(newest),
+        usable,
+        flat_pairs,
+        limits=limits,
+        window=window,
+        now=now,
+    )
+    adopted = judged >= limits.usage_cost_min_pairs and cost_false <= flat_false
+    reason = (
+        None
+        if adopted
+        else "too_few_judged"
+        if judged < limits.usage_cost_min_pairs
+        else "more_false_allows"
+    )
+    return flat.model_copy(
+        update={
+            **held,
+            **fit.model_dump(),
+            "basis": "cost" if adopted else "units",
+            "reason": reason,
+            "cost_pairs_judged": judged,
+            "false_allows_cost": cost_false,
+            "false_allows_flat": flat_false,
+        }
+    )
 
 
 def calibrate_pairs(
@@ -171,7 +342,18 @@ def calibrated_allowances(
     found: dict[str, Calibrated] = {}
     for window in WINDOWS:
         usable = pairs(calls, ledger, window, min_gap=min_gap)
-        found[window] = calibrate_pairs(usable, limits=limits, now=now)
+        flat = calibrate_pairs(usable, limits=limits, now=now)
+        if getattr(limits, window).usage_estimate_basis == "units":
+            found[window] = flat.model_copy(update={"reason": "basis_units"})
+            continue
+        found[window] = calibrate_cost(
+            flat,
+            cost_pairs(calls, ledger, window, min_gap=min_gap),
+            usable,
+            limits=limits,
+            window=window,
+            now=now,
+        )
     return found
 
 
@@ -213,20 +395,34 @@ def allowances_line(found: Mapping[str, Calibrated], limits: ClaudeLimitsConfig)
     return f"{head} {', '.join(parts)}" + (", calibrated" if all(calibrated) else "")
 
 
+ALLOWANCES_VERSION = 2
+
+
 def read_allowances(path: Path) -> dict[str, Calibrated]:
-    """The kept result; empty when the file is missing, unreadable or of another shape."""
+    """The kept result; empty when the file is missing, unreadable, of a version this reader
+    does not know or of another shape. A file of the previous shape, a calibration for each
+    window name at the top level, is read as the flat calibration it was."""
     try:
         body = json.loads(path.read_text())
         if not isinstance(body, dict):
             return {}
-        return {name: Calibrated.model_validate(each) for name, each in body.items()}
+        if "version" not in body:
+            return {
+                name: Calibrated.model_validate(each).model_copy(update={"reason": "previous file"})
+                for name, each in body.items()
+            }
+        windows = body.get("windows")
+        if body["version"] != ALLOWANCES_VERSION or not isinstance(windows, dict):
+            return {}
+        return {name: Calibrated.model_validate(each) for name, each in windows.items()}
     except (OSError, ValueError, ValidationError):
         return {}
 
 
 def write_allowances(path: Path, found: Mapping[str, Calibrated]) -> None:
     """Keep `found` whole: a reader never sees half of it."""
-    body = {name: each.model_dump(mode="json") for name, each in found.items()}
+    windows = {name: each.model_dump(mode="json") for name, each in found.items()}
+    body = {"version": ALLOWANCES_VERSION, "windows": windows}
     atomic_write_text(path, json.dumps(body, indent=2))
 
 

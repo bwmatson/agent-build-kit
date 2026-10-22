@@ -13,7 +13,11 @@
   `usage_estimate_basis` (`cost` or `units`, `cost` by default) and `usage_estimate_intercept`
   (on for the session, off for the week), and for both `usage_cost_min_pairs` (8) and
   `usage_cost_quantile` (0.9). A bad value is refused naming the key. The usage ledger can be
-  read as what each call spent, by cost, including calls that belong to no unit.
+  read as what each call spent, by cost, including calls that belong to no unit. Each tick's
+  calibration now also fits points gained per dollar of recorded cost for a window on the `cost`
+  basis, adopts it only where it has no more false allows than the flat per-unit figure over the
+  same gaps, and keeps the result in `usage-allowances.json` as `{"version": 2, "windows": ...}`;
+  a file of the earlier shape is still read as the flat calibration it was.
 
 - A test can carry its own time limit with `@pytest.mark.time_limit(<seconds>)`, in place of
   `--test-time-limit`, and the test that downloads vitest carries 180 seconds, so a slow npm
