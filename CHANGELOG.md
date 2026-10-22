@@ -11,6 +11,7 @@
   body keeps its older layout. With it on, opening or updating a body marks the unit's verdict
   record as having carried the section, and a failure to write the record is logged and never
   holds the body.
+
 - `abk doctor` and `abk init` report whether the agent sandbox works on this machine by running
   the backend's own probe, and print the cause and the fix when it does not; with
   `sandbox.enabled` off they say so in one line. `abk policy check` and `abk status` show each
