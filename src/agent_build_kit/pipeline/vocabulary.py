@@ -29,6 +29,7 @@ from agent_build_kit.pipeline.units import (
     UnitState,
     waiting_on,
 )
+from agent_build_kit.pipeline.verdict import ReviewTier
 
 # A label a person adds to instruct the pipeline starts with this; one the
 # pipeline maintains never does.
@@ -155,6 +156,16 @@ def change_label(change: str) -> Label:
         color="64748b",
         description="The change this pull request belongs to",
     )
+
+
+def review_label(tier: ReviewTier) -> Label:
+    """The label naming the review tier a unit's verdict gave its pull request."""
+    raise NotImplementedError
+
+
+def review_label_names() -> frozenset[str]:
+    """Every label the pipeline maintains as a unit's review tier."""
+    raise NotImplementedError
 
 
 # A unit's pull request's checks, as the last poll recorded them.

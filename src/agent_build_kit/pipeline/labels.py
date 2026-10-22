@@ -9,9 +9,11 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection
 from enum import StrEnum
+from pathlib import Path
 
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.verdict import ReviewTier
 from agent_build_kit.pipeline.vocabulary import (
     FINISHED,
     ChecksOf,
@@ -66,6 +68,17 @@ class StateLabels:
             ),
             repo,
         )
+
+    def set_review(self, repo: str, pr: int, tier: ReviewTier) -> None:
+        """Make `tier` the one review label on the pull request."""
+        raise NotImplementedError
+
+    def follow_review(self, unit: StoredUnit, verdicts: Path) -> None:
+        """Put the review label of the unit's recorded verdict on its pull request.
+
+        Nothing is written with review disabled, with no pull request or with no verdict.
+        """
+        raise NotImplementedError
 
     def clear_state(self, repo: str, pr: int) -> ClearOutcome:
         """Take every state label off the pull request of a finished unit.
