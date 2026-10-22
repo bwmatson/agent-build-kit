@@ -9,6 +9,10 @@
   next plan. Such a group holds tests, test support, docs and the changelog: a
   `Support: `<paths>` — <reason>` line declares further files for it, and `abk tags` and
   `abk check` warn of a task that names any other path in backticks.
+- The Claude limits take settings for estimating usage from recorded cost: per window
+  `usage_estimate_basis` (`cost` or `units`, `cost` by default) and `usage_estimate_intercept`
+  (on for the session, off for the week), and for both `usage_cost_min_pairs` (8) and
+  `usage_cost_quantile` (0.9). A bad value is refused naming the key.
 
 - A test can carry its own time limit with `@pytest.mark.time_limit(<seconds>)`, in place of
   `--test-time-limit`, and the test that downloads vitest carries 180 seconds, so a slow npm
