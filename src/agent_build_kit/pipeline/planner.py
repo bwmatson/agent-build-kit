@@ -56,6 +56,7 @@ from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     BUILDS_NOTHING,
     Join,
+    ManualStep,
     Priority,
     Unit,
     UnitState,
@@ -232,6 +233,7 @@ def parse_plan(
                     groups=tuple(raw.get("groups") or ()),
                     # Read only with review enabled; `_with_review_tier` checks the value.
                     review_tier=raw.get("review_tier") if active().review.enabled else None,
+                    manual_steps=_manual_steps(tuple(raw.get("groups") or ()), groups),
                 )
             )
         unnamed = {unit.id for unit in units if not unit.review_tier}
@@ -335,6 +337,13 @@ def _first_group(raw: dict, groups: list[TaskGroup] | None) -> TaskGroup | None:
     """The first group a planned unit lists that is in `groups`: where its shape is read from."""
     by_number = {group.number: group for group in groups or ()}
     return next((by_number[n] for n in raw.get("groups") or () if n in by_number), None)
+
+
+def _manual_steps(numbers: Sequence[int], groups: list[TaskGroup] | None) -> tuple[ManualStep, ...]:
+    """The manual steps of the groups numbered in `numbers`, in group order."""
+    return tuple(
+        step for group in groups or () if group.number in numbers for step in group.manual_steps
+    )
 
 
 def _unit_project(raw: dict, groups: list[TaskGroup] | None) -> str:

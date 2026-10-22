@@ -27,7 +27,7 @@ class Refused(Exception):
     """The request breaks a rule; the message says which."""
 
 
-def _worktree() -> Path:
+def worktree_root() -> Path:
     top = git(Path.cwd(), "rev-parse", "--show-toplevel", check=False)
     if top.returncode or not top.stdout.strip():
         raise Refused("the working directory is not in a git worktree")
@@ -71,7 +71,7 @@ def _install(source: Path, target: Path) -> bytes:
 def cmd_install_config(args: argparse.Namespace, inst: Installation) -> int:
     allowed = [*ALWAYS_INSTALLABLE, *inst.config.builders.installable_files]
     try:
-        worktree = _worktree()
+        worktree = worktree_root()
         source = _staged(worktree, args.staged)
         target = _target(worktree, args.target, allowed)
         content = _install(source, target)

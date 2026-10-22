@@ -155,6 +155,7 @@ global_limits:
   bounce_limit: 3             # a unit put back from running this many times in a row with one cause is named looping (>= 2)
   bounce_span_seconds: 120    # a run shorter than this counts as a bounce (>= 1)
   label_sweep_per_tick: 20    # finished units' PRs a round takes a stale state label off (>= 1)
+  manual_check_seconds: 30    # seconds a manual step's check script may run (>= 1)
   min_unit_lines: 400         # estimated lines before a unit stops growing
   max_unit_lines: 750         # DEPRECATED: read as review.ceilings.full;
                               # `abk config --migrate` moves it. A unit landing

@@ -45,6 +45,7 @@ from agent_build_kit.pipeline.units import (
     RUNNING,
     SPLIT_HELD_CAUSE,
     Join,
+    ManualStep,
     Member,
     Priority,
     Unit,
@@ -1200,6 +1201,10 @@ class UnitStore:
         self, unit_id: str, splits: Sequence[str] = (), sha: str = "", snapshot: str = ""
     ) -> None:
         self._update(unit_id, parked_splits=list(splits), parked_sha=sha, parked_snapshot=snapshot)
+
+    def set_manual_steps(self, unit_id: str, steps: Sequence[ManualStep]) -> None:
+        """The steps only a person can do that the unit waits on."""
+        self._update(unit_id, manual_steps=tuple(steps))
 
     def set_split(self, unit_id: str, split: str) -> None:
         """The e2e-test split the unit is stored in, where a started unit's group was edited."""

@@ -128,6 +128,8 @@ class ManualStep(Frozen):
     text: str
     runbook: str = ""
     check: str = ""
+    # The `Manual:` line it was declared on, 0 for a raised step.
+    line: int = 0
 
 
 class Unit(Frozen):

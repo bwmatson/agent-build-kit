@@ -181,6 +181,16 @@ SEPARATE_LINE = re.compile(r"^Separate:\s*(?P<reason>.*?)\s*$", re.I)
 # group of its change. The reason is what review agrees to.
 INDEPENDENT_LINE = re.compile(r"^Independent:\s*(?P<reason>.*?)\s*$", re.I)
 
+# "Manual: <slug> — <what a person does> — runbook: <path>#<heading>", inside a group: a step
+# only a person can do, with the runbook entry that says how. A `Check: <command>` line after
+# it is the deterministic check the tick runs to see the step is done.
+MANUAL_LINE = re.compile(
+    r"^Manual:\s*(?P<slug>[a-z0-9][a-z0-9-]*)\s+[—–]\s*(?P<text>.*?)\s*[—–]\s*"
+    r"runbook:\s*(?P<runbook>\S+)\s*$",
+    re.I,
+)
+CHECK_LINE = re.compile(r"^Check:\s*(?P<command>.*?)\s*$", re.I)
+
 # "Priority: 2", inside a group: how urgent its unit is, 0 (emergency) to 5, 3 when
 # unsaid. Above the first group it is the default for the change's groups.
 PRIORITY_LINE = re.compile(r"^Priority:\s*(?P<value>.*?)\s*$", re.I)
@@ -331,6 +341,8 @@ def validate_tasks(
     heading_lines: list[int] = []
     separate: set[int] = set()
     independent: dict[int, int] = {}
+    manual: dict[int, list[ManualStep]] = {}
+    manual_slugs: set[str] = set()
     current: int | None = None
     default_priority: int | None = None
     priorities: dict[int, int] = {}
@@ -434,6 +446,45 @@ def validate_tasks(
                             "what review agrees to",
                         )
                     )
+            if current is not None and text.strip().lower().startswith("manual:"):
+                step = MANUAL_LINE.match(text.strip())
+                if step is None or not step["text"]:
+                    errors.append(
+                        ValidationError(
+                            line=index,
+                            message="`Manual:` reads `Manual: <slug> — <what a person does> — "
+                            "runbook: <path>#<heading>`, with a description",
+                        )
+                    )
+                elif step["slug"] in manual_slugs:
+                    errors.append(
+                        ValidationError(
+                            line=index,
+                            message=f"`Manual:` slug `{step['slug']}` is used twice in this change",
+                        )
+                    )
+                else:
+                    manual_slugs.add(step["slug"])
+                    manual.setdefault(current, []).append(
+                        ManualStep(
+                            slug=step["slug"],
+                            text=step["text"],
+                            runbook=step["runbook"],
+                            line=index,
+                        )
+                    )
+            if current is not None and (check := CHECK_LINE.match(text.strip())):
+                if not check["command"] or current not in manual:
+                    errors.append(
+                        ValidationError(
+                            line=index,
+                            message="`Check:` needs a command, and follows a `Manual:` line "
+                            "of its group",
+                        )
+                    )
+                else:
+                    last = manual[current][-1]
+                    manual[current][-1] = last.model_copy(update={"check": check["command"]})
             if current is not None and (free := INDEPENDENT_LINE.match(text.strip())):
                 if free["reason"]:
                     independent[current] = index
@@ -541,6 +592,7 @@ def validate_tasks(
             goal=_goal(lines, g.line),
             separate=g.line in separate,
             independent=g.line in independent,
+            manual_steps=tuple(manual.get(g.line, ())),
             priority=priorities.get(
                 g.line, Priority.NORMAL if default_priority is None else default_priority
             ),
@@ -941,6 +993,31 @@ def _needed_repo(
         return ""
     groups, _ = validate_tasks(other, repos=repos, projects=projects)
     return next((g.repo for g in groups if g.number == need.group), "")
+
+
+def _runbook_anchors(text: str) -> set[str]:
+    """The anchors of a markdown text's headings, as a code host makes them."""
+    anchors: set[str] = set()
+    for line in text.splitlines():
+        if heading := re.match(r"^#+\s+(?P<title>.*?)\s*#*\s*$", line):
+            title = re.sub(r"[^\w\- ]", "", heading["title"].lower())
+            anchors.add(title.replace(" ", "-"))
+    return anchors
+
+
+def manual_runbook_warnings(path: Path, root: Path) -> list[str]:
+    """One warning per `Manual:` line of a tasks file whose runbook file or heading is missing
+    under `root`, as `abk tags` and `abk check` print them."""
+    groups, _ = validate_tasks(path)
+    warnings: list[str] = []
+    for step in (step for group in groups for step in group.manual_steps):
+        file, _, anchor = step.runbook.partition("#")
+        where = f"{path}:line {step.line}: warning: manual step `{step.slug}`:"
+        if not (root / file).is_file():
+            warnings.append(f"{where} runbook file {file} does not exist")
+        elif anchor and anchor.lower() not in _runbook_anchors((root / file).read_text()):
+            warnings.append(f"{where} {file} has no heading #{anchor}")
+    return warnings
 
 
 def tasks_path(change: str, changes_dir: Path) -> Path:
