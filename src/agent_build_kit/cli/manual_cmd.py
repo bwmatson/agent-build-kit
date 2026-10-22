@@ -79,6 +79,10 @@ def cmd_manual_raise(args: argparse.Namespace, inst: Installation) -> int:
     return 0
 
 
+def cmd_manual_check(args: argparse.Namespace, inst: Installation) -> int:
+    raise NotImplementedError
+
+
 def register(sub: argparse._SubParsersAction) -> None:
     parser = sub.add_parser("manual", help="steps only a person can do, checked by the tick")
     actions = parser.add_subparsers(dest="manual_command", required=True)
@@ -87,3 +91,6 @@ def register(sub: argparse._SubParsersAction) -> None:
     raised.add_argument("--text", required=True, help="what a person does")
     raised.add_argument("--check", required=True, help="a script under .abk/manual/")
     raised.set_defaults(func=cmd_manual_raise)
+    checked = actions.add_parser("check", help="run the checks of the outstanding steps now")
+    checked.add_argument("slug", nargs="?", default="", help="only the step with this name")
+    checked.set_defaults(func=cmd_manual_check)
