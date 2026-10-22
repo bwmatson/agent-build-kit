@@ -873,17 +873,21 @@ class UnitStore:
         *,
         also: Callable[[], None] | None = None,
     ) -> list[str]:
-        """Store the units `after` holds that differ from `before`, and no other: it is
+        """Store the units `after` holds that differ from `before`, remove those it lacks, and
+        touch no other: it is
         for a plan made apart from the store, from a copy taken as `before`. When any of those
         units is no longer as `before` has it in the store (changed, or added, since), nothing
         is written and their ids are returned. `also` is called after the write, with the
         store still locked, so a record kept beside the units changes with them."""
         stored = self._read()
+        # A unit `after` lacks was removed by the planning (joined onto another): it goes too.
+        removed = [uid for uid in before if uid not in after]
         changed = [uid for uid, unit in after.items() if before.get(uid) != unit]
-        if moved := [uid for uid in changed if stored.get(uid) != before.get(uid)]:
+        if moved := [uid for uid in (*changed, *removed) if stored.get(uid) != before.get(uid)]:
             return moved
-        if changed:
-            self._write({**stored, **{uid: after[uid] for uid in changed}})
+        if changed or removed:
+            kept = {uid: unit for uid, unit in stored.items() if uid not in removed}
+            self._write({**kept, **{uid: after[uid] for uid in changed}})
         if also is not None:
             also()
         return []

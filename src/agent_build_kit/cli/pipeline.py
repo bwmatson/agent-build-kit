@@ -103,6 +103,7 @@ from agent_build_kit.pipeline.e2e import (
 )
 from agent_build_kit.pipeline.e2e_holds import (
     Hold,
+    held_path,
     hold_text,
     parked_holds,
     repo_holds,
@@ -6176,7 +6177,12 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
             record = records.get(change)
             if not record or not plan_is_stale(record):
                 continue
-            if not record.get("ok") and _plan_rests(record, plan_digest(path), max_attempts, now):
+            # A change a name, `--all` or `--failed` selected is planned, whatever it waits for.
+            if (
+                change not in selected
+                and not record.get("ok")
+                and _plan_rests(record, plan_digest(path), max_attempts, now)
+            ):
                 shown = _plan_state(record, max_attempts, change in standing)
                 print(f"{change}: skipped — {shown}")
                 continue
@@ -6265,13 +6271,15 @@ def _urgency(inst: Installation, change: str) -> int:
 
 def _dropped(outcome: ReplanOutcome) -> list[StoredUnit]:
     """The units of the planned changes that `outcome` leaves `unplanned` and were not before,
-    as they stood before."""
+    as they stood before. A unit the planning removed by joining it onto another is not one:
+    its work went there."""
     return [
         old
         for uid, old in outcome.before.items()
         if old.change in outcome.changes
         and old.state != UNPLANNED
-        and outcome.after[uid].state == UNPLANNED
+        and (after := outcome.after.get(uid)) is not None
+        and after.state == UNPLANNED
     ]
 
 
@@ -6357,6 +6365,9 @@ def plan_apart(
         for source in (store.path, inst.state_dir / "planned.json"):
             if source.is_file():
                 shutil.copy2(source, scratch / source.name)
+        # The holds a split is under, which a unit's priority is promoted around.
+        if (holds := held_path(inst.state_dir)).is_file():
+            shutil.copy2(holds, scratch / holds.name)
         # A branch a live process holds is a unit that has started: a join onto it is dropped.
         if (inst.state_dir / "locks").is_dir():
             shutil.copytree(inst.state_dir / "locks", scratch / "locks")

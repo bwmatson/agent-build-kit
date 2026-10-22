@@ -624,8 +624,8 @@ says how many model calls it will make.
   `--accept-unplanned` stores the plan. The planner is called once for the change either way,
   and each selected change is decided apart. A plan that drops no unit needs no flag. A replan
   writes only the units and plan records it changed; when a unit it would write was changed
-  meanwhile (a tick started it), nothing is stored for that change, it says so and exits 1, and
-  the replan is run again.
+  meanwhile (a tick started it), nothing is stored for that change, it says so and exits 1; run
+  the replan again.
 - **Migrating.** `--stale` selects every change whose plan is stale, and `--limit N` keeps the
   first N of any selection, ordered by the most urgent `Priority:` among the change's groups and
   then by name; the changes over the limit are listed as `not yet planned`. A change waiting for
