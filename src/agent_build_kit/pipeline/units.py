@@ -16,6 +16,7 @@ cannot be named here. Given plain `Unit`s they would see no pull request and no 
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Collection, Hashable, Iterable, Mapping, Sequence
 from datetime import datetime
 from enum import IntEnum, StrEnum
@@ -799,9 +800,30 @@ def satisfied_landed(unit: Unit, graph: Sequence[Unit]) -> bool:
     return landed(unit, frozenset())
 
 
+_ID_TAIL = re.compile(r"(?P<number>\d+)(?P<suffix>(?:-s\d+)*)")
+
+
+def unit_id_parts(unit_id: str) -> tuple[int, str]:
+    """The integer after the change in a `<change>/<n>` id, and the `-s<k>` suffix a piece of a
+    split adds to its parent's id (`""` for an ordinary id). The one place an id is taken apart."""
+    tail = _ID_TAIL.fullmatch(unit_id.rsplit("/", 1)[1])
+    if tail is None:
+        raise ValueError(f"not a unit id: {unit_id}")
+    return int(tail["number"]), tail["suffix"]
+
+
+def unit_file_prefix(unit_id: str, change: str | None = None) -> str:
+    """The start of the names of a unit's run logs and transcripts, `<change>-<nn><suffix>-`
+    (the change is the id's own unless given), which a timestamp follows directly. A piece of a
+    split has its suffix in it, so no unit's files are matched by another's prefix."""
+    number, suffix = unit_id_parts(unit_id)
+    return f"{change if change is not None else unit_id.rsplit('/', 1)[0]}-{number:02d}{suffix}-"
+
+
 def unit_number(unit: Unit) -> int:
-    """The `<n>` of a unit's `<change>/<n>` id: its place in its change's plan order."""
-    return int(unit.id.rsplit("/", 1)[1])
+    """The `<n>` of a unit's `<change>/<n>` id: its place in its change's plan order. A piece
+    of a split sorts where its root did."""
+    return unit_id_parts(unit.id)[0]
 
 
 def earlier_units(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
@@ -895,6 +917,12 @@ def merge_loaded(parent: Unit, graph: Sequence[Unit], loaded: LoadedCode) -> boo
     return one(parent, frozenset())
 
 
+def is_superseded(unit: Unit) -> bool:
+    """Whether the unit was replaced by the pieces of a split: closed, with `superseded_by`
+    naming them. It is finished without merging, and its pieces carry its groups."""
+    return unit.state == UnitState.CLOSED and bool(unit.superseded_by)
+
+
 def waiting_on(unit: Unit, graph: Sequence[Unit], loaded: LoadedCode | None = None) -> list[Unit]:
     """The dependencies that stop `unit` starting now.
 
@@ -938,7 +966,12 @@ def waiting_on(unit: Unit, graph: Sequence[Unit], loaded: LoadedCode | None = No
     for dep in [*followed, *(dep for dep in unit.merge_needs if dep not in followed)]:
         parent = index.get(dep)
         # A unit the plan dropped builds nothing, so nothing waits on it.
-        if parent is None or parent.state in BUILDS_NOTHING or parent in waiting:
+        if (
+            parent is None
+            or parent.state in BUILDS_NOTHING
+            or is_superseded(parent)
+            or parent in waiting
+        ):
             continue
         if edge_kind(unit, parent, repos).kind is EdgeKind.MERGE:
             if not landed(parent) or (loaded and not merge_loaded(parent, graph, loaded)):

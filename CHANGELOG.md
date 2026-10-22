@@ -68,7 +68,13 @@
   buffered ceiling is now held as too big for its tier (`too_big_for_tier`), which is neither a
   failure nor a review round and raises no card; the split request is kept on the unit. A person's
   `abk requeue` of a unit held for a person for its size now records that the size is waived, so
-  the same rule does not hold it again.
+  the same rule does not hold it again. A unit made by a split has the id of the unit it replaces
+  followed by `-s<k>` (`app/3-s1`); its run logs and transcripts are told apart from its parent's,
+  and the store can close a held unit as superseded by its pieces in one write, re-pointing what
+  depended on it, with its branch kept under `refs/spec-driven/superseded/<unit id>`. Its pull
+  request is closed with a comment naming the pieces, the lines and the ceiling (retried until it
+  closes), the host's closed event leaves it as it is, a plan cannot revive it, nothing waits on
+  it, `abk status` names its pieces, and a change archives once the pieces merge.
 
 - `abk replan --dry-run` asks the planner and prints the units each change would get, with
   their groups, expected review tier and estimated lines against that tier's ceiling, and the

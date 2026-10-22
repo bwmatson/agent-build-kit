@@ -33,7 +33,7 @@ from agent_build_kit.pipeline.run_log import remove_change_logs
 from agent_build_kit.pipeline.scratch import remove_leftovers
 from agent_build_kit.pipeline.transcript import remove_change_transcripts
 from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import SATISFIED, UnitState, satisfied_landed
+from agent_build_kit.pipeline.units import SATISFIED, UnitState, is_superseded, satisfied_landed
 from agent_build_kit.pipeline.usage_report import roll_up_change
 
 logger = logging.getLogger(__name__)
@@ -81,6 +81,7 @@ def is_ready_to_archive(change: str, units: list[StoredUnit]) -> bool:
     return all(
         unit.state == "merged"
         or unit.state in FINISHED_WITHOUT_MERGING
+        or is_superseded(unit)
         or retired_and_built(unit)
         or (unit.state == SATISFIED and satisfied_landed(unit, units))
         for unit in mine

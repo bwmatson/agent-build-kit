@@ -253,6 +253,19 @@ def prepare_detached(repo: Path, name: str, *, ref: str, root: Path) -> Path:
     return path
 
 
+def keep_superseded_branch(repo: Path, branch: str, unit_id: str, *, lock_root: Path) -> bool:
+    """Keep the tip of a superseded unit's branch under `refs/spec-driven/superseded/<unit id>`,
+    with the branch lock held. False, with nothing changed, when a live process holds the lock.
+    The branch itself and the remote's copy are left as they are."""
+    try:
+        with branch_lock(branch, root=lock_root):
+            tip = git_out(repo, "rev-parse", "--verify", f"refs/heads/{branch}").strip()
+            git(repo, "update-ref", f"refs/spec-driven/superseded/{unit_id}", tip)
+    except BranchBusy:
+        return False
+    return True
+
+
 def remove_worktree(repo: Path, branch: str, *, root: Path) -> None:
     """Drop a finished unit's worktree, keeping its branch and any dirty work.
 

@@ -290,6 +290,7 @@ from agent_build_kit.pipeline.units import (
     history_stamp,
     in_progress,
     in_progress_label,
+    is_superseded,
     local_ref,
     merge_parents,
     parked_for_manual_step,
@@ -526,13 +527,15 @@ def _usage_line(reading: UsageReading) -> str:
 
 
 def retry_closes(store: UnitStore, *, close_pr: Callable[[Unit, int, str], None]) -> None:
-    """Close again each satisfied or retired unit's pull request that is still open, removing
-    the record of those that closed."""
+    """Close again each satisfied, retired or superseded unit's pull request that is still open,
+    removing the record of those that closed."""
     for unit in store.all():
         pending = unit.close_pending
         if pending is None:
             continue
-        if unit.state not in (SATISFIED, UnitState.RETIRED) or unit.pr != pending.pr:
+        if (
+            unit.state not in (SATISFIED, UnitState.RETIRED) and not is_superseded(unit)
+        ) or unit.pr != pending.pr:
             # The unit went on to something else (a requeue, say), and the pull request
             # may be the one now under review: the record is stale, not an order.
             store.set_close_pending(unit.id, None)
@@ -945,10 +948,12 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
                 merging = merge_parents(unit, waits, config.active().repos)
                 wait = dependency_wait(waits, repo=unit.repo, merging=merging)
                 log(f"  {unit.id} ({where}) {wait}")
+        if is_superseded(unit):
+            log(f"  superseded: {unit.id} ({where}) by {', '.join(unit.superseded_by)}")
         if unit.close_pending:
             log(
                 f"  close pending: {unit.id} ({where}) #{unit.close_pending.pr} is "
-                "satisfied but still open; closing is retried each pass"
+                "still open; closing is retried each pass"
             )
         if unit.state == IN_REVIEW:
             try:

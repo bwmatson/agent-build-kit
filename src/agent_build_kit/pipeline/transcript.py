@@ -65,9 +65,13 @@ def transcript_dir(state_dir: Path) -> Path:
 
 
 def _prefix(unit: Unit) -> str:
-    from agent_build_kit.pipeline.units import unit_number  # a module-level import would cycle
+    return _id_prefix(unit.id)
 
-    return f"{unit.change}-{unit_number(unit):02d}-"
+
+def _id_prefix(unit_id: str) -> str:
+    from agent_build_kit.pipeline.units import unit_file_prefix  # a module-level import would cycle
+
+    return unit_file_prefix(unit_id)
 
 
 def _unit_files(directory: Path, prefix: str) -> list[Path]:
@@ -152,8 +156,7 @@ class Transcript:
 
 def unit_transcript_files(directory: Path, unit_id: str) -> list[Path]:
     """The unit's transcript files, oldest run first."""
-    change, number = unit_id.rsplit("/", 1)
-    return _unit_files(directory, f"{change}-{int(number):02d}-")
+    return _unit_files(directory, _id_prefix(unit_id))
 
 
 def read_file_events(path: Path, skip: int = 0) -> tuple[list[TranscriptEvent], int]:
@@ -176,9 +179,8 @@ def read_file_events(path: Path, skip: int = 0) -> tuple[list[TranscriptEvent], 
 
 def read_transcripts(directory: Path, unit_id: str) -> list[TranscriptEvent]:
     """Every recorded event of the unit, across runs and chat turns, in time order."""
-    change, number = unit_id.rsplit("/", 1)
     events: list[TranscriptEvent] = []
-    for path in _unit_files(directory, f"{change}-{int(number):02d}-"):
+    for path in _unit_files(directory, _id_prefix(unit_id)):
         try:
             lines = path.read_text().splitlines()
         except OSError:

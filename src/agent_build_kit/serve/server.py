@@ -35,7 +35,7 @@ from agent_build_kit.pipeline.environment import repo_artifacts
 from agent_build_kit.pipeline.run_log import CONTINUATION, run_log_dir
 from agent_build_kit.pipeline.stack_runner import unit_follow_ups
 from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import base_of, shown_dependencies
+from agent_build_kit.pipeline.units import base_of, shown_dependencies, unit_file_prefix
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.usage_report import GROUPINGS, build_report, render_json
 from agent_build_kit.pipeline.vocabulary import effective_state
@@ -193,16 +193,20 @@ def _stamp(previous: datetime, h: int, m: int, s: int) -> datetime:
     return moment.astimezone(UTC)
 
 
-def _run_name(change: str, number: str) -> re.Pattern[str]:
-    """The names of the run files of unit `change/number`."""
-    return re.compile(re.escape(f"{change}-{int(number):02d}-") + r"\d{8}-\d{6}-[\w.-]+\.log")
+def _run_name(change: str, number: str) -> re.Pattern[str] | None:
+    """The names of the run files of unit `change/number`, none when that is not a unit id."""
+    try:
+        prefix = unit_file_prefix(f"{change}/{number}", change)
+    except ValueError:
+        return None
+    return re.compile(re.escape(prefix) + r"\d{8}-\d{6}-[\w.-]+\.log")
 
 
 def _run_files(installation: Installation, change: str, number: str) -> list[Path]:
     directory = run_log_dir(installation.state_dir)
-    if not directory.is_dir() or not number.isdigit():
-        return []
     pattern = _run_name(change, number)
+    if not directory.is_dir() or pattern is None:
+        return []
     return sorted(p for p in directory.iterdir() if pattern.fullmatch(p.name))
 
 
@@ -466,7 +470,8 @@ def create_app(
     @app.get("/api/units/{change}/{number}/logs/{name}")
     def run_lines(change: str, number: str, name: str, offset: int = 0) -> dict[str, Any]:
         find(change, number)
-        if not number.isdigit() or not _run_name(change, number).fullmatch(name):
+        pattern = _run_name(change, number)
+        if pattern is None or not pattern.fullmatch(name):
             raise HTTPException(status_code=404, detail=f"no run {name}")
         path = run_log_dir(installation.state_dir) / name
         try:

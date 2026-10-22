@@ -54,6 +54,7 @@ from agent_build_kit.pipeline.units import (
     carried_pairs,
     direct_dependencies,
     history_stamp,
+    is_superseded,
     repointed,
     successors_of,
 )
@@ -129,6 +130,7 @@ class Cause(StrEnum):
     SPLIT_HELD = SPLIT_HELD_CAUSE
     MANUAL_STEP = MANUAL_STEP_CAUSE
     TOO_BIG_FOR_TIER = "too_big_for_tier"
+    SUPERSEDED = "superseded"
 
 
 class Keep:
@@ -150,6 +152,7 @@ EVENT_CAUSES: frozenset[Cause] = frozenset(
         Cause.AUTO_LANDED,
         Cause.CLOSED,
         Cause.RETIRED,
+        Cause.SUPERSEDED,
         Cause.FAILED,
     }
 )
@@ -716,8 +719,8 @@ class UnitStore:
 
         for unit in units:
             existing = stored.get(unit.id)
-            if existing and existing.state == UnitState.RETIRED:
-                # Ended by a person: no plan revives or reshapes it.
+            if existing and (existing.state == UnitState.RETIRED or is_superseded(existing)):
+                # Ended by a person, or replaced by its pieces: no plan revives or reshapes it.
                 continue
             # Only the planned shape: `StoredUnit` is a `Unit`, so a caller
             # may hand back what `all()` returned, and those extra fields
@@ -1236,6 +1239,49 @@ class UnitStore:
         self._update(unit_id, size_waived=waived)
 
     @_exclusive
+    def supersede(self, unit_id: str, pieces: Sequence[Unit]) -> None:
+        """Close a unit held for its size with the cause superseded and name `pieces`, which
+        replace it, in one write; `pieces` arrive with the dependencies they carry and are added
+        as planned, and what depended on the unit depends on the last piece. A unit not held for
+        its size, or a piece whose id is taken, is refused with `ValueError` and nothing changes."""
+        stored = self._read()
+        old = stored[unit_id]
+        if old.state != HELD or old.held_by != HeldBy.SIZE:
+            raise ValueError(f"{unit_id} is not held for its size")
+        if not pieces or (taken := [p.id for p in pieces if p.id in stored]):
+            raise ValueError(f"cannot supersede {unit_id} by {taken if pieces else 'no pieces'}")
+        last = pieces[-1].id
+        named = ", ".join(piece.id for piece in pieces)
+        reason = f"Replaced by smaller units: {named}."
+        if request := old.split_request:
+            reason = (
+                f"Replaced by smaller units: {named}. This unit changed {request.lines} lines, "
+                f"over the {request.ceiling}-line ceiling of its {request.earned} tier."
+            )
+
+        for piece in pieces:
+            stored[piece.id] = StoredUnit(
+                **piece.model_dump(include=set(Unit.model_fields) - {"superseded_by", "state"}),
+                state=PLANNED,
+                split_from=unit_id,
+            )
+        stored.update(repointed(stored, unit_id, last))
+        _repoint_references(stored, unit_id, last)
+        stored[unit_id] = old.model_copy(
+            update={
+                "state": UnitState.CLOSED,
+                "held_by": HeldBy.NONE,
+                "superseded_by": tuple(piece.id for piece in pieces),
+                "close_pending": ClosePending(pr=old.pr, reason=reason) if old.pr else None,
+                "history": (
+                    *old.history,
+                    _entry(old, UnitState.CLOSED, Cause.SUPERSEDED, "split into smaller units"),
+                ),
+            }
+        )
+        self._write(stored)
+
+    @_exclusive
     def mark_ready(self, unit_id: str) -> None:
         """Stamp `ready_at` with the clock's now, unless it is already set."""
         self._stamp_once(unit_id, "ready_at")
@@ -1436,13 +1482,13 @@ def _record_successors(
 
 
 def _repoint_references(stored: dict[str, StoredUnit], old: str, new: str) -> None:
-    """Name `new` wherever a unit's `needs`, `waited_on` or `superseded_by` names `old`, once
-    each. `depends_on` is left to `repointed`, the one path that stores only direct
+    """Name `new` wherever a unit's `needs`, `merge_needs`, `waited_on` or `superseded_by` names
+    `old`, once each. `depends_on` is left to `repointed`, the one path that stores only direct
     dependencies."""
     for unit_id, unit in stored.items():
         update = {
             field: tuple(dict.fromkeys(new if item == old else item for item in current))
-            for field in ("needs", "waited_on", "superseded_by")
+            for field in ("needs", "merge_needs", "waited_on", "superseded_by")
             if old in (current := getattr(unit, field))
         }
         if update:
