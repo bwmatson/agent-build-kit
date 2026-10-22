@@ -20,7 +20,7 @@ BUILT_WEB = Path("src/agent_build_kit/serve/static")
 
 # The files that write an old spelling on purpose: the table of them, the tool that rewrites
 # them, the tests of both and of the settings migration, and the documents that explain the
-# rename.
+# rename and the runbooks that cite the old names and earlier changes by their fixed names.
 EXEMPT_NAMES = frozenset(
     {
         "compat_names.py",
