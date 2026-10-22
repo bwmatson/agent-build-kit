@@ -15,7 +15,8 @@
   followed by why the edge is a merge edge. The first round of a tick names each unfinished
   dependent that now waits for an unmerged parent. The unit graph draws a merge dependency as a
   thick edge labelled `needs, merge` and a cross-repository dependency that is no `Needs:` line
-  as a dashed edge labelled `merge`, and a waiting node carries the same wait wording.
+  as a dashed edge labelled `merge`, and a waiting node carries the same wait wording. The
+  documents and skills say when to write `merged` and how to read each of the three waits.
 
 - A task group can declare a step only a person can do with `Manual: <slug> — <what to do> —
   runbook: <path>#<heading>` and an optional `Check: <command>`, and a builder can register one

@@ -84,6 +84,12 @@ an ad hoc session:
   `docs/`, this file, the changelog, and the like. When such an edit describes
   code a change is building, it still belongs in that change's tasks so the two
   land together.
+- **A change to this repo's own tick, requeue, wait-end, plan, graph, build, usage or gate code
+  puts `merged` on the `Needs:` line that follows another such change.** A tick loads the kit's
+  code once, at its start, so a later change built on the earlier one runs against code that lacks
+  it until the earlier one has merged and a later tick has loaded it. The merge edge holds the
+  dependent for exactly that. A plain line is enough for any other dependency. For example:
+  `Needs: fix-requeue group 1 merged — the build reads the wait-end rule the parent adds`.
 
 ## Direction of travel: risk-tiered review
 

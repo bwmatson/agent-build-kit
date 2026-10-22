@@ -101,10 +101,21 @@ refuses a change with tag errors before spending a model call on it:
   across changes it only sees what is in flight, so a dependency that must
   hold is written down and applied as code (`link_needs`, every tick).
   `Needs: <other-change> group <n> — why` makes the dependent start on the
-  parent's branch once the parent is in review (a parent in another repo must
-  merge first). The old `merged` after the group number is deprecated: it
-  warns and changes nothing. `link_needs` records the dependency as `needs`,
-  recomputed from `tasks.md` every tick, so the graph can draw it thick;
+  parent's branch once the parent is in review: a review edge. An edge is a
+  merge edge for three reasons only: it crosses repositories (a plain `Needs:`
+  to a group of another repo is read as a merge dependency, with an info note,
+  so cross-repo is always merge), the author wrote `merged` straight after the
+  group number, or its dependent is a failed unit waiting on the parent. A merge edge
+  holds the dependent until the parent has merged and a later tick has the
+  merge in the code it runs: the tick records its number, start time and the
+  kit checkout's head in `tick.json`, and the loaded code test is whether that
+  head contains the parent's merge (for a parent in another repo, whether the
+  tick is a later one than the tick that saw the merge). `link_needs` records
+  the dependency as `needs` and, for a merge edge, also as `merge_needs`,
+  recomputed from `tasks.md` every tick, so the graph can draw it thick and
+  label it `needs, merge`. Write `merged` only when the dependent must run
+  against code the pipeline itself runs, or against a parent's merge that
+  nothing else in the checkout shows; a fix change a failed unit waits on needs no `merged`;
 
 ### 2. Planning into units
 
@@ -1314,7 +1325,7 @@ approved.
   the failure as it was. Both passing raises `FlakeFound`: the unit's node calls the runner's
   `on_flake`, which has `flakes.wait_on_fix` make sure, under `flakes.lock` in the state
   directory, that one open change exists for the test (a successor, `-2` and on, only after
-  the earlier one is archived) and add a `Needs: <change> group 1 merged` line to each of
+  the earlier one is archived) and add a plain `Needs: <change> group 1` line to each of
   the unit's groups, and appends the flake to `flakes.jsonl`. The unit is held `planned`,
   cause `gated`, with a `resume` requeue waiting, so `release_gated` resumes it once the fix
   has merged: it restacks and runs unit-test again. A unit of the fix change itself does not
@@ -1338,7 +1349,7 @@ approved.
 - **A unit behind a fix waits, and is told only of its own failures.** When every failure of a
   e2e-test run is pre-existing, the node (`Nodes.wait_for_preexisting`) records each through the
   runner's `on_preexisting` (`wiring.build_on_preexisting`), gives each group of the unit a
-  `Needs:` line (`group 1 merged — failing test <id> on the base`) and parks it as `wait_for_fix`
+  plain `Needs:` line (`group 1 — failing test <id> on the base`) and parks it as `wait_for_fix`
   does: `PLANNED`, cause `gated`, a `resume` requeue. It resumes restacked at e2e-test, which runs
   in full again. A unit of the fix change, or one with a failure of its own or broken by it, is
   failed as today; its pre-existing failures are still recorded and fixed, without a `Needs:`

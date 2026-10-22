@@ -119,7 +119,11 @@ def test_the_generic_guidance_is_about_any_installation_and_not_the_kits_own_cod
 def test_the_changelog_has_one_bullet_for_the_kinds_of_edge() -> None:
     text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     unreleased = text.split("\n## ", 2)[1]
-    bullets = [b for b in re.split(r"\n\n(?=- )", unreleased) if "Needs:" in b and "merge" in b]
+    bullets = [
+        b
+        for b in re.split(r"\n\n(?=- )", unreleased)
+        if b.startswith("- `Needs: <change> group <n> merged")
+    ]
     assert len(bullets) == 1
     bullet = " ".join(bullets[0].split())
     assert re.search(r"when to (write|use) .{0,20}merged|merged.{0,80}(only|when)", bullet, re.I)
