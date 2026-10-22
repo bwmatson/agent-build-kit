@@ -452,7 +452,11 @@ release could move. The steps:
    no commit of its own after a group (its work was already built) skips that
    count and, after the last group, goes to unit-test and ends `satisfied` as
    a build in one piece does; a branch with commits and a missing pair still
-   stops.
+   stops. A group whose agents left nothing to commit, in a
+   unit that has commits, is recorded once the whole-repository unit tests pass:
+   an empty `test:`/`feat:` pair, each commit marked `Already-built: yes`, with
+   the agent's account in the `feat:` body. If those unit tests fail, nothing is
+   recorded and the unit stops, so a forgotten implementation still stops the unit.
 
    **Test-only groups.** An `[e2e-test]` group is a test-only group. A stubbed build commits
    it as a single `test:` commit once `stub_checks` passes, skips the implement step for it
@@ -1243,7 +1247,9 @@ every project, and the gate fails if any project fails. Results are cached by pa
 restack does not re-run them. In a stubbed build a test-only (`[e2e-test]`) group's tests
 commit is the exception: no `feat:` commit follows it, it gets only the clean command (lint,
 format and types) and no red run, and its result is cached under its own mode; a unit made
-only of test-only groups needs no implementation commit.
+only of test-only groups needs no implementation commit. The gate accepts an
+empty pair marked `Already-built: yes` after a real one, a restack keeps it and the
+squash merge drops it.
 This is the command form of the rule, for a person or a hook; the runner's own
 push condition is the approved-SHA check above.
 
