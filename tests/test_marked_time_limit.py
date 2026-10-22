@@ -32,10 +32,13 @@ def test_unmarked_beside_them():
 
 
 def test_a_marked_test_runs_past_the_default_and_passes(tmp_path: Path) -> None:
-    _, output = run_child(tmp_path, MARKED, "--test-time-limit=1", "--e2e-test-time-limit=20")
+    _, output = run_child(
+        tmp_path, MARKED, "--test-time-limit=1", "--e2e-test-time-limit=20", "-rA"
+    )
 
     assert "FAILED test_child.py::test_marked_runs_past_the_default" not in output, output
     assert "exceeded the time limit of 5" not in output, output
+    assert "PASSED test_child.py::test_marked_runs_past_the_default" in output, output
 
 
 def test_a_marked_test_past_its_own_limit_fails_naming_that_limit(tmp_path: Path) -> None:

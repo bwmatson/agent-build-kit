@@ -1307,7 +1307,10 @@ approved.
 - **A test time limit.** `tests/time_limit.py` fails a test that runs past
   its limit from a timer thread, in setup, call and teardown alike: `--test-time-limit` (sixty
   seconds) for a test without the `local_stack` marker, `--e2e-test-time-limit` (thirty
-  minutes) for one with it, zero turning either off. The failure names the limit and its kind;
+  minutes) for one with it, zero turning either off. A test without `local_stack` marked
+  `time_limit(<seconds>)` gets that many seconds in place of `--test-time-limit`; a
+  `local_stack` test keeps the e2e limit even with the marker. The marker is for a test whose
+  time is outside its control, such as a download. The failure names the limit and its kind;
   the run goes on (see `docs/agent-runtimes.md`, Test markers).
 - **A test time split.** `tests/time_split.py` reports where a `local_stack` test's time went.
   For each phase of a test that requests the `scratch_ledger` fixture (the scratch

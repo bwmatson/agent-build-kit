@@ -889,7 +889,10 @@ the old account starts fresh) and set the usage windows for the new plan under
   (default 1800, thirty minutes). Zero turns a limit off, and each option leaves
   the other alone. A failure names the limit passed: "test exceeded the time
   limit of 60 seconds", or "test exceeded the e2e-test time limit of 1800
-  seconds".
+  seconds". A test without `local_stack` that is marked `time_limit(<seconds>)` has that
+  many seconds in place of `--test-time-limit`; a `local_stack` test keeps the e2e limit even
+  when it carries the marker. The marker is for a test whose time is outside its control, such
+  as a download.
 - The same build run (`tests/integration/test_build_unit.py`) also checks
   the usage report: `abk report --unit` for the built unit has one agent record
   per agent call in its run log, and its tokens and agent time equal the sums of

@@ -14,38 +14,17 @@ ROOT = Path(__file__).parent.parent
 VITEST_TEST = ROOT / "tests" / "integration" / "test_node_npm_red_command_vitest.py"
 
 
-class Collected:
-    def __init__(self) -> None:
-        self.limits: list[tuple[str, tuple]] = []
-
-    def pytest_collection_modifyitems(self, items: list[pytest.Item]) -> None:
-        for item in items:
-            marker = item.get_closest_marker("time_limit")
-            self.limits.append((item.name, marker.args if marker else ()))
-
-
-def collect() -> tuple[int, Collected]:
-    collected = Collected()
-    code = pytest.main(
-        [
-            str(VITEST_TEST),
-            "--collect-only",
-            "-q",
-            "--strict-markers",
-            "-m",
-            "integration",
-            "-p",
-            "no:cacheprovider",
-        ],
-        plugins=[collected],
+def test_every_vitest_test_carries_time_limit_180(pytester: pytest.Pytester) -> None:
+    items, _ = pytester.inline_genitems(
+        str(VITEST_TEST),
+        "-c",
+        str(ROOT / "pyproject.toml"),
+        "--strict-markers",
+        "-m",
+        "integration",
     )
-    return int(code), collected
 
-
-def test_every_vitest_test_carries_time_limit_180() -> None:
-    code, collected = collect()
-
-    assert code == 0
-    assert collected.limits
-    for name, args in collected.limits:
-        assert args == (180,), name
+    assert items
+    for item in items:
+        marker = item.get_closest_marker("time_limit")
+        assert marker is not None and marker.args == (180,), item.nodeid

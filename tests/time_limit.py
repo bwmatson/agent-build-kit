@@ -65,7 +65,10 @@ def _under_limit(item: pytest.Item, phase: str):
     if e2e:
         limit = e2e_limit(item.config)
     elif own is not None:
-        limit = float(own.args[0])
+        value = own.kwargs.get("seconds", own.args[0] if own.args else None)
+        if value is None:
+            pytest.fail("the time_limit marker needs a number of seconds", pytrace=False)
+        limit = float(value)
     else:
         limit = item.config.getoption("--test-time-limit")
     kind = "e2e-test " if e2e else ""
