@@ -115,7 +115,8 @@ openspec:
                                 # @fission-ai/openspec@<ABK_OPENSPEC_VERSION>.
 
 retention:
-  decision_log_mb: 50           # decisions.jsonl is trimmed to this size, newest lines kept
+  decision_log_mb: 50           # decisions.jsonl and admissions.jsonl are each trimmed to this
+                                # size, newest lines kept
   unit_log_days: 30             # a unit's run log older than this goes once its summary
                                 # is in the usage ledger; one without a summary stays
 

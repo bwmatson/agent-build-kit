@@ -67,6 +67,18 @@ from agent_build_kit.pipeline import (
     spans,
     usage_report,
 )
+from agent_build_kit.pipeline.admission_record import (
+    ADMISSIONS_NAME,
+    AdmissionRecord,
+    Counted,
+    SlotCount,
+    TickCounts,
+    UsageFacts,
+    append_admission,
+    append_counts,
+    config_fingerprint,
+    read_admissions,
+)
 from agent_build_kit.pipeline.archive import (
     _already_archived,
     archive_ready_changes,
@@ -278,6 +290,7 @@ from agent_build_kit.pipeline.units import (
     project_tag,
     ready_units,
     resolve_replaced,
+    room_left,
     second_parent_wait,
     shown_dependencies,
     shown_waits,
@@ -1223,6 +1236,7 @@ def _record_unit_states(inst: Installation) -> None:
 def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
     """What a tick does once there is work: a round, then the builds."""
     store = store_for(inst)
+    log(f"configuration {config_fingerprint(inst)}")
 
     if args.dry_run:
         log("dry run — the environment is not synced and waiting units are not resumed")
@@ -1395,9 +1409,10 @@ def evaluate_manual_waits(
 
 
 def _bound_logs(inst: Installation) -> None:
-    """Keep the decision log and the unit run logs within `retention`."""
+    """Keep the decision log, the admission records and the unit run logs within `retention`."""
     retention = inst.config.retention
     trim_decision_log(inst.state_dir / DECISIONS_NAME, limit_mb=retention.decision_log_mb)
+    trim_decision_log(inst.state_dir / ADMISSIONS_NAME, limit_mb=retention.decision_log_mb)
     remove_old_logs(
         run_log_dir(inst.state_dir),
         inst.state_dir / LEDGER_NAME,
@@ -1933,29 +1948,215 @@ def run_round(
             emergency_lane.enter(inst.state_dir, unit)
     if readmit:
         readmit.charge(ready)
-    _record_waits(
+    waits = _waits_in(
         inst,
-        store,
         units,
-        only,
-        lambda: _waits_in(
+        view,
+        # A unit the lane is running is not waiting for a slot: it reads as it did while owed.
+        startable={unit.id for unit in evaluated} | for_the_lane | lane_running,
+        skipped={
+            *_parked_starts(units, started),
+            *in_flight,
+            *resumed,
+            *(unit.id for unit in ready),
+        },
+        only=only,
+        usage_paused=False,
+        refused=refused,
+    )
+    _record_waits(inst, store, units, only, lambda: waits)
+    if not dry_run:
+        _record_admissions(
             inst,
+            store,
             units,
             view,
-            # A unit the lane is running is not waiting for a slot: it reads as it did while owed.
-            startable={unit.id for unit in evaluated} | for_the_lane | lane_running,
-            skipped={
-                *_parked_starts(units, started),
-                *in_flight,
-                *resumed,
-                *(unit.id for unit in ready),
-            },
-            only=only,
-            usage_paused=False,
+            admitted=[unit.id for unit in evaluated],
             refused=refused,
-        ),
-    )
+            waits=waits,
+            decided=decided,
+        )
     return ready
+
+
+def _slot_label(slot: Hashable) -> str:
+    """How a slot is named in the admission records: a project by its tag, an account by its
+    label (`default` for the default account)."""
+    if isinstance(slot, ProjectKey):
+        return project_tag(slot.repo, slot.project)
+    return str(slot) if slot else "default"
+
+
+def _why_counted(unit: StoredUnit) -> str:
+    """What makes a unit count as in progress: the pull request, branch or pushed commit it has,
+    else its state."""
+    if unit.pr is not None:
+        return f"pull request {unit.pr}"
+    if unit.branch:
+        return f"branch {unit.branch}"
+    if unit.pushed:
+        return f"pushed commit {unit.pushed}"
+    return f"state {unit.state}"
+
+
+def _usage_facts(inst: Installation, unit: StoredUnit, decided: dict[str | None, Decision]):
+    """The usage decision of the unit's own account, as the round made it. The guard is never
+    asked from here: an account the round did not ask about says so."""
+    if not runtimes.active().supports_usage_tracking:
+        return UsageFacts(may_start=True, reason="runtime has no usage window")
+    decision = decided.get(
+        claude_account.account_key(claude_account.for_repo(inst.config, unit.repo))
+    )
+    if decision is None:
+        return UsageFacts(may_start=None, reason="not asked this round")
+    return UsageFacts.model_validate(decision.model_dump(include=set(UsageFacts.model_fields)))
+
+
+def _record_admissions(
+    inst: Installation,
+    store: UnitStore,
+    units: list[StoredUnit],
+    view: list[Unit],
+    *,
+    admitted: Collection[str],
+    refused: Mapping[str, str],
+    waits: Mapping[str, Wait],
+    decided: dict[str | None, Decision],
+) -> None:
+    """Write what each admission and each wait for a slot counted, the per-slot counts of a round
+    that started or refused a unit, and the pause or resume of a unit its account refused. A
+    record is never a round's to lose."""
+    try:
+        _write_admissions(
+            inst,
+            store,
+            units,
+            view,
+            admitted=admitted,
+            refused=refused,
+            waits=waits,
+            decided=decided,
+        )
+    except Exception as error:  # noqa: BLE001 — a record is never a pass's to lose
+        log(f"the admission records are not written ({type(error).__name__}: {error})")
+
+
+def _write_admissions(
+    inst: Installation,
+    store: UnitStore,
+    units: list[StoredUnit],
+    view: list[Unit],
+    *,
+    admitted: Collection[str],
+    refused: Mapping[str, str],
+    waits: Mapping[str, Wait],
+    decided: dict[str | None, Decision],
+) -> None:
+    path = inst.state_dir / ADMISSIONS_NAME
+    fingerprint = config_fingerprint(inst)
+    now = spans.clock.now()
+    slot_of = _slot_of(inst)
+    limit_of = _slot_limit(inst)
+    by_id = {unit.id: unit for unit in units}
+    counting = {unit.id for unit in view if in_progress(unit, view)}
+    # The units this round starts, in start order: the view is the graph before any of them.
+    fresh = [uid for uid in admitted if not by_id[uid].branch]
+
+    def counted(slot: Hashable, besides: str, started: Sequence[str]) -> tuple[Counted, ...]:
+        """The units counted in `slot`: those in progress, then `started` (units this round
+        has started); not `besides`."""
+        return (
+            *(
+                Counted(id=unit.id, state=str(unit.state), why=_why_counted(unit))
+                for unit in units
+                if unit.id in counting and unit.id != besides and slot_of(unit) == slot
+            ),
+            *(
+                Counted(id=uid, state=str(by_id[uid].state), why="admitted earlier in this round")
+                for uid in started
+                if uid not in counting and uid != besides and slot_of(by_id[uid]) == slot
+            ),
+        )
+
+    last: dict[str, AdmissionRecord] = {}
+    for each in read_admissions(path):
+        last[each.unit] = each
+
+    def record(
+        kind: Literal["admitted", "slot", "usage"], unit: StoredUnit, started: Sequence[str]
+    ) -> None:
+        slot = slot_of(unit)
+        found_counted = counted(slot, unit.id, started)
+        usage = _usage_facts(inst, unit, decided)
+        if kind == "admitted" and usage.estimate:
+            # The round asked the guard naming no unit: this unit is the next start on the
+            # estimate after those the guard counted and those admitted before it on the account.
+            def account_of(each: StoredUnit) -> str | None:
+                return claude_account.account_key(claude_account.for_repo(inst.config, each.repo))
+
+            place = 1 + sum(1 for uid in started if account_of(by_id[uid]) == account_of(unit))
+            usage = usage.model_copy(update={"estimate_starts": usage.estimate_starts + place})
+        before = last.get(unit.id)
+        if (
+            kind == "slot"
+            and before is not None
+            and before.kind == "slot"
+            and (before.slot, before.limit, [c.id for c in before.counted])
+            == (_slot_label(slot), limit_of(slot), [c.id for c in found_counted])
+        ):
+            return
+        append_admission(
+            path,
+            AdmissionRecord(
+                at=now,
+                kind=kind,
+                unit=unit.id,
+                tick=_PROCESS_TICK,
+                slot=_slot_label(slot),
+                limit=limit_of(slot),
+                counted=found_counted,
+                usage=usage,
+                fingerprint=fingerprint,
+            ),
+        )
+
+    for k, uid in enumerate(fresh):
+        record("admitted", by_id[uid], fresh[:k])
+    for uid, waited in waits.items():
+        if waited.reason in (WaitReason.QUEUE_FULL, WaitReason.SLOT):
+            record("slot", by_id[uid], fresh)
+
+    if fresh or refused:
+        slots = dict.fromkeys(slot_of(unit) for unit in units)
+        slot_counts = {slot: counted(slot, "", fresh) for slot in slots}
+        append_counts(
+            path,
+            TickCounts(
+                at=now,
+                tick=_PROCESS_TICK,
+                fingerprint=fingerprint,
+                slots=tuple(
+                    SlotCount(
+                        slot=_slot_label(slot),
+                        limit=limit_of(slot),
+                        ids=tuple(c.id for c in slot_counts[slot]),
+                        room=room_left(limit_of(slot), len(slot_counts[slot])),
+                    )
+                    for slot in slots
+                ),
+            ),
+        )
+
+    for unit in units:
+        events = [e for e in unit.history if str(e.get("event", "")).startswith("usage_")]
+        latest = events[-1] if events else {}
+        account = _slot_label(claude_account.for_repo(inst.config, unit.repo).label)
+        if unit.id in refused:
+            if latest.get("event") != "usage_pause" or latest.get("account") != account:
+                store.record_event(unit.id, "usage_pause", account=account, reason=refused[unit.id])
+                record("usage", unit, fresh)
+        elif unit.id in admitted and latest.get("event") == "usage_pause":
+            store.record_event(unit.id, "usage_resume", account=account)
 
 
 def _idle_units(
