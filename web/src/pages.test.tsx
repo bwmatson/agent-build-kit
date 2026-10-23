@@ -184,7 +184,9 @@ describe("the usage page", () => {
     open("/usage");
 
     const table = await screen.findByRole("table");
-    expect(within(table).getByText("pipeline overhead")).toBeVisible();
+    const heading = within(table).getByText(/pipeline overhead/);
+    expect(heading).toBeVisible();
+    expect(heading).toHaveTextContent("pipeline overhead $0.38 (20% of the ledger's cost)");
     expect(within(table).getByText("plan")).toBeVisible();
     expect(within(table).getByText("track_health")).toBeVisible();
   });

@@ -87,6 +87,8 @@ runtimes:                     # only for a runtime needing a fact abk cannot
                                        # calibrates it from history (fallback 10, ceiling 20);
                                        # a number is the fallback and the cap
         usage_allowance_floor_pct: 1   # least a calibrated allowance may be
+        usage_estimate_basis: cost     # cost (recorded cost x learned points/$) or units
+        usage_estimate_intercept: true # points-per-hour term in the cost fit; on for the session
       weekly:                 # the 7-day window: the same settings
         usage_pause_pct: 70
         usage_pause_ceiling_pct:
@@ -94,12 +96,12 @@ runtimes:                     # only for a runtime needing a fact abk cannot
         usage_resume_buffer_pct: 5
         usage_unit_allowance_pct: auto # fallback 2, ceiling 4
         usage_allowance_floor_pct: 1
+        usage_estimate_basis: cost
+        usage_estimate_intercept: false # off for the weekly
       calibrate_usage_allowances: true # false: use the configured allowances only
       usage_allowance_quantile: 0.9    # of points gained per unit; window 30 pairs, minimum 8
       usage_allowance_window: 30
       usage_allowance_min_pairs: 8
-      usage_estimate_basis: cost       # per window: cost (recorded cost x learned points/$) or units
-      usage_estimate_intercept: true   # per window; on for the session, off for the weekly
       usage_cost_min_pairs: 8          # pairs with cost needed to fit the cost basis
       usage_cost_quantile: 0.9         # quantile of the cost fit's scale
       usage_stale_retry_minutes: 5     # refusal length when the reading is too old

@@ -182,6 +182,9 @@ runtimes:                       # one entry per runtime that needs a fact abk
                                       # ceiling twice that); a whole number is the fallback
                                       # and the cap on the calibrated figure
         usage_allowance_floor_pct: 1  # the least a calibrated allowance may be
+        usage_estimate_basis: cost    # cost (recorded cost times a learned points per dollar,
+                                      # where adopted) or units (the flat per-unit figure)
+        usage_estimate_intercept: true  # a points-per-hour term in the cost fit; on for the session
       weekly:                   # the same settings, for the week
         usage_pause_pct: 70
         usage_pause_ceiling_pct:
@@ -189,13 +192,12 @@ runtimes:                       # one entry per runtime that needs a fact abk
         usage_resume_buffer_pct: 5
         usage_unit_allowance_pct: auto  # as above
         usage_allowance_floor_pct: 1
+        usage_estimate_basis: cost      # as above
+        usage_estimate_intercept: false  # as above, off for the weekly
       calibrate_usage_allowances: true  # false: every window uses its configured allowance
       usage_allowance_quantile: 0.9     # the quantile of points gained per unit (above 0, at most 1)
       usage_allowance_window: 30        # newest usable pairs of readings it is taken over
       usage_allowance_min_pairs: 8      # fewer pairs than this and the configured allowance stands
-      usage_estimate_basis: cost        # per window: cost (recorded cost times a learned points per
-                                        # dollar, where adopted) or units (the flat per-unit figure)
-      usage_estimate_intercept: true    # per window; on for the session, off for the weekly
       usage_cost_min_pairs: 8           # pairs with cost needed before the cost basis is fitted
       usage_cost_quantile: 0.9          # the quantile the cost fit's scale covers (above 0, at most 1)
       usage_stale_retry_minutes: 5  # how long a start is refused when the only

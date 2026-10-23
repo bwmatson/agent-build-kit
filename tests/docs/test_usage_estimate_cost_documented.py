@@ -8,6 +8,9 @@ import re
 from pathlib import Path
 
 import pytest
+import yaml
+
+from agent_build_kit.config import ClaudeLimitsConfig
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIGURATION = ROOT / "docs" / "configuration.md"
@@ -75,6 +78,10 @@ def test_the_cli_document_describes_the_allowances_line_and_the_replay_lines() -
     assert "pairs with cost" in text
     assert re.search(r"usage replay.{0,1500}\bflat\b.{0,300}\bcost\b", text, re.IGNORECASE)
     assert "cost_estimate" in text
+    assert re.search(r"spent from \$\d+\.\d\d recorded", text)
+    assert re.search(r"not yet recorded", text)
+    status = text[text.index("### `abk status`") :]
+    assert "usage allowances:" in status[:3000]
 
 
 @pytest.mark.parametrize("path", [CONFIGURATION, SKILL, ARCHITECTURE, CLI], ids=lambda p: p.name)
@@ -88,3 +95,32 @@ def test_the_changelog_has_one_bullet_for_the_estimate_under_unreleased() -> Non
     assert len(bullets) == 1
     assert "pipeline overhead" in bullets[0]
     assert (ROOT / "CHANGELOG.md").read_text().count("usage_estimate_basis") == 1
+
+
+def limits_block(path: Path) -> dict:
+    """The `limits:` mapping of the abk.yaml example in a document, parsed."""
+    lines = path.read_text().splitlines()
+    start = next(i for i, line in enumerate(lines) if line.strip().startswith("limits:"))
+    indent = len(lines[start]) - len(lines[start].lstrip())
+    block = [lines[start]]
+    for line in lines[start + 1 :]:
+        if (
+            line.strip()
+            and len(line) - len(line.lstrip()) <= indent
+            and not line.strip().startswith("#")
+        ):
+            break
+        block.append(line)
+    return yaml.safe_load("\n".join(block))["limits"]
+
+
+@pytest.mark.parametrize("path", [CONFIGURATION, SKILL], ids=["configuration", "abk-config skill"])
+def test_the_documented_limits_block_is_valid_and_places_the_estimate_keys_per_window(
+    path: Path,
+) -> None:
+    limits = ClaudeLimitsConfig.model_validate(limits_block(path))
+
+    assert limits.session.usage_estimate_basis == "cost"
+    assert limits.session.usage_estimate_intercept is True
+    assert limits.weekly.usage_estimate_basis == "cost"
+    assert limits.weekly.usage_estimate_intercept is False

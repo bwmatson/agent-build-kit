@@ -143,7 +143,8 @@ class Report(Frozen):
     total: ReportRow
     # The calls with no unit, one row per node, which the by-unit view keeps out of `rows`.
     overhead: tuple[ReportRow, ...] = ()
-    # The overhead's total cost and the fraction of the ledger's cost it is; None with no cost.
+    # The overhead's total cost and the fraction of the ledger's cost it is; None when no
+    # overhead row has a known cost.
     overhead_cost_usd: float | None = None
     overhead_share: float | None = None
     sessions: tuple[SessionRow, ...] = ()
@@ -659,9 +660,10 @@ def _report_of(
         _finish(_combine(node, overhead[node]), include_estimates) for node in sorted(overhead)
     )
     total = _finish(_combine("total", (e.row for e in entries)), include_estimates)
-    overhead_cost = sum(r.measured.cost_usd or 0.0 for r in overheads)
+    known = [r.measured.cost_usd for r in overheads if r.measured.cost_usd is not None]
+    overhead_cost = sum(known) if known else None
     ledger_cost = total.measured.cost_usd
-    share = overhead_cost / ledger_cost if overheads and ledger_cost else None
+    share = overhead_cost / ledger_cost if overhead_cost is not None and ledger_cost else None
     calls = [e.call for e in entries if e.call is not None]
     # A session is judged on all its calls, so a date that cuts it does not flag it.
     live = {c.session_id for c in calls if c.session_id}
@@ -671,7 +673,7 @@ def _report_of(
         rows=rows,
         total=total,
         overhead=overheads,
-        overhead_cost_usd=overhead_cost if overheads else None,
+        overhead_cost_usd=overhead_cost,
         overhead_share=share,
         sessions=_sessions(whole),
         legacy=_legacy(entries),
@@ -806,7 +808,9 @@ def _aligned(table: list[list[str]]) -> list[str]:
 
 
 def _overhead_heading(report: Report) -> str:
-    heading = f"pipeline overhead ${report.overhead_cost_usd or 0.0:.2f}"
+    heading = "pipeline overhead"
+    if report.overhead_cost_usd is not None:
+        heading += f" ${report.overhead_cost_usd:.2f}"
     if report.overhead_share is not None:
         heading += f" ({report.overhead_share:.0%} of the ledger's cost)"
     return heading

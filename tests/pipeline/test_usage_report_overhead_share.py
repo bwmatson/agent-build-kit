@@ -57,8 +57,9 @@ def test_a_ledger_with_no_cost_states_the_section_without_dividing_by_zero(tmp_p
     report = build_report(path, UNITS, group_by="unit")
 
     assert [r.key for r in report.overhead] == ["plan"]
+    assert report.overhead_cost_usd is None
     assert report.overhead_share is None
-    assert "$" in heading(render_table(report))
+    assert heading(render_table(report)) == "pipeline overhead"
 
 
 def test_the_lines_per_node_and_the_totals_are_as_they_were(tmp_path: Path) -> None:

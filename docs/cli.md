@@ -118,6 +118,13 @@ when it is merged, the last tick's code lacks the merge and the kit checkout's h
 `waiting for the kit checkout to include <change> group <n>'s merge` when neither has it. A merge
 edge's wait ends `(merge: <reason>)`. The pipeline log and the graph use the same wording.
 
+Beside the usage reading, status prints a `usage allowances:` line: for each window its cost fit,
+as `session 2.65 points/$ + 5.1 points/h (31 pairs with cost, scale 1.2)`, or the reason the
+cost basis is not in force and the flat per-unit allowance stands. A held estimate on a cost
+window states the points spent and the dollars they come from, as `session ~69% estimated (61%
+read + 8% spent from $1.45 recorded) under 80%`, and adds `N unit not yet recorded` where a
+unit with no recorded cost was counted at the flat allowance.
+
 Prints whether the pipeline is paused (until when, why), the usage reading held
 (session %, weekly %, source and age; no call is made, and `--refresh` asks the endpoint for a
 fresh one, no more often than the cache time allows), the count of units by state, and each
