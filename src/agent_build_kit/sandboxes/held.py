@@ -66,5 +66,7 @@ def write_probe(
     # and the ungranted one did not.
     if result.returncode != 0 and ran.exists() and not outside.exists():
         return None
-    cause = result.stderr.strip() or f"a {backend.name} restriction did not stop a write in the probe"
+    cause = (
+        result.stderr.strip() or f"a {backend.name} restriction did not stop a write in the probe"
+    )
     return Availability(ok=False, coverage=Coverage.NONE, cause=cause, fix=fix)
