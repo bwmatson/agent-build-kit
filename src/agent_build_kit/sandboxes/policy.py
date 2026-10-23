@@ -7,9 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from agent_build_kit import config as config_module
+from agent_build_kit import profiles
 from agent_build_kit.config import ProjectSandboxConfig, RepoSandboxConfig
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
+from agent_build_kit.profiles.base import SandboxPaths
 from agent_build_kit.sandboxes.base import (
     SandboxPathsProfile,
     SandboxPathsRuntime,
@@ -38,17 +40,10 @@ def build_policy(
     profile's optional `sandbox_paths`, then `repos.<name>.sandbox` and each project's from
     abk.yaml, then the same keys from abk.local.yaml. The two files are read apart: the loaded
     configuration holds the overlay laid over the committed file, which replaces a list whole."""
-    layers: list[ProjectSandboxConfig] = []
-    if isinstance(runtime, SandboxPathsRuntime):
-        layers.append(ProjectSandboxConfig.model_validate(runtime.sandbox_paths()))
-    if isinstance(profile, SandboxPathsProfile):
-        layers.append(ProjectSandboxConfig.model_validate(profile.sandbox_paths(worktree)))
-    path = installation.root / config_module.CONFIG_FILENAME
-    for document in (config_module.read_base(path), config_module.read_overlay(path)):
-        layers.extend(_blocks(document or {}, repo))
+    entries = policy_entries(installation, repo, worktree, runtime=runtime, profile=profile)
 
     def listed(key: str) -> list[str]:
-        return [item for layer in layers for item in getattr(layer, key)]
+        return [e.value for e in entries if e.kind == key]
 
     write = _resolved(listed("write"), worktree)
     _refuse_owned(listed("write"), write, installation)
@@ -62,8 +57,7 @@ def build_policy(
 
 class PolicyEntry(Frozen):
     """One line of a policy: the list it is in (`read`, `write` or `hosts`), the entry as
-    listed and where it came from (`built-in`, `runtime`, a profile name, `abk.yaml` or
-    `abk.local.yaml`)."""
+    listed and where it came from (`runtime`, a profile name, `abk.yaml` or `abk.local.yaml`)."""
 
     kind: str
     value: str
@@ -78,8 +72,42 @@ def policy_entries(
     runtime: object,
     profile: object,
 ) -> list[PolicyEntry]:
-    """The entries `build_policy` assembles, each with its source, in the order it takes them."""
-    raise NotImplementedError
+    """The entries `build_policy` assembles, each with its source, in the order it takes them:
+    the runtime's, the repo's profile's and each project's profile's, then the files'."""
+    layers: list[tuple[str, ProjectSandboxConfig]] = []
+    if isinstance(runtime, SandboxPathsRuntime):
+        layers.append(("runtime", ProjectSandboxConfig.model_validate(runtime.sandbox_paths())))
+    seen: set[str] = set()
+    toolchains = [profile] + [
+        profiles.get(project.profile) for project in installation.config.repos[repo].projects
+    ]
+    for toolchain in toolchains:
+        name = getattr(toolchain, "name", type(toolchain).__name__)
+        if name in seen or not isinstance(toolchain, SandboxPathsProfile):
+            continue
+        seen.add(name)
+        layers.append((name, _layer(toolchain.sandbox_paths(worktree))))
+    path = installation.root / config_module.CONFIG_FILENAME
+    for source, document in (
+        (config_module.CONFIG_FILENAME, config_module.read_base(path)),
+        (config_module.OVERLAY_FILENAME, config_module.read_overlay(path)),
+    ):
+        layers.extend((source, block) for block in _blocks(document or {}, repo))
+    return [
+        PolicyEntry(kind=kind, value=value, source=source)
+        for kind in ("write", "read", "hosts")
+        for source, layer in layers
+        for value in getattr(layer, kind)
+    ]
+
+
+def _layer(given: SandboxPaths | dict[str, list[str]]) -> ProjectSandboxConfig:
+    """A profile's answer as a block: the model, or the dict an older profile returns."""
+    if isinstance(given, SandboxPaths):
+        return ProjectSandboxConfig(
+            read=list(given.read), write=list(given.write), hosts=list(given.hosts)
+        )
+    return ProjectSandboxConfig.model_validate(given)
 
 
 def proxy_environment(port: int) -> dict[str, str]:

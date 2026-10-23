@@ -37,7 +37,7 @@ from agent_build_kit.pipeline.e2e import (
     parse_pytest_summary,
 )
 from agent_build_kit.pipeline.red_check import judge_red, split_report, wrap_report_command
-from agent_build_kit.profiles.base import PromptWords, is_doc_path
+from agent_build_kit.profiles.base import PromptWords, SandboxPaths, is_doc_path
 
 # pytest's exit status when every test was deselected: "nothing to run here",
 # not a failure — most members carry no e2e tests.
@@ -291,6 +291,13 @@ class PythonUvProfile:
     def created_files(self, repo: Path) -> list[str]:
         """The lock file `uv run` creates where the repository has none."""
         return [LOCK]
+
+    def sandbox_paths(self, repo: Path) -> SandboxPaths:
+        """The uv cache and data folders and the two package index hosts."""
+        return SandboxPaths(
+            write=("~/.cache/uv", "~/.local/share/uv"),
+            hosts=("pypi.org", "files.pythonhosted.org"),
+        )
 
     def member_of(self, repo: Path, path: str) -> str | None:
         for member in self.members(repo):
