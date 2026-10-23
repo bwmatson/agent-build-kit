@@ -7,6 +7,7 @@
   keeps showing it until the next confined step ends clean, and the unit continues. A step that
   was not confined (including one that ran plain because the repo's `required` is `none` and
   no backend worked), and a track run, still fail with `ConfigChanged`.
+
 - The sandbox policy now depends on the step's test kind. A unit-test or integration step is
   never granted a loopback port, a service port or a container socket. An `[e2e-test]` step also
   gets `repos.<name>.tests.e2e_sandbox` (`read`, `write`, `hosts` and `ports`) from `abk.yaml`,
