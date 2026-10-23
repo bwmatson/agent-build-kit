@@ -35,6 +35,7 @@ describe("the review tab's tier strip", () => {
 
     const head = await strip();
     expect(head).toHaveTextContent("full");
+    expect(head).toHaveTextContent(REASON);
     for (const entry of [...FOCUS, ...SKIPPABLE]) {
       expect(head).toHaveTextContent(entry.place);
       expect(head).toHaveTextContent(entry.reason);
@@ -51,6 +52,7 @@ describe("the review tab's tier strip", () => {
 
     const head = await strip();
     expect(head).toHaveTextContent(new RegExp(`\\b${tier}\\b`));
+    expect(head).toHaveTextContent(REASON);
     expect(head).not.toHaveTextContent(new RegExp(`\\b${other}\\b`));
   });
 
