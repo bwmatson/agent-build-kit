@@ -8,7 +8,9 @@ from agent_build_kit.pipeline.verdict import ReviewTier
 from agent_build_kit.pipeline.verdict_record import VerdictEntry
 
 
-def write_verdicts(path: Path, tiers: Mapping[str, ReviewTier]) -> None:
+def write_verdicts(
+    path: Path, tiers: Mapping[str, ReviewTier], *, unit_class: str = "app/unit-test"
+) -> None:
     """Write `path` as the verdicts file with one final verdict per unit id, of its tier."""
     recorded = {}
     for unit, tier in tiers.items():
@@ -17,7 +19,7 @@ def write_verdicts(path: Path, tiers: Mapping[str, ReviewTier]) -> None:
             change=unit.split("/")[0],
             round=1,
             final=True,
-            unit_class="app/unit-test",
+            unit_class=unit_class,
             planned_estimate=None,
             classification=tier,
             drivers=(),

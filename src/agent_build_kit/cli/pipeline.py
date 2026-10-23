@@ -5617,6 +5617,19 @@ def poll_all(inst: Installation, *, store: UnitStore, lane: Lane | None = None) 
     _refresh_graph_page(inst, store)
 
 
+def land_units(
+    inst: Installation,
+    store: UnitStore,
+    *,
+    dispatch: Callable[..., bool],
+    say: Callable[[str], None] = log,
+) -> None:
+    """Land every unit in review the landing decision allows, one after another: the intent,
+    the forge's merge at the approved head, then the merge recorded through `dispatch`. An
+    error landing one unit is logged to `say` and the others are still tried."""
+    raise NotImplementedError
+
+
 def _note_human_activity(store: UnitStore, repo: str, number: int) -> None:
     """Stamp the unit whose pull request a person has answered, once."""
     if unit := unit_of(store, repo, number):
