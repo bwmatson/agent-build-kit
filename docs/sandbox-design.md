@@ -213,9 +213,10 @@ The sandbox is inherited by every child and cannot be lifted, as Landlock's is. 
 - A network setting in a profile can be silently ineffective on some versions (OpenAI's Codex hit "too effective" network enforcement),
   so the probe must prove a direct connection fails, as step 3 did on Linux.
 
-**Not proven here.** There is no Mac on the development machine, so the macOS backend needs its own small proof of concept on one before it
-is built: the profile above, the same eleven checks (writes by every route, no lifting, the proxy, `claude -p`, git, `uv`, `npm`, path
-resolution, overhead, the failure message). The proxy, the policy, the launcher interface and the lists are shared with Linux; only the
+**Not proven here.** There is no Mac on the development machine, so the macOS backend (`sandboxes/seatbelt.py`) was written from the
+published descriptions and its behavioural cases have not run on a Mac. A person runs the proof of concept on one: the profile above, the
+same eleven checks (writes by every route, no lifting, the proxy, `claude -p`, git, `uv`, `npm`, path
+resolution, overhead, the failure message), and records what changed here. The proxy, the policy, the launcher interface and the lists are shared with Linux; only the
 backend that applies them differs. Native Windows has no backend; it runs and warns.
 
 ## What it covers, and what it does not
@@ -232,7 +233,10 @@ Landlock's limits, found in the proof of concept:
 - **A rule only adds access.** A path inside a granted folder cannot be carved out (Claude Code's sandbox protects `.git/hooks` this
   way). The kit grants the `.git` parts one at a time instead, which worked.
 - **It cannot hide a path**, only deny it; a read allowlist (note 11) gives the same effect.
-- **Linux and WSL2 only.** Landlock is a Linux feature. macOS uses Seatbelt (see [macOS](#macos)); native Windows has no backend and
+- **Seatbelt's limits on macOS.** Apple marks `sandbox-exec` deprecated; it works through macOS 14, but each new release needs checking,
+  which is why `abk doctor` runs a probe. Granting any network access leaves DNS and Unix socket paths reachable, as on Linux. A network
+  rule can be silently ineffective on some versions, so the probe proves a direct connection fails and does not trust the profile.
+- **Linux and WSL2 only for Landlock.** Landlock is a Linux feature. macOS uses Seatbelt (see [macOS](#macos)); native Windows has no backend and
   runs the step and warns.
 
 What it does not do: judge a command (`gh pr merge` stays refused by the hook), or protect a path the agent is allowed to write.

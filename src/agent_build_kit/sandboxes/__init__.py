@@ -71,8 +71,8 @@ def probe(name: str = "auto") -> tuple[SandboxBackend, Availability]:
 
 @contextmanager
 def isolated() -> Iterator[None]:
-    """Inside, the registry holds only the built-in backends (`landlock`, `unavailable`); leaving
-    puts back what was registered."""
+    """Inside, the registry holds only the built-in backends (`landlock`, `seatbelt`,
+    `unavailable`); leaving puts back what was registered."""
     saved = dict(_REGISTRY)
     _REGISTRY.clear()
     try:
@@ -86,9 +86,9 @@ def isolated() -> Iterator[None]:
 def _load_builtin() -> None:
     if _REGISTRY:
         return
-    from agent_build_kit.sandboxes import landlock, unavailable
+    from agent_build_kit.sandboxes import landlock, seatbelt, unavailable
 
-    for backend in (landlock.BACKEND, unavailable.BACKEND):
+    for backend in (landlock.BACKEND, seatbelt.BACKEND, unavailable.BACKEND):
         _REGISTRY[backend.name] = backend
 
 
