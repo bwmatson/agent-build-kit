@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Collection, Mapping
+from pathlib import Path
 from typing import Any
 
-from agent_build_kit.config import AutoLandConfig
+from agent_build_kit.config import AutoLandConfig, ReviewConfig
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.review_outcome import Outcome
 from agent_build_kit.pipeline.verdict import ReviewTier
@@ -47,9 +49,9 @@ def class_rates(records: Mapping[str, Mapping[str, Any]]) -> dict[str, ClassRate
         if not record["brief"]:
             c["excluded"] += 1
             continue
-        if record["outcome"] not in (Outcome.CLEAN, Outcome.REWORKED, Outcome.REVERTED):
+        if record.get("outcome") not in (Outcome.CLEAN, Outcome.REWORKED, Outcome.REVERTED):
             continue
-        clean = record["outcome"] == Outcome.CLEAN
+        clean = record.get("outcome") == Outcome.CLEAN
         c["samples"] += 1
         c["clean"] += clean
         if record["evidence_tier"] == ReviewTier.AUTO:
@@ -83,3 +85,13 @@ def class_gates(
             rates=rates, clears=clears, more_samples=more, nameable=name in named
         )
     return gates
+
+
+def recorded_gates(verdicts: Path, review: ReviewConfig) -> dict[str, ClassGate]:
+    """The gates of each class in the verdict records in `verdicts`; empty when the file is
+    missing or unreadable."""
+    try:
+        records = json.loads(verdicts.read_text())
+    except (OSError, ValueError):
+        return {}
+    return class_gates(records, review.auto_land, review.classes)

@@ -206,6 +206,7 @@ from agent_build_kit.pipeline.restack_lane import (
 )
 from agent_build_kit.pipeline.review_order import review_order, review_tiers
 from agent_build_kit.pipeline.review_outcome_sweep import sweep_outcomes
+from agent_build_kit.pipeline.review_rates import recorded_gates
 from agent_build_kit.pipeline.run_log import (
     RunLog,
     e2e_output_dir,
@@ -792,6 +793,12 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
 
     for line in stale_plan_lines(inst):
         log(line)
+
+    if config.active().review.enabled:
+        gates = recorded_gates(inst.state_dir / VERDICTS, config.active().review)
+        for name, gate in gates.items():
+            if gate.clears:
+                log(f"review gates: {name} clears the gates ({gate.rates.samples} samples)")
 
     units = store_for(inst).all()
     if not units:
