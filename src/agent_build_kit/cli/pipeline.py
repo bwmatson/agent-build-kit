@@ -205,6 +205,7 @@ from agent_build_kit.pipeline.restack_lane import (
     record_run_attempt,
 )
 from agent_build_kit.pipeline.review_order import review_order, review_tiers
+from agent_build_kit.pipeline.review_outcome_sweep import sweep_outcomes
 from agent_build_kit.pipeline.run_log import (
     RunLog,
     e2e_output_dir,
@@ -635,6 +636,18 @@ def _sweep_labels(inst: Installation, store: UnitStore) -> None:
         state_dir=inst.state_dir,
         limit=inst.config.global_limits.label_sweep_per_tick,
         repo_order=list(inst.repos),
+        log=log,
+    )
+
+
+def _sweep_outcomes(inst: Installation, store: UnitStore) -> None:
+    sweep_outcomes(
+        store.all(),
+        verdicts=inst.state_dir / VERDICTS,
+        forge_of=inst.forge_of,
+        checkouts=inst.checkouts,
+        trunks={name: repo.default_branch for name, repo in inst.repos.items()},
+        now=datetime.now(UTC),
         log=log,
     )
 
@@ -1982,6 +1995,8 @@ def run_round(
     _step("closing satisfied pull requests", _retry_pending_closes, inst, store)
     _step("posting owed replies", _retry_pending_replies, inst, store)
     _step("sweeping state labels", _sweep_labels, inst, store)
+    if config.active().review.enabled:
+        _step("sweeping review outcomes", _sweep_outcomes, inst, store)
     if submit and may == "usage":
         units = store.all()
         _record_waits(
