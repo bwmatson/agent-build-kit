@@ -102,6 +102,19 @@ def test_a_half_written_last_line_is_skipped_and_the_others_are_read(tmp_path: P
     assert read.steps == (step(),)
 
 
+def test_a_row_appended_after_a_cut_off_line_is_read(tmp_path: Path) -> None:
+    path = tmp_path / FORECASTS_NAME
+    admit(path, step())
+    with path.open("a") as record:
+        record.write('{"kind": "step", "unit": "feature/1", "node": "rev')
+
+    admit(path, step(unit="feature/2"))
+
+    read = read_record(path)
+    assert read.forecasts == (forecast(), forecast("feature/2"))
+    assert read.steps == (step(), step(unit="feature/2"))
+
+
 def test_with_the_forecast_off_nothing_is_written(tmp_path: Path) -> None:
     path = tmp_path / FORECASTS_NAME
 
@@ -113,18 +126,26 @@ def test_with_the_forecast_off_nothing_is_written(tmp_path: Path) -> None:
 def test_the_guard_records_the_step_it_admits(host: Host) -> None:
     paused(host, session=10.0)
 
-    decision = decide_start(unit="feature/1", step="review")
+    decision = decide_start(unit="feature/1", step="review", step_round=2)
 
     assert decision.may_start
     steps = read_record(host.cache.parent / FORECASTS_NAME).steps
-    assert [(s.unit, s.node) for s in steps] == [("feature/1", "review")]
+    assert [(s.unit, s.node, s.round) for s in steps] == [("feature/1", "review", 2)]
+
+
+def test_the_guard_records_no_step_without_its_round(host: Host) -> None:
+    paused(host, session=10.0)
+
+    decide_start(unit="feature/1", step="review")
+
+    assert not (host.cache.parent / FORECASTS_NAME).exists()
 
 
 def test_the_guard_records_the_same_ask_once(host: Host) -> None:
     paused(host, session=10.0)
 
-    decide_start(unit="feature/1", step="review")
-    decide_start(unit="feature/1", step="review")
+    decide_start(unit="feature/1", step="review", step_round=2)
+    decide_start(unit="feature/1", step="review", step_round=2)
 
     assert len(read_record(host.cache.parent / FORECASTS_NAME).steps) == 1
 
@@ -132,7 +153,7 @@ def test_the_guard_records_the_same_ask_once(host: Host) -> None:
 def test_the_guard_writes_nothing_with_the_forecast_off(host: Host) -> None:
     paused(host, session=10.0, usage_forecast=False)
 
-    decision = decide_start(unit="feature/1", step="review")
+    decision = decide_start(unit="feature/1", step="review", step_round=2)
 
     assert decision.may_start
     assert not (host.cache.parent / FORECASTS_NAME).exists()

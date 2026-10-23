@@ -107,3 +107,30 @@ def test_an_admitted_unit_with_a_step_row_is_not_also_counted_at_the_flat_allowa
     # feature/1 adds its 0.6 of $1.00 at 2.65 points, feature/2 with no step row the flat 17.
     assert "session ~80% estimated (61% read + 19% spent" in decision.reason
     assert "1 unit not yet recorded" in decision.reason
+
+
+def test_a_unit_whose_step_has_no_costed_history_is_still_counted_at_the_flat_allowance(
+    host: Host,
+) -> None:
+    paused(host, session=61.0)
+    keep_fits(host, session=cost_fit(2.65, flat=17))
+    for row in history(at=datetime.now(UTC) - 3 * HOUR):
+        append_record(host.cache.parent / LEDGER_NAME, row)
+    admit(host, "feature/1", "feature/2")
+    for unit in ("feature/1", "feature/2"):
+        append_record(
+            host.cache.parent / FORECASTS_NAME,
+            StepRow(unit=unit, node="review", round=2, at=datetime.now(UTC) - 4 * MINUTE),
+        )
+
+    decision = decide_start(unit="feature/3")
+
+    assert "2 units not yet recorded" in decision.reason
+
+
+def test_a_ledger_row_whose_time_does_not_parse_is_skipped() -> None:
+    odd = call("feature/1", "review", 1, 1.0, at="not a time")
+
+    [only] = remainders([started(4 * MINUTE)], [*history(), odd]).running
+
+    assert only.usd == pytest.approx(0.6)

@@ -6,10 +6,11 @@ from __future__ import annotations
 import statistics
 import subprocess
 from collections.abc import Callable, Collection, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.usage_forecast_running import mean_cost, record_time
 from agent_build_kit.pipeline.usage_ledger import UsageRecord
 from agent_build_kit.timers import slug
 
@@ -24,11 +25,13 @@ class TrackTimer(Frozen):
 
 
 class TimerReading(Frozen):
-    """The installed track timers by track node (`track_health`, ...), or that they could not be
-    read (no systemd, not installed)."""
+    """The installed track timers by track node (`track_health`, ...), the track nodes whose
+    timer is not installed, and whether any timer was read (not when there is no systemd or none
+    is installed)."""
 
     read: bool
     tracks: dict[str, TrackTimer]
+    missing: tuple[str, ...] = ()
 
 
 class Reservation(Frozen):
@@ -47,7 +50,10 @@ class Reserved(Frozen):
 
 
 _TRACKS = ("track_health", "track_improve", "track_recommend")
-_PROPERTIES = "--property=NextElapseUSecRealtime,LastTriggerUSec"
+_PROPERTIES = "--property=LoadState,NextElapseUSecRealtime,LastTriggerUSec"
+
+# How many mean durations of its node after firing a track is still taken to be running.
+IN_FLIGHT_DURATIONS = 3
 
 
 def _moment(text: str) -> datetime | None:
@@ -66,6 +72,7 @@ def read_timers(root: Path, *, run: Run = subprocess.run) -> TimerReading:
     """The next elapse and last trigger of each installed track timer of the installation at
     `root`, from `systemctl --user show`; unread when it cannot be run or answers with an error."""
     tracks: dict[str, TrackTimer] = {}
+    missing: list[str] = []
     for node in _TRACKS:
         name = f"abk-{slug(root)}-{node.replace('_', '-')}.timer"
         try:
@@ -80,28 +87,31 @@ def read_timers(root: Path, *, run: Run = subprocess.run) -> TimerReading:
         if shown.returncode != 0:
             return TimerReading(read=False, tracks={})
         values = dict(line.split("=", 1) for line in shown.stdout.splitlines() if "=" in line)
+        if values.get("LoadState") != "loaded":
+            missing.append(node)
+            continue
         tracks[node] = TrackTimer(
             next_elapse=_moment(values.get("NextElapseUSecRealtime", "")),
             last_trigger=_moment(values.get("LastTriggerUSec", "")),
         )
-    return TimerReading(read=True, tracks=tracks)
-
-
-def _mean_usd(records: Sequence[UsageRecord], node: str) -> float | None:
-    costs = [r.cost.incremental_usd for r in records if r.node == node and r.cost]
-    costs = [c for c in costs if c is not None]
-    return statistics.fmean(costs) if costs else None
+    return TimerReading(read=bool(tracks), tracks=tracks, missing=tuple(missing))
 
 
 def _due(
     node: str, timer: TrackTimer, records: Sequence[UsageRecord], now: datetime, resets_at: datetime
 ) -> bool:
-    """Whether the timer fires before the reset, or has fired and left no ledger row yet."""
+    """Whether the timer fires before the reset, or fired within a few mean durations of its node
+    ago and has left no ledger row yet."""
     if timer.next_elapse is not None and now <= timer.next_elapse < resets_at:
         return True
     fired = timer.last_trigger
-    return fired is not None and not any(
-        r.node == node and datetime.fromisoformat(r.at) >= fired for r in records
+    durations = [r.duration_ms for r in records if r.node == node and r.duration_ms]
+    if fired is None or not durations:
+        return False
+    if now - fired > timedelta(milliseconds=IN_FLIGHT_DURATIONS * statistics.fmean(durations)):
+        return False
+    return not any(
+        r.node == node and (at := record_time(r)) is not None and at >= fired for r in records
     )
 
 
@@ -126,7 +136,7 @@ def reserve(
                 wanted += [node, *(["track_propose"] if node in proposing else [])]
     items = []
     for node in wanted:
-        usd = _mean_usd(records, node)
+        usd = mean_cost(records, node)
         if usd is not None:
             items.append(Reservation(name=node, usd=usd, points=usd * points_per_usd))
     return Reserved(items=tuple(items), timers_read=timers.read)

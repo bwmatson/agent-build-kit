@@ -31,7 +31,7 @@ def fires_in(delta: timedelta, *, last: datetime | None = None) -> TrackTimer:
 def mean_costs(**usd: float) -> list[UsageRecord]:
     """Two rows of each node at `usd` dollars."""
     return [
-        call(f"{node}-{n}", node, 0, cost, at=(NOW - 10 * HOUR).isoformat())
+        call(f"{node}-{n}", node, 0, cost, duration_ms=600_000, at=(NOW - 10 * HOUR).isoformat())
         for node, cost in usd.items()
         for n in range(2)
     ]
@@ -121,6 +121,14 @@ def test_a_track_is_released_once_its_ledger_row_is_written() -> None:
     assert after.items == ()
 
 
+def test_a_track_that_fired_long_ago_and_left_no_row_reserves_nothing() -> None:
+    stale = TrackTimer(next_elapse=NOW + 20 * HOUR, last_trigger=NOW - 2 * HOUR)
+
+    found = reserved(mean_costs(track_health=2.0), timers(track_health=stale))
+
+    assert found.items == ()
+
+
 def test_unreadable_timers_reserve_no_track_and_say_so() -> None:
     found = reserved(
         mean_costs(track_health=2.0, plan=0.2),
@@ -143,12 +151,16 @@ class Systemctl:
 
     def __call__(self, argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
         self.asked.append(argv)
-        out = next((text for name, text in self.units.items() if name in argv), "")
+        out = next((text for name, text in self.units.items() if name in argv), NOT_FOUND)
         return subprocess.CompletedProcess(argv, self.code, stdout=out, stderr="")
 
 
+# What systemctl prints, with a zero exit, for a unit that is not installed.
+NOT_FOUND = "LoadState=not-found\nNextElapseUSecRealtime=\nLastTriggerUSec=n/a\n"
+
+
 def shown(next_elapse: str, last: str = "n/a") -> str:
-    return f"NextElapseUSecRealtime={next_elapse}\nLastTriggerUSec={last}\n"
+    return f"LoadState=loaded\nNextElapseUSecRealtime={next_elapse}\nLastTriggerUSec={last}\n"
 
 
 def test_the_timers_are_read_from_systemctl_show(tmp_path: Path) -> None:
@@ -171,6 +183,24 @@ def test_a_timer_that_never_fired_has_no_last_trigger(tmp_path: Path) -> None:
     read = read_timers(tmp_path, run=Systemctl({name: shown("Thu 2026-01-01 13:00:00 UTC")}))
 
     assert read.tracks["track_health"].last_trigger is None
+
+
+def test_timers_that_are_not_installed_are_not_read_and_reserve_nothing(tmp_path: Path) -> None:
+    read = read_timers(tmp_path, run=Systemctl())
+
+    assert not read.read
+    assert read.tracks == {}
+    assert reserved(mean_costs(track_health=2.0), read).items == ()
+
+
+def test_one_track_timer_installed_is_read_and_the_others_are_reported(tmp_path: Path) -> None:
+    name = f"abk-{tmp_path.name}-track-health.timer"
+
+    read = read_timers(tmp_path, run=Systemctl({name: shown("Thu 2026-01-01 13:00:00 UTC")}))
+
+    assert read.read
+    assert list(read.tracks) == ["track_health"]
+    assert read.missing == ("track_improve", "track_recommend")
 
 
 def test_systemctl_failing_leaves_the_timers_unread(tmp_path: Path) -> None:

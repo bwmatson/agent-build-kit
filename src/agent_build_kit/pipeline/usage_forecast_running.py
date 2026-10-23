@@ -15,6 +15,27 @@ from agent_build_kit.pipeline.usage_ledger import UsageRecord
 UNFINISHED_FLOOR = 0.1
 
 
+def record_time(record: UsageRecord) -> datetime | None:
+    """When a ledger record was made; none when its time does not parse or has no time zone."""
+    try:
+        at = datetime.fromisoformat(record.at)
+    except ValueError:
+        return None
+    return at if at.tzinfo is not None else None
+
+
+def mean_cost(records: Sequence[UsageRecord], node: str, round: int | None = None) -> float | None:
+    """The mean incremental cost in dollars of the records of `node` (and `round`, when given);
+    a record with no cost, or none above zero, is left out. None when nothing is left."""
+    costs = [
+        r.cost.incremental_usd
+        for r in records
+        if r.node == node and (round is None or r.round == round) and r.cost
+    ]
+    costs = [c for c in costs if c is not None and c > 0]
+    return statistics.fmean(costs) if costs else None
+
+
 class Remainder(Frozen):
     """The unfinished share of a running unit's step, in dollars and points."""
 
@@ -58,18 +79,19 @@ def running_remainders(
             r.unit == unit
             and r.node == step.node
             and r.round == step.round
-            and datetime.fromisoformat(r.at) >= step.at
+            and (at := record_time(r)) is not None
+            and at >= step.at
             for r in records
         ):
             continue
         cell = [r for r in records if r.node == step.node and r.round == step.round]
-        costs = [r.cost.incremental_usd for r in cell if r.cost and r.cost.incremental_usd]
-        if not costs:
+        mean = mean_cost(records, step.node, step.round)
+        if mean is None:
             continue
         durations = [r.duration_ms for r in cell if r.duration_ms]
         elapsed = (now - step.at).total_seconds() * 1000
         share = elapsed / statistics.fmean(durations) if durations else 0.0
-        usd = statistics.fmean(costs) * max(1 - share, UNFINISHED_FLOOR)
+        usd = mean * max(1 - share, UNFINISHED_FLOOR)
         found.append(
             Remainder(
                 unit=unit,

@@ -96,7 +96,11 @@ def record_admission(
             if rows:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 # A line cut off by a crash would otherwise take the first new row with it.
-                cut = path.exists() and not path.read_bytes().endswith((b"\n", b""))
+                cut = (
+                    path.exists()
+                    and path.stat().st_size > 0
+                    and not path.read_bytes().endswith(b"\n")
+                )
                 with path.open("a") as out:
                     out.write("\n" if cut else "")
                     out.write("".join(row.model_dump_json() + "\n" for row in rows))
