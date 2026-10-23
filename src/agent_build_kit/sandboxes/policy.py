@@ -35,12 +35,15 @@ def build_policy(
     *,
     runtime: object,
     profile: object,
+    account: object = None,
 ) -> SandboxPolicy:
     """The policy for a step in `worktree` of `repo`: built-ins, then the runtime's and the
     profile's optional `sandbox_paths`, then `repos.<name>.sandbox` and each project's from
     abk.yaml, then the same keys from abk.local.yaml. The two files are read apart: the loaded
     configuration holds the overlay laid over the committed file, which replaces a list whole."""
-    entries = policy_entries(installation, repo, worktree, runtime=runtime, profile=profile)
+    entries = policy_entries(
+        installation, repo, worktree, runtime=runtime, profile=profile, account=account
+    )
 
     def listed(key: str) -> list[str]:
         return [e.value for e in entries if e.kind == key]
@@ -71,12 +74,16 @@ def policy_entries(
     *,
     runtime: object,
     profile: object,
+    account: object = None,
 ) -> list[PolicyEntry]:
     """The entries `build_policy` assembles, each with its source, in the order it takes them:
     the runtime's, the repo's profile's and each project's profile's, then the files'."""
     layers: list[tuple[str, ProjectSandboxConfig]] = []
     if isinstance(runtime, SandboxPathsRuntime):
-        layers.append(("runtime", ProjectSandboxConfig.model_validate(runtime.sandbox_paths())))
+        # An account is passed only when the step runs as one; a runtime without accounts
+        # takes none.
+        given = runtime.sandbox_paths() if account is None else runtime.sandbox_paths(account)
+        layers.append(("runtime", ProjectSandboxConfig.model_validate(given)))
     seen: set[str] = set()
     toolchains = [profile] + [
         profiles.get(project.profile) for project in installation.config.repos[repo].projects

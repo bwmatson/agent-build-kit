@@ -19,6 +19,14 @@
   along a lineage; when a split cannot happen the unit is held for a person, and `abk requeue`
   lets it through its size.
 
+- With `sandbox.enabled`, a Claude Code build or review step starts through the sandbox
+  backend: behind the allowlist proxy (the model host, or the gateway the run calls, is
+  allowed), without abk's own gateway, Azure DevOps or Grafana credentials, with the step's
+  account folder and state file granted, and with Claude Code's own sandbox switched off so
+  there is one enforcement point. `abk policy check` reports its coverage as `process`. If no
+  backend can start, the step fails naming the cause, or runs and warns when the repo's
+  `required` is `none`; a backend that reaches less than `required` also warns.
+
 - With review enabled, a class now stays at `light` review until its own record clears the gates:
   at least `review.auto_land.min_samples` merged units that carried the brief, merging clean at
   `min_clean_rate` or better. This is the same count `abk review report` shows. Each outcome the

@@ -34,7 +34,7 @@ def test_every_built_in_runtime_has_a_sandbox_coverage() -> None:
 
 
 def test_no_built_in_runtime_claims_confinement_nothing_provides_yet() -> None:
-    assert runtimes.get("claude_code").sandbox_coverage is Coverage.NONE
+    assert runtimes.get("claude_code").sandbox_coverage is Coverage.PROCESS
     assert runtimes.get("acp").sandbox_coverage is Coverage.NONE
 
 

@@ -142,6 +142,24 @@ class Settings(BaseSettings):
 # its field name.
 CREDENTIAL_FIELDS: tuple[str, ...] = ("gh_token", "ado_pat", "gateway_master_key", "grafana_token")
 
+
+def credential_variables(*, keep: tuple[str, ...] = ()) -> tuple[str, ...]:
+    """The environment variable names the credential fields are read from, except the fields in
+    `keep`: what a confined step is not handed."""
+    names: list[str] = []
+    for field in CREDENTIAL_FIELDS:
+        if field in keep:
+            continue
+        alias = Settings.model_fields[field].validation_alias
+        if isinstance(alias, AliasChoices):
+            names += [c for c in alias.choices if isinstance(c, str)]
+        elif isinstance(alias, str):
+            names.append(alias)
+        else:
+            names.append(f"ABK_{field.upper()}")
+    return tuple(names)
+
+
 # The fields whose names end like a credential's but that hold none.
 NOT_SECRET_FIELDS: tuple[str, ...] = ()
 
