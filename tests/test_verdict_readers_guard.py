@@ -29,6 +29,8 @@ ALLOWED = {
     "graph/nodes.py",  # the pull request body describes the tier
     "cli/pipeline.py",  # `abk status` shows the order
     "pipeline/landing.py",  # the landing pass reads the recorded final verdict
+    "pipeline/usage_forecast_history.py",  # the history of a tier is by planned tier
+    "pipeline/usage_forecast_unit.py",  # a unit's forecast takes the verdict records
 }
 
 

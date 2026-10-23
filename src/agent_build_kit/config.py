@@ -315,6 +315,11 @@ class ClaudeLimitsConfig(Frozen):
     # and is scaled by this quantile of the gain over its prediction.
     usage_cost_min_pairs: Annotated[int, Field(ge=1)] = 8
     usage_cost_quantile: Annotated[float, Field(gt=0, le=1)] = 0.9
+    # Whether a start is forecast from the recorded history of the unit's review tier, the units
+    # a tier needs before its history is used, and the quantile its chances are bounded at.
+    usage_forecast: bool = True
+    usage_forecast_min_runs: Annotated[int, Field(ge=1)] = 10
+    usage_forecast_quantile: Annotated[float, Field(gt=0, le=1)] = 0.9
 
     def configured_allowance(self, window: Literal["session", "weekly"]) -> int:
         """The allowance a window has without calibration: its number, else the built-in one."""

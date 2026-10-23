@@ -17,7 +17,8 @@ UNIT_ID = "add-marker/1"
 # The recording module, the review node that writes through it, the status listing, and the
 # review labels, the ordering of what is shown, the web server's review answer and pipeline
 # summary (spec: review-triage allows each to read a verdict), and the report of the rates and
-# gates (spec: review-outcomes).
+# gates (spec: review-outcomes), and the usage forecast's history of a tier, which is by the
+# tier planned in the verdict record (spec: usage-pause).
 ALLOWED = {
     "pipeline/verdict_record.py",
     "graph/nodes.py",
@@ -27,6 +28,8 @@ ALLOWED = {
     "serve/server.py",
     "cli/review_report.py",
     "pipeline/landing.py",  # the landing pass reads the recorded final verdict
+    "pipeline/usage_forecast_history.py",
+    "pipeline/usage_forecast_unit.py",
 }
 NAMES = re.compile(r"verdicts\.json|verdict_record|\bVERDICTS\b")
 
