@@ -99,6 +99,13 @@ from agent_build_kit.pipeline.usage_calls import (
     read_calls,
     record_call,
 )
+from agent_build_kit.pipeline.usage_forecast_record import (
+    FORECASTS_NAME,
+    StepRow,
+    read_record,
+    record_admission,
+)
+from agent_build_kit.pipeline.usage_forecast_running import running_remainders
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, read_ledger, spend_costs
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited, Run
 from agent_build_kit.runtimes.providers import (
@@ -1268,7 +1275,10 @@ def _estimates(
     kept = read_allowances(allowances_path(cache_path.parent, account))
     admitted = set(_admitted(cached))
     # Only what ran on this account spent its windows.
-    rows = spend_costs(of_account([], read_ledger(cache_path.parent / LEDGER_NAME), account)[1])
+    ledger = of_account([], read_ledger(cache_path.parent / LEDGER_NAME), account)[1]
+    rows = spend_costs(ledger)
+    steps = read_record(cache_path.parent / FORECASTS_NAME).steps if limits.usage_forecast else ()
+    stepped = {step.unit for step in steps}
 
     def spend(window: Literal["session", "weekly"], since: datetime, reset: bool) -> Spend:
         found = kept.get(window)
@@ -1278,7 +1288,19 @@ def _estimates(
         if found is None or not cost_basis_in_force(window, found, limits):
             return Spend(points=float(flat * len(spent_units)))
         costed = {row.unit for row in since_rows if row.unit and row.cost_usd > 0}
-        unrecorded = len(spent_units - costed)
+        waiting = spent_units - costed
+        # A unit with a remainder is counted at what is left of its step, not the flat allowance.
+        remainders = running_remainders(
+            steps,
+            ledger,
+            running=waiting & stepped,
+            asking=_starting.get(),
+            now=now,
+            points_per_usd=found.points_per_usd or 0.0,
+        ).running
+        # A unit whose step has no costed history gets no remainder and stays at the allowance.
+        unrecorded = len(waiting - {r.unit for r in remainders})
+        remainder = sum(r.points for r in remainders)
         cost = sum(row.cost_usd for row in since_rows)
         # After a reset the climb stands for what nobody recorded, so no intercept is added.
         hours = 0.0 if reset else (now - since).total_seconds() / 3600
@@ -1286,6 +1308,7 @@ def _estimates(
             (found.points_per_usd or 0.0) * cost
             + (found.intercept_per_hour or 0.0) * hours
             + flat * unrecorded
+            + remainder
         )
         return Spend(points=points, cost_usd=cost, unrecorded=unrecorded)
 
@@ -1436,15 +1459,32 @@ def decide_start(
     decide: Callable[..., Decision] | None = None,
     unit: str | None = None,
     step: str | None = None,
+    step_round: int | None = None,
     account: claude_account.Account | None = None,
 ) -> Decision:
     """`_decide_start` for `account`'s windows, limits and cache; a refusal on a labelled
-    account says which account is full. `step` is the step the start is for."""
+    account says which account is full. `step` is the step the start is for and `step_round`
+    its round; a step with no round is not recorded."""
     with on_account(account):
         decision = _decide_start(read=read, decide=decide, unit=unit, step=step)
+        if decision.may_start and decision.source != "off":
+            _record_step(unit or _starting.get(), step, step_round)
     if account is not None and account.label is not None and not decision.may_start:
         return decision.model_copy(update={"reason": f"account {account.label}: {decision.reason}"})
     return decision
+
+
+def _record_step(unit: str | None, step: str | None, step_round: int | None) -> None:
+    """Add the step an admitted unit is about to run to the forecast record."""
+    if unit is None or step is None or step_round is None:
+        return
+    record_admission(
+        _cache_file().parent / FORECASTS_NAME,
+        StepRow(unit=unit, node=step, round=step_round, at=datetime.now(UTC)),
+        None,
+        enabled=claude_limits().usage_forecast,
+        say=log.warning,
+    )
 
 
 def _decide_start(

@@ -23,10 +23,13 @@ def call(
     role: str | None = None,
     model: str | None = "model-a",
     kind: str = TEST_KIND,
+    at: str = "2026-01-01T10:00:00+00:00",
+    duration_ms: int | None = None,
 ) -> UsageRecord:
     """An agent row of `unit` for `node` and `round` costing `usd`; the role is the node's."""
     return UsageRecord(
-        at="2026-01-01T10:00:00+00:00",
+        at=at,
+        duration_ms=duration_ms,
         unit=unit,
         node=node,
         round=round,
