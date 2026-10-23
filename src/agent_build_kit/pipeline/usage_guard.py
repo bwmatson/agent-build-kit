@@ -1394,10 +1394,11 @@ def decide_start(
     read: Callable[[], UsageReading | None] | None = None,
     decide: Callable[..., Decision] | None = None,
     unit: str | None = None,
+    step: str | None = None,
     account: claude_account.Account | None = None,
 ) -> Decision:
     """`_decide_start` for `account`'s windows, limits and cache; a refusal on a labelled
-    account says which account is full."""
+    account says which account is full. `step` is the step the start is for."""
     with on_account(account):
         decision = _decide_start(read=read, decide=decide, unit=unit)
     if account is not None and account.label is not None and not decision.may_start:
