@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import sys
+from datetime import UTC, datetime
 
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline import audit_record
 from agent_build_kit.pipeline.review_rates import ClassGate, recorded_gates
 from agent_build_kit.pipeline.verdict_record import VERDICTS
 
@@ -39,7 +42,14 @@ def cmd_review_report(args: argparse.Namespace, inst: Installation) -> int:
 
 
 def cmd_review_audit(args: argparse.Namespace, inst: Installation) -> int:
-    raise NotImplementedError
+    path = inst.state_dir / audit_record.AUDITS
+    try:
+        audit_record.record_result(path, unit=args.unit, result=args.result, at=datetime.now(UTC))
+    except audit_record.NotAwaitingAudit as refused:
+        print(f"refused: {refused}", file=sys.stderr)
+        return 1
+    print(f"{args.unit}: audit recorded {args.result}")
+    return 0
 
 
 def register(sub: argparse._SubParsersAction) -> None:
@@ -51,5 +61,5 @@ def register(sub: argparse._SubParsersAction) -> None:
     report.set_defaults(func=cmd_review_report)
     audit = commands.add_parser("audit", help="record the result of auditing a landed unit")
     audit.add_argument("unit")
-    audit.add_argument("result")
+    audit.add_argument("result", choices=("ok", "wrong"))
     audit.set_defaults(func=cmd_review_audit)

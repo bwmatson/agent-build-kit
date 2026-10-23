@@ -48,3 +48,12 @@ def read_audits(path: Path) -> dict[str, dict[str, Any]]:
     if not path.exists():
         return {}
     return json.loads(path.read_text())
+
+
+def audit_status_lines(path: Path) -> list[str]:
+    """One line for each unit awaiting audit, with its class."""
+    return [
+        f"audit waiting: {unit} ({record['unit_class']}) — `abk review audit {unit} ok|wrong`"
+        for unit, record in sorted(read_audits(path).items())
+        if record.get("state") == AWAITING
+    ]
