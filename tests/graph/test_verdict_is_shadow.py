@@ -25,7 +25,7 @@ ALLOWED = {
     "pipeline/labels.py",
     "pipeline/review_order.py",
     "serve/server.py",
-    "cli/review_cmd.py",
+    "cli/review_report.py",
 }
 NAMES = re.compile(r"verdicts\.json|verdict_record|\bVERDICTS\b")
 

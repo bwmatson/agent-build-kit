@@ -8,6 +8,7 @@
   as before. The review tab shows the tier, the reason and those lists in a strip at its head,
   and the overview lists units in review `full` first, then `light`, then those with no
   verdict, then `auto`.
+
 - New `abk review report` prints, for each class, its samples, clean-merge rate, agreement rate
   with its own sample count and the records excluded for having no brief, and says which classes
   clear the gates and may be added to `review.auto_land.classes`. With review enabled, `abk
