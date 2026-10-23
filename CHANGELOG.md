@@ -39,7 +39,9 @@
 - Per-tier sizing is now on by default: `review.enabled` defaults to true, so the `auto`, `light` and
   `full` ceilings (5000, 2000 and 750 changed lines) take effect and verdicts are recorded, with no
   class allowed to land without a person. Set `review.enabled: false` to return every unit to the
-  `full` ceiling (`max_unit_lines`).
+  `full` ceiling (`max_unit_lines`). On updating, an installation that does not set
+  `review.enabled` sees every plan recorded before the update read as stale and planned again
+  under the per-tier ceilings; setting `review.enabled: false` before updating avoids this.
 
 - The `review` section of `abk.yaml` now accepts `auto_land.classes` (the classes that may land
   without a person; empty, the default, turns it off), `audit.sample_rate` and `demotion.window`
