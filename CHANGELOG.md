@@ -89,7 +89,10 @@
   calibration now also fits points gained per dollar of recorded cost for a window on the `cost`
   basis, adopts it only where it has no more false allows than the flat per-unit figure over the
   same gaps, and keeps the result in `usage-allowances.json` as `{"version": 2, "windows": ...}`;
-  a file of the earlier shape is still read as the flat calibration it was.
+  a file of the earlier shape is still read as the flat calibration it was. `abk status` shows
+  the basis in force for each window with its points per dollar, scale and pairs, or why the cost
+  basis is not in force, and `abk usage replay` adds a flat line, a cost line and an adoption
+  verdict for each window, judged on the same gaps.
 
 - A test can carry its own time limit with `@pytest.mark.time_limit(<seconds>)`, in place of
   `--test-time-limit`, and the test that downloads vitest carries 180 seconds, so a slow npm

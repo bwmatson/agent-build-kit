@@ -198,6 +198,32 @@ def fit_cost(
     )
 
 
+def gap_estimates(
+    index: int,
+    usable: list[CostPair],
+    flat_pairs: list[UsagePair],
+    *,
+    limits: ClaudeLimitsConfig,
+    window: Window,
+    now: datetime,
+    fixed: int | None = None,
+) -> tuple[float, float | None]:
+    """The points spent in cost pair `usable[index]` as the flat figure and as the cost fit
+    estimate it, each made from the pairs before it only. The flat figure counts the gap's
+    units at the calibrated allowance (`fixed` when given), none for a gap with no unit; the
+    cost one is None where the pairs before make no fit."""
+    pair = usable[index]
+    allowance = fixed
+    if allowance is None:
+        flat = calibrate_pairs([p for p in flat_pairs if p.at < pair.at], limits=limits, now=now)
+        allowance = allowance_for(window, flat, limits)
+    fit = fit_cost(usable[:index], limits=limits, window=window)
+    if fit is None:
+        return pair.units * allowance, None
+    spent = fit.points_per_usd * pair.cost_usd + fit.intercept_per_hour * pair.hours
+    return pair.units * allowance, spent
+
+
 def _false_allows(
     newest: list[CostPair],
     offset: int,
@@ -215,15 +241,10 @@ def _false_allows(
     judged = cost_false = flat_false = 0
     for index in range(limits.usage_cost_min_pairs, len(newest)):
         pair = newest[index]
-        before = usable[: offset + index]
-        flat = calibrate_pairs([p for p in flat_pairs if p.at < pair.at], limits=limits, now=now)
-        flat_estimate = pair.units * allowance_for(window, flat, limits)
-        fit = fit_cost(before, limits=limits, window=window)
-        estimate = (
-            flat_estimate
-            if fit is None
-            else fit.points_per_usd * pair.cost_usd + fit.intercept_per_hour * pair.hours
+        flat_estimate, cost_estimate = gap_estimates(
+            offset + index, usable, flat_pairs, limits=limits, window=window, now=now
         )
+        estimate = flat_estimate if cost_estimate is None else cost_estimate
         reached = pair.before + pair.gain >= threshold
         judged += 1
         cost_false += reached and pair.before + estimate + margin < threshold
@@ -369,6 +390,19 @@ def allowance_for(window: Window, found: Calibrated | None, limits: ClaudeLimits
     return min(max(math.ceil(found.quantile_pct_per_unit), floor), limits.allowance_ceiling(window))
 
 
+def _why_flat(kept: Calibrated, limits: ClaudeLimitsConfig) -> str:
+    """After a flat part, why the cost basis is not in force for the window."""
+    needed = limits.usage_cost_min_pairs
+    pairs_held, judged = kept.cost_pairs_held, kept.cost_pairs_judged
+    return {
+        "previous file": "; from the previous file",
+        "too_few_pairs": f"; cost basis needs {needed} pairs with cost, {pairs_held} held",
+        "too_few_judged": f"; cost basis needs {needed} gaps judged, {judged} held",
+        "more_false_allows": "; cost basis not adopted: more false allows than flat",
+        "no_fit": "; cost basis not adopted: no fit",
+    }.get(kept.reason or "", "")
+
+
 def allowances_line(found: Mapping[str, Calibrated], limits: ClaudeLimitsConfig) -> str:
     """The allowances in force and the pairs behind them, for `abk status`."""
     head = "usage allowances:"
@@ -379,6 +413,15 @@ def allowances_line(found: Mapping[str, Calibrated], limits: ClaudeLimitsConfig)
     for window in WINDOWS:
         kept = found.get(window)
         applied = allowance_for(window, kept, limits)
+        wants_cost = getattr(limits, window).usage_estimate_basis == "cost"
+        if kept is not None and kept.basis == "cost" and kept.points_per_usd and wants_cost:
+            hourly = f" + {kept.intercept_per_hour:g} points/h" if kept.intercept_per_hour else ""
+            parts.append(
+                f"{window} {kept.points_per_usd:.2f} points/${hourly} "
+                f"({kept.cost_pairs_held} pairs with cost, scale {kept.safety_scale:g})"
+            )
+            calibrated.append(True)
+            continue
         if kept is None or kept.quantile_pct_per_unit is None:
             held = 0 if kept is None else kept.pairs_available
             parts.append(f"{window} {applied}/unit default ({held} pairs of {needed} needed)")
@@ -386,7 +429,8 @@ def allowances_line(found: Mapping[str, Calibrated], limits: ClaudeLimitsConfig)
             continue
         raw = math.ceil(kept.quantile_pct_per_unit)
         mark = ", capped" if applied < raw else ", floor" if applied > raw else ""
-        parts.append(f"{window} {applied}/unit ({kept.pairs_used} pairs{mark})")
+        why = _why_flat(kept, limits) if wants_cost else ""
+        parts.append(f"{window} {applied}/unit ({kept.pairs_used} pairs{mark}{why})")
         calibrated.append(True)
     if not any(calibrated):
         held = {found[w].pairs_available if w in found else 0 for w in WINDOWS}
