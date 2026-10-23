@@ -95,6 +95,7 @@ from agent_build_kit.runtimes import (
 )
 from agent_build_kit.runtimes.base import AgentRuntime
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime, build_argv
+from agent_build_kit.sandboxes import Coverage
 
 RUN_ID = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
 TRACKS = ("health", "improve", "recommend")
@@ -746,7 +747,7 @@ def claude_phase(
     log(f"[{project.name}] phase: {name} (session window only)")
     before = record_planning(inst)
     try:
-        with config_unchanged(inst.root):
+        with config_unchanged(inst.root, Coverage.NONE):  # a track run is not confined yet
             result = agent.run(request)
     except (
         AgentRateLimited,

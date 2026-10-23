@@ -1165,6 +1165,13 @@ in Claude Code, so every unexpected path here denies. The same commands are
 also passed as `--disallowedTools`: two independent things have to fail
 before an agent can merge its own PR.
 
+**The config guard** (`config_guard.py`). `abk.yaml` and `abk.local.yaml` are read before an agent
+step and after it. When the step was not confined a difference fails the unit with
+`ConfigChanged`. During a confined run a person may edit them: with coverage `process` or
+`files` the step could not have written them, so the difference is a warning with its diff,
+shown by `abk status`, and the unit continues. The track runner passes no coverage and still
+fails.
+
 **The usage guard** (`usage_guard.py`, `pause.py`). The account is a
 subscription with a usage window shared with the user's own sessions, and
 credits past the plan limit cost money. No new unit starts once a window is

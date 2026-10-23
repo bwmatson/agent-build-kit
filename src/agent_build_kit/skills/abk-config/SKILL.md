@@ -397,6 +397,10 @@ verify:
       key: SERVICE_TOKEN
 ```
 
+Both files are a person's to change. A step that was not confined fails with `ConfigChanged` if
+either differs afterwards; during a confined run a person may edit them, and the difference is a
+warning shown by `abk status`, not a failure.
+
 `abk.local.yaml` is for structured, user-specific configuration, merged over `abk.yaml` when
 it loads (mappings merge by key; lists, text and `null` replace). A worked example of
 abk.local.yaml, holding one user's checkout of a repo and an extra verification variable:

@@ -22,6 +22,8 @@ from agent_build_kit.runtimes import AgentRequest, AgentResult
 from agent_build_kit.sandboxes import Coverage
 from tests.pipeline.test_wiring_sandbox import Recording, install
 
+# A person's edit that still loads, since `abk status` reads the file afterwards.
+EDITED = "project_limits: {max_units_in_progress: 3}\n"
 DOCS = Path(__file__).resolve().parents[2] / "docs"
 
 
@@ -34,7 +36,7 @@ class Editing(Recording):
         self.sandbox_coverage = coverage
 
     def run(self, request: AgentRequest) -> AgentResult:
-        self.target.write_text("runtime: acp\n")
+        self.target.write_text(EDITED)
         return super().run(request)
 
 
@@ -59,8 +61,8 @@ def test_a_confined_step_that_sees_the_file_change_logs_the_diff_and_the_unit_co
     logged = "\n".join(lines)
     assert "abk.local.yaml changed during the run" in logged
     assert "-runtime: claude_code" in logged
-    assert "+runtime: acp" in logged
-    assert (root / "abk.local.yaml").read_text() == "runtime: acp\n", "it is not restored"
+    assert f"+{EDITED.strip()}" in logged
+    assert (root / "abk.local.yaml").read_text() == EDITED, "it is not restored"
 
 
 def test_abk_status_shows_the_warning_of_a_confined_step(

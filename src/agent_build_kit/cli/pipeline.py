@@ -87,6 +87,7 @@ from agent_build_kit.pipeline.archive import (
     is_ready_to_archive,
 )
 from agent_build_kit.pipeline.audit_record import audit_status_lines
+from agent_build_kit.pipeline.config_guard import warning_lines as config_warning_lines
 from agent_build_kit.pipeline.cycles import (
     FINISHED,
     CycleDrops,
@@ -767,6 +768,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         log(off)
     for paused in pauses_in_force(inst.state_dir):
         log(_pause_report(inst, paused))
+    for line in config_warning_lines(inst.state_dir):
+        log(line)
 
     try:
         runtime = runtimes.active()

@@ -814,6 +814,12 @@ The kernel confines what an agent step can write and reach. Keys:
   hosts, in `abk.yaml` and `abk.local.yaml` (see the table above for which holds what). An ACP
   agent's own model host is not added for it: list it under `sandbox.hosts`.
 
+The config guard reads `abk.yaml` and `abk.local.yaml` before an agent step and again after it. A
+step that was not confined fails with `ConfigChanged` when either differs. During a confined run a
+person may edit them: the step's coverage is `process` or `files`, so a difference is logged as a
+warning with its diff, shown by `abk status`, and the unit continues. A track run is not confined
+yet, so it still fails.
+
 `abk doctor` and `abk init` run the backend's probe and print the cause and the fix when it fails;
 `abk policy check` and `abk status` show each runtime's `sandbox_coverage` beside its
 `policy_coverage`. The design is in [sandbox-design.md](sandbox-design.md).
