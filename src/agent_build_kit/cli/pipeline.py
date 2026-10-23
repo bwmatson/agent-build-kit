@@ -51,7 +51,6 @@ from agent_build_kit.cli.policy_cmd import coverage_line
 from agent_build_kit.cli.retire_cmd import cmd_retire
 from agent_build_kit.compat_names import old_tag
 from agent_build_kit.forges import PullRequest
-from agent_build_kit.forges.base import MergeRefused
 from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun
 from agent_build_kit.installation import Installation
@@ -135,7 +134,7 @@ from agent_build_kit.pipeline.gate_holds import evaluate_gates, gate_status_line
 from agent_build_kit.pipeline.joins import JoinContext
 from agent_build_kit.pipeline.label_sweep import sweep_finished
 from agent_build_kit.pipeline.labels import StateLabels
-from agent_build_kit.pipeline.landing_decision import LandingFacts, decide_landing
+from agent_build_kit.pipeline.landing import land_units
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.manual_steps import (
     evaluate_manual_steps,
@@ -359,7 +358,7 @@ from agent_build_kit.pipeline.usage_guard import (
 )
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.verdict import ReviewTier, SplitRequest
-from agent_build_kit.pipeline.verdict_record import VERDICTS, latest_verdict
+from agent_build_kit.pipeline.verdict_record import VERDICTS
 from agent_build_kit.pipeline.verify import SplitHeld, Verification, VerifyRecord, verify_change
 from agent_build_kit.pipeline.vocabulary import (
     WaitReason,
@@ -1939,7 +1938,9 @@ def run_round(
     # Once per tick, in its first round: the rounds beside builds in flight are quiet, and a
     # dry run merges nothing.
     if not quiet and not dry_run:
-        _step("landing", land_units, inst, store, dispatch=_dispatch(inst, store, lane=lane))
+        _step(
+            "landing", land_units, inst, store, dispatch=_dispatch(inst, store, lane=lane), say=log
+        )
     _step("finishing chat commits", deliver_committed, inst, store)
     _step("creating the thread store", _create_thread_store, inst)
     # Planning runs on the default account: not while the model has refused it.
@@ -5621,108 +5622,6 @@ def poll_all(inst: Installation, *, store: UnitStore, lane: Lane | None = None) 
         ).poll()
         _refresh_check_labels(inst, store, repo, labels)
     _refresh_graph_page(inst, store)
-
-
-def land_units(
-    inst: Installation,
-    store: UnitStore,
-    *,
-    dispatch: Callable[..., bool],
-    say: Callable[[str], None] = log,
-) -> None:
-    """Land every unit in review the landing decision allows, one after another: the intent,
-    the forge's merge at the approved head, then the merge recorded through `dispatch`. An
-    error landing one unit is logged to `say` and the others are still tried."""
-    review = config.active().review
-    if not review.enabled or not review.auto_land.classes:
-        return
-    pulls: dict[str, list[PullRequest]] = {}
-    for unit in store.all():
-        if unit.state != IN_REVIEW or unit.pr is None:
-            continue
-        try:
-            _land_unit(inst, store, unit, review, pulls, dispatch=dispatch, say=say)
-        except Exception as error:  # noqa: BLE001 — one unit's landing never stops the others.
-            say(f"{unit.id}: landing failed — {type(error).__name__}: {error}")
-
-
-def _land_unit(
-    inst: Installation,
-    store: UnitStore,
-    unit: StoredUnit,
-    review: config.ReviewConfig,
-    pulls: dict[str, list[PullRequest]],
-    *,
-    dispatch: Callable[..., bool],
-    say: Callable[[str], None],
-) -> None:
-    assert unit.pr is not None
-    forge, repo_id = inst.forge_of(unit.repo)
-    if unit.repo not in pulls:
-        pulls[unit.repo] = forge.list_prs(repo_id)
-    pull = next((pr for pr in pulls[unit.repo] if pr.number == unit.pr), None)
-    if pull is None:
-        say(f"{unit.id}: not landed — no pull request #{unit.pr} listed")
-        return
-    if pull.state == MERGED:
-        # A person merged it before the poll saw it: record it, merge nothing.
-        dispatch("merged", unit.pr, repo=unit.repo)
-        return
-    entry = latest_verdict(inst.state_dir / VERDICTS, unit.id)
-    final = entry if entry is not None and entry.final else None
-    units = store.all()
-    decision = decide_landing(
-        LandingFacts(
-            review_enabled=review.enabled,
-            state=unit.state,
-            feedback_pending=bool(unit.feedback),
-            held=unit.held_by is not HeldBy.NONE,
-            verdict_tier=final.tier if final else None,
-            unit_class=final.unit_class if final else None,
-            listed_classes=tuple(review.auto_land.classes),
-            forge_merges=forge.merges,
-            pr_open=pull.state == "open",
-            draft=pull.draft,
-            conflicting=pull.mergeable is False,
-            labels=pull.labels,
-            changes_requested=pull.review_decision == "changes_requested",
-            head=unit.pushed or "",
-            approved_head=unit.approved or None,
-            unmerged_parents=tuple(
-                parent.id
-                for parent in units
-                if parent.id in unit.depends_on and not parent_landed(parent, units)
-            ),
-            checks=pull.checks,
-        )
-    )
-    if not decision.may_land:
-        say(f"{unit.id}: not landed — {decision.reason}")
-        if unit.note != decision.reason:
-            store.record_event(unit.id, "landing_declined", decision.reason)
-        return
-    intents = inst.state_dir / landing_intent.LANDING
-    try:
-        landing_intent.record_intent(intents, repo=unit.repo, pr=unit.pr, unit=unit.id)
-    except landing_intent.IntentNotWritten as error:
-        store.record_event(unit.id, "landing_declined", str(error))
-        say(f"{unit.id}: not landed — {error}")
-        return
-    try:
-        forge.merge_pr(repo_id, unit.pr, head=unit.approved)
-    except MergeRefused as refusal:
-        landing_intent.clear_intent(intents, repo=unit.repo, pr=unit.pr)
-        store.record_event(unit.id, "landing_refused", refusal.reason)
-        say(f"{unit.id}: the host refused the merge — {refusal.reason}")
-        return
-    except Exception:
-        # The host may have merged before it failed: keep the intent then, so the poller
-        # records the merge as the pipeline's own.
-        if forge.merge_commit(repo_id, unit.pr) is None:
-            landing_intent.clear_intent(intents, repo=unit.repo, pr=unit.pr)
-        raise
-    dispatch("merged", unit.pr, repo=unit.repo)
-    say(f"{unit.id}: landed without a person")
 
 
 def _note_human_activity(store: UnitStore, repo: str, number: int) -> None:

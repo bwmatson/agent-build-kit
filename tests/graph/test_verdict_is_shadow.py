@@ -26,6 +26,7 @@ ALLOWED = {
     "pipeline/review_order.py",
     "serve/server.py",
     "cli/review_report.py",
+    "pipeline/landing.py",  # the landing pass reads the recorded final verdict
 }
 NAMES = re.compile(r"verdicts\.json|verdict_record|\bVERDICTS\b")
 
