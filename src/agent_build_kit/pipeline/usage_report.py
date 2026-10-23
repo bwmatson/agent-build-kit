@@ -143,6 +143,9 @@ class Report(Frozen):
     total: ReportRow
     # The calls with no unit, one row per node, which the by-unit view keeps out of `rows`.
     overhead: tuple[ReportRow, ...] = ()
+    # The overhead's total cost and the fraction of the ledger's cost it is; None with no cost.
+    overhead_cost_usd: float | None = None
+    overhead_share: float | None = None
     sessions: tuple[SessionRow, ...] = ()
     legacy: Legacy = Legacy()
     unknown_calls: int = 0  # calls whose incremental cost could not be known
