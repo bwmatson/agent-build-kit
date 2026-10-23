@@ -59,15 +59,19 @@ def reconcile(
                 kept[id] = entry
         for id, card in wanted.items():
             entry = kept.get(id) or Entry(pending_since=now)
-            if _due(entry, now, delay=delay, remind=remind) and sound(card):
+            if _due(entry, now, delay=delay, remind=remind if card.remind else None) and sound(
+                card
+            ):
                 entry = entry.model_copy(update={"sounded_at": now})
             kept[id] = entry
         store.save(kept)
 
 
-def _due(entry: Entry, now: datetime, *, delay: timedelta, remind: timedelta) -> bool:
+def _due(entry: Entry, now: datetime, *, delay: timedelta, remind: timedelta | None) -> bool:
     """Whether a card is to be sounded now: first once it has waited out the delay, then
-    again each reminder interval."""
+    again each reminder interval, unless `remind` is none, which sounds it once."""
     if entry.sounded_at is None:
         return now - entry.pending_since >= delay
+    if remind is None:
+        return False
     return now - entry.sounded_at >= remind

@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
+from datetime import datetime, timedelta
 from pathlib import Path
 
-from agent_build_kit import forges
+from agent_build_kit import config, forges
 from agent_build_kit.model import Frozen
 from agent_build_kit.notify.provider import CardKind
-from agent_build_kit.pipeline.review_order import review_tier
+from agent_build_kit.pipeline import spans
+from agent_build_kit.pipeline.landing import declined_reason
 from agent_build_kit.pipeline.unit_store import Cause, HeldBy, StoredUnit
-from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW
+from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW, MERGED
 from agent_build_kit.pipeline.verdict import ReviewTier
+from agent_build_kit.pipeline.verdict_record import latest_verdict
+
+# How far back the digest card looks for units the pipeline landed.
+DIGEST_WINDOW = timedelta(hours=24)
 
 # Held for a reason a person has to act on: the review loop or the toolchain stopped it, or
 # it said it needs one. Depth clears itself, and the reviewer's hold is the person's own.
@@ -21,6 +27,7 @@ _WORDING = {
     CardKind.REVIEW: "Ready for review",
     CardKind.FAILED: "Failed",
     CardKind.HELD: "Held, waiting for a person",
+    CardKind.DIGEST: "Landed without a person",
 }
 
 
@@ -30,6 +37,8 @@ class Card(Frozen):
     title: str
     body: str
     link: str
+    # False for a card that is shown once and never sounded again.
+    remind: bool = True
 
 
 def _kind_of(unit: StoredUnit) -> CardKind | None:
@@ -42,21 +51,79 @@ def _kind_of(unit: StoredUnit) -> CardKind | None:
     return None
 
 
-def desired_cards(units: Sequence[StoredUnit], verdicts: Path | None = None) -> list[Card]:
-    """One card for each unit that is waiting on a person.
+def _landed_at(unit: StoredUnit) -> datetime | None:
+    """When the pipeline landed the unit, from its history; none for a unit it did not land."""
+    if unit.state != MERGED:
+        return None
+    for entry in reversed(unit.history):
+        if entry.get("cause") == Cause.AUTO_LANDED.value:
+            return datetime.fromisoformat(entry["at"])
+    return None
 
-    `verdicts` is the verdict file; a unit in review whose recorded tier is `auto` raises none."""
+
+def _will_land(unit: StoredUnit, unit_class: str | None, demoted_classes: Collection[str]) -> bool:
+    """Whether the landing step will land a unit whose verdict is `auto`: its class is listed
+    and not demoted, its forge merges, and it was not declined for a reason other than checks
+    still pending."""
+    review = config.active().review
+    forge, _ = forges.for_repo(unit.repo)
+    return (
+        review.enabled
+        and unit_class is not None
+        and unit_class in review.auto_land.classes
+        and unit_class not in demoted_classes
+        and forge.merges
+        and not declined_reason(unit)
+    )
+
+
+def _digest(units: Sequence[StoredUnit], verdicts: Path | None) -> Card | None:
+    """One card listing the units landed in the last 24 hours, none when there are none."""
+    since = spans.clock.now() - DIGEST_WINDOW
+    landed = sorted(
+        (at, unit) for unit in units if (at := _landed_at(unit)) is not None and at >= since
+    )
+    if not landed:
+        return None
+    lines = []
+    for _, unit in landed:
+        recorded = latest_verdict(verdicts, unit.id) if verdicts is not None else None
+        forge, repo = forges.for_repo(unit.repo)
+        unit_class = recorded.unit_class if recorded else "unclassified"
+        lines.append(f"{unit.id} ({unit_class}) {unit.title} {forge.web_url(repo, pr=unit.pr)}")
+    count = len(landed)
+    return Card(
+        id=f"digest:{landed[-1][0].date()}",
+        kind=CardKind.DIGEST,
+        title=f"{count} unit{'s' if count != 1 else ''} landed without a person",
+        body="\n".join(lines),
+        link=lines[-1].rsplit(" ", 1)[1],
+        remind=False,
+    )
+
+
+def desired_cards(
+    units: Sequence[StoredUnit],
+    verdicts: Path | None = None,
+    *,
+    demoted_classes: Collection[str] = (),
+) -> list[Card]:
+    """One card for each unit that is waiting on a person, and one digest of what landed.
+
+    `verdicts` is the verdict file; `demoted_classes` are the classes held back from landing."""
     cards = []
     for unit in units:
         kind = _kind_of(unit)
         if kind is None:
             continue
-        if (
-            kind is CardKind.REVIEW
-            and verdicts is not None
-            and review_tier(unit, verdicts) is ReviewTier.AUTO
-        ):
-            continue
+        if kind is CardKind.REVIEW and verdicts is not None:
+            recorded = latest_verdict(verdicts, unit.id)
+            if (
+                recorded is not None
+                and recorded.tier is ReviewTier.AUTO
+                and _will_land(unit, recorded.unit_class, demoted_classes)
+            ):
+                continue
         forge, repo = forges.for_repo(unit.repo)
         wording = _WORDING[kind]
         cards.append(
@@ -68,4 +135,5 @@ def desired_cards(units: Sequence[StoredUnit], verdicts: Path | None = None) -> 
                 link=forge.web_url(repo, pr=unit.pr),
             )
         )
-    return cards
+    digest = _digest(units, verdicts)
+    return [*cards, digest] if digest else cards

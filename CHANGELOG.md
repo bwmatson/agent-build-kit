@@ -10,7 +10,11 @@
   With review enabled and a class listed, each pass now merges a unit of that class whose
   verdict is `auto`, checks have passed and head is the approved commit, and records it merged
   with the cause `auto_landed`. A host that refuses the merge leaves the unit in review with
-  the reason recorded.
+  the reason recorded. A landed pull request gets a comment naming the class and the verdict's
+  reason and the label `auto-landed`, and `abk status` says why a unit in review was not landed
+  (nothing while it only waits for checks). A single notification card lists
+  the units landed in the last 24 hours (shown once, never reminded, cleared when none remain),
+  and an `auto` unit in review gets a review card unless the landing step will land it.
 
 - With review enabled, a built unit whose changed lines pass the buffered ceiling of its review
   tier (`review.ceiling_buffer`, default 0.2) is held at once, after any review round, and
