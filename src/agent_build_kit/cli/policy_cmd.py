@@ -287,11 +287,11 @@ def cmd_policy_apply(args: argparse.Namespace, installation: Installation | None
     return 0
 
 
-def coverage_line(runtime: AgentRuntime) -> str:
+def coverage_line(runtime: AgentRuntime, installation: Installation) -> str:
     """The runtime's two coverages side by side; `abk status` prints the same line."""
     return (
         f"runtime {runtime.name}: policy_coverage: {runtime.policy_coverage}, "
-        f"sandbox_coverage: {runtime.sandbox_coverage.value}"
+        f"sandbox_coverage: {policy_check.sandbox_coverage_text(runtime, installation)}"
     )
 
 
@@ -311,7 +311,7 @@ def cmd_policy_check(args: argparse.Namespace, installation: Installation | None
     except _Usage as error:
         print(f"abk: {error}", file=sys.stderr)
         return 2
-    print(coverage_line(runtime))
+    print(coverage_line(runtime, installation))
     report = policy_check.check_policy(runtime, entry, installation)
     if report.cannot_check:
         print(report.cannot_check)

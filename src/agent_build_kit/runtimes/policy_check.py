@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.command_spellings import SPELLINGS, SpellingName
+from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.runtimes.base import AgentRuntime, PolicyReport, SpellingResult
 from agent_build_kit.runtimes.known_agents import RUNTIME_NAME, agent_for_command
 from agent_build_kit.runtimes.policy_apply import ApplyRefused, held, resolve_home
@@ -177,26 +178,49 @@ class SandboxProbeResult(Frozen):
 
 
 SANDBOX_PROBE_DENIALS = ("write", "read", "host")
+SANDBOX_PROBE_FILE = "sandbox-probe.json"
 
 
 def sandbox_probe_prompt(protected: Path, hidden: Path, host: str) -> str:
     """What the probe asks the agent for: a write to `protected`, a read of `hidden` and a
     connection to `host`, each of which the sandbox's policy denies."""
-    raise NotImplementedError
+    return (
+        "Try each of these in turn with your own tools and report, for each, whether it "
+        "succeeded or was denied:\n"
+        f"1. write: write the text 'probe' to the file {protected}\n"
+        f"2. read: read the file {hidden}\n"
+        f"3. host: connect to {host} (for example with a request to https://{host})\n"
+        "Do not retry a denied step by another route."
+    )
 
 
 def record_sandbox_probe(installation: Installation, result: SandboxProbeResult) -> None:
     """Keep the probe's result in the installation's state, replacing an earlier one."""
-    raise NotImplementedError
+    atomic_write_text(installation.state_dir / SANDBOX_PROBE_FILE, result.model_dump_json() + "\n")
 
 
 def recorded_sandbox_probe(installation: Installation) -> SandboxProbeResult | None:
     """The probe's recorded result, or None when it has not been recorded."""
-    raise NotImplementedError
+    path = installation.state_dir / SANDBOX_PROBE_FILE
+    if not path.is_file():
+        return None
+    try:
+        return SandboxProbeResult.model_validate_json(path.read_text(encoding="utf-8"))
+    except ValueError:
+        return None
 
 
 def sandbox_coverage_text(runtime: AgentRuntime, installation: Installation) -> str:
     """The runtime's `sandbox_coverage` as `abk policy check` and `abk status` show it: the
     value, and for a runtime with a `sandbox_note` the note until the recorded probe result says
     it ran, then what held and what did not."""
-    raise NotImplementedError
+    value = runtime.sandbox_coverage.value
+    note = getattr(runtime, "sandbox_note", "")
+    if not note:
+        return value
+    recorded = recorded_sandbox_probe(installation)
+    if recorded is None or not recorded.ran:
+        return f"{value} ({note})"
+    held = ", ".join(recorded.held)
+    missed = ", ".join(d for d in SANDBOX_PROBE_DENIALS if d not in recorded.held)
+    return f"{value} (held: {held}" + (f"; not held: {missed})" if missed else ")")
