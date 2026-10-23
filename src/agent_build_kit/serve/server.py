@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import sqlite3
 import threading
@@ -38,6 +39,7 @@ from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import base_of, shown_dependencies, unit_file_prefix
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.usage_report import GROUPINGS, build_report, render_json
+from agent_build_kit.pipeline.verdict_record import VERDICTS, VerdictEntry, latest_verdict
 from agent_build_kit.pipeline.vocabulary import effective_state
 from agent_build_kit.serve.actions import available as available_actions
 from agent_build_kit.serve.actions import register as register_actions
@@ -57,6 +59,8 @@ from agent_build_kit.serve.review import (
     working_changes,
 )
 from agent_build_kit.settings import settings
+
+logger = logging.getLogger(__name__)
 
 HOST = "127.0.0.1"
 # Where `npm run build` in `web/` puts the UI; the wheel ships it from here.
@@ -242,10 +246,25 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"no unit {change}/{number}")
         return unit, units
 
+    verdicts = installation.state_dir / VERDICTS
+
+    def verdict_of(unit: StoredUnit) -> VerdictEntry | None:
+        """The unit's recorded verdict; an unreadable file is logged and reads as none."""
+        try:
+            json.loads(verdicts.read_text())
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError) as error:
+            logger.warning("cannot read %s: %s", verdicts, error)
+            return None
+        return latest_verdict(verdicts, unit.id)
+
     def summary(
         unit: StoredUnit, units: list[StoredUnit], paused: frozenset[str]
     ) -> dict[str, Any]:
+        recorded = verdict_of(unit)
         return {
+            **({"tier": recorded.tier.value} if recorded else {}),
             "id": unit.id,
             "title": unit.title,
             "change": unit.change,
@@ -348,7 +367,22 @@ def create_app(
         tip = branch_tip(repo, unit.branch) if repo else None
         threads = [placed(repo, t, tip) for t in stored.threads] if repo else stored.threads
         run = _unit_run(installation, unit.id)
+        recorded = verdict_of(unit)
         return {
+            **(
+                {
+                    "tier": recorded.tier.value,
+                    "reason": recorded.reason,
+                    "focus": [e.model_dump() for e in unit.description.focus]
+                    if unit.description
+                    else [],
+                    "skippable": [e.model_dump() for e in unit.description.skippable]
+                    if unit.description
+                    else [],
+                }
+                if recorded
+                else {}
+            ),
             "round": (run.review_round if run else None) or 1,
             "threads": [t.model_dump() for t in threads],
             "decisions": [d.model_dump() for d in stored.decisions],

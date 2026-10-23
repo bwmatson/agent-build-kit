@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- With review enabled, the web UI's review answer for a unit with a recorded verdict now carries
+  its tier, the reason and the reviewer's focus and skippable lists, and the pipeline summary
+  carries each unit's tier. A unit with no verdict, or an unreadable verdict file, is answered
+  as before.
+
 - With review enabled, a pull request now carries one `review-auto`, `review-light` or
   `review-full` label matching its unit's recorded verdict, on GitHub and Azure DevOps. A new
   verdict swaps the label, and it stays on the pull request after the unit finishes. Like the

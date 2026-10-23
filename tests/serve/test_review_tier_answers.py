@@ -14,7 +14,8 @@ from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.verdict import ReviewTier
 from agent_build_kit.pipeline.verdict_record import VERDICTS
 from tests.factories import brief_description
-from tests.serving import seed_pipeline
+from tests.review_repo import seed_branches
+from tests.serving import seed_pipeline, seed_review_round
 from tests.verdict_fakes import write_verdicts
 
 UNIT = "feature/2"
@@ -25,6 +26,8 @@ FIELDS = ("tier", "reason", "focus", "skippable")
 @pytest.fixture
 def seeded(inst: Installation, api: httpx.Client) -> httpx.Client:
     seed_pipeline(inst)
+    seed_branches(inst)
+    seed_review_round(inst, UNIT, 1)
     return api
 
 
