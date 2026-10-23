@@ -64,7 +64,12 @@ function TierStrip({ answer }: { answer: ReviewAnswer }) {
     <aside aria-label="Review tier">
       <p>
         Review tier: <strong>{answer.tier}</strong>
-        {answer.reason && <> — {answer.reason}</>}
+        {answer.reason && (
+          <>
+            {" — "}
+            <span>{answer.reason}</span>
+          </>
+        )}
       </p>
       <BriefList label="Focus" entries={answer.focus ?? []} />
       <BriefList label="Skippable" entries={answer.skippable ?? []} />

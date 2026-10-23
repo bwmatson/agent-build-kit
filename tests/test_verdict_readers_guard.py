@@ -14,7 +14,9 @@ from pathlib import Path
 
 SOURCE = Path(__file__).resolve().parents[1] / "src" / "agent_build_kit"
 
-READER = re.compile(r"\blatest_verdict\(|\breview_tiers?\(|verdicts\.json")
+READER = re.compile(
+    r"\blatest_verdict\(|\breview_tiers?\(|verdicts\.json|\bVERDICTS\b|verdict_record"
+)
 
 ALLOWED = {
     "pipeline/labels.py",  # the label

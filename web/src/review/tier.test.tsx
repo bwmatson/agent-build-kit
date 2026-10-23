@@ -24,12 +24,9 @@ function open(answer: object) {
   );
 }
 
-/** The smallest element holding the reason and the tier together: the strip. */
-async function strip(): Promise<HTMLElement> {
-  let node: HTMLElement | null = await screen.findByText(REASON);
-  while (node && !/\b(full|light)\b/.test(node.textContent ?? "")) node = node.parentElement;
-  if (node === null) throw new Error("the reason has no tier beside it");
-  return node;
+/** The strip, found by its accessible name. */
+function strip(): Promise<HTMLElement> {
+  return screen.findByRole("complementary", { name: "Review tier" });
 }
 
 describe("the review tab's tier strip", () => {
