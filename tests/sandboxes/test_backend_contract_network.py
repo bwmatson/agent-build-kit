@@ -7,27 +7,22 @@ confine the network, with the reason. The file-write promises are in `test_backe
 from __future__ import annotations
 
 import os
-import socket
 import sys
 from collections.abc import Iterator
-from contextlib import contextmanager
 
 import pytest
 
 from agent_build_kit.sandboxes import SandboxBackend
 from agent_build_kit.sandboxes.policy import proxy_environment
 from agent_build_kit.sandboxes.proxy import Proxy
-from tests.sandboxes.landlock_support import Scene, require_network_rules, run_confined
-from tests.sandboxes.proxy_support import UPSTREAM_BODY, upstream
-
-CONNECT = (
-    "import socket, sys\n"
-    "try:\n"
-    "    socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=5).close()\n"
-    "    print('connected')\n"
-    "except OSError as failure:\n"
-    "    print(type(failure).__name__)\n"
+from tests.sandboxes.landlock_support import (
+    CONNECT,
+    Scene,
+    listening,
+    require_network_rules,
+    run_confined,
 )
+from tests.sandboxes.proxy_support import UPSTREAM_BODY, upstream
 
 FETCH = (
     "import sys, urllib.error, urllib.request\n"
@@ -36,16 +31,6 @@ FETCH = (
     "except urllib.error.HTTPError as failure:\n"
     "    print(failure.code, failure.read().decode())\n"
 )
-
-
-@contextmanager
-def listening(host: str) -> Iterator[int]:
-    """A listening local socket on `host`, so a refused connection is the sandbox's doing and not
-    an absent server's."""
-    with socket.socket() as server:
-        server.bind((host, 0))
-        server.listen(1)
-        yield server.getsockname()[1]
 
 
 @pytest.fixture

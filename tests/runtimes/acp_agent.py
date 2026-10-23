@@ -83,7 +83,8 @@ carries it.
   `"kill_after": SECONDS` gives up waiting for it after that long and kills it
   first, as an agent with a timeout of its own does; `"limit": BYTES` is the
   output byte limit it asks for; `"raw_input": {...}` is what its tool call
-  says it is running, when that differs from the terminal it creates.
+  says it is running, when that differs from the terminal it creates;
+  `"env": {NAME: VALUE}` is the environment it asks the terminal to have.
 - `{"write": PATH, "content": TEXT}` and `{"read": PATH, "line": N, "limit": N}`
   go through the client's file capability, recording the error for one that
   is refused.
@@ -148,6 +149,7 @@ from acp.schema import (
     AgentCapabilities,
     AvailableCommand,
     Cost,
+    EnvVariable,
     Implementation,
     ListSessionsResponse,
     PermissionOption,
@@ -616,6 +618,7 @@ class FakeAgent:
                     kill_after=act.get("kill_after"),
                     limit=act.get("limit", OUTPUT_LIMIT),
                     raw_input=act.get("raw_input"),
+                    env=act.get("env"),
                 )
             elif "write" in act:
                 await self._write_file(session_id, act["write"], act.get("content", ""))
@@ -660,6 +663,7 @@ class FakeAgent:
         kill_after: float | None = None,
         limit: int = OUTPUT_LIMIT,
         raw_input: dict[str, Any] | None = None,
+        env: dict[str, str] | None = None,
     ) -> None:
         client = self._client
         assert client is not None
@@ -680,7 +684,7 @@ class FakeAgent:
                 session_id=session_id,
                 command=command,
                 args=args,
-                env=[],
+                env=[EnvVariable(name=name, value=value) for name, value in (env or {}).items()],
                 cwd=self._cwd,
                 output_byte_limit=limit,
             )

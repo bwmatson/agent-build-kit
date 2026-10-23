@@ -79,6 +79,9 @@ class KnownAgent(Frozen):
     spellings: str = "UNVERIFIED: no live check has shown which spellings it refuses"
     # Set only for an agent whose configuration file and key were verified.
     apply: ApplyPolicy | None = None
+    # The agent's own state folders (`~` is the home), which a sandbox must leave readable and
+    # writable; best effort.
+    state_folders: tuple[str, ...] = ()
 
 
 _DOCS = "the agent's own documentation"
