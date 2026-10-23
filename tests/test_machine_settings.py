@@ -122,6 +122,15 @@ def test_a_path_is_judged_from_the_top_level_of_the_checkout(tmp_path: Path) -> 
     assert listed(document, top, "machine") == [("repos", "b", "path")]
 
 
+def test_a_path_is_resolved_from_the_root_below_the_top_level(tmp_path: Path) -> None:
+    top = tmp_path / "top"
+    document = {"repos": {"sibling": {"path": "../sibling"}, "far": {"path": "../../x"}}}
+
+    found = machine_settings(document, top, top / "plan")
+
+    assert [s.path for s in found] == [("repos", "far", "path")]
+
+
 def env(entry: dict[str, Any]) -> dict[str, Any]:
     return {"verify": {"env": {"TOKEN": entry}}}
 

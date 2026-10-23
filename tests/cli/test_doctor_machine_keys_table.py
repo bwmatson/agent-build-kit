@@ -9,24 +9,20 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
 from agent_build_kit import machine_settings as table
 from agent_build_kit.cli.doctor import MACHINE_KEYS, Check, run_doctor
-from agent_build_kit.config import merge_local
 from agent_build_kit.machine_settings import MachineSetting
-from tests.cli.public_content_repo import planning, said
-from tests.cli.test_doctor import Answers
-from tests.factories import git, which_all
-from tests.test_machine_settings import HOMES, TILDE
-
-OVERLAY = "abk.local.yaml"
-WARN_FIX = "move it to abk.local.yaml with `abk config --migrate`"
-NOTE_FIX = (
-    "fine to commit; move it to abk.local.yaml to differ "
-    "(`abk config --migrate --include-defaults` moves it)"
+from tests.cli.public_content_repo import (
+    ACCOUNTS,
+    NOTE_FIX,
+    WARN_FIX,
+    committed_config,
+    said,
 )
-ACCOUNTS = {"runtimes": {"claude_code": {"accounts": {"kit": {"max_units_in_progress": 2}}}}}
+from tests.cli.test_doctor import Answers
+from tests.factories import which_all
+from tests.test_machine_settings import HOMES, TILDE
 
 # Each machine choice: the document that holds it and the value that must never appear in what
 # doctor says. The key path doctor names is the dictionary key.
@@ -81,20 +77,6 @@ DEFAULTS = {
         "tests": {"e2e_splits": {"slow": {"marker": "slow", "hold": True}}}
     },
 }
-DECLARED = {"tests": {"e2e_dimensions": {"os": {"linux": {"marker": "linux"}}}}}
-
-
-def repo(
-    root: Path, committed: dict[str, Any], *, tracked: bool = True, repository: bool = True
-) -> Path:
-    """A planning root whose abk.yaml holds `committed` (tracked, untracked, or outside a
-    repository); the path of abk.yaml."""
-    config = planning(root, ignore=OVERLAY + "\n", tracked=tracked, repository=repository)
-    document = merge_local(merge_local(yaml.safe_load(config.read_text()), DECLARED), committed)
-    config.write_text(yaml.safe_dump(document, sort_keys=False))
-    if repository and tracked:
-        git(root, "commit", "-qam", "machine keys")
-    return config
 
 
 def machine_keys(config: Path) -> list[Check]:
@@ -114,7 +96,7 @@ def test_each_machine_choice_warns_naming_the_key_path_and_never_the_value(
     tmp_path: Path, key: str
 ) -> None:
     document, value = MACHINE_CHOICES[key]
-    config = repo(tmp_path / "plan", document)
+    config = committed_config(tmp_path / "plan", document)
 
     found = about(machine_keys(config), key)
 
@@ -125,7 +107,7 @@ def test_each_machine_choice_warns_naming_the_key_path_and_never_the_value(
 
 @pytest.mark.parametrize("key", DEFAULTS)
 def test_each_default_is_a_note_whose_fix_names_include_defaults(tmp_path: Path, key: str) -> None:
-    config = repo(tmp_path / "plan", DEFAULTS[key])
+    config = committed_config(tmp_path / "plan", DEFAULTS[key])
 
     found = about(machine_keys(config), key)
 
@@ -134,20 +116,24 @@ def test_each_default_is_a_note_whose_fix_names_include_defaults(tmp_path: Path,
 
 
 def test_an_untracked_file_says_nothing(tmp_path: Path) -> None:
-    config = repo(tmp_path / "plan", MACHINE_CHOICES["project_limits"][0], tracked=False)
+    config = committed_config(
+        tmp_path / "plan", MACHINE_CHOICES["project_limits"][0], tracked=False
+    )
 
     assert machine_keys(config) == []
 
 
 def test_a_directory_that_is_not_a_repository_says_nothing(tmp_path: Path) -> None:
-    config = repo(tmp_path / "plan", MACHINE_CHOICES["project_limits"][0], repository=False)
+    config = committed_config(
+        tmp_path / "plan", MACHINE_CHOICES["project_limits"][0], repository=False
+    )
 
     assert machine_keys(config) == []
 
 
 def test_runtime_models_say_nothing(tmp_path: Path) -> None:
     models = {"runtimes": {"claude_code": {"models": {"implement": "m"}}}}
-    config = repo(tmp_path / "plan", {**models, **MACHINE_CHOICES["project_limits"][0]})
+    config = committed_config(tmp_path / "plan", {**models, **MACHINE_CHOICES["project_limits"][0]})
 
     checks = machine_keys(config)
 
@@ -164,8 +150,9 @@ def local_document(key: str) -> dict[str, Any]:
 @pytest.mark.parametrize("key", [*MACHINE_CHOICES, *DEFAULTS])
 def test_the_same_keys_in_the_local_file_say_nothing(tmp_path: Path, key: str) -> None:
     sentinel = "tests.e2e_available" if key == "project_limits" else "project_limits"
-    config = repo(tmp_path / "plan", MACHINE_CHOICES[sentinel][0])
-    (tmp_path / "plan" / OVERLAY).write_text(yaml.safe_dump(local_document(key)))
+    config = committed_config(
+        tmp_path / "plan", MACHINE_CHOICES[sentinel][0], overlay=local_document(key)
+    )
 
     checks = machine_keys(config)
 
@@ -183,7 +170,7 @@ def test_a_key_in_a_table_entry_added_by_the_test_is_reported_without_doctor_nam
     ]
     monkeypatch.setattr(table, "machine_settings", lambda *a, **k: [*original(*a, **k), *added])
     committed = {"runtimes": {"claude_code": {"models": {"implement": "m"}}}}
-    config = repo(tmp_path / "plan", committed)
+    config = committed_config(tmp_path / "plan", committed)
 
     checks = machine_keys(config)
 

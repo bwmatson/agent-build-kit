@@ -37,6 +37,8 @@ from agent_build_kit import (
     skills,
     timers,
 )
+
+# Reached through the module so a test can replace the table's `machine_settings`.
 from agent_build_kit import machine_settings as machine_table
 from agent_build_kit import settings as settings_module
 from agent_build_kit.config import (
@@ -69,7 +71,6 @@ from agent_build_kit.init.scaffold import (
     rules_version,
 )
 from agent_build_kit.installation import Installation, _resolve, load_config
-from agent_build_kit.machine_settings import holds_home_path
 from agent_build_kit.model import Frozen
 from agent_build_kit.notify.windows import (
     BURNTTOAST_VERSION,
@@ -859,7 +860,7 @@ def _committed_facts(inst: Installation, toplevel: Path) -> list[Check]:
                 )
             )
     for key, value in _strings(document):
-        if holds_home_path(value):
+        if machine_table.holds_home_path(value):
             checks.append(_warn(PUBLIC_CONTENT, f"{key} holds a home-directory path", _PUBLIC_FIX))
     origin = git(inst.root, "remote", "get-url", "origin", check=False)
     named = forges.identify(origin.stdout.strip()) if origin.returncode == 0 else None
