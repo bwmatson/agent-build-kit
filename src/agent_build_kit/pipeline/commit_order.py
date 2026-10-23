@@ -144,12 +144,18 @@ def recorded_built(repo: Path, sha: str) -> bool:
     return marked.strip() == "yes" and not _files_in(repo, sha)
 
 
+def branch_commit_subjects(repo: Path, base: str, ref: str = "HEAD") -> list[tuple[str, str]]:
+    """The hash and subject of each commit the branch at `ref` carries beyond `base`, oldest
+    first."""
+    out = git_out(repo, "log", "--reverse", "--format=%H%x00%s", f"{base}..{ref}")
+    return [tuple(line.split("\0", 1)) for line in out.splitlines()]  # pyrefly: ignore[bad-return]
+
+
 def branch_subjects(repo: Path, base: str) -> list[str]:
     """The subject of each commit the checked-out branch carries beyond `base`, oldest first.
     Read from the subjects, not the hashes, so a restack that rewrote every commit changes
     nothing."""
-    out = git_out(repo, "log", "--reverse", "--format=%s", f"{base}..HEAD")
-    return out.splitlines() if out else []
+    return [subject for _, subject in branch_commit_subjects(repo, base)]
 
 
 class GroupProgress(Frozen):
@@ -196,12 +202,9 @@ def superseded_pairs(
     beyond `base` is exactly a pair for each of the groups (`titles`, by position, with
     `test_only` groups taking their `test:` commit alone), in order; None for any other branch,
     which has a commit that belongs to no group or lacks one."""
-    out = git_out(repo, "log", "--reverse", "--format=%H%x00%s", f"{base}..{ref}")
-    shas, subjects = [], []
-    for line in out.splitlines():
-        sha, _, subject = line.partition("\0")
-        shas.append(sha)
-        subjects.append(subject)
+    found = branch_commit_subjects(repo, base, ref)
+    shas = [sha for sha, _ in found]
+    subjects = [subject for _, subject in found]
     if group_progress(subjects, titles, test_only).done != len(titles):
         return None
     sizes = [
@@ -228,13 +231,32 @@ def cherry_pick(repo: Path, shas: Sequence[str], *, unit_id: str = "") -> bool:
             git(repo, "cherry-pick", "--abort", check=False)
             git(repo, "reset", "-q", "--hard", start)
             return False
-        if unit_id:
-            message = git_out(repo, "log", "-1", "--format=%B")
-            old_lines = message.split("\n")
-            lines = [f"Unit: {unit_id}" if row.startswith("Unit: ") else row for row in old_lines]
-            if lines != old_lines:
-                git(repo, "commit", "-q", "--amend", "--allow-empty", "-m", "\n".join(lines))
+        if unit_id and not _name_unit(repo, unit_id):
+            git(repo, "reset", "-q", "--hard", start)
+            return False
     return True
+
+
+def _name_unit(repo: Path, unit_id: str) -> bool:
+    """Rewrite the `Unit:` trailer of HEAD to `unit_id`, keeping the rest of its message. The
+    commit already passed the gate, so no hook runs; False when the rewrite fails."""
+    message = git_out(repo, "log", "-1", "--format=%B")
+    old_lines = message.split("\n")
+    lines = [f"Unit: {unit_id}" if row.startswith("Unit: ") else row for row in old_lines]
+    if lines == old_lines:
+        return True
+    amended = git(
+        repo,
+        "commit",
+        "-q",
+        "--amend",
+        "--no-verify",
+        "--allow-empty",
+        "-m",
+        "\n".join(lines),
+        check=False,
+    )
+    return amended.returncode == 0
 
 
 def _test_only_commits(subjects: list[str], groups: Sequence[GroupStep]) -> list[bool]:

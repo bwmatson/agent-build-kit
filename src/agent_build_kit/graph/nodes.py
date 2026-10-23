@@ -166,7 +166,7 @@ from agent_build_kit.pipeline.verdict_record import (
     recorded_history,
 )
 from agent_build_kit.pipeline.work_graph import group_sections
-from agent_build_kit.pipeline.workspaces import DirtyWorktree
+from agent_build_kit.pipeline.workspaces import DirtyWorktree, superseded_ref
 from agent_build_kit.profiles.base import stubbed_build
 from agent_build_kit.redaction import redact_text
 from agent_build_kit.runtimes.base import (
@@ -1155,7 +1155,7 @@ class BuildPath:
         branch onto the piece's branch, when that branch is exactly a pair per group of the unit;
         otherwise say once that the piece is built from scratch."""
         r = self.runner
-        kept = f"refs/spec-driven/superseded/{parent_id}"
+        kept = superseded_ref(parent_id)
         try:
             parent = r.store.get(parent_id)
         except KeyError:
