@@ -479,6 +479,14 @@ release could move. The steps:
    gets a lone empty `test:` commit marked `Already-built: yes` that holds the account). If those unit tests fail, nothing is
    recorded and the unit stops, so a forgotten implementation still stops the unit.
 
+   A group with no new tests, in a unit that has commits, gets an empty `test:` commit marked
+   `Already-built: yes` at the end of its tests step, and the implementation then completes the
+   pair: a real `feat:` commit, or an empty one marked the same way once the whole-repository unit
+   tests pass. A group with real tests that already pass and no implementation change is
+   completed with an empty `feat:` commit once the whole-repository unit tests pass. The stop for
+   a lone `feat:` commit names it: a `feat:` commit with no `test:` commit before it is reported
+   with its subject, not as a missing pair.
+
    **Test-only groups.** An `[e2e-test]` group is a test-only group. A stubbed build commits
    it as a single `test:` commit once `stub_checks` passes, skips the implement step for it
    and goes on to the next group's tests (or to the checks). The pair count treats that
@@ -1277,8 +1285,11 @@ restack does not re-run them. In a stubbed build a test-only (`[e2e-test]`) grou
 commit is the exception: no `feat:` commit follows it, it gets only the clean command (lint,
 format and types) and no red run, and its result is cached under its own mode; a unit made
 only of test-only groups needs no implementation commit. The gate accepts an
-empty pair marked `Already-built: yes` after a real one, a restack keeps it and the
-squash merge drops it.
+empty pair marked `Already-built: yes` after a real one, and it accepts an empty `test:`
+commit marked the same way before a real `feat:` commit, or a real `test:` before an empty
+`feat:`; a restack keeps them and the squash merge drops them. A stray branch is repaired by
+resetting to the group's previous `feat:`, cherry-picking the empty `test:` with
+`--allow-empty`, then the real `feat:`.
 This is the command form of the rule, for a person or a hook; the runner's own
 push condition is the approved-SHA check above.
 

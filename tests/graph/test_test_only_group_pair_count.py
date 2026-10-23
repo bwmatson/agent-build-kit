@@ -18,7 +18,7 @@ def test_a_full_count_with_a_test_only_last_group_goes_on_and_an_ordinary_one_st
 ) -> None:
     only, outcome, repo = built(tmp_path / "only", groups={"add-marker": TWO}, e2e=(2,))
     ordinary, stopped, _ = built(
-        tmp_path / "ordinary", groups={"add-marker": TWO}, no_commit_for="2"
+        tmp_path / "ordinary", groups={"add-marker": TWO}, no_commit_for="2", unit_test_ok=False
     )
 
     assert outcome.status == "open"
@@ -32,7 +32,11 @@ def test_a_unit_test_group_holding_only_tests_still_needs_its_implementation_com
     tmp_path: Path,
 ) -> None:
     ordinary, stopped, repo = built(
-        tmp_path / "ordinary", groups={"add-marker": TWO}, tests_only=(2,), no_commit_for="2"
+        tmp_path / "ordinary",
+        groups={"add-marker": TWO},
+        tests_only=(2,),
+        no_commit_for="2",
+        unit_test_ok=False,
     )
     _, outcome, _ = built(
         tmp_path / "e2e", groups={"add-marker": TWO}, e2e=(2,), tests_only=(2,), no_commit_for="2"

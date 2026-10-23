@@ -18,6 +18,7 @@ from tests.graph.stub_loop_fakes import StubLoop
 from tests.graph.test_build_path import build
 from tests.graph.test_outside_commits_prompt import branch, land
 from tests.graph.test_per_group_build import group_named
+from tests.runner_fakes import Killed
 
 UNIT = "add-marker/1"
 TRAILER = f"Unit: {UNIT}"
@@ -64,16 +65,21 @@ def write_tasks(
 class OnBranch(StubLoop):
     """A stubbed-loop recorder whose commits, head and commit count are the branch's own. Its
     agent writes a file for each tests, implementation and rework call, except for the
-    implementation of the groups named in `no_commit_for`, which leaves the tree as it was, and
-    for every call about groups all numbered in `silent_groups`. `accounts` is what the
-    implementation agent says last, and `tests_accounts` what the tests agent does, by the
-    group it is asked about (as the prompt names it)."""
+    implementation of the groups named in `no_commit_for` and the tests of those named in
+    `no_tests_for`, which leave the tree as it was, and for every call about groups all
+    numbered in `silent_groups`. The implementation call of the group named in `kill_in_impl`
+    dies once, before it writes. `at_agent` holds the branch's subjects as each tests or
+    implementation call found them, with its event. `accounts` is what the implementation
+    agent says last, and `tests_accounts` what the tests agent does, by the group it is asked
+    about (as the prompt names it)."""
 
     def __init__(
         self,
         store: UnitStore,
         *,
         no_commit_for: str = "",
+        no_tests_for: str = "",
+        kill_in_impl: str = "",
         silent_groups: Collection[int] = (),
         accounts: Mapping[str, str] | None = None,
         tests_accounts: Mapping[str, str] | None = None,
@@ -83,6 +89,9 @@ class OnBranch(StubLoop):
         self.accounts = accounts or {}
         self.tests_accounts = tests_accounts or {}
         self.no_commit_for = no_commit_for  # as the prompt names them: "3" or "1, 2, 3"
+        self.no_tests_for = no_tests_for
+        self.kill_in_impl = kill_in_impl  # the run dies, once, in this group's implementation call
+        self.at_agent: list[tuple[str, list[str]]] = []
         self.silent_groups = frozenset(str(number) for number in silent_groups)
 
     def claude(self, prompt: str, **kwargs: Any) -> str:
@@ -90,6 +99,12 @@ class OnBranch(StubLoop):
         step = self.events[-1]
         built_group = group_named(prompt) if step in ("claude:tests", "claude:impl") else ""
         skipped = step == "claude:impl" and built_group == self.no_commit_for
+        skipped = skipped or (step == "claude:tests" and built_group == self.no_tests_for)
+        if step in ("claude:tests", "claude:impl"):
+            self.at_agent.append((step, branch_subjects(kwargs["cwd"], BASE)))
+        if step == "claude:impl" and built_group == self.kill_in_impl:
+            self.kill_in_impl = ""
+            raise Killed(step)
         skipped = skipped or (
             bool(built_group) and set(built_group.split(", ")) <= self.silent_groups
         )

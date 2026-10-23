@@ -157,6 +157,7 @@ class GroupProgress(Frozen):
 
     done: int  # groups done: each has its pair, or for a test-only group its tests commit
     tests_made: bool  # the next group's tests commit is there, its implementation not
+    lone_feat: str = ""  # the `feat:` subject of the next group found where its `test:` belongs
 
 
 def group_progress(
@@ -171,7 +172,14 @@ def group_progress(
     for done, title in enumerate(titles):
         tests = position < len(subjects) and subjects[position] == f"{TESTS_PREFIX}{title}"
         if not tests:
-            return GroupProgress(done=done, tests_made=False)
+            lone = (
+                position < len(subjects)
+                and not (done < len(test_only) and test_only[done])
+                and subjects[position] == f"{CODE_PREFIX}{title}"
+            )
+            return GroupProgress(
+                done=done, tests_made=False, lone_feat=subjects[position] if lone else ""
+            )
         position += 1
         if done < len(test_only) and test_only[done]:
             continue

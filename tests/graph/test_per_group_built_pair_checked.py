@@ -26,6 +26,7 @@ from tests.graph.branch_fakes import (
 from tests.graph.test_build_path import build
 from tests.graph.test_flake_parking import FLAKE
 
+PAIR_3 = ["test: G3", "feat: G3"]
 PAIR = "the branch holds no tests and implementation pair for group 4 (G4)"
 FAILURE = "E   AssertionError: the marker is not registered"
 
@@ -53,7 +54,7 @@ def test_failing_whole_repo_tests_record_nothing_and_stop_the_unit_with_the_pair
     assert outcome.status == "failed"
     assert PAIR in outcome.detail
     assert recorder.events.count("unit-test:whole_repo") == 1
-    assert subjects(repo) == ["test: G3", "feat: G3"], "no empty commit is made"
+    assert subjects(repo) == [*PAIR_3, "test: G4"], "only the feat: is withheld"
     assert any(FAILURE in line for line in recorder.logged), recorder.logged
     stored = recorder.store.get(UNIT)
     assert stored.feedback_source == FeedbackSource.UNIT_TEST
@@ -80,7 +81,7 @@ def test_a_flake_found_on_that_run_counts_as_the_same_failure(tmp_path: Path) ->
 
     assert outcome.status == "failed"
     assert PAIR in outcome.detail
-    assert subjects(repo) == ["test: G3", "feat: G3"]
+    assert subjects(repo) == [*PAIR_3, "test: G4"]
     stored = recorder.store.get(UNIT)
     assert stored.feedback_source == FeedbackSource.UNIT_TEST
     assert FLAKE.output.strip() in stored.feedback
@@ -111,19 +112,36 @@ def test_a_broken_environment_blocks_the_unit_and_is_not_read_as_missing_work(
     stored = recorder.store.get(UNIT)
     assert (stored.state, stored.cause) == (FAILED, Cause.ENVIRONMENT)
     assert stored.feedback == "", "nothing for an agent to fix is saved"
-    assert subjects(repo) == ["test: G3", "feat: G3"]
+    assert subjects(repo) == [*PAIR_3, "test: G4"]
 
 
-def test_a_real_tests_commit_with_no_implementation_still_stops_and_nothing_is_recorded(
+def test_a_real_tests_commit_with_no_implementation_stops_when_the_suite_fails_and_records_nothing(
     tmp_path: Path,
 ) -> None:
     passing_beside(tmp_path)
     recorder, outcome, repo = built(
-        tmp_path / "stubs", groups={"add-marker": titled(3, 4)}, no_commit_for="4"
+        tmp_path / "stubs",
+        groups={"add-marker": titled(3, 4)},
+        no_commit_for="4",
+        unit_test_ok=False,
     )
 
     assert outcome.status == "failed"
     assert PAIR in outcome.detail
-    assert subjects(repo) == ["test: G3", "feat: G3", "test: G4"]
-    assert not any("Already-built" in message for message in messages(repo))
-    assert "unit-test:whole_repo" not in recorder.events
+    assert subjects(repo) == [*PAIR_3, "test: G4"]
+    assert not any("Already-built" in message for message in messages(repo)[-1:])
+    assert recorder.events.count("unit-test:whole_repo") == 1
+
+
+def test_a_real_tests_commit_with_no_implementation_is_completed_with_an_empty_feat_when_it_passes(
+    tmp_path: Path,
+) -> None:
+    recorder, outcome, repo = built(
+        tmp_path, groups={"add-marker": titled(3, 4)}, no_commit_for="4"
+    )
+
+    assert outcome.status == "open", outcome.detail
+    assert subjects(repo) == [*PAIR_3, "test: G4", "feat: G4"]
+    assert "Already-built: yes" in messages(repo)[-1]
+    assert "Already-built" not in messages(repo)[-2]
+    assert recorder.events.count("unit-test:whole_repo") == 1

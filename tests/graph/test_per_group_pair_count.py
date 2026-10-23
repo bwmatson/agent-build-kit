@@ -6,7 +6,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tests.graph.branch_fakes import built, subjects
+from tests.graph.branch_fakes import built, prepared, subjects, titled
+from tests.graph.test_build_path import build
 
 TITLES = {1: ("Parse the key", ""), 2: ("Use the key", ""), 3: ("Drop the key", "")}
 GROUPS = {"add-marker": TITLES}
@@ -15,7 +16,7 @@ GROUPS = {"add-marker": TITLES}
 def test_a_last_implementation_that_made_no_commit_stops_the_unit_naming_the_group(
     tmp_path: Path,
 ) -> None:
-    recorder, outcome, repo = built(tmp_path, groups=GROUPS, no_commit_for="3")
+    recorder, outcome, repo = built(tmp_path, groups=GROUPS, no_commit_for="3", unit_test_ok=False)
 
     assert outcome.status == "failed"
     assert "Drop the key" in outcome.detail or "group 3" in outcome.detail
@@ -25,7 +26,9 @@ def test_a_last_implementation_that_made_no_commit_stops_the_unit_naming_the_gro
 
 
 def test_a_full_count_goes_on_to_the_checks_and_a_short_one_does_not(tmp_path: Path) -> None:
-    short, stopped, _ = built(tmp_path / "short", groups=GROUPS, no_commit_for="3")
+    short, stopped, _ = built(
+        tmp_path / "short", groups=GROUPS, no_commit_for="3", unit_test_ok=False
+    )
     full, outcome, repo = built(tmp_path / "full", groups=GROUPS)
 
     assert stopped.status == "failed"
@@ -36,7 +39,9 @@ def test_a_full_count_goes_on_to_the_checks_and_a_short_one_does_not(tmp_path: P
 
 
 def test_a_unit_that_is_not_stubbed_is_counted_as_before(tmp_path: Path) -> None:
-    stubbed, stopped, _ = built(tmp_path / "stubbed", groups=GROUPS, no_commit_for="3")
+    stubbed, stopped, _ = built(
+        tmp_path / "stubbed", groups=GROUPS, no_commit_for="3", unit_test_ok=False
+    )
     plain, outcome, repo = built(
         tmp_path / "plain", groups=GROUPS, setting=False, no_commit_for="1, 2, 3"
     )
@@ -50,7 +55,7 @@ def test_a_unit_that_is_not_stubbed_is_counted_as_before(tmp_path: Path) -> None
 def test_a_middle_group_without_an_implementation_commit_stops_the_unit_at_that_group(
     tmp_path: Path,
 ) -> None:
-    recorder, outcome, repo = built(tmp_path, groups=GROUPS, no_commit_for="1")
+    recorder, outcome, repo = built(tmp_path, groups=GROUPS, no_commit_for="1", unit_test_ok=False)
 
     assert outcome.status == "failed"
     assert "group 1" in outcome.detail
@@ -58,3 +63,21 @@ def test_a_middle_group_without_an_implementation_commit_stops_the_unit_at_that_
     assert recorder.events.count("claude:tests") == 1, "no later group's tests are written"
     assert subjects(repo) == ["test: Parse the key"]
     assert "review" not in recorder.events
+
+
+def test_real_tests_with_no_implementation_and_failing_unit_tests_keep_the_pair_message(
+    tmp_path: Path,
+) -> None:
+    recorder, repo = prepared(
+        tmp_path,
+        groups={"add-marker": titled(3, 4)},
+        seeded=["test: G3", "feat: G3", "test: G4"],
+        no_commit_for="4",
+        unit_test_ok=False,
+    )
+
+    outcome = build(tmp_path, recorder, **recorder.overrides(tmp_path))
+
+    assert outcome.status == "failed"
+    assert "the branch holds no tests and implementation pair for group 4 (G4)" in outcome.detail
+    assert subjects(repo) == ["test: G3", "feat: G3", "test: G4"]
