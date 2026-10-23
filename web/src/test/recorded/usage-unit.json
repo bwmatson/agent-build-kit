@@ -86,6 +86,8 @@
       "difference": null
     }
   ],
+  "overhead_cost_usd": 0.375,
+  "overhead_share": 0.2,
   "overhead": [
     {
       "key": "plan",

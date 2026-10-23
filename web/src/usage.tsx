@@ -44,7 +44,12 @@ function ReportTable({ report }: { report: UsageReport }) {
       {report.overhead.length > 0 && (
         <tbody>
           <tr>
-            <th colSpan={5}>pipeline overhead</th>
+            <th colSpan={5}>
+              pipeline overhead
+              {report.overhead_cost_usd != null && ` $${report.overhead_cost_usd.toFixed(2)}`}
+              {report.overhead_share != null &&
+                ` (${Math.round(report.overhead_share * 100)}% of the ledger's cost)`}
+            </th>
           </tr>
           {report.overhead.map((row) => (
             <Row key={row.key} row={row} linked={false} />
