@@ -15,13 +15,21 @@ from agent_build_kit.pipeline.unit_store import HeldBy
 from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW
 from agent_build_kit.pipeline.verdict import ReviewTier
 from tests import fake_clock
+from tests.conftest import make_installation
 from tests.factories import stored_unit
 from tests.fake_clock import FakeClock
+from tests.landing_support import apply_review, listed_review
 from tests.notify_fakes import FakeNotifier, enabled
 from tests.verdict_fakes import write_verdicts
 
 UNIT = "add-marker/1"
 REVIEW_CARD = f"unit:review:{UNIT}"
+
+
+@pytest.fixture(autouse=True)
+def policy(tmp_path: Path) -> None:
+    """The class `docs` is listed for landing, so an `auto` unit of it will be landed."""
+    apply_review(make_installation(tmp_path), listed_review())
 
 
 @pytest.fixture
@@ -48,7 +56,7 @@ def test_a_light_or_full_unit_in_review_has_a_review_card(verdicts: Path, tier: 
 
 
 def test_an_auto_unit_in_review_has_no_card(verdicts: Path) -> None:
-    write_verdicts(verdicts, {UNIT: ReviewTier.AUTO})
+    write_verdicts(verdicts, {UNIT: ReviewTier.AUTO}, unit_class="docs")
 
     assert desired_cards([in_review()], verdicts) == []
 
@@ -99,7 +107,7 @@ def test_a_card_for_a_unit_whose_tier_became_auto_is_cleared_by_reconciliation(
     assert notifier.shown_ids == [REVIEW_CARD]
 
     clock.advance(60)
-    write_verdicts(verdicts, {UNIT: ReviewTier.AUTO})
+    write_verdicts(verdicts, {UNIT: ReviewTier.AUTO}, unit_class="docs")
     round_()
 
     assert notifier.cleared == [REVIEW_CARD]
