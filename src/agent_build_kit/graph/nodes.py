@@ -160,6 +160,7 @@ from agent_build_kit.pipeline.verdict_record import (
     latest_verdict,
     mark_brief,
     record_verdict,
+    recorded_history,
 )
 from agent_build_kit.pipeline.work_graph import group_sections
 from agent_build_kit.pipeline.workspaces import DirtyWorktree
@@ -2033,12 +2034,15 @@ class BuildPath:
                 groups=self.group_texts(),
                 size_waived=r.store.get(unit.id).size_waived,
             )
+            verdicts = r.store.path.with_name(VERDICTS)
+            unit_class = class_of(active(), unit.repo, kind, paths)
             entry = record_verdict(
-                r.store.path.with_name(VERDICTS),
+                verdicts,
                 unit=unit.id,
                 change=unit.change,
                 round=number,
-                unit_class=class_of(active(), unit.repo, kind, paths),
+                unit_class=unit_class,
+                history=recorded_history(verdicts, unit_class),
                 repo=unit.repo,
                 facts=facts,
                 drivers=weighed.verdict.drivers,

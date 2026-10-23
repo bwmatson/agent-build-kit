@@ -8,11 +8,13 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from agent_build_kit import telemetry
 from agent_build_kit.forges.base import Forge, RepoId
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
-from agent_build_kit.pipeline.review_outcome import with_outcome
+from agent_build_kit.pipeline.review_outcome import Outcome, with_outcome
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import UnitState
+from agent_build_kit.pipeline.verdict import ReviewTier
 
 # Days a merged unit is rechecked for a revert; its outcome is final after that.
 HORIZON_DAYS = 14
@@ -67,6 +69,28 @@ def sweep_outcomes(
         }
         if merged != current:
             atomic_write_text(verdicts, json.dumps(merged, indent=2, sort_keys=True))
+            for uid, record in merged.items():
+                if record is not current[uid]:
+                    _count(current[uid].get("outcome"), record)
+
+
+def _count(before: str | None, record: Mapping[str, Any]) -> None:
+    """Count the outcome a record has reached, when it differs from the one it had, and, the
+    first time a unit that was `auto` merges, whether a person accepted it as it stood."""
+    outcome = record["outcome"]
+    if outcome == before:
+        return
+    labels = {
+        "outcome": outcome,
+        "tier": record.get("tier", "unknown"),
+        "class": record.get("unit_class", "unknown"),
+    }
+    telemetry.count("abk.review.outcome", 1, **labels)
+    merged_outcomes = (Outcome.CLEAN, Outcome.REWORKED, Outcome.REVERTED)
+    if before not in merged_outcomes and outcome in merged_outcomes:
+        if record.get("evidence_tier") == ReviewTier.AUTO:
+            accepted = {"class": labels["class"], "accepted": str(outcome == Outcome.CLEAN).lower()}
+            telemetry.count("abk.review.agreement", 1, **accepted)
 
 
 def _is_final(record: Mapping[str, Any] | None) -> bool:

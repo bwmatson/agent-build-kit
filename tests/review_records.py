@@ -16,6 +16,11 @@ def record(outcome: str, *, unit_class: str, brief: bool = True, evidence: str =
     }
 
 
+def by_unit(*records: dict) -> dict[str, dict]:
+    """The records as the verdicts file holds them, by unit id."""
+    return {"feature/" + str(n): r for n, r in enumerate(records, start=1)}
+
+
 def sample_records() -> dict[str, dict]:
     """With three samples at 0.9 as the gates: `docs` clears them (two of its samples had
     evidence tier `auto`, and two more records lack the brief); `code` does not;
