@@ -71,7 +71,7 @@ def test_a_valid_report_files_the_change_and_parks_the_unit_on_it(tmp_path: Path
     outcome = reworked.rework(lambda prompt: account(defect(files=[PRODUCT])))
 
     assert outcome.status == RunStatus.HELD, outcome
-    assert reworked.told == [(UNIT, TEST)]
+    assert reworked.told == [(UNIT, defect().test)]
     assert FIX in reworked.changes
     assert [need.change for need in group_needs(reworked.tasks)[1]] == [FIX]
     stored = reworked.scoped.stored

@@ -34,7 +34,7 @@ def parked(pipe: Pipeline) -> None:
     pipe.store.upsert([unit])
     fix = build_on_product_defect(pipe.store, pipe.inst, log=lambda line: None)(unit, defect())
     assert fix == FIX
-    pipe.store.upsert([new_unit(FIX_UNIT, change=FIX), new_unit(CHILD, depends_on=(FIX_UNIT,))])
+    pipe.store.upsert([new_unit(FIX_UNIT), new_unit(CHILD, depends_on=(FIX_UNIT,))])
     pipe.store.set_state(CHILD, FAILED, branch=f"spec/{CHILD}", cause=Cause.FAILED)
 
 

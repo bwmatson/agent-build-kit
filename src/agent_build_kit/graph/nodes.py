@@ -76,6 +76,7 @@ from agent_build_kit.pipeline.metric_records import emit_metric
 from agent_build_kit.pipeline.outside_commits import outside_commits_note
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
 from agent_build_kit.pipeline.pr_replies import parse_answer
+from agent_build_kit.pipeline.product_defect import DefectRefused, read_product_defect
 from agent_build_kit.pipeline.restack import RESOLVER_TOOLS, BranchMoved, HostMoved
 from agent_build_kit.pipeline.review_classes import class_of
 from agent_build_kit.pipeline.review_paths import is_protected
@@ -1843,6 +1844,35 @@ class BuildPath:
         )
         return self.stop(f"the e2e-test unit changes product code: {named}")
 
+    def product_defect(self, account: str, stored: StoredUnit) -> Update | None:
+        """What an `[e2e-test]` unit's rework does with a `product-defect` block in the builder's
+        account: a refused block stops the unit, a valid one is filed and parks the unit on
+        its fix, and no block (or a unit of the fix change itself) is an ordinary rework."""
+        r, unit = self.runner, self.unit
+        if unit.tier != TestTier.E2E_TEST or stored.feedback_source not in (
+            FeedbackSource.E2E,
+            FeedbackSource.SCOPE,
+        ):
+            return None
+        support = [path for step in r.group_steps(unit) for path in step.support]
+        read = read_product_defect(
+            account,
+            failure=stored.feedback,
+            repo=unit.repo,
+            repos=active().repos,
+            support=support,
+        )
+        if read is None:
+            return None
+        if isinstance(read, DefectRefused):
+            return self.stop(read.reason)
+        fix = r.on_product_defect(unit, read)
+        if fix is None:
+            return None
+        # No saved failure, so the end of the wait resumes the unit and does not rework it.
+        r.store.set_feedback(unit.id, "")
+        return self.park_for_fix(f"waiting for the fix of the product defect {read.test}: {fix}")
+
     def answering(self, state: UnitRun) -> dict[str, str]:
         """The failed check a fix has just answered, for the run to select its tests by;
         nothing for the first check, a unit that has not failed, or a rework."""
@@ -2209,6 +2239,8 @@ class BuildPath:
                     outside,
                 ),
             )
+            if (defect := self.product_defect(answer, stored)) is not None:
+                return defect
             committed = r.commit(f"fix: {unit.title}", cwd=tree, base=self.ref(state))
             r.store.set_guidance(unit.id, "")
             said = parse_answer(answer) if answer else None
@@ -3161,7 +3193,7 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
         after_review,
         (Node.HELD, Node.FAILED, Node.PUSH, Node.E2E, Node.VERIFY_BASE, Node.REWORK),
     ),
-    Node.REWORK: (after_rework, (Node.HELD, Node.UNIT_TEST, Node.CHECKS)),
+    Node.REWORK: (after_rework, (Node.HELD, Node.FAILED, Node.UNIT_TEST, Node.CHECKS)),
     Node.UNIT_TEST: (
         after_unit_test,
         (

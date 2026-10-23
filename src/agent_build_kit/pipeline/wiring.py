@@ -117,7 +117,12 @@ from agent_build_kit.pipeline.pr_replies import (
     own_posts,
     record_given_comments,
 )
-from agent_build_kit.pipeline.product_defect import ProductDefect
+from agent_build_kit.pipeline.product_defect import (
+    ProductDefect,
+    ProductDefectEntry,
+    product_defect_record,
+    wait_on_product_defect,
+)
 from agent_build_kit.pipeline.restack import (
     HostMoved,
     Moved,
@@ -1762,7 +1767,24 @@ def build_on_product_defect(
     """Record a product defect a unit's builder reported and make sure one change fixes it;
     give each group of the unit a `Needs:` line on that change. Returns the change, or None
     for a unit of the change itself, which has nothing to wait on."""
-    raise NotImplementedError
+
+    def on_product_defect(unit: Unit, defect: ProductDefect) -> str | None:
+        fix = wait_on_product_defect(installation, defect, store.get(unit.id), say=log)
+        product_defect_record(installation).append(
+            ProductDefectEntry(
+                test=defect.test,
+                unit=unit.id,
+                files=defect.files,
+                reproduction=defect.reproduction,
+                sketch=defect.sketch,
+                at=datetime.now(UTC),
+                change=fix or "",
+            )
+        )
+        log(f"{unit.id}: product defect {defect.test} — " + (f"fix {fix}" if fix else "no wait"))
+        return fix
+
+    return on_product_defect
 
 
 def _ids_for(
