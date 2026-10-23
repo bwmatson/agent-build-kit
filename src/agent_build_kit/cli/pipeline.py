@@ -771,7 +771,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     except KeyError as exc:
         log(f"usage: runtime {config.runtime_name()} is not available: {exc}")
     else:
-        log(coverage_line(runtime))
+        log(coverage_line(runtime, inst))
         if not runtime.supports_usage_tracking:
             log(f"usage: runtime {runtime.name} has no usage window")
         if runtime.supports_usage_tracking:

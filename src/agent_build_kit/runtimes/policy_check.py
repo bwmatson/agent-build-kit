@@ -10,9 +10,13 @@ from __future__ import annotations
 
 import shlex
 from collections.abc import Collection
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Literal, get_args
 
+from agent_build_kit import config
+from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.command_spellings import SPELLINGS, SpellingName
+from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.runtimes.base import AgentRuntime, PolicyReport, SpellingResult
 from agent_build_kit.runtimes.known_agents import RUNTIME_NAME, agent_for_command
 from agent_build_kit.runtimes.policy_apply import ApplyRefused, held, resolve_home
@@ -164,3 +168,80 @@ def fix_for(name: str, entry: RuntimeConfig, report: PolicyReport) -> str:
         "run `abk policy patterns` and add them to the agent's configuration, or "
         f"set `runtimes.{name}.policy_fix` in abk.yaml to what enforces them"
     )
+
+
+Denial = Literal["write", "read", "host"]
+SANDBOX_PROBE_DENIALS: tuple[Denial, ...] = get_args(Denial)
+SANDBOX_PROBE_FILE = "sandbox-probe.json"
+
+
+class SandboxProbeResult(Frozen):
+    """What the shipped sandbox probe recorded: whether it ran against a real agent, and which
+    of its three denials (`SANDBOX_PROBE_DENIALS`) the agent met."""
+
+    ran: bool
+    held: tuple[Denial, ...] = ()
+
+
+class _Record(Frozen):
+    """A probe result with the agent command it was run against."""
+
+    agent: tuple[str, ...]
+    result: SandboxProbeResult
+
+
+def _probed_agent(installation: Installation) -> tuple[str, ...]:
+    """The agent command the protocol runtime is configured with, which a record is tied to."""
+    return tuple(config.runtime_entry(installation.config, name=RUNTIME_NAME).command or ())
+
+
+def sandbox_probe_prompt(protected: Path, hidden: Path, host: str) -> str:
+    """What the probe asks the agent for: a write to `protected`, a read of `hidden` and a
+    connection to `host`, each of which the sandbox's policy denies."""
+    return (
+        "Try each of these in turn with your own tools and report, for each, whether it "
+        "succeeded or was denied:\n"
+        f"1. write: write the text 'probe' to the file {protected}\n"
+        f"2. read: read the file {hidden}\n"
+        f"3. host: connect to {host} (for example with a request to https://{host})\n"
+        "Do not retry a denied step by another route."
+    )
+
+
+def record_sandbox_probe(installation: Installation, result: SandboxProbeResult) -> None:
+    """Keep the probe's result in the installation's state, replacing an earlier one, tied to
+    the agent command the protocol runtime is configured with now."""
+    record = _Record(agent=_probed_agent(installation), result=result)
+    atomic_write_text(installation.state_dir / SANDBOX_PROBE_FILE, record.model_dump_json() + "\n")
+
+
+def recorded_sandbox_probe(installation: Installation) -> SandboxProbeResult | None:
+    """The probe's recorded result, or None when it has not been recorded, cannot be read, or
+    was run against another agent than the one configured now."""
+    path = installation.state_dir / SANDBOX_PROBE_FILE
+    if not path.is_file():
+        return None
+    try:
+        record = _Record.model_validate_json(path.read_text(encoding="utf-8"))
+    except ValueError:
+        return None
+    return record.result if record.agent == _probed_agent(installation) else None
+
+
+def sandbox_coverage_text(runtime: AgentRuntime, installation: Installation) -> str:
+    """The runtime's `sandbox_coverage` as `abk policy check` and `abk status` show it: the
+    value, and for a runtime with a `sandbox_note` the note until the recorded probe result says
+    it ran, then what held and what did not."""
+    value = runtime.sandbox_coverage.value
+    if not runtime.sandbox_note:
+        return value
+    recorded = recorded_sandbox_probe(installation)
+    if recorded is None or not recorded.ran:
+        return f"{value} ({runtime.sandbox_note})"
+    parts = []
+    if recorded.held:
+        parts.append(f"held: {', '.join(recorded.held)}")
+    missed = [d for d in SANDBOX_PROBE_DENIALS if d not in recorded.held]
+    if missed:
+        parts.append(f"not held: {', '.join(missed)}")
+    return f"{value} ({'; '.join(parts)})"

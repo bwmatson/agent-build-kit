@@ -341,6 +341,7 @@ class ClaudeCodeRuntime:
     policy_coverage: PolicyCoverage = "all_calls"
     # `spawn` starts the whole process under the backend's command.
     sandbox_coverage: Coverage = Coverage.PROCESS
+    sandbox_note: str = ""
     supports_usage_tracking: bool = True
     supports_streaming: bool = True
     # `--resume <id>`, with the id its init event reports.

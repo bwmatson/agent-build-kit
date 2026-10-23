@@ -669,6 +669,44 @@ not do. The harness has been proven with fake agents only, so the items listed
 UNVERIFIED in the change's design stand, and the first run of the acceptance
 test on a machine that has the agent records the finding here.
 
+## ACP and the sandbox
+
+ACP reports the `process` sandbox coverage, as Claude Code does: the agent process is started through the
+sandbox launcher, so its files and network are confined by the kernel, and so is every child it starts. ACP's
+client starts every terminal itself, as a child of the kit and not of the agent, so each terminal is
+wrapped by the same launcher under the same policy; the agent's own process wrap does not reach it.
+
+What `process` confines, and what it leaves:
+
+- **Confined:** the agent process, and every terminal the client starts for it, to the policy's write list,
+  read allowlist and hosts. The agent's own state folders are on the lists so it can keep its account and
+  session.
+- **The client's own file requests are not the sandbox.** `read_text_file` and `write_text_file` are
+  answered by the kit itself, which is not confined. They are held to the worktree and the policy's paths
+  by the kit's path check, a text rule and not a kernel one; a write outside the worktree is refused there.
+
+ACP's value carries the note **unverified against a real agent**. No ACP agent is on the development
+machine, so what is proven is the kit's side of the boundary, with a fake agent that asks for terminals.
+Whether a real agent's own file access and connections stay inside its process wrap is not proven.
+
+A person with an agent proves it with the probe, in these steps (the kit supplies the prompt and the record;
+it does not run the agent for you):
+
+1. Build the prompt with `policy_check.sandbox_probe_prompt(protected, hidden, host)`, choosing a file the
+   policy does not let the agent write, a file its read list leaves out, and a host its hosts list leaves
+   out. It asks for a denied write, a denied read and a denied host.
+2. Send it to the agent, started under the sandbox as a build would start it.
+3. Read the agent's reply and check the files yourself to decide which of the three denials held: the
+   protected file is unchanged (write), the hidden file's contents did not reach the reply (read), and the
+   connection failed (host).
+4. Call `policy_check.record_sandbox_probe(installation, SandboxProbeResult(ran=True, held=(...)))` with
+   the denials that held, using `write`, `read` and `host`. The record is the file `sandbox-probe.json` in
+   the installation's state folder, and it is tied to the agent command configured at that moment.
+
+`abk policy check` and `abk status` read the record. With none, one that did not run, or one made for
+another agent command than the one configured now, the note stays. With one that ran, the note is dropped
+and the line names what held and what did not hold.
+
 ## Network outages are a typed error
 
 A run that ends because the network is down raises `NetworkUnavailable`, carrying the

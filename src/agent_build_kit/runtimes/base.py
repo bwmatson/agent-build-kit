@@ -327,6 +327,9 @@ class AgentRuntime(Protocol):
     policy_coverage: PolicyCoverage
     # How much of the agent a sandbox backend confines when this runtime launches it.
     sandbox_coverage: Coverage
+    # What `abk policy check` and `abk status` say beside the coverage until it is proven; empty
+    # for a runtime whose coverage is.
+    sandbox_note: str
     supports_usage_tracking: bool
     supports_streaming: bool
     # Whether `AgentRequest.resume_session` continues an earlier session; one
