@@ -308,7 +308,6 @@ def test_every_known_agent_lists_its_state_folders() -> None:
 
 def test_the_policy_grants_the_known_agent_s_state_folders(tmp_path: Path) -> None:
     agent = known_agents.KNOWN_AGENTS[0]
-    use_command([agent.program])
     root = tmp_path / "plan"
     root.mkdir()
     (root / "abk.yaml").write_text(
@@ -317,8 +316,10 @@ def test_the_policy_grants_the_known_agent_s_state_folders(tmp_path: Path) -> No
     worktree = tmp_path / "wt"
     worktree.mkdir()
 
+    installation = load_installation(root / "abk.yaml")  # which activates its own configuration
+    use_command([agent.program])
     entries = policy_entries(
-        load_installation(root / "abk.yaml"),
+        installation,
         "app",
         worktree,
         runtime=AcpRuntime(),

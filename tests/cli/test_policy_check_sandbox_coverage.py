@@ -33,9 +33,9 @@ def test_every_built_in_runtime_has_a_sandbox_coverage() -> None:
         assert runtimes.get(name).sandbox_coverage in set(Coverage), name
 
 
-def test_no_built_in_runtime_claims_confinement_nothing_provides_yet() -> None:
+def test_both_built_in_runtimes_start_their_processes_through_the_launcher() -> None:
     assert runtimes.get("claude_code").sandbox_coverage is Coverage.PROCESS
-    assert runtimes.get("acp").sandbox_coverage is Coverage.NONE
+    assert runtimes.get("acp").sandbox_coverage is Coverage.PROCESS
 
 
 @pytest.mark.parametrize("coverage", list(Coverage))

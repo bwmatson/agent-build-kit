@@ -19,6 +19,14 @@
   along a lineage; when a split cannot happen the unit is held for a person, and `abk requeue`
   lets it through its size.
 
+- With `sandbox.enabled`, an ACP agent and every terminal its client starts run through the
+  sandbox backend too, behind the same allowlist proxy. A terminal gets a scrubbed
+  environment (abk's credentials are not inherited, the `env` the agent asks for and the proxy
+  variables are added), and `read_text_file` only serves a path on the policy's read list,
+  symlinks and `..` followed. A known agent's own state folders are granted. ACP's
+  `sandbox_coverage` is `process`, unverified against a real agent: no ACP agent has been run
+  under it yet.
+
 - With `sandbox.enabled`, a Claude Code build or review step starts through the sandbox
   backend: behind the allowlist proxy (the model host, or the gateway the run calls, is
   allowed), without abk's own gateway, Azure DevOps or Grafana credentials, with the step's

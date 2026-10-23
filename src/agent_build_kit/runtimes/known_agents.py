@@ -92,6 +92,7 @@ KNOWN_AGENTS: tuple[KnownAgent, ...] = (
     KnownAgent(
         name="Hermes",
         program="hermes",
+        state_folders=("~/.hermes",),
         variants=(StartVariant(argv=("hermes", "acp")),),
         needs="its own configuration and credentials",
         verified="run where it was installed: session/new returned a session id and modes only",
@@ -110,6 +111,7 @@ KNOWN_AGENTS: tuple[KnownAgent, ...] = (
     KnownAgent(
         name="OpenClaw",
         program="openclaw",
+        state_folders=("~/.openclaw",),
         variants=(StartVariant(argv=("openclaw", "acp")),),
         needs="a running gateway, maybe a password",
         verified="its --help only (an ACP bridge backed by the Gateway)",
@@ -118,6 +120,7 @@ KNOWN_AGENTS: tuple[KnownAgent, ...] = (
     KnownAgent(
         name="OpenCode",
         program="opencode",
+        state_folders=("~/.config/opencode", "~/.local/share/opencode"),
         variants=(StartVariant(argv=("opencode", "acp")),),
         verified=_DOCS_ONLY,
         source=_DOCS,
@@ -125,6 +128,7 @@ KNOWN_AGENTS: tuple[KnownAgent, ...] = (
     KnownAgent(
         name="Goose",
         program="goose",
+        state_folders=("~/.config/goose", "~/.local/share/goose"),
         variants=(StartVariant(argv=("goose", "acp")),),
         verified=_DOCS_ONLY,
         source=_DOCS,
@@ -132,6 +136,7 @@ KNOWN_AGENTS: tuple[KnownAgent, ...] = (
     KnownAgent(
         name="Qwen Code",
         program="qwen",
+        state_folders=("~/.qwen",),
         variants=(StartVariant(argv=("qwen", "--acp")),),
         verified=_DOCS_ONLY,
         source=_DOCS,
@@ -139,6 +144,7 @@ KNOWN_AGENTS: tuple[KnownAgent, ...] = (
     KnownAgent(
         name="Gemini CLI",
         program="gemini",
+        state_folders=("~/.gemini",),
         variants=(
             StartVariant(argv=("gemini", "--acp"), marker="--acp"),
             StartVariant(argv=("gemini", "--experimental-acp"), marker="--experimental-acp"),
@@ -149,6 +155,7 @@ KNOWN_AGENTS: tuple[KnownAgent, ...] = (
     KnownAgent(
         name="Kimi CLI",
         program="kimi",
+        state_folders=("~/.kimi",),
         # The older spelling first: its help names `acp` too, so the newer marker alone
         # would also match it.
         variants=(
@@ -161,6 +168,7 @@ KNOWN_AGENTS: tuple[KnownAgent, ...] = (
     KnownAgent(
         name="Codex",
         program="codex-acp",
+        state_folders=("~/.codex",),
         variants=(StartVariant(argv=("codex-acp",)),),
         needs="an API key or a login",
         verified=_DOCS_ONLY,
@@ -169,6 +177,7 @@ KNOWN_AGENTS: tuple[KnownAgent, ...] = (
     KnownAgent(
         name="Claude via an adapter",
         program="claude-agent-acp",
+        state_folders=("~/.claude",),
         variants=(StartVariant(argv=("claude-agent-acp",)),),
         verified="UNVERIFIED: the standalone run command is not confirmed",
         source="the adapter's package documentation",
