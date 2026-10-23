@@ -19,6 +19,7 @@ from agent_build_kit.pipeline.landing_intent import LANDING, has_intent
 from agent_build_kit.pipeline.pr_poller import HOLD_LABEL
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED
+from agent_build_kit.serve.review import ReviewStore
 from tests.conftest import make_installation
 from tests.factories import deep_store
 from tests.forges.stand_in import StandInForge
@@ -148,3 +149,46 @@ def test_a_pull_request_a_person_already_merged_is_recorded_and_not_merged_again
     unit = landed.store.get(UNIT)
     assert landed.forge.merge_calls == []
     assert (unit.state, unit.cause) == (MERGED, Cause.MERGED), "\n".join(landed.logged)
+
+
+def test_a_child_whose_parent_landed_in_the_same_pass_waits_for_the_next_tick(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    landed = landing(tmp_path, monkeypatch)
+    make_landable(landed.inst, landed.store, landed.forge, {UNIT: PR, "c/2": 2})
+
+    landed.land()
+
+    assert landed.forge.merge_calls == [(PR, HEAD)]
+    assert landed.store.get(UNIT).state == MERGED
+    assert landed.store.get("c/2").state == IN_REVIEW
+
+
+def test_a_request_for_changes_made_in_the_web_ui_declines_the_unit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    landed = landing(tmp_path, monkeypatch)
+    reviews = landed.inst.state_dir / "reviews"
+    reviews.mkdir()
+    ReviewStore(reviews).decide(UNIT, round=1, decision="request_changes", summary="rework it")
+
+    landed.land()
+
+    assert landed.forge.merge_calls == []
+    assert landed.store.get(UNIT).state == IN_REVIEW
+    assert "changes are requested" in landed.store.get(UNIT).note
+
+
+def test_an_error_after_the_host_merged_keeps_the_intent_and_is_logged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    forge = StandInForge(
+        merge_failures=[RuntimeError("the connection dropped")], merge_lands_before_failing=True
+    )
+    landed = landing(tmp_path, monkeypatch, forge)
+
+    landed.land()
+
+    assert landed.intent(), "the poller records the merge as the pipeline's own"
+    assert any("the connection dropped" in line for line in landed.logged)
+    assert landed.store.get(UNIT).state == IN_REVIEW

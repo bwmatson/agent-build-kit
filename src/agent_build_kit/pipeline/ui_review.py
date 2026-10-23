@@ -238,6 +238,18 @@ def ui_reply_writer(
     return write
 
 
+def ui_listing(inst: Installation, store: UnitStore, repo: str) -> ListPrs:
+    """The pull requests of `repo` as the poller and the landing pass both read them: the
+    host's listing, each carrying the review made in the web UI of its unit."""
+    forge, repo_id = inst.forge_of(repo)
+
+    def review_of(pull: PullRequest) -> Review | None:
+        unit = unit_of(store, repo, pull.number)
+        return ReviewStore(inst.state_dir / "reviews").read(unit.id) if unit else None
+
+    return with_ui_review(lambda: forge.list_prs(repo_id), review_of=review_of)
+
+
 def unit_of(store: UnitStore, repo: str, pr: int) -> StoredUnit | None:
     """The unit whose pull request is number `pr` of the repo named `repo`."""
     return next((u for u in store.all() if u.repo == repo and u.pr == pr), None)
