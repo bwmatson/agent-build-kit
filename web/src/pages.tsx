@@ -30,6 +30,19 @@ function stateLine(unit: UnitSummary): ReactElement {
   );
 }
 
+// Units in review come full first, then light, then those with no verdict, then auto.
+const TIER_RANK: Record<string, number> = { full: 0, light: 1, auto: 3 };
+
+/** The units with those in review ordered by tier; the sort is stable, so ties keep arrival order. */
+function byTier(units: UnitSummary[]): UnitSummary[] {
+  const rank = (unit: UnitSummary) => TIER_RANK[unit.tier ?? ""] ?? 2;
+  const ordered = units
+    .filter((unit) => unit.status === "in_review")
+    .sort((a, b) => rank(a) - rank(b));
+  let next = 0;
+  return units.map((unit) => (unit.status === "in_review" ? ordered[next++] : unit));
+}
+
 export function Overview() {
   const pipeline = useApi<{ units: UnitSummary[] }>("/api/pipeline");
   return (
@@ -38,7 +51,7 @@ export function Overview() {
       {pipeline && "error" in pipeline && <p role="alert">{pipeline.error}</p>}
       {pipeline && "data" in pipeline && (
         <ul>
-          {pipeline.data.units.map((unit) => (
+          {byTier(pipeline.data.units).map((unit) => (
             <li key={unit.id} data-unit={unit.id} title={unit.title}>
               <Link to={unitPath(unit.id)}>{unit.id}</Link> {stateLine(unit)}
             </li>

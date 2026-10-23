@@ -17,6 +17,15 @@ export interface ReviewThread {
   outdated: boolean;
 }
 
+/** The tier review gave a unit; absent from an answer for a unit with no verdict. */
+export type ReviewTier = "auto" | "light" | "full";
+
+/** One place the reviewer points a person at, or away from, and why. */
+export interface BriefEntry {
+  place: string;
+  reason: string;
+}
+
 /** A round's decision, as the review answer and the decision route return it. */
 export interface Decision {
   round: number;
