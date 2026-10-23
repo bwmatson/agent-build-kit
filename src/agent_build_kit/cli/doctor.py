@@ -91,7 +91,7 @@ from agent_build_kit.pipeline.planning_sync import (
     live_notice,
     read_pipeline_marker,
 )
-from agent_build_kit.pipeline.shell import git, git_out
+from agent_build_kit.pipeline.shell import git, git_out, is_ignored, is_tracked
 from agent_build_kit.pipeline.usage_guard import gate_result
 from agent_build_kit.profiles.base import ProfileUnsupported
 from agent_build_kit.redaction import MIN_LENGTH
@@ -832,14 +832,6 @@ def _strings(node: object, key: str = "") -> list[tuple[str, str]]:
     return [found for name, value in pairs for found in _strings(value, name)]
 
 
-def _is_tracked(root: Path, name: str) -> bool:
-    return git(root, "ls-files", "--error-unmatch", name, check=False).returncode == 0
-
-
-def _is_ignored(root: Path, name: str) -> bool:
-    return git(root, "check-ignore", "-q", name, check=False).returncode == 0
-
-
 def _committed_facts(inst: Installation, toplevel: Path) -> list[Check]:
     """What the tracked abk.yaml's own text says that a public repository must
     not: read straight from the file, offline."""
@@ -891,7 +883,7 @@ def _local_files(inst: Installation, toplevel: Path) -> list[Check]:
     for local in ("scrub.local", OVERLAY_FILENAME):
         if not (root / local).exists():
             continue
-        if _is_tracked(root, local):
+        if is_tracked(root, local):
             checks.append(
                 _warn(
                     PUBLIC_CONTENT,
@@ -899,7 +891,7 @@ def _local_files(inst: Installation, toplevel: Path) -> list[Check]:
                     f"git rm --cached {local}, and add `{local}` to .gitignore",
                 )
             )
-        elif not _is_ignored(root, local):
+        elif not is_ignored(root, local):
             checks.append(
                 _warn(PUBLIC_CONTENT, f"{local} is not ignored", f"add `{local}` to .gitignore")
             )
@@ -907,7 +899,7 @@ def _local_files(inst: Installation, toplevel: Path) -> list[Check]:
     # A copy outside the repository cannot be committed to it.
     for copy in sorted(c for c in found if c.resolve().is_relative_to(toplevel)):
         name = copy.resolve().relative_to(toplevel).as_posix()
-        if _is_tracked(toplevel, name):
+        if is_tracked(toplevel, name):
             checks.append(
                 _warn(
                     PUBLIC_CONTENT,
@@ -915,7 +907,7 @@ def _local_files(inst: Installation, toplevel: Path) -> list[Check]:
                     f"git rm --cached {name}, and add `{COPY_PATTERN}` to .gitignore",
                 )
             )
-        elif not _is_ignored(toplevel, name):
+        elif not is_ignored(toplevel, name):
             checks.append(
                 _warn(
                     PUBLIC_CONTENT, f"{name} is not ignored", f"add `{COPY_PATTERN}` to .gitignore"
@@ -932,7 +924,7 @@ def _public_content(inst: Installation) -> list[Check]:
         return [_ok(PUBLIC_CONTENT, "not a git repository")]
     toplevel = Path(top.stdout.strip()).resolve()
     checks = []
-    tracked = _is_tracked(inst.root, "abk.yaml")
+    tracked = is_tracked(inst.root, "abk.yaml")
     if tracked:
         checks += _committed_facts(inst, toplevel)
     checks += _local_files(inst, toplevel)
@@ -954,7 +946,7 @@ def _machine_keys(inst: Installation) -> list[Check]:
     for a machine choice, a note for a default a team may commit."""
     root = inst.root
     top = git(root, "rev-parse", "--show-toplevel", check=False)
-    if top.returncode or not _is_tracked(root, "abk.yaml"):
+    if top.returncode or not is_tracked(root, "abk.yaml"):
         return []
     document = read_base(root / "abk.yaml")
     found = machine_table.machine_settings(document, Path(top.stdout.strip()), root)

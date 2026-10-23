@@ -40,6 +40,14 @@ def git(repo: Path, *args: str, check: bool = True, **kwargs) -> subprocess.Comp
     )
 
 
+def is_tracked(root: Path, name: str) -> bool:
+    return git(root, "ls-files", "--error-unmatch", name, check=False).returncode == 0
+
+
+def is_ignored(root: Path, name: str) -> bool:
+    return git(root, "check-ignore", "-q", name, check=False).returncode == 0
+
+
 def git_out(repo: Path, *args: str) -> str:
     """stdout of a git command that must succeed, stripped."""
     return git(repo, *args).stdout.strip()

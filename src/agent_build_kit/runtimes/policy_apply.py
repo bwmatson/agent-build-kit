@@ -507,27 +507,50 @@ def held(descriptor: ApplyPolicy, home: Path) -> Held | None:
     )
 
 
+def backup_once(path: Path) -> Path | None:
+    """Copy `path` once to `<file>.abk-backup`; the backup's path when this call made it, None
+    when one was already there."""
+    backup = path.with_name(path.name + BACKUP_SUFFIX)
+    if backup.exists():
+        return None
+    shutil.copy2(path, backup)
+    return backup
+
+
 def backup_and_replace(path: Path, text: str) -> Path | None:
     """Write `text` over `path`, after copying the original once to `<file>.abk-backup`;
     the backup's path when this call made it, None when one was already there."""
-    backup = path.with_name(path.name + BACKUP_SUFFIX)
-    made = None
-    if not backup.exists():
-        shutil.copy2(path, backup)
-        made = backup
-    _replace(path, text)
+    made = backup_once(path)
+    replace_text(path, text)
     return made
 
 
-def _replace(path: Path, text: str) -> None:
-    """Write `text` over `path` through a temporary beside it, keeping the file's mode."""
-    mode = path.stat().st_mode
+def stage_text(path: Path, text: str, mode: int | None = None) -> Path:
+    """Write `text` to a temporary beside `path` (with `path`'s mode, or `mode`), and return it."""
+    if mode is None:
+        mode = path.stat().st_mode
     fd, name = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".")
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(text.encode())
         os.chmod(name, mode & 0o7777)
-        os.replace(name, path)
     except BaseException:
         Path(name).unlink(missing_ok=True)
+        raise
+    return Path(name)
+
+
+def install_staged(staged: Path, path: Path) -> None:
+    """Rename a file made by `stage_text` over `path` in one step."""
+    os.replace(staged, path)
+
+
+def replace_text(path: Path, text: str, mode: int | None = None) -> None:
+    """Write `text` over `path` through a temporary beside it, keeping the file's mode (or
+    giving it `mode`); the temporary does not outlive a failure."""
+    staged = stage_text(path, text, mode)
+    try:
+        install_staged(staged, path)
+    except BaseException:
+        staged.unlink(missing_ok=True)
         raise
