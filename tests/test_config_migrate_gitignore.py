@@ -102,7 +102,7 @@ def test_a_failed_gitignore_write_stops_before_the_backups(repo: Path) -> None:
     git(repo, "rm", "-q", "--cached", ".gitignore")
     (repo / ".gitignore").mkdir()
 
-    with pytest.raises((ConfigMigrateError, OSError)):
+    with pytest.raises(ConfigMigrateError, match=".gitignore"):
         write_both(repo / "abk.yaml", BASE_NEW, LOCAL_NEW)
 
     assert (repo / "abk.yaml").read_text() == BASE_OLD

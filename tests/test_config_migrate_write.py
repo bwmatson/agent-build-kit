@@ -190,32 +190,51 @@ def test_a_failed_write_of_either_temporary_file_changes_neither_file(
     assert temporaries(tmp_path) == []
 
 
+@pytest.mark.parametrize("restore", ["rename", "write"])
 def test_a_run_whose_restore_fails_leaves_the_merged_configuration_unchanged(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, restore: str
 ) -> None:
     base, overlay = files(tmp_path)
     before = merged(base, overlay)
     fail_nth(monkeypatch, "replace", 2)
-    fail_nth(monkeypatch, "fdopen", 3)
-    real_write_bytes, real_write_text = Path.write_bytes, Path.write_text
+    if restore == "write":
+        fail_nth(monkeypatch, "fdopen", 3)
 
-    def write_bytes(self: Path, data: bytes) -> int:
-        if self == overlay:
-            raise OSError(28, "No space left on device")
-        return real_write_bytes(self, data)
-
-    def write_text(self: Path, data: str, *args: Any, **kwargs: Any) -> int:
-        if self == overlay:
-            raise OSError(28, "No space left on device")
-        return real_write_text(self, data, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "write_bytes", write_bytes)
-    monkeypatch.setattr(Path, "write_text", write_text)
-
-    with pytest.raises(ConfigMigrateError):
+    with pytest.raises(ConfigMigrateError, match="abk.yaml"):
         write_both(base, BASE_NEW, LOCAL_NEW)
 
     monkeypatch.undo()
     assert base.read_text() == BASE_OLD
     assert overlay.read_text() == LOCAL_NEW
     assert merged(base, overlay) == before
+    assert temporaries(tmp_path) == []
+
+
+def test_an_existing_empty_local_file_keeps_its_mode(tmp_path: Path) -> None:
+    base, overlay = files(tmp_path, local="")
+    base.chmod(0o644)
+    overlay.chmod(0o600)
+
+    write_both(base, BASE_NEW, LOCAL_NEW)
+
+    assert overlay.read_text() == LOCAL_NEW
+    assert overlay.stat().st_mode & 0o7777 == 0o600
+
+
+def test_a_failed_backup_of_the_local_file_names_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base, overlay = files(tmp_path)
+    real = shutil.copy2
+
+    def refuse_local(source: Path, target: Path, **kwargs: bool) -> object:
+        if Path(source) == overlay:
+            raise OSError(13, "Permission denied")
+        return real(source, target, **kwargs)
+
+    monkeypatch.setattr(shutil, "copy2", refuse_local)
+
+    with pytest.raises(ConfigMigrateError, match="abk.local.yaml"):
+        write_both(base, BASE_NEW, LOCAL_NEW)
+
+    unchanged(base, overlay)

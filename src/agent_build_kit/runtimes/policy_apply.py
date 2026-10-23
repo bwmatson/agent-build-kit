@@ -521,7 +521,7 @@ def backup_and_replace(path: Path, text: str) -> Path | None:
     """Write `text` over `path`, after copying the original once to `<file>.abk-backup`;
     the backup's path when this call made it, None when one was already there."""
     made = backup_once(path)
-    _replace(path, text)
+    replace_text(path, text)
     return made
 
 
@@ -545,9 +545,10 @@ def install_staged(staged: Path, path: Path) -> None:
     os.replace(staged, path)
 
 
-def _replace(path: Path, text: str) -> None:
-    """Write `text` over `path` through a temporary beside it, keeping the file's mode."""
-    staged = stage_text(path, text)
+def replace_text(path: Path, text: str, mode: int | None = None) -> None:
+    """Write `text` over `path` through a temporary beside it, keeping the file's mode (or
+    giving it `mode`); the temporary does not outlive a failure."""
+    staged = stage_text(path, text, mode)
     try:
         install_staged(staged, path)
     except BaseException:

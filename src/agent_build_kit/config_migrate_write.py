@@ -16,7 +16,12 @@ from agent_build_kit.pipeline.file_lock import append_missing_lines
 from agent_build_kit.pipeline.shell import git, is_ignored, is_tracked
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import RUNNING
-from agent_build_kit.runtimes.policy_apply import backup_once, install_staged, stage_text
+from agent_build_kit.runtimes.policy_apply import (
+    backup_once,
+    install_staged,
+    replace_text,
+    stage_text,
+)
 
 IGNORED_LOCAL_FILES = ("abk.local.yaml", "scrub.local")
 _SHOWN_IDS = 5
@@ -91,10 +96,13 @@ def write_both(base: Path, base_text: str, local_text: str) -> None:
         raise ConfigMigrateError(f"{base}: {error}") from error
     try:
         for path in (base, local):
+            failing = path
             if path.exists() and (made := backup_once(path)):
                 print(f"backed up the original to {made}")
         failing = local
-        staged.append(_staged(local, local_text, local.stat().st_mode if local_before else mode))
+        staged.append(
+            _staged(local, local_text, local.stat().st_mode if local_before is not None else mode)
+        )
         failing = base
         staged.append(_staged(base, base_text, mode))
         failing = local
@@ -103,10 +111,10 @@ def write_both(base: Path, base_text: str, local_text: str) -> None:
         failing = base
         install_staged(staged[1], base)
     except OSError as error:
-        if replaced:
-            _undo(local, local_before, mode)
         for path in staged:
             path.unlink(missing_ok=True)
+        if replaced:
+            _undo(local, local_before, mode)
         raise ConfigMigrateError(f"{failing}: {error}") from error
 
 
@@ -117,8 +125,8 @@ def _undo(local: Path, original: bytes | None, mode: int) -> None:
         local.unlink(missing_ok=True)
         return
     try:
-        install_staged(stage_text(local, original.decode(), mode), local)
-    except OSError:
+        replace_text(local, original.decode(), mode)
+    except (OSError, UnicodeDecodeError):
         pass
 
 
