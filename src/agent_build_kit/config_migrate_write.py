@@ -5,7 +5,6 @@ git told to ignore the local files, and the notices the person sees before and a
 from __future__ import annotations
 
 import difflib
-import os
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +16,7 @@ from agent_build_kit.pipeline.file_lock import append_missing_lines
 from agent_build_kit.pipeline.shell import git, is_ignored, is_tracked
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import RUNNING
-from agent_build_kit.runtimes.policy_apply import backup_once, stage_text
+from agent_build_kit.runtimes.policy_apply import backup_once, install_staged, stage_text
 
 IGNORED_LOCAL_FILES = ("abk.local.yaml", "scrub.local")
 _SHOWN_IDS = 5
@@ -99,10 +98,10 @@ def write_both(base: Path, base_text: str, local_text: str) -> None:
         failing = base
         staged.append(_staged(base, base_text, mode))
         failing = local
-        os.replace(staged[0], local)
+        install_staged(staged[0], local)
         replaced = True
         failing = base
-        os.replace(staged[1], base)
+        install_staged(staged[1], base)
     except OSError as error:
         if replaced:
             _undo(local, local_before, mode)
@@ -118,7 +117,7 @@ def _undo(local: Path, original: bytes | None, mode: int) -> None:
         local.unlink(missing_ok=True)
         return
     try:
-        os.replace(stage_text(local, original.decode(), mode), local)
+        install_staged(stage_text(local, original.decode(), mode), local)
     except OSError:
         pass
 

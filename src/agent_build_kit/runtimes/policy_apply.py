@@ -540,11 +540,16 @@ def stage_text(path: Path, text: str, mode: int | None = None) -> Path:
     return Path(name)
 
 
+def install_staged(staged: Path, path: Path) -> None:
+    """Rename a file made by `stage_text` over `path` in one step."""
+    os.replace(staged, path)
+
+
 def _replace(path: Path, text: str) -> None:
     """Write `text` over `path` through a temporary beside it, keeping the file's mode."""
     staged = stage_text(path, text)
     try:
-        os.replace(staged, path)
+        install_staged(staged, path)
     except BaseException:
         staged.unlink(missing_ok=True)
         raise
