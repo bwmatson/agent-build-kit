@@ -7,6 +7,10 @@
   `min_clean_rate` or better. This is the same count `abk review report` shows. Each outcome the
   recheck reaches is also counted as `abk.review.outcome`, and whether a person accepted an
   `auto` unit as it stood as `abk.review.agreement`; neither carries a unit id.
+- `abk doctor`'s `machine keys` check now also reports a repo path outside the checkout, a
+  deploy SSH key, the worktree root and a home-directory path in a `verify.env` entry found in
+  the committed `abk.yaml`, and its fix names `abk config --migrate` (and `--include-defaults`
+  for a default a team may commit). One table of machine settings now backs the check.
 
 - With review enabled, the web UI's review answer for a unit with a recorded verdict now carries
   its tier, the reason and the reviewer's focus and skippable lists, and the pipeline summary

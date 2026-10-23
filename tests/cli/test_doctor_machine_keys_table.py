@@ -25,7 +25,7 @@ NOTE_FIX = (
     "fine to commit; move it to abk.local.yaml to differ "
     "(`abk config --migrate --include-defaults` moves it)"
 )
-ACCOUNTS = {"runtimes": {"claude_code": {"accounts": {"kit": {"config_dir": "secret-dir"}}}}}
+ACCOUNTS = {"runtimes": {"claude_code": {"accounts": {"kit": {"max_units_in_progress": 2}}}}}
 
 # Each machine choice: the document that holds it and the value that must never appear in what
 # doctor says. The key path doctor names is the dictionary key.
@@ -35,12 +35,8 @@ MACHINE_CHOICES = {
         "secret-name",
     ),
     "project_limits": ({"project_limits": {"max_concurrent_stacks": 7321}}, "7321"),
-    "runtimes.claude_code.accounts": (ACCOUNTS, "secret-dir"),
-    "tests.e2e_available": ({"tests": {"e2e_available": {"os": ["secret-os"]}}}, "secret-os"),
-    "repos.app.tests.e2e_available": (
-        {"repos": {"app": {"tests": {"e2e_available": {"os": ["secret-os"]}}}}},
-        "secret-os",
-    ),
+    "runtimes.claude_code.accounts": (ACCOUNTS, "max_units_in_progress"),
+    "tests.e2e_available": ({"tests": {"e2e_available": {"os": ["linux"]}}}, "linux"),
     "runtimes.acp.command": (
         {"runtimes": {"acp": {"command": ["/opt/secret/agent", "acp"]}}},
         "/opt/secret/agent",
@@ -72,7 +68,6 @@ DEFAULTS = {
     "runtimes.claude_code.limits": {
         "runtimes": {"claude_code": {"limits": {"session": {"usage_pause_pct": 70}}}}
     },
-    "tests.e2e_schedule": {"tests": {"e2e_schedule": "off"}},
     "repos.app.tests.e2e_schedule": {"repos": {"app": {"tests": {"e2e_schedule": False}}}},
     "tests.e2e_splits.slow.hold": {
         "tests": {"e2e_splits": {"slow": {"marker": "slow", "hold": True}}}
@@ -176,18 +171,15 @@ def test_a_key_in_a_table_entry_added_by_the_test_is_reported_without_doctor_nam
     original: Callable[..., list[MachineSetting]] = table.machine_settings
     added = [
         MachineSetting(path=("runtimes", "claude_code", "models"), reason="r", kind="machine"),
-        MachineSetting(path=("tests", "e2e_schedule"), reason="r", kind="default"),
+        MachineSetting(path=("repos", "app", "slug"), reason="r", kind="default"),
     ]
     monkeypatch.setattr(table, "machine_settings", lambda *a, **k: [*original(*a, **k), *added])
-    committed = {
-        "runtimes": {"claude_code": {"models": {"implement": "m"}}},
-        "tests": {"e2e_schedule": "nightly"},
-    }
+    committed = {"runtimes": {"claude_code": {"models": {"implement": "m"}}}}
     config = repo(tmp_path / "plan", committed)
 
     checks = machine_keys(config)
 
     machine = about(checks, "runtimes.claude_code.models")
-    default = about(checks, "tests.e2e_schedule")
+    default = about(checks, "repos.app.slug")
     assert [(c.status, c.fix) for c in machine] == [("warn", WARN_FIX)]
     assert [(c.status, c.fix) for c in default] == [("info", NOTE_FIX)]
