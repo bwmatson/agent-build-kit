@@ -25,7 +25,7 @@ def step(round: int) -> UnitForecast:
         round=round,
         points_per_usd=2.5,
         flat_allowance=11,
-        min_runs=10,
+        min_runs=5,
         quantile=0.5,
     )
 
@@ -41,7 +41,7 @@ def remaining(rounds_run: int) -> UnitForecast:
         rounds_run=rounds_run,
         points_per_usd=2.5,
         flat_allowance=11,
-        min_runs=10,
+        min_runs=5,
         quantile=0.5,
     )
 

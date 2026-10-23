@@ -17,7 +17,7 @@ def forecast(tier: ReviewTier) -> UnitForecast:
         estimated_lines=10,
         points_per_usd=2.5,
         flat_allowance=11,
-        min_runs=10,
+        min_runs=5,
         quantile=0.5,
     )
 
