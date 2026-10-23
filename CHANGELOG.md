@@ -7,6 +7,12 @@
   and `min_agreement`. Each listed class must be one named in `review.classes`. `abk doctor`
   warns for each repo with no branch protection once a class is listed, since the command policy
   hook is then the only guard, and warns when the list is set while `review.enabled` is false.
+- With review enabled, a built unit whose changed lines pass the buffered ceiling of its review
+  tier (`review.ceiling_buffer`, default 0.2) is held at once, after any review round, and
+  replaced by smaller units; the old pull request is closed with a comment naming the pieces and
+  `abk status` shows the unit as superseded. `review.split_rounds` (default 2) bounds the splits
+  along a lineage; when a split cannot happen the unit is held for a person, and `abk requeue`
+  lets it through its size.
 
 - With review enabled, a class now stays at `light` review until its own record clears the gates:
   at least `review.auto_land.min_samples` merged units that carried the brief, merging clean at

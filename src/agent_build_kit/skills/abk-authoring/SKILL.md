@@ -106,7 +106,9 @@ The planner sizes a unit by the review tier it expects, and estimates the tier f
 group which files, boundaries or behaviours its tasks touch (a migration, CI or deploy config, a protected
 path, a public contract) so the expected tier can be estimated, without naming functions. A group need not be
 split to fit a single ceiling: the planner combines and separates groups itself, and a group over its unit's
-ceiling is reported for a person to split.
+ceiling is reported for a person to split. When a built unit passes its tier's buffered ceiling and the reviewer
+names the groups that drove its tier (its drivers), the pipeline splits those groups out into units of their own;
+`tasks.md` is not changed by the split, so a driver group needs no rewriting there.
 
 ## `Manual:` lines
 

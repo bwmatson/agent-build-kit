@@ -837,6 +837,8 @@ review:
   audit: {sample_rate: 0.1}                        # share of landed units a person is asked to look at, 0 to 1
   demotion: {window: 30, min_agreement: 0.9}       # recent outcomes counted (>= 1) and the agreement they need, 0 to 1
   ceilings: {auto: 5000, light: 2000, full: 750}   # estimated changed lines a unit may carry, by expected tier
+  ceiling_buffer: 0.2      # a unit is held for its size only past its ceiling times one plus this
+  split_rounds: 2          # plans a unit's lineage may spend splitting it; 0 sends every such unit to a person
   brief: true              # a pull request body opens with "Start here"; false keeps the older layout
 repos:
   app:
@@ -858,6 +860,15 @@ for that repo; the merged ceilings must keep the same order. The ceilings take e
 Once `auto_land.classes` is not empty, `abk doctor` warns for each repo with no branch protection
 (the command policy hook does nothing against the pipeline's own merge), and warns when the list
 is set while `review.enabled` is false, where it has no effect.
+
+`review.ceiling_buffer` (a fraction from 0 to 1, default 0.2) and `review.split_rounds` (an integer
+from 0 to 2, default 2) govern a built unit that turns out larger than planned. A unit whose changed
+lines pass the ceiling of the tier it earned times one plus the buffer is held by size and replaced
+by smaller units; `split_rounds` counts the splits along a unit's lineage, and 0 sends every such
+unit to a person. The configuration fails to load when the buffered `auto` ceiling of the workspace
+or of any repo would reach the reviewer's reading limit of 10,000 lines, since a unit that large
+cannot be read by the reviewer at all. `abk doctor` prints the buffered ceilings and warns above 80%
+of that limit, and when `split_rounds` is 0 with review enabled. The planner never reads the buffer.
 
 `auto_land.allow_deferred_e2e` (default false; accepted only under
 `review.auto_land`) decides what a deferred e2e-test result is worth. The verdict reads a unit's e2e state as `passed`, `deferred`, `failed` or

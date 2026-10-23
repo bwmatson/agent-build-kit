@@ -160,6 +160,12 @@ instance).
   id as `fixed`, `open` or `declined`. The review loop keeps each
   round's findings, ids and the commit it judged in the unit's thread; a required finding, or an
   earlier one left open or unanswered, means the round is not an approval.
+- A size hold: a unit held by size (cause `too_big_for_tier`) is over its tier's buffered ceiling and
+  waits for the pipeline to split it; no action needed, and the old unit ends `closed` as superseded
+  by its pieces. A unit held for a person for its size (the note says why: no split rounds left, one
+  group over the ceiling, groups of another change, a started unit stacked on it) needs a decision;
+  `abk requeue` of it records `size_waived`, so the size step is skipped for it and it is not held
+  again by the same rule.
 - A toolchain hold: nothing a retry fixes. Either build the unit by hand on
   its branch, or change the plan.
 - A depth hold: no action needed. Its PR was retargeted, and a later merge in

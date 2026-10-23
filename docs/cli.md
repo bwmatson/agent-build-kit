@@ -576,6 +576,14 @@ A note with a plain requeue is refused (exit 1, nothing changed): a resume
 re-runs a step without reading it. Pull request comments are unchanged, and the
 note is not posted to the pull request.
 
+**A unit held for its size.** A unit held by size (cause `too_big_for_tier`) is waiting for the
+pipeline to replace it with smaller units, and needs nothing from a person. A unit held for a person
+for its size is one the split could not help (no rounds left, a single group over its ceiling, groups
+of another change, or a started unit stacked on it); the note gives the reason. `abk requeue` of
+that unit records `size_waived`, so the verdict's size step is skipped for it and a person who has
+read an oversized unit and lets it through is not held for the same rule again. The tier it earned
+still applies.
+
 A unit with a `Needs:` line whose dependency is not yet in review (or, on a merge edge,
 merged) is not resumed by `abk requeue` until the merge is loaded by a later tick: it goes to `planned` with the cause `gated`, keeping
 its thread, branch and saved failure, and the command names the group it waits for.
