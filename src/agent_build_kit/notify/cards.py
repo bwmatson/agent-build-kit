@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 
 from agent_build_kit import forges
 from agent_build_kit.model import Frozen
@@ -39,8 +40,12 @@ def _kind_of(unit: StoredUnit) -> CardKind | None:
     return None
 
 
-def desired_cards(units: Sequence[StoredUnit]) -> list[Card]:
-    """One card for each unit that is waiting on a person."""
+def desired_cards(units: Sequence[StoredUnit], verdicts: Path | None = None) -> list[Card]:
+    """One card for each unit that is waiting on a person.
+
+    `verdicts` is the verdict file; a unit in review whose recorded tier is `auto` raises none."""
+    if verdicts is not None:
+        raise NotImplementedError
     cards = []
     for unit in units:
         kind = _kind_of(unit)
