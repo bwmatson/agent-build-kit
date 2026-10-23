@@ -63,7 +63,7 @@ def build_policy(
 
 
 class PolicyEntry(Frozen):
-    """One line of a policy: the list it is in (`read`, `write` or `hosts`), the entry as
+    """One line of a policy: the list it is in (`read`, `write`, `hosts` or `ports`), the entry as
     listed and where it came from (`runtime`, a profile name, `abk.yaml` or `abk.local.yaml`)."""
 
     kind: str

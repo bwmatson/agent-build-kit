@@ -3978,6 +3978,8 @@ def build_runner(
     account = claude_account.for_repo(installation.config, unit.repo)
     run = build_run(
         sandbox_repo=unit.repo,
+        # The build run, and the commit step that reuses it, run under the unit's own kind.
+        sandbox_tier=unit.tier,
         account=account,
         planning_repo=planning_repo,
         allowed_tools=tools,
@@ -4005,6 +4007,8 @@ def build_runner(
         may_start=gate_may_start,
         resume_at=gate_resume_at,
         run=run,
+        # The review and rework-review runs only read the diff and run nothing that needs a
+        # service, so they stay at the unit-test tier whatever the unit's kind.
         run_review=build_run_review(
             sandbox_repo=unit.repo,
             planning_repo=planning_repo,

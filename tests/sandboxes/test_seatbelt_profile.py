@@ -74,6 +74,30 @@ def test_the_backend_is_registered_for_macos() -> None:
     assert "seatbelt" in sandboxes.names()
 
 
+def test_the_profile_allows_the_proxy_port_and_each_e2e_port_once() -> None:
+    text = profile_text(
+        SandboxPolicy(
+            write=(),
+            read=(),
+            hosts=(),
+            required=Coverage.PROCESS,
+            proxy_port=3128,
+            ports=(5432, 6379),
+        )
+    )
+
+    rules = [f for f in forms(text) if f.startswith("(allow network-outbound")]
+    assert sorted(rules) == [
+        f'(allow network-outbound (remote ip "localhost:{port}"))' for port in (3128, 5432, 6379)
+    ]
+
+
+def test_a_policy_with_no_proxy_and_no_ports_allows_no_network() -> None:
+    text = profile_text(SandboxPolicy(write=(), read=(), hosts=(), required=Coverage.FILES))
+
+    assert not [f for f in forms(text) if f.startswith("(allow network-outbound")]
+
+
 def test_the_profile_denies_by_default() -> None:
     text = profile_text(SandboxPolicy(write=(), read=(), hosts=(), required=Coverage.PROCESS))
 

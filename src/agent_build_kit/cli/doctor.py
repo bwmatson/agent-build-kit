@@ -72,7 +72,7 @@ from agent_build_kit.init.scaffold import (
     rules_version,
 )
 from agent_build_kit.installation import Installation, _resolve, load_config
-from agent_build_kit.model import Frozen
+from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.notify.windows import (
     BURNTTOAST_VERSION,
     INSTALL_COMMAND,
@@ -739,18 +739,26 @@ def _sandbox_lists(inst: Installation) -> list[Check]:
     checks = []
     for name, repo in inst.repos.items():
         try:
-            entries = policy_entries(
-                inst,
-                name,
-                repo.path,
-                runtime=runtime,
-                profile=profiles.get(repo.profile),
-                account=claude_account.for_repo(inst.config, name),
+            entries, e2e_entries = (
+                policy_entries(
+                    inst,
+                    name,
+                    repo.path,
+                    runtime=runtime,
+                    profile=profiles.get(repo.profile),
+                    account=claude_account.for_repo(inst.config, name),
+                    tier=tier,
+                )
+                for tier in (TestTier.UNIT_TEST, TestTier.E2E_TEST)
             )
         except KeyError:
             continue  # an unknown profile is reported where the repo is
         lines = [f"{e.kind} {e.value} ({e.source})" for e in entries]
         checks.append(_ok(f"policy lists {name}", "\n".join(lines) or "no entries"))
+        # What an e2e-test step is granted beyond the above, from `tests.e2e_sandbox`.
+        extra = [f"{e.kind} {e.value} ({e.source})" for e in e2e_entries if e not in entries]
+        if extra:
+            checks.append(_ok(f"policy lists {name} (e2e)", "\n".join(extra)))
     return checks
 
 
