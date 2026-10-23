@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 import yaml
 
+from agent_build_kit import config_migrate_machine
 from agent_build_kit.config_migrate import ConfigMigrateError
 from agent_build_kit.config_migrate_machine import check_move, move_machine_settings
 from agent_build_kit.machine_settings import machine_settings
@@ -100,3 +102,31 @@ def test_without_the_flag_a_text_of_only_defaults_is_untouched(tmp_path: Path) -
     assert result.moved == ()
     assert result.text == base
     assert result.local_text is None
+
+
+def _drop(lines: list[str]) -> list[str]:
+    return []
+
+
+def _change(lines: list[str]) -> list[str]:
+    return [line.replace("../app", "../other") for line in lines]
+
+
+def _add(lines: list[str]) -> list[str]:
+    indent = " " * (len(lines[0]) - len(lines[0].lstrip()))
+    return [*lines, f"{indent}extra: 1"]
+
+
+@pytest.mark.parametrize("broken", [_drop, _change, _add], ids=["drops", "changes", "adds"])
+def test_a_broken_placement_is_refused_before_a_result_is_returned(
+    broken: Callable[[list[str]], list[str]], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    real = config_migrate_machine.shifted
+    monkeypatch.setattr(
+        config_migrate_machine, "shifted", lambda lines, by: broken(real(lines, by))
+    )
+
+    with pytest.raises(ConfigMigrateError) as refused:
+        move_machine_settings(OLD, request(tmp_path))
+
+    assert "repos.app" in str(refused.value), str(refused.value)

@@ -7,7 +7,7 @@ import re
 
 import yaml
 
-from agent_build_kit.yaml_lines import strip_comment
+from agent_build_kit.yaml_lines import leading_spaces, strip_comment
 
 __all__ = [
     "ConfigMigrateError",
@@ -77,6 +77,6 @@ def shifted(lines: list[str], by: int) -> list[str]:
     for line in lines:
         text = line.rstrip("\r\n")
         if text.strip():
-            text = " " * by + text if by >= 0 else text[-by:]
+            text = " " * by + text if by >= 0 else text[min(-by, leading_spaces(text)) :]
         out.append(text)
     return out

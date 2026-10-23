@@ -70,6 +70,10 @@ def _dotted(path: SettingPath) -> str:
     return ".".join(path)
 
 
+def _ending(text: str) -> str:
+    return "\r\n" if "\r\n" in text else "\n"
+
+
 def _opened_in(
     file: str, lines: list[str], key: yaml.ScalarNode, value: yaml.Node, dotted: str, name: str
 ) -> None:
@@ -161,7 +165,7 @@ def _lift(
         key = chain[-1][0]
         before = chain[-2][0].start_mark.line if len(chain) > 1 else -1
         first, _ = region(lines, key.start_mark.line, before)
-        last = node_end(lines, key.start_mark.line, key.start_mark.column)
+        last = node_end(lines, key.start_mark.line, key.start_mark.column, beside_dash=True)
         if any(MARKED.search(strip_comment(line)) for line in lines[first : last + 1]):
             raise refuse(
                 _dotted(setting.path),
@@ -191,6 +195,10 @@ def _place(lines: list[str], path: SettingPath, body: list[str], column: int, eo
         if root.flow_style:
             raise refuse(dotted, f"{LOCAL} is flow-style, which cannot be edited by lines")
         col = root.value[0][0].start_mark.column
+        for first_key, first_value in root.value:
+            if isinstance(first_value, yaml.MappingNode) and first_value.value:
+                step = first_value.value[0][0].start_mark.column - first_key.start_mark.column
+                break
         node = root
         for name in path[:-1]:
             found = pair(node, name)
@@ -244,7 +252,9 @@ def move_machine_settings(text: str, request: MachineRequest) -> MachineMove:
     if not movable:
         return unchanged.model_copy(update={"conflicts": tuple(conflicts)})
     new_text, carried = _lift(text, root, movable)
-    eol = "\r\n" if "\r\n" in text else "\n"
+    own = request.local_text or ""
+    # An existing local file keeps its own line ending; a new one takes the tracked file's.
+    eol = ("\r\n" if "\r\n" in own else "\n") if "\n" in own else _ending(text)
     local_lines = split_lines(request.local_text or "")
     for path, body, column in carried:
         _place(local_lines, path, body, column, eol)

@@ -132,3 +132,33 @@ def test_a_block_key_moves_with_every_nested_line_at_the_local_files_depth(
         "            config_dir: /opt/personal\n            label: mine\n"
     )
     assert merged(result.text, result.local_text) == merged(base, local)
+
+
+def test_a_list_written_with_dashes_at_its_keys_column_moves_whole(tmp_path: Path) -> None:
+    base = (
+        "runtimes:\n  claude_code:\n    command:\n    - /opt/c/bin/claude\n    - -p\n"
+        "    models:\n      build: x\n"
+        "verify:\n  env:\n    TOKEN:\n      from: command\n      argv:\n"
+        f"      - {TILDE}bin/get\n      - token\n      key: TOKEN\n"
+    )
+
+    result = move_machine_settings(base, request(tmp_path))
+
+    assert result.text == (
+        "runtimes:\n  claude_code:\n    models:\n      build: x\n"
+        "verify:\n  env:\n    TOKEN:\n      from: command\n      key: TOKEN\n"
+    )
+    assert result.local_text == (
+        "runtimes:\n  claude_code:\n    command:\n    - /opt/c/bin/claude\n    - -p\n"
+        f"verify:\n  env:\n    TOKEN:\n      argv:\n      - {TILDE}bin/get\n      - token\n"
+    )
+    assert merged(result.text, result.local_text) == merged(base, None)
+
+
+def test_a_comment_less_indented_than_the_shift_moves_intact(tmp_path: Path) -> None:
+    base = "repos:\n    app:\n        slug: a\n# note here\n        path: ../app\n"
+
+    result = move_machine_settings(base, request(tmp_path))
+
+    assert result.local_text == "repos:\n  app:\n# note here\n    path: ../app\n"
+    assert merged(result.text, result.local_text) == merged(base, None)

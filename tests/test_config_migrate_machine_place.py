@@ -76,3 +76,32 @@ def test_the_existing_steps_run_first_and_their_project_limits_are_moved(tmp_pat
         "project_limits:\n  max_concurrent_stacks: 2\n  max_units_in_progress: 3\n"
         "  max_concurrent_restacks: 1\n"
     )
+
+
+def test_an_existing_local_text_keeps_its_own_line_ending(tmp_path: Path) -> None:
+    crlf_base = "planning:\r\n  worktree_root: /opt/trees\r\n"
+    lf_local = "repos:\n  app:\n    account: me\n"
+
+    into_lf = move_machine_settings(crlf_base, request(tmp_path, lf_local))
+
+    assert into_lf.local_text is not None
+    assert "\r" not in into_lf.local_text
+
+    lf_base = "planning:\n  worktree_root: /opt/trees\n"
+    crlf_local = lf_local.replace("\n", "\r\n")
+
+    into_crlf = move_machine_settings(lf_base, request(tmp_path, crlf_local))
+
+    assert into_crlf.local_text is not None
+    assert "\n" not in into_crlf.local_text.replace("\r\n", "")
+    assert into_crlf.local_text.endswith("\r\n")
+
+
+def test_a_parent_the_local_file_lacks_takes_the_indentation_of_its_blocks(
+    tmp_path: Path,
+) -> None:
+    local = "planning:\n    worktree_root: /opt/mine\n"
+
+    result = move_machine_settings(APP, request(tmp_path, local))
+
+    assert result.local_text == local + "repos:\n    app:\n        path: ../app\n"
