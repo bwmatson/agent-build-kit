@@ -88,13 +88,19 @@ def test_a_window_without_an_adopted_cost_fit_keeps_the_units_estimate(
 ) -> None:
     limits, keep = CASES[case]
     paused(host, session=50.0)
-    configure(weekly={"usage_pause_pct": 80}, **{"session": {"usage_pause_pct": 80}, **limits})
+    configure(
+        weekly={"usage_pause_pct": 80},
+        usage_climb_floor=2.0,
+        **{"session": {"usage_pause_pct": 80}, **limits},
+    )
     ledger(host)
     keep(host)
 
     assert UNITS in decide_start().reason
 
-    configure(session={"usage_pause_pct": 80}, weekly={"usage_pause_pct": 80})
+    configure(
+        session={"usage_pause_pct": 80}, weekly={"usage_pause_pct": 80}, usage_climb_floor=2.0
+    )
     keep_adopted(host)
     assert COST in decide_start().reason
 

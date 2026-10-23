@@ -46,7 +46,7 @@ def test_the_reason_of_a_refusal_rests_on_the_same_terms(host: Host) -> None:
 
 
 def test_a_unit_counted_at_the_flat_allowance_is_said_to_be_not_yet_recorded(host: Host) -> None:
-    paused(host, session=50.0, age=timedelta(minutes=5, seconds=30))
+    paused(host, session=50.0, age=timedelta(minutes=20, seconds=30))
     keep_fits(host, session=cost_fit(2.65, flat=10))
     row(host, "review", 1.00, unit="feature/1")
     admit(host, "feature/2")
@@ -58,7 +58,7 @@ def test_a_unit_counted_at_the_flat_allowance_is_said_to_be_not_yet_recorded(hos
 
 
 def test_two_units_not_yet_recorded_are_counted_in_the_plural(host: Host) -> None:
-    paused(host, session=30.0, age=timedelta(minutes=5, seconds=30))
+    paused(host, session=50.0, age=timedelta(minutes=20, seconds=30))
     keep_fits(host, session=cost_fit(2.65, flat=10))
     admit(host, "feature/1", "feature/2")
 

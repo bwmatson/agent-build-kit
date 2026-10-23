@@ -62,7 +62,9 @@ def paused(
     session_resets_in: timedelta = timedelta(hours=2),
     **limits: object,
 ) -> None:
-    """A reading `age` old with both thresholds at 80, and the endpoint refusing."""
+    """A reading `age` old with both thresholds at 80, the endpoint refusing and a climb fast
+    enough that the reading alone leaves no headroom, so the start is decided on an estimate."""
+    limits = {"usage_climb_floor": 2.0, **limits}
     configure(session={"usage_pause_pct": 80}, weekly={"usage_pause_pct": 80}, **limits)
     host.keep_reading(
         age, payload(session=session, weekly=weekly, session_resets_in=session_resets_in)
