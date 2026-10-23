@@ -29,6 +29,7 @@ def _policy_text(policy: SandboxPolicy) -> str:
     lines += [f"host={host}" for host in policy.hosts]
     if policy.proxy_port is not None:
         lines.append(f"proxy_port={policy.proxy_port}")
+    lines += [f"port={port}" for port in policy.ports]
     return "\n".join(lines) + "\n"
 
 

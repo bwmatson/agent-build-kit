@@ -475,6 +475,12 @@ repos:                          # ordered: deploy order is derived from
                                 # stack (e2e-test, and post-merge verify); for a
                                 # node project a file-name segment instead:
                                 # `<name>.local_stack.test.ts`
+      e2e_sandbox:              # what an [e2e-test] step's sandbox allows beyond
+        read: []                # a unit-test step's; no other step gets any of
+        write: []               # it. Relative paths are taken from the worktree.
+        hosts: []               # `abk.local.yaml` adds to these lists per machine.
+        ports: []               # local TCP ports opened beside the proxy's, such
+                                # as a database's: `[5432]`
       fix_command: null         # argv that applies this repo's formatters and
                                 # fixers; the unit's file names are appended and
                                 # it runs in each project's directory; null

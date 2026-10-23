@@ -58,6 +58,38 @@ def test_an_entry_from_the_local_file_names_it(tmp_path: Path) -> None:
     )
 
 
+def test_a_repo_with_e2e_sandbox_lists_gets_a_second_check_for_what_an_e2e_step_adds(
+    tmp_path: Path,
+) -> None:
+    planning = planning_with(tmp_path)
+    sandbox_on(planning)
+    path = planning / "abk.yaml"
+    document = yaml.safe_load(path.read_text())
+    document["repos"]["app"]["tests"] = {
+        "e2e_sandbox": {"hosts": ["registry.example.test"], "ports": [5432]}
+    }
+    path.write_text(yaml.safe_dump(document))
+
+    plain, e2e = list_checks(planning)
+
+    assert plain.name == "policy lists app"
+    assert "5432" not in plain.detail
+    assert e2e.name == "policy lists app (e2e)"
+    assert sorted(e2e.detail.splitlines()) == [
+        "hosts registry.example.test (abk.yaml)",
+        "ports 5432 (abk.yaml)",
+    ]
+
+
+def test_a_repo_without_e2e_sandbox_lists_has_no_e2e_check(tmp_path: Path) -> None:
+    planning = planning_with(tmp_path)
+    sandbox_on(planning)
+
+    [check] = list_checks(planning)
+
+    assert check.name == "policy lists app"
+
+
 def test_only_one_line_is_printed_while_the_sandbox_is_off(tmp_path: Path) -> None:
     planning = planning_with(tmp_path, sandbox=RepoSandboxConfig(write=[str(tmp_path / "x")]))
 

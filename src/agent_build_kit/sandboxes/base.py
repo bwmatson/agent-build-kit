@@ -49,6 +49,8 @@ class SandboxPolicy(Frozen):
     required: Coverage
     # The local port of the allowlisting proxy: the only one a confined process may connect to.
     proxy_port: int | None = None
+    # The local service ports an e2e-test step may connect to, beside the proxy's.
+    ports: tuple[int, ...] = ()
 
 
 class SandboxUnavailable(Exception):

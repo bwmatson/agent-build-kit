@@ -256,6 +256,11 @@ repos:                        # ordered; a task group's [repo] tag is a key here
                               # formatters and fixers (file names appended) before each commit;
                               # unset follows the profile, [] turns the pass off. Policy, so it
                               # goes in abk.yaml, not abk.local.yaml
+      e2e_sandbox:               # what an [e2e-test] step's sandbox allows beyond a unit-test
+        read: []                 # step's; no other step gets any of it. Relative paths are
+        write: []                # taken from the worktree. `abk.local.yaml` adds to these
+        hosts: []                # lists per machine.
+        ports: []                # local TCP ports opened beside the proxy's, e.g. `[5432]`
       e2e_marker: local_stack    # for a node project the marker is a file-name segment:
                                  # `<name>.local_stack.test.ts[x]` (`<name>.<marker>.test.<ext>`)
                                  # is e2e-test. Unit-test still runs the whole Vitest run, marked

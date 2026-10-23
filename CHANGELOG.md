@@ -8,6 +8,13 @@
   was not confined (including one that ran plain because the repo's `required` is `none` and
   no backend worked), and a track run, still fail with `ConfigChanged`.
 
+- The sandbox policy now depends on the step's test kind. A unit-test or integration step is
+  never granted a loopback port, a service port or a container socket. An `[e2e-test]` step also
+  gets `repos.<name>.tests.e2e_sandbox` (`read`, `write`, `hosts` and `ports`) from `abk.yaml`,
+  and the same keys from `abk.local.yaml` for what differs by machine; the listed ports are
+  added to the Landlock TCP rule beside the proxy's, and to the macOS profile. An unknown key
+  in the block fails at load.
+
 - The `review` section of `abk.yaml` now accepts `auto_land.classes` (the classes that may land
   without a person; empty, the default, turns it off), `audit.sample_rate` and `demotion.window`
   and `min_agreement`. Each listed class must be one named in `review.classes`. `abk doctor`
