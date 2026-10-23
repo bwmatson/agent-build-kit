@@ -44,7 +44,7 @@ def test_doctor_on_a_mac_where_a_denied_write_goes_through_fails_naming_the_writ
     workspace: Path,  # noqa: F811 — fixture
 ) -> None:
     as_macos(monkeypatch)
-    fake_sandbox_exec(tmp_path, monkeypatch, confines=False)
+    fake_sandbox_exec(tmp_path, monkeypatch, mode="unconfined")
     switch_on(workspace / "abk.yaml", backend="seatbelt")
 
     found = sandbox_checks(workspace / "abk.yaml")

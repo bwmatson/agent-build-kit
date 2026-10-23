@@ -104,7 +104,7 @@ class Seatbelt:
 
 
 def _failed(cause: str) -> Availability:
-    return Availability(ok=False, coverage=Coverage.NONE, cause=cause, fix=FIX)
+    return held.failed(cause, FIX)
 
 
 BACKEND = Seatbelt()

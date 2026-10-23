@@ -43,13 +43,14 @@ def run(
     )
 
 
+def failed(cause: str, fix: str) -> Availability:
+    """What a backend answers when its probe did not hold: not ok, nothing confined, and why."""
+    return Availability(ok=False, coverage=Coverage.NONE, cause=cause, fix=fix)
+
+
 def timed_out(backend: SandboxBackend, fix: str) -> Availability:
-    return Availability(
-        ok=False,
-        coverage=Coverage.NONE,
-        cause=f"the {backend.name} probe did not finish in {TIMEOUT} seconds",
-        fix=fix,
-    )
+    """The not-ok answer for a probe that did not finish within `TIMEOUT` seconds."""
+    return failed(f"the {backend.name} probe did not finish in {TIMEOUT} seconds", fix)
 
 
 def write_probe(
@@ -69,4 +70,4 @@ def write_probe(
     cause = (
         result.stderr.strip() or f"a {backend.name} restriction did not stop a write in the probe"
     )
-    return Availability(ok=False, coverage=Coverage.NONE, cause=cause, fix=fix)
+    return failed(cause, fix)

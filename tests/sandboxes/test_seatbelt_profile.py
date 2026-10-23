@@ -191,7 +191,7 @@ def test_availability_fails_when_a_denied_write_goes_through(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     as_macos(monkeypatch)
-    fake_sandbox_exec(tmp_path, monkeypatch, confines=False)
+    fake_sandbox_exec(tmp_path, monkeypatch, mode="unconfined")
 
     found = BACKEND.availability()
 
@@ -204,7 +204,7 @@ def test_availability_fails_when_the_write_is_denied_but_a_connection_goes_throu
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     as_macos(monkeypatch)
-    fake_sandbox_exec(tmp_path, monkeypatch, confines=True, leaks_network=True)
+    fake_sandbox_exec(tmp_path, monkeypatch, mode="leaks_network")
 
     found = BACKEND.availability()
 
@@ -223,11 +223,26 @@ def test_availability_runs_a_write_probe_and_a_network_probe(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     as_macos(monkeypatch)
-    log = fake_sandbox_exec(tmp_path, monkeypatch, confines=True)
+    log = fake_sandbox_exec(tmp_path, monkeypatch, mode="refuses")
 
     BACKEND.availability()
 
-    given = [path.read_text() for path in sorted(log.iterdir())]
-    assert len(given) >= 2
-    assert all(forms(text)[:2] == ["(version 1)", "(deny default)"] for text in given)
-    assert any(not any(form.startswith("(allow network") for form in forms(t)) for t in given)
+    profiles = [path.read_text() for path in sorted(log.glob("profile.*"))]
+    scripts = [path.read_text() for path in sorted(log.glob("script.*"))]
+    assert len(profiles) == 2
+    assert all(forms(text)[:2] == ["(version 1)", "(deny default)"] for text in profiles)
+    assert not any(form.startswith("(allow network") for text in profiles for form in forms(text))
+    assert len([s for s in scripts if re.search(r": > \S*outside", s)]) == 1
+    assert len([s for s in scripts if re.search(r"/usr/bin/nc -z 127\.0\.0\.1 \d+", s)]) == 1
+
+
+def test_availability_is_ok_when_a_denied_write_and_a_direct_connection_both_fail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    as_macos(monkeypatch)
+    fake_sandbox_exec(tmp_path, monkeypatch, mode="confines")
+
+    found = BACKEND.availability()
+
+    assert found.ok is True, found.cause
+    assert found.coverage is Coverage.PROCESS

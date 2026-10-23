@@ -7,12 +7,13 @@ import os
 import stat
 import sys
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
 # `sandbox-exec [-f profile] [-D name=value]... -- command`: the real program's shape. The fake
-# copies each profile it is given into `{log}`, then either runs the command unconfined (a
-# `sandbox-exec` whose profile does nothing) or refuses to run it.
+# copies each profile it is given into `{log}` as `profile.*` and the script of the `sh -c` it is
+# asked to run as `script.*`, then acts as `{run}` says.
 _SCRIPT = """#!/bin/sh
 log={log}
 count=0
@@ -25,14 +26,25 @@ while [ "$1" != "--" ]; do
   shift
 done
 shift
+printf '%s' "$3" > "$log/script.$$"
 {run}
 """
 
-
-# Runs `sh -c <script>` with the write outside the grant failing and a connection probe succeeding.
-_LEAKS_NETWORK = """script=$(printf '%s' "$3" | sed \\
-  -e 's#: > [^ ]*outside#false#' -e 's#/usr/bin/nc -z [0-9.]* [0-9]*#true#')
+# Runs `sh -c <script>` with the write outside the grant failing and the connection probe's
+# `nc` replaced by `{connect}`: `false` where the profile stops a direct connection, `true`
+# where its network rule is silently ineffective.
+_CONFINED = """script=$(printf '%s' "$3" | sed \\
+  -e 's#: > [^ ]*outside#false#' -e 's#/usr/bin/nc -z [0-9.]* [0-9]*#{connect}#')
 exec "$1" "$2" "$script\""""
+
+# What each fake `sandbox-exec` does with the command it is given.
+Mode = Literal["refuses", "unconfined", "leaks_network", "confines"]
+_RUN: dict[Mode, str] = {
+    "refuses": "exit 1",
+    "unconfined": 'exec "$@"',
+    "leaks_network": _CONFINED.format(connect="true"),
+    "confines": _CONFINED.format(connect="false"),
+}
 
 
 def as_macos(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -49,27 +61,18 @@ def no_sandbox_exec(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PATH", os.pathsep.join(kept))
 
 
-def fake_sandbox_exec(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    confines: bool,
-    leaks_network: bool = False,
-) -> Path:
-    """Put a fake `sandbox-exec` first on PATH and return the folder holding the profiles it was
-    given. With `confines` false it runs the command with nothing denied; with it true it refuses
-    to run the command, which leaves a denied write undone. With `leaks_network` it denies only
-    the write outside the grant and lets a direct connection through, as a profile whose network
-    rule is silently ineffective does."""
+def fake_sandbox_exec(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, mode: Mode) -> Path:
+    """Put a fake `sandbox-exec` first on PATH and return the folder holding the profiles and
+    scripts it was given. `unconfined` runs the command with nothing denied; `refuses` does not
+    run it; `leaks_network` denies only the write outside the grant, as a profile whose network
+    rule is silently ineffective does; `confines` denies the write and the direct connection, as
+    a working Seatbelt does."""
     folder = tmp_path / "fake-bin"
     folder.mkdir()
     log = tmp_path / "fake-log"
     log.mkdir()
     program = folder / "sandbox-exec"
-    run = "exit 1" if confines else 'exec "$@"'
-    if leaks_network:
-        run = _LEAKS_NETWORK
-    program.write_text(_SCRIPT.format(log=log, run=run))
+    program.write_text(_SCRIPT.format(log=log, run=_RUN[mode]))
     program.chmod(program.stat().st_mode | stat.S_IXUSR)
     monkeypatch.setenv("PATH", f"{folder}:/usr/bin:/bin")
     return log
