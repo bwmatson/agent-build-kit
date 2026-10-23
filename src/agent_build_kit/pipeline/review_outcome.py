@@ -32,7 +32,8 @@ def with_outcome(
 ) -> dict[str, dict[str, Any]]:
     """`records` (verdict records by unit id) with the unit's record holding `outcome`, `reworks`
     (the count of history entries whose cause is `rework`) and `revert_checked` (false when the
-    forge could not say which commit the merge produced, or the checkout could not be searched).
+    forge could not say which commit the merge produced, or the checkout could not be searched)
+    and `auto_landed` (whether the pipeline landed the unit).
     A unit with no record is left alone."""
     if unit.id not in records:
         return {uid: dict(record) for uid, record in records.items()}
@@ -54,7 +55,13 @@ def with_outcome(
             outcome = Outcome.REVERTED
         else:
             outcome = Outcome.REWORKED if reworks else Outcome.CLEAN
-    derived = {"outcome": outcome.value, "reworks": reworks, "revert_checked": checked}
+    derived = {
+        "outcome": outcome.value,
+        "reworks": reworks,
+        "revert_checked": checked,
+        # Landed by the pipeline with no person reading it: a sample only once audited or reverted.
+        "auto_landed": any(entry.get("cause") == Cause.AUTO_LANDED for entry in unit.history),
+    }
     return {
         uid: {**record, **derived} if uid == unit.id else dict(record)
         for uid, record in records.items()

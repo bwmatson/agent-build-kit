@@ -42,14 +42,18 @@ class ClassHistory(Frozen):
 
     @classmethod
     def from_records(
-        cls, records: Mapping[str, Mapping[str, Any]], unit_class: str
+        cls,
+        records: Mapping[str, Mapping[str, Any]],
+        unit_class: str,
+        audits: Mapping[str, str] | None = None,
     ) -> ClassHistory:
         """The history of `unit_class` in the verdict records by unit id: the same samples and
-        clean count the report gives the class, over the records that carried the brief."""
+        clean count the report gives the class, over the records that carried the brief, with the
+        results of the audited units in `audits`."""
         # Imported here: the rates import the review tiers from this module.
         from agent_build_kit.pipeline.review_rates import class_rates
 
-        rates = class_rates(records).get(unit_class)
+        rates = class_rates(records, audits).get(unit_class)
         return cls(samples=rates.samples, clean=rates.clean) if rates else cls()
 
 

@@ -10,6 +10,7 @@ from agent_build_kit import config, forges
 from agent_build_kit.model import Frozen
 from agent_build_kit.notify.provider import CardKind
 from agent_build_kit.pipeline import spans
+from agent_build_kit.pipeline.audit_record import AWAITING, UnreadableAudits, read_audits
 from agent_build_kit.pipeline.landing import declined_reason
 from agent_build_kit.pipeline.unit_store import Cause, HeldBy, StoredUnit
 from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW, MERGED
@@ -28,6 +29,7 @@ _WORDING = {
     CardKind.FAILED: "Failed",
     CardKind.HELD: "Held, waiting for a person",
     CardKind.DIGEST: "Landed without a person",
+    CardKind.AUDIT: "Landed without a person, awaiting audit",
 }
 
 
@@ -102,15 +104,42 @@ def _digest(units: Sequence[StoredUnit], verdicts: Path | None) -> Card | None:
     )
 
 
+def _audit_cards(units: Sequence[StoredUnit], audits: Path) -> list[Card]:
+    """One card for each landed unit awaiting audit."""
+    try:
+        recorded = read_audits(audits)
+    except UnreadableAudits:
+        return []
+    waiting = {id: r for id, r in recorded.items() if r.get("state") == AWAITING}
+    cards = []
+    for unit in units:
+        if unit.id not in waiting:
+            continue
+        forge, repo = forges.for_repo(unit.repo)
+        cards.append(
+            Card(
+                id=f"audit:{unit.id}",
+                kind=CardKind.AUDIT,
+                title=f"{unit.id} {unit.title}",
+                body=f"{_WORDING[CardKind.AUDIT]} ({waiting[unit.id]['unit_class']}): "
+                f"`abk review audit {unit.id} ok|wrong`",
+                link=forge.web_url(repo, pr=unit.pr),
+            )
+        )
+    return cards
+
+
 def desired_cards(
     units: Sequence[StoredUnit],
     verdicts: Path | None = None,
     *,
     demoted_classes: Collection[str] = (),
+    audits: Path | None = None,
 ) -> list[Card]:
     """One card for each unit that is waiting on a person, and one digest of what landed.
 
-    `verdicts` is the verdict file; `demoted_classes` are the classes held back from landing."""
+    `verdicts` is the verdict file; `demoted_classes` are the classes held back from landing;
+    `audits` is the audit file."""
     cards = []
     for unit in units:
         kind = _kind_of(unit)
@@ -135,5 +164,7 @@ def desired_cards(
                 link=forge.web_url(repo, pr=unit.pr),
             )
         )
+    if audits is not None:
+        cards.extend(_audit_cards(units, audits))
     digest = _digest(units, verdicts)
     return [*cards, digest] if digest else cards

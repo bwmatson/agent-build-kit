@@ -8,6 +8,7 @@ from pathlib import Path
 from agent_build_kit import telemetry
 from agent_build_kit.config import AutoLandConfig, CeilingsConfig
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.audit_record import audit_results
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.verdict import (
     DEFAULT_POLICY,
@@ -102,11 +103,15 @@ def latest_verdict(path: Path, unit: str) -> VerdictEntry | None:
         return None
 
 
-def recorded_history(path: Path, unit_class: str) -> ClassHistory:
+def recorded_history(path: Path, unit_class: str, audits: Path | None = None) -> ClassHistory:
     """The class's history in the recorded verdicts; none when the file is missing or
     unreadable."""
     try:
-        return ClassHistory.from_records(json.loads(path.read_text()), unit_class)
+        return ClassHistory.from_records(
+            json.loads(path.read_text()),
+            unit_class,
+            audit_results(audits) if audits is not None else None,
+        )
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return NO_HISTORY
 
