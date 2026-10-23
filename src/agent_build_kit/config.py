@@ -1411,6 +1411,21 @@ class AutoLandConfig(Frozen):
     min_clean_rate: float = Field(default=0.95, ge=0, le=1)
     # Whether a unit whose e2e result was deferred to verify may still reach `auto`.
     allow_deferred_e2e: bool = False
+    # The classes the pipeline may merge without a person; empty turns landing off.
+    classes: list[str] = []
+
+
+class AuditConfig(Frozen):
+    """The share of landed units a person is asked to look at afterwards."""
+
+    sample_rate: float = Field(default=0.1, ge=0, le=1)
+
+
+class DemotionConfig(Frozen):
+    """When a class stops landing: the recent outcomes counted and the agreement they need."""
+
+    window: int = Field(default=30, ge=1)
+    min_agreement: float = Field(default=0.9, ge=0, le=1)
 
 
 class CeilingsConfig(Frozen):
@@ -1463,6 +1478,8 @@ class ReviewConfig(Frozen):
     # Class name to path globs, in the order that decides which class a unit belongs to.
     classes: dict[str, list[str]] = {}
     auto_land: AutoLandConfig = AutoLandConfig()
+    audit: AuditConfig = AuditConfig()
+    demotion: DemotionConfig = DemotionConfig()
     # Changed lines one unit may carry, by the review tier it is expected to get.
     ceilings: CeilingsConfig = CeilingsConfig()
     # The allowance over a tier's ceiling that only the verdict uses.
@@ -1482,6 +1499,15 @@ class ReviewConfig(Frozen):
                     "framework's own"
                 )
         return classes
+
+    @model_validator(mode="after")
+    def _listed_classes_are_known(self) -> ReviewConfig:
+        for name in self.auto_land.classes:
+            if name not in self.classes:
+                raise ValueError(
+                    f"auto_land.classes: {name!r} is not a class named in review.classes"
+                )
+        return self
 
 
 class WorkspaceConfig(Frozen):

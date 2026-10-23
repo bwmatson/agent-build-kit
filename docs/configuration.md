@@ -826,7 +826,9 @@ review:
   protected_paths: []      # globs added to the framework's defaults
   protected_defaults: true # migrations, CI and deploy config, containers, secrets, CODEOWNERS
   classes: {}              # name -> path globs; no slash in a name; the first listed class wins
-  auto_land: {min_samples: 20, min_clean_rate: 0.95, allow_deferred_e2e: false}
+  auto_land: {min_samples: 20, min_clean_rate: 0.95, allow_deferred_e2e: false, classes: []}
+  audit: {sample_rate: 0.1}                        # share of landed units a person is asked to look at, 0 to 1
+  demotion: {window: 30, min_agreement: 0.9}       # recent outcomes counted (>= 1) and the agreement they need, 0 to 1
   ceilings: {auto: 5000, light: 2000, full: 750}   # estimated changed lines a unit may carry, by expected tier
   brief: true              # a pull request body opens with "Start here"; false keeps the older layout
 repos:

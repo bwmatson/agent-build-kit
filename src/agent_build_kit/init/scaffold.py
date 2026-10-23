@@ -220,7 +220,9 @@ REVIEW_BLOCK = """
 #   protected_paths: []
 #   protected_defaults: true
 #   classes: {}
-#   auto_land: {min_samples: 20, min_clean_rate: 0.95}
+#   auto_land: {min_samples: 20, min_clean_rate: 0.95, classes: []}
+#   audit: {sample_rate: 0.1}
+#   demotion: {window: 30, min_agreement: 0.9}
 #   brief: true
 """
 

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The `review` section of `abk.yaml` now accepts `auto_land.classes` (the classes that may land
+  without a person; empty, the default, turns it off), `audit.sample_rate` and `demotion.window`
+  and `min_agreement`. Each listed class must be one named in `review.classes`.
+
 - With review enabled, a class now stays at `light` review until its own record clears the gates:
   at least `review.auto_land.min_samples` merged units that carried the brief, merging clean at
   `min_clean_rate` or better. This is the same count `abk review report` shows. Each outcome the
