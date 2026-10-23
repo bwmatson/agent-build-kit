@@ -102,6 +102,15 @@ def latest_verdict(path: Path, unit: str) -> VerdictEntry | None:
         return None
 
 
+def recorded_history(path: Path, unit_class: str) -> ClassHistory:
+    """The class's history in the recorded verdicts; none when the file is missing or
+    unreadable."""
+    try:
+        return ClassHistory.from_records(json.loads(path.read_text()), unit_class)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return NO_HISTORY
+
+
 def mark_brief(path: Path, unit: str) -> None:
     """Set the unit's recorded `brief` to true; a unit with no readable record is left as it is."""
     entry = latest_verdict(path, unit)

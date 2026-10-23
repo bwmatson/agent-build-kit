@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- With review enabled, a class now stays at `light` review until its own record clears the gates:
+  at least `review.auto_land.min_samples` merged units that carried the brief, merging clean at
+  `min_clean_rate` or better. This is the same count `abk review report` shows. Each outcome the
+  recheck reaches is also counted as `abk.review.outcome`, and whether a person accepted an
+  `auto` unit as it stood as `abk.review.agreement`; neither carries a unit id.
+
 - With review enabled, the web UI's review answer for a unit with a recorded verdict now carries
   its tier, the reason and the reviewer's focus and skippable lists, and the pipeline summary
   carries each unit's tier. A unit with no verdict, or an unreadable verdict file, is answered

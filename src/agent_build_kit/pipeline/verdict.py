@@ -46,7 +46,11 @@ class ClassHistory(Frozen):
     ) -> ClassHistory:
         """The history of `unit_class` in the verdict records by unit id: the same samples and
         clean count the report gives the class, over the records that carried the brief."""
-        raise NotImplementedError
+        # Imported here: the rates import the review tiers from this module.
+        from agent_build_kit.pipeline.review_rates import class_rates
+
+        rates = class_rates(records).get(unit_class)
+        return cls(samples=rates.samples, clean=rates.clean) if rates else cls()
 
 
 class GroupText(Frozen):
