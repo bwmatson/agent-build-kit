@@ -128,7 +128,7 @@ def test_a_block_key_moves_with_every_nested_line_at_the_local_files_depth(
 
     assert result.text == "runtimes:\n  claude:\n    models:\n      fast: small\n"
     assert result.local_text == (
-        "runtimes:\n    claude:\n        extra: 1\n        accounts:\n            personal:\n"
-        "                config_dir: /opt/personal\n                label: mine\n"
+        "runtimes:\n    claude:\n        extra: 1\n        accounts:\n          personal:\n"
+        "            config_dir: /opt/personal\n            label: mine\n"
     )
     assert merged(result.text, result.local_text) == merged(base, local)
