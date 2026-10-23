@@ -4,10 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
+from agent_build_kit.forges.base import Check, CheckStatus
 from agent_build_kit.pipeline.landing_decision import LandingFacts
 from agent_build_kit.pipeline.verdict import ReviewTier
 
 HEAD = "a" * 40
+
+
+def check(name: str, status: CheckStatus = CheckStatus.PASSED) -> Check:
+    return Check(name=name, status=status)
 
 
 def facts(**changes: Any) -> LandingFacts:
@@ -20,5 +25,6 @@ def facts(**changes: Any) -> LandingFacts:
         "listed_classes": ("docs",),
         "head": HEAD,
         "approved_head": HEAD,
+        "checks": (check("build"), check("lint"), check("test")),
     }
     return LandingFacts(**{**base, **changes})

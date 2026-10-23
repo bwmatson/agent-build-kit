@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
+from agent_build_kit.forges.base import Check
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.pr_poller import HOLD_LABEL
 from agent_build_kit.pipeline.units import IN_REVIEW
@@ -29,6 +30,9 @@ class Condition(StrEnum):
     CHANGES_REQUESTED = "changes_requested"
     HEAD_MOVED = "head_moved"
     PARENT_UNMERGED = "parent_unmerged"
+    NO_CHECKS = "no_checks"
+    CHECKS_PENDING = "checks_pending"
+    CHECKS_FAILED = "checks_failed"
 
 
 class LandingFacts(Frozen):
@@ -54,6 +58,8 @@ class LandingFacts(Frozen):
     approved_head: str | None = None
     # The units beneath this one that have not merged.
     unmerged_parents: tuple[str, ...] = ()
+    # Every check the forge lists on the pull request, read by the caller.
+    checks: tuple[Check, ...] = ()
 
 
 class LandingDecision(Frozen):
