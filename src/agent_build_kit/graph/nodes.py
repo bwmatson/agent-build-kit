@@ -45,7 +45,13 @@ from agent_build_kit.graph.state import (
 )
 from agent_build_kit.installation import Installation, changes_dir_under
 from agent_build_kit.model import TestTier
-from agent_build_kit.pipeline import audit_record, environment, spans, spec_snapshot
+from agent_build_kit.pipeline import (
+    audit_record,
+    demotion_record,
+    environment,
+    spans,
+    spec_snapshot,
+)
 from agent_build_kit.pipeline.agent_commands import commands_note
 from agent_build_kit.pipeline.call_record import call_recorder
 from agent_build_kit.pipeline.changelog_convention import changelog_note
@@ -2103,6 +2109,14 @@ class BuildPath:
             )
             verdicts = r.store.path.with_name(VERDICTS)
             unit_class = class_of(active(), unit.repo, kind, paths)
+            facts = facts.model_copy(
+                update={
+                    "unit_class": unit_class,
+                    "demoted_classes": demotion_record.demoted_classes(
+                        verdicts.with_name(demotion_record.DEMOTIONS)
+                    ),
+                }
+            )
             entry = record_verdict(
                 verdicts,
                 unit=unit.id,

@@ -23,7 +23,7 @@ def test_an_auto_unit_approved_before_its_class_was_demoted_is_declined_until_a_
 
     landed.land()
 
-    assert landed.forge.merged == []
+    assert landed.forge.merged == {}
     assert not landed.intent()
     assert any("demoted" in line for line in landed.logged), landed.logged
 

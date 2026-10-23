@@ -43,7 +43,8 @@
   unit landed without a person counts in a class's rates only once audited or reverted.
   `abk review audit <unit> ok|wrong` records the result; a unit awaiting audit gets a card with
   a link to its pull request, cleared once the result is recorded, and `abk status` lists each
-  audit waiting with its class.
+  audit waiting with its class. A class can be demoted, recorded in `demotions.json` and never
+  in `abk.yaml`: its units are held at `light` and the landing step leaves them in review.
 
 - With review enabled, a built unit whose changed lines pass the buffered ceiling of its review
   tier (`review.ceiling_buffer`, default 0.2) is held at once, after any review round, and

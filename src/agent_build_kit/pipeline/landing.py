@@ -7,7 +7,7 @@ from collections.abc import Callable
 from agent_build_kit import config
 from agent_build_kit.forges.base import Forge, MergeRefused, PullRequest, RepoId
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import audit_record, landing_intent, spans
+from agent_build_kit.pipeline import audit_record, demotion_record, landing_intent, spans
 from agent_build_kit.pipeline.audit_sampling import picked
 from agent_build_kit.pipeline.landing_decision import Condition, LandingFacts, decide_landing
 from agent_build_kit.pipeline.ui_review import ui_listing
@@ -84,6 +84,9 @@ def _land_unit(
             verdict_tier=final.tier if final else None,
             unit_class=final.unit_class if final else None,
             listed_classes=tuple(review.auto_land.classes),
+            demoted_classes=demotion_record.demoted_classes(
+                inst.state_dir / demotion_record.DEMOTIONS
+            ),
             forge_merges=forge.merges,
             pr_open=pull.state == "open",
             draft=pull.draft,

@@ -173,8 +173,13 @@ def compute_verdict(
         )
     else:
         history_floor = None
+    floors_held = [(evidence_tier, reason)]
+    if history_floor:
+        floors_held.append(history_floor)
+    if facts.unit_class is not None and facts.unit_class in facts.demoted_classes:
+        floors_held.append((ReviewTier.LIGHT, f"its class {facts.unit_class} is demoted"))
     tier, reason = _highest(
-        [(evidence_tier, reason), *([history_floor] if history_floor else [])],
+        floors_held,
         ReviewTier.AUTO,
         reason,
     )
