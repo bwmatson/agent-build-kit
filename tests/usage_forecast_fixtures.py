@@ -111,3 +111,23 @@ def _find(found: TierCells, node: str, round: int) -> list[CellForecast]:
 
 def _cell(found: TierCells, node: str, round: int) -> CellForecast:
     return _find(found, node, round)[0]
+
+
+def spec_history() -> Fixture:
+    """Twenty `auto` units that each ran tests ($0.80), implement ($0.60) and a review round 1
+    ($1.00), six with a review round 2 ($0.50), and twenty `full` units that ran the same, of
+    which eighteen ran a review round 2, six a round 3 ($0.40) and eighteen a rework round 0
+    ($0.50)."""
+    fixture = Fixture()
+    base = [("tests", 0, 0.8), ("implement", 0, 0.6), ("review", 1, 1.0)]
+    for n in range(20):
+        extra = [("review", 2, 0.5)] if n < 6 else []
+        fixture.unit(f"a{n}", ReviewTier.AUTO, base + extra)
+    for n in range(20):
+        extra = []
+        if n < 18:
+            extra += [("review", 2, 0.5), ("rework", 0, 0.5)]
+        if n < 6:
+            extra += [("review", 3, 0.4)]
+        fixture.unit(f"f{n}", ReviewTier.FULL, base + extra)
+    return fixture
