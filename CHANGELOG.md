@@ -12,6 +12,10 @@
   unit's tier. A unit with an `auto` verdict is still listed as awaiting review. The order only
   changes what is shown, never which unit the pipeline works on next.
 
+- With review enabled, a unit in review whose recorded verdict is `auto` no longer raises a
+  notification card, since it needs no person; `light`, `full` and units with no verdict raise
+  one as before, and an existing card for a unit that has become `auto` is cleared.
+
 - The `test:` and `feat:` commits of a build now carry a short body saying why: the first sentence
   of the change's proposal Why, then the task group's goal, with a line on what the commit holds.
   A body is bounded, cut at a word boundary, and never reads to git as a trailer or comment; a

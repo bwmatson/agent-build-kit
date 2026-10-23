@@ -1492,6 +1492,7 @@ def _reconcile_notifications(inst: Installation, store: UnitStore) -> None:
         notifier=notifier,
         config=config,
         log=log,
+        verdicts=inst.state_dir / VERDICTS if inst.config.review.enabled else None,
     )
 
 
