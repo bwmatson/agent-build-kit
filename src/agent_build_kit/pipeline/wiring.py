@@ -562,8 +562,16 @@ def build_run(
                         policy = request.policy.model_copy(update={"sandbox": granted})
                         request = request.model_copy(update={"policy": policy})
                 # Neither configuration file may differ afterwards, whatever route a write took.
-                # A confined step cannot have written them: a difference is a person's edit.
-                confined = agent.sandbox_coverage if sandbox is not None else Coverage.NONE
+                # A step that ran under a policy was confined at least to what the repo requires
+                # (the launcher refuses less); under `required: none` it may have run plain. A
+                # confined step cannot have written them: a difference is a person's edit.
+                confined = (
+                    sandbox.required
+                    if sandbox is not None
+                    and sandbox.required is not Coverage.NONE
+                    and agent.sandbox_coverage.reaches(sandbox.required)
+                    else Coverage.NONE
+                )
                 state_dir = Installation(active(), planning_root).state_dir
                 with config_unchanged(
                     planning_root, confined, state_dir=state_dir, warn=log or print

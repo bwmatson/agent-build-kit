@@ -5,7 +5,8 @@
 - A change to `abk.yaml` or `abk.local.yaml` while an agent step runs is now a warning, not a
   failure, when the step was confined by the sandbox: the tick log shows the diff, `abk status`
   keeps showing it until the next confined step ends clean, and the unit continues. A step that
-  was not confined, and a track run, still fail with `ConfigChanged`.
+  was not confined (including one that ran plain because the repo's `required` is `none` and
+  no backend worked), and a track run, still fail with `ConfigChanged`.
 
 - The `review` section of `abk.yaml` now accepts `auto_land.classes` (the classes that may land
   without a person; empty, the default, turns it off), `audit.sample_rate` and `demotion.window`
