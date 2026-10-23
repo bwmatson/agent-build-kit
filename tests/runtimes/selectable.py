@@ -24,6 +24,7 @@ from agent_build_kit.sandboxes import Coverage
 
 class SelectableRuntime:
     policy_check_prompts_agent: bool = False
+    sandbox_note: str = ""
     supports_usage_tracking: bool = False
     supports_streaming: bool = False
     supports_session_resume: bool = False

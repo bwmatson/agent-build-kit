@@ -689,11 +689,23 @@ ACP's value carries the note **unverified against a real agent**. No ACP agent i
 machine, so what is proven is the kit's side of the boundary, with a fake agent that asks for terminals.
 Whether a real agent's own file access and connections stay inside its process wrap is not proven.
 
-A person with an agent proves it with the shipped probe, which asks the agent for a denied write, a denied
-read and a denied host and records whether it ran and which of the three held
-(`policy_check.sandbox_probe_prompt`, `record_sandbox_probe`). `abk policy check` and `abk status` read the
-record: with none, or one that did not run, the note stays; with one that ran, the note is dropped and the
-line names what held and what did not hold.
+A person with an agent proves it with the probe, in these steps (the kit supplies the prompt and the record;
+it does not run the agent for you):
+
+1. Build the prompt with `policy_check.sandbox_probe_prompt(protected, hidden, host)`, choosing a file the
+   policy does not let the agent write, a file its read list leaves out, and a host its hosts list leaves
+   out. It asks for a denied write, a denied read and a denied host.
+2. Send it to the agent, started under the sandbox as a build would start it.
+3. Read the agent's reply and check the files yourself to decide which of the three denials held: the
+   protected file is unchanged (write), the hidden file's contents did not reach the reply (read), and the
+   connection failed (host).
+4. Call `policy_check.record_sandbox_probe(installation, SandboxProbeResult(ran=True, held=(...)))` with
+   the denials that held, using `write`, `read` and `host`. The record is the file `sandbox-probe.json` in
+   the installation's state folder, and it is tied to the agent command configured at that moment.
+
+`abk policy check` and `abk status` read the record. With none, one that did not run, or one made for
+another agent command than the one configured now, the note stays. With one that ran, the note is dropped
+and the line names what held and what did not hold.
 
 ## Network outages are a typed error
 

@@ -10,9 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
-import stat
 import subprocess
-from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -23,38 +21,20 @@ from agent_build_kit.config import WorkspaceConfig
 from agent_build_kit.installation import load_installation
 from agent_build_kit.runtimes import AgentRequest, ToolPolicy
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime, spawn, through
-from agent_build_kit.sandboxes import Coverage, SandboxBackend, SandboxPolicy, unavailable
+from agent_build_kit.sandboxes import Coverage, SandboxPolicy, unavailable
 from agent_build_kit.sandboxes.policy import policy_entries, proxy_environment
+from tests.runtimes.acp_sandbox_support import (
+    PROXY_VARIABLES,
+    SECRETS,
+    Recording,
+    claude_stand_in,
+)
 from tests.sandboxes.landlock_support import policy_for, require_working
-
-SECRETS = {
-    "ABK_GATEWAY_MASTER_KEY": "gateway-secret",
-    "ABK_GRAFANA_TOKEN": "grafana-secret",
-    "AZURE_DEVOPS_EXT_PAT": "ado-secret",
-}
-PROXY_VARIABLES = ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy")
 
 
 def no_backend(name: str = "auto"):
     """`sandboxes.probe` on a machine where no backend works."""
     return unavailable.BACKEND, unavailable.BACKEND.availability()
-
-
-class Recording:
-    """The real backend, remembering each policy and argv it was asked to wrap."""
-
-    def __init__(self, inner: SandboxBackend) -> None:
-        self.inner = inner
-        self.name = inner.name
-        self.platform = inner.platform
-        self.asked: list[tuple[SandboxPolicy, list[str]]] = []
-
-    def availability(self):
-        return self.inner.availability()
-
-    def command(self, policy: SandboxPolicy, argv: Sequence[str]) -> list[str]:
-        self.asked.append((policy, list(argv)))
-        return self.inner.command(policy, argv)
 
 
 class Scene:
@@ -63,20 +43,9 @@ class Scene:
         self.record = root / "record"
         self.worktree.mkdir()
         self.record.mkdir()
-        program = root / "agent-stand-in"
-        program.write_text(
-            "#!/bin/sh\n"
-            "cat > /dev/null\n"
-            f"printf '%s\\n' \"$@\" > {self.record}/argv\n"
-            f"env > {self.record}/env\n"
-            "echo done\n"
-        )
-        program.chmod(program.stat().st_mode | stat.S_IXUSR)
-        self.program = program
-        config.activate(
-            WorkspaceConfig.model_validate(
-                {"runtimes": {"claude_code": {"command": [str(program)]}}}
-            )
+        self.program = claude_stand_in(
+            root / "agent-stand-in",
+            f"printf '%s\\n' \"$@\" > {self.record}/argv\nenv > {self.record}/env\necho done\n",
         )
         self.root = root
 
@@ -107,15 +76,6 @@ def scene(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Scene:
     for name, value in SECRETS.items():
         monkeypatch.setenv(name, value)
     return Scene(tmp_path)
-
-
-@pytest.fixture
-def backend(monkeypatch: pytest.MonkeyPatch) -> Recording:
-    real = sandboxes.get("landlock")
-    require_working(real)
-    recording = Recording(real)
-    monkeypatch.setattr(sandboxes, "probe", lambda name="auto": (recording, real.availability()))
-    return recording
 
 
 def test_a_step_with_a_sandbox_policy_starts_through_the_backend_command(

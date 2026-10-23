@@ -22,7 +22,7 @@ def planning(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def scene(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Scene:
+def acp_scene(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Scene:
     """The ACP sandbox tests' scene, with abk's secrets set and the proxy variables cleared."""
     for name in PROXY_VARIABLES:
         monkeypatch.delenv(name, raising=False)

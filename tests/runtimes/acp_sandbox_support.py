@@ -4,12 +4,15 @@ was asked, and the fixtures that put both in place."""
 
 from __future__ import annotations
 
+import stat
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 import agent_build_kit
+from agent_build_kit import config
+from agent_build_kit.config import WorkspaceConfig
 from agent_build_kit.runtimes import AgentRequest, AgentResult, ToolPolicy
 from agent_build_kit.runtimes.acp import AcpRuntime
 from agent_build_kit.sandboxes import Coverage, SandboxBackend, SandboxPolicy
@@ -23,6 +26,17 @@ SECRETS = {
 }
 PROXY_VARIABLES = ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy")
 KIT = Path(agent_build_kit.__file__).resolve().parents[2]
+
+
+def claude_stand_in(program: Path, body: str) -> Path:
+    """A stand-in `claude` at `program`: it reads the prompt from stdin and then runs `body`
+    (shell). The Claude Code runtime is pointed at it."""
+    program.write_text(f"#!/bin/sh\ncat > /dev/null\n{body}")
+    program.chmod(program.stat().st_mode | stat.S_IXUSR)
+    config.activate(
+        WorkspaceConfig.model_validate({"runtimes": {"claude_code": {"command": [str(program)]}}})
+    )
+    return program
 
 
 class Recording:

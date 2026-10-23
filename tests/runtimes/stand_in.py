@@ -23,6 +23,7 @@ class StandInRuntime:
     implemented: bool = True
     policy_coverage: PolicyCoverage = "all_calls"
     sandbox_coverage: Coverage = Coverage.NONE
+    sandbox_note: str = ""
     policy_check_prompts_agent: bool = False
     supports_usage_tracking: bool = False
     supports_streaming: bool = False

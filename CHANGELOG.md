@@ -32,8 +32,8 @@
   under `sandbox.hosts`, or the allowlist proxy refuses its calls. ACP's
   `sandbox_coverage` is `process`, unverified against a real agent: no ACP agent has been run
   under it yet. `abk policy check` and `abk status` keep that note until a probe result is
-  recorded (a denied write, read and host asked of a real agent), then show what held and what
-  did not.
+  recorded for the configured agent command (a denied write, read and host asked of a real
+  agent), then show what held and what did not.
 
 - With `sandbox.enabled`, a Claude Code build or review step starts through the sandbox
   backend: behind the allowlist proxy (the model host, or the gateway the run calls, is

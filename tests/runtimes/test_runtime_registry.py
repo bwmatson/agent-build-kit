@@ -31,6 +31,7 @@ class _Double:
     implemented = True
     policy_coverage: PolicyCoverage = "none"
     sandbox_coverage: Coverage = Coverage.NONE
+    sandbox_note = ""
     policy_check_prompts_agent = False
     supports_usage_tracking = False
     supports_streaming = False
