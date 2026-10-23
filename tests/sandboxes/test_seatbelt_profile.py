@@ -200,6 +200,25 @@ def test_availability_fails_when_a_denied_write_goes_through(
     assert found.fix
 
 
+def test_availability_fails_when_the_write_is_denied_but_a_connection_goes_through(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    as_macos(monkeypatch)
+    fake_sandbox_exec(tmp_path, monkeypatch, confines=True, leaks_network=True)
+
+    found = BACKEND.availability()
+
+    assert found.ok is False
+    assert "connection" in found.cause
+    assert found.fix
+
+
+def test_the_profile_lets_a_process_signal_its_descendants(tmp_path: Path) -> None:
+    rules = forms(profile_text(policy(tmp_path)))
+
+    assert "(allow signal (target same-sandbox))" in rules
+
+
 def test_availability_runs_a_write_probe_and_a_network_probe(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

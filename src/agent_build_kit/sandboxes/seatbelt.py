@@ -11,6 +11,7 @@ import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
+from agent_build_kit.sandboxes import held
 from agent_build_kit.sandboxes.base import Availability, Coverage, SandboxPolicy
 
 FIX = (
@@ -27,7 +28,7 @@ _BASE_RULES = (
     "(allow process-fork)",
     "(allow sysctl-read)",
     "(allow mach-lookup)",
-    "(allow signal (target self))",
+    "(allow signal (target same-sandbox))",
     "(allow file-read-metadata)",
     '(allow file-read* (subpath "/dev"))',
     '(allow file-write* (regex #"^/dev/(null|zero|tty|dtracehelper|fd/[0-9]+)$"))',
@@ -69,46 +70,25 @@ class Seatbelt:
             return _failed(f"Seatbelt needs macOS; this machine is {sys.platform}")
         if shutil.which("sandbox-exec") is None:
             return _failed("`sandbox-exec` was not found on PATH")
-        with tempfile.TemporaryDirectory(prefix="abk-probe-") as folder:
-            granted = Path(folder).resolve() / "granted"
-            granted.mkdir()
-            read = tuple(Path(path) for path in _PROBE_READ if Path(path).exists())
-            policy = SandboxPolicy(write=(granted,), read=read, hosts=(), required=Coverage.FILES)
-            try:
-                written = self._write_probe(policy, granted)
-                with socket.socket() as server:
-                    server.bind(("127.0.0.1", 0))
-                    server.listen(1)
-                    connected = self._connect_probe(policy, granted, server.getsockname()[1])
-            except subprocess.TimeoutExpired:
-                return _failed("the Seatbelt probe did not finish in 30 seconds")
+        with held.scene(_PROBE_READ) as (policy, granted):
+            written = held.write_probe(self, policy, granted, FIX)
+            with socket.socket() as server:
+                server.bind(("127.0.0.1", 0))
+                server.listen(1)
+                connected = self._connect_probe(policy, granted, server.getsockname()[1])
         return written or connected or Availability(ok=True, coverage=Coverage.PROCESS)
-
-    def _run(self, policy: SandboxPolicy, script: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            self.command(policy, ["sh", "-c", script]),
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-
-    def _write_probe(self, policy: SandboxPolicy, granted: Path) -> Availability | None:
-        """None when the granted write happened and the ungranted one did not."""
-        outside = granted.parent / "outside"
-        result = self._run(policy, f": > {granted / 'ran'}; : > {outside}")
-        if outside.exists():
-            return _failed("a Seatbelt profile did not stop a write in the probe")
-        if not (granted / "ran").exists():
-            return _failed(result.stderr.strip() or "the probe command did not run under Seatbelt")
-        return None
 
     def _connect_probe(
         self, policy: SandboxPolicy, granted: Path, port: int
     ) -> Availability | None:
         """None when the command ran and a direct connection to a listening port failed."""
         ran, connected = granted / "ran-connect", granted / "connected"
-        result = self._run(policy, f"/usr/bin/nc -z 127.0.0.1 {port} && : > {connected}; : > {ran}")
+        try:
+            result = held.run(
+                self, policy, f"/usr/bin/nc -z 127.0.0.1 {port} && : > {connected}; : > {ran}"
+            )
+        except subprocess.TimeoutExpired:
+            return held.timed_out(self, FIX)
         if connected.exists():
             return _failed("a Seatbelt profile did not stop a direct connection in the probe")
         if not ran.exists():

@@ -226,7 +226,7 @@ def test_a_probe_that_times_out_is_not_available(monkeypatch: pytest.MonkeyPatch
     def expire(*args: object, **kwargs: object) -> object:
         raise subprocess.TimeoutExpired("probe", 30)
 
-    monkeypatch.setattr(landlock.subprocess, "run", expire)
+    monkeypatch.setattr(subprocess, "run", expire)
 
     assert landlock.BACKEND.availability().ok is False
 

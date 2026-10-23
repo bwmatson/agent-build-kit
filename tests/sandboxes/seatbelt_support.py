@@ -29,6 +29,12 @@ shift
 """
 
 
+# Runs `sh -c <script>` with the write outside the grant failing and a connection probe succeeding.
+_LEAKS_NETWORK = """script=$(printf '%s' "$3" | sed \\
+  -e 's#: > [^ ]*outside#false#' -e 's#/usr/bin/nc -z [0-9.]* [0-9]*#true#')
+exec "$1" "$2" "$script\""""
+
+
 def as_macos(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "platform", "darwin")
 
@@ -43,16 +49,27 @@ def no_sandbox_exec(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PATH", os.pathsep.join(kept))
 
 
-def fake_sandbox_exec(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, confines: bool) -> Path:
+def fake_sandbox_exec(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    confines: bool,
+    leaks_network: bool = False,
+) -> Path:
     """Put a fake `sandbox-exec` first on PATH and return the folder holding the profiles it was
     given. With `confines` false it runs the command with nothing denied; with it true it refuses
-    to run the command, which leaves a denied write undone."""
+    to run the command, which leaves a denied write undone. With `leaks_network` it denies only
+    the write outside the grant and lets a direct connection through, as a profile whose network
+    rule is silently ineffective does."""
     folder = tmp_path / "fake-bin"
     folder.mkdir()
     log = tmp_path / "fake-log"
     log.mkdir()
     program = folder / "sandbox-exec"
-    program.write_text(_SCRIPT.format(log=log, run="exit 1" if confines else 'exec "$@"'))
+    run = "exit 1" if confines else 'exec "$@"'
+    if leaks_network:
+        run = _LEAKS_NETWORK
+    program.write_text(_SCRIPT.format(log=log, run=run))
     program.chmod(program.stat().st_mode | stat.S_IXUSR)
     monkeypatch.setenv("PATH", f"{folder}:/usr/bin:/bin")
     return log

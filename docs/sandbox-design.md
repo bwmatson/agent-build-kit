@@ -213,6 +213,18 @@ The sandbox is inherited by every child and cannot be lifted, as Landlock's is. 
 - A network setting in a profile can be silently ineffective on some versions (OpenAI's Codex hit "too effective" network enforcement),
   so the probe must prove a direct connection fails, as step 3 did on Linux.
 
+The profile's base rules are a first guess, and the Mac proof of concept checks each of them:
+
+- **Signals.** `(allow signal (target same-sandbox))` lets a confined process signal its descendants and nothing outside the sandbox
+  (`(target self)` would stop a timeout or an interrupt killing a child). Check that a Bash timeout, `kill` and a test runner stopping
+  its workers work.
+- **Operations a toolchain may still need** under `(deny default)`: `ipc-posix-shm*` and `ipc-posix-sem` (Python multiprocessing, node),
+  `file-ioctl` and `pseudo-tty` (terminals), `iokit-open`, `user-preference-read` and `system-socket`. Add each one a run shows is
+  needed, with its reason.
+- **`mach-lookup` is unfiltered.** `(allow mach-lookup)` reaches every launchd service, and a service can write a file or open a
+  connection on a caller's behalf, which would get around the write list and the network rule. Narrow it to a `(global-name …)` list
+  once the proof of concept shows which services `claude`, git and the toolchains use. Open until then.
+
 **Not proven here.** There is no Mac on the development machine, so the macOS backend (`sandboxes/seatbelt.py`) was written from the
 published descriptions and its behavioural cases have not run on a Mac. A person runs the proof of concept on one: the profile above, the
 same eleven checks (writes by every route, no lifting, the proxy, `claude -p`, git, `uv`, `npm`, path
