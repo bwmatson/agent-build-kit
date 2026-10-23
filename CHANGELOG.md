@@ -18,6 +18,7 @@
   tier first (`full`, then `light`, then units with no verdict, then `auto`) and shows each
   unit's tier. A unit with an `auto` verdict is still listed as awaiting review. The order only
   changes what is shown, never which unit the pipeline works on next.
+
 - A group that has no new tests now gets an empty `test:` commit marked `Already-built: yes`, and
   the implementation completes the pair with a real `feat:` commit or an empty one once the
   whole-repository unit tests pass. Real tests that already pass get an empty `feat:` commit the
