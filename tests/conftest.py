@@ -279,6 +279,9 @@ def workspace_config(root: Path, **overrides) -> WorkspaceConfig:
             path=root / "checkouts" / "app", slug="example/app", consumes=["platform"]
         ),
     }
+    # Most tests are about the single `full` ceiling; per-tier sizing is on by default, so a test
+    # about it names `review` itself.
+    overrides.setdefault("review", {"enabled": False})
     return WorkspaceConfig.model_validate(
         {"repos": {k: v.model_dump(mode="json") for k, v in repos.items()}, **overrides}
     )

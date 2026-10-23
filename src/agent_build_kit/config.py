@@ -1487,8 +1487,8 @@ def buffered(ceiling: int, buffer: float) -> int:
 class ReviewConfig(Frozen):
     """The review policy: which changes never land without a person, and how they are classed."""
 
-    # Build-out flag: off, nothing is planned, classified or recorded for review.
-    enabled: bool = False
+    # Off, every unit is held to the `full` ceiling and nothing is classified or recorded.
+    enabled: bool = True
     # Globs added to the framework's defaults; a repo's own list adds to these.
     protected_paths: list[str] = []
     protected_defaults: bool = True

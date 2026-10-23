@@ -21,7 +21,7 @@ def test_a_workspace_with_no_review_section_loads_with_the_defaults() -> None:
     loaded = workspace()
 
     assert loaded.review.model_dump() == {
-        "enabled": False,
+        "enabled": True,
         "protected_paths": [],
         "protected_defaults": True,
         "classes": {},
