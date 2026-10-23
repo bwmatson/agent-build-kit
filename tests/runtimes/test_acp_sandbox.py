@@ -331,6 +331,6 @@ def test_the_policy_grants_the_known_agent_s_state_folders(tmp_path: Path) -> No
 
     assert agent.state_folders
     for folder in agent.state_folders:
-        expanded = str(Path(folder).expanduser())
+        expanded = str(Path.home() / folder)
         assert expanded in listed("write"), folder
         assert expanded in listed("read"), folder

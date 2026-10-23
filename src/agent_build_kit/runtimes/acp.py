@@ -1308,9 +1308,7 @@ class AcpRuntime:
         writable (best effort: only a known agent's are listed)."""
         command = config.runtime_entry(name=NAME).command or list(self.agent_command)
         agent = known_agents.agent_for_command(command)
-        folders = (
-            [str(Path(folder).expanduser()) for folder in agent.state_folders] if agent else []
-        )
+        folders = [str(Path.home() / folder) for folder in agent.state_folders] if agent else []
         return {"write": folders, "read": folders}
 
     def run(self, request: AgentRequest) -> AgentResult:
