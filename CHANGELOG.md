@@ -98,7 +98,8 @@
   a file of the earlier shape is still read as the flat calibration it was. `abk status` shows
   the basis in force for each window with its points per dollar, scale and pairs, or why the cost
   basis is not in force, and `abk usage replay` adds a flat line, a cost line and an adoption
-  verdict for each window, judged on the same gaps.
+  verdict for each window, judged on the same gaps. The report's `pipeline overhead` section and
+  the usage page state the cost of the calls with no unit and its share of the ledger's cost.
 
 - A test can carry its own time limit with `@pytest.mark.time_limit(<seconds>)`, in place of
   `--test-time-limit`, and the test that downloads vitest carries 180 seconds, so a slow npm

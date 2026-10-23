@@ -193,6 +193,11 @@ runtimes:                       # one entry per runtime that needs a fact abk
       usage_allowance_quantile: 0.9     # the quantile of points gained per unit (above 0, at most 1)
       usage_allowance_window: 30        # newest usable pairs of readings it is taken over
       usage_allowance_min_pairs: 8      # fewer pairs than this and the configured allowance stands
+      usage_estimate_basis: cost        # per window: cost (recorded cost times a learned points per
+                                        # dollar, where adopted) or units (the flat per-unit figure)
+      usage_estimate_intercept: true    # per window; on for the session, off for the weekly
+      usage_cost_min_pairs: 8           # pairs with cost needed before the cost basis is fitted
+      usage_cost_quantile: 0.9          # the quantile the cost fit's scale covers (above 0, at most 1)
       usage_stale_retry_minutes: 5  # how long a start is refused when the only
                                     # reading is too old to trust
       usage_cache_minutes: 15  # how long a good usage reading answers every reader (the shortest);

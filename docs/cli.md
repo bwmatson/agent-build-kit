@@ -278,9 +278,15 @@ false pauses (the estimate plus the margin is not under the threshold while the 
 reading was) and false allows (the reverse), and the mean overshoot: estimate minus actual,
 averaged over the gaps where the estimate was above (`none` when no gap overshot), the cost of
 caution. A window with fewer usable gaps than `usage_allowance_min_pairs` says there is not
-enough to judge. The output ends with the `usage allowances:` line the settings give today.
+enough to judge. The output ends with the `usage allowances:` line the settings give today, which
+shows for each window its cost fit as `2.65 points/$ + 5.1 points/h (31 pairs with cost, scale
+1.2)` or why the cost basis is not in force, beside the flat per-unit figure.
 The estimate and the refusal rule are the guard's own.
 
+- Where a window has enough pairs with cost, it also prints a `flat` line and a `cost` line of
+  the same counts over the same gaps, each gap carries `cost=$<n>` and `cost_estimate=<n>`, and a
+  verdict line says whether the cost basis is adopted and why. The fixed-allowance flags apply to
+  the flat estimate only.
 - The allowance of each gap is the one calibration would have given from the gaps before it
   (the configured one while there were fewer than `usage_allowance_min_pairs`).
   `--session-allowance` and `--weekly-allowance` fix one; `--margin` replaces

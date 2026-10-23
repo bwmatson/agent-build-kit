@@ -1151,10 +1151,17 @@ once, and a failed call uses the last good live reading younger than `usage_fall
 **A refused or unreadable read does not pause while the reading kept leaves ample room.** When
 the endpoint cannot be asked (a refusal, a cool-down, an error, or the minimum interval) and the
 guard's own cache holds a last good reading of any age, each window is estimated as the figure
-read plus an allowance for each unit
-that has spent since the reading (a record in the usage ledger at or after it) or been allowed on
-an estimate since (`estimate_units` in the cache file, kept under the refresh lock), counted once
-by unit id. The allowance is calibrated: each tick derives it from pairs of consecutive good
+read plus what has been spent since the reading. Where the cost basis is adopted for a window
+(`usage_estimate_basis: cost`), the estimate adds the recorded cost of every ledger row at or
+after the reading, rows with no unit included, times a learned points-per-dollar figure (plus an
+hourly intercept where `usage_estimate_intercept` is on); a unit allowed on an estimate that has
+no cost recorded yet counts the flat per-unit allowance instead, once. Otherwise the flat basis
+applies: an allowance for each unit that has spent since the reading or been allowed on an
+estimate since (`estimate_units` in the cache file, kept under the refresh lock), counted once
+by unit id. The cost fit is made over pairs of readings with cost recorded between them (at least
+`usage_cost_min_pairs`, quantile `usage_cost_quantile`) and adopted only when it has fewer false
+allows than the flat figure over the same gaps; it is kept in `usage-allowances.json` as version
+2. The flat allowance is calibrated: each tick derives it from pairs of consecutive good
 readings in `usage-calls.jsonl` and the units that spent between them (the ledger) as the 90th
 percentile of points gained per unit over the newest thirty pairs, rounded up, between a floor
 (one) and a ceiling (the number set as `usage_unit_allowance_pct`, else twice the built-in ten

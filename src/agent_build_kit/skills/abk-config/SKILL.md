@@ -98,6 +98,10 @@ runtimes:                     # only for a runtime needing a fact abk cannot
       usage_allowance_quantile: 0.9    # of points gained per unit; window 30 pairs, minimum 8
       usage_allowance_window: 30
       usage_allowance_min_pairs: 8
+      usage_estimate_basis: cost       # per window: cost (recorded cost x learned points/$) or units
+      usage_estimate_intercept: true   # per window; on for the session, off for the weekly
+      usage_cost_min_pairs: 8          # pairs with cost needed to fit the cost basis
+      usage_cost_quantile: 0.9         # quantile of the cost fit's scale
       usage_stale_retry_minutes: 5     # refusal length when the reading is too old
       usage_cache_minutes: 15          # how long a good usage reading is reused (the shortest)
       usage_claude_cache_minutes: 15   # freshness of Claude Code's own usage block that decides

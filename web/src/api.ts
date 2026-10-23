@@ -56,6 +56,9 @@ export interface UsageReport {
   rows: UsageRow[];
   // The calls with no unit, one row per node, in the by-unit view.
   overhead: UsageRow[];
+  // Their total cost, and the fraction of the ledger's cost it is; absent with no cost.
+  overhead_cost_usd?: number | null;
+  overhead_share?: number | null;
   total: UsageRow;
 }
 

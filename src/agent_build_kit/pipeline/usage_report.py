@@ -659,6 +659,9 @@ def _report_of(
         _finish(_combine(node, overhead[node]), include_estimates) for node in sorted(overhead)
     )
     total = _finish(_combine("total", (e.row for e in entries)), include_estimates)
+    overhead_cost = sum(r.measured.cost_usd or 0.0 for r in overheads)
+    ledger_cost = total.measured.cost_usd
+    share = overhead_cost / ledger_cost if overheads and ledger_cost else None
     calls = [e.call for e in entries if e.call is not None]
     # A session is judged on all its calls, so a date that cuts it does not flag it.
     live = {c.session_id for c in calls if c.session_id}
@@ -668,6 +671,8 @@ def _report_of(
         rows=rows,
         total=total,
         overhead=overheads,
+        overhead_cost_usd=overhead_cost if overheads else None,
+        overhead_share=share,
         sessions=_sessions(whole),
         legacy=_legacy(entries),
         unknown_calls=sum(
@@ -800,11 +805,18 @@ def _aligned(table: list[list[str]]) -> list[str]:
     ]
 
 
+def _overhead_heading(report: Report) -> str:
+    heading = f"pipeline overhead ${report.overhead_cost_usd or 0.0:.2f}"
+    if report.overhead_share is not None:
+        heading += f" ({report.overhead_share:.0%} of the ledger's cost)"
+    return heading
+
+
 def render_table(report: Report) -> str:
     table = [[report.group_by, *_HEADINGS], *(_cells(r) for r in (*report.rows, report.total))]
     lines = _aligned(table)
     if report.overhead:
-        lines += ["", "pipeline overhead", *_aligned([_cells(r) for r in report.overhead])]
+        lines += ["", _overhead_heading(report), *_aligned([_cells(r) for r in report.overhead])]
     if report.sessions:
         sessions = [["session", "increments", "cumulative", ""]] + [
             [
