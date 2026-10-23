@@ -17,6 +17,11 @@ from tests.cli.test_doctor import Answers
 from tests.factories import git, which_all
 
 OVERLAY = "abk.local.yaml"
+WARN_FIX = "move it to abk.local.yaml with `abk config --migrate`"
+NOTE_FIX = (
+    "fine to commit; move it to abk.local.yaml to differ "
+    "(`abk config --migrate --include-defaults` moves it)"
+)
 ACCOUNTS = {"runtimes": {"claude_code": {"accounts": {"kit": {"max_units_in_progress": 2}}}}}
 
 # Each machine choice with the document that holds it and the key doctor names.
@@ -77,7 +82,7 @@ def test_a_machine_choice_in_the_committed_file_warns_naming_the_key_and_the_ove
 
     assert [c.status for c in found] == ["warn"], found
     assert "abk.yaml" in said(found[0])
-    assert OVERLAY in said(found[0])
+    assert found[0].fix == WARN_FIX
 
 
 @pytest.mark.parametrize("key", DEFAULTS)
@@ -88,6 +93,7 @@ def test_a_default_a_team_may_commit_is_a_note_not_a_warning(tmp_path: Path, key
 
     assert [c.status for c in found] == ["info"], found
     assert "abk.yaml" in said(found[0])
+    assert found[0].fix == NOTE_FIX
 
 
 @pytest.mark.parametrize("key", QUIET)
