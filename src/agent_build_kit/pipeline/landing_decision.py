@@ -5,6 +5,8 @@ from __future__ import annotations
 from enum import StrEnum
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.pr_poller import HOLD_LABEL
+from agent_build_kit.pipeline.units import IN_REVIEW
 from agent_build_kit.pipeline.verdict import ReviewTier
 
 
@@ -62,5 +64,56 @@ class LandingDecision(Frozen):
     reason: str = ""
 
 
+def _first_unmet(facts: LandingFacts) -> tuple[Condition, str] | None:
+    """The first condition the facts do not meet, with the reason in words."""
+    checks: list[tuple[bool, Condition, str]] = [
+        (facts.review_enabled, Condition.REVIEW_DISABLED, "review is not enabled"),
+        (facts.state == IN_REVIEW, Condition.NOT_IN_REVIEW, "the unit is not in review"),
+        (not facts.feedback_pending, Condition.FEEDBACK_PENDING, "feedback is still pending"),
+        (not facts.held, Condition.HELD, "the unit is held"),
+        (facts.verdict_tier is not None, Condition.NO_VERDICT, "the unit has no recorded verdict"),
+        (
+            facts.verdict_tier is ReviewTier.AUTO,
+            Condition.TIER_NOT_AUTO,
+            f"the verdict is {facts.verdict_tier}, not auto",
+        ),
+        (
+            facts.unit_class is not None and facts.unit_class in facts.listed_classes,
+            Condition.CLASS_NOT_LISTED,
+            f"the class {facts.unit_class or '(none)'} is not enabled for landing",
+        ),
+        (
+            facts.unit_class not in facts.demoted_classes,
+            Condition.CLASS_DEMOTED,
+            f"the class {facts.unit_class} is demoted",
+        ),
+        (facts.forge_merges, Condition.FORGE_DOES_NOT_MERGE, "the forge does not merge"),
+        (facts.pr_open, Condition.PULL_REQUEST_CLOSED, "the pull request is not open"),
+        (not facts.draft, Condition.DRAFT, "the pull request is a draft"),
+        (not facts.conflicting, Condition.CONFLICT, "the pull request has a conflict"),
+        (HOLD_LABEL not in facts.labels, Condition.HOLD_LABEL, "the pull request is held by label"),
+        (
+            not facts.changes_requested,
+            Condition.CHANGES_REQUESTED,
+            "changes are requested on the pull request",
+        ),
+        (
+            facts.approved_head is not None and facts.head == facts.approved_head,
+            Condition.HEAD_MOVED,
+            "the pull request head is not the commit review approved",
+        ),
+        (
+            not facts.unmerged_parents,
+            Condition.PARENT_UNMERGED,
+            f"the unit waits for its parent {', '.join(facts.unmerged_parents)} to merge",
+        ),
+    ]
+    return next(((c, why) for ok, c, why in checks if not ok), None)
+
+
 def decide_landing(facts: LandingFacts) -> LandingDecision:
-    raise NotImplementedError
+    unmet = _first_unmet(facts)
+    if unmet is None:
+        return LandingDecision(may_land=True)
+    condition, reason = unmet
+    return LandingDecision(may_land=False, condition=condition, reason=reason)
