@@ -50,8 +50,7 @@ def merge_path(pr: int) -> str:
 
 
 @pytest.fixture(autouse=True)
-def github_token(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    monkeypatch.setattr(settings, "gh_token", "gh-secret")
+def github_token() -> Iterator[None]:
     clear_credentials()
     yield
     clear_credentials()
@@ -65,6 +64,8 @@ class Pipeline:
         self, tmp_path: Path, patch: pytest.MonkeyPatch, *, checks: list[dict[str, Any]] | None
     ) -> None:
         self.inst: Installation = make_installation(tmp_path)
+        # After the installation, which reloads the settings.
+        patch.setattr(settings, "gh_token", "gh-secret")
         apply_review(self.inst, listed_review())
         self.inst.state_dir.mkdir(parents=True, exist_ok=True)
         self.store = UnitStore(self.inst.state_dir / "units.json")
@@ -90,14 +91,13 @@ class Pipeline:
         forge = GitHubForge(http=self.host)
         patch.setattr(self.inst, "forge_of", lambda repo: (forge, REPO))
         self.restacked: list[tuple[str, str, str]] = []
-        self.retargeted: list[tuple[str, str]] = []
         self.logged: list[str] = []
         self.dispatch = events.build_dispatch(
             self.store,
             restack=lambda **k: self.restacked.append((k["branch"], k["old_base"], k["new_base"])),
             remove_worktree=lambda repo, branch: None,
             delete_branch=lambda repo, branch: None,
-            retarget=lambda unit, base: self.retargeted.append((unit.id, base)),
+            retarget=lambda unit, base: None,
             rebase_cap=2,
             landing_path=self.inst.state_dir / LANDING,
             log=lambda message: None,
@@ -105,7 +105,10 @@ class Pipeline:
         self.poller = Poller(
             repo="app",
             state_path=state_path(self.inst.state_dir, "app"),
-            dispatch=self.dispatch,
+            # Bound to the repo, as the pipeline binds it.
+            dispatch=lambda event, number, **kwargs: self.dispatch(
+                event, number, repo="app", **kwargs
+            ),
             list_prs=ui_listing(self.inst, self.store, "app"),
             unit_of=lambda number: unit_of(self.store, "app", number),
             log=self.logged.append,
@@ -157,7 +160,7 @@ def test_the_poller_s_later_merged_event_changes_nothing(
     assert len(pipeline.host.calls("PUT", merge_path(1))) == 1
 
 
-def test_a_stacked_child_of_the_landed_unit_is_retargeted_and_restacked(
+def test_a_stacked_child_of_the_landed_unit_is_restacked_onto_the_new_base(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pipeline = Pipeline(tmp_path, monkeypatch, checks=GREEN)
@@ -165,8 +168,7 @@ def test_a_stacked_child_of_the_landed_unit_is_retargeted_and_restacked(
 
     pipeline.land()
 
-    assert ("c/2", "main") in pipeline.retargeted, "\n".join(pipeline.logged)
-    assert ("spec/c/2", "spec/c/1", "main") in pipeline.restacked
+    assert ("spec/c/2", "spec/c/1", "main") in pipeline.restacked, "\n".join(pipeline.logged)
 
 
 def test_verify_and_archive_treat_the_change_as_merged_once_its_units_landed(

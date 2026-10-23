@@ -79,7 +79,7 @@ def test_a_unit_that_did_not_land_gets_neither_comment_nor_label(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     landed = landing(tmp_path, monkeypatch)
-    make_landable(landed.inst, landed.store, landed.forge, {"c/9": 9})
+    make_landable(landed.inst, landed.store, landed.forge, {UNIT: PR, "c/9": 9})
     landed.forge.on_pr[9] = {HOLD_LABEL}
 
     landed.land()

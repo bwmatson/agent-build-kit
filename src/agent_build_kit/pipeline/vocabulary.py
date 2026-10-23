@@ -185,6 +185,15 @@ def review_label_names() -> frozenset[str]:
     return frozenset(review_label(tier).name for tier in ReviewTier)
 
 
+def auto_landed_label() -> Label:
+    """The label a pull request carries once the pipeline merged it without a person."""
+    return Label(
+        name="auto-landed",
+        color="16a34a",
+        description="The pipeline merged this without a person",
+    )
+
+
 # A unit's pull request's checks, as the last poll recorded them.
 ChecksOf = Callable[[StoredUnit], Sequence[Check]]
 

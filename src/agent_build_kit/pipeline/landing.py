@@ -5,15 +5,16 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from agent_build_kit import config
-from agent_build_kit.forges.base import MergeRefused, PullRequest
+from agent_build_kit.forges.base import Forge, MergeRefused, PullRequest, RepoId
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import landing_intent
-from agent_build_kit.pipeline.landing_decision import LandingFacts, decide_landing
+from agent_build_kit.pipeline.landing_decision import Condition, LandingFacts, decide_landing
 from agent_build_kit.pipeline.ui_review import ui_listing
-from agent_build_kit.pipeline.unit_store import HeldBy, UnitStore
+from agent_build_kit.pipeline.unit_store import HeldBy, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, parent_landed
 from agent_build_kit.pipeline.verdict import ReviewTier
-from agent_build_kit.pipeline.verdict_record import VERDICTS, latest_verdict
+from agent_build_kit.pipeline.verdict_record import VERDICTS, VerdictEntry, latest_verdict
+from agent_build_kit.pipeline.vocabulary import auto_landed_label
 
 
 def land_units(
@@ -104,7 +105,12 @@ def _land_unit(
         if final is not None and final.tier is ReviewTier.AUTO:
             say(f"{unit.id}: not landed — {decision.reason}")
             if unit.note != decision.reason:
-                store.record_event(unit.id, "landing_declined", decision.reason)
+                store.record_event(
+                    unit.id,
+                    "landing_declined",
+                    decision.reason,
+                    condition=decision.condition.value if decision.condition else "",
+                )
         return False
     intents = inst.state_dir / landing_intent.LANDING
     try:
@@ -128,4 +134,39 @@ def _land_unit(
         raise
     dispatch("merged", unit.pr, repo=unit.repo)
     say(f"{unit.id}: landed without a person")
+    if final is not None:
+        _announce(forge, repo_id, unit.id, unit.pr, final, say)
     return True
+
+
+def declined_reason(unit: StoredUnit) -> str:
+    """Why the landing step last declined the unit, in words; empty when it has not, or when
+    the unit is only waiting for its checks to finish, which needs no reason."""
+    declined = [entry for entry in unit.history if entry.get("event") == "landing_declined"]
+    if not declined or declined[-1].get("condition") == Condition.CHECKS_PENDING.value:
+        return ""
+    return str(declined[-1].get("note", ""))
+
+
+def _announce(
+    forge: Forge,
+    repo_id: RepoId,
+    unit_id: str,
+    pr: int,
+    verdict: VerdictEntry,
+    say: Callable[[str], None],
+) -> None:
+    """Say on the merged pull request that it landed without a person, and why, and label it.
+    Each is best-effort: a failure is logged and leaves the record as it is."""
+    body = (
+        f"Landed without a person: the unit's class is `{verdict.unit_class}` and review "
+        f"found nothing that needs one — {verdict.reason}"
+    )
+    try:
+        forge.post_comment(repo_id, pr, body=body)
+    except Exception as error:  # noqa: BLE001 — the landing is recorded whatever the host says.
+        say(f"{unit_id}: the landing comment was not posted — {type(error).__name__}: {error}")
+    try:
+        forge.add_label(repo_id, pr, auto_landed_label())
+    except Exception as error:  # noqa: BLE001
+        say(f"{unit_id}: the auto-landed label was not added — {type(error).__name__}: {error}")

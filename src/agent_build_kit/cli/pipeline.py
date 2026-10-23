@@ -133,7 +133,7 @@ from agent_build_kit.pipeline.gate_holds import evaluate_gates, gate_status_line
 from agent_build_kit.pipeline.joins import JoinContext
 from agent_build_kit.pipeline.label_sweep import sweep_finished
 from agent_build_kit.pipeline.labels import StateLabels
-from agent_build_kit.pipeline.landing import land_units
+from agent_build_kit.pipeline.landing import declined_reason, land_units
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.manual_steps import (
     evaluate_manual_steps,
@@ -1032,7 +1032,12 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             ran_none = f" — {NO_TEST_RAN}" if unit.note == NO_TEST_RAN else ""
             tier = tiers.get(unit.id)
             shown_tier = f" — tier {tier.value}" if tier else ""
-            log(f"  {waiting}: {unit.id} ({where}) #{unit.pr or '?'}{shown_tier}{mark}{ran_none}")
+            declined = declined_reason(unit)
+            not_landed = f" — not landed: {declined}" if declined else ""
+            log(
+                f"  {waiting}: {unit.id} ({where}) #{unit.pr or '?'}{shown_tier}{mark}{ran_none}"
+                f"{not_landed}"
+            )
     return 0
 
 
