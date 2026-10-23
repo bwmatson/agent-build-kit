@@ -482,7 +482,7 @@ opens with a "Start here" section; false builds the body as before and changes n
 `auto_land.min_samples` / `auto_land.min_clean_rate` / `auto_land.allow_deferred_e2e` (default false:
 a unit whose e2e result was deferred to verify stays at `light` or above; accepted only under
 `review.auto_land`), `auto_land.classes` (default empty, which turns landing without a person off; each must be named in
-`classes`), `audit.sample_rate` (default 0.1, 0 to 1), `demotion.window` (default 30, at least 1) and `demotion.min_agreement`
+`classes`; once set, `abk doctor` warns for each repo with no branch protection, and when `enabled` is false), `audit.sample_rate` (default 0.1, 0 to 1), `demotion.window` (default 30, at least 1) and `demotion.min_agreement`
 (default 0.9, 0 to 1), and `ceilings` (`auto` 5000, `light` 2000, `full` 750 by default: the estimated lines
 a unit may carry, by its expected review tier; ordered `auto` >= `light` >= `full` > `min_unit_lines`; used only when
 `review.enabled` is true, otherwise every unit is held to the `full` ceiling). A repo's `review:` holds `protected_paths`,

@@ -70,6 +70,7 @@ def test_an_unprotected_repo_warns_that_the_policy_hook_is_then_the_only_guard(
     assert check.status == "warn"
     assert "hook" in said(check)
     assert "only guard" in said(check)
+    assert "pipeline's own merge" in said(check)
 
 
 def test_each_repo_is_reported_on_its_own(tmp_path: Path) -> None:
@@ -89,6 +90,7 @@ def test_the_guard_is_information_with_no_class_listed_and_a_warning_once_one_is
     listed = doctor(tmp_path / "listed", LISTED, unprotected={"app"})
 
     assert guard_of(empty, "app").status == "info"
+    assert "pipeline's own merge" not in said(guard_of(empty, "app"))
     assert guard_of(listed, "app").status == "warn"
 
 

@@ -848,6 +848,10 @@ for that repo; the merged ceilings must keep the same order. The ceilings take e
 `abk config --migrate` moves the value. A plan recorded under other sizing is stale: while `review.enabled` is on, a plan is stale when anything in the `review` section changes (its ceilings, protected paths, classes or auto_land), a repo's `review` block changes, `global_limits.min_unit_lines` or `max_unit_lines` changes, or `review.enabled` itself changes; turning the flag on marks every plan recorded before it as stale
 (see `abk replan` in `docs/cli.md`).
 
+Once `auto_land.classes` is not empty, `abk doctor` warns for each repo with no branch protection
+(the command policy hook does nothing against the pipeline's own merge), and warns when the list
+is set while `review.enabled` is false, where it has no effect.
+
 `auto_land.allow_deferred_e2e` (default false; accepted only under
 `review.auto_land`) decides what a deferred e2e-test result is worth. The verdict reads a unit's e2e state as `passed`, `deferred`, `failed` or
 `not-required`: `failed` is `full`, `deferred` holds the unit at `light` unless the key is true,

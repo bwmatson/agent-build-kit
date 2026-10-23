@@ -435,15 +435,25 @@ def _merge_guards(inst: Installation, run: Run) -> list[Check]:
         unguarded = _guard_of(inst, name, run)
         title = f"merge guard {name}"
         if unguarded:
-            report = _warn if may_land else _info
-            checks.append(
-                report(
-                    title,
-                    unguarded,
-                    "nothing server-side refuses a merge: the command policy hook is the "
-                    "only guard, so keep it installed",
+            if may_land:
+                checks.append(
+                    _warn(
+                        title,
+                        unguarded,
+                        "nothing server-side refuses a merge: the command policy hook is the "
+                        "only guard, and it does nothing against the pipeline's own merge, so "
+                        "add branch protection or empty `review.auto_land.classes`",
+                    )
                 )
-            )
+            else:
+                checks.append(
+                    _info(
+                        title,
+                        unguarded,
+                        "nothing server-side refuses a merge: the command policy hook is the "
+                        "only guard, so keep it installed",
+                    )
+                )
         else:
             checks.append(_ok(title, f"{branch} is protected"))
     return checks
