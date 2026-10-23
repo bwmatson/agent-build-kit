@@ -494,6 +494,21 @@ release could move. The steps:
    branch. The push gate makes an exception for it: it runs no red command at that commit and
    needs no `feat:` commit after it, while an ordinary group with no implementation still
    stops the unit.
+
+   **An e2e-test group is never joined.** Every `[e2e-test]` group, flagged or not, has a
+   unit of its own: the join check refuses to put it with another group, the plan check
+   refuses a plan that does, and no `Separate:` line is needed. `abk tags` warns of one
+   anyway. It also warns of a backticked product path in such a group, unless the path is
+   a test path, a doc, the changelog or declared by a `Support:` line.
+
+   **The scope guard and the product-defect path.** The top of `checks` holds a guard: an
+   e2e-test unit whose branch changes product code, meaning anything other than tests, test support, docs, the changelog
+   or declared support is stopped before any unit-test run, with feedback from the scope
+   source. The builder fixes a test fault in place; for a product fault it reports a
+   `product-defect` block, which the pipeline reads without a model and turns into one
+   `fix-product-defect` fix change (a `[unit-test]` group to reproduce, then fix). The e2e
+   unit gets a `Needs:` on it, is parked as failed waiting on it, and is requeued when
+   its wait ends.
 5. **Checks, then review rounds.** Before each review round the branch has to
    pass unit-test (lint, formatting, types and the tests; see step 6): a reviewer's
    time goes on a branch that already builds. A failure is saved as feedback and

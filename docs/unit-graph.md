@@ -248,6 +248,7 @@ flowchart TD
     prepare -->|part-built stubbed branch, next group's tests committed| implement
     prepare -->|stopped in the stub check loop| fix_stub_checks
     prepare -->|work on the branch| checks
+    checks -->|e2e-test unit changes product code: scope guard| rework
     prepare -->|approved tip| verify_base
     prepare -->|the restack's two steps failed| adapt
     prepare -->|feedback waiting| rework

@@ -132,8 +132,9 @@
   builder to restore the files and report a product defect; only the plan's `Support:` lines
   allow a file, never the branch's. The builder of such a unit is told it holds tests and test
   support only, and after a failed live run or a stop it fixes a test fault in place and reports
-  a product fault as a `product-defect` block; a deterministic reader for that block is in
-  place, and acting on a report follows.
+  a product fault as a `product-defect` block. The pipeline reads the block without a model
+  and files one fix change for the test; the e2e-test unit waits on it and resumes when it
+  lands.
 
 - A toolchain profile can declare `fix_command(files)`, the command that applies its formatters
   and auto-fixers (python-uv: the pre-commit hooks; node-npm: `oxfmt` then `oxlint --fix` over
