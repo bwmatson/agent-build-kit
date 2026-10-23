@@ -205,6 +205,8 @@ from agent_build_kit.pipeline.restack_lane import (
     record_run_attempt,
 )
 from agent_build_kit.pipeline.review_order import review_order, review_tiers
+from agent_build_kit.pipeline.review_outcome_sweep import sweep_outcomes
+from agent_build_kit.pipeline.review_rates import recorded_gates
 from agent_build_kit.pipeline.run_log import (
     RunLog,
     e2e_output_dir,
@@ -639,6 +641,18 @@ def _sweep_labels(inst: Installation, store: UnitStore) -> None:
     )
 
 
+def _sweep_outcomes(inst: Installation, store: UnitStore) -> None:
+    sweep_outcomes(
+        store.all(),
+        verdicts=inst.state_dir / VERDICTS,
+        forge_of=inst.forge_of,
+        checkouts=inst.checkouts,
+        trunks={name: repo.default_branch for name, repo in inst.repos.items()},
+        now=datetime.now(UTC),
+        log=log,
+    )
+
+
 def _status_reading(args: argparse.Namespace) -> UsageReading | None:
     """The reading held, or a fresh one when asked, which the interval may still refuse."""
     if getattr(args, "refresh", False):
@@ -779,6 +793,16 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
 
     for line in stale_plan_lines(inst):
         log(line)
+
+    if config.active().review.enabled:
+        gates = recorded_gates(inst.state_dir / VERDICTS, config.active().review)
+        for name, gate in gates.items():
+            if gate.clears:
+                nameable = (
+                    "" if gate.nameable else ", not nameable: no review.classes entry names it"
+                )
+                samples = gate.rates.samples
+                log(f"review gates: {name} clears the gates ({samples} samples{nameable})")
 
     units = store_for(inst).all()
     if not units:
@@ -1982,6 +2006,8 @@ def run_round(
     _step("closing satisfied pull requests", _retry_pending_closes, inst, store)
     _step("posting owed replies", _retry_pending_replies, inst, store)
     _step("sweeping state labels", _sweep_labels, inst, store)
+    if config.active().review.enabled:
+        _step("sweeping review outcomes", _sweep_outcomes, inst, store)
     if submit and may == "usage":
         units = store.all()
         _record_waits(

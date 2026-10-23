@@ -9,6 +9,15 @@
   and the overview lists units in review `full` first, then `light`, then those with no
   verdict, then `auto`.
 
+- New `abk review report` prints, for each class, its samples, clean-merge rate, agreement rate
+  with its own sample count and the records excluded for having no brief, and says which classes
+  clear the gates and may be added to `review.auto_land.classes`. With review enabled, `abk
+  status` prints a line for each class that clears the gates. Both only read.
+
+- With review enabled, every pipeline pass now rechecks each merged unit for 14 days after its
+  merge and records its outcome (`clean`, `reworked` or `reverted`) on its verdict record. After
+  that the outcome is final. A failure in the recheck is logged and never fails the pass.
+
 - With review enabled, a pull request now carries one `review-auto`, `review-light` or
   `review-full` label matching its unit's recorded verdict, on GitHub and Azure DevOps. A new
   verdict swaps the label, and it stays on the pull request after the unit finishes. Like the

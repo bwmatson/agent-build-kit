@@ -197,6 +197,16 @@ supersedes it. NAME is as the listing prints it. Exit 1 when a NAME matches noth
 Rewrites `planning.graph_page` from `runs/units.json`. The tick does this on
 every store write; this is for a page that went missing. Exit 0.
 
+### `abk review report`
+
+Read-only. Prints, for each class in the verdict records, its samples, clean-merge rate, agreement
+rate with its own sample count, and the records excluded for having no brief (only records that
+carried the brief are counted). It says which classes clear the gates (`review.auto_land.min_samples`
+and `min_clean_rate`) and so may be added to `review.auto_land.classes`, and marks a class no
+`review.classes` entry names as not nameable. It edits nothing: promotion is a person's edit of
+abk.yaml. With no records it says there is nothing to report. `abk status` prints a line for each
+class that clears the gates when `review.enabled` is true. Exit 0.
+
 ### `abk report [--by GROUPING] [--since DATE] [--change CHANGE] [--unit UNIT] [--include-estimates] [--json] [--context]`
 
 Tokens by kind, cost and time by bucket (agent, checks, slot wait, usage-pause wait,
