@@ -496,6 +496,11 @@ def build_run(
         except PolicyRefused as refused:
             spend()
             raise RuntimeError(f"the sandbox policy was refused: {refused}") from refused
+        if sandbox is not None and not agent.sandbox_coverage.reaches(sandbox.required):
+            (log or print)(
+                f"sandbox: {agent.name} confines {agent.sandbox_coverage.value} of a step, less "
+                f"than the {sandbox.required.value} this repo requires; the step runs unconfined"
+            )
         recorder = _recorder(record_for, place, role)
         request = AgentRequest(
             # A continued session holds the original prompt already: it is told what is new,

@@ -25,7 +25,9 @@
   account folder and state file granted, and with Claude Code's own sandbox switched off so
   there is one enforcement point. `abk policy check` reports its coverage as `process`. If no
   backend can start, the step fails naming the cause, or runs and warns when the repo's
-  `required` is `none`; a backend that reaches less than `required` also warns.
+  `required` is `none`. A backend that reaches less than the repo's `required` also fails the
+  step, naming both; a runtime that confines less than `required` is reported as running
+  unconfined in the tick log. `abk doctor` lists each repo's grants for the account it runs as.
 
 - With review enabled, a class now stays at `light` review until its own record clears the gates:
   at least `review.auto_land.min_samples` merged units that carried the brief, merging clean at

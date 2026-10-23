@@ -96,3 +96,24 @@ def test_a_grant_the_policy_refuses_fails_the_step_naming_it(tmp_path: Path) -> 
 
     with pytest.raises(RuntimeError, match="abk.yaml"):
         step(root, main)
+
+
+class Unconfining(Recording):
+    sandbox_coverage = Coverage.NONE
+
+
+@pytest.mark.parametrize(
+    ("runtime", "said"), [(Unconfining(), True), (Recording(), False)], ids=["none", "process"]
+)
+def test_a_runtime_that_confines_less_than_required_says_the_step_is_unconfined(
+    tmp_path: Path, runtime: Recording, said: bool
+) -> None:
+    root, main = install(tmp_path, enabled=True)
+    lines: list[str] = []
+
+    build_run(runtime=runtime, planning_repo=root, sandbox_repo="app", log=lines.append)(
+        "Go.", cwd=main, model=models().implement
+    )
+
+    warnings = [line for line in lines if "unconfined" in line and "process" in line]
+    assert bool(warnings) is said

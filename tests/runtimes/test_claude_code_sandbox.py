@@ -22,7 +22,7 @@ from agent_build_kit import claude_account, config, sandboxes
 from agent_build_kit.config import WorkspaceConfig
 from agent_build_kit.installation import load_installation
 from agent_build_kit.runtimes import AgentRequest, ToolPolicy
-from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime, spawn
+from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime, spawn, through
 from agent_build_kit.sandboxes import Coverage, SandboxBackend, SandboxPolicy, unavailable
 from agent_build_kit.sandboxes.policy import policy_entries, proxy_environment
 from tests.sandboxes.landlock_support import policy_for, require_working
@@ -376,30 +376,37 @@ def test_the_backend_is_the_one_the_configuration_names(
     assert names == [expected]
 
 
-@pytest.mark.parametrize(
-    ("required", "warned"),
-    [(Coverage.PROCESS, True), (Coverage.FILES, False)],
-    ids=["short", "enough"],
-)
-def test_a_backend_that_reaches_less_than_required_runs_the_step_and_warns(
-    scene: Scene,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-    required: Coverage,
-    warned: bool,
+def test_a_backend_that_reaches_less_than_required_fails_the_step_naming_both(
+    scene: Scene, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     recording, _ = probing(monkeypatch, coverage=Coverage.FILES)
-    caplog.set_level(logging.WARNING)
 
-    result = ClaudeCodeRuntime(execute=spawn).run(scene.request(scene.policy(required=required)))
+    result = ClaudeCodeRuntime(execute=spawn).run(
+        scene.request(scene.policy(required=Coverage.PROCESS))
+    )
+
+    assert not result.ok
+    assert "files" in result.error and "process" in result.error
+    assert "kernel too old" in result.error
+    assert recording.asked == []
+    assert not (scene.record / "argv").exists()
+
+
+def test_the_older_injection_point_refuses_a_sandboxed_request(scene: Scene) -> None:
+    runtime = through(lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, "", ""))
+
+    with pytest.raises(RuntimeError, match="sandbox"):
+        runtime.run(scene.request(scene.policy()))
+
+
+def test_a_backend_that_reaches_the_required_coverage_runs_the_step(
+    scene: Scene, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recording, _ = probing(monkeypatch, coverage=Coverage.FILES)
+
+    result = ClaudeCodeRuntime(execute=spawn).run(
+        scene.request(scene.policy(required=Coverage.FILES))
+    )
 
     assert result.ok, result.error
     assert len(recording.asked) == 1
-    shortfalls = [
-        r
-        for r in caplog.records
-        if r.levelno == logging.WARNING
-        and "files" in r.getMessage()
-        and "process" in r.getMessage()
-    ]
-    assert bool(shortfalls) is warned

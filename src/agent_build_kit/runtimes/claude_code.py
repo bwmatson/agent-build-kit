@@ -149,12 +149,11 @@ def spawn(
         cause = f"{found.cause}: {found.fix}"
         return _unconfined(argv, cwd, on_event, merged, input, sandbox, cause)
     if not found.coverage.reaches(sandbox.required):
-        logger.warning(
-            "%s confines %s of a step, less than the %s this repo requires: %s",
-            backend.name,
-            found.coverage.value,
-            sandbox.required.value,
-            found.cause,
+        # `required` is the least a step may run with: short of it, the step does not start.
+        return _refused(
+            argv,
+            f"{backend.name} confines {found.coverage.value} of a step, less than the "
+            f"{sandbox.required.value} this repo requires: {found.cause} ({found.fix})",
         )
     # The proxy runs only for a step that is confined.
     with Proxy(sandbox.hosts) as proxy:
@@ -165,6 +164,11 @@ def spawn(
             return _unconfined(argv, cwd, on_event, merged, input, sandbox, str(error))
         merged.update(proxy_environment(proxy.port))
         return _spawn(wrapped, cwd, on_event, merged, input)
+
+
+def _refused(argv: list[str], cause: str) -> subprocess.CompletedProcess[str]:
+    """A step that was not started because the sandbox is not what the repo requires."""
+    return subprocess.CompletedProcess(argv, 1, "", cause)
 
 
 def _unconfined(
@@ -179,7 +183,7 @@ def _unconfined(
     """A step no backend can confine: failed with the cause, or run and warned about where the
     repo's `required` is `none`."""
     if sandbox.required is not Coverage.NONE:
-        return subprocess.CompletedProcess(argv, 1, "", cause)
+        return _refused(argv, cause)
     logger.warning("running %s unconfined: %s", argv[0], cause)
     return _spawn(argv, cwd, on_event, merged, input)
 
@@ -740,7 +744,18 @@ def through(run: Callable[..., subprocess.CompletedProcess[str]]) -> ClaudeCodeR
     is called as `run(argv, *, cwd, env=...)` when there is an environment to add (an account
     is set, or the request has entries), so it must accept `env`."""
 
-    def execute(argv: list[str], *, cwd: Path | None = None, on_event=None, env=None, input=None):
+    def execute(
+        argv: list[str],
+        *,
+        cwd: Path | None = None,
+        on_event=None,
+        env=None,
+        input=None,
+        sandbox: SandboxPolicy | None = None,
+    ):
+        if sandbox is not None:
+            # Dropping the policy would run the step unconfined without a word.
+            raise RuntimeError("a run injected through `through` cannot carry a sandbox policy")
         if input is not None:
             at = len(command()) + 1  # just after `-p`
             argv = [*argv[:at], input, *argv[at:]]
