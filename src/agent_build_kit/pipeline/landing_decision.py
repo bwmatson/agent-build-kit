@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from agent_build_kit.forges.base import Check
+from agent_build_kit.forges.base import Check, overall_result
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.pr_poller import HOLD_LABEL
 from agent_build_kit.pipeline.units import IN_REVIEW
@@ -72,6 +72,7 @@ class LandingDecision(Frozen):
 
 def _first_unmet(facts: LandingFacts) -> tuple[Condition, str] | None:
     """The first condition the facts do not meet, with the reason in words."""
+    result = overall_result(facts.checks)
     checks: list[tuple[bool, Condition, str]] = [
         (facts.review_enabled, Condition.REVIEW_DISABLED, "review is not enabled"),
         (facts.state == IN_REVIEW, Condition.NOT_IN_REVIEW, "the unit is not in review"),
@@ -112,6 +113,21 @@ def _first_unmet(facts: LandingFacts) -> tuple[Condition, str] | None:
             not facts.unmerged_parents,
             Condition.PARENT_UNMERGED,
             f"the unit waits for its parent {', '.join(facts.unmerged_parents)} to merge",
+        ),
+        (
+            result != "none",
+            Condition.NO_CHECKS,
+            "the pull request has no checks, so there is no evidence it works",
+        ),
+        (
+            result != "failed",
+            Condition.CHECKS_FAILED,
+            "a check on the pull request failed",
+        ),
+        (
+            result == "passed",
+            Condition.CHECKS_PENDING,
+            "checks on the pull request are still pending",
         ),
     ]
     return next(((c, why) for ok, c, why in checks if not ok), None)
