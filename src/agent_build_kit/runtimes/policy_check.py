@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import shlex
 from collections.abc import Collection
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.command_spellings import SPELLINGS, SpellingName
 from agent_build_kit.runtimes.base import AgentRuntime, PolicyReport, SpellingResult
 from agent_build_kit.runtimes.known_agents import RUNTIME_NAME, agent_for_command
@@ -164,3 +166,37 @@ def fix_for(name: str, entry: RuntimeConfig, report: PolicyReport) -> str:
         "run `abk policy patterns` and add them to the agent's configuration, or "
         f"set `runtimes.{name}.policy_fix` in abk.yaml to what enforces them"
     )
+
+
+class SandboxProbeResult(Frozen):
+    """What the shipped sandbox probe recorded: whether it ran against a real agent, and which
+    of its three denials (`SANDBOX_PROBE_DENIALS`) the agent met."""
+
+    ran: bool
+    held: tuple[str, ...] = ()
+
+
+SANDBOX_PROBE_DENIALS = ("write", "read", "host")
+
+
+def sandbox_probe_prompt(protected: Path, hidden: Path, host: str) -> str:
+    """What the probe asks the agent for: a write to `protected`, a read of `hidden` and a
+    connection to `host`, each of which the sandbox's policy denies."""
+    raise NotImplementedError
+
+
+def record_sandbox_probe(installation: Installation, result: SandboxProbeResult) -> None:
+    """Keep the probe's result in the installation's state, replacing an earlier one."""
+    raise NotImplementedError
+
+
+def recorded_sandbox_probe(installation: Installation) -> SandboxProbeResult | None:
+    """The probe's recorded result, or None when it has not been recorded."""
+    raise NotImplementedError
+
+
+def sandbox_coverage_text(runtime: AgentRuntime, installation: Installation) -> str:
+    """The runtime's `sandbox_coverage` as `abk policy check` and `abk status` show it: the
+    value, and for a runtime with a `sandbox_note` the note until the recorded probe result says
+    it ran, then what held and what did not."""
+    raise NotImplementedError
