@@ -21,8 +21,9 @@ from tests.usage_forecast_fixtures import Fixture, call
 from tests.usage_host import Host, configure, payload, refused
 
 MINUTE = timedelta(minutes=1)
-# A quantile of one half adds nothing to a chance, so the scenarios' arithmetic is exact.
-EXACT = {"usage_forecast_quantile": 0.5}
+# A quantile of one half adds nothing to a chance and six calls are enough for a cell's own mean,
+# so the scenarios' arithmetic is exact.
+EXACT = {"usage_forecast_quantile": 0.5, "usage_forecast_min_runs": 6}
 
 
 def lay(host: Host, history: Fixture) -> None:
@@ -83,11 +84,11 @@ def live(host: Host, *, session: float, weekly: float = 6.0, **limits: object) -
 
 
 def keep_timer(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, track: str, fires_in: timedelta
+    host: Host, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, track: str, fires_in: timedelta
 ) -> None:
     """A `systemctl` that shows the installed timer of `track` (`health`) elapsing `fires_in`
     from now and no other timer, in the form the real one prints; the active installation has a
-    root, which is where the timers are looked for."""
+    root, which is where the timers are looked for, and the state directory is the host's."""
     elapse = (datetime.now(UTC) + fires_in).strftime("%a %Y-%m-%d %H:%M:%S UTC")
     program = tmp_path / "bin" / "systemctl"
     program.parent.mkdir()
@@ -101,7 +102,9 @@ def keep_timer(
     )
     program.chmod(program.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("PATH", f"{program.parent}{os.pathsep}{os.environ['PATH']}")
-    config_module.activate(config_module.active(), tmp_path / "planning")
+    config = config_module.active()
+    state = config.planning.model_copy(update={"state_dir": str(host.cache.parent)})
+    config_module.activate(config.model_copy(update={"planning": state}), tmp_path / "planning")
 
 
 def ask(

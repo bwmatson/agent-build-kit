@@ -41,7 +41,7 @@ def test_the_reason_names_a_reservation_when_it_is_the_largest(
     history.units(20, AUTO, [("implement", 0, 1.2)])
     lay(host, history)
     lay_calls(host, "track_health", 2.0)
-    keep_timer(tmp_path, monkeypatch, track="health", fires_in=timedelta(hours=1))
+    keep_timer(host, tmp_path, monkeypatch, track="health", fires_in=timedelta(hours=1))
 
     reason = ask(AUTO).reason
 
@@ -50,11 +50,11 @@ def test_the_reason_names_a_reservation_when_it_is_the_largest(
 
 
 def test_the_reason_says_when_the_prior_was_used(host: Host) -> None:
-    """Nine `full` units are under the minimum of ten, so a `full` unit is forecast at the
+    """Five `full` units are under the minimum of six, so a `full` unit is forecast at the
     window's flat allowance of 17 points: 67 plus 17 plus 5 is not under 80."""
     held(host, session=67.0)
     history = Fixture()
-    history.units(9, FULL, [("review", 1, 1.0)])
+    history.units(5, FULL, [("review", 1, 1.0)])
     lay(host, history)
 
     refusal = ask(FULL)

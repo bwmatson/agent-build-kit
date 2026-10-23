@@ -546,7 +546,13 @@ class BuildPath:
         let finish. The resume asks the guard again, so the interrupt carries
         only what a person reading the thread needs.
         """
-        with starting(self.unit.id):
+        with starting(
+            self.unit.id,
+            review_tier=ReviewTier.parse(self.unit.review_tier),
+            estimated_lines=self.unit.estimated_lines,
+            step=node.value,
+            step_round=_round(node, state),
+        ):
             allowed, why = await asyncio.to_thread(self.runner.may_start)
         if allowed:
             if self.paused_since is not None:

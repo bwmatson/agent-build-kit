@@ -924,7 +924,7 @@ def run_track(
     phase would run. `runtime` is what every phase runs on; the active one
     when not given."""
     if not dry_run:
-        with starting(f"track:{phase}"):
+        with starting(f"track:{phase}", step=f"track_{phase}"):
             headroom = has_headroom()
         if not headroom:
             return 0

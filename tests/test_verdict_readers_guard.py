@@ -31,6 +31,8 @@ ALLOWED = {
     "pipeline/landing.py",  # the landing pass reads the recorded final verdict
     "pipeline/usage_forecast_history.py",  # the history of a tier is by planned tier
     "pipeline/usage_forecast_unit.py",  # a unit's forecast takes the verdict records
+    "pipeline/usage_forecast_ask.py",  # an ask's forecast takes the verdict records
+    "pipeline/usage_guard.py",  # the start decision reads the verdict records to forecast a unit
 }
 
 
