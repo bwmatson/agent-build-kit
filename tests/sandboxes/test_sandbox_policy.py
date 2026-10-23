@@ -3,93 +3,21 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import pytest
-import yaml
 from pydantic import ValidationError
 
 from agent_build_kit.config import ConfigError
-from agent_build_kit.installation import Installation, load_installation
 from agent_build_kit.sandboxes import Coverage
-from agent_build_kit.sandboxes.policy import PolicyRefused, build_policy
+from agent_build_kit.sandboxes.policy import PolicyRefused
+from tests.sandboxes.policy_support import (
+    Scene,
+    StandInProfile,
+    StandInRuntime,
+)
 
 # The home shorthand, held apart so no line reads as a path under a home directory.
 HOME_MARK = "~"
-
-
-class StandInRuntime:
-    def __init__(self, write: list[str]) -> None:
-        self.write = write
-
-    def sandbox_paths(self) -> dict[str, list[str]]:
-        return {"write": self.write}
-
-
-class StandInProfile:
-    """A profile with the optional member."""
-
-    def __init__(self, write: list[str]) -> None:
-        self.write = write
-
-    def sandbox_paths(self, repo: Path) -> dict[str, list[str]]:
-        return {"write": self.write}
-
-
-class BareProfile:
-    """A profile without it."""
-
-
-class BareRuntime:
-    pass
-
-
-class Scene:
-    def __init__(self, tmp_path: Path) -> None:
-        self.tmp = tmp_path
-        self.root = tmp_path / "plan"
-        self.main = tmp_path / "main"
-        self.worktree = tmp_path / "wt"
-
-    def repos(self, sandbox: dict[str, Any] | None = None, projects: list | None = None) -> dict:
-        return {
-            "app": {
-                "path": str(self.main),
-                "slug": "example/app",
-                "sandbox": sandbox or {},
-                "projects": projects or [],
-            }
-        }
-
-    def installation(
-        self,
-        sandbox: dict[str, Any] | None = None,
-        projects: list | None = None,
-        local: dict[str, Any] | None = None,
-    ) -> Installation:
-        """The installation a real load gives: abk.yaml and abk.local.yaml written to disk."""
-        self.root.mkdir(exist_ok=True)
-        (self.root / "abk.yaml").write_text(
-            yaml.safe_dump({"repos": self.repos(sandbox, projects)})
-        )
-        overlay = self.root / "abk.local.yaml"
-        overlay.unlink(missing_ok=True)
-        if local is not None:
-            overlay.write_text(yaml.safe_dump(local))
-        return load_installation(self.root / "abk.yaml")
-
-    def policy(
-        self,
-        sandbox: dict[str, Any] | None = None,
-        *,
-        projects: list | None = None,
-        runtime: object = BareRuntime(),
-        profile: object = BareProfile(),
-        local: dict[str, Any] | None = None,
-    ):
-        installation = self.installation(sandbox, projects, local)
-        self.worktree.mkdir(exist_ok=True)
-        return build_policy(installation, "app", self.worktree, runtime=runtime, profile=profile)
 
 
 @pytest.fixture
