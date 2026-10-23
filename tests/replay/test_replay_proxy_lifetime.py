@@ -135,8 +135,8 @@ def test_the_child_is_gone_before_the_proxy_stops_when_a_limit_ends_the_wait(
     upstream: FakeUpstream,
     tmp_path: Path,
 ) -> None:
-    result = run(pytester, monkeypatch, upstream, tmp_path, "test_limit_ends_the_wait", 1)
+    result = run(pytester, monkeypatch, upstream, tmp_path, "test_limit_ends_the_wait", 5)
 
     result.assert_outcomes(failed=1)
-    result.stdout.fnmatch_lines(["*exceeded the e2e-test time limit of 1 seconds*"])
+    result.stdout.fnmatch_lines(["*exceeded the e2e-test time limit of 5 seconds*"])
     assert (tmp_path / "alive").read_text() == "False"

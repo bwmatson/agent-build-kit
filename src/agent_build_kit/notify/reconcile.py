@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from agent_build_kit import telemetry
 from agent_build_kit.config import NotificationProvider, NotificationsConfig
@@ -21,6 +22,7 @@ def reconcile(
     notifier: Notifier,
     config: NotificationsConfig,
     log: Callable[[str], None],
+    verdicts: Path | None = None,
 ) -> None:
     """Bring the shown cards to the ones `units` call for. A provider that fails is logged
     and counted, never raised; the card is tried again at the next call."""
@@ -46,7 +48,7 @@ def reconcile(
     remind = timedelta(minutes=config.remind_after_minutes)
     with store.locked():
         now = spans.clock.now()
-        wanted = {card.id: card for card in desired_cards(units)}
+        wanted = {card.id: card for card in desired_cards(units, verdicts)}
         kept: dict[str, Entry] = {}
         for id, entry in store.entries().items():
             if id in wanted:

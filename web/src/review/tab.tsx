@@ -5,7 +5,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { getJson, sendJson } from "../api";
 import type { Attachment } from "../composer";
 import { useApi } from "../useApi";
-import type { Decision, LineRange, ReviewThread } from "./types";
+import type { BriefEntry, Decision, LineRange, ReviewThread, ReviewTier } from "./types";
 import { DiffViewer, patchFiles, rangeContext } from "./viewer";
 
 interface DiffAnswer {
@@ -35,6 +35,46 @@ interface ReviewAnswer {
   decisions: Decision[];
   findings: Finding[];
   follow_ups: string[];
+  tier?: ReviewTier;
+  reason?: string;
+  focus?: BriefEntry[];
+  skippable?: BriefEntry[];
+}
+
+function BriefList({ label, entries }: { label: string; entries: BriefEntry[] }) {
+  if (entries.length === 0) return null;
+  return (
+    <>
+      <h3>{label}</h3>
+      <ul aria-label={label}>
+        {entries.map((entry) => (
+          <li key={`${entry.place}|${entry.reason}`}>
+            <code>{entry.place}</code> — {entry.reason}
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+/** The verdict at the head of the tab: the tier in words, why, and where to look or not. */
+function TierStrip({ answer }: { answer: ReviewAnswer }) {
+  if (!answer.tier) return null;
+  return (
+    <aside aria-label="Review tier">
+      <p>
+        Review tier: <strong>{answer.tier}</strong>
+        {answer.reason && (
+          <>
+            {" — "}
+            <span>{answer.reason}</span>
+          </>
+        )}
+      </p>
+      <BriefList label="Focus" entries={answer.focus ?? []} />
+      <BriefList label="Skippable" entries={answer.skippable ?? []} />
+    </aside>
+  );
 }
 
 /** Where the page scrolls to: a line, or only the file when the line is gone. */
@@ -360,6 +400,7 @@ function UnitReview({ name }: { name: string }): ReactElement {
       <p>
         Pinned to <code>{diff.data.commit.slice(0, 7)}</code>
       </p>
+      {answer && <TierStrip answer={answer} />}
       {review && "error" in review && <p role="alert">{review.error}</p>}
       <nav aria-label="Files">
         <ul>

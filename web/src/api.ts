@@ -1,3 +1,5 @@
+import type { ReviewTier } from "./review/types";
+
 export interface UnitSummary {
   id: string;
   title: string;
@@ -10,6 +12,7 @@ export interface UnitSummary {
   pr: number | null;
   repo: string;
   replaced_by?: string[];
+  tier?: ReviewTier;
 }
 
 export interface Related {

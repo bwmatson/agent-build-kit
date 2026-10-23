@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- With review enabled, the web UI's review answer for a unit with a recorded verdict now carries
+  its tier, the reason and the reviewer's focus and skippable lists, and the pipeline summary
+  carries each unit's tier. A unit with no verdict, or an unreadable verdict file, is answered
+  as before. The review tab shows the tier, the reason and those lists in a strip at its head,
+  and the overview lists units in review `full` first, then `light`, then those with no
+  verdict, then `auto`.
+
 - With review enabled, a pull request now carries one `review-auto`, `review-light` or
   `review-full` label matching its unit's recorded verdict, on GitHub and Azure DevOps. A new
   verdict swaps the label, and it stays on the pull request after the unit finishes. Like the
@@ -11,6 +18,10 @@
   tier first (`full`, then `light`, then units with no verdict, then `auto`) and shows each
   unit's tier. A unit with an `auto` verdict is still listed as awaiting review. The order only
   changes what is shown, never which unit the pipeline works on next.
+
+- With review enabled, a unit in review whose recorded verdict is `auto` no longer raises a
+  notification card, since it needs no person; `light`, `full` and units with no verdict raise
+  one as before, and an existing card for a unit that has become `auto` is cleared.
 
 - The `test:` and `feat:` commits of a build now carry a short body saying why: the first sentence
   of the change's proposal Why, then the task group's goal, with a line on what the commit holds.
