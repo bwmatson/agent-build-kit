@@ -7,6 +7,10 @@
   and `min_agreement`. Each listed class must be one named in `review.classes`. `abk doctor`
   warns for each repo with no branch protection once a class is listed, since the command policy
   hook is then the only guard, and warns when the list is set while `review.enabled` is false.
+  With review enabled and a class listed, each pass now merges a unit of that class whose
+  verdict is `auto`, checks have passed and head is the approved commit, and records it merged
+  with the cause `auto_landed`. A host that refuses the merge leaves the unit in review with
+  the reason recorded.
 
 - With review enabled, a class now stays at `light` review until its own record clears the gates:
   at least `review.auto_land.min_samples` merged units that carried the brief, merging clean at
