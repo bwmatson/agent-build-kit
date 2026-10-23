@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
-from agent_build_kit.sandboxes import launcher
+from agent_build_kit.sandboxes import held, launcher
 from agent_build_kit.sandboxes.base import Availability, Coverage, SandboxPolicy
 
 FIX = "use Linux kernel 5.13 or later with Landlock enabled, or set `required: none` on the repo"
@@ -39,40 +38,10 @@ class Landlock:
 
     def availability(self) -> Availability:
         """Applies a restriction in a subprocess and checks it held; no file is looked for."""
-        with tempfile.TemporaryDirectory(prefix="abk-probe-") as folder:
-            granted = Path(folder) / "granted"
-            granted.mkdir()
-            ran = granted / "ok"
-            probe = Path(folder) / "probe"
-            policy = SandboxPolicy(
-                write=(granted,),
-                read=tuple(Path(path) for path in _PROBE_READ if Path(path).exists()),
-                hosts=(),
-                required=Coverage.FILES,
-            )
-            try:
-                result = subprocess.run(
-                    self.command(policy, ["sh", "-c", f": > {ran}; : > {probe}"]),
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                    check=False,
-                )
-            except subprocess.TimeoutExpired:
-                return Availability(
-                    ok=False,
-                    coverage=Coverage.NONE,
-                    cause="the Landlock probe did not finish in 30 seconds",
-                    fix=FIX,
-                )
-            # Only a command that ran under the restriction proves it held: the granted write
-            # happened and the ungranted one did not.
-            held = result.returncode != 0 and ran.exists() and not probe.exists()
-        if not held:
-            cause = (
-                result.stderr.strip() or "a Landlock restriction did not stop a write in the probe"
-            )
-            return Availability(ok=False, coverage=Coverage.NONE, cause=cause, fix=FIX)
+        with held.scene(_PROBE_READ) as (policy, granted):
+            failed = held.write_probe(self, policy, granted, FIX)
+        if failed:
+            return failed
         abi = abi_version()
         if abi < launcher.NETWORK_ABI:
             return Availability(

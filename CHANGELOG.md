@@ -29,6 +29,12 @@
   step, naming both; a runtime that confines less than `required` is reported as running
   unconfined in the tick log. `abk doctor` lists each repo's grants for the account it runs as.
 
+- The agent sandbox now has a macOS backend: a Seatbelt profile generated from the same policy
+  and run through the `sandbox-exec` that ships with macOS, so nothing needs installing.
+  `abk doctor` and `abk init` prove it works by running a denied write and a direct connection
+  under it, and say what to do when that fails. It was written without a Mac to run it on, so
+  run the contract suite on one before relying on it.
+
 - With review enabled, a class now stays at `light` review until its own record clears the gates:
   at least `review.auto_land.min_samples` merged units that carried the brief, merging clean at
   `min_clean_rate` or better. This is the same count `abk review report` shows. Each outcome the
