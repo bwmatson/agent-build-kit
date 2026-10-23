@@ -54,6 +54,15 @@ def class_rates(records: Mapping[str, Mapping[str, Any]]) -> dict[str, ClassRate
         if record.get("outcome") not in (Outcome.CLEAN, Outcome.REWORKED, Outcome.REVERTED):
             continue
         clean = record.get("outcome") == Outcome.CLEAN
+        if record.get("auto_landed"):
+            # No person read it: it counts only when audited or reverted.
+            audit = record.get("audit")
+            if record["outcome"] == Outcome.REVERTED:
+                clean = False
+            elif audit in ("ok", "wrong"):
+                clean = audit == "ok"
+            else:
+                continue
         c["samples"] += 1
         c["clean"] += clean
         if record["evidence_tier"] == ReviewTier.AUTO:

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import UTC, datetime
 
 from agent_build_kit import config
 from agent_build_kit.forges.base import Forge, MergeRefused, PullRequest, RepoId
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import landing_intent
+from agent_build_kit.pipeline import audit_record, landing_intent
+from agent_build_kit.pipeline.audit_sampling import picked
 from agent_build_kit.pipeline.landing_decision import Condition, LandingFacts, decide_landing
 from agent_build_kit.pipeline.ui_review import ui_listing
 from agent_build_kit.pipeline.unit_store import HeldBy, StoredUnit, UnitStore
@@ -135,8 +137,32 @@ def _land_unit(
     dispatch("merged", unit.pr, repo=unit.repo)
     say(f"{unit.id}: landed without a person")
     if final is not None:
+        _sample_for_audit(inst, forge, repo_id, unit, final, review, say)
         _announce(forge, repo_id, unit.id, unit.pr, final, say)
     return True
+
+
+def _sample_for_audit(
+    inst: Installation,
+    forge: Forge,
+    repo_id: RepoId,
+    unit: StoredUnit,
+    verdict: VerdictEntry,
+    review: config.ReviewConfig,
+    say: Callable[[str], None],
+) -> None:
+    """Record the landed unit as awaiting audit when it is picked; best-effort."""
+    try:
+        commit = forge.merge_commit(repo_id, unit.pr or 0) or unit.approved or ""
+        if picked(unit.id, commit, review.audit.sample_rate):
+            audit_record.record_awaiting(
+                inst.state_dir / audit_record.AUDITS,
+                unit=unit.id,
+                unit_class=verdict.unit_class,
+                at=datetime.now(UTC),
+            )
+    except Exception as error:  # noqa: BLE001 — the landing is recorded whatever happens here.
+        say(f"{unit.id}: not recorded for audit — {type(error).__name__}: {error}")
 
 
 def declined_reason(unit: StoredUnit) -> str:
