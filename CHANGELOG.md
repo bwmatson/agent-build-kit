@@ -7,6 +7,7 @@
   and `min_agreement`. Each listed class must be one named in `review.classes`. `abk doctor`
   warns for each repo with no branch protection once a class is listed, since the command policy
   hook is then the only guard, and warns when the list is set while `review.enabled` is false.
+
 - With review enabled, a built unit whose changed lines pass the buffered ceiling of its review
   tier (`review.ceiling_buffer`, default 0.2) is held at once, after any review round, and
   replaced by smaller units; the old pull request is closed with a comment naming the pieces and
