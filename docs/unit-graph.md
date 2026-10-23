@@ -108,6 +108,13 @@ a standing one explicitly. A replan carries a standing cause through the demotio
 change passes its own cause or none. `upsert` keeps a unit's runtime fields, so a gated or parked
 unit stays parked across a replan. A record with no cause is one from before causes or one an event ended.
 
+A unit over its tier's buffered ceiling is `held` with the cause `too_big_for_tier`, held by size
+(`HeldBy.SIZE`), and waits for the split step. Once split it is `closed` with the cause `superseded`
+and a `superseded_by` list naming its pieces (`<unit>-s1`, `<unit>-s2`, ...): it occupies no slot,
+nothing waits on it (dependents are re-pointed to the last piece), and archiving counts it as
+finished without merging. Its branch is kept under `refs/spec-driven/superseded/<unit id>`. When no
+split can happen it is held again with `HeldBy.REVIEW` for a person.
+
 A unit can also be `retired`, a state beside `merged` and `closed`: it is finished, builds nothing,
 holds no place under `max_units_in_progress`, nothing waits on it, and no plan revives or reshapes it
 (an upsert skips it, and the planner is shown its id as taken and refuses a plan that reuses it). Its

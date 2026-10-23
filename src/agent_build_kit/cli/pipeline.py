@@ -408,6 +408,7 @@ from agent_build_kit.pipeline.workspaces import (
     BranchBusy,
     branch_held,
     branch_lock,
+    keep_superseded_tip,
     lock_holder_gone,
     worktree_path,
 )
@@ -2703,6 +2704,8 @@ def _plan_and_supersede(
             split=request,
             held=unit,
         )
+        if not _keep_branch(inst, unit):
+            return
         store.set_split_rounds_used(unit.id, unit.split_rounds_used + 1)
         store.supersede(unit.id, plan.units)
     except GroupTooLarge as error:
@@ -2720,6 +2723,22 @@ def _plan_and_supersede(
         )
         return
     log(f"split {unit.id} into {', '.join(piece.id for piece in plan.units)}")
+
+
+def _keep_branch(inst: Installation, unit: StoredUnit) -> bool:
+    """Keep the held unit's branch tip under its superseded ref in its code repo, so its pieces
+    can take its commits; the caller holds the branch lock. True when there is no checkout on
+    disk or no branch to keep, False, with the reason logged and no round used, when keeping
+    fails."""
+    repo = inst.checkouts.get(unit.repo)
+    if repo is None or not repo.is_dir() or not unit.branch:
+        return True
+    try:
+        keep_superseded_tip(repo, unit.branch, unit.id)
+    except (subprocess.CalledProcessError, OSError) as error:
+        log(f"not splitting {unit.id}: its branch could not be kept — {error}")
+        return False
+    return True
 
 
 def release_split_held(

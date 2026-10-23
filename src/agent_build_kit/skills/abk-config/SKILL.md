@@ -493,7 +493,11 @@ a unit whose e2e result was deferred to verify stays at `light` or above; accept
 a unit may carry, by its expected review tier; ordered `auto` >= `light` >= `full` > `min_unit_lines`; used only when
 `review.enabled` is true, otherwise every unit is held to the `full` ceiling). A repo's `review:` holds `protected_paths`,
 which adds to the workspace's, and `ceilings`, a repo override of any one tier. `global_limits.max_unit_lines` is
-deprecated and read as `review.ceilings.full`; `abk config --migrate` moves it, and setting both to different values is refused. Only a person edits it: a build agent and a track are
+deprecated and read as `review.ceilings.full`; `abk config --migrate` moves it, and setting both to different values is refused.
+`ceiling_buffer` (0 to 1, default 0.2: a unit is held for its size only past its tier's ceiling times one plus this) and
+`split_rounds` (0 to 2, default 2: splits along a unit's lineage; 0 sends every oversized unit to a person) govern the size
+hold, and the config fails to load when the buffered `auto` ceiling would reach the reviewer's reading limit of 10,000 lines.
+Only a person edits it: a build agent and a track are
 refused a write to `abk.yaml` or `abk.local.yaml` by the routes the command policy names, and a
 build or track run after which either file differs fails (not restored). See `docs/configuration.md`.
 

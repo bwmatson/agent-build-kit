@@ -33,6 +33,7 @@ def build(
     *,
     graph: list[StoredUnit] | None = None,
     base: str = "main",
+    unit_id: str = "",
     **overrides: Any,
 ) -> RunOutcome:
     runner = make_runner(recorder.store, recorder, tmp_path, **overrides)
@@ -41,7 +42,7 @@ def build(
         async with open_checkpointer(unit_graphs_path(tmp_path / "state")) as saver:
             return await run_unit(
                 runner,
-                recorder.store.get(unit().id),
+                recorder.store.get(unit_id or unit().id),
                 base=base,
                 graph=graph or [],
                 saver=saver,

@@ -253,14 +253,24 @@ def prepare_detached(repo: Path, name: str, *, ref: str, root: Path) -> Path:
     return path
 
 
+def superseded_ref(unit_id: str) -> str:
+    """The ref a superseded unit's branch tip is kept under."""
+    return f"refs/spec-driven/superseded/{unit_id}"
+
+
+def keep_superseded_tip(repo: Path, branch: str, unit_id: str) -> None:
+    """Point `superseded_ref(unit_id)` at the tip of `branch`, for a caller that already holds
+    the branch lock. The branch itself and the remote's copy are left as they are."""
+    tip = git_out(repo, "rev-parse", "--verify", f"refs/heads/{branch}").strip()
+    git(repo, "update-ref", superseded_ref(unit_id), tip)
+
+
 def keep_superseded_branch(repo: Path, branch: str, unit_id: str, *, lock_root: Path) -> bool:
-    """Keep the tip of a superseded unit's branch under `refs/spec-driven/superseded/<unit id>`,
-    with the branch lock held. False, with nothing changed, when a live process holds the lock.
-    The branch itself and the remote's copy are left as they are."""
+    """Keep the tip of a superseded unit's branch under `superseded_ref(unit_id)`, with the
+    branch lock held. False, with nothing changed, when a live process holds the lock."""
     try:
         with branch_lock(branch, root=lock_root):
-            tip = git_out(repo, "rev-parse", "--verify", f"refs/heads/{branch}").strip()
-            git(repo, "update-ref", f"refs/spec-driven/superseded/{unit_id}", tip)
+            keep_superseded_tip(repo, branch, unit_id)
     except BranchBusy:
         return False
     return True

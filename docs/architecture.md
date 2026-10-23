@@ -767,6 +767,16 @@ the agent node; the first tick the usage guard allows resumes it from there.
 A run that is killed is resumed the same way, at the node it was in: nothing
 requeues it and nothing commits what it left.
 
+**The size hold and the split.** With review enabled, the verdict's size step compares a unit's
+changed lines with the ceiling of the tier it earned times one plus `review.ceiling_buffer`. Over it,
+the review node holds the unit at once, after any round: `held`, cause `too_big_for_tier`, held by
+size (`HeldBy.SIZE`), with the request (tiers, drivers, lines, ceiling) kept on the unit. A unit held
+by size raises no card; a tick step asks the planner to split it into pieces with ids `<unit>-s<k>`.
+`UnitStore.supersede` then writes the pieces and closes the old unit with the cause `superseded`
+(`closed` with a `superseded_by` field) in one write, after keeping the old branch under
+`refs/spec-driven/superseded/<unit id>`. Where a split cannot happen the unit is held again for a
+person.
+
 **Builders are told to reuse before they write.** One packaged, language-neutral part
 (`reuse_guidance.reuse_guidance`, `templates/reuse-guidance.md`) is appended to the full
 prompts for writing tests, implementing, fixing checks and reworking after review or

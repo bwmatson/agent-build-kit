@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.shell import git_out
+from agent_build_kit.pipeline.shell import git, git_out
 
 if TYPE_CHECKING:
     from agent_build_kit.pipeline.stack_runner import GroupStep
@@ -144,12 +144,18 @@ def recorded_built(repo: Path, sha: str) -> bool:
     return marked.strip() == "yes" and not _files_in(repo, sha)
 
 
+def branch_commit_subjects(repo: Path, base: str, ref: str = "HEAD") -> list[tuple[str, str]]:
+    """The hash and subject of each commit the branch at `ref` carries beyond `base`, oldest
+    first."""
+    out = git_out(repo, "log", "--reverse", "--format=%H%x00%s", f"{base}..{ref}")
+    return [tuple(line.split("\0", 1)) for line in out.splitlines()]  # pyrefly: ignore[bad-return]
+
+
 def branch_subjects(repo: Path, base: str) -> list[str]:
     """The subject of each commit the checked-out branch carries beyond `base`, oldest first.
     Read from the subjects, not the hashes, so a restack that rewrote every commit changes
     nothing."""
-    out = git_out(repo, "log", "--reverse", "--format=%s", f"{base}..HEAD")
-    return out.splitlines() if out else []
+    return [subject for _, subject in branch_commit_subjects(repo, base)]
 
 
 class GroupProgress(Frozen):
@@ -187,6 +193,70 @@ def group_progress(
             return GroupProgress(done=done, tests_made=True)
         position += 1
     return GroupProgress(done=len(titles), tests_made=False)
+
+
+def superseded_pairs(
+    repo: Path, ref: str, base: str, titles: Sequence[str], test_only: Sequence[bool]
+) -> list[list[str]] | None:
+    """The commits of each group on the branch at `ref`, oldest group first, when the branch
+    beyond `base` is exactly a pair for each of the groups (`titles`, by position, with
+    `test_only` groups taking their `test:` commit alone), in order; None for any other branch,
+    which has a commit that belongs to no group or lacks one."""
+    found = branch_commit_subjects(repo, base, ref)
+    shas = [sha for sha, _ in found]
+    subjects = [subject for _, subject in found]
+    if group_progress(subjects, titles, test_only).done != len(titles):
+        return None
+    sizes = [
+        1 if index < len(test_only) and test_only[index] else 2 for index in range(len(titles))
+    ]
+    if sum(sizes) != len(shas):
+        return None
+    taken = 0
+    groups: list[list[str]] = []
+    for size in sizes:
+        groups.append(shas[taken : taken + size])
+        taken += size
+    return groups
+
+
+def cherry_pick(repo: Path, shas: Sequence[str], *, unit_id: str = "") -> bool:
+    """Pick `shas` onto the checked-out branch in order, an originally empty commit (a group
+    recorded as already built) included; False, with the branch as it was before the first
+    pick and a clean tree, at the first that does not apply, so a group's commits come whole or
+    not at all. With `unit_id`, each picked commit's `Unit:` trailer names that unit."""
+    start = git_out(repo, "rev-parse", "HEAD")
+    for sha in shas:
+        if git(repo, "cherry-pick", "--allow-empty", sha, check=False).returncode:
+            git(repo, "cherry-pick", "--abort", check=False)
+            git(repo, "reset", "-q", "--hard", start)
+            return False
+        if unit_id and not _name_unit(repo, unit_id):
+            git(repo, "reset", "-q", "--hard", start)
+            return False
+    return True
+
+
+def _name_unit(repo: Path, unit_id: str) -> bool:
+    """Rewrite the `Unit:` trailer of HEAD to `unit_id`, keeping the rest of its message. The
+    commit already passed the gate, so no hook runs; False when the rewrite fails."""
+    message = git_out(repo, "log", "-1", "--format=%B")
+    old_lines = message.split("\n")
+    lines = [f"Unit: {unit_id}" if row.startswith("Unit: ") else row for row in old_lines]
+    if lines == old_lines:
+        return True
+    amended = git(
+        repo,
+        "commit",
+        "-q",
+        "--amend",
+        "--no-verify",
+        "--allow-empty",
+        "-m",
+        "\n".join(lines),
+        check=False,
+    )
+    return amended.returncode == 0
 
 
 def _test_only_commits(subjects: list[str], groups: Sequence[GroupStep]) -> list[bool]:
