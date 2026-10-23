@@ -6,64 +6,17 @@ the poller's own dispatch, over fake restack and cleanup, as a person's merge is
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
-from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.forges.base import PullRequest
-from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import events
-from agent_build_kit.pipeline.landing_intent import LANDING, has_intent
 from agent_build_kit.pipeline.pr_poller import HOLD_LABEL
-from agent_build_kit.pipeline.unit_store import Cause, UnitStore
+from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED
 from agent_build_kit.serve.review import ReviewStore
-from tests.conftest import make_installation
-from tests.factories import deep_store
 from tests.forges.stand_in import StandInForge
-from tests.landing_support import HEAD, apply_review, listed_review, make_landable
-
-UNIT = "c/1"
-PR = 1
-
-
-class Landing:
-    """A store of units in review, a forge, and the landing pass over them."""
-
-    def __init__(self, tmp_path: Path, patch: pytest.MonkeyPatch, forge: StandInForge) -> None:
-        self.inst: Installation = make_installation(tmp_path)
-        apply_review(self.inst, listed_review())
-        self.inst.state_dir.mkdir(parents=True, exist_ok=True)
-        self.store: UnitStore = deep_store(self.inst.state_dir)
-        self.forge = forge
-        self.restacked: list[tuple[str, str, str]] = []
-        self.logged: list[str] = []
-        patch.setattr(self.inst, "forge_of", lambda repo: (forge, forge.repo_id()))
-        make_landable(self.inst, self.store, forge, {UNIT: PR})
-        self.dispatch: Callable[..., bool] = events.build_dispatch(
-            self.store,
-            restack=lambda **k: self.restacked.append((k["branch"], k["old_base"], k["new_base"])),
-            remove_worktree=lambda repo, branch: None,
-            delete_branch=lambda repo, branch: None,
-            retarget=lambda unit, base: None,
-            rebase_cap=2,
-            landing_path=self.inst.state_dir / LANDING,
-            log=lambda message: None,
-        )
-
-    def land(self) -> None:
-        cli.land_units(self.inst, self.store, dispatch=self.dispatch, say=self.logged.append)
-
-    def intent(self, pr: int = PR) -> bool:
-        return has_intent(self.inst.state_dir / LANDING, repo="app", pr=pr)
-
-
-def landing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, forge: StandInForge | None = None
-) -> Landing:
-    return Landing(tmp_path, monkeypatch, forge or StandInForge())
+from tests.landing_support import HEAD, PR, UNIT, landing, make_landable
 
 
 def test_a_unit_that_may_land_is_merged_once_at_its_approved_head(
