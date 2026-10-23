@@ -19,7 +19,7 @@ Restrict = Callable[[Mapping[str, list[str]]], None]
 EXIT_NOT_APPLIED = 97
 
 # The policy file's list keys; `required` is a single value beside them.
-LIST_KEYS = ("write", "read", "host", "proxy_port")
+LIST_KEYS = ("write", "read", "host", "proxy_port", "port")
 
 _SYS_CREATE_RULESET = 444
 _SYS_ADD_RULE = 445
@@ -97,14 +97,15 @@ def apply_restrictions(lists: Mapping[str, list[str]], libc: ctypes.CDLL | None 
     libc = libc or _libc()
     abi = _abi(libc)
     handled, file_rights, folder_rights = _rights(abi)
-    port = next(iter(lists.get("proxy_port", [])), "")
+    # The proxy's port, then the local service ports an e2e-test step is granted.
+    ports = [*lists.get("proxy_port", [])[:1], *lists.get("port", [])]
     # The TCP rule needs ABI 4; on an older kernel the network is left as it is. From ABI 4 on,
     # TCP connect is always handled, so a policy with no proxy port denies every connect.
     net = _CONNECT_TCP if abi >= NETWORK_ABI else 0
     attr = _RulesetAttr(handled, net)
     ruleset = _call(libc, _SYS_CREATE_RULESET, ctypes.byref(attr), ctypes.sizeof(attr), 0)
     try:
-        if net and port:
+        for port in ports if net else []:
             allowed = _NetPort(net, int(port))
             _call(libc, _SYS_ADD_RULE, ruleset, _RULE_NET_PORT, ctypes.byref(allowed), 0)
         rules = [(path, folder_rights) for path in lists.get("write", [])]

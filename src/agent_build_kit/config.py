@@ -938,6 +938,16 @@ class E2eDimensionValue(Frozen):
     marker: str
 
 
+class E2eSandboxConfig(Frozen):
+    """What an e2e-test step may touch beyond a unit-test step's sandbox policy: paths to read
+    and write, hosts the proxy lets through, and the local ports of the services it needs."""
+
+    read: list[str] = []
+    write: list[str] = []
+    hosts: list[str] = []
+    ports: list[int] = []
+
+
 class TestsConfig(TestKindSettings):
     # Extra packages the repo-root tests (outside every workspace member) need.
     root_extras: list[str] = []
@@ -946,6 +956,8 @@ class TestsConfig(TestKindSettings):
     fix_command: list[str] | None = None
     # The pytest marker on tests that need the real local stack (e2e-test).
     e2e_marker: str = Field("local_stack", alias="e2e_marker")
+    # What an e2e-test step's sandbox allows beyond a unit-test step's.
+    e2e_sandbox: E2eSandboxConfig = E2eSandboxConfig()
     # This repo's e2e-test scope; None follows `global_limits.e2e_unit_scope`.
     e2e_unit_scope: E2eUnitScope | None = Field(None, alias="e2e_unit_scope")
     # This repo's e2e-before-merge choice; None follows `global_limits.e2e_before_merge`.

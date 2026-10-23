@@ -58,7 +58,7 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.forges import FileChange, Forge, RegistersStacks, RepoId, StackRefused
 from agent_build_kit.installation import Installation
-from agent_build_kit.model import Frozen
+from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.path_patterns import matches_any
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.changelog_convention import review_changelog_paragraph
@@ -390,7 +390,11 @@ def _recorder(
 
 
 def _sandbox_policy(
-    repo: str, worktree: Path, runtime: AgentRuntime, account: claude_account.Account | None
+    repo: str,
+    worktree: Path,
+    runtime: AgentRuntime,
+    account: claude_account.Account | None,
+    tier: TestTier = TestTier.UNIT_TEST,
 ) -> SandboxPolicy | None:
     """The policy a step in `worktree` of `repo` runs under; None while the sandbox is off or
     the call is not a step of a repo."""
@@ -404,12 +408,14 @@ def _sandbox_policy(
         runtime=runtime,
         profile=profiles.get(active().repos[repo].profile),
         account=account,
+        tier=tier,
     )
 
 
 def build_run(
     *,
     sandbox_repo: str = "",
+    sandbox_tier: TestTier = TestTier.UNIT_TEST,
     run: Run | None = None,
     planning_repo: Path | None = None,
     allowed_tools: str | None = None,
@@ -498,7 +504,7 @@ def build_run(
 
         gateway = {"gateway": spend} if source is not None else {}
         try:
-            sandbox = _sandbox_policy(sandbox_repo, cwd, agent, account)
+            sandbox = _sandbox_policy(sandbox_repo, cwd, agent, account, sandbox_tier)
         except PolicyRefused as refused:
             spend()
             raise RuntimeError(f"the sandbox policy was refused: {refused}") from refused

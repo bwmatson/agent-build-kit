@@ -8,9 +8,9 @@ from typing import Any
 
 from agent_build_kit import config as config_module
 from agent_build_kit import profiles
-from agent_build_kit.config import ProjectSandboxConfig, RepoSandboxConfig
+from agent_build_kit.config import E2eSandboxConfig, ProjectSandboxConfig, RepoSandboxConfig
 from agent_build_kit.installation import Installation
-from agent_build_kit.model import Frozen
+from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.profiles.base import SandboxPaths
 from agent_build_kit.sandboxes.base import (
     SandboxPathsProfile,
@@ -36,13 +36,16 @@ def build_policy(
     runtime: object,
     profile: object,
     account: object = None,
+    tier: TestTier = TestTier.UNIT_TEST,
 ) -> SandboxPolicy:
     """The policy for a step in `worktree` of `repo`: built-ins, then the runtime's and the
     profile's optional `sandbox_paths`, then `repos.<name>.sandbox` and each project's from
     abk.yaml, then the same keys from abk.local.yaml. The two files are read apart: the loaded
-    configuration holds the overlay laid over the committed file, which replaces a list whole."""
+    configuration holds the overlay laid over the committed file, which replaces a list whole.
+    An e2e-test step also takes `repos.<name>.tests.e2e_sandbox` from both files; any other tier
+    never gets a service port."""
     entries = policy_entries(
-        installation, repo, worktree, runtime=runtime, profile=profile, account=account
+        installation, repo, worktree, runtime=runtime, profile=profile, account=account, tier=tier
     )
 
     def listed(key: str) -> list[str]:
@@ -54,6 +57,7 @@ def build_policy(
         write=_unique([worktree.resolve(), *git_parts(worktree), *write]),
         read=_unique(_resolved(listed("read"), worktree)),
         hosts=_unique(listed("hosts")),
+        ports=_unique(int(port) for port in listed("ports")),
         required=installation.config.repos[repo].sandbox.required,
     )
 
@@ -75,10 +79,12 @@ def policy_entries(
     runtime: object,
     profile: object,
     account: object = None,
+    tier: TestTier = TestTier.UNIT_TEST,
 ) -> list[PolicyEntry]:
     """The entries `build_policy` assembles, each with its source, in the order it takes them:
-    the runtime's, the repo's profile's and each project's profile's, then the files'."""
-    layers: list[tuple[str, ProjectSandboxConfig]] = []
+    the runtime's, the repo's profile's and each project's profile's, then the files'. For an
+    e2e-test step each file's `tests.e2e_sandbox` follows its sandbox blocks."""
+    layers: list[tuple[str, ProjectSandboxConfig | E2eSandboxConfig]] = []
     if isinstance(runtime, SandboxPathsRuntime):
         # An account is passed only when the step runs as one; a runtime without accounts
         # takes none.
@@ -100,11 +106,13 @@ def policy_entries(
         (config_module.OVERLAY_FILENAME, config_module.read_overlay(path)),
     ):
         layers.extend((source, block) for block in _blocks(document or {}, repo))
+        if tier is TestTier.E2E_TEST:
+            layers.append((source, _e2e_block(document or {}, repo)))
     return [
-        PolicyEntry(kind=kind, value=value, source=source)
-        for kind in ("write", "read", "hosts")
+        PolicyEntry(kind=kind, value=str(value), source=source)
+        for kind in ("write", "read", "hosts", "ports")
         for source, layer in layers
-        for value in getattr(layer, kind)
+        for value in getattr(layer, kind, [])
     ]
 
 
@@ -134,6 +142,12 @@ def _blocks(document: dict[str, Any], repo: str) -> list[ProjectSandboxConfig]:
     for project in entry.get("projects") or []:
         blocks.append(ProjectSandboxConfig.model_validate(project.get("sandbox") or {}))
     return blocks
+
+
+def _e2e_block(document: dict[str, Any], repo: str) -> E2eSandboxConfig:
+    """The repo's `tests.e2e_sandbox` in one file, validated."""
+    entry = (document.get("repos") or {}).get(repo) or {}
+    return E2eSandboxConfig.model_validate((entry.get("tests") or {}).get("e2e_sandbox") or {})
 
 
 def git_parts(worktree: Path) -> list[Path]:
