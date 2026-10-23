@@ -92,6 +92,7 @@ def write_both(base: Path, base_text: str, local_text: str) -> None:
     try:
         local_before = local.read_bytes() if local.exists() else None
         mode = base.stat().st_mode
+        local_mode = local.stat().st_mode if local_before is not None else mode
     except OSError as error:
         raise ConfigMigrateError(f"{base}: {error}") from error
     try:
@@ -114,7 +115,7 @@ def write_both(base: Path, base_text: str, local_text: str) -> None:
         for path in staged:
             path.unlink(missing_ok=True)
         if replaced:
-            _undo(local, local_before, mode)
+            _undo(local, local_before, local_mode)
         raise ConfigMigrateError(f"{failing}: {error}") from error
 
 

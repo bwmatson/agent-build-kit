@@ -98,6 +98,21 @@ def test_the_local_file_is_replaced_first_and_the_tracked_one_second(tmp_path: P
     ]
 
 
+def test_a_restored_local_file_keeps_its_own_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base, overlay = files(tmp_path)
+    base.chmod(0o644)
+    overlay.chmod(0o600)
+    fail_nth(monkeypatch, "replace", 2, 2)
+
+    with pytest.raises(ConfigMigrateError, match="abk.yaml"):
+        write_both(base, BASE_NEW, LOCAL_NEW)
+
+    assert overlay.read_text() == LOCAL_OLD
+    assert overlay.stat().st_mode & 0o7777 == 0o600
+
+
 @pytest.mark.parametrize("local", [LOCAL_OLD, None])
 def test_a_failed_second_replacement_restores_the_local_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, local: str | None
