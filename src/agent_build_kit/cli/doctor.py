@@ -37,6 +37,9 @@ from agent_build_kit import (
     skills,
     timers,
 )
+
+# Reached through the module so a test can replace the table's `machine_settings`.
+from agent_build_kit import machine_settings as machine_table
 from agent_build_kit import settings as settings_module
 from agent_build_kit.config import (
     OVERLAY_FILENAME,
@@ -96,7 +99,6 @@ from agent_build_kit.redaction import active as active_redactor
 from agent_build_kit.replay.review import directories, overdue, waiting
 from agent_build_kit.runtimes import claude_code, policy_check, providers
 from agent_build_kit.runtimes.base import AgentRuntime, Run, Which, account_report_of
-from agent_build_kit.scrub_terms import ROOT_HOME, TILDE_HOME
 from agent_build_kit.settings import settings
 
 Status = Literal["ok", "info", "warn", "FAIL"]
@@ -811,7 +813,6 @@ def _verify_env(inst: Installation, run: Run) -> list[Check]:
 
 
 PUBLIC_CONTENT = "public content"
-_HOME_PATH = re.compile(rf"{TILDE_HOME}|{ROOT_HOME}[A-Za-z]")
 _PUBLIC_FIX = (
     "keep the value in the ignored .env (read through a `from: env-file` entry) or remove the "
     "entry; if this repository is private, ignore this"
@@ -843,8 +844,6 @@ def _committed_facts(inst: Installation, toplevel: Path) -> list[Check]:
     """What the tracked abk.yaml's own text says that a public repository must
     not: read straight from the file, offline."""
     document = yaml.safe_load((inst.root / "abk.yaml").read_text()) or {}
-    home = str(Path.home())
-    under_home = re.compile(rf"(?<![\w/]){re.escape(home)}(?:/|$)") if home.rstrip("/") else None
     repos = document.get("repos") or {}
     checks = []
     for name, entry in repos.items():
@@ -861,7 +860,7 @@ def _committed_facts(inst: Installation, toplevel: Path) -> list[Check]:
                 )
             )
     for key, value in _strings(document):
-        if _HOME_PATH.search(value) or (under_home and under_home.search(value)):
+        if machine_table.holds_home_path(value):
             checks.append(_warn(PUBLIC_CONTENT, f"{key} holds a home-directory path", _PUBLIC_FIX))
     origin = git(inst.root, "remote", "get-url", "origin", check=False)
     named = forges.identify(origin.stdout.strip()) if origin.returncode == 0 else None
@@ -943,63 +942,30 @@ def _public_content(inst: Installation) -> list[Check]:
 
 
 MACHINE_KEYS = "machine keys"
-
-
-def _mapping(node: object, *path: str) -> dict:
-    for key in path:
-        node = node.get(key) if isinstance(node, dict) else None
-    return node if isinstance(node, dict) else {}
+_MACHINE_FIX = f"move it to {OVERLAY_FILENAME} with `abk config --migrate`"
+_DEFAULT_FIX = (
+    f"fine to commit; move it to {OVERLAY_FILENAME} to differ "
+    "(`abk config --migrate --include-defaults` moves it)"
+)
 
 
 def _machine_keys(inst: Installation) -> list[Check]:
     """Settings in the committed abk.yaml that belong to a machine or a person: a warning
     for a machine choice, a note for a default a team may commit."""
     root = inst.root
-    if git(root, "rev-parse", "--show-toplevel", check=False).returncode:
-        return []
-    if not _is_tracked(root, "abk.yaml"):
+    top = git(root, "rev-parse", "--show-toplevel", check=False)
+    if top.returncode or not _is_tracked(root, "abk.yaml"):
         return []
     document = read_base(root / "abk.yaml")
-    move = f"move it to {OVERLAY_FILENAME}"
-    warned = []
-    noted = []
-    repos = _mapping(document, "repos")
-    for name, entry in repos.items():
-        if isinstance(entry, dict) and entry.get("account") is not None:
-            warned.append((f"repos.{name}.account", "names the account this machine builds on"))
-    if document.get("project_limits"):
-        warned.append(("project_limits", "is the scheduling this machine runs at"))
-    for name, entry in _mapping(document, "runtimes").items():
-        if not isinstance(entry, dict):
-            continue
-        if entry.get("accounts"):
-            warned.append((f"runtimes.{name}.accounts", "lists the accounts of this person"))
-        for field in ("command", "policy_fix"):
-            argv = entry.get(field)
-            if isinstance(argv, list) and argv and Path(str(argv[0])).is_absolute():
-                warned.append((f"runtimes.{name}.{field}", "starts with an absolute program path"))
-        if entry.get("limits"):
-            noted.append((f"runtimes.{name}.limits", "a plan's thresholds differ per person"))
-    scopes = [("tests", _mapping(document, "tests"))]
-    scopes += [(f"repos.{n}.tests", _mapping(e, "tests")) for n, e in repos.items()]
-    for scope, tests in scopes:
-        if tests.get("e2e_available"):
-            warned.append((f"{scope}.e2e_available", "is what this machine has"))
-        if str(tests.get("e2e_schedule")).lower() in ("off", "false"):
-            noted.append(
-                (f"{scope}.e2e_schedule", "a scheduled run switched off suits one machine")
-            )
-        for split, entry in _mapping(tests, "e2e_splits").items():
-            if isinstance(entry, dict) and entry.get("hold") is not None:
-                noted.append((f"{scope}.e2e_splits.{split}.hold", "a hold may suit one machine"))
-    checks = [
-        _warn(MACHINE_KEYS, f"{key} in abk.yaml {why}: a machine choice", move)
-        for key, why in warned
-    ]
-    checks += [
-        _info(MACHINE_KEYS, f"{key} in abk.yaml: {why}", f"fine to commit; {move} to differ")
-        for key, why in noted
-    ]
+    found = machine_table.machine_settings(document, Path(top.stdout.strip()), root)
+    checks = []
+    for setting in found:
+        key = ".".join(setting.path)
+        if setting.kind == "machine":
+            detail = f"{key} in abk.yaml {setting.reason}: a machine choice"
+            checks.append(_warn(MACHINE_KEYS, detail, _MACHINE_FIX))
+        else:
+            checks.append(_info(MACHINE_KEYS, f"{key} in abk.yaml: {setting.reason}", _DEFAULT_FIX))
     return checks
 
 

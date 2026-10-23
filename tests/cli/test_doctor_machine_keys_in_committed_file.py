@@ -5,19 +5,20 @@ same keys in abk.local.yaml (spec: config-files-guidance)."""
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import pytest
-import yaml
 
 from agent_build_kit.cli.doctor import Check, run_doctor
-from agent_build_kit.config import merge_local
-from tests.cli.public_content_repo import planning, said
+from tests.cli.public_content_repo import (
+    ACCOUNTS,
+    NOTE_FIX,
+    OVERLAY,
+    WARN_FIX,
+    committed_config,
+    said,
+)
 from tests.cli.test_doctor import Answers
-from tests.factories import git, which_all
-
-OVERLAY = "abk.local.yaml"
-ACCOUNTS = {"runtimes": {"claude_code": {"accounts": {"kit": {"max_units_in_progress": 2}}}}}
+from tests.factories import which_all
 
 # Each machine choice with the document that holds it and the key doctor names.
 MACHINE_CHOICES = {
@@ -45,19 +46,6 @@ QUIET = {
 }
 
 
-def installation(root: Path, *, committed: dict[str, Any], overlay: dict[str, Any]) -> Path:
-    """A committed planning repo holding `committed` in abk.yaml and `overlay` in the
-    ignored abk.local.yaml; the path of abk.yaml."""
-    config = planning(root, ignore=OVERLAY + "\n")
-    document = yaml.safe_load(config.read_text())
-    declared = {"tests": {"e2e_dimensions": {"os": {"linux": {"marker": "linux"}}}}}
-    document = merge_local(merge_local(document, declared), committed)
-    config.write_text(yaml.safe_dump(document, sort_keys=False))
-    git(root, "commit", "-qam", "machine keys", "--allow-empty")
-    (root / OVERLAY).write_text(yaml.safe_dump(overlay))
-    return config
-
-
 # Present in every negative case, so that doctor is shown to look at the file at all.
 SENTINEL = "project_limits"
 
@@ -71,30 +59,31 @@ def about(config: Path, key: str) -> list[Check]:
 def test_a_machine_choice_in_the_committed_file_warns_naming_the_key_and_the_overlay(
     tmp_path: Path, key: str
 ) -> None:
-    config = installation(tmp_path / "plan", committed=MACHINE_CHOICES[key], overlay={})
+    config = committed_config(tmp_path / "plan", committed=MACHINE_CHOICES[key], overlay={})
 
     found = about(config, key)
 
     assert [c.status for c in found] == ["warn"], found
     assert "abk.yaml" in said(found[0])
-    assert OVERLAY in said(found[0])
+    assert found[0].fix == WARN_FIX
 
 
 @pytest.mark.parametrize("key", DEFAULTS)
 def test_a_default_a_team_may_commit_is_a_note_not_a_warning(tmp_path: Path, key: str) -> None:
-    config = installation(tmp_path / "plan", committed=DEFAULTS[key], overlay={})
+    config = committed_config(tmp_path / "plan", committed=DEFAULTS[key], overlay={})
 
     found = about(config, key)
 
     assert [c.status for c in found] == ["info"], found
     assert "abk.yaml" in said(found[0])
+    assert found[0].fix == NOTE_FIX
 
 
 @pytest.mark.parametrize("key", QUIET)
 def test_a_workspace_setting_or_a_bare_program_name_prints_nothing(
     tmp_path: Path, key: str
 ) -> None:
-    config = installation(
+    config = committed_config(
         tmp_path / "plan", committed={**MACHINE_CHOICES[SENTINEL], **QUIET[key]}, overlay={}
     )
 
@@ -106,14 +95,16 @@ def test_a_workspace_setting_or_a_bare_program_name_prints_nothing(
 def test_the_same_keys_only_in_the_overlay_print_nothing(tmp_path: Path, key: str) -> None:
     both = {**MACHINE_CHOICES, **DEFAULTS}
     sentinel = "tests.e2e_available" if key == SENTINEL else SENTINEL
-    config = installation(tmp_path / "plan", committed=MACHINE_CHOICES[sentinel], overlay=both[key])
+    config = committed_config(
+        tmp_path / "plan", committed=MACHINE_CHOICES[sentinel], overlay=both[key]
+    )
 
     assert [c.status for c in about(config, sentinel)] == ["warn"]
     assert about(config, key) == []
 
 
 def test_only_the_keys_present_are_named(tmp_path: Path) -> None:
-    config = installation(tmp_path / "plan", committed=MACHINE_CHOICES[SENTINEL], overlay={})
+    config = committed_config(tmp_path / "plan", committed=MACHINE_CHOICES[SENTINEL], overlay={})
 
     checks = run_doctor(config, run=Answers(), which=which_all)
 
