@@ -8,10 +8,9 @@ from typing import Any
 
 import pytest
 import yaml
-from pydantic import ValidationError
 
 from agent_build_kit import config
-from agent_build_kit.config import ClaudeLimitsConfig
+from agent_build_kit.config import ClaudeLimitsConfig, ConfigError
 
 
 def loaded(root: Path, limits: dict[str, Any]) -> ClaudeLimitsConfig:
@@ -55,7 +54,7 @@ def test_abk_yaml_sets_them_beside_the_other_usage_settings(tmp_path: Path) -> N
 def test_a_value_out_of_range_is_refused_naming_the_key(
     tmp_path: Path, key: str, value: float
 ) -> None:
-    with pytest.raises(ValidationError, match=key):
+    with pytest.raises(ConfigError, match=key):
         loaded(tmp_path, {key: value})
 
 
@@ -65,5 +64,5 @@ def test_a_quantile_of_one_is_allowed(tmp_path: Path) -> None:
 
 def test_an_unknown_key_is_still_refused(tmp_path: Path) -> None:
     assert loaded(tmp_path, {}).usage_forecast_quantile == 0.9
-    with pytest.raises(ValidationError, match="usage_forecast_quantil"):
+    with pytest.raises(ConfigError, match="usage_forecast_quantil"):
         loaded(tmp_path, {"usage_forecast": True, "usage_forecast_quantil": 0.9})
