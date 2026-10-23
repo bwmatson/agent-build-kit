@@ -4,7 +4,9 @@
 
 - The `review` section of `abk.yaml` now accepts `auto_land.classes` (the classes that may land
   without a person; empty, the default, turns it off), `audit.sample_rate` and `demotion.window`
-  and `min_agreement`. Each listed class must be one named in `review.classes`.
+  and `min_agreement`. Each listed class must be one named in `review.classes`. `abk doctor`
+  warns for each repo with no branch protection once a class is listed, since the command policy
+  hook is then the only guard, and warns when the list is set while `review.enabled` is false.
 
 - With review enabled, a class now stays at `light` review until its own record clears the gates:
   at least `review.auto_land.min_samples` merged units that carried the brief, merging clean at
