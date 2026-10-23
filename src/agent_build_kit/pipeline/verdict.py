@@ -98,6 +98,9 @@ class VerdictFacts(Frozen):
     drivers: tuple[str, ...] = ()
     groups: tuple[GroupText, ...] = ()
     size_waived: bool = False
+    # The unit's class and the classes demoted now, which hold a class at `light`.
+    unit_class: str | None = None
+    demoted_classes: tuple[str, ...] = ()
 
 
 class TierVerdict(Frozen):
