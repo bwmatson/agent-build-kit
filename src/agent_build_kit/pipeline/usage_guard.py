@@ -80,7 +80,6 @@ from agent_build_kit.pipeline.pause import UNKNOWN_RETRY
 from agent_build_kit.pipeline.usage_allowances import (
     SESSION_WINDOW,
     WEEKLY_WINDOW,
-    WINDOWS,
     allowance_for,
     allowances_path,
     of_account,
@@ -99,7 +98,7 @@ from agent_build_kit.pipeline.usage_calls import (
     read_calls,
     record_call,
 )
-from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, read_ledger, spend_times
+from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, read_ledger, spend_costs
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited, Run
 from agent_build_kit.runtimes.providers import (
     GateCommandResult,
@@ -1167,6 +1166,8 @@ class WindowEstimate(Frozen):
     spent_pct: float
     threshold: int
     margin: int
+    cost_usd: float | None = None  # the recorded cost counted; None on the units basis
+    unrecorded: int = 0  # units counted at the flat allowance for want of a cost
 
     @property
     def estimate(self) -> float:
@@ -1178,13 +1179,28 @@ class WindowEstimate(Frozen):
 
     @property
     def text(self) -> str:
+        counted = ""
+        if self.cost_usd is not None:
+            counted = f" from ${self.cost_usd:.2f} recorded"
+            if self.unrecorded:
+                plural = "unit" if self.unrecorded == 1 else "units"
+                counted += f", {self.unrecorded} {plural} not yet recorded"
         shown = (
             f"{self.name} ~{round(self.estimate)}% estimated "
-            f"({self.read_pct}% read + {round(self.spent_pct)}% spent)"
+            f"({self.read_pct}% read + {round(self.spent_pct)}% spent{counted})"
         )
         if self.ample:
             return f"{shown} under {self.threshold}%"
         return f"{shown} is not {self.margin} points under {self.threshold}%"
+
+
+class Spend(Frozen):
+    """What the pipeline may have spent in one window since a time: the points, and for a
+    window on the cost basis the recorded cost counted and the units counted without one."""
+
+    points: float
+    cost_usd: float | None = None
+    unrecorded: int = 0
 
 
 def estimate_usage(
@@ -1193,8 +1209,7 @@ def estimate_usage(
     now: datetime,
     limits: Limits,
     margin: int,
-    allowances: dict[str, int],
-    units_since: Callable[[datetime], int],
+    spend: Callable[[Literal["session", "weekly"], datetime, bool], Spend],
     climb: Callable[[Literal["session", "weekly"], float], float],
 ) -> list[WindowEstimate]:
     """Each window's estimate now, session first, from the reading `held`.
@@ -1203,7 +1218,8 @@ def estimate_usage(
     spent or started since the reading. One that has reset since starts from zero at the
     reset, plus `climb` (the most it could have added in the minutes since) and its allowance
     for each unit since the reset: a reading says nothing about a window it no longer
-    describes. `units_since` counts the units that spent or started since a time.
+    describes. `spend(window, since, reset)` is what was spent in the window since a time, on
+    the window's basis; `reset` says the time is the window's reset, not the reading's.
     """
     estimates = []
     for window in reversed(held.windows):
@@ -1215,13 +1231,16 @@ def estimate_usage(
             read = 0
         else:
             since, added, judged, read = held.observed_at, 0.0, window, window.used_pct
+        spent = spend(window.name, since, reset)
         estimates.append(
             WindowEstimate(
                 name=window.name,
                 read_pct=read,
-                spent_pct=added + allowances[window.name] * units_since(since),
+                spent_pct=added + spent.points,
                 threshold=threshold_at(judged, now=now, limits=limits),
                 margin=margin,
+                cost_usd=spent.cost_usd,
+                unrecorded=spent.unrecorded,
             )
         )
     return estimates
@@ -1247,11 +1266,33 @@ def _estimates(
     account = _account.get() or claude_account.Account()
     kept = read_allowances(allowances_path(cache_path.parent, account))
     admitted = set(_admitted(cached))
-    # Only the units that ran on this account spent its windows.
-    spent = spend_times(of_account([], read_ledger(cache_path.parent / LEDGER_NAME), account)[1])
+    # Only what ran on this account spent its windows.
+    rows = spend_costs(of_account([], read_ledger(cache_path.parent / LEDGER_NAME), account)[1])
 
-    def units_since(since: datetime) -> int:
-        return len(admitted | {unit for at, unit in spent if at >= since})
+    def spend(window: Literal["session", "weekly"], since: datetime, reset: bool) -> Spend:
+        found = kept.get(window)
+        flat = allowance_for(window, found, limits)
+        since_rows = [row for row in rows if row.at >= since]
+        spent_units = admitted | {row.unit for row in since_rows if row.unit}
+        if (
+            found is None
+            or found.points_per_usd is None
+            or found.basis != "cost"
+            or not limits.calibrate_usage_allowances
+            or getattr(limits, window).usage_estimate_basis != "cost"
+        ):
+            return Spend(points=float(flat * len(spent_units)))
+        costed = {row.unit for row in since_rows if row.unit and row.cost_usd > 0}
+        unrecorded = len(spent_units - costed)
+        cost = sum(row.cost_usd for row in since_rows)
+        # After a reset the climb stands for what nobody recorded, so no intercept is added.
+        hours = 0.0 if reset else (now - since).total_seconds() / 3600
+        points = (
+            found.points_per_usd * cost
+            + (found.intercept_per_hour or 0.0) * hours
+            + flat * unrecorded
+        )
+        return Spend(points=points, cost_usd=cost, unrecorded=unrecorded)
 
     def climb(window: Literal["session", "weekly"], minutes: float) -> float:
         return most_added(
@@ -1268,8 +1309,7 @@ def _estimates(
         now=now,
         limits=Limits.configured(),
         margin=limits.usage_headroom_margin_pct,
-        allowances={window: allowance_for(window, kept.get(window), limits) for window in WINDOWS},
-        units_since=units_since,
+        spend=spend,
         climb=climb,
     )
 
@@ -1291,6 +1331,7 @@ def _decide_on_estimate(
     *,
     now: datetime,
     unit: str | None,
+    step: str | None = None,
     next_call: datetime | None,
 ) -> Decision:
     """Whether a unit may start when the endpoint cannot be asked: the estimate, then the cap.
@@ -1321,7 +1362,7 @@ def _decide_on_estimate(
             **facts,
         )
     if unit is not None:
-        _record_admitted(cache_path, held, unit)
+        _record_admitted(cache_path, held, unit, step)
     return Decision(
         may_start=True,
         reason=f"{text}, allowing starts",
@@ -1334,9 +1375,11 @@ def _decide_on_estimate(
     )
 
 
-def _record_admitted(cache_path: Path, held: UsageReading, unit: str) -> None:
-    """Keep `unit` with the reading as started on an estimate, unless a good read has replaced
-    the reading meanwhile."""
+def _record_admitted(
+    cache_path: Path, held: UsageReading, unit: str, step: str | None = None
+) -> None:
+    """Keep `unit` with the reading as started on an estimate, and the step it was admitted
+    for under a key of its own, unless a good read has replaced the reading meanwhile."""
     try:
         with file_lock(cache_path.with_name(cache_path.name + ".lock")):
             cached = _load_cache(cache_path)
@@ -1345,7 +1388,10 @@ def _record_admitted(cache_path: Path, held: UsageReading, unit: str) -> None:
                 return
             admitted = _admitted(cached)
             if unit not in admitted:
-                _write_cache(cache_path, {**cached, "estimate_units": [*admitted, unit]})
+                kept_steps = cached.get("estimate_steps")
+                steps = kept_steps if isinstance(kept_steps, dict) else {}
+                added = {"estimate_steps": {**steps, unit: step}} if step else {}
+                _write_cache(cache_path, {**cached, "estimate_units": [*admitted, unit], **added})
     except (OSError, TypeError):
         pass
 
@@ -1394,12 +1440,13 @@ def decide_start(
     read: Callable[[], UsageReading | None] | None = None,
     decide: Callable[..., Decision] | None = None,
     unit: str | None = None,
+    step: str | None = None,
     account: claude_account.Account | None = None,
 ) -> Decision:
     """`_decide_start` for `account`'s windows, limits and cache; a refusal on a labelled
-    account says which account is full."""
+    account says which account is full. `step` is the step the start is for."""
     with on_account(account):
-        decision = _decide_start(read=read, decide=decide, unit=unit)
+        decision = _decide_start(read=read, decide=decide, unit=unit, step=step)
     if account is not None and account.label is not None and not decision.may_start:
         return decision.model_copy(update={"reason": f"account {account.label}: {decision.reason}"})
     return decision
@@ -1410,6 +1457,7 @@ def _decide_start(
     read: Callable[[], UsageReading | None] | None = None,
     decide: Callable[..., Decision] | None = None,
     unit: str | None = None,
+    step: str | None = None,
 ) -> Decision:
     """Whether a unit may start now, asking the endpoint only when a fresh reading
     could change the answer and the minimum interval allows a call.
@@ -1438,7 +1486,13 @@ def _decide_start(
         """The start allowed on an estimate, or the refusal with the estimate's text added."""
         later = datetime.now(UTC)
         estimated = _decide_on_estimate(
-            base, _load_cache(cache_path), cache_path, now=later, unit=unit, next_call=next_call
+            base,
+            _load_cache(cache_path),
+            cache_path,
+            now=later,
+            unit=unit,
+            step=step,
+            next_call=next_call,
         )
         if estimated.may_start:
             return estimated
