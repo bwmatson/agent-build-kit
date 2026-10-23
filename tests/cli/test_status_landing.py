@@ -11,6 +11,7 @@ import pytest
 
 from agent_build_kit.forges.base import Check, CheckStatus
 from agent_build_kit.pipeline.pr_poller import HOLD_LABEL
+from agent_build_kit.pipeline.units import IN_REVIEW
 from agent_build_kit.pipeline.verdict import ReviewTier
 from agent_build_kit.pipeline.verdict_record import VERDICTS
 from tests.conftest import run_status
@@ -81,3 +82,20 @@ def test_a_unit_the_landing_step_is_not_concerned_with_shows_no_reason(
     assert lines
     assert not any("held by label" in line or "not landed" in line for line in lines)
     assert any("held by label" in line for line in unit_lines(held, monkeypatch, capsys))
+
+
+def test_a_decline_ended_by_a_rework_is_no_longer_shown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    landed = landing(tmp_path, monkeypatch)
+    landed.forge.on_pr[PR] = {HOLD_LABEL}
+    landed.land()
+    assert any("held by label" in line for line in unit_lines(landed, monkeypatch, capsys))
+
+    landed.store.set_state(UNIT, IN_REVIEW, note="rework")
+    write_verdicts(landed.inst.state_dir / VERDICTS, {UNIT: ReviewTier.LIGHT}, unit_class="docs")
+
+    lines = unit_lines(landed, monkeypatch, capsys)
+
+    assert lines
+    assert not any("held by label" in line or "not landed" in line for line in lines)

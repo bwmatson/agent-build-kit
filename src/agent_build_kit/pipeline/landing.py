@@ -141,8 +141,13 @@ def _land_unit(
 
 def declined_reason(unit: StoredUnit) -> str:
     """Why the landing step last declined the unit, in words; empty when it has not, or when
-    the unit is only waiting for its checks to finish, which needs no reason."""
-    declined = [entry for entry in unit.history if entry.get("event") == "landing_declined"]
+    the unit is only waiting for its checks to finish, which needs no reason. Only a decline
+    since the unit's latest state change counts: a rework or a new entry to review ends it."""
+    since = 0
+    for index, entry in enumerate(unit.history):
+        if "event" not in entry:
+            since = index
+    declined = [e for e in unit.history[since:] if e.get("event") == "landing_declined"]
     if not declined or declined[-1].get("condition") == Condition.CHECKS_PENDING.value:
         return ""
     return str(declined[-1].get("note", ""))
