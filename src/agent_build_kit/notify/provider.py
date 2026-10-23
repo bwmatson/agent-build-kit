@@ -11,6 +11,7 @@ class CardKind(StrEnum):
     FAILED = "failed"
     HELD = "held"
     DIGEST = "digest"
+    AUDIT = "audit"
 
 
 class ProviderError(Exception):

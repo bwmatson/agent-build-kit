@@ -107,10 +107,12 @@ def desired_cards(
     verdicts: Path | None = None,
     *,
     demoted_classes: Collection[str] = (),
+    audits: Path | None = None,
 ) -> list[Card]:
     """One card for each unit that is waiting on a person, and one digest of what landed.
 
-    `verdicts` is the verdict file; `demoted_classes` are the classes held back from landing."""
+    `verdicts` is the verdict file; `demoted_classes` are the classes held back from landing;
+    `audits` is the audit file."""
     cards = []
     for unit in units:
         kind = _kind_of(unit)

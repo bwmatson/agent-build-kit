@@ -38,6 +38,10 @@ def cmd_review_report(args: argparse.Namespace, inst: Installation) -> int:
     return 0
 
 
+def cmd_review_audit(args: argparse.Namespace, inst: Installation) -> int:
+    raise NotImplementedError
+
+
 def register(sub: argparse._SubParsersAction) -> None:
     parser = sub.add_parser("review", help="the review record")
     commands = parser.add_subparsers(dest="review_command", required=True)
@@ -45,3 +49,7 @@ def register(sub: argparse._SubParsersAction) -> None:
         "report", help="print each class's rates and whether it clears the gates"
     )
     report.set_defaults(func=cmd_review_report)
+    audit = commands.add_parser("audit", help="record the result of auditing a landed unit")
+    audit.add_argument("unit")
+    audit.add_argument("result")
+    audit.set_defaults(func=cmd_review_audit)
