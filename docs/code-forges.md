@@ -195,6 +195,11 @@ command shape needs an exception: `az repos pr update`, `az rest` and `az devops
 invoke` are denied whole, and the same prefixes are refused by the runtime's deny
 flags.
 
+The pipeline's own landing (`merge_pr`) is not a command an agent runs, so neither layer
+applies to it. The `acp` runtime also ignores the deny lists, so on that runtime only the
+host's server-side guard (branch protection) stands between an agent and a merge.
+`abk doctor` warns for a repo with none once a class may land.
+
 ## Adding a forge
 
 1. **Write the module.** `forges/<name>.py`, a plain class with the members

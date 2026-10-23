@@ -50,7 +50,6 @@ from agent_build_kit.cli.e2e_cmd import held_status_lines
 from agent_build_kit.cli.policy_cmd import coverage_line
 from agent_build_kit.cli.retire_cmd import cmd_retire
 from agent_build_kit.compat_names import old_tag
-from agent_build_kit.forges import PullRequest
 from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun
 from agent_build_kit.installation import Installation
@@ -134,6 +133,7 @@ from agent_build_kit.pipeline.gate_holds import evaluate_gates, gate_status_line
 from agent_build_kit.pipeline.joins import JoinContext
 from agent_build_kit.pipeline.label_sweep import sweep_finished
 from agent_build_kit.pipeline.labels import StateLabels
+from agent_build_kit.pipeline.landing import land_units
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.manual_steps import (
     evaluate_manual_steps,
@@ -226,11 +226,11 @@ from agent_build_kit.pipeline.stack_runner import (
 )
 from agent_build_kit.pipeline.transcript import remove_change_transcripts, transcript_dir
 from agent_build_kit.pipeline.ui_review import (
+    ui_listing,
     ui_notes_of,
     ui_reply_writer,
     unit_of,
     unit_patch_of,
-    with_ui_review,
 )
 from agent_build_kit.pipeline.unit_size import (
     Calibration,
@@ -417,7 +417,7 @@ from agent_build_kit.redaction import redact_text
 from agent_build_kit.replay.review import directories as replay_directories
 from agent_build_kit.replay.review import waiting as replay_waiting
 from agent_build_kit.runtimes import AgentRateLimited, NetworkUnavailable, ServiceUnavailable
-from agent_build_kit.serve.review import Review, ReviewStore
+from agent_build_kit.serve.review import ReviewStore
 
 if TYPE_CHECKING:
     from agent_build_kit.graph.unit import Position
@@ -1935,6 +1935,12 @@ def run_round(
     # Before polling: a merge the poll finds restacks the units above it
     # straight away, and they must land on the trunk as it now is.
     _refresh(inst, store=store, lane=lane)
+    # Once per tick, in its first round: the rounds beside builds in flight are quiet, and a
+    # dry run merges nothing.
+    if not quiet and not dry_run:
+        _step(
+            "landing", land_units, inst, store, dispatch=_dispatch(inst, store, lane=lane), say=log
+        )
     _step("finishing chat commits", deliver_committed, inst, store)
     _step("creating the thread store", _create_thread_store, inst)
     # Planning runs on the default account: not while the model has refused it.
@@ -5576,14 +5582,6 @@ def hold_label_on(inst: Installation, unit: StoredUnit) -> bool:
     return HOLD_LABEL in (recorded.get(str(unit.pr)) or {}).get("labels", [])
 
 
-def _ui_review_of(
-    inst: Installation, store: UnitStore, repo: str, pull: PullRequest
-) -> Review | None:
-    """The review made in the web UI of the unit whose pull request `pull` is."""
-    unit = unit_of(store, repo, pull.number)
-    return ReviewStore(inst.state_dir / "reviews").read(unit.id) if unit else None
-
-
 def poll_all(inst: Installation, *, store: UnitStore, lane: Lane | None = None) -> None:
     """Ask GitHub what changed in each repo, and act on it.
 
@@ -5622,10 +5620,7 @@ def poll_all(inst: Installation, *, store: UnitStore, lane: Lane | None = None) 
             dispatch=lambda event, number, repo=repo, **kwargs: dispatch(
                 event, number, repo=repo, **kwargs
             ),
-            list_prs=with_ui_review(
-                lambda forge=forge, repo_id=repo_id: forge.list_prs(repo_id),
-                review_of=lambda pull, repo=repo: _ui_review_of(inst, store, repo, pull),
-            ),
+            list_prs=ui_listing(inst, store, repo),
             unit_of=lambda number, repo=repo: unit_of(store, repo, number),
             ignore=lambda number, slug=slug: ignored(inst.state_dir, slug, number),
             human_activity=lambda number, repo=repo: _note_human_activity(store, repo, number),
@@ -7057,7 +7052,7 @@ def _replan_differences(
 
 def _approval(inst: Installation, unit: StoredUnit) -> str | tuple[int, str]:
     """Why `unit` cannot be approved as stored, or the round and head to approve."""
-    from agent_build_kit.serve.review import ReviewStore, branch_tip
+    from agent_build_kit.serve.review import branch_tip
     from agent_build_kit.serve.server import review_round
 
     if unit.pr is None:
@@ -7087,7 +7082,6 @@ def approve_unit(inst: Installation, unit_id: str, *, say: Callable[..., None]) 
     Nothing is merged, pushed or voted on the host. Every message goes to `say`; the
     result is the command's exit code.
     """
-    from agent_build_kit.serve.review import ReviewStore
 
     known = {unit.id: unit for unit in store_for(inst).all()}
     unit = known.get(unit_id)

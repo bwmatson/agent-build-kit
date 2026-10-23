@@ -28,6 +28,7 @@ ALLOWED = {
     "pipeline/verdict_record.py",  # the recording
     "graph/nodes.py",  # the pull request body describes the tier
     "cli/pipeline.py",  # `abk status` shows the order
+    "pipeline/landing.py",  # the landing pass reads the recorded final verdict
 }
 
 
