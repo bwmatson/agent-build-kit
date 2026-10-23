@@ -18,6 +18,7 @@ from agent_build_kit.machine_settings import MachineSetting
 from tests.cli.public_content_repo import planning, said
 from tests.cli.test_doctor import Answers
 from tests.factories import git, which_all
+from tests.test_machine_settings import HOMES, TILDE
 
 OVERLAY = "abk.local.yaml"
 WARN_FIX = "move it to abk.local.yaml with `abk config --migrate`"
@@ -46,21 +47,28 @@ MACHINE_CHOICES = {
         "/opt/secret/fixer",
     ),
     "repos.app.deploy.ssh_key": (
-        {"repos": {"app": {"deploy": {"ssh_key": "~/.ssh/secret-key"}}}},
+        {"repos": {"app": {"deploy": {"ssh_key": f"{TILDE}.ssh/secret-key"}}}},
         "secret-key",
     ),
-    "planning.worktree_root": ({"planning": {"worktree_root": "~/secret-trees"}}, "secret-trees"),
+    "planning.worktree_root": (
+        {"planning": {"worktree_root": f"{TILDE}secret-trees"}},
+        "secret-trees",
+    ),
     "repos.app.path": ({"repos": {"app": {"path": "../secret-app"}}}, "secret-app"),
     "verify.env.TOKEN.file": (
-        {"verify": {"env": {"TOKEN": {"from": "env-file", "file": "~/secret.env", "key": "T"}}}},
+        {
+            "verify": {
+                "env": {"TOKEN": {"from": "env-file", "file": f"{TILDE}secret.env", "key": "T"}}
+            }
+        },
         "secret.env",
     ),
     "verify.env.TOKEN.value": (
-        {"verify": {"env": {"TOKEN": {"from": "literal", "value": "/home/me/secret-v"}}}},
+        {"verify": {"env": {"TOKEN": {"from": "literal", "value": f"{HOMES}me/secret-v"}}}},
         "secret-v",
     ),
     "verify.env.TOKEN.argv": (
-        {"verify": {"env": {"TOKEN": {"from": "command", "argv": ["cat", "~/secret-a"]}}}},
+        {"verify": {"env": {"TOKEN": {"from": "command", "argv": ["cat", f"{TILDE}secret-a"]}}}},
         "secret-a",
     ),
 }

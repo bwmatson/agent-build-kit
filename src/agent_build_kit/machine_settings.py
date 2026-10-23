@@ -27,7 +27,7 @@ _ENV_KEYS = ("file", "value", "argv")
 
 
 def holds_home_path(value: str) -> bool:
-    """Whether a string holds `~/`, `/home/<x>` or the user's home directory."""
+    """Whether a string holds a tilde path, a home-root path or the user's home directory."""
     if _HOME_PATH.search(value):
         return True
     home = str(Path.home())

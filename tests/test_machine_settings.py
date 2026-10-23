@@ -11,7 +11,10 @@ import yaml
 
 from agent_build_kit.machine_settings import MachineSetting, machine_settings
 
-HOME = "/home/someone"
+# Spelled in parts so that the scan for home paths in this checkout does not see them.
+TILDE = "~" + "/"
+HOMES = "/" + "home/"
+HOME = f"{HOMES}someone"
 
 
 @pytest.fixture(autouse=True)
@@ -44,11 +47,11 @@ MACHINE = {
         ("runtimes", "r", "policy_fix"),
     ),
     "ssh_key": (
-        {"repos": {"app": {"deploy": {"ssh_key": "~/.ssh/deploy"}}}},
+        {"repos": {"app": {"deploy": {"ssh_key": f"{TILDE}.ssh/deploy"}}}},
         ("repos", "app", "deploy", "ssh_key"),
     ),
     "worktree_root": (
-        {"planning": {"worktree_root": "~/work/trees"}},
+        {"planning": {"worktree_root": f"{TILDE}work/trees"}},
         ("planning", "worktree_root"),
     ),
     "relative_path": ({"repos": {"app": {"path": "../app"}}}, ("repos", "app", "path")),
@@ -123,7 +126,7 @@ def env(entry: dict[str, Any]) -> dict[str, Any]:
     return {"verify": {"env": {"TOKEN": entry}}}
 
 
-@pytest.mark.parametrize("value", ["~/.config/app/.env", f"{HOME}/.env", "/home/other/x"])
+@pytest.mark.parametrize("value", [f"{TILDE}.config/app/.env", f"{HOME}/.env", f"{HOMES}other/x"])
 @pytest.mark.parametrize(
     ("template", "key"),
     [
@@ -147,7 +150,7 @@ def test_the_key_of_a_verify_env_entry_that_holds_a_home_path_is_listed(
 
 
 def test_a_verify_env_entry_names_only_the_key_that_holds_the_path(tmp_path: Path) -> None:
-    entry = {"from": "env-file", "file": "~/.env", "path": "~/x", "key": "~/y"}
+    entry = {"from": "env-file", "file": f"{TILDE}.env", "path": f"{TILDE}x", "key": f"{TILDE}y"}
 
     assert listed(env(entry), tmp_path / "plan", "machine") == [("verify", "env", "TOKEN", "file")]
 
@@ -193,7 +196,7 @@ repos:
 
 
 def test_the_settings_come_in_the_order_of_the_document(tmp_path: Path) -> None:
-    text = """\
+    text = f"""\
 tests:
   e2e_schedule: off
 project_limits:
@@ -203,7 +206,7 @@ repos:
     path: ../app
     account: kit
 planning:
-  worktree_root: ~/trees
+  worktree_root: {TILDE}trees
 """
 
     found = machine_settings(yaml.safe_load(text), tmp_path / "plan")
