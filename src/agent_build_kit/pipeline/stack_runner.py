@@ -48,6 +48,7 @@ from agent_build_kit.pipeline.flakes import OnFlake
 from agent_build_kit.pipeline.install_record import ALWAYS_INSTALLABLE, STAGING
 from agent_build_kit.pipeline.lease import Leases
 from agent_build_kit.pipeline.pr_replies import last_json, parse_answer
+from agent_build_kit.pipeline.product_defect import ProductDefect
 from agent_build_kit.pipeline.reuse_guidance import reuse_guidance
 from agent_build_kit.pipeline.scratch import output_convention
 from agent_build_kit.pipeline.task_progress import mark_groups
@@ -1611,6 +1612,10 @@ class UnitRunner(BaseModel):
     # What a scheduled unit's passing run says of itself, for its note.
     e2e_passed_note: Callable[[], str] = lambda: "scheduled e2e-test passed"
     on_preexisting: Callable[..., str | None] = lambda unit, verdict, failure, *, wait: None
+    # Told the unit and the product defect its builder reported: it records the defect, makes
+    # sure one change fixes it, gives each group of the unit a `Needs:` line on that change and
+    # answers it (None for a unit of that change). See `wiring.build_on_product_defect`.
+    on_product_defect: Callable[[Unit, ProductDefect], str | None] = lambda unit, defect: None
     # Whether the e2e-test run about to be made executes the whole marker (the one scope
     # function `E2eSession.run` decides by), given the worktree and the base; only such a
     # run is held by an open fix. See `wiring.build_on_e2e_gate`.

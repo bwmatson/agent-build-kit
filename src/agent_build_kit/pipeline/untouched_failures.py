@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Collection, Sequence
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from pydantic import model_validator
@@ -81,12 +82,62 @@ class Write(Frozen):
         return f"would write: {self.name}"
 
 
-def preview(inst: Installation, test: str) -> Exists | Write:
-    """What the ensure step would do for `test`; reads the changes directory only."""
-    name, earlier = open_fix_change(inst, test, PREFIX)
+def preview_fix(inst: Installation, test: str, prefix: str) -> Exists | Write:
+    """What the ensure step would do for `test` under `prefix`; reads the changes directory only."""
+    name, earlier = open_fix_change(inst, test, prefix)
     if name is not None:
         return Exists(change=name)
-    return Write(name=next_fix_name(inst, test, PREFIX), earlier=earlier)
+    return Write(name=next_fix_name(inst, test, prefix), earlier=earlier)
+
+
+def preview(inst: Installation, test: str) -> Exists | Write:
+    """What the ensure step would do for `test`; reads the changes directory only."""
+    return preview_fix(inst, test, PREFIX)
+
+
+def ensure_fix_change(
+    inst: Installation,
+    test: str,
+    prefix: str,
+    *,
+    lock: Path,
+    write: Callable[[Write], None],
+    say: Callable[[str], None],
+) -> str:
+    """Make sure one open change under `prefix` fixes `test`, looked up and written under `lock`:
+    say `exists: <change>`, or `would write: <change>`, call `write`, and say `wrote: <change>`.
+    Returns the change's name."""
+    with file_lock(lock):
+        found = preview_fix(inst, test, prefix)
+        say(found.line)
+        if isinstance(found, Exists):
+            return found.change
+        write(found)
+        say(f"wrote: {found.name}")
+        return found.name
+
+
+def write_fix_change(
+    root: Path, capability: str, *, proposal: str, design: str, tasks: str, spec: str
+) -> None:
+    """The four files of a fix change, written under `root`."""
+    (root / "specs" / capability).mkdir(parents=True)
+    (root / "proposal.md").write_text(proposal)
+    (root / "design.md").write_text(design)
+    (root / "tasks.md").write_text(tasks)
+    (root / "specs" / capability / "spec.md").write_text(spec)
+
+
+def wait_on_change(
+    inst: Installation, unit: StoredUnit, fix: str, reason: str, *, wait: bool = True
+) -> str | None:
+    """With `wait`, give each group of `unit` a `Needs:` line on `fix`. Returns `fix`, or None
+    for a unit of that change itself, which waits on nothing."""
+    if unit.change == fix:
+        return None
+    if wait:
+        add_needs_to_unit(inst, unit, fix, reason)
+    return fix
 
 
 def ensure_fix(
@@ -94,14 +145,14 @@ def ensure_fix(
 ) -> str:
     """Make sure one open change fixes `entry.test`: say `exists: <change>`, or
     `would write: <change>` then `wrote: <change>`. Returns the change's name."""
-    with file_lock(inst.state_dir / "preexisting.lock"):
-        found = preview(inst, entry.test)
-        say(found.line)
-        if isinstance(found, Exists):
-            return found.change
-        _write_change(inst, found, entry, unit)
-        say(f"wrote: {found.name}")
-        return found.name
+    return ensure_fix_change(
+        inst,
+        entry.test,
+        PREFIX,
+        lock=inst.state_dir / "preexisting.lock",
+        write=lambda found: _write_change(inst, found, entry, unit),
+        say=say,
+    )
 
 
 def waiting_note(tests: list[str]) -> str:
@@ -170,21 +221,17 @@ def wait_on_preexisting(
     `unit` a `Needs:` line on it. Returns the change, or None for a unit of that change
     itself, which waits on nothing."""
     fix = ensure_fix(inst, entry, unit, say=say)
-    if unit.change == fix:
-        return None
-    if wait:
-        add_needs_to_unit(inst, unit, fix, f"failing test {entry.test} on the base")
-    return fix
+    return wait_on_change(inst, unit, fix, f"failing test {entry.test} on the base", wait=wait)
 
 
 def _write_change(inst: Installation, found: Write, entry: PreExisting, unit: StoredUnit) -> None:
-    root = inst.changes_dir / found.name
-    (root / "specs" / CAPABILITY).mkdir(parents=True)
-    (root / "proposal.md").write_text(_proposal(inst, entry, unit, found.earlier))
-    (root / "design.md").write_text(_design(entry))
-    (root / "tasks.md").write_text(_tasks(entry, unit))
-    (root / "specs" / CAPABILITY / "spec.md").write_text(
-        _spec(entry, successor=bool(found.earlier))
+    write_fix_change(
+        inst.changes_dir / found.name,
+        CAPABILITY,
+        proposal=_proposal(inst, entry, unit, found.earlier),
+        design=_design(entry),
+        tasks=_tasks(entry, unit),
+        spec=_spec(entry, successor=bool(found.earlier)),
     )
 
 

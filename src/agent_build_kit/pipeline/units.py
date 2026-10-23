@@ -866,15 +866,22 @@ class Edge(Frozen):
     reason: str = ""
 
 
+# The prefix of the change the pipeline writes for a product defect a live test found.
+PRODUCT_DEFECT_PREFIX = "fix-product-defect"
+
+
 def edge_kind(unit: Unit, parent: Unit, repos: Mapping[str, RepoConfig]) -> Edge:
     """The kind of the edge from `unit` to its parent `parent` (`repos` is the workspace's repos,
     kept in the signature for a rule that needs one; none does yet): a merge edge when it crosses
     repositories, when the author wrote `merged`, or when `unit` is a failed unit waiting (or
-    one requeued while it waited); otherwise a review edge."""
+    one requeued while it waited), except that a unit parked on the fix of a product defect it
+    reported goes on once that fix is in review; otherwise a review edge."""
     if parent.repo != unit.repo:
         return Edge(kind=EdgeKind.MERGE, reason="another repository")
     if parent.id in unit.merge_needs:
         return Edge(kind=EdgeKind.MERGE, reason="the Needs: line says merged")
+    if parent.change.startswith(f"{PRODUCT_DEFECT_PREFIX}-") and parent.change != unit.change:
+        return Edge(kind=EdgeKind.REVIEW)
     if unit.state == FAILED or (
         unit.state == PLANNED and getattr(unit, "gated_requeue", None) is not None
     ):

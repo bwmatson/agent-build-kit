@@ -117,6 +117,12 @@ from agent_build_kit.pipeline.pr_replies import (
     own_posts,
     record_given_comments,
 )
+from agent_build_kit.pipeline.product_defect import (
+    ProductDefect,
+    ProductDefectEntry,
+    product_defect_record,
+    wait_on_product_defect,
+)
 from agent_build_kit.pipeline.restack import (
     HostMoved,
     Moved,
@@ -1753,6 +1759,32 @@ def build_on_preexisting(
         return fix
 
     return on_preexisting
+
+
+def build_on_product_defect(
+    store: UnitStore, installation: Installation, *, log: Callable[[str], None] = print
+) -> Callable[[Unit, ProductDefect], str | None]:
+    """Record a product defect a unit's builder reported and make sure one change fixes it;
+    give each group of the unit a `Needs:` line on that change. Returns the change, or None
+    for a unit of the change itself, which has nothing to wait on."""
+
+    def on_product_defect(unit: Unit, defect: ProductDefect) -> str | None:
+        fix = wait_on_product_defect(installation, defect, store.get(unit.id), say=log)
+        product_defect_record(installation).append(
+            ProductDefectEntry(
+                test=defect.test,
+                unit=unit.id,
+                files=defect.files,
+                reproduction=defect.reproduction,
+                sketch=defect.sketch,
+                at=datetime.now(UTC),
+                change=fix or "",
+            )
+        )
+        log(f"{unit.id}: product defect {defect.test} — " + (f"fix {fix}" if fix else "no wait"))
+        return fix
+
+    return on_product_defect
 
 
 def _ids_for(
@@ -4013,6 +4045,7 @@ def build_runner(
         e2e_ran_no_tests=lambda: bool(e2e.result and e2e.result.ran_no_tests),
         e2e_passed_note=e2e.passed_note,
         on_preexisting=build_on_preexisting(store, installation, log=log),
+        on_product_defect=build_on_product_defect(store, installation, log=log),
         e2e_runs_whole=lambda *, cwd, base: e2e.scope(cwd=cwd, base=base).mode is E2eUnitScope.FULL,
         e2e_splits=lambda: e2e.splits(),
         on_e2e_gate=build_on_e2e_gate(store, installation, log=log),

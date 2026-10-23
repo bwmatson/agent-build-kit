@@ -183,6 +183,8 @@ from agent_build_kit.pipeline.pr_poller import (
     unmergeable,
 )
 from agent_build_kit.pipeline.pr_replies import build_post_replies, ignored, parse_answer
+from agent_build_kit.pipeline.product_defect import preview as preview_defect
+from agent_build_kit.pipeline.product_defect import product_defect_record
 from agent_build_kit.pipeline.restack import (
     ConflictSession,
     Moved,
@@ -1399,6 +1401,8 @@ def _preview_changes(inst: Installation) -> None:
     change is due or open: written, or to be."""
     for test in dict.fromkeys(entry.test for entry in preexisting_record(inst).entries()):
         log(preview(inst, test).line)
+    for test in dict.fromkeys(entry.test for entry in product_defect_record(inst).entries()):
+        log(preview_defect(inst, test).line)
     write_due(inst, store_for(inst), today=spans.clock.now().date(), say=log, dry_run=True)
 
 
