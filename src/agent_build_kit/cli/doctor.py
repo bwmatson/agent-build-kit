@@ -730,9 +730,10 @@ def _agent_commands(inst: Installation) -> list[Check]:
 
 def _sandbox_lists(inst: Installation) -> list[Check]:
     """Each repo's assembled read, write and host lists with the source of each entry, so a
-    missing path is found before a unit fails on it; one line when the sandbox is off."""
+    missing path is found before a unit fails on it; nothing while the sandbox is off, which
+    `sandbox_check` reports in its one line."""
     if not inst.config.sandbox.enabled:
-        return [_info("sandbox", "off: `sandbox.enabled` is false, no step runs confined")]
+        return []
     runtime = runtimes.get(config.runtime_name(inst.config))
     checks = []
     for name, repo in inst.repos.items():
@@ -743,7 +744,7 @@ def _sandbox_lists(inst: Installation) -> list[Check]:
         except KeyError:
             continue  # an unknown profile is reported where the repo is
         lines = [f"{e.kind} {e.value} ({e.source})" for e in entries]
-        checks.append(_ok(f"sandbox lists {name}", "\n".join(lines) or "no entries"))
+        checks.append(_ok(f"policy lists {name}", "\n".join(lines) or "no entries"))
     return checks
 
 

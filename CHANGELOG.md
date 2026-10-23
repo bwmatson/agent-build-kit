@@ -56,6 +56,7 @@
 - With review enabled, a unit in review whose recorded verdict is `auto` no longer raises a
   notification card, since it needs no person; `light`, `full` and units with no verdict raise
   one as before, and an existing card for a unit that has become `auto` is cleared.
+
 - A toolchain profile can name the folders and hosts its tools need under the sandbox
   (`sandbox_paths`): `python-uv` the `uv` cache and data folders and the two PyPI hosts,
   `node-npm` the npm cache and registry. The policy takes them for a repo's profile and each

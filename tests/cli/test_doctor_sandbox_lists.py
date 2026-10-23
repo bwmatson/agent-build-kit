@@ -1,4 +1,4 @@
-"""`abk doctor` prints each repo's assembled sandbox lists with the source of each entry, and
+"""`abk doctor` prints each repo's assembled policy lists with the source of each entry, and
 nothing of the kind while the sandbox is off (spec: sandbox-profile-paths)."""
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ def sandbox_on(planning: Path) -> None:
 
 def list_checks(planning: Path) -> list[Check]:
     checks = run_doctor(planning / "abk.yaml", run=ok_run, which=which_all)
-    return [c for c in checks if c.name.startswith("sandbox lists")]
+    return [c for c in checks if c.name.startswith("policy lists")]
 
 
 def test_each_repo_lists_its_entries_with_their_sources(tmp_path: Path) -> None:
@@ -35,7 +35,7 @@ def test_each_repo_lists_its_entries_with_their_sources(tmp_path: Path) -> None:
 
     [check] = list_checks(planning)
 
-    assert check.name == "sandbox lists app"
+    assert check.name == "policy lists app"
     lines = check.detail.splitlines()
     assert any(f"{HOME_MARK}/.cache/uv" in line and "python-uv" in line for line in lines)
     assert any("pypi.org" in line and "python-uv" in line for line in lines)
