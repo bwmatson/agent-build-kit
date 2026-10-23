@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from tests.cli.config_migrate_fakes import beside, run_migrate
-from tests.cli.config_migrate_machine_fakes import CONFLICT, MACHINE, merged, tracked
-from tests.test_machine_settings import TILDE
+from tests.cli.config_migrate_machine_fakes import CONFLICT, MACHINE, tracked
+from tests.config_migrate_machine_support import TILDE, merged
 
 SET = f"repos:\n  app:\n    path: {TILDE}code/app\n"
 ONLY_PATH = "version: 1\nrepos:\n  app:\n    slug: example/app\n    path: ../app\n"

@@ -10,9 +10,11 @@ import yaml
 from agent_build_kit.cli import main
 from agent_build_kit.cli.doctor import MACHINE_KEYS, Check, run_doctor
 from tests.cli.config_migrate_fakes import beside, run_migrate
-from tests.cli.config_migrate_machine_fakes import merged
+from tests.cli.config_migrate_machine_fakes import DEFAULTS as TEXT
+from tests.cli.config_migrate_machine_fakes import tracked
 from tests.cli.public_content_repo import committed_config
 from tests.cli.test_doctor import Answers
+from tests.config_migrate_machine_support import merged
 from tests.factories import which_all
 
 DEFAULTS = {
@@ -91,3 +93,15 @@ def test_after_a_run_with_the_flag_the_doctor_names_nothing(
     run_migrate(capsys, monkeypatch, path, "--include-defaults", "--yes")
 
     assert machine_keys(path) == []
+
+
+def test_a_root_schedule_default_written_as_off_moves_with_its_spelling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = tracked(tmp_path, TEXT)
+
+    code, _ = run_migrate(capsys, monkeypatch, path, "--include-defaults", "--yes")
+
+    assert code == 0
+    assert "e2e_schedule: off" in (tmp_path / "abk.local.yaml").read_text()
+    assert "e2e_schedule" not in path.read_text()

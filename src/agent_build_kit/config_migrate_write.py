@@ -12,7 +12,7 @@ import yaml
 
 from agent_build_kit.config import merge_local, overlay_path
 from agent_build_kit.config_migrate import ConfigMigrateError
-from agent_build_kit.pipeline.file_lock import append_missing_lines
+from agent_build_kit.pipeline.file_lock import append_missing_lines, with_missing_lines
 from agent_build_kit.pipeline.shell import git, is_ignored, is_tracked
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import RUNNING
@@ -34,12 +34,14 @@ def in_repository(directory: Path) -> bool:
     return git(directory, "rev-parse", "--is-inside-work-tree", check=False).returncode == 0
 
 
-def _diff(path: Path, before: str, after: str) -> str:
+def file_diff(path: Path, before: str, after: str, *, new: bool = False) -> str:
+    """The unified diff of one file's text; `new` labels the old side as a file that is not
+    there yet."""
     return "".join(
         difflib.unified_diff(
             before.splitlines(keepends=True),
             after.splitlines(keepends=True),
-            fromfile=str(path),
+            fromfile=f"{path} (new file)" if new else str(path),
             tofile=str(path),
         )
     )
@@ -66,9 +68,7 @@ def ignore_diff(directory: Path) -> str:
         before = path.read_text() if path.exists() else ""
     except OSError as error:
         raise ConfigMigrateError(f"{path}: {error}") from error
-    separator = "" if not before or before.endswith("\n") else "\n"
-    after = before + separator + "".join(f"{name}\n" for name in missing)
-    return _diff(path, before, after)
+    return file_diff(path, before, with_missing_lines(before, missing))
 
 
 def _ignore_local_files(directory: Path, show: bool) -> None:
@@ -85,7 +85,7 @@ def _ignore_local_files(directory: Path, show: bool) -> None:
     except OSError as error:
         raise ConfigMigrateError(f"{path}: {error}") from error
     if show:
-        print(_diff(path, before, after), end="")
+        print(file_diff(path, before, after), end="")
 
 
 def _staged(path: Path, text: str, mode: int) -> Path:

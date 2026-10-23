@@ -10,8 +10,8 @@ import yaml
 
 from agent_build_kit.runtimes.policy_apply import BACKUP_SUFFIX
 from tests.cli.config_migrate_fakes import beside, run_migrate
-from tests.cli.config_migrate_machine_fakes import MACHINE, head, merged, staged, tracked
-from tests.test_machine_settings import TILDE
+from tests.cli.config_migrate_machine_fakes import MACHINE, head, staged, tracked
+from tests.config_migrate_machine_support import TILDE, merged
 
 OLD_STEP = "version: 1\nmodels:\n  build: small\n"
 
@@ -60,6 +60,7 @@ def test_the_diffs_come_in_order_and_the_one_question_names_both_files(
     shown = terminal.shown[0]
     marks = [shown.index(f"+++ {name}") for name in (ignore, path, local)]
     assert marks == sorted(marks)
+    assert terminal.out.count(f"+++ {ignore}") == 1
     new_file = shown[shown.rindex("--- ", 0, marks[2]) : marks[2]]
     assert "new file" in new_file
     assert shown.endswith(f"migrate {path} and {local}? [y/N] ")

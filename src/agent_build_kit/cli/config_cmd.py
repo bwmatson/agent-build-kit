@@ -4,7 +4,6 @@ default is filled in."""
 from __future__ import annotations
 
 import argparse
-import difflib
 import sys
 from pathlib import Path
 
@@ -25,43 +24,29 @@ from agent_build_kit.config import (
 from agent_build_kit.config_migrate import ConfigMigrateError, migrate
 from agent_build_kit.config_migrate_machine import MachineRequest
 from agent_build_kit.config_migrate_write import (
+    file_diff,
     ignore_diff,
-    in_repository,
     running_units_notice,
     uncommitted_hint,
     write_both,
 )
 from agent_build_kit.init.runtime_choice import confirmed
 from agent_build_kit.installation import Installation, load_installation
-from agent_build_kit.pipeline.shell import git, is_tracked
+from agent_build_kit.pipeline.shell import tracked_toplevel
 from agent_build_kit.runtimes.policy_apply import backup_and_replace
 
 
-def _diff(before: str, after: str, path: Path, *, new: bool = False) -> str:
-    return "".join(
-        difflib.unified_diff(
-            before.splitlines(keepends=True),
-            after.splitlines(keepends=True),
-            fromfile=f"{path} (new file)" if new else str(path),
-            tofile=str(path),
-        )
-    )
-
-
-def _machine_request(
-    path: Path, include_defaults: bool
-) -> tuple[MachineRequest, str | None] | None:
+def _machine_request(path: Path, include_defaults: bool) -> MachineRequest | None:
     """What the machine move needs for a git-tracked abk.yaml, with the local file's text; None
     when the abk.yaml is outside a git repository or git does not track it."""
-    if not in_repository(path.parent) or not is_tracked(path.parent, path.name):
+    toplevel = tracked_toplevel(path.parent, path.name)
+    if toplevel is None:
         return None
-    toplevel = Path(git(path.parent, "rev-parse", "--show-toplevel").stdout.strip())
     local = overlay_path(path)
     local_text = local.read_bytes().decode() if local.exists() else None
-    request = MachineRequest(
+    return MachineRequest(
         toplevel=toplevel, local_text=local_text, include_defaults=include_defaults
     )
-    return request, local_text
 
 
 def cmd_migrate(args: argparse.Namespace) -> int:
@@ -78,8 +63,8 @@ def cmd_migrate(args: argparse.Namespace) -> int:
     local = overlay_path(path)
     try:
         before = path.read_bytes().decode()
-        wanted = _machine_request(path, args.include_defaults)
-        machine, local_before = wanted if wanted else (None, None)
+        machine = _machine_request(path, args.include_defaults)
+        local_before = machine.local_text if machine else None
         migrated = migrate(before, runtime_for(path), machine)
         local_after = migrated.local_text
         ignore = ignore_diff(path.parent) if local_after != local_before else ""
@@ -94,9 +79,9 @@ def cmd_migrate(args: argparse.Namespace) -> int:
         print(f"{path}: nothing needed migrating")
         return 0
     print(ignore, end="")
-    print(_diff(before, migrated.text, path), end="")
+    print(file_diff(path, before, migrated.text), end="")
     if both and local_after is not None:
-        print(_diff(local_before or "", local_after, local, new=local_before is None), end="")
+        print(file_diff(local, local_before or "", local_after, new=local_before is None), end="")
     hint = uncommitted_hint(path) if machine else None
     if hint:
         print(hint, file=sys.stderr)

@@ -1,16 +1,12 @@
 """What the tests of `abk config --migrate` moving machine settings share: a git repository that
-tracks an abk.yaml holding machine settings, and the merged configuration of its two files."""
+tracks an abk.yaml holding machine settings."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
-import yaml
-
-from agent_build_kit.config import merge_local
+from tests.config_migrate_machine_support import TILDE
 from tests.factories import git, init_repo
-from tests.test_machine_settings import TILDE
 
 MACHINE = (
     "version: 1\n"
@@ -61,11 +57,6 @@ def tracked(root: Path, text: str = MACHINE, *, local: str | None = None) -> Pat
     if local is not None:
         (root / "abk.local.yaml").write_text(local)
     return path
-
-
-def merged(base: str, local: str | None) -> dict[str, Any]:
-    """The configuration the two texts make together."""
-    return merge_local(yaml.safe_load(base) or {}, yaml.safe_load(local or "") or {})
 
 
 def head(root: Path) -> str:
