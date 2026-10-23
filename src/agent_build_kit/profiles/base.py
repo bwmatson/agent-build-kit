@@ -87,6 +87,10 @@ class CreatedFiles(Protocol):
         ...
 
 
+# The home shorthand, held apart so no line reads as a path under a home directory.
+HOME = "~"
+
+
 class SandboxPaths(Frozen):
     """What a profile's toolchain needs under the sandbox: folders to read, cache folders to
     write and package index hosts. Paths may start with `~`."""

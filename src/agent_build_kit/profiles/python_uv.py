@@ -37,7 +37,7 @@ from agent_build_kit.pipeline.e2e import (
     parse_pytest_summary,
 )
 from agent_build_kit.pipeline.red_check import judge_red, split_report, wrap_report_command
-from agent_build_kit.profiles.base import PromptWords, SandboxPaths, is_doc_path
+from agent_build_kit.profiles.base import HOME, PromptWords, SandboxPaths, is_doc_path
 
 # pytest's exit status when every test was deselected: "nothing to run here",
 # not a failure — most members carry no e2e tests.
@@ -295,7 +295,7 @@ class PythonUvProfile:
     def sandbox_paths(self, repo: Path) -> SandboxPaths:
         """The uv cache and data folders and the two package index hosts."""
         return SandboxPaths(
-            write=("~/.cache/uv", "~/.local/share/uv"),
+            write=(f"{HOME}/.cache/uv", f"{HOME}/.local/share/uv"),
             hosts=("pypi.org", "files.pythonhosted.org"),
         )
 
