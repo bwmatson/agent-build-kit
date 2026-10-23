@@ -1,7 +1,7 @@
 ---
 name: abk-authoring
 description: TRIGGER — read before writing or editing a change's tasks.md in a planning repo, before choosing a task group's [repo] [kind] tags or [contract]/[narrow]/[acceptance] flags, or when `abk tags` reports a problem. SKIP for questions about running the pipeline (abk-pipeline) or about abk.yaml (abk-config).
-version: 1.1.0
+version: 1.2.0
 generatedBy: agent-build-kit
 ---
 
@@ -196,13 +196,41 @@ its unit. The reason is required; `abk tags` rejects the line without one. Use
 it sparingly: a small requirement that is related to another change does not
 need it, and may simply be its own change, since it no longer costs its own
 pull request when it is small and in line with unstarted work in the same repo
-and kind. `[acceptance]`, `[contract]` and `[narrow]` groups are never joined
-and need no `Separate:` line.
+and kind. `[e2e-test]` groups (flagged or not), `[acceptance]`, `[contract]` and
+`[narrow]` groups are never joined and need no `Separate:` line.
 
 The planner joins related work first, groups that touch the same or closely related
 files, and among equally good fits offers the more urgent work its partner first. It
 never joins unrelated work for its priority, and a joined unit takes the most urgent
 priority of its groups.
+
+## What an `[e2e-test]` group holds
+
+An `[e2e-test]` group is a stand-alone unit: it always has a unit of its own,
+the planner never puts another group in it or joins it elsewhere, and it needs
+no `Separate:` line. It holds only tests: test files and test support
+(fixtures, helpers, test configuration), documentation and the changelog.
+`abk tags` and `abk check` warn, without failing, when a task in an e2e group
+names a backticked path that is none of these. The pipeline also stops the
+unit at `checks` when its branch changes product code.
+
+Do not put product fixes in an e2e group. When a live test finds a product
+defect, the builder reports it and the pipeline files a `fix-product-defect`
+change with one `[unit-test]` group (reproduce, then fix); the e2e unit waits
+on it with a `Needs:` line and resumes once the fix is in review. An author who already
+knows of the defect writes that `[unit-test]` group first, in its own change or
+ahead of the e2e group, and the e2e group `Needs:` it.
+
+A support file the e2e group must change, such as a fixture module outside the
+test paths, is declared on a line inside the group:
+
+```
+Support: `scripts/seed.py`, `fixtures/` — <reason>
+```
+
+The reason is required, a trailing `/` covers a directory, a second `Support:`
+line adds paths, and `abk tags` rejects the line in any other kind of group
+or without a reason.
 
 ## `Independent:` lines
 

@@ -413,7 +413,14 @@ its line, then the groups when clean. Also warns, once per group and
 without failing, when a group can give its unit unrelated open parents: an `[acceptance]` or
 `[narrow]` group after an `Independent:` group, an `Independent:` group followed by a later
 group of its repo, or a `Needs:` to another change's same-repo group beside a same-repo
-predecessor. Exit 1 if any change has a problem or no `tasks.md`.
+predecessor. It also warns, without failing, when a task in an `[e2e-test]` group names a
+product path: one that is not a test path, a doc, the changelog or declared support (a
+`Support:` line with a reason, valid only in an `[e2e-test]` group), written as
+`group 1: task 1.2 names src/client/retry.py, which is not a test path, ...`. Only backticked
+tokens with a `/` or a file extension are read, so a path in plain prose is missed, and URLs,
+flags, assignments, globs and symbols are skipped; a `scripts/` path passes only on a line that
+also names a test path. The reading has false positives (a path named only to say it must not
+change) and misses; the guard in `checks` judges the real diff. Exit 1 if any change has a problem or no `tasks.md`.
 
 `abk tags --fix [CHANGE | --all] [--dry-run]` rewrites the old test-kind tags in the group
 headings of open changes to `[unit-test]` and `[e2e-test]`. It edits the text of `tasks.md` and

@@ -247,6 +247,8 @@ to `global_limits.max_check_rounds` times (3 by default, counted per review roun
 
 A failed unit that waited on another unit is requeued once by the pipeline when its wait ends, in a mode chosen from its record (`global_limits.wait_end_requeue`: `auto`, `resume`, `rework` or `off`). `abk status` counts them as `failed units resumed when their wait ended: N today`; when a prerequisite was closed instead, the unit stays failed and its line says `wait ended: <prerequisite> closed, requeue to retry`.
 
+When a live test in an e2e-test unit finds a product defect, the builder reports it in a `product-defect` block. The pipeline then files one `fix-product-defect` change for that test (a second report of the same test adds only a `Needs:`), the e2e unit is held as planned and gated on the fix unit, with a resume requeue and its feedback cleared. The gate releases it once the fix unit is no longer waited on (in review or merged), and it then resumes rather than reworks. This release does not depend on `global_limits.wait_end_requeue` and is not counted among the units resumed when their wait ended. An e2e unit whose diff changes product code is stopped at `checks`, as failed, before unit-test runs; its feedback is kept for a later requeue.
+
 A merge dependency (a `Needs:` that crosses repositories, says `merged`, or sits under a failed unit)
 holds its dependent until the parent has merged and a later tick has the merge in the code it runs.
 `abk status` and the graph (a `needs, merge` edge) say which wait it is:
