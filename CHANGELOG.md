@@ -64,6 +64,12 @@
   notification card, since it needs no person; `light`, `full` and units with no verdict raise
   one as before, and an existing card for a unit that has become `auto` is cleared.
 
+- A toolchain profile can name the folders and hosts its tools need under the sandbox
+  (`sandbox_paths`): `python-uv` the `uv` cache and data folders and the two PyPI hosts,
+  `node-npm` the npm cache and registry. The policy takes them for a repo's profile and each
+  project's, beside `repos.<name>.sandbox`. With the sandbox on, `abk doctor` prints each repo's
+  read, write and host lists with the source of every entry; off, it prints one line.
+
 - The `test:` and `feat:` commits of a build now carry a short body saying why: the first sentence
   of the change's proposal Why, then the task group's goal, with a line on what the commit holds.
   A body is bounded, cut at a word boundary, and never reads to git as a trailer or comment; a

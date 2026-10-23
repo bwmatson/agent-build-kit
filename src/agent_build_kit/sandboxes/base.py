@@ -9,9 +9,12 @@ from __future__ import annotations
 from collections.abc import Sequence
 from enum import StrEnum
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from agent_build_kit.model import Frozen
+
+if TYPE_CHECKING:  # profiles import config, which imports this package
+    from agent_build_kit.profiles.base import SandboxPaths
 
 
 class Coverage(StrEnum):
@@ -58,7 +61,7 @@ class SandboxPathsRuntime(Protocol):
 class SandboxPathsProfile(Protocol):
     """The optional member a toolchain profile adds to grant what its tools write."""
 
-    def sandbox_paths(self, worktree: Path) -> dict[str, list[str]]: ...
+    def sandbox_paths(self, worktree: Path) -> SandboxPaths | dict[str, list[str]]: ...
 
 
 class SandboxBackend(Protocol):

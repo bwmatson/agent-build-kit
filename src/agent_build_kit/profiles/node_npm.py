@@ -40,7 +40,7 @@ from agent_build_kit.pipeline.red_check import (
     wrap_report_command,
 )
 from agent_build_kit.profiles import node_environment
-from agent_build_kit.profiles.base import PromptWords, is_doc_path
+from agent_build_kit.profiles.base import HOME, PromptWords, SandboxPaths, is_doc_path
 
 _SOURCE = ("ts", "tsx", "js", "jsx", "mts")
 # The names of the source files that differ from the base ref `$1`, relative to the project.
@@ -187,6 +187,10 @@ class NodeNpmProfile:
     def created_files(self, repo: Path) -> list[str]:
         """The type-check build info and the Vite and Vitest caches."""
         return list(_CREATED)
+
+    def sandbox_paths(self, repo: Path) -> SandboxPaths:
+        """The npm cache and the registry."""
+        return SandboxPaths(write=(f"{HOME}/.npm",), hosts=("registry.npmjs.org",))
 
     def scaffold_manifest(self, name: str) -> tuple[str, str]:
         return "package.json", json.dumps({"name": name, "version": "0.1.0"}, indent=2) + "\n"

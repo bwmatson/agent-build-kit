@@ -99,6 +99,7 @@ from agent_build_kit.redaction import active as active_redactor
 from agent_build_kit.replay.review import directories, overdue, waiting
 from agent_build_kit.runtimes import claude_code, policy_check, providers
 from agent_build_kit.runtimes.base import AgentRuntime, Run, Which, account_report_of
+from agent_build_kit.sandboxes.policy import policy_entries
 from agent_build_kit.settings import settings
 
 Status = Literal["ok", "info", "warn", "FAIL"]
@@ -724,6 +725,26 @@ def _agent_commands(inst: Installation) -> list[Check]:
         else:
             count = f"{len(commands)} command{'' if len(commands) == 1 else 's'}"
             checks.append(_ok(title, f"{count}, all allowed"))
+    return checks
+
+
+def _sandbox_lists(inst: Installation) -> list[Check]:
+    """Each repo's assembled read, write and host lists with the source of each entry, so a
+    missing path is found before a unit fails on it; nothing while the sandbox is off, which
+    `sandbox_check` reports in its one line."""
+    if not inst.config.sandbox.enabled:
+        return []
+    runtime = runtimes.get(config.runtime_name(inst.config))
+    checks = []
+    for name, repo in inst.repos.items():
+        try:
+            entries = policy_entries(
+                inst, name, repo.path, runtime=runtime, profile=profiles.get(repo.profile)
+            )
+        except KeyError:
+            continue  # an unknown profile is reported where the repo is
+        lines = [f"{e.kind} {e.value} ({e.source})" for e in entries]
+        checks.append(_ok(f"policy lists {name}", "\n".join(lines) or "no entries"))
     return checks
 
 
@@ -1746,6 +1767,7 @@ def run_doctor(
     checks += _timers(inst, run, units, which)
     checks += _toolchain(inst, run, which)
     checks += _agent_commands(inst)
+    checks += _sandbox_lists(inst)
     checks += _runtime(inst, which, run)
     checks.append(sandbox_check(inst.config))
     if config.runtime_name(inst.config) == config.CLAUDE_CODE:

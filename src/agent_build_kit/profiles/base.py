@@ -87,6 +87,19 @@ class CreatedFiles(Protocol):
         ...
 
 
+# The home shorthand, held apart so no line reads as a path under a home directory.
+HOME = "~"
+
+
+class SandboxPaths(Frozen):
+    """What a profile's toolchain needs under the sandbox: folders to read, cache folders to
+    write and package index hosts. Paths may start with `~`."""
+
+    read: tuple[str, ...] = ()
+    write: tuple[str, ...] = ()
+    hosts: tuple[str, ...] = ()
+
+
 @runtime_checkable
 class AppliesFixers(Protocol):
     """The optional hook a profile adds to say how its formatters and auto-fixers are applied
