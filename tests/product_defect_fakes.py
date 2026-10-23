@@ -10,7 +10,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.flakes import fix_change_name
 from agent_build_kit.pipeline.product_defect import ProductDefect
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import Unit
+from agent_build_kit.pipeline.units import PRODUCT_DEFECT_PREFIX, Unit
 from agent_build_kit.pipeline.wiring import build_on_product_defect
 from tests.pipeline.test_flake_fix_change import change_with_unit
 
@@ -18,7 +18,7 @@ TEST = "tests/e2e/test_route.py::test_stream"
 PRODUCT = "src/app/route.py"
 REPRODUCTION = "GET /route/stream answers 500; it should answer 200 with the first chunk"
 SKETCH = "def test_stream_answers_200(client):\n    assert client.get('/route/stream').ok\n"
-PREFIX = "fix-product-defect"
+PREFIX = PRODUCT_DEFECT_PREFIX
 FIX = fix_change_name(TEST, PREFIX)
 
 Hook = Callable[[Unit, ProductDefect], str | None]

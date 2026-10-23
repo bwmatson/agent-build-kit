@@ -16,11 +16,16 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.e2e_scope import is_product_path
 from agent_build_kit.pipeline.failure_record import FailureRecord, Recorded
-from agent_build_kit.pipeline.file_lock import file_lock
-from agent_build_kit.pipeline.flakes import add_needs_to_unit, next_fix_name, open_fix_change
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import PRODUCT_DEFECT_PREFIX
-from agent_build_kit.pipeline.untouched_failures import Exists, Write
+from agent_build_kit.pipeline.untouched_failures import (
+    Exists,
+    Write,
+    ensure_fix_change,
+    preview_fix,
+    wait_on_change,
+    write_fix_change,
+)
 
 # A blank id or reproduction names nothing, and "" is found in every failure.
 _Stated = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
@@ -109,10 +114,7 @@ def read_product_defect(
 
 def preview(inst: Installation, test: str) -> Exists | Write:
     """What filing a fix for `test` would do; reads the changes directory only."""
-    name, earlier = open_fix_change(inst, test, PREFIX)
-    if name is not None:
-        return Exists(change=name)
-    return Write(name=next_fix_name(inst, test, PREFIX), earlier=earlier)
+    return preview_fix(inst, test, PREFIX)
 
 
 def ensure_product_fix(
@@ -120,14 +122,14 @@ def ensure_product_fix(
 ) -> str:
     """Make sure one open change fixes the defect of `defect.test`, under a lock: say
     `exists: <change>`, or `would write: <change>` then `wrote: <change>`. Returns its name."""
-    with file_lock(inst.state_dir / "product-defects.lock"):
-        found = preview(inst, defect.test)
-        say(found.line)
-        if isinstance(found, Exists):
-            return found.change
-        _write_change(inst, found, defect, unit)
-        say(f"wrote: {found.name}")
-        return found.name
+    return ensure_fix_change(
+        inst,
+        defect.test,
+        PREFIX,
+        lock=inst.state_dir / "product-defects.lock",
+        write=lambda found: _write_change(inst, found, defect, unit),
+        say=say,
+    )
 
 
 def wait_on_product_defect(
@@ -136,22 +138,19 @@ def wait_on_product_defect(
     """Make sure one open change fixes `defect` and give each group of `unit` a `Needs:` line
     on it. Returns the change, or None for a unit of that change itself, which waits on nothing."""
     fix = ensure_product_fix(inst, defect, unit, say=say)
-    if unit.change == fix:
-        return None
-    add_needs_to_unit(inst, unit, fix, f"product defect found by {defect.test}")
-    return fix
+    return wait_on_change(inst, unit, fix, f"product defect found by {defect.test}")
 
 
 def _write_change(
     inst: Installation, found: Write, defect: ProductDefect, unit: StoredUnit
 ) -> None:
-    root = inst.changes_dir / found.name
-    (root / "specs" / CAPABILITY).mkdir(parents=True)
-    (root / "proposal.md").write_text(_proposal(inst, defect, unit, found.earlier))
-    (root / "design.md").write_text(_design(defect))
-    (root / "tasks.md").write_text(_tasks(defect, unit))
-    (root / "specs" / CAPABILITY / "spec.md").write_text(
-        _spec(defect, successor=bool(found.earlier))
+    write_fix_change(
+        inst.changes_dir / found.name,
+        CAPABILITY,
+        proposal=_proposal(inst, defect, unit, found.earlier),
+        design=_design(defect),
+        tasks=_tasks(defect, unit),
+        spec=_spec(defect, successor=bool(found.earlier)),
     )
 
 

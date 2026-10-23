@@ -4045,6 +4045,7 @@ def build_runner(
         e2e_ran_no_tests=lambda: bool(e2e.result and e2e.result.ran_no_tests),
         e2e_passed_note=e2e.passed_note,
         on_preexisting=build_on_preexisting(store, installation, log=log),
+        on_product_defect=build_on_product_defect(store, installation, log=log),
         e2e_runs_whole=lambda *, cwd, base: e2e.scope(cwd=cwd, base=base).mode is E2eUnitScope.FULL,
         e2e_splits=lambda: e2e.splits(),
         on_e2e_gate=build_on_e2e_gate(store, installation, log=log),

@@ -15,7 +15,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.flakes import fix_change_name
 from agent_build_kit.pipeline.product_defect import ProductDefectEntry, product_defect_record
 from agent_build_kit.pipeline.unit_store import Cause, RequeueReason, UnitStore
-from agent_build_kit.pipeline.units import FAILED, IN_REVIEW
+from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED
 from agent_build_kit.pipeline.wiring import build_on_product_defect
 from tests.cli.test_tick_dry_run_preview import inst, open_change, tree_bytes  # noqa: F401
 from tests.conftest import run_status
@@ -28,17 +28,20 @@ FIX_UNIT = f"{FIX}/1"
 
 
 def parked(pipe: Pipeline) -> None:
-    """`CHILD` met the defect, was given its `Needs:` line by the hook and was parked: it is
-    failed with no feedback, and waits on the fix change's unit, which is planned."""
+    """`CHILD` met the defect, was given its `Needs:` line by the hook and was parked as the
+    rework parks it: planned, gated with a resume requeue and no feedback, waiting on the fix
+    change's unit, which is planned."""
     unit = change_with_unit(pipe.inst, "kid", CHILD)
     pipe.store.upsert([unit])
     fix = build_on_product_defect(pipe.store, pipe.inst, log=lambda line: None)(unit, defect())
     assert fix == FIX
     pipe.store.upsert([new_unit(FIX_UNIT), new_unit(CHILD, depends_on=(FIX_UNIT,))])
-    pipe.store.set_state(CHILD, FAILED, branch=f"spec/{CHILD}", cause=Cause.FAILED)
+    pipe.store.set_state(CHILD, PLANNED, branch=f"spec/{CHILD}", cause=Cause.GATED)
+    pipe.store.set_gated_requeue(CHILD, RequeueReason.RESUME)
+    pipe.store.set_feedback(CHILD, "")
 
 
-def test_the_parked_unit_shows_as_failed_and_waiting_on_the_fix_unit(
+def test_the_parked_unit_shows_as_waiting_on_the_fix_unit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     pipe = pipeline(tmp_path, monkeypatch)
@@ -46,39 +49,38 @@ def test_the_parked_unit_shows_as_failed_and_waiting_on_the_fix_unit(
 
     lines = run_status(pipe.inst, monkeypatch, capsys)
 
-    [line] = [line for line in lines if "failed, waiting on" in line]
-    assert f"failed, waiting on {FIX_UNIT}" in line and CHILD in line
+    [line] = [line for line in lines if f"  {CHILD} (" in line and "waiting for" in line]
+    assert FIX in line
 
 
-def test_the_unit_is_requeued_once_with_the_wait_ended_when_the_fix_unit_is_in_review(
+def test_the_unit_is_released_once_when_the_fix_unit_is_in_review_and_resumes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pipe = pipeline(tmp_path, monkeypatch)
     parked(pipe)
-    pipe.pass_()
-    assert pipe.store.get(CHILD).waited_on == (FIX_UNIT,)
     pipe.store.set_state(FIX_UNIT, IN_REVIEW, branch=f"spec/{FIX_UNIT}", pr=1)
 
-    pipe.passes(3)
+    for _ in range(3):
+        cli.release_gated(pipe.inst, pipe.store)
 
     [delivery] = pipe.host.deliveries
     assert (delivery["unit"], delivery["kind"]) == (CHILD, "requeue")
-    assert delivery["reason"].startswith("its wait ended")
-    assert FIX_UNIT in delivery["reason"] or FIX in delivery["reason"]
-    assert delivery["requeue"] is not RequeueReason.FROM_FAILURE, "it resumes, it is not reworked"
+    assert delivery["reason"] == "resume"
+    assert delivery["requeue"] is RequeueReason.RESUME, "it resumes, it is not reworked"
     assert pipe.store.get(CHILD).feedback == ""
 
 
-def test_the_unit_is_not_requeued_while_the_fix_unit_is_planned(
+def test_the_unit_is_not_released_while_the_fix_unit_is_planned(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pipe = pipeline(tmp_path, monkeypatch)
     parked(pipe)
 
-    pipe.passes(3)
+    for _ in range(3):
+        cli.release_gated(pipe.inst, pipe.store)
 
     assert pipe.host.deliveries == []
-    assert pipe.store.get(CHILD).state == FAILED
+    assert pipe.store.get(CHILD).state == PLANNED
 
 
 # --- the dry run --------------------------------------------------------------------
