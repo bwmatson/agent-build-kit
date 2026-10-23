@@ -45,7 +45,7 @@ from agent_build_kit.graph.state import (
 )
 from agent_build_kit.installation import Installation, changes_dir_under
 from agent_build_kit.model import TestTier
-from agent_build_kit.pipeline import environment, spans, spec_snapshot
+from agent_build_kit.pipeline import audit_record, environment, spans, spec_snapshot
 from agent_build_kit.pipeline.agent_commands import commands_note
 from agent_build_kit.pipeline.call_record import call_recorder
 from agent_build_kit.pipeline.changelog_convention import changelog_note
@@ -2106,7 +2106,9 @@ class BuildPath:
                 change=unit.change,
                 round=number,
                 unit_class=unit_class,
-                history=recorded_history(verdicts, unit_class),
+                history=recorded_history(
+                    verdicts, unit_class, verdicts.with_name(audit_record.AUDITS)
+                ),
                 repo=unit.repo,
                 facts=facts,
                 drivers=weighed.verdict.drivers,

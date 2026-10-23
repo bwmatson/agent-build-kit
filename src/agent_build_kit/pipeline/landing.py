@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, datetime
 
 from agent_build_kit import config
 from agent_build_kit.forges.base import Forge, MergeRefused, PullRequest, RepoId
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import audit_record, landing_intent
+from agent_build_kit.pipeline import audit_record, landing_intent, spans
 from agent_build_kit.pipeline.audit_sampling import picked
 from agent_build_kit.pipeline.landing_decision import Condition, LandingFacts, decide_landing
 from agent_build_kit.pipeline.ui_review import ui_listing
@@ -159,7 +158,7 @@ def _sample_for_audit(
                 inst.state_dir / audit_record.AUDITS,
                 unit=unit.id,
                 unit_class=verdict.unit_class,
-                at=datetime.now(UTC),
+                at=spans.clock.now(),
             )
     except Exception as error:  # noqa: BLE001 — the landing is recorded whatever happens here.
         say(f"{unit.id}: not recorded for audit — {type(error).__name__}: {error}")

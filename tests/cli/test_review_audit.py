@@ -14,6 +14,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import audit_record
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.verdict_record import VERDICTS
+from tests import fake_clock
 from tests.conftest import make_installation
 from tests.factories import new_unit
 from tests.review_records import sample_records, write_records
@@ -101,6 +102,29 @@ def test_a_unit_already_audited_is_refused(
     assert code != 0
     assert "not awaiting audit" in output
     assert recorded(inst)[PICKED]["state"] == "ok"
+
+
+def test_an_unreadable_audit_file_is_refused_and_left_as_it_is(
+    inst: Installation, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = inst.state_dir / audit_record.AUDITS
+    path.write_text("not json")
+
+    code, output = audit(capsys, PICKED, "ok")
+
+    assert code != 0
+    assert audit_record.AUDITS in output
+    assert path.read_text() == "not json"
+
+
+def test_the_time_recorded_is_the_clock_s(
+    inst: Installation, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = fake_clock.install(monkeypatch)
+
+    assert audit(capsys, PICKED, "ok")[0] == 0
+
+    assert datetime.fromisoformat(recorded(inst)[PICKED]["at"]) == clock.now()
 
 
 def test_a_word_other_than_ok_or_wrong_is_refused(

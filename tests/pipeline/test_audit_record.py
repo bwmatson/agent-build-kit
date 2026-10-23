@@ -10,6 +10,7 @@ import pytest
 
 from agent_build_kit.pipeline import audit_record
 from agent_build_kit.pipeline.audit_record import NotAwaitingAudit
+from tests import fake_clock
 from tests.landing_support import UNIT, apply_review, landing, listed_review
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -35,11 +36,12 @@ def land_at_rate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rate: float) -
 def test_landing_a_picked_unit_records_it_awaiting_with_its_class_and_the_time(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    fake_clock.install(monkeypatch)
     audits = land_at_rate(tmp_path, monkeypatch, 1)
 
     record = audit_record.read_audits(audits)[UNIT]
     assert (record["state"], record["unit_class"]) == ("awaiting", "docs")
-    assert datetime.fromisoformat(record["at"]).tzinfo is not None
+    assert datetime.fromisoformat(record["at"]) == fake_clock.START
 
 
 def test_landing_a_unit_at_a_rate_of_zero_records_nothing(
@@ -80,6 +82,18 @@ def test_a_second_result_for_a_unit_is_refused(path: Path) -> None:
         audit_record.record_result(path, unit="c/1", result="wrong", at=LATER)
 
     assert audit_record.read_audits(path)["c/1"]["state"] == "ok"
+
+
+def test_an_unreadable_file_is_refused_and_left_as_it_is(path: Path) -> None:
+    path.write_text("not json")
+
+    with pytest.raises(audit_record.UnreadableAudits):
+        audit_record.record_awaiting(path, unit="c/1", unit_class="docs", at=FIRST)
+    with pytest.raises(audit_record.UnreadableAudits):
+        audit_record.record_result(path, unit="c/1", result="ok", at=LATER)
+
+    assert path.read_text() == "not json"
+    assert audit_record.audit_status_lines(path)[0].startswith("audits:")
 
 
 def test_the_file_is_replaced_atomically(path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

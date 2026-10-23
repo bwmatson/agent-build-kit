@@ -800,7 +800,11 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         log(line)
 
     if config.active().review.enabled:
-        gates = recorded_gates(inst.state_dir / VERDICTS, config.active().review)
+        gates = recorded_gates(
+            inst.state_dir / VERDICTS,
+            config.active().review,
+            inst.state_dir / audit_record.AUDITS,
+        )
         for name, gate in gates.items():
             if gate.clears:
                 nameable = (

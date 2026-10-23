@@ -9,6 +9,7 @@ from typing import Any
 
 from agent_build_kit.config import AutoLandConfig, ReviewConfig
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.audit_record import audit_results
 from agent_build_kit.pipeline.review_outcome import Outcome
 from agent_build_kit.pipeline.verdict import ReviewTier
 
@@ -38,10 +39,13 @@ class ClassGate(Frozen):
     nameable: bool
 
 
-def class_rates(records: Mapping[str, Mapping[str, Any]]) -> dict[str, ClassRates]:
-    """The rates of each class in `records` (verdict records by unit id)."""
+def class_rates(
+    records: Mapping[str, Mapping[str, Any]], audits: Mapping[str, str] | None = None
+) -> dict[str, ClassRates]:
+    """The rates of each class in `records` (verdict records by unit id); `audits` are the
+    results (`ok` or `wrong`) of the audited units by unit id."""
     counts: dict[str, dict[str, int]] = {}
-    for record in records.values():
+    for unit, record in records.items():
         if record.get("final") is not True:
             continue
         c = counts.setdefault(
@@ -56,7 +60,7 @@ def class_rates(records: Mapping[str, Mapping[str, Any]]) -> dict[str, ClassRate
         clean = record.get("outcome") == Outcome.CLEAN
         if record.get("auto_landed"):
             # No person read it: it counts only when audited or reverted.
-            audit = record.get("audit")
+            audit = (audits or {}).get(unit)
             if record["outcome"] == Outcome.REVERTED:
                 clean = False
             elif audit in ("ok", "wrong"):
@@ -85,11 +89,12 @@ def class_gates(
     records: Mapping[str, Mapping[str, Any]],
     policy: AutoLandConfig,
     named: Collection[str],
+    audits: Mapping[str, str] | None = None,
 ) -> dict[str, ClassGate]:
     """Each class in `records` with whether it clears `policy`'s gates; `named` are the classes
     `review.classes` names."""
     gates = {}
-    for name, rates in class_rates(records).items():
+    for name, rates in class_rates(records, audits).items():
         more = max(0, policy.min_samples - rates.samples)
         clears = more == 0 and (rates.clean_rate or 0) >= policy.min_clean_rate
         gates[name] = ClassGate(
@@ -98,14 +103,21 @@ def class_gates(
     return gates
 
 
-def recorded_gates(verdicts: Path, review: ReviewConfig) -> dict[str, ClassGate]:
-    """The gates of each class in the verdict records in `verdicts`; empty when the file is
-    missing or unreadable."""
+def recorded_gates(
+    verdicts: Path, review: ReviewConfig, audits: Path | None = None
+) -> dict[str, ClassGate]:
+    """The gates of each class in the verdict records in `verdicts`, with the audit results in
+    `audits`; empty when the verdicts are missing or unreadable."""
     try:
         records = json.loads(verdicts.read_text())
     except (OSError, ValueError):
         return {}
     try:
-        return class_gates(records, review.auto_land, review.classes)
+        return class_gates(
+            records,
+            review.auto_land,
+            review.classes,
+            audit_results(audits) if audits is not None else None,
+        )
     except (KeyError, TypeError, AttributeError):
         return {}

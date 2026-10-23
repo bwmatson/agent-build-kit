@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import UTC, datetime
 
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import audit_record
+from agent_build_kit.pipeline import audit_record, spans
 from agent_build_kit.pipeline.review_rates import ClassGate, recorded_gates
 from agent_build_kit.pipeline.verdict_record import VERDICTS
 
@@ -32,7 +31,9 @@ def _line(name: str, gate: ClassGate) -> str:
 
 
 def cmd_review_report(args: argparse.Namespace, inst: Installation) -> int:
-    gates = recorded_gates(inst.state_dir / VERDICTS, inst.config.review)
+    gates = recorded_gates(
+        inst.state_dir / VERDICTS, inst.config.review, inst.state_dir / audit_record.AUDITS
+    )
     if not gates:
         print("nothing to report: no verdict records")
         return 0
@@ -44,8 +45,8 @@ def cmd_review_report(args: argparse.Namespace, inst: Installation) -> int:
 def cmd_review_audit(args: argparse.Namespace, inst: Installation) -> int:
     path = inst.state_dir / audit_record.AUDITS
     try:
-        audit_record.record_result(path, unit=args.unit, result=args.result, at=datetime.now(UTC))
-    except audit_record.NotAwaitingAudit as refused:
+        audit_record.record_result(path, unit=args.unit, result=args.result, at=spans.clock.now())
+    except (audit_record.NotAwaitingAudit, audit_record.UnreadableAudits) as refused:
         print(f"refused: {refused}", file=sys.stderr)
         return 1
     print(f"{args.unit}: audit recorded {args.result}")

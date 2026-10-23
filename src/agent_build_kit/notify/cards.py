@@ -10,7 +10,7 @@ from agent_build_kit import config, forges
 from agent_build_kit.model import Frozen
 from agent_build_kit.notify.provider import CardKind
 from agent_build_kit.pipeline import spans
-from agent_build_kit.pipeline.audit_record import AWAITING, read_audits
+from agent_build_kit.pipeline.audit_record import AWAITING, UnreadableAudits, read_audits
 from agent_build_kit.pipeline.landing import declined_reason
 from agent_build_kit.pipeline.unit_store import Cause, HeldBy, StoredUnit
 from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW, MERGED
@@ -106,7 +106,11 @@ def _digest(units: Sequence[StoredUnit], verdicts: Path | None) -> Card | None:
 
 def _audit_cards(units: Sequence[StoredUnit], audits: Path) -> list[Card]:
     """One card for each landed unit awaiting audit."""
-    waiting = {id: r for id, r in read_audits(audits).items() if r.get("state") == AWAITING}
+    try:
+        recorded = read_audits(audits)
+    except UnreadableAudits:
+        return []
+    waiting = {id: r for id, r in recorded.items() if r.get("state") == AWAITING}
     cards = []
     for unit in units:
         if unit.id not in waiting:
