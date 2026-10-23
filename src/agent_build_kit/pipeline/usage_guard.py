@@ -82,6 +82,7 @@ from agent_build_kit.pipeline.usage_allowances import (
     WEEKLY_WINDOW,
     allowance_for,
     allowances_path,
+    cost_basis_in_force,
     of_account,
     read_allowances,
 )
@@ -1274,13 +1275,7 @@ def _estimates(
         flat = allowance_for(window, found, limits)
         since_rows = [row for row in rows if row.at >= since]
         spent_units = admitted | {row.unit for row in since_rows if row.unit}
-        if (
-            found is None
-            or found.points_per_usd is None
-            or found.basis != "cost"
-            or not limits.calibrate_usage_allowances
-            or getattr(limits, window).usage_estimate_basis != "cost"
-        ):
+        if found is None or not cost_basis_in_force(window, found, limits):
             return Spend(points=float(flat * len(spent_units)))
         costed = {row.unit for row in since_rows if row.unit and row.cost_usd > 0}
         unrecorded = len(spent_units - costed)
@@ -1288,7 +1283,7 @@ def _estimates(
         # After a reset the climb stands for what nobody recorded, so no intercept is added.
         hours = 0.0 if reset else (now - since).total_seconds() / 3600
         points = (
-            found.points_per_usd * cost
+            (found.points_per_usd or 0.0) * cost
             + (found.intercept_per_hour or 0.0) * hours
             + flat * unrecorded
         )

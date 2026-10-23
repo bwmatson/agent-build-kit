@@ -390,6 +390,20 @@ def allowance_for(window: Window, found: Calibrated | None, limits: ClaudeLimits
     return min(max(math.ceil(found.quantile_pct_per_unit), floor), limits.allowance_ceiling(window))
 
 
+def cost_basis_in_force(
+    window: Window, found: Calibrated | None, limits: ClaudeLimitsConfig
+) -> bool:
+    """Whether `window` is estimated from recorded cost: calibration is on, the kept entry is
+    on the cost basis with a fit, and the window's setting asks for the cost basis."""
+    return (
+        limits.calibrate_usage_allowances
+        and found is not None
+        and found.basis == "cost"
+        and found.points_per_usd is not None
+        and getattr(limits, window).usage_estimate_basis == "cost"
+    )
+
+
 def _why_flat(kept: Calibrated, limits: ClaudeLimitsConfig) -> str:
     """After a flat part, why the cost basis is not in force for the window."""
     needed = limits.usage_cost_min_pairs
@@ -414,7 +428,7 @@ def allowances_line(found: Mapping[str, Calibrated], limits: ClaudeLimitsConfig)
         kept = found.get(window)
         applied = allowance_for(window, kept, limits)
         wants_cost = getattr(limits, window).usage_estimate_basis == "cost"
-        if kept is not None and kept.basis == "cost" and kept.points_per_usd and wants_cost:
+        if kept is not None and cost_basis_in_force(window, kept, limits):
             hourly = f" + {kept.intercept_per_hour:g} points/h" if kept.intercept_per_hour else ""
             parts.append(
                 f"{window} {kept.points_per_usd:.2f} points/${hourly} "

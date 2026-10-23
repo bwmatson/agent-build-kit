@@ -208,3 +208,25 @@ def test_a_labelled_accounts_line_comes_from_its_own_file_and_shows_the_cost_bas
     assert "weekly 0.30 points/$ (24 pairs with cost, scale 1.1)" in second
     (default,) = [each for each in lines if "account kit" not in each]
     assert "points/$" not in default
+
+
+def test_a_window_set_to_the_units_basis_prints_the_flat_line_as_it_was(
+    tmp_path: Path, host: Host, capsys: pytest.CaptureFixture[str]
+) -> None:
+    found = {
+        "session": cost_basis(9, 31, per_usd=2.65, per_hour=5.1, scale=1.2, held=31),
+        "weekly": not_adopted(1, 24, "more_false_allows"),
+    }
+
+    lines = allowance_lines(
+        tmp_path,
+        host,
+        capsys,
+        found,
+        session={"usage_estimate_basis": "units"},
+        weekly={"usage_estimate_basis": "units"},
+    )
+
+    assert lines == [
+        "usage allowances: session 9/unit (31 pairs), weekly 1/unit (24 pairs), calibrated"
+    ]
