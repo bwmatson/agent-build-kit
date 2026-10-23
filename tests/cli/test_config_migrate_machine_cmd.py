@@ -13,7 +13,7 @@ from tests.cli.config_migrate_fakes import beside, run_migrate
 from tests.cli.config_migrate_machine_fakes import MACHINE, head, merged, staged, tracked
 from tests.test_machine_settings import TILDE
 
-TIER_KEY = "version: 1\nglobal_limits:\n  tier2_lock_wait_seconds: 600\n"
+OLD_STEP = "version: 1\nmodels:\n  build: small\n"
 
 
 def test_a_confirmed_run_moves_the_settings_and_keeps_the_merged_configuration(
@@ -96,11 +96,11 @@ def test_no_terminal_and_no_yes_writes_nothing_and_exits_1(
 def test_only_the_old_steps_changing_asks_about_abk_yaml_alone(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    path = tracked(tmp_path, TIER_KEY)
+    path = tracked(tmp_path, OLD_STEP)
 
     code, terminal = run_migrate(capsys, monkeypatch, path, "--include-defaults", answers=("y",))
 
     assert code == 0
     assert terminal.shown[0].endswith(f"migrate {path}? [y/N] ")
-    assert "tier2_lock_wait_seconds" not in path.read_text()
+    assert "\nmodels:" not in path.read_text()
     assert not (tmp_path / "abk.local.yaml").exists()
