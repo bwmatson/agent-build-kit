@@ -798,7 +798,11 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         gates = recorded_gates(inst.state_dir / VERDICTS, config.active().review)
         for name, gate in gates.items():
             if gate.clears:
-                log(f"review gates: {name} clears the gates ({gate.rates.samples} samples)")
+                nameable = (
+                    "" if gate.nameable else ", not nameable: no review.classes entry names it"
+                )
+                samples = gate.rates.samples
+                log(f"review gates: {name} clears the gates ({samples} samples{nameable})")
 
     units = store_for(inst).all()
     if not units:

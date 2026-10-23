@@ -42,6 +42,8 @@ def class_rates(records: Mapping[str, Mapping[str, Any]]) -> dict[str, ClassRate
     """The rates of each class in `records` (verdict records by unit id)."""
     counts: dict[str, dict[str, int]] = {}
     for record in records.values():
+        if record.get("final") is not True:
+            continue
         c = counts.setdefault(
             record["unit_class"],
             {"samples": 0, "clean": 0, "auto": 0, "auto_clean": 0, "excluded": 0},
@@ -94,4 +96,7 @@ def recorded_gates(verdicts: Path, review: ReviewConfig) -> dict[str, ClassGate]
         records = json.loads(verdicts.read_text())
     except (OSError, ValueError):
         return {}
-    return class_gates(records, review.auto_land, review.classes)
+    try:
+        return class_gates(records, review.auto_land, review.classes)
+    except (KeyError, TypeError, AttributeError):
+        return {}

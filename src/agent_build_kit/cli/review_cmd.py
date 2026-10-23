@@ -9,7 +9,7 @@ from agent_build_kit.pipeline.review_rates import ClassGate, recorded_gates
 from agent_build_kit.pipeline.verdict_record import VERDICTS
 
 
-def _percent(rate: float | None) -> str:
+def _rate(rate: float | None) -> str:
     return "none" if rate is None else f"{rate:.2f}"
 
 
@@ -22,8 +22,8 @@ def _line(name: str, gate: ClassGate) -> str:
     else:
         verdict = f"does not pass the gates, needs {gate.more_samples} more samples"
     return (
-        f"{name}: {rates.samples} samples, clean-merge rate {_percent(rates.clean_rate)}, "
-        f"agreement {_percent(rates.agreement)} of {rates.agreement_samples} samples, "
+        f"{name}: {rates.samples} samples, clean-merge rate {_rate(rates.clean_rate)}, "
+        f"agreement {_rate(rates.agreement)} of {rates.agreement_samples} samples, "
         f"{rates.excluded} excluded (no brief) — {verdict}"
     )
 

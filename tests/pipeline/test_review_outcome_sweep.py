@@ -176,3 +176,40 @@ def test_the_file_is_replaced_atomically(app: Path, forge: StandInForge, verdict
     assert verdicts.stat().st_ino != inode
     assert read(verdicts)["c/1"]["outcome"] == "clean"
     assert not [p for p in verdicts.parent.iterdir() if p.name.endswith(".tmp")]
+
+
+def test_a_record_that_is_not_final_gets_no_outcome(
+    app: Path, forge: StandInForge, verdicts: Path
+) -> None:
+    unit = merged("c/1", 1, timedelta(days=1))
+    land(forge, app, 1)
+    verdicts.write_text(json.dumps({"c/1": {"brief": True, "final": False}}))
+
+    sweep([unit], verdicts, forge, app)
+
+    assert "outcome" not in read(verdicts)["c/1"]
+
+
+def test_a_verdict_recorded_for_another_unit_while_deriving_is_kept(
+    app: Path, forge: StandInForge, verdicts: Path
+) -> None:
+    unit = merged("c/1", 1, timedelta(days=1))
+    land(forge, app, 1)
+    write(verdicts, "c/1")
+
+    class Recording(StandInForge):
+        def merge_commit(self, repo: RepoId, pr: int) -> str | None:
+            # A build records a verdict for another unit while this one is derived.
+            recorded = read(verdicts)
+            recorded["c/2"] = {"brief": False, "final": True}
+            verdicts.write_text(json.dumps(recorded))
+            return super().merge_commit(repo, pr)
+
+    during = Recording()
+    during.merged = forge.merged
+
+    sweep([unit], verdicts, during, app)
+
+    recorded = read(verdicts)
+    assert recorded["c/1"]["outcome"] == "clean"
+    assert recorded["c/2"] == {"brief": False, "final": True}

@@ -40,6 +40,7 @@ def test_a_line_is_printed_for_each_class_that_clears_the_gates_and_for_no_other
     assert len(lines) == 2
     assert sum("docs" in line for line in lines) == 1
     assert sum("app/unit-test" in line for line in lines) == 1
+    assert all(("nameable" in line) == ("app/unit-test" in line) for line in lines)
 
 
 def test_nothing_about_the_gates_is_printed_with_review_disabled(

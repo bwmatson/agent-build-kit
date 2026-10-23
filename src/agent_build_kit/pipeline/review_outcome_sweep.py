@@ -17,6 +17,9 @@ from agent_build_kit.pipeline.units import UnitState
 # Days a merged unit is rechecked for a revert; its outcome is final after that.
 HORIZON_DAYS = 14
 
+# What the derivation adds to a verdict record.
+OUTCOME_FIELDS = ("outcome", "reworks", "revert_checked")
+
 
 def sweep_outcomes(
     units: Iterable[StoredUnit],
@@ -28,31 +31,46 @@ def sweep_outcomes(
     now: datetime,
     log: Callable[[str], None],
 ) -> None:
-    """Derive the outcome of each unit merged within `HORIZON_DAYS` of `now` and write the
-    verdict records at `verdicts` once, atomically, and only when one changed. A unit whose forge
-    or checkout cannot be read is logged and the others are still derived."""
+    """Derive the outcome of each unit merged within `HORIZON_DAYS` of `now` whose verdict record
+    is final, and write them over the records at `verdicts` once, atomically, and only when one
+    changed. The forge and the checkout are asked without the lock the recording holds, and the
+    file is read again under it, so a verdict recorded meanwhile is kept. A unit whose forge or
+    checkout cannot be read is logged and the others are still derived."""
     if not verdicts.exists():
         return
+    records: dict[str, dict[str, Any]] = json.loads(verdicts.read_text())
+    derived: dict[str, dict[str, Any]] = {}
+    for unit in units:
+        if not _is_final(records.get(unit.id)) or not _inside_horizon(unit, now):
+            continue
+        try:
+            forge, repo = forge_of(unit.repo)
+            alone = with_outcome(
+                {unit.id: records[unit.id]},
+                unit,
+                forge=forge,
+                repo=repo,
+                checkout=checkouts[unit.repo],
+                trunk=trunks[unit.repo],
+            )
+        except Exception as error:  # noqa: BLE001
+            log(f"outcome of {unit.id} not derived — {type(error).__name__}: {error}")
+            continue
+        derived[unit.id] = {k: v for k, v in alone[unit.id].items() if k in OUTCOME_FIELDS}
+    if not derived:
+        return
     with file_lock(verdicts.with_name(f"{verdicts.name}.lock")):
-        records: dict[str, dict[str, Any]] = json.loads(verdicts.read_text())
-        derived = records
-        for unit in units:
-            if unit.id not in records or not _inside_horizon(unit, now):
-                continue
-            try:
-                forge, repo = forge_of(unit.repo)
-                derived = with_outcome(
-                    derived,
-                    unit,
-                    forge=forge,
-                    repo=repo,
-                    checkout=checkouts[unit.repo],
-                    trunk=trunks[unit.repo],
-                )
-            except Exception as error:  # noqa: BLE001
-                log(f"outcome of {unit.id} not derived — {type(error).__name__}: {error}")
-        if derived != records:
-            atomic_write_text(verdicts, json.dumps(derived, indent=2, sort_keys=True))
+        current: dict[str, dict[str, Any]] = json.loads(verdicts.read_text())
+        merged = {
+            uid: {**record, **derived[uid]} if uid in derived and _is_final(record) else record
+            for uid, record in current.items()
+        }
+        if merged != current:
+            atomic_write_text(verdicts, json.dumps(merged, indent=2, sort_keys=True))
+
+
+def _is_final(record: Mapping[str, Any] | None) -> bool:
+    return record is not None and record.get("final") is True
 
 
 def _inside_horizon(unit: StoredUnit, now: datetime) -> bool:

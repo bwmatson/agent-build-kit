@@ -72,3 +72,10 @@ def test_each_class_is_counted_on_its_own() -> None:
 def test_a_class_with_only_excluded_records_is_kept_with_no_samples() -> None:
     rates = class_rates(table(record("clean", brief=False)))["docs"]
     assert (rates.samples, rates.clean_rate, rates.excluded) == (0, None, 1)
+
+
+def test_a_record_that_is_not_final_is_neither_a_sample_nor_excluded() -> None:
+    interim = {**record("clean"), "final": False}
+    interim_no_brief = {**record("clean", brief=False), "final": False}
+    rates = class_rates(table(record("clean"), interim, interim_no_brief))["docs"]
+    assert (rates.samples, rates.excluded) == (1, 0)
