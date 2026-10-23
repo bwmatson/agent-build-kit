@@ -507,8 +507,11 @@ release could move. The steps:
    source. The builder fixes a test fault in place; for a product fault it reports a
    `product-defect` block, which the pipeline reads without a model and turns into one
    `fix-product-defect` fix change (a `[unit-test]` group to reproduce, then fix). The e2e
-   unit gets a `Needs:` on it, is parked as failed waiting on it, and is requeued when
-   its wait ends.
+   unit gets a `Needs:` on it and is held as planned and gated on it, with a resume requeue
+   and its feedback cleared. The gate releases it once the fix unit is no longer waited on
+   (in review or merged), and it resumes rather than reworks; this does not depend on
+   `wait_end_requeue`. A unit stopped by the guard itself ends the run as failed, and its
+   saved feedback is used when it is requeued.
 5. **Checks, then review rounds.** Before each review round the branch has to
    pass unit-test (lint, formatting, types and the tests; see step 6): a reviewer's
    time goes on a branch that already builds. A failure is saved as feedback and

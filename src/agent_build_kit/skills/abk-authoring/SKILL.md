@@ -217,7 +217,7 @@ unit at `checks` when its branch changes product code.
 Do not put product fixes in an e2e group. When a live test finds a product
 defect, the builder reports it and the pipeline files a `fix-product-defect`
 change with one `[unit-test]` group (reproduce, then fix); the e2e unit waits
-on it with a `Needs:` line and resumes when it lands. An author who already
+on it with a `Needs:` line and resumes once the fix is in review. An author who already
 knows of the defect writes that `[unit-test]` group first, in its own change or
 ahead of the e2e group, and the e2e group `Needs:` it.
 

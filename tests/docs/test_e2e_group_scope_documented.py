@@ -87,15 +87,16 @@ def test_the_cli_document_names_the_product_path_warning_and_its_limits() -> Non
 
 def test_the_unit_graph_shows_the_guard_at_the_top_of_checks() -> None:
     text = (DOCS / "unit-graph.md").read_text(encoding="utf-8")
-    assert re.search(r"guard", text, re.I)
-    edges = [line for line in text.splitlines() if "-->" in line and "guard" in line.lower()]
-    assert any(re.search(r"\bchecks\b", line) for line in edges)
+    assert re.search(r"^\s*checks -->\|[^|]*guard[^|]*\| failed$", text, re.M)
 
 
 def test_the_pipeline_skill_has_a_paragraph_on_the_product_defect_wait() -> None:
     text = squashed_file(PIPELINE)
     assert re.search(r"product defect.{0,600}(wait|Needs)", text, re.I)
     assert "fix-product-defect" in text
+    assert re.search(
+        r"gated on the fix unit.{0,400}does not depend on global_limits.wait_end_requeue", text
+    )
     assert "failed units resumed when their wait ended" in text
 
 
