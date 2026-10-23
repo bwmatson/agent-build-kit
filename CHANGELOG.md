@@ -22,8 +22,10 @@
 - With `sandbox.enabled`, an ACP agent and every terminal its client starts run through the
   sandbox backend too, behind the same allowlist proxy. A terminal gets a scrubbed
   environment (abk's credentials are not inherited, the `env` the agent asks for and the proxy
-  variables are added), and `read_text_file` only serves a path on the policy's read list,
-  symlinks and `..` followed. A known agent's own state folders are granted. ACP's
+  variables are added), the agent process gets the same scrubbed environment, and
+  `read_text_file` only serves a path on the policy's read or write list, symlinks and `..`
+  followed. A known agent's own state folders are granted, but not its model host: list it
+  under `sandbox.hosts`, or the allowlist proxy refuses its calls. ACP's
   `sandbox_coverage` is `process`, unverified against a real agent: no ACP agent has been run
   under it yet.
 

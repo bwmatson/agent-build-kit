@@ -360,6 +360,11 @@ def _names_edit_tool(tool_list: str) -> bool:
     return any(name_of(token) in EDIT_TOOLS for token in tokens(tool_list))
 
 
+def _under_any(path: Path, roots: Sequence[Path]) -> bool:
+    """`path`, already resolved, is inside one of `roots`."""
+    return any(path.is_relative_to(root) for root in roots)
+
+
 def _is_read_only(request: AgentRequest) -> bool:
     """`allowed_tools` is set and names no edit tool: the shape of a run that
     relies on that list, not on the agent's own configuration, to keep from
@@ -929,7 +934,7 @@ class _Session:
         except OSError:
             return None
         roots = (*([self._worktree] if self._worktree else []), *self._readable)
-        return candidate if any(candidate.is_relative_to(root) for root in roots) else None
+        return candidate if _under_any(candidate, roots) else None
 
     def _rules(self, command: str, **where: Any) -> Verdict:
         """`command` against the unit's command rules, when this run has them."""
@@ -1129,13 +1134,14 @@ class _Session:
     ) -> ReadTextFileResponse:
         """The worktree and the specs are both meant to be read through here. Under a sandbox
         policy a path is read only when, resolved (symlinks and `..` followed), it is on the
-        policy's read list; otherwise reading is not a guarantee this client makes.
-        `line` (1-based) and `limit` page through the file."""
+        policy's read or write list (what may be written may be read); otherwise reading is
+        not a guarantee this client makes. `line` (1-based) and `limit` page through the file."""
         self._require_policed("fs/read_text_file")
         try:
             target = self._absolute(path).resolve()
             if self._policy is not None and self._policy.sandbox is not None:
-                if not any(target.is_relative_to(root) for root in self._policy.sandbox.read):
+                sandbox = self._policy.sandbox
+                if not _under_any(target, (*sandbox.read, *sandbox.write)):
                     raise RequestError.invalid_params(
                         {"reason": f"{path} is not on the sandbox policy's read list"}
                     )
@@ -1392,8 +1398,10 @@ class AcpRuntime:
                 argv = session.confinement.wrap(command)
             except SandboxRefused as refused:
                 return AgentResult(ok=False, text="", error=str(refused))
-            environment = {**full_environment(request.environment, request.env)}
-            environment.update(session.confinement.environment)
+            environment = {
+                **scrubbed_environment(full_environment(request.environment, request.env)),
+                **session.confinement.environment,
+            }
         try:
             # In a session of its own, so a kill reaches whatever the command
             # forks (a wrapper's real agent) and not only the command itself.

@@ -811,7 +811,8 @@ The kernel confines what an agent step can write and reach. Keys:
 - `repos.<name>.sandbox.required` (default `files`): the least coverage a step may run with
   (`process`, `files` or `none`; `none` lets it run unconfined).
 - `sandbox.write`, `sandbox.read` and `sandbox.hosts`, on a repo or a project: extra paths and
-  hosts, in `abk.yaml` and `abk.local.yaml` (see the table above for which holds what).
+  hosts, in `abk.yaml` and `abk.local.yaml` (see the table above for which holds what). An ACP
+  agent's own model host is not added for it: list it under `sandbox.hosts`.
 
 `abk doctor` and `abk init` run the backend's probe and print the cause and the fix when it fails;
 `abk policy check` and `abk status` show each runtime's `sandbox_coverage` beside its

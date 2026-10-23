@@ -25,7 +25,7 @@ from agent_build_kit.runtimes import AgentRequest, AgentResult, ToolPolicy, know
 from agent_build_kit.runtimes.acp import AcpRuntime
 from agent_build_kit.sandboxes import Coverage, SandboxBackend, SandboxPolicy
 from agent_build_kit.sandboxes.policy import policy_entries, proxy_environment
-from tests.runtimes.acp_agent import command, requests, use_command
+from tests.runtimes.acp_agent import ENVIRONMENT, command, requests, use_command
 from tests.sandboxes.landlock_support import (
     CONNECT,
     readable_folders,
@@ -81,6 +81,13 @@ class Scene:
         (self.worktree / "link.txt").symlink_to(self.hidden)
         self.command: list[str] = []
 
+    def write_only_policy(self) -> SandboxPolicy:
+        """The shape `build_policy` gives a worktree: granted for writing, not listed to read."""
+        policy = self.policy()
+        return policy.model_copy(
+            update={"read": tuple(p for p in policy.read if p != self.worktree.resolve())}
+        )
+
     def policy(self, *, write_worktree: bool = True) -> SandboxPolicy:
         """Reads the system, the kit and the worktree; the temp folder (which holds the other
         folders of this scene) is not on the read list."""
@@ -97,8 +104,8 @@ class Scene:
             required=Coverage.FILES,
         )
 
-    def act(self, *actions: dict[str, Any]) -> None:
-        self.command = command(self.record, act=list(actions))
+    def act(self, *actions: dict[str, Any], watch: tuple[str, ...] = ()) -> None:
+        self.command = command(self.record, act=list(actions), watch=watch)
         use_command(self.command)
 
     def run(self, policy: SandboxPolicy | None, *, scoped: bool = True) -> AgentResult:
@@ -227,6 +234,24 @@ def test_the_terminal_environment_holds_the_proxy_variables_and_none_of_abk_s_se
         assert name not in seen, name
 
 
+def test_the_agent_process_environment_holds_the_proxy_variables_and_none_of_abk_s_secrets(
+    scene: Scene, backend: Recording
+) -> None:
+    asked_for = tuple(proxy_environment(1))
+    scene.act(watch=(*SECRETS, *asked_for))
+
+    result = scene.run(scene.policy())
+
+    assert result.ok, result.error
+    (seen,) = requests(scene.record, ENVIRONMENT)
+    asked, _ = backend.asked[0]
+    assert asked.proxy_port is not None
+    for name, value in proxy_environment(asked.proxy_port).items():
+        assert seen[name] == value, name
+    for name in SECRETS:
+        assert seen[name] is None, name
+
+
 def test_the_terminal_environment_honours_the_env_argument(
     scene: Scene, backend: Recording
 ) -> None:
@@ -251,12 +276,27 @@ def test_read_text_file_serves_a_path_on_the_read_list(scene: Scene, backend: Re
     assert did["content"] == "fine\n"
 
 
+def test_read_text_file_serves_a_path_the_policy_lists_only_for_writing(
+    scene: Scene, backend: Recording
+) -> None:
+    policy = scene.write_only_policy()
+    assert scene.worktree.resolve() in policy.write
+    assert scene.worktree.resolve() not in policy.read
+    scene.act({"read": str(scene.worktree / "ok.txt")})
+
+    scene.run(policy)
+
+    [did] = requests(scene.record, "did/read")
+    assert did["content"] == "fine\n"
+
+
+@pytest.mark.parametrize("policy_of", [Scene.policy, Scene.write_only_policy])
 @pytest.mark.parametrize(
     "how",
     ["outside", "symlink", "dotdot"],
 )
 def test_read_text_file_refuses_what_the_policy_does_not_list(
-    how: str, scene: Scene, backend: Recording
+    how: str, policy_of: Any, scene: Scene, backend: Recording
 ) -> None:
     path = {
         "outside": str(scene.hidden),
@@ -265,7 +305,7 @@ def test_read_text_file_refuses_what_the_policy_does_not_list(
     }[how]
     scene.act({"read": path})
 
-    scene.run(scene.policy())
+    scene.run(policy_of(scene))
 
     [did] = requests(scene.record, "did/read")
     assert "error" in did, did
