@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from enum import StrEnum
+from typing import Any
 
 from agent_build_kit.config import AutoLandConfig, CeilingsConfig, buffered
 from agent_build_kit.model import Frozen, TestTier
@@ -37,6 +39,14 @@ class ClassHistory(Frozen):
 
     samples: int = 0
     clean: int = 0
+
+    @classmethod
+    def from_records(
+        cls, records: Mapping[str, Mapping[str, Any]], unit_class: str
+    ) -> ClassHistory:
+        """The history of `unit_class` in the verdict records by unit id: the same samples and
+        clean count the report gives the class, over the records that carried the brief."""
+        raise NotImplementedError
 
 
 class GroupText(Frozen):

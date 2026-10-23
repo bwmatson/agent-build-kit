@@ -5,21 +5,16 @@ The repository is a temporary git one and the forge is the stand-in; the clock i
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit.forges.base import Forge, RepoId
-from agent_build_kit.pipeline.review_outcome_sweep import HORIZON_DAYS, sweep_outcomes
-from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import UnitState
-from tests.factories import commit, commit_files, init_repo, stored_unit
+from agent_build_kit.pipeline.review_outcome_sweep import HORIZON_DAYS
+from tests.factories import commit, commit_files, init_repo
 from tests.forges.stand_in import StandInForge
-
-NOW = datetime(2026, 10, 20, 12, 0, tzinfo=UTC)
-REPO = RepoId(forge="stand_in", account="example", name="app")
+from tests.review_sweep_support import REPO, land, merged, sweep
 
 
 @pytest.fixture
@@ -39,20 +34,6 @@ def verdicts(tmp_path: Path) -> Path:
     return tmp_path / "verdicts.json"
 
 
-def merged(uid: str, pr: int, age: timedelta, *, repo: str = "app") -> StoredUnit:
-    history = (
-        {"state": "running", "at": (NOW - age - timedelta(days=1)).isoformat()},
-        {"state": "merged", "at": (NOW - age).isoformat(), "cause": "merged"},
-    )
-    return stored_unit(uid, state=UnitState.MERGED, pr=pr, repo=repo, history=history)
-
-
-def land(forge: StandInForge, app: Path, pr: int) -> str:
-    sha = commit(app, f"change-{pr}.txt")
-    forge.merged[pr] = sha
-    return sha
-
-
 def revert(app: Path, sha: str) -> None:
     commit_files(app, f"Revert\n\nThis reverts commit {sha}.", {"revert.txt": sha})
 
@@ -63,26 +44,6 @@ def write(path: Path, *units: str) -> None:
 
 def read(path: Path) -> dict:
     return json.loads(path.read_text())
-
-
-def sweep(
-    units: list[StoredUnit],
-    verdicts: Path,
-    forge: Forge,
-    app: Path,
-    *,
-    log: list[str] | None = None,
-    forge_of: Callable[[str], tuple[Forge, RepoId]] | None = None,
-) -> None:
-    sweep_outcomes(
-        units,
-        verdicts=verdicts,
-        forge_of=forge_of or (lambda name: (forge, REPO)),
-        checkouts={"app": app, "platform": app},
-        trunks={"app": "main", "platform": "main"},
-        now=NOW,
-        log=(log if log is not None else []).append,
-    )
 
 
 def test_every_merged_unit_inside_the_horizon_is_updated_and_none_outside_it(
