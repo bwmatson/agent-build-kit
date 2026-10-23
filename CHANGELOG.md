@@ -81,6 +81,12 @@
   the committed `abk.yaml`, and its fix names `abk config --migrate` (and `--include-defaults`
   for a default a team may commit). One table of machine settings now backs the check.
 
+- `abk config --migrate` now also moves the machine settings of a git-tracked `abk.yaml` to
+  `abk.local.yaml`, and `--include-defaults` adds the settings a team may commit. It prints the
+  diff of `.gitignore`, `abk.yaml` and `abk.local.yaml`, asks once, and writes the two files
+  together. A key the local file already sets is reported and left, and the merged
+  configuration never changes.
+
 - With review enabled, the web UI's review answer for a unit with a recorded verdict now carries
   its tier, the reason and the reviewer's focus and skippable lists, and the pipeline summary
   carries each unit's tier. A unit with no verdict, or an unreadable verdict file, is answered

@@ -30,19 +30,51 @@ _WARNING = (
 )
 
 
-def _in_repository(directory: Path) -> bool:
+def in_repository(directory: Path) -> bool:
     return git(directory, "rev-parse", "--is-inside-work-tree", check=False).returncode == 0
 
 
-def _ignore_local_files(directory: Path) -> None:
-    """Refuse a tracked abk.local.yaml; append the lines git lacks to `.gitignore`, showing the
-    change."""
+def _diff(path: Path, before: str, after: str) -> str:
+    return "".join(
+        difflib.unified_diff(
+            before.splitlines(keepends=True),
+            after.splitlines(keepends=True),
+            fromfile=str(path),
+            tofile=str(path),
+        )
+    )
+
+
+def _missing_ignores(directory: Path) -> list[str]:
+    """The local-file names git does not ignore yet; refuses a tracked abk.local.yaml."""
     if is_tracked(directory, "abk.local.yaml"):
         raise ConfigMigrateError(
             f"{directory / 'abk.local.yaml'} is tracked by git, which would commit machine "
             "settings; run `git rm --cached abk.local.yaml` and migrate again"
         )
-    missing = [name for name in IGNORED_LOCAL_FILES if not is_ignored(directory, name)]
+    return [name for name in IGNORED_LOCAL_FILES if not is_ignored(directory, name)]
+
+
+def ignore_diff(directory: Path) -> str:
+    """The diff of the `.gitignore` in `directory` as the writer will change it, empty when git
+    already ignores both local files; writes nothing. Refuses a tracked abk.local.yaml."""
+    missing = _missing_ignores(directory)
+    if not missing:
+        return ""
+    path = directory / ".gitignore"
+    try:
+        before = path.read_text() if path.exists() else ""
+    except OSError as error:
+        raise ConfigMigrateError(f"{path}: {error}") from error
+    separator = "" if not before or before.endswith("\n") else "\n"
+    after = before + separator + "".join(f"{name}\n" for name in missing)
+    return _diff(path, before, after)
+
+
+def _ignore_local_files(directory: Path, show: bool) -> None:
+    """Refuse a tracked abk.local.yaml; append the lines git lacks to `.gitignore`, showing the
+    change when `show`."""
+    missing = _missing_ignores(directory)
     if not missing:
         return
     path = directory / ".gitignore"
@@ -52,17 +84,8 @@ def _ignore_local_files(directory: Path) -> None:
         after = path.read_text()
     except OSError as error:
         raise ConfigMigrateError(f"{path}: {error}") from error
-    print(
-        "".join(
-            difflib.unified_diff(
-                before.splitlines(keepends=True),
-                after.splitlines(keepends=True),
-                fromfile=str(path),
-                tofile=str(path),
-            )
-        ),
-        end="",
-    )
+    if show:
+        print(_diff(path, before, after), end="")
 
 
 def _staged(path: Path, text: str, mode: int) -> Path:
@@ -77,15 +100,18 @@ def _staged(path: Path, text: str, mode: int) -> Path:
     return staged
 
 
-def write_both(base: Path, base_text: str, local_text: str) -> None:
+def write_both(
+    base: Path, base_text: str, local_text: str, *, show_ignore_diff: bool = True
+) -> None:
     """Write `base_text` over the abk.yaml at `base` and `local_text` over the abk.local.yaml
     beside it, local first, both or neither; raises `ConfigMigrateError` naming the file that
     failed or the refusal (a tracked abk.local.yaml). In a git repository it first appends the
     missing `.gitignore` lines for `abk.local.yaml` and `scrub.local` and prints their diff;
-    after the backups are made it prints their paths."""
+    after the backups are made it prints their paths. A caller that has shown `ignore_diff`
+    already passes `show_ignore_diff=False`."""
     local = overlay_path(base)
-    if _in_repository(base.parent):
-        _ignore_local_files(base.parent)
+    if in_repository(base.parent):
+        _ignore_local_files(base.parent, show_ignore_diff)
     failing = base
     staged: list[Path] = []
     replaced = False
@@ -101,9 +127,7 @@ def write_both(base: Path, base_text: str, local_text: str) -> None:
             if path.exists() and (made := backup_once(path)):
                 print(f"backed up the original to {made}")
         failing = local
-        staged.append(
-            _staged(local, local_text, local.stat().st_mode if local_before is not None else mode)
-        )
+        staged.append(_staged(local, local_text, local_mode))
         failing = base
         staged.append(_staged(base, base_text, mode))
         failing = local
@@ -134,7 +158,7 @@ def _undo(local: Path, original: bytes | None, mode: int) -> None:
 def uncommitted_hint(base: Path) -> str | None:
     """The hint that the abk.yaml at `base` has changes git has not committed and that the
     migration does not commit, or None when it has none or is not in a git repository."""
-    if not _in_repository(base.parent):
+    if not in_repository(base.parent):
         return None
     status = git(base.parent, "status", "--porcelain", "--", base.name, check=False)
     if status.returncode or not status.stdout.strip():

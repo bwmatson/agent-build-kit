@@ -10,6 +10,7 @@ import yaml
 
 from agent_build_kit.config import merge_local
 from tests.factories import git, init_repo
+from tests.test_machine_settings import TILDE
 
 MACHINE = (
     "version: 1\n"
@@ -19,16 +20,16 @@ MACHINE = (
     "    profile: python-uv\n"
     "    path: ../app\n"
     "    deploy:\n"
-    "      ssh_key: ~/.ssh/deploy\n"
+    f"      ssh_key: {TILDE}.ssh/deploy\n"
     "planning:\n"
-    "  worktree_root: ~/work/trees\n"
+    f"  worktree_root: {TILDE}work/trees\n"
     "project_limits:\n"
     "  max_concurrent_stacks: 2\n"
     "verify:\n"
     "  env:\n"
     "    TOKEN:\n"
     "      from: env-file\n"
-    "      file: ~/.config/app/.env\n"
+    f"      file: {TILDE}.config/app/.env\n"
     "      key: TOKEN\n"
 )
 DEFAULTS = (

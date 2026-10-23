@@ -8,8 +8,9 @@ import pytest
 
 from tests.cli.config_migrate_fakes import beside, run_migrate
 from tests.cli.config_migrate_machine_fakes import CONFLICT, MACHINE, merged, tracked
+from tests.test_machine_settings import TILDE
 
-SET = "repos:\n  app:\n    path: ~/code/app\n"
+SET = f"repos:\n  app:\n    path: {TILDE}code/app\n"
 ONLY_PATH = "version: 1\nrepos:\n  app:\n    slug: example/app\n    path: ../app\n"
 
 
@@ -25,7 +26,7 @@ def test_a_local_path_keeps_its_key_in_both_files_and_the_others_move(
     assert "path: ../app" in path.read_text()
     assert "project_limits" not in path.read_text()
     local = (tmp_path / "abk.local.yaml").read_text()
-    assert "path: ~/code/app" in local
+    assert f"path: {TILDE}code/app" in local
     assert "../app" not in local
     assert "project_limits" in local
     assert merged(path.read_text(), local) == merged(MACHINE, SET)

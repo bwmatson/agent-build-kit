@@ -9,8 +9,11 @@ import pytest
 import yaml
 
 from agent_build_kit.runtimes.policy_apply import BACKUP_SUFFIX
-from tests.cli.config_migrate_fakes import OLD, beside, run_migrate
+from tests.cli.config_migrate_fakes import beside, run_migrate
 from tests.cli.config_migrate_machine_fakes import MACHINE, head, merged, staged, tracked
+from tests.test_machine_settings import TILDE
+
+TIER_KEY = "version: 1\nglobal_limits:\n  tier2_lock_wait_seconds: 600\n"
 
 
 def test_a_confirmed_run_moves_the_settings_and_keeps_the_merged_configuration(
@@ -25,10 +28,10 @@ def test_a_confirmed_run_moves_the_settings_and_keeps_the_merged_configuration(
     base = yaml.safe_load(path.read_text())
     local = yaml.safe_load((tmp_path / "abk.local.yaml").read_text())
     assert local == {
-        "repos": {"app": {"path": "../app", "deploy": {"ssh_key": "~/.ssh/deploy"}}},
-        "planning": {"worktree_root": "~/work/trees"},
+        "repos": {"app": {"path": "../app", "deploy": {"ssh_key": f"{TILDE}.ssh/deploy"}}},
+        "planning": {"worktree_root": f"{TILDE}work/trees"},
         "project_limits": {"max_concurrent_stacks": 2},
-        "verify": {"env": {"TOKEN": {"file": "~/.config/app/.env"}}},
+        "verify": {"env": {"TOKEN": {"file": f"{TILDE}.config/app/.env"}}},
     }
     assert base["repos"]["app"] == {"slug": "example/app", "profile": "python-uv", "deploy": {}}
     assert base["planning"] == {}
@@ -93,11 +96,11 @@ def test_no_terminal_and_no_yes_writes_nothing_and_exits_1(
 def test_only_the_old_steps_changing_asks_about_abk_yaml_alone(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    path = tracked(tmp_path, OLD)
+    path = tracked(tmp_path, TIER_KEY)
 
     code, terminal = run_migrate(capsys, monkeypatch, path, "--include-defaults", answers=("y",))
 
     assert code == 0
     assert terminal.shown[0].endswith(f"migrate {path}? [y/N] ")
-    assert "global_limits:" in path.read_text()
+    assert "tier2_lock_wait_seconds" not in path.read_text()
     assert not (tmp_path / "abk.local.yaml").exists()
