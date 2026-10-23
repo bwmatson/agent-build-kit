@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 
 import { AppRoutes } from "./App";
 import { recordedApi, UNITS } from "./test/api";
+import pipeline from "./test/recorded/pipeline.json";
 
 function open(path: string) {
   render(
@@ -197,5 +198,46 @@ describe("the usage page", () => {
 
     expect(await screen.findByText("implement")).toBeVisible();
     expect(api.requests).toContain("/api/usage?by=node");
+  });
+});
+
+describe("the overview of units awaiting review", () => {
+  // Each unit is in review; the tier is what the pipeline summary recorded, none for no verdict.
+  const AWAITING: [string, string | null][] = [
+    ["feature/11", "auto"],
+    ["feature/12", "light"],
+    ["feature/13", null],
+    ["feature/14", "full"],
+    ["feature/15", "light"],
+    ["feature/16", "full"],
+    ["feature/17", null],
+  ];
+
+  it("lists full first, then light, then no tier, then auto, each in the pipeline's order", async () => {
+    const api = recordedApi();
+    api.answer("/api/pipeline", {
+      units: AWAITING.map(([id, tier]) => ({
+        ...pipeline.units[1],
+        id,
+        status: "in_review",
+        ...(tier ? { tier } : {}),
+      })),
+    });
+
+    open("/");
+
+    await screen.findByRole("link", { name: /^feature\/11\b/ });
+    const listed = Array.from(document.querySelectorAll("[data-unit]")).map((row) =>
+      row.getAttribute("data-unit"),
+    );
+    expect(listed).toEqual([
+      "feature/14",
+      "feature/16",
+      "feature/12",
+      "feature/15",
+      "feature/13",
+      "feature/17",
+      "feature/11",
+    ]);
   });
 });
