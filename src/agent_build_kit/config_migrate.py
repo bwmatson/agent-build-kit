@@ -23,6 +23,7 @@ from agent_build_kit.config import (
     read_new_settings,
     workspace_full_ceiling,
 )
+from agent_build_kit.config_migrate_machine import Conflict, MachineRequest
 from agent_build_kit.model import Frozen
 from agent_build_kit.runtimes import DEFAULT as DEFAULT_RUNTIME
 from agent_build_kit.yaml_lines import insert_lines, node_end, split_lines, strip_comment
@@ -52,6 +53,9 @@ class Migrated(Frozen):
 
     text: str
     moved: tuple[str, ...] = ()
+    local_text: str | None = None
+    machine_moved: tuple[tuple[str, ...], ...] = ()
+    conflicts: tuple[Conflict, ...] = ()
 
 
 def _refuse(key: str, reason: str) -> ConfigMigrateError:
@@ -141,12 +145,15 @@ def _expected(old: dict[str, Any], source: str) -> dict[str, Any]:
     return renamed
 
 
-def migrate(text: str, runtime: str = DEFAULT_RUNTIME) -> Migrated:
+def migrate(
+    text: str, runtime: str = DEFAULT_RUNTIME, machine: MachineRequest | None = None
+) -> Migrated:
     """Rename a root `limits` to `global_limits`, move the three scheduling settings found under
     it (or under `global_limits`) to a `project_limits` block straight after it, move
     `max_unit_lines` to `review.ceilings.full`, rename each old test-kind setting key to its new
     name, and move a flat `models:` block under `runtimes.<runtime>.models`, the runtime in force
-    (`config.runtime_for`)."""
+    (`config.runtime_for`). Told to by `machine`, it then moves the machine settings to the local
+    file's text."""
     moved = _move_limits(_move_ceiling(text))
     renamed = _rename_test_kind_keys(moved.text)
     return Migrated(text=_move_models(renamed, runtime), moved=moved.moved)
