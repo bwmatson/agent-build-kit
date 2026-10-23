@@ -38,7 +38,13 @@ def forecast(unit: str = "feature/1") -> ForecastRow:
 
 
 def admit(path: Path, row: StepRow, said: list[str] | None = None, *, enabled: bool = True) -> None:
-    record_admission(path, row, forecast(row.unit), enabled=enabled, say=(said or []).append)
+    record_admission(
+        path,
+        row,
+        forecast(row.unit),
+        enabled=enabled,
+        say=(said if said is not None else []).append,
+    )
 
 
 def test_the_first_step_of_a_unit_appends_a_forecast_row_and_a_step_row(tmp_path: Path) -> None:

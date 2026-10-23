@@ -7,6 +7,10 @@
   keeps showing it until the next confined step ends clean, and the unit continues. A step that
   was not confined (including one that ran plain because the repo's `required` is `none` and
   no backend worked), and a track run, still fail with `ConfigChanged`.
+- The usage guard now keeps a forecast record (`usage-forecasts.jsonl` in the state directory)
+  of each step it admits, and a unit admitted on an estimate that has not yet written a ledger
+  row is counted at what is left of its running step instead of the flat allowance. The
+  `usage_forecast` setting turns the record off.
 
 - The `review` section of `abk.yaml` now accepts `auto_land.classes` (the classes that may land
   without a person; empty, the default, turns it off), `audit.sample_rate` and `demotion.window`
