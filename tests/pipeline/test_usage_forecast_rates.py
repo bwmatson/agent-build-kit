@@ -48,3 +48,29 @@ def test_the_chances_of_a_steps_rounds_do_not_rise() -> None:
             quantile=quantile,
         )
         assert chance(found, "review", 3) <= chance(found, "review", 2)
+
+
+def test_a_steps_total_chance_over_its_models_does_not_rise_with_the_round() -> None:
+    fixture = Fixture()
+    for n in range(20):
+        unit = fixture.unit(f"u{n}", ReviewTier.AUTO, [])
+        early = "model-a" if n < 10 else "model-b"
+        fixture.records.append(call(unit, "review", 1, 1.0, model=early))
+        if n < 15:
+            fixture.records.append(call(unit, "review", 2, 0.5, model="model-b"))
+
+    found = tier_cells(
+        fixture.records,
+        fixture.verdicts,
+        tier=ReviewTier.AUTO,
+        estimated_lines=10,
+        points_per_usd=2.5,
+        min_runs=10,
+        quantile=0.5,
+    )
+
+    totals = {
+        round: sum(c.chance for c in found.cells if c.cell.round == round) for round in (1, 2)
+    }
+    assert totals[1] == pytest.approx(1.0)
+    assert totals[2] == pytest.approx(0.75)

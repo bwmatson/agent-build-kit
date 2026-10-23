@@ -1,7 +1,7 @@
 """A tier, window or unit with too little to go on is forecast at the window's flat per-unit
 allowance, with the prior flagged (spec: usage-pause)."""
 
-from agent_build_kit.pipeline.usage_forecast_unit import UnitForecast, forecast_unit
+from agent_build_kit.pipeline.usage_forecast_unit import UnitForecast, forecast_step, forecast_unit
 from agent_build_kit.pipeline.verdict import ReviewTier
 from tests.usage_forecast_fixtures import Fixture, spec_history
 
@@ -56,3 +56,23 @@ def test_a_tier_with_enough_units_beside_them_is_not_the_prior() -> None:
 
     assert not found.prior
     assert found.usd is not None
+
+
+def test_a_step_the_tier_never_ran_is_forecast_at_the_flat_allowance() -> None:
+    history = spec_history()
+
+    found = forecast_step(
+        history.records,
+        history.verdicts,
+        tier=ReviewTier.AUTO,
+        estimated_lines=10,
+        node="rework",
+        round=0,
+        points_per_usd=2.5,
+        flat_allowance=FLAT,
+        min_runs=10,
+        quantile=0.5,
+    )
+
+    assert found.prior
+    assert found.points == FLAT

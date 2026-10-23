@@ -49,6 +49,17 @@ class CellForecast(Frozen):
     cost_usd: float
 
 
+class StepCost(Frozen):
+    """The mean cost of a role, node and round over every model, widened to the node's mean
+    when the step has fewer calls than the minimum; `node` alone is a node's mean (`round`
+    and `role` are then empty)."""
+
+    role: str | None
+    node: str
+    round: int | None
+    cost_usd: float
+
+
 class TierCells(Frozen):
     """What a unit of a tier is forecast from: its cells, the units they rest on and the size
     band used, or `prior` when the flat allowance stands in and `cells` is empty."""
@@ -57,6 +68,8 @@ class TierCells(Frozen):
     units: int
     band: Literal["all", "small", "large"]
     cells: tuple[CellForecast, ...]
+    steps: tuple[StepCost, ...] = ()
+    nodes: tuple[StepCost, ...] = ()
 
 
 _OVERHEAD = frozenset(node.value for node in OverheadNode)
@@ -116,8 +129,9 @@ def tier_cells(
     if len(units) < min_runs:
         return TierCells(prior=True, units=len(units), band="all", cells=())
     band, units = _band(units, estimated_lines, min_runs)
+    cells, steps, nodes = _cells(units, min_runs, quantile)
     return TierCells(
-        prior=False, units=len(units), band=band, cells=_cells(units, min_runs, quantile)
+        prior=False, units=len(units), band=band, cells=cells, steps=steps, nodes=nodes
     )
 
 
@@ -135,9 +149,12 @@ def _band(
     return ("small", small) if estimated_lines <= median else ("large", large)
 
 
-def _cells(units: tuple[UnitRuns, ...], min_runs: int, quantile: float) -> tuple[CellForecast, ...]:
-    """Each cell the units ran, with its chance (not rising with the round within a step) and
-    its mean cost, widened to the role, node and round and then the node when thin."""
+def _cells(
+    units: tuple[UnitRuns, ...], min_runs: int, quantile: float
+) -> tuple[tuple[CellForecast, ...], tuple[StepCost, ...], tuple[StepCost, ...]]:
+    """Each cell the units ran with its chance and mean cost, and the all-model mean of each
+    step and of each node. A step's total chance over its models does not rise with the round;
+    a cell or step with fewer calls than the minimum takes the wider mean."""
     by_cell: dict[Cell, list[float]] = defaultdict(list)
     reached: dict[Cell, set[str]] = defaultdict(set)
     for unit in units:
@@ -146,31 +163,54 @@ def _cells(units: tuple[UnitRuns, ...], min_runs: int, quantile: float) -> tuple
             by_cell[cell].append(_usd(call))
             reached[cell].add(unit.unit)
     chances = {c: reach_rate(len(u), len(units), quantile) for c, u in reached.items()}
-    ceilings: dict[tuple[str, str, str | None], float] = {}
-    for cell in sorted(chances, key=lambda c: c.round):
-        step = (cell.role, cell.node, cell.model)
-        chances[cell] = ceilings[step] = min(chances[cell], ceilings.get(step, 1.0))
+    _cap_rounds(chances)
 
-    def mean(match: Mapping[Cell, list[float]]) -> list[float]:
-        return [usd for costs in match.values() for usd in costs]
+    by_step: dict[tuple[str, str, int], list[float]] = defaultdict(list)
+    by_node: dict[str, list[float]] = defaultdict(list)
+    for cell, costs in by_cell.items():
+        by_step[(cell.role, cell.node, cell.round)] += costs
+        by_node[cell.node] += costs
+
+    def step_cost(role: str, node: str, round: int) -> float:
+        own = by_step[(role, node, round)]
+        return statistics.fmean(own if len(own) >= min_runs else by_node[node])
 
     def cost(cell: Cell) -> float:
         own = by_cell[cell]
         if len(own) >= min_runs:
             return statistics.fmean(own)
-        same_round = mean({c: v for c, v in by_cell.items() if _round(c) == _round(cell)})
-        if len(same_round) >= min_runs:
-            return statistics.fmean(same_round)
-        return statistics.fmean(mean({c: v for c, v in by_cell.items() if c.node == cell.node}))
+        return step_cost(cell.role, cell.node, cell.round)
 
-    return tuple(
+    cells = tuple(
         CellForecast(cell=cell, chance=chances[cell], cost_usd=cost(cell))
         for cell in sorted(by_cell, key=lambda c: (c.node, c.round, c.model or ""))
     )
+    steps = tuple(
+        StepCost(role=r, node=n, round=k, cost_usd=step_cost(r, n, k))
+        for r, n, k in sorted(by_step, key=lambda t: (t[1], t[2], t[0]))
+    )
+    nodes = tuple(
+        StepCost(role=None, node=n, round=None, cost_usd=statistics.fmean(v))
+        for n, v in sorted(by_node.items())
+    )
+    return cells, steps, nodes
 
 
-def _round(cell: Cell) -> tuple[str, str, int]:
-    return cell.role, cell.node, cell.round
+def _cap_rounds(chances: dict[Cell, float]) -> None:
+    """Scale the cells of a round down so that a step's total chance over its models is at most
+    the previous round's, a unit reaching a round having reached the one before."""
+    rounds: dict[tuple[str, str], dict[int, list[Cell]]] = defaultdict(lambda: defaultdict(list))
+    for cell in chances:
+        rounds[(cell.role, cell.node)][cell.round].append(cell)
+    for by_round in rounds.values():
+        ceiling = 1.0
+        for round in sorted(by_round):
+            total = sum(chances[c] for c in by_round[round])
+            allowed = min(total, ceiling)
+            if total > allowed:
+                for c in by_round[round]:
+                    chances[c] *= allowed / total
+            ceiling = allowed
 
 
 def _usd(call: UsageRecord) -> float:
