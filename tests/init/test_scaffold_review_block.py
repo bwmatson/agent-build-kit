@@ -15,7 +15,9 @@ KEYS = (
     "#   protected_paths: []",
     "#   protected_defaults: true",
     "#   classes: {}",
-    "#   auto_land: {min_samples: 20, min_clean_rate: 0.95}",
+    "#   auto_land: {min_samples: 20, min_clean_rate: 0.95, classes: []}",
+    "#   audit: {sample_rate: 0.1}",
+    "#   demotion: {window: 30, min_agreement: 0.9}",
 )
 
 
@@ -44,4 +46,5 @@ def test_a_drafted_file_still_loads_with_review_off_and_every_default(tmp_path: 
         "min_samples": 20,
         "min_clean_rate": 0.95,
         "allow_deferred_e2e": False,
+        "classes": [],
     }

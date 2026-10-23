@@ -260,6 +260,14 @@ def _review(inst: Installation) -> list[Check]:
                 "set `review.enabled: true`, or remove the policy",
             )
         )
+    if review.auto_land.classes and not review.enabled:
+        checks.append(
+            _warn(
+                "review auto_land",
+                "`review.auto_land.classes` is set but `enabled` is false, so it has no effect",
+                "set `review.enabled: true`, or empty `review.auto_land.classes`",
+            )
+        )
     checks.append(_buffered_ceilings(inst))
     near = REVIEWER_READING_LIMIT * 4 // 5
     scopes = [("review.ceilings", None), *((f"repos.{n}", r) for n, r in inst.repos.items())]
@@ -419,22 +427,35 @@ def _merge_guards(inst: Installation, run: Run) -> list[Check]:
     permanent and unfixable, which is how a report teaches people to ignore
     it. But the command hook is then the only thing between an agent and
     merging its own PR, and that is worth reading rather than merely being
-    true.
+    true. Once a class may land without a person, the pipeline merges and the
+    same fact is a warning: the hook is then the only guard on that branch.
     """
+    may_land = bool(inst.config.review.auto_land.classes)
     checks = []
     for name in sorted(inst.repos):
         branch = inst.repo(name).default_branch
         unguarded = _guard_of(inst, name, run)
         title = f"merge guard {name}"
         if unguarded:
-            checks.append(
-                _info(
-                    title,
-                    unguarded,
-                    "nothing server-side refuses a merge: the command policy hook is the "
-                    "only guard, so keep it installed",
+            if may_land:
+                checks.append(
+                    _warn(
+                        title,
+                        unguarded,
+                        "nothing server-side refuses a merge: the command policy hook is the "
+                        "only guard, and it does nothing against the pipeline's own merge, so "
+                        "add branch protection or empty `review.auto_land.classes`",
+                    )
                 )
-            )
+            else:
+                checks.append(
+                    _info(
+                        title,
+                        unguarded,
+                        "nothing server-side refuses a merge: the command policy hook is the "
+                        "only guard, so keep it installed",
+                    )
+                )
         else:
             checks.append(_ok(title, f"{branch} is protected"))
     return checks

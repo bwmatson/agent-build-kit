@@ -25,7 +25,14 @@ def test_a_workspace_with_no_review_section_loads_with_the_defaults() -> None:
         "protected_paths": [],
         "protected_defaults": True,
         "classes": {},
-        "auto_land": {"min_samples": 20, "min_clean_rate": 0.95, "allow_deferred_e2e": False},
+        "auto_land": {
+            "min_samples": 20,
+            "min_clean_rate": 0.95,
+            "allow_deferred_e2e": False,
+            "classes": [],
+        },
+        "audit": {"sample_rate": 0.1},
+        "demotion": {"window": 30, "min_agreement": 0.9},
         "ceilings": {"auto": 5000, "light": 2000, "full": 750},
         "ceiling_buffer": 0.2,
         "split_rounds": 2,
@@ -55,7 +62,14 @@ def test_each_key_loads_when_set() -> None:
         "protected_paths": ["deploy/**"],
         "protected_defaults": False,
         "classes": {"docs": ["**/*.md"], "tests": ["tests/**"]},
-        "auto_land": {"min_samples": 5, "min_clean_rate": 0.5, "allow_deferred_e2e": False},
+        "auto_land": {
+            "min_samples": 5,
+            "min_clean_rate": 0.5,
+            "allow_deferred_e2e": False,
+            "classes": [],
+        },
+        "audit": {"sample_rate": 0.1},
+        "demotion": {"window": 30, "min_agreement": 0.9},
         "ceilings": {"auto": 5000, "light": 2000, "full": 750},
         "ceiling_buffer": 0.2,
         "split_rounds": 2,
@@ -68,7 +82,7 @@ def test_each_key_loads_when_set() -> None:
     }
 
 
-@pytest.mark.parametrize("key", ["audit", "protected_path"])
+@pytest.mark.parametrize("key", ["audits", "protected_path"])
 def test_an_unknown_key_in_the_section_is_refused_naming_it(key: str) -> None:
     assert workspace({"enabled": True}).review.model_dump()["enabled"] is True
 
@@ -78,7 +92,7 @@ def test_an_unknown_key_in_the_section_is_refused_naming_it(key: str) -> None:
 def test_an_unknown_key_under_auto_land_is_refused_naming_it() -> None:
     assert workspace({"auto_land": {"min_samples": 3}}).review.model_dump()["auto_land"]
 
-    assert "classes" in refusal({"auto_land": {"classes": ["docs"]}})
+    assert "classe" in refusal({"auto_land": {"classe": ["docs"]}})
 
 
 @pytest.mark.parametrize("key", ["enabled", "classes", "auto_land"])
