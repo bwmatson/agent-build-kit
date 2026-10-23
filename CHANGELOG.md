@@ -7,6 +7,7 @@
   and `min_agreement`. Each listed class must be one named in `review.classes`. `abk doctor`
   warns for each repo with no branch protection once a class is listed, since the command policy
   hook is then the only guard, and warns when the list is set while `review.enabled` is false.
+
 - The agent sandbox now has a macOS backend: a Seatbelt profile generated from the same policy
   and run through the `sandbox-exec` that ships with macOS, so nothing needs installing.
   `abk doctor` and `abk init` prove it works by running a denied write and a direct connection
