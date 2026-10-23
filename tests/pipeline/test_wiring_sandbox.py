@@ -36,7 +36,13 @@ class Recording(ClaudeCodeRuntime):
         return AgentResult(ok=True, text="built")
 
 
-def install(tmp_path: Path, *, enabled: bool) -> tuple[Path, Path]:
+def install(
+    tmp_path: Path,
+    *,
+    enabled: bool,
+    required: str = "process",
+    command: list[str] | None = None,
+) -> tuple[Path, Path]:
     root = tmp_path / "plan"
     main = init_repo(tmp_path / "main")
     root.mkdir()
@@ -45,10 +51,12 @@ def install(tmp_path: Path, *, enabled: bool) -> tuple[Path, Path]:
             "app": {
                 "path": str(main),
                 "slug": "example/app",
-                "sandbox": {"required": "process"},
+                "sandbox": {"required": required},
             }
         },
     }
+    if command is not None:
+        document["runtimes"] = {"claude_code": {"command": command}}
     if enabled:
         document["sandbox"] = {"enabled": True}
     (root / "abk.yaml").write_text(yaml.safe_dump(document))

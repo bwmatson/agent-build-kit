@@ -13,6 +13,7 @@ from agent_build_kit.config import models
 from agent_build_kit.pipeline.config_guard import ConfigChanged
 from agent_build_kit.pipeline.wiring import build_run
 from agent_build_kit.runtimes import AgentRateLimited, AgentRequest
+from agent_build_kit.sandboxes import Coverage
 from agent_build_kit.tracks import runner
 from tests.conftest import make_installation
 from tests.runtimes.stand_in import StandInRuntime
@@ -154,6 +155,23 @@ def test_a_track_run_that_rewrites_abk_yaml_fails_with_the_file_named(
     config = inst.root / "abk.yaml"
     before = config.read_text() if config.exists() else ""
     agent = StandInRuntime(act=writes(config, before + "review: {enabled: true}\n"))
+
+    assert track(inst, monkeypatch, agent) == 1
+
+    out = capsys.readouterr().out
+    assert "abk.yaml changed during the run" in out
+    assert "+review: {enabled: true}" in out
+
+
+def test_a_track_run_fails_on_a_changed_file_whatever_coverage_its_runtime_reports(
+    inst,  # noqa: F811 — fixture
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config = inst.root / "abk.yaml"
+    before = config.read_text() if config.exists() else ""
+    agent = StandInRuntime(act=writes(config, before + "review: {enabled: true}\n"))
+    agent.sandbox_coverage = Coverage.PROCESS
 
     assert track(inst, monkeypatch, agent) == 1
 

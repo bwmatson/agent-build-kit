@@ -10,11 +10,14 @@ meant to, or a person did while the run was in progress, and either way a person
 from __future__ import annotations
 
 import difflib
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
 from agent_build_kit.config import CONFIG_FILENAME, overlay_path
+from agent_build_kit.sandboxes import Coverage
+
+WARNING_FILE = "config-changed-warning.txt"
 
 
 class ConfigChanged(RuntimeError):
@@ -47,10 +50,29 @@ def _difference(path: Path, before: bytes | None, after: bytes | None) -> str:
     return f"{path.name} changed during the run ({state}):\n{diff}"
 
 
+def warning_lines(state_dir: Path) -> list[str]:
+    """The warning the last confined step left in `state_dir`, for `abk status`; empty when the
+    last confined step saw no change."""
+    try:
+        return (state_dir / WARNING_FILE).read_text().splitlines()
+    except FileNotFoundError:
+        return []
+
+
 @contextmanager
-def config_unchanged(root: Path) -> Iterator[None]:
+def config_unchanged(
+    root: Path,
+    coverage: Coverage = Coverage.NONE,
+    *,
+    state_dir: Path | None = None,
+    warn: Callable[[str], None] = print,
+) -> Iterator[None]:
     """Run the block, then raise `ConfigChanged` if `abk.yaml` or `abk.local.yaml` under `root`
     differs from what it was on entry, naming the file and showing the difference.
+
+    When the step was confined (`coverage` is `process` or `files`) it cannot have written the
+    file, so a difference is a person's edit: it goes to `warn` with the diff, is kept in
+    `state_dir` for `abk status`, and the unit continues.
 
     A block that raised is compared too: a run that stops (the usage window, an interruption) is
     often resumed, and the resumed run would take the changed file as its own start. When a file
@@ -68,6 +90,19 @@ def config_unchanged(root: Path) -> Iterator[None]:
         for path in watched
         if (after := _read(path)) != before[path]
     ]
+    if coverage is not Coverage.NONE:
+        if problems:
+            message = (
+                "\n".join(problems) + "\nThe step was confined, so a person edited it; "
+                "the run goes on."
+            )
+            warn(message)
+            if state_dir is not None:
+                state_dir.mkdir(parents=True, exist_ok=True)
+                (state_dir / WARNING_FILE).write_text(message + "\n")
+            problems = []
+        elif state_dir is not None and (state_dir / WARNING_FILE).exists():
+            (state_dir / WARNING_FILE).unlink()
     if problems:
         raise ConfigChanged(
             "\n".join(problems)
