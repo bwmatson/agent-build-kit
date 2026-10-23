@@ -15,14 +15,15 @@ from tests.graph.test_build_path import build, fresh
 
 UNIT_ID = "add-marker/1"
 # The recording module, the review node that writes through it, the status listing, and the
-# review labels and the ordering of what is shown (spec: review-triage allows both to read a
-# verdict).
+# review labels, the ordering of what is shown and the web server's review answer and pipeline
+# summary (spec: review-triage allows each to read a verdict).
 ALLOWED = {
     "pipeline/verdict_record.py",
     "graph/nodes.py",
     "cli/pipeline.py",
     "pipeline/labels.py",
     "pipeline/review_order.py",
+    "serve/server.py",
 }
 NAMES = re.compile(r"verdicts\.json|verdict_record|\bVERDICTS\b")
 
