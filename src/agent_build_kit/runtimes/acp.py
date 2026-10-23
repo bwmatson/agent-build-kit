@@ -64,6 +64,7 @@ from acp.schema import (
     ClientCapabilities,
     CreateTerminalResponse,
     DeniedOutcome,
+    EnvVariable,
     FileSystemCapabilities,
     Implementation,
     InitializeResponse,
@@ -128,11 +129,18 @@ from agent_build_kit.runtimes.base import (
     Which,
     check_prompt_size,
     child_environment,
+    full_environment,
     validate_argv,
 )
 from agent_build_kit.runtimes.network import network_failure
 from agent_build_kit.runtimes.traced import traced
 from agent_build_kit.sandboxes import Coverage
+from agent_build_kit.sandboxes.confinement import (
+    Confinement,
+    SandboxRefused,
+    confinement,
+    scrubbed_environment,
+)
 from agent_build_kit.tool_patterns import (  # noqa: F401  (`allows` is re-exported)
     allows,
     command_patterns,
@@ -352,6 +360,11 @@ def _names_edit_tool(tool_list: str) -> bool:
     return any(name_of(token) in EDIT_TOOLS for token in tokens(tool_list))
 
 
+def _under_any(path: Path, roots: Sequence[Path]) -> bool:
+    """`path`, already resolved, is inside one of `roots`."""
+    return any(path.is_relative_to(root) for root in roots)
+
+
 def _is_read_only(request: AgentRequest) -> bool:
     """`allowed_tools` is set and names no edit tool: the shape of a run that
     relies on that list, not on the agent's own configuration, to keep from
@@ -458,6 +471,11 @@ def _scope_warning(request: AgentRequest) -> str | None:
     )
 
 
+def _env_variables(env: Any) -> list[EnvVariable]:
+    """The `env` a `terminal/create` carries, as the protocol's list of name and value."""
+    return [item if isinstance(item, EnvVariable) else EnvVariable(**item) for item in env or []]
+
+
 class _Session:
     """The client end of one run: what the agent streams, as progress and as
     the answer."""
@@ -474,8 +492,12 @@ class _Session:
         grants_nothing: bool = False,
         read_only: tuple[str, ...] | None = None,
         permission: Callable[[PermissionAsk], str | None] | None = None,
+        confined: Confinement | None = None,
     ) -> None:
         self._permission = permission
+        # What starts the agent and every terminal behind the sandbox backend; None for a run
+        # that carries no sandbox policy.
+        self.confinement = confined
         self._report = report
         self._transcript = transcript
         self._record = record
@@ -912,7 +934,7 @@ class _Session:
         except OSError:
             return None
         roots = (*([self._worktree] if self._worktree else []), *self._readable)
-        return candidate if any(candidate.is_relative_to(root) for root in roots) else None
+        return candidate if _under_any(candidate, roots) else None
 
     def _rules(self, command: str, **where: Any) -> Verdict:
         """`command` against the unit's command rules, when this run has them."""
@@ -1002,10 +1024,20 @@ class _Session:
         # A line with no arguments is a shell line — the rules have read all
         # of it — and runs as one; a program with arguments runs as itself.
         argv = [command, *args] if args else ["sh", "-c", command]
+        environment = None
+        if self.confinement is not None:
+            # Not abk's own environment: the policy's, the agent's `env` and the proxy's.
+            asked = {item.name: item.value for item in _env_variables(env)}
+            environment = {**scrubbed_environment(), **asked, **self.confinement.environment}
+            try:
+                argv = self.confinement.wrap(argv)
+            except SandboxRefused as refused:
+                raise RequestError.invalid_params({"reason": str(refused)}) from refused
         try:
             process = await asyncio.create_subprocess_exec(
                 *argv,
                 cwd=where,
+                env=environment,
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
@@ -1100,12 +1132,20 @@ class _Session:
         limit: int | None = None,
         **kwargs: Any,
     ) -> ReadTextFileResponse:
-        """Unconfined: the worktree and the specs are both meant to be read
-        through here, and reading is not the guarantee this client makes.
-        `line` (1-based) and `limit` page through the file."""
+        """The worktree and the specs are both meant to be read through here. Under a sandbox
+        policy a path is read only when, resolved (symlinks and `..` followed), it is on the
+        policy's read or write list (what may be written may be read); otherwise reading is
+        not a guarantee this client makes. `line` (1-based) and `limit` page through the file."""
         self._require_policed("fs/read_text_file")
         try:
-            content = self._absolute(path).read_text()
+            target = self._absolute(path).resolve()
+            if self._policy is not None and self._policy.sandbox is not None:
+                sandbox = self._policy.sandbox
+                if not _under_any(target, (*sandbox.read, *sandbox.write)):
+                    raise RequestError.invalid_params(
+                        {"reason": f"{path} is not on the sandbox policy's read list"}
+                    )
+            content = target.read_text()
         except OSError as exc:
             raise RequestError.resource_not_found(path) from exc
         if line is not None or limit is not None:
@@ -1238,8 +1278,10 @@ class AcpRuntime:
     name: str = NAME
     implemented: bool = True
     policy_coverage: PolicyCoverage = "agent_flagged"
-    # Nothing launches this runtime under a backend yet; `sandbox-acp` raises it.
-    sandbox_coverage: Coverage = Coverage.NONE
+    # The agent and every terminal its client starts run under the backend; what the agent does
+    # with its own file access is the process wrap's, and no real agent has shown it holds.
+    sandbox_coverage: Coverage = Coverage.PROCESS
+    sandbox_note: str = "unverified against a real agent"
     supports_usage_tracking: bool = False
     supports_streaming: bool = True
     supports_session_resume: bool = True
@@ -1266,6 +1308,14 @@ class AcpRuntime:
         self._resumable: set[
             tuple[tuple[str, ...], str, str, tuple[tuple[str, str], ...] | None]
         ] = set()
+
+    def sandbox_paths(self) -> dict[str, list[str]]:
+        """What the configured agent itself needs: its own state folders, readable and
+        writable (best effort: only a known agent's are listed)."""
+        command = config.runtime_entry(name=NAME).command or list(self.agent_command)
+        agent = known_agents.agent_for_command(command)
+        folders = [str(Path.home() / folder) for folder in agent.state_folders] if agent else []
+        return {"write": folders, "read": folders}
 
     def run(self, request: AgentRequest) -> AgentResult:
         return traced(NAME, request, lambda: self._call(request))
@@ -1308,6 +1358,17 @@ class AcpRuntime:
         return result.model_copy(update={"ok": False, "error": error})
 
     async def _run(self, command: list[str], request: AgentRequest) -> AgentResult:
+        if request.policy is None or request.policy.sandbox is None:
+            return await self._start(command, request, None)
+        try:
+            with confinement(request.policy.sandbox) as confined:
+                return await self._start(command, request, confined)
+        except SandboxRefused as refused:
+            return AgentResult(ok=False, text="", error=str(refused))
+
+    async def _start(
+        self, command: list[str], request: AgentRequest, confined: Confinement | None
+    ) -> AgentResult:
         session = _Session(
             request.on_event,
             transcript=request.on_transcript,
@@ -1319,6 +1380,7 @@ class AcpRuntime:
             and not request.allowed_tools,
             read_only=command_patterns(request.allowed_tools) if _is_read_only(request) else None,
             permission=request.on_permission,
+            confined=confined,
         )
         return await self._drive(command, request, session)
 
@@ -1329,18 +1391,29 @@ class AcpRuntime:
             session.notice(READ_ONLY_WARNING)
         if warning := _scope_warning(request):
             session.notice(warning)
+        environment = child_environment(request.environment, request.env)
+        argv = command
+        if session.confinement is not None:
+            try:
+                argv = session.confinement.wrap(command)
+            except SandboxRefused as refused:
+                return AgentResult(ok=False, text="", error=str(refused))
+            environment = {
+                **scrubbed_environment(full_environment(request.environment, request.env)),
+                **session.confinement.environment,
+            }
         try:
             # In a session of its own, so a kill reaches whatever the command
             # forks (a wrapper's real agent) and not only the command itself.
             # A Ctrl-C at the terminal then reaches abk alone; abk closes the
             # agent's input and, after the grace, kills its group all the same.
             process = await asyncio.create_subprocess_exec(
-                *command,
+                *argv,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=request.cwd,
-                env=child_environment(request.environment, request.env),
+                env=environment,
                 limit=LINE_LIMIT,
                 start_new_session=True,
             )

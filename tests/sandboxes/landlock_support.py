@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import socket
 import subprocess
 import sys
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -104,6 +106,27 @@ def run_confined(
         env=env,
         check=False,
     )
+
+
+# A program that connects to argv[1]:argv[2] and prints `connected` or the error's class.
+CONNECT = (
+    "import socket, sys\n"
+    "try:\n"
+    "    socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=5).close()\n"
+    "    print('connected')\n"
+    "except OSError as failure:\n"
+    "    print(type(failure).__name__)\n"
+)
+
+
+@contextmanager
+def listening(host: str) -> Iterator[int]:
+    """A listening local socket on `host`, so a refused connection is the sandbox's doing and not
+    an absent server's."""
+    with socket.socket() as server:
+        server.bind((host, 0))
+        server.listen(1)
+        yield server.getsockname()[1]
 
 
 def launcher_args(command: Sequence[str]) -> list[str]:

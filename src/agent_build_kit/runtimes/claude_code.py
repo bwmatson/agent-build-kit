@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
-from agent_build_kit import claude_account, config, sandboxes
+from agent_build_kit import claude_account, config
 from agent_build_kit.config import ConfigError, ModelsConfig
 from agent_build_kit.hooks.policy import hook_settings
 from agent_build_kit.pipeline.call_record import call_recorder
@@ -73,8 +73,13 @@ from agent_build_kit.runtimes.base import (
 from agent_build_kit.runtimes.claude_output import AgentFailure, agent_failure
 from agent_build_kit.runtimes.network import network_failure
 from agent_build_kit.runtimes.traced import traced
-from agent_build_kit.sandboxes import Coverage, SandboxPolicy, SandboxUnavailable
-from agent_build_kit.settings import credential_variables, named_value
+from agent_build_kit.sandboxes import Coverage, SandboxPolicy
+from agent_build_kit.sandboxes.confinement import (
+    SandboxRefused,
+    confinement,
+    scrubbed_environment,
+)
+from agent_build_kit.settings import named_value
 from agent_build_kit.usage import Context, ContextBasis, context_of
 
 if TYPE_CHECKING:
@@ -89,9 +94,6 @@ Execute = Callable[..., subprocess.CompletedProcess[str]]
 ReadUsage = Callable[[], UsageReading | None]
 
 logger = logging.getLogger(__name__)
-
-# The credential a confined step keeps: it may read a pull request with `gh`.
-KEPT_CREDENTIALS = ("gh_token",)
 
 # The host Claude Code's connectors need besides the API host.
 MCP_PROXY_HOST = "mcp-proxy.anthropic.com"
@@ -138,54 +140,15 @@ def spawn(
     behind the allowlist proxy and without abk's own credentials."""
     if sandbox is None:
         return _spawn(argv, cwd, on_event, child_environment(environment, env or {}), input)
-    from agent_build_kit.sandboxes.policy import proxy_environment
-    from agent_build_kit.sandboxes.proxy import Proxy
-
-    merged = full_environment(environment, env or {})
-    for name in credential_variables(keep=KEPT_CREDENTIALS):
-        merged.pop(name, None)
-    backend, found = sandboxes.probe(config.active().sandbox.backend)
-    if not found.ok:
-        cause = f"{found.cause}: {found.fix}"
-        return _unconfined(argv, cwd, on_event, merged, input, sandbox, cause)
-    if not found.coverage.reaches(sandbox.required):
-        # `required` is the least a step may run with: short of it, the step does not start.
-        return _refused(
-            argv,
-            f"{backend.name} confines {found.coverage.value} of a step, less than the "
-            f"{sandbox.required.value} this repo requires: {found.cause} ({found.fix})",
-        )
-    # The proxy runs only for a step that is confined.
-    with Proxy(sandbox.hosts) as proxy:
-        policy = sandbox.model_copy(update={"proxy_port": proxy.port})
-        try:
-            wrapped = backend.command(policy, argv)
-        except SandboxUnavailable as error:
-            return _unconfined(argv, cwd, on_event, merged, input, sandbox, str(error))
-        merged.update(proxy_environment(proxy.port))
-        return _spawn(wrapped, cwd, on_event, merged, input)
-
-
-def _refused(argv: list[str], cause: str) -> subprocess.CompletedProcess[str]:
-    """A step that was not started because the sandbox is not what the repo requires."""
-    return subprocess.CompletedProcess(argv, 1, "", cause)
-
-
-def _unconfined(
-    argv: list[str],
-    cwd: Path | None,
-    on_event: Callable[[dict], None] | None,
-    merged: dict[str, str],
-    input: str,
-    sandbox: SandboxPolicy,
-    cause: str,
-) -> subprocess.CompletedProcess[str]:
-    """A step no backend can confine: failed with the cause, or run and warned about where the
-    repo's `required` is `none`."""
-    if sandbox.required is not Coverage.NONE:
-        return _refused(argv, cause)
-    logger.warning("running %s unconfined: %s", argv[0], cause)
-    return _spawn(argv, cwd, on_event, merged, input)
+    merged = scrubbed_environment(full_environment(environment, env or {}))
+    try:
+        # The proxy runs only for a step that is confined.
+        with confinement(sandbox) as confined:
+            wrapped = confined.wrap(argv)
+            return _spawn(wrapped, cwd, on_event, {**merged, **confined.environment}, input)
+    except SandboxRefused as refused:
+        # The sandbox is not what the repo requires: the step is not started.
+        return subprocess.CompletedProcess(argv, 1, "", str(refused))
 
 
 def _spawn(
