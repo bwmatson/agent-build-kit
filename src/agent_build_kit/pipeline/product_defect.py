@@ -6,13 +6,16 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from typing import Annotated
 
 from pydantic import StringConstraints, ValidationError
 
 from agent_build_kit.config import RepoConfig
+from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.e2e_scope import is_product_path
+from agent_build_kit.pipeline.failure_record import FailureRecord, Recorded
 
 # A blank id or reproduction names nothing, and "" is found in every failure.
 _Stated = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
@@ -27,6 +30,21 @@ class ProductDefect(Frozen):
     reproduction: _Stated
     sketch: str = ""
     repo: str = ""
+
+
+class ProductDefectEntry(Recorded):
+    """One report of a product defect for a unit, and the change that fixes it."""
+
+    unit: str
+    files: list[str]
+    reproduction: str
+    sketch: str = ""
+    at: datetime
+
+
+def product_defect_record(inst: Installation) -> FailureRecord[ProductDefectEntry]:
+    """The record of reported product defects, in the state directory."""
+    raise NotImplementedError
 
 
 class DefectRefused(Frozen):

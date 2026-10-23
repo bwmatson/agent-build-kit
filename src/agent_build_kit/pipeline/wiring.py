@@ -117,6 +117,7 @@ from agent_build_kit.pipeline.pr_replies import (
     own_posts,
     record_given_comments,
 )
+from agent_build_kit.pipeline.product_defect import ProductDefect
 from agent_build_kit.pipeline.restack import (
     HostMoved,
     Moved,
@@ -1753,6 +1754,15 @@ def build_on_preexisting(
         return fix
 
     return on_preexisting
+
+
+def build_on_product_defect(
+    store: UnitStore, installation: Installation, *, log: Callable[[str], None] = print
+) -> Callable[[Unit, ProductDefect], str | None]:
+    """Record a product defect a unit's builder reported and make sure one change fixes it;
+    give each group of the unit a `Needs:` line on that change. Returns the change, or None
+    for a unit of the change itself, which has nothing to wait on."""
+    raise NotImplementedError
 
 
 def _ids_for(
