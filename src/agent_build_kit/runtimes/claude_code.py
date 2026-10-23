@@ -11,6 +11,7 @@ spent usage window, an interruption, or a failed result as
 from __future__ import annotations
 
 import json
+import logging
 import shlex
 import subprocess
 import time
@@ -19,7 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
-from agent_build_kit import claude_account, config
+from agent_build_kit import claude_account, config, sandboxes
 from agent_build_kit.config import ConfigError, ModelsConfig
 from agent_build_kit.hooks.policy import hook_settings
 from agent_build_kit.pipeline.call_record import call_recorder
@@ -66,13 +67,14 @@ from agent_build_kit.runtimes.base import (
     Which,
     check_prompt_size,
     child_environment,
+    full_environment,
     validate_argv,
 )
 from agent_build_kit.runtimes.claude_output import AgentFailure, agent_failure
 from agent_build_kit.runtimes.network import network_failure
 from agent_build_kit.runtimes.traced import traced
-from agent_build_kit.sandboxes import Coverage
-from agent_build_kit.settings import named_value
+from agent_build_kit.sandboxes import Coverage, SandboxPolicy, SandboxUnavailable
+from agent_build_kit.settings import credential_variables, named_value
 from agent_build_kit.usage import Context, ContextBasis, context_of
 
 if TYPE_CHECKING:
@@ -85,6 +87,14 @@ Execute = Callable[..., subprocess.CompletedProcess[str]]
 
 # A usage reading, or None when there is none: `usage_guard`'s readers.
 ReadUsage = Callable[[], UsageReading | None]
+
+logger = logging.getLogger(__name__)
+
+# The credential a confined step keeps: it may read a pull request with `gh`.
+KEPT_CREDENTIALS = ("gh_token",)
+
+# The host Claude Code's connectors need besides the API host.
+MCP_PROXY_HOST = "mcp-proxy.anthropic.com"
 
 # Passed beside the hook on every policed run, on top of every registered
 # forge's own merge commands. Redundant by design: two independent things have
@@ -120,11 +130,71 @@ def spawn(
     env: dict[str, str] | None = None,
     environment: dict[str, str] | None = None,
     input: str = "",
+    sandbox: SandboxPolicy | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """The real `claude` process: streamed when there is someone to tell. `env`
     is added to `environment` when given, else to this process's own. `input` is
-    the prompt, on its standard input."""
-    merged = child_environment(environment, env or {})
+    the prompt, on its standard input. `sandbox` starts it through the backend's command,
+    behind the allowlist proxy and without abk's own credentials."""
+    if sandbox is None:
+        return _spawn(argv, cwd, on_event, child_environment(environment, env or {}), input)
+    from agent_build_kit.sandboxes.policy import proxy_environment
+    from agent_build_kit.sandboxes.proxy import Proxy
+
+    merged = full_environment(environment, env or {})
+    for name in credential_variables(keep=KEPT_CREDENTIALS):
+        merged.pop(name, None)
+    backend, found = sandboxes.probe(config.active().sandbox.backend)
+    if not found.ok:
+        cause = f"{found.cause}: {found.fix}"
+        return _unconfined(argv, cwd, on_event, merged, input, sandbox, cause)
+    if not found.coverage.reaches(sandbox.required):
+        # `required` is the least a step may run with: short of it, the step does not start.
+        return _refused(
+            argv,
+            f"{backend.name} confines {found.coverage.value} of a step, less than the "
+            f"{sandbox.required.value} this repo requires: {found.cause} ({found.fix})",
+        )
+    # The proxy runs only for a step that is confined.
+    with Proxy(sandbox.hosts) as proxy:
+        policy = sandbox.model_copy(update={"proxy_port": proxy.port})
+        try:
+            wrapped = backend.command(policy, argv)
+        except SandboxUnavailable as error:
+            return _unconfined(argv, cwd, on_event, merged, input, sandbox, str(error))
+        merged.update(proxy_environment(proxy.port))
+        return _spawn(wrapped, cwd, on_event, merged, input)
+
+
+def _refused(argv: list[str], cause: str) -> subprocess.CompletedProcess[str]:
+    """A step that was not started because the sandbox is not what the repo requires."""
+    return subprocess.CompletedProcess(argv, 1, "", cause)
+
+
+def _unconfined(
+    argv: list[str],
+    cwd: Path | None,
+    on_event: Callable[[dict], None] | None,
+    merged: dict[str, str],
+    input: str,
+    sandbox: SandboxPolicy,
+    cause: str,
+) -> subprocess.CompletedProcess[str]:
+    """A step no backend can confine: failed with the cause, or run and warned about where the
+    repo's `required` is `none`."""
+    if sandbox.required is not Coverage.NONE:
+        return _refused(argv, cause)
+    logger.warning("running %s unconfined: %s", argv[0], cause)
+    return _spawn(argv, cwd, on_event, merged, input)
+
+
+def _spawn(
+    argv: list[str],
+    cwd: Path | None,
+    on_event: Callable[[dict], None] | None,
+    merged: dict[str, str] | None,
+    input: str,
+) -> subprocess.CompletedProcess[str]:
     if on_event is not None:
         return stream_run(argv, cwd=cwd, on_event=on_event, env=merged, input=input)
     return subprocess.run(
@@ -246,6 +316,7 @@ def build_argv(request: AgentRequest) -> list[str]:
     for directory in request.add_dirs:
         argv += ["--add-dir", str(directory)]
     denied = request.denied_tools
+    sandboxed = request.policy is not None and request.policy.sandbox is not None
     planning = {
         "planning_repo": request.planning_repo,
         "planning_state_dir": request.planning_state_dir,
@@ -269,7 +340,9 @@ def build_argv(request: AgentRequest) -> list[str]:
         settings = hook_settings(None, branch_prefix=config.active().git.branch_prefix, **planning)
     else:
         settings = {}
-    argv += ["--settings", json.dumps({**settings, **NO_ATTRIBUTION})]
+    # The kit's sandbox is the one enforcement point: Claude Code's own is switched off.
+    own = {"sandbox": {"enabled": False}} if sandboxed else {}
+    argv += ["--settings", json.dumps({**settings, **NO_ATTRIBUTION, **own})]
     if request.allowed_tools:
         argv += ["--allowedTools", request.allowed_tools]
     if denied:
@@ -303,8 +376,8 @@ class ClaudeCodeRuntime:
     implemented: bool = True
     # The hook sees every tool call before it runs.
     policy_coverage: PolicyCoverage = "all_calls"
-    # Nothing launches this runtime under a backend yet; `sandbox-claude-code` raises it.
-    sandbox_coverage: Coverage = Coverage.NONE
+    # `spawn` starts the whole process under the backend's command.
+    sandbox_coverage: Coverage = Coverage.PROCESS
     supports_usage_tracking: bool = True
     supports_streaming: bool = True
     # `--resume <id>`, with the id its init event reports.
@@ -332,6 +405,16 @@ class ClaudeCodeRuntime:
         self._read_live = read_live
         self._read_cached = read_cached
 
+    def sandbox_paths(self, account: claude_account.Account | None = None) -> dict[str, list[str]]:
+        """What the `claude` process itself needs: the folder and state file of the account it
+        runs as, the temp folder, the device files and the model hosts."""
+        mine = [str(claude_account.home(account)), str(claude_account.state_file(account))]
+        return {
+            "write": [*mine, "/tmp", "/dev"],
+            "read": mine,
+            "hosts": [API_HOST, MCP_PROXY_HOST],
+        }
+
     def run(self, request: AgentRequest) -> AgentResult:
         return traced(self.name, request, lambda: self._run(request))
 
@@ -344,6 +427,12 @@ class ClaudeCodeRuntime:
         extra: dict[str, Any] = {"env": env} if env else {}
         if request.environment is not None:
             extra["environment"] = request.environment
+        if request.policy is not None and request.policy.sandbox is not None:
+            # The model endpoint this run calls (a gateway, when the request names one) is
+            # reached through the proxy, so it is allowed.
+            host, _ = _api_endpoint(request)
+            hosts = tuple(dict.fromkeys([*request.policy.sandbox.hosts, host]))
+            extra["sandbox"] = request.policy.sandbox.model_copy(update={"hosts": hosts})
         result = execute(
             build_argv(request),
             cwd=request.cwd,
@@ -655,7 +744,18 @@ def through(run: Callable[..., subprocess.CompletedProcess[str]]) -> ClaudeCodeR
     is called as `run(argv, *, cwd, env=...)` when there is an environment to add (an account
     is set, or the request has entries), so it must accept `env`."""
 
-    def execute(argv: list[str], *, cwd: Path | None = None, on_event=None, env=None, input=None):
+    def execute(
+        argv: list[str],
+        *,
+        cwd: Path | None = None,
+        on_event=None,
+        env=None,
+        input=None,
+        sandbox: SandboxPolicy | None = None,
+    ):
+        if sandbox is not None:
+            # Dropping the policy would run the step unconfined without a word.
+            raise RuntimeError("a run injected through `through` cannot carry a sandbox policy")
         if input is not None:
             at = len(command()) + 1  # just after `-p`
             argv = [*argv[:at], input, *argv[at:]]

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import yaml
 
+from agent_build_kit import claude_account
 from agent_build_kit.cli.doctor import Check, run_doctor
 from agent_build_kit.config import RepoSandboxConfig
 from tests.doctor_fakes import ok_run, planning_with
@@ -66,3 +67,19 @@ def test_only_one_line_is_printed_while_the_sandbox_is_off(tmp_path: Path) -> No
     assert line.status == "info"
     assert "sandbox.enabled" in line.detail
     assert list_checks(planning) == []
+
+
+def test_a_repo_on_its_own_account_lists_that_account_s_folder(tmp_path: Path) -> None:
+    folder = tmp_path / "acct"
+    planning = planning_with(tmp_path, account="kit")
+    sandbox_on(planning)
+    account = {"kit": {"config_dir": str(folder)}}
+    (planning / "abk.local.yaml").write_text(
+        yaml.safe_dump({"runtimes": {"claude_code": {"accounts": account}}})
+    )
+
+    [check] = list_checks(planning)
+
+    lines = check.detail.splitlines()
+    assert f"write {folder} (runtime)" in lines
+    assert f"write {claude_account.home()} (runtime)" not in lines

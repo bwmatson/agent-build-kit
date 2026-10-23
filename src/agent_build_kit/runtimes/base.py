@@ -188,6 +188,11 @@ def child_environment(
     plus `env` on top. None when neither is given, for the process's own."""
     if environment is None and not env:
         return None
+    return full_environment(environment, env)
+
+
+def full_environment(environment: dict[str, str] | None, env: dict[str, str]) -> dict[str, str]:
+    """`child_environment` as a dict always: this process's environment when neither is given."""
     return {**(os.environ if environment is None else environment), **env}
 
 

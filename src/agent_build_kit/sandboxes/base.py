@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from agent_build_kit.model import Frozen
 
@@ -23,6 +23,11 @@ class Coverage(StrEnum):
     PROCESS = "process"
     FILES = "files"
     NONE = "none"
+
+    def reaches(self, needed: Coverage) -> bool:
+        """Whether this coverage is at least `needed`."""
+        order = (Coverage.NONE, Coverage.FILES, Coverage.PROCESS)
+        return order.index(self) >= order.index(needed)
 
 
 class Availability(Frozen):
@@ -54,7 +59,7 @@ class SandboxUnavailable(Exception):
 class SandboxPathsRuntime(Protocol):
     """The optional member a runtime adds to grant paths and hosts to its own steps."""
 
-    def sandbox_paths(self) -> dict[str, list[str]]: ...
+    def sandbox_paths(self, account: Any = None) -> dict[str, list[str]]: ...
 
 
 @runtime_checkable

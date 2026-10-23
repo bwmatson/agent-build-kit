@@ -28,6 +28,7 @@ import yaml
 
 from agent_build_kit import (
     __version__,
+    claude_account,
     config,
     forges,
     openspec,
@@ -739,7 +740,12 @@ def _sandbox_lists(inst: Installation) -> list[Check]:
     for name, repo in inst.repos.items():
         try:
             entries = policy_entries(
-                inst, name, repo.path, runtime=runtime, profile=profiles.get(repo.profile)
+                inst,
+                name,
+                repo.path,
+                runtime=runtime,
+                profile=profiles.get(repo.profile),
+                account=claude_account.for_repo(inst.config, name),
             )
         except KeyError:
             continue  # an unknown profile is reported where the repo is

@@ -183,6 +183,8 @@ from agent_build_kit.redaction import WITHHELD, redact_leaves, redact_text
 from agent_build_kit.runtimes import AgentRequest, AgentRuntime, ToolPolicy
 from agent_build_kit.runtimes.base import PermissionMode, Role, SessionUnavailable
 from agent_build_kit.runtimes.claude_code import through
+from agent_build_kit.sandboxes import SandboxPolicy
+from agent_build_kit.sandboxes.policy import PolicyRefused, build_policy
 
 logger = logging.getLogger(__name__)
 
@@ -381,8 +383,27 @@ def _recorder(
     )
 
 
+def _sandbox_policy(
+    repo: str, worktree: Path, runtime: AgentRuntime, account: claude_account.Account | None
+) -> SandboxPolicy | None:
+    """The policy a step in `worktree` of `repo` runs under; None while the sandbox is off or
+    the call is not a step of a repo."""
+    root = active_root()
+    if not active().sandbox.enabled or not repo or root is None:
+        return None
+    return build_policy(
+        Installation(active(), root),
+        repo,
+        worktree,
+        runtime=runtime,
+        profile=profiles.get(active().repos[repo].profile),
+        account=account,
+    )
+
+
 def build_run(
     *,
+    sandbox_repo: str = "",
     run: Run | None = None,
     planning_repo: Path | None = None,
     allowed_tools: str | None = None,
@@ -470,6 +491,16 @@ def build_run(
             return spent[0] if spent else Spend()
 
         gateway = {"gateway": spend} if source is not None else {}
+        try:
+            sandbox = _sandbox_policy(sandbox_repo, cwd, agent, account)
+        except PolicyRefused as refused:
+            spend()
+            raise RuntimeError(f"the sandbox policy was refused: {refused}") from refused
+        if sandbox is not None and not agent.sandbox_coverage.reaches(sandbox.required):
+            (log or print)(
+                f"sandbox: {agent.name} confines {agent.sandbox_coverage.value} of a step, less "
+                f"than the {sandbox.required.value} this repo requires; the step runs unconfined"
+            )
         recorder = _recorder(record_for, place, role)
         request = AgentRequest(
             # A continued session holds the original prompt already: it is told what is new,
@@ -505,6 +536,7 @@ def build_run(
                 planning_paths=planning_paths,
                 # The review policy in abk.yaml is a person's: no command writes it.
                 fenced_files=(planning_root / CONFIG_FILENAME,),
+                sandbox=sandbox,
             ),
             on_event=journal or log or print,
             on_transcript=transcript,
@@ -516,6 +548,13 @@ def build_run(
             with run_folder(cwd) as out:
                 if out is not None:
                     request = request.model_copy(update={"env": {**env, "ABK_OUT": str(out)}})
+                    if sandbox is not None and request.policy is not None:
+                        # The run folder is made after the request: the step writes there.
+                        granted = sandbox.model_copy(
+                            update={"write": (*sandbox.write, out.resolve())}
+                        )
+                        policy = request.policy.model_copy(update={"sandbox": granted})
+                        request = request.model_copy(update={"policy": policy})
                 # Neither configuration file may differ afterwards, whatever route a write took.
                 with config_unchanged(planning_root):
                     result = agent.run(request)
@@ -717,6 +756,7 @@ REVIEW_TOOLS = "Read Grep Glob Bash(git diff*) Bash(git log*) Bash(git show*)"
 
 def build_run_review(
     *,
+    sandbox_repo: str = "",
     run: Run | None = None,
     planning_repo: Path | None = None,
     model: str | None = None,
@@ -733,6 +773,7 @@ def build_run_review(
     """The review pass. Separate from implementation so the standards are
     loaded only here, not during the expensive run."""
     inner = build_run(
+        sandbox_repo=sandbox_repo,
         run=run,
         planning_repo=planning_repo,
         # Reading its pull request is allowed (the review may need what a
@@ -3885,6 +3926,7 @@ def build_runner(
     tools = allowed_tools(profile, forge, repo.projects)
     account = claude_account.for_repo(installation.config, unit.repo)
     run = build_run(
+        sandbox_repo=unit.repo,
         account=account,
         planning_repo=planning_repo,
         allowed_tools=tools,
@@ -3913,6 +3955,7 @@ def build_runner(
         resume_at=gate_resume_at,
         run=run,
         run_review=build_run_review(
+            sandbox_repo=unit.repo,
             planning_repo=planning_repo,
             log=log,
             journal=journal,
@@ -3923,6 +3966,7 @@ def build_runner(
             account=account,
         ),
         run_rework_review=build_run_review(
+            sandbox_repo=unit.repo,
             planning_repo=planning_repo,
             forge=forge,
             model=models().rework_review,
