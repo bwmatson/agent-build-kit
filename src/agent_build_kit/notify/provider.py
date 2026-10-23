@@ -10,6 +10,7 @@ class CardKind(StrEnum):
     REVIEW = "review"
     FAILED = "failed"
     HELD = "held"
+    DIGEST = "digest"
 
 
 class ProviderError(Exception):

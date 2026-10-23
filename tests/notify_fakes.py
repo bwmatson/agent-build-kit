@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Sequence
+from datetime import datetime
 from pathlib import Path
 
 from agent_build_kit.config import NotificationProvider, NotificationsConfig
 from agent_build_kit.notify.reconcile import reconcile
 from agent_build_kit.notify.store import NotificationStore
-from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.unit_store import Cause, StoredUnit
+from agent_build_kit.pipeline.units import MERGED
+from tests.factories import stored_unit
 from tests.fake_clock import FakeClock
 
 
@@ -56,6 +59,12 @@ def enabled(**overrides) -> NotificationsConfig:
             **overrides,
         }
     )
+
+
+def landed_unit(uid: str, at: datetime, *, pr: int = 7) -> StoredUnit:
+    """A unit the pipeline landed without a person at `at`."""
+    history = ({"state": MERGED, "at": at.isoformat(), "cause": Cause.AUTO_LANDED.value},)
+    return stored_unit(uid, state=MERGED, pr=pr, history=history)
 
 
 class Rounds:

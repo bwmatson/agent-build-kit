@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from pathlib import Path
 
 from agent_build_kit import forges
@@ -30,6 +30,8 @@ class Card(Frozen):
     title: str
     body: str
     link: str
+    # False for a card that is shown once and never sounded again.
+    remind: bool = True
 
 
 def _kind_of(unit: StoredUnit) -> CardKind | None:
@@ -42,10 +44,15 @@ def _kind_of(unit: StoredUnit) -> CardKind | None:
     return None
 
 
-def desired_cards(units: Sequence[StoredUnit], verdicts: Path | None = None) -> list[Card]:
+def desired_cards(
+    units: Sequence[StoredUnit],
+    verdicts: Path | None = None,
+    *,
+    demoted_classes: Collection[str] = (),
+) -> list[Card]:
     """One card for each unit that is waiting on a person.
 
-    `verdicts` is the verdict file; a unit in review whose recorded tier is `auto` raises none."""
+    `verdicts` is the verdict file; `demoted_classes` are the classes held back from landing."""
     cards = []
     for unit in units:
         kind = _kind_of(unit)
