@@ -75,13 +75,16 @@ def branch(tmp_path: Path) -> Path:
 
 def land(repo: Path, subject: str, files: dict[str, str], session: str = "") -> str:
     """A commit on the branch, as `abk` makes it: with the unit's trailer and, when it came
-    from a chat, the session in `Adopted-From`."""
+    from a chat, the session in `Adopted-From`. With no files it is an empty commit marked
+    `Already-built: yes`, as a group recorded as built makes."""
     for name, text in files.items():
         (repo / name).parent.mkdir(parents=True, exist_ok=True)
         (repo / name).write_text(text)
     git(repo, "add", "-A")
     trailers = "Unit: add-marker/1\n" + (f"Adopted-From: {session}\n" if session else "")
-    git(repo, "commit", "-q", "-m", f"{subject}\n\n{trailers}")
+    if not files:
+        trailers += "Already-built: yes\n"
+    git(repo, "commit", "-q", "--allow-empty", "-m", f"{subject}\n\n{trailers}")
     return git(repo, "rev-parse", "HEAD").strip()
 
 

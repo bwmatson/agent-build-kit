@@ -196,9 +196,12 @@ def superseded_pairs(
     beyond `base` is exactly a pair for each of the groups (`titles`, by position, with
     `test_only` groups taking their `test:` commit alone), in order; None for any other branch,
     which has a commit that belongs to no group or lacks one."""
-    out = git_out(repo, "rev-list", "--reverse", f"{base}..{ref}")
-    shas = out.splitlines()
-    subjects = [git_out(repo, "log", "-1", "--format=%s", sha) for sha in shas]
+    out = git_out(repo, "log", "--reverse", "--format=%H%x00%s", f"{base}..{ref}")
+    shas, subjects = [], []
+    for line in out.splitlines():
+        sha, _, subject = line.partition("\0")
+        shas.append(sha)
+        subjects.append(subject)
     if group_progress(subjects, titles, test_only).done != len(titles):
         return None
     sizes = [
@@ -214,13 +217,23 @@ def superseded_pairs(
     return groups
 
 
-def cherry_pick(repo: Path, shas: Sequence[str]) -> bool:
-    """Pick `shas` onto the checked-out branch in order; False, with the branch as it was
-    before the failing pick and a clean tree, at the first that does not apply."""
+def cherry_pick(repo: Path, shas: Sequence[str], *, unit_id: str = "") -> bool:
+    """Pick `shas` onto the checked-out branch in order, an originally empty commit (a group
+    recorded as already built) included; False, with the branch as it was before the first
+    pick and a clean tree, at the first that does not apply, so a group's commits come whole or
+    not at all. With `unit_id`, each picked commit's `Unit:` trailer names that unit."""
+    start = git_out(repo, "rev-parse", "HEAD")
     for sha in shas:
-        if git(repo, "cherry-pick", sha, check=False).returncode:
+        if git(repo, "cherry-pick", "--allow-empty", sha, check=False).returncode:
             git(repo, "cherry-pick", "--abort", check=False)
+            git(repo, "reset", "-q", "--hard", start)
             return False
+        if unit_id:
+            message = git_out(repo, "log", "-1", "--format=%B")
+            old_lines = message.split("\n")
+            lines = [f"Unit: {unit_id}" if row.startswith("Unit: ") else row for row in old_lines]
+            if lines != old_lines:
+                git(repo, "commit", "-q", "--amend", "--allow-empty", "-m", "\n".join(lines))
     return True
 
 

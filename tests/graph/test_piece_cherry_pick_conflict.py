@@ -36,3 +36,15 @@ def test_the_conflicting_pick_is_aborted_and_the_tree_is_clean(tmp_path: Path) -
 
     assert git(repo, "status", "--porcelain").strip() == ""
     assert not (repo / ".git" / "CHERRY_PICK_HEAD").exists()
+
+
+def test_a_feat_commit_that_conflicts_leaves_no_half_pair_of_its_group(tmp_path: Path) -> None:
+    # The third group's implementation, not its tests, is what cannot apply.
+    feat_conflicts = {3: {"shared.txt": "a\n"}, 5: {"shared.txt": "b\n"}}
+    recorder, _, repo = piece_built(
+        tmp_path, old=pairs(1, 2, 3), piece_groups=(1, 3), files=feat_conflicts
+    )
+
+    assert subjects(repo)[:2] == pairs(1)
+    assert agent_calls(recorder.events)[:2] == ["claude:tests", "claude:impl"], recorder.events
+    assert git(repo, "status", "--porcelain").strip() == ""

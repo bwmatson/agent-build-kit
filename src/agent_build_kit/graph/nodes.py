@@ -1173,7 +1173,7 @@ class BuildPath:
         picked = 0
         for step in r.group_steps(self.unit):
             shas = found[where[(step.change_dir, step.number)]]
-            if not cherry_pick(tree, shas):
+            if not cherry_pick(tree, shas, unit_id=self.unit.id):
                 break
             picked += 1
         self.say(f"reused the commits of {picked} group(s) from {parent_id}")
