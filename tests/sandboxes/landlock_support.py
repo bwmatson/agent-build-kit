@@ -15,9 +15,9 @@ from agent_build_kit.sandboxes import Coverage, SandboxBackend, SandboxPolicy
 from agent_build_kit.sandboxes.launcher import NETWORK_ABI
 
 # The backends the contract suites run against; a later backend adds its name.
-BACKENDS = ["landlock"]
+BACKENDS = ["landlock", "seatbelt"]
 
-SYSTEM_FOLDERS = ("/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/proc")
+SYSTEM_FOLDERS = ("/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/proc", "/System", "/Library")
 
 
 def readable_folders() -> tuple[Path, ...]:

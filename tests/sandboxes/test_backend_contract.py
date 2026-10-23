@@ -120,6 +120,8 @@ def test_a_nested_launcher_asking_for_wider_rights_cannot_write(
 
 
 def test_privileges_cannot_grow_inside(backend: SandboxBackend, scene: Scene) -> None:
+    if backend.name != "landlock":
+        pytest.skip("`NoNewPrivs` is a Linux process flag; sudo's refusal is the next test")
     result = run_confined(
         backend, scene.policy(), ["sh", "-c", "grep '^NoNewPrivs' /proc/self/status"]
     )

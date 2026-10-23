@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import main
-from tests.cli.sandbox_cli_support import CountingBackend, switch_on
+from tests.cli.sandbox_cli_support import NAME, CountingBackend, switch_on
 from tests.cli.sandbox_cli_support import broken_stand_in as broken_stand_in  # noqa: F401
 from tests.cli.sandbox_cli_support import stand_in as stand_in  # noqa: F401
 from tests.cli.test_init import app, init_args, stubs  # noqa: F401 — fixtures
@@ -21,12 +21,13 @@ def rerun(
     capsys: pytest.CaptureFixture[str],
     *,
     on: bool,
+    backend: str = NAME,
 ) -> list[str]:
     """The sandbox lines a second `abk init` prints over a kept abk.yaml."""
     planning = recognised_planning(tmp_path / "planning")
     assert main([*init_args(planning, app), "--yes"]) == 0
     if on:
-        switch_on(planning / "abk.yaml")
+        switch_on(planning / "abk.yaml", backend=backend)
     capsys.readouterr()
     assert main([*init_args(planning, app), "--yes"]) == 0
     shown = capsys.readouterr()
