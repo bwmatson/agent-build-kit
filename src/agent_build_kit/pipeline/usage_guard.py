@@ -107,6 +107,7 @@ from agent_build_kit.pipeline.usage_forecast_record import (
 )
 from agent_build_kit.pipeline.usage_forecast_running import running_remainders
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, read_ledger, spend_costs
+from agent_build_kit.pipeline.verdict import ReviewTier
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited, Run
 from agent_build_kit.runtimes.providers import (
     GateCommandResult,
@@ -884,9 +885,12 @@ _starting: ContextVar[str | None] = ContextVar("usage_starting", default=None)
 
 
 @contextmanager
-def starting(unit: str) -> Iterator[None]:
+def starting(
+    unit: str, *, review_tier: ReviewTier | None = None, estimated_lines: int | None = None
+) -> Iterator[None]:
     """Name the unit (or track) a start is asked for inside the block, so an allowance on an
-    estimate is kept under its id and counted once. An ask outside one starts nothing."""
+    estimate is kept under its id and counted once, and the unit's review tier and estimated
+    lines, which its forecast is made from. An ask outside one starts nothing."""
     token = _starting.set(unit)
     try:
         yield
