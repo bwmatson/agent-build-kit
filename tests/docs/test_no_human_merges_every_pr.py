@@ -1,0 +1,57 @@
+"""No document, and no text the pipeline writes, says a person merges every pull request."""
+
+import re
+from pathlib import Path
+
+from agent_build_kit.pipeline.command_policy import check_command
+from agent_build_kit.pipeline.pr_body import build_pr_body
+from tests.factories import stored_unit as unit
+
+ROOT = Path(__file__).resolve().parents[2]
+SKILLS = ROOT / "src" / "agent_build_kit" / "skills"
+EXEMPT = {
+    ROOT / "CHANGELOG.md",
+    ROOT / "docs" / "agent-efficient-coding-philosophy.md",
+    ROOT / "docs" / "risk-tiered-review-design.md",
+}
+SKIPPED_DIRS = {"node_modules", ".venv", "__pycache__"}
+OLD_RULE = re.compile(r"\b(?:human|person)\s+merges\s+(?:every\w*|each|all|it|them)\b", re.I)
+
+
+def markdown_files() -> list[Path]:
+    """Every Markdown file of the repository but the shipped skills, the hidden folders (which
+    hold their mirror) and the exempt documents."""
+    return sorted(
+        path
+        for path in ROOT.rglob("*.md")
+        if not any(
+            part.startswith(".") or part in SKIPPED_DIRS for part in path.relative_to(ROOT).parts
+        )
+        and SKILLS not in path.parents
+        and path not in EXEMPT
+    )
+
+
+def statements(text: str) -> list[int]:
+    """The 1-based line each statement of the old rule starts on, across wrapped lines."""
+    return [text.count("\n", 0, hit.start()) + 1 for hit in OLD_RULE.finditer(text)]
+
+
+def test_no_markdown_file_states_a_person_merges_every_pull_request() -> None:
+    files = markdown_files()
+    assert ROOT / "README.md" in files
+    found = [
+        f"{path.relative_to(ROOT)}:{line}"
+        for path in files
+        for line in statements(path.read_text(encoding="utf-8"))
+    ]
+
+    assert not found, found
+
+
+def test_the_footer_and_the_refusal_do_not_state_it() -> None:
+    body = build_pr_body(unit(), graph=[unit()], base="main")
+    reason = check_command("gh pr merge 4", branch="spec/add-marker/1-unit").reason or ""
+
+    assert statements(body) == []
+    assert statements(reason) == []
