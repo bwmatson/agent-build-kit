@@ -295,6 +295,7 @@ def build_argv(request: AgentRequest) -> list[str]:
             no_push=True,
             no_commit=request.policy.no_commit,
             refusals_only=not request.policy.scoped,
+            confined=request.policy.confined,
             **planning,
         )
         if request.policy.scoped:

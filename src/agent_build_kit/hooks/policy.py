@@ -111,6 +111,7 @@ def _check_file_write(
     planning_repo: Path | None = None,
     planning_change_dir: Path | None = None,
     planning_paths: tuple[str, ...] = (),
+    confined: bool = False,
 ) -> dict | None:
     target = (payload.get("tool_input") or {}).get("file_path") or (
         payload.get("tool_input") or {}
@@ -127,7 +128,7 @@ def _check_file_write(
     # The specs agents build from, in the planning repo. Readable through
     # `--add-dir`, but not theirs to change: a build agent once ticked its own
     # tasks before review had seen them.
-    if specs is not None and path.is_relative_to(specs.resolve()):
+    if not confined and specs is not None and path.is_relative_to(specs.resolve()):
         return _deny(
             f"{target} is in the planning repo's specs, which are read-only for build "
             "agents; the pipeline marks tasks done once a unit has passed review"
@@ -158,6 +159,8 @@ def _check_file_write(
     # another repo, which no commit picked up. Scratch files in the temp
     # directory are fine, as long as that isn't a way into another checkout.
     worktree = _checkout_of(Path(cwd)) if isinstance(cwd, str) else None
+    if confined and worktree is not None and not path.is_relative_to(worktree):
+        return None  # where a write may land is the sandbox's to say
     if worktree is None:
         return _deny(
             f"the policy hook could not find the worktree this run is in (cwd {cwd!r}), "
@@ -221,6 +224,7 @@ def decide(
     no_push: bool = False,
     no_commit: bool = False,
     refusals_only: bool = False,
+    confined: bool = False,
 ) -> dict | None:
     """The hook's answer: a deny decision, or None for "no objection"."""
     try:
@@ -234,6 +238,7 @@ def decide(
                 planning_repo,
                 planning_change_dir,
                 planning_paths,
+                confined,
             )
         if payload.get("tool_name") != "Bash":
             return None
@@ -281,6 +286,7 @@ def decide(
                 planning_repo=planning_repo,
                 fenced_files=fenced_files,
             ),
+            confined=confined,
         )
         if verdict.allowed and no_push:
             verdict = check_no_push(command)
@@ -306,6 +312,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-push", action="store_true")
     parser.add_argument("--no-commit", action="store_true")
     parser.add_argument("--refusals-only", action="store_true")
+    parser.add_argument("--confined", action="store_true")
     try:
         args = parser.parse_args(argv)
         if args.branch_prefix:
@@ -337,6 +344,7 @@ def main(argv: list[str] | None = None) -> int:
         no_push=args.no_push,
         no_commit=args.no_commit,
         refusals_only=args.refusals_only,
+        confined=args.confined,
     )
     if answer is not None:
         print(json.dumps(answer))
@@ -356,6 +364,7 @@ def hook_settings(
     no_push: bool = False,
     no_commit: bool = False,
     refusals_only: bool = False,
+    confined: bool = False,
 ) -> dict:
     """Settings that register this hook, for `claude -p --settings`.
 
@@ -381,6 +390,9 @@ def hook_settings(
     `no_push` refuses every `git push`, as the acp broker does: a unit run never
     pushes, the pipeline does, and a push is refused before it runs rather than
     found after.
+    `confined` stands down the location guards the kernel repeats (the worktree check and the
+    specs fence on file writes, the planning repo's configuration fence on commands); the
+    guards about meaning stay.
     """
     command = f"{sys.executable} -m agent_build_kit.hooks.policy --branch-prefix {branch_prefix}"
     if specs is not None:
@@ -403,6 +415,8 @@ def hook_settings(
         command += " --no-commit"
     if refusals_only:
         command += " --refusals-only"
+    if confined:
+        command += " --confined"
     return {
         "hooks": {
             "PreToolUse": [

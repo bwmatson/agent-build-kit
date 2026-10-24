@@ -64,8 +64,8 @@ def install(
     return root, main
 
 
-def step(root: Path, main: Path) -> AgentRequest:
-    runtime = Recording()
+def step(root: Path, main: Path, runtime: Recording | None = None) -> AgentRequest:
+    runtime = runtime or Recording()
     build_run(runtime=runtime, planning_repo=root, sandbox_repo="app")(
         "Go.", cwd=main, model=models().implement
     )
