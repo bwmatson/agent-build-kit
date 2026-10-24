@@ -53,7 +53,7 @@ def cmd_review_audit(args: argparse.Namespace, inst: Installation) -> int:
     if args.result == "wrong":
         demotion_triggers.demote_for_failed_audit(
             args.unit,
-            audit_record.read_audits(path)[args.unit]["unit_class"],
+            audits=path,
             demotions=inst.state_dir / demotion_record.DEMOTIONS,
             at=spans.clock.now(),
             log=print,

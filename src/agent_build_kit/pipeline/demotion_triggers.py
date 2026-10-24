@@ -1,5 +1,6 @@
-"""The triggers that demote a review class: a revert of an auto-landed unit, and agreement below
-the minimum over the most recent samples."""
+"""The triggers that demote a review class: a revert of an auto-landed unit, agreement below the
+minimum over the most recent samples, a failed verify of a change holding an auto-landed unit,
+and a failed audit."""
 
 from __future__ import annotations
 
@@ -10,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_build_kit.config import ReviewConfig
-from agent_build_kit.pipeline import demotion_record
+from agent_build_kit.pipeline import audit_record, demotion_record
 from agent_build_kit.pipeline.audit_record import audit_results
 from agent_build_kit.pipeline.review_outcome import Outcome
 from agent_build_kit.pipeline.review_rates import sample_clean
@@ -40,9 +41,7 @@ def evaluate_demotions(
     results = audit_results(audits)
 
     def demote(unit_class: str, trigger: str, unit: str) -> None:
-        demotion_record.demote(
-            demotions, unit_class=unit_class, trigger=trigger, unit=unit, at=at, say=log
-        )
+        _demote(demotions, unit_class, trigger, unit, at, log)
 
     for unit, record in sorted(records.items()):
         if not (record.get("final") and record.get("auto_landed")):
@@ -61,19 +60,32 @@ def evaluate_demotions(
             log(f"{unit_class}: agreement not evaluated — {error}")
 
 
+def _demote(
+    demotions: Path,
+    unit_class: str,
+    trigger: str,
+    unit: str,
+    at: datetime,
+    log: Callable[[str], None],
+) -> None:
+    """Record the trigger, and say so when it makes a new demotion (a second trigger on a class
+    already demoted is said by the record)."""
+    if demotion_record.demote(
+        demotions, unit_class=unit_class, trigger=trigger, unit=unit, at=at, say=log
+    ):
+        log(f"{unit_class}: demoted by {trigger} on {unit}")
+
+
 def _merged_at(unit: StoredUnit) -> str:
     stamps = [entry["at"] for entry in unit.history if entry.get("state") == "merged"]
     return max(stamps, default="")
 
 
 def _recorded(demotions: Path, record: dict[str, Any], unit: str) -> bool:
-    """Whether the class's standing demotion already names this unit as a trigger."""
-    standing = demotion_record.read_demotions(demotions).get(record["unit_class"])
-    return (
-        standing is not None
-        and standing.get("lifted") is None
-        and any(t["unit"] == unit for t in standing["triggers"])
-    )
+    """Whether the class's demotion, standing or lifted, already names this unit as a trigger,
+    so a lift is not undone by the evidence it was made over."""
+    held = demotion_record.read_demotions(demotions).get(record["unit_class"])
+    return held is not None and any(t["unit"] == unit for t in held["triggers"])
 
 
 def _agreement(
@@ -87,6 +99,9 @@ def _agreement(
 ) -> None:
     if unit_class in demotion_record.demoted_classes(demotions):
         return
+    # Evidence older than a lift was weighed by the person who lifted it.
+    lifted = demotion_record.read_demotions(demotions).get(unit_class, {}).get("lifted")
+    since = datetime.fromisoformat(lifted) if lifted else None
     samples = sorted(
         (merged_at[unit], unit, clean)
         for unit, record in records.items()
@@ -95,6 +110,7 @@ def _agreement(
         and record.get("brief")
         and record.get("evidence_tier") == ReviewTier.AUTO
         and unit in merged_at
+        and (since is None or datetime.fromisoformat(merged_at[unit]) > since)
         and (clean := sample_clean(unit, record, results)) is not None
     )
     window = review.demotion.window
@@ -123,30 +139,23 @@ def demote_for_failed_verify(
         for unit in sorted(u.id for u in units if u.carries(change)):
             record = records.get(unit, {})
             if record.get("final") and record.get("auto_landed"):
-                demotion_record.demote(
-                    demotions,
-                    unit_class=record["unit_class"],
-                    trigger="verify",
-                    unit=unit,
-                    at=at,
-                    say=log,
-                )
+                _demote(demotions, record["unit_class"], "verify", unit, at, log)
     except Exception as error:  # noqa: BLE001
         log(f"{change}: demotion for the failed verify not evaluated — {error}")
 
 
 def demote_for_failed_audit(
     unit: str,
-    unit_class: str,
     *,
+    audits: Path,
     demotions: Path,
     at: datetime,
     log: Callable[[str], None],
 ) -> None:
-    """Demote the unit's class with the trigger `audit`. Any error is logged and swallowed."""
+    """Demote the class recorded for the audited unit with the trigger `audit`. Any error is
+    logged and swallowed."""
     try:
-        demotion_record.demote(
-            demotions, unit_class=unit_class, trigger="audit", unit=unit, at=at, say=log
-        )
+        unit_class = audit_record.read_audits(audits)[unit]["unit_class"]
+        _demote(demotions, unit_class, "audit", unit, at, log)
     except Exception as error:  # noqa: BLE001
-        log(f"{unit_class}: demotion for the failed audit of {unit} not evaluated — {error}")
+        log(f"{unit}: demotion for the failed audit not evaluated — {error}")

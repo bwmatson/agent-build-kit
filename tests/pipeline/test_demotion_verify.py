@@ -61,7 +61,7 @@ def demoted(inst: Installation) -> dict[str, dict]:
 
 
 def test_a_failed_verify_demotes_the_class_of_the_auto_landed_unit_and_not_a_persons(
-    inst: Installation,
+    inst: Installation, capsys: pytest.CaptureFixture[str]
 ) -> None:
     units = land(
         inst,
@@ -76,6 +76,7 @@ def test_a_failed_verify_demotes_the_class_of_the_auto_landed_unit_and_not_a_per
     assert [(t["trigger"], t["unit"]) for t in demoted(inst)["docs"]["triggers"]] == [
         ("verify", "feature/1")
     ]
+    assert "docs: demoted by verify on feature/1" in capsys.readouterr().out
     # Verify's own rules: the failure is recorded, blocks archiving and is not retried.
     last = VerifyRecord(inst.state_dir / "verified.json").get("feature")
     assert last is not None and not last.passed

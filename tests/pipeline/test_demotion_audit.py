@@ -44,10 +44,11 @@ def demoted(inst: Installation) -> dict[str, dict]:
 
 
 def test_an_audit_recorded_wrong_demotes_the_class_with_the_trigger_and_the_unit(
-    inst: Installation,
+    inst: Installation, capsys: pytest.CaptureFixture[str]
 ) -> None:
     audit("feature/1", "wrong")
 
+    assert "docs: demoted by audit on feature/1" in capsys.readouterr().out
     assert list(demoted(inst)) == ["docs"]
     assert [(t["trigger"], t["unit"]) for t in demoted(inst)["docs"]["triggers"]] == [
         ("audit", "feature/1")
