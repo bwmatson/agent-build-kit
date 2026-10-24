@@ -44,6 +44,15 @@ def is_tracked(root: Path, name: str) -> bool:
     return git(root, "ls-files", "--error-unmatch", name, check=False).returncode == 0
 
 
+def tracked_toplevel(directory: Path, name: str) -> Path | None:
+    """The top level of the git repository holding `directory` when git tracks `name` in it,
+    None when `directory` is outside a repository or git does not track `name`."""
+    top = git(directory, "rev-parse", "--show-toplevel", check=False)
+    if top.returncode or not is_tracked(directory, name):
+        return None
+    return Path(top.stdout.strip())
+
+
 def is_ignored(root: Path, name: str) -> bool:
     return git(root, "check-ignore", "-q", name, check=False).returncode == 0
 

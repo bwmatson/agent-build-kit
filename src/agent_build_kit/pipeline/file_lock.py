@@ -75,19 +75,28 @@ def _replace_through_partial(path: Path, write: Callable[[Path], object]) -> Non
         raise
 
 
-def append_missing_lines(path: Path, lines: Sequence[str]) -> bool:
-    """Add the `lines` a text file lacks, each once, creating the file when it is missing.
+def with_missing_lines(text: str, lines: Sequence[str]) -> str:
+    """`text` with the `lines` it lacks added, each once.
 
     Lines are compared stripped; a newline separates them from the text already there only
-    when it does not end in one. Returns whether the file was written.
+    when it does not end in one. `text` itself when nothing is missing.
     """
-    text = path.read_text() if path.exists() else ""
     present = {line.strip() for line in text.splitlines()}
     missing = [line for line in dict.fromkeys(lines) if line.strip() not in present]
     if not missing:
-        return False
+        return text
     separator = "" if not text or text.endswith("\n") else "\n"
-    path.parent.mkdir(parents=True, exist_ok=True)
     added = "\n".join(missing)
-    atomic_write_text(path, f"{text}{separator}{added}\n")
+    return f"{text}{separator}{added}\n"
+
+
+def append_missing_lines(path: Path, lines: Sequence[str]) -> bool:
+    """Add the `lines` a text file lacks (see `with_missing_lines`), creating the file when it
+    is missing. Returns whether the file was written."""
+    text = path.read_text() if path.exists() else ""
+    added = with_missing_lines(text, lines)
+    if added == text:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(path, added)
     return True

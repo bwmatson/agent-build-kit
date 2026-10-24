@@ -92,7 +92,7 @@ from agent_build_kit.pipeline.planning_sync import (
     live_notice,
     read_pipeline_marker,
 )
-from agent_build_kit.pipeline.shell import git, git_out, is_ignored, is_tracked
+from agent_build_kit.pipeline.shell import git, git_out, is_ignored, is_tracked, tracked_toplevel
 from agent_build_kit.pipeline.usage_guard import gate_result
 from agent_build_kit.profiles.base import ProfileUnsupported
 from agent_build_kit.redaction import MIN_LENGTH
@@ -1001,11 +1001,11 @@ def _machine_keys(inst: Installation) -> list[Check]:
     """Settings in the committed abk.yaml that belong to a machine or a person: a warning
     for a machine choice, a note for a default a team may commit."""
     root = inst.root
-    top = git(root, "rev-parse", "--show-toplevel", check=False)
-    if top.returncode or not is_tracked(root, "abk.yaml"):
+    top = tracked_toplevel(root, "abk.yaml")
+    if top is None:
         return []
     document = read_base(root / "abk.yaml")
-    found = machine_table.machine_settings(document, Path(top.stdout.strip()), root)
+    found = machine_table.machine_settings(document, top, root)
     checks = []
     for setting in found:
         key = ".".join(setting.path)
