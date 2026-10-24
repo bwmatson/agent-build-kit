@@ -1819,6 +1819,7 @@ class BuildPath:
             clears=lambda _: r.store.get(unit.id).feedback_source is FeedbackSource.UNIT_TEST,
             already_done=lambda: r.head(tree) != state.head,
             on_failure=self.record_check_failure,
+            annotate=with_e2e_hint,
             spent_message=lambda budget: (
                 f"checks still failing after {budget} fix round(s), before review"
             ),
