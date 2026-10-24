@@ -1267,6 +1267,17 @@ down.
 **A step already running is never interrupted** — the guard only ever gates
 what starts next, and a step that ends having written nothing is not judged against the window.
 
+**The usage forecast** (`usage_forecast*.py`, beside the estimate and its cap). Before a start is allowed
+the guard forecasts what it will cost in points of each window: a unit by the history of its review
+tier (the chance that each step runs, bounded at `usage_forecast_quantile`, times its mean cost, over
+the tier's units once there are `usage_forecast_min_runs` of them, else the window's flat per-unit
+allowance, the prior), a track or the planner as one call at its mean, plus what running units still
+have to come and the tracks and plan call due before the window resets. The forecast is added to the
+estimate and the reading is checked again with it; a refusal names the window, the forecast and the
+step with the most points. When a unit's first step is admitted, a forecast row is appended to `usage-forecasts.jsonl` in the
+state directory, and a step row for every step (once per node and round); `abk report --by tier`
+compares them with the spend and `abk status` prints a `forecast:` line from them. `usage_forecast: false` decides as before.
+
 **The endpoint is asked only when a fresh reading could change the decision** (`decide_start`).
 Every tick, round and gate asks the guard, and the guard decides whether to call. Usage only
 rises within a window and falls when it resets, so a refusal on a reading of a window that has

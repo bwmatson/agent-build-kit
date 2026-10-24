@@ -125,6 +125,11 @@ window states the points spent and the dollars they come from, as `session ~69% 
 read + 8% spent from $1.45 recorded) under 80%`, and adds `N unit not yet recorded` where a
 unit with no recorded cost was counted at the flat allowance.
 
+After the estimate line, status prints a `forecast:` line (left out when `usage_forecast` is false):
+for each window, each review tier's forecast in points with the units its history rests on (or
+`prior`), the running units' remaining forecast and what is held back for tracks and the plan call,
+then how many running units have no step recorded and whether the timers were read. It makes no call.
+
 Prints whether the pipeline is paused (until when, why), the usage reading held
 (session %, weekly %, source and age; no call is made, and `--refresh` asks the endpoint for a
 fresh one, no more often than the cache time allows), the count of units by state, and each
@@ -231,8 +236,12 @@ with its trigger, the unit and since when.
 
 Tokens by kind, cost and time by bucket (agent, checks, slot wait, usage-pause wait,
 review wait) from the usage ledger and the unit store, grouped `--by` unit (default),
-change, node, role, model, repo, account or day. `--since` (a date) keeps calls on or after it;
-`--change` and `--unit` narrow to one. Estimated figures sit in their own columns and
+change, node, role, model, repo, account, tier or day. `--since` (a date) keeps calls on or after it;
+`--change` and `--unit` narrow to one. `abk report --by tier` groups by the review tier planned for
+each unit and shows, per tier, the units, the dollars forecast when they were admitted, the dollars
+spent, their ratio, the units over their forecast and the tier's spend by role and node;
+a unit with no forecast row is counted as unforecast and left out of the ratio, and one with no tier
+is under `(none)`. Estimated figures sit in their own columns and
 stay out of the totals unless `--include-estimates`; a figure never recorded prints as
 `-`, never `0`. The source column says whether figures were `reported`, from the
 `gateway`, `estimated` or `none`, and flags a row whose gateway and agent-reported
