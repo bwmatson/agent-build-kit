@@ -69,15 +69,6 @@ def test_a_pass_with_the_list_empty_never_calls_the_forge_s_merge(tick: Tick) ->
     assert tick.forge.merge_calls == []
 
 
-def test_a_pass_with_review_disabled_never_calls_the_forge_s_merge(tick: Tick) -> None:
-    apply_review(tick.setup.inst, listed_review(enabled=False))
-
-    tick.setup.tick()
-
-    assert tick.entered == 1, "the step is entered, and merges nothing"
-    assert tick.forge.merge_calls == []
-
-
 def test_an_error_landing_one_unit_is_logged_and_the_others_are_still_tried(
     tick: Tick, capsys: pytest.CaptureFixture[str]
 ) -> None:

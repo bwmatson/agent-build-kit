@@ -19,7 +19,7 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import PLANNED, Member
 from tests.conftest import make_installation
-from tests.factories import stored_unit
+from tests.factories import tiered_stored_unit as stored_unit
 from tests.runtimes.stand_in import StandInRuntime
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")

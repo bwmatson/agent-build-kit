@@ -388,10 +388,10 @@ def review_ceiling(
     repo: RepoConfig | None, config: WorkspaceConfig, tier: ReviewTier | None
 ) -> int:
     """The changed-lines ceiling in effect for a unit of `repo` expected to get `tier`: the
-    tier's own with `review.enabled`, the `full` one without it or when `tier` is None. A repo
-    that is None, or not configured, has the workspace's ceilings."""
+    tier's own, the `full` one when `tier` is None. A repo that is None, or not configured, has
+    the workspace's ceilings."""
     ceilings = ceilings_in_effect(repo, config)
-    if not config.review.enabled or tier is None:
+    if tier is None:
         return ceilings.full
     return getattr(ceilings, tier.value)
 
@@ -1378,8 +1378,15 @@ DEPRECATED_BUILDERS_SETTING = f"builders.{DEPRECATED_BUILDERS_KEY}"
 DEPRECATED_MAX_UNIT_LINES = "global_limits.max_unit_lines"
 
 
+# The key that used to switch review by tier off; it is read and ignored.
+REMOVED_REVIEW_ENABLED = "review.enabled"
+REMOVED_REVIEW_ENABLED_FIELD = "enabled"
+
+
 def deprecation_notice(key: str) -> str:
     """What `abk config` and `abk doctor` say of a deprecated key."""
+    if key == REMOVED_REVIEW_ENABLED:
+        return f"`{key}` is no longer used: review by tier is always on, and the key is ignored"
     if key == DEPRECATED_MAX_UNIT_LINES:
         return (
             f"`{key}` is deprecated for `review.ceilings.full`; "
@@ -1516,8 +1523,6 @@ def buffered(ceiling: int, buffer: float) -> int:
 class ReviewConfig(Frozen):
     """The review policy: which changes never land without a person, and how they are classed."""
 
-    # Off, every unit is held to the `full` ceiling and nothing is classified or recorded.
-    enabled: bool = True
     # Globs added to the framework's defaults; a repo's own list adds to these.
     protected_paths: list[str] = []
     protected_defaults: bool = True
@@ -1534,6 +1539,15 @@ class ReviewConfig(Frozen):
     split_rounds: int = Field(default=2, ge=0, le=2)
     # Whether a pull request body opens with the "Start here" section, and the review asks for it.
     brief: bool = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_the_removed_enabled_key(cls, data: Any) -> Any:
+        """`enabled` switched review off before review by tier was always on; an old file that
+        still sets it loads with the key ignored (`load` says so once)."""
+        if isinstance(data, dict) and REMOVED_REVIEW_ENABLED_FIELD in data:
+            return {k: v for k, v in data.items() if k != REMOVED_REVIEW_ENABLED_FIELD}
+        return data
 
     @field_validator("classes")
     @classmethod
@@ -2106,14 +2120,22 @@ def load(path: Path) -> WorkspaceConfig:
     _check_forges(loaded, path)
     _check_infra(loaded, path)
     _check_agent_commands(loaded, path)
+    if REMOVED_REVIEW_ENABLED in deprecations_of(*spelled):
+        logger.warning("%s", deprecation_notice(REMOVED_REVIEW_ENABLED))
     return loaded
 
 
 def deprecations_of(*documents: dict[str, Any] | None) -> list[str]:
     """The deprecated keys the parsed `documents` set: the root `limits` key, `max_unit_lines`
-    under `global_limits` or `limits`, and `builders.per_group_commits`; each once."""
+    under `global_limits` or `limits`, `builders.per_group_commits`, and `review.enabled`; each
+    once."""
     raws = [raw for raw in documents if raw]
     found = []
+    if any(
+        isinstance(raw.get("review"), dict) and REMOVED_REVIEW_ENABLED_FIELD in raw["review"]
+        for raw in raws
+    ):
+        found.append(REMOVED_REVIEW_ENABLED)
     if any(DEPRECATED_ROOT_KEY in raw for raw in raws):
         found.append(DEPRECATED_ROOT_KEY)
     blocks = [raw.get(name) for raw in raws for name in ("global_limits", DEPRECATED_ROOT_KEY)]

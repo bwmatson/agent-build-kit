@@ -217,7 +217,7 @@ carried the brief are counted). It says which classes clear the gates (`review.a
 and `min_clean_rate`) and so may be added to `review.auto_land.classes`, and marks a class no
 `review.classes` entry names as not nameable. It edits nothing: promotion is a person's edit of
 abk.yaml. With no records it says there is nothing to report. `abk status` prints a line for each
-class that clears the gates when `review.enabled` is true. Exit 0.
+class that clears the gates. Exit 0.
 
 ### `abk review audit <unit> ok|wrong`
 
@@ -714,7 +714,7 @@ says how many model calls it will make.
   `--all` is every active change; `--failed` every change whose last plan failed
   or gave up. With none, the command lists each change with the state of its plan
   (`planned`, `failing 2/3: <reason>`, `given up` with `abk replan --failed` to plan it
-  again, `stale` for a plan recorded under other review sizing (while `review.enabled` is on, a plan is stale when anything in the `review` section changes (its ceilings, protected paths, classes or auto_land), a repo's `review` block changes, `global_limits.min_unit_lines` or `max_unit_lines` changes, or `review.enabled` itself changes; turning the flag on marks every plan recorded before it as stale; `abk replan <change>`
+  again, `stale` for a plan recorded under other review sizing (a plan is stale when anything in the `review` section changes (its ceilings, protected paths, classes or auto_land), a repo's `review` block changes, or `global_limits.min_unit_lines` or `max_unit_lines` changes; `abk replan <change>`
   plans it and records the current sizing, and a tick reports stale plans without planning
   them or counting them as work), `waiting for the network` or `waiting for the model service` with the time of
   the next try and the attempts, which a wait does not use, `never planned`), plans

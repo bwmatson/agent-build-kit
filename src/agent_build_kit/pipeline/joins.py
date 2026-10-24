@@ -65,11 +65,11 @@ def check_joins(
 ) -> None:
     """Raise `JoinRefused` for the first join that breaks a rule.
 
-    With `review.enabled` a join is held to the ceiling of the higher review tier of its two
-    sides (a unit with none counting as `full`, a group at its `floor(group, repo)`), not to
-    `ceiling`, which applies without it. A join is also refused when its two sides disagree on
-    `full`: a join leaves no unit holding a floor-`full` group or a `full` unit beside lower
-    work. A unit with no recorded tier counts as `full`, as it does for sizing.
+    A join is held to the ceiling of the higher review tier of its two sides (a unit with none
+    counting as `full`, a group at its `floor(group, repo)`). A join is also refused when its
+    two sides disagree on `full`: a join leaves no unit holding a floor-`full` group or a
+    `full` unit beside lower work. A unit with no recorded tier counts as `full`, as it does
+    for sizing.
 
     `change` is the change being planned, whose own planned units the plan
     replaces, so they are neither candidates nor dependents here.
@@ -186,7 +186,7 @@ def check_joins(
 
         full = [side for side, tier in sides if tier == "full"]
         lower = [side for side, tier in sides if tier != "full"]
-        if full and lower and active().review.enabled:
+        if full and lower:
             raise refuse(mixed_floors_text(full, lower))
 
         involved = [*onto.members(), *members]
@@ -195,12 +195,8 @@ def check_joins(
         ratio = applied(calibrations, kind_of(onto))
         workspace = active()
         tier = max(onto_tier, added_tier, key=REVIEW_TIERS.index)
-        limit = (
-            review_ceiling(workspace.repos.get(onto.repo), workspace, ReviewTier(tier))
-            if workspace.review.enabled
-            else ceiling
-        )
-        name = f"{tier} ceiling" if workspace.review.enabled else "ceiling"
+        limit = review_ceiling(workspace.repos.get(onto.repo), workspace, ReviewTier(tier))
+        name = f"{tier} ceiling"
         if calibrated(onto.estimated_lines + added, ratio.ratio) > limit:
             raise refuse(
                 f"{onto.estimated_lines}+{added} changed lines"
@@ -220,9 +216,7 @@ def check_joins(
             )
 
         joined = onto.taking(members, estimated_lines=added, kinds=added_kinds)
-        state[onto.id] = (
-            joined.model_copy(update={"review_tier": tier}) if workspace.review.enabled else joined
-        )
+        state[onto.id] = joined.model_copy(update={"review_tier": tier})
         if taken is not None:
             del state[taken.id]
             moved = repointed({**state, **planned}, taken.id, onto.id)

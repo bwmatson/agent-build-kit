@@ -446,7 +446,7 @@ def _start_here(
             if lines:
                 parts.append(f"**{title}**\n\n{lines}")
     parts.append(f"**Already verified by the pipeline**\n\n{verified_list(facts, rounds)}")
-    if verdict is not None and active().review.enabled:
+    if verdict is not None:
         parts.append(f"**Review tier: `{verdict.tier.value}`** — {verdict.reason}")
     return _fixed("start_here", "\n\n".join(parts))
 

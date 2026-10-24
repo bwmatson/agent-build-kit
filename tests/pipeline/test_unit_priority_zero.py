@@ -10,7 +10,8 @@ import pytest
 
 from agent_build_kit.pipeline.planner import unit_priority
 from tests.cli.replan_driver import Replan, answer, planned
-from tests.factories import stored_unit, unit
+from tests.factories import tiered_stored_unit as stored_unit
+from tests.factories import unit
 from tests.task_priority_files import tasks_md
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")

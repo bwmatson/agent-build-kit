@@ -39,7 +39,7 @@ from agent_build_kit.pipeline.units import (
     UnitState,
 )
 from tests.conftest import make_installation
-from tests.factories import stored_unit
+from tests.factories import tiered_stored_unit as stored_unit
 from tests.runtimes.stand_in import StandInRuntime
 
 OPT_OUT = "Acceptance: none — a fixture about planning, not about the acceptance group\n"
@@ -205,6 +205,7 @@ def onto_base(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **v: Any) -> Run:
             groups=(1,),
             estimated_lines=100,
             tier=v.get("base_tier", "unit-test"),
+            review_tier=v.get("base_review_tier", "auto"),
         )
     ]
     if v.get("dependent"):
@@ -270,12 +271,13 @@ NEW_GROUP_REFUSED = {
         "other": "planned",
         "feature_group": {"extra": "Needs: other group 1 — it adds the field"},
     },
-    "narrowing group joined": {"feature_group": {"flag": "narrow"}},
+    "narrowing group joined": {"feature_group": {"flag": "narrow"}, "base_review_tier": "full"},
     "narrowing group joined onto": {"base_group": {"flag": "narrow"}},
     "contract group joined onto": {"base_groups": [group(flag="contract"), group(flag="narrow")]},
     "acceptance group joined": {
         "feature_group": {"tier": "e2e-test", "flag": "acceptance"},
         "base_tier": "e2e-test",
+        "base_review_tier": "full",
     },
     "acceptance group joined onto": {
         "base_group": {"tier": "e2e-test", "flag": "acceptance"},
@@ -302,7 +304,7 @@ NEW_GROUP_REASON = {
     "contract group joined onto": "flagged [contract]",
     "acceptance group joined": "always has a unit of its own",
     "acceptance group joined onto": "always has a unit of its own",
-    "over the ceiling": "over the ceiling",
+    "over the ceiling": "ceiling of 750",
     "joined group is separate": "marked `Separate:`",
     "joined onto group is separate": "marked `Separate:`",
     "joined onto group is independent": "marked `Independent:`",
@@ -512,7 +514,7 @@ CHAIN_REASON = {
     "earlier contract": "flagged [contract]",
     "earlier acceptance": "always has a unit of its own",
     "later acceptance": "always has a unit of its own",
-    "over the ceiling": "over the ceiling",
+    "over the ceiling": "ceiling of 750",
     "earlier separate": "marked `Separate:`",
     "later separate": "marked `Separate:`",
     "earlier independent": "marked `Independent:`",

@@ -23,6 +23,7 @@ from agent_build_kit.pipeline.wiring import build_run_review
 from tests.factories import unit
 from tests.graph.test_build_path import build
 from tests.graph.test_remaining_paths import fresh
+from tests.runner_fakes import rejecting
 from tests.runtimes.stand_in import StandInRuntime
 
 REPOS = {"app": {"path": "/work/app", "slug": "example/app"}}
@@ -73,7 +74,7 @@ def test_a_reply_that_sets_either_holds_the_unit_with_its_cause_before_a_pull_re
     tmp_path: Path, fields: dict[str, object], cause: Cause
 ) -> None:
     recorder = fresh(tmp_path)
-    recorder.verdicts = [reply(**fields)]
+    recorder.verdicts = [rejecting("the lock leaks"), reply(**fields)]
 
     outcome = build(tmp_path, recorder)
 
@@ -91,7 +92,7 @@ def test_a_classification_in_the_same_reply_does_not_clear_the_hold(
     tmp_path: Path, fields: dict[str, object], cause: Cause, tier: str
 ) -> None:
     recorder = fresh(tmp_path)
-    recorder.verdicts = [reply(classification=tier, **fields)]
+    recorder.verdicts = [rejecting("the lock leaks"), reply(classification=tier, **fields)]
 
     outcome = build(tmp_path, recorder)
 
@@ -106,7 +107,7 @@ def test_a_held_unit_has_a_round_recorded_and_no_final_verdict(
     tmp_path: Path, fields: dict[str, object], _cause: Cause
 ) -> None:
     recorder = fresh(tmp_path)
-    recorder.verdicts = [reply(classification="auto", **fields)]
+    recorder.verdicts = [rejecting("the lock leaks"), reply(classification="auto", **fields)]
 
     build(tmp_path, recorder)
 

@@ -13,7 +13,6 @@ from agent_build_kit.pipeline.verdict import ReviewTier
 from tests.landing_support import facts
 
 MISSING_ONE: list[tuple[Condition, dict[str, Any]]] = [
-    (Condition.REVIEW_DISABLED, {"review_enabled": False}),
     (Condition.NOT_IN_REVIEW, {"state": "running"}),
     (Condition.FEEDBACK_PENDING, {"feedback_pending": True}),
     (Condition.HELD, {"held": True}),

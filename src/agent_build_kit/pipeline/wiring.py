@@ -821,9 +821,9 @@ def build_run_review(
     ) -> str:
         # `context` is the runner's word on this branch — e.g. that it was
         # moved onto a predecessor that changed — ahead of the standing prompt.
-        prompt = REVIEW_PROMPT + review_changelog_paragraph(cwd, repo)
-        if active().review.enabled:
-            prompt = REVIEW_CLASSIFICATION_PROMPT + prompt
+        prompt = (
+            REVIEW_CLASSIFICATION_PROMPT + REVIEW_PROMPT + review_changelog_paragraph(cwd, repo)
+        )
         # Its own model, not the implementation one a build call names.
         return inner(
             f"{context}\n\n{prompt}" if context else prompt,

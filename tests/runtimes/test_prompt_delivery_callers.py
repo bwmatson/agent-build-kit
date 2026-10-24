@@ -9,7 +9,11 @@ from pathlib import Path
 
 from agent_build_kit.pipeline.planner import plan_round
 from agent_build_kit.pipeline.restack import claude_resolver
-from agent_build_kit.pipeline.wiring import REVIEW_PROMPT, build_run_review
+from agent_build_kit.pipeline.wiring import (
+    REVIEW_CLASSIFICATION_PROMPT,
+    REVIEW_PROMPT,
+    build_run_review,
+)
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime, refresh_login
 from agent_build_kit.tracks import runner
 from tests.conftest import make_installation
@@ -54,7 +58,7 @@ def test_a_review_carries_its_prompt_as_input(tmp_path: Path) -> None:
 
     build_run_review(runtime=executor.runtime)(cwd=tmp_path)
 
-    executor.assert_carried(REVIEW_PROMPT)
+    executor.assert_carried(REVIEW_CLASSIFICATION_PROMPT + REVIEW_PROMPT)
 
 
 def test_a_track_phase_carries_its_prompt_as_input(tmp_path: Path) -> None:

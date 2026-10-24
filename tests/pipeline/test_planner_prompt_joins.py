@@ -10,7 +10,8 @@ import pytest
 from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
 from agent_build_kit.pipeline.planner import build_prompt
 from agent_build_kit.pipeline.units import Join
-from tests.factories import groups_at, ordinary_floor, stored_unit
+from tests.factories import groups_at, ordinary_floor
+from tests.factories import tiered_stored_unit as stored_unit
 from tests.prompt_text import flat
 
 

@@ -45,7 +45,6 @@ def test_max_unit_lines_is_deprecated_in_favour_of_the_full_ceiling(path: Path) 
         r"deprecated.{0,400}max_unit_lines", text, re.I
     )
     assert re.search(r"max_unit_lines.{0,600}ceilings\.full", text, re.I)
-    assert re.search(r"ceilings.{0,600}review\.enabled", text, re.I)
 
 
 def test_the_authoring_skill_says_what_a_group_states_about_its_files() -> None:

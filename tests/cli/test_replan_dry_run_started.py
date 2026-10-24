@@ -10,7 +10,7 @@ import pytest
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED
 from agent_build_kit.runtimes import AgentRequest
 from tests.cli.replan_driver import Replan, answer, enable_review, planned, tasks_md
-from tests.factories import stored_unit
+from tests.factories import tiered_stored_unit as stored_unit
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 

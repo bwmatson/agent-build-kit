@@ -225,12 +225,3 @@ def test_a_join_does_not_mix_floors_among_its_own_groups() -> None:
 
     message = str(refused.value)
     assert "group 3 and base/1, whose floor is `full`, with group 4" in message
-
-
-def test_with_the_flag_off_a_join_is_held_to_the_old_ceiling() -> None:
-    configure(enabled=False)
-
-    message = refusal("auto", "auto", onto_lines=400, taken_lines=400)
-
-    assert "750" in message
-    join_units("auto", "auto", onto_lines=300, taken_lines=400)

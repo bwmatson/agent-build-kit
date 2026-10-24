@@ -16,6 +16,7 @@ from agent_build_kit import runtimes
 from agent_build_kit.config import RepoConfig, models
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.wiring import (
+    REVIEW_CLASSIFICATION_PROMPT,
     REVIEW_PROMPT,
     REVIEW_TOOLS,
     AgentPushed,
@@ -82,7 +83,7 @@ def test_a_review_asks_the_runtime_for_a_read_only_judgement(tmp_path: Path) -> 
 
     assert answer == '{"approved": true}'
     request = runtime.request
-    assert request.prompt == REVIEW_PROMPT
+    assert request.prompt == REVIEW_CLASSIFICATION_PROMPT + REVIEW_PROMPT
     assert request.cwd == tmp_path
     assert request.allowed_tools == REVIEW_TOOLS
     assert request.model == models().review
@@ -94,7 +95,9 @@ def test_a_review_is_told_what_happened_to_the_branch_first(tmp_path: Path) -> N
 
     build_run_review(runtime=runtime)(cwd=tmp_path, context="MOVED ONTO A CHANGED PREDECESSOR")
 
-    assert runtime.request.prompt == f"MOVED ONTO A CHANGED PREDECESSOR\n\n{REVIEW_PROMPT}"
+    assert runtime.request.prompt == (
+        f"MOVED ONTO A CHANGED PREDECESSOR\n\n{REVIEW_CLASSIFICATION_PROMPT}{REVIEW_PROMPT}"
+    )
 
 
 def test_a_rework_s_review_is_asked_for_as_one(tmp_path: Path) -> None:

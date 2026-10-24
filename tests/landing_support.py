@@ -36,7 +36,6 @@ def check(name: str, status: CheckStatus = CheckStatus.PASSED) -> Check:
 def facts(**changes: Any) -> LandingFacts:
     """A unit that meets every condition; `changes` overrides any fact."""
     base: dict[str, Any] = {
-        "review_enabled": True,
         "state": "in_review",
         "verdict_tier": ReviewTier.AUTO,
         "unit_class": "docs",
@@ -48,10 +47,9 @@ def facts(**changes: Any) -> LandingFacts:
     return LandingFacts(**{**base, **changes})
 
 
-def listed_review(*, enabled: bool = True, listed: tuple[str, ...] = ("docs",)) -> ReviewConfig:
+def listed_review(*, listed: tuple[str, ...] = ("docs",)) -> ReviewConfig:
     """A review policy with the class `docs`, of which `listed` are enabled for landing."""
     return ReviewConfig(
-        enabled=enabled,
         classes={"docs": ["docs/**"]},
         auto_land=AutoLandConfig(classes=list(listed)),
     )

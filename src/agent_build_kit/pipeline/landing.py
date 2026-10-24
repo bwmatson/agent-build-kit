@@ -29,7 +29,7 @@ def land_units(
     the forge's merge at the approved head, then the merge recorded through `dispatch`. An
     error landing one unit is logged to `say` and the others are still tried."""
     review = config.active().review
-    if not review.enabled or not review.auto_land.classes:
+    if not review.auto_land.classes:
         return
     pulls: dict[str, list[PullRequest]] = {}
     landed: set[str] = set()
@@ -87,7 +87,6 @@ def _land_unit(
     units = store.all()
     decision = decide_landing(
         LandingFacts(
-            review_enabled=review.enabled,
             state=unit.state,
             feedback_pending=bool(unit.feedback),
             held=unit.held_by is not HeldBy.NONE,

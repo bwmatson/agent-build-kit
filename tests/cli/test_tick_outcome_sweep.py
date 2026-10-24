@@ -11,7 +11,6 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit import config
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.forges.base import RepoId
 from agent_build_kit.installation import Installation
@@ -96,20 +95,6 @@ def test_a_pass_with_review_enabled_runs_the_sweep_once(
 
     assert host.asked == [PR]
     assert recorded(inst)[UNIT]["outcome"] == "clean"
-
-
-def test_a_pass_with_review_disabled_does_not_run_it(
-    inst: Installation, store: UnitStore, host: CountingForge
-) -> None:
-    config.activate(
-        config.active().model_copy(update={"review": config.ReviewConfig(enabled=False)}),
-        config.active_root(),
-    )
-
-    run(inst, store)
-
-    assert host.asked == []
-    assert "outcome" not in recorded(inst)[UNIT]
 
 
 def test_a_sweep_that_raises_does_not_fail_the_pass(

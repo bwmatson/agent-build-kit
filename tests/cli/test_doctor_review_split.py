@@ -55,12 +55,3 @@ def test_zero_rounds_with_review_enabled_is_warned_about(tmp_path: Path) -> None
 
     found = [c for c in about_review(checks, "warn") if "split_rounds" in text(c)]
     assert len(found) == 1
-
-
-def test_zero_rounds_with_review_off_is_not_warned_about_but_is_a_valid_setting(
-    tmp_path: Path,
-) -> None:
-    checks = doctor(tmp_path, {"enabled": False, "split_rounds": 0})
-
-    assert [c for c in about_review(checks, "warn") if "split_rounds" in text(c)] == []
-    assert [c for c in checks if c.name == "config"][0].status == "ok"

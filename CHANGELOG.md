@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `review.enabled` is removed: review by tier is always on. A file that still sets it loads with
+  the key ignored, and the loader, `abk config` and `abk doctor` each say once that it is no longer
+  used. `abk config` no longer prints it and `abk init` no longer writes it. Delete the key at your
+  convenience; a later release may refuse it. A plan recorded before this update reads as stale
+  once, because the policy digest no longer includes the key.
+
 - The usage guard forecasts a start before allowing it: a unit by its review tier, a track or
   the planner as one call at its mean cost, with the plan call that is due and the tracks that
   will fire before the window resets held back. A refusal says which part of the forecast is

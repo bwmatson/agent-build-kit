@@ -21,7 +21,6 @@ NOW = datetime(2026, 2, 1, 9, 0, tzinfo=UTC)
 def policy(*, listed: tuple[str, ...] = ("docs",)) -> ReviewConfig:
     """Review with a window of 10, a minimum agreement of 0.9 and the default minimum samples."""
     return ReviewConfig(
-        enabled=True,
         classes={"docs": ["docs/**"], "code": ["src/**"]},
         auto_land=AutoLandConfig(classes=list(listed)),
         demotion=DemotionConfig(window=10, min_agreement=0.9),

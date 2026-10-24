@@ -216,7 +216,6 @@ def _block(key: str, value: object, indent: str, note: str = "") -> list[str]:
 REVIEW_BLOCK = """
 # The review policy (see docs/configuration.md). Only a person edits it; uncomment to use it.
 # review:
-#   enabled: true
 #   protected_paths: []
 #   protected_defaults: true
 #   classes: {}

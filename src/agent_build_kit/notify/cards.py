@@ -79,8 +79,7 @@ def _will_land(unit: StoredUnit, unit_class: str | None, demoted_classes: Collec
     review = config.active().review
     forge, _ = forges.for_repo(unit.repo)
     return (
-        review.enabled
-        and unit_class is not None
+        unit_class is not None
         and unit_class in review.auto_land.classes
         and unit_class not in demoted_classes
         and forge.merges

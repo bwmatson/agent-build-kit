@@ -491,7 +491,7 @@ is 1 when anything failed.
 | rules (info/warn) | Read from the `# abk-rules: vN` stamp at the top of `openspec/config.yaml`, never from the wording: reword the rules freely. `info` = no stamp, so nothing can be concluded; `warn` = the framework has added rules since that version (it lists them) or the stamp is newer than the framework. `abk init --update-rules` adds what they added to the end of the `context:` and restamps the file, changing nothing else. |
 | abk.yaml gaps (warn) | A service directory with no deploy rule, a rule whose prefix no longer exists, a dev-stack script without `dev_stack`, or a `live_written` path that is not a directory. |
 | agent commands (ok/info/FAIL/warn) | Each repo's effective `agent_commands`: ok with the count, info when none are named, FAIL for a command (a profile's own included) outside the build allow-list, warn when they would not all fit the prompt section's 600 characters. |
-| review (warn/FAIL) | A protected or class glob matches no file in any repo (warn), policy is set while `review.enabled` is false (warn), or a glob does not parse (FAIL). |
+| review (warn/FAIL) | A protected or class glob matches no file in any repo (warn), or a glob does not parse (FAIL). |
 | changelog (warn) | A repo's `changelog` path names a file its checkout does not have. Not checked when `changelog: null`. |
 | notifications | `notifications.provider` is `windows` and `powershell.exe` does not list the pinned BurntToast version (the fix is the install command), or is `command` and the `show` program is not on PATH. Nothing is checked while the provider is `off`. |
 | public content (warn) | The committed `abk.yaml` holds a repo path outside the checkout, a home-directory path in a value or a repo owned by another account than the origin (the key is named, never the value); or `abk.local.yaml`, `scrub.local` or a `*.pre-redact` copy is tracked or not ignored (the fix names the line to add). Offline. |
@@ -505,10 +505,9 @@ opens with a "Start here" section; false builds the body as before and changes n
 `auto_land.min_samples` / `auto_land.min_clean_rate` / `auto_land.allow_deferred_e2e` (default false:
 a unit whose e2e result was deferred to verify stays at `light` or above; accepted only under
 `review.auto_land`), `auto_land.classes` (default empty, which turns landing without a person off; each must be named in
-`classes`; once set, `abk doctor` warns for each repo with no branch protection, and when `enabled` is false), `audit.sample_rate` (default 0.1, 0 to 1), `demotion.window` (default 30, at least 1) and `demotion.min_agreement`
+`classes`; once set, `abk doctor` warns for each repo with no branch protection), `audit.sample_rate` (default 0.1, 0 to 1), `demotion.window` (default 30, at least 1) and `demotion.min_agreement`
 (default 0.9, 0 to 1), and `ceilings` (`auto` 5000, `light` 2000, `full` 750 by default: the estimated lines
-a unit may carry, by its expected review tier; ordered `auto` >= `light` >= `full` > `min_unit_lines`; used only when
-`review.enabled` is true, otherwise every unit is held to the `full` ceiling). A repo's `review:` holds `protected_paths`,
+a unit may carry, by its expected review tier; ordered `auto` >= `light` >= `full` > `min_unit_lines`). A repo's `review:` holds `protected_paths`,
 which adds to the workspace's, and `ceilings`, a repo override of any one tier. `global_limits.max_unit_lines` is
 deprecated and read as `review.ceilings.full`; `abk config --migrate` moves it, and setting both to different values is refused.
 `ceiling_buffer` (0 to 1, default 0.2: a unit is held for its size only past its tier's ceiling times one plus this) and

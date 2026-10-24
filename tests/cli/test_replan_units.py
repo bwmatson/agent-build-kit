@@ -30,6 +30,7 @@ STARTED = (RUNNING, IN_REVIEW, FAILED, HELD, MERGED, SATISFIED)
 
 def seed(run: Replan, uid: str, state: UnitState = PLANNED, **fields) -> None:
     number = int(uid.split("/")[1])
+    fields = {"review_tier": "auto", **fields}
     run.store.upsert([unit(uid, change="feature", groups=(number,), **fields)])
     if state != PLANNED:
         run.store.set_state(uid, state, branch=f"spec/{uid}")
@@ -150,7 +151,17 @@ def test_nothing_is_printed_for_an_unchanged_unit_and_the_run_says_so(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run = Replan(tmp_path, monkeypatch, feature=tasks_md(1))
-    run.store.upsert([unit("feature/1", change="feature", groups=(1,), estimated_lines=80)])
+    run.store.upsert(
+        [
+            unit(
+                "feature/1",
+                change="feature",
+                groups=(1,),
+                estimated_lines=80,
+                review_tier="auto",
+            )
+        ]
+    )
     run.record("feature")
 
     code, out = run.run(capsys, "feature", reply=answer(planned("feature/1", (1,))))

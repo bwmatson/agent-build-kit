@@ -60,16 +60,6 @@ def test_an_approval_with_no_classification_records_full(tmp_path: Path) -> None
     assert store.get(UNIT_ID).classification == "full"
 
 
-def test_with_review_disabled_an_approval_records_no_classification(tmp_path: Path) -> None:
-    activate_with(review={"enabled": False})
-    store, runner = weighing(tmp_path)
-
-    runner.weigh_review(unit(), reply(classification="light", drivers=["a.py"]), judged="sha-1")
-
-    stored = store.get(UNIT_ID)
-    assert (stored.approved, stored.classification, stored.drivers) == ("sha-1", None, ())
-
-
 def test_a_record_written_before_classifications_reads_as_none_until_a_round_records_one(
     tmp_path: Path,
 ) -> None:

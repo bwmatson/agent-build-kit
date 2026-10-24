@@ -837,19 +837,16 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     for line in stale_plan_lines(inst):
         log(line)
 
-    if config.active().review.enabled:
-        gates = recorded_gates(
-            inst.state_dir / VERDICTS,
-            config.active().review,
-            inst.state_dir / audit_record.AUDITS,
-        )
-        for name, gate in gates.items():
-            if gate.clears:
-                nameable = (
-                    "" if gate.nameable else ", not nameable: no review.classes entry names it"
-                )
-                samples = gate.rates.samples
-                log(f"review gates: {name} clears the gates ({samples} samples{nameable})")
+    gates = recorded_gates(
+        inst.state_dir / VERDICTS,
+        config.active().review,
+        inst.state_dir / audit_record.AUDITS,
+    )
+    for name, gate in gates.items():
+        if gate.clears:
+            nameable = "" if gate.nameable else ", not nameable: no review.classes entry names it"
+            samples = gate.rates.samples
+            log(f"review gates: {name} clears the gates ({samples} samples{nameable})")
 
     for line in audit_status_lines(inst.state_dir / audit_record.AUDITS):
         log(line)
@@ -984,10 +981,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
 
     for unit in units:
         if over_ceiling(unit.actual_lines, unit):
-            figure = f" of {unit_ceiling(unit)}" if config.active().review.enabled else ""
             log(
-                f"  over the ceiling{figure}: {unit.id} ({unit_label(unit)}) estimated "
-                f"{unit.estimated_lines}, landed {unit.actual_lines}"
+                f"  over the ceiling of {unit_ceiling(unit)}: {unit.id} ({unit_label(unit)}) "
+                f"estimated {unit.estimated_lines}, landed {unit.actual_lines}"
             )
 
     for held in Leases(lease_dir(inst.state_dir)).attachments():
@@ -1003,7 +999,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             log(f"  attached: {held.unit_id}{where} — a chat is open with {files} changed")
 
     verdicts = inst.state_dir / VERDICTS
-    tiers = review_tiers(units, verdicts) if config.active().review.enabled else {}
+    tiers = review_tiers(units, verdicts)
     shown_units = review_order(units, verdicts, tiers) if tiers else units
     for unit in shown_units:
         where = unit_label(unit)
@@ -1578,7 +1574,7 @@ def _reconcile_notifications(inst: Installation, store: UnitStore) -> None:
         notifier=notifier,
         config=config,
         log=log,
-        verdicts=inst.state_dir / VERDICTS if inst.config.review.enabled else None,
+        verdicts=inst.state_dir / VERDICTS,
         audits=inst.state_dir / audit_record.AUDITS,
         demotions=inst.state_dir / demotion_record.DEMOTIONS,
     )
@@ -2105,9 +2101,8 @@ def run_round(
     _step("closing satisfied pull requests", _retry_pending_closes, inst, store)
     _step("posting owed replies", _retry_pending_replies, inst, store)
     _step("sweeping state labels", _sweep_labels, inst, store)
-    if config.active().review.enabled:
-        _step("sweeping review outcomes", _sweep_outcomes, inst, store)
-        _step("evaluating demotions", _evaluate_demotions, inst, store)
+    _step("sweeping review outcomes", _sweep_outcomes, inst, store)
+    _step("evaluating demotions", _evaluate_demotions, inst, store)
     if submit and may == "usage":
         units = store.all()
         _record_waits(
@@ -2729,8 +2724,6 @@ def _request_of(stored: StoredSplitRequest) -> SplitRequest:
 
 def _pins_of(units: Sequence[StoredUnit], change: str) -> list[Pin]:
     """The pins of the change's superseded units whose pieces have not all started."""
-    if not config.active().review.enabled:
-        return []
     by_id = {u.id: u for u in units}
 
     def unstarted(unit: StoredUnit) -> bool:
@@ -5129,11 +5122,8 @@ def planned_hashes(inst: Installation) -> dict[str, dict]:
 def sizing_digest() -> str:
     """A digest of the policy the active workspace plans under, in two parts joined by a dot so a
     difference can be told apart: the ceilings (every tier's, each repo's own, `min_unit_lines`
-    and `max_unit_lines`), then the rest of the `review` section. Empty while `review.enabled`
-    is false."""
+    and `max_unit_lines`), then the rest of the `review` section."""
     workspace = config.active()
-    if not workspace.review.enabled:
-        return ""
 
     def digest(part: object) -> str:
         return hashlib.sha256(json.dumps(part, sort_keys=True).encode()).hexdigest()

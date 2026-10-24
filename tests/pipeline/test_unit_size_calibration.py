@@ -42,7 +42,7 @@ from tests.calibration_support import (
     write_store,
 )
 from tests.conftest import make_installation
-from tests.factories import stored_unit
+from tests.factories import tiered_stored_unit as stored_unit
 
 APP = Kind(repo="app", tier="unit-test")
 # --- the ratio ---------------------------------------------------------------
@@ -367,12 +367,12 @@ def test_a_first_stored_unit_keeps_its_flag_and_both_figures(
     assert unit.calibrated_lines == 200
 
 
-def test_a_unit_carrying_an_unflagged_group_first_takes_the_flag_of_its_flagged_one(
+def test_a_unit_carrying_several_flagged_groups_takes_the_flag_of_the_first(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     limits(calibration_shrink=0)
     samples = [*run_of([2.0] * 3, flag="contract"), *run_of([1.0] * 3)]
-    inst, store = project(tmp_path, tasks_md("", "contract", "narrow"), samples)
+    inst, store = project(tmp_path, tasks_md("contract", "narrow", "narrow"), samples)
     planner(
         monkeypatch,
         {
@@ -393,9 +393,11 @@ def test_a_unit_carrying_an_unflagged_group_first_takes_the_flag_of_its_flagged_
 def test_the_plan_check_uses_the_ratio_of_the_first_flagged_group_a_unit_carries() -> None:
     limits(max_unit_lines=750)
     groups = [
-        TaskGroup(number=1, repo="app", tier="unit-test", title="A", line=3, task_count=2),
         TaskGroup(
-            number=2, repo="app", tier="unit-test", title="B", line=9, task_count=2, flag="contract"
+            number=1, repo="app", tier="unit-test", title="A", line=3, task_count=2, flag="contract"
+        ),
+        TaskGroup(
+            number=2, repo="app", tier="unit-test", title="B", line=9, task_count=2, flag="narrow"
         ),
         TaskGroup(
             number=3, repo="app", tier="unit-test", title="C", line=15, task_count=2, flag="narrow"

@@ -115,19 +115,6 @@ def test_a_unit_with_no_pull_request_gets_no_review_label(
     assert review_label_names()
 
 
-def test_with_review_disabled_no_label_is_written(
-    forge: StandInForge, labels: StateLabels, verdicts: Path
-) -> None:
-    activate_with(review={"enabled": False})
-    record(verdicts, ReviewTier.FULL)
-
-    labels.follow_review(in_review(), verdicts)
-
-    assert not forge.on_pr
-    assert not forge.label_creations
-    assert review_label_names()
-
-
 def test_a_host_that_keeps_no_labels_is_said_so_once_and_raises_nothing(
     logged: list[str], verdicts: Path
 ) -> None:

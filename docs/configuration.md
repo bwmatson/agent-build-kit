@@ -858,7 +858,6 @@ message says so, so the unit can be requeued once the edit is done).
 
 ```yaml
 review:
-  enabled: true            # off: every unit is held to the full ceiling; nothing is classified or recorded
   protected_paths: []      # globs added to the framework's defaults
   protected_defaults: true # migrations, CI and deploy config, containers, secrets, CODEOWNERS
   classes: {}              # name -> path globs; no slash in a name; the first listed class wins
@@ -879,16 +878,18 @@ repos:
 `review.ceilings` sizes a unit by its expected review tier: `auto` 5000, `light` 2000 and `full` 750
 by default, and `full` must stay above `global_limits.min_unit_lines`, `light` must not be below
 `full` and `auto` must not be below `light`. A repo's `review.ceilings` may override any one tier
-for that repo; the merged ceilings must keep the same order. The ceilings take effect only when
-`review.enabled` is true; with it off every unit is held to the `full` ceiling, as before.
+for that repo; the merged ceilings must keep the same order. Review by tier is always on. A file
+that still sets the removed key `enabled` under `review` loads with the key ignored, and
+`abk config` and `abk doctor` say it is no longer used.
 `global_limits.max_unit_lines` is deprecated: it is read as `review.ceilings.full` and
 `abk config` and `abk doctor` say so; setting both to different values is refused, and
-`abk config --migrate` moves the value. A plan recorded under other sizing is stale: while `review.enabled` is on, a plan is stale when anything in the `review` section changes (its ceilings, protected paths, classes or auto_land), a repo's `review` block changes, `global_limits.min_unit_lines` or `max_unit_lines` changes, or `review.enabled` itself changes; turning the flag on marks every plan recorded before it as stale
-(see `abk replan` in `docs/cli.md`).
+`abk config --migrate` moves the value. A plan recorded under other sizing is stale: a plan is
+stale when anything in the `review` section changes (its ceilings, protected paths, classes or
+auto_land), a repo's `review` block changes, or `global_limits.min_unit_lines` or `max_unit_lines`
+changes (see `abk replan` in `docs/cli.md`).
 
 Once `auto_land.classes` is not empty, `abk doctor` warns for each repo with no branch protection
-(the command policy hook does nothing against the pipeline's own merge), and warns when the list
-is set while `review.enabled` is false, where it has no effect.
+(the command policy hook does nothing against the pipeline's own merge).
 
 `review.ceiling_buffer` (a fraction from 0 to 1, default 0.2) and `review.split_rounds` (an integer
 from 0 to 2, default 2) govern a built unit that turns out larger than planned. A unit whose changed

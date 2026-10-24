@@ -245,14 +245,13 @@ def parse_plan(
                     depends_on=tuple(raw.get("depends_on") or ()),
                     estimated_lines=int(raw.get("estimated_lines") or 0),
                     groups=tuple(raw.get("groups") or ()),
-                    # Read only with review enabled; `_with_review_tier` checks the value.
-                    review_tier=raw.get("review_tier") if active().review.enabled else None,
+                    # `_with_review_tier` checks the value.
+                    review_tier=raw.get("review_tier"),
                     manual_steps=_manual_steps(tuple(raw.get("groups") or ()), groups),
                 )
             )
         unnamed = {unit.id for unit in units if not unit.review_tier}
-        if active().review.enabled:
-            units = [_with_review_tier(unit, groups or [], tasks) for unit in units]
+        units = [_with_review_tier(unit, groups or [], tasks) for unit in units]
         joins = _read_joins(payload.get("joins"))
         _check_dependencies(units, known or set())
         if groups is not None:
@@ -260,8 +259,7 @@ def parse_plan(
             carried = {number for join in joins if not join.unit for number in join.groups}
             _check_groups(units, groups, built or set(), carried)
             check_flagged_groups(units, groups)
-            if active().review.enabled:
-                _check_full_separation(units, groups, tasks)
+            _check_full_separation(units, groups, tasks)
         _check_ceiling(units, groups, calibrations, unnamed)
         if split is not None and held is not None:
             _check_split_shape(units, held)
@@ -599,8 +597,8 @@ def _check_pins(units: Sequence[Unit], split: SplitRequest) -> None:
 
 
 def _ceiling_name(unit: Unit) -> str:
-    """ "ceiling", or "<tier> ceiling" when per-tier sizing is on and the unit has a tier."""
-    if active().review.enabled and unit.review_tier:
+    """ "ceiling", or "<tier> ceiling" when the unit has a tier."""
+    if unit.review_tier:
         return f"{unit.review_tier} ceiling"
     return "ceiling"
 
@@ -1119,8 +1117,6 @@ def _largest_raw_figures(kind: Kind, ratio: float) -> str:
     or with per-tier sizing on the figure for each tier's ceiling in the kind's repo."""
     workspace = active()
     repo = workspace.repos.get(kind.repo)
-    if not workspace.review.enabled:
-        return str(largest_raw(review_ceiling(repo, workspace, None), ratio))
     return ", ".join(
         f"{tier.value} {largest_raw(review_ceiling(repo, workspace, tier), ratio)}"
         for tier in ReviewTier
@@ -1416,7 +1412,7 @@ def _prompt_and_parts(
         max_lines=f"{review_ceiling(None, workspace, None)} changed lines",
         relationships=relationships,
         calibration=calibration,
-        review=REVIEW_PROMPT + _ceilings_text() if workspace.review.enabled else "",
+        review=REVIEW_PROMPT + _ceilings_text(),
         join_raw=_join_raw(calibrations, examples),
         changes=changes_text,
         in_flight=in_flight_text,

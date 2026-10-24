@@ -94,14 +94,6 @@ def test_the_guard_is_information_with_no_class_listed_and_a_warning_once_one_is
     assert guard_of(listed, "app").status == "warn"
 
 
-def test_a_list_set_while_review_is_disabled_is_warned_to_have_no_effect(tmp_path: Path) -> None:
-    checks = doctor(tmp_path, {**LISTED, "enabled": False}, unprotected=set())
-
-    found = [c for c in checks if c.status == "warn" and "no effect" in said(c)]
-    assert len(found) == 1
-    assert "auto_land" in said(found[0])
-
-
 def test_a_list_with_review_enabled_is_not_warned_to_have_no_effect(tmp_path: Path) -> None:
     checks = doctor(tmp_path, LISTED, unprotected={"app"})
 
