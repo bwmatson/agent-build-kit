@@ -232,7 +232,10 @@ with its trigger, the unit and since when.
 Tokens by kind, cost and time by bucket (agent, checks, slot wait, usage-pause wait,
 review wait) from the usage ledger and the unit store, grouped `--by` unit (default),
 change, node, role, model, repo, account or day. `--since` (a date) keeps calls on or after it;
-`--change` and `--unit` narrow to one. Estimated figures sit in their own columns and
+`abk report --by tier` groups by the review tier planned for each unit and shows, per tier, the units, the dollars
+forecast when they were admitted, the dollars spent, their ratio and the units over their forecast;
+a unit with no forecast row is counted as unforecast and left out of the ratio, and one with no tier
+is under `(none)`. `--change` and `--unit` narrow to one. Estimated figures sit in their own columns and
 stay out of the totals unless `--include-estimates`; a figure never recorded prints as
 `-`, never `0`. The source column says whether figures were `reported`, from the
 `gateway`, `estimated` or `none`, and flags a row whose gateway and agent-reported

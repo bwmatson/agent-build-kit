@@ -104,6 +104,9 @@ runtimes:                     # only for a runtime needing a fact abk cannot
       usage_allowance_min_pairs: 8
       usage_cost_min_pairs: 8          # pairs with cost needed to fit the cost basis
       usage_cost_quantile: 0.9         # quantile of the cost fit's scale
+      usage_forecast: true             # forecast a start from its review tier's history
+      usage_forecast_min_runs: 10      # units a tier needs before its history is used
+      usage_forecast_quantile: 0.9     # quantile the chance of each step is bounded at
       usage_stale_retry_minutes: 5     # refusal length when the reading is too old
       usage_cache_minutes: 15          # how long a good usage reading is reused (the shortest)
       usage_claude_cache_minutes: 15   # freshness of Claude Code's own usage block that decides
