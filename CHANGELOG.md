@@ -13,7 +13,10 @@
   gets `repos.<name>.tests.e2e_sandbox` (`read`, `write`, `hosts` and `ports`) from `abk.yaml`,
   and the same keys from `abk.local.yaml` for what differs by machine; the listed ports are
   added to the Landlock TCP rule beside the proxy's, and to the macOS profile. An unknown key
-  in the block fails at load.
+  in the block fails at load. When a unit-test run is refused a loopback connection or a
+  service socket, its feedback now says a step that needs a running service is an e2e test and
+  the group should be tagged `[e2e-test]`; `docs/unit-graph.md` and the `abk-authoring` skill
+  state the rule.
 
 - The `review` section of `abk.yaml` now accepts `auto_land.classes` (the classes that may land
   without a person; empty, the default, turns it off), `audit.sample_rate` and `demotion.window`

@@ -686,6 +686,15 @@ Declare a `Manual: <slug> — <what to do> — runbook: <path>#<heading>` line, 
 document per change with the step slugs as headings; the unit waits (`waiting for manual step`)
 until the tick's check exits 0. `abk manual list` shows what is outstanding.
 
+## When a step is e2e
+
+An e2e step is one that needs a running service: a server, a database, a broker or `docker`.
+An integration step is across modules of one package and needs nothing running. The sandbox
+enforces the line: a unit-test or integration step is granted no localhost port, service port
+or container socket, and an `[e2e-test]` step gets the repo's `tests.e2e_sandbox` lists. When a
+unit-test run's output shows a refused loopback connection or service socket, its feedback says
+a step that needs a running service is an e2e test and the group should be tagged `[e2e-test]`.
+
 ## Held e2e-test splits
 
 A repo can hold one of its e2e-test splits for a reason (the hold, with its reason and until when, is

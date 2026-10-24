@@ -49,7 +49,7 @@ from agent_build_kit.pipeline import audit_record, environment, spans, spec_snap
 from agent_build_kit.pipeline.agent_commands import commands_note
 from agent_build_kit.pipeline.call_record import call_recorder
 from agent_build_kit.pipeline.changelog_convention import changelog_note
-from agent_build_kit.pipeline.check_failures import failed_check
+from agent_build_kit.pipeline.check_failures import failed_check, with_e2e_hint
 from agent_build_kit.pipeline.commit_body import commit_body
 from agent_build_kit.pipeline.commit_order import (
     CODE_PREFIX,
@@ -1614,7 +1614,9 @@ class BuildPath:
         self.say(output)
         self.record_check_failure(output, 0)
         self.runner.store.set_feedback(
-            self.unit.id, f"{UNIT_TEST_FAILED}\n{output}".strip(), source=FeedbackSource.UNIT_TEST
+            self.unit.id,
+            f"{UNIT_TEST_FAILED}\n{with_e2e_hint(output)}".strip(),
+            source=FeedbackSource.UNIT_TEST,
         )
         return None
 
@@ -1817,6 +1819,7 @@ class BuildPath:
             clears=lambda _: r.store.get(unit.id).feedback_source is FeedbackSource.UNIT_TEST,
             already_done=lambda: r.head(tree) != state.head,
             on_failure=self.record_check_failure,
+            annotate=with_e2e_hint,
             spent_message=lambda budget: (
                 f"checks still failing after {budget} fix round(s), before review"
             ),

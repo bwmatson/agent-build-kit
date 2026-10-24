@@ -36,7 +36,8 @@ class CheckLoop(Frozen):
 
     `prompt` and `follow_up` take the redacted feedback and the person's guidance; `clears` says
     whether a pass erases the saved feedback; `already_done` says a fix round is already on the
-    branch; `on_failure` is told of each failed check with its round."""
+    branch; `on_failure` is told of each failed check with its round; `annotate` adds to the
+    failed output before it is saved as feedback."""
 
     check: Callable[[], tuple[bool, str]]
     source: FeedbackSource
@@ -49,6 +50,7 @@ class CheckLoop(Frozen):
     clears: Callable[[UnitRun], bool]
     already_done: Callable[[], bool] | None = None
     on_failure: Callable[[str, int], None] | None = None
+    annotate: Callable[[str], str] | None = None
     spent_message: Callable[[int], str]
     unchanged_message: Callable[[int], str]
 
@@ -79,6 +81,8 @@ def check_round(nodes: BuildPath, state: UnitRun, loop: CheckLoop) -> Update:
     if loop.on_failure is not None:
         loop.on_failure(output, used + 1)
     # Kept before anything can stop the run, so a retry addresses this output.
+    if loop.annotate is not None:
+        output = loop.annotate(output)
     saved = f"{loop.heading}\n{output}".strip() if loop.heading else output
     r.store.set_feedback(unit.id, saved, source=loop.source)
     if (budget := out_of_rounds(used)) is not None:

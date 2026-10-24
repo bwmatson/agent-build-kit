@@ -17,6 +17,39 @@ from agent_build_kit.config import RepoConfig, active, owning_project
 _IN = re.compile(r"\(in (?P<dir>.+)\)")
 KINDS = ("lint", "types", "test")
 
+_SERVICE_TARGET = re.compile(
+    # `::1` alone or with a port (`::1:5432`), never the tail of a longer address.
+    r"\b127\.\d+\.\d+\.\d+|\blocalhost\b|(?<![0-9a-f:])::1(?![0-9a-f]|:[0-9a-f]*[a-f:])|\.sock\b"
+    r"|Connection aborted",
+    re.I,
+)
+# The phrases of strerror (Python, C) and the errno names (node and others).
+_REFUSED = re.compile(
+    r"permission denied|operation not permitted|connection refused"
+    r"|\b(?:EACCES|EPERM|ECONNREFUSED)\b",
+    re.I,
+)
+# A refusal and the target it names belong to one failure, so they sit this close together.
+_NEAR = 3
+
+E2E_HINT = (
+    "A step that needs a running service is an e2e test: a unit-test step cannot reach "
+    "localhost or a service socket. Move the test to the e2e tests and tag its group "
+    "`[e2e-test]` instead of working around the refusal."
+)
+
+
+def with_e2e_hint(output: str) -> str:
+    """`output` of a failed unit-test run, with the e2e hint added when it shows a refused
+    loopback connection or service socket: a refusal within a few lines of the target."""
+    lines = output.splitlines()
+    for i, line in enumerate(lines):
+        if _REFUSED.search(line):
+            near = "\n".join(lines[max(0, i - _NEAR) : i + _NEAR + 1])
+            if _SERVICE_TARGET.search(near):
+                return f"{output.rstrip()}\n\n{E2E_HINT}"
+    return output
+
 
 def failed_in(where: Path) -> str:
     """The line of a failure that names the project directory its command ran in."""
