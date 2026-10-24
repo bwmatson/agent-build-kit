@@ -77,6 +77,24 @@ def read_demotions(path: Path) -> dict[str, dict[str, Any]]:
     return records
 
 
+def demotion_status_lines(path: Path) -> list[str]:
+    """One line for each class whose demotion stands, with its trigger, the unit and since when."""
+    try:
+        records = read_demotions(path)
+    except UnreadableDemotions as error:
+        return [f"demotions: {error}; fix or remove it, demoted classes are not listed"]
+    lines = []
+    for name, record in sorted(records.items()):
+        if record.get("lifted") is not None:
+            continue
+        first = record["triggers"][0]
+        lines.append(
+            f"demoted: {name} by {first['trigger']} on {first['unit']} since {record['since']}"
+            f" — `abk review reinstate {name}` lifts it"
+        )
+    return lines
+
+
 def demoted_classes(path: Path) -> tuple[str, ...]:
     """The classes whose demotion stands (is not lifted), by name; none when the file is
     unreadable, so a broken file never lands a unit by being unread."""

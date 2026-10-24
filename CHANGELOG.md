@@ -45,6 +45,10 @@
   a link to its pull request, cleared once the result is recorded, and `abk status` lists each
   audit waiting with its class. A class can be demoted, recorded in `demotions.json` and never
   in `abk.yaml`: its units are held at `light` and the landing step leaves them in review.
+  `abk review reinstate <class>` is the only way to lift a demotion and is refused for a class
+  that is not demoted. A standing demotion has a card until it is lifted, a lift shows a notice
+  for 24 hours with no reminder, and `abk status` lists each demoted class with its trigger, the
+  unit and since when.
 
 - With review enabled, a built unit whose changed lines pass the buffered ceiling of its review
   tier (`review.ceiling_buffer`, default 0.2) is held at once, after any review round, and

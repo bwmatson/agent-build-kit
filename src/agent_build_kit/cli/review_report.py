@@ -6,7 +6,7 @@ import argparse
 import sys
 
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import audit_record, spans
+from agent_build_kit.pipeline import audit_record, demotion_record, spans
 from agent_build_kit.pipeline.review_rates import ClassGate, recorded_gates
 from agent_build_kit.pipeline.verdict_record import VERDICTS
 
@@ -53,6 +53,17 @@ def cmd_review_audit(args: argparse.Namespace, inst: Installation) -> int:
     return 0
 
 
+def cmd_review_reinstate(args: argparse.Namespace, inst: Installation) -> int:
+    path = inst.state_dir / demotion_record.DEMOTIONS
+    try:
+        demotion_record.lift(path, unit_class=args.unit_class, at=spans.clock.now())
+    except (demotion_record.NotDemoted, demotion_record.UnreadableDemotions) as refused:
+        print(f"refused: {refused}", file=sys.stderr)
+        return 1
+    print(f"{args.unit_class}: demotion lifted")
+    return 0
+
+
 def register(sub: argparse._SubParsersAction) -> None:
     parser = sub.add_parser("review", help="the review record")
     commands = parser.add_subparsers(dest="review_command", required=True)
@@ -64,3 +75,6 @@ def register(sub: argparse._SubParsersAction) -> None:
     audit.add_argument("unit")
     audit.add_argument("result", choices=("ok", "wrong"))
     audit.set_defaults(func=cmd_review_audit)
+    reinstate = commands.add_parser("reinstate", help="lift the demotion of a review class")
+    reinstate.add_argument("unit_class")
+    reinstate.set_defaults(func=cmd_review_reinstate)

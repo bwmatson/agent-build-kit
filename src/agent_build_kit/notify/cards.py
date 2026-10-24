@@ -11,6 +11,7 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.notify.provider import CardKind
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.audit_record import AWAITING, UnreadableAudits, read_audits
+from agent_build_kit.pipeline.demotion_record import UnreadableDemotions, read_demotions
 from agent_build_kit.pipeline.landing import declined_reason
 from agent_build_kit.pipeline.unit_store import Cause, HeldBy, StoredUnit
 from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW, MERGED
@@ -30,6 +31,7 @@ _WORDING = {
     CardKind.HELD: "Held, waiting for a person",
     CardKind.DIGEST: "Landed without a person",
     CardKind.AUDIT: "Landed without a person, awaiting audit",
+    CardKind.DEMOTION: "Demoted, held at light and not landed",
 }
 
 
@@ -129,6 +131,42 @@ def _audit_cards(units: Sequence[StoredUnit], audits: Path) -> list[Card]:
     return cards
 
 
+def _demotion_cards(demotions: Path) -> list[Card]:
+    """One card for each class whose demotion stands, and for 24 hours a notice of each lift."""
+    try:
+        recorded = read_demotions(demotions)
+    except UnreadableDemotions:
+        return []
+    now = spans.clock.now()
+    cards = []
+    for name, record in sorted(recorded.items()):
+        first = record["triggers"][0]
+        lifted = record.get("lifted")
+        if lifted is None:
+            cards.append(
+                Card(
+                    id=f"demotion:{name}:{record['since']}",
+                    kind=CardKind.DEMOTION,
+                    title=f"{name} demoted",
+                    body=f"{_WORDING[CardKind.DEMOTION]}: {name} by {first['trigger']} on "
+                    f"{first['unit']}; `abk review reinstate {name}` lifts it",
+                    link="",
+                )
+            )
+        elif now - datetime.fromisoformat(lifted) < DIGEST_WINDOW:
+            cards.append(
+                Card(
+                    id=f"demotion-lifted:{name}:{lifted}",
+                    kind=CardKind.DEMOTION,
+                    title=f"{name} reinstated",
+                    body=f"Demotion of {name} lifted",
+                    link="",
+                    remind=False,
+                )
+            )
+    return cards
+
+
 def desired_cards(
     units: Sequence[StoredUnit],
     verdicts: Path | None = None,
@@ -167,5 +205,7 @@ def desired_cards(
         )
     if audits is not None:
         cards.extend(_audit_cards(units, audits))
+    if demotions is not None:
+        cards.extend(_demotion_cards(demotions))
     digest = _digest(units, verdicts)
     return [*cards, digest] if digest else cards
