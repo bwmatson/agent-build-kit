@@ -1,11 +1,11 @@
 """No document, and no text the pipeline writes, says a person merges every pull request."""
 
-import re
 from pathlib import Path
 
 from agent_build_kit.pipeline.command_policy import check_command
 from agent_build_kit.pipeline.pr_body import build_pr_body
 from tests.factories import stored_unit as unit
+from tests.old_merge_rule import statements
 
 ROOT = Path(__file__).resolve().parents[2]
 SKILLS = ROOT / "src" / "agent_build_kit" / "skills"
@@ -15,7 +15,6 @@ EXEMPT = {
     ROOT / "docs" / "risk-tiered-review-design.md",
 }
 SKIPPED_DIRS = {"node_modules", ".venv", "__pycache__"}
-OLD_RULE = re.compile(r"\b(?:human|person)\s+merges\s+(?:every\w*|each|all|it|them)\b", re.I)
 
 
 def markdown_files() -> list[Path]:
@@ -30,11 +29,6 @@ def markdown_files() -> list[Path]:
         and SKILLS not in path.parents
         and path not in EXEMPT
     )
-
-
-def statements(text: str) -> list[int]:
-    """The 1-based line each statement of the old rule starts on, across wrapped lines."""
-    return [text.count("\n", 0, hit.start()) + 1 for hit in OLD_RULE.finditer(text)]
 
 
 def test_no_markdown_file_states_a_person_merges_every_pull_request() -> None:
