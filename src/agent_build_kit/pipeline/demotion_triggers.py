@@ -103,3 +103,50 @@ def _agreement(
         return
     if sum(clean for _, _, clean in recent) / len(recent) < review.demotion.min_agreement:
         demote(unit_class, "agreement", recent[-1][1])
+
+
+def demote_for_failed_verify(
+    change: str,
+    units: Iterable[StoredUnit],
+    *,
+    verdicts: Path,
+    demotions: Path,
+    at: datetime,
+    log: Callable[[str], None],
+) -> None:
+    """Demote the class of each auto-landed unit of `change`, with the trigger `verify`, since
+    the live test cannot say which unit broke it. Any error is logged and swallowed."""
+    try:
+        if not verdicts.exists():
+            return
+        records: dict[str, dict[str, Any]] = json.loads(verdicts.read_text())
+        for unit in sorted(u.id for u in units if u.carries(change)):
+            record = records.get(unit, {})
+            if record.get("final") and record.get("auto_landed"):
+                demotion_record.demote(
+                    demotions,
+                    unit_class=record["unit_class"],
+                    trigger="verify",
+                    unit=unit,
+                    at=at,
+                    say=log,
+                )
+    except Exception as error:  # noqa: BLE001
+        log(f"{change}: demotion for the failed verify not evaluated — {error}")
+
+
+def demote_for_failed_audit(
+    unit: str,
+    unit_class: str,
+    *,
+    demotions: Path,
+    at: datetime,
+    log: Callable[[str], None],
+) -> None:
+    """Demote the unit's class with the trigger `audit`. Any error is logged and swallowed."""
+    try:
+        demotion_record.demote(
+            demotions, unit_class=unit_class, trigger="audit", unit=unit, at=at, say=log
+        )
+    except Exception as error:  # noqa: BLE001
+        log(f"{unit_class}: demotion for the failed audit of {unit} not evaluated — {error}")

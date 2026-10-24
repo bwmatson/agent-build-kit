@@ -674,6 +674,17 @@ def _evaluate_demotions(inst: Installation, store: UnitStore) -> None:
     )
 
 
+def _demote_failed_verify(inst: Installation, change: str, units: list) -> None:
+    demotion_triggers.demote_for_failed_verify(
+        change,
+        units,
+        verdicts=inst.state_dir / VERDICTS,
+        demotions=inst.state_dir / DEMOTIONS,
+        at=datetime.now(UTC),
+        log=log,
+    )
+
+
 def _status_reading(args: argparse.Namespace) -> UsageReading | None:
     """The reading held, or a fresh one when asked, which the interval may still refuse."""
     if getattr(args, "refresh", False):
@@ -1200,6 +1211,7 @@ def verify_ready(
             log(f"verified {change}: {', '.join(outcome.deployed) or 'nothing to deploy'}")
         else:
             log(f"NOT archiving {change} — verification failed:\n{outcome.detail}")
+            _demote_failed_verify(inst, change, units)
 
     def may_archive(change: str) -> bool:
         # A skipped change has no verification over its current units, whatever
@@ -1235,6 +1247,7 @@ def cmd_verify(args: argparse.Namespace, inst: Installation) -> int:
         return 1
     VerifyRecord(inst.state_dir / "verified.json").put(outcome)
     if not outcome.passed:
+        _demote_failed_verify(inst, args.change, units)
         print(f"{args.change}: verification failed\n{outcome.detail}")
         return 1
     print(f"{args.change}: verified — {', '.join(outcome.deployed) or 'nothing to deploy'}")
