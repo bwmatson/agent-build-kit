@@ -20,9 +20,11 @@ from agent_build_kit.pipeline.usage_forecast_unit import (
 from agent_build_kit.pipeline.usage_ledger import UsageRecord
 from agent_build_kit.pipeline.verdict import ReviewTier
 from agent_build_kit.pipeline.verdict_record import VerdictEntry
-from agent_build_kit.pipeline.vocabulary import OverheadNode
+from agent_build_kit.pipeline.vocabulary import PROPOSING_PHASES, OverheadNode
 
 _OVERHEAD = frozenset(node.value for node in OverheadNode)
+# The track nodes whose run goes on to propose a change.
+_PROPOSING = frozenset(f"track_{phase}" for phase in PROPOSING_PHASES)
 
 
 class Ask(Frozen):
@@ -34,13 +36,21 @@ class Ask(Frozen):
     lines: int | None = None
     step: str | None = None
     step_round: int | None = None
+    # A plan call is due this round, so its mean cost is reserved beside the ask's own.
+    plan_due: bool = False
 
     @property
     def forecast(self) -> bool:
         """Whether there is anything to forecast: a review tier or estimated lines are given
-        (a gate names a unit's, whether or not it has a tier) or the step is a call outside a
-        unit's graph. A start that names only a unit has nothing to forecast from."""
-        return self.tier is not None or self.lines is not None or self.step in _OVERHEAD
+        (a gate names a unit's, whether or not it has a tier), the step is a call outside a
+        unit's graph or a plan call is due. A start that names only a unit has nothing to
+        forecast from."""
+        return (
+            self.tier is not None
+            or self.lines is not None
+            or self.step in _OVERHEAD
+            or self.plan_due
+        )
 
 
 class Contribution(Frozen):
@@ -159,8 +169,8 @@ def forecast_ask(
             reserved = reserve(
                 records,
                 timers,
-                plan_due=False,
-                proposing=(),
+                plan_due=ask.plan_due,
+                proposing=_PROPOSING,
                 resets_at=resets_at,
                 now=now,
                 points_per_usd=points_per_usd,
@@ -170,7 +180,9 @@ def forecast_ask(
                 for r in reserved.items
                 if r.name != ask.step
             ]
-    subject = f"unit {ask.unit}" if ask.unit else (ask.step or "start")
+    # A call outside a unit's graph is named by its step, a unit's ask by the unit.
+    named_unit = ask.unit is not None and ask.step not in _OVERHEAD
+    subject = f"unit {ask.unit}" if named_unit else (ask.step or "start")
     if ask.tier is not None:
         subject += f" ({ask.tier})"
     return AskForecast(

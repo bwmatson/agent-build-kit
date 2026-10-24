@@ -24,6 +24,7 @@ from agent_build_kit.pipeline.verdict import ReviewTier
 from tests.cli.vanished_fakes import keep_changes_of_unstarted_units
 from tests.conftest import make_installation
 from tests.factories import stored_unit
+from tests.split_changed_support import write_split
 from tests.usage_forecast_fixtures import call, spec_history
 from tests.usage_forecast_gate import EXACT, ask, held, keep_points, lay, lay_calls
 from tests.usage_host import Host, payload
@@ -104,15 +105,43 @@ def test_a_track_whose_call_fits_is_allowed(host: Host) -> None:
     assert ask(None, "track:improve", step="track_improve").may_start
 
 
-def test_the_planner_s_ask_is_forecast_as_one_call_at_its_mean(host: Host) -> None:
-    held(host, session=67.0)
+def change_to_plan(inst: Installation) -> None:
+    """A change whose tasks have not been planned, so the round has a plan call due."""
+    write_split(inst, None)
+
+
+def test_the_planner_s_ask_is_forecast_as_one_call_at_its_mean(
+    inst: Installation, host: Host
+) -> None:
+    """With no unit to start, a plan call at $4.00 (10 points) is refused at 67%: the round
+    pauses and says the plan call is why."""
+    keep_points(host)
+    host.answers = [payload(session=67.0), payload(session=67.0)]
     lay_calls(host, "plan", 4.0)
+    change_to_plan(inst)
+    store = UnitStore(inst.state_dir / "units.json")
 
-    refusal = decide_start(step="plan")
+    assert round_of(inst, store) == []
 
-    assert not refusal.may_start
-    assert "forecast" in refusal.reason
-    assert "plan" in refusal.reason
+    paused = is_paused(inst.state_dir / "paused.json")
+    assert paused is not None
+    assert "plan forecast" in paused.reason
+
+
+def test_a_plan_call_that_is_due_is_reserved_for_a_unit_s_ask(host: Host) -> None:
+    """A `plan` cell of $2.00 is 5 points: an `auto` unit forecast at 6.4 points is refused at
+    66% when a change is due to plan, and allowed when none is."""
+    held(host, session=66.0)
+    lay(host, spec_history())
+    lay_calls(host, "plan", 2.0)
+
+    alone = ask(ReviewTier.AUTO)
+    assert alone.may_start, alone.reason
+
+    with_plan = decide_start(review_tier=ReviewTier.AUTO, plan_due=True)
+
+    assert not with_plan.may_start
+    assert "plan reservation" in with_plan.reason
 
 
 def earlier(host: Host, unit: str) -> None:

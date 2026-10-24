@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The usage guard forecasts a start before allowing it: a unit by its review tier, a track or
+  the planner as one call at its mean cost, with the plan call that is due and the tracks that
+  will fire before the window resets held back. A refusal says which part of the forecast is
+  largest.
+
 - When a Claude Code step is confined by the sandbox, the policy hook no longer checks where a
   file write lands or refuses writes to the specs folder, and the command rules no longer
   refuse a shell write onto the planning repo's `abk.yaml` or `abk.local.yaml`: the kernel

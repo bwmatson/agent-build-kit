@@ -339,6 +339,7 @@ from agent_build_kit.pipeline.usage_calls import (
     rate_line,
     read_calls,
 )
+from agent_build_kit.pipeline.usage_forecast_ask import Ask
 from agent_build_kit.pipeline.usage_guard import (
     Decision,
     Interrupted,
@@ -365,6 +366,7 @@ from agent_build_kit.pipeline.verdict import ReviewTier, SplitRequest
 from agent_build_kit.pipeline.verdict_record import VERDICTS
 from agent_build_kit.pipeline.verify import SplitHeld, Verification, VerifyRecord, verify_change
 from agent_build_kit.pipeline.vocabulary import (
+    OverheadNode,
     WaitReason,
     effective_state,
     state_label,
@@ -1611,18 +1613,34 @@ def _lowest_tier(units: Sequence[StoredUnit]) -> ReviewTier | None:
     return min(tiers, key=list(ReviewTier).index, default=None)
 
 
+def _round_ask(startable: Sequence[StoredUnit], *, planning: bool) -> Ask:
+    """What the round asks the guard: the lowest tier that could start, and the plan call when
+    planning is due, which is the whole ask when no unit could start."""
+    return Ask(
+        tier=_lowest_tier(startable),
+        step=OverheadNode.PLAN.value if planning and not startable else None,
+        plan_due=planning,
+    )
+
+
 def _account_decision(
     account: claude_account.Account | None,
     decided: dict[str | None, Decision] | None,
-    tier: ReviewTier | None = None,
+    ask: Ask | None = None,
 ) -> Decision:
-    """The guard's decision for `account`, asked once for each account `decided` holds, for a
-    unit of review tier `tier` when the round names one."""
+    """The guard's decision for `account`, asked once for each account `decided` holds, for
+    what the round asks (see `_round_ask`) when it names one."""
     key = claude_account.account_key(account)
     if decided is not None and key in decided:
         return decided[key]
+    named = ask or Ask()
     decision = decide_start(
-        read=current_usage, decide=may_start_unit, account=account, review_tier=tier
+        read=current_usage,
+        decide=may_start_unit,
+        account=account,
+        review_tier=named.tier,
+        step=named.step,
+        plan_due=named.plan_due,
     )
     if decided is not None:
         decided[key] = decision
@@ -1632,15 +1650,15 @@ def _account_decision(
 def _start_decision(
     accounts: Sequence[claude_account.Account | None] = (None,),
     decided: dict[str | None, Decision] | None = None,
-    tier: ReviewTier | None = None,
+    ask: Ask | None = None,
 ) -> Decision:
     """The guard's decision to start, under this module's names for reading and judging: a start
     on any of `accounts` (None is the account in force) is a start. When every one refuses, the
     refusal names each and waits for the earliest of their times. `decided` keeps each account's
-    decision for the rest of the round, and `tier` is the review tier it is forecast for."""
+    decision for the rest of the round, and `ask` is what it is forecast for."""
     refusals: list[Decision] = []
     for account in accounts:
-        decision = _account_decision(account, decided, tier)
+        decision = _account_decision(account, decided, ask)
         if decision.may_start:
             return decision
         refusals.append(decision)
@@ -1785,7 +1803,7 @@ def _may_build(
     if runtime.supports_usage_tracking:
         if left_out and not startable and not planning:
             return "idle"
-        decision = _start_decision(open_accounts, decided, _lowest_tier(startable))
+        decision = _start_decision(open_accounts, decided, _round_ask(startable, planning=planning))
         if not decision.may_start:
             # Every open account refused: each is paused on its own marker, for its own reason.
             for each in open_accounts:

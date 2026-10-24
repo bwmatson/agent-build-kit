@@ -68,6 +68,11 @@ class OverheadNode(StrEnum):
     CHAT_COMMIT = "chat_commit"
 
 
+# The track phases that discover and then propose a change: each spends a `track_propose` call
+# after its own.
+PROPOSING_PHASES = ("improve", "recommend")
+
+
 class StateStyle(Frozen):
     """How one state reads: its name, and the three colours the graph paints it
     with. `extra` is any further mermaid style, such as a dashed outline."""

@@ -1195,6 +1195,7 @@ class WindowEstimate(Frozen):
     cost_usd: float | None = None  # the recorded cost counted; None on the units basis
     unrecorded: int = 0  # units counted at the flat allowance for want of a cost
     ahead: AskForecast | None = None  # what the ask is forecast to need, when it is forecast
+    estimated: bool = True  # False for a reading just taken or kept: nothing is added to it
 
     @property
     def estimate(self) -> float:
@@ -1216,10 +1217,13 @@ class WindowEstimate(Frozen):
             if self.unrecorded:
                 plural = "unit" if self.unrecorded == 1 else "units"
                 counted += f", {self.unrecorded} {plural} not yet recorded"
-        shown = (
-            f"{self.name} ~{round(self.estimate)}% estimated "
-            f"({self.read_pct}% read + {round(self.spent_pct)}% spent{counted})"
-        )
+        if self.estimated:
+            shown = (
+                f"{self.name} ~{round(self.estimate)}% estimated "
+                f"({self.read_pct}% read + {round(self.spent_pct)}% spent{counted})"
+            )
+        else:
+            shown = f"{self.name} {self.read_pct}% read"
         if self.forecast > 0:
             shown += f" + {self.forecast:.1f}% forecast"
         if self.ample:
@@ -1317,7 +1321,13 @@ def _ahead(
     steps = read_record(cache_path.parent / FORECASTS_NAME).steps
     verdicts = recorded_verdicts(cache_path.parent / VERDICTS)
     root = active_root()
-    timers = read_timers(root) if root is not None else TimerReading(read=False, tracks={})
+    # The timers only matter to a window that has a reset ahead.
+    open_window = any(at is not None and at > now for at in resets.values())
+    timers = (
+        read_timers(root)
+        if root is not None and open_window
+        else TimerReading(read=False, tracks={})
+    )
     found: dict[str, AskForecast] = {}
     for name, resets_at in resets.items():
         window: Literal["session", "weekly"] = "session" if name == "session" else "weekly"
@@ -1372,6 +1382,7 @@ def _forecasted(decision: Decision, reading: UsageReading | None, ask: Ask | Non
             threshold=threshold_at(each, now=now, limits=limits),
             margin=claude_limits().usage_headroom_margin_pct,
             ahead=ahead[each.name],
+            estimated=False,
         )
         for each in reading.windows
     ]
@@ -1612,10 +1623,12 @@ def decide_start(
     review_tier: ReviewTier | None = None,
     estimated_lines: int | None = None,
     account: claude_account.Account | None = None,
+    plan_due: bool = False,
 ) -> Decision:
     """`_decide_start` for `account`'s windows, limits and cache; a refusal on a labelled
     account says which account is full. `step` is the step the start is for and `step_round`
-    its round; a step with no round is not recorded. What a `starting` block names is the
+    its round; a step with no round is not recorded. `plan_due` says a plan call is due, whose
+    mean cost the forecast reserves. What a `starting` block names is the
     default for the unit, review tier, estimated lines, step and round, which the forecast of
     the start is made from."""
     named = _facts.get() or Ask()
@@ -1625,6 +1638,7 @@ def decide_start(
         lines=estimated_lines if estimated_lines is not None else named.lines,
         step=step or named.step,
         step_round=step_round if step_round is not None else named.step_round,
+        plan_due=plan_due or named.plan_due,
     )
     with on_account(account):
         decision = _decide_start(read=read, decide=decide, unit=unit, step=ask.step, ask=ask)
