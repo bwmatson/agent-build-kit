@@ -24,7 +24,7 @@ from agent_build_kit.pipeline.vocabulary import PROPOSING_PHASES, OverheadNode
 
 _OVERHEAD = frozenset(node.value for node in OverheadNode)
 # The track nodes whose run goes on to propose a change.
-_PROPOSING = frozenset(f"track_{phase}" for phase in PROPOSING_PHASES)
+PROPOSING_TRACKS = frozenset(f"track_{phase}" for phase in PROPOSING_PHASES)
 
 
 class Ask(Frozen):
@@ -38,6 +38,11 @@ class Ask(Frozen):
     step_round: int | None = None
     # A plan call is due this round, so its mean cost is reserved beside the ask's own.
     plan_due: bool = False
+
+    @property
+    def is_unit(self) -> bool:
+        """Whether the ask is for a unit's graph, not a call outside it (a track or the plan)."""
+        return self.unit is not None and self.step not in _OVERHEAD
 
     @property
     def forecast(self) -> bool:
@@ -170,7 +175,7 @@ def forecast_ask(
                 records,
                 timers,
                 plan_due=ask.plan_due,
-                proposing=_PROPOSING,
+                proposing=PROPOSING_TRACKS,
                 resets_at=resets_at,
                 now=now,
                 points_per_usd=points_per_usd,
@@ -181,8 +186,7 @@ def forecast_ask(
                 if r.name != ask.step
             ]
     # A call outside a unit's graph is named by its step, a unit's ask by the unit.
-    named_unit = ask.unit is not None and ask.step not in _OVERHEAD
-    subject = f"unit {ask.unit}" if named_unit else (ask.step or "start")
+    subject = f"unit {ask.unit}" if ask.is_unit else (ask.step or "start")
     if ask.tier is not None:
         subject += f" ({ask.tier})"
     return AskForecast(

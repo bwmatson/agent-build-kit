@@ -4,6 +4,7 @@ what is still to come after some rounds of a step (spec: usage-pause)."""
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from typing import Literal
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.usage_forecast_history import TierCells, tier_cells
@@ -29,6 +30,8 @@ class UnitForecast(Frozen):
     usd: float | None
     prior: bool
     parts: tuple[Part, ...]
+    # The size band of the tier's history the forecast was made from.
+    band: Literal["all", "small", "large"] = "all"
 
 
 def _forecast(
@@ -56,9 +59,11 @@ def _forecast(
     )
     parts = None if found.prior or points_per_usd is None else pick(found)
     if parts is None or points_per_usd is None:
-        return UnitForecast(points=flat_allowance, usd=None, prior=True, parts=())
+        return UnitForecast(points=flat_allowance, usd=None, prior=True, parts=(), band=found.band)
     usd = sum(p.usd for p in parts)
-    return UnitForecast(points=usd * points_per_usd, usd=usd, prior=False, parts=parts)
+    return UnitForecast(
+        points=usd * points_per_usd, usd=usd, prior=False, parts=parts, band=found.band
+    )
 
 
 def forecast_unit(

@@ -33,6 +33,9 @@ ALLOWED = {
     "pipeline/usage_forecast_unit.py",  # a unit's forecast takes the verdict records
     "pipeline/usage_forecast_ask.py",  # an ask's forecast takes the verdict records
     "pipeline/usage_guard.py",  # the start decision reads the verdict records to forecast a unit
+    "pipeline/usage_forecast_status.py",  # the status line forecasts by planned tier
+    "pipeline/usage_report.py",  # the report groups by the tier planned for each unit
+    "cli/report_cmd.py",  # the report is given the verdict file
 }
 
 
