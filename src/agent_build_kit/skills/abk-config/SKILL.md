@@ -407,6 +407,10 @@ Both files are a person's to change. A step that was not confined fails with `Co
 either differs afterwards; during a confined run a person may edit them, and the difference is a
 warning shown by `abk status`, not a failure.
 
+The guards by class: the text fence on these two files is a location guard, so it stands down for
+a confined step and applies to one that is not; guards about meaning (no merge, no push) apply
+either way. `abk policy check` lists which is which; the table is in docs/sandbox-design.md.
+
 `abk.local.yaml` is for structured, user-specific configuration, merged over `abk.yaml` when
 it loads (mappings merge by key; lists, text and `null` replace). A worked example of
 abk.local.yaml, holding one user's checkout of a repo and an extra verification variable:

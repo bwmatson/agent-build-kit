@@ -1291,3 +1291,11 @@ is minted and the figures stay the agent's own. The runtime itself does nothing 
 totals are read from the gateway when it ends (`pipeline/gateway_usage.py`) and recorded
 beside what the runtime reported. An agent that takes its key some other way gets one minted
 for nothing, and its figures stay its own.
+
+## Guards by class
+
+A location guard (where an agent may write) stands down when a runtime's step is confined and is
+the fallback otherwise; a guard about meaning stays in both modes. Both built-in runtimes are
+confined at `process` coverage, and `abk policy check` and `abk status` list each guard per
+runtime as active, skipped (confined) or kept (meaning). The table is in
+[sandbox-design.md](sandbox-design.md).

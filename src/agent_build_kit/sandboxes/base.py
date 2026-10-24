@@ -30,6 +30,12 @@ class Coverage(StrEnum):
         return order.index(self) >= order.index(needed)
 
 
+def step_confined(required: Coverage, coverage: Coverage) -> bool:
+    """Whether a step of a repo that `required` this much runs confined on a runtime with
+    `coverage`: `none` lets it run plain, and less coverage than required runs it plain too."""
+    return required is not Coverage.NONE and coverage.reaches(required)
+
+
 class Availability(Frozen):
     """Whether a backend works on this machine, and what it reaches when it does."""
 

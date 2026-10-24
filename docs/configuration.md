@@ -834,6 +834,11 @@ person may edit them: the step's coverage is `process` or `files`, so a differen
 warning with its diff, shown by `abk status`, and the unit continues. A track run is not confined
 yet, so it still fails.
 
+The guards by class: the config guard and the text fence on these two files are location guards, so
+they stand down for a confined step and apply to one that is not; the guards about meaning (no
+merge, no push, no commit where forbidden) apply either way. See
+[sandbox-design.md](sandbox-design.md) for the table.
+
 `abk doctor` and `abk init` run the backend's probe and print the cause and the fix when it fails;
 `abk policy check` and `abk status` show each runtime's `sandbox_coverage` beside its
 `policy_coverage`. The design is in [sandbox-design.md](sandbox-design.md).

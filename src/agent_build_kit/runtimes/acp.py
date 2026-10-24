@@ -97,6 +97,7 @@ from agent_build_kit.pipeline.command_policy import (
     check_command,
     check_no_commit,
     check_no_push,
+    confined_fence,
     policy_files,
 )
 from agent_build_kit.pipeline.command_spellings import probe_rows
@@ -946,11 +947,13 @@ class _Session:
         """The files that hold the review policy, which no command of this run may write."""
         if self._policy is None:
             return ()
-        return policy_files(
+        files = policy_files(
             checkout=self._worktree,
             planning_paths=self._policy.planning_paths,
             fenced_files=self._policy.fenced_files,
         )
+        # The terminals of a confined run are under the launcher.
+        return confined_fence(files, self._worktree) if self._policy.confined else files
 
     def _refusals(self, command: str) -> Verdict:
         """What no turn the server runs may do: push, and commit when asked not to."""

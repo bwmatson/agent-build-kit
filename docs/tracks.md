@@ -94,6 +94,10 @@ else there; a `propose` run may write those and the one change it was named
 (`__PROPOSED_CHANGE__`). The tick's live state (`runs/units.json`), `abk.yaml`
 and the specs stay out of reach of both.
 
+The guards by class: a track or propose run is not confined, so this location rule is not
+duplicated by the sandbox and stays active; the guards about meaning stay in every mode. When
+tracks are confined the choice is made again; see [sandbox-design.md](sandbox-design.md).
+
 ## Run logs and the tracker
 
 Every phase writes a run log at `<state_dir>/<run id>-<repo>-<track>.md`
