@@ -72,7 +72,7 @@ def test_a_unit_with_no_body_keeps_the_message_of_before(tmp_path: Path) -> None
 
 
 def test_a_rework_commit_is_unchanged_and_the_pair_has_the_why(tmp_path: Path) -> None:
-    activate_with(builders={"per_group_commits": True})
+    activate_with(builders={"stubbed_tdd_commits": True})
     write_tasks(tmp_path, "add-marker", GOALS)
     proposal(tmp_path, WHY)
     repo = branch(tmp_path)

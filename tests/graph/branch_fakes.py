@@ -180,7 +180,7 @@ def prepared(
     `tests_only` are the numbers of its own change's groups headed `[e2e-test]` and holding only
     tests. `meanwhile` acts on the branch before the build starts, and `guidance` is a person's
     note saved on the unit before it does."""
-    activate_with(builders={"per_group_commits": setting})
+    activate_with(builders={"stubbed_tdd_commits": setting})
     tasks = groups or {"add-marker": titled(1, 2, 3)}
     for change, listed in tasks.items():
         own = change == "add-marker"

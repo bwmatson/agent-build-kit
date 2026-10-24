@@ -95,7 +95,7 @@ def test_the_architecture_checks_step_names_the_fixers_before_the_fix_commit() -
 def test_the_architecture_tests_and_implementation_steps_name_the_fixers() -> None:
     text = squashed(DOCS / "architecture.md")
     steps = text[text.index("Tests, commit.") : text.index("Checks, then review rounds")]
-    assert re.search(r"fixers.{0,300}per_group_commits off", steps, re.I)
+    assert re.search(r"fixers.{0,300}stubbed_tdd_commits off", steps, re.I)
     assert re.search(r"runs the fixers, then commits feat:", steps)
 
 

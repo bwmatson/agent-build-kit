@@ -28,7 +28,7 @@ PAIRS = ["test: G1", "feat: G1", "test: G2", "feat: G2", "test: G3", "feat: G3"]
 def test_review_feedback_adds_fix_commits_after_the_last_pair_and_writes_no_pair_again(
     tmp_path: Path,
 ) -> None:
-    activate_with(builders={"per_group_commits": True})
+    activate_with(builders={"stubbed_tdd_commits": True})
     write_tasks(tmp_path, "add-marker", GROUPS)
     repo = branch(tmp_path)
     plain = fresh(tmp_path)

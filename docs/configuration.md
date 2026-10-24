@@ -390,10 +390,10 @@ global_limits:
 builders:
   installable_files: []         # base names (never paths or patterns) `abk install-config` may
                                 # install besides `.pre-commit-config.yaml`
-  per_group_commits: false      # builders.per_group_commits. true = build each task group as its own pair of commits (`test:`
+  stubbed_tdd_commits: true       # builders.stubbed_tdd_commits. true = build each task group as its own pair of commits (`test:`
                                 # with stubs, then `feat:`), the stubs and tests checked for lint,
                                 # format and types before the tests commit; only for a toolchain
-                                # profile that supports stubs. Default off; set false to turn it off
+                                # profile that supports stubs. Default on; set false to turn it off
 
 tracks:                         # the scheduled tracks (docs/tracks.md); their
                                 # model and tool lists stay here, not under

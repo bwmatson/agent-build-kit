@@ -35,7 +35,7 @@ def asked(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
 
 
 def gate_in(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, setting: bool, args: list[str]):
-    inst = make_installation(tmp_path / "planning", builders={"per_group_commits": setting})
+    inst = make_installation(tmp_path / "planning", builders={"stubbed_tdd_commits": setting})
     (inst.root / "abk.yaml").write_text(dump(inst.config))
     app = inst.root / "checkouts" / "app"
     app.mkdir(parents=True, exist_ok=True)

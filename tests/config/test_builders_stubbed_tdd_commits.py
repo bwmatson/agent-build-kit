@@ -1,4 +1,4 @@
-"""`builders.per_group_commits`, and when a build is stubbed (spec: per-group-commits)."""
+"""`builders.stubbed_tdd_commits`, and when a build is stubbed (spec: per-group-commits)."""
 
 from __future__ import annotations
 
@@ -10,8 +10,7 @@ from pydantic import ValidationError
 from agent_build_kit import profiles
 from agent_build_kit.config import WorkspaceConfig
 from agent_build_kit.profiles.base import stubbed_build
-
-REPO = {"app": {"path": "/work/app", "slug": "example/app"}}
+from tests.config.builders_config import load
 
 
 class NoStubs:
@@ -21,40 +20,28 @@ class NoStubs:
 
 
 def setting(loaded: WorkspaceConfig) -> Any:
-    return loaded.builders.model_dump()["per_group_commits"]
-
-
-def load(builders: Any = None) -> WorkspaceConfig:
-    data: dict[str, Any] = {"repos": REPO}
-    if builders is not None:
-        data["builders"] = builders
-    return WorkspaceConfig.model_validate(data)
-
-
-def test_a_workspace_with_no_builders_section_loads_with_the_setting_off() -> None:
-    assert setting(load()) is False
-    assert setting(load({"installable_files": []})) is False
+    return loaded.builders.model_dump()["stubbed_tdd_commits"]
 
 
 @pytest.mark.parametrize("given", [True, False])
 def test_a_boolean_loads_as_given(given: bool) -> None:
-    assert setting(load({"per_group_commits": given})) is given
+    assert setting(load({"stubbed_tdd_commits": given})) is given
 
 
 def test_a_string_fails_loading_naming_the_setting() -> None:
-    assert setting(load({"per_group_commits": True})) is True
+    assert setting(load({"stubbed_tdd_commits": True})) is True
 
     with pytest.raises(ValidationError) as refused:
-        load({"per_group_commits": "yes please"})
+        load({"stubbed_tdd_commits": "yes please"})
 
-    errors = [e for e in refused.value.errors() if e["loc"][-1] == "per_group_commits"]
+    errors = [e for e in refused.value.errors() if e["loc"][-1] == "stubbed_tdd_commits"]
     assert errors
     assert not any(e["type"] == "extra_forbidden" for e in errors)
 
 
 def test_a_build_is_stubbed_only_when_the_setting_is_on_and_the_profile_supports_stubs() -> None:
-    on = load({"per_group_commits": True}).builders
-    off = load({"per_group_commits": False}).builders
+    on = load({"stubbed_tdd_commits": True}).builders
+    off = load({"stubbed_tdd_commits": False}).builders
 
     assert stubbed_build(on, profiles.get("python-uv")) is True
     assert stubbed_build(on, profiles.get("node-npm")) is True

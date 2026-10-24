@@ -31,7 +31,7 @@ class WithoutStubs:
 
 
 def built(tmp_path: Path, *, setting: bool, profile: str) -> StubLoop:
-    activate_with(builders={"per_group_commits": setting})
+    activate_with(builders={"stubbed_tdd_commits": setting})
     tasks(tmp_path, "add-marker", (1, 2, 3))
     recorder = with_three_groups(tmp_path)
     overrides = recorder.overrides(tmp_path)

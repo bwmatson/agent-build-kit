@@ -541,7 +541,7 @@ declares. Each test file is judged by the profile of its project, with that proj
 and red commands run in its directory, and the gate fails if any project fails. Prints each problem prefixed `✗`; exit
 1 if any, else 0 with `✓ tests-first: ...`.
 
-When `builders.per_group_commits` is on and the profile supports stubs, the gate checks a
+When `builders.stubbed_tdd_commits` is on and the profile supports stubs, the gate checks a
 stubbed build instead: the commit order is paired (each `test:` commit is followed by a `feat:`
 commit with the same title), and at each tests commit the clean command runs with its types
 check and the red reading is the stubbed one. Cached results are keyed by that mode, so a

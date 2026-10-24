@@ -35,7 +35,7 @@ def test_the_implementation_is_formatted_after_the_agent_and_before_the_commit(
 def test_a_build_that_is_not_stubbed_formats_before_its_tests_commit_and_its_implementation(
     tmp_path: Path,
 ) -> None:
-    activate_with(builders={"per_group_commits": False})
+    activate_with(builders={"stubbed_tdd_commits": False})
     recorder = Formatting(fresh_store(tmp_path).store, leaves=LEAVES)
 
     outcome = build(tmp_path, recorder, **recorder.overrides(tmp_path))

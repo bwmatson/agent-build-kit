@@ -1368,6 +1368,12 @@ SESSION_REUSE_ROLES = ("build", "review")
 # The root key `global_limits` was called `limits` before; the old name still loads.
 DEPRECATED_ROOT_KEY = "limits"
 
+# The `builders` setting `stubbed_tdd_commits` was called `per_group_commits` before; the old name
+# still loads.
+DEPRECATED_BUILDERS_KEY = "per_group_commits"
+BUILDERS_KEY = "stubbed_tdd_commits"
+DEPRECATED_BUILDERS_SETTING = f"builders.{DEPRECATED_BUILDERS_KEY}"
+
 # The setting `review.ceilings.full` replaces, as `abk config` and `abk doctor` name it.
 DEPRECATED_MAX_UNIT_LINES = "global_limits.max_unit_lines"
 
@@ -1378,6 +1384,11 @@ def deprecation_notice(key: str) -> str:
         return (
             f"`{key}` is deprecated for `review.ceilings.full`; "
             "`abk config --migrate` moves it, or set `review.ceilings.full` yourself"
+        )
+    if key == DEPRECATED_BUILDERS_SETTING:
+        return (
+            f"`{key}` is deprecated for `builders.{BUILDERS_KEY}`; "
+            "`abk config --migrate` renames it"
         )
     return (
         f"`{key}` is deprecated for `global_limits`; "
@@ -1392,7 +1403,12 @@ class BuildersConfig(Frozen):
     installable_files: list[str] = []
     # Stubs, the check-and-fix loop before the tests commit and one tests/implementation
     # pair per task group, for a unit whose toolchain profile supports stubs.
-    per_group_commits: StrictBool = False
+    stubbed_tdd_commits: StrictBool = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def _read_old_name(cls, data: Any) -> Any:
+        return rename_builders_key(data)
 
     @field_validator("installable_files")
     @classmethod
@@ -1404,6 +1420,19 @@ class BuildersConfig(Frozen):
                     "(no path separators, no patterns)"
                 )
         return names
+
+
+def rename_builders_key(data: Any) -> Any:
+    """A `builders` mapping with the deprecated `per_group_commits` renamed to
+    `stubbed_tdd_commits`; a mapping that sets both is refused."""
+    if not isinstance(data, dict) or DEPRECATED_BUILDERS_KEY not in data:
+        return data
+    if BUILDERS_KEY in data:
+        raise ValueError(
+            f"`{DEPRECATED_BUILDERS_KEY}` and `{BUILDERS_KEY}` are both set; "
+            f"`{DEPRECATED_BUILDERS_KEY}` is the deprecated name of `{BUILDERS_KEY}`, keep one"
+        )
+    return {(BUILDERS_KEY if k == DEPRECATED_BUILDERS_KEY else k): v for k, v in data.items()}
 
 
 def _alias_limits(data: dict[str, Any]) -> dict[str, Any]:
@@ -2036,7 +2065,10 @@ def _renamed(document: dict[str, Any] | None, file: Path) -> dict[str, Any] | No
         return None
     try:
         _refuse_moved_settings(document)
-        return read_new_settings(_alias_limits(document))
+        renamed = read_new_settings(_alias_limits(document))
+        if isinstance(renamed.get("builders"), dict):
+            renamed = {**renamed, "builders": rename_builders_key(renamed["builders"])}
+        return renamed
     except ValueError as error:
         raise ConfigError(f"{file}: {error}") from error
 
@@ -2059,6 +2091,8 @@ def load(path: Path) -> WorkspaceConfig:
         if any(document and DEPRECATED_ROOT_KEY in document for document in spelled):
             # Name a setting as the file spells it.
             message = re.sub(r"(?m)^global_limits\b", DEPRECATED_ROOT_KEY, message)
+        if any(DEPRECATED_BUILDERS_SETTING in deprecations_of(document) for document in spelled):
+            message = re.sub(rf"\b{BUILDERS_KEY}\b", DEPRECATED_BUILDERS_KEY, message)
         for document in spelled:
             for found in _setting_blocks(document or {}):
                 for old in _old_setting_keys(found.block, found.model):
@@ -2075,17 +2109,25 @@ def load(path: Path) -> WorkspaceConfig:
     return loaded
 
 
-def deprecations(path: Path) -> list[str]:
-    """The deprecated keys the file at `path`, or its overlay, sets: the root `limits` key, and
-    `max_unit_lines` under `global_limits` or `limits`; each once."""
-    raws = [raw for _, raw in _raw_files(path)]
+def deprecations_of(*documents: dict[str, Any] | None) -> list[str]:
+    """The deprecated keys the parsed `documents` set: the root `limits` key, `max_unit_lines`
+    under `global_limits` or `limits`, and `builders.per_group_commits`; each once."""
+    raws = [raw for raw in documents if raw]
     found = []
     if any(DEPRECATED_ROOT_KEY in raw for raw in raws):
         found.append(DEPRECATED_ROOT_KEY)
     blocks = [raw.get(name) for raw in raws for name in ("global_limits", DEPRECATED_ROOT_KEY)]
     if any(isinstance(block, dict) and "max_unit_lines" in block for block in blocks):
         found.append(DEPRECATED_MAX_UNIT_LINES)
+    builders = [raw.get("builders") for raw in raws]
+    if any(isinstance(block, dict) and DEPRECATED_BUILDERS_KEY in block for block in builders):
+        found.append(DEPRECATED_BUILDERS_SETTING)
     return found
+
+
+def deprecations(path: Path) -> list[str]:
+    """The deprecated keys the file at `path`, or its overlay, sets; each once."""
+    return deprecations_of(*(raw for _, raw in _raw_files(path)))
 
 
 def _merged_raw(path: Path) -> dict[str, Any]:
