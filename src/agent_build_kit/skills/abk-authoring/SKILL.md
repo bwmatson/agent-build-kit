@@ -29,6 +29,11 @@ on every task group heading: which repo its code lands in, and which test kind i
   other way, and it is not the pytest `integration` marker or `tests/integration/`. A unit of
   several groups takes the widest kind. The earlier spellings of the two older kinds are still
   read as the same kinds, with a deprecation notice from `abk tags` and `abk check`.
+- Choose the kind by what the test needs running. A step that needs a running service (a
+  server, a database, a broker, `docker`) is `[e2e-test]`. `[integration-test]` is across
+  modules of one package and needs nothing running. Under the sandbox a unit-test or
+  integration step cannot reach localhost or a service socket, so a refused loopback
+  connection in its output means the group should be tagged `[e2e-test]`.
 - `<repo>` may carry a project: `[app/web]` is the project `web` of repo `app`, spelled as
   the path the repo declares for it. A project the repo does not declare is refused, by
   `abk tags` and by planning, with the file and line. Groups of different projects of one

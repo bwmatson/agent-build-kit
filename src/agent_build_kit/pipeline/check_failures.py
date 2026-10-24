@@ -17,6 +17,23 @@ from agent_build_kit.config import RepoConfig, active, owning_project
 _IN = re.compile(r"\(in (?P<dir>.+)\)")
 KINDS = ("lint", "types", "test")
 
+_SERVICE_TARGET = re.compile(r"127\.\d+\.\d+\.\d+|\blocalhost\b|\[?::1\]?|\.sock\b")
+_REFUSED = re.compile(r"permission denied|operation not permitted|connection refused", re.I)
+
+E2E_HINT = (
+    "A step that needs a running service is an e2e test: a unit-test step cannot reach "
+    "localhost or a service socket. Tag the group `[e2e-test]` instead of working around the "
+    "refusal."
+)
+
+
+def with_e2e_hint(output: str) -> str:
+    """`output` of a failed unit-test run, with the e2e hint added when it shows a refused
+    loopback connection or service socket."""
+    if _REFUSED.search(output) and _SERVICE_TARGET.search(output):
+        return f"{output.rstrip()}\n\n{E2E_HINT}"
+    return output
+
 
 def failed_in(where: Path) -> str:
     """The line of a failure that names the project directory its command ran in."""

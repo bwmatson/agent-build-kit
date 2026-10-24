@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from agent_build_kit.config import active, models
 from agent_build_kit.graph.state import UnitRun
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.check_failures import with_e2e_hint
 from agent_build_kit.pipeline.stack_runner import person_guidance
 from agent_build_kit.pipeline.unit_store import FeedbackSource
 from agent_build_kit.redaction import redact_text
@@ -79,6 +80,8 @@ def check_round(nodes: BuildPath, state: UnitRun, loop: CheckLoop) -> Update:
     if loop.on_failure is not None:
         loop.on_failure(output, used + 1)
     # Kept before anything can stop the run, so a retry addresses this output.
+    if loop.source is FeedbackSource.UNIT_TEST:
+        output = with_e2e_hint(output)
     saved = f"{loop.heading}\n{output}".strip() if loop.heading else output
     r.store.set_feedback(unit.id, saved, source=loop.source)
     if (budget := out_of_rounds(used)) is not None:
