@@ -212,11 +212,11 @@ def _block(key: str, value: object, indent: str, note: str = "") -> list[str]:
     return comments + [f"{indent}{line}\n" for line in text.splitlines()]
 
 
-# The `review` section as a fresh abk.yaml shows it: off, with every default, commented out.
+# The `review` section as a fresh abk.yaml shows it: on, with every default, commented out.
 REVIEW_BLOCK = """
 # The review policy (see docs/configuration.md). Only a person edits it; uncomment to use it.
 # review:
-#   enabled: false
+#   enabled: true
 #   protected_paths: []
 #   protected_defaults: true
 #   classes: {}

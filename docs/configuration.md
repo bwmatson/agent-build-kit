@@ -858,7 +858,7 @@ message says so, so the unit can be requeued once the edit is done).
 
 ```yaml
 review:
-  enabled: false           # off: nothing is planned, classified or recorded for review
+  enabled: true            # off: every unit is held to the full ceiling; nothing is classified or recorded
   protected_paths: []      # globs added to the framework's defaults
   protected_defaults: true # migrations, CI and deploy config, containers, secrets, CODEOWNERS
   classes: {}              # name -> path globs; no slash in a name; the first listed class wins

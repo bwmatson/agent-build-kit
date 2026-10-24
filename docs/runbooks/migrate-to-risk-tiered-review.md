@@ -54,7 +54,7 @@ Do it **once, after the rename has fully landed and before the next big change i
 
 ## 4. After `review-policy-and-verdict-recorded-in-shadow`
 
-- [ ] In `abk.yaml`, add a `review:` section and set `enabled: true`. It is the build-out flag: with it off nothing is recorded. Only a person edits this file; agents and tracks are refused.
+- [ ] In `abk.yaml`, check that `review.enabled` is not set to `false`. It is true by default and is the build-out flag: with it off nothing is recorded. Only a person edits this file; agents and tracks are refused.
 - [ ] Add the installation's own `protected_paths` (the kit's defaults cover migrations, CI and deploy configuration, container definitions, secrets and ownership files), and per repo `repos.<name>.review.protected_paths` for paths that are sensitive there.
 - [ ] Define `classes`. The first one to allow later is documentation or test-only changes, so list the globs that are only that, for example `docs: {paths: ["**/*.md", "docs/**"]}`.
 - [ ] `abk doctor`: no failure for the `review` section, and no warning for a glob that matches nothing.
