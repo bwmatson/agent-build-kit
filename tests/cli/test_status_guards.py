@@ -76,3 +76,29 @@ def test_status_lists_the_location_guards_as_active_when_the_runtime_confines_no
     lines = status_lines(tmp_path, monkeypatch, capsys, sandbox=True, coverage=Coverage.NONE)
 
     assert state_of(lines, "worktree check") == ACTIVE
+
+
+def test_status_names_the_repos_on_each_side_when_one_requires_no_confinement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    machine_runtime: None,
+) -> None:
+    select(monkeypatch, SelectableRuntime("claude_code", sandbox_coverage=Coverage.PROCESS))
+    repos = {
+        "app": {"path": str(tmp_path / "app"), "slug": "example/app"},
+        "platform": {
+            "path": str(tmp_path / "platform"),
+            "slug": "example/platform",
+            "sandbox": {"required": "none"},
+        },
+    }
+    installation = make_installation(tmp_path, sandbox={"enabled": True}, repos=repos)
+    capsys.readouterr()
+
+    cli.cmd_status(argparse.Namespace(), installation)
+
+    shown = capsys.readouterr()
+    [line] = [x for x in (shown.out + shown.err).splitlines() if "worktree check" in x]
+    assert "skipped (confined) for app" in line
+    assert "active for platform" in line

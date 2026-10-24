@@ -97,6 +97,7 @@ from agent_build_kit.pipeline.command_policy import (
     check_command,
     check_no_commit,
     check_no_push,
+    confined_fence,
     policy_files,
 )
 from agent_build_kit.pipeline.command_spellings import probe_rows
@@ -951,11 +952,8 @@ class _Session:
             planning_paths=self._policy.planning_paths,
             fenced_files=self._policy.fenced_files,
         )
-        if not self._policy.confined or self._worktree is None:
-            return files
-        # The terminals run under the launcher, which already keeps them out of a file beyond
-        # the worktree: only the text fence on a file inside it remains.
-        return tuple(f for f in files if f.resolve().is_relative_to(self._worktree))
+        # The terminals of a confined run are under the launcher.
+        return confined_fence(files, self._worktree) if self._policy.confined else files
 
     def _refusals(self, command: str) -> Verdict:
         """What no turn the server runs may do: push, and commit when asked not to."""

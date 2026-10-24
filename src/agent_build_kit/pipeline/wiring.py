@@ -189,7 +189,7 @@ from agent_build_kit.redaction import WITHHELD, redact_leaves, redact_text
 from agent_build_kit.runtimes import AgentRequest, AgentRuntime, ToolPolicy
 from agent_build_kit.runtimes.base import PermissionMode, Role, SessionUnavailable
 from agent_build_kit.runtimes.claude_code import through
-from agent_build_kit.sandboxes import Coverage, SandboxPolicy
+from agent_build_kit.sandboxes import Coverage, SandboxPolicy, step_confined
 from agent_build_kit.sandboxes.policy import PolicyRefused, build_policy
 
 logger = logging.getLogger(__name__)
@@ -515,10 +515,8 @@ def build_run(
             )
         # A step that ran under a policy was confined at least to what the repo requires (the
         # launcher refuses less); under `required: none` it may have run plain.
-        is_confined = (
-            sandbox is not None
-            and sandbox.required is not Coverage.NONE
-            and agent.sandbox_coverage.reaches(sandbox.required)
+        is_confined = sandbox is not None and step_confined(
+            sandbox.required, agent.sandbox_coverage
         )
         recorder = _recorder(record_for, place, role)
         request = AgentRequest(

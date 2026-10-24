@@ -691,6 +691,13 @@ def _check_fenced(
     return Verdict(allowed=True)
 
 
+def confined_fence(fenced: Collection[Path], worktree: Path | None) -> tuple[Path, ...]:
+    """The fenced files a confined step is still kept from by text: the kernel keeps it out of a
+    file beyond the worktree, so only those inside it remain. With no worktree known, nothing can
+    be told to be outside it and every file stays fenced."""
+    return tuple(f for f in fenced if worktree is None or _inside(str(f), worktree))
+
+
 def check_command(
     command: str,
     *,
@@ -722,8 +729,7 @@ def check_command(
     them are while the worktree is unknown.
     """
     if confined:
-        # With no worktree known, nothing can be told to be outside it: every file stays fenced.
-        fenced = [f for f in fenced if worktree is None or _inside(str(f), worktree)]
+        fenced = confined_fence(fenced, worktree)
     current: str | None = None
     # Where the shell is by now: moved by each `cd`, None once it cannot be told.
     here: Path | None = cwd or worktree

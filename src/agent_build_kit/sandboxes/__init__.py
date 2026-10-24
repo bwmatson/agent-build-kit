@@ -16,6 +16,7 @@ from agent_build_kit.sandboxes.base import (
     SandboxBackend,
     SandboxPolicy,
     SandboxUnavailable,
+    step_confined,
 )
 
 _REGISTRY: dict[str, SandboxBackend] = {}
@@ -95,6 +96,7 @@ def _load_builtin() -> None:
 __all__ = [
     "Availability",
     "Coverage",
+    "step_confined",
     "SandboxBackend",
     "SandboxPolicy",
     "SandboxUnavailable",

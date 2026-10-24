@@ -351,7 +351,8 @@ A read-only inventory of the kit's guards (2026-10-21) sorted them by what they 
 second, weaker copy of the sandbox once the step is confined, so it stands down **when the step is confined** and stays as the fallback
 otherwise (native Windows, `required: none`, a backend that fails to start). A guard about **meaning**, or about a location the sandbox cannot
 express, stays in both modes. The table below is kept in code in `runtimes/guards.py`, and `abk policy check` and `abk status` list each
-guard per runtime as active, skipped (confined) or kept (meaning) from it, so the listing and the behaviour cannot drift.
+guard per runtime as active, skipped (confined) or kept (meaning) from it, so the listing and the behaviour cannot drift. The states describe unit steps and follow each repo's `sandbox.required` (a listing
+names the repos on each side when they differ); a track run is never confined and keeps every location guard.
 
 | Guard | Class | When the step is confined |
 |---|---|---|

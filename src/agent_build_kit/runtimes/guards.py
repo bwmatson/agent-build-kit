@@ -12,7 +12,7 @@ from enum import StrEnum
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.runtimes.base import AgentRuntime
-from agent_build_kit.sandboxes import Coverage
+from agent_build_kit.sandboxes import step_confined
 
 
 class Kind(StrEnum):
@@ -46,22 +46,36 @@ SKIPPED = "skipped (confined)"
 KEPT = "kept (meaning)"
 
 
-def is_confined(runtime: AgentRuntime, installation: Installation) -> bool:
-    """Whether a step of `runtime` runs confined under this installation's settings."""
-    return installation.config.sandbox.enabled and runtime.sandbox_coverage is not Coverage.NONE
+def confined_repos(runtime: AgentRuntime, installation: Installation) -> dict[str, bool]:
+    """Whether a step in each configured repo runs confined: the sandbox is on and the runtime
+    reaches what the repo requires (the pipeline's own rule, `step_confined`)."""
+    config = installation.config
+    return {
+        name: config.sandbox.enabled
+        and step_confined(repo.sandbox.required, runtime.sandbox_coverage)
+        for name, repo in config.repos.items()
+    }
+
+
+def _state(guard: Guard, confined: dict[str, bool]) -> str:
+    if guard.kind is Kind.KEPT:
+        return KEPT
+    skipped = [name for name, on in confined.items() if on]
+    active = [name for name, on in confined.items() if not on]
+    if not active:
+        return SKIPPED
+    if not skipped:
+        return ACTIVE
+    return f"{SKIPPED} for {', '.join(skipped)}; {ACTIVE} for {', '.join(active)}"
 
 
 def guard_lines(runtime: AgentRuntime, installation: Installation) -> list[str]:
     """One line per guard of `runtime`: its name and whether it is active, skipped (confined)
-    or kept (meaning), given the installation's sandbox setting and the runtime's coverage."""
-    confined = is_confined(runtime, installation)
-    lines = []
-    for guard in GUARDS:
-        if runtime.name not in guard.runtimes:
-            continue
-        if guard.kind is Kind.KEPT:
-            state = KEPT
-        else:
-            state = SKIPPED if confined else ACTIVE
-        lines.append(f"guard {guard.name}: {state}")
-    return lines
+    or kept (meaning). The states describe unit steps, which each repo's `sandbox.required`
+    decides; a track run is never confined and keeps every location guard."""
+    confined = confined_repos(runtime, installation) or {"": False}
+    return [
+        f"guard {guard.name}: {_state(guard, confined)}"
+        for guard in GUARDS
+        if runtime.name in guard.runtimes
+    ]
