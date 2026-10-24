@@ -48,7 +48,9 @@
   `abk review reinstate <class>` is the only way to lift a demotion and is refused for a class
   that is not demoted. A standing demotion has a card until it is lifted, a lift shows a notice
   for 24 hours with no reminder, and `abk status` lists each demoted class with its trigger, the
-  unit and since when.
+  unit and since when. Each pass demotes a class when a unit the pipeline landed is reverted,
+  and a listed class whose agreement over its most recent `demotion.window` samples falls below
+  `demotion.min_agreement`.
 
 - With review enabled, a built unit whose changed lines pass the buffered ceiling of its review
   tier (`review.ceiling_buffer`, default 0.2) is held at once, after any review round, and

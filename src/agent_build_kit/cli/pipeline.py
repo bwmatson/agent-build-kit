@@ -60,6 +60,7 @@ from agent_build_kit.notify.store import NotificationStore
 from agent_build_kit.pipeline import (
     audit_record,
     demotion_record,
+    demotion_triggers,
     diagram,
     emergency_lane,
     environment,
@@ -98,7 +99,7 @@ from agent_build_kit.pipeline.cycles import (
     needs_cycle,
     path_between,
 )
-from agent_build_kit.pipeline.demotion_record import demotion_status_lines
+from agent_build_kit.pipeline.demotion_record import DEMOTIONS, demotion_status_lines
 from agent_build_kit.pipeline.drafts import StateDrafts
 from agent_build_kit.pipeline.e2e import (
     LOCK_WAIT_SETTING,
@@ -657,6 +658,18 @@ def _sweep_outcomes(inst: Installation, store: UnitStore) -> None:
         checkouts=inst.checkouts,
         trunks={name: repo.default_branch for name, repo in inst.repos.items()},
         now=datetime.now(UTC),
+        log=log,
+    )
+
+
+def _evaluate_demotions(inst: Installation, store: UnitStore) -> None:
+    demotion_triggers.evaluate_demotions(
+        store.all(),
+        verdicts=inst.state_dir / VERDICTS,
+        audits=inst.state_dir / audit_record.AUDITS,
+        demotions=inst.state_dir / DEMOTIONS,
+        review=config.active().review,
+        at=datetime.now(UTC),
         log=log,
     )
 
@@ -2043,6 +2056,7 @@ def run_round(
     _step("sweeping state labels", _sweep_labels, inst, store)
     if config.active().review.enabled:
         _step("sweeping review outcomes", _sweep_outcomes, inst, store)
+        _step("evaluating demotions", _evaluate_demotions, inst, store)
     if submit and may == "usage":
         units = store.all()
         _record_waits(

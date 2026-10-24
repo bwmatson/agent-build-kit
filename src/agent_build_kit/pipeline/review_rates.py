@@ -39,6 +39,25 @@ class ClassGate(Frozen):
     nameable: bool
 
 
+def sample_clean(
+    unit: str, record: Mapping[str, Any], audits: Mapping[str, str] | None = None
+) -> bool | None:
+    """Whether a brief-carrying final record is an accepted sample (True), a rejected one
+    (False) or no sample (None). An auto-landed unit counts only when audited or reverted."""
+    if record.get("outcome") not in (Outcome.CLEAN, Outcome.REWORKED, Outcome.REVERTED):
+        return None
+    clean = record.get("outcome") == Outcome.CLEAN
+    if record.get("auto_landed"):
+        # No person read it: it counts only when audited or reverted.
+        audit = (audits or {}).get(unit)
+        if record["outcome"] == Outcome.REVERTED:
+            return False
+        if audit in ("ok", "wrong"):
+            return audit == "ok"
+        return None
+    return clean
+
+
 def class_rates(
     records: Mapping[str, Mapping[str, Any]], audits: Mapping[str, str] | None = None
 ) -> dict[str, ClassRates]:
@@ -55,18 +74,9 @@ def class_rates(
         if not record["brief"]:
             c["excluded"] += 1
             continue
-        if record.get("outcome") not in (Outcome.CLEAN, Outcome.REWORKED, Outcome.REVERTED):
+        clean = sample_clean(unit, record, audits)
+        if clean is None:
             continue
-        clean = record.get("outcome") == Outcome.CLEAN
-        if record.get("auto_landed"):
-            # No person read it: it counts only when audited or reverted.
-            audit = (audits or {}).get(unit)
-            if record["outcome"] == Outcome.REVERTED:
-                clean = False
-            elif audit in ("ok", "wrong"):
-                clean = audit == "ok"
-            else:
-                continue
         c["samples"] += 1
         c["clean"] += clean
         if record["evidence_tier"] == ReviewTier.AUTO:

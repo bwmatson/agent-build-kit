@@ -20,7 +20,7 @@ from agent_build_kit.pipeline.verdict import ReviewTier
 HORIZON_DAYS = 14
 
 # What the derivation adds to a verdict record.
-OUTCOME_FIELDS = ("outcome", "reworks", "revert_checked")
+OUTCOME_FIELDS = ("outcome", "reworks", "revert_checked", "auto_landed")
 
 
 def sweep_outcomes(
