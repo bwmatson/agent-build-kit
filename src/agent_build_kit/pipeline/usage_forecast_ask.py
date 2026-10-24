@@ -40,6 +40,11 @@ class Ask(Frozen):
     plan_due: bool = False
 
     @property
+    def is_unit(self) -> bool:
+        """Whether the ask is for a unit's graph, not a call outside it (a track or the plan)."""
+        return self.unit is not None and self.step not in _OVERHEAD
+
+    @property
     def forecast(self) -> bool:
         """Whether there is anything to forecast: a review tier or estimated lines are given
         (a gate names a unit's, whether or not it has a tier), the step is a call outside a
@@ -181,8 +186,7 @@ def forecast_ask(
                 if r.name != ask.step
             ]
     # A call outside a unit's graph is named by its step, a unit's ask by the unit.
-    named_unit = ask.unit is not None and ask.step not in _OVERHEAD
-    subject = f"unit {ask.unit}" if named_unit else (ask.step or "start")
+    subject = f"unit {ask.unit}" if ask.is_unit else (ask.step or "start")
     if ask.tier is not None:
         subject += f" ({ask.tier})"
     return AskForecast(

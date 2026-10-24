@@ -4,6 +4,7 @@ usage-reporting)."""
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -173,3 +174,42 @@ def test_spend_is_split_by_role_and_node(files: Files) -> None:
         ("review", "review"): 0.5,
         ("rework", "rework"): 0.25,
     }
+
+
+def test_a_forecast_costed_in_only_one_window_is_still_a_forecast(files: Files) -> None:
+    write_verdict_file(files.verdicts, {"a/1": AUTO})
+    only_weekly = forecast_row("a/1", AUTO, 2.0)
+    only_weekly = only_weekly.model_copy(
+        update={"session": only_weekly.session.model_copy(update={"usd": None})}
+    )
+    write_forecast_rows(files.forecasts, [only_weekly])
+
+    row = tier(report(files, spend("a/1", 3.0)), "auto")
+
+    assert row.unforecast == 0
+    assert row.forecast_usd == pytest.approx(2.0)
+
+
+def test_since_picks_units_and_does_not_cut_their_spend(files: Files) -> None:
+    write_verdict_file(files.verdicts, {"a/1": AUTO})
+    write_forecast_rows(files.forecasts, [forecast_row("a/1", AUTO, 3.0)])
+    write_ledger(
+        files.ledger,
+        agent_line(unit="a/1", change="a", node="implement", cost_usd=2.0, session_id="s1")
+        | {"at": "2026-01-01T10:00:00+00:00"},
+        agent_line(unit="a/1", change="a", node="review", cost_usd=2.0, session_id="s2")
+        | {"at": "2026-01-03T10:00:00+00:00"},
+    )
+
+    found = build_report(
+        files.ledger,
+        [],
+        group_by="tier",
+        since=datetime(2026, 1, 2, tzinfo=UTC),
+        verdicts=files.verdicts,
+        forecasts=files.forecasts,
+    )
+
+    row = tier(found, "auto")
+    assert row.spent_usd == pytest.approx(4.0)
+    assert row.over == 1

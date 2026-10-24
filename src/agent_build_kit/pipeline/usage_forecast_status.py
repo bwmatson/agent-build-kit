@@ -44,7 +44,11 @@ def forecast_line(
     on or `prior`, then the running units' remaining points and the reservations; the units
     running with no step row and whether the timers were read follow."""
     parts = []
-    unrecorded = 0
+    # What a tier's history rests on and which running units have no step row do not depend on
+    # the window, so they are worked out once.
+    units = {tier: len(gather_history(records, verdicts, tier).units) for tier in ReviewTier}
+    stepped = {step.unit for step in steps}
+    unrecorded = sum(1 for unit in running if unit not in stepped)
     for window in windows:
         tiers = []
         for tier in ReviewTier:
@@ -58,11 +62,7 @@ def forecast_line(
                 min_runs=min_runs,
                 quantile=quantile,
             )
-            said = (
-                "prior"
-                if found.prior
-                else f"({len(gather_history(records, verdicts, tier).units)} units)"
-            )
+            said = "prior" if found.prior else f"({units[tier]} units)"
             tiers.append(f"{tier.value} {found.points:.1f}% {said}")
         text = f"{window.name} {', '.join(tiers)}"
         if window.points_per_usd is not None:
@@ -74,7 +74,6 @@ def forecast_line(
                 now=now,
                 points_per_usd=window.points_per_usd,
             )
-            unrecorded = remainders.unrecorded
             held = [f"{r.unit} {r.points:.1f}%" for r in remainders.running]
             if window.resets_at is not None:
                 reserved = reserve(

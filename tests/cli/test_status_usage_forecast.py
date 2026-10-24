@@ -44,7 +44,7 @@ def history() -> Fixture:
     return found
 
 
-def installation(tmp_path: Path, host: Host, **limits: object):
+def installation(tmp_path: Path, host: Host, *, calibrated: bool = True, **limits: object):
     """An installation whose state directory is the host's, a reading 89 minutes old, a recent
     refusal and a cool-down, so the estimate line is printed, and the calibration kept."""
     inst = make_installation(
@@ -56,7 +56,8 @@ def installation(tmp_path: Path, host: Host, **limits: object):
     host.keep_in(inst.state_dir)
     host.keep_reading(OBSERVED_AGE, payload(session=10.0, weekly=10.0))
     refused(host, cooling=timedelta(minutes=3))
-    keep_points(host)
+    if calibrated:
+        keep_points(host)
     return inst
 
 
@@ -130,6 +131,19 @@ def test_the_line_shows_the_running_units_remainder_and_the_units_with_no_step_r
 
     assert line.count("run/1 2.5%") == 2, line
     assert "run/2" not in line
+    assert "1 unrecorded" in line
+
+
+def test_the_unrecorded_units_are_counted_with_no_cost_basis_in_force(
+    tmp_path: Path, host: Host, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inst = installation(tmp_path, host, calibrated=False)
+    lay(host, history())
+    run_units(inst, "run/1")
+
+    line = forecast_line(status(inst, capsys))
+
+    assert line.count("prior") >= 6, line
     assert "1 unrecorded" in line
 
 

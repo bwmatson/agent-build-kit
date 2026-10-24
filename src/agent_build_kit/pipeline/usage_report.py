@@ -561,8 +561,10 @@ def build_report(
             }
         if forecasts is not None:
             for row in read_record(forecasts).forecasts:
-                if row.session.usd is not None:
-                    forecast_usd.setdefault(row.unit, row.session.usd)
+                # The dollars do not depend on the window; one on the prior has none.
+                usd = row.session.usd if row.session.usd is not None else row.weekly.usd
+                if usd is not None:
+                    forecast_usd.setdefault(row.unit, usd)
     return _report_of(
         _all_entries(ledger, units),
         group_by=group_by,
@@ -733,8 +735,19 @@ def _report_of(
             for p in e.parts
             if p.cost is not None and p.cost.basis == CostBasis.UNKNOWN
         ),
-        tiers=_tier_rows(entries, tiers or {}, forecast_usd or {}) if group_by == "tier" else (),
+        tiers=(
+            _tier_rows(_whole_units(entries, scoped), tiers or {}, forecast_usd or {})
+            if group_by == "tier"
+            else ()
+        ),
     )
+
+
+def _whole_units(entries: list[_Entry], scoped: list[_Entry]) -> list[_Entry]:
+    """The entries of every unit that has one in `entries`, whatever their date: a unit's spend
+    is judged against its whole forecast, so `--since` picks units and does not cut them."""
+    units = {e.unit for e in entries}
+    return [e for e in scoped if e.unit in units]
 
 
 def _tier_rows(

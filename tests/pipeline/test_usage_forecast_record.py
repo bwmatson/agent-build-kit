@@ -4,6 +4,8 @@ a record that cannot be written never refuses a start (spec: usage-accounting)."
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from agent_build_kit.pipeline.usage_forecast_record import (
     FORECASTS_NAME,
     ForecastRow,
@@ -15,6 +17,8 @@ from agent_build_kit.pipeline.usage_forecast_record import (
 from agent_build_kit.pipeline.usage_guard import decide_start
 from agent_build_kit.pipeline.verdict import ReviewTier
 from tests.usage_cost_estimate import paused
+from tests.usage_forecast_fixtures import spec_history
+from tests.usage_forecast_gate import ask, lay, live
 from tests.usage_host import Host
 
 NOW = datetime(2026, 1, 1, 12, tzinfo=UTC)
@@ -157,3 +161,42 @@ def test_the_guard_writes_nothing_with_the_forecast_off(host: Host) -> None:
 
     assert decision.may_start
     assert not (host.cache.parent / FORECASTS_NAME).exists()
+
+
+def test_the_guard_records_the_forecast_of_a_units_first_step_once(host: Host) -> None:
+    live(host, session=10.0)
+    lay(host, spec_history())
+
+    first = ask(ReviewTier.AUTO, "auto/1", step="review", step_round=1)
+    later = ask(ReviewTier.AUTO, "auto/1", step="review", step_round=2)
+
+    assert first.may_start
+    assert later.may_start
+    record = read_record(host.cache.parent / FORECASTS_NAME)
+    [row] = record.forecasts
+    assert (row.unit, row.tier, row.band, row.prior) == ("auto/1", ReviewTier.AUTO, "all", False)
+    assert row.session.usd == pytest.approx(2.55, abs=0.01)
+    assert row.session.points == pytest.approx(6.4, abs=0.05)
+    assert row.weekly.usd == row.session.usd
+    assert sum(row.parts.values()) == pytest.approx(row.session.usd or 0.0)
+    assert "review/review/1" in row.parts
+    assert [(s.node, s.round) for s in record.steps] == [("review", 1), ("review", 2)]
+
+
+def test_a_unit_with_no_history_is_recorded_on_the_prior(host: Host) -> None:
+    live(host, session=10.0)
+
+    ask(ReviewTier.FULL, "full/1", step="review", step_round=1)
+
+    [row] = read_record(host.cache.parent / FORECASTS_NAME).forecasts
+    assert row.prior
+    assert row.session.usd is None
+    assert row.parts == {}
+
+
+def test_a_call_outside_a_units_graph_has_no_forecast_row(host: Host) -> None:
+    live(host, session=10.0)
+
+    decide_start(unit="track:health", step="track_health", step_round=0)
+
+    assert read_record(host.cache.parent / FORECASTS_NAME).forecasts == ()

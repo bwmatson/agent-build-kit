@@ -102,16 +102,19 @@ from agent_build_kit.pipeline.usage_calls import (
 from agent_build_kit.pipeline.usage_forecast_ask import Ask, AskForecast, forecast_ask
 from agent_build_kit.pipeline.usage_forecast_record import (
     FORECASTS_NAME,
+    ForecastRow,
     StepRow,
+    WindowForecast,
     read_record,
     record_admission,
 )
 from agent_build_kit.pipeline.usage_forecast_reservations import TimerReading, read_timers
 from agent_build_kit.pipeline.usage_forecast_running import running_remainders
 from agent_build_kit.pipeline.usage_forecast_status import WindowFacts, forecast_line
+from agent_build_kit.pipeline.usage_forecast_unit import forecast_unit
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, UsageRecord, read_ledger, spend_costs
 from agent_build_kit.pipeline.verdict import ReviewTier
-from agent_build_kit.pipeline.verdict_record import VERDICTS, recorded_verdicts
+from agent_build_kit.pipeline.verdict_record import VERDICTS, VerdictEntry, recorded_verdicts
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited, Run
 from agent_build_kit.runtimes.providers import (
     GateCommandResult,
@@ -1304,6 +1307,54 @@ def _account_ledger(cache_path: Path) -> list[UsageRecord]:
     return of_account([], read_ledger(cache_path.parent / LEDGER_NAME), account)[1]
 
 
+class _ForecastContext(Frozen):
+    """What a forecast of any window is made from: each window's facts, the step rows, the
+    recorded verdicts and the installed timers."""
+
+    windows: tuple[WindowFacts, ...]
+    steps: tuple[StepRow, ...]
+    verdicts: dict[str, VerdictEntry]
+    timers: TimerReading
+
+
+def _forecast_context(
+    cache_path: Path, resets: dict[str, datetime | None], now: datetime
+) -> _ForecastContext:
+    """The facts the start decision and `abk status` forecast from, worked out once so the two
+    agree: each window of `resets` with its reset (none once past), points a dollar when a cost
+    basis is in force and flat allowance."""
+    limits = claude_limits()
+    account = _account.get() or claude_account.Account()
+    kept = read_allowances(allowances_path(cache_path.parent, account))
+    root = active_root()
+    # The timers only matter to a window that has a reset ahead.
+    open_window = any(at is not None and at > now for at in resets.values())
+    timers = (
+        read_timers(root)
+        if root is not None and open_window
+        else TimerReading(read=False, tracks={})
+    )
+    windows = []
+    for name, resets_at in resets.items():
+        window: Literal["session", "weekly"] = "session" if name == "session" else "weekly"
+        fit = kept.get(window)
+        costed = fit is not None and cost_basis_in_force(window, fit, limits)
+        windows.append(
+            WindowFacts(
+                name=name,
+                resets_at=resets_at if resets_at is not None and resets_at > now else None,
+                points_per_usd=fit.points_per_usd if fit is not None and costed else None,
+                flat_allowance=allowance_for(window, fit, limits),
+            )
+        )
+    return _ForecastContext(
+        windows=tuple(windows),
+        steps=read_record(cache_path.parent / FORECASTS_NAME).steps,
+        verdicts=recorded_verdicts(cache_path.parent / VERDICTS),
+        timers=timers,
+    )
+
+
 def _ahead(
     ask: Ask,
     cache_path: Path,
@@ -1317,39 +1368,25 @@ def _ahead(
     """The forecast of `ask` for each window of `resets`, from the history, the step rows and the
     installed timers; `counted` are the running units each window's estimate already holds."""
     limits = claude_limits()
-    account = _account.get() or claude_account.Account()
-    kept = read_allowances(allowances_path(cache_path.parent, account))
-    steps = read_record(cache_path.parent / FORECASTS_NAME).steps
-    verdicts = recorded_verdicts(cache_path.parent / VERDICTS)
-    root = active_root()
-    # The timers only matter to a window that has a reset ahead.
-    open_window = any(at is not None and at > now for at in resets.values())
-    timers = (
-        read_timers(root)
-        if root is not None and open_window
-        else TimerReading(read=False, tracks={})
-    )
-    found: dict[str, AskForecast] = {}
-    for name, resets_at in resets.items():
-        window: Literal["session", "weekly"] = "session" if name == "session" else "weekly"
-        fit = kept.get(window)
-        costed = fit is not None and cost_basis_in_force(window, fit, limits)
-        found[name] = forecast_ask(
+    context = _forecast_context(cache_path, resets, now)
+    return {
+        each.name: forecast_ask(
             ask,
             records=ledger,
-            verdicts=verdicts,
-            steps=steps,
-            timers=timers,
+            verdicts=context.verdicts,
+            steps=context.steps,
+            timers=context.timers,
             now=now,
-            resets_at=resets_at if resets_at is not None and resets_at > now else None,
-            points_per_usd=fit.points_per_usd if fit is not None and costed else None,
-            flat_allowance=allowance_for(window, fit, limits),
+            resets_at=each.resets_at,
+            points_per_usd=each.points_per_usd,
+            flat_allowance=each.flat_allowance,
             min_runs=limits.usage_forecast_min_runs,
             quantile=limits.usage_forecast_quantile,
-            counted=counted.get(name, ()),
+            counted=counted.get(each.name, ()),
             admitted=admitted,
         )
-    return found
+        for each in context.windows
+    }
 
 
 def _forecasted(decision: Decision, reading: UsageReading | None, ask: Ask | None) -> Decision:
@@ -1612,28 +1649,15 @@ def held_forecast_line(running: Collection[str]) -> str | None:
     if found is None or not limits.usage_forecast:
         return None
     held, _, cache_path, now = found
-    account = _account.get() or claude_account.Account()
-    kept = read_allowances(allowances_path(cache_path.parent, account))
-    root = active_root()
-    windows = []
-    for each in sorted(held.windows, key=lambda w: w.name != "session"):
-        window: Literal["session", "weekly"] = "session" if each.name == "session" else "weekly"
-        fit = kept.get(window)
-        costed = fit is not None and cost_basis_in_force(window, fit, limits)
-        windows.append(
-            WindowFacts(
-                name=each.name,
-                resets_at=each.resets_at if each.resets_at and each.resets_at > now else None,
-                points_per_usd=fit.points_per_usd if fit is not None and costed else None,
-                flat_allowance=allowance_for(window, fit, limits),
-            )
-        )
+    context = _forecast_context(
+        cache_path, {each.name: each.resets_at for each in held.windows}, now
+    )
     return forecast_line(
-        windows,
+        sorted(context.windows, key=lambda w: w.name != "session"),
         records=_account_ledger(cache_path),
-        verdicts=recorded_verdicts(cache_path.parent / VERDICTS),
-        steps=read_record(cache_path.parent / FORECASTS_NAME).steps,
-        timers=read_timers(root) if root is not None else TimerReading(read=False, tracks={}),
+        verdicts=context.verdicts,
+        steps=context.steps,
+        timers=context.timers,
         running=running,
         now=now,
         min_runs=limits.usage_forecast_min_runs,
@@ -1693,21 +1717,66 @@ def decide_start(
     with on_account(account):
         decision = _decide_start(read=read, decide=decide, unit=unit, step=ask.step, ask=ask)
         if decision.may_start and decision.source != "off":
-            _record_step(ask.unit, ask.step, ask.step_round)
+            _record_step(ask)
     if account is not None and account.label is not None and not decision.may_start:
         return decision.model_copy(update={"reason": f"account {account.label}: {decision.reason}"})
     return decision
 
 
-def _record_step(unit: str | None, step: str | None, step_round: int | None) -> None:
-    """Add the step an admitted unit is about to run to the forecast record."""
-    if unit is None or step is None or step_round is None:
+def _forecast_row(ask: Ask, cache_path: Path, now: datetime) -> ForecastRow | None:
+    """What the unit asking is forecast to spend over its whole path, in each window, for the
+    row written when its first step is admitted; none for a call outside a unit's graph."""
+    if ask.unit is None or not ask.is_unit:
+        return None
+    limits = claude_limits()
+    context = _forecast_context(cache_path, {"session": None, "weekly": None}, now)
+    ledger = _account_ledger(cache_path)
+    found = {
+        each.name: forecast_unit(
+            ledger,
+            context.verdicts,
+            tier=ask.tier,
+            estimated_lines=ask.lines,
+            points_per_usd=each.points_per_usd,
+            flat_allowance=each.flat_allowance,
+            min_runs=limits.usage_forecast_min_runs,
+            quantile=limits.usage_forecast_quantile,
+        )
+        for each in context.windows
+    }
+    session, weekly = found["session"], found["weekly"]
+    # The dollars and their parts do not depend on the window; a window on the prior has none.
+    costed = session if session.usd is not None else weekly
+    return ForecastRow(
+        unit=ask.unit,
+        tier=ask.tier,
+        band=costed.band,
+        at=now,
+        session=WindowForecast(usd=session.usd, points=session.points),
+        weekly=WindowForecast(usd=weekly.usd, points=weekly.points),
+        parts={f"{p.role}/{p.node}/{p.round}": p.usd for p in costed.parts},
+        prior=session.prior or weekly.prior,
+    )
+
+
+def _record_step(ask: Ask) -> None:
+    """Add the step an admitted unit is about to run to the forecast record, with the unit's
+    forecast when this is its first step."""
+    if ask.unit is None or ask.step is None or ask.step_round is None:
         return
+    limits = claude_limits()
+    if not limits.usage_forecast:
+        return
+    cache_path = _cache_file()
+    path = cache_path.parent / FORECASTS_NAME
+    now = datetime.now(UTC)
+    # Only a unit with no forecast row yet needs one made.
+    first = all(row.unit != ask.unit for row in read_record(path).forecasts)
     record_admission(
-        _cache_file().parent / FORECASTS_NAME,
-        StepRow(unit=unit, node=step, round=step_round, at=datetime.now(UTC)),
-        None,
-        enabled=claude_limits().usage_forecast,
+        path,
+        StepRow(unit=ask.unit, node=ask.step, round=ask.step_round, at=now),
+        _forecast_row(ask, cache_path, now) if first else None,
+        enabled=True,
         say=log.warning,
     )
 
