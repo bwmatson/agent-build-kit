@@ -55,14 +55,6 @@ def test_a_changed_floor_changes_the_digest() -> None:
     assert sizing_digest() != before
 
 
-def test_a_changed_max_unit_lines_changes_the_digest() -> None:
-    enable()
-    before = sizing_digest()
-    with_limits(max_unit_lines=800)
-
-    assert sizing_digest() != before
-
-
 def test_a_repos_review_block_changes_the_digest() -> None:
     enable()
     before = sizing_digest()

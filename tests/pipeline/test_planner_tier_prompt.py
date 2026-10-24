@@ -21,7 +21,7 @@ def calibration_section(prompt: str) -> str:
 
 def ceilings_paragraph(prompt: str) -> str:
     """The paragraph of the instructions that states the tier ceilings."""
-    return next(part for part in prompt.split("\n\n") if "5000" in part and "2000" in part)
+    return next(part for part in prompt.split("\n\n") if part.startswith("Ceilings:"))
 
 
 @pytest.fixture(autouse=True)

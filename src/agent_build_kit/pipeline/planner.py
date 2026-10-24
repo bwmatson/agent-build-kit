@@ -1136,8 +1136,7 @@ def _ceilings_text() -> str:
     lines = [
         "Ceilings: a unit is held to the ceiling of the review tier you expect it to get, in "
         f"changed lines: {_tier_figures(None)}. Plan to "
-        "those figures, which replace the one ceiling stated above; a unit with no "
-        "`review_tier` is held to the `full` ceiling."
+        "those figures; a unit with no `review_tier` is held to the `full` ceiling."
     ]
     for name, repo in workspace.repos.items():
         if repo.review.ceilings.model_fields_set:
@@ -1409,7 +1408,7 @@ def _prompt_and_parts(
         old_unit_test=OLD_UNIT_TEST,
         old_e2e=OLD_E2E,
         min_lines=workspace.global_limits.min_unit_lines,
-        max_lines=f"{review_ceiling(None, workspace, None)} changed lines",
+        max_lines=f"the ceiling of its review tier ({_tier_figures(None)} changed lines)",
         relationships=relationships,
         calibration=calibration,
         review=REVIEW_PROMPT + _ceilings_text(),

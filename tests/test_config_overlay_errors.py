@@ -71,7 +71,7 @@ def test_a_misspelled_key_names_the_file_it_is_in_and_its_path(tmp_path: Path) -
 def test_a_value_only_the_combination_makes_invalid_names_both_files(tmp_path: Path) -> None:
     path = committed(tmp_path, {"repos": {"app": APP}, "global_limits": {"min_unit_lines": 700}})
     (tmp_path / "abk.local.yaml").write_text(
-        yaml.safe_dump({"global_limits": {"max_unit_lines": 600}})
+        yaml.safe_dump({"review": {"ceilings": {"full": 600}}})
     )
 
     with pytest.raises(ConfigError) as raised:

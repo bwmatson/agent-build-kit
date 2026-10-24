@@ -560,7 +560,7 @@ def test_the_prompt_carries_the_default_floor_and_ceiling() -> None:
     prompt = prompt_for_defaults()
 
     assert "about 400 changed lines" in prompt
-    assert "over 750 changed lines" in prompt
+    assert "over the ceiling of its review tier (`auto` 750, `light` 750, `full` 750" in prompt
 
 
 def test_the_prompt_defines_what_an_estimate_counts() -> None:

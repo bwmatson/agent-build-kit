@@ -109,18 +109,18 @@ def test_a_deprecated_root_key_in_one_file_merges_with_the_new_spelling_in_the_o
     tmp_path: Path,
 ) -> None:
     path = committed(tmp_path, limits={"min_unit_lines": 100})
-    overlay(tmp_path, {"global_limits": {"max_unit_lines": 600}})
+    overlay(tmp_path, {"global_limits": {"manual_check_seconds": 60}})
 
     limits = load(path).global_limits
 
-    assert (limits.min_unit_lines, limits.max_unit_lines) == (100, 600)
+    assert (limits.min_unit_lines, limits.manual_check_seconds) == (100, 60)
 
     path = committed(tmp_path, global_limits={"min_unit_lines": 100})
-    overlay(tmp_path, {"limits": {"max_unit_lines": 600}})
+    overlay(tmp_path, {"limits": {"manual_check_seconds": 60}})
 
     limits = load(path).global_limits
 
-    assert (limits.min_unit_lines, limits.max_unit_lines) == (100, 600)
+    assert (limits.min_unit_lines, limits.manual_check_seconds) == (100, 60)
 
 
 def test_deprecations_reports_the_old_key_when_only_the_overlay_uses_it(tmp_path: Path) -> None:

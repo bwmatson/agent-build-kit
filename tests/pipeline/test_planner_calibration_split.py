@@ -44,7 +44,7 @@ def rejection(found: dict | None, estimate: int = 600) -> str:
 
 
 def test_a_combined_unit_over_the_ceiling_after_calibration_is_told_what_to_split_to() -> None:
-    limits(max_unit_lines=750)
+    limits()
 
     message = rejection(RATIO_1_5)
 
@@ -55,7 +55,7 @@ def test_a_combined_unit_over_the_ceiling_after_calibration_is_told_what_to_spli
 
 
 def test_a_single_group_over_the_ceiling_is_reported_as_it_was() -> None:
-    limits(max_unit_lines=750)
+    limits()
     output = graph(
         {"id": "c/1", "groups": [1], "estimated_lines": 600},
         {"id": "c/2", "groups": [2, 3], "estimated_lines": 100, "depends_on": ["c/1"]},
@@ -71,14 +71,14 @@ def test_a_single_group_over_the_ceiling_is_reported_as_it_was() -> None:
 
 
 def test_a_unit_over_the_ceiling_with_no_calibration_is_rejected_as_it_was() -> None:
-    limits(max_unit_lines=750)
+    limits()
     assert "500" in rejection(RATIO_1_5)
 
     plain = rejection(None, estimate=900)
 
     assert "largest raw" not in plain
     assert not re.search(r"\b3 (task )?groups\b", plain)
-    limits(max_unit_lines=750, calibrate_estimates=False)
+    limits(calibrate_estimates=False)
     assert rejection(RATIO_1_5, estimate=900) == plain
 
 
@@ -102,7 +102,7 @@ def refusal(found: dict | None, *, added: int = 250) -> str:
 
 
 def test_a_refused_join_names_the_largest_raw_estimate_of_the_receiving_kind() -> None:
-    limits(max_unit_lines=750)
+    limits()
 
     message = refusal(RATIO_1_5)
 
@@ -111,10 +111,10 @@ def test_a_refused_join_names_the_largest_raw_estimate_of_the_receiving_kind() -
 
 
 def test_a_refused_join_with_calibration_off_is_as_it_was() -> None:
-    limits(max_unit_lines=750)
+    limits()
     assert "500" in refusal(RATIO_1_5)
 
-    limits(max_unit_lines=750, calibrate_estimates=False)
+    limits(calibrate_estimates=False)
 
     assert refusal(RATIO_1_5, added=500) == refusal(None, added=500)
     assert "largest raw" not in refusal(None, added=500)

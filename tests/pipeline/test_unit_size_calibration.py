@@ -222,7 +222,7 @@ def graph(*units: dict) -> str:
 
 
 def test_a_unit_over_the_ceiling_only_after_calibration_is_rejected_naming_the_figures() -> None:
-    limits(max_unit_lines=750)
+    limits()
     output = graph({"id": "c/1", "groups": [1, 2], "estimated_lines": 600})
 
     with pytest.raises(PlannerError, match="ceiling") as rejected:
@@ -235,7 +235,7 @@ def test_a_unit_over_the_ceiling_only_after_calibration_is_rejected_naming_the_f
 
 
 def test_a_unit_under_the_ceiling_after_calibration_is_accepted() -> None:
-    limits(max_unit_lines=750)
+    limits()
     output = graph({"id": "c/1", "groups": [1, 2], "estimated_lines": 480})
 
     plan = parse_plan(output, groups=GROUPS, calibrations=RATIO_1_5)
@@ -244,7 +244,7 @@ def test_a_unit_under_the_ceiling_after_calibration_is_accepted() -> None:
 
 
 def test_a_single_group_over_the_ceiling_only_after_calibration_is_too_large() -> None:
-    limits(max_unit_lines=750)
+    limits()
     output = graph(
         {"id": "c/1", "groups": [1], "estimated_lines": 600},
         {"id": "c/2", "groups": [2], "estimated_lines": 100, "depends_on": ["c/1"]},
@@ -258,7 +258,7 @@ def test_a_single_group_over_the_ceiling_only_after_calibration_is_too_large() -
 
 
 def test_another_kinds_ratio_does_not_apply() -> None:
-    limits(max_unit_lines=750)
+    limits()
     output = graph({"id": "c/1", "groups": [1, 2], "estimated_lines": 600})
     other = {Kind(repo="app", tier="e2e-test"): Calibration(ratio=1.5, samples=20)}
 
@@ -266,7 +266,7 @@ def test_another_kinds_ratio_does_not_apply() -> None:
 
 
 def test_with_calibration_off_the_raw_estimate_is_checked() -> None:
-    limits(max_unit_lines=750, calibrate_estimates=False)
+    limits(calibrate_estimates=False)
     output = graph({"id": "c/1", "groups": [1, 2], "estimated_lines": 600})
 
     assert parse_plan(output, groups=GROUPS, calibrations=RATIO_1_5).units
@@ -391,7 +391,7 @@ def test_a_unit_carrying_several_flagged_groups_takes_the_flag_of_the_first(
 
 
 def test_the_plan_check_uses_the_ratio_of_the_first_flagged_group_a_unit_carries() -> None:
-    limits(max_unit_lines=750)
+    limits()
     groups = [
         TaskGroup(
             number=1, repo="app", tier="unit-test", title="A", line=3, task_count=2, flag="contract"

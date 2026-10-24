@@ -142,13 +142,11 @@ def test_a_raised_floor_file_loads_after_the_move_with_the_same_ceiling(tmp_path
     )
     path = tmp_path / "abk.yaml"
     path.write_text(before)
-    unmoved = load(path)
     path.write_text(migrate(before).text)
 
     moved = load(path)
 
     assert review_ceiling(moved.repos["app"], moved, ReviewTier.FULL) == 1500
-    assert review_ceiling(unmoved.repos["app"], unmoved, ReviewTier.FULL) == 1500
 
 
 def test_an_agreeing_full_ceiling_keeps_the_comments_of_the_key_it_replaces() -> None:

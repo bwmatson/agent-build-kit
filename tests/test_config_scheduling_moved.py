@@ -46,12 +46,11 @@ def test_the_settings_that_stay_load_from_global_limits(tmp_path: Path) -> None:
     loaded = load_text(
         tmp_path,
         "version: 1\nglobal_limits:\n  max_review_rounds: 5\n"
-        "  max_unit_lines: 900\n  stack_depth_build_cap: 2\n"
+        "  stack_depth_build_cap: 2\n"
         "project_limits:\n  max_units_in_progress: 3\n",
     )
 
     block = loaded.global_limits
     assert block.max_review_rounds == 5
-    assert block.max_unit_lines == 900
     assert block.stack_depth_build_cap == 2
     assert loaded.project_limits.max_units_in_progress == 3

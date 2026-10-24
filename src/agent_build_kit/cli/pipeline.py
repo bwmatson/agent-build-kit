@@ -5121,8 +5121,8 @@ def planned_hashes(inst: Installation) -> dict[str, dict]:
 
 def sizing_digest() -> str:
     """A digest of the policy the active workspace plans under, in two parts joined by a dot so a
-    difference can be told apart: the ceilings (every tier's, each repo's own, `min_unit_lines`
-    and `max_unit_lines`), then the rest of the `review` section."""
+    difference can be told apart: the ceilings (every tier's, each repo's own, `min_unit_lines`),
+    then the rest of the `review` section."""
     workspace = config.active()
 
     def digest(part: object) -> str:
@@ -5135,7 +5135,6 @@ def sizing_digest() -> str:
             for name, repo in workspace.repos.items()
         },
         "min_unit_lines": workspace.global_limits.min_unit_lines,
-        "max_unit_lines": workspace.global_limits.max_unit_lines,
     }
     rest = {
         "review": workspace.review.model_dump(mode="json", exclude={"ceilings"}),

@@ -165,9 +165,6 @@ global_limits:
   label_sweep_per_tick: 20    # finished units' PRs a round takes a stale state label off (>= 1)
   manual_check_seconds: 30    # seconds a manual step's check script may run (>= 1)
   min_unit_lines: 400         # estimated lines before a unit stops growing
-  max_unit_lines: 750         # DEPRECATED: read as review.ceilings.full;
-                              # `abk config --migrate` moves it. A unit landing
-                              # over its ceiling is reported, never blocked
   calibrate_estimates: true   # estimate x what the unit's kind (repo, tier, flag) landed at
                               # is held to the ceiling; false = the raw estimate
   calibration_window: 20      # newest merged units of a kind sampled (>= 1)
@@ -508,8 +505,8 @@ a unit whose e2e result was deferred to verify stays at `light` or above; accept
 `classes`; once set, `abk doctor` warns for each repo with no branch protection), `audit.sample_rate` (default 0.1, 0 to 1), `demotion.window` (default 30, at least 1) and `demotion.min_agreement`
 (default 0.9, 0 to 1), and `ceilings` (`auto` 5000, `light` 2000, `full` 750 by default: the estimated lines
 a unit may carry, by its expected review tier; ordered `auto` >= `light` >= `full` > `min_unit_lines`). A repo's `review:` holds `protected_paths`,
-which adds to the workspace's, and `ceilings`, a repo override of any one tier. `global_limits.max_unit_lines` is
-deprecated and read as `review.ceilings.full`; `abk config --migrate` moves it, and setting both to different values is refused.
+which adds to the workspace's, and `ceilings`, a repo override of any one tier. A unit landing over its ceiling is reported, never blocked. A file that still sets the old single
+ceiling fails to load; `abk config --migrate` moves it to `review.ceilings.full`.
 `ceiling_buffer` (0 to 1, default 0.2: a unit is held for its size only past its tier's ceiling times one plus this) and
 `split_rounds` (0 to 2, default 2: splits along a unit's lineage; 0 sends every oversized unit to a person) govern the size
 hold, and the config fails to load when the buffered `auto` ceiling would reach the reviewer's reading limit of 10,000 lines.

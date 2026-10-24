@@ -330,11 +330,6 @@ global_limits:
                                 # least 1
   min_unit_lines: 400           # estimated changed lines before the planner
                                 # stops absorbing the next task group
-  max_unit_lines: 750           # DEPRECATED: read as review.ceilings.full (see
-                                # "The `review` section"); `abk config --migrate`
-                                # moves it. Shapes plans; a unit that lands over
-                                # its ceiling is logged and listed by
-                                # `abk status`, never blocked
   calibrate_estimates: true     # multiply a unit's estimate by what units of
                                 # its kind (repo, tier, group flag) landed at
                                 # before holding it to the ceiling; off, plans
@@ -881,11 +876,11 @@ by default, and `full` must stay above `global_limits.min_unit_lines`, `light` m
 for that repo; the merged ceilings must keep the same order. Review by tier is always on. A file
 that still sets the removed key `enabled` under `review` loads with the key ignored, and
 `abk config` and `abk doctor` say it is no longer used.
-`global_limits.max_unit_lines` is deprecated: it is read as `review.ceilings.full` and
-`abk config` and `abk doctor` say so; setting both to different values is refused, and
-`abk config --migrate` moves the value. A plan recorded under other sizing is stale: a plan is
+A file that still sets the old single ceiling fails to load, naming `review.ceilings.full`;
+`abk config --migrate` moves the value. A unit that lands over its ceiling is logged and listed by
+`abk status`, never blocked. A plan recorded under other sizing is stale: a plan is
 stale when anything in the `review` section changes (its ceilings, protected paths, classes or
-auto_land), a repo's `review` block changes, or `global_limits.min_unit_lines` or `max_unit_lines`
+auto_land), a repo's `review` block changes, or `global_limits.min_unit_lines`
 changes (see `abk replan` in `docs/cli.md`).
 
 Once `auto_land.classes` is not empty, `abk doctor` warns for each repo with no branch protection
