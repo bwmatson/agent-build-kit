@@ -59,6 +59,7 @@ from agent_build_kit.notify.reconcile import reconcile as reconcile_notification
 from agent_build_kit.notify.store import NotificationStore
 from agent_build_kit.pipeline import (
     audit_record,
+    demotion_record,
     diagram,
     emergency_lane,
     environment,
@@ -97,6 +98,7 @@ from agent_build_kit.pipeline.cycles import (
     needs_cycle,
     path_between,
 )
+from agent_build_kit.pipeline.demotion_record import demotion_status_lines
 from agent_build_kit.pipeline.drafts import StateDrafts
 from agent_build_kit.pipeline.e2e import (
     LOCK_WAIT_SETTING,
@@ -817,6 +819,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
                 log(f"review gates: {name} clears the gates ({samples} samples{nameable})")
 
     for line in audit_status_lines(inst.state_dir / audit_record.AUDITS):
+        log(line)
+
+    for line in demotion_status_lines(inst.state_dir / demotion_record.DEMOTIONS):
         log(line)
 
     units = store_for(inst).all()
@@ -1540,6 +1545,7 @@ def _reconcile_notifications(inst: Installation, store: UnitStore) -> None:
         log=log,
         verdicts=inst.state_dir / VERDICTS if inst.config.review.enabled else None,
         audits=inst.state_dir / audit_record.AUDITS,
+        demotions=inst.state_dir / demotion_record.DEMOTIONS,
     )
 
 

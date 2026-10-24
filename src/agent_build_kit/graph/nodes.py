@@ -45,7 +45,13 @@ from agent_build_kit.graph.state import (
 )
 from agent_build_kit.installation import Installation, changes_dir_under
 from agent_build_kit.model import TestTier
-from agent_build_kit.pipeline import audit_record, environment, spans, spec_snapshot
+from agent_build_kit.pipeline import (
+    audit_record,
+    demotion_record,
+    environment,
+    spans,
+    spec_snapshot,
+)
 from agent_build_kit.pipeline.agent_commands import commands_note
 from agent_build_kit.pipeline.call_record import call_recorder
 from agent_build_kit.pipeline.changelog_convention import changelog_note
@@ -2085,6 +2091,16 @@ class BuildPath:
             kind = unit.tier
             tree, base = self.tree(), self.ref(state)
             paths, lines = r.branch_diff(tree, base)
+            verdicts = r.store.path.with_name(VERDICTS)
+            unit_class = class_of(active(), unit.repo, kind, paths)
+            try:
+                demoted = demotion_record.demoted_classes(
+                    verdicts.with_name(demotion_record.DEMOTIONS)
+                )
+                demotions_unreadable = False
+            except demotion_record.UnreadableDemotions as unreadable:
+                r.log(f"verdict for {unit.id} held at light: {unreadable}")
+                demoted, demotions_unreadable = (), True
             facts = VerdictFacts(
                 kind=kind,
                 planned_estimate=ReviewTier.parse(unit.review_tier),
@@ -2100,9 +2116,10 @@ class BuildPath:
                 drivers=weighed.verdict.drivers,
                 groups=self.group_texts(),
                 size_waived=r.store.get(unit.id).size_waived,
+                unit_class=unit_class,
+                demoted_classes=demoted,
+                demotions_unreadable=demotions_unreadable,
             )
-            verdicts = r.store.path.with_name(VERDICTS)
-            unit_class = class_of(active(), unit.repo, kind, paths)
             entry = record_verdict(
                 verdicts,
                 unit=unit.id,

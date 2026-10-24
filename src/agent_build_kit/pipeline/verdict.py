@@ -98,6 +98,11 @@ class VerdictFacts(Frozen):
     drivers: tuple[str, ...] = ()
     groups: tuple[GroupText, ...] = ()
     size_waived: bool = False
+    # The unit's class and the classes demoted now, which hold a class at `light`.
+    unit_class: str | None = None
+    demoted_classes: tuple[str, ...] = ()
+    # The demotion file could not be read, so every class is held as if demoted.
+    demotions_unreadable: bool = False
 
 
 class TierVerdict(Frozen):
@@ -170,8 +175,15 @@ def compute_verdict(
         )
     else:
         history_floor = None
+    floors_held = [(evidence_tier, reason)]
+    if history_floor:
+        floors_held.append(history_floor)
+    if facts.demotions_unreadable:
+        floors_held.append((ReviewTier.LIGHT, "the demotion file cannot be read"))
+    elif facts.unit_class is not None and facts.unit_class in facts.demoted_classes:
+        floors_held.append((ReviewTier.LIGHT, f"its class {facts.unit_class} is demoted"))
     tier, reason = _highest(
-        [(evidence_tier, reason), *([history_floor] if history_floor else [])],
+        floors_held,
         ReviewTier.AUTO,
         reason,
     )
