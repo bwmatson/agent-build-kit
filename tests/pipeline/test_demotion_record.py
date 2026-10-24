@@ -173,3 +173,15 @@ def test_the_architecture_doc_lists_the_file_with_the_other_state_files() -> Non
     rows = [line for line in state.splitlines() if line.startswith("| `")]
 
     assert any(line.startswith(f"| `{demotion_record.DEMOTIONS}`") for line in rows)
+
+
+@pytest.mark.parametrize(
+    "text", ["not json", '{"docs": {"lifted": null, "triggers": []}}', '{"docs": 3}']
+)
+def test_a_broken_file_or_record_is_not_read_as_no_demotion(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True)
+    path.write_text(text)
+
+    with pytest.raises(demotion_record.UnreadableDemotions):
+        demotion_record.demoted_classes(path)
+    assert len(demotion_record.demotion_status_lines(path)) == 1

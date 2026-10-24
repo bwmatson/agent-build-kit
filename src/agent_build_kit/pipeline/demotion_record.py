@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 
 # In the state directory beside the other state files.
@@ -77,33 +78,58 @@ def read_demotions(path: Path) -> dict[str, dict[str, Any]]:
     return records
 
 
-def demotion_status_lines(path: Path) -> list[str]:
-    """One line for each class whose demotion stands, with its trigger, the unit and since when."""
-    try:
-        records = read_demotions(path)
-    except UnreadableDemotions as error:
-        return [f"demotions: {error}; fix or remove it, demoted classes are not listed"]
-    lines = []
-    for name, record in sorted(records.items()):
+class Standing(Frozen):
+    """A demotion that stands: the class, the trigger that made it, its unit and since when."""
+
+    name: str
+    trigger: str
+    unit: str
+    since: str
+
+
+def standing_demotions(path: Path) -> list[Standing]:
+    """The demotions that stand (are not lifted), by class name. Raises `UnreadableDemotions`
+    for a file that cannot be read and for a standing record that is malformed, so no caller
+    reads a broken file as no demotion."""
+    standing = []
+    for name, record in sorted(read_demotions(path).items()):
+        if not isinstance(record, dict):
+            raise UnreadableDemotions(f"{path.name} holds a malformed record for {name}")
         if record.get("lifted") is not None:
             continue
-        first = record["triggers"][0]
-        lines.append(
-            f"demoted: {name} by {first['trigger']} on {first['unit']} since {record['since']}"
-            f" — `abk review reinstate {name}` lifts it"
-        )
-    return lines
+        try:
+            first = record["triggers"][0]
+            standing.append(
+                Standing(
+                    name=name,
+                    trigger=first["trigger"],
+                    unit=first["unit"],
+                    since=record["since"],
+                )
+            )
+        except (KeyError, IndexError, TypeError, ValueError) as error:
+            raise UnreadableDemotions(
+                f"{path.name} holds a malformed record for {name}: {error!r}"
+            ) from error
+    return standing
+
+
+def demotion_status_lines(path: Path) -> list[str]:
+    """One line for each class whose demotion stands, with its trigger, the unit and since when;
+    one line saying so when the file cannot be read."""
+    try:
+        standing = standing_demotions(path)
+    except UnreadableDemotions as error:
+        return [f"demotions: {error}; fix or remove it, demoted classes are not listed"]
+    return [
+        f"demoted: {d.name} by {d.trigger} on {d.unit} since {d.since}"
+        f" — `abk review reinstate {d.name}` lifts it"
+        for d in standing
+    ]
 
 
 def demoted_classes(path: Path) -> tuple[str, ...]:
-    """The classes whose demotion stands (is not lifted), by name; none when the file is
-    unreadable, so a broken file never lands a unit by being unread."""
-    try:
-        records = read_demotions(path)
-    except UnreadableDemotions:
-        return ()
-    return tuple(
-        name
-        for name, record in sorted(records.items())
-        if isinstance(record, dict) and record.get("lifted") is None
-    )
+    """The classes whose demotion stands (is not lifted), by name. Raises `UnreadableDemotions`
+    for a file that cannot be read: a caller that lands or classifies a unit holds the unit
+    back then, so a broken file never lifts a demotion by being unread."""
+    return tuple(d.name for d in standing_demotions(path))

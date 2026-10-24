@@ -2091,6 +2091,16 @@ class BuildPath:
             kind = unit.tier
             tree, base = self.tree(), self.ref(state)
             paths, lines = r.branch_diff(tree, base)
+            verdicts = r.store.path.with_name(VERDICTS)
+            unit_class = class_of(active(), unit.repo, kind, paths)
+            try:
+                demoted = demotion_record.demoted_classes(
+                    verdicts.with_name(demotion_record.DEMOTIONS)
+                )
+                demotions_unreadable = False
+            except demotion_record.UnreadableDemotions as unreadable:
+                r.log(f"verdict for {unit.id} held at light: {unreadable}")
+                demoted, demotions_unreadable = (), True
             facts = VerdictFacts(
                 kind=kind,
                 planned_estimate=ReviewTier.parse(unit.review_tier),
@@ -2106,16 +2116,9 @@ class BuildPath:
                 drivers=weighed.verdict.drivers,
                 groups=self.group_texts(),
                 size_waived=r.store.get(unit.id).size_waived,
-            )
-            verdicts = r.store.path.with_name(VERDICTS)
-            unit_class = class_of(active(), unit.repo, kind, paths)
-            facts = facts.model_copy(
-                update={
-                    "unit_class": unit_class,
-                    "demoted_classes": demotion_record.demoted_classes(
-                        verdicts.with_name(demotion_record.DEMOTIONS)
-                    ),
-                }
+                unit_class=unit_class,
+                demoted_classes=demoted,
+                demotions_unreadable=demotions_unreadable,
             )
             entry = record_verdict(
                 verdicts,

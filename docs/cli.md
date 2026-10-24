@@ -214,6 +214,19 @@ and `min_clean_rate`) and so may be added to `review.auto_land.classes`, and mar
 abk.yaml. With no records it says there is nothing to report. `abk status` prints a line for each
 class that clears the gates when `review.enabled` is true. Exit 0.
 
+### `abk review audit <unit> ok|wrong`
+
+Records the result of auditing a landed unit that is awaiting audit. Refused (exit 1) for a unit
+that is not awaiting audit or when the audit file cannot be read. It edits nothing else.
+
+### `abk review reinstate <class>`
+
+Lifts a standing demotion of the class, recording the time. It is the only thing that lifts a
+demotion: time passing or good results do not. Refused (exit 1) for a class that is not demoted
+or when `demotions.json` cannot be read. It edits nothing else. While `demotions.json` cannot be
+read, no unit is landed and every verdict is held at `light`. `abk status` lists each demoted class
+with its trigger, the unit and since when.
+
 ### `abk report [--by GROUPING] [--since DATE] [--change CHANGE] [--unit UNIT] [--include-estimates] [--json] [--context]`
 
 Tokens by kind, cost and time by bucket (agent, checks, slot wait, usage-pause wait,

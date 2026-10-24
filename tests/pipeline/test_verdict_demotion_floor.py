@@ -74,3 +74,10 @@ def test_the_verdict_function_reads_no_file(monkeypatch: pytest.MonkeyPatch) -> 
 
     assert result.tier is LIGHT
     assert not hasattr(verdict, "demotion_record")
+
+
+def test_unreadable_demotions_hold_every_class_at_light_naming_the_file() -> None:
+    result = compute_verdict(green_facts(unit_class="docs", demotions_unreadable=True), PROVEN)
+
+    assert (result.tier, result.evidence_tier) == (LIGHT, AUTO)
+    assert "demotion file cannot be read" in result.reason

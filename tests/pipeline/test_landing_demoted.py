@@ -32,3 +32,16 @@ def test_an_auto_unit_approved_before_its_class_was_demoted_is_declined_until_a_
 
     assert len(landed.forge.merged) == 1, landed.logged
     assert landed.store.get(UNIT).state == "merged"
+
+
+def test_an_unreadable_demotion_file_declines_the_unit_naming_the_file(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    landed = landing(tmp_path, monkeypatch)
+    (landed.inst.state_dir / demotion_record.DEMOTIONS).write_text("not json")
+
+    landed.land()
+
+    assert landed.forge.merged == {}
+    assert not landed.intent()
+    assert any(demotion_record.DEMOTIONS in line for line in landed.logged), landed.logged

@@ -74,6 +74,16 @@ def _land_unit(
         return True
     entry = latest_verdict(inst.state_dir / VERDICTS, unit.id)
     final = entry if entry is not None and entry.final else None
+    try:
+        demoted = demotion_record.demoted_classes(inst.state_dir / demotion_record.DEMOTIONS)
+    except demotion_record.UnreadableDemotions as unreadable:
+        # Fail closed: a file that cannot be read lifts no demotion.
+        if final is not None and final.tier is ReviewTier.AUTO:
+            reason = f"{demotion_record.DEMOTIONS} cannot be read: {unreadable}"
+            say(f"{unit.id}: not landed — {reason}")
+            if unit.note != reason:
+                store.record_event(unit.id, "landing_declined", reason)
+        return False
     units = store.all()
     decision = decide_landing(
         LandingFacts(
@@ -84,9 +94,7 @@ def _land_unit(
             verdict_tier=final.tier if final else None,
             unit_class=final.unit_class if final else None,
             listed_classes=tuple(review.auto_land.classes),
-            demoted_classes=demotion_record.demoted_classes(
-                inst.state_dir / demotion_record.DEMOTIONS
-            ),
+            demoted_classes=demoted,
             forge_merges=forge.merges,
             pr_open=pull.state == "open",
             draft=pull.draft,

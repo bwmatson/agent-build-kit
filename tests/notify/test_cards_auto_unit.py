@@ -3,12 +3,14 @@ auto-land, an auto unit that will not land is not hidden)."""
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit import forges
 from agent_build_kit.notify.cards import desired_cards
+from agent_build_kit.pipeline import demotion_record
 from agent_build_kit.pipeline.landing_decision import Condition
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import IN_REVIEW
@@ -90,3 +92,30 @@ def test_an_auto_unit_of_a_listed_class_waiting_for_pending_checks_has_none(
     assert card_ids(waiting, verdicts, demoted_classes=("docs",)) == [REVIEW_CARD], (
         "waiting for checks hides a unit only while the landing step will land it"
     )
+
+
+def test_an_auto_unit_of_a_class_demoted_in_the_file_has_a_review_card_before_any_decline(
+    verdicts: Path, tmp_path: Path
+) -> None:
+    write_verdicts(verdicts, {UNIT: ReviewTier.AUTO}, unit_class="docs")
+    demotions = tmp_path / demotion_record.DEMOTIONS
+    demotion_record.demote(
+        demotions,
+        unit_class="docs",
+        trigger="revert",
+        unit="c/9",
+        at=datetime(2026, 1, 1, tzinfo=UTC),
+        say=lambda _: None,
+    )
+
+    assert REVIEW_CARD in card_ids(in_review(), verdicts, demotions=demotions)
+
+
+def test_an_unreadable_demotion_file_does_not_hide_the_review_card(
+    verdicts: Path, tmp_path: Path
+) -> None:
+    write_verdicts(verdicts, {UNIT: ReviewTier.AUTO}, unit_class="docs")
+    demotions = tmp_path / demotion_record.DEMOTIONS
+    demotions.write_text("not json")
+
+    assert REVIEW_CARD in card_ids(in_review(), verdicts, demotions=demotions)
