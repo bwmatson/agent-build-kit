@@ -6,6 +6,7 @@ directory and `systemctl` are faked. Calibration is 2.5 points a dollar, so `aut
 cost $2.40 are 6.0 points and `full` units that cost $3.20 are 8.0."""
 
 import os
+import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -111,7 +112,9 @@ def test_a_tier_under_the_minimum_is_marked_as_the_prior(
 
     line = forecast_line(status(inst, capsys))
 
-    assert line.count("light 17.0% prior") == 2, line
+    # Each window's prior is its own flat allowance.
+    assert "session auto 6.0% (20 units), light 17.0% prior" in line
+    assert len(re.findall(r"light \d+\.\d% prior", line)) == 2, line
     assert "light 17.0% (" not in line
 
 

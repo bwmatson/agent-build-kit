@@ -354,6 +354,7 @@ from agent_build_kit.pipeline.usage_guard import (
     forget_logged_failures,
     guard_off_line,
     held_estimate_line,
+    held_forecast_line,
     held_usage,
     may_start_unit,
     on_account,
@@ -743,6 +744,9 @@ def _account_usage_lines(
     with on_account(account):
         if estimate := held_estimate_line():
             lines.append(estimate + whose)
+            running = {u.id for u in store_for(inst).all() if u.state == RUNNING}
+            if ahead := held_forecast_line(running):
+                lines.append(ahead + whose)
         found = read_allowances(allowances_path(inst.state_dir, account))
         lines.append(allowances_line(found, claude_limits()) + whose)
         calls_file = calls_path(inst.state_dir, account)

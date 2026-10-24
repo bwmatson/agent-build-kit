@@ -55,7 +55,7 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Collection, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
@@ -108,6 +108,7 @@ from agent_build_kit.pipeline.usage_forecast_record import (
 )
 from agent_build_kit.pipeline.usage_forecast_reservations import TimerReading, read_timers
 from agent_build_kit.pipeline.usage_forecast_running import running_remainders
+from agent_build_kit.pipeline.usage_forecast_status import WindowFacts, forecast_line
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, UsageRecord, read_ledger, spend_costs
 from agent_build_kit.pipeline.verdict import ReviewTier
 from agent_build_kit.pipeline.verdict_record import VERDICTS, recorded_verdicts
@@ -1574,9 +1575,10 @@ def _record_admitted(
         pass
 
 
-def held_estimate_line() -> str | None:
-    """The estimate line from the reading held, for `abk status`: no call is made. Only when the
-    reading is older than the time a reading is kept and the endpoint cannot be asked."""
+def _held_for_status() -> tuple[UsageReading, dict, Path, datetime] | None:
+    """The reading, cache, cache path and time the status lines about a held reading rest on:
+    only when the reading is older than the time a reading is kept and the endpoint cannot be
+    asked."""
     now = datetime.now(UTC)
     cache_path = _cache_file()
     calls_file = _calls_file(cache_path)
@@ -1586,9 +1588,57 @@ def held_estimate_line() -> str | None:
         return None
     if not _cooling(cached, now) and next_call_at(calls_file, now=now) is None:
         return None
+    return held, cached, cache_path, now
+
+
+def held_estimate_line() -> str | None:
+    """The estimate line from the reading held, for `abk status`: no call is made. Only when the
+    reading is older than the time a reading is kept and the endpoint cannot be asked."""
+    found = _held_for_status()
+    if found is None:
+        return None
+    held, cached, cache_path, now = found
     estimates = _estimates(held, cached, cache_path, now)
     text = _estimate_text(held, estimates, now)
     return text + (", allowing starts" if all(each.ample for each in estimates) else "")
+
+
+def held_forecast_line(running: Collection[str]) -> str | None:
+    """The forecast line beside the estimate line, for `abk status`: no call is made. Nothing
+    when the forecast is off or the estimate line is not printed; `running` are the units
+    running now."""
+    limits = claude_limits()
+    found = _held_for_status()
+    if found is None or not limits.usage_forecast:
+        return None
+    held, _, cache_path, now = found
+    account = _account.get() or claude_account.Account()
+    kept = read_allowances(allowances_path(cache_path.parent, account))
+    root = active_root()
+    windows = []
+    for each in sorted(held.windows, key=lambda w: w.name != "session"):
+        window: Literal["session", "weekly"] = "session" if each.name == "session" else "weekly"
+        fit = kept.get(window)
+        costed = fit is not None and cost_basis_in_force(window, fit, limits)
+        windows.append(
+            WindowFacts(
+                name=each.name,
+                resets_at=each.resets_at if each.resets_at and each.resets_at > now else None,
+                points_per_usd=fit.points_per_usd if fit is not None and costed else None,
+                flat_allowance=allowance_for(window, fit, limits),
+            )
+        )
+    return forecast_line(
+        windows,
+        records=_account_ledger(cache_path),
+        verdicts=recorded_verdicts(cache_path.parent / VERDICTS),
+        steps=read_record(cache_path.parent / FORECASTS_NAME).steps,
+        timers=read_timers(root) if root is not None else TimerReading(read=False, tracks={}),
+        running=running,
+        now=now,
+        min_runs=limits.usage_forecast_min_runs,
+        quantile=limits.usage_forecast_quantile,
+    )
 
 
 def _too_soon(allowed: datetime, now: datetime) -> Decision:

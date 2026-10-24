@@ -5,7 +5,9 @@
 - The usage guard forecasts a start before allowing it: a unit by its review tier, a track or
   the planner as one call at its mean cost, with the plan call that is due and the tracks that
   will fire before the window resets held back. A refusal says which part of the forecast is
-  largest.
+  largest. `abk status` prints a `forecast:` line after the estimate line: each review tier's
+  forecast in each window with the units it rests on (or `prior`), the running units' remaining
+  points and the reservations.
 
 - When a Claude Code step is confined by the sandbox, the policy hook no longer checks where a
   file write lands or refuses writes to the specs folder, and the command rules no longer

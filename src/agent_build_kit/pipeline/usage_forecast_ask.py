@@ -24,7 +24,7 @@ from agent_build_kit.pipeline.vocabulary import PROPOSING_PHASES, OverheadNode
 
 _OVERHEAD = frozenset(node.value for node in OverheadNode)
 # The track nodes whose run goes on to propose a change.
-_PROPOSING = frozenset(f"track_{phase}" for phase in PROPOSING_PHASES)
+PROPOSING_TRACKS = frozenset(f"track_{phase}" for phase in PROPOSING_PHASES)
 
 
 class Ask(Frozen):
@@ -170,7 +170,7 @@ def forecast_ask(
                 records,
                 timers,
                 plan_due=ask.plan_due,
-                proposing=_PROPOSING,
+                proposing=PROPOSING_TRACKS,
                 resets_at=resets_at,
                 now=now,
                 points_per_usd=points_per_usd,
