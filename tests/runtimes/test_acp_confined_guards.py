@@ -23,7 +23,7 @@ from agent_build_kit.runtimes.acp import AcpRuntime
 from tests.conftest import make_installation
 from tests.factories import git, init_repo
 from tests.runtimes.acp_agent import requests, use_agent
-from tests.runtimes.acp_sandbox_support import Recording, Scene
+from tests.runtimes.acp_sandbox_support import Recording, Scene, shell
 
 BRANCH = "spec/add-marker/1"
 
@@ -93,7 +93,7 @@ def test_a_confined_fenced_file_inside_the_checkout_is_still_fenced_by_text(
         ToolPolicy(
             confined=True, planning_paths=("abk.yaml",), fenced_files=(planning / "abk.yaml",)
         ),
-        [fence_probe(planning), {"terminal": "sh", "args": ["-c", f"echo x > {inside}"]}],
+        [fence_probe(planning), {"terminal": f"cp /dev/null {inside}", "args": []}],
     )
 
     stood_down, refused = requests(record, "did/terminal")
@@ -102,7 +102,7 @@ def test_a_confined_fenced_file_inside_the_checkout_is_still_fenced_by_text(
     assert inside.read_text() == "repos: {}\n"
 
 
-def test_the_kits_own_process_writes_for_the_agent_so_the_client_refuses_outside_the_worktree_when_confined(
+def test_the_kits_own_process_writes_for_the_agent_so_the_client_refuses_outside_when_confined(
     tmp_path: Path, worktree: Path, planning: Path
 ) -> None:
     """`write_text_file` is performed by abk itself, which the launcher does not wrap."""
@@ -124,7 +124,7 @@ def test_the_kits_own_process_writes_for_the_agent_so_the_client_refuses_outside
 
 
 @pytest.mark.parametrize("kind", ["edit", "delete", "move"])
-def test_the_kits_own_process_performs_approved_edits_so_the_verdict_refuses_outside_the_worktree_when_confined(
+def test_the_kits_own_process_performs_approved_edits_so_the_verdict_refuses_when_confined(
     tmp_path: Path, worktree: Path, planning: Path, kind: str
 ) -> None:
     record = tmp_path / "agent.jsonl"
@@ -162,7 +162,7 @@ def test_the_meaning_rules_apply_to_a_confined_terminal(
         record,
         worktree,
         ToolPolicy(confined=True, fenced_files=(planning / "abk.yaml",)),
-        [fence_probe(planning), {"terminal": "sh", "args": ["-c", line]}],
+        [fence_probe(planning), {"terminal": line, "args": []}],
     )
 
     stood_down, refused = requests(record, "did/terminal")
@@ -202,18 +202,12 @@ def test_install_config_still_works_as_a_child_of_a_confined_agent(
     staged.write_text("repos: []\n")
     acp_scene.act(
         {"terminal": "sh", "args": ["-c", f"echo x > {acp_scene.target}"]},
-        {
-            "terminal": sys.executable,
-            "args": [
-                "-m",
-                "agent_build_kit",
-                "--config",
-                str(config),
-                "install-config",
-                ".abk/proposed/p.yaml",
-                ".pre-commit-config.yaml",
-            ],
-        },
+        # The launcher leaves the developer's own git configuration unreadable.
+        shell(
+            "GIT_CONFIG_GLOBAL=/dev/null "
+            f"{sys.executable} -m agent_build_kit --config {config} "
+            "install-config .abk/proposed/p.yaml .pre-commit-config.yaml"
+        ),
     )
 
     AcpRuntime().run(

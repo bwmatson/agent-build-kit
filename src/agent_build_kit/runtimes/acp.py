@@ -946,11 +946,16 @@ class _Session:
         """The files that hold the review policy, which no command of this run may write."""
         if self._policy is None:
             return ()
-        return policy_files(
+        files = policy_files(
             checkout=self._worktree,
             planning_paths=self._policy.planning_paths,
             fenced_files=self._policy.fenced_files,
         )
+        if not self._policy.confined or self._worktree is None:
+            return files
+        # The terminals run under the launcher, which already keeps them out of a file beyond
+        # the worktree: only the text fence on a file inside it remains.
+        return tuple(f for f in files if f.resolve().is_relative_to(self._worktree))
 
     def _refusals(self, command: str) -> Verdict:
         """What no turn the server runs may do: push, and commit when asked not to."""

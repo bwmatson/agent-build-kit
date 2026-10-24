@@ -1165,6 +1165,14 @@ in Claude Code, so every unexpected path here denies. The same commands are
 also passed as `--disallowedTools`: two independent things have to fail
 before an agent can merge its own PR.
 
+The guards by class: a location guard (the hook's worktree check and specs fence, the command
+rules' fence on the planning repo's `abk.yaml` and `abk.local.yaml`, ACP's command-text fence)
+stands down when the step is confined, because the sandbox refuses the write; it is what runs
+when a step is not confined. A guard about meaning (the merge, push, force-push, commit and
+`--no-verify` rules, `planning_paths`, the redirect rule) stays in both modes. `abk policy check`
+and `abk status` list which is which from `runtimes/guards.py`; the table is in
+[sandbox-design.md](sandbox-design.md).
+
 **The config guard** (`config_guard.py`). `abk.yaml` and `abk.local.yaml` are read before an agent
 step and after it. When the step was not confined a difference fails the unit with
 `ConfigChanged`. During a confined run a person may edit them: with coverage `process` or

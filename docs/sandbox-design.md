@@ -350,7 +350,8 @@ It fails only when the step was not confined. A person can then edit `abk.local.
 A read-only inventory of the kit's guards (2026-10-21) sorted them by what they say. A guard that only says **where** an agent may write is a
 second, weaker copy of the sandbox once the step is confined, so it stands down **when the step is confined** and stays as the fallback
 otherwise (native Windows, `required: none`, a backend that fails to start). A guard about **meaning**, or about a location the sandbox cannot
-express, stays in both modes.
+express, stays in both modes. The table below is kept in code in `runtimes/guards.py`, and `abk policy check` and `abk status` list each
+guard per runtime as active, skipped (confined) or kept (meaning) from it, so the listing and the behaviour cannot drift.
 
 | Guard | Class | When the step is confined |
 |---|---|---|

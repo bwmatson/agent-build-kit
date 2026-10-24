@@ -14,7 +14,8 @@ from agent_build_kit.runtimes.guards import guard_lines
 from agent_build_kit.sandboxes import Coverage
 from tests.cli.guard_listing_support import ACTIVE, KEPT, SKIPPED, state_of
 from tests.cli.policy_step_fakes import configured
-from tests.cli.sandbox_cli_support import CountingBackend, stand_in, switch_on  # noqa: F401
+from tests.cli.sandbox_cli_support import CountingBackend, switch_on
+from tests.cli.sandbox_cli_support import stand_in as stand_in  # noqa: F401 — fixture
 from tests.cli.test_init import app, stubs  # noqa: F401 — fixtures
 from tests.conftest import make_installation
 from tests.runtimes.selectable import SelectableRuntime
@@ -43,7 +44,7 @@ def test_a_confined_claude_code_shows_its_location_guards_skipped_and_its_meanin
     app: Path,  # noqa: F811 — fixture
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    stand_in: CountingBackend,
+    stand_in: CountingBackend,  # noqa: F811 — fixture
 ) -> None:
     runtime = SelectableRuntime("claude_code", sandbox_coverage=Coverage.PROCESS)
 
@@ -74,7 +75,7 @@ def test_a_confined_acp_shows_its_command_text_fence_skipped_and_the_client_chec
     app: Path,  # noqa: F811 — fixture
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    stand_in: CountingBackend,
+    stand_in: CountingBackend,  # noqa: F811 — fixture
 ) -> None:
     runtime = SelectableRuntime("acp", sandbox_coverage=Coverage.PROCESS)
 
@@ -90,7 +91,7 @@ def test_a_runtime_that_confines_nothing_keeps_every_location_guard_active(
     app: Path,  # noqa: F811 — fixture
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    stand_in: CountingBackend,
+    stand_in: CountingBackend,  # noqa: F811 — fixture
 ) -> None:
     runtime = SelectableRuntime("claude_code", sandbox_coverage=Coverage.NONE)
 
@@ -104,7 +105,7 @@ def test_the_listing_is_the_one_the_table_gives(
     app: Path,  # noqa: F811 — fixture
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    stand_in: CountingBackend,
+    stand_in: CountingBackend,  # noqa: F811 — fixture
 ) -> None:
     runtime = SelectableRuntime("claude_code", sandbox_coverage=Coverage.PROCESS)
     lines = check(tmp_path, app, monkeypatch, capsys, runtime, sandbox=True)

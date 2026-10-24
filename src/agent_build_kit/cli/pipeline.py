@@ -422,6 +422,7 @@ from agent_build_kit.redaction import redact_text
 from agent_build_kit.replay.review import directories as replay_directories
 from agent_build_kit.replay.review import waiting as replay_waiting
 from agent_build_kit.runtimes import AgentRateLimited, NetworkUnavailable, ServiceUnavailable
+from agent_build_kit.runtimes.guards import guard_lines
 from agent_build_kit.serve.review import ReviewStore
 
 if TYPE_CHECKING:
@@ -777,6 +778,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         log(f"usage: runtime {config.runtime_name()} is not available: {exc}")
     else:
         log(coverage_line(runtime, inst))
+        for line in guard_lines(runtime, inst):
+            log(line)
         if not runtime.supports_usage_tracking:
             log(f"usage: runtime {runtime.name} has no usage window")
         if runtime.supports_usage_tracking:

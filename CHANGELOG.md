@@ -7,7 +7,9 @@
   refuse a shell write onto the planning repo's `abk.yaml` or `abk.local.yaml`: the kernel
   refuses them. A step that is not confined keeps every one of these checks, and the rules
   about meaning (no merge, push, force-push, `--no-verify`, or commit when asked, and the
-  planning paths) apply in both modes.
+  planning paths) apply in both modes. ACP's command-text fence on those two files stands down
+  the same way, and `abk policy check` and `abk status` now list, per runtime, each guard as
+  active, skipped (confined) or kept (meaning).
 
 - A change to `abk.yaml` or `abk.local.yaml` while an agent step runs is now a warning, not a
   failure, when the step was confined by the sandbox: the tick log shows the diff, `abk status`
