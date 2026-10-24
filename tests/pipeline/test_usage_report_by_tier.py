@@ -71,7 +71,8 @@ def test_forecast_against_actual_per_tier(files: Files) -> None:
     assert row.spent_usd == pytest.approx(8.00)
     assert row.ratio == pytest.approx(8.00 / 7.65)
     assert round(row.ratio or 0, 2) == 1.05
-    assert row.over == 1
+    # $2.60 and $3.40 both exceed $2.55; the spec's "one over" miscounts its own figures.
+    assert row.over == 2
     assert row.unforecast == 0
 
 

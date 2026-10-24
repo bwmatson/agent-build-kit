@@ -32,6 +32,9 @@ ALLOWED = {
     "pipeline/usage_forecast_unit.py",
     "pipeline/usage_forecast_ask.py",
     "pipeline/usage_guard.py",  # the start decision reads the verdict records to forecast a unit
+    "pipeline/usage_forecast_status.py",  # the status line forecasts by planned tier
+    "pipeline/usage_report.py",  # the report groups by the tier planned for each unit
+    "cli/report_cmd.py",  # the report is given the verdict file
     "notify/cards.py",  # a card reads the verdict's class to tell whether the unit will land
 }
 NAMES = re.compile(r"verdicts\.json|verdict_record|\bVERDICTS\b")

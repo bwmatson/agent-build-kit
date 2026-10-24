@@ -7,6 +7,7 @@ from datetime import datetime
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.usage_forecast_record import FORECASTS_NAME
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.usage_report import (
     GROUPINGS,
@@ -18,6 +19,7 @@ from agent_build_kit.pipeline.usage_report import (
     render_table,
     render_waits,
 )
+from agent_build_kit.pipeline.verdict_record import VERDICTS
 from agent_build_kit.pipeline.wait_log import DECISIONS_NAME
 
 
@@ -61,6 +63,8 @@ def cmd_report(args: argparse.Namespace, inst: Installation) -> int:
         change=args.change,
         unit=args.unit,
         include_estimates=args.include_estimates,
+        verdicts=inst.state_dir / VERDICTS,
+        forecasts=inst.state_dir / FORECASTS_NAME,
     )
     print(render_json(report) if args.json else render_table(report))
     return 0

@@ -33,6 +33,7 @@ from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.unit_size import Kind, kind_of, measured
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW, PLANNED, RUNNING
+from agent_build_kit.pipeline.usage_forecast_record import read_record
 from agent_build_kit.pipeline.usage_ledger import (
     CostBasis,
     UsageRecord,
@@ -41,9 +42,10 @@ from agent_build_kit.pipeline.usage_ledger import (
     ledger_lock,
     read_lines,
 )
+from agent_build_kit.pipeline.verdict_record import recorded_verdicts
 from agent_build_kit.pipeline.vocabulary import WaitReason
 
-GROUPINGS = ("unit", "change", "node", "role", "model", "repo", "account", "day")
+GROUPINGS = ("unit", "change", "node", "role", "model", "repo", "account", "day", "tier")
 
 # A session's increments this far from its final cumulative figure still add up.
 SESSION_TOLERANCE = 1e-6
@@ -402,7 +404,9 @@ def _when(value: object) -> datetime | None:
     return at if at.tzinfo else at.replace(tzinfo=UTC)
 
 
-def _group_key(entry: _Entry, group_by: str) -> str:
+def _group_key(entry: _Entry, group_by: str, tiers: dict[str, str]) -> str:
+    if group_by == "tier":
+        return tiers.get(entry.unit, NONE)
     if group_by == "day":
         return entry.at.date().isoformat() if entry.at else NONE
     if group_by == "account":
@@ -545,6 +549,20 @@ def build_report(
 ) -> Report:
     """The ledger's rows grouped by `group_by`, filtered by date, change or unit. The review
     tier of a unit is read from the `verdicts` file and its forecast from the `forecasts` file."""
+    tiers: dict[str, str] = {}
+    forecast_usd: dict[str, float] = {}
+    if group_by == "tier":
+        tiers = {u.id: u.review_tier for u in units if u.review_tier}
+        if verdicts is not None:
+            tiers |= {
+                id: entry.planned_estimate.value
+                for id, entry in recorded_verdicts(verdicts).items()
+                if entry.planned_estimate is not None
+            }
+        if forecasts is not None:
+            for row in read_record(forecasts).forecasts:
+                if row.session.usd is not None:
+                    forecast_usd.setdefault(row.unit, row.session.usd)
     return _report_of(
         _all_entries(ledger, units),
         group_by=group_by,
@@ -552,6 +570,8 @@ def build_report(
         change=change,
         unit=unit,
         include_estimates=include_estimates,
+        tiers=tiers,
+        forecast_usd=forecast_usd,
     )
 
 
@@ -663,6 +683,8 @@ def _report_of(
     change: str | None = None,
     unit: str | None = None,
     include_estimates: bool = False,
+    tiers: dict[str, str] | None = None,
+    forecast_usd: dict[str, float] | None = None,
 ) -> Report:
     if group_by not in GROUPINGS:
         raise ValueError(f"cannot group by {group_by!r}; choose from {', '.join(GROUPINGS)}")
@@ -682,7 +704,7 @@ def _report_of(
         if group_by == "unit" and not entry.unit and entry.call is not None:
             overhead.setdefault(entry.node, []).append(entry.row)
         else:
-            groups.setdefault(_group_key(entry, group_by), []).append(entry.row)
+            groups.setdefault(_group_key(entry, group_by, tiers or {}), []).append(entry.row)
     rows = tuple(_finish(_combine(key, groups[key]), include_estimates) for key in sorted(groups))
     overheads = tuple(
         _finish(_combine(node, overhead[node]), include_estimates) for node in sorted(overhead)
@@ -711,7 +733,48 @@ def _report_of(
             for p in e.parts
             if p.cost is not None and p.cost.basis == CostBasis.UNKNOWN
         ),
+        tiers=_tier_rows(entries, tiers or {}, forecast_usd or {}) if group_by == "tier" else (),
     )
+
+
+def _tier_rows(
+    entries: list[_Entry], tiers: dict[str, str], forecast_usd: dict[str, float]
+) -> tuple[TierRow, ...]:
+    """Each review tier's units with their recorded forecast against their spend; a unit with
+    no forecast is counted apart and stays out of the ratio."""
+    spent: dict[str, dict[str, float]] = {}
+    spend: dict[str, dict[tuple[str, str], float]] = {}
+    for entry in entries:
+        if entry.call is None or not entry.unit:
+            continue
+        name = tiers.get(entry.unit, NONE)
+        usd = entry.row.measured.cost_usd or 0.0
+        units = spent.setdefault(name, {})
+        units[entry.unit] = units.get(entry.unit, 0.0) + usd
+        cells = spend.setdefault(name, {})
+        cells[(entry.role, entry.node)] = cells.get((entry.role, entry.node), 0.0) + usd
+    rows = []
+    for name in sorted(spent):
+        forecast = {u: usd for u, usd in spent[name].items() if u in forecast_usd}
+        planned = sum(forecast_usd[u] for u in forecast)
+        total = sum(spent[name].values())
+        compared = sum(forecast.values())
+        rows.append(
+            TierRow(
+                tier=name,
+                units=len(spent[name]),
+                forecast_usd=round(planned, 10),
+                spent_usd=round(total, 10),
+                ratio=compared / planned if planned else None,
+                over=sum(1 for u, usd in forecast.items() if usd > forecast_usd[u]),
+                unforecast=len(spent[name]) - len(forecast),
+                spend=tuple(
+                    TierSpend(role=role, node=node, usd=round(usd, 10))
+                    for (role, node), usd in sorted(spend[name].items())
+                ),
+            )
+        )
+    return tuple(rows)
 
 
 def _sessions(calls: list[UsageRecord]) -> tuple[SessionRow, ...]:
@@ -847,6 +910,22 @@ def _overhead_heading(report: Report) -> str:
 def render_table(report: Report) -> str:
     table = [[report.group_by, *_HEADINGS], *(_cells(r) for r in (*report.rows, report.total))]
     lines = _aligned(table)
+    if report.tiers:
+        tiers = [["tier", "units", "forecast", "spent", "ratio", "over", "unforecast"]] + [
+            [
+                t.tier,
+                str(t.units),
+                _cost(t.forecast_usd),
+                _cost(t.spent_usd),
+                "-" if t.ratio is None else f"{t.ratio:.2f}",
+                str(t.over),
+                str(t.unforecast),
+            ]
+            for t in report.tiers
+        ]
+        lines += ["", *_aligned(tiers)]
+        for t in report.tiers:
+            lines += [f"  {t.tier} {s.role}/{s.node} {_cost(s.usd)}" for s in t.spend]
     if report.overhead:
         lines += ["", _overhead_heading(report), *_aligned([_cells(r) for r in report.overhead])]
     if report.sessions:

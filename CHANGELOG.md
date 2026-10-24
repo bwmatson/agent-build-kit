@@ -7,7 +7,10 @@
   will fire before the window resets held back. A refusal says which part of the forecast is
   largest. `abk status` prints a `forecast:` line after the estimate line: each review tier's
   forecast in each window with the units it rests on (or `prior`), the running units' remaining
-  points and the reservations.
+  points and the reservations. `abk report --by tier` groups the ledger by the review tier
+  planned for each unit and shows each tier's units, the dollars forecast when they were
+  admitted, the dollars spent, their ratio, the units over their forecast, those with no
+  forecast and the spend by role and node.
 
 - When a Claude Code step is confined by the sandbox, the policy hook no longer checks where a
   file write lands or refuses writes to the specs folder, and the command rules no longer

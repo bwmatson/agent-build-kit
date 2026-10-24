@@ -37,6 +37,7 @@ from agent_build_kit.pipeline.run_log import CONTINUATION, run_log_dir
 from agent_build_kit.pipeline.stack_runner import unit_follow_ups
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import base_of, shown_dependencies, unit_file_prefix
+from agent_build_kit.pipeline.usage_forecast_record import FORECASTS_NAME
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.usage_report import GROUPINGS, build_report, render_json
 from agent_build_kit.pipeline.verdict_record import VERDICTS, VerdictEntry, latest_verdict
@@ -577,6 +578,8 @@ def create_app(
             change=change,
             unit=unit,
             include_estimates=include_estimates,
+            verdicts=installation.state_dir / VERDICTS,
+            forecasts=installation.state_dir / FORECASTS_NAME,
         )
         return Response(render_json(report), media_type="application/json")
 
