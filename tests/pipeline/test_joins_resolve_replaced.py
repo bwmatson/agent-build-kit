@@ -37,6 +37,5 @@ def test_a_started_unit_whose_edge_names_a_unit_replaced_by_onto_refuses_the_joi
             change=None,
             groups=[],
             built=set(),
-            ceiling=750,
             floor=ordinary_floor,
         )

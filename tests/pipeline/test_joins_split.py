@@ -33,7 +33,6 @@ def check_group(group_split: str, onto_split: str) -> None:
         change="feature",
         groups=[tagged(group_split)],
         built=set(),
-        ceiling=750,
         floor=ordinary_floor,
     )
 
@@ -53,7 +52,6 @@ def check_unit(taken_split: str, onto_split: str) -> None:
         change=None,
         groups=[],
         built=set(),
-        ceiling=750,
         floor=ordinary_floor,
     )
 

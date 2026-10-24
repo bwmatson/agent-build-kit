@@ -34,7 +34,6 @@ def check_group(group_kind: str, onto_kind: str) -> None:
         change="feature",
         groups=[tagged(group_kind)],
         built=set(),
-        ceiling=750,
         floor=ordinary_floor,
     )
 
@@ -52,7 +51,6 @@ def check_unit(taken_kind: str, onto_kind: str) -> None:
         change=None,
         groups=[],
         built=set(),
-        ceiling=750,
         floor=ordinary_floor,
     )
 

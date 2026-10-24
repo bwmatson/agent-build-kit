@@ -94,7 +94,6 @@ def refusal(found: dict | None, *, added: int = 250) -> str:
             change="feature",
             groups=[group],
             built=set(),
-            ceiling=750,
             floor=ordinary_floor,
             calibrations=found,
         )

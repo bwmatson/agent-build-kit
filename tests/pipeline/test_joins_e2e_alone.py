@@ -32,7 +32,6 @@ def join_group(group: TaskGroup, onto_group: TaskGroup, *, kind: str) -> None:
         change="feature",
         groups=[group],
         built=set(),
-        ceiling=750,
         floor=ordinary_floor,
     )
 
@@ -50,7 +49,6 @@ def join_unit(taken_group: TaskGroup, onto_group: TaskGroup, *, kind: str) -> No
         change=None,
         groups=[],
         built=set(),
-        ceiling=750,
         floor=ordinary_floor,
     )
 

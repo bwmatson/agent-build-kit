@@ -37,7 +37,6 @@ def check(*joins: Join, units: list, plan: list[Unit] | None = None) -> None:
         change="plan" if plan else None,
         groups=[],
         built=set(),
-        ceiling=750,
         floor=ordinary_floor,
     )
 

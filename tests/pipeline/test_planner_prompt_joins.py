@@ -65,7 +65,6 @@ def join_of(*, lines: int = 100, started: bool = False) -> None:
         change="feature",
         groups=groups_at(1),
         built=set(),
-        ceiling=750,
         floor=ordinary_floor,
     )
 

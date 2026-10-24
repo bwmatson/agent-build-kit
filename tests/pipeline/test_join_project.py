@@ -31,7 +31,6 @@ def check(join: Join, *stored, catalog: dict, change: str | None = None, groups=
         change=change,
         groups=list(groups),
         built=set(),
-        ceiling=750,
         floor=ordinary_floor,
     )
 

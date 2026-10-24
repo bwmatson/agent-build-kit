@@ -27,7 +27,6 @@ def join_group(onto_kind: str, group_kind: str) -> None:
         change="feature",
         groups=[tagged(group_kind)],
         built=set(),
-        ceiling=750,
         floor=ordinary_floor,
         calibrations=RATIOS,
     )

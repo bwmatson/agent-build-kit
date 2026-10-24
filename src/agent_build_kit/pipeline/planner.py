@@ -277,7 +277,6 @@ def parse_plan(
                     change=change,
                     groups=groups or [],
                     built=built or set(),
-                    ceiling=review_ceiling(None, active(), None),
                     calibrations=calibrations,
                     floor=lambda group, repo: _group_floor(group, repo, tasks)[0],
                 )

@@ -970,6 +970,14 @@ def _public_content(inst: Installation) -> list[Check]:
     return [_ok(PUBLIC_CONTENT, "nothing found" if tracked else "abk.yaml is not tracked")]
 
 
+def _deprecation_fix(key: str) -> str:
+    """What to do about a deprecated key: the migration moves the renamed ones, and a key that is
+    ignored is deleted by hand."""
+    if key == config.REMOVED_REVIEW_ENABLED:
+        return "delete `enabled` from the `review` section of abk.yaml (or abk.local.yaml)"
+    return "run `abk config --migrate`"
+
+
 MACHINE_KEYS = "machine keys"
 _MACHINE_FIX = f"move it to {OVERLAY_FILENAME} with `abk config --migrate`"
 _DEFAULT_FIX = (
@@ -1728,7 +1736,7 @@ def run_doctor(
         return [_fail("config", str(error), "run `abk init`, or fix abk.yaml")]
     checks = [_ok("config", str(path))]
     checks += [
-        _warn("config", config.deprecation_notice(key), "run `abk config --migrate`")
+        _warn("config", config.deprecation_notice(key), _deprecation_fix(key))
         for key in config.deprecations(path)
     ]
     checks += [_warn("config", notice.text, notice.fix) for notice in config.models_notices(path)]

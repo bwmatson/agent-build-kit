@@ -110,6 +110,8 @@ def test_abk_doctor_warns_once_and_does_not_fail(tmp_path: Path) -> None:
     warned = [c for c in checks if c.status == "warn" and KEY in c.detail]
     assert len(warned) == 1
     assert "no longer used" in warned[0].detail
+    assert "--migrate" not in warned[0].fix
+    assert "delete" in warned[0].fix and "enabled" in warned[0].fix
     assert [c for c in checks if c.name == "config"][0].status == "ok"
 
 

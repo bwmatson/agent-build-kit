@@ -59,7 +59,6 @@ def check_joins(
     change: str | None,
     groups: Sequence[TaskGroup],
     built: set[int],
-    ceiling: int,
     floor: Callable[[TaskGroup, str], str],
     calibrations: Mapping[Kind, Calibration] | None = None,
 ) -> None:
