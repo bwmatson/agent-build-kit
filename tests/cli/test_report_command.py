@@ -116,3 +116,14 @@ def test_context_shows_the_end_fill_and_the_growth_of_a_session_instead_of_the_c
     assert "142k / 200k" in out
     assert "1 unknown" in out
     assert "sess-1" in out
+
+
+def test_by_node_has_no_review_tier_rows(
+    inst: Installation, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fixture_ledger(inst.state_dir / "usage-ledger.jsonl")
+
+    document = run_json(capsys, "--by", "node")
+
+    assert sorted(r["key"] for r in document["rows"]) == ["implement", "review"]
+    assert document["tiers"] == []

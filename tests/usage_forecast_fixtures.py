@@ -3,9 +3,13 @@ they ran, and the tests read the forecast off them."""
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+import json
+from collections.abc import Iterable, Mapping
+from datetime import UTC, datetime
+from pathlib import Path
 
 from agent_build_kit.pipeline.usage_forecast_history import CellForecast, TierCells
+from agent_build_kit.pipeline.usage_forecast_record import ForecastRow, WindowForecast
 from agent_build_kit.pipeline.usage_ledger import Cost, UsageRecord
 from agent_build_kit.pipeline.verdict import ReviewTier
 from agent_build_kit.pipeline.verdict_record import VerdictEntry
@@ -134,3 +138,35 @@ def spec_history() -> Fixture:
             extra += [("review", 3, 0.4)]
         fixture.unit(f"f{n}", ReviewTier.FULL, base + extra)
     return fixture
+
+
+def forecast_row(unit: str, tier: ReviewTier | None, usd: float) -> ForecastRow:
+    """The forecast row written when `unit` was admitted, forecast at `usd` in both windows."""
+    window = WindowForecast(usd=usd, points=usd * 2.5)
+    return ForecastRow(
+        unit=unit,
+        tier=tier,
+        band="all",
+        at=datetime(2026, 1, 1, 9, tzinfo=UTC),
+        session=window,
+        weekly=window,
+        parts={},
+        prior=False,
+    )
+
+
+def write_forecast_rows(path: Path, rows: Iterable[ForecastRow]) -> Path:
+    """Write `path` as the forecast record holding `rows`."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(row.model_dump_json() + "\n" for row in rows))
+    return path
+
+
+def write_verdict_file(path: Path, planned: Mapping[str, ReviewTier | None]) -> Path:
+    """Write `path` as the verdicts file with one final verdict per unit, planned as given."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    recorded = {}
+    for unit, tier in planned.items():
+        recorded[unit] = verdict(unit, tier).model_dump(mode="json", exclude={"split"})
+    path.write_text(json.dumps(recorded))
+    return path

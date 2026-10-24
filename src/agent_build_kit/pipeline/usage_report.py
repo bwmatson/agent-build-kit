@@ -137,6 +137,29 @@ class Legacy(Frozen):
     rows: tuple[LegacyRow, ...] = ()
 
 
+class TierSpend(Frozen):
+    """What a review tier's units spent in one role and node, in dollars."""
+
+    role: str
+    node: str
+    usd: float
+
+
+class TierRow(Frozen):
+    """One review tier: its units, the forecast recorded for them, what they spent, the ratio of
+    the two over the forecast units, how many spent more than forecast and how many have no
+    forecast row."""
+
+    tier: str
+    units: int
+    forecast_usd: float
+    spent_usd: float | None
+    ratio: float | None
+    over: int
+    unforecast: int
+    spend: tuple[TierSpend, ...] = ()
+
+
 class Report(Frozen):
     group_by: str
     rows: tuple[ReportRow, ...]
@@ -150,6 +173,8 @@ class Report(Frozen):
     sessions: tuple[SessionRow, ...] = ()
     legacy: Legacy = Legacy()
     unknown_calls: int = 0  # calls whose incremental cost could not be known
+    # The review tiers of a by-tier report, with their forecast against what was spent.
+    tiers: tuple[TierRow, ...] = ()
 
 
 WAIT_GROUPINGS = ("unit", "day")
@@ -515,8 +540,11 @@ def build_report(
     change: str | None = None,
     unit: str | None = None,
     include_estimates: bool = False,
+    verdicts: Path | None = None,
+    forecasts: Path | None = None,
 ) -> Report:
-    """The ledger's rows grouped by `group_by`, filtered by date, change or unit."""
+    """The ledger's rows grouped by `group_by`, filtered by date, change or unit. The review
+    tier of a unit is read from the `verdicts` file and its forecast from the `forecasts` file."""
     return _report_of(
         _all_entries(ledger, units),
         group_by=group_by,
