@@ -700,6 +700,7 @@ def check_command(
     worktree: Path | None = None,
     cwd: Path | None = None,
     fenced: Collection[Path] = (),
+    confined: bool = False,
 ) -> Verdict:
     """Decide whether `command` may run while working on `branch`.
 

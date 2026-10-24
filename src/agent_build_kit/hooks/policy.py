@@ -221,6 +221,7 @@ def decide(
     no_push: bool = False,
     no_commit: bool = False,
     refusals_only: bool = False,
+    confined: bool = False,
 ) -> dict | None:
     """The hook's answer: a deny decision, or None for "no objection"."""
     try:
@@ -356,6 +357,7 @@ def hook_settings(
     no_push: bool = False,
     no_commit: bool = False,
     refusals_only: bool = False,
+    confined: bool = False,
 ) -> dict:
     """Settings that register this hook, for `claude -p --settings`.
 

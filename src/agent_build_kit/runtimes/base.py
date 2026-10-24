@@ -103,6 +103,8 @@ class ToolPolicy(Frozen):
     scoped: bool = True  # False: only commit and push are refused, nothing of the unit's rules
     # What the kernel confines the process to; None leaves the process unconfined.
     sandbox: SandboxPolicy | None = None
+    # The backend confines the step, so the location guards the kernel repeats stand down.
+    confined: bool = False
 
 
 class PermissionChoice(Frozen):
