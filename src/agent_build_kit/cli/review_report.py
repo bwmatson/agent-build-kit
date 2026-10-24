@@ -6,7 +6,7 @@ import argparse
 import sys
 
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import audit_record, demotion_record, spans
+from agent_build_kit.pipeline import audit_record, demotion_record, demotion_triggers, spans
 from agent_build_kit.pipeline.review_rates import ClassGate, recorded_gates
 from agent_build_kit.pipeline.verdict_record import VERDICTS
 
@@ -50,6 +50,14 @@ def cmd_review_audit(args: argparse.Namespace, inst: Installation) -> int:
         print(f"refused: {refused}", file=sys.stderr)
         return 1
     print(f"{args.unit}: audit recorded {args.result}")
+    if args.result == "wrong":
+        demotion_triggers.demote_for_failed_audit(
+            args.unit,
+            audits=path,
+            demotions=inst.state_dir / demotion_record.DEMOTIONS,
+            at=spans.clock.now(),
+            log=print,
+        )
     return 0
 
 

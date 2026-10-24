@@ -60,6 +60,7 @@ from agent_build_kit.notify.store import NotificationStore
 from agent_build_kit.pipeline import (
     audit_record,
     demotion_record,
+    demotion_triggers,
     diagram,
     emergency_lane,
     environment,
@@ -98,7 +99,7 @@ from agent_build_kit.pipeline.cycles import (
     needs_cycle,
     path_between,
 )
-from agent_build_kit.pipeline.demotion_record import demotion_status_lines
+from agent_build_kit.pipeline.demotion_record import DEMOTIONS, demotion_status_lines
 from agent_build_kit.pipeline.drafts import StateDrafts
 from agent_build_kit.pipeline.e2e import (
     LOCK_WAIT_SETTING,
@@ -661,6 +662,29 @@ def _sweep_outcomes(inst: Installation, store: UnitStore) -> None:
     )
 
 
+def _evaluate_demotions(inst: Installation, store: UnitStore) -> None:
+    demotion_triggers.evaluate_demotions(
+        store.all(),
+        verdicts=inst.state_dir / VERDICTS,
+        audits=inst.state_dir / audit_record.AUDITS,
+        demotions=inst.state_dir / DEMOTIONS,
+        review=config.active().review,
+        at=datetime.now(UTC),
+        log=log,
+    )
+
+
+def _demote_failed_verify(inst: Installation, change: str, units: list) -> None:
+    demotion_triggers.demote_for_failed_verify(
+        change,
+        units,
+        verdicts=inst.state_dir / VERDICTS,
+        demotions=inst.state_dir / DEMOTIONS,
+        at=datetime.now(UTC),
+        log=log,
+    )
+
+
 def _status_reading(args: argparse.Namespace) -> UsageReading | None:
     """The reading held, or a fresh one when asked, which the interval may still refuse."""
     if getattr(args, "refresh", False):
@@ -1187,6 +1211,7 @@ def verify_ready(
             log(f"verified {change}: {', '.join(outcome.deployed) or 'nothing to deploy'}")
         else:
             log(f"NOT archiving {change} — verification failed:\n{outcome.detail}")
+            _demote_failed_verify(inst, change, units)
 
     def may_archive(change: str) -> bool:
         # A skipped change has no verification over its current units, whatever
@@ -1222,6 +1247,7 @@ def cmd_verify(args: argparse.Namespace, inst: Installation) -> int:
         return 1
     VerifyRecord(inst.state_dir / "verified.json").put(outcome)
     if not outcome.passed:
+        _demote_failed_verify(inst, args.change, units)
         print(f"{args.change}: verification failed\n{outcome.detail}")
         return 1
     print(f"{args.change}: verified — {', '.join(outcome.deployed) or 'nothing to deploy'}")
@@ -2043,6 +2069,7 @@ def run_round(
     _step("sweeping state labels", _sweep_labels, inst, store)
     if config.active().review.enabled:
         _step("sweeping review outcomes", _sweep_outcomes, inst, store)
+        _step("evaluating demotions", _evaluate_demotions, inst, store)
     if submit and may == "usage":
         units = store.all()
         _record_waits(
