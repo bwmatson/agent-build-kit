@@ -30,10 +30,10 @@ def gate_section(path: Path) -> str:
 @pytest.mark.parametrize("path", SETTING_DOCUMENTS, ids=SETTING_IDS)
 def test_the_setting_is_named_with_its_default_and_what_it_does(path: Path) -> None:
     text = squashed(path)
-    assert "builders.per_group_commits" in text
-    assert re.search(r"per_group_commits.{0,600}default", text, re.I)
-    assert re.search(r"per_group_commits.{0,800}\bstubs?\b", text, re.I)
-    assert re.search(r"per_group_commits.{0,800}\bgroups?\b", text, re.I)
+    assert "builders.stubbed_tdd_commits" in text
+    assert re.search(r"stubbed_tdd_commits.{0,600}default", text, re.I)
+    assert re.search(r"stubbed_tdd_commits.{0,800}\bstubs?\b", text, re.I)
+    assert re.search(r"stubbed_tdd_commits.{0,800}\bgroups?\b", text, re.I)
 
 
 def test_the_unit_graph_names_both_new_steps() -> None:
@@ -53,7 +53,7 @@ def test_the_cli_document_describes_the_gates_paired_and_types_checks() -> None:
     text = gate_section(DOCS / "cli.md")
     assert re.search(r"\bpaired\b", text, re.I)
     assert re.search(r"\btypes?\b", text, re.I)
-    assert "per_group_commits" in text
+    assert "stubbed_tdd_commits" in text
 
 
 def test_the_pipeline_skill_names_the_feedback_source_and_the_requeue() -> None:
@@ -67,4 +67,4 @@ def test_the_architecture_document_describes_the_stubbed_build() -> None:
     text = squashed(DOCS / "architecture.md")
     assert "stub_checks" in text
     assert "fix_stub_checks" in text
-    assert "per_group_commits" in text
+    assert "stubbed_tdd_commits" in text

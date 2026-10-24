@@ -17,6 +17,8 @@ import yaml
 
 from agent_build_kit.compat_names import Place, new_spelling
 from agent_build_kit.config import (
+    BUILDERS_KEY,
+    DEPRECATED_BUILDERS_KEY,
     DEPRECATED_ROOT_KEY,
     WorkspaceConfig,
     old_setting_blocks,
@@ -144,7 +146,7 @@ def migrate(
     (`config.runtime_for`). Told to by `machine`, it then moves the machine settings to the local
     file's text."""
     moved = _move_limits(_move_ceiling(text))
-    renamed = _rename_test_kind_keys(moved.text)
+    renamed = _rename_builders_key(_rename_test_kind_keys(moved.text))
     text = _move_models(renamed, runtime)
     if machine is None:
         return Migrated(text=text, moved=moved.moved)
@@ -489,6 +491,56 @@ def _rename_test_kind_keys(text: str) -> str:
     except yaml.YAMLError as error:
         raise refuse("abk.yaml", f"the edited text would not parse ({error})") from error
     if written != read_new_settings(old):
+        raise refuse(
+            "abk.yaml", "the edited text would differ from the file in more than the rename"
+        )
+    return result
+
+
+def _rename_builders_key(text: str) -> str:
+    """`text` with `builders.per_group_commits` renamed to `builders.stubbed_tdd_commits` on its
+    own line; a file that sets both, or a key that cannot be edited by lines, is refused."""
+    try:
+        documents = list(yaml.compose_all(text))
+    except yaml.YAMLError:
+        return text  # the other edits report a file that does not parse
+    root = documents[0] if documents else None
+    held = pair(root, "builders") if isinstance(root, yaml.MappingNode) else None
+    if held is None or not isinstance(held[1], yaml.MappingNode):
+        return text
+    found = pair(held[1], DEPRECATED_BUILDERS_KEY)
+    if found is None:
+        return text
+    if pair(held[1], BUILDERS_KEY) is not None:
+        raise refuse(
+            DEPRECATED_BUILDERS_KEY,
+            f"`{DEPRECATED_BUILDERS_KEY}` and `{BUILDERS_KEY}` are both set; keep one",
+        )
+    lines = split_lines(text)
+    opened(lines, held[0], held[1], DEPRECATED_BUILDERS_KEY, "builders")
+    key = found[0]
+    line, col = key.start_mark.line, key.start_mark.column
+    if MARKED.search(strip_comment(lines[line])):
+        raise refuse(
+            DEPRECATED_BUILDERS_KEY, "it has an anchor or an alias, which cannot be edited"
+        )
+    if lines[line][col : col + len(DEPRECATED_BUILDERS_KEY)] != DEPRECATED_BUILDERS_KEY:
+        raise refuse(
+            DEPRECATED_BUILDERS_KEY, "it is quoted or written across lines, so it is not renamed"
+        )
+    lines[line] = (
+        lines[line][:col] + BUILDERS_KEY + lines[line][col + len(DEPRECATED_BUILDERS_KEY) :]
+    )
+    result = "".join(lines)
+    old = yaml.safe_load(text)
+    builders = {
+        (BUILDERS_KEY if k == DEPRECATED_BUILDERS_KEY else k): v for k, v in old["builders"].items()
+    }
+    try:
+        written = yaml.safe_load(result)
+    except yaml.YAMLError as error:
+        raise refuse("abk.yaml", f"the edited text would not parse ({error})") from error
+    if written != {**old, "builders": builders}:
         raise refuse(
             "abk.yaml", "the edited text would differ from the file in more than the rename"
         )

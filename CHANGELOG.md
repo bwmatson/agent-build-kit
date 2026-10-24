@@ -465,14 +465,18 @@
   convention for live tests (one parametrized test across the values) is documented, and a
   drift test refuses two of the kit's live tests that differ in name only by a value.
 
-- The build can commit per task group behind `builders.per_group_commits` (off by default):
-- The build commits per task group, on by default (`builders.per_group_commits`):
-  each group gets a `test:` commit of stubs and tests, checked for lint, format and types
-  before it is made, then a `feat:` commit, and the push gate checks the pairs, types and
-  the stubbed red reading. Only toolchain profiles that support stubs are affected. Set
-  the setting to `false` to keep one pair of commits per unit. A unit whose tests commit was
-  made before updating may be refused by the gate's types check or its stubbed red reading;
-  rebuild it with `abk requeue --restart`, or set the setting to `false` until it lands.
+- The build commits per task group, on by default (`builders.stubbed_tdd_commits`, called
+  `builders.per_group_commits` before; the old name still loads with a deprecation notice and
+  `abk config --migrate` renames it): each group gets a `test:` commit of stubs and tests,
+  checked for lint, format and types before it is made, then a `feat:` commit, and the push
+  gate checks the pairs, types and the stubbed red reading. Only toolchain profiles that
+  support stubs are affected. Set the setting to `false` to keep one pair of commits per unit.
+  A unit whose tests commit was made before updating may be refused by the gate's types check
+  or its stubbed red reading; rebuild it with `abk requeue --restart`, or set the setting to
+  `false` until it lands. Turned on after 97 units were started with it, 88 of them merged and
+  55 of those holding two or more groups; how many the push gate refused for a type or red
+  reason, and how many stopped at the check loop's round limit, were not measured, and the
+  maintainer waived that part of the criterion.
 
 - The live tests that need the shared telemetry stack now carry a `telemetry_otel` marker, so
   a split can select them. A machine without the stack holds a split on that marker

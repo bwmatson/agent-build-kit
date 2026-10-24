@@ -37,7 +37,7 @@ def test_the_tests_prompt_of_a_stubbed_build_says_what_the_stubs_must_pass(
 def test_the_tests_prompt_of_a_build_that_is_not_stubbed_is_as_it_was(tmp_path: Path) -> None:
     stubbed_build()
     stubbed = first_tests_prompt(tmp_path / "stubbed")
-    activate_with(builders={"per_group_commits": False})
+    activate_with(builders={"stubbed_tdd_commits": False})
 
     plain = first_tests_prompt(tmp_path / "plain")
 

@@ -119,9 +119,9 @@ def supports_stubs(profile: object) -> bool:
 
 
 def stubbed_build(builders: BuildersConfig, profile: object) -> bool:
-    """Whether a build is stubbed: `builders.per_group_commits` is on and `profile`
+    """Whether a build is stubbed: `builders.stubbed_tdd_commits` is on and `profile`
     supports stubs."""
-    return builders.per_group_commits and supports_stubs(profile)
+    return builders.stubbed_tdd_commits and supports_stubs(profile)
 
 
 class ToolchainProfile(Protocol):

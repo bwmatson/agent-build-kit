@@ -41,7 +41,7 @@ def piece_built(
     gives the one at that index its files. Without `split_from` the unit is no piece, and
     without `keep_ref` the superseded branch's ref is not there. The repo is left on the
     piece's branch, started at the trunk."""
-    activate_with(builders={"per_group_commits": True})
+    activate_with(builders={"stubbed_tdd_commits": True})
     write_tasks(tmp_path, "add-marker", titled(*parent_groups))
     repo = branch(tmp_path)
     for index, subject in enumerate(old):

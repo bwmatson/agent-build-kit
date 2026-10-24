@@ -216,7 +216,7 @@ mid-run are not this: the node resumes over them and commits them.
 
 ### Stopped in the stub check loop
 
-With `builders.per_group_commits` on and a profile that supports stubs, each group's stubs and
+With `builders.stubbed_tdd_commits` on and a profile that supports stubs, each group's stubs and
 tests are checked (lint, format, types) before the tests commit, by `stub_checks`, with
 `fix_stub_checks` fixing what fails, up to `max_check_rounds`. A unit that stops there keeps the
 checker's output as its feedback under the source `stub-checks`. `abk requeue <unit>` sends it

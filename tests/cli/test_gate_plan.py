@@ -50,7 +50,7 @@ def installation_with_branch(
 ) -> Installation:
     """An installation whose `app` checkout is on a unit branch of a lone group-1 pair and a
     lone group-2 tests commit, the commits carrying `unit_id` as their trailer ("" for none)."""
-    inst = make_installation(tmp_path / "planning", builders={"per_group_commits": setting})
+    inst = make_installation(tmp_path / "planning", builders={"stubbed_tdd_commits": setting})
     (inst.root / "abk.yaml").write_text(dump(inst.config))
     change = change_dir_of(inst.root, "feature")
     change.mkdir(parents=True)

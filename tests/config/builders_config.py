@@ -1,4 +1,4 @@
-"""A minimal workspace for the `builders.per_group_commits` tests."""
+"""A minimal workspace for the `builders.stubbed_tdd_commits` tests."""
 
 from __future__ import annotations
 

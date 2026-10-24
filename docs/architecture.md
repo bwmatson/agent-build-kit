@@ -441,13 +441,13 @@ release could move. The steps:
    own pull request, and pulling its work forward makes this one bigger than
    the plan intended. The pipeline runs the profile's fixers (no model call,
    over the unit's own files) before this commit, in a build with
-   `builders.per_group_commits` off as in a stubbed one.
+   `builders.stubbed_tdd_commits` off as in a stubbed one.
 4. **Implementation, commit.** A second run makes those tests pass and may
    not weaken them; the pipeline runs the fixers, then commits `feat: <title>`. A branch left
    with no commits of its own — neither step added one — is not failed
    outright; see the satisfied outcome after unit-test, below.
 
-   **Stubbed build, per group.** With `builders.per_group_commits` on and a
+   **Stubbed build, per group.** With `builders.stubbed_tdd_commits` on and a
    profile that supports stubs, steps 3 and 4 run once per task group instead
    of once per unit, making one `test:`/`feat:` pair per group. The tests run
    writes the group's tests and stubs and the pipeline does not commit them

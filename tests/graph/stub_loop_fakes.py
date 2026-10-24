@@ -18,7 +18,7 @@ from tests.runner_fakes import Killed, Recorder
 def stubbed_build() -> None:
     """The setting on, with the Python profile of the default repo, which supports stubs; the
     suite's autouse fixture puts the config back."""
-    activate_with(builders={"per_group_commits": True})
+    activate_with(builders={"stubbed_tdd_commits": True})
 
 
 class StubLoop(Recorder):
