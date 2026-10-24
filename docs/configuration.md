@@ -74,6 +74,11 @@ that starts with an absolute path. It only **notes** `runtimes.<name>.limits`, a
 `hold` and `tests.e2e_schedule: "off"`, which a team may commit as defaults. It says
 nothing about `runtimes.<name>.models`, or about the same keys in `abk.local.yaml`.
 
+`abk config --migrate` moves the machine settings of a tracked `abk.yaml` to `abk.local.yaml`:
+everything the check warns about. The defaults it only notes stay unless you add
+`--include-defaults`, which moves `runtimes.<name>.limits`, a split `hold` and
+`tests.e2e_schedule: "off"` too. The merged configuration does not change.
+
 ## `abk.yaml` reference
 
 Every field, with its default. A key at its default can be left out;
@@ -761,6 +766,9 @@ A planning repo that plans only itself needs no other repo entries: its own entr
 `.`, is the checkout naming itself.
 
 #### Which file holds a setting
+
+`abk config --migrate` moves the machine settings in this table out of a tracked `abk.yaml`;
+`--include-defaults` adds the defaults a team may commit.
 
 Put a value in `abk.local.yaml` when it names something on one machine or measures what one
 machine or subscription can do; keep it in `abk.yaml` when every checkout of the planning repo

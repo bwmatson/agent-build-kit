@@ -376,7 +376,8 @@ over `abk.yaml` key by key), and a secret or a single per-machine value goes in 
 - **`.env`**: tokens, PATs, `ABK_*` switches, read through `from: env-file`.
 
 `abk config --path` names the files in force and `abk config --show` prints the merged result;
-check it after moving a value.
+check it after moving a value. `abk config --migrate` moves the machine settings of a tracked
+`abk.yaml` to `abk.local.yaml` for you, and `--include-defaults` adds the defaults a team may commit.
 
 ## Where an installation's facts live
 

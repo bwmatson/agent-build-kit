@@ -941,7 +941,7 @@ Is this installation in a state the pipeline can run in? Each check prints
 | replay cassettes `<repo>` | | a recording has waited for review through more than `tests.replay.review_after_runs` runs. A note, not a warning, when some wait but none past the limit. Only checked for repos with a `tests.replay` section |
 | telemetry traces / telemetry metrics | | `ABK_OTEL_ENABLED` is set and the signal has no endpoint (`OTEL_EXPORTER_OTLP_ENDPOINT`, or the per-signal one), or the endpoint does not answer. Only checked when enabled |
 
-### `abk config [--show | --path | --migrate [--yes] [--dry-run]]`
+### `abk config [--show | --path | --migrate [--yes] [--dry-run] [--include-defaults]]`
 
 `--show` (the default) prints the effective configuration as YAML with every
 default filled in; `--path` prints the `abk.yaml` in force. Exit 0.
@@ -956,7 +956,14 @@ flow style, is refused. It prints the diff and asks; `--yes` skips the question 
 prints the diff and writes nothing. The first original is kept as `abk.yaml.abk-backup`,
 and the write goes through a temporary file. Exit 0 when it wrote or had nothing to do,
 1 when not confirmed (or no terminal and no `--yes`), 2 when it refuses and writes
-nothing. `--yes` and `--dry-run` need `--migrate`.
+nothing. `--yes`, `--dry-run` and `--include-defaults` need `--migrate`.
+
+In a git repository that tracks `abk.yaml`, `--migrate` also moves the machine settings to
+`abk.local.yaml`; `--include-defaults` adds the defaults a team may commit. It writes
+`abk.yaml` and `abk.local.yaml` together, with one backup of each, local file first. A key the
+local file already sets is left in `abk.yaml` and reported. It adds the ignore lines for
+`abk.local.yaml` and `scrub.local` to `.gitignore`, never commits, and names any running units,
+since a write fails a build in progress. Exit codes are as above.
 
 ### `abk install-config STAGED TARGET`
 
