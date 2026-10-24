@@ -96,3 +96,15 @@ def test_a_redirect_into_the_run_folder_is_allowed_in_both_modes(
 
     assert stands_down(worktree, planning)
     assert verdict(command, worktree, (), confined).allowed
+
+
+def test_with_no_worktree_known_every_fenced_file_stays_fenced_when_confined(
+    planning: Path,
+) -> None:
+    config = planning / "abk.yaml"
+
+    result = check_command(
+        f"echo x > {config}", branch=BRANCH, worktree=None, fenced=(config,), confined=True
+    )
+
+    assert not result.allowed

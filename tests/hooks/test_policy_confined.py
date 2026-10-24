@@ -143,3 +143,14 @@ def test_the_hook_process_still_refuses_a_merge_given_the_flag(worktree: Path) -
 def test_the_hook_is_registered_with_the_flag_only_when_confined() -> None:
     assert "--confined" not in command_of(hook_settings(Path("/repo")))
     assert " --confined" in command_of(hook_settings(Path("/repo"), confined=True))
+
+
+def test_a_write_with_no_worktree_to_place_it_in_is_still_refused_when_confined(
+    tmp_path: Path,
+) -> None:
+    plain = tmp_path.resolve() / "plain"
+    plain.mkdir()
+    call = file_call("Write", plain / "x", plain)
+
+    assert denied(decide(call))
+    assert denied(decide(call, confined=True))

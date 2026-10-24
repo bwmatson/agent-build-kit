@@ -159,7 +159,7 @@ def _check_file_write(
     # another repo, which no commit picked up. Scratch files in the temp
     # directory are fine, as long as that isn't a way into another checkout.
     worktree = _checkout_of(Path(cwd)) if isinstance(cwd, str) else None
-    if confined and (worktree is None or not path.is_relative_to(worktree)):
+    if confined and worktree is not None and not path.is_relative_to(worktree):
         return None  # where a write may land is the sandbox's to say
     if worktree is None:
         return _deny(

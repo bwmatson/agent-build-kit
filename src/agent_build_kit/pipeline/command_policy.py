@@ -718,10 +718,12 @@ def check_command(
     `fenced` are files no command may write, however it writes them.
 
     `confined` says the kernel confines the step, which already keeps it out of a file beyond
-    the worktree: only a fenced file inside the worktree is still checked by text.
+    the worktree: only a fenced file inside the worktree is still checked by text, and all of
+    them are while the worktree is unknown.
     """
     if confined:
-        fenced = [f for f in fenced if worktree is not None and _inside(str(f), worktree)]
+        # With no worktree known, nothing can be told to be outside it: every file stays fenced.
+        fenced = [f for f in fenced if worktree is None or _inside(str(f), worktree)]
     current: str | None = None
     # Where the shell is by now: moved by each `cd`, None once it cannot be told.
     here: Path | None = cwd or worktree
