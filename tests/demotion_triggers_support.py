@@ -28,12 +28,20 @@ def policy(*, listed: tuple[str, ...] = ("docs",)) -> ReviewConfig:
     )
 
 
-def merged_unit(uid: str, *, day: int = 0, auto: bool = False) -> StoredUnit:
-    """A merged unit, merged `day` days after `START`; landed by the pipeline when `auto`."""
+def merged_unit(
+    uid: str,
+    *,
+    day: int = 0,
+    auto: bool = False,
+    change: str = "feature",
+    pr: int | None = None,
+) -> StoredUnit:
+    """A merged unit of `change`, merged `day` days after `START`; landed by the pipeline when
+    `auto`."""
     entry: dict[str, Any] = {"state": "merged", "at": (START + timedelta(days=day)).isoformat()}
     if auto:
         entry["cause"] = "auto_landed"
-    return stored_unit(uid, change="feature", state=UnitState.MERGED, history=(entry,))
+    return stored_unit(uid, change=change, state=UnitState.MERGED, pr=pr, history=(entry,))
 
 
 def record(
