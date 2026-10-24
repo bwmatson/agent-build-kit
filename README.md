@@ -5,8 +5,8 @@ of repos. Changes are written as OpenSpec changes in a **planning repo**; the
 pipeline turns each change's task groups into units of work — one branch and
 one pull request each, in one of the workspace's **code repos** — builds them
 test-first with Claude Code, reviews them with a second model, runs its tests
-by kind, pushes only what review approved, and after a human merges everything
-deploys the change, runs its live tests and archives the spec. Scheduled
+by kind, pushes only what review approved, and after everything is merged (by the pipeline for
+an auto-landed unit, by a person otherwise) deploys the change, runs its live tests and archives the spec. Scheduled
 tracks (health, improve, recommend) keep watch on the repos in between.
 `abk` is the CLI; `abk init` sets an installation up.
 

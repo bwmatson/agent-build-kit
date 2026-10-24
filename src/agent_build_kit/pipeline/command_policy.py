@@ -214,9 +214,7 @@ def _check_segment(segment: str, branch: str, protected: Collection[str] = ()) -
     # by a wrong `forge:` field. Matched on tokens, so a commit message
     # mentioning one of these is unaffected.
     if denied := forges.denies(tokens):
-        return Verdict(
-            allowed=False, reason=f"the agent never merges: {denied} (a human merges every PR)"
-        )
+        return Verdict(allowed=False, reason=f"the agent never merges: {denied}")
 
     if _is_git(tokens, "commit") and "--amend" in tokens:
         return Verdict(
