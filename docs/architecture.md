@@ -1274,9 +1274,9 @@ the tier's units once there are `usage_forecast_min_runs` of them, else the wind
 allowance, the prior), a track or the planner as one call at its mean, plus what running units still
 have to come and the tracks and plan call due before the window resets. The forecast is added to the
 estimate and the reading is checked again with it; a refusal names the window, the forecast and the
-step with the most points. Each admission appends a forecast row and step rows to files in the state
-directory, which `abk report --by tier` compares with the spend and `abk status` prints as a
-`forecast:` line. `usage_forecast: false` decides as before.
+step with the most points. When a unit's first step is admitted, a forecast row is appended to `usage-forecasts.jsonl` in the
+state directory, and a step row for every step (once per node and round); `abk report --by tier`
+compares them with the spend and `abk status` prints a `forecast:` line from them. `usage_forecast: false` decides as before.
 
 **The endpoint is asked only when a fresh reading could change the decision** (`decide_start`).
 Every tick, round and gate asks the guard, and the guard decides whether to call. Usage only
