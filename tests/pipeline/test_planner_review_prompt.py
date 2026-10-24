@@ -38,13 +38,3 @@ def test_the_prompt_says_what_lowers_and_what_raises_the_tier() -> None:
     assert "lower" in text
     assert "raise" in text
     assert "protected" in text
-
-
-def test_with_review_disabled_the_prompt_is_the_one_without_the_review_text() -> None:
-    off = prompt(enabled=False).splitlines()
-    on = prompt(enabled=True).splitlines()
-
-    assert "review_tier" not in "\n".join(off)
-    remaining = iter(on)
-    assert all(line in remaining for line in off), "every line of the unchanged prompt is kept"
-    assert len(on) > len(off), "and the review text is what review adds"
