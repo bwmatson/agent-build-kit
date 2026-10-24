@@ -42,6 +42,10 @@
   `full` ceiling (`max_unit_lines`). On updating, an installation that does not set
   `review.enabled` sees every plan recorded before the update read as stale and planned again
   under the per-tier ceilings; setting `review.enabled: false` before updating avoids this.
+  A trial run of per-tier sizing recorded 26 final verdicts; 6 of 11 units were planned below
+  their verdict, and 8 units ended held for size (17 size holds were recorded in all). The
+  design asked for fewer than one unit in four planned below its verdict, so that figure does
+  not meet it; the maintainer waived the criterion and made this the default.
 
 - The `review` section of `abk.yaml` now accepts `auto_land.classes` (the classes that may land
   without a person; empty, the default, turns it off), `audit.sample_rate` and `demotion.window`
