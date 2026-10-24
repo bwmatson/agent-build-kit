@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- When a Claude Code step is confined by the sandbox, the policy hook no longer checks where a
+  file write lands or refuses writes to the specs folder, and the command rules no longer
+  refuse a shell write onto the planning repo's `abk.yaml` or `abk.local.yaml`: the kernel
+  refuses them. A step that is not confined keeps every one of these checks, and the rules
+  about meaning (no merge, push, force-push, `--no-verify`, or commit when asked, and the
+  planning paths) apply in both modes.
+
 - A change to `abk.yaml` or `abk.local.yaml` while an agent step runs is now a warning, not a
   failure, when the step was confined by the sandbox: the tick log shows the diff, `abk status`
   keeps showing it until the next confined step ends clean, and the unit continues. A step that

@@ -513,6 +513,13 @@ def build_run(
                 f"sandbox: {agent.name} confines {agent.sandbox_coverage.value} of a step, less "
                 f"than the {sandbox.required.value} this repo requires; the step runs unconfined"
             )
+        # A step that ran under a policy was confined at least to what the repo requires (the
+        # launcher refuses less); under `required: none` it may have run plain.
+        is_confined = (
+            sandbox is not None
+            and sandbox.required is not Coverage.NONE
+            and agent.sandbox_coverage.reaches(sandbox.required)
+        )
         recorder = _recorder(record_for, place, role)
         request = AgentRequest(
             # A continued session holds the original prompt already: it is told what is new,
@@ -549,6 +556,7 @@ def build_run(
                 # The review policy in abk.yaml is a person's: no command writes it.
                 fenced_files=(planning_root / CONFIG_FILENAME,),
                 sandbox=sandbox,
+                confined=is_confined,
             ),
             on_event=journal or log or print,
             on_transcript=transcript,
@@ -568,16 +576,8 @@ def build_run(
                         policy = request.policy.model_copy(update={"sandbox": granted})
                         request = request.model_copy(update={"policy": policy})
                 # Neither configuration file may differ afterwards, whatever route a write took.
-                # A step that ran under a policy was confined at least to what the repo requires
-                # (the launcher refuses less); under `required: none` it may have run plain. A
-                # confined step cannot have written them: a difference is a person's edit.
-                confined = (
-                    sandbox.required
-                    if sandbox is not None
-                    and sandbox.required is not Coverage.NONE
-                    and agent.sandbox_coverage.reaches(sandbox.required)
-                    else Coverage.NONE
-                )
+                # A confined step cannot have written them: a difference is a person's edit.
+                confined = sandbox.required if is_confined and sandbox else Coverage.NONE
                 state_dir = Installation(active(), planning_root).state_dir
                 with config_unchanged(
                     planning_root, confined, state_dir=state_dir, warn=log or print

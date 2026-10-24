@@ -716,7 +716,12 @@ def check_command(
     that repo's branches are refused too: the pipeline commits there.
 
     `fenced` are files no command may write, however it writes them.
+
+    `confined` says the kernel confines the step, which already keeps it out of a file beyond
+    the worktree: only a fenced file inside the worktree is still checked by text.
     """
+    if confined:
+        fenced = [f for f in fenced if worktree is not None and _inside(str(f), worktree)]
     current: str | None = None
     # Where the shell is by now: moved by each `cd`, None once it cannot be told.
     here: Path | None = cwd or worktree
