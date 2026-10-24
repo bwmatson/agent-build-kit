@@ -36,6 +36,7 @@
   service socket, its feedback now says a step that needs a running service is an e2e test and
   the group should be tagged `[e2e-test]`; `docs/unit-graph.md` and the `abk-authoring` skill
   state the rule.
+
 - Per-tier sizing is now on by default: `review.enabled` defaults to true, so the `auto`, `light` and
   `full` ceilings (5000, 2000 and 750 changed lines) take effect and verdicts are recorded, with no
   class allowed to land without a person. Set `review.enabled: false` to return every unit to the
