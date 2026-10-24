@@ -47,7 +47,12 @@ def demote(
             _write(path, records)
             say(f"{unit_class}: already demoted; another trigger, {trigger} on {unit}, recorded")
             return False
-        records[unit_class] = {"since": at.isoformat(), "lifted": None, "triggers": [added]}
+        record: dict[str, Any] = {"since": at.isoformat(), "lifted": None, "triggers": [added]}
+        if standing is not None:
+            # The units that triggered the lifted demotion stay named, so evidence a person
+            # already weighed does not demote the class again.
+            record["earlier"] = [*standing.get("earlier", []), *standing["triggers"]]
+        records[unit_class] = record
         _write(path, records)
         return True
 

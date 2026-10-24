@@ -85,7 +85,9 @@ def _recorded(demotions: Path, record: dict[str, Any], unit: str) -> bool:
     """Whether the class's demotion, standing or lifted, already names this unit as a trigger,
     so a lift is not undone by the evidence it was made over."""
     held = demotion_record.read_demotions(demotions).get(record["unit_class"])
-    return held is not None and any(t["unit"] == unit for t in held["triggers"])
+    return held is not None and any(
+        t["unit"] == unit for t in [*held["triggers"], *held.get("earlier", [])]
+    )
 
 
 def _agreement(
@@ -97,10 +99,11 @@ def _agreement(
     review: ReviewConfig,
     demote: Callable[[str, str, str], None],
 ) -> None:
-    if unit_class in demotion_record.demoted_classes(demotions):
+    held = demotion_record.read_demotions(demotions).get(unit_class, {})
+    if held and held.get("lifted") is None:
         return
     # Evidence older than a lift was weighed by the person who lifted it.
-    lifted = demotion_record.read_demotions(demotions).get(unit_class, {}).get("lifted")
+    lifted = held.get("lifted")
     since = datetime.fromisoformat(lifted) if lifted else None
     samples = sorted(
         (merged_at[unit], unit, clean)

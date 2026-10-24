@@ -64,3 +64,22 @@ def test_a_lift_is_not_undone_by_the_revert_it_was_made_over(tmp_path: Path) -> 
 
     assert demoted["docs"]["lifted"] == NOW.isoformat()
     assert len(demoted["docs"]["triggers"]) == 1
+
+
+def test_a_second_lift_is_not_undone_by_the_revert_the_first_was_made_over(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / demotion_record.DEMOTIONS
+    units = [merged_unit("feature/1", auto=True)]
+    records = {"feature/1": record("reverted", auto=True)}
+    evaluate(tmp_path, units, records)
+    demotion_record.lift(path, unit_class="docs", at=NOW)
+    demotion_record.demote(
+        path, unit_class="docs", trigger="verify", unit="feature/2", at=NOW, say=print
+    )
+    demotion_record.lift(path, unit_class="docs", at=NOW)
+
+    demoted = evaluate(tmp_path, units, records)
+
+    assert demoted["docs"]["lifted"] == NOW.isoformat()
+    assert [t["unit"] for t in demoted["docs"]["triggers"]] == ["feature/2"]
