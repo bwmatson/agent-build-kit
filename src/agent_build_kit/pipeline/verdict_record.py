@@ -103,6 +103,22 @@ def latest_verdict(path: Path, unit: str) -> VerdictEntry | None:
         return None
 
 
+def recorded_verdicts(path: Path) -> dict[str, VerdictEntry]:
+    """Every unit's recorded verdict; an entry that cannot be read is left out, and a missing or
+    unreadable file holds none."""
+    try:
+        recorded = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    found: dict[str, VerdictEntry] = {}
+    for unit, body in recorded.items() if isinstance(recorded, dict) else ():
+        try:
+            found[unit] = VerdictEntry.model_validate(body)
+        except ValueError:
+            continue
+    return found
+
+
 def recorded_history(path: Path, unit_class: str, audits: Path | None = None) -> ClassHistory:
     """The class's history in the recorded verdicts; none when the file is missing or
     unreadable."""

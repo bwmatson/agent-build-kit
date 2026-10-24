@@ -84,7 +84,7 @@ from agent_build_kit.pipeline.usage_guard import (
     reading_as,
     starting,
 )
-from agent_build_kit.pipeline.vocabulary import OverheadNode
+from agent_build_kit.pipeline.vocabulary import PROPOSING_PHASES, OverheadNode
 from agent_build_kit.pipeline.work_graph import declared_projects
 from agent_build_kit.runtimes import (
     AgentInterrupted,
@@ -903,8 +903,7 @@ def discover_then_propose(track: str):
 
 DISPATCH = {
     "health": health,
-    "improve": discover_then_propose("improve"),
-    "recommend": discover_then_propose("recommend"),
+    **{phase: discover_then_propose(phase) for phase in PROPOSING_PHASES},
     "propose": propose,
 }
 
@@ -924,7 +923,7 @@ def run_track(
     phase would run. `runtime` is what every phase runs on; the active one
     when not given."""
     if not dry_run:
-        with starting(f"track:{phase}"):
+        with starting(f"track:{phase}", step=f"track_{phase}"):
             headroom = has_headroom()
         if not headroom:
             return 0

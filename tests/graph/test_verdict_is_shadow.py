@@ -30,6 +30,8 @@ ALLOWED = {
     "pipeline/landing.py",  # the landing pass reads the recorded final verdict
     "pipeline/usage_forecast_history.py",
     "pipeline/usage_forecast_unit.py",
+    "pipeline/usage_forecast_ask.py",
+    "pipeline/usage_guard.py",  # the start decision reads the verdict records to forecast a unit
     "notify/cards.py",  # a card reads the verdict's class to tell whether the unit will land
 }
 NAMES = re.compile(r"verdicts\.json|verdict_record|\bVERDICTS\b")

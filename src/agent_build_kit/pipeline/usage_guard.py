@@ -99,14 +99,18 @@ from agent_build_kit.pipeline.usage_calls import (
     read_calls,
     record_call,
 )
+from agent_build_kit.pipeline.usage_forecast_ask import Ask, AskForecast, forecast_ask
 from agent_build_kit.pipeline.usage_forecast_record import (
     FORECASTS_NAME,
     StepRow,
     read_record,
     record_admission,
 )
+from agent_build_kit.pipeline.usage_forecast_reservations import TimerReading, read_timers
 from agent_build_kit.pipeline.usage_forecast_running import running_remainders
-from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, read_ledger, spend_costs
+from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, UsageRecord, read_ledger, spend_costs
+from agent_build_kit.pipeline.verdict import ReviewTier
+from agent_build_kit.pipeline.verdict_record import VERDICTS, recorded_verdicts
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited, Run
 from agent_build_kit.runtimes.providers import (
     GateCommandResult,
@@ -881,16 +885,30 @@ def reading_as(caller: str) -> Iterator[None]:
 
 
 _starting: ContextVar[str | None] = ContextVar("usage_starting", default=None)
+_facts: ContextVar[Ask | None] = ContextVar("usage_starting_facts", default=None)
 
 
 @contextmanager
-def starting(unit: str) -> Iterator[None]:
+def starting(
+    unit: str,
+    *,
+    review_tier: ReviewTier | None = None,
+    estimated_lines: int | None = None,
+    step: str | None = None,
+    step_round: int | None = None,
+) -> Iterator[None]:
     """Name the unit (or track) a start is asked for inside the block, so an allowance on an
-    estimate is kept under its id and counted once. An ask outside one starts nothing."""
+    estimate is kept under its id and counted once, and the unit's review tier and estimated
+    lines and the step and round it is for, which its forecast is made from. An ask outside one
+    starts nothing."""
     token = _starting.set(unit)
+    facts = _facts.set(
+        Ask(unit=unit, tier=review_tier, lines=estimated_lines, step=step, step_round=step_round)
+    )
     try:
         yield
     finally:
+        _facts.reset(facts)
         _starting.reset(token)
 
 
@@ -1176,14 +1194,20 @@ class WindowEstimate(Frozen):
     margin: int
     cost_usd: float | None = None  # the recorded cost counted; None on the units basis
     unrecorded: int = 0  # units counted at the flat allowance for want of a cost
+    ahead: AskForecast | None = None  # what the ask is forecast to need, when it is forecast
+    estimated: bool = True  # False for a reading just taken or kept: nothing is added to it
 
     @property
     def estimate(self) -> float:
         return self.read_pct + self.spent_pct
 
     @property
+    def forecast(self) -> float:
+        return self.ahead.points if self.ahead is not None else 0.0
+
+    @property
     def ample(self) -> bool:
-        return self.estimate + self.margin < self.threshold
+        return self.estimate + self.forecast + self.margin < self.threshold
 
     @property
     def text(self) -> str:
@@ -1193,10 +1217,15 @@ class WindowEstimate(Frozen):
             if self.unrecorded:
                 plural = "unit" if self.unrecorded == 1 else "units"
                 counted += f", {self.unrecorded} {plural} not yet recorded"
-        shown = (
-            f"{self.name} ~{round(self.estimate)}% estimated "
-            f"({self.read_pct}% read + {round(self.spent_pct)}% spent{counted})"
-        )
+        if self.estimated:
+            shown = (
+                f"{self.name} ~{round(self.estimate)}% estimated "
+                f"({self.read_pct}% read + {round(self.spent_pct)}% spent{counted})"
+            )
+        else:
+            shown = f"{self.name} {self.read_pct}% read"
+        if self.forecast > 0:
+            shown += f" + {self.forecast:.1f}% forecast"
         if self.ample:
             return f"{shown} under {self.threshold}%"
         return f"{shown} is not {self.margin} points under {self.threshold}%"
@@ -1259,23 +1288,138 @@ def _estimate_text(held: UsageReading, estimates: list[WindowEstimate], now: dat
     return f"usage: reading {age}m old, " + ", ".join(each.text for each in estimates)
 
 
+def _forecast_note(estimates: list[WindowEstimate]) -> str:
+    """The forecast in words for the first window it is part of the refusal of, with what
+    dominates it; nothing when no window is refused with a forecast."""
+    for each in estimates:
+        if not each.ample and each.ahead is not None and each.forecast > 0:
+            return "; " + each.ahead.text(each.name)
+    return ""
+
+
+def _account_ledger(cache_path: Path) -> list[UsageRecord]:
+    """The ledger rows of the account in force: only what ran on it spent its windows."""
+    account = _account.get() or claude_account.Account()
+    return of_account([], read_ledger(cache_path.parent / LEDGER_NAME), account)[1]
+
+
+def _ahead(
+    ask: Ask,
+    cache_path: Path,
+    ledger: list[UsageRecord],
+    resets: dict[str, datetime | None],
+    *,
+    now: datetime,
+    counted: dict[str, set[str]],
+    admitted: bool = False,
+) -> dict[str, AskForecast]:
+    """The forecast of `ask` for each window of `resets`, from the history, the step rows and the
+    installed timers; `counted` are the running units each window's estimate already holds."""
+    limits = claude_limits()
+    account = _account.get() or claude_account.Account()
+    kept = read_allowances(allowances_path(cache_path.parent, account))
+    steps = read_record(cache_path.parent / FORECASTS_NAME).steps
+    verdicts = recorded_verdicts(cache_path.parent / VERDICTS)
+    root = active_root()
+    # The timers only matter to a window that has a reset ahead.
+    open_window = any(at is not None and at > now for at in resets.values())
+    timers = (
+        read_timers(root)
+        if root is not None and open_window
+        else TimerReading(read=False, tracks={})
+    )
+    found: dict[str, AskForecast] = {}
+    for name, resets_at in resets.items():
+        window: Literal["session", "weekly"] = "session" if name == "session" else "weekly"
+        fit = kept.get(window)
+        costed = fit is not None and cost_basis_in_force(window, fit, limits)
+        found[name] = forecast_ask(
+            ask,
+            records=ledger,
+            verdicts=verdicts,
+            steps=steps,
+            timers=timers,
+            now=now,
+            resets_at=resets_at if resets_at is not None and resets_at > now else None,
+            points_per_usd=fit.points_per_usd if fit is not None and costed else None,
+            flat_allowance=allowance_for(window, fit, limits),
+            min_runs=limits.usage_forecast_min_runs,
+            quantile=limits.usage_forecast_quantile,
+            counted=counted.get(name, ()),
+            admitted=admitted,
+        )
+    return found
+
+
+def _forecasted(decision: Decision, reading: UsageReading | None, ask: Ask | None) -> Decision:
+    """`decision`, when it allows a start, held to the forecast on the reading's own figures: no
+    window may be within the margin of its threshold once the forecast is added. It can only
+    make an answer stricter."""
+    if (
+        not decision.may_start
+        or reading is None
+        or ask is None
+        or not ask.forecast
+        or not claude_limits().usage_forecast
+    ):
+        return decision
+    now = datetime.now(UTC)
+    limits = Limits.configured()
+    cache_path = _cache_file()
+    ahead = _ahead(
+        ask,
+        cache_path,
+        _account_ledger(cache_path),
+        {each.name: each.resets_at for each in reading.windows},
+        now=now,
+        counted={},
+    )
+    estimates = [
+        WindowEstimate(
+            name=each.name,
+            read_pct=each.used_pct,
+            spent_pct=0.0,
+            threshold=threshold_at(each, now=now, limits=limits),
+            margin=claude_limits().usage_headroom_margin_pct,
+            ahead=ahead[each.name],
+            estimated=False,
+        )
+        for each in reading.windows
+    ]
+    refused = [e for e in estimates if not e.ample]
+    if not refused:
+        return decision
+    window = next(each for each in reading.windows if each.name == refused[0].name)
+    return Decision(
+        may_start=False,
+        reason=f"usage: {', '.join(e.text for e in estimates)}{_forecast_note(estimates)}",
+        resume_at=_resume_to(window, now=now, limits=limits),
+        resets_at=reading.resets_at,
+        threshold=refused[0].threshold,
+        ramp=_ramp_of(refused[0].name, limits),
+        **_reading_facts(reading),
+    )
+
+
 def _admitted(cached: dict) -> list[str]:
     units = cached.get("estimate_units")
     return [u for u in units if isinstance(u, str)] if isinstance(units, list) else []
 
 
 def _estimates(
-    held: UsageReading, cached: dict, cache_path: Path, now: datetime
+    held: UsageReading, cached: dict, cache_path: Path, now: datetime, ask: Ask | None = None
 ) -> list[WindowEstimate]:
     """The estimate of both windows from the reading kept, the ledger beside the cache file
-    and the units admitted on an estimate since."""
+    and the units admitted on an estimate since, and what `ask` is forecast to need when it
+    is forecast."""
     limits = claude_limits()
     calls = read_calls(_calls_file(cache_path))
     account = _account.get() or claude_account.Account()
     kept = read_allowances(allowances_path(cache_path.parent, account))
     admitted = set(_admitted(cached))
     # Only what ran on this account spent its windows.
-    ledger = of_account([], read_ledger(cache_path.parent / LEDGER_NAME), account)[1]
+    ledger = _account_ledger(cache_path)
+    counted: dict[str, set[str]] = {}
     rows = spend_costs(ledger)
     steps = read_record(cache_path.parent / FORECASTS_NAME).steps if limits.usage_forecast else ()
     stepped = {step.unit for step in steps}
@@ -1298,6 +1442,7 @@ def _estimates(
             now=now,
             points_per_usd=found.points_per_usd or 0.0,
         ).running
+        counted[window] = {r.unit for r in remainders}
         # A unit whose step has no costed history gets no remainder and stays at the allowance.
         unrecorded = len(waiting - {r.unit for r in remainders})
         remainder = sum(r.points for r in remainders)
@@ -1322,7 +1467,7 @@ def _estimates(
             min_gap=timedelta(minutes=limits.usage_cache_minutes),
         )
 
-    return estimate_usage(
+    estimates = estimate_usage(
         held,
         now=now,
         limits=Limits.configured(),
@@ -1330,6 +1475,18 @@ def _estimates(
         spend=spend,
         climb=climb,
     )
+    if ask is None or not ask.forecast or not limits.usage_forecast:
+        return estimates
+    ahead = _ahead(
+        ask,
+        cache_path,
+        ledger,
+        {each.name: each.resets_at for each in held.windows},
+        now=now,
+        counted=counted,
+        admitted=ask.unit in admitted,
+    )
+    return [each.model_copy(update={"ahead": ahead[each.name]}) for each in estimates]
 
 
 def _estimable(held: UsageReading | None) -> UsageReading | None:
@@ -1350,13 +1507,14 @@ def _decide_on_estimate(
     now: datetime,
     unit: str | None,
     step: str | None = None,
+    ask: Ask | None = None,
     next_call: datetime | None,
 ) -> Decision:
     """Whether a unit may start when the endpoint cannot be asked: the estimate, then the cap.
 
     A refusal carries the estimate's text and, for the cap, the time the endpoint may next be
     asked. An allowance is recorded in the cache file under its lock."""
-    estimates = _estimates(held, cached, cache_path, now)
+    estimates = _estimates(held, cached, cache_path, now, ask)
     text = _estimate_text(held, estimates, now)
     nearest = min(estimates, key=lambda each: each.threshold - each.estimate)
     facts = {
@@ -1366,7 +1524,9 @@ def _decide_on_estimate(
         "ramp": _ramp_of(nearest.name, Limits.configured()),
     }
     if not all(each.ample for each in estimates):
-        return Decision(may_start=False, reason=text, resume_at=next_call, **facts)
+        return Decision(
+            may_start=False, reason=text + _forecast_note(estimates), resume_at=next_call, **facts
+        )
     admitted = _admitted(cached)
     cap = claude_limits().usage_estimate_max_starts
     if (unit is None or unit not in admitted) and len(admitted) >= cap:
@@ -1460,15 +1620,30 @@ def decide_start(
     unit: str | None = None,
     step: str | None = None,
     step_round: int | None = None,
+    review_tier: ReviewTier | None = None,
+    estimated_lines: int | None = None,
     account: claude_account.Account | None = None,
+    plan_due: bool = False,
 ) -> Decision:
     """`_decide_start` for `account`'s windows, limits and cache; a refusal on a labelled
     account says which account is full. `step` is the step the start is for and `step_round`
-    its round; a step with no round is not recorded."""
+    its round; a step with no round is not recorded. `plan_due` says a plan call is due, whose
+    mean cost the forecast reserves. What a `starting` block names is the
+    default for the unit, review tier, estimated lines, step and round, which the forecast of
+    the start is made from."""
+    named = _facts.get() or Ask()
+    ask = Ask(
+        unit=unit or _starting.get(),
+        tier=review_tier or named.tier,
+        lines=estimated_lines if estimated_lines is not None else named.lines,
+        step=step or named.step,
+        step_round=step_round if step_round is not None else named.step_round,
+        plan_due=plan_due or named.plan_due,
+    )
     with on_account(account):
-        decision = _decide_start(read=read, decide=decide, unit=unit, step=step)
+        decision = _decide_start(read=read, decide=decide, unit=unit, step=ask.step, ask=ask)
         if decision.may_start and decision.source != "off":
-            _record_step(unit or _starting.get(), step, step_round)
+            _record_step(ask.unit, ask.step, ask.step_round)
     if account is not None and account.label is not None and not decision.may_start:
         return decision.model_copy(update={"reason": f"account {account.label}: {decision.reason}"})
     return decision
@@ -1493,6 +1668,7 @@ def _decide_start(
     decide: Callable[..., Decision] | None = None,
     unit: str | None = None,
     step: str | None = None,
+    ask: Ask | None = None,
 ) -> Decision:
     """Whether a unit may start now, asking the endpoint only when a fresh reading
     could change the answer and the minimum interval allows a call.
@@ -1527,6 +1703,7 @@ def _decide_start(
             now=later,
             unit=unit,
             step=step,
+            ask=ask,
             next_call=next_call,
         )
         if estimated.may_start:
@@ -1540,7 +1717,7 @@ def _decide_start(
 
     def fresh() -> Decision:
         reading = read()
-        decision = carrying(judge(reading), reading)
+        decision = _forecasted(carrying(judge(reading), reading), reading, ask)
         unusable = reading is None or (not reading.is_live and reading.age > MAX_ANCHOR_AGE)
         base = _estimable(held)
         if decision.may_start or not unusable or base is None:
@@ -1565,7 +1742,8 @@ def _decide_start(
                 age_seconds=int(block.age.total_seconds()),
             ),
         )
-        return _labelled(carrying(judge(block, trust_age=True), block), block)
+        judged = _forecasted(carrying(judge(block, trust_age=True), block), block, ask)
+        return _labelled(judged, block)
     if held is not None and not _past_reset(held, now):
         decision = carrying(judge(held, trust_age=True), held)
         if not decision.may_start or _headroom_holds(held, calls_file, now):
@@ -1580,7 +1758,7 @@ def _decide_start(
                     age_seconds=int((now - held.observed_at).total_seconds()),
                 ),
             )
-            return decision
+            return _forecasted(decision, held, ask)
         if now - held.observed_at < current_cache_interval(calls_file).kept:
             return fresh()
     allowed = next_call_at(calls_file, now=now)
