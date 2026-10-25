@@ -41,6 +41,7 @@ class RefusalKind(StrEnum):
     DESTINATION_LACKS_REPO = "destination-lacks-repo"
     SPANNING_UNIT = "spanning-unit"
     IN_FLIGHT_UNIT = "in-flight-unit"
+    AMBIGUOUS_CHANGE = "ambiguous-change"
 
 
 class Refusal(Frozen):
@@ -85,6 +86,10 @@ class SplitPlan(Frozen):
     specs_shared: tuple[str, ...] = ()
     specs_unowned: tuple[str, ...] = ()
     units_moved: tuple[str, ...] = ()
+    units_moved_active: tuple[str, ...] = ()
+    units_moved_archived: tuple[str, ...] = ()
+    units_moved_no_directory: tuple[str, ...] = ()
+    units_staying: tuple[str, ...] = ()
     units_blocking: tuple[str, ...] = ()
     # `M path`, `?? path` and `D path` lines; None when the source is not under git.
     uncommitted: tuple[str, ...] | None = None
