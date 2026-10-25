@@ -20,7 +20,7 @@ def test_the_archive_entry_and_its_units_and_the_no_directory_unit_are_gone(tmp_
     assert code == 0, capsys.readouterr().out
     assert not (installation.changes_dir / "archive" / "2025-01-01-old").exists()
     assert unit_ids(installation) == ["stays/1"]
-    assert unit_ids(moved) == ["gone/1", "old/1", "old/2", "one/1"]
+    assert sorted(unit_ids(moved)) == ["gone/1", "old/1", "old/2", "one/1"]
     assert snapshot_tree(installation.changes_dir / "stays") == staying
     kept = UnitStore(installation.state_dir / "units.json").get("stays/1")
     assert kept.repo == "lib" and kept.state == "merged"
@@ -33,7 +33,9 @@ def test_a_destination_record_altered_after_the_copy_removes_nothing(tmp_path, m
     def altering(src, dest, plan, **kwargs):
         report = real(src, dest, plan, **kwargs)
         store = UnitStore(dest.state_dir / "units.json")
-        store.import_units([store.get("old/1").model_copy(update={"feedback": "altered"})])
+        altered = store.get("old/1").model_copy(update={"feedback": "altered"})
+        store.remove_units(["old/1"])
+        store.import_units([altered])
         return report
 
     monkeypatch.setattr(copy, "carry_out", altering)

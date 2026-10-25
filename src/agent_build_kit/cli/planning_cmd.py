@@ -28,12 +28,35 @@ def _fail(message: str) -> int:
     return 2
 
 
+def _no_directory(plan: SplitPlan) -> list[str]:
+    ids = plan.units_moved_no_directory
+    line = f"    {len(ids)} with no change directory"
+    return [f"{line}, moved by repo: {', '.join(ids)}" if ids else line]
+
+
+def _dropped(edges: tuple[copy.DroppedEdge, ...]) -> list[str]:
+    if not edges:
+        return []
+    return [
+        *(
+            f"  unit {edge.unit}: dropped {edge.field} {edge.target} "
+            "(merged unit of another repo, stays in the source)"
+            for edge in edges
+        ),
+        f"  dropped edges: {len(edges)}",
+    ]
+
+
 def _counts(source: Installation, plan: SplitPlan, entries: int) -> list[str]:
     return [
         f"  changes: {len(plan.changes_moved)}",
         f"  archive entries: {len(plan.archive_moved)}",
         f"  specs: {len(plan.specs_moved)}",
         f"  units: {len(plan.units_moved)}",
+        f"    {len(plan.units_moved_active)} active",
+        f"    {len(plan.units_moved_archived)} archived",
+        *_no_directory(plan),
+        f"    {len(plan.units_staying)} left in the source",
         f"  plan records: {len(copy.moved_plan_records(source, plan))}",
         f"  config entries: {entries}",
     ]
@@ -98,7 +121,7 @@ def cmd_planning_split(args: argparse.Namespace, source: Installation) -> int:
     print(f"selection: {selection}")
     print("plan:")
     entries = 0 if entry is None or entry.already_declared else 1
-    print("\n".join(_counts(source, plan, entries)))
+    print("\n".join([*_counts(source, plan, entries), *_dropped(found.dropped)]))
     if entry is not None and entry.already_declared:
         print(f"  repo {args.repo} is already declared in the destination")
     if entry is not None and entry.missing_consumes:

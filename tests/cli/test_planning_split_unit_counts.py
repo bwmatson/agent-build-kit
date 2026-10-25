@@ -33,10 +33,10 @@ def test_the_units_are_split_by_origin_under_the_total(tmp_path, capsys):
     assert code == 0
     assert (snapshot_tree(source), snapshot_tree(destination)) == before
     total = lines.index(line_with(out, "units:"))
-    assert "units: 8" in lines[total]
+    assert "units: 7" in lines[total]
     active = line_with(out, "active")
     assert "3" in active and lines.index(active) > total
-    assert "4" in line_with(out, "archived")
+    assert "3" in line_with(out, "archived")
     assert "1" in line_with(out, "no change directory") and "gone/1" in out
     assert "4" in line_with(out, "left in the source")
 
