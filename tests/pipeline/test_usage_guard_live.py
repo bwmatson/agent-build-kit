@@ -301,7 +301,7 @@ def test_an_expired_token_is_refreshed_once_and_the_read_retried(tmp_path: Path)
 
     refreshed: list[bool] = []
     original = usage_guard.read_oauth_token
-    usage_guard.read_oauth_token = lambda path=None: next(tokens)
+    usage_guard.read_oauth_token = lambda path=None, *, account=None: next(tokens)
     try:
         reading = read_live_usage(
             fetch=fetch,

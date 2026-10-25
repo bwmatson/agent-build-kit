@@ -324,7 +324,9 @@ def _state_file() -> Path:
     return claude_account.state_file(account)
 
 
-def read_oauth_token(path: Path | None = None) -> str | None:
+def read_oauth_token(
+    path: Path | None = None, *, account: claude_account.Account | None = None
+) -> str | None:
     """Find Claude Code's stored OAuth token.
 
     Read-only, and the value is never logged or written anywhere by this
@@ -498,7 +500,12 @@ def relief_at(window: Window, *, now: datetime, limits: Limits) -> datetime | No
     return max(now, window.resets_at - span * (1 - reach))
 
 
-def token_expired(path: Path | None = None, *, now: datetime | None = None) -> bool:
+def token_expired(
+    path: Path | None = None,
+    *,
+    account: claude_account.Account | None = None,
+    now: datetime | None = None,
+) -> bool:
     """Whether the saved OAuth access token has passed its `expiresAt`.
 
     False when that cannot be read: the refresh below is only for the state it
@@ -536,6 +543,11 @@ def refresh_login() -> None:
     from agent_build_kit.runtimes import claude_code
 
     claude_code.refresh_login(_account.get())
+
+
+def account_in_force() -> claude_account.Account:
+    """The account in force (`on_account`), else the default account."""
+    raise NotImplementedError
 
 
 def claude_limits() -> ClaudeLimitsConfig:
@@ -640,8 +652,8 @@ def read_live_usage(
     fetch: Fetch = _http_get_json,
     cache_path: Path | None = None,
     ttl: timedelta | None = None,
-    expired: Callable[[], bool] | None = None,
-    refresh: Callable[[], None] | None = None,
+    expired: Callable[..., bool] | None = None,
+    refresh: Callable[..., None] | None = None,
     caller: str | None = None,
 ) -> UsageReading | None:
     """Ask the endpoint where the windows stand, or None if it can't say.

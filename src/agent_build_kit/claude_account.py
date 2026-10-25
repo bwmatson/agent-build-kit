@@ -151,6 +151,12 @@ class Account(Frozen):
     limits: ClaudeLimitsConfig = ClaudeLimitsConfig()
     max_units_in_progress: int | None = None
 
+    @classmethod
+    def default(cls) -> Account:
+        """The default account: no label, no directory; the environment's directory is
+        resolved lazily."""
+        raise NotImplementedError
+
 
 def file_for(path: Path, account: Account | None) -> Path:
     """`path` for `account`: a labelled account keeps its own file beside it, as
