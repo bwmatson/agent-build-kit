@@ -92,15 +92,6 @@ def server_error() -> urllib.error.HTTPError:
     )
 
 
-def faked_paths(home: Path) -> dict[str, Path]:
-    """The guard's credential and anchor paths, moved under `home` so no test reads the
-    developer's own files; the parent and a spawned asker both apply these."""
-    return {
-        "CREDENTIALS_PATH": home / "no-credentials.json",
-        "DEFAULT_ANCHOR_PATH": home / ".claude.json",
-    }
-
-
 def editor_block(age: timedelta, *, session: int, resets_in: timedelta) -> dict:
     """The block `cachedUsageUtilization` of a `.claude.json`, fetched `age` ago, as Claude Code
     writes it."""
@@ -129,8 +120,6 @@ class Host:
         self.keep_in(self.home / ".cache" / "agent-build-kit")
         monkeypatch.setenv("HOME", str(self.home))
         monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", SECRET)
-        for name, value in faked_paths(self.home).items():
-            monkeypatch.setattr(usage_guard, name, value)
         monkeypatch.setattr("urllib.request.urlopen", self.urlopen)
         monkeypatch.setattr("time.sleep", lambda _: None)
         config_module.activate(WorkspaceConfig(), None)
@@ -198,7 +187,7 @@ class Host:
 
     def refuse_default_state_file(self) -> None:
         """Opening the default account's `~/.claude.json` fails the test, whatever it holds."""
-        default = usage_guard.DEFAULT_ANCHOR_PATH
+        default = self.home / ".claude.json"
         reads = (Path.read_text, Path.read_bytes, Path.open)
 
         def guarded(original):

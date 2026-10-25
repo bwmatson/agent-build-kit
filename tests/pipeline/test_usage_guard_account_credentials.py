@@ -28,7 +28,9 @@ def write_default(token: str, expires_at_ms: int | None = None) -> None:
     oauth: dict = {"accessToken": token}
     if expires_at_ms is not None:
         oauth["expiresAt"] = expires_at_ms
-    usage_guard.CREDENTIALS_PATH.write_text(json.dumps({"claudeAiOauth": oauth}))
+    path = Path.home() / ".claude" / ".credentials.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"claudeAiOauth": oauth}))
 
 
 @pytest.fixture
@@ -133,6 +135,6 @@ def test_a_fresh_account_token_is_not_refreshed(
     refreshed: list[bool] = []
     host.answers = [unauthorized()]
 
-    usage_guard.read_live_usage(refresh=lambda: refreshed.append(True))
+    usage_guard.read_live_usage(refresh=lambda account: refreshed.append(True))
 
     assert refreshed == []

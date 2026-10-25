@@ -306,8 +306,8 @@ def test_an_expired_token_is_refreshed_once_and_the_read_retried(tmp_path: Path)
         reading = read_live_usage(
             fetch=fetch,
             cache_path=tmp_path / "cache.json",
-            expired=lambda: True,
-            refresh=lambda: refreshed.append(True),
+            expired=lambda account: True,
+            refresh=lambda account: refreshed.append(True),
         )
     finally:
         usage_guard.read_oauth_token = original
@@ -329,8 +329,8 @@ def test_a_token_that_has_not_expired_is_not_refreshed(tmp_path: Path) -> None:
         token=None,
         fetch=fetch,
         cache_path=tmp_path / "cache.json",
-        expired=lambda: False,
-        refresh=lambda: refreshed.append(True),
+        expired=lambda account: False,
+        refresh=lambda account: refreshed.append(True),
     )
 
     assert reading is None

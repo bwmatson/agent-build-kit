@@ -155,7 +155,7 @@ class Account(Frozen):
     def default(cls) -> Account:
         """The default account: no label, no directory; the environment's directory is
         resolved lazily."""
-        raise NotImplementedError
+        return cls()
 
 
 def file_for(path: Path, account: Account | None) -> Path:

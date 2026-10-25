@@ -10,7 +10,6 @@ from datetime import timedelta
 
 import pytest
 
-from agent_build_kit.pipeline import usage_guard
 from agent_build_kit.pipeline.usage_guard import (
     decide_start,
     held_usage,
@@ -104,4 +103,4 @@ def test_the_unknown_reason_names_the_file_read_not_the_default_one(host: Host) 
 
     assert not decision.may_start
     assert str(account / ".claude.json") in decision.reason
-    assert str(usage_guard.DEFAULT_ANCHOR_PATH) not in decision.reason
+    assert str(host.home / ".claude.json") not in decision.reason

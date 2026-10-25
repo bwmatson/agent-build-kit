@@ -34,7 +34,6 @@ from agent_build_kit.forges import github
 from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.forges.transport import clear_credentials
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import usage_guard
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.runtimes import claude_code
 from tests.forges.github_server import FakeGitHub
@@ -150,13 +149,15 @@ def no_real_agent(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatc
 
 
 @pytest.fixture(autouse=True)
-def no_real_usage_reading(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def no_real_usage_reading(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> None:
     """The adapter's default usage readers call the live endpoint with the
     machine's own token, and read the machine's own Claude Code cache. A test
     that means to read usage injects `read_live=` and `read_cached=`. The
     guard's own default cache path points at a file that does not exist, so a
     fresh block in the machine's `~/.claude.json` cannot change a decision; a
-    test that wants a cache file sets `DEFAULT_ANCHOR_PATH` itself. Nor does the guard's own
+    test that wants a cache file sets `HOME` itself. Nor does the guard's own
     reader find this machine's token: no `CLAUDE_CODE_OAUTH_TOKEN`, and a credentials file that
     does not exist, so no call is made and no login is refreshed; a test that wants a token sets
     one."""
@@ -169,8 +170,7 @@ def no_real_usage_reading(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
 
     monkeypatch.setattr(claude_code, "read_live_usage", refuse)
     monkeypatch.setattr(claude_code, "read_cached_usage", refuse)
-    monkeypatch.setattr(usage_guard, "DEFAULT_ANCHOR_PATH", tmp_path / "no-claude.json")
-    monkeypatch.setattr(usage_guard, "CREDENTIALS_PATH", tmp_path / "no-credentials.json")
+    monkeypatch.setenv("HOME", str(tmp_path_factory.mktemp("no-home")))
     monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
 
 
