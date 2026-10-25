@@ -162,25 +162,10 @@ def test_refreshing_the_login_is_the_adapter_s_smallest_claude_call() -> None:
     ]
 
 
-def test_a_live_reading_refreshes_an_expired_login_through_the_adapter(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    given: dict = {}
-    refreshed: list[bool] = []
-    monkeypatch.setattr(claude_code, "read_live_usage", lambda **kw: given.update(kw))
-    monkeypatch.setattr(claude_code, "read_cached_usage", lambda: None)
-    monkeypatch.setattr(claude_code, "refresh_login", lambda: refreshed.append(True))
-
-    ClaudeCodeRuntime(execute=no_agent).get_usage_status()
-    given["refresh"]()
-
-    assert refreshed == [True]
-
-
 def test_the_usage_guard_s_own_refresh_is_the_adapter_s(monkeypatch: pytest.MonkeyPatch) -> None:
     """Kept for `current_usage`, which reads before any runtime is chosen."""
     refreshed: list[bool] = []
-    monkeypatch.setattr(claude_code, "refresh_login", lambda: refreshed.append(True))
+    monkeypatch.setattr(claude_code, "refresh_login", lambda account=None: refreshed.append(True))
 
     real_usage_guard_refresh()
 

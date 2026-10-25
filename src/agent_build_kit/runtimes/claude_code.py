@@ -235,7 +235,9 @@ def _account_run_kwargs(account: claude_account.Account | None = None) -> dict[s
     return {"env": child_environment(None, entry)} if entry else {}
 
 
-def refresh_login(run: Callable[..., object] = subprocess.run) -> None:
+def refresh_login(
+    account: claude_account.Account | None = None, run: Callable[..., object] = subprocess.run
+) -> None:
     """Have Claude Code refresh its OAuth token, with the smallest call it
     takes — see `usage_guard.refresh_login` for why the usage read needs it."""
     started = time.monotonic()

@@ -118,7 +118,9 @@ def test_after_an_expired_token_the_refresh_is_told_the_account_and_the_second_r
             )
         )
 
-    monkeypatch.setattr(claude_code, "refresh_login", lambda: refresh_login(run=claude))
+    monkeypatch.setattr(
+        claude_code, "refresh_login", lambda account=None: refresh_login(account, run=claude)
+    )
     sent: list[str | None] = []
     answer = host.urlopen
 
