@@ -16,6 +16,7 @@ from agent_build_kit.sandboxes.base import (
     SandboxPathsProfile,
     SandboxPathsRuntime,
     SandboxPolicy,
+    system_folders,
 )
 from agent_build_kit.sandboxes.proxy import LOCALHOST
 
@@ -55,7 +56,7 @@ def build_policy(
     _refuse_owned(listed("write"), write, installation)
     return SandboxPolicy(
         write=_unique([worktree.resolve(), *git_parts(worktree), *write]),
-        read=_unique(_resolved(listed("read"), worktree)),
+        read=_unique(_resolved([*system_folders(), *listed("read")], worktree)),
         hosts=_unique(listed("hosts")),
         ports=_unique(int(port) for port in listed("ports")),
         required=installation.config.repos[repo].sandbox.required,

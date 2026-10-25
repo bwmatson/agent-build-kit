@@ -6,6 +6,7 @@ test stand-in is a plain class (`tests/sandboxes/stand_in.py`).
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Sequence
 from enum import StrEnum
 from pathlib import Path
@@ -34,6 +35,17 @@ def step_confined(required: Coverage, coverage: Coverage) -> bool:
     """Whether a step of a repo that `required` this much runs confined on a runtime with
     `coverage`: `none` lets it run plain, and less coverage than required runs it plain too."""
     return required is not Coverage.NONE and coverage.reaches(required)
+
+
+LINUX_SYSTEM_FOLDERS = ("/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/proc", "/sys")
+MACOS_SYSTEM_FOLDERS = ("/usr", "/bin", "/sbin", "/System", "/Library", "/private/etc", "/dev")
+
+
+def system_folders() -> tuple[str, ...]:
+    """The system folders every confined step reads on this platform, so it can exec anything;
+    only those that exist."""
+    named = MACOS_SYSTEM_FOLDERS if sys.platform == "darwin" else LINUX_SYSTEM_FOLDERS
+    return tuple(folder for folder in named if Path(folder).exists())
 
 
 class Availability(Frozen):

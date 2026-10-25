@@ -12,14 +12,11 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from agent_build_kit.sandboxes import held
-from agent_build_kit.sandboxes.base import Availability, Coverage, SandboxPolicy
+from agent_build_kit.sandboxes.base import Availability, Coverage, SandboxPolicy, system_folders
 
 FIX = (
     "run on macOS, where `sandbox-exec` ships with the system, or set `required: none` on the repo"
 )
-
-# What the probes' trivial commands need to read.
-_PROBE_READ = ("/usr", "/bin", "/sbin", "/System", "/Library", "/private/etc", "/dev")
 
 # What any confined command needs beyond the policy's lists: to start, to look paths up, to read
 # the device folder and to write the few device files shells use.
@@ -71,7 +68,7 @@ class Seatbelt:
             return _failed(f"Seatbelt needs macOS; this machine is {sys.platform}")
         if shutil.which("sandbox-exec") is None:
             return _failed("`sandbox-exec` was not found on PATH")
-        with held.scene(_PROBE_READ) as (policy, granted):
+        with held.scene(system_folders()) as (policy, granted):
             written = held.write_probe(self, policy, granted, FIX)
             with socket.socket() as server:
                 server.bind(("127.0.0.1", 0))
