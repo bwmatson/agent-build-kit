@@ -22,6 +22,7 @@ import ast
 import hashlib
 import logging
 import os
+import re
 import shlex
 import subprocess
 import time
@@ -396,6 +397,7 @@ def _sandbox_policy(
     runtime: AgentRuntime,
     account: claude_account.Account | None,
     tier: TestTier = TestTier.UNIT_TEST,
+    change: str = "",
 ) -> SandboxPolicy | None:
     """The policy a step in `worktree` of `repo` runs under; None while the sandbox is off or
     the call is not a step of a repo."""
@@ -410,7 +412,18 @@ def _sandbox_policy(
         profile=profiles.get(active().repos[repo].profile),
         account=account,
         tier=tier,
+        change=change,
     )
+
+
+SANDBOX_DENIAL = re.compile(r"EACCES|permission denied", re.IGNORECASE)
+
+
+def refused_read(line: str, specs: Path) -> str | None:
+    """The path under `specs` that a step's event `line` says the sandbox refused, if it does."""
+    if not SANDBOX_DENIAL.search(line):
+        return None
+    return next((m for m in re.findall(r"/[^\s'\":]+", line) if m.startswith(str(specs))), None)
 
 
 def build_run(
@@ -506,7 +519,9 @@ def build_run(
 
         gateway = {"gateway": spend} if source is not None else {}
         try:
-            sandbox = _sandbox_policy(sandbox_repo, cwd, agent, account, sandbox_tier)
+            sandbox = _sandbox_policy(
+                sandbox_repo, cwd, agent, account, sandbox_tier, sandbox_change
+            )
         except PolicyRefused as refused:
             spend()
             raise RuntimeError(f"the sandbox policy was refused: {refused}") from refused
@@ -521,6 +536,13 @@ def build_run(
             sandbox.required, agent.sandbox_coverage
         )
         recorder = _recorder(record_for, place, role)
+        events = journal or log or print
+
+        def watched(line: str) -> None:
+            events(line)
+            if (path := refused_read(line, specs)) is not None:
+                (log or print)(f"sandbox: the sandbox does not let this step read {path}")
+
         request = AgentRequest(
             # A continued session holds the original prompt already: it is told what is new,
             # or, when it is the node's own interrupted run, that it was interrupted.
@@ -558,7 +580,7 @@ def build_run(
                 sandbox=sandbox,
                 confined=is_confined,
             ),
-            on_event=journal or log or print,
+            on_event=watched if is_confined else events,
             on_transcript=transcript,
             on_record=recorder.record if recorder else None,
         )
@@ -3987,6 +4009,7 @@ def build_runner(
         sandbox_repo=unit.repo,
         # The build run, and the commit step that reuses it, run under the unit's own kind.
         sandbox_tier=unit.tier,
+        sandbox_change=unit.change,
         account=account,
         planning_repo=planning_repo,
         allowed_tools=tools,

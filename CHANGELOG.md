@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A confined step can now read the change it is building: its `tasks.md`, `proposal.md`,
+  `design.md` and delta specs, and the capability specs beside them, read-only. Before, the
+  sandbox hid them and the agent worked without its spec. Other changes, `abk.yaml` and the rest
+  of the planning repo stay unreadable, and the specs folder stays unwritable. `abk doctor`
+  now reads a spec file from inside a confined step and fails naming the file when it cannot,
+  and a refused read of the specs shows in the run log as a sandbox message.
+
 - A repo can keep one pre-commit configuration at its root for all its Python projects: the
   `python-uv` profile now passes the nearest `.pre-commit-config.yaml` at or above the folder a
   check runs in (never above the git root) to the diff lint, the all-files lint, the clean
