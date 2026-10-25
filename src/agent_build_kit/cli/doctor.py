@@ -17,6 +17,7 @@ import shlex
 import shutil
 import socket
 import subprocess
+import tempfile
 import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
@@ -102,7 +103,7 @@ from agent_build_kit.runtimes import claude_code, policy_check, providers
 from agent_build_kit.runtimes.base import AgentRuntime, Run, Which, account_report_of
 from agent_build_kit.sandboxes import held
 from agent_build_kit.sandboxes.base import system_folders
-from agent_build_kit.sandboxes.policy import change_reads, policy_entries
+from agent_build_kit.sandboxes.policy import change_reads, git_parts, git_reads, policy_entries
 from agent_build_kit.settings import settings
 
 Status = Literal["ok", "info", "warn", "FAIL"]
@@ -1730,15 +1731,48 @@ def _spec_read_failure(
         hosts=(),
         required=coverage,
     )
+    return _confined_failure(backend, policy, f"cat {shlex.quote(str(file))}", f"read {file}")
+
+
+def _confined_failure(
+    backend: sandboxes.SandboxBackend, policy: sandboxes.SandboxPolicy, script: str, what: str
+) -> str:
+    """Why `script` does not succeed in a confined step under `policy` (`what` says what it
+    does), naming what the step printed; empty when it succeeds."""
     try:
-        done = held.run(backend, policy, f"cat {shlex.quote(str(file))}")
+        done = held.run(backend, policy, script)
     except subprocess.TimeoutExpired:
-        return f"reading {file} from a confined step did not finish in {held.TIMEOUT} seconds"
+        return f"a confined step trying to {what} did not finish in {held.TIMEOUT} seconds"
     except OSError as error:
-        return f"a confined step could not read {file}: {error}"
+        return f"a confined step could not {what}: {error}"
     if done.returncode != 0:
-        return f"a confined step cannot read {file}: {done.stderr.strip() or done.returncode}"
+        return f"a confined step cannot {what}: {done.stderr.strip() or done.returncode}"
     return ""
+
+
+def _git_read_failure(backend: sandboxes.SandboxBackend, coverage: sandboxes.Coverage) -> str:
+    """Why a confined step cannot run `git status` and `git log -1` in a worktree, naming what
+    git could not read; empty when it can. Run in a scratch linked worktree."""
+    with tempfile.TemporaryDirectory(prefix="abk-probe-git-") as folder:
+        main, tree = (Path(folder).resolve() / name for name in ("main", "wt"))
+        # Independent of the person's own configuration: no signing, no hooks.
+        quiet = ("-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null")
+        identity = ("-c", "user.name=abk", "-c", "user.email=abk@example.invalid")
+        try:
+            git(main.parent, "init", "-q", "-b", "main", str(main))
+            git(main, *quiet, *identity, "commit", "-q", "--allow-empty", "-m", "probe")
+            git(main, "worktree", "add", "-q", str(tree), "-b", "probe")
+        except (subprocess.CalledProcessError, OSError) as error:
+            detail = getattr(error, "stderr", None) or error
+            return f"could not make a scratch worktree for the git probe: {str(detail).strip()}"
+        policy = sandboxes.SandboxPolicy(
+            write=(tree, *git_parts(tree)),
+            read=(*(Path(f).resolve() for f in system_folders()), *git_reads(tree)),
+            hosts=(),
+            required=coverage,
+        )
+        script = f"cd {shlex.quote(str(tree))} && git status && git log -1"
+        return _confined_failure(backend, policy, script, "run git")
 
 
 def sandbox_check(loaded: WorkspaceConfig, inst: Installation | None = None) -> Check:
@@ -1753,6 +1787,13 @@ def sandbox_check(loaded: WorkspaceConfig, inst: Installation | None = None) -> 
             "sandbox",
             f"{backend.name}: {why}",
             "the backend did not apply the read rule for the specs folder; "
+            "try another `sandbox.backend` or update this one",
+        )
+    if found.ok and (why := _git_read_failure(backend, found.coverage)):
+        return _fail(
+            "sandbox",
+            f"{backend.name}: {why}",
+            "the backend did not apply the read rules git needs; "
             "try another `sandbox.backend` or update this one",
         )
     if found.ok:

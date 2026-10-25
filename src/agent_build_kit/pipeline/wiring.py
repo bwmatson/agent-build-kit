@@ -192,6 +192,7 @@ from agent_build_kit.runtimes import AgentRequest, AgentRuntime, ToolPolicy
 from agent_build_kit.runtimes.base import PermissionMode, Role, SessionUnavailable
 from agent_build_kit.runtimes.claude_code import through
 from agent_build_kit.sandboxes import Coverage, SandboxPolicy, step_confined
+from agent_build_kit.sandboxes.confinement import SandboxRefused
 from agent_build_kit.sandboxes.policy import PolicyRefused, build_policy
 
 logger = logging.getLogger(__name__)
@@ -416,18 +417,30 @@ def _sandbox_policy(
     )
 
 
+# The roles whose reply is a verdict on a branch.
+REVIEW_ROLES: tuple[Role, ...] = ("review", "rework_review")
+
 SANDBOX_DENIAL = re.compile(r"EACCES|permission denied", re.IGNORECASE)
+
+
+def denied_paths(line: str) -> list[str]:
+    """The absolute paths in an event `line` that says a read was denied; none when it does not."""
+    if not SANDBOX_DENIAL.search(line):
+        return []
+    return [found.rstrip(".,;") for found in re.findall(r"/[^\s'\":,;()]+", line)]
 
 
 def refused_read(line: str, specs: Path) -> str | None:
     """The path under `specs` that a step's event `line` says the sandbox refused, if it does."""
-    if not SANDBOX_DENIAL.search(line):
+    return next((p for p in denied_paths(line) if Path(p).is_relative_to(specs)), None)
+
+
+def refused_git_read(line: str) -> str | None:
+    """The path a `git` failure `line` says the sandbox refused, if it does: a fatal message
+    with a denial and an absolute path."""
+    if not line.lstrip().startswith("fatal:"):
         return None
-    for found in re.findall(r"/[^\s'\":,;()]+", line):
-        path = Path(found.rstrip(".,;"))
-        if path.is_relative_to(specs):
-            return str(path)
-    return None
+    return next(iter(denied_paths(line)), None)
 
 
 def build_run(
@@ -541,12 +554,16 @@ def build_run(
         )
         recorder = _recorder(record_for, place, role)
 
+        git_refused: list[str] = []
+
         def record(made: TranscriptEvent) -> None:
             if recorder:
                 recorder.record(made)
             if made.kind != "tool_result":
                 return
             for line in made.text.splitlines():
+                if (denied := refused_git_read(line)) is not None:
+                    git_refused.append(denied)
                 if (path := refused_read(line, specs)) is not None:
                     (log or print)(f"sandbox: the sandbox does not let this step read {path}")
 
@@ -624,6 +641,10 @@ def build_run(
                 "during an agent step, to a commit made in this worktree; the pipeline is "
                 "the only pusher, so the agent pushed it"
             )
+        if role in REVIEW_ROLES and git_refused:
+            # A policy fault, not a verdict: the reviewer could not run git, so what it says
+            # about the branch is not a review.
+            raise SandboxRefused(f"the sandbox does not let the review's git read {git_refused[0]}")
         if not result.ok:
             # Half-finished edits are on disk: carrying on would commit them.
             raise RuntimeError(result.error)

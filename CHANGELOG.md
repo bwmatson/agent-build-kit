@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A confined step can now run `git` in its worktree: it reads, and cannot write, the
+  repository's `config` and `info`, the worktree's own entry and `.git` file, and your
+  own git configuration files. Before, every `git` command failed in a
+  confined review. A review whose `git` stops on a refused read now fails the unit as a
+  sandbox fault naming the path instead of coming back as `approved: false` feedback, and
+  `abk doctor` runs `git status` and `git log -1` from a confined step in a scratch worktree.
+
 - A confined step can now read the change it is building: its `tasks.md`, `proposal.md`,
   `design.md` and delta specs, and the capability specs beside them, read-only. Before, the
   sandbox hid them and the agent worked without its spec. Other changes, `abk.yaml` and the rest

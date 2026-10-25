@@ -19,6 +19,7 @@ from agent_build_kit.sandboxes.base import (
     system_folders,
 )
 from agent_build_kit.sandboxes.proxy import LOCALHOST
+from agent_build_kit.settings import Settings
 
 # The parts of a repository's git directory a commit writes. Landlock rules only add access,
 # so they are granted one at a time and never `hooks` or `config`.
@@ -26,6 +27,11 @@ GIT_PARTS = ("objects", "refs", "logs", "packed-refs", "HEAD", "FETCH_HEAD")
 
 
 BUILT_IN = "built-in"
+
+# The person's own git configuration file, beside their home; held apart from the home shorthand.
+PERSONAL_GIT_CONFIG = ".gitconfig"
+# What git opens in its folder under the configuration home, and nothing else of it.
+PERSONAL_GIT_FILES = ("config", "ignore", "attributes")
 
 
 def change_reads(installation: Installation, changes: Iterable[str]) -> list[Path]:
@@ -106,6 +112,8 @@ def policy_entries(
     e2e-test step each file's `tests.e2e_sandbox` follows its sandbox blocks. A step of a
     unit's `changes` also reads them and the capability specs, as a built-in entry."""
     layers: list[tuple[str, ProjectSandboxConfig | E2eSandboxConfig]] = []
+    if git := git_reads(worktree):
+        layers.append((BUILT_IN, ProjectSandboxConfig(read=[str(path) for path in git])))
     if changes:
         reads = [str(path) for path in change_reads(installation, changes)]
         layers.append((BUILT_IN, ProjectSandboxConfig(read=reads)))
@@ -177,17 +185,45 @@ def _e2e_block(document: dict[str, Any], repo: str) -> E2eSandboxConfig:
 def git_parts(worktree: Path) -> list[Path]:
     """The git paths a commit in `worktree` writes, derived from its `.git` pointer when it is
     a linked worktree; only those that exist."""
-    dot_git = worktree / ".git"
-    if dot_git.is_dir():
-        common, own = dot_git, None
-    elif dot_git.is_file():
-        own = _pointed_at(dot_git, worktree)
-        pointer = own / "commondir"
-        common = (own / pointer.read_text().strip()) if pointer.exists() else own.parent.parent
-    else:
+    found = _git_dirs(worktree)
+    if found is None:
         return []
+    common, own = found
     paths = [common / part for part in GIT_PARTS] + ([own] if own else [])
     return [path.resolve() for path in paths if path.exists()]
+
+
+def git_reads(worktree: Path) -> list[Path]:
+    """The paths `git` opens to run in `worktree`, read and never written: the repository's
+    `config` and `info`, a linked worktree's own entry and `.git` file, and the person's git
+    configuration files; only those that exist."""
+    found = _git_dirs(worktree)
+    if found is None:
+        return []
+    common, own = found
+    # Only the files git opens there: the folder also holds the credential store.
+    personal = Settings().config_folder() / "git"
+    paths = [
+        common / "config",
+        common / "info",
+        *([own, worktree / ".git"] if own else []),
+        Path.home() / PERSONAL_GIT_CONFIG,
+        *(personal / name for name in PERSONAL_GIT_FILES),
+    ]
+    return [path.resolve() for path in paths if path.exists()]
+
+
+def _git_dirs(worktree: Path) -> tuple[Path, Path | None] | None:
+    """The common git directory of `worktree` and, for a linked one, its own entry under it;
+    None when it is no git checkout."""
+    dot_git = worktree / ".git"
+    if dot_git.is_dir():
+        return dot_git, None
+    if not dot_git.is_file():
+        return None
+    own = _pointed_at(dot_git, worktree)
+    pointer = own / "commondir"
+    return ((own / pointer.read_text().strip()) if pointer.exists() else own.parent.parent), own
 
 
 def _pointed_at(dot_git: Path, worktree: Path) -> Path:

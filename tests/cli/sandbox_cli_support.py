@@ -4,13 +4,13 @@ sandbox on in an `abk.yaml`."""
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit import sandboxes
-from agent_build_kit.sandboxes import Availability
+from agent_build_kit.sandboxes import Availability, SandboxPolicy
 from tests.sandboxes.stand_in import StandInBackend
 
 NAME = "stand-in"
@@ -26,6 +26,11 @@ class CountingBackend(StandInBackend):
     def availability(self) -> Availability:
         self.probes += 1
         return super().availability()
+
+    def command(self, policy: SandboxPolicy, argv: Sequence[str]) -> list[str]:
+        """Confines nothing, so a command the doctor probe runs through it still runs."""
+        super().command(policy, argv)
+        return list(argv)
 
 
 def switch_on(config: Path, *, backend: str = NAME) -> None:
