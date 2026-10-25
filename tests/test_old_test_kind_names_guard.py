@@ -1,7 +1,7 @@
 """The strict guard (spec: test-kind-names, "An old spelling is found by the guard")
 
 Any old spelling in a source, test or document file fails the guard naming the file and line;
-the compatibility module, the rename tool and their tests are exempt; the repository passes.
+the compatibility module and its tests are exempt, the rename tool is not; the repository passes.
 """
 
 from __future__ import annotations
@@ -10,12 +10,13 @@ from pathlib import Path
 
 import pytest
 
-from tests.old_test_kind_names import old_spelling_problems
+from tests.old_test_kind_names import SCANNED, SKIPPED_PARTS, old_spelling_problems
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 # Built in parts so this file carries no old spelling for the guard to find.
 TIER = "ti" + "er"
 OLD_GATE = f"{TIER}2_gate"
+TOOL_MODULE = "rename_" + "test_kinds"
 
 
 def tree(root: Path, files: dict[str, str]) -> Path:
@@ -24,6 +25,24 @@ def tree(root: Path, files: dict[str, str]) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
     return root
+
+
+def naming_the_tool(root: Path) -> list[str]:
+    """`path:line` of each line under the guard's scanned paths that names the rename tool."""
+    found = []
+    for path in sorted(p for name in SCANNED for p in (root / name).rglob("*")):
+        if not path.is_file() or SKIPPED_PARTS & set(path.parts):
+            continue
+        try:
+            lines = path.read_text().splitlines()
+        except UnicodeDecodeError:
+            continue
+        found += [
+            f"{path.relative_to(root).as_posix()}:{number}"
+            for number, line in enumerate(lines, start=1)
+            if TOOL_MODULE in line
+        ]
+    return found
 
 
 @pytest.mark.parametrize(
@@ -78,21 +97,41 @@ def test_a_file_named_for_an_old_spelling_fails(tmp_path: Path) -> None:
     "path",
     [
         "src/agent_build_kit/compat_names.py",
-        "src/agent_build_kit/rename_test_kinds.py",
         "tests/test_compat_names.py",
-        "tests/test_rename_test_kinds_shims.py",
         "tests/config/test_test_kind_settings_aliases.py",
         "docs/agent-efficient-coding-philosophy.md",
         "docs/risk-tiered-review-design.md",
         "CHANGELOG.md",
     ],
 )
-def test_the_compatibility_module_the_tool_and_their_tests_are_exempt(
-    tmp_path: Path, path: str
-) -> None:
+def test_the_compatibility_module_and_its_tests_are_exempt(tmp_path: Path, path: str) -> None:
     root = tree(tmp_path, {path: f"OLD = '{OLD_GATE}'\n"})
 
     assert old_spelling_problems(root) == []
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        f"src/agent_build_kit/{TOOL_MODULE}.py",
+        f"tests/test_{TOOL_MODULE}.py",
+        f"tests/test_{TOOL_MODULE}_shims.py",
+    ],
+)
+def test_the_rename_tool_and_its_tests_are_no_longer_exempt(tmp_path: Path, path: str) -> None:
+    root = tree(tmp_path, {path: f"OLD = '{OLD_GATE}'\n"})
+
+    assert any(f"{path}:1" in p for p in old_spelling_problems(root))
+
+
+def test_a_file_naming_the_rename_tools_module_fails_a_source_search(tmp_path: Path) -> None:
+    root = tree(tmp_path, {"docs/guide.md": f"Run `abk {TOOL_MODULE}` first.\n"})
+
+    assert naming_the_tool(root) == ["docs/guide.md:1"]
+
+
+def test_no_file_of_the_repository_names_the_rename_tool() -> None:
+    assert naming_the_tool(REPOSITORY) == []
 
 
 def test_a_shim_module_is_no_longer_exempt(tmp_path: Path) -> None:
