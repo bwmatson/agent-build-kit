@@ -68,6 +68,13 @@ environment. The package name comes from the member's `pyproject.toml`
 (`[project].name`), falling back to its directory name; the trailing path
 argument is the directory.
 
+pre-commit does not look upward for its configuration, so wiring asks the profile
+(`with_check_config`) for the file to use in the folder a command runs in: the
+folder's own `.pre-commit-config.yaml`, else the nearest one in a folder above it up to
+the git root, passed as `--config` relative to the folder. It applies to the diff lint,
+the all-files lint, the clean command and the fixer. With no file the commands are
+unchanged, and a file above the git root is ignored.
+
 What it runs, exactly:
 
 | Method | Command |

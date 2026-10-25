@@ -38,7 +38,7 @@ def config_args(calls: list[tuple[list[str], Path]], flag: str = "") -> list[tup
     found = []
     for argv, where in calls:
         words = argv[-1].split() if argv[:2] == ["sh", "-c"] else argv
-        if "pre-commit" in words and flag in words:
+        if "pre-commit" in words and (not flag or flag in words):
             found.append((where, words[words.index("--config") + 1] if "--config" in words else ""))
     return found
 

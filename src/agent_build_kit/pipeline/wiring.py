@@ -178,6 +178,7 @@ from agent_build_kit.pipeline.workspaces import BranchBusy, prepare_detached, pr
 from agent_build_kit.profiles.base import (
     AppliesE2eSelection,
     AppliesFixers,
+    LocatesCheckConfig,
     ProjectChecks,
     RecordsSelectionData,
     RepeatsTests,
@@ -1028,7 +1029,8 @@ def build_stub_checks(
         for owner, _ in by_project(projects or [], names) or [(None, [])]:
             toolchain = profiles.for_project(owner, profile)
             where = cwd / owner.prefix if owner else cwd
-            done = run(["sh", "-c", toolchain.clean_command(types=True)], cwd=where)
+            clean = ["sh", "-c", toolchain.clean_command(types=True)]
+            done = run(_located(toolchain, clean, where, cwd), cwd=where)
             if done.returncode:
                 failures.append(f"{done.stdout}\n{done.stderr}".strip())
         return not failures, "\n\n".join(failures)
@@ -1088,6 +1090,8 @@ def build_fixers(
                 )
             if not command:
                 continue
+            if setting is None:
+                command = _located(toolchain, command, cwd / prefix, cwd)
             files = [f"{prefix}{name}" for name in relative]
             given.update(dict.fromkeys(files))
             first = {name: _digest(cwd / name) for name in files}
@@ -1697,6 +1701,7 @@ def build_unit_test(
         started = time.monotonic()
         mark = spans.Mark()
         outcome = "error"
+        command = _located(toolchain, command, where)
         try:
             result = run(command, cwd=where)
             ok = toolchain.tolerates_exit(command, result.returncode)
@@ -1844,6 +1849,18 @@ def _under(path: Path, where: Path) -> str | None:
         return path.relative_to(where).as_posix()
     except ValueError:
         return None
+
+
+def _located(
+    toolchain: ToolchainProfile, command: list[str], where: Path, root: Path | None = None
+) -> list[str]:
+    """`command` with the check configuration the profile finds for a run in `where`, up to
+    `root` (the checkout holding `where` when not given); as it is for a profile that finds none."""
+    if not isinstance(toolchain, LocatesCheckConfig):
+        return command
+    if root is None:
+        root = next((p for p in (where, *where.parents) if (p / ".git").exists()), where)
+    return toolchain.with_check_config(command, where, root)
 
 
 def _say(log: Callable[[str], None] | None, message: str) -> None:
