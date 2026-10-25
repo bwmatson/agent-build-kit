@@ -174,8 +174,7 @@ class UnitChange(Frozen):
 
 def user_unit_dir() -> Path:
     """Where the user manager reads units from, XDG first."""
-    base = settings.config_home or Path.home() / ".config"
-    return Path(base).expanduser() / "systemd" / "user"
+    return settings.config_folder() / "systemd" / "user"
 
 
 def slug(root: Path) -> str:

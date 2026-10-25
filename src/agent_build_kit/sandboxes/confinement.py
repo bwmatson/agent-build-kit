@@ -27,8 +27,8 @@ KEPT_CREDENTIALS = ("gh_token",)
 
 
 class SandboxRefused(RuntimeError):
-    """The sandbox is not what the repo requires, so the process is not started; the message
-    says why."""
+    """The sandbox is not what the repo requires, so the process is not started, or it stopped a
+    step that ran (a review whose `git` was refused a read); the message says why."""
 
 
 def scrubbed_environment(base: dict[str, str] | None = None) -> dict[str, str]:

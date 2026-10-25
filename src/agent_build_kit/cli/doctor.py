@@ -1731,14 +1731,22 @@ def _spec_read_failure(
         hosts=(),
         required=coverage,
     )
+    return _confined_failure(backend, policy, f"cat {shlex.quote(str(file))}", f"read {file}")
+
+
+def _confined_failure(
+    backend: sandboxes.SandboxBackend, policy: sandboxes.SandboxPolicy, script: str, what: str
+) -> str:
+    """Why `script` does not succeed in a confined step under `policy` (`what` says what it
+    does), naming what the step printed; empty when it succeeds."""
     try:
-        done = held.run(backend, policy, f"cat {shlex.quote(str(file))}")
+        done = held.run(backend, policy, script)
     except subprocess.TimeoutExpired:
-        return f"reading {file} from a confined step did not finish in {held.TIMEOUT} seconds"
+        return f"a confined step trying to {what} did not finish in {held.TIMEOUT} seconds"
     except OSError as error:
-        return f"a confined step could not read {file}: {error}"
+        return f"a confined step could not {what}: {error}"
     if done.returncode != 0:
-        return f"a confined step cannot read {file}: {done.stderr.strip() or done.returncode}"
+        return f"a confined step cannot {what}: {done.stderr.strip() or done.returncode}"
     return ""
 
 
@@ -1747,10 +1755,16 @@ def _git_read_failure(backend: sandboxes.SandboxBackend, coverage: sandboxes.Cov
     git could not read; empty when it can. Run in a scratch linked worktree."""
     with tempfile.TemporaryDirectory(prefix="abk-probe-git-") as folder:
         main, tree = (Path(folder).resolve() / name for name in ("main", "wt"))
+        # Independent of the person's own configuration: no signing, no hooks.
+        quiet = ("-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null")
         identity = ("-c", "user.name=abk", "-c", "user.email=abk@example.invalid")
-        git(main.parent, "init", "-q", "-b", "main", str(main))
-        git(main, *identity, "commit", "-q", "--allow-empty", "-m", "probe")
-        git(main, "worktree", "add", "-q", str(tree), "-b", "probe")
+        try:
+            git(main.parent, "init", "-q", "-b", "main", str(main))
+            git(main, *quiet, *identity, "commit", "-q", "--allow-empty", "-m", "probe")
+            git(main, "worktree", "add", "-q", str(tree), "-b", "probe")
+        except (subprocess.CalledProcessError, OSError) as error:
+            detail = getattr(error, "stderr", None) or error
+            return f"could not make a scratch worktree for the git probe: {str(detail).strip()}"
         policy = sandboxes.SandboxPolicy(
             write=(tree, *git_parts(tree)),
             read=(*(Path(f).resolve() for f in system_folders()), *git_reads(tree)),
@@ -1758,15 +1772,7 @@ def _git_read_failure(backend: sandboxes.SandboxBackend, coverage: sandboxes.Cov
             required=coverage,
         )
         script = f"cd {shlex.quote(str(tree))} && git status && git log -1"
-        try:
-            done = held.run(backend, policy, script)
-        except subprocess.TimeoutExpired:
-            return f"git in a confined step did not finish in {held.TIMEOUT} seconds"
-        except OSError as error:
-            return f"a confined step could not run git: {error}"
-        if done.returncode != 0:
-            return f"git cannot run in a confined step: {done.stderr.strip() or done.returncode}"
-    return ""
+        return _confined_failure(backend, policy, script, "run git")
 
 
 def sandbox_check(loaded: WorkspaceConfig, inst: Installation | None = None) -> Check:

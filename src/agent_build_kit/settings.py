@@ -137,6 +137,10 @@ class Settings(BaseSettings):
     prometheus_url: str = ""
     tempo_url: str = ""
 
+    def config_folder(self) -> Path:
+        """The folder per-user configuration lives in: `config_home`, else `~/.config`."""
+        return Path(self.config_home or Path.home() / ".config").expanduser()
+
 
 # The fields that hold a secret: the redaction set (redaction.py) takes each by
 # its field name.

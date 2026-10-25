@@ -417,27 +417,30 @@ def _sandbox_policy(
     )
 
 
+# The roles whose reply is a verdict on a branch.
+REVIEW_ROLES: tuple[Role, ...] = ("review", "rework_review")
+
 SANDBOX_DENIAL = re.compile(r"EACCES|permission denied", re.IGNORECASE)
+
+
+def denied_paths(line: str) -> list[str]:
+    """The absolute paths in an event `line` that says a read was denied; none when it does not."""
+    if not SANDBOX_DENIAL.search(line):
+        return []
+    return [found.rstrip(".,;") for found in re.findall(r"/[^\s'\":,;()]+", line)]
 
 
 def refused_read(line: str, specs: Path) -> str | None:
     """The path under `specs` that a step's event `line` says the sandbox refused, if it does."""
-    if not SANDBOX_DENIAL.search(line):
-        return None
-    for found in re.findall(r"/[^\s'\":,;()]+", line):
-        path = Path(found.rstrip(".,;"))
-        if path.is_relative_to(specs):
-            return str(path)
-    return None
+    return next((p for p in denied_paths(line) if Path(p).is_relative_to(specs)), None)
 
 
 def refused_git_read(line: str) -> str | None:
     """The path a `git` failure `line` says the sandbox refused, if it does: a fatal message
     with a denial and an absolute path."""
-    if not line.lstrip().startswith("fatal:") or not SANDBOX_DENIAL.search(line):
+    if not line.lstrip().startswith("fatal:"):
         return None
-    found = re.search(r"/[^\s'\":,;()]+", line)
-    return found.group().rstrip(".,;") if found else None
+    return next(iter(denied_paths(line)), None)
 
 
 def build_run(
@@ -638,7 +641,7 @@ def build_run(
                 "during an agent step, to a commit made in this worktree; the pipeline is "
                 "the only pusher, so the agent pushed it"
             )
-        if role == "review" and git_refused:
+        if role in REVIEW_ROLES and git_refused:
             # A policy fault, not a verdict: the reviewer could not run git, so what it says
             # about the branch is not a review.
             raise SandboxRefused(f"the sandbox does not let the review's git read {git_refused[0]}")

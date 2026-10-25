@@ -30,6 +30,8 @@ BUILT_IN = "built-in"
 
 # The person's own git configuration file, beside their home; held apart from the home shorthand.
 PERSONAL_GIT_CONFIG = ".gitconfig"
+# What git opens in its folder under the configuration home, and nothing else of it.
+PERSONAL_GIT_FILES = ("config", "ignore", "attributes")
 
 
 def change_reads(installation: Installation, changes: Iterable[str]) -> list[Path]:
@@ -194,18 +196,19 @@ def git_parts(worktree: Path) -> list[Path]:
 def git_reads(worktree: Path) -> list[Path]:
     """The paths `git` opens to run in `worktree`, read and never written: the repository's
     `config` and `info`, a linked worktree's own entry and `.git` file, and the person's git
-    configuration; only those that exist."""
+    configuration files; only those that exist."""
     found = _git_dirs(worktree)
     if found is None:
         return []
     common, own = found
-    config_home = Settings().config_home or Path.home() / ".config"
+    # Only the files git opens there: the folder also holds the credential store.
+    personal = Settings().config_folder() / "git"
     paths = [
         common / "config",
         common / "info",
         *([own, worktree / ".git"] if own else []),
         Path.home() / PERSONAL_GIT_CONFIG,
-        config_home / "git",
+        *(personal / name for name in PERSONAL_GIT_FILES),
     ]
     return [path.resolve() for path in paths if path.exists()]
 

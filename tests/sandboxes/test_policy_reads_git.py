@@ -72,6 +72,18 @@ def test_the_persons_git_configuration_is_read_when_it_exists(linked: Scene) -> 
     assert reads(policy, home / ".config" / "git" / "ignore")
 
 
+def test_the_credential_store_beside_the_configuration_is_not_read(linked: Scene) -> None:
+    folder = linked.tmp / "home" / ".config" / "git"
+    folder.mkdir(parents=True)
+    (folder / "config").write_text("[user]\n\tname = t\n")
+    (folder / "credentials").write_text("https://user:secret@host.example\n")
+
+    policy = linked.policy()
+
+    assert reads(policy, folder / "config")
+    assert not reads(policy, folder / "credentials")
+
+
 def test_the_xdg_configuration_folder_is_read_in_place_of_the_default(
     linked: Scene, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -88,6 +100,7 @@ def test_the_xdg_configuration_folder_is_read_in_place_of_the_default(
 def test_none_of_it_is_writable(linked: Scene) -> None:
     home = linked.tmp / "home"
     (home / ".config" / "git").mkdir(parents=True)
+    (home / ".config" / "git" / "ignore").write_text("*.swp\n")
     (home / ".gitconfig").write_text("[user]\n\tname = t\n")
 
     policy = linked.policy()
@@ -96,7 +109,7 @@ def test_none_of_it_is_writable(linked: Scene) -> None:
         common(linked) / "config",
         common(linked) / "info",
         home / ".gitconfig",
-        home / ".config" / "git",
+        home / ".config" / "git" / "ignore",
     ]
     for path in kept:
         assert reads(policy, path), path

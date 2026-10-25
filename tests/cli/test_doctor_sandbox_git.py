@@ -70,6 +70,23 @@ def test_the_probe_runs_both_git_commands_from_a_confined_step(
     assert [c.status for c in found] == ["ok"]
 
 
+def test_a_personal_configuration_that_stops_a_commit_does_not_stop_the_doctor(
+    workspace: Path,  # noqa: F811 — fixture
+    allowing: Running,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "personal-home"
+    home.mkdir()
+    (home / ".gitconfig").write_text("[commit]\n\tgpgsign = true\n[gpg]\n\tprogram = false\n")
+    monkeypatch.setenv("HOME", str(home))
+    switch_on(workspace / "abk.yaml", backend=NAME)
+
+    found = sandbox_checks(workspace / "abk.yaml")
+
+    assert [c.status for c in found] == ["ok"]
+
+
 def test_a_refused_read_fails_the_check_naming_the_path(
     workspace: Path,  # noqa: F811 — fixture
     refusing: Running,

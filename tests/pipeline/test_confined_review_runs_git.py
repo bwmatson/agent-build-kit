@@ -22,6 +22,7 @@ from agent_build_kit.config import models
 from agent_build_kit.pipeline.transcript import TranscriptEvent
 from agent_build_kit.pipeline.wiring import build_run, build_run_review
 from agent_build_kit.runtimes import AgentRequest, AgentResult
+from agent_build_kit.runtimes.base import Role
 from agent_build_kit.sandboxes import SandboxPolicy
 from agent_build_kit.sandboxes.confinement import SandboxRefused
 from tests.factories import commit, git
@@ -101,7 +102,7 @@ class Scene:
             self.common / "worktrees" / self.worktree.name,
             self.worktree / ".git",
             self.home / ".gitconfig",
-            self.home / ".config" / "git",
+            self.home / ".config" / "git" / "ignore",
             *more,
         ]
 
@@ -122,10 +123,10 @@ def scene(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Scene:
     return Scene(tmp_path, monkeypatch)
 
 
-def review(scene: Scene, runtime: GitRunning) -> str:
-    return build_run_review(runtime=runtime, planning_repo=scene.root, sandbox_repo="app")(
-        cwd=scene.worktree
-    )
+def review(scene: Scene, runtime: GitRunning, role: Role = "review") -> str:
+    return build_run_review(
+        runtime=runtime, planning_repo=scene.root, sandbox_repo="app", role=role
+    )(cwd=scene.worktree)
 
 
 def test_a_confined_review_runs_git_status_and_log_in_the_worktree(scene: Scene) -> None:
@@ -146,11 +147,14 @@ def test_a_confined_build_runs_git_status_and_log_in_the_worktree(scene: Scene) 
     assert [d.returncode for d in runtime.done] == [0, 0], [d.stderr for d in runtime.done]
 
 
-def test_a_review_whose_git_stops_on_a_refused_read_fails_naming_the_path(scene: Scene) -> None:
+@pytest.mark.parametrize("role", ["review", "rework_review"])
+def test_a_review_whose_git_stops_on_a_refused_read_fails_naming_the_path(
+    scene: Scene, role: Role
+) -> None:
     extra = scene.include_unlisted()
     runtime = scene.runtime(extra)
 
     with pytest.raises(SandboxRefused, match=re.escape(str(extra))):
-        review(scene, runtime)
+        review(scene, runtime, role)
 
     assert any(str(extra) in d.stderr for d in runtime.done), "git named the refused path"
