@@ -281,7 +281,7 @@ One new value on `ToolPolicy` (`runtimes/base.py`), built where the policy is bu
 ```
 sandbox:
   write:    the worktree, the .git parts a commit needs, $ABK_OUT, the temp folder, the agent's state folder, the profile's caches, /dev (files only)
-  read:     an allowlist, not "/": system folders, the agent's own runtime and account folder, the profile's toolchain folders, the worktree, the specs snapshot
+  read:     an allowlist, not "/": system folders, the agent's own runtime and account folder, the profile's toolchain folders, the worktree, the unit's own change and the capability specs (the live folder, read-only, as a built-in entry)
   network:  the model API host or gateway, the forge host, the profile's package index hosts, hosts the repo adds
   required: process | files | none        # what the repo needs; "run and warn" when the runtime falls short
 ```

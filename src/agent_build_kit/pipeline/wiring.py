@@ -22,6 +22,7 @@ import ast
 import hashlib
 import logging
 import os
+import re
 import shlex
 import subprocess
 import time
@@ -142,7 +143,7 @@ from agent_build_kit.pipeline.run_log import append_e2e_output, e2e_output_dir
 from agent_build_kit.pipeline.scratch import run_folder, selection_seed
 from agent_build_kit.pipeline.shell import changed_files, git, git_out, has_origin, porcelain
 from agent_build_kit.pipeline.stack_runner import FixResult, Restacked, UnitRunner, Worktree
-from agent_build_kit.pipeline.transcript import Transcript, transcript_dir
+from agent_build_kit.pipeline.transcript import Transcript, TranscriptEvent, transcript_dir
 from agent_build_kit.pipeline.ui_review import ui_notes_of, ui_reply_writer, unit_patch_of
 from agent_build_kit.pipeline.unit_size import actual_lines, branch_diff, over_ceiling, unit_ceiling
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
@@ -396,6 +397,7 @@ def _sandbox_policy(
     runtime: AgentRuntime,
     account: claude_account.Account | None,
     tier: TestTier = TestTier.UNIT_TEST,
+    changes: tuple[str, ...] = (),
 ) -> SandboxPolicy | None:
     """The policy a step in `worktree` of `repo` runs under; None while the sandbox is off or
     the call is not a step of a repo."""
@@ -410,13 +412,29 @@ def _sandbox_policy(
         profile=profiles.get(active().repos[repo].profile),
         account=account,
         tier=tier,
+        changes=changes,
     )
+
+
+SANDBOX_DENIAL = re.compile(r"EACCES|permission denied", re.IGNORECASE)
+
+
+def refused_read(line: str, specs: Path) -> str | None:
+    """The path under `specs` that a step's event `line` says the sandbox refused, if it does."""
+    if not SANDBOX_DENIAL.search(line):
+        return None
+    for found in re.findall(r"/[^\s'\":,;()]+", line):
+        path = Path(found.rstrip(".,;"))
+        if path.is_relative_to(specs):
+            return str(path)
+    return None
 
 
 def build_run(
     *,
     sandbox_repo: str = "",
     sandbox_tier: TestTier = TestTier.UNIT_TEST,
+    sandbox_changes: tuple[str, ...] = (),
     run: Run | None = None,
     planning_repo: Path | None = None,
     allowed_tools: str | None = None,
@@ -505,7 +523,9 @@ def build_run(
 
         gateway = {"gateway": spend} if source is not None else {}
         try:
-            sandbox = _sandbox_policy(sandbox_repo, cwd, agent, account, sandbox_tier)
+            sandbox = _sandbox_policy(
+                sandbox_repo, cwd, agent, account, sandbox_tier, sandbox_changes
+            )
         except PolicyRefused as refused:
             spend()
             raise RuntimeError(f"the sandbox policy was refused: {refused}") from refused
@@ -520,6 +540,16 @@ def build_run(
             sandbox.required, agent.sandbox_coverage
         )
         recorder = _recorder(record_for, place, role)
+
+        def record(made: TranscriptEvent) -> None:
+            if recorder:
+                recorder.record(made)
+            if made.kind != "tool_result":
+                return
+            for line in made.text.splitlines():
+                if (path := refused_read(line, specs)) is not None:
+                    (log or print)(f"sandbox: the sandbox does not let this step read {path}")
+
         request = AgentRequest(
             # A continued session holds the original prompt already: it is told what is new,
             # or, when it is the node's own interrupted run, that it was interrupted.
@@ -559,7 +589,7 @@ def build_run(
             ),
             on_event=journal or log or print,
             on_transcript=transcript,
-            on_record=recorder.record if recorder else None,
+            on_record=record if is_confined else (recorder.record if recorder else None),
         )
         try:
             # Its own folder for long command output, gone when the run ends:
@@ -781,6 +811,7 @@ REVIEW_TOOLS = "Read Grep Glob Bash(git diff*) Bash(git log*) Bash(git show*)"
 def build_run_review(
     *,
     sandbox_repo: str = "",
+    sandbox_changes: tuple[str, ...] = (),
     run: Run | None = None,
     planning_repo: Path | None = None,
     model: str | None = None,
@@ -798,6 +829,7 @@ def build_run_review(
     loaded only here, not during the expensive run."""
     inner = build_run(
         sandbox_repo=sandbox_repo,
+        sandbox_changes=sandbox_changes,
         run=run,
         planning_repo=planning_repo,
         # Reading its pull request is allowed (the review may need what a
@@ -3982,10 +4014,13 @@ def build_runner(
     forge = forges.get(repo.forge)
     tools = allowed_tools(profile, forge, repo.projects)
     account = claude_account.for_repo(installation.config, unit.repo)
+    # Every change the unit builds, joined ones included: its prompts point at each.
+    changes = tuple(member.change for member in unit.members())
     run = build_run(
         sandbox_repo=unit.repo,
         # The build run, and the commit step that reuses it, run under the unit's own kind.
         sandbox_tier=unit.tier,
+        sandbox_changes=changes,
         account=account,
         planning_repo=planning_repo,
         allowed_tools=tools,
@@ -4017,6 +4052,7 @@ def build_runner(
         # service, so they stay at the unit-test tier whatever the unit's kind.
         run_review=build_run_review(
             sandbox_repo=unit.repo,
+            sandbox_changes=changes,
             planning_repo=planning_repo,
             log=log,
             journal=journal,
@@ -4028,6 +4064,7 @@ def build_runner(
         ),
         run_rework_review=build_run_review(
             sandbox_repo=unit.repo,
+            sandbox_changes=changes,
             planning_repo=planning_repo,
             forge=forge,
             model=models().rework_review,

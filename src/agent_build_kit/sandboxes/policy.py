@@ -25,6 +25,16 @@ from agent_build_kit.sandboxes.proxy import LOCALHOST
 GIT_PARTS = ("objects", "refs", "logs", "packed-refs", "HEAD", "FETCH_HEAD")
 
 
+BUILT_IN = "built-in"
+
+
+def change_reads(installation: Installation, changes: Iterable[str]) -> list[Path]:
+    """What a step of `changes` reads of the planning repo, and no more: each change's folder and
+    the capability specs beside them, resolved as every read entry is."""
+    folders = [installation.changes_dir / change for change in changes]
+    return [path.resolve() for path in (*folders, installation.specs_dir / "specs")]
+
+
 class PolicyRefused(ValueError):
     """A grant that would let a step write what a person owns; the message says which and why."""
 
@@ -38,6 +48,7 @@ def build_policy(
     profile: object,
     account: object = None,
     tier: TestTier = TestTier.UNIT_TEST,
+    changes: tuple[str, ...] = (),
 ) -> SandboxPolicy:
     """The policy for a step in `worktree` of `repo`: built-ins, then the runtime's and the
     profile's optional `sandbox_paths`, then `repos.<name>.sandbox` and each project's from
@@ -46,7 +57,14 @@ def build_policy(
     An e2e-test step also takes `repos.<name>.tests.e2e_sandbox` from both files; any other tier
     never gets a service port."""
     entries = policy_entries(
-        installation, repo, worktree, runtime=runtime, profile=profile, account=account, tier=tier
+        installation,
+        repo,
+        worktree,
+        runtime=runtime,
+        profile=profile,
+        account=account,
+        tier=tier,
+        changes=changes,
     )
 
     def listed(key: str) -> list[str]:
@@ -81,11 +99,16 @@ def policy_entries(
     profile: object,
     account: object = None,
     tier: TestTier = TestTier.UNIT_TEST,
+    changes: tuple[str, ...] = (),
 ) -> list[PolicyEntry]:
     """The entries `build_policy` assembles, each with its source, in the order it takes them:
     the runtime's, the repo's profile's and each project's profile's, then the files'. For an
-    e2e-test step each file's `tests.e2e_sandbox` follows its sandbox blocks."""
+    e2e-test step each file's `tests.e2e_sandbox` follows its sandbox blocks. A step of a
+    unit's `changes` also reads them and the capability specs, as a built-in entry."""
     layers: list[tuple[str, ProjectSandboxConfig | E2eSandboxConfig]] = []
+    if changes:
+        reads = [str(path) for path in change_reads(installation, changes)]
+        layers.append((BUILT_IN, ProjectSandboxConfig(read=reads)))
     if isinstance(runtime, SandboxPathsRuntime):
         # An account is passed only when the step runs as one; a runtime without accounts
         # takes none.
