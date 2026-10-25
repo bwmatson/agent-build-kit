@@ -1,0 +1,101 @@
+"""A confined step reads the change it is building, and a refused read of it is said in the run
+log (spec: sandbox-spec-reads). The backend is a stand-in that enforces the policy's read list."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from agent_build_kit.config import models
+from agent_build_kit.pipeline.wiring import build_run
+from agent_build_kit.runtimes import AgentRequest, AgentResult
+from agent_build_kit.sandboxes import SandboxPolicy
+from tests.pipeline.test_wiring_sandbox import Recording, install
+
+CHANGE_FILES = ("tasks.md", "proposal.md", "design.md", "specs/cap/spec.md")
+
+
+class Enforcing(Recording):
+    """Reads what the request's policy lists and refuses the rest, as a real backend would; a
+    refusal reaches the run as the line the agent's read tool printed."""
+
+    def __init__(self, wanted: list[Path]) -> None:
+        super().__init__()
+        self.wanted = wanted
+        self.read: list[Path] = []
+        self.refused: list[Path] = []
+
+    def run(self, request: AgentRequest) -> AgentResult:
+        assert request.policy is not None and request.policy.sandbox is not None
+        for path in self.wanted:
+            if allows(request.policy.sandbox, path):
+                self.read.append(path)
+            else:
+                self.refused.append(path)
+                if request.on_event:
+                    request.on_event(f"Read {path}: EACCES: permission denied, open '{path}'")
+        return super().run(request)
+
+
+def allows(policy: SandboxPolicy, path: Path) -> bool:
+    return any(path.resolve().is_relative_to(folder) for folder in policy.read)
+
+
+def scene(tmp_path: Path) -> tuple[Path, Path]:
+    """The installation, with the specs folder holding two changes; returns both."""
+    root, _ = install(tmp_path, enabled=True)
+    specs = root / "openspec"
+    for change in ("feature", "other"):
+        for name in CHANGE_FILES:
+            file = specs / "changes" / change / name
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_text("text\n")
+    return root, specs
+
+
+def run_step(tmp_path: Path, wanted: list[Path], *, change: str, lines: list[str]) -> Enforcing:
+    """One step of `scene`'s installation that tries to read `wanted`."""
+    runtime = Enforcing(wanted)
+    build_run(
+        runtime=runtime,
+        planning_repo=tmp_path / "plan",
+        sandbox_repo="app",
+        sandbox_change=change,
+        log=lines.append,
+    )("Go.", cwd=tmp_path / "main", model=models().implement)
+    return runtime
+
+
+def test_a_confined_step_reads_each_file_of_its_change(tmp_path: Path) -> None:
+    _, specs = scene(tmp_path)
+    wanted = [specs / "changes" / "feature" / name for name in CHANGE_FILES]
+
+    runtime = run_step(tmp_path, wanted, change="feature", lines=[])
+
+    assert runtime.refused == []
+    assert runtime.read == wanted
+
+
+def test_it_reads_neither_another_change_nor_the_configuration(tmp_path: Path) -> None:
+    root, specs = scene(tmp_path)
+    own = specs / "changes" / "feature" / "tasks.md"
+    others = [specs / "changes" / "other" / "tasks.md", root / "abk.yaml"]
+
+    runtime = run_step(tmp_path, [own, *others], change="feature", lines=[])
+
+    assert runtime.read == [own]
+    assert runtime.refused == others
+
+
+def test_a_refused_read_of_a_change_shows_in_the_log_as_a_sandbox_message(
+    tmp_path: Path,
+) -> None:
+    _, specs = scene(tmp_path)
+    refused = specs / "changes" / "feature" / "tasks.md"
+    lines: list[str] = []
+
+    # No change is named, so the sandbox refuses the read of one.
+    run_step(tmp_path, [refused], change="", lines=lines)
+
+    said = [line for line in lines if line.startswith("sandbox:") and str(refused) in line]
+    assert said, lines
+    assert "does not let this step read" in said[0]

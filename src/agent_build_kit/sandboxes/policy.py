@@ -38,6 +38,7 @@ def build_policy(
     profile: object,
     account: object = None,
     tier: TestTier = TestTier.UNIT_TEST,
+    change: str = "",
 ) -> SandboxPolicy:
     """The policy for a step in `worktree` of `repo`: built-ins, then the runtime's and the
     profile's optional `sandbox_paths`, then `repos.<name>.sandbox` and each project's from

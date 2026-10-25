@@ -417,6 +417,7 @@ def build_run(
     *,
     sandbox_repo: str = "",
     sandbox_tier: TestTier = TestTier.UNIT_TEST,
+    sandbox_change: str = "",
     run: Run | None = None,
     planning_repo: Path | None = None,
     allowed_tools: str | None = None,
