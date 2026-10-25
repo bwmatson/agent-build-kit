@@ -24,7 +24,7 @@ def test_a_dependency_on_a_unit_that_stays_is_an_error_naming_unit_field_and_tar
         source,
         new_unit("moves/1", state="merged"),
         new_unit("moves/2", state="merged", depends_on=("moves/1", "stays/1")),
-        new_unit("stays/1", repo="lib", state="merged"),
+        new_unit("stays/1", repo="lib", state="in_review"),
     )
     before = snapshot_tree(destination.root)
 
@@ -42,8 +42,8 @@ def test_every_dangling_edge_is_listed_with_nothing_written(tmp_path):
         source,
         new_unit("moves/1", state="merged", depends_on=("stays/1",), needs=("stays/1",)),
         new_unit("moves/2", state="merged", depends_on=("stays/2",)),
-        new_unit("stays/1", repo="lib", state="merged"),
-        new_unit("stays/2", repo="lib", state="merged"),
+        new_unit("stays/1", repo="lib", state="in_review"),
+        new_unit("stays/2", repo="lib", state="in_review"),
     )
     before = snapshot_tree(destination.root)
 
@@ -102,7 +102,7 @@ def test_a_staying_edge_into_the_moved_set_is_a_warning_and_with_remove_an_error
     source, destination = installations(tmp_path)
     write_units(
         source,
-        new_unit("moves/1", state="merged"),
+        new_unit("moves/1", state="failed"),
         new_unit("stays/1", repo="lib", state="merged", depends_on=("moves/1",)),
     )
     plan = plan_split(source, "app")

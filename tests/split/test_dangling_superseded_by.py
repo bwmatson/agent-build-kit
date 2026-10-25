@@ -39,7 +39,7 @@ def test_a_moved_unit_replaced_by_a_unit_that_moves_is_fine_and_a_staying_one_is
     write_units(
         source,
         new_unit("moves/1", state="unplanned", superseded_by=("moves/2",)),
-        new_unit("moves/2", state="merged"),
+        new_unit("moves/2", state="failed"),
         new_unit("stays/1", repo="lib", state="unplanned", superseded_by=("moves/2",)),
     )
     plan = plan_split(source, "app")

@@ -32,6 +32,11 @@ UNSETTLED = (*IN_FLIGHT, HELD)
 _ARCHIVE_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}-")
 
 
+def archive_change_name(entry: str) -> str:
+    """The change an archive entry holds: its name without the date it was archived on."""
+    return _ARCHIVE_DATE.sub("", entry)
+
+
 class SplitUsageError(ValueError):
     """The selection names something the source does not have, or a value that is no side."""
 

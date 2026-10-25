@@ -34,7 +34,7 @@ def verify(
     held = {unit.id: unit for unit in UnitStore(destination.state_dir / "units.json").all()}
     problems += [
         f"unit {unit.id} does not match in the destination"
-        for unit in copy.unit_records(source, plan, scrub)
+        for unit in copy.unit_records(source, destination, plan, scrub)
         if held.get(unit.id) != unit
     ]
     return problems
