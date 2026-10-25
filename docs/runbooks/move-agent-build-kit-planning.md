@@ -47,7 +47,7 @@ the kit repo, but the steps are the same for any managed repo that becomes its o
   A change that spans the moving repo and another repo is finished and archived first, or one side keeps it
   (`abk planning split --allow-mixed <side>`). A unit whose repo is missing from `abk.yaml` makes `Installation.repo()` fail.
 - [ ] Decide who owns each main spec: those about the moving repo move, the rest stay in the old planning repo.
-- [ ] Archived changes that belong to other repos stay. An archived change with no `tasks.md` is archived or dropped, not copied.
+- [ ] Archived changes that belong to other repos stay. The moving repo's archive entries move with their units.
 
 ## 3. Prepare the destination
 - [ ] In `<moving repo>` (clean, on the default branch, current): run `abk init . --repo .` in the in-repo mode
@@ -69,6 +69,8 @@ the kit repo, but the steps are the same for any managed repo that becomes its o
 - [ ] `abk planning split --repo <moving repo> --to <destination> --scrub` (dry run; `--scrub` when the destination is public): read the printed
   counts of active changes, archive entries, main specs and unit records, and compare them with what you expect. Check the mixed list is empty
   after step 2.
+  Compare the unit counts by origin (active, archived, no change directory, left in the source). A printed
+  dropped dependency or no change directory unit is expected to differ from the source and is to be read.
 - [ ] Run it for real. Check the reported uncommitted files it read were expected.
 - [ ] Copy by hand what the tool does not move: `docs/research` notes, the planning `.claude` skills worth keeping,
   `flakes.jsonl`, `usage-allowances.json`, the usage ledger (history only; it may quote old paths).
@@ -79,6 +81,7 @@ the kit repo, but the steps are the same for any managed repo that becomes its o
 - [ ] `abk doctor` in the destination's pipeline worktree: no failures.
 - [ ] `abk --config <pipeline worktree>/abk.yaml status`: the same units and the same worktrees as before; nothing replans
   (planned hashes contain no path, so nothing should).
+  The comparison of units expects the dropped dependencies the dry run printed.
 - [ ] `abk install-timers` (units `abk-<destination>-*`; it creates the pipeline worktree).
 - [ ] In the old planning repo: `abk planning split --remove` (or by hand) to remove what moved; remove the moving repo's
   entry from `abk.yaml` and from any `consumes`; keep its editable path dependency on the moving repo if its own

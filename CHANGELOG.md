@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `abk planning split` now moves the units of a moving repo's archive entries with them, and a
+  unit whose change has no directory by its repo, saying so in the plan. A dependency on a
+  merged unit of another repo is carried as satisfied history, with a printed note for each
+  dropped edge. The plan prints the unit counts by origin (active, archived, no change
+  directory, left in the source).
+
 - A confined step can now run `git` in its worktree: it reads, and cannot write, the
   repository's `config` and `info`, the worktree's own entry and `.git` file, and your
   own git configuration files. Before, every `git` command failed in a
