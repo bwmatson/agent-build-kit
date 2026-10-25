@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.work_graph import (
     TaskGroup,
@@ -79,6 +81,18 @@ def test_a_paths_line_decides_over_the_task_lines(tmp_path: Path) -> None:
     body = "Paths: `web/**`\n\n- [ ] 1.1 Edit `services/api/src/route.py` and `README.md`.\n"
 
     groups, errors = read(tmp_path, "[app] [unit-test] Group", body, *PROJECTS)
+
+    assert errors == []
+    assert [(g.project, g.source) for g in groups] == [("web", "resolved")]
+
+
+@pytest.mark.parametrize("entry", ["web/", "web"])
+def test_a_paths_entry_that_is_the_project_folder_resolves_to_that_project(
+    tmp_path: Path, entry: str
+) -> None:
+    body = f"Paths: `{entry}`\n\n- [ ] 1.1 Test: it.\n"
+
+    groups, errors = read(tmp_path, "[app] [unit-test] Group", body, "web")
 
     assert errors == []
     assert [(g.project, g.source) for g in groups] == [("web", "resolved")]

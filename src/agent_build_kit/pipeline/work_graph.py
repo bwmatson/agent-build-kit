@@ -327,7 +327,8 @@ def resolved_project(group: TaskGroup, projects: Sequence[str]) -> tuple[str, Pr
         return group.project, ProjectSource.EXPLICIT
     declared = [ProjectConfig(path=p) for p in projects]
     owners = {
-        owner.path if (owner := owning_project(declared, path)) else None
+        # The trailing `/` makes the project folder itself (`web`) count as inside `web/`.
+        owner.path if (owner := owning_project(declared, f"{path.rstrip('/')}/")) else None
         for path in named_paths(group, projects)
     }
     if len(owners) == 1 and (owner_path := owners.pop()) is not None:
