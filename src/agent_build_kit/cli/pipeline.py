@@ -409,6 +409,7 @@ from agent_build_kit.pipeline.work_graph import (
     manual_runbook_warnings,
     old_test_kind_warnings,
     redundant_separate_warnings,
+    resolved_projects,
     retag_headings,
     specification_text,
     tasks_path,
@@ -5039,7 +5040,9 @@ def _write_join(
 # stages of being carried out.
 def specification(tasks: Path) -> str:
     """A change's tasks with progress and `Needs:` lines stripped out: what a re-plan keys on."""
-    return specification_text(tasks.read_text())
+    return specification_text(
+        tasks.read_text(), resolved=resolved_projects(validate_tasks(tasks)[0])
+    )
 
 
 def plan_digest(tasks: Path, recorded: str | None = None) -> str:
@@ -5048,14 +5051,16 @@ def plan_digest(tasks: Path, recorded: str | None = None) -> str:
     It ignores the spelling of the test-kind tags. `recorded` is the hash the plan record holds:
     when it is the hash of this text in the earlier spelling, it is returned, so a plan made
     before the rename counts as current for the same text after `abk tags --fix`."""
-    return text_digest(tasks.read_text(), recorded)
+    return text_digest(tasks.read_text(), recorded, resolved_projects(validate_tasks(tasks)[0]))
 
 
-def text_digest(text: str, recorded: str | None = None) -> str:
-    """`plan_digest` of a tasks file's text."""
+def text_digest(
+    text: str, recorded: str | None = None, resolved: Mapping[int, str] | None = None
+) -> str:
+    """`plan_digest` of a tasks file's text, with the projects its groups resolved to."""
 
     def hashed(spell: Callable[[str], str]) -> str:
-        return hashlib.sha256(specification_text(text, spell).encode()).hexdigest()
+        return hashlib.sha256(specification_text(text, spell, resolved).encode()).hexdigest()
 
     # An earlier release hashed the text as written: every tag old, or the two spellings mixed.
     if recorded is not None and recorded in (hashed(old_tag), hashed(lambda tag: tag)):

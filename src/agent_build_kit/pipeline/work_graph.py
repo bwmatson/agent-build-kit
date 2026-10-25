@@ -43,6 +43,7 @@ from agent_build_kit.config import (
     e2e_splits,
 )
 from agent_build_kit.model import Frozen, TestTier
+from agent_build_kit.pipeline.group_paths import named_paths
 from agent_build_kit.pipeline.units import ManualStep, Priority, project_tag, reachable
 
 
@@ -178,9 +179,20 @@ def current_tag(tag: str) -> str:
     return new_spelling(Place.TAG, tag)
 
 
-def specification_text(text: str, spell: Callable[[str], str] = current_tag) -> str:
+def resolved_projects(groups: Iterable[TaskGroup]) -> dict[int, str]:
+    """The project of each group that was resolved from its paths, by group number."""
+    return {g.number: g.project for g in groups if g.source == ProjectSource.RESOLVED}
+
+
+def specification_text(
+    text: str,
+    spell: Callable[[str], str] = current_tag,
+    resolved: Mapping[int, str] | None = None,
+) -> str:
     """A tasks file's text with progress stripped out, and the test-kind tags spelled by `spell`
-    (their current spelling unless a plan recorded before the rename is being matched).
+    (their current spelling unless a plan recorded before the rename is being matched). The
+    projects `resolved` (see `resolved_projects`) follow it, so a plan is stale when the
+    declared projects move a group's resolution.
 
     What a re-plan should key on is what the change *asks for*, not how much
     of it is done. The pipeline ticks these boxes as units land, and hashing
@@ -193,11 +205,12 @@ def specification_text(text: str, spell: Callable[[str], str] = current_tag) -> 
     # `Needs:` line comes with the blank line that sets it off.
     spelled, _ = retag_headings(text, spell)
     stripped = _CHECKBOX.sub(r"\1 \2", spelled)
-    return "\n".join(
+    kept = [
         line
         for line in stripped.splitlines()
         if line.strip() and not NEEDS_LINE.match(line.strip())
-    )
+    ]
+    return "\n".join([*kept, *(f"resolved: group {n} in {p}" for n, p in (resolved or {}).items())])
 
 
 # "Separate: reviewed and reverted on its own", inside a group: no other change's
@@ -214,6 +227,14 @@ INDEPENDENT_LINE = re.compile(r"^Independent:\s*(?P<reason>.*?)\s*$", re.I)
 SUPPORT_LINE = re.compile(
     r"^Support:\s*(?P<paths>(?:`[^`]+`[\s,]*)+)(?:[—–-]+\s*(?P<reason>.*?))?\s*$", re.I
 )
+
+# "Paths: `web/src/**`, `web/tests/x.py`", inside a group: the paths it changes, which decide its
+# project when the heading names none. "Reads: `docs/x.md`": paths it only reads, which do not.
+PATHS_LINE = re.compile(r"^Paths:\s*(?P<paths>(?:`[^`]+`[\s,]*)+)$", re.I)
+READS_LINE = re.compile(r"^Reads:\s*(?P<paths>(?:`[^`]+`[\s,]*)+)$", re.I)
+
+# `[app/<root>]` in a heading keeps the group in the root project, whatever paths it names.
+ROOT_SPELLING = "<root>"
 
 # "Manual: <slug> — <what a person does> — runbook: <path>#<heading>", inside a group: a step
 # only a person can do, with the runbook entry that says how. A `Check: <command>` line after
@@ -298,8 +319,35 @@ class TaskGroup(Frozen):
 
 def resolved_project(group: TaskGroup, projects: Sequence[str]) -> tuple[str, ProjectSource]:
     """The project of `group` and how it was decided, given the projects its repo declares beside
-    the root (`projects`, as a heading writes them)."""
-    raise NotImplementedError
+    the root (`projects`, as a heading writes them). A project written in the heading is kept; any
+    other group takes the one declared project that holds every path it names, else the root."""
+    if group.source == ProjectSource.EXPLICIT:
+        return group.project, ProjectSource.EXPLICIT
+    owners = {_owner(path, projects) for path in named_paths(group, projects)}
+    if len(owners) == 1 and (owner := owners.pop()) is not None:
+        return owner, ProjectSource.RESOLVED
+    return ".", ProjectSource.ROOT
+
+
+def _owner(path: str, projects: Sequence[str]) -> str | None:
+    """The deepest declared project holding `path`, None when it is outside every one."""
+    holding = [p for p in projects if path == p or path.startswith(f"{p}/")]
+    return max(holding, key=len, default=None)
+
+
+def _resolved(group: TaskGroup, projects: Sequence[str]) -> TaskGroup:
+    project, source = resolved_project(group, projects)
+    return group.model_copy(update={"project": project, "source": source})
+
+
+def _listed(body: Iterable[str], pattern: re.Pattern[str]) -> tuple[str, ...]:
+    """The backticked entries of the lines of `body` that match `pattern`."""
+    return tuple(
+        entry
+        for line in body
+        if (found := pattern.match(line.strip()))
+        for entry in re.findall(r"`([^`]+)`", found["paths"])
+    )
 
 
 class ValidationError(Frozen):
@@ -412,6 +460,7 @@ def validate_tasks(
     split_lines: dict[int, int] = {}
     split_of: dict[int, str] = {}
     split_refused: set[int] = set()
+    root_lines: set[int] = set()
 
     own_merged_lines = {need.line for _, need in merged_needs(path) if names_own_change(need, path)}
     for index, text in enumerate(lines, start=1):
@@ -600,6 +649,9 @@ def validate_tasks(
         tier = tagged.group("tier")
         number = int(tagged.group("number"))
         repo, project = split_repo_tag(tagged.group("repo"), repos)
+        if project == ROOT_SPELLING:
+            project = "."
+            root_lines.add(index)
 
         if repos and repo not in repos:
             errors.append(
@@ -612,7 +664,11 @@ def validate_tasks(
             continue
 
         declared = projects.get(repo, ())
-        if project is not None and (project == "." or (repos and project not in declared)):
+        if (
+            project is not None
+            and index not in root_lines
+            and (project == "." or (repos and project not in declared))
+        ):
             errors.append(
                 ValidationError(
                     line=index, message=_project_problem(number, repo, project, declared)
@@ -647,6 +703,7 @@ def validate_tasks(
                 number=number,
                 repo=repo,
                 project=project or ".",
+                source=ProjectSource.ROOT if project is None else ProjectSource.EXPLICIT,
                 tier=TestTier(tier),
                 title=tagged.group("title"),
                 line=index,
@@ -658,11 +715,17 @@ def validate_tasks(
     # task_count is only known once the following lines have been read, so the
     # groups are rebuilt here rather than mutated in place.
     counts = dict(zip(heading_lines, tasks_seen, strict=True))
+    ends = dict(zip(heading_lines, [*heading_lines[1:], len(lines) + 1], strict=False))
+    bodies = {g.line: tuple(lines[g.line : ends[g.line] - 1]) for g in groups}
     groups = [
         TaskGroup(
             number=g.number,
             repo=g.repo,
             project=g.project,
+            source=g.source,
+            paths=_listed(bodies[g.line], PATHS_LINE),
+            reads=_listed(bodies[g.line], READS_LINE),
+            body=bodies[g.line],
             tier=g.tier,
             title=g.title,
             line=g.line,
@@ -680,6 +743,7 @@ def validate_tasks(
         )
         for g in groups
     ]
+    groups = [_resolved(g, projects.get(g.repo, ())) for g in groups]
 
     for line in sorted(set(stray_priority) - {g.line for g in groups}):
         errors.append(
