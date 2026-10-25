@@ -500,7 +500,9 @@ resumes. `abk manual list` shows every outstanding step with its runbook and las
    when the tasks for one are visible right there in `tasks.md`, and ends
    `in_review` with a PR — or `satisfied`, with no PR, if a predecessor
    already did the work.
-4. Humans review and merge. A merge restacks whatever was on the branch.
+4. A person merges what was not auto-landed (a unit review classified `auto` and
+   policy allowed is merged by the pipeline); the build agent never merges. A merge restacks
+   whatever was on the branch.
 5. When every unit is merged or satisfied, the tick deploys the change (`deploy.rules`),
    runs its e2e-test tests and — if it passes — archives it: the delta specs
    are folded into `openspec/specs/` and the change moves to

@@ -404,7 +404,7 @@ at fixed nodes, from the agent's *output*:
 | Write | The pull request: open or update, body, state labels | `open_pr` | the runner |
 | Write | Replies to review comments | `open_pr`, from the JSON the rework agent ends with (`{"replies": [...]}`) | the runner, after the push |
 | Write | Closing a pull request whose work already landed | `satisfied` | the runner |
-| Never | Merge, vote, approve, the raw API | refused on every repo by the policy hook and the ACP deny list | nobody; a person merges |
+| Never | Merge, vote, approve, the raw API | refused on every repo by the policy hook and the ACP deny list | nobody: the build agent never merges; a person merges what was not auto-landed |
 
 So the agent hands back structured text and the runner posts it. The rework
 prompt tells the agent not to post and to end with that JSON, so the replies

@@ -524,8 +524,9 @@ def build_pr_body(
 
 ---
 
-_Opened by the spec-driven pipeline. It never merges its own PRs — a human
-merges every one, after checking {order}._
+_Opened by the spec-driven pipeline. The build agent never merges. The pipeline merges only
+a unit review classified `auto` and policy allowed; a person merges any other, after checking
+{order}._
 """
     members = unit.members()
     sections = (

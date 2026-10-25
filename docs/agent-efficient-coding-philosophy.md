@@ -1,5 +1,7 @@
 # Agent-efficient coding: verify everything, review by risk
 
+> **Status: implemented.** This is the record of the reasoning; the pipeline now works this way.
+
 abk was built around one idea: plan a change carefully, build it to a high
 standard, and send every unit to a person before it merges. That idea worked
 while builds were slow. It stops working once the pipeline produces more pull

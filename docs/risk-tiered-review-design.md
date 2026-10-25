@@ -1,5 +1,7 @@
 # Risk-tiered review: design and implementation plan
 
+> **Status: implemented.** This is the record of the design; review by tier is always on.
+
 [The philosophy](agent-efficient-coding-philosophy.md) says every change is
 verified and a person reviews only what verification can't vouch for. This
 document says what in abk has to change to work that way, and in what order to

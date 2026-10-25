@@ -2,7 +2,13 @@
 
 ## Unreleased
 
-- `global_limits.max_unit_lines` is no longer accepted: a file that sets it, under `global_limits`
+- The pull request footer and the command policy's refusal now say who merges: the build agent never merges,
+  the pipeline merges only a unit review classified `auto` and policy allowed, and a person
+  merges the rest. The README, `AGENTS.md` and the docs no longer say a person merges every pull
+  request, and a test fails on a document that does. The `abk-authoring`, `abk-config` and
+  `abk-pipeline` skills say the same, and the copies `abk install-skills` writes match them.
+
+- `max_unit_lines` is no longer accepted: a file that sets it, under `global_limits`
   or the old `limits` root, fails to load with a message naming `review.ceilings.full` and
   `abk config --migrate`, which moves the value. Every size check uses the ceiling for the unit's
   review tier, and `review.ceilings.full` must exceed `min_unit_lines` whether or not it is set.

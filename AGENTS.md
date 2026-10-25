@@ -67,8 +67,8 @@ an ad hoc session:
   delta specs, a design where there is a decision to record, and tagged task
   groups (see the `abk-authoring` skill). `abk check` and `abk tags` must pass
   before it is committed. The pipeline plans it into units and builds them
-  test-first on `spec/<change>/<n>` branches; a person reviews and merges the
-  pull requests.
+  test-first on `spec/<change>/<n>` branches; a person reviews and merges each
+  pull request that was not auto-landed.
 - **An interactive session does not edit the code to make a change.** It may
   read, diagnose, and write or revise the change that describes the work. The
   specs and the pipeline state live in this repository, and the working copy is
@@ -102,10 +102,10 @@ can't vouch for". The reasoning is in `docs/agent-efficient-coding-philosophy.md
   pytest `integration` marker) and `e2e-test` (needs the real local stack). The word "tier" is kept for review tiers. Where your
   change leaves a name to you (a helper, a fake, a test file, a local variable), use `unit_test` and `e2e`, never the earlier numbered
   spellings. Names a change's spec fixes (a setting, a tag, a metric) stay as the spec says.
-- **Size ceilings.** The single ceiling on a unit (`max_unit_lines`) is becoming a ceiling per review tier. Do not add a new place
-  that reads it; send a new size check through the one function the existing ones use, so it moves with them.
+- **Size ceilings.** Each review tier has its own ceiling on a unit (`review.ceilings`); there is no single ceiling. Do not add a
+  new place that reads one; send a new size check through the one function the existing ones use, so it moves with them.
 - **Who merges.** A unit that review classifies `auto` and policy allows will be merged by the pipeline, and anything else by a
-  person. Do not write new text, comments or messages that say a human merges every pull request. The build agent still never
+  person. Do not write new text, comments or messages that make a person the merger of every unit. The build agent still never
   merges, and nothing here changes the hook, the command policy or `--disallowedTools`.
 - **The reviewer.** It will classify a unit (`auto`, `light`, `full`) beside `needs_human` and `escalate`, which stay. Do not code
   against a review reply that has only the old fields, and flag in review a change that adds a new use of an old name where a new

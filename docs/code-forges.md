@@ -1,7 +1,8 @@
 # Code forges
 
-The pipeline opens **one pull request per unit** and then polls it until a
-human merges it. Which host that pull request lives on is a **forge**
+The pipeline opens **one pull request per unit** and then polls it until it
+is merged: by the pipeline for a unit review classified `auto` and policy allowed, by a person for
+any other. Which host that pull request lives on is a **forge**
 (`forges/`), and every call the pipeline makes about a pull request goes
 through one. A repo names its forge in `abk.yaml`:
 
@@ -33,7 +34,7 @@ review decision are read from the review store the web UI writes (see
 other. Labels, drafts, statuses, check reruns and stacks are accepted and do
 nothing, and `supports_stacks` is false, so units serialise per repo.
 
-A person merges with git; nothing in the pipeline or the UI does. The forge
+A person merges what was not auto-landed, with git; the build agent never merges. The forge
 remembers the tip of the branch while it has commits of its own beyond the trunk,
 and lists the pull request as merged when that tip is contained in the trunk or
 its change is found there by patch identity (a squash or a rebase). A branch reset onto the
