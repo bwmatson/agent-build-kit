@@ -5,7 +5,7 @@ sandbox-default)."""
 from __future__ import annotations
 
 import argparse
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 import pytest
@@ -16,7 +16,7 @@ from agent_build_kit.cli import main
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.cli.doctor import Check, run_doctor
 from agent_build_kit.config import load
-from agent_build_kit.sandboxes import Coverage
+from agent_build_kit.sandboxes import Coverage, SandboxPolicy
 from agent_build_kit.settings import reload
 from tests.cli.test_doctor import Answers
 from tests.cli.test_doctor import workspace as off_workspace  # noqa: F401 — fixture
@@ -28,6 +28,14 @@ from tests.sandboxes.stand_in import StandInBackend
 
 ELSEWHERE = "no-such-platform"
 REPOS = ("app", "platform")
+
+
+class PassThrough(StandInBackend):
+    """Confines nothing, so the commands the doctor probe runs through it (git) still run."""
+
+    def command(self, policy: SandboxPolicy, argv: Sequence[str]) -> list[str]:
+        super().command(policy, argv)
+        return list(argv)
 
 
 @pytest.fixture
@@ -44,7 +52,7 @@ def workspace(off_workspace: Path) -> Path:  # noqa: F811 — fixture
 @pytest.fixture
 def working_backend() -> Iterator[None]:
     with sandboxes.isolated():
-        sandboxes.register(StandInBackend("landlock", ""))
+        sandboxes.register(PassThrough("landlock", ""))
         yield
 
 
