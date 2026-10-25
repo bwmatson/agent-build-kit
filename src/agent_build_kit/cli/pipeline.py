@@ -363,6 +363,7 @@ from agent_build_kit.pipeline.usage_guard import (
     on_account,
     reading_as,
     refreshed_usage,
+    rejected_login_note,
     threshold_at,
 )
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
@@ -769,6 +770,8 @@ def _account_usage_lines(
     whose = _whose(account)
     lines = [_account_usage_line(args, account)]
     with on_account(account):
+        if rejected := rejected_login_note():
+            lines.append(rejected)
         if estimate := held_estimate_line():
             lines.append(estimate + whose)
             running = {u.id for u in store_for(inst).all() if u.state == RUNNING}

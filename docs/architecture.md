@@ -1303,6 +1303,12 @@ out is the pause percent, and a window whose two are equal does not ramp: the
 ramp is skipped, not computed flat. The ceiling is validated below 100, so
 relief never reaches the point where credits pay.
 
+In the usage guard every account uses one path: the default account is an explicit value (`Account.default()`), and
+the credentials, state file, expiry check, token read, login refresh and doctor check are one
+implementation for it and for a labelled account. A labelled account's files are named
+`<name>.<label>.<suffix>` (`usage-cache.<label>.json`, `paused.<label>.json`); the default
+account's keep the unlabelled names, and its cache has no `account` key.
+
 A pause is kept per account: it writes `runs/paused.json` for the default account (a network
 outage, which holds every account, has `runs/network-paused.json` of its own) and `runs/paused.<label>.json` for a named one, with the
 account recorded, a deadline, a reason and a kind. The

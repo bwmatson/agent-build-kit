@@ -719,9 +719,17 @@ def read_live_usage(
                     ),
                 )
 
-        def failed(error: Exception) -> UsageReading | None:
+        def failed(error: Exception, *, refreshed: bool = False) -> UsageReading | None:
             if isinstance(error, urllib.error.HTTPError):
                 cause = f"HTTP {error.code}"
+                if error.code == 401 and refreshed:
+                    # The login is rejected, not the usage unknown: kept beside the reading so
+                    # status, doctor and the start decision say so until a read succeeds.
+                    try:
+                        cache_path.parent.mkdir(parents=True, exist_ok=True)
+                        _write_cache(cache_path, {**cached, "login_rejected": True})
+                    except (OSError, TypeError):
+                        pass
                 if error.code == 429:
                     until = now + timedelta(seconds=_cooldown_seconds(error))
                     try:
@@ -757,7 +765,7 @@ def read_live_usage(
                         log.warning(
                             "account %s: the login refresh left the saved token as it was", label
                         )
-                    return failed(error)
+                    return failed(error, refreshed=True)
                 retry_with = fresh
             elif isinstance(error, OSError) and not isinstance(error, urllib.error.HTTPError):
                 # A timeout or a connection error: once more after a short delay.
@@ -768,7 +776,7 @@ def read_live_usage(
             try:
                 payload = ask(retry_with)
             except Exception as again:
-                return failed(again)
+                return failed(again, refreshed=retry_with != token)
 
         reading = _reading_from_payload(payload, observed_at=now, source="live")
         if reading is None:
@@ -854,6 +862,17 @@ def read_cached_usage(path: Path | None = None) -> UsageReading | None:
 def forget_logged_failures() -> None:
     """Start a tick: a failure's cause is logged again the first time it recurs."""
     _logged_failures.clear()
+
+
+def rejected_login_note(account: claude_account.Account | None = None) -> str | None:
+    """Words for a login the usage endpoint rejected after a refresh, with the command to sign
+    in again, else None. Kept in the account's cache file until a read succeeds."""
+    with on_account(account):
+        if not _load_cache(_cache_file()).get("login_rejected"):
+            return None
+        from agent_build_kit.runtimes import claude_code
+
+        return claude_code.rejected_login_line(account_in_force())
 
 
 def rate_limit_note(cache_path: Path | None = None) -> str | None:
@@ -1095,11 +1114,13 @@ def may_start_unit(reading: UsageReading | None, *, trust_age: bool = False) -> 
 
     if reading is None:
         note = rate_limit_note()
+        rejected = rejected_login_note()
         return Decision(
             may_start=False,
             reason="usage is unknown: neither the usage endpoint nor "
             f"{claude_account.state_file(account_in_force())} could be read"
-            + (f" (the usage endpoint is {note})" if note else ""),
+            + (f" (the usage endpoint is {note})" if note else "")
+            + (f"; {rejected}" if rejected else ""),
             resume_at=now + UNKNOWN_RETRY,
         )
 

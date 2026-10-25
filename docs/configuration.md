@@ -1043,7 +1043,8 @@ force. See [agent-runtimes.md](agent-runtimes.md).
 
 `CLAUDE_CODE_OAUTH_TOKEN` is read outside the settings layer because it belongs
 to Claude Code: the usage guard uses it ahead of the token stored in the account's
-directory.
+directory. In the guard every account uses one path for its credentials, state file and login refresh,
+and `CLAUDE_CODE_OAUTH_TOKEN` takes precedence for all of them.
 
 ### The Claude Code account
 

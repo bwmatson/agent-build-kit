@@ -41,6 +41,7 @@ from agent_build_kit.pipeline.usage_guard import (
     UsageReading,
     read_cached_usage,
     read_live_usage,
+    rejected_login_note,
 )
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.runtimes.base import (
@@ -569,11 +570,20 @@ class ClaudeCodeRuntime:
         return PolicyReport(ok=True)
 
 
-def _login_command(entry: dict[str, str]) -> str:
-    """The command a person runs to sign in to the account whose environment is `entry`."""
+def login_command(account: claude_account.Account) -> str:
+    """The command a person runs to sign in to the account."""
+    entry = claude_account.environment_entry(account)
     return " ".join(
         [*(f"{name}={shlex.quote(value)}" for name, value in entry.items())]
         + [*map(shlex.quote, command()), "auth", "login"]
+    )
+
+
+def rejected_login_line(account: claude_account.Account) -> str:
+    """What is said of a login the usage endpoint rejected after a refresh."""
+    return (
+        f"account {account.label or 'default'}: the login is rejected (HTTP 401) after a "
+        f"refresh; run {login_command(account)}"
     )
 
 
@@ -585,7 +595,7 @@ def account_lines(
     `CLAUDE_CODE_OAUTH_TOKEN` is set beside a directory, since the token names its own account.
     The default account with no directory set is not asked whether it exists."""
     entry = claude_account.environment_entry(account)
-    login = _login_command(entry)
+    login = login_command(account)
     warning: list[AccountLine] = []
     if entry and named_value("CLAUDE_CODE_OAUTH_TOKEN", env_file):
         warning.append(
@@ -603,6 +613,8 @@ def account_lines(
                 *warning,
             ]
         name = f"{name} exists"
+    if rejected := rejected_login_note(account):
+        return [AccountLine(status="FAIL", detail=rejected, fix=login), *warning]
     if _logged_in(run, account):
         return [AccountLine(status="ok", detail=f"{name}, logged in"), *warning]
     return [AccountLine(status="FAIL", detail=f"{name}, not logged in", fix=login), *warning]
