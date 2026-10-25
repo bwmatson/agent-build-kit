@@ -1,5 +1,5 @@
-"""The reader of the paths a task line names in backticks, and the classifier that says which of
-them are product code (spec: e2e-group-scope)."""
+"""The classifier that says which of the paths a task line names are product code (spec:
+e2e-group-scope); the reader of those paths is tested in test_group_paths.py."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.config import ProjectConfig, RepoConfig
-from agent_build_kit.pipeline.e2e_scope import is_product_path, task_paths, unscoped_task_paths
+from agent_build_kit.pipeline.e2e_scope import is_product_path, unscoped_task_paths
 
 
 def repo(tmp_path: Path, **fields) -> RepoConfig:
@@ -17,46 +17,6 @@ def repo(tmp_path: Path, **fields) -> RepoConfig:
         projects=[ProjectConfig(path="."), ProjectConfig(path="web", profile="node-npm")],
         **fields,
     )
-
-
-@pytest.mark.parametrize(
-    ("line", "paths"),
-    [
-        ("- [ ] 1.1 Fix `src/client/retry.py`", ["src/client/retry.py"]),
-        ("- [ ] 1.1 Edit `retry.py` and `docs/cli.md`", ["retry.py", "docs/cli.md"]),
-        ("- [ ] 1.1 See `src/client/retry.py:42`", ["src/client/retry.py"]),
-        (
-            "- [ ] 1.1 Run `tests/e2e/test_route.py::test_stream`",
-            ["tests/e2e/test_route.py"],
-        ),
-        ("- [ ] 1.1 Look in `src/client/`", ["src/client"]),
-        ("- [ ] 1.1 A path with no ticks, src/client/retry.py", []),
-    ],
-)
-def test_backticked_tokens_with_a_slash_or_an_extension_are_paths_cleaned_of_their_suffix(
-    line: str, paths: list[str]
-) -> None:
-    assert task_paths(line) == paths
-
-
-@pytest.mark.parametrize(
-    "token",
-    [
-        "https://example.com/a/b.html",
-        "--flag",
-        "-x/y",
-        "RETRY=3",
-        "$HOME/x.py",
-        "src/**/*.py",
-        "src/*.py",
-        "retry()",
-        "make test",
-        "a b/c.py",
-        "<name>/x.py",
-    ],
-)
-def test_urls_flags_assignments_globs_symbols_and_spaced_text_are_not_paths(token: str) -> None:
-    assert task_paths(f"- [ ] 1.1 Use `{token}` here") == []
 
 
 @pytest.mark.parametrize(

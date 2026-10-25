@@ -409,6 +409,7 @@ from agent_build_kit.pipeline.work_graph import (
     manual_runbook_warnings,
     old_test_kind_warnings,
     redundant_separate_warnings,
+    resolved_projects,
     retag_headings,
     specification_text,
     tasks_path,
@@ -5037,25 +5038,34 @@ def _write_join(
 
 # "- [x] 1.1 ..." and "- [ ] 1.1 ..." are the same specification at different
 # stages of being carried out.
+def _resolved_in(tasks: Path, inst: Installation | None) -> dict[int, str]:
+    """The projects the groups of a tasks file resolve to, under `inst`'s repos and projects,
+    or under the active workspace when none is given."""
+    groups = validate_tasks(tasks)[0] if inst is None else _validated(inst, tasks)[0]
+    return resolved_projects(groups)
+
+
 def specification(tasks: Path) -> str:
     """A change's tasks with progress and `Needs:` lines stripped out: what a re-plan keys on."""
-    return specification_text(tasks.read_text())
+    return specification_text(tasks.read_text(), resolved=_resolved_in(tasks, None))
 
 
-def plan_digest(tasks: Path, recorded: str | None = None) -> str:
+def plan_digest(tasks: Path, recorded: str | None = None, inst: Installation | None = None) -> str:
     """The hash a change's plan record keeps: a re-plan happens when this one moves.
 
     It ignores the spelling of the test-kind tags. `recorded` is the hash the plan record holds:
     when it is the hash of this text in the earlier spelling, it is returned, so a plan made
-    before the rename counts as current for the same text after `abk tags --fix`."""
-    return text_digest(tasks.read_text(), recorded)
+    before the rename counts as current for the same text after `abk tags --fix`. The projects
+    the groups resolve to are part of it, taken under `inst`'s repos and projects, or under the
+    active workspace's when none is given."""
+    return text_digest(tasks.read_text(), recorded, _resolved_in(tasks, inst))
 
 
-def text_digest(text: str, recorded: str | None = None) -> str:
-    """`plan_digest` of a tasks file's text."""
+def text_digest(text: str, recorded: str | None, resolved: Mapping[int, str]) -> str:
+    """`plan_digest` of a tasks file's text, with the projects its groups resolved to."""
 
     def hashed(spell: Callable[[str], str]) -> str:
-        return hashlib.sha256(specification_text(text, spell).encode()).hexdigest()
+        return hashlib.sha256(specification_text(text, spell, resolved).encode()).hexdigest()
 
     # An earlier release hashed the text as written: every tag old, or the two spellings mixed.
     if recorded is not None and recorded in (hashed(old_tag), hashed(lambda tag: tag)):
@@ -6424,14 +6434,16 @@ def _tag_warnings(inst: Installation, path: Path) -> list[str]:
     ]
 
 
-def _rehashed(records: Mapping[str, dict], change: str, read: str, written: str) -> dict[str, dict]:
+def _rehashed(
+    records: Mapping[str, dict], change: str, read: str, written: str, resolved: Mapping[int, str]
+) -> dict[str, dict]:
     """The update that moves `change`'s plan record to the hash of `written`, when the record is
     current for `read`, the text before the rewrite; nothing otherwise."""
     record = records.get(change)
     recorded = record.get("hash") if record else None
-    if record is None or recorded is None or text_digest(read, recorded) != recorded:
+    if record is None or recorded is None or text_digest(read, recorded, resolved) != recorded:
         return {}
-    return {change: record | {"hash": text_digest(written)}}
+    return {change: record | {"hash": text_digest(written, None, resolved)}}
 
 
 def _fix_change_tags(
@@ -6488,7 +6500,9 @@ def _fix_change_tags(
         # A plan that stood before the rewrite stands after it: keep the record's other fields
         # and move its hash to the rewritten text, whatever mix of spellings it hashed. Judged
         # under the plans lock, against the record as it is and the text that was read.
-        update_plans(inst, lambda records: _rehashed(records, change, text, fixed))
+        update_plans(
+            inst, lambda records: _rehashed(records, change, text, fixed, resolved_projects(before))
+        )
     print(f"{change}: rewrote {count} tag(s)")
     return True
 

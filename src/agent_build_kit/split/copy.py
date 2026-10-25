@@ -85,7 +85,7 @@ def _plans_to_write(source: Installation, destination: Installation, plan: Split
     recorded = planned_hashes(source)
     wanted = {
         name: {
-            "hash": plan_digest(destination.changes_dir / name / "tasks.md"),
+            "hash": plan_digest(destination.changes_dir / name / "tasks.md", inst=destination),
             "sizing": recorded[name].get("sizing", ""),
             "attempts": 0,
             "ok": True,

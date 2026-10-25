@@ -1,5 +1,5 @@
 """What an `[e2e-test]` group may name: tests, test support, docs, the changelog and declared
-support. The reader of a task line's paths, the classifier shared by the `abk tags` warning and
+support. The classifier shared by the `abk tags` warning and
 the build's checks guard, and the warning itself."""
 
 from __future__ import annotations
@@ -11,29 +11,12 @@ from pathlib import Path
 from agent_build_kit import profiles
 from agent_build_kit.config import RepoConfig
 from agent_build_kit.model import TestTier
+from agent_build_kit.pipeline.group_paths import changed_paths
 from agent_build_kit.pipeline.work_graph import TASK_LINE, TaskGroup
 from agent_build_kit.profiles.base import is_doc_path
 
-_TICKED = re.compile(r"`([^`]+)`")
-_LINE_SUFFIX = re.compile(r":\d+$")
-_EXTENSION = re.compile(r"\.[A-Za-z0-9]+$")
 _TASK_NUMBER = re.compile(r"\d+\.\d+")
-_NOT_A_PATH = re.compile(r"[\s=(<*]")
 _SCRIPTS = "scripts/"
-
-
-def task_paths(line: str) -> list[str]:
-    """The repo paths a task line names in backticks: tokens with a `/` or a file extension,
-    without a trailing `:<line>`, `::<test id>` or `/`; URLs, flags, assignments, globs and
-    symbols are skipped."""
-    found: list[str] = []
-    for token in _TICKED.findall(line):
-        if token.startswith(("-", "http", "$")) or _NOT_A_PATH.search(token):
-            continue
-        cleaned = _LINE_SUFFIX.sub("", token.split("::", 1)[0]).rstrip("/")
-        if cleaned and ("/" in cleaned or _EXTENSION.search(cleaned)):
-            found.append(cleaned)
-    return found
 
 
 def is_test_path(path: str, repo: RepoConfig | None) -> bool:
@@ -89,7 +72,8 @@ def product_path_warnings(
             continue
         number = _TASK_NUMBER.search(text)
         repo = repos.get(group.repo)
-        for named in unscoped_task_paths(task_paths(text), repo, group.support):
+        paths = changed_paths(text, ())
+        for named in unscoped_task_paths(paths, repo, group.support):
             if (group.number, named) in seen:
                 continue
             seen.add((group.number, named))
