@@ -1683,7 +1683,7 @@ def _account_decision(
 
 
 def _start_decision(
-    accounts: Sequence[claude_account.Account] = (claude_account.Account.default(),),
+    accounts: Sequence[claude_account.Account],
     decided: dict[str | None, Decision] | None = None,
     ask: Ask | None = None,
 ) -> Decision:
@@ -1750,7 +1750,7 @@ def _starting_accounts(
     if planning:
         default = claude_account.Account(limits=claude_limits())
         found.setdefault(claude_account.account_key(default), default)
-    return list(found.values()) or [claude_account.Account.default()]
+    return list(found.values()) or [claude_account.resolve_in(inst.config, None)]
 
 
 def _held_by_the_model(
@@ -1822,7 +1822,7 @@ def _may_build(
             if each.kind == "rate_limit"
         }
     )
-    accounts = [claude_account.Account.default()]
+    accounts = [claude_account.resolve_in(inst.config, None)]
     startable: list[StoredUnit] = []
     left_out = planning = False
     if held or runtime.supports_usage_tracking:
