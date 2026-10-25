@@ -2,8 +2,8 @@
 
 `old_spelling_problems` returns one `path:line` message per line of a source, test, web or
 document file under `root` that carries an old spelling, and one message per file named for one.
-The compatibility module, the rename tool and the tests of both, the two documents that explain
-the rename and the changelog are exempt.
+The compatibility module, the tests of it and of the settings migration, the two documents
+that explain the rename and the changelog are exempt.
 """
 
 from __future__ import annotations
@@ -18,13 +18,12 @@ SCANNED = ("src", "tests", "web/src", "docs", "scripts", ".github")
 SKIPPED_PARTS = frozenset({"__pycache__", "node_modules"})
 BUILT_WEB = Path("src/agent_build_kit/serve/static")
 
-# The files that write an old spelling on purpose: the table of them, the tool that rewrites
-# them, the tests of both and of the settings migration, and the documents that explain the
+# The files that write an old spelling on purpose: the table of them, the tests of it and of
+# the settings migration, and the documents that explain the
 # rename and the runbooks that cite the old names and earlier changes by their fixed names.
 EXEMPT_NAMES = frozenset(
     {
         "compat_names.py",
-        "rename_test_kinds.py",
         "test_compat_names.py",
         "test_test_kind_settings_aliases.py",
         "CHANGELOG.md",
@@ -34,7 +33,7 @@ EXEMPT_NAMES = frozenset(
         "hold-a-e2e-split.md",
     }
 )
-EXEMPT_PREFIXES = ("test_rename_test_kinds", "test_config_migrate_test_kind_keys")
+EXEMPT_PREFIXES = ("test_config_migrate_test_kind_keys",)
 
 
 def exempt(path: Path) -> bool:

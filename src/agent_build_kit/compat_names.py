@@ -38,7 +38,7 @@ class KindForms(Frozen):
     tag: str  # a tag or stored value: `e2e-test`
 
 
-# The two kinds, by the old name each had: the one table the readers and the rename tool share.
+# The two kinds, by the old name each had: the one table the readers share.
 KIND_FORMS: Mapping[str, KindForms] = MappingProxyType(
     {
         "tier1": KindForms(stem="unit_test", file_stem="unit-test", tag="unit-test"),

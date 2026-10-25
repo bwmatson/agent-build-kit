@@ -563,8 +563,8 @@
   second-tier pipeline modules now fails, and the new names are the only ones in the code.
   Old spellings in `abk.yaml`, state files and group tags are still read, with a warning,
   but an old setting name is no longer an attribute of the loaded settings.
-  `python -m agent_build_kit.rename_test_kinds` stays for rewriting a planning repository's
-  text.
+  The rename tool is removed too: old spellings in a planning repository are now found with
+  `git grep` and replaced with a reviewed edit.
 
 - The documents and skills now describe how the kit's live tests are tagged by runtime, the
   parking and scheduled change per split, and `abk e2e-test hold`, `release` and `status`,

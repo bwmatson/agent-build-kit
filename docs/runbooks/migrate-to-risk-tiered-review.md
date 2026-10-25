@@ -47,9 +47,9 @@ This is the step the changes do not do. The planning repo's own text still says 
 Do it **once, after the rename has fully landed and before the next big change is proposed**, so no spec describes a name the code no longer has.
 
 - [ ] Make sure no unit is mid-build on a change whose spec you are about to edit (`abk status`), or accept that its reviewer will see the spec change under it.
-- [ ] Preview with the rename tool, which takes a root and no shims for this: `uv run python -m agent_build_kit.rename_test_kinds --root . --paths openspec docs --dry-run` (the tool stays until `review-by-tier-is-always-on` group 5 deletes it, so run this step before that group merges; if it is already gone, use `git grep -n -i -E 'tier ?[12]|tier[12]_'` and a reviewed replacement, and say so in the commit).
-- [ ] Read the preview. `tier 1` and `tier 2` in prose become `unit-test` and `e2e-test`; `tier2_splits` and its siblings become `e2e_splits`. Leave a name alone where it is history (a dated research note under `docs/research/`, an archived change).
-- [ ] Apply, `openspec validate --all --strict`, `abk check`, and commit as one change that does nothing else, so `git log --follow` and blame still work.
+- [ ] Find the old spellings with `git grep -n -i -E 'tier ?[12]|tier[12]_'` and replace them with a reviewed edit; the rename tool is gone.
+- [ ] Read the matches. `tier 1` and `tier 2` in prose become `unit-test` and `e2e-test`; `tier2_splits` and its siblings become `e2e_splits`. Leave a name alone where it is history (a dated research note under `docs/research/`, an archived change).
+- [ ] Make the edit, run `openspec validate --all --strict` and `abk check`, and commit as one change that does nothing else, so `git log --follow` and blame still work.
 - [ ] Remove the glossary sentence about the old spellings from the OpenSpec project config (its `context:` and glossary) and the direction note from each in-flight change's `design.md` once their groups have landed. Leave the glossary sentence about `integration-test` (a third kind, a label that behaves as `unit-test`) in place: once `integration-test-kind-is-a-label` group 1 has merged, drop only its clause that says not to tag a heading with it yet, and check `abk tags` lists `[integration-test]` among the tags accepted.
 
 ## 4. After `review-policy-and-verdict-recorded-in-shadow`
