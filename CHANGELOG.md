@@ -230,11 +230,11 @@
   the same way, and `abk policy check` and `abk status` now list, per runtime, each guard as
   active, skipped (confined) or kept (meaning).
 
-- A change to `abk.yaml` or `abk.local.yaml` while an agent step runs is now a warning, not a
-  failure, when the step was confined by the sandbox: the tick log shows the diff, `abk status`
-  keeps showing it until the next confined step ends clean, and the unit continues. A step that
-  was not confined (including one that ran plain because the repo's `required` is `none` and
-  no backend worked), and a track run, still fail with `ConfigChanged`.
+- A change to `abk.yaml` or `abk.local.yaml` while an agent step runs is now a warning, never a
+  failure: the tick log shows the diff, `abk status` keeps showing it until the next step ends
+  clean, and the unit continues. For a step that was not confined (including one that ran plain
+  because the repo's `required` is `none` and no backend worked) and for a track run, the
+  message adds that an agent may have written the file and a person should read the diff.
 
 - The sandbox policy now depends on the step's test kind. A unit-test or integration step is
   never granted a loopback port, a service port or a container socket. An `[e2e-test]` step also
