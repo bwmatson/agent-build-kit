@@ -236,7 +236,7 @@ def sandbox_coverage_text(runtime: AgentRuntime, installation: Installation) -> 
     value = runtime.sandbox_coverage.value
     if installation.config.sandbox.enabled:
         backend, found = sandboxes.probe(installation.config.sandbox.backend)
-        if backend.name == "unavailable" and not found.ok:
+        if sandboxes.no_backend(backend) and not found.ok:
             # No backend matches this platform: steps run unconfined whatever the runtime can do.
             return Coverage.NONE.value
     if not runtime.sandbox_note:

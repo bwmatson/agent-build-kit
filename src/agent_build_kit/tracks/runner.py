@@ -760,7 +760,9 @@ def claude_phase(
     log(f"[{project.name}] phase: {name} (session window only)")
     before = record_planning(inst)
     try:
-        with config_unchanged(inst.root, Coverage.NONE):  # a track run is not confined yet
+        with config_unchanged(
+            inst.root, Coverage.NONE, warn=log
+        ):  # a track run is not confined yet
             result = agent.run(request)
     except (
         AgentRateLimited,

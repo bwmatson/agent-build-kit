@@ -2174,7 +2174,7 @@ def sandbox_check(loaded: WorkspaceConfig, inst: Installation | None = None) -> 
             "sandbox",
             f"{backend.name}: confines {found.coverage.value} of a step in {repos}",
         )
-    if backend.name == "unavailable":
+    if sandboxes.no_backend(backend):
         return _info("sandbox", f"{found.cause}: steps in {repos} run unconfined", found.fix)
     return _fail("sandbox", f"{backend.name}: {found.cause}", found.fix)
 

@@ -18,6 +18,7 @@ from agent_build_kit.cli.doctor import Check, run_doctor
 from agent_build_kit.config import load
 from agent_build_kit.sandboxes import Coverage, SandboxPolicy
 from agent_build_kit.settings import reload
+from tests.cli.guard_listing_support import ACTIVE, state_of
 from tests.cli.test_doctor import Answers
 from tests.cli.test_doctor import workspace as off_workspace  # noqa: F401 — fixture
 from tests.cli.test_init import app, init_args, stubs  # noqa: F401 — fixtures
@@ -126,6 +127,29 @@ def test_status_shows_coverage_none_where_no_backend_matches(
 
     shown = capsys.readouterr()
     assert any("sandbox_coverage: none" in line for line in (shown.out + shown.err).splitlines())
+    monkeypatch.delenv("ABK_RUNTIME")
+    reload(None)
+
+
+def test_status_shows_the_location_guards_active_where_no_backend_matches(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    no_backend: None,
+) -> None:
+    monkeypatch.setenv("ABK_RUNTIME", "claude_code")
+    reload(None)
+    select(monkeypatch, SelectableRuntime("claude_code", sandbox_coverage=Coverage.PROCESS))
+    capsys.readouterr()
+
+    cli.cmd_status(argparse.Namespace(), make_installation(tmp_path, sandbox={"enabled": True}))
+
+    shown = capsys.readouterr()
+    lines = (shown.out + shown.err).splitlines()
+    assert any("sandbox_coverage: none" in line for line in lines)
+    assert not any("skipped (confined)" in line for line in lines)
+    for guard in ("worktree check", "specs fence", "config text fence"):
+        assert state_of(lines, guard) == ACTIVE
     monkeypatch.delenv("ABK_RUNTIME")
     reload(None)
 

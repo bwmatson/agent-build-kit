@@ -410,7 +410,7 @@ def _sandbox_policy(
         return None
     backend, found = sandboxes.probe(active().sandbox.backend)
     if not found.ok and active().repos[repo].sandbox.required is not Coverage.NONE:
-        if backend.name == "unavailable":
+        if sandboxes.no_backend(backend):
             log(f"sandbox: this step runs unconfined: {found.cause} ({found.fix})")
             return None
         # Raised as a refusal so the caller revokes the step's gateway key before it stops.

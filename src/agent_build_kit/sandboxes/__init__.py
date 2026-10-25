@@ -43,6 +43,12 @@ def names() -> list[str]:
     return sorted(_REGISTRY)
 
 
+def no_backend(backend: SandboxBackend) -> bool:
+    """Whether `backend` is the answer for "no backend matches this platform" (`unavailable`),
+    not a backend that was tried and failed its probe."""
+    return backend.name == "unavailable"
+
+
 def _detect(
     platform: str | None, *, keep_failed: bool = False
 ) -> tuple[SandboxBackend, Availability]:
@@ -57,7 +63,7 @@ def _detect(
                 return backend, found
             # `unavailable` matches every platform and always fails: it is the answer for "no
             # backend", never a backend that was tried and broke.
-            if failed is None and name != "unavailable":
+            if failed is None and not no_backend(backend):
                 failed = (backend, found)
     if keep_failed and failed is not None:
         return failed
@@ -115,6 +121,7 @@ __all__ = [
     "get",
     "isolated",
     "names",
+    "no_backend",
     "probe",
     "register",
 ]
