@@ -1022,8 +1022,15 @@ the repo whose changes move; `--project` moves only the groups tagged for that p
 it. A change is moved, staying or mixed by its groups' tags; a mixed change is refused
 unless `--allow-mixed source` keeps it or `--allow-mixed destination` moves it whole. A
 spec moves with the changes that wrote it; `--spec` moves one nobody's delta touches. Units
-of moved changes move with their records; a unit in `running`, `in_review` or `held`, one
-that spans a staying change, and a dependency that would dangle are refused.
+of moved changes move with their records, and so do the units of a moving repo's archive entries
+(an archive entry is matched by name, without its date, to the change its units name). A
+unit in `running`, `in_review` or `held`, one that spans a staying change, one whose change
+name is ambiguous (some of its directories move and some stay), and a dependency that would
+dangle are refused. A unit with no change directory moves by its repo (and project): the
+plan names it. A dependency on a merged unit of another repo that stays is dropped from the
+moved record, as the unit is already satisfied history, with a printed line for each
+dropped edge as a note. The plan prints the unit counts by origin: active, archived, no
+change directory, and left in the source.
 
 `--to` must already be an installation (`abk init DIR`). Files are copied without
 overwriting a different one; `--scrub` strips installation names and home paths from the
