@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import shlex
+import shutil
 import subprocess
 import time
 from collections.abc import Callable, Sequence
@@ -219,6 +220,14 @@ def command() -> list[str]:
     return list(config.runtime_entry(name=NAME).command or AGENT_COMMAND)
 
 
+def _program_folders() -> list[str]:
+    """The folder the `claude` program is found in and the folder a link to it points at."""
+    found = shutil.which(command()[0])
+    if found is None:
+        return []
+    return list(dict.fromkeys([str(Path(found).parent), str(Path(found).resolve().parent)]))
+
+
 def _account_run_kwargs(account: claude_account.Account | None = None) -> dict[str, Any]:
     """How a `claude` that is not a build is started in the account: its environment,
     or nothing for the default account."""
@@ -376,7 +385,7 @@ class ClaudeCodeRuntime:
         mine = [str(claude_account.home(account)), str(claude_account.state_file(account))]
         return {
             "write": [*mine, "/tmp", "/dev"],
-            "read": mine,
+            "read": [*mine, *_program_folders()],
             "hosts": [API_HOST, MCP_PROXY_HOST],
         }
 

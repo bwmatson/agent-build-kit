@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- A confined Claude Code step now starts: its policy reads the system folders and the folders
+  the `claude` program is found in and a link to it points at, so the launcher can exec it.
+
 - The pull request footer and the command policy's refusal now say who merges: the build agent never merges,
   the pipeline merges only a unit review classified `auto` and policy allowed, and a person
   merges the rest. The README, `AGENTS.md` and the docs no longer say a person merges every pull

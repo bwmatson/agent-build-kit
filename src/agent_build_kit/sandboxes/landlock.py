@@ -9,12 +9,9 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from agent_build_kit.sandboxes import held, launcher
-from agent_build_kit.sandboxes.base import Availability, Coverage, SandboxPolicy
+from agent_build_kit.sandboxes.base import Availability, Coverage, SandboxPolicy, system_folders
 
 FIX = "use Linux kernel 5.13 or later with Landlock enabled, or set `required: none` on the repo"
-
-# What the probe's trivial command needs to read.
-_PROBE_READ = ("/usr", "/bin", "/lib", "/lib64", "/etc")
 
 
 def abi_version() -> int:
@@ -39,7 +36,7 @@ class Landlock:
 
     def availability(self) -> Availability:
         """Applies a restriction in a subprocess and checks it held; no file is looked for."""
-        with held.scene(_PROBE_READ) as (policy, granted):
+        with held.scene(system_folders()) as (policy, granted):
             failed = held.write_probe(self, policy, granted, FIX)
         if failed:
             return failed
