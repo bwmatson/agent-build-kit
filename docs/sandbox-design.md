@@ -281,7 +281,7 @@ One new value on `ToolPolicy` (`runtimes/base.py`), built where the policy is bu
 ```
 sandbox:
   write:    the worktree, the .git parts a commit needs, $ABK_OUT, the temp folder, the agent's state folder, the profile's caches, /dev (files only)
-  read:     an allowlist, not "/": system folders, the agent's own runtime and account folder, the profile's toolchain folders, the worktree, the unit's own change and the capability specs (the live folder, read-only, as a built-in entry)
+  read:     an allowlist, not "/": system folders, the agent's own runtime and account folder, the profile's toolchain folders, the worktree, the unit's own change and the capability specs (the live folder, read-only, as a built-in entry), and what `git` opens to run in the worktree (as built-in entries, read-only: the common directory's `config` and `info`, the worktree's entry under `worktrees/` and its `.git` file, the person's `.gitconfig` and git configuration folder (under `$XDG_CONFIG_HOME` when set), those that exist). A review whose `git` stops on a refused read fails as a sandbox fault naming the path, not as feedback; `abk doctor` runs `git status` and `git log -1` in a scratch worktree from a confined step
   network:  the model API host or gateway, the forge host, the profile's package index hosts, hosts the repo adds
   required: process | files | none        # what the repo needs; "run and warn" when the runtime falls short
 ```

@@ -17,6 +17,7 @@ import shlex
 import shutil
 import socket
 import subprocess
+import tempfile
 import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
@@ -102,7 +103,7 @@ from agent_build_kit.runtimes import claude_code, policy_check, providers
 from agent_build_kit.runtimes.base import AgentRuntime, Run, Which, account_report_of
 from agent_build_kit.sandboxes import held
 from agent_build_kit.sandboxes.base import system_folders
-from agent_build_kit.sandboxes.policy import change_reads, policy_entries
+from agent_build_kit.sandboxes.policy import change_reads, git_parts, git_reads, policy_entries
 from agent_build_kit.settings import settings
 
 Status = Literal["ok", "info", "warn", "FAIL"]
@@ -1741,6 +1742,33 @@ def _spec_read_failure(
     return ""
 
 
+def _git_read_failure(backend: sandboxes.SandboxBackend, coverage: sandboxes.Coverage) -> str:
+    """Why a confined step cannot run `git status` and `git log -1` in a worktree, naming what
+    git could not read; empty when it can. Run in a scratch linked worktree."""
+    with tempfile.TemporaryDirectory(prefix="abk-probe-git-") as folder:
+        main, tree = (Path(folder).resolve() / name for name in ("main", "wt"))
+        identity = ("-c", "user.name=abk", "-c", "user.email=abk@example.invalid")
+        git(main.parent, "init", "-q", "-b", "main", str(main))
+        git(main, *identity, "commit", "-q", "--allow-empty", "-m", "probe")
+        git(main, "worktree", "add", "-q", str(tree), "-b", "probe")
+        policy = sandboxes.SandboxPolicy(
+            write=(tree, *git_parts(tree)),
+            read=(*(Path(f).resolve() for f in system_folders()), *git_reads(tree)),
+            hosts=(),
+            required=coverage,
+        )
+        script = f"cd {shlex.quote(str(tree))} && git status && git log -1"
+        try:
+            done = held.run(backend, policy, script)
+        except subprocess.TimeoutExpired:
+            return f"git in a confined step did not finish in {held.TIMEOUT} seconds"
+        except OSError as error:
+            return f"a confined step could not run git: {error}"
+        if done.returncode != 0:
+            return f"git cannot run in a confined step: {done.stderr.strip() or done.returncode}"
+    return ""
+
+
 def sandbox_check(loaded: WorkspaceConfig, inst: Installation | None = None) -> Check:
     """Whether the sandbox backend works here, found by running its probe, and with `inst`
     whether a confined step reads a file under its specs folder; `abk init` shows the same
@@ -1753,6 +1781,13 @@ def sandbox_check(loaded: WorkspaceConfig, inst: Installation | None = None) -> 
             "sandbox",
             f"{backend.name}: {why}",
             "the backend did not apply the read rule for the specs folder; "
+            "try another `sandbox.backend` or update this one",
+        )
+    if found.ok and (why := _git_read_failure(backend, found.coverage)):
+        return _fail(
+            "sandbox",
+            f"{backend.name}: {why}",
+            "the backend did not apply the read rules git needs; "
             "try another `sandbox.backend` or update this one",
         )
     if found.ok:

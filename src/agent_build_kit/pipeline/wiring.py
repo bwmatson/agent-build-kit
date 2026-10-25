@@ -192,6 +192,7 @@ from agent_build_kit.runtimes import AgentRequest, AgentRuntime, ToolPolicy
 from agent_build_kit.runtimes.base import PermissionMode, Role, SessionUnavailable
 from agent_build_kit.runtimes.claude_code import through
 from agent_build_kit.sandboxes import Coverage, SandboxPolicy, step_confined
+from agent_build_kit.sandboxes.confinement import SandboxRefused
 from agent_build_kit.sandboxes.policy import PolicyRefused, build_policy
 
 logger = logging.getLogger(__name__)
@@ -430,6 +431,15 @@ def refused_read(line: str, specs: Path) -> str | None:
     return None
 
 
+def refused_git_read(line: str) -> str | None:
+    """The path a `git` failure `line` says the sandbox refused, if it does: a fatal message
+    with a denial and an absolute path."""
+    if not line.lstrip().startswith("fatal:") or not SANDBOX_DENIAL.search(line):
+        return None
+    found = re.search(r"/[^\s'\":,;()]+", line)
+    return found.group().rstrip(".,;") if found else None
+
+
 def build_run(
     *,
     sandbox_repo: str = "",
@@ -541,12 +551,16 @@ def build_run(
         )
         recorder = _recorder(record_for, place, role)
 
+        git_refused: list[str] = []
+
         def record(made: TranscriptEvent) -> None:
             if recorder:
                 recorder.record(made)
             if made.kind != "tool_result":
                 return
             for line in made.text.splitlines():
+                if (denied := refused_git_read(line)) is not None:
+                    git_refused.append(denied)
                 if (path := refused_read(line, specs)) is not None:
                     (log or print)(f"sandbox: the sandbox does not let this step read {path}")
 
@@ -624,6 +638,10 @@ def build_run(
                 "during an agent step, to a commit made in this worktree; the pipeline is "
                 "the only pusher, so the agent pushed it"
             )
+        if role == "review" and git_refused:
+            # A policy fault, not a verdict: the reviewer could not run git, so what it says
+            # about the branch is not a review.
+            raise SandboxRefused(f"the sandbox does not let the review's git read {git_refused[0]}")
         if not result.ok:
             # Half-finished edits are on disk: carrying on would commit them.
             raise RuntimeError(result.error)
