@@ -529,6 +529,9 @@ def refresh_login() -> None:
     The call itself is the Claude Code adapter's, the one place a `claude`
     argv is built. Imported here rather than at the top: the adapter reads
     usage through this module.
+
+    The call is made under the account in force (`on_account`), so the token it
+    refreshes is the one the usage read uses.
     """
     from agent_build_kit.runtimes import claude_code
 
@@ -752,10 +755,12 @@ def read_live_usage(
                 fresh = read_oauth_token()
                 if not fresh or fresh == token:
                     named = _account.get()
-                    log.warning(
-                        "account %s: the login refresh left the saved token as it was",
-                        named.label if named and named.label else "default",
-                    )
+                    label = named.label if named and named.label else "default"
+                    if (unchanged := f"unchanged token of {label}") not in _logged_failures:
+                        _logged_failures.add(unchanged)
+                        log.warning(
+                            "account %s: the login refresh left the saved token as it was", label
+                        )
                     return failed(error)
                 retry_with = fresh
             elif isinstance(error, OSError) and not isinstance(error, urllib.error.HTTPError):

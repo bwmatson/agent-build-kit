@@ -11,10 +11,6 @@ Only the endpoint, the home directory and the `claude` process are faked.
 
 import json
 import os
-import urllib.error
-from datetime import UTC, datetime
-from email.message import Message
-from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -24,13 +20,7 @@ from agent_build_kit.pipeline import usage_guard
 from agent_build_kit.runtimes import claude_code
 from agent_build_kit.runtimes.claude_code import refresh_login
 from agent_build_kit.settings import settings
-from tests.usage_host import Host, payload
-
-HOUR_MS = 3_600_000
-
-
-def ms_from_now(offset_ms: int) -> int:
-    return int(datetime.now(UTC).timestamp() * 1000) + offset_ms
+from tests.usage_host import HOUR_MS, Host, ms_from_now, payload, unauthorized
 
 
 def write_default(token: str, expires_at_ms: int | None = None) -> None:
@@ -121,18 +111,8 @@ def test_after_an_expired_token_the_refresh_is_told_the_account_and_the_second_r
     monkeypatch.setattr(
         claude_code, "refresh_login", lambda account=None: refresh_login(account, run=claude)
     )
-    sent: list[str | None] = []
-    answer = host.urlopen
-
-    def urlopen(request, timeout=None):
-        sent.append(request.get_header("Authorization"))
-        return answer(request, timeout)
-
-    monkeypatch.setattr("urllib.request.urlopen", urlopen)
-    unauthorized = urllib.error.HTTPError(
-        usage_guard.USAGE_URL, 401, "Unauthorized", Message(), BytesIO(b"")
-    )
-    host.answers = [unauthorized, payload()]
+    sent = host.record_bearers()
+    host.answers = [unauthorized(), payload()]
 
     reading = usage_guard.read_live_usage()
 
@@ -151,9 +131,7 @@ def test_a_fresh_account_token_is_not_refreshed(
     write_default("default-token", ms_from_now(-HOUR_MS))
     host.use_account(token="account-token", expires_at_ms=ms_from_now(HOUR_MS))
     refreshed: list[bool] = []
-    host.answers = [
-        urllib.error.HTTPError(usage_guard.USAGE_URL, 401, "Unauthorized", Message(), BytesIO(b""))
-    ]
+    host.answers = [unauthorized()]
 
     usage_guard.read_live_usage(refresh=lambda: refreshed.append(True))
 

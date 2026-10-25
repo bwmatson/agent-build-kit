@@ -11,10 +11,6 @@ import json
 import logging
 import os
 import subprocess
-import urllib.error
-from datetime import UTC, datetime
-from email.message import Message
-from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -28,25 +24,13 @@ from agent_build_kit.runtimes.claude_code import refresh_login as real_refresh_l
 from agent_build_kit.settings import settings
 from tests.call_rows import agent_rows
 from tests.runtimes.claude_cli import no_agent
-from tests.usage_host import Host, payload
-
-HOUR_MS = 3_600_000
-
-
-def ms_from_now(offset_ms: int) -> int:
-    return int(datetime.now(UTC).timestamp() * 1000) + offset_ms
+from tests.usage_host import HOUR_MS, Host, ms_from_now, payload, unauthorized
 
 
 def write_credentials(directory: Path, token: str, expires_at_ms: int) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     (directory / ".credentials.json").write_text(
         json.dumps({"claudeAiOauth": {"accessToken": token, "expiresAt": expires_at_ms}})
-    )
-
-
-def unauthorized() -> urllib.error.HTTPError:
-    return urllib.error.HTTPError(
-        usage_guard.USAGE_URL, 401, "Unauthorized", Message(), BytesIO(b"")
     )
 
 
@@ -72,21 +56,9 @@ def personal(host: Host, monkeypatch: pytest.MonkeyPatch) -> Account:
     whose token is good, and no token in the environment."""
     monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN")
     write_credentials(host.home / ".claude", "default-token", ms_from_now(HOUR_MS))
-    directory = host.home / "personal"
+    directory = host.home / "second"
     write_credentials(directory, "old-token", ms_from_now(-HOUR_MS))
     return Account(label="personal", config_dir=directory)
-
-
-def sent_tokens(host: Host, monkeypatch: pytest.MonkeyPatch) -> list[str | None]:
-    sent: list[str | None] = []
-    answer = host.urlopen
-
-    def urlopen(request, timeout=None):
-        sent.append(request.get_header("Authorization"))
-        return answer(request, timeout)
-
-    monkeypatch.setattr("urllib.request.urlopen", urlopen)
-    return sent
 
 
 def test_a_labelled_accounts_refresh_runs_in_its_directory_and_the_retry_carries_the_new_token(
@@ -96,7 +68,7 @@ def test_a_labelled_accounts_refresh_runs_in_its_directory_and_the_retry_carries
     monkeypatch.setattr(
         claude_code, "refresh_login", lambda account=None: real_refresh_login(account, run=claude)
     )
-    sent = sent_tokens(host, monkeypatch)
+    sent = host.record_bearers()
     host.answers = [unauthorized(), payload()]
 
     with usage_guard.on_account(personal):
@@ -132,7 +104,7 @@ def test_a_refresh_that_leaves_the_token_names_the_account_in_the_failure(
 
     assert reading is None
     assert host.asked == 1, "the unchanged token is not sent again"
-    assert any("personal" in record.getMessage() for record in caplog.records)
+    assert "account personal: the login refresh left the saved token as it was" in caplog.messages
 
 
 def test_the_runtimes_usage_status_refreshes_under_the_account_in_force(
