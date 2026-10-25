@@ -1,25 +1,31 @@
-"""A build run and a track run fail when the planning repo's abk.yaml or abk.local.yaml differs
-afterwards, by whatever route it was written (spec: review-policy). The fake agent writes with
-Python, a program the command policy does not name."""
+"""A build run that changes the planning repo's abk.yaml or abk.local.yaml, by whatever route, is
+warned about with the diff and goes on; it never fails the unit (spec: sandbox-default). The fake
+agent writes with Python, a program the command policy does not name."""
 
 from __future__ import annotations
 
+import stat
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
-from agent_build_kit.config import models
-from agent_build_kit.pipeline.config_guard import ConfigChanged
+import agent_build_kit
+from agent_build_kit import sandboxes
+from agent_build_kit.config import active, models
+from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.config_guard import warning_lines
 from agent_build_kit.pipeline.wiring import build_run
-from agent_build_kit.runtimes import AgentRateLimited, AgentRequest
-from agent_build_kit.sandboxes import Coverage
-from agent_build_kit.tracks import runner
+from agent_build_kit.runtimes import AgentRateLimited, AgentRequest, AgentResult
+from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime, spawn
 from tests.conftest import make_installation
+from tests.pipeline.test_config_unchanged_when_confined import EDITED, step
+from tests.pipeline.test_wiring_sandbox import Recording, install
 from tests.runtimes.stand_in import StandInRuntime
-from tests.tracks.test_runner import github_checkout, inst  # noqa: F401 — fixture
+from tests.runtimes.test_claude_code_sandbox import no_backend
 
 ORIGINAL = "repos: {}\n"
+MAY_HAVE_WRITTEN = "an agent may have written"
 
 
 def writes(path: Path, text: str) -> Callable[[AgentRequest], None]:
@@ -29,10 +35,22 @@ def writes(path: Path, text: str) -> Callable[[AgentRequest], None]:
     return act
 
 
+def writes_then_stops(path: Path, text: str) -> Callable[[AgentRequest], None]:
+    def act(request: AgentRequest) -> None:
+        path.write_text(text)
+        raise AgentRateLimited("usage window spent")
+
+    return act
+
+
 def build(planning: Path, tree: Path, agent: StandInRuntime) -> str:
     return build_run(runtime=agent, planning_repo=planning, allowed_tools="Read")(
         "Implement it.", cwd=tree, model=models().implement
     )
+
+
+def warned(planning: Path) -> list[str]:
+    return warning_lines(Installation(active(), planning).state_dir)
 
 
 @pytest.fixture
@@ -45,167 +63,115 @@ def planning(tmp_path: Path) -> Path:
 
 
 @pytest.mark.parametrize("name", ["abk.yaml", "abk.local.yaml"])
-def test_a_build_run_that_rewrites_a_configuration_file_fails_naming_it_and_the_difference(
-    tmp_path: Path, planning: Path, name: str
+def test_an_unconfined_build_run_that_rewrites_a_configuration_file_warns_and_goes_on(
+    tmp_path: Path, planning: Path, name: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     agent = StandInRuntime(answer="built it", act=writes(planning / name, "review: {enabled: 1}\n"))
 
-    with pytest.raises(RuntimeError) as failed:
-        build(planning, tmp_path / "tree", agent)
+    assert build(planning, tmp_path / "tree", agent) == "built it"
 
-    message = str(failed.value)
-    assert name in message
-    assert "+review: {enabled: 1}" in message
-    assert {"abk.yaml": "-repos: {}", "abk.local.yaml": "-runtime: acp"}[name] in message
-
-
-def test_a_build_run_that_deletes_or_creates_a_configuration_file_fails(
-    tmp_path: Path, planning: Path
-) -> None:
-    (planning / "abk.local.yaml").unlink()
-    agent = StandInRuntime(act=writes(planning / "abk.local.yaml", "x: 1\n"))
-
-    with pytest.raises(RuntimeError, match=r"abk\.local\.yaml changed during the run"):
-        build(planning, tmp_path / "tree", agent)
+    out = capsys.readouterr().out
+    assert f"{name} changed during the run" in out
+    assert "+review: {enabled: 1}" in out
+    assert {"abk.yaml": "-repos: {}", "abk.local.yaml": "-runtime: acp"}[name] in out
+    assert MAY_HAVE_WRITTEN in out
 
 
-def test_a_person_editing_during_the_run_fails_it_with_a_message_that_says_so(
-    tmp_path: Path, planning: Path
-) -> None:
-    agent = StandInRuntime(act=writes(planning / "abk.yaml", ORIGINAL + "# a person's note\n"))
-
-    with pytest.raises(RuntimeError) as failed:
-        build(planning, tmp_path / "tree", agent)
-
-    assert "changed during the run" in str(failed.value)
-    assert "requeue" in str(failed.value)
-
-
-def test_a_run_that_changes_neither_file_passes_and_the_pipelines_own_writes_do_not_trip_it(
+def test_an_unconfined_build_run_that_deletes_or_creates_a_file_reports_it_and_goes_on(
     tmp_path: Path, planning: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    def pipeline_writes(request: AgentRequest) -> None:
-        (planning / "runs").mkdir(exist_ok=True)
-        (planning / "runs" / "units.json").write_text("[]\n")
-        (planning / "abk.yaml").write_text(ORIGINAL)  # the same bytes
-
-    agent = StandInRuntime(answer="built it", act=pipeline_writes)
+    (planning / "abk.local.yaml").unlink()
+    agent = StandInRuntime(answer="built it", act=writes(planning / "abk.local.yaml", "x: 1\n"))
 
     assert build(planning, tmp_path / "tree", agent) == "built it"
-    assert capsys.readouterr().out == ""
-    assert (planning / "abk.yaml").read_text() == ORIGINAL
+
+    out = capsys.readouterr().out
+    assert "abk.local.yaml changed during the run (was created)" in out
 
 
-def test_a_failed_run_leaves_the_changed_file_as_it_is(tmp_path: Path, planning: Path) -> None:
-    agent = StandInRuntime(act=writes(planning / "abk.yaml", "changed: 1\n"))
+def test_a_person_editing_during_an_unconfined_run_is_a_warning_and_not_a_failure(
+    tmp_path: Path, planning: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    note = ORIGINAL + "# a note\n"
+    agent = StandInRuntime(answer="built it", act=writes(planning / "abk.yaml", note))
 
-    with pytest.raises(RuntimeError):
-        build(planning, tmp_path / "tree", agent)
+    assert build(planning, tmp_path / "tree", agent) == "built it"
+
+    out = capsys.readouterr().out
+    assert "changed during the run" in out
+    assert "requeue" not in out
+
+
+def test_a_run_leaves_the_changed_file_as_it_is(tmp_path: Path, planning: Path) -> None:
+    agent = StandInRuntime(answer="built it", act=writes(planning / "abk.yaml", "changed: 1\n"))
+
+    build(planning, tmp_path / "tree", agent)
 
     assert (planning / "abk.yaml").read_text() == "changed: 1\n", "it is not restored"
 
 
-def writes_then_stops(path: Path, text: str) -> Callable[[AgentRequest], None]:
-    def act(request: AgentRequest) -> None:
-        path.write_text(text)
-        raise AgentRateLimited("usage window spent")
-
-    return act
-
-
-def test_a_build_run_that_rewrites_a_file_and_then_stops_fails_instead_of_being_parked(
-    tmp_path: Path, planning: Path
+def test_a_build_run_that_rewrites_a_file_and_then_stops_raises_its_own_error_after_the_warning(
+    tmp_path: Path, planning: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     agent = StandInRuntime(act=writes_then_stops(planning / "abk.yaml", "review: {enabled: 1}\n"))
 
-    with pytest.raises(ConfigChanged) as failed:
+    with pytest.raises(AgentRateLimited, match="usage window spent"):
         build(planning, tmp_path / "tree", agent)
 
-    assert "abk.yaml changed during the run" in str(failed.value)
-    assert "+review: {enabled: 1}" in str(failed.value)
-    assert isinstance(failed.value.__cause__, AgentRateLimited)
+    out = capsys.readouterr().out
+    assert "abk.yaml changed during the run" in out
+    assert "+review: {enabled: 1}" in out
 
 
-def test_a_run_that_stops_with_both_files_unchanged_raises_its_own_error(
+def test_the_warning_is_kept_for_status_until_a_step_that_sees_no_change_clears_it(
     tmp_path: Path, planning: Path
 ) -> None:
-    def stops(request: AgentRequest) -> None:
-        raise AgentRateLimited("usage window spent")
+    edit = StandInRuntime(answer="built it", act=writes(planning / "abk.yaml", "changed: 1\n"))
+    quiet = StandInRuntime(answer="built it")
 
-    with pytest.raises(AgentRateLimited):
-        build(planning, tmp_path / "tree", StandInRuntime(act=stops))
+    build(planning, tmp_path / "tree", edit)
 
+    assert any("abk.yaml changed during the run" in line for line in warned(planning))
 
-def track(inst, monkeypatch: pytest.MonkeyPatch, agent: StandInRuntime) -> int:  # noqa: F811
-    github_checkout(inst.repo("app").path, "example/app")
-    github_checkout(inst.repo("platform").path, "example/platform")
-    monkeypatch.setattr(runner, "repo_reachable", lambda name, inst: True)
-    monkeypatch.setattr(runner, "has_headroom", lambda: True)
-    monkeypatch.setattr(runner, "pull_planning", lambda inst: True)
-    monkeypatch.setattr(runner, "pull", lambda path, branch: True)
-    monkeypatch.setattr(runner, "record_planning", lambda inst: None)
-    return runner.run_track(inst, "propose", runtime=agent)
+    build(planning, tmp_path / "tree", quiet)
+
+    assert warned(planning) == []
 
 
-def test_a_track_run_that_rewrites_abk_yaml_fails_with_the_file_named(
-    inst,  # noqa: F811 — fixture
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+class Spawning(Recording):
+    """The real Claude Code runtime, started through the real launcher."""
+
+    def run(self, request: AgentRequest) -> AgentResult:
+        return ClaudeCodeRuntime(execute=spawn).run(request)
+
+
+def test_a_step_that_ran_unconfined_under_required_none_warns_and_the_unit_continues(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config = inst.root / "abk.yaml"
-    before = config.read_text() if config.exists() else ""
-    agent = StandInRuntime(act=writes(config, before + "review: {enabled: true}\n"))
-
-    assert track(inst, monkeypatch, agent) == 1
-
-    out = capsys.readouterr().out
-    assert "abk.yaml changed during the run" in out
-    assert "+review: {enabled: true}" in out
-
-
-def test_a_track_run_fails_on_a_changed_file_whatever_coverage_its_runtime_reports(
-    inst,  # noqa: F811 — fixture
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    config = inst.root / "abk.yaml"
-    before = config.read_text() if config.exists() else ""
-    agent = StandInRuntime(act=writes(config, before + "review: {enabled: true}\n"))
-    agent.sandbox_coverage = Coverage.PROCESS
-
-    assert track(inst, monkeypatch, agent) == 1
-
-    out = capsys.readouterr().out
-    assert "abk.yaml changed during the run" in out
-    assert "+review: {enabled: true}" in out
-
-
-def test_a_track_run_that_changes_neither_file_passes(
-    inst,  # noqa: F811 — fixture
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    inst.state_dir.mkdir(parents=True, exist_ok=True)
-    agent = StandInRuntime(act=lambda request: (inst.state_dir / "x.md").write_text("log\n"))
-
-    assert track(inst, monkeypatch, agent) == 0
-
-    assert "changed during the run" not in capsys.readouterr().out
-
-
-def test_a_track_run_that_rewrites_abk_yaml_and_then_stops_is_reported_as_the_change(
-    inst,  # noqa: F811 — fixture
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    config = inst.root / "abk.yaml"
-    before = config.read_text() if config.exists() else ""
-    agent = StandInRuntime(act=writes_then_stops(config, before + "review: {enabled: true}\n"))
-
-    assert track(inst, monkeypatch, agent) == 1
-
-    out = capsys.readouterr().out
-    assert "abk.yaml changed during the run" in out
-    assert "stopped — abk.yaml changed" in out, (
-        "the first project's stop is the file's, not the limit"
+    program = tmp_path / "agent-stand-in"
+    target = tmp_path / "plan" / "abk.local.yaml"
+    program.write_text(
+        f"#!/bin/sh\ncat > /dev/null\nprintf '%s' '{EDITED}' > {target}\necho done\n"
     )
+    program.chmod(program.stat().st_mode | stat.S_IXUSR)
+    root, main = install(tmp_path, enabled=True, required="none", command=[str(program)])
+    (root / "abk.local.yaml").write_text("runtime: claude_code\n")
+    monkeypatch.setattr(sandboxes, "probe", no_backend)
+    lines: list[str] = []
+
+    step(root, main, Spawning(), lines)
+
+    logged = "\n".join(lines)
+    assert "abk.local.yaml changed during the run" in logged
+    assert MAY_HAVE_WRITTEN in logged
+
+
+def test_there_is_no_config_changed_in_the_package() -> None:
+    package = Path(agent_build_kit.__file__).parent
+    named = [
+        str(path.relative_to(package))
+        for path in package.rglob("*.py")
+        if "ConfigChanged" in path.read_text()
+    ]
+
+    assert named == []
