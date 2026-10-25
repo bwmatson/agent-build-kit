@@ -22,7 +22,8 @@ from __future__ import annotations
 import argparse
 import re
 import sys
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
 
@@ -237,6 +238,15 @@ SPLIT_LINE = re.compile(r"^Split:\s*(?P<value>.*?)\s*$", re.I)
 TASK_LINE = re.compile(r"^\s*-\s+\[[ xX]\]\s+\d+\.\d+\s+\S")
 
 
+class ProjectSource(StrEnum):
+    """How a group's project was decided: written in the heading, resolved from the paths the
+    group names, or the root because nothing placed it elsewhere."""
+
+    EXPLICIT = "explicit"
+    RESOLVED = "resolved"
+    ROOT = "root"
+
+
 class TaskGroup(Frozen):
     """One `## N. [repo] [tier] Title` group and the tasks under it."""
 
@@ -248,6 +258,13 @@ class TaskGroup(Frozen):
     task_count: int
     # The project of the repo the group's work belongs to, `.` for the root project.
     project: str = "."
+    # How `project` was decided.
+    source: ProjectSource = ProjectSource.ROOT
+    # The entries of the group's `Paths:` lines and of its `Reads:` lines.
+    paths: tuple[str, ...] = ()
+    reads: tuple[str, ...] = ()
+    # The lines under the heading, as written.
+    body: tuple[str, ...] = ()
     # "contract", "narrow", "acceptance", or "" — see FLAGS.
     flag: str = ""
     # A `Separate: <reason>` line in the group: never carried by another
@@ -277,6 +294,12 @@ class TaskGroup(Frozen):
     def test_only(self) -> bool:
         """Whether the group builds no implementation: it is tagged `[e2e-test]`."""
         return self.tier == TestTier.E2E_TEST
+
+
+def resolved_project(group: TaskGroup, projects: Sequence[str]) -> tuple[str, ProjectSource]:
+    """The project of `group` and how it was decided, given the projects its repo declares beside
+    the root (`projects`, as a heading writes them)."""
+    raise NotImplementedError
 
 
 class ValidationError(Frozen):
