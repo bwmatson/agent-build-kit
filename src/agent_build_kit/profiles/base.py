@@ -325,3 +325,11 @@ def is_doc_path(path: str) -> bool:
     first = path.split("/", 1)[0]
     name = path.rsplit("/", 1)[-1]
     return path.endswith(DOC_SUFFIXES) or first == "docs" or name.upper().startswith("LICENSE")
+
+
+def located(toolchain: object, command: list[str], where: Path, root: Path) -> list[str]:
+    """`command` with the check configuration `toolchain` finds for a run in `where`, looking
+    up to `root` (the checkout); as it is for a profile that finds none."""
+    if not isinstance(toolchain, LocatesCheckConfig):
+        return command
+    return toolchain.with_check_config(command, where, root)

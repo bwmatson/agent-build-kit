@@ -178,13 +178,13 @@ from agent_build_kit.pipeline.workspaces import BranchBusy, prepare_detached, pr
 from agent_build_kit.profiles.base import (
     AppliesE2eSelection,
     AppliesFixers,
-    LocatesCheckConfig,
     ProjectChecks,
     RecordsSelectionData,
     RepeatsTests,
     SelectsAffectedTests,
     ToolchainProfile,
     is_doc_path,
+    located,
 )
 from agent_build_kit.redaction import WITHHELD, redact_leaves, redact_text
 from agent_build_kit.runtimes import AgentRequest, AgentRuntime, ToolPolicy
@@ -1030,7 +1030,7 @@ def build_stub_checks(
             toolchain = profiles.for_project(owner, profile)
             where = cwd / owner.prefix if owner else cwd
             clean = ["sh", "-c", toolchain.clean_command(types=True)]
-            done = run(_located(toolchain, clean, where, cwd), cwd=where)
+            done = run(located(toolchain, clean, where, cwd), cwd=where)
             if done.returncode:
                 failures.append(f"{done.stdout}\n{done.stderr}".strip())
         return not failures, "\n\n".join(failures)
@@ -1091,7 +1091,7 @@ def build_fixers(
             if not command:
                 continue
             if setting is None:
-                command = _located(toolchain, command, cwd / prefix, cwd)
+                command = located(toolchain, command, cwd / prefix, cwd)
             files = [f"{prefix}{name}" for name in relative]
             given.update(dict.fromkeys(files))
             first = {name: _digest(cwd / name) for name in files}
@@ -1215,6 +1215,8 @@ def build_unit_test(
     )
     # Per unit: the test time and count of its last full run.
     last_full: dict[str, tuple[float, int]] = {}
+    # The checkout the current run is in: where a check's configuration is looked for up to.
+    checkout: dict[str, Path] = {}
 
     def unit_test(
         *,
@@ -1231,6 +1233,7 @@ def build_unit_test(
         `moved_from` is the base a clean move left (empty when it had none; None when the run
         follows no move), which says whether the run is scoped
         by what the move can affect; the line it logs says which it was and why."""
+        checkout["root"] = cwd
         for project in pending_projects(cwd, projects):
             _say(log, describe(project))
         scope = None
@@ -1701,7 +1704,7 @@ def build_unit_test(
         started = time.monotonic()
         mark = spans.Mark()
         outcome = "error"
-        command = _located(toolchain, command, where)
+        command = located(toolchain, command, where, checkout.get("root", where))
         try:
             result = run(command, cwd=where)
             ok = toolchain.tolerates_exit(command, result.returncode)
@@ -1849,18 +1852,6 @@ def _under(path: Path, where: Path) -> str | None:
         return path.relative_to(where).as_posix()
     except ValueError:
         return None
-
-
-def _located(
-    toolchain: ToolchainProfile, command: list[str], where: Path, root: Path | None = None
-) -> list[str]:
-    """`command` with the check configuration the profile finds for a run in `where`, up to
-    `root` (the checkout holding `where` when not given); as it is for a profile that finds none."""
-    if not isinstance(toolchain, LocatesCheckConfig):
-        return command
-    if root is None:
-        root = next((p for p in (where, *where.parents) if (p / ".git").exists()), where)
-    return toolchain.with_check_config(command, where, root)
 
 
 def _say(log: Callable[[str], None] | None, message: str) -> None:

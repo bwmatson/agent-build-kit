@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import subprocess
 import tempfile
+from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -68,9 +69,12 @@ def worktree_at(repo: Path, sha: str):
 
 
 def run_at_commit(
-    repo: Path, sha: str, commands: list[str], *, subdir: str = "."
+    repo: Path, sha: str, commands: list[str | Callable[[Path], str]], *, subdir: str = "."
 ) -> list[CommandResult]:
     """Run each command in a worktree checked out at `sha`, in `subdir` of it.
+
+    A command may be a function of the worktree's path, for one that depends on what the
+    tree at `sha` holds.
 
     A non-zero exit is data, not an error — the red check expects one — so
     results are returned rather than raised, and every command runs.
@@ -78,7 +82,8 @@ def run_at_commit(
     results: list[CommandResult] = []
 
     with worktree_at(repo, sha) as tree:
-        for command in commands:
+        for planned in commands:
+            command = planned(tree) if callable(planned) else planned
             try:
                 completed = subprocess.run(
                     command,
