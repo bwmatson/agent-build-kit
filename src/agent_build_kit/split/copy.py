@@ -9,16 +9,26 @@ from pathlib import Path
 from agent_build_kit.cli.pipeline import plan_digest, planned_hashes, record_plans
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline import loaded_code
+from agent_build_kit.pipeline.loaded_code import LoadedCode
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
+from agent_build_kit.pipeline.units import MERGED, merge_loaded
 from agent_build_kit.pipeline.work_graph import group_needs
 from agent_build_kit.split import scrubbing
-from agent_build_kit.split.select import SplitPlan, moved_files, moved_records
+from agent_build_kit.split.select import (
+    SplitPlan,
+    archive_change_name,
+    moved_files,
+    moved_records,
+)
 
 __all__ = [
     "CopyRefused",
     "CopyReport",
+    "DroppedEdge",
     "Preflight",
     "carry_out",
+    "dropped_edges",
     "file_contents",
     "moved_plan_records",
     "outstanding",
@@ -35,12 +45,22 @@ class CopyRefused(ValueError):
         self.errors = tuple(errors)
 
 
+class DroppedEdge(Frozen):
+    """One dependency a moved unit's record loses on its way: a merged unit of another repo."""
+
+    unit: str
+    field: str
+    target: str
+
+
 class Preflight(Frozen):
     """Every conflict and dangling edge (the errors) and every staying edge into the moved set
-    (a warning, an error under `remove`), found before the first write."""
+    (a warning, an error under `remove`), found before the first write; `dropped` is each
+    dependency the written records leave out."""
 
     errors: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
+    dropped: tuple[DroppedEdge, ...] = ()
 
 
 class CopyReport(Frozen):
@@ -71,11 +91,85 @@ def file_contents(source: Installation, plan: SplitPlan, scrub: bool) -> dict[Pa
     return contents
 
 
-def unit_records(source: Installation, plan: SplitPlan, scrub: bool) -> list[StoredUnit]:
-    """The moved unit records as they would be written."""
+# The lists of a unit record that name other units and take a dropped edge, and the ones the
+# plan reports it for (`merge_needs` is a subset of `needs`).
+_EDGE_FIELDS = ("depends_on", "needs", "merge_needs")
+_REPORTED_FIELDS = ("depends_on", "needs")
+
+
+def _satisfied_history(
+    source: Installation, destination: Installation, plan: SplitPlan
+) -> tuple[dict[str, frozenset[str]], set[str]]:
+    """For each moved unit, the dependency ids its record drops: a merged unit of another repo,
+    whose merge the tick has loaded, that neither moves nor is in the destination. Also the
+    ids of merged foreign units whose merge is not yet loaded."""
+    everything = UnitStore(source.state_dir / "units.json").all()
+    by_id = {unit.id: unit for unit in everything}
+    held = UnitStore(destination.state_dir / "units.json").all()
+    here = {*plan.units_moved, *(u.id for u in held)}
+    loaded: LoadedCode | None = loaded_code.current()
+    dropped: dict[str, frozenset[str]] = {}
+    unloaded: set[str] = set()
+    for unit in moved_records(source, plan):
+        targets = {t for field in _EDGE_FIELDS for t in getattr(unit, field)}
+        found = set()
+        for target in targets - here:
+            parent = by_id.get(target)
+            if parent is None or parent.repo == plan.repo or parent.state != MERGED:
+                continue
+            if loaded is None or merge_loaded(parent, everything, loaded):
+                found.add(target)
+            else:
+                unloaded.add(target)
+        dropped[unit.id] = frozenset(found)
+    return dropped, unloaded
+
+
+def _edges_in(
+    source: Installation, plan: SplitPlan, dropped: dict[str, frozenset[str]]
+) -> tuple[DroppedEdge, ...]:
+    return tuple(
+        DroppedEdge(unit=unit.id, field=field, target=target)
+        for unit in moved_records(source, plan)
+        for field in _REPORTED_FIELDS
+        for target in getattr(unit, field)
+        if target in dropped[unit.id]
+    )
+
+
+def _records_without(
+    source: Installation,
+    plan: SplitPlan,
+    dropped: dict[str, frozenset[str]],
+    scrub: bool,
+) -> list[StoredUnit]:
     scrub_text = _passes(source, plan, scrub)
-    moved = moved_records(source, plan)
+    moved = [
+        unit.model_copy(
+            update={
+                field: tuple(t for t in getattr(unit, field) if t not in dropped[unit.id])
+                for field in _EDGE_FIELDS
+            }
+        )
+        for unit in moved_records(source, plan)
+    ]
     return [scrubbing.scrub_record(unit, scrub_text) for unit in moved] if scrub else moved
+
+
+def dropped_edges(
+    source: Installation, destination: Installation, plan: SplitPlan
+) -> tuple[DroppedEdge, ...]:
+    """The edges of the moved units' records that the destination's copy leaves out."""
+    dropped, _ = _satisfied_history(source, destination, plan)
+    return _edges_in(source, plan, dropped)
+
+
+def unit_records(
+    source: Installation, destination: Installation, plan: SplitPlan, scrub: bool
+) -> list[StoredUnit]:
+    """The moved unit records as they would be written, without the dropped edges."""
+    dropped, _ = _satisfied_history(source, destination, plan)
+    return _records_without(source, plan, dropped, scrub)
 
 
 def _plans_to_write(source: Installation, destination: Installation, plan: SplitPlan) -> dict:
@@ -106,7 +200,7 @@ def outstanding(
     ):
         return True
     held = {unit.id for unit in UnitStore(destination.state_dir / "units.json").all()}
-    if any(unit.id not in held for unit in unit_records(source, plan, scrub)):
+    if any(unit.id not in held for unit in unit_records(source, destination, plan, scrub)):
         return True
     return bool(_plans_to_write(source, destination, plan))
 
@@ -128,7 +222,8 @@ def preflight(
 
     store = UnitStore(destination.state_dir / "units.json")
     held = {unit.id: unit for unit in store.all()}
-    records = unit_records(source, plan, scrub)
+    dropped, unloaded = _satisfied_history(source, destination, plan)
+    records = _records_without(source, plan, dropped, scrub)
     errors += [
         f"conflict: unit {unit.id} differs in the destination"
         for unit in records
@@ -137,23 +232,39 @@ def preflight(
 
     moved_units = set(plan.units_moved)
     moved_changes = set(plan.changes_moved)
+    archive_dir = destination.changes_dir / "archive"
+    destination_archive = (
+        [p.name for p in archive_dir.iterdir() if p.is_dir()] if archive_dir.is_dir() else []
+    )
     here = {*held, *moved_units}
     destination_changes = (
         {p.name for p in destination.changes_dir.iterdir() if p.is_dir()}
         if destination.changes_dir.is_dir()
         else set()
     )
+    known_changes = {
+        *moved_changes,
+        *destination_changes,
+        *map(archive_change_name, plan.archive_moved),
+        *map(archive_change_name, destination_archive),
+        *plan.changes_no_directory,
+    }
     for unit in records:
         for field in ("depends_on", "needs", "superseded_by"):
-            errors += [
-                _dangling(f"unit {unit.id} {field}", target)
-                for target in getattr(unit, field)
-                if target not in here
-            ]
+            for target in getattr(unit, field):
+                if target in here:
+                    continue
+                if target in unloaded and field != "superseded_by":
+                    errors.append(
+                        f"unit {unit.id} {field} names {target}, a merged unit of another repo "
+                        "whose merge the tick has not loaded: run a tick and try again"
+                    )
+                else:
+                    errors.append(_dangling(f"unit {unit.id} {field}", target))
         errors += [
             _dangling(f"unit {unit.id} joined", member.change)
             for member in unit.joined
-            if member.change not in {*moved_changes, *destination_changes}
+            if member.change not in known_changes
         ]
     for name in plan.changes_moved:
         for group, needs in group_needs(source.changes_dir / name / "tasks.md").items():
@@ -168,18 +279,20 @@ def preflight(
                 and not (destination.changes_dir / need.change / "tasks.md").is_file()
             ]
 
-    staying = [
-        unit
-        for unit in UnitStore(source.state_dir / "units.json").all()
-        if unit.id not in moved_units
-    ]
-    edges = [
-        f"unit {unit.id} {field} names {target}, which moves"
+    everything = UnitStore(source.state_dir / "units.json").all()
+    merged_moved = {
+        unit.id for unit in everything if unit.id in moved_units and unit.state == MERGED
+    }
+    staying = [unit for unit in everything if unit.id not in moved_units]
+    unit_edges = [
+        (target in merged_moved, f"unit {unit.id} {field} names {target}, which moves")
         for unit in staying
         for field in ("depends_on", "needs", "superseded_by")
         for target in getattr(unit, field)
         if target in moved_units
     ]
+    harmless = [line for merged, line in unit_edges if merged]
+    edges = [line for merged, line in unit_edges if not merged]
     edges += [
         f"change {name} group {group} `Needs: {need.change} group {need.group}` names "
         f"{need.change}, which moves"
@@ -191,7 +304,8 @@ def preflight(
     ]
     return Preflight(
         errors=tuple(errors + (edges if remove else [])),
-        warnings=() if remove else tuple(edges),
+        warnings=tuple(harmless if remove else harmless + edges),
+        dropped=_edges_in(source, plan, dropped),
     )
 
 
@@ -224,7 +338,7 @@ def carry_out(
         shutil.copymode(source.specs_dir / relative, target)
         copied += 1
 
-    records = unit_records(source, plan, scrub)
+    records = unit_records(source, destination, plan, scrub)
     UnitStore(destination.state_dir / "units.json").import_units(records)
 
     plans = _plans_to_write(source, destination, plan)
