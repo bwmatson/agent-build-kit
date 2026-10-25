@@ -2,9 +2,6 @@
 
 ## Unreleased
 
-- The test-kind rename tool is deleted, along with its tests and the guard's exemption for it.
-  Rewriting a planning repository's old spellings is now a reviewed text edit.
-
 - The pull request footer and the command policy's refusal now say who merges: the build agent never merges,
   the pipeline merges only a unit review classified `auto` and policy allowed, and a person
   merges the rest. The README, `AGENTS.md` and the docs no longer say a person merges every pull
@@ -566,8 +563,8 @@
   second-tier pipeline modules now fails, and the new names are the only ones in the code.
   Old spellings in `abk.yaml`, state files and group tags are still read, with a warning,
   but an old setting name is no longer an attribute of the loaded settings.
-  `python -m agent_build_kit.rename_test_kinds` stays for rewriting a planning repository's
-  text.
+  The rename tool is removed too: old spellings in a planning repository are now found with
+  `git grep` and replaced with a reviewed edit.
 
 - The documents and skills now describe how the kit's live tests are tagged by runtime, the
   parking and scheduled change per split, and `abk e2e-test hold`, `release` and `status`,

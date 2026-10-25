@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.old_test_kind_names import SCANNED, SKIPPED_PARTS, old_spelling_problems
+from tests.old_test_kind_names import candidates, old_spelling_problems
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 # Built in parts so this file carries no old spelling for the guard to find.
@@ -28,11 +28,9 @@ def tree(root: Path, files: dict[str, str]) -> Path:
 
 
 def naming_the_tool(root: Path) -> list[str]:
-    """`path:line` of each line under the guard's scanned paths that names the rename tool."""
+    """`path:line` of each line of the files the guard scans that names the rename tool."""
     found = []
-    for path in sorted(p for name in SCANNED for p in (root / name).rglob("*")):
-        if not path.is_file() or SKIPPED_PARTS & set(path.parts):
-            continue
+    for path in candidates(root):
         try:
             lines = path.read_text().splitlines()
         except UnicodeDecodeError:
@@ -124,10 +122,13 @@ def test_the_rename_tool_and_its_tests_are_no_longer_exempt(tmp_path: Path, path
     assert any(f"{path}:1" in p for p in old_spelling_problems(root))
 
 
-def test_a_file_naming_the_rename_tools_module_fails_a_source_search(tmp_path: Path) -> None:
-    root = tree(tmp_path, {"docs/guide.md": f"Run `abk {TOOL_MODULE}` first.\n"})
+@pytest.mark.parametrize("path", ["docs/guide.md", "README.md", "AGENTS.md", "pyproject.toml"])
+def test_a_file_naming_the_rename_tools_module_fails_a_source_search(
+    tmp_path: Path, path: str
+) -> None:
+    root = tree(tmp_path, {path: f"Run `abk {TOOL_MODULE}` first.\n"})
 
-    assert naming_the_tool(root) == ["docs/guide.md:1"]
+    assert naming_the_tool(root) == [f"{path}:1"]
 
 
 def test_no_file_of_the_repository_names_the_rename_tool() -> None:
