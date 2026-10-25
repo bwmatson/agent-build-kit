@@ -177,7 +177,7 @@ def recorded(
         round=round,
         resumed=resumed,
         say=say,
-        account=claude_account.account_key(request.account),
+        account=claude_account.account_key(request.account or claude_account.Account.default()),
     )
     earlier = request.on_result
 

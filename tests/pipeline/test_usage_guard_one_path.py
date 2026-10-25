@@ -8,24 +8,20 @@ own for the default account's files.
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import pytest
 
 from agent_build_kit.claude_account import Account
 from agent_build_kit.pipeline import usage_guard
-from tests.usage_host import HOUR_MS, Host, ms_from_now, payload, unauthorized
+from tests.usage_host import (
+    HOUR_MS,
+    Host,
+    ms_from_now,
+    payload,
+    unauthorized,
+    write_credentials,
+)
 
 DRIFTED = ("CREDENTIALS_PATH", "DEFAULT_ANCHOR_PATH", "_credentials_path", "_state_file")
-
-
-def write_credentials(directory: Path, token: str, expires_at_ms: int | None = None) -> None:
-    directory.mkdir(parents=True, exist_ok=True)
-    oauth: dict = {"accessToken": token}
-    if expires_at_ms is not None:
-        oauth["expiresAt"] = expires_at_ms
-    (directory / ".credentials.json").write_text(json.dumps({"claudeAiOauth": oauth}))
 
 
 class Accounts:
@@ -61,30 +57,12 @@ def test_the_token_is_read_from_the_accounts_credentials(accounts: Accounts) -> 
     assert usage_guard.read_oauth_token(account=accounts.account) == "the-token"
 
 
-def test_the_environment_token_is_first_for_every_account(
-    accounts: Accounts, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    accounts.write("the-token")
-    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "env-token")
-
-    assert usage_guard.read_oauth_token(account=accounts.account) == "env-token"
-
-
 def test_the_expiry_is_the_accounts(accounts: Accounts) -> None:
     accounts.write("the-token", ms_from_now(-HOUR_MS))
     assert usage_guard.token_expired(account=accounts.account) is True
 
     accounts.write("the-token", ms_from_now(HOUR_MS))
     assert usage_guard.token_expired(account=accounts.account) is False
-
-
-def test_a_path_argument_still_wins_for_every_account(accounts: Accounts, tmp_path: Path) -> None:
-    accounts.write("the-token", ms_from_now(-HOUR_MS))
-    write_credentials(tmp_path, "given-token", ms_from_now(HOUR_MS))
-    given = tmp_path / ".credentials.json"
-
-    assert usage_guard.read_oauth_token(given, account=accounts.account) == "given-token"
-    assert usage_guard.token_expired(given, account=accounts.account) is False
 
 
 def test_the_account_in_force_is_the_one_set_else_the_default(accounts: Accounts) -> None:

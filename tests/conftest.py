@@ -404,6 +404,16 @@ def installation(tmp_path: Path) -> Installation:
 
 
 @pytest.fixture
-def host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Host:
+def host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Host]:
     """The usage endpoint faked at the HTTP boundary, on a home of its own."""
-    return Host(tmp_path, monkeypatch)
+    found = Host(tmp_path, monkeypatch)
+    yield found
+    found.close()
+
+
+@pytest.fixture(params=["default", "labelled"])
+def account_kind(host: Host, request: pytest.FixtureRequest) -> str:
+    """Runs a test once for the default account and once for a labelled one with a directory:
+    `host.use_account` then sets up that kind of account."""
+    host.account_kind = request.param
+    return request.param

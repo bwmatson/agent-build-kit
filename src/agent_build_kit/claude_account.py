@@ -103,42 +103,42 @@ def _configured() -> Path | None:
     return path
 
 
-def _directory(account: Account | None) -> Path | None:
+def _directory(account: Account) -> Path | None:
     """The directory of `account`, else the one the setting names; None for the default account."""
-    if account is not None and account.config_dir is not None:
+    if account.config_dir is not None:
         return account.config_dir
     return _configured()
 
 
-def home(account: Account | None = None) -> Path:
+def home(account: Account) -> Path:
     return _directory(account) or _default()
 
 
-def is_default(account: Account | None = None) -> bool:
+def is_default(account: Account) -> bool:
     return _directory(account) is None
 
 
-def environment_entry(account: Account | None = None) -> dict[str, str]:
+def environment_entry(account: Account) -> dict[str, str]:
     """What a `claude` is started with to run in the account: its directory under Claude Code's
     own variable, or nothing for the default account."""
     configured = _directory(account)
     return {VARIABLE: str(configured)} if configured else {}
 
 
-def credentials_path(account: Account | None = None) -> Path:
+def credentials_path(account: Account) -> Path:
     return home(account) / ".credentials.json"
 
 
-def state_file(account: Account | None = None) -> Path:
+def state_file(account: Account) -> Path:
     configured = _directory(account)
     return configured / ".claude.json" if configured else Path.home() / ".claude.json"
 
 
-def skills_dir(account: Account | None = None) -> Path:
+def skills_dir(account: Account) -> Path:
     return home(account) / "skills"
 
 
-def account_key(account: Account | None = None) -> str | None:
+def account_key(account: Account) -> str | None:
     configured = _directory(account)
     return str(configured) if configured else None
 
@@ -158,11 +158,11 @@ class Account(Frozen):
         return cls()
 
 
-def file_for(path: Path, account: Account | None) -> Path:
+def file_for(path: Path, account: Account) -> Path:
     """`path` for `account`: a labelled account keeps its own file beside it, as
     `name.<label>.ext`, so accounts never share a reading, a cool-down, a call record or an
-    allowance. The default account (and none) keeps `path` itself."""
-    if account is None or account.label is None:
+    allowance. The default account keeps `path` itself."""
+    if account.label is None:
         return path
     return path.with_name(f"{path.stem}.{account.label}{path.suffix}")
 
@@ -219,4 +219,4 @@ def label_of(key: str | None, config: WorkspaceConfig) -> str:
     for label, entry in named.items():
         if key is not None and str(entry.config_dir) == key:
             return label
-    return "default" if key is None or key == account_key() else key
+    return "default" if key is None or key == account_key(Account.default()) else key

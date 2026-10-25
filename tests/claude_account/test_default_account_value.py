@@ -14,7 +14,9 @@ import pytest
 from agent_build_kit import claude_account
 from agent_build_kit.claude_account import Account
 from agent_build_kit.config import WorkspaceConfig
+from agent_build_kit.pipeline import usage_guard
 from agent_build_kit.settings import settings
+from tests.usage_host import HOUR_MS, ms_from_now, write_credentials
 
 
 def test_the_default_account_has_no_label_and_no_directory() -> None:
@@ -43,26 +45,29 @@ def test_its_directory_is_resolved_when_asked_not_when_made(
 
 
 @pytest.mark.parametrize("configured", [False, True])
-def test_none_gives_what_the_default_account_gives(
+def test_no_account_at_a_public_entry_point_is_the_default_account(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, configured: bool
 ) -> None:
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
     monkeypatch.setattr(settings, "claude_home", tmp_path / "configured" if configured else None)
-    default = Account.default()
+    directory = tmp_path / "configured" if configured else tmp_path / "home" / ".claude"
+    write_credentials(directory, "default-token", ms_from_now(-HOUR_MS))
 
-    assert claude_account.home(None) == claude_account.home(default)
-    assert claude_account.credentials_path(None) == claude_account.credentials_path(default)
-    assert claude_account.state_file(None) == claude_account.state_file(default)
-    assert claude_account.skills_dir(None) == claude_account.skills_dir(default)
-    assert claude_account.environment_entry(None) == claude_account.environment_entry(default)
-    assert claude_account.account_key(None) == claude_account.account_key(default)
+    assert usage_guard.read_oauth_token(account=None) == "default-token"
+    assert usage_guard.read_oauth_token(account=None) == usage_guard.read_oauth_token(
+        account=Account.default()
+    )
+    assert usage_guard.token_expired(account=None) is True
+    assert usage_guard.token_expired(account=None) == usage_guard.token_expired(
+        account=Account.default()
+    )
 
 
 def test_the_default_accounts_files_keep_their_unlabelled_names(tmp_path: Path) -> None:
     path = tmp_path / "usage-cache.json"
 
     assert claude_account.file_for(path, Account.default()) == path
-    assert claude_account.file_for(path, None) == path
 
 
 def test_a_labelled_accounts_files_are_named_by_its_label(tmp_path: Path) -> None:

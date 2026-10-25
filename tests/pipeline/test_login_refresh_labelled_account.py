@@ -7,7 +7,6 @@ process are faked.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import subprocess
@@ -24,14 +23,14 @@ from agent_build_kit.runtimes.claude_code import refresh_login as real_refresh_l
 from agent_build_kit.settings import settings
 from tests.call_rows import agent_rows
 from tests.runtimes.claude_cli import no_agent
-from tests.usage_host import HOUR_MS, Host, ms_from_now, payload, unauthorized
-
-
-def write_credentials(directory: Path, token: str, expires_at_ms: int) -> None:
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / ".credentials.json").write_text(
-        json.dumps({"claudeAiOauth": {"accessToken": token, "expiresAt": expires_at_ms}})
-    )
+from tests.usage_host import (
+    HOUR_MS,
+    Host,
+    ms_from_now,
+    payload,
+    unauthorized,
+    write_credentials,
+)
 
 
 class Claude:

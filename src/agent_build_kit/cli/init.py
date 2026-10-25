@@ -850,7 +850,7 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
 def cmd_install_skills(args: argparse.Namespace, inst: Installation | None) -> int:
     targets: list[Path] = []
     if args.user:
-        targets.append(claude_account.skills_dir())
+        targets.append(claude_account.skills_dir(claude_account.Account.default()))
         if inst is not None:
             labels = sorted({repo.account for repo in inst.config.repos.values() if repo.account})
             accounts = (claude_account.resolve(inst, label) for label in labels)

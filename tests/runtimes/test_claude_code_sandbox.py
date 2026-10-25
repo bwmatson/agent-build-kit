@@ -149,7 +149,7 @@ def test_the_policy_grants_the_account_folder_the_temp_folder_and_the_device_fil
     def listed(kind: str) -> list[str]:
         return [e.value for e in entries if e.kind == kind and e.source == "runtime"]
 
-    account = str(claude_account.home())
+    account = str(claude_account.home(claude_account.Account.default()))
     assert account in listed("write")
     assert account in listed("read")
     assert "/tmp" in listed("write")
@@ -185,7 +185,7 @@ def test_the_policy_grants_the_folder_and_state_file_of_the_account_the_step_run
         listed = [e.value for e in entries if e.kind == kind and e.source == "runtime"]
         assert str(folder) in listed
         assert str(folder / ".claude.json") in listed
-        assert str(claude_account.home()) not in listed
+        assert str(claude_account.home(claude_account.Account.default())) not in listed
 
 
 def test_the_default_account_s_state_file_is_granted(tmp_path: Path) -> None:
@@ -193,7 +193,7 @@ def test_the_default_account_s_state_file_is_granted(tmp_path: Path) -> None:
 
     for kind in ("write", "read"):
         listed = [e.value for e in entries if e.kind == kind and e.source == "runtime"]
-        assert str(claude_account.state_file()) in listed
+        assert str(claude_account.state_file(claude_account.Account.default())) in listed
 
 
 class Capture:

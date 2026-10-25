@@ -75,7 +75,9 @@ def keep(
     """The record and the ledger as files in the state directory: the record where `account`'s
     calls are written (a labelled account has a file of its own), the ledger shared."""
     state_dir.mkdir(parents=True, exist_ok=True)
-    calls_path(state_dir, account).write_text("".join(c.model_dump_json() + "\n" for c in calls))
+    calls_path(state_dir, account or Account.default()).write_text(
+        "".join(c.model_dump_json() + "\n" for c in calls)
+    )
     for record in ledger:
         append_record(state_dir / LEDGER_NAME, record)
 

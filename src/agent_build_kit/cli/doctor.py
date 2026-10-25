@@ -1393,7 +1393,7 @@ def _labelled_accounts(inst: Installation, run: Run) -> list[Check]:
     """What the Claude accounts the repos name by label need on this machine."""
     return [
         Check(name="claude account", status=line.status, detail=line.detail, fix=line.fix)
-        for line in claude_code.labelled_accounts_report(inst, run)
+        for line in claude_code.labelled_accounts_report(inst, run, settings_module.loaded_env_file)
     ]
 
 

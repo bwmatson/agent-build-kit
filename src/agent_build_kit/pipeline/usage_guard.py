@@ -562,11 +562,11 @@ def _cache_file() -> Path:
 
 def _of_account(path: Path) -> Path:
     """`path` for the account in force: see `claude_account.file_for`."""
-    return claude_account.file_for(path, _account.get())
+    return claude_account.file_for(path, account_in_force())
 
 
 def _calls_file(cache_path: Path) -> Path:
-    return calls_path(cache_path.parent, _account.get())
+    return calls_path(cache_path.parent, account_in_force())
 
 
 def _load_cache(path: Path) -> dict:
@@ -575,7 +575,7 @@ def _load_cache(path: Path) -> dict:
     except (OSError, ValueError):
         return {}
     if not isinstance(cached, dict) or cached.get("account") != claude_account.account_key(
-        _account.get()
+        account_in_force()
     ):
         # A reading, cool-down or fallback of another account (or of none while one is in use,
         # or of one while none is) is never served; the next write replaces it.
@@ -586,7 +586,7 @@ def _load_cache(path: Path) -> dict:
 def _write_cache(path: Path, body: dict) -> None:
     """Write the cache file whole: a reader outside the lock never sees half of it. The
     account is recorded only when one is set."""
-    if (account := claude_account.account_key(_account.get())) is not None:
+    if (account := claude_account.account_key(account_in_force())) is not None:
         body = {**body, "account": account}
     atomic_write_text(path, json.dumps(body, indent=2))
 
@@ -636,8 +636,8 @@ def read_live_usage(
     fetch: Fetch = _http_get_json,
     cache_path: Path | None = None,
     ttl: timedelta | None = None,
-    expired: Callable[..., bool] | None = None,
-    refresh: Callable[..., None] | None = None,
+    expired: Callable[[claude_account.Account], bool] | None = None,
+    refresh: Callable[[claude_account.Account], None] | None = None,
     caller: str | None = None,
 ) -> UsageReading | None:
     """Ask the endpoint where the windows stand, or None if it can't say.
@@ -651,6 +651,7 @@ def read_live_usage(
     than the configured fallback age, labelled `cache`. The token is never written
     there.
     """
+    account = account_in_force()
     cache_path = cache_path or _cache_file()
     calls_file = _calls_file(cache_path)
     caller = caller or _caller.get()
@@ -675,7 +676,7 @@ def read_live_usage(
 
         telemetry.count("abk.usage.cache", 1, event="miss")
         given = token
-        token = token or read_oauth_token(account=account_in_force())
+        token = token or read_oauth_token(account=account)
         if not token:
             return None
 
@@ -706,7 +707,7 @@ def read_live_usage(
                 record_call(
                     calls_file,
                     UsageCall(
-                        account=claude_account.account_key(_account.get()),
+                        account=claude_account.account_key(account),
                         at=asked,
                         caller=caller,
                         outcome=outcome,
@@ -746,7 +747,6 @@ def read_live_usage(
             # An expired token is the one failure with a known fix; see
             # `refresh_login`. Only for the saved token, never one passed in, and
             # whatever the failure was: an expired token is answered with a 401.
-            account = account_in_force()
             if given is None and (expired or (lambda a: token_expired(account=a)))(account):
                 (refresh or refresh_login)(account)
                 fresh = read_oauth_token(account=account)
@@ -793,7 +793,7 @@ def read_live_usage(
         record_call(
             calls_file,
             UsageCall(
-                account=claude_account.account_key(_account.get()),
+                account=claude_account.account_key(account),
                 at=now,
                 caller=caller,
                 outcome="cache",
@@ -1861,7 +1861,7 @@ def _decide_start(
         record_call(
             calls_file,
             UsageCall(
-                account=claude_account.account_key(_account.get()),
+                account=claude_account.account_key(account_in_force()),
                 at=now,
                 caller=_caller.get(),
                 outcome=CLAUDE_JSON,
@@ -1877,7 +1877,7 @@ def _decide_start(
             record_call(
                 calls_file,
                 UsageCall(
-                    account=claude_account.account_key(_account.get()),
+                    account=claude_account.account_key(account_in_force()),
                     at=now,
                     caller=_caller.get(),
                     outcome=CACHE,

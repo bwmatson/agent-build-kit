@@ -22,7 +22,7 @@ class ClaudeSession(Frozen):
 
 
 def claude_home() -> Path:
-    return claude_account.home()
+    return claude_account.home(claude_account.Account.default())
 
 
 # The machine's own process table: the one the destructive steps trust.

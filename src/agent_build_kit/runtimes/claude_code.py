@@ -228,7 +228,7 @@ def _program_folders() -> list[str]:
     return list(dict.fromkeys([str(Path(found).parent), str(Path(found).resolve().parent)]))
 
 
-def _account_run_kwargs(account: claude_account.Account | None = None) -> dict[str, Any]:
+def _account_run_kwargs(account: claude_account.Account) -> dict[str, Any]:
     """How a `claude` that is not a build is started in the account: its environment,
     or nothing for the default account."""
     entry = claude_account.environment_entry(account)
@@ -239,7 +239,9 @@ def refresh_login(
     account: claude_account.Account | None = None, run: Callable[..., object] = subprocess.run
 ) -> None:
     """Have Claude Code refresh its OAuth token, with the smallest call it
-    takes — see `usage_guard.refresh_login` for why the usage read needs it."""
+    takes — see `usage_guard.refresh_login` for why the usage read needs it. No account is the
+    default account."""
+    account = account or claude_account.Account.default()
     started = time.monotonic()
     argv = [*command(), "-p", "Reply with OK and nothing else.", "--model", "haiku"]
     done = run(
@@ -389,6 +391,7 @@ class ClaudeCodeRuntime:
     def sandbox_paths(self, account: claude_account.Account | None = None) -> dict[str, list[str]]:
         """What the `claude` process itself needs: the folder and state file of the account it
         runs as, the temp folder, the device files and the model hosts."""
+        account = account or claude_account.Account.default()
         mine = [str(claude_account.home(account)), str(claude_account.state_file(account))]
         return {
             "write": [*mine, "/tmp", "/dev"],
@@ -404,7 +407,8 @@ class ClaudeCodeRuntime:
         execute = self._execute or spawn
         # Only when there is something to add: an injected `execute` written
         # before the environment was passed does not take the argument.
-        env = {**request.env, **claude_account.environment_entry(request.account)}
+        account = request.account or claude_account.Account.default()
+        env = {**request.env, **claude_account.environment_entry(account)}
         extra: dict[str, Any] = {"env": env} if env else {}
         if request.environment is not None:
             extra["environment"] = request.environment
@@ -544,30 +548,20 @@ class ClaudeCodeRuntime:
         asked of `auth status` with the account's variable; only its exit status and
         `loggedIn` are read, so no token or address of the answer is kept."""
         where = claude_account.source(env_file).value
+        default = claude_account.Account.default()
         try:
-            account = claude_account.home()
-            entry = claude_account.environment_entry()
+            directory = claude_account.home(default)
+            configured = not claude_account.is_default(default)
         except ConfigError as error:
             return [
                 AccountLine(
                     status="FAIL", detail=str(error), fix=f"write an absolute path for {where}"
                 )
             ]
-        login = _login_command(entry)
-        lines: list[AccountLine] = []
-        if entry and named_value("CLAUDE_CODE_OAUTH_TOKEN", env_file):
-            lines.append(
-                AccountLine(
-                    status="warn",
-                    detail="CLAUDE_CODE_OAUTH_TOKEN is set beside an account: the token names its "
-                    "own account, which the usage guard reads whatever the directory",
-                    fix="unset CLAUDE_CODE_OAUTH_TOKEN so the guard reads the account's directory",
-                )
-            )
-        if entry:
-            return [*_directory_lines(run, None, account, f"{account} ({where})", login), *lines]
-        name = f"the default account {account} is in use"
-        return [*_directory_lines(run, None, None, name, login), *lines]
+        name = (
+            f"{directory} ({where})" if configured else f"the default account {directory} is in use"
+        )
+        return account_lines(run, default, name, env_file)
 
     def check_policy(self, cwd: Path) -> PolicyReport:
         """Answered locally: every policed run registers the hook and passes
@@ -583,26 +577,40 @@ def _login_command(entry: dict[str, str]) -> str:
     )
 
 
-def _directory_lines(
-    run: Run,
-    account: claude_account.Account | None,
-    directory: Path | None,
-    name: str,
-    login: str,
+def account_lines(
+    run: Run, account: claude_account.Account, name: str, env_file: Path | None = None
 ) -> list[AccountLine]:
-    """What one account says of itself: its `directory` is missing (an error), or it is not
-    logged in (an error), or it is. A `directory` of None is the default account, whose
-    existence is not asked."""
-    if directory is not None:
-        if not directory.is_dir():
-            return [AccountLine(status="FAIL", detail=f"{name} does not exist", fix=login)]
+    """What any account says of itself, `name` being how it is called: its directory is missing
+    (an error), or it is not logged in (an error), or it is; and a warning when
+    `CLAUDE_CODE_OAUTH_TOKEN` is set beside a directory, since the token names its own account.
+    The default account with no directory set is not asked whether it exists."""
+    entry = claude_account.environment_entry(account)
+    login = _login_command(entry)
+    warning: list[AccountLine] = []
+    if entry and named_value("CLAUDE_CODE_OAUTH_TOKEN", env_file):
+        warning.append(
+            AccountLine(
+                status="warn",
+                detail="CLAUDE_CODE_OAUTH_TOKEN is set beside an account: the token names its "
+                "own account, which the usage guard reads whatever the directory",
+                fix="unset CLAUDE_CODE_OAUTH_TOKEN so the guard reads the account's directory",
+            )
+        )
+    if entry:
+        if not claude_account.home(account).is_dir():
+            return [
+                AccountLine(status="FAIL", detail=f"{name} does not exist", fix=login),
+                *warning,
+            ]
         name = f"{name} exists"
     if _logged_in(run, account):
-        return [AccountLine(status="ok", detail=f"{name}, logged in")]
-    return [AccountLine(status="FAIL", detail=f"{name}, not logged in", fix=login)]
+        return [AccountLine(status="ok", detail=f"{name}, logged in"), *warning]
+    return [AccountLine(status="FAIL", detail=f"{name}, not logged in", fix=login), *warning]
 
 
-def labelled_accounts_report(inst: Installation, run: Run) -> list[AccountLine]:
+def labelled_accounts_report(
+    inst: Installation, run: Run, env_file: Path | None = None
+) -> list[AccountLine]:
     """One line for each account label a repo names: a note when this machine gives the label
     no directory (its repos use the default account), an error with the login command when the
     directory is missing or not logged in."""
@@ -620,13 +628,11 @@ def labelled_accounts_report(inst: Installation, run: Run) -> list[AccountLine]:
                 )
             )
             continue
-        login = _login_command(claude_account.environment_entry(account))
-        name = f"account {label!r}: {directory}"
-        lines += _directory_lines(run, account, directory, name, login)
+        lines += account_lines(run, account, f"account {label!r}: {directory}", env_file)
     return lines
 
 
-def _logged_in(run: Run, account: claude_account.Account | None = None) -> bool:
+def _logged_in(run: Run, account: claude_account.Account) -> bool:
     """Whether `auth status` exits 0 with `loggedIn` true; nothing else of its answer is read."""
     try:
         done = run(

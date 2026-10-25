@@ -53,7 +53,9 @@ def test_the_source_names_the_place_whose_value_the_settings_hold(
 
     assert claude_account.source(env_file) is source
     assert settings.claude_home == (Path(value) if value else None)
-    assert claude_account.home() == (Path(value) if value else Path.home() / ".claude")
+    assert claude_account.home(claude_account.Account.default()) == (
+        Path(value) if value else Path.home() / ".claude"
+    )
 
 
 def test_the_source_with_no_env_file_is_the_process_or_the_default(configure: Configure) -> None:
@@ -67,10 +69,14 @@ def test_the_source_with_no_env_file_is_the_process_or_the_default(configure: Co
 def test_the_account_files_are_in_its_directory(configure: Configure) -> None:
     configure(dotenv={"ABK_CLAUDE_HOME": "/accounts/a"})
 
-    assert claude_account.credentials_path() == Path("/accounts/a/.credentials.json")
-    assert claude_account.state_file() == Path("/accounts/a/.claude.json")
-    assert claude_account.skills_dir() == Path("/accounts/a/skills")
-    assert claude_account.account_key() == "/accounts/a"
+    assert claude_account.credentials_path(claude_account.Account.default()) == Path(
+        "/accounts/a/.credentials.json"
+    )
+    assert claude_account.state_file(claude_account.Account.default()) == Path(
+        "/accounts/a/.claude.json"
+    )
+    assert claude_account.skills_dir(claude_account.Account.default()) == Path("/accounts/a/skills")
+    assert claude_account.account_key(claude_account.Account.default()) == "/accounts/a"
 
 
 def test_the_default_accounts_files_are_in_the_home_directory(
@@ -79,7 +85,12 @@ def test_the_default_accounts_files_are_in_the_home_directory(
     configure()
     home = tmp_path / "home"
 
-    assert claude_account.credentials_path() == home / ".claude" / ".credentials.json"
-    assert claude_account.state_file() == home / ".claude.json"
-    assert claude_account.skills_dir() == home / ".claude" / "skills"
-    assert claude_account.account_key() is None
+    assert (
+        claude_account.credentials_path(claude_account.Account.default())
+        == home / ".claude" / ".credentials.json"
+    )
+    assert claude_account.state_file(claude_account.Account.default()) == home / ".claude.json"
+    assert (
+        claude_account.skills_dir(claude_account.Account.default()) == home / ".claude" / "skills"
+    )
+    assert claude_account.account_key(claude_account.Account.default()) is None

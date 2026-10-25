@@ -9,6 +9,7 @@ import io
 import json
 import urllib.error
 import urllib.request
+from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
 from email.message import Message
 from pathlib import Path
@@ -16,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit import config as config_module
+from agent_build_kit.claude_account import Account, file_for, resolve_in
 from agent_build_kit.config import WorkspaceConfig
 from agent_build_kit.pipeline import usage_guard
 from agent_build_kit.pipeline.usage_calls import CALLS_NAME
@@ -27,6 +29,14 @@ HOUR_MS = 3_600_000
 
 def ms_from_now(offset_ms: int) -> int:
     return int(datetime.now(UTC).timestamp() * 1000) + offset_ms
+
+
+def write_credentials(directory: Path, token: str | None, expires_at_ms: int | None = None) -> None:
+    """The `.credentials.json` of the account at `directory`, holding what is given."""
+    directory.mkdir(parents=True, exist_ok=True)
+    oauth = {"accessToken": token, "expiresAt": expires_at_ms}
+    oauth = {key: value for key, value in oauth.items() if value is not None}
+    (directory / ".credentials.json").write_text(json.dumps({"claudeAiOauth": oauth}))
 
 
 def payload(
@@ -111,6 +121,11 @@ def editor_block(age: timedelta, *, session: int, resets_in: timedelta) -> dict:
 class Host:
     def __init__(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         self.monkeypatch = monkeypatch
+        # "default": `use_account` points the default account at a directory through the setting;
+        # "labelled": it puts a labelled account with that directory in force instead.
+        self.account_kind = "default"
+        self.account = Account.default()
+        self._scope = ExitStack()
         # The default-account tests: no account is set, whatever the process holds.
         monkeypatch.setattr(settings, "claude_home", None)
         self.answers: list[object] = []
@@ -127,8 +142,14 @@ class Host:
 
     def keep_in(self, state_dir: Path) -> None:
         """Where the cache and the record are: the state directory of an active installation."""
-        self.cache = state_dir / "usage-cache.json"
-        self.calls_file = state_dir / CALLS_NAME
+        self._cache_base = state_dir / "usage-cache.json"
+        self._calls_base = state_dir / CALLS_NAME
+        self.cache = self._cache_base
+        self.calls_file = self._calls_base
+
+    def close(self) -> None:
+        """Leave the account `use_account` put in force."""
+        self._scope.close()
 
     def urlopen(self, request: object, timeout: float | None = None) -> Response:
         self.asked += 1
@@ -173,17 +194,26 @@ class Host:
     ) -> Path:
         """Set the account to a directory of its own and write its two files: the credentials
         with `token` and `expires_at_ms`, and the state file with `block` (a `.claude.json`
-        body, see `editor_block`). A file with nothing to say is not written."""
-        account = self.home / "account"
-        account.mkdir(exist_ok=True)
-        self.monkeypatch.setattr(settings, "claude_home", account)
-        oauth = {"accessToken": token, "expiresAt": expires_at_ms}
-        oauth = {key: value for key, value in oauth.items() if value is not None}
-        if oauth:
-            (account / ".credentials.json").write_text(json.dumps({"claudeAiOauth": oauth}))
+        body, see `editor_block`). A file with nothing to say is not written. The account is
+        the default one at that directory, or, when `account_kind` is "labelled", a labelled
+        one in force (`self.account`) with its own cache and record files."""
+        directory = self.home / "account"
+        directory.mkdir(exist_ok=True)
+        # As the registry resolves an account: with the limits the installation sets.
+        limits = resolve_in(config_module.active(), None).limits
+        if self.account_kind == "labelled":
+            self.account = Account(label="personal", config_dir=directory, limits=limits)
+            self._scope.enter_context(usage_guard.on_account(self.account))
+            self.cache = file_for(self._cache_base, self.account)
+            self.calls_file = file_for(self._calls_base, self.account)
+        else:
+            self.monkeypatch.setattr(settings, "claude_home", directory)
+            self.account = Account(limits=limits)
+        if token is not None or expires_at_ms is not None:
+            write_credentials(directory, token, expires_at_ms)
         if block is not None:
-            (account / ".claude.json").write_text(json.dumps(block))
-        return account
+            (directory / ".claude.json").write_text(json.dumps(block))
+        return directory
 
     def refuse_default_state_file(self) -> None:
         """Opening the default account's `~/.claude.json` fails the test, whatever it holds."""

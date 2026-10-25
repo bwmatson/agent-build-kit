@@ -1,9 +1,11 @@
-"""Claude Code's own cache is read from the account's `.claude.json`, never the default account's.
+"""Claude Code's own cache is read from the account's `.claude.json`, never the home's.
 
-With an account set, the fresh block in `decide_start`, `held_usage` and `refreshed_usage` and
-`read_cached_usage()` itself use `<dir>/.claude.json`; the default file is not opened, which these
-tests enforce by making opening it fail (spec: claude-account). With no setting the default
-file's block is used as before: each case ends by showing that, so the difference is the setting.
+For the default account at a directory the setting names and for a labelled account with a
+directory of its own alike (`account_kind`), the fresh block in `decide_start`, `held_usage` and
+`refreshed_usage` and `read_cached_usage()` itself use `<dir>/.claude.json`; the file in the home
+is not opened, which these tests enforce by making opening it fail (spec: claude-account). With no
+directory set that file's block is used as before: one case shows that, so the difference is the
+account.
 """
 
 from datetime import timedelta
@@ -43,24 +45,26 @@ def default_block_unreadable(host: Host) -> None:
     host.refuse_default_state_file()
 
 
+@pytest.mark.usefixtures("account_kind")
 def test_a_start_is_decided_from_the_accounts_block(host: Host) -> None:
     host.use_account(block=account_block())
     default_block_unreadable(host)
     old_guard_reading(host)
 
-    decision = decide_start()
+    decision = decide_start(account=host.account)
 
     assert decision.may_start
     assert decision.reason.endswith(LABEL), decision.reason
     assert host.asked == 0
 
 
+@pytest.mark.usefixtures("account_kind")
 def test_the_held_and_refreshed_readings_are_the_accounts_block(host: Host) -> None:
     host.use_account(block=account_block())
     default_block_unreadable(host)
     old_guard_reading(host)
 
-    held = held_usage()
+    held = held_usage(host.account)
     refreshed = refreshed_usage()
 
     assert held is not None and refreshed is not None
@@ -69,14 +73,18 @@ def test_the_held_and_refreshed_readings_are_the_accounts_block(host: Host) -> N
     assert host.asked == 0
 
 
-def test_the_cached_reading_is_the_accounts_and_with_no_account_the_default_files(
-    host: Host,
-) -> None:
+def test_with_no_directory_set_the_cached_reading_is_the_default_files(host: Host) -> None:
     host.keep_editor_reading(6 * MINUTE, session=DEFAULT_SESSION)
+
     default = read_cached_usage()
+
     assert default is not None
     assert default.session_pct == DEFAULT_SESSION
 
+
+@pytest.mark.usefixtures("account_kind")
+def test_the_cached_reading_is_the_accounts(host: Host) -> None:
+    host.keep_editor_reading(6 * MINUTE, session=DEFAULT_SESSION)
     host.use_account(block=account_block())
     host.refuse_default_state_file()
     reading = read_cached_usage()
@@ -85,6 +93,7 @@ def test_the_cached_reading_is_the_accounts_and_with_no_account_the_default_file
     assert (reading.source, reading.session_pct) == ("claude.json", ACCOUNT_SESSION)
 
 
+@pytest.mark.usefixtures("account_kind")
 def test_an_account_with_no_block_has_no_reading_whatever_the_default_file_holds(
     host: Host,
 ) -> None:
@@ -92,14 +101,15 @@ def test_an_account_with_no_block_has_no_reading_whatever_the_default_file_holds
     default_block_unreadable(host)
 
     assert read_cached_usage() is None
-    assert held_usage() is None
+    assert held_usage(host.account) is None
 
 
+@pytest.mark.usefixtures("account_kind")
 def test_the_unknown_reason_names_the_file_read_not_the_default_one(host: Host) -> None:
     account = host.use_account()
     host.refuse_default_state_file()
 
-    decision = decide_start()
+    decision = decide_start(account=host.account)
 
     assert not decision.may_start
     assert str(account / ".claude.json") in decision.reason

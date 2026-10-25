@@ -498,12 +498,14 @@ class BuildPath:
     def account_key(self) -> str:
         """The key of the account this unit's calls run on: its directory, never empty. A stored
         session with an empty key was made before keys were recorded, so it is not compared."""
-        return str(claude_account.home(self.runner.account))
+        return str(claude_account.home(self.runner.account or claude_account.Account.default()))
 
     def _under_account(self) -> str:
         """Names the Claude Code account in a line about a session `claude` cannot find, when one
         is set: a stored session belongs to the account it was begun under."""
-        account = claude_account.account_key(self.runner.account)
+        account = claude_account.account_key(
+            self.runner.account or claude_account.Account.default()
+        )
         return f", under the account {account}" if account else ""
 
     def record_step(self, node: Node) -> None:

@@ -64,7 +64,7 @@ class Pause(Frozen):
     account: str | None = None
 
 
-def pause_marker(state_dir: Path, account: claude_account.Account | None = None) -> Path:
+def pause_marker(state_dir: Path, account: claude_account.Account) -> Path:
     """The marker of `account`'s pause in `state_dir`; the default account's is `PAUSE_MARKER`.
     A network outage has `network_marker` of its own, never this."""
     return claude_account.file_for(state_dir / PAUSE_MARKER, account)
@@ -138,7 +138,7 @@ def pauses_in_force(state_dir: Path) -> list[Pause]:
     return found
 
 
-def pause_for(state_dir: Path, account: claude_account.Account | None) -> Pause | None:
+def pause_for(state_dir: Path, account: claude_account.Account) -> Pause | None:
     """The pause in force for `account`'s units: its own, or a network outage, which is every
     account's."""
     return network_pause(state_dir) or is_paused(pause_marker(state_dir, account))

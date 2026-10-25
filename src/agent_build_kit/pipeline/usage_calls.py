@@ -22,7 +22,7 @@ CALLS_NAME = "usage-calls.jsonl"
 KEPT = timedelta(days=7)
 
 
-def calls_path(state_dir: Path, account: claude_account.Account | None) -> Path:
+def calls_path(state_dir: Path, account: claude_account.Account) -> Path:
     """The record of `account` in `state_dir`: a labelled account writes its own file."""
     return claude_account.file_for(state_dir / CALLS_NAME, account)
 
