@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit import claude_account, forges
+from agent_build_kit import claude_account, forges, sandboxes
 from agent_build_kit import config as config_module
 from agent_build_kit import installation as installation_module
 from agent_build_kit.cli import doctor
@@ -41,6 +41,7 @@ from agent_build_kit.runtimes import claude_code
 from tests.checkout_env import without_checkout_env
 from tests.forges.github_server import FakeGitHub
 from tests.forges.mock_host import MockHost, ok, recorded
+from tests.sandboxes.stand_in import StandInBackend
 from tests.usage_host import Host
 
 # The child pytest sources are files for `tests/child_pytest.py`, not tests of this repository.
@@ -181,6 +182,29 @@ def no_real_agent(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatc
         raise AssertionError("a test tried to spawn a real agent process — inject `execute=`")
 
     monkeypatch.setattr(claude_code, "spawn", refuse)
+
+
+SANDBOX_STAND_IN_DIRECTORIES = frozenset({"pipeline", "cli", "tracks", "config", "init"})
+
+
+@pytest.fixture(autouse=True)
+def stand_in_sandbox_backend(request: pytest.FixtureRequest) -> Iterator[None]:
+    """The sandbox is on unless a config says it is off, and a step builds its policy by running
+    the backend's probe. The host's kernel is not the suite's: a test of the pipeline, the
+    commands, the tracks or the configuration sees a passing stand-in for the platform's backend,
+    and a test of another machine (no backend, a failing one) registers its own over
+    `sandboxes.isolated()`. The tests that start a confined process (the backends, the runtimes)
+    and the ones that drive a real stack keep the real backends."""
+    if (
+        not SANDBOX_STAND_IN_DIRECTORIES.intersection(request.path.parts)
+        or request.node.get_closest_marker("local_stack")
+        or request.node.get_closest_marker("integration")
+    ):
+        yield
+        return
+    with sandboxes.isolated():
+        sandboxes.register(StandInBackend("landlock", "", runs_as_given=True))
+        yield
 
 
 @pytest.fixture(autouse=True)

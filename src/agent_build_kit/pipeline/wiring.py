@@ -413,7 +413,8 @@ def _sandbox_policy(
         if backend.name == "unavailable":
             log(f"sandbox: this step runs unconfined: {found.cause} ({found.fix})")
             return None
-        raise RuntimeError(
+        # Raised as a refusal so the caller revokes the step's gateway key before it stops.
+        raise PolicyRefused(
             f"sandbox backend {backend.name} does not work: {found.cause}; {found.fix}"
         )
     return build_policy(

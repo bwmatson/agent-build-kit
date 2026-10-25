@@ -95,7 +95,7 @@ def test_doctor_says_a_machine_with_no_backend_runs_every_repo_unconfined(
 ) -> None:
     found = sandbox_check(workspace / "abk.yaml")
 
-    assert found.status in ("ok", "info")
+    assert found.status == "info"
     assert "unconfined" in found.detail
     assert all(repo in found.detail for repo in REPOS)
 
