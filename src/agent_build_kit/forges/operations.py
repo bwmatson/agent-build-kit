@@ -15,7 +15,7 @@ from typing import Any, Literal
 
 from agent_build_kit.model import Frozen
 
-OperationKind = Literal["read", "idempotent_write", "create", "advisory"]
+OperationKind = Literal["read", "idempotent_write", "create", "advisory", "claim"]
 
 
 class OperationSpec(Frozen):
