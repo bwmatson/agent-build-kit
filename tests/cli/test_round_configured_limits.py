@@ -29,7 +29,9 @@ def inst(tmp_path: Path, host: Host) -> Installation:
     inst = make_installation(
         tmp_path / "planning",
         planning={"state_dir": "."},
-        runtimes={"claude_code": {"limits": {"session": {"usage_pause_pct": CONFIGURED_PAUSE_PCT}}}},
+        runtimes={
+            "claude_code": {"limits": {"session": {"usage_pause_pct": CONFIGURED_PAUSE_PCT}}}
+        },
     )
     inst.state_dir.mkdir(parents=True, exist_ok=True)
     host.keep_in(inst.state_dir)
@@ -51,7 +53,9 @@ def test_a_round_with_nothing_to_start_follows_the_configured_threshold(
     store = UnitStore(inst.state_dir / "units.json")
     host.answers = [payload(session=READING_PCT)]
 
-    started = cli.run_round(inst, store, building=set(), started=set(), only=frozenset(), submit=True)
+    started = cli.run_round(
+        inst, store, building=set(), started=set(), only=frozenset(), submit=True
+    )
 
     assert started == []
     assert host.asked == 1, "the guard was asked, so the decision was made"
