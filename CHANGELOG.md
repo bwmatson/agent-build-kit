@@ -7,6 +7,7 @@
   merged unit of another repo is carried as satisfied history, with a printed note for each
   dropped edge. The plan prints the unit counts by origin (active, archived, no change
   directory, left in the source).
+
 - A confined step can now run the pipeline's own `abk` (`abk install-config` and the other
   commands in a role's tool list). Before, the sandbox hid the interpreter, packages and entry
   point `abk` runs from, and the `abk.yaml` and `abk.local.yaml` it loads at startup, so the
