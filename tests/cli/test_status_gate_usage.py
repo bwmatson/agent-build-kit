@@ -125,7 +125,6 @@ def test_status_refresh_neither_reads_this_machines_login_nor_calls_out(
     assert line.startswith("gate usage: acp (modal)")
     assert calls == []
     assert usage_guard.read_oauth_token() is None
-    assert usage_guard.CREDENTIALS_PATH != Path.home() / ".claude" / ".credentials.json"
 
 
 def test_an_unknown_result_says_unknown_with_its_reason_and_never_usable(

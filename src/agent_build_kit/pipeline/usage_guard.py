@@ -133,8 +133,6 @@ NOT_READ_REASON = "not read yet; `abk status --refresh` reads it"
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 OAUTH_BETA_HEADER = "oauth-2025-04-20"
-CREDENTIALS_PATH = Path.home() / ".claude" / ".credentials.json"
-DEFAULT_ANCHOR_PATH = Path.home() / ".claude.json"
 
 log = logging.getLogger(__name__)
 
@@ -308,23 +306,9 @@ def _http_get_json(url: str, headers: dict[str, str]) -> object:
         return json.load(response)
 
 
-def _credentials_path() -> Path:
-    """The credentials file read by default: the account's when one is set, else the constant."""
-    account = _account.get()
-    if claude_account.is_default(account):
-        return CREDENTIALS_PATH
-    return claude_account.credentials_path(account)
-
-
-def _state_file() -> Path:
-    """Claude Code's own state file read by default: the account's when one is set."""
-    account = _account.get()
-    if claude_account.is_default(account):
-        return DEFAULT_ANCHOR_PATH
-    return claude_account.state_file(account)
-
-
-def read_oauth_token(path: Path | None = None) -> str | None:
+def read_oauth_token(
+    path: Path | None = None, *, account: claude_account.Account | None = None
+) -> str | None:
     """Find Claude Code's stored OAuth token.
 
     Read-only, and the value is never logged or written anywhere by this
@@ -335,7 +319,9 @@ def read_oauth_token(path: Path | None = None) -> str | None:
         return from_env
 
     try:
-        raw = json.loads((path or _credentials_path()).read_text())
+        raw = json.loads(
+            (path or claude_account.credentials_path(account or account_in_force())).read_text()
+        )
     except (OSError, ValueError):
         return None
 
@@ -498,13 +484,18 @@ def relief_at(window: Window, *, now: datetime, limits: Limits) -> datetime | No
     return max(now, window.resets_at - span * (1 - reach))
 
 
-def token_expired(path: Path | None = None, *, now: datetime | None = None) -> bool:
+def token_expired(
+    path: Path | None = None,
+    *,
+    account: claude_account.Account | None = None,
+    now: datetime | None = None,
+) -> bool:
     """Whether the saved OAuth access token has passed its `expiresAt`.
 
     False when that cannot be read: the refresh below is only for the state it
     is known to fix, not a general retry.
     """
-    path = path or _credentials_path()
+    path = path or claude_account.credentials_path(account or account_in_force())
     try:
         raw = json.loads(path.read_text())
     except (OSError, ValueError):
@@ -516,7 +507,7 @@ def token_expired(path: Path | None = None, *, now: datetime | None = None) -> b
     return datetime.fromtimestamp(expires / 1000, tz=UTC) <= (now or datetime.now(UTC))
 
 
-def refresh_login() -> None:
+def refresh_login(account: claude_account.Account | None = None) -> None:
     """Have Claude Code refresh the OAuth token, with the smallest call it takes.
 
     The token lasts hours and is refreshed only when Claude Code talks to the
@@ -535,7 +526,12 @@ def refresh_login() -> None:
     """
     from agent_build_kit.runtimes import claude_code
 
-    claude_code.refresh_login(_account.get())
+    claude_code.refresh_login(account or account_in_force())
+
+
+def account_in_force() -> claude_account.Account:
+    """The account in force (`on_account`), else the default account."""
+    return _account.get() or claude_account.Account.default()
 
 
 def claude_limits() -> ClaudeLimitsConfig:
@@ -566,11 +562,11 @@ def _cache_file() -> Path:
 
 def _of_account(path: Path) -> Path:
     """`path` for the account in force: see `claude_account.file_for`."""
-    return claude_account.file_for(path, _account.get())
+    return claude_account.file_for(path, account_in_force())
 
 
 def _calls_file(cache_path: Path) -> Path:
-    return calls_path(cache_path.parent, _account.get())
+    return calls_path(cache_path.parent, account_in_force())
 
 
 def _load_cache(path: Path) -> dict:
@@ -579,7 +575,7 @@ def _load_cache(path: Path) -> dict:
     except (OSError, ValueError):
         return {}
     if not isinstance(cached, dict) or cached.get("account") != claude_account.account_key(
-        _account.get()
+        account_in_force()
     ):
         # A reading, cool-down or fallback of another account (or of none while one is in use,
         # or of one while none is) is never served; the next write replaces it.
@@ -590,7 +586,7 @@ def _load_cache(path: Path) -> dict:
 def _write_cache(path: Path, body: dict) -> None:
     """Write the cache file whole: a reader outside the lock never sees half of it. The
     account is recorded only when one is set."""
-    if (account := claude_account.account_key(_account.get())) is not None:
+    if (account := claude_account.account_key(account_in_force())) is not None:
         body = {**body, "account": account}
     atomic_write_text(path, json.dumps(body, indent=2))
 
@@ -640,8 +636,8 @@ def read_live_usage(
     fetch: Fetch = _http_get_json,
     cache_path: Path | None = None,
     ttl: timedelta | None = None,
-    expired: Callable[[], bool] | None = None,
-    refresh: Callable[[], None] | None = None,
+    expired: Callable[[claude_account.Account], bool] | None = None,
+    refresh: Callable[[claude_account.Account], None] | None = None,
     caller: str | None = None,
 ) -> UsageReading | None:
     """Ask the endpoint where the windows stand, or None if it can't say.
@@ -655,6 +651,7 @@ def read_live_usage(
     than the configured fallback age, labelled `cache`. The token is never written
     there.
     """
+    account = account_in_force()
     cache_path = cache_path or _cache_file()
     calls_file = _calls_file(cache_path)
     caller = caller or _caller.get()
@@ -679,7 +676,7 @@ def read_live_usage(
 
         telemetry.count("abk.usage.cache", 1, event="miss")
         given = token
-        token = token or read_oauth_token()
+        token = token or read_oauth_token(account=account)
         if not token:
             return None
 
@@ -710,7 +707,7 @@ def read_live_usage(
                 record_call(
                     calls_file,
                     UsageCall(
-                        account=claude_account.account_key(_account.get()),
+                        account=claude_account.account_key(account),
                         at=asked,
                         caller=caller,
                         outcome=outcome,
@@ -750,12 +747,11 @@ def read_live_usage(
             # An expired token is the one failure with a known fix; see
             # `refresh_login`. Only for the saved token, never one passed in, and
             # whatever the failure was: an expired token is answered with a 401.
-            if given is None and (expired or token_expired)():
-                (refresh or refresh_login)()
-                fresh = read_oauth_token()
+            if given is None and (expired or (lambda a: token_expired(account=a)))(account):
+                (refresh or refresh_login)(account)
+                fresh = read_oauth_token(account=account)
                 if not fresh or fresh == token:
-                    named = _account.get()
-                    label = named.label if named and named.label else "default"
+                    label = account.label or "default"
                     if (unchanged := f"unchanged token of {label}") not in _logged_failures:
                         _logged_failures.add(unchanged)
                         log.warning(
@@ -797,7 +793,7 @@ def read_live_usage(
         record_call(
             calls_file,
             UsageCall(
-                account=claude_account.account_key(_account.get()),
+                account=claude_account.account_key(account),
                 at=now,
                 caller=caller,
                 outcome="cache",
@@ -828,7 +824,7 @@ def read_live_usage(
 
 def read_cached_usage(path: Path | None = None) -> UsageReading | None:
     """Read Claude Code's own cache in its state file (the account's, else ~/.claude.json)."""
-    path = path or _state_file()
+    path = path or claude_account.state_file(account_in_force())
 
     try:
         raw = json.loads(path.read_text())
@@ -1101,7 +1097,8 @@ def may_start_unit(reading: UsageReading | None, *, trust_age: bool = False) -> 
         note = rate_limit_note()
         return Decision(
             may_start=False,
-            reason=f"usage is unknown: neither the usage endpoint nor {_state_file()} could be read"
+            reason="usage is unknown: neither the usage endpoint nor "
+            f"{claude_account.state_file(account_in_force())} could be read"
             + (f" (the usage endpoint is {note})" if note else ""),
             resume_at=now + UNKNOWN_RETRY,
         )
@@ -1313,7 +1310,7 @@ def _forecast_note(estimates: list[WindowEstimate]) -> str:
 
 def _account_ledger(cache_path: Path) -> list[UsageRecord]:
     """The ledger rows of the account in force: only what ran on it spent its windows."""
-    account = _account.get() or claude_account.Account()
+    account = account_in_force()
     return of_account([], read_ledger(cache_path.parent / LEDGER_NAME), account)[1]
 
 
@@ -1334,7 +1331,7 @@ def _forecast_context(
     agree: each window of `resets` with its reset (none once past), points a dollar when a cost
     basis is in force and flat allowance."""
     limits = claude_limits()
-    account = _account.get() or claude_account.Account()
+    account = account_in_force()
     kept = read_allowances(allowances_path(cache_path.parent, account))
     root = active_root()
     # The timers only matter to a window that has a reset ahead.
@@ -1462,7 +1459,7 @@ def _estimates(
     is forecast."""
     limits = claude_limits()
     calls = read_calls(_calls_file(cache_path))
-    account = _account.get() or claude_account.Account()
+    account = account_in_force()
     kept = read_allowances(allowances_path(cache_path.parent, account))
     admitted = set(_admitted(cached))
     # Only what ran on this account spent its windows.
@@ -1864,7 +1861,7 @@ def _decide_start(
         record_call(
             calls_file,
             UsageCall(
-                account=claude_account.account_key(_account.get()),
+                account=claude_account.account_key(account_in_force()),
                 at=now,
                 caller=_caller.get(),
                 outcome=CLAUDE_JSON,
@@ -1880,7 +1877,7 @@ def _decide_start(
             record_call(
                 calls_file,
                 UsageCall(
-                    account=claude_account.account_key(_account.get()),
+                    account=claude_account.account_key(account_in_force()),
                     at=now,
                     caller=_caller.get(),
                     outcome=CACHE,

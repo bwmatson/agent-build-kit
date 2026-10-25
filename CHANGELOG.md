@@ -24,7 +24,9 @@
 - The login refresh the usage guard makes after an expired token now runs under the account it
   is for. Before, a labelled account's refresh renewed the default account's token, so the
   labelled account's usage stayed unknown and its starts were refused. A refresh that leaves the
-  token unchanged is logged by account.
+  token unchanged is logged by account. `abk doctor` checks every account's login with the same
+  code, so a labelled account now also gets the warning for a `CLAUDE_CODE_OAUTH_TOKEN` set
+  beside it.
 
 - A confined Claude Code step now starts: its policy reads the system folders and the folders
   the `claude` program is found in and a link to it points at, so the launcher can exec it.

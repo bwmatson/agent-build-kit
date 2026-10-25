@@ -114,4 +114,4 @@ def test_a_repo_on_its_own_account_lists_that_account_s_folder(tmp_path: Path) -
 
     lines = check.detail.splitlines()
     assert f"write {folder} (runtime)" in lines
-    assert f"write {claude_account.home()} (runtime)" not in lines
+    assert f"write {claude_account.home(claude_account.Account.default())} (runtime)" not in lines

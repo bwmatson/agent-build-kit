@@ -18,8 +18,8 @@ def test_a_home_relative_value_is_expanded_whether_or_not_it_exists(
     # Written in two parts: the leak check reads a literal home path in text as one.
     configure(dotenv={"CLAUDE_CONFIG_DIR": "~" + "/second"})
 
-    assert claude_account.home() == tmp_path / "home" / "second"
-    assert not claude_account.home().exists()
+    assert claude_account.home(claude_account.Account.default()) == tmp_path / "home" / "second"
+    assert not claude_account.home(claude_account.Account.default()).exists()
 
 
 def test_a_relative_value_is_refused_naming_the_value_the_name_and_the_source(
@@ -28,7 +28,7 @@ def test_a_relative_value_is_refused_naming_the_value_the_name_and_the_source(
     configure(process={"ABK_CLAUDE_HOME": "accounts/second"})
 
     with pytest.raises(ConfigError) as refused:
-        claude_account.home()
+        claude_account.home(claude_account.Account.default())
 
     message = str(refused.value)
     assert "accounts/second" in message
@@ -41,7 +41,7 @@ def test_a_relative_value_in_the_env_file_names_the_env_file(configure: Configur
     configure(dotenv={"CLAUDE_CONFIG_DIR": "second"})
 
     with pytest.raises(ConfigError) as refused:
-        claude_account.home()
+        claude_account.home(claude_account.Account.default())
 
     assert "second" in str(refused.value)
     assert "CLAUDE_CONFIG_DIR" in str(refused.value)
@@ -55,8 +55,8 @@ def test_an_empty_process_value_is_the_default_and_the_env_file_is_not_consulted
         process={"CLAUDE_CONFIG_DIR": ""}, dotenv={"ABK_CLAUDE_HOME": "/accounts/a"}
     )
 
-    assert claude_account.home() == tmp_path / "home" / ".claude"
-    assert claude_account.is_default()
+    assert claude_account.home(claude_account.Account.default()) == tmp_path / "home" / ".claude"
+    assert claude_account.is_default(claude_account.Account.default())
     assert claude_account.source(env_file) is claude_account.Source.DEFAULT
 
 
@@ -66,5 +66,5 @@ def test_a_value_equal_to_the_default_directory_is_still_an_account(
     default = tmp_path / "home" / ".claude"
     configure(dotenv={"CLAUDE_CONFIG_DIR": str(default)})
 
-    assert claude_account.home() == default
-    assert not claude_account.is_default()
+    assert claude_account.home(claude_account.Account.default()) == default
+    assert not claude_account.is_default(claude_account.Account.default())

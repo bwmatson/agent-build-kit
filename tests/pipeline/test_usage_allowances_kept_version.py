@@ -194,7 +194,7 @@ def test_each_account_is_refreshed_from_its_own_readings_and_ledger_rows(tmp_pat
 
     refresh_allowances(tmp_path, limits=LIMITS, now=NOW, accounts=[Account(), kit])
 
-    default_kept = json.loads(allowances_path(tmp_path, None).read_text())
+    default_kept = json.loads(allowances_path(tmp_path, Account.default()).read_text())
     kit_kept = json.loads(allowances_path(tmp_path, kit).read_text())
     assert default_kept["version"] == kit_kept["version"] == 2
     assert default_kept["windows"]["weekly"]["points_per_usd"] == pytest.approx(3.00, abs=1e-9)

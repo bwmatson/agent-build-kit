@@ -82,8 +82,6 @@ class Host:
         self.editor = self.home / ".claude.json"
         monkeypatch.setenv("HOME", str(self.home))
         monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "token")
-        monkeypatch.setattr(usage_guard, "CREDENTIALS_PATH", self.home / "no-credentials.json")
-        monkeypatch.setattr(usage_guard, "DEFAULT_ANCHOR_PATH", self.editor)
         monkeypatch.setattr("urllib.request.urlopen", self.urlopen)
         monkeypatch.setattr("time.sleep", self.sleeps.append)
         config_module.activate(WorkspaceConfig(), None)
@@ -463,12 +461,12 @@ def test_an_expired_token_answered_with_401_is_refreshed_and_asked_again(
     """The real endpoint answers an expired token with an HTTP error, which
     `urlopen` raises as `HTTPError`, not as a plain `OSError`."""
     monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN")
-    credentials = host.home / "credentials.json"
+    credentials = host.home / ".claude" / ".credentials.json"
+    credentials.parent.mkdir()
     credentials.write_text(json.dumps({"claudeAiOauth": {"accessToken": "old", "expiresAt": 1}}))
-    monkeypatch.setattr(usage_guard, "CREDENTIALS_PATH", credentials)
     refreshed: list[bool] = []
 
-    def refresh() -> None:
+    def refresh(account: object) -> None:
         refreshed.append(True)
         credentials.write_text(
             json.dumps({"claudeAiOauth": {"accessToken": "new", "expiresAt": 9_999_999_999_999}})

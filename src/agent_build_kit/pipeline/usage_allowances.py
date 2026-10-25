@@ -37,7 +37,7 @@ from agent_build_kit.pipeline.usage_ledger import (
 ALLOWANCES_NAME = "usage-allowances.json"
 
 
-def allowances_path(state_dir: Path, account: claude_account.Account | None) -> Path:
+def allowances_path(state_dir: Path, account: claude_account.Account) -> Path:
     """The kept allowances of `account` in `state_dir`: a labelled account keeps its own file."""
     return claude_account.file_for(state_dir / ALLOWANCES_NAME, account)
 
@@ -356,8 +356,9 @@ def calibrated_allowances(
         return {}
     min_gap = timedelta(minutes=limits.usage_cache_minutes)
     if account is None:
-        calls = since_last_change(calls, claude_account.account_key())
-        ledger = of_account([], ledger, claude_account.Account())[1]
+        default = claude_account.Account.default()
+        calls = since_last_change(calls, claude_account.account_key(default))
+        ledger = of_account([], ledger, default)[1]
     else:
         calls, ledger = of_account(calls, ledger, account)
     found: dict[str, Calibrated] = {}
@@ -500,13 +501,14 @@ def refresh_allowances(
     except OSError:
         return
     for account in (None, *(each for each in accounts if each.label is not None)):
+        held = account or claude_account.Account.default()
         try:
             try:
-                calls = parse_calls(calls_path(state_dir, account).read_text())
+                calls = parse_calls(calls_path(state_dir, held).read_text())
             except FileNotFoundError:
                 calls = []
             write_allowances(
-                allowances_path(state_dir, account),
+                allowances_path(state_dir, held),
                 calibrated_allowances(
                     calls,
                     ledger,

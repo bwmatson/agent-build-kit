@@ -146,7 +146,7 @@ def test_with_no_accounts_every_function_returns_what_it_did_before(
 
     account = claude_account.resolve(inst, label)
 
-    assert function(account) == function()
+    assert function(account) == function(claude_account.Account.default())
 
 
 def accounts_checks(workspace: Path, run: FakeClaude) -> list[Check]:  # noqa: F811 — fixture

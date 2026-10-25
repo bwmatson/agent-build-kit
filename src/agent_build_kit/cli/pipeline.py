@@ -500,9 +500,8 @@ def store_for(inst: Installation) -> UnitStore:
     )
 
 
-def _paused_marker(inst: Installation, account: claude_account.Account | None = None) -> Path:
-    """The marker of `account`'s pause: the default account's, which is also the network's, when
-    none is named."""
+def _paused_marker(inst: Installation, account: claude_account.Account) -> Path:
+    """The marker of `account`'s pause: the default account's is also the network's."""
     return pause_marker(inst.state_dir, account)
 
 
@@ -819,7 +818,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             for account in claude_account.in_use(inst.config):
                 for line in _account_usage_lines(args, inst, account):
                     log(line)
-        elif calls := read_calls(calls_path(inst.state_dir, None)):
+        elif calls := read_calls(calls_path(inst.state_dir, claude_account.Account.default())):
             log(rate_line(derive_rate(calls, now=datetime.now(UTC))))
 
     if line := lock_status_line(inst.e2e_lock):
@@ -1660,7 +1659,7 @@ def _round_ask(startable: Sequence[StoredUnit], *, planning: bool) -> Ask:
 
 
 def _account_decision(
-    account: claude_account.Account | None,
+    account: claude_account.Account,
     decided: dict[str | None, Decision] | None,
     ask: Ask | None = None,
 ) -> Decision:
@@ -1684,12 +1683,12 @@ def _account_decision(
 
 
 def _start_decision(
-    accounts: Sequence[claude_account.Account | None] = (None,),
+    accounts: Sequence[claude_account.Account],
     decided: dict[str | None, Decision] | None = None,
     ask: Ask | None = None,
 ) -> Decision:
     """The guard's decision to start, under this module's names for reading and judging: a start
-    on any of `accounts` (None is the account in force) is a start. When every one refuses, the
+    on any of `accounts` is a start. When every one refuses, the
     refusal names each and waits for the earliest of their times. `decided` keeps each account's
     decision for the rest of the round, and `ask` is what it is forecast for."""
     refusals: list[Decision] = []
@@ -1740,18 +1739,18 @@ def _starting_accounts(
     startable: Collection[StoredUnit],
     *,
     planning: bool,
-) -> list[claude_account.Account | None]:
+) -> list[claude_account.Account]:
     """The accounts a round's start decision is asked of: each account of a unit that could start
     (see `_startable`), and the default account when planning is due, since planning runs on it.
-    The account in force when none is."""
-    found: dict[str | None, claude_account.Account | None] = {}
+    The default account when none is."""
+    found: dict[str | None, claude_account.Account] = {}
     for unit in startable:
         account = claude_account.for_repo(inst.config, unit.repo)
         found.setdefault(claude_account.account_key(account), account)
     if planning:
         default = claude_account.Account(limits=claude_limits())
         found.setdefault(claude_account.account_key(default), default)
-    return list(found.values()) or [None]
+    return list(found.values()) or [claude_account.resolve_in(inst.config, None)]
 
 
 def _held_by_the_model(
@@ -1823,7 +1822,7 @@ def _may_build(
             if each.kind == "rate_limit"
         }
     )
-    accounts: list[claude_account.Account | None] = [None]
+    accounts = [claude_account.resolve_in(inst.config, None)]
     startable: list[StoredUnit] = []
     left_out = planning = False
     if held or runtime.supports_usage_tracking:
