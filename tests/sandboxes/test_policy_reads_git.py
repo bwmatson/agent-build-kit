@@ -7,10 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.sandboxes import SandboxPolicy
 from agent_build_kit.sandboxes.policy import BUILT_IN, policy_entries
 from tests.factories import commit, git, init_repo
-from tests.sandboxes.policy_support import BareProfile, BareRuntime, Scene
+from tests.sandboxes.policy_support import BareProfile, BareRuntime, Scene, reads, writes
 
 
 @pytest.fixture
@@ -28,15 +27,6 @@ def linked(scene: Scene) -> Scene:
     commit(scene.main, "a.txt")
     git(scene.main, "worktree", "add", "-q", "-b", "unit", str(scene.worktree))
     return scene
-
-
-def reads(policy: SandboxPolicy, path: Path) -> bool:
-    """Whether the read list covers `path`, as a backend that enforces it would decide."""
-    return any(path.resolve().is_relative_to(folder) for folder in policy.read)
-
-
-def writes(policy: SandboxPolicy, path: Path) -> bool:
-    return any(path.resolve().is_relative_to(folder) for folder in policy.write)
 
 
 def common(scene: Scene) -> Path:

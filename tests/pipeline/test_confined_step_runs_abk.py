@@ -18,6 +18,7 @@ from agent_build_kit.config import models
 from agent_build_kit.pipeline.transcript import TranscriptEvent
 from agent_build_kit.pipeline.wiring import build_run
 from agent_build_kit.runtimes import AgentRequest, AgentResult
+from agent_build_kit.sandboxes import Coverage
 from tests.pipeline.test_wiring_sandbox import Recording, install
 from tests.sandboxes.policy_support import reads, writes
 
@@ -238,6 +239,33 @@ def test_a_denial_of_a_file_the_policy_grants_is_not_the_sandbox_s(scene: Scene)
     lines: list[str] = []
 
     scene.run(Saying(f"bash: {script}: Permission denied"), lines)
+
+    assert not [line for line in lines if line.startswith("sandbox:")], lines
+
+
+class Uncovered(Saying):
+    """A runtime that confines less than the repo requires, so its step runs unconfined."""
+
+    sandbox_coverage = Coverage.NONE
+
+
+def test_on_a_runtime_that_does_not_confine_a_denial_is_not_the_sandbox_s(scene: Scene) -> None:
+    elsewhere = scene.tmp / "elsewhere" / "run.sh"
+    lines: list[str] = []
+
+    scene.run(Uncovered(f"bash: {elsewhere}: Permission denied"), lines)
+
+    assert not [line for line in lines if line.startswith("sandbox:") and "does not let" in line]
+
+
+def test_a_denial_printed_under_a_link_to_a_granted_folder_is_not_the_sandbox_s(
+    scene: Scene,
+) -> None:
+    link = scene.tmp / "link"
+    link.symlink_to(scene.main)
+    lines: list[str] = []
+
+    scene.run(Saying(f"bash: {link}/scripts/run.sh: Permission denied"), lines)
 
     assert not [line for line in lines if line.startswith("sandbox:")], lines
 

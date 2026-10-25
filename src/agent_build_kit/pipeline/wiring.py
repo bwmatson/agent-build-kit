@@ -440,8 +440,13 @@ def refused_exec(line: str, granted: Iterable[Path]) -> str | None:
     nor to write: a command or a read the sandbox refused. A denial of a path the policy grants
     (a file mode, say) is not the sandbox's."""
     folders = tuple(granted)
+    # The policy's entries are resolved; a denial prints the path as the command spelled it.
     return next(
-        (p for p in denied_paths(line) if not any(Path(p).is_relative_to(f) for f in folders)),
+        (
+            p
+            for p in denied_paths(line)
+            if not any(Path(p).resolve().is_relative_to(f) for f in folders)
+        ),
         None,
     )
 
@@ -577,10 +582,14 @@ def build_run(
                     git_refused.append(denied)
                 if (path := refused_read(line, specs)) is not None:
                     (log or print)(f"sandbox: the sandbox does not let this step read {path}")
-                elif sandbox is not None and (
-                    path := refused_exec(line, (*sandbox.read, *sandbox.write))
+                elif (
+                    is_confined
+                    and sandbox is not None
+                    and (path := refused_exec(line, (*sandbox.read, *sandbox.write)))
                 ):
-                    (log or print)(f"sandbox: the sandbox does not let this step run {path}")
+                    (log or print)(
+                        f"sandbox: the sandbox does not let this step read or run {path}"
+                    )
 
         request = AgentRequest(
             # A continued session holds the original prompt already: it is told what is new,
