@@ -8,6 +8,7 @@ it really sends; a test queues the answers, and `asked` counts the calls made.
 import io
 import json
 import urllib.error
+import urllib.request
 from datetime import UTC, datetime, timedelta
 from email.message import Message
 from pathlib import Path
@@ -21,6 +22,11 @@ from agent_build_kit.pipeline.usage_calls import CALLS_NAME
 from agent_build_kit.settings import settings
 
 SECRET = "sk-ant-oat01-the-secret"
+HOUR_MS = 3_600_000
+
+
+def ms_from_now(offset_ms: int) -> int:
+    return int(datetime.now(UTC).timestamp() * 1000) + offset_ms
 
 
 def payload(
@@ -69,6 +75,12 @@ def refusal(**headers: str) -> urllib.error.HTTPError:
         message[name.replace("_", "-")] = value
     return urllib.error.HTTPError(
         usage_guard.USAGE_URL, 429, "Too Many Requests", message, io.BytesIO(b"")
+    )
+
+
+def unauthorized() -> urllib.error.HTTPError:
+    return urllib.error.HTTPError(
+        usage_guard.USAGE_URL, 401, "Unauthorized", Message(), io.BytesIO(b"")
     )
 
 
@@ -135,6 +147,18 @@ class Host:
         if isinstance(answer, BaseException):
             raise answer
         return Response(answer)
+
+    def record_bearers(self) -> list[str | None]:
+        """Wrap the endpoint so each request's Authorization header is appended to the list
+        returned, in the order asked."""
+        sent: list[str | None] = []
+
+        def urlopen(request: urllib.request.Request, timeout: float | None = None) -> Response:
+            sent.append(request.get_header("Authorization"))
+            return self.urlopen(request, timeout)
+
+        self.monkeypatch.setattr("urllib.request.urlopen", urlopen)
+        return sent
 
     def keep_reading(self, age: timedelta, body: dict | None = None) -> None:
         self.cache.parent.mkdir(parents=True, exist_ok=True)

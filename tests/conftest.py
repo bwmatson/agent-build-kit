@@ -125,7 +125,7 @@ def no_real_login_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
     in the adapter, which makes the call: `usage_guard.refresh_login` hands
     it there."""
 
-    def refuse() -> None:
+    def refuse(*a: object, **k: object) -> None:
         raise AssertionError("a test tried to make a real claude call to refresh the login")
 
     monkeypatch.setattr(claude_code, "refresh_login", refuse)
