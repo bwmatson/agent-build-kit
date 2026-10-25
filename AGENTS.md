@@ -102,8 +102,8 @@ can't vouch for". The reasoning is in `docs/agent-efficient-coding-philosophy.md
   pytest `integration` marker) and `e2e-test` (needs the real local stack). The word "tier" is kept for review tiers. Where your
   change leaves a name to you (a helper, a fake, a test file, a local variable), use `unit_test` and `e2e`, never the earlier numbered
   spellings. Names a change's spec fixes (a setting, a tag, a metric) stay as the spec says.
-- **Size ceilings.** The single ceiling on a unit (`max_unit_lines`) is becoming a ceiling per review tier. Do not add a new place
-  that reads it; send a new size check through the one function the existing ones use, so it moves with them.
+- **Size ceilings.** Each review tier has its own ceiling on a unit (`review.ceilings`); there is no single ceiling. Do not add a
+  new place that reads one; send a new size check through the one function the existing ones use, so it moves with them.
 - **Who merges.** A unit that review classifies `auto` and policy allows will be merged by the pipeline, and anything else by a
   person. Do not write new text, comments or messages that make a person the merger of every unit. The build agent still never
   merges, and nothing here changes the hook, the command policy or `--disallowedTools`.

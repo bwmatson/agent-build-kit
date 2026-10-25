@@ -8,7 +8,8 @@ generatedBy: agent-build-kit
 # Writing a change the pipeline can build
 
 The pipeline turns a change's `tasks.md` into units of work — branches and
-PRs — without reading anything else about it. Two facts therefore have to be
+PRs — without reading anything else about it. The build agent never merges: a person merges what was
+not auto-landed. Two facts therefore have to be
 on every task group heading: which repo its code lands in, and which test kind it needs. They are written as tags, and `abk tags` checks them.
 
 ## The heading contract

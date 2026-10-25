@@ -410,6 +410,8 @@ warning shown by `abk status`, not a failure.
 The guards by class: the text fence on these two files is a location guard, so it stands down for
 a confined step and applies to one that is not; guards about meaning (no merge, no push) apply
 either way. `abk policy check` lists which is which; the table is in docs/sandbox-design.md.
+The no-merge guard is the build agent never merges: a person merges what was
+not auto-landed, and the pipeline merges only a unit review classified `auto` and policy allowed.
 
 `abk.local.yaml` is for structured, user-specific configuration, merged over `abk.yaml` when
 it loads (mappings merge by key; lists, text and `null` replace). A worked example of
