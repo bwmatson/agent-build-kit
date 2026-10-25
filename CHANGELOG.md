@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The test-kind rename tool is deleted, along with its tests and the guard's exemption for it.
+  Rewriting a planning repository's old spellings is now a reviewed text edit.
+
 - The pull request footer and the command policy's refusal now say who merges: the build agent never merges,
   the pipeline merges only a unit review classified `auto` and policy allowed, and a person
   merges the rest. The README, `AGENTS.md` and the docs no longer say a person merges every pull
