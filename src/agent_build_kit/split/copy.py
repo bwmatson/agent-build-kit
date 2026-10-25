@@ -125,11 +125,9 @@ def _satisfied_history(
     return dropped, unloaded
 
 
-def dropped_edges(
-    source: Installation, destination: Installation, plan: SplitPlan
+def _edges_in(
+    source: Installation, plan: SplitPlan, dropped: dict[str, frozenset[str]]
 ) -> tuple[DroppedEdge, ...]:
-    """The edges of the moved units' records that the destination's copy leaves out."""
-    dropped, _ = _satisfied_history(source, destination, plan)
     return tuple(
         DroppedEdge(unit=unit.id, field=field, target=target)
         for unit in moved_records(source, plan)
@@ -139,12 +137,13 @@ def dropped_edges(
     )
 
 
-def unit_records(
-    source: Installation, destination: Installation, plan: SplitPlan, scrub: bool
+def _records_without(
+    source: Installation,
+    plan: SplitPlan,
+    dropped: dict[str, frozenset[str]],
+    scrub: bool,
 ) -> list[StoredUnit]:
-    """The moved unit records as they would be written, without the dropped edges."""
     scrub_text = _passes(source, plan, scrub)
-    dropped, _ = _satisfied_history(source, destination, plan)
     moved = [
         unit.model_copy(
             update={
@@ -155,6 +154,22 @@ def unit_records(
         for unit in moved_records(source, plan)
     ]
     return [scrubbing.scrub_record(unit, scrub_text) for unit in moved] if scrub else moved
+
+
+def dropped_edges(
+    source: Installation, destination: Installation, plan: SplitPlan
+) -> tuple[DroppedEdge, ...]:
+    """The edges of the moved units' records that the destination's copy leaves out."""
+    dropped, _ = _satisfied_history(source, destination, plan)
+    return _edges_in(source, plan, dropped)
+
+
+def unit_records(
+    source: Installation, destination: Installation, plan: SplitPlan, scrub: bool
+) -> list[StoredUnit]:
+    """The moved unit records as they would be written, without the dropped edges."""
+    dropped, _ = _satisfied_history(source, destination, plan)
+    return _records_without(source, plan, dropped, scrub)
 
 
 def _plans_to_write(source: Installation, destination: Installation, plan: SplitPlan) -> dict:
@@ -207,7 +222,8 @@ def preflight(
 
     store = UnitStore(destination.state_dir / "units.json")
     held = {unit.id: unit for unit in store.all()}
-    records = unit_records(source, destination, plan, scrub)
+    dropped, unloaded = _satisfied_history(source, destination, plan)
+    records = _records_without(source, plan, dropped, scrub)
     errors += [
         f"conflict: unit {unit.id} differs in the destination"
         for unit in records
@@ -216,7 +232,6 @@ def preflight(
 
     moved_units = set(plan.units_moved)
     moved_changes = set(plan.changes_moved)
-    no_directory = set(plan.units_moved_no_directory)
     archive_dir = destination.changes_dir / "archive"
     destination_archive = (
         [p.name for p in archive_dir.iterdir() if p.is_dir()] if archive_dir.is_dir() else []
@@ -227,13 +242,12 @@ def preflight(
         if destination.changes_dir.is_dir()
         else set()
     )
-    _, unloaded = _satisfied_history(source, destination, plan)
     known_changes = {
         *moved_changes,
         *destination_changes,
         *map(archive_change_name, plan.archive_moved),
         *map(archive_change_name, destination_archive),
-        *(unit.change for unit in moved_records(source, plan) if unit.id in no_directory),
+        *plan.changes_no_directory,
     }
     for unit in records:
         for field in ("depends_on", "needs", "superseded_by"):
@@ -291,7 +305,7 @@ def preflight(
     return Preflight(
         errors=tuple(errors + (edges if remove else [])),
         warnings=tuple(harmless if remove else harmless + edges),
-        dropped=dropped_edges(source, destination, plan),
+        dropped=_edges_in(source, plan, dropped),
     )
 
 

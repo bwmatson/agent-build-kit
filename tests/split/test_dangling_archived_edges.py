@@ -84,3 +84,17 @@ def test_a_joined_member_that_is_a_staying_archive_entry_is_the_only_joined_erro
 
     (error,) = found.errors
     assert all(word in error for word in ("moves/1", "joined", "kept"))
+
+
+def test_a_joined_member_with_no_directory_anywhere_of_a_unit_that_moves_is_fine(tmp_path):
+    source, destination = installations(tmp_path)
+    write_units(
+        source,
+        new_unit("moves/1", state="merged", joined=(Member(change="gone", groups=(1,)),)),
+    )
+    plan = plan_split(source, "app")
+
+    found = preflight(source, destination, plan)
+
+    assert plan.units_moved_active == ("moves/1",)
+    assert found.errors == ()

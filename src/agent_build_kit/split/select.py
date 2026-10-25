@@ -94,6 +94,8 @@ class SplitPlan(Frozen):
     units_moved_active: tuple[str, ...] = ()
     units_moved_archived: tuple[str, ...] = ()
     units_moved_no_directory: tuple[str, ...] = ()
+    # The changes the moved units name that have no directory, active or archived.
+    changes_no_directory: tuple[str, ...] = ()
     units_staying: tuple[str, ...] = ()
     units_blocking: tuple[str, ...] = ()
     # `M path`, `?? path` and `D path` lines; None when the source is not under git.
@@ -213,7 +215,7 @@ def _mixed_decision(
     for item in mixed:
         repos = sorted({group.repo for group in item.groups})
         if allow_mixed is None:
-            if _ARCHIVE_DATE.sub("", item.name) in refused:
+            if archive_change_name(item.name) in refused:
                 continue
             refusals.append(
                 Refusal(
@@ -296,6 +298,7 @@ def plan_split(
         units_moved_active=selection.active,
         units_moved_archived=selection.archived,
         units_moved_no_directory=selection.without_directory,
+        changes_no_directory=selection.absent_changes,
         units_staying=selection.staying,
         units_blocking=selection.blocking,
         uncommitted=uncommitted(source),
@@ -328,6 +331,7 @@ class _UnitSelection(Frozen):
     active: tuple[str, ...]
     archived: tuple[str, ...]
     without_directory: tuple[str, ...]
+    absent_changes: tuple[str, ...]
 
 
 class _Sides(Frozen):
@@ -349,12 +353,12 @@ def _sides(
     for directory in active:
         moves.setdefault(directory.name, []).append(directory.name in changes_moved)
     for directory in archived:
-        name = _ARCHIVE_DATE.sub("", directory.name)
+        name = archive_change_name(directory.name)
         moves.setdefault(name, []).append(directory.name in archive_moved)
     return _Sides(
         moves={name: tuple(sides) for name, sides in moves.items()},
         active=frozenset(directory.name for directory in active),
-        archived=frozenset(_ARCHIVE_DATE.sub("", directory.name) for directory in archived),
+        archived=frozenset(archive_change_name(directory.name) for directory in archived),
     )
 
 
@@ -367,6 +371,7 @@ def _units(
     active: list[str] = []
     archived: list[str] = []
     without_directory: list[str] = []
+    absent_changes: set[str] = set()
     refusals: list[Refusal] = []
     for unit in UnitStore(source.state_dir / "units.json").all():
         names = [member.change for member in unit.members()]
@@ -398,6 +403,7 @@ def _units(
             refusals.append(Refusal(kind=RefusalKind.IN_FLIGHT_UNIT, line=line))
         else:
             moved.append(unit.id)
+            absent_changes.update(absent)
             own = names[0]
             if own in sides.active:
                 active.append(unit.id)
@@ -412,6 +418,7 @@ def _units(
         active=tuple(sorted(active)),
         archived=tuple(sorted(archived)),
         without_directory=tuple(sorted(without_directory)),
+        absent_changes=tuple(sorted(absent_changes)),
     )
     return selection, refusals
 

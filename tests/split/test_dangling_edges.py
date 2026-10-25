@@ -57,6 +57,7 @@ def test_every_dangling_edge_is_listed_with_nothing_written(tmp_path):
 
 def test_a_joined_member_that_is_neither_moved_nor_in_the_destination_is_an_error(tmp_path):
     source, destination = installations(tmp_path)
+    write_change(source, "elsewhere", ["lib"])
     write_units(
         source,
         new_unit("moves/1", state="merged", joined=(Member(change="elsewhere", groups=(1,)),)),
