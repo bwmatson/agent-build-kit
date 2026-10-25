@@ -36,6 +36,11 @@ def step_confined(required: Coverage, coverage: Coverage) -> bool:
     return required is not Coverage.NONE and coverage.reaches(required)
 
 
+def system_folders() -> tuple[str, ...]:
+    """The system folders every confined step reads on this platform, so it can exec anything."""
+    raise NotImplementedError
+
+
 class Availability(Frozen):
     """Whether a backend works on this machine, and what it reaches when it does."""
 
