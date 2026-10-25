@@ -13,8 +13,8 @@ from agent_build_kit.pipeline.claude_stream import records
 from agent_build_kit.pipeline.transcript import TranscriptEvent
 from agent_build_kit.pipeline.wiring import build_run, build_run_review, refused_read
 from agent_build_kit.runtimes import AgentRequest, AgentResult
-from agent_build_kit.sandboxes import SandboxPolicy
 from tests.pipeline.test_wiring_sandbox import Recording, install
+from tests.sandboxes.policy_support import reads
 
 CHANGE_FILES = ("tasks.md", "proposal.md", "design.md", "specs/cap/spec.md")
 
@@ -32,7 +32,7 @@ class Enforcing(Recording):
     def run(self, request: AgentRequest) -> AgentResult:
         assert request.policy is not None and request.policy.sandbox is not None
         for path in self.wanted:
-            if allows(request.policy.sandbox, path):
+            if reads(request.policy.sandbox, path):
                 self.read.append(path)
             else:
                 self.refused.append(path)
@@ -43,10 +43,6 @@ class Enforcing(Recording):
                         )
                     )
         return super().run(request)
-
-
-def allows(policy: SandboxPolicy, path: Path) -> bool:
-    return any(path.resolve().is_relative_to(folder) for folder in policy.read)
 
 
 def scene(tmp_path: Path) -> tuple[Path, Path]:
@@ -112,10 +108,11 @@ def test_a_review_run_reads_the_change_it_reviews_against(tmp_path: Path) -> Non
     assert runtime.read == [tasks]
 
 
-def test_it_reads_neither_another_change_nor_the_configuration(tmp_path: Path) -> None:
+def test_it_reads_neither_another_change_nor_the_rest_of_the_planning_repo(tmp_path: Path) -> None:
     root, specs = scene(tmp_path)
     own = specs / "changes" / "feature" / "tasks.md"
-    others = [specs / "changes" / "other" / "tasks.md", root / "abk.yaml"]
+    (root / "README.md").write_text("text\n")
+    others = [specs / "changes" / "other" / "tasks.md", root / "README.md"]
 
     runtime = run_step(tmp_path, [own, *others], changes=("feature",), lines=[])
 

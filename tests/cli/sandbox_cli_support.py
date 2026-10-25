@@ -30,6 +30,9 @@ class CountingBackend(StandInBackend):
     def command(self, policy: SandboxPolicy, argv: Sequence[str]) -> list[str]:
         """Confines nothing, so a command the doctor probe runs through it still runs."""
         super().command(policy, argv)
+        if "install-config" in " ".join(argv):
+            # A started `abk` is a new process that cannot load a config naming this stand-in.
+            return ["true"]
         return list(argv)
 
 

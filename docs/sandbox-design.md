@@ -366,7 +366,7 @@ names the repos on each side when they differ); a track run is never confined an
 | ACP client: `_resolve_target`, `write_text_file`, the edit/delete/move verdict | location | **kept**: the kit's own, unsandboxed process performs those writes |
 | Role tool lists (a reviewer cannot edit) | role | **kept**: the sandbox has no per-role write list |
 | `--disallowedTools`, no merge, no push to protected branches, force-push and lease rules, no commit, no `--no-verify`, `AgentPushed`, `abk policy` | meaning | **kept** |
-| `abk install-config` | a sanctioned write route | **kept**; it is a child of the confined agent and its write list already covers the worktree |
+| `abk install-config` | a sanctioned write route | **kept**; it is a child of the confined agent and its write list already covers the worktree; the policy reads (never writes) the interpreter prefix, base prefix, `abk` entry-point folder and, for a checkout install, the package's source root, and the planning root's `abk.yaml` and `abk.local.yaml` (those files only, as the command loads the installation before it runs), so the command can start; the `.env` is never readable from a confined step, and an installation loads without a `.env` it cannot open |
 
 There is **no network or host guard** in the kit today: the proxy adds a capability and replaces nothing. Left for later: track and propose runs
 (their checkout is the planning repo itself, so the state-directory rule cannot be a path list), and deleting the fallback guards once the

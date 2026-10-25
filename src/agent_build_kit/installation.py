@@ -232,7 +232,7 @@ class Installation:
 
     def activate(self) -> None:
         """Make this the workspace the leaf modules see (config.active())."""
-        settings_module.reload(self.env_file if self.env_file.exists() else None)
+        settings_module.reload(settings_module.readable(self.env_file))
         config_module.activate(self.config, self.root, self.checkout_of)
         redaction.activate(redaction.gather(self))
 
@@ -270,8 +270,7 @@ def load_config(path: Path) -> WorkspaceConfig:
     """The abk.yaml at `path`, loaded once its planning root's `.env` has been
     read: a runtime selected there (`ABK_RUNTIME`) is the one `config.load`
     checks, not whatever the process started with."""
-    env_file = env_file_for(path.parent.resolve())
-    settings_module.reload(env_file if env_file.exists() else None)
+    settings_module.reload(settings_module.readable(env_file_for(path.parent.resolve())))
     return config_module.load(path)
 
 

@@ -116,7 +116,7 @@ def sources(installation: Installation) -> list[Source]:
             found.append(Source(name, None, "verify.env"))
     for field in settings_module.CREDENTIAL_FIELDS:
         found.append(Source(field, str(getattr(settings_module.settings, field)), "settings"))
-    env_file = installation.env_file if installation.env_file.exists() else None
+    env_file = settings_module.readable(installation.env_file)
     for name in installation.config.redact:
         value = settings_module.named_value(name, env_file)
         found.append(Source(name, value or None, "redact"))

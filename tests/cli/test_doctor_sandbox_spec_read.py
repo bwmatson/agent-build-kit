@@ -14,6 +14,7 @@ from agent_build_kit.sandboxes import SandboxPolicy, held
 from tests.cli.sandbox_cli_support import NAME, CountingBackend, switch_on
 from tests.cli.test_doctor import Answers, workspace  # noqa: F401 — fixture
 from tests.factories import which_all
+from tests.sandboxes.policy_support import reads
 
 
 class Confining(CountingBackend):
@@ -75,7 +76,7 @@ def test_the_probe_reads_a_file_under_the_specs_folder_from_a_confined_step(
     ]
     assert carrying, allowing.asked
     policy, _ = carrying[0]
-    assert any(file.resolve().is_relative_to(folder) for folder in policy.read)
+    assert reads(policy, file)
 
 
 def test_a_refused_read_fails_the_check_naming_the_path(

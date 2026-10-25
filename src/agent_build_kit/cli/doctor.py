@@ -19,6 +19,7 @@ import socket
 import subprocess
 import tempfile
 import tomllib
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -85,6 +86,7 @@ from agent_build_kit.pipeline.e2e import dimension_lines
 from agent_build_kit.pipeline.e2e_holds import HELD_FILE, current_holds, hold_text
 from agent_build_kit.pipeline.environment import matched_inputs
 from agent_build_kit.pipeline.gate_holds import gate_standing, split_gates
+from agent_build_kit.pipeline.install_record import STAGING
 from agent_build_kit.pipeline.original_copy import COPY_PATTERN
 from agent_build_kit.pipeline.pending import describe, pending_projects
 from agent_build_kit.pipeline.planning_repo import common_dir, is_worktree_of
@@ -103,7 +105,7 @@ from agent_build_kit.runtimes import claude_code, policy_check, providers
 from agent_build_kit.runtimes.base import AgentRuntime, Run, Which, account_report_of
 from agent_build_kit.sandboxes import held
 from agent_build_kit.sandboxes.base import system_folders
-from agent_build_kit.sandboxes.policy import change_reads, git_parts, git_reads, policy_entries
+from agent_build_kit.sandboxes.policy import builtin_reads, git_parts, git_reads, policy_entries
 from agent_build_kit.settings import settings
 
 Status = Literal["ok", "info", "warn", "FAIL"]
@@ -1726,7 +1728,7 @@ def _spec_read_failure(
         write=(),
         read=(
             *(Path(f).resolve() for f in system_folders()),
-            *change_reads(inst, [folder.name]),
+            *builtin_reads(inst, [folder.name]),
         ),
         hosts=(),
         required=coverage,
@@ -1735,17 +1737,23 @@ def _spec_read_failure(
 
 
 def _confined_failure(
-    backend: sandboxes.SandboxBackend, policy: sandboxes.SandboxPolicy, script: str, what: str
+    backend: sandboxes.SandboxBackend,
+    policy: sandboxes.SandboxPolicy,
+    script: str,
+    what: str,
+    *,
+    started: Callable[[subprocess.CompletedProcess[str]], bool] = lambda done: False,
 ) -> str:
     """Why `script` does not succeed in a confined step under `policy` (`what` says what it
-    does), naming what the step printed; empty when it succeeds."""
+    does), naming what the step printed; empty when it succeeds. A non-zero exit counts as
+    success when `started` says the command ran as far as it was meant to."""
     try:
         done = held.run(backend, policy, script)
     except subprocess.TimeoutExpired:
         return f"a confined step trying to {what} did not finish in {held.TIMEOUT} seconds"
     except OSError as error:
         return f"a confined step could not {what}: {error}"
-    if done.returncode != 0:
+    if done.returncode != 0 and not started(done):
         return f"a confined step cannot {what}: {done.stderr.strip() or done.returncode}"
     return ""
 
@@ -1775,6 +1783,45 @@ def _git_read_failure(backend: sandboxes.SandboxBackend, coverage: sandboxes.Cov
         return _confined_failure(backend, policy, script, "run git")
 
 
+def _abk_exec_failure(
+    backend: sandboxes.SandboxBackend, coverage: sandboxes.Coverage, inst: Installation
+) -> str:
+    """Why a confined step cannot start `abk install-config`, naming what the step printed;
+    empty when it can. The command runs from a scratch repository on a staged file that does not
+    exist, so it gets past loading the installation and stops at "not a regular file"; that
+    refusal is the command having started."""
+    entry = shutil.which("abk")
+    if entry is None:
+        # Not a sandbox denial: nothing here to start (abk may be run through a launcher).
+        return ""
+    with tempfile.TemporaryDirectory(prefix="abk-probe-abk-") as folder:
+        scratch = Path(folder).resolve()
+        git(scratch, "init", "-q", check=False)
+        policy = sandboxes.SandboxPolicy(
+            write=(),
+            read=(
+                *(Path(f).resolve() for f in system_folders()),
+                *builtin_reads(inst),
+                *git_reads(scratch),
+                scratch,
+            ),
+            hosts=(),
+            required=coverage,
+        )
+        pointed = shlex.quote(str(inst.root / config.CONFIG_FILENAME))
+        script = (
+            f"cd {shlex.quote(str(scratch))} && {config.CONFIG_ENV}={pointed} "
+            f"{shlex.quote(entry)} install-config {STAGING}/none.yaml .pre-commit-config.yaml"
+        )
+        return _confined_failure(
+            backend,
+            policy,
+            script,
+            "run `abk install-config`",
+            started=lambda done: "install-config: refused:" in done.stderr,
+        )
+
+
 def sandbox_check(loaded: WorkspaceConfig, inst: Installation | None = None) -> Check:
     """Whether the sandbox backend works here, found by running its probe, and with `inst`
     whether a confined step reads a file under its specs folder; `abk init` shows the same
@@ -1794,6 +1841,13 @@ def sandbox_check(loaded: WorkspaceConfig, inst: Installation | None = None) -> 
             "sandbox",
             f"{backend.name}: {why}",
             "the backend did not apply the read rules git needs; "
+            "try another `sandbox.backend` or update this one",
+        )
+    if found.ok and inst is not None and (why := _abk_exec_failure(backend, found.coverage, inst)):
+        return _fail(
+            "sandbox",
+            f"{backend.name}: {why}",
+            "the backend did not apply the read rule for the running installation; "
             "try another `sandbox.backend` or update this one",
         )
     if found.ok:

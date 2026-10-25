@@ -8,7 +8,18 @@ from typing import Any
 import yaml
 
 from agent_build_kit.installation import Installation, load_installation
+from agent_build_kit.sandboxes import SandboxPolicy
 from agent_build_kit.sandboxes.policy import build_policy
+
+
+def reads(policy: SandboxPolicy, path: Path) -> bool:
+    """Whether the read list covers `path`, as a backend that enforces it would decide."""
+    return any(path.resolve().is_relative_to(folder) for folder in policy.read)
+
+
+def writes(policy: SandboxPolicy, path: Path) -> bool:
+    """Whether the write list covers `path`."""
+    return any(path.resolve().is_relative_to(folder) for folder in policy.write)
 
 
 class StandInRuntime:

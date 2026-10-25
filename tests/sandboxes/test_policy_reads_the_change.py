@@ -7,20 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.sandboxes import SandboxPolicy
 from agent_build_kit.sandboxes.policy import PolicyRefused
-from tests.sandboxes.policy_support import Scene
+from tests.sandboxes.policy_support import Scene, reads
 
 
 @pytest.fixture
 def scene(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Scene:
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     return Scene(tmp_path)
-
-
-def reads(policy: SandboxPolicy, path: Path) -> bool:
-    """Whether the read list covers `path`, as a backend that enforces it would decide."""
-    return any(path.resolve().is_relative_to(folder) for folder in policy.read)
 
 
 def lay_out_specs(scene: Scene) -> Path:
@@ -55,8 +49,6 @@ def test_nothing_else_of_the_planning_repo_is_read(scene: Scene) -> None:
 
     assert reads(policy, specs / "changes" / "feature" / "tasks.md")
     assert not reads(policy, specs / "changes" / "other" / "tasks.md")
-    assert not reads(policy, scene.root / "abk.yaml")
-    assert not reads(policy, scene.root / "abk.local.yaml")
     assert not reads(policy, scene.root / "README.md")
 
 
