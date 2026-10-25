@@ -6,6 +6,7 @@ from agent_build_kit.pipeline.command_policy import check_command
 from agent_build_kit.pipeline.pr_body import build_pr_body
 from tests.factories import stored_unit as unit
 from tests.old_merge_rule import statements
+from tests.repo_docs import repo_markdown
 
 ROOT = Path(__file__).resolve().parents[2]
 SKILLS = ROOT / "src" / "agent_build_kit" / "skills"
@@ -14,25 +15,10 @@ EXEMPT = {
     ROOT / "docs" / "agent-efficient-coding-philosophy.md",
     ROOT / "docs" / "risk-tiered-review-design.md",
 }
-SKIPPED_DIRS = {"node_modules", ".venv", "__pycache__"}
-
-
-def markdown_files() -> list[Path]:
-    """Every Markdown file of the repository but the shipped skills, the hidden folders (which
-    hold their mirror) and the exempt documents."""
-    return sorted(
-        path
-        for path in ROOT.rglob("*.md")
-        if not any(
-            part.startswith(".") or part in SKIPPED_DIRS for part in path.relative_to(ROOT).parts
-        )
-        and SKILLS not in path.parents
-        and path not in EXEMPT
-    )
 
 
 def test_no_markdown_file_states_a_person_merges_every_pull_request() -> None:
-    files = markdown_files()
+    files = repo_markdown([SKILLS, *EXEMPT])
     assert ROOT / "README.md" in files
     found = [
         f"{path.relative_to(ROOT)}:{line}"

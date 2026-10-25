@@ -7,11 +7,14 @@ unattended parts from doing harm. The examples use a workspace of two repos,
 ## The flow
 
 ```
-change (tasks.md) ─► plan ─► units ─► build ─► PR ─► human review ─► merge
-                                                         ▲            │
-                                     poll: rework/restack┘            ▼
+change (tasks.md) ─► plan ─► units ─► build ─► PR ─► review ─► merge
+                                                         ▲          │
+                                     poll: rework/restack┘          ▼
                                                      verify ─► archive
 ```
+
+The build agent never merges. The pipeline merges a unit review classified `auto` and policy
+allowed; a person merges what was not auto-landed.
 
 Everything below is a tick (`abk tick`), which a timer runs every few minutes
 in the planning repo. One tick starts with a round, in order: check the usage

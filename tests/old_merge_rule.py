@@ -3,7 +3,9 @@
 import re
 
 OLD_RULE = re.compile(
-    r"\b(?:(?:human|person)\s+merges\s+(?:every\w*|each|all|it|them)|pipeline\s+never\s+merges)\b",
+    r"\b(?:(?:humans?|persons?|people)\s+(?:reviews?\s+and\s+)?merges?\b"
+    r"(?!\s+(?:what\s+was\s+not\s+auto-landed|any\s+other|each\s+pull\s+request\s+that))"
+    r"|pipeline\s+never\s+merges)",
     re.I,
 )
 

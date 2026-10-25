@@ -843,7 +843,7 @@ merge, no push, no commit where forbidden) apply either way. See
 
 ### `review`
 
-The review policy, a build-out section for risk-tiered review. A person edits it; a build agent
+The review policy. A person edits it; a build agent
 and a track are refused a write to `abk.yaml` or `abk.local.yaml` by the routes the command policy
 names (a file write, a shell redirect, an editor command, and its copy and in-place edit programs).
 A command cannot be parsed for every route, so the pipeline also reads both files before every build

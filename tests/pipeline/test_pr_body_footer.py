@@ -13,7 +13,7 @@ def footer() -> str:
 
 
 def test_the_footer_says_the_build_agent_never_merges() -> None:
-    assert re.search(r"never merges", footer(), re.I)
+    assert "build agent never merges" in footer()
 
 
 def test_the_footer_says_the_pipeline_merges_only_an_auto_unit_policy_allowed() -> None:

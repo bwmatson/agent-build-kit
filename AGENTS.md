@@ -67,8 +67,8 @@ an ad hoc session:
   delta specs, a design where there is a decision to record, and tagged task
   groups (see the `abk-authoring` skill). `abk check` and `abk tags` must pass
   before it is committed. The pipeline plans it into units and builds them
-  test-first on `spec/<change>/<n>` branches; a person reviews and merges the
-  pull requests.
+  test-first on `spec/<change>/<n>` branches; a person reviews and merges each
+  pull request that was not auto-landed.
 - **An interactive session does not edit the code to make a change.** It may
   read, diagnose, and write or revise the change that describes the work. The
   specs and the pipeline state live in this repository, and the working copy is

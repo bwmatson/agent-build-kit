@@ -121,7 +121,7 @@ Do this after section 10, when sizing by tier is on, so the new plans use the ne
 
 ## 13. After `review-by-tier-is-always-on`: the last step
 
-- [ ] Delete `review.enabled` from `abk.yaml`. It is ignored now and gives a notice until you do (a migration step).
+- [ ] Delete `review.enabled` from `abk.yaml`. It is ignored now and gives a notice until you do.
 - [ ] Confirm `global_limits.max_unit_lines` is gone; a file that still has it fails to load and names `review.ceilings.full`.
 - [ ] The README, `AGENTS.md`, the docs and the skills now say a person merges what was not auto-landed. Spot-check one pull request footer.
 - [ ] Group 5 of this change deletes the rename tool. Merge it only after the vocabulary sweep (section 3) is done.
