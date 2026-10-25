@@ -680,7 +680,8 @@ What `process` confines, and what it leaves:
 
 - **Confined:** the agent process, and every terminal the client starts for it, to the policy's write list,
   read allowlist and hosts. The agent's own state folders are on the lists so it can keep its account and
-  session.
+  session. A step of a change also reads that change's folder and the capability specs beside it,
+  read-only, as a built-in entry; nothing else of the planning repo.
 - **The client's own file requests are not the sandbox.** `read_text_file` and `write_text_file` are
   answered by the kit itself, which is not confined. They are held to the worktree and the policy's paths
   by the kit's path check, a text rule and not a kernel one; a write outside the worktree is refused there.

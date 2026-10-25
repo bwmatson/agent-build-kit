@@ -10,7 +10,7 @@ import pytest
 
 from agent_build_kit import sandboxes
 from agent_build_kit.cli.doctor import Check, run_doctor
-from agent_build_kit.sandboxes import SandboxPolicy
+from agent_build_kit.sandboxes import SandboxPolicy, held
 from tests.cli.sandbox_cli_support import NAME, CountingBackend, switch_on
 from tests.cli.test_doctor import Answers, workspace  # noqa: F401 — fixture
 from tests.factories import which_all
@@ -84,6 +84,23 @@ def test_a_refused_read_fails_the_check_naming_the_path(
 ) -> None:
     file = spec_file(workspace)
     switch_on(workspace / "abk.yaml", backend=NAME)
+
+    found = sandbox_checks(workspace / "abk.yaml")
+
+    failed = [c for c in found if c.status == "FAIL"]
+    assert failed, found
+    assert str(file) in failed[0].detail
+
+
+def test_a_read_that_never_finishes_fails_the_check_naming_the_path(
+    workspace: Path,  # noqa: F811 — fixture
+    refusing: Confining,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    file = spec_file(workspace)
+    switch_on(workspace / "abk.yaml", backend=NAME)
+    monkeypatch.setattr(held, "TIMEOUT", 0.2)
+    monkeypatch.setattr(refusing, "command", lambda policy, argv: ["sleep", "60"])
 
     found = sandbox_checks(workspace / "abk.yaml")
 

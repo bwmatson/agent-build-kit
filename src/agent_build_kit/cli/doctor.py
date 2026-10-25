@@ -100,6 +100,7 @@ from agent_build_kit.redaction import active as active_redactor
 from agent_build_kit.replay.review import directories, overdue, waiting
 from agent_build_kit.runtimes import claude_code, policy_check, providers
 from agent_build_kit.runtimes.base import AgentRuntime, Run, Which, account_report_of
+from agent_build_kit.sandboxes import held
 from agent_build_kit.sandboxes.base import system_folders
 from agent_build_kit.sandboxes.policy import change_reads, policy_entries
 from agent_build_kit.settings import settings
@@ -1713,23 +1714,26 @@ def _spec_read_failure(
 ) -> str:
     """Why a confined step cannot read a file under the specs folder, naming it; empty when it
     can, or when there is no change to read."""
-    file = next((p for p in sorted(inst.changes_dir.rglob("*")) if p.is_file()), None)
-    if file is None:
+    live = (p for p in sorted(inst.changes_dir.glob("*")) if p.is_dir() and p.name != "archive")
+    folder = next(live, None)
+    if folder is None:
         return ""
-    change = file.relative_to(inst.changes_dir).parts[0]
+    file = folder / "tasks.md"
+    if not file.is_file():
+        file = next((p for p in sorted(folder.rglob("*")) if p.is_file()), file)
     policy = sandboxes.SandboxPolicy(
         write=(),
-        read=(*(Path(f) for f in system_folders()), *change_reads(inst, change)),
+        read=(
+            *(Path(f).resolve() for f in system_folders()),
+            *change_reads(inst, [folder.name]),
+        ),
         hosts=(),
         required=coverage,
     )
     try:
-        done = subprocess.run(
-            backend.command(policy, ["cat", str(file)]),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        done = held.run(backend, policy, f"cat {shlex.quote(str(file))}")
+    except subprocess.TimeoutExpired:
+        return f"reading {file} from a confined step did not finish in {held.TIMEOUT} seconds"
     except OSError as error:
         return f"a confined step could not read {file}: {error}"
     if done.returncode != 0:
@@ -1745,7 +1749,12 @@ def sandbox_check(loaded: WorkspaceConfig, inst: Installation | None = None) -> 
         return _info("sandbox", "off (`sandbox.enabled` is false)")
     backend, found = sandboxes.probe(loaded.sandbox.backend)
     if found.ok and inst is not None and (why := _spec_read_failure(backend, found.coverage, inst)):
-        return _fail("sandbox", f"{backend.name}: {why}", "grant the specs folder to read")
+        return _fail(
+            "sandbox",
+            f"{backend.name}: {why}",
+            "the backend did not apply the read rule for the specs folder; "
+            "try another `sandbox.backend` or update this one",
+        )
     if found.ok:
         return _ok("sandbox", f"{backend.name}: confines {found.coverage.value} of a step")
     return _fail("sandbox", f"{backend.name}: {found.cause}", found.fix)

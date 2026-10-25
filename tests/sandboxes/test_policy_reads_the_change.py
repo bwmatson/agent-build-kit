@@ -26,7 +26,7 @@ def reads(policy: SandboxPolicy, path: Path) -> bool:
 def lay_out_specs(scene: Scene) -> Path:
     """The planning repo's specs folder with two changes and a capability; returns the folder."""
     specs = scene.root / "openspec"
-    for change in ("feature", "other"):
+    for change in ("feature", "other", "third"):
         (specs / "changes" / change / "specs" / "cap").mkdir(parents=True)
         for name in ("tasks.md", "proposal.md", "design.md", "specs/cap/spec.md"):
             (specs / "changes" / change / name).write_text("text\n")
@@ -39,7 +39,7 @@ def test_the_unit_s_change_and_the_capability_specs_are_read(scene: Scene) -> No
     scene.installation()
     specs = lay_out_specs(scene)
 
-    policy = scene.policy(change="feature")
+    policy = scene.policy(changes=("feature",))
 
     for name in ("tasks.md", "proposal.md", "design.md", "specs/cap/spec.md"):
         assert reads(policy, specs / "changes" / "feature" / name), name
@@ -51,7 +51,7 @@ def test_nothing_else_of_the_planning_repo_is_read(scene: Scene) -> None:
     scene.installation()
     specs = lay_out_specs(scene)
 
-    policy = scene.policy(change="feature", local={})
+    policy = scene.policy(changes=("feature",), local={})
 
     assert reads(policy, specs / "changes" / "feature" / "tasks.md")
     assert not reads(policy, specs / "changes" / "other" / "tasks.md")
@@ -64,7 +64,7 @@ def test_a_step_with_no_change_adds_nothing(scene: Scene) -> None:
     scene.installation()
     specs = lay_out_specs(scene)
 
-    with_change = scene.policy(change="feature")
+    with_change = scene.policy(changes=("feature",))
     without = scene.policy()
 
     assert reads(with_change, specs / "changes" / "feature" / "tasks.md")
@@ -72,13 +72,24 @@ def test_a_step_with_no_change_adds_nothing(scene: Scene) -> None:
     assert not reads(without, specs / "specs" / "cap" / "spec.md")
 
 
+def test_a_unit_of_several_changes_reads_each_and_no_other(scene: Scene) -> None:
+    scene.installation()
+    specs = lay_out_specs(scene)
+
+    policy = scene.policy(changes=("feature", "other"))
+
+    assert reads(policy, specs / "changes" / "feature" / "tasks.md")
+    assert reads(policy, specs / "changes" / "other" / "tasks.md")
+    assert not reads(policy, specs / "changes" / "third" / "tasks.md")
+
+
 def test_a_write_grant_inside_the_specs_folder_is_still_refused(scene: Scene) -> None:
     scene.installation()
     specs = lay_out_specs(scene)
-    assert reads(scene.policy(change="feature"), specs / "changes" / "feature" / "tasks.md")
+    assert reads(scene.policy(changes=("feature",)), specs / "changes" / "feature" / "tasks.md")
 
     with pytest.raises(PolicyRefused, match="owns"):
         scene.policy(
             {"write": [str(specs / "changes" / "feature")]},
-            change="feature",
+            changes=("feature",),
         )

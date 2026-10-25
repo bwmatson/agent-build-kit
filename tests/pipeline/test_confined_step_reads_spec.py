@@ -3,10 +3,15 @@ log (spec: sandbox-spec-reads). The backend is a stand-in that enforces the poli
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
+import pytest
+
 from agent_build_kit.config import models
-from agent_build_kit.pipeline.wiring import build_run
+from agent_build_kit.pipeline.claude_stream import records
+from agent_build_kit.pipeline.transcript import TranscriptEvent
+from agent_build_kit.pipeline.wiring import build_run, build_run_review, refused_read
 from agent_build_kit.runtimes import AgentRequest, AgentResult
 from agent_build_kit.sandboxes import SandboxPolicy
 from tests.pipeline.test_wiring_sandbox import Recording, install
@@ -16,7 +21,7 @@ CHANGE_FILES = ("tasks.md", "proposal.md", "design.md", "specs/cap/spec.md")
 
 class Enforcing(Recording):
     """Reads what the request's policy lists and refuses the rest, as a real backend would; a
-    refusal reaches the run as the line the agent's read tool printed."""
+    refusal reaches the run as the tool result the agent's read printed."""
 
     def __init__(self, wanted: list[Path]) -> None:
         super().__init__()
@@ -31,8 +36,12 @@ class Enforcing(Recording):
                 self.read.append(path)
             else:
                 self.refused.append(path)
-                if request.on_event:
-                    request.on_event(f"Read {path}: EACCES: permission denied, open '{path}'")
+                if request.on_record:
+                    request.on_record(
+                        TranscriptEvent(
+                            kind="tool_result", text=f"EACCES: permission denied, open '{path}'"
+                        )
+                    )
         return super().run(request)
 
 
@@ -52,14 +61,16 @@ def scene(tmp_path: Path) -> tuple[Path, Path]:
     return root, specs
 
 
-def run_step(tmp_path: Path, wanted: list[Path], *, change: str, lines: list[str]) -> Enforcing:
-    """One step of `scene`'s installation that tries to read `wanted`."""
+def run_step(
+    tmp_path: Path, wanted: list[Path], *, changes: tuple[str, ...], lines: list[str]
+) -> Enforcing:
+    """One build step of `scene`'s installation that tries to read `wanted`."""
     runtime = Enforcing(wanted)
     build_run(
         runtime=runtime,
         planning_repo=tmp_path / "plan",
         sandbox_repo="app",
-        sandbox_change=change,
+        sandbox_changes=changes,
         log=lines.append,
     )("Go.", cwd=tmp_path / "main", model=models().implement)
     return runtime
@@ -69,10 +80,36 @@ def test_a_confined_step_reads_each_file_of_its_change(tmp_path: Path) -> None:
     _, specs = scene(tmp_path)
     wanted = [specs / "changes" / "feature" / name for name in CHANGE_FILES]
 
-    runtime = run_step(tmp_path, wanted, change="feature", lines=[])
+    runtime = run_step(tmp_path, wanted, changes=("feature",), lines=[])
 
     assert runtime.refused == []
     assert runtime.read == wanted
+
+
+def test_a_joined_unit_s_build_reads_the_change_it_carries(tmp_path: Path) -> None:
+    _, specs = scene(tmp_path)
+    wanted = [specs / "changes" / change / "tasks.md" for change in ("feature", "other")]
+
+    runtime = run_step(tmp_path, wanted, changes=("feature", "other"), lines=[])
+
+    assert runtime.refused == []
+    assert runtime.read == wanted
+
+
+def test_a_review_run_reads_the_change_it_reviews_against(tmp_path: Path) -> None:
+    _, specs = scene(tmp_path)
+    tasks = specs / "changes" / "feature" / "tasks.md"
+    runtime = Enforcing([tasks])
+
+    build_run_review(
+        runtime=runtime,
+        planning_repo=tmp_path / "plan",
+        sandbox_repo="app",
+        sandbox_changes=("feature",),
+    )(cwd=tmp_path / "main")
+
+    assert runtime.refused == []
+    assert runtime.read == [tasks]
 
 
 def test_it_reads_neither_another_change_nor_the_configuration(tmp_path: Path) -> None:
@@ -80,7 +117,7 @@ def test_it_reads_neither_another_change_nor_the_configuration(tmp_path: Path) -
     own = specs / "changes" / "feature" / "tasks.md"
     others = [specs / "changes" / "other" / "tasks.md", root / "abk.yaml"]
 
-    runtime = run_step(tmp_path, [own, *others], change="feature", lines=[])
+    runtime = run_step(tmp_path, [own, *others], changes=("feature",), lines=[])
 
     assert runtime.read == [own]
     assert runtime.refused == others
@@ -94,8 +131,52 @@ def test_a_refused_read_of_a_change_shows_in_the_log_as_a_sandbox_message(
     lines: list[str] = []
 
     # No change is named, so the sandbox refuses the read of one.
-    run_step(tmp_path, [refused], change="", lines=lines)
+    run_step(tmp_path, [refused], changes=(), lines=lines)
 
     said = [line for line in lines if line.startswith("sandbox:") and str(refused) in line]
     assert said, lines
     assert "does not let this step read" in said[0]
+
+
+def tool_result(text: str) -> str:
+    """What Claude Code's stream carries when a tool call fails: a `user` event."""
+    return json.dumps(
+        {
+            "type": "user",
+            "message": {
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "t1", "is_error": True, "content": text}
+                ]
+            },
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "EACCES: permission denied, open '{path}'",
+        "cat: {path}: Permission denied",
+        "Error: EACCES: permission denied, scandir '{path}'.",
+        "failed (see {path}), Permission denied",
+    ],
+    ids=["read-tool", "bash-cat", "trailing-dot", "bracketed"],
+)
+def test_a_refusal_in_a_recorded_tool_result_names_the_path_under_the_specs(
+    tmp_path: Path, text: str
+) -> None:
+    path = tmp_path / "openspec" / "changes" / "feature" / "tasks.md"
+    (event,) = records(json.loads(tool_result(text.format(path=path))))
+
+    assert event.kind == "tool_result"
+    assert [refused_read(line, tmp_path / "openspec") for line in event.text.splitlines()] == [
+        str(path)
+    ]
+
+
+def test_a_sibling_folder_or_an_unrelated_denial_is_not_a_refused_read(tmp_path: Path) -> None:
+    specs = tmp_path / "openspec"
+
+    assert refused_read(f"cat: {tmp_path}/openspec-old/a.md: Permission denied", specs) is None
+    assert refused_read(f"cat: {tmp_path}/other/a.md: Permission denied", specs) is None
+    assert refused_read(f"read {specs}/changes/a/tasks.md fine", specs) is None
