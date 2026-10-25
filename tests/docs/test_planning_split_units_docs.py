@@ -5,6 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CLI = ROOT / "docs" / "cli.md"
+CHANGELOG = ROOT / "CHANGELOG.md"
 RUNBOOK = ROOT / "docs" / "runbooks" / "move-agent-build-kit-planning.md"
 
 
@@ -73,3 +74,18 @@ def test_the_runbook_dry_run_compares_unit_counts_by_origin():
 
 def test_the_runbook_cutover_expects_the_dropped_edges():
     assert re.search(r"dropped (dependenc|edge)", runbook_step(5), re.I)
+
+
+def test_the_changelog_has_one_unreleased_bullet_for_the_moved_units():
+    unreleased = CHANGELOG.read_text().split("## Unreleased", 1)[1].split("\n## ", 1)[0]
+    bullets = [
+        squash(b)
+        for b in re.split(r"\n\s*\n", unreleased)
+        if "abk planning split" in b and "units of" in b
+    ]
+    assert len(bullets) == 1
+    text = bullets[0]
+    assert re.search(r"archive entr", text) and "units" in text
+    assert "no directory" in text
+    assert re.search(r"merged unit of another repo", text)
+    assert "dropped" in text

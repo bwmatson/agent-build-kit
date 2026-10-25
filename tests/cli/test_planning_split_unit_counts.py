@@ -34,11 +34,10 @@ def test_the_units_are_split_by_origin_under_the_total(tmp_path, capsys):
     assert (snapshot_tree(source), snapshot_tree(destination)) == before
     total = lines.index(line_with(out, "units:"))
     assert "units: 7" in lines[total]
-    active = line_with(out, "active")
-    assert "3" in active and lines.index(active) > total
-    assert "3" in line_with(out, "archived")
-    assert "1" in line_with(out, "no change directory") and "gone/1" in out
-    assert "4" in line_with(out, "left in the source")
+    assert lines.index("    3 active") > total
+    assert "    3 archived" in lines
+    assert "    1 with no change directory, moved by repo: gone/1" in lines
+    assert "    4 left in the source" in lines
 
 
 def test_a_dropped_edge_is_one_line_with_a_count(tmp_path, capsys):
@@ -49,4 +48,18 @@ def test_a_dropped_edge_is_one_line_with_a_count(tmp_path, capsys):
     out = capsys.readouterr().out
     assert code == 0
     line_with(out, "old/2", "depends_on", "stays/1", "dropped")
-    assert "1" in line_with(out, "dropped edges")
+    assert "  dropped edges: 1" in out.splitlines()
+
+
+def test_a_remove_without_apply_describes_the_archived_units_among_the_removals(tmp_path, capsys):
+    source, destination, _ = archived_trees(tmp_path)
+    before = (snapshot_tree(source), snapshot_tree(destination))
+
+    code = split(source, "--repo", "app", "--to", str(destination), "--remove")
+
+    lines = capsys.readouterr().out.splitlines()
+    assert code == 0
+    for unit in ("old/1", "old/2", "gone/1"):
+        assert f"  would remove unit {unit}" in lines
+    assert "  would remove unit stays/1" not in lines
+    assert (snapshot_tree(source), snapshot_tree(destination)) == before
