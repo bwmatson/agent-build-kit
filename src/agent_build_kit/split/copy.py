@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 from collections.abc import Callable, Sequence
+from enum import StrEnum
 from pathlib import Path
 
 from agent_build_kit.cli.pipeline import plan_digest, planned_hashes, record_plans
@@ -26,6 +27,7 @@ __all__ = [
     "CopyRefused",
     "CopyReport",
     "DroppedEdge",
+    "EdgeReason",
     "Preflight",
     "carry_out",
     "dropped_edges",
@@ -45,12 +47,21 @@ class CopyRefused(ValueError):
         self.errors = tuple(errors)
 
 
+class EdgeReason(StrEnum):
+    """Why the target of a dropped edge stays in the source."""
+
+    REPO = "repo"
+    PROJECT = "project"
+    KEPT_CHANGE = "kept_change"
+
+
 class DroppedEdge(Frozen):
-    """One dependency a moved unit's record loses on its way: a merged unit of another repo."""
+    """One dependency a moved unit's record loses on its way: a merged unit that stays."""
 
     unit: str
     field: str
     target: str
+    reason: EdgeReason = EdgeReason.REPO
 
 
 class Preflight(Frozen):
