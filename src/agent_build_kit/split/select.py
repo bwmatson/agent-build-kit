@@ -268,7 +268,9 @@ def plan_split(
     specs_moved, specs_shared, specs_unowned = _classify_specs(
         capabilities, (*active, *archived), {*changes_moved, *archive_moved}, set(specs)
     )
-    units_moved, units_blocking, unit_refusals = _units(source, set(changes_moved))
+    selection, unit_refusals = _units(
+        source, _sides(active, archived, changes_moved, archive_moved), repo, wanted
+    )
 
     return SplitPlan(
         repo=repo,
@@ -285,8 +287,12 @@ def plan_split(
         specs_moved=specs_moved,
         specs_shared=specs_shared,
         specs_unowned=specs_unowned,
-        units_moved=units_moved,
-        units_blocking=units_blocking,
+        units_moved=selection.moved,
+        units_moved_active=selection.active,
+        units_moved_archived=selection.archived,
+        units_moved_no_directory=selection.without_directory,
+        units_staying=selection.staying,
+        units_blocking=selection.blocking,
         uncommitted=uncommitted(source),
         refusals=(*refusals, *unit_refusals),
     )
@@ -310,19 +316,72 @@ def _classify_specs(
     )
 
 
+class _UnitSelection(Frozen):
+    moved: tuple[str, ...]
+    blocking: tuple[str, ...]
+    staying: tuple[str, ...]
+    active: tuple[str, ...]
+    archived: tuple[str, ...]
+    without_directory: tuple[str, ...]
+
+
+class _Sides(Frozen):
+    """For each change name, whether each of its directories (active, or archive entry with its
+    date stripped) moves; and which names have an active directory or an archive entry."""
+
+    moves: dict[str, tuple[bool, ...]]
+    active: frozenset[str]
+    archived: frozenset[str]
+
+
+def _sides(
+    active: Sequence[Path],
+    archived: Sequence[Path],
+    changes_moved: Collection[str],
+    archive_moved: Collection[str],
+) -> _Sides:
+    moves: dict[str, list[bool]] = {}
+    for directory in active:
+        moves.setdefault(directory.name, []).append(directory.name in changes_moved)
+    for directory in archived:
+        name = _ARCHIVE_DATE.sub("", directory.name)
+        moves.setdefault(name, []).append(directory.name in archive_moved)
+    return _Sides(
+        moves={name: tuple(sides) for name, sides in moves.items()},
+        active=frozenset(directory.name for directory in active),
+        archived=frozenset(_ARCHIVE_DATE.sub("", directory.name) for directory in archived),
+    )
+
+
 def _units(
-    source: Installation, moved_changes: set[str]
-) -> tuple[tuple[str, ...], tuple[str, ...], list[Refusal]]:
+    source: Installation, sides: _Sides, repo: str, project: str | None
+) -> tuple[_UnitSelection, list[Refusal]]:
     moved: list[str] = []
     blocking: list[str] = []
+    staying: list[str] = []
+    active: list[str] = []
+    archived: list[str] = []
+    without_directory: list[str] = []
     refusals: list[Refusal] = []
     for unit in UnitStore(source.state_dir / "units.json").all():
-        changes = [member.change for member in unit.members()]
-        moves = [name for name in changes if name in moved_changes]
-        stays = [name for name in changes if name not in moved_changes]
-        if not moves:
+        names = [member.change for member in unit.members()]
+        if ambiguous := [n for n in names if len({*sides.moves.get(n, ())}) > 1]:
+            blocking.append(unit.id)
+            line = (
+                f"unit {unit.id} builds change {ambiguous[0]}, whose directories "
+                "are not all moved or all kept: it cannot be placed"
+            )
+            refusals.append(Refusal(kind=RefusalKind.AMBIGUOUS_CHANGE, line=line))
             continue
-        if stays:
+        absent = [n for n in names if n not in sides.moves]
+        claimed = unit.repo == repo and (project is None or unit.project == project)
+        moves = [n for n in names if n in sides.moves and sides.moves[n][0]]
+        if claimed and absent:
+            moves.append(absent[0])
+        stays = [n for n in names if n in sides.moves and not sides.moves[n][0]]
+        if not moves:
+            staying.append(unit.id)
+        elif stays:
             blocking.append(unit.id)
             line = (
                 f"unit {unit.id} builds change {moves[0]}, which moves, and {stays[0]}, which stays"
@@ -334,7 +393,22 @@ def _units(
             refusals.append(Refusal(kind=RefusalKind.IN_FLIGHT_UNIT, line=line))
         else:
             moved.append(unit.id)
-    return tuple(sorted(moved)), tuple(sorted(blocking)), refusals
+            own = names[0]
+            if own in sides.active:
+                active.append(unit.id)
+            elif own in sides.archived:
+                archived.append(unit.id)
+            else:
+                without_directory.append(unit.id)
+    selection = _UnitSelection(
+        moved=tuple(sorted(moved)),
+        blocking=tuple(sorted(blocking)),
+        staying=tuple(sorted(staying)),
+        active=tuple(sorted(active)),
+        archived=tuple(sorted(archived)),
+        without_directory=tuple(sorted(without_directory)),
+    )
+    return selection, refusals
 
 
 def uncommitted(source: Installation) -> tuple[str, ...] | None:
