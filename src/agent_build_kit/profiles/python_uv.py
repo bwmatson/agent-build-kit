@@ -11,6 +11,7 @@ environment, so the collision cannot happen.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -207,6 +208,9 @@ def _pytest_program(command: list[str]) -> int | None:
     )
 
 
+_PRE_COMMIT_CONFIG = ".pre-commit-config.yaml"
+_PRE_COMMIT_RUN = re.compile(r"\bpre-commit run\b")
+
 # The plugin that records, for each test, the source it executed, and selects by it.
 TESTMON = "pytest-testmon"
 
@@ -353,6 +357,30 @@ class PythonUvProfile:
     def fix_command(self, files: list[str]) -> list[str] | None:
         # The repository's own hooks are the authority on what is fixed, so no tool is named.
         return ["uv", "run", "pre-commit", "run", "--files", *files] if files else None
+
+    def with_check_config(self, command: list[str], where: Path, root: Path) -> list[str]:
+        found = next(
+            (
+                folder / _PRE_COMMIT_CONFIG
+                for folder in (where, *where.parents)
+                if (folder / _PRE_COMMIT_CONFIG).is_file()
+                # Never above the git root; a folder outside it is not the repo's.
+                and (folder == root or root in folder.parents)
+            ),
+            None,
+        )
+        if found is None:
+            return command
+        argument = f"--config {shlex.quote(os.path.relpath(found, where))}"
+        if command[:2] == ["sh", "-c"]:
+            return [*command[:-1], _PRE_COMMIT_RUN.sub(rf"\g<0> {argument}", command[-1])]
+        at = next(
+            (i + 2 for i in range(len(command) - 2) if command[i : i + 2] == ["pre-commit", "run"]),
+            None,
+        )
+        if at is None:
+            return command
+        return [*command[:at], *shlex.split(argument), *command[at:]]
 
     def clean_command(self, *, types: bool = False) -> str:
         # Type checking is skipped unless asked for: in a build that is not stubbed a test

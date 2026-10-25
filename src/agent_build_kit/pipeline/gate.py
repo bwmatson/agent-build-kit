@@ -40,7 +40,7 @@ from agent_build_kit.pipeline.commit_order import (
 )
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import GroupStep
-from agent_build_kit.profiles.base import ToolchainProfile
+from agent_build_kit.profiles.base import ToolchainProfile, located
 
 
 def _files_of(repo: Path, sha: str) -> list[str]:
@@ -128,9 +128,20 @@ def check_branch(
             toolchain = profiles.for_project(owner, profile)
             prefix = owner.prefix if owner else ""
             where = f"{sha[:8]}: " + (f"{owner.path}: " if prefix and owner else "")
-            commands = [
+            clean_line = (
                 toolchain.clean_command(types=True) if stubbed else toolchain.clean_command()
-            ]
+            )
+
+            def clean_in(
+                tree: Path,
+                line: str = clean_line,
+                folder: str = prefix,
+                profile: ToolchainProfile = toolchain,
+            ) -> str:
+                # Looked up in the tree at `sha`, which is where the command runs.
+                return located(profile, ["sh", "-c", line], tree / folder, tree)[-1]
+
+            commands: list[str | Callable[[Path], str]] = [clean_in]
             if sha not in test_only:
                 commands.append(toolchain.red_command(owned))
             clean, *red_run = run_at_commit(repo, sha, commands, subdir=prefix or ".")
