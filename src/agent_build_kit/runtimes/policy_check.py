@@ -13,7 +13,7 @@ from collections.abc import Collection
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, get_args
 
-from agent_build_kit import config
+from agent_build_kit import config, sandboxes
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.command_spellings import SPELLINGS, SpellingName
 from agent_build_kit.pipeline.file_lock import atomic_write_text
@@ -21,6 +21,7 @@ from agent_build_kit.runtimes.base import AgentRuntime, PolicyReport, SpellingRe
 from agent_build_kit.runtimes.known_agents import RUNTIME_NAME, agent_for_command
 from agent_build_kit.runtimes.policy_apply import ApplyRefused, held, resolve_home
 from agent_build_kit.runtimes.recommended_policy import UNCOVERED, matches
+from agent_build_kit.sandboxes import Coverage
 
 if TYPE_CHECKING:
     from agent_build_kit.config import RuntimeConfig
@@ -233,6 +234,11 @@ def sandbox_coverage_text(runtime: AgentRuntime, installation: Installation) -> 
     value, and for a runtime with a `sandbox_note` the note until the recorded probe result says
     it ran, then what held and what did not."""
     value = runtime.sandbox_coverage.value
+    if installation.config.sandbox.enabled:
+        backend, found = sandboxes.probe(installation.config.sandbox.backend)
+        if backend.name == "unavailable" and not found.ok:
+            # No backend matches this platform: steps run unconfined whatever the runtime can do.
+            return Coverage.NONE.value
     if not runtime.sandbox_note:
         return value
     recorded = recorded_sandbox_probe(installation)

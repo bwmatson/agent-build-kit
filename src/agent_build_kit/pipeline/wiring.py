@@ -33,7 +33,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Protocol
 
-from agent_build_kit import claude_account, forges, infra, profiles, runtimes
+from agent_build_kit import claude_account, forges, infra, profiles, runtimes, sandboxes
 from agent_build_kit.budget import Section, cut_head, cut_tail, fit
 from agent_build_kit.config import (
     BASE_GROUP,
@@ -400,12 +400,22 @@ def _sandbox_policy(
     account: claude_account.Account | None,
     tier: TestTier = TestTier.UNIT_TEST,
     changes: tuple[str, ...] = (),
+    log: Callable[[str], None] = print,
 ) -> SandboxPolicy | None:
-    """The policy a step in `worktree` of `repo` runs under; None while the sandbox is off or
-    the call is not a step of a repo."""
+    """The policy a step in `worktree` of `repo` runs under; None while the sandbox is off, the
+    call is not a step of a repo, or no backend exists for this platform (said once through
+    `log`). A backend that matches the platform but fails its probe stops the step."""
     root = active_root()
     if not active().sandbox.enabled or not repo or root is None:
         return None
+    backend, found = sandboxes.probe(active().sandbox.backend)
+    if not found.ok and active().repos[repo].sandbox.required is not Coverage.NONE:
+        if backend.name == "unavailable":
+            log(f"sandbox: this step runs unconfined: {found.cause} ({found.fix})")
+            return None
+        raise RuntimeError(
+            f"sandbox backend {backend.name} does not work: {found.cause}; {found.fix}"
+        )
     return build_policy(
         Installation(active(), root),
         repo,
@@ -554,7 +564,7 @@ def build_run(
         gateway = {"gateway": spend} if source is not None else {}
         try:
             sandbox = _sandbox_policy(
-                sandbox_repo, cwd, agent, account, sandbox_tier, sandbox_changes
+                sandbox_repo, cwd, agent, account, sandbox_tier, sandbox_changes, log or print
             )
         except PolicyRefused as refused:
             spend()

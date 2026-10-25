@@ -50,45 +50,44 @@ def failing_backend() -> Iterator[None]:
         yield
 
 
-def sandbox_checks(config: Path) -> dict[str, Check]:
-    """The sandbox checks of a workspace that writes no `sandbox` block, by repo name."""
+def sandbox_check(config: Path) -> Check:
+    """The one sandbox check of a workspace that writes no `sandbox` block."""
     checks = run_doctor(config, run=Answers(), which=which_all)
-    found = [c for c in checks if "sandbox" in c.name]
-    return {repo: next(c for c in found if repo in c.name) for repo in REPOS}
+    (found,) = [c for c in checks if "sandbox" in c.name]
+    return found
 
 
-def test_doctor_names_a_working_backend_for_each_repo(
+def test_doctor_names_a_working_backend_and_every_repo_it_confines(
     workspace: Path,  # noqa: F811 — fixture
     working_backend: None,
 ) -> None:
-    found = sandbox_checks(workspace / "abk.yaml")
+    found = sandbox_check(workspace / "abk.yaml")
 
-    for check in found.values():
-        assert check.status == "ok"
-        assert "landlock" in check.detail
+    assert found.status == "ok"
+    assert "landlock" in found.detail
+    assert all(repo in found.detail for repo in REPOS)
 
 
-def test_doctor_says_a_machine_with_no_backend_runs_unconfined_for_each_repo(
+def test_doctor_says_a_machine_with_no_backend_runs_every_repo_unconfined(
     workspace: Path,  # noqa: F811 — fixture
     no_backend: None,
 ) -> None:
-    found = sandbox_checks(workspace / "abk.yaml")
+    found = sandbox_check(workspace / "abk.yaml")
 
-    for check in found.values():
-        assert check.status in ("ok", "info")
-        assert "unconfined" in check.detail
+    assert found.status in ("ok", "info")
+    assert "unconfined" in found.detail
+    assert all(repo in found.detail for repo in REPOS)
 
 
 def test_doctor_fails_a_backend_that_does_not_work_with_the_cause_and_the_fix(
     workspace: Path,  # noqa: F811 — fixture
     failing_backend: None,
 ) -> None:
-    found = sandbox_checks(workspace / "abk.yaml")
+    found = sandbox_check(workspace / "abk.yaml")
 
-    for check in found.values():
-        assert check.status == "FAIL"
-        assert "stand-in off" in check.detail
-        assert "turn on" in check.fix
+    assert found.status == "FAIL"
+    assert "stand-in off" in found.detail
+    assert "turn on" in found.fix
 
 
 def test_status_shows_coverage_none_where_no_backend_matches(
