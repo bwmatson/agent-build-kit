@@ -354,6 +354,9 @@ class PythonUvProfile:
         # The repository's own hooks are the authority on what is fixed, so no tool is named.
         return ["uv", "run", "pre-commit", "run", "--files", *files] if files else None
 
+    def with_check_config(self, command: list[str], where: Path, root: Path) -> list[str]:
+        raise NotImplementedError
+
     def clean_command(self, *, types: bool = False) -> str:
         # Type checking is skipped unless asked for: in a build that is not stubbed a test
         # importing a function that doesn't exist yet is the expected state at the tests commit.

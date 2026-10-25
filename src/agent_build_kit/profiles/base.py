@@ -112,6 +112,19 @@ class AppliesFixers(Protocol):
         ...
 
 
+@runtime_checkable
+class LocatesCheckConfig(Protocol):
+    """The optional hook a profile adds to find a check's configuration file above the folder
+    the check runs in. A profile without it has its commands run as they are."""
+
+    def with_check_config(self, command: list[str], where: Path, root: Path) -> list[str]:
+        """`command` (an argv, or a `sh -c` one holding the command as its last element)
+        with the argument naming the configuration for a run in `where`: the file in `where`,
+        else the nearest in a folder above it up to `root`, given relative to `where`.
+        `command` itself when it is not one of the profile's checks or no file exists."""
+        ...
+
+
 def supports_stubs(profile: object) -> bool:
     """Whether `profile` declares `supports_stubs` true; a profile without it, or one that
     says anything but true, does not support them."""
