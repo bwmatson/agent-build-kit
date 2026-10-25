@@ -243,7 +243,12 @@ def refresh_login(
     started = time.monotonic()
     argv = [*command(), "-p", "Reply with OK and nothing else.", "--model", "haiku"]
     done = run(
-        argv, capture_output=True, text=True, check=False, timeout=120, **_account_run_kwargs()
+        argv,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+        **_account_run_kwargs(account),
     )
     # The output is discarded, so the row has no figures: a duration and the exit status.
     call_recorder(OverheadNode.LOGIN_REFRESH, say=print)(
@@ -487,9 +492,7 @@ class ClaudeCodeRuntime:
         )
 
     def get_usage_status(self) -> UsageStatus | None:
-        read_live = self._read_live or (
-            lambda: read_live_usage(refresh=refresh_login, caller="status")
-        )
+        read_live = self._read_live or (lambda: read_live_usage(caller="status"))
         reading = read_live() or (self._read_cached or read_cached_usage)()
         if reading is None:
             return None

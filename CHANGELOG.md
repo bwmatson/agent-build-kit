@@ -6,6 +6,10 @@
   `python-uv` profile now passes the nearest `.pre-commit-config.yaml` at or above the folder a
   check runs in (never above the git root) to the diff lint, the all-files lint, the clean
   command and the fixer. A project's own file still wins, and with none the commands are unchanged.
+- The login refresh the usage guard makes after an expired token now runs under the account it
+  is for. Before, a labelled account's refresh renewed the default account's token, so the
+  labelled account's usage stayed unknown and its starts were refused. A refresh that leaves the
+  token unchanged is logged by account.
 
 - A confined Claude Code step now starts: its policy reads the system folders and the folders
   the `claude` program is found in and a link to it points at, so the launcher can exec it.

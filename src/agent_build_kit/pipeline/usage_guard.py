@@ -532,7 +532,7 @@ def refresh_login() -> None:
     """
     from agent_build_kit.runtimes import claude_code
 
-    claude_code.refresh_login()
+    claude_code.refresh_login(_account.get())
 
 
 def claude_limits() -> ClaudeLimitsConfig:
@@ -751,6 +751,11 @@ def read_live_usage(
                 (refresh or refresh_login)()
                 fresh = read_oauth_token()
                 if not fresh or fresh == token:
+                    named = _account.get()
+                    log.warning(
+                        "account %s: the login refresh left the saved token as it was",
+                        named.label if named and named.label else "default",
+                    )
                     return failed(error)
                 retry_with = fresh
             elif isinstance(error, OSError) and not isinstance(error, urllib.error.HTTPError):

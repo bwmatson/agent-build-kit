@@ -142,6 +142,8 @@ def test_the_runtimes_usage_status_refreshes_under_the_account_in_force(
     monkeypatch.setattr(
         claude_code, "refresh_login", lambda account=None: real_refresh_login(account, run=claude)
     )
+    # The suite refuses the adapter's usage reader; this test is about the real one.
+    monkeypatch.setattr(claude_code, "read_live_usage", usage_guard.read_live_usage)
     host.answers = [unauthorized(), payload(session=30.0)]
 
     with usage_guard.on_account(personal):
