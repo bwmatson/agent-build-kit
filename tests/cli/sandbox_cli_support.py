@@ -8,6 +8,7 @@ from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 import pytest
+import yaml
 
 from agent_build_kit import sandboxes
 from agent_build_kit.sandboxes import Availability, SandboxPolicy
@@ -36,10 +37,20 @@ class CountingBackend(StandInBackend):
         return list(argv)
 
 
+def _set_sandbox(config: Path, block: dict[str, object]) -> None:
+    document = yaml.safe_load(config.read_text()) or {}
+    document["sandbox"] = block
+    config.write_text(yaml.safe_dump(document))
+
+
 def switch_on(config: Path, *, backend: str = NAME) -> None:
-    """Append `sandbox.enabled: true` with `backend` to an `abk.yaml`."""
-    with config.open("a") as handle:
-        handle.write(f"sandbox:\n  enabled: true\n  backend: {backend}\n")
+    """Set `sandbox.enabled: true` with `backend` in an `abk.yaml`."""
+    _set_sandbox(config, {"enabled": True, "backend": backend})
+
+
+def switch_off(config: Path) -> None:
+    """Set `sandbox.enabled: false` in an `abk.yaml`, since the sandbox is on unless it says so."""
+    _set_sandbox(config, {"enabled": False})
 
 
 @pytest.fixture

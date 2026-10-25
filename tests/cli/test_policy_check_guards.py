@@ -14,7 +14,7 @@ from agent_build_kit.runtimes.guards import guard_lines
 from agent_build_kit.sandboxes import Coverage
 from tests.cli.guard_listing_support import ACTIVE, KEPT, SKIPPED, state_of
 from tests.cli.policy_step_fakes import configured
-from tests.cli.sandbox_cli_support import CountingBackend, switch_on
+from tests.cli.sandbox_cli_support import CountingBackend, switch_off, switch_on
 from tests.cli.sandbox_cli_support import stand_in as stand_in  # noqa: F401 — fixture
 from tests.cli.test_init import app, stubs  # noqa: F401 — fixtures
 from tests.conftest import make_installation
@@ -33,6 +33,8 @@ def check(
     planning = configured(tmp_path, app, monkeypatch, runtime)
     if sandbox:
         switch_on(planning / "abk.yaml")
+    else:
+        switch_off(planning / "abk.yaml")  # the sandbox is on unless the file says it is off
     capsys.readouterr()
     main(["--config", str(planning / "abk.yaml"), "policy", "check"])
     shown = capsys.readouterr()

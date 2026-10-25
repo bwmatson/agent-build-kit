@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import main
-from tests.cli.sandbox_cli_support import NAME, CountingBackend, switch_on
+from tests.cli.sandbox_cli_support import NAME, CountingBackend, switch_off, switch_on
 from tests.cli.sandbox_cli_support import broken_stand_in as broken_stand_in  # noqa: F401
 from tests.cli.sandbox_cli_support import stand_in as stand_in  # noqa: F401
 from tests.cli.test_init import app, init_args, stubs  # noqa: F401 — fixtures
@@ -28,6 +28,8 @@ def rerun(
     assert main([*init_args(planning, app), "--yes"]) == 0
     if on:
         switch_on(planning / "abk.yaml", backend=backend)
+    else:
+        switch_off(planning / "abk.yaml")  # the sandbox is on unless the file says it is off
     capsys.readouterr()
     assert main([*init_args(planning, app), "--yes"]) == 0
     shown = capsys.readouterr()

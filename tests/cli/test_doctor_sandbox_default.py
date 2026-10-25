@@ -9,6 +9,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+import yaml
 
 from agent_build_kit import sandboxes
 from agent_build_kit.cli import main
@@ -17,7 +18,8 @@ from agent_build_kit.cli.doctor import Check, run_doctor
 from agent_build_kit.config import load
 from agent_build_kit.sandboxes import Coverage
 from agent_build_kit.settings import reload
-from tests.cli.test_doctor import Answers, workspace  # noqa: F401 — fixture
+from tests.cli.test_doctor import Answers
+from tests.cli.test_doctor import workspace as off_workspace  # noqa: F401 — fixture
 from tests.cli.test_init import app, init_args, stubs  # noqa: F401 — fixtures
 from tests.conftest import make_installation
 from tests.factories import recognised_planning, which_all
@@ -26,6 +28,17 @@ from tests.sandboxes.stand_in import StandInBackend
 
 ELSEWHERE = "no-such-platform"
 REPOS = ("app", "platform")
+
+
+@pytest.fixture
+def workspace(off_workspace: Path) -> Path:  # noqa: F811 — fixture
+    """The shared doctor workspace with the `sandbox` block it writes taken out, so the sandbox
+    is left at its default."""
+    config = off_workspace / "abk.yaml"
+    document = yaml.safe_load(config.read_text())
+    document.pop("sandbox", None)
+    config.write_text(yaml.safe_dump(document))
+    return off_workspace
 
 
 @pytest.fixture
@@ -101,7 +114,7 @@ def test_status_shows_coverage_none_where_no_backend_matches(
     select(monkeypatch, SelectableRuntime("covered", sandbox_coverage=Coverage.PROCESS))
     capsys.readouterr()
 
-    cli.cmd_status(argparse.Namespace(), make_installation(tmp_path))
+    cli.cmd_status(argparse.Namespace(), make_installation(tmp_path, sandbox={"enabled": True}))
 
     shown = capsys.readouterr()
     assert any("sandbox_coverage: none" in line for line in (shown.out + shown.err).splitlines())
