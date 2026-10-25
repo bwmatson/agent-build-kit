@@ -17,7 +17,9 @@ from tests.project_workspace import repos_declaring
 def test_a_plan_recorded_before_the_rewrite_stays_current_for_a_group_resolved_to_a_project(
     tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run = Replan(tmp_path, monkeypatch, repos=repos_declaring(tmp_path / "planning", "app", ("web",)))
+    run = Replan(
+        tmp_path, monkeypatch, repos=repos_declaring(tmp_path / "planning", "app", ("web",))
+    )
     text = (
         "# Tasks\n\nAcceptance: none — a fixture about tags\n\n"
         f"## 1. [app] [{OLD_UNIT_TEST_TAG}] Add it\n\n"
