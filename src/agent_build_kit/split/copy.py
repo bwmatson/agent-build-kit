@@ -17,8 +17,10 @@ from agent_build_kit.split.select import SplitPlan, moved_files, moved_records
 __all__ = [
     "CopyRefused",
     "CopyReport",
+    "DroppedEdge",
     "Preflight",
     "carry_out",
+    "dropped_edges",
     "file_contents",
     "moved_plan_records",
     "outstanding",
@@ -35,12 +37,22 @@ class CopyRefused(ValueError):
         self.errors = tuple(errors)
 
 
+class DroppedEdge(Frozen):
+    """One dependency a moved unit's record loses on its way: a merged unit of another repo."""
+
+    unit: str
+    field: str
+    target: str
+
+
 class Preflight(Frozen):
     """Every conflict and dangling edge (the errors) and every staying edge into the moved set
-    (a warning, an error under `remove`), found before the first write."""
+    (a warning, an error under `remove`), found before the first write; `dropped` is each
+    dependency the written records leave out."""
 
     errors: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
+    dropped: tuple[DroppedEdge, ...] = ()
 
 
 class CopyReport(Frozen):
@@ -76,6 +88,13 @@ def unit_records(source: Installation, plan: SplitPlan, scrub: bool) -> list[Sto
     scrub_text = _passes(source, plan, scrub)
     moved = moved_records(source, plan)
     return [scrubbing.scrub_record(unit, scrub_text) for unit in moved] if scrub else moved
+
+
+def dropped_edges(
+    source: Installation, destination: Installation, plan: SplitPlan
+) -> tuple[DroppedEdge, ...]:
+    """The edges of the moved units' records that the destination's copy leaves out."""
+    raise NotImplementedError
 
 
 def _plans_to_write(source: Installation, destination: Installation, plan: SplitPlan) -> dict:
