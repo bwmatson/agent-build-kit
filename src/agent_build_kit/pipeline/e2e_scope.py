@@ -12,7 +12,7 @@ from agent_build_kit import profiles
 from agent_build_kit.config import RepoConfig
 from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline.group_paths import changed_paths
-from agent_build_kit.pipeline.work_graph import TASK_LINE, TaskGroup, project_tags
+from agent_build_kit.pipeline.work_graph import TASK_LINE, TaskGroup
 from agent_build_kit.profiles.base import is_doc_path
 
 _TASK_NUMBER = re.compile(r"\d+\.\d+")
@@ -72,7 +72,7 @@ def product_path_warnings(
             continue
         number = _TASK_NUMBER.search(text)
         repo = repos.get(group.repo)
-        paths = changed_paths(text, project_tags(repo.projects) if repo else ())
+        paths = changed_paths(text, ())
         for named in unscoped_task_paths(paths, repo, group.support):
             if (group.number, named) in seen:
                 continue

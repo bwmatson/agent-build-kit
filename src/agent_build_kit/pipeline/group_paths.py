@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 _TICKED = re.compile(r"`([^`]+)`")
 _LINE_SUFFIX = re.compile(r":\d+$")
 _EXTENSION = re.compile(r"\.[A-Za-z0-9]+$")
-_NOT_A_PATH = re.compile(r"[\s=(<*]")
+_NOT_A_PATH = re.compile(r"[\s=(<]")
 # Lines of a group that say something other than which paths it changes.
 _NOT_CHANGES = re.compile(
     r"^\s*(?:Not changed|Planning note|Reads|Paths|Needs|Support|Check|Manual|Separate|"
@@ -25,13 +25,19 @@ _SENTENCE_END = re.compile(r"(?<=\.)\s+")
 _NOT_A_CHANGE = re.compile(r"\b(?:unchanged|must not|do not)\b.*", re.I)
 
 
+def _is_path_token(token: str) -> bool:
+    """Whether a backticked token can be a path: not a flag, URL or variable, and no spaces,
+    assignments, calls or placeholders."""
+    return not (token.startswith(("-", "http", "$")) or _NOT_A_PATH.search(token))
+
+
 def line_paths(line: str) -> list[str]:
     """The repo paths a task line names in backticks: tokens with a `/` or a file extension,
     without a trailing `:<line>`, `::<test id>` or `/`; URLs, flags, assignments, globs and
     symbols are skipped."""
     found: list[str] = []
     for token in _TICKED.findall(line):
-        if token.startswith(("-", "http", "$")) or _NOT_A_PATH.search(token):
+        if not _is_path_token(token) or "*" in token:
             continue
         cleaned = _LINE_SUFFIX.sub("", token.split("::", 1)[0]).rstrip("/")
         if cleaned and ("/" in cleaned or _EXTENSION.search(cleaned)):
@@ -42,7 +48,7 @@ def line_paths(line: str) -> list[str]:
 def _glob_prefix(token: str) -> str | None:
     """The literal directory prefix of a glob token (`web/src/**` is `web/src/`), None when the
     token is not a glob or has no directory before it."""
-    if token.startswith(("-", "http", "$")) or re.search(r"[\s=(<]", token):
+    if not _is_path_token(token):
         return None
     at = [i for char in "*?[" if (i := token.find(char)) >= 0]
     if not at:

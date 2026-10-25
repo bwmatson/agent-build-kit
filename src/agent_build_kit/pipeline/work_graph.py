@@ -37,10 +37,12 @@ from agent_build_kit.compat_names import (
 from agent_build_kit.config import (
     REST_SPLIT,
     SPLIT_NAME,
+    ProjectConfig,
     RepoConfig,
     WorkspaceConfig,
     active,
     e2e_splits,
+    owning_project,
 )
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.group_paths import named_paths
@@ -323,16 +325,14 @@ def resolved_project(group: TaskGroup, projects: Sequence[str]) -> tuple[str, Pr
     other group takes the one declared project that holds every path it names, else the root."""
     if group.source == ProjectSource.EXPLICIT:
         return group.project, ProjectSource.EXPLICIT
-    owners = {_owner(path, projects) for path in named_paths(group, projects)}
-    if len(owners) == 1 and (owner := owners.pop()) is not None:
-        return owner, ProjectSource.RESOLVED
+    declared = [ProjectConfig(path=p) for p in projects]
+    owners = {
+        owner.path if (owner := owning_project(declared, path)) else None
+        for path in named_paths(group, projects)
+    }
+    if len(owners) == 1 and (owner_path := owners.pop()) is not None:
+        return tag_path(owner_path), ProjectSource.RESOLVED
     return ".", ProjectSource.ROOT
-
-
-def _owner(path: str, projects: Sequence[str]) -> str | None:
-    """The deepest declared project holding `path`, None when it is outside every one."""
-    holding = [p for p in projects if path == p or path.startswith(f"{p}/")]
-    return max(holding, key=len, default=None)
 
 
 def _resolved(group: TaskGroup, projects: Sequence[str]) -> TaskGroup:
