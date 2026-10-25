@@ -8,7 +8,8 @@ from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
 from agent_build_kit.pipeline.unit_size import Calibration, Kind
 from agent_build_kit.pipeline.units import Join
 from agent_build_kit.pipeline.work_graph import TaskGroup
-from tests.factories import ordinary_floor, stored_unit
+from tests.factories import ordinary_floor
+from tests.factories import tiered_stored_unit as stored_unit
 
 RATIOS = {Kind(repo="app", tier="unit-test"): Calibration(ratio=1.5, samples=20)}
 
@@ -26,7 +27,6 @@ def join_group(onto_kind: str, group_kind: str) -> None:
         change="feature",
         groups=[tagged(group_kind)],
         built=set(),
-        ceiling=750,
         floor=ordinary_floor,
         calibrations=RATIOS,
     )

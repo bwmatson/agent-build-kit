@@ -1785,14 +1785,12 @@ class UnitRunner(BaseModel):
                 )
                 if p
             )
-            # Recorded only when the reviewer was asked to classify.
-            classified = active().review.enabled
             self.store.record_approval(
                 unit.id,
                 judged,
                 verdict.description,
-                classification=verdict.classification if classified else None,
-                drivers=verdict.drivers if classified else (),
+                classification=verdict.classification,
+                drivers=verdict.drivers,
             )
             self.log(f"review approved {judged[:9]}")
             if points:

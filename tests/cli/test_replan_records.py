@@ -29,7 +29,7 @@ def test_a_change_is_planned_although_its_hash_is_recorded(
     assert run.calls == 1
     assert run.records["feature"] == {
         "hash": recorded,
-        "sizing": "",
+        "sizing": cli.sizing_digest(),
         "attempts": 0,
         "ok": True,
     }

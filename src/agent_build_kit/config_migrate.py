@@ -23,7 +23,6 @@ from agent_build_kit.config import (
     WorkspaceConfig,
     old_setting_blocks,
     read_new_settings,
-    workspace_full_ceiling,
 )
 from agent_build_kit.config_migrate_lines import (
     MARKED,
@@ -235,7 +234,7 @@ def _ceilings_loads(new: dict[str, Any], block: str, value: object) -> None:
         return WorkspaceConfig.model_validate(sections)
 
     try:
-        written = workspace_full_ceiling(load(new))
+        written = load(new).review.ceilings.full
     except ValueError as error:
         hint = (
             f"; raise {REVIEW}.{CEILINGS}.light and {REVIEW}.{CEILINGS}.auto to at least {value}"

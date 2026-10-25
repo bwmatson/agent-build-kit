@@ -175,15 +175,13 @@ The plan's dependencies are also checked against every unit not finished: a plan
 dependency that would close a cycle with stored work is dropped and logged, and a
 `Needs:` dependency is checked as it is linked and refused if it would close one.
 
-With `review.enabled` a unit is sized by its expected tier: its ceiling is the `review.ceilings` figure
+A unit is sized by its expected tier: its ceiling is the `review.ceilings` figure
 for the highest review tier expected of its groups (a group counts at its floor, and a repo's override applies),
-a unit with no expected tier is held to `full`, and a join takes the higher tier of its two sides. With the
-flag off every unit is held to the `full` ceiling, which is the single ceiling described below.
+a unit with no expected tier is held to `full`, and a join takes the higher tier of its two sides.
 
 Unit size is bounded from both sides. Groups are combined until the estimate
 reaches `global_limits.min_unit_lines`, and never past the unit's ceiling (its expected tier's
-`review.ceilings` figure with `review.enabled`, otherwise the `full` ceiling: `review.ceilings.full`, or
-the deprecated `global_limits.max_unit_lines` when only that is set): the
+`review.ceilings` figure, with `review.ceilings.full` for a unit with none): the
 planner's prompt states the ceiling, and a plan with a unit estimated over it
 is rejected and re-asked.
 The estimate is checked after being multiplied by a calibration ratio for the unit's kind

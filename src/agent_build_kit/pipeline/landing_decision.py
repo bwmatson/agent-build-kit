@@ -14,7 +14,6 @@ from agent_build_kit.pipeline.verdict import ReviewTier
 class Condition(StrEnum):
     """The conditions a unit must meet to land, one per way of being declined."""
 
-    REVIEW_DISABLED = "review_disabled"
     NOT_IN_REVIEW = "not_in_review"
     FEEDBACK_PENDING = "feedback_pending"
     HELD = "held"
@@ -38,7 +37,6 @@ class Condition(StrEnum):
 class LandingFacts(Frozen):
     """What is known of a unit and its pull request when the pipeline considers landing it."""
 
-    review_enabled: bool
     state: str
     feedback_pending: bool = False
     held: bool = False
@@ -74,7 +72,6 @@ def _first_unmet(facts: LandingFacts) -> tuple[Condition, str] | None:
     """The first condition the facts do not meet, with the reason in words."""
     result = overall_result(facts.checks)
     checks: list[tuple[bool, Condition, str]] = [
-        (facts.review_enabled, Condition.REVIEW_DISABLED, "review is not enabled"),
         (facts.state == IN_REVIEW, Condition.NOT_IN_REVIEW, "the unit is not in review"),
         (not facts.feedback_pending, Condition.FEEDBACK_PENDING, "feedback is still pending"),
         (not facts.held, Condition.HELD, "the unit is held"),

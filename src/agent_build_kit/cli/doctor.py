@@ -251,25 +251,6 @@ def _review(inst: Installation) -> list[Check]:
                     "check the glob for a typo in the `review` section of abk.yaml",
                 )
             )
-    policy_set = bool(
-        globs or not review.protected_defaults or review.auto_land != type(review.auto_land)()
-    )
-    if policy_set and not review.enabled:
-        checks.append(
-            _warn(
-                "review enabled",
-                "the `review` section sets policy but `enabled` is false, so none of it applies",
-                "set `review.enabled: true`, or remove the policy",
-            )
-        )
-    if review.auto_land.classes and not review.enabled:
-        checks.append(
-            _warn(
-                "review auto_land",
-                "`review.auto_land.classes` is set but `enabled` is false, so it has no effect",
-                "set `review.enabled: true`, or empty `review.auto_land.classes`",
-            )
-        )
     checks.append(_buffered_ceilings(inst))
     near = REVIEWER_READING_LIMIT * 4 // 5
     scopes = [("review.ceilings", None), *((f"repos.{n}", r) for n, r in inst.repos.items())]
@@ -284,7 +265,7 @@ def _review(inst: Installation) -> list[Check]:
                     "lower the auto ceiling or `review.ceiling_buffer`",
                 )
             )
-    if review.enabled and review.split_rounds == 0:
+    if review.split_rounds == 0:
         checks.append(
             _warn(
                 "review split_rounds",
@@ -987,6 +968,14 @@ def _public_content(inst: Installation) -> list[Check]:
     if checks:
         return checks
     return [_ok(PUBLIC_CONTENT, "nothing found" if tracked else "abk.yaml is not tracked")]
+
+
+def _deprecation_fix(key: str) -> str:
+    """What to do about a deprecated key: the migration moves the renamed ones, and a key that is
+    ignored is deleted by hand."""
+    if key == config.REMOVED_REVIEW_ENABLED:
+        return "delete `enabled` from the `review` section of abk.yaml (or abk.local.yaml)"
+    return "run `abk config --migrate`"
 
 
 MACHINE_KEYS = "machine keys"
@@ -1747,7 +1736,7 @@ def run_doctor(
         return [_fail("config", str(error), "run `abk init`, or fix abk.yaml")]
     checks = [_ok("config", str(path))]
     checks += [
-        _warn("config", config.deprecation_notice(key), "run `abk config --migrate`")
+        _warn("config", config.deprecation_notice(key), _deprecation_fix(key))
         for key in config.deprecations(path)
     ]
     checks += [_warn("config", notice.text, notice.fix) for notice in config.models_notices(path)]

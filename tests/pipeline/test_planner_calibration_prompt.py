@@ -135,7 +135,7 @@ def test_with_no_examples_configured_the_figures_stay_and_no_unit_is_shown() -> 
 
     section = section_of(prompt_for(titled("alpha", *SIX)))
 
-    assert "alpha" in section and "largest raw estimate 587" in section
+    assert "alpha" in section and "full 587" in section
     assert not [title for title in SIX if title in section]
 
 

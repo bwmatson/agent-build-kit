@@ -12,10 +12,9 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit import config
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import demotion_record, demotion_triggers
+from agent_build_kit.pipeline import demotion_record
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import UnitState
 from agent_build_kit.pipeline.usage_guard import Decision
@@ -89,29 +88,6 @@ def test_a_pass_evaluates_the_demotions_after_the_outcome_sweep(
     run(inst, store)
 
     assert demoted(inst) == {"docs", "code"}
-
-
-def test_a_pass_with_review_disabled_evaluates_none(
-    inst: Installation, store: UnitStore, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    calls: list[int] = []
-    real = demotion_triggers.evaluate_demotions
-
-    def spy(*args: object, **kwargs: object) -> None:
-        calls.append(1)
-        real(*args, **kwargs)  # type: ignore[arg-type]
-
-    monkeypatch.setattr(demotion_triggers, "evaluate_demotions", spy)
-    run(inst, store)
-    assert len(calls) == 1
-
-    config.activate(
-        config.active().model_copy(update={"review": config.ReviewConfig(enabled=False)}),
-        config.active_root(),
-    )
-    run(inst, store)
-
-    assert len(calls) == 1
 
 
 def test_an_error_evaluating_one_class_is_logged_and_the_others_are_still_evaluated(

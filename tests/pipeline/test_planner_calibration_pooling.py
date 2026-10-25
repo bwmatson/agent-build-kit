@@ -57,7 +57,7 @@ def test_both_kinds_of_a_planned_unit_have_the_same_calibration_kind() -> None:
 
 def test_an_integration_test_unit_is_checked_by_the_unit_test_ratio() -> None:
     kind = "integration-test"
-    limits(max_unit_lines=750)
+    limits()
 
     with pytest.raises(PlannerError, match="ceiling") as rejected:
         parse_plan(reply(kind, 600), groups=groups(kind), calibrations=RATIOS)

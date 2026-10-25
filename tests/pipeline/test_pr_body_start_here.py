@@ -89,15 +89,9 @@ def test_an_empty_list_is_left_out_and_the_verified_list_is_always_there(tmp_pat
     assert "seen to fail first" in only_skip
 
 
-def test_the_tier_line_needs_review_enabled_and_a_verdict(tmp_path: Path) -> None:
+def test_the_tier_line_needs_a_verdict(tmp_path: Path) -> None:
     verdict = tier_verdict(reason=TIER_REASON)
 
-    activate_with(review={"enabled": False})
-    off = body_of(tmp_path, focus=FOCUS, verdict=verdict)
-    assert TIER_REASON not in off
-    assert off.startswith(START)
-
-    activate_with(review={"enabled": True})
     assert TIER_REASON not in body_of(tmp_path, focus=FOCUS)
     assert TIER_REASON in start_of(body_of(tmp_path, focus=FOCUS, verdict=verdict))
 

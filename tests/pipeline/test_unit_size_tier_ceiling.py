@@ -89,16 +89,6 @@ def test_a_repos_override_is_the_ceiling_its_units_are_compared_with(
     assert len(logged) == 1 and "over the ceiling of 3000" in logged[0]
 
 
-def test_with_the_flag_off_every_tier_is_compared_with_the_old_ceiling(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    configure(enabled=False)
-
-    logged = open_at(tmp_path, 1400, "auto", capsys)
-
-    assert len(logged) == 1 and "over the ceiling of 750" in logged[0]
-
-
 def listed_in_status(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -132,16 +122,6 @@ def test_status_lists_no_unit_under_its_tiers_ceiling(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert listed_in_status(tmp_path, capsys, "auto", 2300, True) == []
-
-
-def test_status_with_the_flag_off_lists_a_unit_as_before(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    listed = listed_in_status(tmp_path, capsys, "auto", 1400, False)
-
-    assert len(listed) == 1
-    assert "  over the ceiling: a/1 (" in listed[0]
-    assert listed[0].endswith("estimated 600, landed 1400")
 
 
 @pytest.mark.parametrize("enabled", [True, False])

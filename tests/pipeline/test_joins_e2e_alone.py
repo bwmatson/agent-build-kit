@@ -9,7 +9,8 @@ import pytest
 from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
 from agent_build_kit.pipeline.units import Join
 from agent_build_kit.pipeline.work_graph import TaskGroup
-from tests.factories import ordinary_floor, stored_unit
+from tests.factories import ordinary_floor
+from tests.factories import tiered_stored_unit as stored_unit
 
 UNIT, E2E = "unit-test", "e2e-test"
 ALONE = "always has a unit of its own"
@@ -31,7 +32,6 @@ def join_group(group: TaskGroup, onto_group: TaskGroup, *, kind: str) -> None:
         change="feature",
         groups=[group],
         built=set(),
-        ceiling=750,
         floor=ordinary_floor,
     )
 
@@ -49,7 +49,6 @@ def join_unit(taken_group: TaskGroup, onto_group: TaskGroup, *, kind: str) -> No
         change=None,
         groups=[],
         built=set(),
-        ceiling=750,
         floor=ordinary_floor,
     )
 

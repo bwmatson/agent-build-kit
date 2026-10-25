@@ -117,14 +117,6 @@ def test_an_unknown_value_is_refused_naming_unit_group_and_floor() -> None:
     assert "'auto'" in message
 
 
-def test_with_review_disabled_the_field_is_ignored() -> None:
-    activate_with(review={"enabled": False})
-
-    units = plan((1,), flags=("",), tier="ful")
-
-    assert units[0].review_tier is None
-
-
 @pytest.mark.parametrize(
     "body",
     [

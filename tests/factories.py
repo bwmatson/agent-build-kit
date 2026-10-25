@@ -119,6 +119,12 @@ def stored_unit(uid: str = "add-marker/1", **overrides) -> StoredUnit:
     return StoredUnit(**fields)
 
 
+def tiered_stored_unit(uid: str = "add-marker/1", **overrides) -> StoredUnit:
+    """`stored_unit` with a recorded review tier (`auto` unless given), since a unit with none
+    counts as `full` and a join of `full` work with lower work is refused."""
+    return stored_unit(uid, **{"review_tier": "auto", **overrides})
+
+
 def deep_store(directory: Path, name: str = "units.json") -> UnitStore:
     """c/2 on c/1, c/3 on c/2, and c/4 on both c/1 and c/3, all in review.
 

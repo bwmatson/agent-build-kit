@@ -34,7 +34,6 @@ def about_review(checks: list[Check], status: str) -> list[Check]:
 
 
 VALID = {
-    "enabled": True,
     "protected_paths": ["src/**"],
     "classes": {"docs": ["docs/**"]},
 }
@@ -43,7 +42,7 @@ VALID = {
 def test_a_valid_section_is_silent(tmp_path: Path) -> None:
     checks = doctor(tmp_path, VALID)
 
-    assert load(tmp_path / "planning" / "abk.yaml").review.model_dump()["enabled"] is True
+    assert load(tmp_path / "planning" / "abk.yaml").review.protected_paths == ["src/**"]
     assert about_review(checks, "warn") == []
     assert about_review(checks, "FAIL") == []
 
@@ -80,18 +79,8 @@ def test_a_class_that_cannot_be_resolved_is_a_failure(tmp_path: Path) -> None:
     assert "docs" in f"{found[0].name} {found[0].detail}"
 
 
-def test_policy_set_while_review_is_not_enabled_is_warned_about(tmp_path: Path) -> None:
-    checks = doctor(tmp_path, {**VALID, "enabled": False})
+def test_a_section_with_nothing_set_is_silent(tmp_path: Path) -> None:
+    checks = doctor(tmp_path, {})
 
-    found = about_review(checks, "warn")
-    assert len(found) == 1
-    assert "enabled" in f"{found[0].name} {found[0].detail}"
-    assert about_review(checks, "FAIL") == []
-
-
-def test_a_section_with_nothing_set_and_review_off_is_silent(tmp_path: Path) -> None:
-    checks = doctor(tmp_path, {"enabled": False})
-
-    assert load(tmp_path / "planning" / "abk.yaml").review.model_dump()["enabled"] is False
     assert about_review(checks, "warn") == []
     assert about_review(checks, "FAIL") == []

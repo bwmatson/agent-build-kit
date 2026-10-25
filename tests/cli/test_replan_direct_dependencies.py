@@ -50,7 +50,12 @@ def plan() -> str:
 
 
 def lines_about(out: str, uid: str) -> list[str]:
-    return [line for line in out.splitlines() if line.startswith(f"{uid}:")]
+    """The lines about `uid`'s dependencies; a change of review tier is not one."""
+    return [
+        line
+        for line in out.splitlines()
+        if line.startswith(f"{uid}:") and "review tier" not in line
+    ]
 
 
 def test_a_replan_prints_the_direct_changes_and_nothing_for_a_redundant_dependency(

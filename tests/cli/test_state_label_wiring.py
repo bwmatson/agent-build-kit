@@ -86,20 +86,6 @@ def test_the_store_the_cli_builds_puts_the_review_label_of_the_recorded_verdict_
     assert forge.on_pr[PR] & review_label_names() == {"review-full"}
 
 
-def test_the_store_the_cli_builds_writes_no_review_label_with_review_disabled(
-    inst: Installation, forge: StandInForge
-) -> None:
-    activate_with(review={"enabled": False})
-    inst.state_dir.mkdir(parents=True, exist_ok=True)
-    write_verdicts(inst.state_dir / VERDICTS, {UNIT: ReviewTier.LIGHT})
-    store = cli.store_for(inst)
-    store.upsert([unit(UNIT)])
-
-    store.set_state(UNIT, IN_REVIEW, pr=PR, branch=f"spec/{UNIT}")
-
-    assert forge.on_pr[PR] & review_label_names() == set()
-
-
 def test_the_store_the_cli_builds_makes_a_pull_request_a_draft_while_its_unit_runs(
     inst: Installation, forge: StandInForge
 ) -> None:

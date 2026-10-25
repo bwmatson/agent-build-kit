@@ -27,8 +27,8 @@ def test_a_unit_defaults_to_a_floor_of_400_and_a_ceiling_of_750_lines() -> None:
     """With nothing configured, the default floor still sits under the ceiling,
     and a floor raised to meet it is refused — the default is a ceiling, not a
     number nothing reads."""
-    limits = LimitsConfig()
-    assert (limits.min_unit_lines, limits.max_unit_lines) == (400, 750)
+    config = WorkspaceConfig()
+    assert (config.global_limits.min_unit_lines, config.review.ceilings.full) == (400, 750)
 
     with pytest.raises(ValidationError):
         WorkspaceConfig(global_limits=LimitsConfig(min_unit_lines=750))
@@ -36,43 +36,50 @@ def test_a_unit_defaults_to_a_floor_of_400_and_a_ceiling_of_750_lines() -> None:
 
 def test_a_workspace_that_sets_either_size_keeps_it() -> None:
     assert LimitsConfig(min_unit_lines=600).min_unit_lines == 600
-    assert LimitsConfig(min_unit_lines=600).max_unit_lines == 750
-    assert LimitsConfig(max_unit_lines=1000).min_unit_lines == 400
-    assert LimitsConfig(max_unit_lines=1000).max_unit_lines == 1000
+    assert (
+        WorkspaceConfig(global_limits=LimitsConfig(min_unit_lines=600)).review.ceilings.full == 750
+    )
+    assert WorkspaceConfig(review={"ceilings": {"full": 1000}}).global_limits.min_unit_lines == 400
+    assert WorkspaceConfig(review={"ceilings": {"full": 1000}}).review.ceilings.full == 1000
 
 
 def test_abk_yaml_with_no_limits_loads_the_new_defaults(tmp_path: Path) -> None:
     path = tmp_path / "abk.yaml"
     path.write_text("{}\n")
 
-    limits = load(path).global_limits
+    config = load(path)
 
-    assert (limits.min_unit_lines, limits.max_unit_lines) == (400, 750)
+    assert (config.global_limits.min_unit_lines, config.review.ceilings.full) == (400, 750)
 
 
 def test_a_floor_above_the_ceiling_is_refused_naming_both() -> None:
     """No plan could satisfy both, so it fails here rather than producing
     units that miss one or the other."""
     with pytest.raises(ValidationError) as refused:
-        WorkspaceConfig(global_limits=LimitsConfig(min_unit_lines=1200, max_unit_lines=800))
+        WorkspaceConfig(
+            global_limits=LimitsConfig(min_unit_lines=1200), review={"ceilings": {"full": 800}}
+        )
 
     message = str(refused.value)
     assert "min_unit_lines" in message and "1200" in message
-    assert "max_unit_lines" in message and "800" in message
+    assert "full" in message and "800" in message
 
 
 def test_a_floor_equal_to_the_ceiling_is_refused() -> None:
     """The ceiling must exceed the floor: at equality every unit would have to
     land on exactly one number."""
     with pytest.raises(ValidationError) as refused:
-        WorkspaceConfig(global_limits=LimitsConfig(min_unit_lines=700, max_unit_lines=700))
+        WorkspaceConfig(
+            global_limits=LimitsConfig(min_unit_lines=700),
+            review={"ceilings": {"full": 700}},
+        )
 
     assert "min_unit_lines" in str(refused.value)
 
 
 def test_abk_yaml_with_the_floor_above_the_ceiling_fails_to_load(tmp_path: Path) -> None:
     path = tmp_path / "abk.yaml"
-    path.write_text("limits:\n  min_unit_lines: 1500\n  max_unit_lines: 900\n")
+    path.write_text("limits:\n  min_unit_lines: 1500\nreview:\n  ceilings:\n    full: 900\n")
 
     with pytest.raises(ConfigError) as refused:
         load(path)

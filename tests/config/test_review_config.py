@@ -21,7 +21,6 @@ def test_a_workspace_with_no_review_section_loads_with_the_defaults() -> None:
     loaded = workspace()
 
     assert loaded.review.model_dump() == {
-        "enabled": True,
         "protected_paths": [],
         "protected_defaults": True,
         "classes": {},
@@ -47,7 +46,6 @@ def test_a_workspace_with_no_review_section_loads_with_the_defaults() -> None:
 def test_each_key_loads_when_set() -> None:
     loaded = workspace(
         {
-            "enabled": True,
             "protected_paths": ["deploy/**"],
             "protected_defaults": False,
             "classes": {"docs": ["**/*.md"], "tests": ["tests/**"]},
@@ -58,7 +56,6 @@ def test_each_key_loads_when_set() -> None:
 
     dumped = loaded.review.model_dump()
     assert dumped == {
-        "enabled": True,
         "protected_paths": ["deploy/**"],
         "protected_defaults": False,
         "classes": {"docs": ["**/*.md"], "tests": ["tests/**"]},
@@ -84,7 +81,7 @@ def test_each_key_loads_when_set() -> None:
 
 @pytest.mark.parametrize("key", ["audits", "protected_path"])
 def test_an_unknown_key_in_the_section_is_refused_naming_it(key: str) -> None:
-    assert workspace({"enabled": True}).review.model_dump()["enabled"] is True
+    assert workspace({"brief": True}).review.model_dump()["brief"] is True
 
     assert key in refusal({key: 1})
 

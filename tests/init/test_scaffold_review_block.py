@@ -11,7 +11,6 @@ from agent_build_kit.init.scaffold import dump_with_notes
 
 KEYS = (
     "# review:",
-    "#   enabled: true",
     "#   protected_paths: []",
     "#   protected_defaults: true",
     "#   classes: {}",
@@ -41,7 +40,6 @@ def test_a_drafted_file_still_loads_with_review_on_and_every_default(tmp_path: P
     loaded = load(path)
 
     assert loaded.review.model_dump() == WorkspaceConfig().review.model_dump()
-    assert loaded.review.model_dump()["enabled"] is True
     assert loaded.review.model_dump()["auto_land"] == {
         "min_samples": 20,
         "min_clean_rate": 0.95,

@@ -388,10 +388,10 @@ def review_ceiling(
     repo: RepoConfig | None, config: WorkspaceConfig, tier: ReviewTier | None
 ) -> int:
     """The changed-lines ceiling in effect for a unit of `repo` expected to get `tier`: the
-    tier's own with `review.enabled`, the `full` one without it or when `tier` is None. A repo
-    that is None, or not configured, has the workspace's ceilings."""
+    tier's own, the `full` one when `tier` is None. A repo that is None, or not configured, has
+    the workspace's ceilings."""
     ceilings = ceilings_in_effect(repo, config)
-    if not config.review.enabled or tier is None:
+    if tier is None:
         return ceilings.full
     return getattr(ceilings, tier.value)
 
@@ -402,7 +402,7 @@ def ceilings_in_effect(repo: RepoConfig | None, config: WorkspaceConfig) -> Ceil
     base = CeilingsConfig(
         auto=config.review.ceilings.auto,
         light=config.review.ceilings.light,
-        full=workspace_full_ceiling(config),
+        full=config.review.ceilings.full,
     )
     own = repo.review.ceilings if repo is not None else None
     if own is None:
@@ -412,13 +412,6 @@ def ceilings_in_effect(repo: RepoConfig | None, config: WorkspaceConfig) -> Ceil
         light=own.light if own.light is not None else base.light,
         full=own.full if own.full is not None else base.full,
     )
-
-
-def workspace_full_ceiling(config: WorkspaceConfig) -> int:
-    """`review.ceilings.full` when set, else the deprecated `global_limits.max_unit_lines`."""
-    if "full" in config.review.ceilings.model_fields_set:
-        return config.review.ceilings.full
-    return config.global_limits.max_unit_lines
 
 
 class E2eBeforeMerge(StrEnum):
@@ -672,10 +665,6 @@ class LimitsConfig(TestKindSettings):
     manual_check_seconds: Annotated[int, Field(ge=1)] = 30
     # Estimated changed lines before a unit stops absorbing the next task group.
     min_unit_lines: int = 400
-    # Estimated changed lines one unit may carry. It shapes plans; a unit whose
-    # pull request lands over it is logged and listed by `abk status`, never
-    # blocked. A plan is held to it after calibration (`calibrate_estimates`).
-    max_unit_lines: int = 750
     # Whether a unit's estimate is multiplied by what units of its kind (repo, tier and
     # group flag) landed at before it is held to the ceiling. The ratio is the median of
     # the last `calibration_window` merged units' actual over estimate, each sample
@@ -1374,17 +1363,20 @@ DEPRECATED_BUILDERS_KEY = "per_group_commits"
 BUILDERS_KEY = "stubbed_tdd_commits"
 DEPRECATED_BUILDERS_SETTING = f"builders.{DEPRECATED_BUILDERS_KEY}"
 
-# The setting `review.ceilings.full` replaces, as `abk config` and `abk doctor` name it.
-DEPRECATED_MAX_UNIT_LINES = "global_limits.max_unit_lines"
+# The setting `review.ceilings.full` replaced, as the load error names it.
+MAX_UNIT_LINES = "max_unit_lines"
+DEPRECATED_MAX_UNIT_LINES = f"global_limits.{MAX_UNIT_LINES}"
+
+
+# The key that used to switch review by tier off; it is read and ignored.
+REMOVED_REVIEW_ENABLED = "review.enabled"
+REMOVED_REVIEW_ENABLED_FIELD = "enabled"
 
 
 def deprecation_notice(key: str) -> str:
     """What `abk config` and `abk doctor` say of a deprecated key."""
-    if key == DEPRECATED_MAX_UNIT_LINES:
-        return (
-            f"`{key}` is deprecated for `review.ceilings.full`; "
-            "`abk config --migrate` moves it, or set `review.ceilings.full` yourself"
-        )
+    if key == REMOVED_REVIEW_ENABLED:
+        return f"`{key}` is no longer used: review by tier is always on, and the key is ignored"
     if key == DEPRECATED_BUILDERS_SETTING:
         return (
             f"`{key}` is deprecated for `builders.{BUILDERS_KEY}`; "
@@ -1516,8 +1508,6 @@ def buffered(ceiling: int, buffer: float) -> int:
 class ReviewConfig(Frozen):
     """The review policy: which changes never land without a person, and how they are classed."""
 
-    # Off, every unit is held to the `full` ceiling and nothing is classified or recorded.
-    enabled: bool = True
     # Globs added to the framework's defaults; a repo's own list adds to these.
     protected_paths: list[str] = []
     protected_defaults: bool = True
@@ -1534,6 +1524,15 @@ class ReviewConfig(Frozen):
     split_rounds: int = Field(default=2, ge=0, le=2)
     # Whether a pull request body opens with the "Start here" section, and the review asks for it.
     brief: bool = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_the_removed_enabled_key(cls, data: Any) -> Any:
+        """`enabled` switched review off before review by tier was always on; an old file that
+        still sets it loads with the key ignored (`load` says so once)."""
+        if isinstance(data, dict) and REMOVED_REVIEW_ENABLED_FIELD in data:
+            return {k: v for k, v in data.items() if k != REMOVED_REVIEW_ENABLED_FIELD}
+        return data
 
     @field_validator("classes")
     @classmethod
@@ -1698,25 +1697,15 @@ class WorkspaceConfig(Frozen):
 
     @model_validator(mode="before")
     @classmethod
-    def _max_unit_lines_agrees_with_full_ceiling(cls, data: Any) -> Any:
-        """Both the deprecated `global_limits.max_unit_lines` and `review.ceilings.full` set to
-        different values are refused (`workspace_full_ceiling` reads the one that is set)."""
-        if not isinstance(data, dict):
-            return data
-        limits, review = data.get("global_limits"), data.get("review") or {}
-        if not isinstance(limits, dict) or "max_unit_lines" not in limits:
-            return data
-        if not isinstance(review, dict):
-            return data
-        ceilings = review.get("ceilings") or {}
-        if not isinstance(ceilings, dict):
-            return data
-        old = limits["max_unit_lines"]
-        if "full" in ceilings and ceilings["full"] != old:
-            raise ValueError(
-                f"{DEPRECATED_MAX_UNIT_LINES} ({old}) and review.ceilings.full "
-                f"({ceilings['full']}) disagree; set only review.ceilings.full"
-            )
+    def _max_unit_lines_is_refused(cls, data: Any) -> Any:
+        """`global_limits.max_unit_lines` is no longer accepted; the message says where it went."""
+        if isinstance(data, dict):
+            limits = data.get("global_limits")
+            if isinstance(limits, dict) and MAX_UNIT_LINES in limits:
+                raise ValueError(
+                    f"{DEPRECATED_MAX_UNIT_LINES} is no longer accepted: set "
+                    "review.ceilings.full instead, or run `abk config --migrate` to move it"
+                )
         return data
 
     @model_validator(mode="after")
@@ -1725,12 +1714,7 @@ class WorkspaceConfig(Frozen):
         workspace and for the ceilings in effect for each repo."""
         floor = self.global_limits.min_unit_lines
         ceilings = self.review.ceilings
-        _check_ceilings("review.ceilings", ceilings, "full" in ceilings.model_fields_set, floor)
-        if "full" not in ceilings.model_fields_set and workspace_full_ceiling(self) <= floor:
-            raise ValueError(
-                f"max_unit_lines ({workspace_full_ceiling(self)}) must exceed "
-                f"min_unit_lines ({floor})"
-            )
+        _check_ceilings("review.ceilings", ceilings, True, floor)
         for name, repo in self.repos.items():
             own = repo.review.ceilings
             owned = frozenset(
@@ -2106,19 +2090,23 @@ def load(path: Path) -> WorkspaceConfig:
     _check_forges(loaded, path)
     _check_infra(loaded, path)
     _check_agent_commands(loaded, path)
+    if REMOVED_REVIEW_ENABLED in deprecations_of(*spelled):
+        logger.warning("%s", deprecation_notice(REMOVED_REVIEW_ENABLED))
     return loaded
 
 
 def deprecations_of(*documents: dict[str, Any] | None) -> list[str]:
-    """The deprecated keys the parsed `documents` set: the root `limits` key, `max_unit_lines`
-    under `global_limits` or `limits`, and `builders.per_group_commits`; each once."""
+    """The deprecated keys the parsed `documents` set: the root `limits` key,
+    `builders.per_group_commits`, and `review.enabled`; each once."""
     raws = [raw for raw in documents if raw]
     found = []
+    if any(
+        isinstance(raw.get("review"), dict) and REMOVED_REVIEW_ENABLED_FIELD in raw["review"]
+        for raw in raws
+    ):
+        found.append(REMOVED_REVIEW_ENABLED)
     if any(DEPRECATED_ROOT_KEY in raw for raw in raws):
         found.append(DEPRECATED_ROOT_KEY)
-    blocks = [raw.get(name) for raw in raws for name in ("global_limits", DEPRECATED_ROOT_KEY)]
-    if any(isinstance(block, dict) and "max_unit_lines" in block for block in blocks):
-        found.append(DEPRECATED_MAX_UNIT_LINES)
     builders = [raw.get("builders") for raw in raws]
     if any(isinstance(block, dict) and DEPRECATED_BUILDERS_KEY in block for block in builders):
         found.append(DEPRECATED_BUILDERS_SETTING)

@@ -35,17 +35,3 @@ def test_with_the_flag_on_each_tier_has_its_own_ceiling(
     config = load(enabled=True)
 
     assert review_ceiling(config.repos["app"], config, tier) == expected
-
-
-@pytest.mark.parametrize("tier", [ReviewTier.AUTO, ReviewTier.LIGHT, ReviewTier.FULL, None])
-def test_with_the_flag_off_every_tier_has_the_full_ceiling(tier: ReviewTier | None) -> None:
-    config = load(enabled=False, ceilings={"auto": 6000, "light": 2500, "full": 900})
-
-    assert review_ceiling(config.repos["app"], config, tier) == 900
-
-
-@pytest.mark.parametrize("enabled", [True, False])
-def test_max_unit_lines_alone_is_the_full_ceiling_under_both_flags(enabled: bool) -> None:
-    config = load(enabled=enabled, max_unit_lines=600)
-
-    assert review_ceiling(config.repos["app"], config, ReviewTier.FULL) == 600

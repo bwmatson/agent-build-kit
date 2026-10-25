@@ -44,15 +44,3 @@ def test_the_prompt_requires_drivers_above_the_planned_estimate(tmp_path: Path) 
 
     assert '"drivers"' in text or "`drivers`" in text
     assert "planned" in text
-
-
-def test_with_review_disabled_the_prompt_is_the_one_without_the_classification_text(
-    tmp_path: Path,
-) -> None:
-    off = prompt(tmp_path, enabled=False).split(". ")
-    on = prompt(tmp_path, enabled=True).split(". ")
-
-    assert "drivers" not in " ".join(off)
-    remaining = iter(on)
-    assert all(sentence in remaining for sentence in off), "the unchanged prompt is kept"
-    assert len(on) > len(off), "and the classification text is what review adds"

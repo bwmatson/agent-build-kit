@@ -38,13 +38,10 @@ def status(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    *,
-    enabled: bool,
 ) -> list[str]:
     inst = make_installation(
         tmp_path,
         planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
-        review=dict(enabled=enabled),
     )
     write_verdicts(tmp_path / "verdicts.json", {uid: tier for uid, tier in ARRIVED if tier})
     store = UnitStore(tmp_path / "units.json")
@@ -57,7 +54,7 @@ def status(
 def test_units_are_printed_highest_tier_first_each_with_its_tier(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    shown = awaiting(status(tmp_path, monkeypatch, capsys, enabled=True))
+    shown = awaiting(status(tmp_path, monkeypatch, capsys))
 
     assert [uid for uid, _ in shown] == [
         "fullone/1",
@@ -72,13 +69,3 @@ def test_units_are_printed_highest_tier_first_each_with_its_tier(
     assert tiers["autoone/1"] and tiers["autoone/1"].group(1) == "auto"
     # A unit with no verdict is printed as before, with no tier.
     assert dict(shown)["plain/1"] == ""
-
-
-def test_with_review_disabled_the_output_is_what_it_was(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    enabled = awaiting(status(tmp_path / "on", monkeypatch, capsys, enabled=True))
-    disabled = awaiting(status(tmp_path / "off", monkeypatch, capsys, enabled=False))
-
-    assert enabled != disabled
-    assert disabled == [(uid, "") for uid, _ in ARRIVED]

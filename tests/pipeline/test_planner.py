@@ -531,7 +531,10 @@ def test_the_prompt_says_how_to_place_an_independent_group() -> None:
 def test_the_prompt_tells_the_planner_the_ceiling() -> None:
     """The packer and the planner must say the same thing: a ceiling only the
     validator knows about spends a round on every plan that misses it."""
-    activate_with(global_limits={"min_unit_lines": 300, "max_unit_lines": 1234})
+    activate_with(
+        global_limits={"min_unit_lines": 300},
+        review={"ceilings": {"auto": 1234, "light": 1234, "full": 1234}},
+    )
     captured: dict = {}
 
     plan_round(
@@ -557,7 +560,7 @@ def test_the_prompt_carries_the_default_floor_and_ceiling() -> None:
     prompt = prompt_for_defaults()
 
     assert "about 400 changed lines" in prompt
-    assert "over 750 changed lines" in prompt
+    assert "over the ceiling of its review tier (`auto` 750, `light` 750, `full` 750" in prompt
 
 
 def test_the_prompt_defines_what_an_estimate_counts() -> None:
@@ -594,7 +597,10 @@ def test_a_unit_combining_groups_past_the_ceiling_is_rejected() -> None:
 
 
 def test_the_ceiling_is_the_configured_one() -> None:
-    activate_with(global_limits={"min_unit_lines": 200, "max_unit_lines": 600})
+    activate_with(
+        global_limits={"min_unit_lines": 200},
+        review={"ceilings": {"auto": 600, "light": 600, "full": 600}},
+    )
     output = graph_json(
         [
             planned(id="c/1", repo="platform", groups=[1], estimated_lines=100),

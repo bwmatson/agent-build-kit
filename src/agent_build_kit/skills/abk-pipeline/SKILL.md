@@ -273,7 +273,7 @@ hand: a failed unit remembers its step, and putting it back to `planned` alone
 sends the next run past the agent to a check on the same branch.
 
 A plan is made when a change's `tasks.md` changes, not on every tick. A plan made under other review
-sizing (while `review.enabled` is on, a plan is stale when anything in the `review` section changes (its ceilings, protected paths, classes or auto_land), a repo's `review` block changes, `global_limits.min_unit_lines` or `max_unit_lines` changes, or `review.enabled` itself changes; turning the flag on marks every plan recorded before it as stale) is a
+sizing (a plan is stale when anything in the `review` section changes (its ceilings, protected paths, classes or auto_land), a repo's `review` block changes, or `global_limits.min_unit_lines` changes) is a
 stale plan: the tick names it and `abk replan <change>` without planning it, `abk status` prints one line for each
 stale plan, naming the change and whether the ceilings, the `review:` section or the lack of a recorded policy made it stale, and the `abk replan` listing shows it as stale. Run `abk replan <change>` to plan it under the current sizing; `abk replan <change> --report` first shows the started and unstarted units and whether the planner would be called, changing nothing. `abk replan --stale --limit N` migrates stale plans a few at a time, the most urgent `Priority:` first and then by name, skipping and listing changes that wait for an outage or have given up (`--failed` plans those) and stopping at the first outage. To migrate open changes to review tiers, run `abk config --migrate`, then
 `abk tags --fix --all`, then `abk replan --stale --report` and `abk replan --stale --dry-run`, then

@@ -11,7 +11,6 @@ from collections.abc import Callable, Collection
 from enum import StrEnum
 from pathlib import Path
 
-from agent_build_kit.config import active
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.pipeline.review_order import review_tier
 from agent_build_kit.pipeline.unit_store import StoredUnit
@@ -87,9 +86,9 @@ class StateLabels:
     def follow_review(self, unit: StoredUnit, verdicts: Path) -> None:
         """Put the review label of the unit's recorded verdict on its pull request.
 
-        Nothing is written with review disabled, with no pull request or with no verdict.
+        Nothing is written with no pull request or with no verdict.
         """
-        if not active().review.enabled or unit.pr is None:
+        if unit.pr is None:
             return
         tier = review_tier(unit, verdicts)
         if tier is not None:

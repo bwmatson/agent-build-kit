@@ -2090,8 +2090,6 @@ class BuildPath:
     def record_round(self, number: int, weighed: Weighed, state: UnitRun) -> SplitRequest | None:
         """Record the verdict of a review round and return its request to split the unit, if it
         has one. A failure is logged and the unit goes on, as if the verdict said nothing."""
-        if not active().review.enabled:
-            return None
         r, unit = self.runner, self.unit
         try:
             kind = unit.tier
@@ -2630,8 +2628,7 @@ class BuildPath:
         if e2e_state_of(state, None) is E2eState.DEFERRED:
             r.store.record_e2e_state(unit.id, E2eState.DEFERRED)
         stored = r.store.get(unit.id)
-        reviewed = active().review.enabled
-        recorded = latest_verdict(r.store.path.with_name(VERDICTS), unit.id) if reviewed else None
+        recorded = latest_verdict(r.store.path.with_name(VERDICTS), unit.id)
         # A unit reaching a pull request has had its tests seen to fail first and its unit-test
         # pass: the same facts `record_round` hands the verdict.
         facts = VerdictFacts(
@@ -2653,7 +2650,7 @@ class BuildPath:
             limit=forges.description_limit(),
             changes_dir=changes_dir_under(Path(r.planning_repo), active().planning.specs_dir),
             facts=facts,
-            rounds=state.review_round if reviewed else None,
+            rounds=state.review_round,
             verdict=TierVerdict(
                 tier=recorded.tier, evidence_tier=recorded.evidence_tier, reason=recorded.reason
             )
@@ -2678,7 +2675,7 @@ class BuildPath:
             return self.rebase(
                 state, str(error), base=base, lead="base gone before its pull request"
             )
-        if active().review.enabled and active().review.brief:
+        if active().review.brief:
             # The record is no input to anything: a failure is logged and never holds the body.
             try:
                 mark_brief(r.store.path.with_name(VERDICTS), unit.id)

@@ -11,7 +11,7 @@ from tests.factories import activate_with
 
 
 def enable(**review: object) -> None:
-    activate_with(review={"enabled": True, **review})
+    activate_with(review=review)
 
 
 def with_limits(**limits: int) -> None:
@@ -20,12 +20,6 @@ def with_limits(**limits: int) -> None:
         update={"global_limits": current.global_limits.model_copy(update=limits)}
     )
     config_module.activate(updated, config_module.active_root())
-
-
-def test_the_digest_is_empty_with_the_flag_off() -> None:
-    activate_with(review={"enabled": False, "ceilings": {"light": 2500}})
-
-    assert sizing_digest() == ""
 
 
 def test_equal_configurations_give_equal_digests() -> None:
@@ -61,14 +55,6 @@ def test_a_changed_floor_changes_the_digest() -> None:
     assert sizing_digest() != before
 
 
-def test_a_changed_max_unit_lines_changes_the_digest() -> None:
-    enable()
-    before = sizing_digest()
-    with_limits(max_unit_lines=800)
-
-    assert sizing_digest() != before
-
-
 def test_a_repos_review_block_changes_the_digest() -> None:
     enable()
     before = sizing_digest()
@@ -84,21 +70,7 @@ def test_a_repos_review_block_changes_the_digest() -> None:
     assert sizing_digest() != before
 
 
-def test_the_flag_changes_the_digest() -> None:
-    activate_with(review={"enabled": False})
-    off = sizing_digest()
-    enable()
-
-    assert sizing_digest() != off
-
-
-def test_a_record_with_no_digest_is_not_stale_with_the_flag_off() -> None:
-    activate_with(review={"enabled": False})
-
-    assert not plan_is_stale({"hash": "h", "attempts": 0, "ok": True})
-
-
-def test_a_record_with_no_digest_is_stale_once_the_flag_is_on() -> None:
+def test_a_record_with_no_digest_is_stale() -> None:
     enable()
 
     assert plan_is_stale({"hash": "h", "attempts": 0, "ok": True})

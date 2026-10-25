@@ -147,14 +147,14 @@ def test_the_generated_file_patterns_are_filled_when_missing_and_nothing_else_ch
     config = written(planning)
     mine = {"sync": ["my-sync"], "check": ["my-check"]}
     config["environment"] = mine
-    config["global_limits"] = {"max_unit_lines": 900}
+    config["global_limits"] = {"max_review_rounds": 5}
     (planning / "abk.yaml").write_text(yaml.safe_dump(config))
 
     assert run_init(planning, app) == 0
 
     after = written(planning)
     assert "uv.lock" in after["global_limits"]["generated_files"]
-    assert after["global_limits"]["max_unit_lines"] == 900
+    assert after["global_limits"]["max_review_rounds"] == 5
     assert after["environment"] == mine
 
 
@@ -204,7 +204,7 @@ repos:
     path: '{app}'   # quoted by hand
     slug: "example/app"
 global_limits:
-  max_unit_lines: 900  # raised on purpose
+  max_review_rounds: 5  # raised on purpose
 """
 
 
@@ -231,12 +231,12 @@ def test_a_fill_keeps_every_line_and_comment_of_the_file_it_adds_to(tmp_path: Pa
     assert config.environment is not None
     assert config.repos["app"].environment is not None
     assert config.global_limits.generated_files == ("uv.lock",)
-    assert config.global_limits.max_unit_lines == 900
+    assert config.global_limits.max_review_rounds == 5
 
 
 def test_a_fill_adds_a_limits_block_when_there_is_none(tmp_path: Path) -> None:
     planning, app, original = annotated_installation(tmp_path)
-    without = original.replace("global_limits:\n  max_unit_lines: 900  # raised on purpose\n", "")
+    without = original.replace("global_limits:\n  max_review_rounds: 5  # raised on purpose\n", "")
     (planning / "abk.yaml").write_text(without)
 
     assert run_init(planning, app) == 0

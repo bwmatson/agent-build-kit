@@ -91,9 +91,3 @@ def test_two_groups_whose_floors_are_full_are_not_refused_by_this_rule() -> None
     assert "group 3, whose floor is lower" in str(refused.value)
 
     plan((1, 2), (3,), flags=("contract", "narrow", ""))
-
-
-def test_with_the_flag_off_no_unit_is_refused_by_this_rule() -> None:
-    activate_with(review={"enabled": False})
-
-    plan((1, 2), flags=("", ""), bodies=(PLAIN, f"Add `{MIGRATION}` for the index."))
