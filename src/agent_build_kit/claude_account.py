@@ -149,6 +149,7 @@ class Account(Frozen):
     label: str | None = None
     config_dir: Path | None = None
     limits: ClaudeLimitsConfig = ClaudeLimitsConfig()
+    usage_limits: ClaudeLimitsConfig = ClaudeLimitsConfig()
     max_units_in_progress: int | None = None
 
     @classmethod

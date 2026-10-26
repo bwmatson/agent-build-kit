@@ -524,6 +524,7 @@ class AccountConfig(Frozen):
     # The account's Claude Code config directory: an absolute path, never in the committed file.
     config_dir: Path | None = None
     limits: ClaudeLimitsConfig = ClaudeLimitsConfig()
+    usage_limits: ClaudeLimitsConfig = ClaudeLimitsConfig()
     max_units_in_progress: Annotated[int, Field(gt=0)] | None = None
 
     @field_validator("config_dir")
@@ -580,6 +581,7 @@ class RuntimeConfig(Frozen):
 
     # Claude's usage windows (`runtimes.claude_code` only): see ClaudeLimitsConfig.
     limits: ClaudeLimitsConfig = ClaudeLimitsConfig()
+    usage_limits: ClaudeLimitsConfig = ClaudeLimitsConfig()
     # The accounts a repo may name by label (`runtimes.claude_code` only).
     accounts: dict[str, AccountConfig] = {}
 
