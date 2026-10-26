@@ -30,6 +30,7 @@ from agent_build_kit.pipeline.usage_ledger import UsageRecord, read_lines, recor
 
 # What each telemetry function creates; `value` and `seconds` are its own parameters.
 TYPES = {"count": "counter", "duration": "histogram", "observe": "histogram", "level": "gauge"}
+INSTRUMENT_PREFIX = "abk."
 HELPER = "emit_metric"  # pipeline.metric_records: telemetry and a local record in one call
 HELPER_PARAMETERS = {"unit", "change"}  # the helper's own keywords, never attributes
 NOT_ATTRIBUTES = {"value", "seconds"}
@@ -161,7 +162,7 @@ def _instrument_call(node: ast.Call) -> tuple[str, str] | None:
         kind, name = _literal(node.args[0]), _literal(node.args[1])
     else:
         return None
-    if kind in TYPES and name is not None and name.startswith("abk."):
+    if kind in TYPES and name is not None and name.startswith(INSTRUMENT_PREFIX):
         return kind, name
     return None
 
@@ -170,7 +171,10 @@ def _read_catalogue(root: Path) -> list[Instrument]:
     found: dict[str, Instrument] = {}
     for path in sorted(root.rglob("*.py")):
         try:
-            tree = ast.parse(path.read_text())
+            source = path.read_text()
+            if INSTRUMENT_PREFIX not in source:
+                continue  # a name is a literal, so a file without one holds no call to read
+            tree = ast.parse(source)
         except (OSError, SyntaxError, ValueError):
             continue
         for node, dicts in _calls_with_scope(tree):
