@@ -2245,6 +2245,50 @@ def models_notices(path: Path) -> list[ModelsNotice]:
     return notices
 
 
+def usage_limits_notices(path: Path) -> list[str]:
+    """One notice, with the file and line, for each `limits` key under a runtime or account in
+    the overlay of the file at `path`. `abk config --migrate` never edits the overlay, so each
+    line is to be changed by hand."""
+    local = overlay_path(path)
+    try:
+        documents = list(yaml.compose_all(local.read_text()))
+    except (OSError, yaml.YAMLError):
+        return []
+    root = documents[0] if documents else None
+    if not isinstance(root, yaml.MappingNode):
+        return []
+
+    def child(node: yaml.Node, name: str) -> yaml.Node | None:
+        if not isinstance(node, yaml.MappingNode):
+            return None
+        return next(
+            (v for k, v in node.value if isinstance(k, yaml.ScalarNode) and k.value == name), None
+        )
+
+    def keys(node: yaml.Node | None) -> list[tuple[str, yaml.Node]]:
+        if not isinstance(node, yaml.MappingNode):
+            return []
+        return [(k.value, v) for k, v in node.value if isinstance(k, yaml.ScalarNode)]
+
+    notices = []
+    for name, runtime in keys(child(root, "runtimes")):
+        places = [(f"runtimes.{name}", runtime)]
+        places += [
+            (f"runtimes.{name}.accounts.{label}", account)
+            for label, account in keys(child(runtime, "accounts"))
+        ]
+        for place, node in places:
+            if not isinstance(node, yaml.MappingNode):
+                continue
+            for key, _ in node.value:
+                if isinstance(key, yaml.ScalarNode) and key.value == DEPRECATED_USAGE_LIMITS:
+                    notices.append(
+                        f"{local}:{key.start_mark.line + 1}: rename `{DEPRECATED_USAGE_LIMITS}` "
+                        f"to `{USAGE_LIMITS}` ({place}.{DEPRECATED_USAGE_LIMITS})"
+                    )
+    return notices
+
+
 def old_setting_notices(path: Path) -> list[str]:
     """One notice for each old test-kind settings key in the file at `path` or its overlay."""
     notices: list[str] = []

@@ -20,7 +20,10 @@ from agent_build_kit.config import (
     BUILDERS_KEY,
     DEPRECATED_BUILDERS_KEY,
     DEPRECATED_ROOT_KEY,
+    DEPRECATED_USAGE_LIMITS,
+    USAGE_LIMITS,
     WorkspaceConfig,
+    alias_usage_limits,
     old_setting_blocks,
     read_new_settings,
 )
@@ -141,11 +144,11 @@ def migrate(
     """Rename a root `limits` to `global_limits`, move the three scheduling settings found under
     it (or under `global_limits`) to a `project_limits` block straight after it, move
     `max_unit_lines` to `review.ceilings.full`, rename each old test-kind setting key to its new
-    name, and move a flat `models:` block under `runtimes.<runtime>.models`, the runtime in force
+    name, rename `limits` under each runtime and account to `usage_limits`, and move a flat `models:` block under `runtimes.<runtime>.models`, the runtime in force
     (`config.runtime_for`). Told to by `machine`, it then moves the machine settings to the local
     file's text."""
     moved = _move_limits(_move_ceiling(text))
-    renamed = _rename_builders_key(_rename_test_kind_keys(moved.text))
+    renamed = _rename_usage_limits(_rename_builders_key(_rename_test_kind_keys(moved.text)))
     text = _move_models(renamed, runtime)
     if machine is None:
         return Migrated(text=text, moved=moved.moved)
@@ -540,6 +543,107 @@ def _rename_builders_key(text: str) -> str:
     except yaml.YAMLError as error:
         raise refuse("abk.yaml", f"the edited text would not parse ({error})") from error
     if written != {**old, "builders": builders}:
+        raise refuse(
+            "abk.yaml", "the edited text would differ from the file in more than the rename"
+        )
+    return result
+
+
+def _usage_limits_holders(
+    root: yaml.MappingNode,
+) -> list[tuple[str, yaml.ScalarNode, yaml.MappingNode]]:
+    """Each runtime and account mapping written under `runtimes`, with its key and dotted path."""
+    found = pair(root, RUNTIMES)
+    if found is None or not isinstance(found[1], yaml.MappingNode):
+        return []
+    holders = []
+    for name, runtime in found[1].value:
+        if not (isinstance(name, yaml.ScalarNode) and isinstance(runtime, yaml.MappingNode)):
+            continue
+        holders.append((f"{RUNTIMES}.{name.value}", name, runtime))
+        accounts = pair(runtime, "accounts")
+        if accounts is None or not isinstance(accounts[1], yaml.MappingNode):
+            continue
+        for label, account in accounts[1].value:
+            if isinstance(label, yaml.ScalarNode) and isinstance(account, yaml.MappingNode):
+                holders.append((f"{RUNTIMES}.{name.value}.accounts.{label.value}", label, account))
+    return holders
+
+
+def _aliased_runtime(runtime: Any) -> Any:
+    """A runtime mapping with `limits` renamed in it and in each of its accounts."""
+    if not isinstance(runtime, dict):
+        return runtime
+    runtime = alias_usage_limits(runtime)
+    accounts = runtime.get("accounts")
+    if isinstance(accounts, dict):
+        runtime = {
+            **runtime,
+            "accounts": {
+                label: alias_usage_limits(account) if isinstance(account, dict) else account
+                for label, account in accounts.items()
+            },
+        }
+    return runtime
+
+
+def _loaded_holds_old(document: Any, where: str) -> bool:
+    """Whether the mapping at the dotted path `where` of the loaded `document` sets `limits`."""
+    node = document
+    for part in where.split("."):
+        node = node.get(part) if isinstance(node, dict) else None
+    return isinstance(node, dict) and DEPRECATED_USAGE_LIMITS in node
+
+
+def _rename_usage_limits(text: str) -> str:
+    """`text` with `limits` renamed to `usage_limits` under each runtime and account, on its own
+    line; both spellings in one place, or a key that cannot be edited by lines, is refused."""
+    try:
+        documents = list(yaml.compose_all(text))
+    except yaml.YAMLError:
+        return text  # the other edits report a file that does not parse
+    root = documents[0] if documents else None
+    if not isinstance(root, yaml.MappingNode):
+        return text
+    lines = split_lines(text)
+    before = yaml.safe_load(text)
+    renamed = False
+    for where, holder_key, holder in _usage_limits_holders(root):
+        found = pair(holder, DEPRECATED_USAGE_LIMITS)
+        if found is None:
+            if any(k.tag == MERGE_TAG for k, _ in holder.value) and _loaded_holds_old(
+                before, where
+            ):
+                opened(lines, holder_key, holder, where, "the block")
+            continue
+        old = f"{where}.{DEPRECATED_USAGE_LIMITS}"
+        if pair(holder, USAGE_LIMITS) is not None:
+            raise refuse(
+                old, f"`{DEPRECATED_USAGE_LIMITS}` and `{USAGE_LIMITS}` are both set; keep one"
+            )
+        opened(lines, holder_key, holder, where, "the block")
+        key = found[0]
+        line, col = key.start_mark.line, key.start_mark.column
+        if MARKED.search(strip_comment(lines[line])):
+            raise refuse(old, "it has an anchor or an alias, which cannot be edited")
+        if lines[line][col : col + len(DEPRECATED_USAGE_LIMITS)] != DEPRECATED_USAGE_LIMITS:
+            raise refuse(old, "it is quoted or written across lines, so it is not renamed")
+        lines[line] = (
+            lines[line][:col] + USAGE_LIMITS + lines[line][col + len(DEPRECATED_USAGE_LIMITS) :]
+        )
+        renamed = True
+    if not renamed:
+        return text
+    result = joined(lines, text)
+    expected = {
+        **before,
+        RUNTIMES: {name: _aliased_runtime(entry) for name, entry in before[RUNTIMES].items()},
+    }
+    try:
+        written = yaml.safe_load(result)
+    except yaml.YAMLError as error:
+        raise refuse("abk.yaml", f"the edited text would not parse ({error})") from error
+    if written != expected:
         raise refuse(
             "abk.yaml", "the edited text would differ from the file in more than the rename"
         )

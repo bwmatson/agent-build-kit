@@ -29,7 +29,6 @@ OLD = (
     "        usage_pause_pct: 62\n"
     "    accounts:\n"
     "      kit:\n"
-    "        config_dir: /x/kit\n"
     "        limits:\n"
     "          session:\n"
     "            usage_pause_pct: 55\n"

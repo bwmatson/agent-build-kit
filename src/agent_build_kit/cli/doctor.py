@@ -1879,6 +1879,10 @@ def run_doctor(
     ]
     checks += [_warn("config", notice.text, notice.fix) for notice in config.models_notices(path)]
     checks += [
+        _warn("config", line, "rename it by hand in abk.local.yaml")
+        for line in config.usage_limits_notices(path)
+    ]
+    checks += [
         _warn("config", old, "rename it in the file the warning names")
         for old in config.old_setting_notices(path)
     ]
