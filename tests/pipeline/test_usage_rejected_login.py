@@ -8,6 +8,7 @@ the endpoint, the home directory and the `claude` process are faked.
 from __future__ import annotations
 
 import logging
+import urllib.error
 
 import pytest
 
@@ -20,6 +21,7 @@ from tests.usage_host import (
     payload,
     reject_login,
     rejection,
+    unauthorized,
     write_credentials,
 )
 
@@ -75,3 +77,45 @@ def test_a_second_unchanged_token_read_logs_nothing_new_and_is_still_rejected(
     unchanged = [m for m in caplog.messages if "left the saved token as it was" in m]
     assert len(unchanged) == 1
     assert rejection(personal) in decision_reason(personal)
+
+
+def test_a_new_sign_in_ends_the_rejection_without_a_live_read(host: Host) -> None:
+    directory = host.home / "second"
+    personal = Account(label="personal", config_dir=directory)
+    reject_login(host, personal)
+    assert usage_guard.rejected_login_note(personal) is not None
+
+    write_credentials(directory, "new-token", ms_from_now(HOUR_MS))
+
+    assert usage_guard.rejected_login_note(personal) is None
+    assert "rejected" not in decision_reason(personal)
+
+
+def test_a_refreshed_token_that_is_still_refused_is_a_rejected_login(host: Host) -> None:
+    directory = host.home / "second"
+    personal = Account(label="personal", config_dir=directory)
+    host.monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+    write_credentials(directory, "old-token", ms_from_now(-HOUR_MS))
+    host.answers = [unauthorized(), unauthorized()]
+
+    def refresh(_account: Account) -> None:
+        write_credentials(directory, "new-token", ms_from_now(HOUR_MS))
+
+    with usage_guard.on_account(personal):
+        assert usage_guard.read_live_usage(refresh=refresh) is None
+
+    assert rejection(personal) in decision_reason(personal)
+
+
+def test_a_refusal_after_a_plain_network_retry_is_not_a_rejected_login(host: Host) -> None:
+    directory = host.home / "second"
+    personal = Account(label="personal", config_dir=directory)
+    host.monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+    write_credentials(directory, "token", ms_from_now(HOUR_MS))
+    host.answers = [urllib.error.URLError("unreachable"), unauthorized()]
+
+    with usage_guard.on_account(personal):
+        assert usage_guard.read_live_usage() is None
+
+    assert usage_guard.rejected_login_note(personal) is None
+    assert "rejected" not in decision_reason(personal)

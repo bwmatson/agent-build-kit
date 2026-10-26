@@ -44,7 +44,8 @@
   code, so a labelled account now also gets the warning for a `CLAUDE_CODE_OAUTH_TOKEN` set
   beside it. When the usage endpoint still answers 401 after a refresh, `abk status`, `abk doctor`
   and the start decision now say that the account's login is rejected and give the command to
-  sign in again, instead of only "usage is unknown".
+  sign in again, instead of only "usage is unknown". That note ends as soon as the account has
+  new credentials, so `abk doctor` stops reporting it right after the sign-in.
 
 - A confined Claude Code step now starts: its policy reads the system folders and the folders
   the `claude` program is found in and a link to it points at, so the launcher can exec it.
