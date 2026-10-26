@@ -840,6 +840,8 @@ branch.
 
 ## Concurrency
 
+The end state, with each build in its own worker process instead of a tick's thread pool, is in [worker-design.md](worker-design.md).
+
 - One tick process runs the threads on asyncio, at most `max_concurrent_stacks`
   executing at once in each project; the build pool holds every project's workers together. A thread waiting in an interrupt costs nothing.
 - The scheduler is unchanged in what it decides. `ready_units` picks what

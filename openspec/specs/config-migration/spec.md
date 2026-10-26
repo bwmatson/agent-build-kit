@@ -151,7 +151,7 @@ the one `abk doctor` reads. The command SHALL change nothing about machine setti
 
 #### Scenario: A tracked file with paths, a limit and a home-path variable
 
-- **GIVEN** a git repository tracking an `abk.yaml` with `repos.app` (`slug`, `profile`, `path: ../app` beside a comment, `deploy.ssh_key: ~/.ssh/deploy`), `planning.worktree_root: ~/work/trees`, a `project_limits` block of two settings and a `verify.env.TOKEN` entry (`from: env-file`, `file: ~/.config/app/.env`, `key: TOKEN`), and no `abk.local.yaml`
+- **GIVEN** a git repository tracking an `abk.yaml` with `repos.app` (`slug`, `profile`, `path: ../app` beside a comment, `deploy.ssh_key: ~/.ssh/deploy`), `planning.worktree_root: <home>/work/trees`, a `project_limits` block of two settings and a `verify.env.TOKEN` entry (`from: env-file`, `file: ~/.config/app/.env`, `key: TOKEN`), and no `abk.local.yaml`
 - **WHEN** `abk config --migrate --yes` runs
 - **THEN** `abk.local.yaml` holds `repos.app.path` (with its comment), `repos.app.deploy.ssh_key`, `planning.worktree_root`, `project_limits` and `verify.env.TOKEN.file`; `abk.yaml` keeps `slug`, `profile`, `from`, `key`, a `deploy: {}`, and `planning: {}`; and the merged configuration read from the two files equals the one read from the old `abk.yaml`
 
@@ -241,9 +241,9 @@ the same entry) SHALL NOT be a conflict.
 
 #### Scenario: The local file already sets the path
 
-- **GIVEN** an abk.yaml with `repos.app.path: ../app` and a `project_limits` block, and an `abk.local.yaml` with `repos.app.path: ~/code/app`
+- **GIVEN** an abk.yaml with `repos.app.path: ../app` and a `project_limits` block, and an `abk.local.yaml` with `repos.app.path: <home>/code/app`
 - **WHEN** the command runs and the change is confirmed
-- **THEN** `project_limits` moves; `repos.app.path` stays in abk.yaml and the local file keeps `~/code/app`, and the output says `left repos.app.path in abk.yaml: abk.local.yaml already sets repos.app.path; keep one of them`
+- **THEN** `project_limits` moves; `repos.app.path` stays in abk.yaml and the local file keeps `<home>/code/app`, and the output says `left repos.app.path in abk.yaml: abk.local.yaml already sets repos.app.path; keep one of them`
 
 #### Scenario: Equal values
 

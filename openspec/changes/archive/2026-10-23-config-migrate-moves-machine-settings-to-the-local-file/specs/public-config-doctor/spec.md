@@ -19,7 +19,7 @@ SHALL warn and never fail, and SHALL say nothing when the file is untracked or t
 
 #### Scenario: The documented path settings
 
-- **GIVEN** a tracked abk.yaml with `repos.app.path: ../app`, `repos.app.deploy.ssh_key: ~/.ssh/deploy`, `planning.worktree_root: ~/work/trees` and a `verify.env.TOKEN.file: ~/.config/app/.env`
+- **GIVEN** a tracked abk.yaml with `repos.app.path: ../app`, `repos.app.deploy.ssh_key: ~/.ssh/deploy`, `planning.worktree_root: <home>/work/trees` and a `verify.env.TOKEN.file: ~/.config/app/.env`
 - **WHEN** `abk doctor` runs
 - **THEN** a warning names each of `repos.app.path`, `repos.app.deploy.ssh_key`, `planning.worktree_root` and `verify.env.TOKEN.file`, and no value is printed
 

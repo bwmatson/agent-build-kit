@@ -55,7 +55,7 @@ value the settings layer returns for every combination of names and sources.
 
 #### Scenario: A home-relative value
 
-- **GIVEN** `CLAUDE_CONFIG_DIR=~/<name>` in the `.env`
+- **GIVEN** `CLAUDE_CONFIG_DIR=<home>/<name>` in the `.env`
 - **WHEN** the account directory is read
 - **THEN** it is the person's home directory joined with `<name>`, absolute, whether or not it exists
 

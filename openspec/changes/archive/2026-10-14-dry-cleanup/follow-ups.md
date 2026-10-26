@@ -5,4 +5,4 @@
 
 ## From `dry-cleanup/3`
 
-- pr_body._change_path now goes through changes_dir_under, which calls expanduser on specs_dir. A specs_dir written as `~/...` therefore becomes an absolute home path in the pull request link, where before it stayed literal. Both forms make a broken repo-relative link, so behaviour is effectively the same. If someone ever relies on a home-relative specs_dir, the link builder should decide on purpose which form it wants.
+- pr_body._change_path now goes through changes_dir_under, which calls expanduser on specs_dir. A specs_dir written as `<home>/...` therefore becomes an absolute home path in the pull request link, where before it stayed literal. Both forms make a broken repo-relative link, so behaviour is effectively the same. If someone ever relies on a home-relative specs_dir, the link builder should decide on purpose which form it wants.

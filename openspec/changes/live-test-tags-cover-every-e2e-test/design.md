@@ -2,7 +2,7 @@
 
 ## What was checked, and where
 
-Read-only against `origin/main` of `~/agent-build-kit` at `872fa344` (after `git fetch`). Paths are under the repo root.
+Read-only against `origin/main` of `<home>/agent-build-kit` at `872fa344` (after `git fetch`). Paths are under the repo root.
 
 - `tests/live_tag_drift.py`: `ROOT`/`INTEGRATION` (`:16,20`); `AGENT_HELPERS = ("tests.runtime_scratch", "tests.agent_home")` (`:22`);
   `live_modules()` globs `INTEGRATION.glob("test_*.py")` and keeps files whose text matches `\blocal_stack\b` (`:28-35`);
@@ -30,8 +30,8 @@ Read-only against `origin/main` of `~/agent-build-kit` at `872fa344` (after `git
 - Not on main (cited as audit evidence, never as something to edit): `tests/integration/replay_unit_build.py` on `spec/tier2-replays-unchanged-calls/3`
   and `tests/integration/runtimes/test_policy_check_agrees_with_agent_live_stack.py` on `spec/policy-check-asks-the-agents-own-matcher/6`. The
   abk-web-ui built-as-`runtime_acp`-but-starting-claude test is a branch observation of the audit; main holds only the plan (`tasks.md:167-183`).
-- Other repos, checked 2026-10-19: no file named `test_live_tests_are_tagged.py`, no `runtime_acp`/`runtime_claude_code`/`ACP_ONLY_REASONS` in
-  `~/<redacted>` or `~/<redacted>`.
+- Other repos, checked <date>: no file named `test_live_tests_are_tagged.py`, no `runtime_acp`/`runtime_claude_code`/`ACP_ONLY_REASONS` in
+  `<home>/<redacted>` or `<home>/<redacted>`.
 
 ## Decisions
 

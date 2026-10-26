@@ -13,7 +13,7 @@ Read-only: `git fetch`, then `git show origin/main:<path>` in the build tool's c
   neither set, `None`; `.env` holding both names, the value of `CLAUDE_CONFIG_DIR` (the first alias, whatever the order of the lines);
   `.env` with one name, that one; a process variable beats the `.env` whichever name each uses (process `ABK_CLAUDE_HOME` beat `.env`
   `CLAUDE_CONFIG_DIR`); both names in the process, `CLAUDE_CONFIG_DIR`; the name matches regardless of case in the `.env`;
-  `~/x` is kept as written (not expanded), `rel/x` is kept relative, and an **empty process variable gives `Path("")`, which is
+  `<home>/x` is kept as written (not expanded), `rel/x` is kept relative, and an **empty process variable gives `Path("")`, which is
   `.`** and hides the `.env`. The alias replaces the prefix: `ABK_CLAUDE_HOME` is the literal name, there is no `ABK_CLAUDE_CONFIG_DIR`.
   The spec states the first four and fixes the last three (expanded, absolute, empty is unset).
 - **The sessions page** (`serve/sessions.py` ~24): `claude_home()` is `settings.claude_home or Path.home() / ".claude"`; its callers

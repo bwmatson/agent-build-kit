@@ -65,7 +65,7 @@ tests/pipeline/test_moved_base_run_stored.py:125: AssertionError
 [21:54:07] back/1: held — held back/1
 [21:54:07] usage/1: held — held usage/1
 [21:54:07] ready: back/1
-[21:54:07] back/1: skipped, spec/back/1 is held by pid 1906289 since 2026-10-18T03:54:07.804835+00:00
+[21:54:07] back/1: skipped, spec/back/1 is held by pid 1906289 since <date>T03:54:07.804835+00:00
 [21:54:07] usage/1: not started again in this pass, stopped for usage
 [21:54:38] slow/1: failed, TimeoutError: timed out after 30 seconds waiting for back/1 to be started a second time
 =========================== short test summary info ============================

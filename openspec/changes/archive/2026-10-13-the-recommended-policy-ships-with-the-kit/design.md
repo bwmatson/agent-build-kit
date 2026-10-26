@@ -168,7 +168,7 @@ A known-agent table row (`init-asks-which-runtime` group 1) gains an optional fi
 
 ```
 ApplyPolicy(
-  home_env, home_default, file,        # <home>/<file>: $home_env if set, else ~/<home_default>
+  home_env, home_default, file,        # <home>/<file>: $home_env if set, else <home>/<home_default>
   format,                              # YAML today; a closed set, a writer registered per member
   deny_path,                           # key path of the deny list, e.g. ("approvals", "deny")
   yaml_version,                        # "1.2" or "1.1" (how bare scalars such as `off` are read and quoted)
@@ -178,7 +178,7 @@ ApplyPolicy(
 ```
 
 A row without it has no applier. The first known agent's row gets one (home variable the agent reads for its home, default
-`~/<the agent's directory>`, `<redacted>`, YAML 1.1, `approvals.deny`, toolset `platform_toolsets.acp` =
+`<home>/<the agent's directory>`, `<redacted>`, YAML 1.1, `approvals.deny`, toolset `platform_toolsets.acp` =
 `file, terminal, todo`), verified against the agent's own script and tests as above and on its documentation, **not**
 against a run of the kit's engine on the real agent, which is the live confirmation. Every other row stays without one
 until someone verifies its file and key: a descriptor that guesses a path would edit a person's configuration on a guess.

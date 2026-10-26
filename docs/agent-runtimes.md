@@ -519,7 +519,8 @@ as its own configuration makes it. `abk doctor` says so plainly.
 
 These read a call. What a command can then *do* is a separate layer, proposed in
 [sandbox-design.md](designs/sandbox-design.md): the kernel confines the files and network of an agent step, so
-the rules above no longer have to name every way of writing a file.
+the rules above no longer have to name every way of writing a file. How the two runtimes, the Claude Agent SDK and one capability policy fit
+together is in [acp-runtimes.md](designs/acp-runtimes.md).
 
 ## Recommended policy
 

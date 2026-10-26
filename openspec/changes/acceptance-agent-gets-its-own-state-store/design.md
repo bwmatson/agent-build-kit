@@ -122,7 +122,7 @@ verify:
       value: AGENT_HOME          # EXAMPLE ONLY: the name of the variable your agent reads for its home
     <redacted>:
       from: literal
-      value: ~/.agent            # EXAMPLE ONLY: the person's real home for that agent
+      value: <home>/.agent            # EXAMPLE ONLY: the person's real home for that agent
     <redacted>:
       from: literal
       value: <redacted>   # EXAMPLE ONLY: the configuration and credential files it needs
