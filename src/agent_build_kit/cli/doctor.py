@@ -74,7 +74,7 @@ from agent_build_kit.init.scaffold import (
     rules_version,
 )
 from agent_build_kit.installation import Installation, _resolve, load_config
-from agent_build_kit.machine_files import CONFIG_LOCAL_FILES, MACHINE_FILES
+from agent_build_kit.machine_files import CONFIG_LOCAL_FILES, MACHINE_FILES, holds, present
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.notify.windows import (
     BURNTTOAST_VERSION,
@@ -90,14 +90,13 @@ from agent_build_kit.pipeline.gate_holds import gate_standing, split_gates
 from agent_build_kit.pipeline.install_record import STAGING
 from agent_build_kit.pipeline.original_copy import COPY_PATTERN
 from agent_build_kit.pipeline.pending import describe, pending_projects
-from agent_build_kit.pipeline.planning_repo import common_dir, is_worktree_of, main_working_tree
+from agent_build_kit.pipeline.planning_repo import common_dir, is_worktree_of
 from agent_build_kit.pipeline.planning_sync import (
-    PlanningMode,
     in_repo_name,
     live_notice,
     live_pipeline_worktree,
-    planning_mode,
     read_pipeline_marker,
+    working_copy,
 )
 from agent_build_kit.pipeline.shell import git, git_out, is_ignored, is_tracked, tracked_toplevel
 from agent_build_kit.pipeline.usage_guard import gate_result
@@ -505,16 +504,12 @@ def _machine_files(inst: Installation) -> list[Check]:
     live = live_pipeline_worktree(inst)
     if live is None:
         return []
-    source = (
-        inst.root
-        if planning_mode(inst) == PlanningMode.WORKING_COPY
-        else main_working_tree(inst.root)
-    )
+    source = working_copy(inst)
     if source is None:
         return []
-    present = [name for name in MACHINE_FILES if (source / name).exists()]
+    names = present(source)
     title = "machine files"
-    if not present:
+    if not names:
         return [
             _warn(
                 title,
@@ -524,19 +519,17 @@ def _machine_files(inst: Installation) -> list[Check]:
             )
         ]
     bad = []
-    for name in present:
+    for name in names:
         path = live / name
         if path.is_symlink() and not path.exists():
             bad.append(f"{name} (dangling link)")
         elif not path.exists():
             bad.append(f"{name} (missing)")
-        elif path.resolve() == (source / name).resolve():
-            continue
-        elif not (path.is_file() and path.read_bytes() == (source / name).read_bytes()):
+        elif not holds(path, source / name):
             bad.append(f"{name} (differs)")
     if bad:
         return [_fail(title, f"not carried into {live}: {', '.join(bad)}", "abk install-timers")]
-    return [_ok(title, f"{', '.join(present)} carried into {live}")]
+    return [_ok(title, f"{', '.join(names)} carried into {live}")]
 
 
 def _state_ignores(inst: Installation) -> list[Check]:

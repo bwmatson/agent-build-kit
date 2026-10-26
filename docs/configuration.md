@@ -656,8 +656,8 @@ config is named with `--config` or `ABK_CONFIG`. `planning.publish` applies only
 pipeline worktree; `planning.self_pull` also governs a separate planning repo.
 
 The machine files (`.env`, `abk.local.yaml` and `scrub.local`) stay untracked. In a pipeline
-worktree they are links to the working copy's files, which `abk install-timers` makes and
-carries into the pipeline worktree; it refuses a different file already there. A new machine
+worktree they are links to the working copy's files: `abk install-timers` carries them in
+and refuses a different file already there. A new machine
 creates them in its working copy first. `abk doctor` fails when one the working copy has is
 missing, dangling or different in the worktree, and warns when the working copy has none.
 
@@ -694,8 +694,8 @@ verify:
 The tracked `abk.yaml` of a public repo holds neither consumer facts nor user-specific values:
 no other repo's path, owner or name, no home directory, no command that belongs to one machine.
 Two ignored files in the planning root hold what you would otherwise write there, and `abk init`
-adds both to `.gitignore`. Both stay untracked, and in a pipeline worktree `abk install-timers`
-carries them, with `scrub.local`, into the pipeline worktree as links.
+adds both to `.gitignore`. Both stay untracked, and `abk install-timers` carries them, with
+`scrub.local`, into the pipeline worktree as links.
 
 `.env` is for single values and secrets you would write in `abk.yaml` but not commit: an
 agent command, a local port, a token. `abk.yaml` keeps the entry and reads the value from the

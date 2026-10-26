@@ -43,7 +43,6 @@ from agent_build_kit.pipeline.planning_repo import (
     PlanningWorktreeRefused,
     common_dir,
     is_worktree_of,
-    main_working_tree,
     repository_name,
 )
 from agent_build_kit.pipeline.planning_sync import (
@@ -56,6 +55,7 @@ from agent_build_kit.pipeline.planning_sync import (
     read_pipeline_marker,
     remove_pipeline_marker,
     sync_planning,
+    working_copy,
     write_pipeline_marker,
 )
 from agent_build_kit.pipeline.shell import git
@@ -544,17 +544,12 @@ def _bring_to_tip(inst: Installation, worktree: Path) -> tuple[str, ...]:
 
 
 def _carry_machine_files(
-    inst: Installation, worktree: Path, mode: PlanningMode, *, dry_run: bool
+    inst: Installation, worktree: Path, *, dry_run: bool
 ) -> tuple[tuple[Carried, ...], tuple[str, ...]]:
     """Link the working copy's machine files into the worktree; what was done, and notes."""
-    if mode == PlanningMode.PIPELINE_WORKTREE:
-        source = main_working_tree(inst.root)
-        if source is None:
-            return (), (
-                f"no main working tree found for {inst.root}, so no machine file was carried",
-            )
-    else:
-        source = inst.root
+    source = working_copy(inst)
+    if source is None:
+        return (), (f"no main working tree found for {inst.root}, so no machine file was carried",)
     return carry(source, worktree, dry_run=dry_run), ()
 
 
@@ -602,7 +597,7 @@ def install_in_repo(
         if not dry_run:
             write_pipeline_marker(inst.root, worktree)
     notes = () if dry_run else _bring_to_tip(inst, worktree)
-    carried, carry_notes = _carry_machine_files(inst, worktree, mode, dry_run=dry_run)
+    carried, carry_notes = _carry_machine_files(inst, worktree, dry_run=dry_run)
     notes += carry_notes
     if not dry_run and not (worktree / "abk.yaml").is_file():
         notes += (
