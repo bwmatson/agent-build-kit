@@ -11,12 +11,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tests.tracked_files import guarded_files
+
 # Built in parts so this file carries no old spelling for the guard to find.
 OLD_SPELLING = re.compile("ti" + "er[-_ ]?([12]|one|two)", re.IGNORECASE)
 
 SCANNED = ("src", "tests", "web/src", "docs", "scripts", ".github")
-SKIPPED_PARTS = frozenset({"__pycache__", "node_modules"})
-BUILT_WEB = Path("src/agent_build_kit/serve/static")
 
 # The files that write an old spelling on purpose: the table of them, the tests of it and of
 # the settings migration, and the documents that explain the
@@ -41,16 +41,9 @@ def exempt(path: Path) -> bool:
 
 
 def candidates(root: Path) -> list[Path]:
-    found = [p for name in SCANNED for p in sorted((root / name).rglob("*"))]
-    found += sorted(root.glob("*.md")) + [root / "pyproject.toml"]
-    return [
-        p
-        for p in found
-        if p.is_file()
-        and not SKIPPED_PARTS & set(p.parts)
-        and not p.is_relative_to(root / BUILT_WEB)
-        and not exempt(p)
-    ]
+    found = guarded_files(root, under=SCANNED, names=["pyproject.toml"])
+    found += [p for p in guarded_files(root, suffixes=[".md"]) if p.parent == root]
+    return [p for p in found if not exempt(p)]
 
 
 def old_spelling_problems(root: Path) -> list[str]:

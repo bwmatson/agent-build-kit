@@ -23,10 +23,10 @@ def unreleased() -> list[str]:
     return [" ".join(b.split()) for b in re.split(r"\n\s*\n", section) if b.strip()]
 
 
-def documents() -> list[Path]:
+def documents(root: Path = ROOT) -> list[Path]:
     """Every Markdown file but the changelog, the history documents and the migration runbook."""
-    exempt = [ROOT / name for name in (*HISTORY, RUNBOOK)]
-    return [path for path in repo_markdown(exempt) if path.name != "CHANGELOG.md"]
+    exempt = [root / name for name in (*HISTORY, RUNBOOK)]
+    return [path for path in repo_markdown(exempt, root) if path.name != "CHANGELOG.md"]
 
 
 def reported(text: str) -> list[str]:

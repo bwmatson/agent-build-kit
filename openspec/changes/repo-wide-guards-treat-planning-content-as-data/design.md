@@ -18,7 +18,7 @@ Read-only: `git fetch`, then `git show origin/main:<path>` (origin/main at `679e
 | old test-module name | 3 | 20 | 0 | The rename's own change records naming the old names (two more hits are in `runs/verified.json`, below) |
 | home path | 10 lines | 2 | 5 lines | 22 of 23 are tilde-relative examples or `~/<redacted>`; 3 name the kit's own checkout as `~/agent-build-kit`; 2 more hits are in `runs/units.json` (below) |
 | issue or PR reference | 0 | 0 | 0 | none under `openspec/`; the only two hits are stored notes in `runs/units.json` (below) |
-| dated anecdote | 2 | 1 | 0 | "checked 2026-10-19", "checked 2026-10-12", and a quoted log line "since 2026-10-18T03:..." |
+| dated anecdote | 2 | 1 | 0 | two "checked on a date" lines and a quoted log line carrying a timestamp |
 
 All three dated hits are under `openspec/`; none are timestamps in `runs/`.
 
@@ -30,7 +30,7 @@ All three dated hits are under `openspec/`; none are timestamps in `runs/`.
   - The `abk planning split --scrub` pass (`split/scrubbing.py`, `split/copy.py:_passes`) applies `terms_for` and `scrub_text` to moved files and `with_text` to moved records, once, at the split.
   - `abk scrub-store` (`cli/scrub_store_cmd.py:25`, `HOME_PREFIX`) rewrites home prefixes in stored text on request.
   - `abk doctor`'s `public content` check (`cli/doctor.py:_public_content`, 961) reads only the tracked `abk.yaml` and the ignored files (`scrub.local`, the overlay, `*.pre-redact`). It does not read `openspec/` or `runs/` and is not meant to.
-  - Gap: nothing handles an issue or pull-request reference in text the scrub passes touch. The owner scrub replaced `owner/` with `<redacted>/` and left `agent-build-kit#15` in two stored notes, and `abk scrub-store` only knows home paths. The leak scan catches such a reference, but nothing removes it.
+  - Gap: nothing handles an issue or pull-request reference in text the scrub passes touch. The owner scrub replaced `owner/` with `<redacted>/` and left `example/app#15` in two stored notes, and `abk scrub-store` only knows home paths. The leak scan catches such a reference, but nothing removes it.
 
 ## Decisions, per guard
 

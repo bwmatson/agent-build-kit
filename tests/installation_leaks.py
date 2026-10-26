@@ -24,13 +24,12 @@ import yaml
 from agent_build_kit.config import OVERLAY_FILENAME
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.scrub_terms import TOOL_DIRS
+from tests.tracked_files import guarded_files, planning_dirs
 
 SCANNED = ("src", "tests", "docs", "web", "openspec")
 # The root files read when present; `abk.yaml` and the tracked unit store are planning
 # content, read as committed. Ignored state (logs, ledgers) is not listed.
 ROOT_FILES = ("README.md", "CLAUDE.md", "CHANGELOG.md", "abk.yaml", "runs/units.json")
-# Installed and built files are not this repo's own text.
-SKIPPED_PARTS = {".venv", "node_modules", "dist"}
 TEXT = {
     ".py",
     ".md",
@@ -52,6 +51,7 @@ SELF = {
     "installation_leaks.py",
     "test_no_installation_leaks.py",
     "test_leak_scan_planning_content.py",
+    "test_leak_scan_tilde_in_specs.py",
     "test_installation_leaks_overlay.py",
 }
 # Fixture owners, and the placeholder words a regex's own documentation uses.
@@ -74,6 +74,8 @@ FIXTURE_AZURE_ORGS = ("acme", "example", "o", "org")
 _TOOL_DIR_NAMES = "|".join(re.escape(d.removeprefix(".")) for d in sorted(TOOL_DIRS))
 HOME_PRODUCT_DIR = re.compile(rf'Path\.home\(\)\s*/\s*"\.(?!(?:{_TOOL_DIR_NAMES})\b)')
 HOME_PATH = re.compile(rf"(?<![\w/])~/(?!\.(?:{_TOOL_DIR_NAMES})\b)|/home/[a-z]")
+# The part of `HOME_PATH` that names a user: a tilde-relative path names none.
+ABSOLUTE_HOME_PATH = re.compile(r"/home/[a-z]")
 GITHUB_SLUG = re.compile(r"github\.com[:/](?P<owner>[A-Za-z0-9-]+)/[A-Za-z0-9._-]+")
 AZURE_ORG = re.compile(r"dev\.azure\.com[:/](?:v3/)?(?!v3/)(?P<org>[A-Za-z0-9._-]+)")
 NOREPLY = re.compile(r"\d+\+[A-Za-z0-9-]+@users\.noreply\.github\.com")
@@ -87,20 +89,8 @@ SHAPES = (HOME_PRODUCT_DIR, HOME_PATH, NOREPLY, ANECDOTE)
 
 
 def files(root: Path) -> list[Path]:
-    built_ui = root / "src" / "agent_build_kit" / "serve" / "static"
-    found = []
-    for top in SCANNED:
-        for path in (root / top).rglob("*"):
-            if (
-                path.is_file()
-                and path.suffix in TEXT
-                and not SKIPPED_PARTS.intersection(path.parts)
-                and path.name != "package-lock.json"
-                and built_ui not in path.parents
-            ):
-                found.append(path)
-    found.extend(root / name for name in ROOT_FILES if (root / name).is_file())
-    return [path for path in found if path.name not in SELF]
+    found = guarded_files(root, under=SCANNED, names=ROOT_FILES, suffixes=TEXT, specs=True)
+    return [path for path in found if path.name not in SELF and path.name != "package-lock.json"]
 
 
 def file_hits(root: Path, path: Path, found: re.Pattern | Callable[[str], object]) -> list[str]:
@@ -138,18 +128,37 @@ def foreign_slug_owners(text: str) -> list[str]:
     ]
 
 
-def leaky_line(line: str) -> bool:
+def home_rule(root: Path, path: Path) -> re.Pattern:
+    """The home-path rule for one file: only an absolute path in the specification folder (a
+    tilde-relative path names no user), the full rule everywhere else."""
+    specs = Path(planning_dirs(root).specs_dir)
+    return ABSOLUTE_HOME_PATH if specs in path.relative_to(root).parents else HOME_PATH
+
+
+def home_path_leaks(root: Path) -> list[str]:
+    """Each line holding a home path, as `path:line: clipped line`. In the specification folder a
+    tilde-relative path is not one (it names no user) and an absolute path still is."""
+    return [hit for path in files(root) for hit in file_hits(root, path, home_rule(root, path))]
+
+
+def leaky_line(line: str, home: re.Pattern = HOME_PATH) -> bool:
     return bool(
-        any(shape.search(line) for shape in SHAPES)
+        any((home if shape is HOME_PATH else shape).search(line) for shape in SHAPES)
         or foreign_slug_owners(line)
         or foreign_azure_orgs(line)
     )
 
 
+def file_leaks(root: Path, path: Path) -> list[str]:
+    home = home_rule(root, path)
+    return file_hits(root, path, lambda line: leaky_line(line, home))
+
+
 def leaks(root: Path) -> list[str]:
     """Each hit under `root` as `path:line: clipped line`: home paths, non-fixture slugs,
-    anecdotes and product directories in the scanned text, planning content included."""
-    return hits(root, leaky_line)
+    anecdotes and product directories in the scanned text, planning content included, with the
+    home-path rule of `home_rule`."""
+    return [hit for path in files(root) for hit in file_leaks(root, path)]
 
 
 def overlay_leaks(root: Path) -> list[str]:
