@@ -63,7 +63,36 @@ ENDED_BY_BLANK = """\
 - [ ] 2.1 Do two.
 """
 
-FIXTURES = {"two": TWO_GROUPS, "flags": WITH_FLAGS, "blank": ENDED_BY_BLANK}
+MISNUMBERED = """\
+# Tasks
+
+## 1. [app] [unit-test] First
+
+- [ ] 1.1 Do one.
+
+## 2. [app] [unit-test] Second
+
+- [ ] 1.3 Copied from the group above.
+- [ ] 2.2 Do two.
+"""
+
+ABOVE_FIRST_HEADING = """\
+# Tasks
+
+- [ ] 1.1 Belongs to no group.
+
+## 1. [app] [unit-test] First
+
+- [ ] 1.1 Do one.
+"""
+
+FIXTURES = {
+    "two": TWO_GROUPS,
+    "flags": WITH_FLAGS,
+    "blank": ENDED_BY_BLANK,
+    "misnumbered": MISNUMBERED,
+    "above-first-heading": ABOVE_FIRST_HEADING,
+}
 
 
 def write(tmp_path: Path, text: str) -> Path:
@@ -103,6 +132,20 @@ def test_the_per_group_counts_equal_the_group_parser_s(tmp_path: Path, name: str
 
     for group in groups:
         assert sum(1 for t in tasks if t.group == group.number) == group.task_count
+
+
+def test_a_task_belongs_to_the_group_whose_heading_it_sits_under(tmp_path: Path) -> None:
+    tasks = read_tasks(write(tmp_path, MISNUMBERED), "feature")
+
+    assert [t.key for t in tasks] == ["feature:1.1", "feature:2.3", "feature:2.2"]
+    assert [t.group for t in tasks] == [1, 2, 2]
+
+
+def test_a_task_above_the_first_heading_is_left_out(tmp_path: Path) -> None:
+    tasks = read_tasks(write(tmp_path, ABOVE_FIRST_HEADING), "feature")
+
+    assert [t.key for t in tasks] == ["feature:1.1"]
+    assert tasks[0].text == "Do one."
 
 
 def test_reading_and_ticking_leave_the_plan_digest_unchanged(tmp_path: Path) -> None:

@@ -258,10 +258,7 @@ SPLIT_LINE = re.compile(r"^Split:\s*(?P<value>.*?)\s*$", re.I)
 
 # "- [ ] 1.1 Do the thing" / "- [x] 1.1 Done". Checked and unchecked both count:
 # this asks whether a group has tasks at all, not how far along it is.
-TASK_LINE = re.compile(r"^\s*-\s+\[[ xX]\]\s+\d+\.\d+\s+\S")
-
-
-TASK_PARTS = re.compile(
+TASK_LINE = re.compile(
     r"^\s*-\s+\[(?P<box>[ xX])\]\s+(?P<group>\d+)\.(?P<number>\d+)\s+(?P<text>\S.*?)\s*$"
 )
 
@@ -284,13 +281,20 @@ def read_tasks(tasks: Path, change: str) -> list[Task]:
     """Every checkbox task of `tasks`, in file order, keyed under `change`.
 
     A task's text runs over the indented lines under it and ends at a blank line, a heading or
-    the next task. The tasks are the lines `TASK_LINE` accepts, so the per-group counts agree
-    with the group parser's."""
+    the next task. The tasks are the lines `TASK_LINE` accepts, and like the group parser it puts
+    each one in the group whose heading it sits under, whatever number its own prefix carries,
+    and leaves out a task above the first heading or under a heading that is not a readable
+    group, so the per-group counts agree with the group parser's."""
     found: list[Task] = []
     open_task = False
+    group: int | None = None
     for index, line in enumerate(tasks.read_text().splitlines(), start=1):
-        if parsed := TASK_PARTS.match(line):
-            group, number = int(parsed["group"]), int(parsed["number"])
+        if ANY_GROUP_HEADING.match(line):
+            heading = GROUP_HEADING.match(line)
+            group = int(heading["number"]) if heading else None
+            open_task = False
+        elif (parsed := TASK_LINE.match(line)) and group is not None:
+            number = int(parsed["number"])
             found.append(
                 Task(
                     key=f"{change}:{group}.{number}",
