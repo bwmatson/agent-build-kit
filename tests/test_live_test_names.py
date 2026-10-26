@@ -21,7 +21,7 @@ EXEMPT = frozenset(["CHANGELOG.md"])
 PLANNING_STORE = ("openspec/", "runs/")
 
 
-def tracked_files() -> list[Path]:
+def tracked_files(root: Path = ROOT) -> list[Path]:
     out = subprocess.run(
         ["git", "ls-files", "-z"], cwd=ROOT, check=True, capture_output=True, text=True
     ).stdout

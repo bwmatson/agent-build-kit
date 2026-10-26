@@ -10,7 +10,7 @@ SKIPPED_DIRS = {"node_modules", ".venv", "__pycache__"}
 PLANNING_STORE = {"openspec", "runs"}
 
 
-def repo_markdown(exclude: Collection[Path] = ()) -> list[Path]:
+def repo_markdown(exclude: Collection[Path] = (), root: Path = ROOT) -> list[Path]:
     """Every Markdown file of the repository but the hidden folders (which hold the skills'
     mirror), the vendored folders, the planning store and the excluded files and folders."""
     return sorted(
