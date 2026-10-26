@@ -83,7 +83,12 @@ from agent_build_kit.pipeline.outside_commits import outside_commits_note
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
 from agent_build_kit.pipeline.pr_replies import parse_answer
 from agent_build_kit.pipeline.product_defect import DefectRefused, read_product_defect
-from agent_build_kit.pipeline.restack import RESOLVER_TOOLS, BranchMoved, HostMoved
+from agent_build_kit.pipeline.restack import (
+    RESOLVER_TOOLS,
+    BranchMoved,
+    EmptyBranchBlocked,
+    HostMoved,
+)
 from agent_build_kit.pipeline.review_classes import class_of
 from agent_build_kit.pipeline.review_paths import is_protected
 from agent_build_kit.pipeline.run_log import RunLog
@@ -1083,6 +1088,28 @@ class BuildPath:
             self.say(f"scheduled run on {base}: straight to e2e-test")
             return {**FRESH, **remembered, "start": start, "e2e": True, "scheduled": True}
         existing = r.branch_commits(tree, ref)
+        if not existing:
+            # A branch with no commit of its own keeps the base its worktree was made on,
+            # however often it is requeued: put it on the current one before anything runs.
+            r.fetch_quietly(unit)
+            try:
+                moved = r.move_empty_branch(tree, ref)
+            except EmptyBranchBlocked as error:
+                files = ", ".join(error.files) or str(error)
+                why = (
+                    f"the worktree is on an old base and cannot be moved onto {base}: "
+                    f"uncommitted changes would be overwritten in {files}"
+                )
+                stored = r.store.get(unit.id)
+                r.store.set_feedback(
+                    unit.id,
+                    f"{stored.feedback}\n\n{why}".strip(),
+                    from_person=stored.feedback_from_person,
+                    source=stored.feedback_source,
+                )
+                return {**FRESH, **remembered, **self.stop(why)}
+            if moved:
+                self.say(f"moved the empty branch from {moved[0][:12]} to {moved[1][:12]} ({base})")
         if not existing and (parent := saved.split_from) and self.stubbed():
             self.reuse_superseded(parent, tree, ref)
             existing = r.branch_commits(tree, ref)

@@ -54,8 +54,8 @@ def test_staged_and_unstaged_changes_of_the_unit_are_carried_along(tmp_path: Pat
     tick(tmp_path, recorder, **overrides)
 
     assert head(repo) == new
-    status = git(repo, "status", "--porcelain")
-    assert "A  own.txt" in status and " M base.txt" in status
+    assert git(repo, "diff", "--cached", "--name-only").split() == ["own.txt"]
+    assert git(repo, "diff", "--name-only").split() == ["base.txt"]
     assert (repo / "own.txt").read_text() == "mine\n"
     assert (repo / "base.txt").read_text() == "changed\n"
 
