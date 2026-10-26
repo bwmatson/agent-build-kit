@@ -37,8 +37,15 @@ from typing import Literal
 from agent_build_kit import config, runtimes
 from agent_build_kit.init.scaffold import render_systemd
 from agent_build_kit.installation import Installation, data_home
+from agent_build_kit.machine_files import Carried, carry
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.planning_repo import common_dir, is_worktree_of, repository_name
+from agent_build_kit.pipeline.planning_repo import (
+    PlanningWorktreeRefused,
+    common_dir,
+    is_worktree_of,
+    main_working_tree,
+    repository_name,
+)
 from agent_build_kit.pipeline.planning_sync import (
     PlanningMode,
     SyncOutcome,
@@ -487,11 +494,6 @@ def remove(
     return UnitChange(removed=tuple(ours))
 
 
-class PlanningWorktreeRefused(Exception):
-    """A path or marker in the way of the pipeline worktree that is not a worktree of this
-    repository; the message names it."""
-
-
 class InRepoInstall(Frozen):
     """An install for an installation whose planning repo is also a code repo.
 
@@ -503,6 +505,7 @@ class InRepoInstall(Frozen):
     created: bool
     change: UnitChange
     notes: tuple[str, ...] = ()
+    carried: tuple[Carried, ...] = ()
 
 
 class InRepoRemoval(Frozen):
@@ -538,6 +541,21 @@ def _bring_to_tip(inst: Installation, worktree: Path) -> tuple[str, ...]:
     if result.outcome == SyncOutcome.STOPPED:
         return (f"{worktree} was not moved to the default branch's tip: {result.reason}",)
     return ()
+
+
+def _carry_machine_files(
+    inst: Installation, worktree: Path, mode: PlanningMode, *, dry_run: bool
+) -> tuple[tuple[Carried, ...], tuple[str, ...]]:
+    """Link the working copy's machine files into the worktree; what was done, and notes."""
+    if mode == PlanningMode.PIPELINE_WORKTREE:
+        source = main_working_tree(inst.root)
+        if source is None:
+            return (), (
+                f"no main working tree found for {inst.root}, so no machine file was carried",
+            )
+    else:
+        source = inst.root
+    return carry(source, worktree, dry_run=dry_run), ()
 
 
 def install_in_repo(
@@ -584,6 +602,8 @@ def install_in_repo(
         if not dry_run:
             write_pipeline_marker(inst.root, worktree)
     notes = () if dry_run else _bring_to_tip(inst, worktree)
+    carried, carry_notes = _carry_machine_files(inst, worktree, mode, dry_run=dry_run)
+    notes += carry_notes
     if not dry_run and not (worktree / "abk.yaml").is_file():
         notes += (
             f"{worktree} has no abk.yaml: it is not on the default branch yet, so commit and push "
@@ -599,7 +619,9 @@ def install_in_repo(
         worktree, dest=dest, run=run, enable=enable, dry_run=dry_run, tool_dirs=tool_dirs
     )
     change = change.model_copy(update={"removed": (*change.removed, *superseded)})
-    return InRepoInstall(worktree=worktree, created=created, change=change, notes=notes)
+    return InRepoInstall(
+        worktree=worktree, created=created, change=change, notes=notes, carried=carried
+    )
 
 
 def remove_in_repo(

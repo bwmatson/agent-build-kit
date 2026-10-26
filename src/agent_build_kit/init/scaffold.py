@@ -56,6 +56,7 @@ from agent_build_kit.pipeline.file_lock import append_missing_lines
 from agent_build_kit.pipeline.original_copy import COPY_PATTERN
 from agent_build_kit.pipeline.planning_repo import toplevel
 from agent_build_kit.pipeline.shell import git
+from agent_build_kit.scrub_terms import LOCAL_LIST
 
 TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
 
@@ -638,7 +639,7 @@ def _write(path: Path, text: str, *, overwrite: bool, written: list[Path]) -> No
 
 # What an installation keeps to itself: the configuration overlay, the local scrub list and the
 # redaction originals.
-LOCAL_IGNORES = (OVERLAY_FILENAME, "scrub.local", COPY_PATTERN)
+LOCAL_IGNORES = (OVERLAY_FILENAME, LOCAL_LIST, COPY_PATTERN)
 
 
 def _ensure_ignored(path: Path, lines: tuple[str, ...], *, written: list[Path]) -> None:

@@ -12,6 +12,7 @@ import yaml
 
 from agent_build_kit.config import merge_local, overlay_path
 from agent_build_kit.config_migrate import ConfigMigrateError
+from agent_build_kit.machine_files import CONFIG_LOCAL_FILES
 from agent_build_kit.pipeline.file_lock import append_missing_lines, with_missing_lines
 from agent_build_kit.pipeline.shell import git, is_ignored, is_tracked
 from agent_build_kit.pipeline.unit_store import UnitStore
@@ -23,7 +24,7 @@ from agent_build_kit.runtimes.policy_apply import (
     stage_text,
 )
 
-IGNORED_LOCAL_FILES = ("abk.local.yaml", "scrub.local")
+IGNORED_LOCAL_FILES = CONFIG_LOCAL_FILES
 _SHOWN_IDS = 5
 _WARNING = (
     "A write to abk.yaml or abk.local.yaml fails a build or track run in progress, so run this"

@@ -929,6 +929,8 @@ def cmd_install_timers(args: argparse.Namespace, inst: Installation | None) -> i
         print(f"{verb} planning worktree {installed.worktree}")
     for note in installed.notes:
         print(f"note: {note}")
+    for item in installed.carried:
+        print(f"{item.result} {where / item.name}")
     if tools:
         print(f"units' PATH also carries: {', '.join(tools)}")
     for tool in timers.needed_tools(inst):

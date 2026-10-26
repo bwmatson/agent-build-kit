@@ -15,6 +15,11 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.shell import git
 
 
+class PlanningWorktreeRefused(Exception):
+    """A path or marker in the way of the pipeline worktree that is not a worktree of this
+    repository; the message names it."""
+
+
 def is_repo(root: Path) -> bool:
     return git(root, "rev-parse", "--git-dir", check=False).returncode == 0
 

@@ -36,13 +36,30 @@ def working_copy_of(
     return bare, working_copy
 
 
-def in_repo(base: Path, *, origin: bool = True, name: str = "app") -> InRepo:
-    """The working copy of `working_copy_of`, and a detached worktree of it at that commit,
-    recorded in the pipeline marker. Two repositories need a base each."""
+def add_pipeline_worktree(working_copy: Path, path: Path) -> Path:
+    """A detached worktree of the working copy at `path`, at its HEAD, recorded in the pipeline
+    marker."""
+    git(working_copy, "worktree", "add", "-q", "--detach", str(path), "HEAD")
+    write_pipeline_marker(working_copy, path)
+    return path
+
+
+def in_repo(
+    base: Path,
+    *,
+    origin: bool = True,
+    name: str = "app",
+    files: dict[str, str] | None = None,
+) -> InRepo:
+    """The working copy of `working_copy_of` with `files` committed on top (and pushed), and a
+    detached worktree of it at that commit, recorded in the pipeline marker. Two repositories
+    need a base each."""
     bare, working_copy = working_copy_of(base, origin=origin, name=name)
-    worktree = base / "planning"
-    git(working_copy, "worktree", "add", "-q", "--detach", str(worktree), "HEAD")
-    write_pipeline_marker(working_copy, worktree)
+    if files:
+        commit_files(working_copy, "files", files)
+        if origin:
+            git(working_copy, "push", "-q", "origin", "main")
+    worktree = add_pipeline_worktree(working_copy, base / "planning")
     return InRepo(origin=bare, working_copy=working_copy, worktree=worktree)
 
 

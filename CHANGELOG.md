@@ -15,6 +15,12 @@
   of the unit's own are kept; if the move would overwrite one, the unit stops with feedback naming
   the files.
 
+- `abk install-timers` now links `.env`, `abk.local.yaml` and `scrub.local` from the working copy
+  into the pipeline worktree (they stay untracked), so the timed ticks load this machine's
+  configuration. It prints a `linked`, `unchanged` or `repointed` line for each, skips a file the
+  working copy lacks, and refuses, before changing anything, a different file already there or one
+  git would not ignore.
+
 - A unit that was put back and has not started again now waits for the dependencies it has. A
   `Needs:` line added to such a unit, for example after the pipeline requeued it, holds it until
   the group has merged instead of letting the next round start it. `abk replan` prints
