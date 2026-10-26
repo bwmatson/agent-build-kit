@@ -12,6 +12,7 @@ from agent_build_kit.split import scrubbing
 from agent_build_kit.split.copy import (
     CopyRefused,
     DroppedEdge,
+    EdgeReason,
     carry_out,
     dropped_edges,
     outstanding,
@@ -66,8 +67,8 @@ def test_a_merged_foreign_edge_is_dropped_from_all_three_lists_and_reported(tmp_
 
     assert found.errors == ()
     assert set(found.dropped) == {
-        DroppedEdge(unit="moves/2", field="depends_on", target="other/1"),
-        DroppedEdge(unit="moves/2", field="needs", target="other/1"),
+        DroppedEdge(unit="moves/2", field="depends_on", target="other/1", reason=EdgeReason.REPO),
+        DroppedEdge(unit="moves/2", field="needs", target="other/1", reason=EdgeReason.REPO),
     }
     assert dropped_edges(source, destination, plan) == found.dropped
     written = UnitStore(destination.state_dir / "units.json").get("moves/2")
