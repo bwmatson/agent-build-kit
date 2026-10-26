@@ -69,6 +69,8 @@ class SandboxPolicy(Frozen):
     proxy_port: int | None = None
     # The local service ports an e2e-test step may connect to, beside the proxy's.
     ports: tuple[int, ...] = ()
+    # Paths under `read` that a step may read and never execute.
+    no_execute: tuple[Path, ...] = ()
 
 
 class SandboxUnavailable(Exception):
