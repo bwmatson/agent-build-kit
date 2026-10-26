@@ -796,6 +796,7 @@ class UnitStore:
                 split_request=existing.split_request if existing else None,
                 split_rounds_used=existing.split_rounds_used if existing else 0,
                 size_waived=existing.size_waived if existing else False,
+                unsplit_reason=existing.unsplit_reason if existing else "",
                 split_from=existing.split_from if existing else "",
                 step=existing.step if existing else "",
                 guidance=existing.guidance if existing else "",

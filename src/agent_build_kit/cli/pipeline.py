@@ -2729,11 +2729,15 @@ def split_held_units(inst: Installation, store: UnitStore, *, may_plan: bool = T
     """Ask for a split of each unit held for its size, in priority order, and supersede it by the
     pieces; a round is recorded for each attempt that succeeds or fails, none for an outage.
     Without `may_plan` (the usage guard refuses planning) a unit that cannot be split is still
-    held for a person, and no planner call is made."""
+    sent on with its size waived (held for a person only when `review.unsplittable` is `hold`),
+    and no planner call is made."""
     units = store.all()
     held = [u for u in units if _awaiting_split(u)]
     for unit in sorted(held, key=lambda u: (effective_priority(u, units), u.id)):
         _split_one(inst, store, unit, may_plan=may_plan)
+
+
+TOO_BIG_AND = "too big for its tier, and "
 
 
 def _hold_for_a_person(store: UnitStore, unit: StoredUnit, note: str) -> None:
@@ -2742,36 +2746,44 @@ def _hold_for_a_person(store: UnitStore, unit: StoredUnit, note: str) -> None:
     log(f"{unit.id}: {note}; held for a person")
 
 
-def _proceed_unsplit(inst: Installation, store: UnitStore, unit: StoredUnit, note: str) -> None:
+def _proceed_unsplit(
+    inst: Installation, store: UnitStore, unit: StoredUnit, reason: str, *, hold_prefix: str = ""
+) -> None:
     """Send a unit over its ceiling that will not be split on, with its size waived as a
-    person's requeue waives it; with `review.unsplittable` at `hold` a person decides first."""
+    person's requeue waives it; with `review.unsplittable` at `hold` a person decides first,
+    and the hold's note is `hold_prefix` and the reason. A requeue that did not take effect
+    (the branch is busy) leaves the unit held for its size, to be sent on by the next pass."""
     if config.active().review.unsplittable == "hold":
-        _hold_for_a_person(store, unit, note)
+        _hold_for_a_person(store, unit, f"{hold_prefix}{reason}")
         return
-    reason = note.removeprefix("too big for its tier, and ")
     said = f"over its tier's ceiling and not split: {reason}"
     store.set_size_waived(unit.id)
     store.set_unsplit_reason(unit.id, reason)
     store.set_state(unit.id, HELD, note=said, cause=Cause.RELEASED)
     log(f"{unit.id}: {said}")
-    requeue(inst, unit.id, "resume", say=lambda text, error=False: log(text), because=said)
+    if requeue(inst, unit.id, "resume", say=lambda text, error=False: log(text), because=said):
+        store.set_size_waived(unit.id, False)
+        store.set_unsplit_reason(unit.id, "")
+        store.set_state(
+            unit.id,
+            HELD,
+            note=f"{said}; will be sent on next pass",
+            held_by=HeldBy.SIZE,
+            cause=Cause.TOO_BIG_FOR_TIER,
+        )
+        log(f"{unit.id}: could not be resumed now; it will be sent on next pass")
 
 
 def _cannot_split(unit: StoredUnit, units: Sequence[StoredUnit]) -> str:
     """Why a unit held for its size cannot be split, or an empty string when it can."""
     if len(unit.groups) <= 1:
-        return (
-            f"too big for its tier, and it holds one group, {unit.groups[0]}, which cannot be split"
-        )
+        return f"it holds one group, {unit.groups[0]}, which cannot be split"
     if any(member.change != unit.change for member in unit.joined):
-        return (
-            "too big for its tier, and it carries groups of another change, "
-            "which a plan of one change cannot split"
-        )
+        return "it carries groups of another change, which a plan of one change cannot split"
     started = [u.id for u in units if unit.id in u.depends_on and u.state in _STARTED]
     if started:
         return (
-            f"too big for its tier, and {', '.join(started)} is stacked on it and has started, "
+            f"{', '.join(started)} is stacked on it and has started, "
             "so replacing it would orphan that branch"
         )
     return ""
@@ -2810,7 +2822,8 @@ def _pins_of(units: Sequence[StoredUnit], change: str) -> list[Pin]:
 def _split_one(
     inst: Installation, store: UnitStore, unit: StoredUnit, *, may_plan: bool = True
 ) -> None:
-    """Hold `unit` for a person when it cannot be split or its rounds are used, else ask for a
+    """Send `unit` on with its size waived when it cannot be split or its rounds are used (held
+    for a person only when `review.unsplittable` is `hold`), else ask for a
     split and supersede it. A branch held by a live process defers it, with no round."""
     rounds = config.active().review.split_rounds
     if unit.split_rounds_used >= rounds:
@@ -2819,11 +2832,11 @@ def _split_one(
             if rounds == 0
             else f"split {unit.split_rounds_used} of {rounds} rounds used"
         )
-        _proceed_unsplit(inst, store, unit, f"too big for its tier, and {used}")
+        _proceed_unsplit(inst, store, unit, used, hold_prefix=TOO_BIG_AND)
         return
     units = store.all()
     if why := _cannot_split(unit, units):
-        _proceed_unsplit(inst, store, unit, why)
+        _proceed_unsplit(inst, store, unit, why, hold_prefix=TOO_BIG_AND)
         return
     if not may_plan:
         return

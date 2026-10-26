@@ -85,6 +85,29 @@ def test_a_second_pass_does_not_hold_it_again(
     assert run.store.get(HELD_ID) == after_first
 
 
+def test_a_requeue_that_did_not_take_effect_leaves_it_to_be_sent_on_by_the_next_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = unsplittable_scene("one group", tmp_path, monkeypatch)
+    real = cli.requeue
+    monkeypatch.setattr(cli, "requeue", lambda *_, **__: 1)
+
+    cli.split_held_units(run.inst, run.store)
+
+    unit = run.store.get(HELD_ID)
+    assert (unit.state, unit.held_by, unit.cause) == (HELD, HeldBy.SIZE, Cause.TOO_BIG_FOR_TIER)
+    assert unit.split_request is not None
+    assert not unit.size_waived
+
+    monkeypatch.setattr(cli, "requeue", real)
+    cli.split_held_units(run.inst, run.store)
+
+    unit = run.store.get(HELD_ID)
+    assert unit.state == PLANNED
+    assert unit.size_waived
+    assert "one group" in unit.unsplit_reason
+
+
 @pytest.mark.parametrize("kind", REASONS)
 def test_hold_keeps_the_old_behaviour_for_each_reason(
     kind: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
