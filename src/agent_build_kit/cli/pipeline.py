@@ -1938,7 +1938,7 @@ def _starting_accounts(
         account = claude_account.for_repo(inst.config, unit.repo)
         found.setdefault(claude_account.account_key(account), account)
     if planning:
-        default = claude_account.Account(limits=claude_limits())
+        default = claude_account.Account(usage_limits=claude_limits())
         found.setdefault(claude_account.account_key(default), default)
     return list(found.values()) or [claude_account.resolve_in(inst.config, None)]
 

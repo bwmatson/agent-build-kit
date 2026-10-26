@@ -87,7 +87,7 @@ def _classify(
         if last in ("command", "policy_fix"):
             found = _absolute_program(value)
             return ("starts with an absolute program path", "machine") if found else None
-        if last == "limits":
+        if last in ("limits", "usage_limits"):
             return ("a plan's thresholds differ per person", "default") if value else None
     in_tests = (len(path) == 2 and head == "tests") or (
         len(path) == 4 and head == "repos" and path[2] == "tests"

@@ -36,10 +36,10 @@ def test_the_runtime_s_usage_thresholds_keep_their_name_and_report_no_deprecatio
 ) -> None:
     path = tmp_path / "abk.yaml"
     path.write_text(
-        "version: 1\nruntimes:\n  claude_code:\n    limits:\n      usage_cache_minutes: 7\n"
+        "version: 1\nruntimes:\n  claude_code:\n    usage_limits:\n      usage_cache_minutes: 7\n"
     )
 
     loaded = config.load(path)
 
-    assert loaded.runtimes["claude_code"].limits.usage_cache_minutes == 7
+    assert loaded.runtimes["claude_code"].usage_limits.usage_cache_minutes == 7
     assert config.deprecations(path) == []

@@ -200,15 +200,15 @@ class Host:
         directory = self.home / "account"
         directory.mkdir(exist_ok=True)
         # As the registry resolves an account: with the limits the installation sets.
-        limits = resolve_in(config_module.active(), None).limits
+        limits = resolve_in(config_module.active(), None).usage_limits
         if self.account_kind == "labelled":
-            self.account = Account(label="personal", config_dir=directory, limits=limits)
+            self.account = Account(label="personal", config_dir=directory, usage_limits=limits)
             self._scope.enter_context(usage_guard.on_account(self.account))
             self.cache = file_for(self._cache_base, self.account)
             self.calls_file = file_for(self._calls_base, self.account)
         else:
             self.monkeypatch.setattr(settings, "claude_home", directory)
-            self.account = Account(limits=limits)
+            self.account = Account(usage_limits=limits)
         if token is not None or expires_at_ms is not None:
             write_credentials(directory, token, expires_at_ms)
         if block is not None:

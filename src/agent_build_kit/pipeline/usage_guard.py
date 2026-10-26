@@ -5,7 +5,7 @@ plan's usage window, shared with the user's own interactive sessions. Credits
 are enabled past the plan limit, which means running to 100% spends real money
 instead of stopping. So unattended work stops starting new units at
 the pause percent of the window that is full (`usage_pause_pct`, 70 by default,
-in the `session` or `weekly` section of `runtimes.claude_code.limits`) and
+in the `session` or `weekly` section of `runtimes.claude_code.usage_limits`) and
 schedules a resume.
 
 **The threshold need not be flat.** Quota left unused when a window resets is
@@ -550,8 +550,8 @@ def account_in_force() -> claude_account.Account:
 def claude_limits() -> ClaudeLimitsConfig:
     """The limits of the account in force (`on_account`), else the runtime's."""
     if (account := _account.get()) is not None:
-        return account.limits
-    return active().runtimes.get(CLAUDE_CODE, RuntimeConfig()).limits
+        return account.usage_limits
+    return active().runtimes.get(CLAUDE_CODE, RuntimeConfig()).usage_limits
 
 
 def current_cache_interval(calls_file: Path) -> CacheInterval:
