@@ -2515,6 +2515,11 @@ def gate_sent_back(store: UnitStore) -> None:
             log(f"{unit.id}: {why}")
 
 
+def gate_resumable(inst: Installation, store: UnitStore, *, spared: Collection[str] = ()) -> None:
+    """Gate a `running` unit that no process holds while a merge edge of it is unmet."""
+    raise NotImplementedError
+
+
 def deliver_committed(inst: Installation, store: UnitStore) -> None:
     """Finish the delivery of every commit a chat made and a gone process did not deliver:
     the adopted event once for that commit, then the lease that recorded it is removed."""
