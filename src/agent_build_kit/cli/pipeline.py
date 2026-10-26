@@ -2149,6 +2149,8 @@ def run_round(
         )
         return []
     in_flight = set(building)
+    if gate_resumable(inst, store, spared=in_flight):
+        units = store.all()
     if readmit:
         readmit.admit(units, in_flight)
     idle = _idle_units(inst, units, in_flight)
@@ -2515,9 +2517,37 @@ def gate_sent_back(store: UnitStore) -> None:
             log(f"{unit.id}: {why}")
 
 
-def gate_resumable(inst: Installation, store: UnitStore, *, spared: Collection[str] = ()) -> None:
-    """Gate a `running` unit that no process holds while a merge edge of it is unmet."""
-    raise NotImplementedError
+def gate_resumable(
+    inst: Installation, store: UnitStore, *, spared: Collection[str] = ()
+) -> dict[str, str]:
+    """Gate a `running` unit with a thread that no process holds (no branch lock, no lease, not
+    in `spared`) while a merge edge of it is unmet: it is `planned` and `gated` with the wait,
+    its thread kept, so it resumes once the edge is met. Returns, for each unit gated, the
+    groups it waits for."""
+    units = store.all()
+    repos = config.active().repos
+    leases = Leases(lease_dir(inst.state_dir))
+    gated: dict[str, str] = {}
+    for unit in units:
+        if (
+            unit.state != RUNNING
+            or unit.id in spared
+            or leases.holder(unit.id) is not None
+            or branch_is_held(inst, unit.branch or branch_name(unit))
+            or not has_thread(inst, unit.id)
+        ):
+            continue
+        waits = [
+            parent
+            for parent in waiting_on(unit, units)
+            if edge_kind(unit, parent, repos).kind is EdgeKind.MERGE
+        ]
+        if waits:
+            why = dependency_wait(waits, merging=merge_parents(unit, waits, units, repos))
+            store.set_state(unit.id, PLANNED, note=why, cause=Cause.GATED)
+            log(f"{unit.id}: {why}")
+            gated[unit.id] = group_names(waits)
+    return gated
 
 
 def deliver_committed(inst: Installation, store: UnitStore) -> None:
@@ -2633,6 +2663,8 @@ def requeue_wait_ended(
             store.set_waited_on(unit.id, ())
         elif all(parent is not None and parent.state in REVIEWED for parent in prerequisites):
             _requeue_ended_wait(inst, store, unit, [p for p in prerequisites if p is not None])
+            # A `Needs:` the recorded wait did not name still holds the unit it has put back.
+            gate_resumable(inst, store, spared=in_flight)
         else:
             # The `Needs:` line was dropped while the prerequisite is still open.
             store.set_waited_on(unit.id, ())
@@ -6795,6 +6827,8 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
                 print(f"{rest}: not tried — {change} met an outage")
             break
     release_split_changed(inst, store, only=set(to_plan))
+    for unit_id, waits in gate_resumable(inst, store).items():
+        print(f"gated: {unit_id} waits for {waits}")
     return 1 if refused or failed or cyclic else 0
 
 

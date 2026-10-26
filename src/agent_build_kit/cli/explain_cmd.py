@@ -15,6 +15,7 @@ from agent_build_kit.pipeline.admission_record import (
     config_fingerprint,
     read_admissions,
 )
+from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import history_stamp
 
 
@@ -102,6 +103,9 @@ def cmd_explain(args: argparse.Namespace, inst: Installation) -> int:
         )
         if record is not None and record.kind == "usage":
             print("\n".join(_describe(record, config_fingerprint(inst))))
+        return 0
+    if record is None and unit is not None and unit.cause is Cause.GATED and unit.note:
+        print(f"{args.unit} is {unit.state.value}: {unit.note}")
         return 0
     if record is None:
         print(f"no record covers {args.unit} at {at.isoformat()}")
