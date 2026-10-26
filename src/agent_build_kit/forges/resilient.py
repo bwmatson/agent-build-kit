@@ -63,6 +63,10 @@ class ResilientForge:
     Anything that is not an operation (`name`, `client`, ...) is the inner
     forge's own."""
 
+    # What the logs and the retry counter call the host this wraps.
+    _subject = "forge"
+    _retries_counter = RETRIES_COUNTER
+
     def __init__(
         self,
         inner: Forge,
@@ -99,7 +103,7 @@ class ResilientForge:
                     return getattr(self._inner, name)(*args, **kwargs)
                 found = self._landed(spec, args, kwargs)
                 if found is not None:
-                    telemetry.count(RETRIES_COUNTER, operation=name, outcome="landed")
+                    telemetry.count(self._retries_counter, operation=name, outcome="landed")
                     return found
                 failure, unconfirmed = unconfirmed, None
             except TRANSIENT as error:
@@ -111,7 +115,7 @@ class ResilientForge:
                     and unconfirmed is None
                     and not isinstance(error, RateLimited)
                 ):
-                    if not self._can_ask(spec):
+                    if not self._can_ask(spec, args, kwargs):
                         if spec.contains:
                             return self._contained(name, error, attempt)
                         raise
@@ -126,11 +130,13 @@ class ResilientForge:
         return list(spec.neutral) if isinstance(spec.neutral, tuple) else spec.neutral
 
     def _contained(self, name: str, failure: TransportError, attempt: int) -> Any:
-        log.warning("forge %s: contained after %d attempts (%s)", name, attempt, failure)
-        telemetry.count(RETRIES_COUNTER, operation=name, outcome="contained")
+        log.warning(
+            "%s %s: contained after %d attempts (%s)", self._subject, name, attempt, failure
+        )
+        telemetry.count(self._retries_counter, operation=name, outcome="contained")
         return self._neutral(self._table[name])
 
-    def _can_ask(self, spec: OperationSpec) -> bool:
+    def _can_ask(self, spec: OperationSpec, args: tuple[Any, ...], kwargs: dict[str, Any]) -> bool:
         return spec.lands is not None and callable(getattr(self._inner, spec.lands, None))
 
     def _landed(self, spec: OperationSpec, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
@@ -160,19 +166,20 @@ class ResilientForge:
             if self._table[name].contains:
                 self._contained(name, failure, attempt)
                 return True
-            telemetry.count(RETRIES_COUNTER, operation=name, outcome="exhausted")
+            telemetry.count(self._retries_counter, operation=name, outcome="exhausted")
             if hint > MAX_DELAY:
                 raise failure
             raise HostUnavailable(name, str(failure), attempt) from failure
         log.info(
-            "forge %s: attempt %d of %d failed (%s); waiting %.1fs",
+            "%s %s: attempt %d of %d failed (%s); waiting %.1fs",
+            self._subject,
             name,
             attempt,
             self._policy.attempts,
             failure,
             wait,
         )
-        telemetry.count(RETRIES_COUNTER, operation=name, outcome="retried")
+        telemetry.count(self._retries_counter, operation=name, outcome="retried")
         self._sleep(wait)
         return False
 

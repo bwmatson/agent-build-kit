@@ -98,6 +98,8 @@ def test_a_claim_on_a_story_assigned_to_someone_else_is_not_held(tracker: LocalT
 def test_without_revision_checks_a_claim_reads_back_and_reports_what_it_finds(
     unchecked: LocalTracker,
 ) -> None:
+    """The stand-in is single-threaded and cannot interleave a competing write inside a claim,
+    so this pins only the reported result; the read-back itself belongs to the contract suite."""
     story = unchecked.create("story", "Story")
     assert unchecked.claim(story.id) is True
 

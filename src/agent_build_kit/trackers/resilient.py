@@ -10,10 +10,15 @@ from agent_build_kit.forges.resilient import Clock, ResilientForge, RetryPolicy,
 from agent_build_kit.trackers.base import Tracker
 from agent_build_kit.trackers.operations import OPERATIONS
 
+RETRIES_COUNTER = "abk.tracker.retries"
+
 
 class ResilientTracker(ResilientForge):
     """A tracker that applies `OPERATIONS` to every call it delegates to `inner`, with the
     forge wrapper's backoff and rate-limit rules; a create is looked up by its marker."""
+
+    _subject = "tracker"
+    _retries_counter = RETRIES_COUNTER
 
     def __init__(
         self,
@@ -25,6 +30,10 @@ class ResilientTracker(ResilientForge):
         table: Mapping[str, OperationSpec] = OPERATIONS,
     ) -> None:
         super().__init__(inner, policy, clock, sleeper, table=table)  # type: ignore[arg-type]
+
+    def _can_ask(self, spec: OperationSpec, args: tuple[Any, ...], kwargs: dict[str, Any]) -> bool:
+        # Without a marker there is nothing to look for, so a create is not repeated blind.
+        return bool(kwargs.get("markers")) and super()._can_ask(spec, args, kwargs)
 
     def _landed(self, spec: OperationSpec, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
         markers = kwargs.get("markers") or ()

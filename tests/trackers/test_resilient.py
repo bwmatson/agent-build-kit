@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 import pytest
 
+from agent_build_kit import telemetry
 from agent_build_kit.forges.resilient import RetryPolicy
 from agent_build_kit.forges.transport import HostError, RateLimited
 from agent_build_kit.trackers.local import LocalTracker
@@ -128,6 +129,45 @@ def test_a_create_after_a_timeout_looks_for_the_marker_and_does_not_create_twice
     assert inner.made("find_by_marker") == 1
     assert created.title == "Story"
     assert [item.id for item in store.children(feature.id)] == [created.id]
+
+
+def test_a_create_with_no_marker_is_not_repeated_after_a_timeout(waits: Waits) -> None:
+    store = LocalTracker()
+    feature = store.create("feature", "Feature")
+    inner = Flaky(store, {"create": [down()]}, lost=frozenset({"create"}))
+
+    with pytest.raises(HostError):
+        layer(inner, waits).create("story", "Story", parent=feature.id)
+
+    assert inner.made("create") == 1
+    assert inner.made("find_by_marker") == 0
+    assert len(store.children(feature.id)) == 1
+
+
+def test_a_rate_limited_create_with_no_marker_is_still_retried(waits: Waits) -> None:
+    store = LocalTracker()
+    feature = store.create("feature", "Feature")
+    limited = RateLimited("POST /x: rate limited", retry_after=3)
+    inner = Flaky(store, {"create": [limited]})
+
+    created = layer(inner, waits).create("story", "Story", parent=feature.id)
+
+    assert inner.made("create") == 2
+    assert waits.slept == [3]
+    assert [item.id for item in store.children(feature.id)] == [created.id]
+
+
+def test_tracker_retries_are_counted_under_their_own_name(
+    waits: Waits, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lines: list[str] = []
+    monkeypatch.setattr(telemetry, "count", lambda name, *a, **k: lines.append(name))
+    store = LocalTracker()
+    item = store.create("story", "Story")
+
+    layer(Flaky(store, {"get": [down()]}), waits).get(item.id)
+
+    assert lines == ["abk.tracker.retries"]
 
 
 def test_a_create_that_did_not_land_is_made_again_once_the_marker_is_not_found(
