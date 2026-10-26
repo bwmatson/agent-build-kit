@@ -2455,8 +2455,13 @@ def reclaim_stranded(
     and no thread can resume: its run was killed before it reached a point to
     resume from. One a live process holds, or with a thread, is left, and so is
     one in `in_flight`: a unit the pass has just handed to a worker, which has
-    not yet taken the branch's lock."""
+    not yet taken the branch's lock. A unit whose `starting` marker has not expired is left for
+    the same reason; an expired marker is cleared with the unit's state."""
+    now = spans.clock.now()
     for unit in store.all():
+        marker = unit.starting
+        if marker is not None and marker.until > now:
+            continue
         if (
             unit.state == RUNNING
             and unit.id not in in_flight
@@ -2469,6 +2474,7 @@ def reclaim_stranded(
                 note="requeued: its run ended without a thread",
                 cause=Cause.REQUEUED,
             )
+            store.set_starting(unit.id, None)
             telemetry.count("abk.units.reclaimed")
             log(f"{unit.id}: no run holds it — planned again")
 

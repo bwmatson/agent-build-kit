@@ -1307,6 +1307,10 @@ class UnitStore:
         )
         self._write(stored)
 
+    def set_starting(self, unit_id: str, marker: Starting | None) -> None:
+        """Record admission's `starting` marker on a unit, or clear it with None."""
+        self._update(unit_id, starting=marker)
+
     @_exclusive
     def mark_ready(self, unit_id: str) -> None:
         """Stamp `ready_at` with the clock's now, unless it is already set."""

@@ -7,6 +7,10 @@
   on. The run log says `moved the empty branch from <old> to <new> (<base>)`. Uncommitted changes
   of the unit's own are kept; if the move would overwrite one, the unit stops with feedback naming
   the files.
+- Slot occupancy is now worked out from durable facts (live branch locks, leases and a
+  `starting` marker on a unit just admitted), and admission counts, checks and marks under one
+  lock, so two processes cannot admit past a limit. A unit whose marker expired with no lock
+  held is planned again by the next round.
 
 - A unit that was put back and has not started again now waits for the dependencies it has. A
   `Needs:` line added to such a unit, for example after the pipeline requeued it, holds it until
