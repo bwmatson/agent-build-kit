@@ -991,6 +991,16 @@ class BuildPath:
         if self.run_log and not self.runner.log_reaches_run_log:
             self.run_log.emit(line)
 
+    def append_feedback(self, why: str) -> None:
+        """Add `why` to the unit's saved feedback, keeping who it is from and its source."""
+        stored = self.runner.store.get(self.unit.id)
+        self.runner.store.set_feedback(
+            self.unit.id,
+            f"{stored.feedback}\n\n{why}".strip(),
+            from_person=stored.feedback_from_person,
+            source=stored.feedback_source,
+        )
+
     def stop(self, reason: str) -> Update:
         self.say(f"stopping: {reason}")
         return {"stopped": reason}
@@ -1100,13 +1110,7 @@ class BuildPath:
                     f"the worktree is on an old base and cannot be moved onto {base}: "
                     f"uncommitted changes would be overwritten in {files}"
                 )
-                stored = r.store.get(unit.id)
-                r.store.set_feedback(
-                    unit.id,
-                    f"{stored.feedback}\n\n{why}".strip(),
-                    from_person=stored.feedback_from_person,
-                    source=stored.feedback_source,
-                )
+                self.append_feedback(why)
                 return {**FRESH, **remembered, **self.stop(why)}
             if moved:
                 self.say(f"moved the empty branch from {moved[0][:12]} to {moved[1][:12]} ({base})")
@@ -1146,13 +1150,7 @@ class BuildPath:
                 }
             except Exception as error:  # noqa: BLE001
                 why = f"restack onto {base} conflicted: {error}"
-                stored = r.store.get(unit.id)
-                r.store.set_feedback(
-                    unit.id,
-                    f"{stored.feedback}\n\n{why}".strip(),
-                    from_person=stored.feedback_from_person,
-                    source=stored.feedback_source,
-                )
+                self.append_feedback(why)
                 return {**FRESH, **remembered, **self.stop(why)}
             if restacked is not None:
                 if not restacked.conflict and saved.sent_back_for_conflict:
@@ -1342,13 +1340,7 @@ class BuildPath:
             outstanding = [n for n in required if any(f"`{n}`" in p for p in problems)]
             if outstanding:
                 why += "\n\noutstanding: " + ", ".join(f"`{n}`" for n in outstanding)
-            stored = r.store.get(unit.id)
-            r.store.set_feedback(
-                unit.id,
-                f"{stored.feedback}\n\n{why}".strip(),
-                from_person=stored.feedback_from_person,
-                source=stored.feedback_source,
-            )
+            self.append_feedback(why)
             return self.stop(why)
         r.store.set_predecessor_note(unit.id, self.port_note(restacked, required, decisions))
         counts = {k: sum(d.decision == k for d in decisions) for k in ("keep", "adapt", "retire")}

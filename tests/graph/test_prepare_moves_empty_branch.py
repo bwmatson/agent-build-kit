@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from tests.empty_branch_support import BRANCH, advance, empty_branch, head, moves
 from tests.factories import git
 from tests.graph_driver import tick
@@ -60,20 +62,21 @@ def test_staged_and_unstaged_changes_of_the_unit_are_carried_along(tmp_path: Pat
     assert (repo / "base.txt").read_text() == "changed\n"
 
 
+@pytest.mark.parametrize("name", ["clash.txt", "base.txt"], ids=["untracked", "tracked edit"])
 def test_a_move_that_would_overwrite_an_uncommitted_file_stops_the_unit_and_moves_nothing(
-    tmp_path: Path,
+    tmp_path: Path, name: str
 ) -> None:
     recorder, overrides, repo = empty_branch(tmp_path)
     old = head(repo)
-    advance(repo, "clash.txt")
-    (repo / "clash.txt").write_text("the unit's own\n")
+    advance(repo, name)
+    (repo / name).write_text("the unit's own\n")
 
     tick(tmp_path, recorder, **overrides)
 
     assert head(repo) == old
-    assert (repo / "clash.txt").read_text() == "the unit's own\n"
+    assert (repo / name).read_text() == "the unit's own\n"
     feedback = recorder.store.get("add-marker/1").feedback
-    assert "clash.txt" in feedback and "old base" in feedback
+    assert name in feedback and "old base" in feedback
     assert not [event for event in recorder.events if event.startswith("claude")], (
         "nothing was built on the old base"
     )

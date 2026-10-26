@@ -3,10 +3,12 @@ over a real git repository, and takes the repository's turn (spec: prepare-base)
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.wiring import build_runner
+from agent_build_kit.pipeline.wiring import build_move_empty_branch, build_runner
 from tests.conftest import make_installation
 from tests.empty_branch_support import advance, head
 from tests.factories import git, unit
@@ -37,3 +39,19 @@ def test_the_runner_fast_forwards_an_empty_branch_and_gives_the_old_and_new_tips
     assert head(repo) == new
     assert runner.move_empty_branch(repo, "refs/remotes/origin/main") is None
     assert git(repo, "rev-parse", "HEAD").strip() == new
+
+
+def test_the_move_happens_inside_the_repos_turn(tmp_path: Path) -> None:
+    repo = branch(tmp_path)
+    new = advance(repo)
+    seen: list[str] = []
+
+    @contextmanager
+    def turn() -> Iterator[None]:
+        seen.append("enter")
+        yield
+        seen.append(f"exit with the branch at {'new' if head(repo) == new else 'old'}")
+
+    build_move_empty_branch(turn=turn)(repo, "refs/remotes/origin/main")
+
+    assert seen == ["enter", "exit with the branch at new"]
