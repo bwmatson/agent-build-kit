@@ -51,6 +51,7 @@ SELF = {
     "installation_leaks.py",
     "test_no_installation_leaks.py",
     "test_leak_scan_planning_content.py",
+    "test_leak_scan_tilde_in_specs.py",
     "test_installation_leaks_overlay.py",
 }
 # Fixture owners, and the placeholder words a regex's own documentation uses.
