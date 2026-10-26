@@ -1016,6 +1016,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             since = _conflicting(inst, unit, conflicting).get(unit.pr)
             if since is not None:
                 log(f"  held: {unit.id} ({where}) #{unit.pr} — {unit.note}; a person is needed")
+        if unit.unsplit_reason:
+            log(f"  {unit.id} ({where}) is over its ceiling and not split: {unit.unsplit_reason}")
         if unit.state == HELD and unit.cause is Cause.DIRTY_WORKTREE:
             log(f"  parked: {unit.id} ({where}) — {unit.note}")
         step = unit.step or "an unknown step"

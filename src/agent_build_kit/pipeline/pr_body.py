@@ -544,6 +544,14 @@ a unit review classified `auto` and policy allowed; a person merges any other, a
         _fixed("assumptions", f"## Assumptions\n\n{assumptions(unit, graph, trunk_of(unit.repo))}"),
         _verification_section(verification),
     ]
+    if unit.unsplit_reason and (request := unit.split_request):
+        sections.append(
+            _fixed(
+                "unsplit",
+                f"Over its tier's ceiling: {request.lines} changed lines against "
+                f"{request.ceiling} ({request.earned}); not split because {unit.unsplit_reason}.",
+            )
+        )
     if restack_note:
         sections.append(_fixed("restack", f"## What moved underneath this\n\n{restack_note}"))
     if open_points:
