@@ -991,7 +991,10 @@ since a write fails a build in progress. Exit codes are as above.
 
 Installs a file the agent harness will not let a builder write. A builder run may use it
 (`Bash(abk install-config *)` is in its tool list; a reviewer's and a planner's are not). It runs in
-the unit's worktree. `STAGED` must be a regular file, not a symlink, under `.abk/proposed/` of
+the unit's worktree, and under the sandbox it starts because the policy reads, and does not
+write, the installation that runs the step and its `abk.yaml` and `abk.local.yaml` (never the
+`.env`, which a confined step cannot read; `abk doctor` starts the command from a confined step
+to check). `STAGED` must be a regular file, not a symlink, under `.abk/proposed/` of
 that worktree. `TARGET` must resolve inside the worktree, and its base name must be
 `.pre-commit-config.yaml` or a name under `builders.installable_files`; a YAML target must
 parse. Anything else is refused with the reason, nothing is written (the copy goes through a

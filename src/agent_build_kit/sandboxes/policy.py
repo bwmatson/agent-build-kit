@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import shutil
+import sys
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+import agent_build_kit
 from agent_build_kit import config as config_module
 from agent_build_kit import profiles
 from agent_build_kit.config import E2eSandboxConfig, ProjectSandboxConfig, RepoSandboxConfig
@@ -39,6 +42,42 @@ def change_reads(installation: Installation, changes: Iterable[str]) -> list[Pat
     the capability specs beside them, resolved as every read entry is."""
     folders = [installation.changes_dir / change for change in changes]
     return [path.resolve() for path in (*folders, installation.specs_dir / "specs")]
+
+
+def own_installation() -> list[Path]:
+    """What a step reads and executes of the installation that started it: the interpreter's
+    prefix and base prefix, the folders of the interpreter and of the `abk` entry point and, for
+    a checkout install, the package's source root; only those that exist."""
+    prefix = Path(sys.prefix).resolve()
+    found = [prefix, Path(sys.base_prefix), Path(sys.executable).resolve().parent]
+    if entry := shutil.which("abk"):
+        found.append(Path(entry).parent)
+    package = Path(agent_build_kit.__file__).resolve().parent
+    if not package.is_relative_to(prefix):
+        found.append(package.parent)
+    return list(_unique(path.resolve() for path in found if path.exists()))
+
+
+def loaded_files(installation: Installation) -> list[Path]:
+    """The files `abk` reads to load `installation` (its `abk.yaml` and the overlay), only those
+    that exist. They are granted one by one, never the planning root's folder. The `.env` is never
+    among them: it holds the credentials a confined step's environment is stripped of, and an
+    installation loads without it."""
+    names = (
+        installation.root / config_module.CONFIG_FILENAME,
+        installation.root / config_module.OVERLAY_FILENAME,
+    )
+    return [path.resolve() for path in names if path.is_file()]
+
+
+def builtin_reads(installation: Installation, changes: Iterable[str] = ()) -> list[Path]:
+    """What every confined step reads whatever its repo: the running installation, the files
+    that load `installation` and, for a step of `changes`, those changes and the capability
+    specs. The doctor's probes take their read list from here too."""
+    reads = [*own_installation(), *loaded_files(installation)]
+    if changes := tuple(changes):
+        reads += change_reads(installation, changes)
+    return reads
 
 
 class PolicyRefused(ValueError):
@@ -114,9 +153,8 @@ def policy_entries(
     layers: list[tuple[str, ProjectSandboxConfig | E2eSandboxConfig]] = []
     if git := git_reads(worktree):
         layers.append((BUILT_IN, ProjectSandboxConfig(read=[str(path) for path in git])))
-    if changes:
-        reads = [str(path) for path in change_reads(installation, changes)]
-        layers.append((BUILT_IN, ProjectSandboxConfig(read=reads)))
+    reads = [str(path) for path in builtin_reads(installation, changes)]
+    layers.append((BUILT_IN, ProjectSandboxConfig(read=reads)))
     if isinstance(runtime, SandboxPathsRuntime):
         # An account is passed only when the step runs as one; a runtime without accounts
         # takes none.

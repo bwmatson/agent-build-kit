@@ -189,6 +189,17 @@ settings = Settings()
 loaded_env_file: Path | None = None
 
 
+def readable(env_file: Path) -> Path | None:
+    """`env_file` when it exists and can be opened, else None. A confined step is never let read
+    the `.env` (it holds the credentials the step's environment is stripped of), so an installation
+    loads from the environment there, as if it had none."""
+    try:
+        with env_file.open("rb"):
+            return env_file
+    except OSError:
+        return None
+
+
 def named_value(name: str, env_file: Path | None) -> str:
     """The value of the variable `name`: the process environment first, then
     `env_file`; empty when neither sets it."""

@@ -8,6 +8,16 @@
   dropped edge. The plan prints the unit counts by origin (active, archived, no change
   directory, left in the source).
 
+- A confined step can now run the pipeline's own `abk` (`abk install-config` and the other
+  commands in a role's tool list). Before, the sandbox hid the interpreter, packages and entry
+  point `abk` runs from, and the `abk.yaml` and `abk.local.yaml` it loads at startup, so the
+  command could not start. The policy now reads, and never writes, the running installation and
+  those two files (the rest of the planning repo stays unreadable). The `.env` is never readable
+  from a confined step; an installation loads without a `.env` it cannot open.
+  `abk doctor` starts `abk install-config` from a confined step, past loading the
+  installation, and fails naming the path; a command the sandbox refused to start shows in the
+  run log as a sandbox message, and a denial of a path the policy grants does not.
+
 - A confined step can now run `git` in its worktree: it reads, and cannot write, the
   repository's `config` and `info`, the worktree's own entry and `.git` file, and your
   own git configuration files. Before, every `git` command failed in a

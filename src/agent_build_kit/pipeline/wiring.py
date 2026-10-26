@@ -26,7 +26,7 @@ import re
 import shlex
 import subprocess
 import time
-from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from datetime import UTC, datetime
 from functools import partial
@@ -435,6 +435,22 @@ def refused_read(line: str, specs: Path) -> str | None:
     return next((p for p in denied_paths(line) if Path(p).is_relative_to(specs)), None)
 
 
+def refused_exec(line: str, granted: Iterable[Path]) -> str | None:
+    """The path a denial in a step's event `line` names that the policy grants neither to read
+    nor to write: a command or a read the sandbox refused. A denial of a path the policy grants
+    (a file mode, say) is not the sandbox's."""
+    folders = tuple(granted)
+    # The policy's entries are resolved; a denial prints the path as the command spelled it.
+    return next(
+        (
+            p
+            for p in denied_paths(line)
+            if not any(Path(p).resolve().is_relative_to(f) for f in folders)
+        ),
+        None,
+    )
+
+
 def refused_git_read(line: str) -> str | None:
     """The path a `git` failure `line` says the sandbox refused, if it does: a fatal message
     with a denial and an absolute path."""
@@ -566,6 +582,14 @@ def build_run(
                     git_refused.append(denied)
                 if (path := refused_read(line, specs)) is not None:
                     (log or print)(f"sandbox: the sandbox does not let this step read {path}")
+                elif (
+                    is_confined
+                    and sandbox is not None
+                    and (path := refused_exec(line, (*sandbox.read, *sandbox.write)))
+                ):
+                    (log or print)(
+                        f"sandbox: the sandbox does not let this step read or run {path}"
+                    )
 
         request = AgentRequest(
             # A continued session holds the original prompt already: it is told what is new,
