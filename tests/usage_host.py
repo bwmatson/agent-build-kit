@@ -276,6 +276,28 @@ def refused(
         host.cache.write_text(json.dumps({**kept, "cooldown_until": until.isoformat()}))
 
 
+def reject_login(host: Host, account: Account) -> None:
+    """The account's saved token has expired, the endpoint answers 401 and the refresh leaves the
+    token as it was: the live reading fails, and the guard keeps why."""
+    host.monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+    directory = account.config_dir or host.home / ".claude"
+    write_credentials(directory, "old-token", ms_from_now(-HOUR_MS))
+    host.answers = [unauthorized()]
+    with usage_guard.on_account(account):
+        assert usage_guard.read_live_usage(refresh=lambda _account: None) is None
+
+
+def rejection(account: Account) -> str:
+    """What status, doctor and the start decision say of a login the endpoint rejected after a
+    refresh."""
+    name = account.label or "default"
+    where = f"CLAUDE_CONFIG_DIR={account.config_dir} " if account.config_dir else ""
+    return (
+        f"account {name}: the login is rejected (HTTP 401) after a refresh; "
+        f"run {where}claude auth login"
+    )
+
+
 def called(host: Host, ago: timedelta, outcome: str = "ok") -> None:
     """The record shows a call to the endpoint `ago` ago."""
     host.seed(

@@ -495,16 +495,25 @@ def token_expired(
     False when that cannot be read: the refresh below is only for the state it
     is known to fix, not a general retry.
     """
+    expires = token_expires_at(path, account=account)
+    if expires is None:
+        return False
+    return datetime.fromtimestamp(expires / 1000, tz=UTC) <= (now or datetime.now(UTC))
+
+
+def token_expires_at(
+    path: Path | None = None, *, account: claude_account.Account | None = None
+) -> int | float | None:
+    """The `expiresAt` (milliseconds) in the account's credentials file, else None. The token
+    itself is not read."""
     path = path or claude_account.credentials_path(account or account_in_force())
     try:
         raw = json.loads(path.read_text())
     except (OSError, ValueError):
-        return False
+        return None
     oauth = raw.get("claudeAiOauth", raw) if isinstance(raw, dict) else {}
     expires = oauth.get("expiresAt") if isinstance(oauth, dict) else None
-    if not isinstance(expires, (int, float)):
-        return False
-    return datetime.fromtimestamp(expires / 1000, tz=UTC) <= (now or datetime.now(UTC))
+    return expires if isinstance(expires, (int, float)) else None
 
 
 def refresh_login(account: claude_account.Account | None = None) -> None:
@@ -719,9 +728,19 @@ def read_live_usage(
                     ),
                 )
 
-        def failed(error: Exception) -> UsageReading | None:
+        def failed(error: Exception, *, refreshed: bool = False) -> UsageReading | None:
             if isinstance(error, urllib.error.HTTPError):
                 cause = f"HTTP {error.code}"
+                if error.code == 401 and refreshed:
+                    # The login is rejected, not the usage unknown: kept beside the reading so
+                    # status, doctor and the start decision say so until a read succeeds or the
+                    # credentials change (a new sign-in), told by the `expiresAt` they rejected.
+                    try:
+                        cache_path.parent.mkdir(parents=True, exist_ok=True)
+                        rejected = {"expires_at": token_expires_at(account=account)}
+                        _write_cache(cache_path, {**cached, "login_rejected": rejected})
+                    except (OSError, TypeError):
+                        pass
                 if error.code == 429:
                     until = now + timedelta(seconds=_cooldown_seconds(error))
                     try:
@@ -757,7 +776,7 @@ def read_live_usage(
                         log.warning(
                             "account %s: the login refresh left the saved token as it was", label
                         )
-                    return failed(error)
+                    return failed(error, refreshed=True)
                 retry_with = fresh
             elif isinstance(error, OSError) and not isinstance(error, urllib.error.HTTPError):
                 # A timeout or a connection error: once more after a short delay.
@@ -768,7 +787,7 @@ def read_live_usage(
             try:
                 payload = ask(retry_with)
             except Exception as again:
-                return failed(again)
+                return failed(again, refreshed=retry_with != token)
 
         reading = _reading_from_payload(payload, observed_at=now, source="live")
         if reading is None:
@@ -854,6 +873,22 @@ def read_cached_usage(path: Path | None = None) -> UsageReading | None:
 def forget_logged_failures() -> None:
     """Start a tick: a failure's cause is logged again the first time it recurs."""
     _logged_failures.clear()
+
+
+def rejected_login_note(account: claude_account.Account | None = None) -> str | None:
+    """Words for a login the usage endpoint rejected after a refresh, with the command to sign
+    in again, else None. Kept in the account's cache file until a read succeeds or the
+    account's credentials carry a different `expiresAt` than the ones rejected."""
+    with on_account(account):
+        rejected = _load_cache(_cache_file()).get("login_rejected")
+        if not rejected:
+            return None
+        rejected_expiry = rejected.get("expires_at") if isinstance(rejected, dict) else None
+        if token_expires_at() != rejected_expiry:
+            return None
+        from agent_build_kit.runtimes import claude_code
+
+        return claude_code.rejected_login_line(account_in_force())
 
 
 def rate_limit_note(cache_path: Path | None = None) -> str | None:
@@ -1095,11 +1130,13 @@ def may_start_unit(reading: UsageReading | None, *, trust_age: bool = False) -> 
 
     if reading is None:
         note = rate_limit_note()
+        rejected = rejected_login_note()
         return Decision(
             may_start=False,
             reason="usage is unknown: neither the usage endpoint nor "
             f"{claude_account.state_file(account_in_force())} could be read"
-            + (f" (the usage endpoint is {note})" if note else ""),
+            + (f" (the usage endpoint is {note})" if note else "")
+            + (f"; {rejected}" if rejected else ""),
             resume_at=now + UNKNOWN_RETRY,
         )
 

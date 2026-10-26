@@ -77,6 +77,17 @@ under `runtimes.claude_code.limits` in abk.yaml.
 whether it is logged in, and the exact login command when it is not. `abk status` names the
 account its usage line belongs to.
 
+## The login refresh
+
+When the saved token has expired and the usage endpoint answers 401, the guard has `claude`
+refresh it. The refresh runs under the account's own directory (`CLAUDE_CONFIG_DIR` set to it;
+the default account runs `claude` with no override), so the token it renews is the one the
+usage read uses. You can tell it worked when the next usage line shows a reading again. If the
+endpoint still answers 401 after one refresh, the login is rejected: `abk status`, `abk doctor`
+and the start decision print `account <label>: the login is rejected (HTTP 401) after a refresh;
+run CLAUDE_CONFIG_DIR=<dir> claude auth login` (without the directory for the default account).
+Run that command to sign in again.
+
 ## Things to know
 
 - The timers read the `.env`; a shell that exports the variable overrides it for commands you
