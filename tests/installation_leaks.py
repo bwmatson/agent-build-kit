@@ -24,13 +24,12 @@ import yaml
 from agent_build_kit.config import OVERLAY_FILENAME
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.scrub_terms import TOOL_DIRS
+from tests.tracked_files import guarded_files
 
 SCANNED = ("src", "tests", "docs", "web", "openspec")
 # The root files read when present; `abk.yaml` and the tracked unit store are planning
 # content, read as committed. Ignored state (logs, ledgers) is not listed.
 ROOT_FILES = ("README.md", "CLAUDE.md", "CHANGELOG.md", "abk.yaml", "runs/units.json")
-# Installed and built files are not this repo's own text.
-SKIPPED_PARTS = {".venv", "node_modules", "dist"}
 TEXT = {
     ".py",
     ".md",
@@ -87,20 +86,8 @@ SHAPES = (HOME_PRODUCT_DIR, HOME_PATH, NOREPLY, ANECDOTE)
 
 
 def files(root: Path) -> list[Path]:
-    built_ui = root / "src" / "agent_build_kit" / "serve" / "static"
-    found = []
-    for top in SCANNED:
-        for path in (root / top).rglob("*"):
-            if (
-                path.is_file()
-                and path.suffix in TEXT
-                and not SKIPPED_PARTS.intersection(path.parts)
-                and path.name != "package-lock.json"
-                and built_ui not in path.parents
-            ):
-                found.append(path)
-    found.extend(root / name for name in ROOT_FILES if (root / name).is_file())
-    return [path for path in found if path.name not in SELF]
+    found = guarded_files(root, under=SCANNED, names=ROOT_FILES, suffixes=TEXT, specs=True)
+    return [path for path in found if path.name not in SELF and path.name != "package-lock.json"]
 
 
 def file_hits(root: Path, path: Path, found: re.Pattern | Callable[[str], object]) -> list[str]:

@@ -21,6 +21,11 @@ UNLISTED_WALKS = {
     "test_test_helpers_defined_once.py": "walks tests/ only",
     "timing_hazards.py": "walks tests/ only",
     "tracked_files.py": "is the helper",
+    "attach_driver.py": "lists the changes in a scratch repository",
+    "test_chat_editing_claude_code.py": "lists the changes in a scratch repository",
+    "test_planning_in_repo_live_stack.py": "reads the index of a scratch repository",
+    "test_work_graph.py": "lists the changes in a scratch repository",
+    "test_openspec_cli_users.py": "globs tests/fixtures only",
     "hand_walks.py": "names the calls it looks for",
     "test_repo_wide_guards_use_the_helper.py": "names the calls it looks for",
 }
