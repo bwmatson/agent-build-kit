@@ -36,6 +36,12 @@ The one rule specific to this repo, and the reason it can be public:
   runs `abk scrub-check --target <this checkout>` from its planning repo, which derives
   the forbidden terms from its own `abk.yaml` and its ignored `scrub.local` — the term list
   lives there, never here. Run both before merging.
+- **The leak scan reads the specification folder, the document guards do not.** The leak scan
+  reads the specification folder (`openspec/`) like any other text, except that a tilde-relative
+  path there is not a home path (it names no user) while `/home/<name>` still is. The document
+  guards (removed keys, the old merge rule, old module and test-kind names) skip planning
+  content, since a specification may name what it forbids; every repo-wide guard reads its files
+  through `tests/tracked_files.py`, never by walking the checkout.
 - **Commits carry no `Co-Authored-By` trailer** in this repo.
 
 ## Framework code is language- and tool-independent

@@ -1150,13 +1150,14 @@ under three characters is dropped. A word on the generic list written there is k
 
 ### `abk scrub-store [--apply]`
 
-Finds home-directory paths in the text fields of the unit store (`feedback`, `guidance`,
+Finds home-directory paths and issue or pull-request references (a name, a hash sign and a number)
+in the text fields of the unit store (`feedback`, `guidance`,
 `predecessor_note`, `stack_refusal` and each history note). The default is a dry run: it
 prints each record, field and count, never the text, and changes nothing. `--apply` needs a
 paused pipeline (`abk pause`); it keeps one original as `units.json.pre-redact` beside the
 store (ignored by `.gitignore`, the same suffix `abk redact-history --apply` writes),
 replaces each Linux, macOS or `~` home prefix with `<home>/` keeping the rest of the path,
-and writes every changed record in one write. Other terms, such as a repo name, stay in the
+replaces each reference with `<ref>`, and writes every changed record in one write. Other terms, such as a repo name, stay in the
 text. A second `--apply` finds nothing, writes nothing and leaves the first copy alone. Exit
 0 on success, 1 when `--apply` runs without a pause (the pause is named and nothing changes).
 
