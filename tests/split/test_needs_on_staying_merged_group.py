@@ -172,3 +172,16 @@ def test_the_destination_holding_the_copied_change_and_no_m_treats_the_line_as_i
     assert cycles == []
     assert store.get("g/1").depends_on == ()
     assert store.get("g/1").needs == ()
+
+
+def test_a_needs_on_an_unreadable_change_is_an_error_though_its_group_is_merged(tmp_path):
+    source, destination = installations(tmp_path, needs="broken group 1")
+    untagged = "# Tasks\n\n## 1. No tag here\n\n- [ ] 1.1 Test: x\n"
+    write_change(source, "broken", ["app"]).joinpath("tasks.md").write_text(untagged)
+    write_units(source, new_unit("g/1"), merged("m/3"), merged("broken/1"))
+
+    found = check(source, destination)
+
+    (error,) = found.errors
+    assert all(word in error for word in ("change g", "group 1", "broken"))
+    assert not any("broken" in warning for warning in found.warnings)

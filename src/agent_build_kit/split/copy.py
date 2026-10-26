@@ -308,7 +308,8 @@ def preflight(
             if member.change not in known_changes
         ]
     notes: list[str] = []
-    covering = UnitStore(source.state_dir / "units.json").all()
+    everything = UnitStore(source.state_dir / "units.json").all()
+    kept = _kept_changes(plan)
     loaded: LoadedCode | None = loaded_code.current()
     for name in plan.changes_moved:
         for group, needs in group_needs(source.changes_dir / name / "tasks.md").items():
@@ -322,13 +323,17 @@ def preflight(
                 what = f"change {name} group {group} `Needs: {need.change} group {need.group}`"
                 builders = [
                     unit
-                    for unit in covering
+                    for unit in everything
                     if any(
                         m.change == need.change and need.group in m.groups for m in unit.members()
                     )
                 ]
-                if builders and all(unit.state == MERGED for unit in builders):
-                    if loaded is None or all(merge_loaded(u, covering, loaded) for u in builders):
+                if (
+                    builders
+                    and all(unit.state == MERGED for unit in builders)
+                    and all(_stays_because(u, plan, kept) is not None for u in builders)
+                ):
+                    if loaded is None or all(merge_loaded(u, everything, loaded) for u in builders):
                         notes.append(
                             f"{what} names {need.change}, which stays: its group is merged "
                             "history and the line is kept, inert in the destination"
@@ -341,7 +346,6 @@ def preflight(
                 else:
                     errors.append(_dangling(what, need.change))
 
-    everything = UnitStore(source.state_dir / "units.json").all()
     merged_moved = {
         unit.id for unit in everything if unit.id in moved_units and unit.state == MERGED
     }
