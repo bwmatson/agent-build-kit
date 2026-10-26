@@ -147,6 +147,8 @@ from agent_build_kit.pipeline.manual_steps import (
     unmet_steps,
 )
 from agent_build_kit.pipeline.metric_records import emit_metric
+from agent_build_kit.pipeline.occupancy import slot_limit as _slot_limit
+from agent_build_kit.pipeline.occupancy import slot_of as _slot_of
 from agent_build_kit.pipeline.pause import (
     Pause,
     clear_pause,
@@ -3333,27 +3335,6 @@ def unit_label(unit: Unit) -> str:
     """How the status names a unit's place: its repo, and `repo/project` for a project beside
     the root of a repo."""
     return project_tag(unit.repo, unit.project)
-
-
-def _slot_of(inst: Installation) -> Callable[[Unit], Hashable]:
-    """What a unit's place in progress is counted under: its account's label (None for the
-    default account) when the installation uses accounts, else its project."""
-    if not claude_account.slots_per_account(inst.config):
-        return project_key
-    return lambda unit: claude_account.for_repo(inst.config, unit.repo).label
-
-
-def _slot_limit(inst: Installation) -> Callable[[Hashable], int]:
-    """The units in progress one slot of `_slot_of` allows: an account's own limit, else the
-    project limit."""
-    if not claude_account.slots_per_account(inst.config):
-        return lambda _slot: inst.max_units_in_progress
-
-    def limit(label: Hashable) -> int:
-        named = claude_account.resolve(inst, label if isinstance(label, str) else None)
-        return named.max_units_in_progress or inst.max_units_in_progress
-
-    return limit
 
 
 def _lane_has_room(

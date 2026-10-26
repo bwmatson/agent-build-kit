@@ -118,3 +118,24 @@ def test_racers_for_a_stale_lock_never_both_hold_it(tmp_path: Path) -> None:
     assert len(holders) == 1
     assert len(losers) == RACERS - 1
     assert started == [proc_identity(os.getpid())]
+
+
+def test_a_lock_recording_no_start_time_is_judged_by_its_pid_alone(tmp_path: Path) -> None:
+    """A host that cannot read start times records `started: null`; a dead holder is not alive."""
+    locks = tmp_path / "locks"
+    locks.mkdir()
+    _lock_file(locks).write_text(json.dumps({"pid": _dead_pid(), "started": None}))
+
+    assert not branch_held(BRANCH, root=locks)
+    with branch_lock(BRANCH, root=locks):
+        assert json.loads(_lock_file(locks).read_text())["pid"] == os.getpid()
+
+
+def test_a_live_pid_recording_no_start_time_still_holds_the_lock(tmp_path: Path) -> None:
+    locks = tmp_path / "locks"
+    locks.mkdir()
+    _lock_file(locks).write_text(json.dumps({"pid": os.getpid(), "started": None}))
+
+    assert branch_held(BRANCH, root=locks)
+    with pytest.raises(BranchBusy), branch_lock(BRANCH, root=locks):
+        pass

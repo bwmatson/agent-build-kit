@@ -39,7 +39,7 @@ from agent_build_kit.config import REST_SPLIT, E2eDimensionValue, E2eSplit, Work
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.model import E2E_LOCK_FILE, Frozen, TestTier
 from agent_build_kit.pipeline import spans
-from agent_build_kit.pipeline.workspaces import process_alive
+from agent_build_kit.pipeline.locks import process_alive
 
 # Shown on the PR beside the Actions checks.
 STATUS_CONTEXT = "local/e2e-test"

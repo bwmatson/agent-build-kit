@@ -9,12 +9,15 @@ import pytest
 
 from agent_build_kit.cli.pipeline import reclaim_stranded
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline import emergency_lane
 from agent_build_kit.pipeline.admission import admit
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import PLANNED, RUNNING
 from tests import fake_clock
+from tests.conftest import make_installation
 from tests.emergency_lane_support import lane_workspace
 from tests.factories import new_unit
+from tests.pipeline.test_slots_per_account import kit, repos
 
 TTL = timedelta(seconds=60)
 
@@ -142,3 +145,34 @@ def test_a_unit_with_an_unexpired_marker_is_not_reclaimed(
     reclaim_stranded(inst, store)
 
     assert store.get("a/1").state == RUNNING
+
+
+def test_an_account_s_own_limit_holds_admission_below_the_project_limit(
+    tmp_path: Path, clock: fake_clock.FakeClock
+) -> None:
+    inst = make_installation(
+        tmp_path,
+        planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
+        repos=repos(tmp_path, {"app": "kit"}),
+        runtimes={"claude_code": {"accounts": kit(tmp_path, max_units_in_progress=1)}},
+    )
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([new_unit("a/1", repo="app"), new_unit("b/1", repo="app")])
+    admit(inst, store, [store.get("a/1")], worker="w1", ttl=TTL)
+
+    assert admit(inst, store, [store.get("b/1")], worker="w2", ttl=TTL) == []
+
+
+def test_the_emergency_lane_admits_its_own_places_and_no_more(
+    tmp_path: Path, clock: fake_clock.FakeClock
+) -> None:
+    inst = lane_workspace(tmp_path, workers=1, places=5, extra=1)
+    ids = ["l1/1", "l2/1", "l3/1"]
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([new_unit(uid, repo="app") for uid in ids])
+    for uid in ids:
+        emergency_lane.enter(inst.state_dir, store.get(uid))
+
+    admitted = admit(inst, store, [store.get(uid) for uid in ids], worker="w1", ttl=TTL)
+
+    assert [unit.id for unit in admitted] == ["l1/1", "l2/1"]

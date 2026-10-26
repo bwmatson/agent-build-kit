@@ -32,7 +32,7 @@ from pathlib import Path
 
 from agent_build_kit.path_patterns import matches_any
 from agent_build_kit.pipeline.file_lock import file_lock
-from agent_build_kit.pipeline.locks import proc_identity
+from agent_build_kit.pipeline.locks import holder_alive, proc_identity, process_alive
 from agent_build_kit.pipeline.scratch import ensure_scratch
 from agent_build_kit.pipeline.shell import git, git_out, porcelain
 
@@ -53,18 +53,6 @@ def _lock_path(branch: str, root: Path) -> Path:
     return root / f"{re.sub(r'[^A-Za-z0-9]', '_', branch)}.lock"
 
 
-def process_alive(pid: int) -> bool:
-    """Whether a process with this id exists: another user's counts as alive. Branch locks
-    and the e2e-test lock both judge a recorded holder by it."""
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True  # Someone else's process, but alive.
-    return True
-
-
 def _holder_alive(holder: dict) -> bool | None:
     """Whether the process a lock names still holds it: `None` when it names no pid. A pid
     that lives with another start time is a reused one. A lock from before start times were
@@ -74,7 +62,7 @@ def _holder_alive(holder: dict) -> bool | None:
         return None
     if "started" not in holder:
         return process_alive(pid)
-    return proc_identity(pid) == holder["started"]
+    return holder_alive(pid, holder["started"])
 
 
 def lock_holder_gone(branch: str, *, root: Path) -> bool | None:

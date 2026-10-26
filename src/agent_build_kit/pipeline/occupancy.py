@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Hashable, Mapping, Sequence
 from datetime import datetime
 
+from agent_build_kit import claude_account
+from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import ProjectKey, branch_name, project_key
+from agent_build_kit.pipeline.units import ProjectKey, Unit, branch_name, project_key
 
 
 class Occupancy(Frozen):
@@ -19,11 +21,12 @@ class Occupancy(Frozen):
 
 
 class Limits(Frozen):
-    """What occupancy is held to; an account without its own limit gets `in_progress`."""
+    """What occupancy is held to; an account without its own limit gets `in_progress`, and
+    none at all when that is None (slots are not counted per account)."""
 
     stacks: int
     emergency: int
-    in_progress: int
+    in_progress: int | None
     accounts: Mapping[str, int] = {}
 
 
@@ -64,16 +67,34 @@ def occupied(
 def free(occupancy: Occupancy, limits: Limits, *, project: ProjectKey, account: str = "") -> int:
     """The units a project and account can still start: the smaller of its free stacks and its
     account's free slots, never below zero."""
+    room = limits.stacks - occupancy.projects.get(project, 0)
     account_limit = limits.accounts.get(account, limits.in_progress)
-    return max(
-        0,
-        min(
-            limits.stacks - occupancy.projects.get(project, 0),
-            account_limit - occupancy.accounts.get(account, 0),
-        ),
-    )
+    if account_limit is not None:
+        room = min(room, account_limit - occupancy.accounts.get(account, 0))
+    return max(0, room)
 
 
 def emergency_free(occupancy: Occupancy, limits: Limits) -> int:
     """The emergency lane's free places, never below zero."""
     return max(0, limits.emergency - occupancy.emergency)
+
+
+def slot_of(inst: Installation) -> Callable[[Unit], Hashable]:
+    """What a unit's place in progress is counted under: its account's label (None for the
+    default account) when the installation uses accounts, else its project."""
+    if not claude_account.slots_per_account(inst.config):
+        return project_key
+    return lambda unit: claude_account.for_repo(inst.config, unit.repo).label
+
+
+def slot_limit(inst: Installation) -> Callable[[Hashable], int]:
+    """The units in progress one slot of `slot_of` allows: an account's own limit, else the
+    project limit."""
+    if not claude_account.slots_per_account(inst.config):
+        return lambda _slot: inst.max_units_in_progress
+
+    def limit(label: Hashable) -> int:
+        named = claude_account.resolve(inst, label if isinstance(label, str) else None)
+        return named.max_units_in_progress or inst.max_units_in_progress
+
+    return limit

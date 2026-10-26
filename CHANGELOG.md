@@ -11,6 +11,12 @@
   `starting` marker on a unit just admitted), and admission counts, checks and marks under one
   lock, so two processes cannot admit past a limit. A unit whose marker expired with no lock
   held is planned again by the next round.
+- A branch lock now names its holder by process id and start time, so a lock left by a
+  process whose id was later reused by another no longer holds the branch, and a stale lock is
+  replaced in one step. A host that cannot read start times is judged by the process id alone.
+  The pieces for counting build slots from durable facts and admitting units under one lock are
+  added too, but the tick does not use them yet; a unit whose `starting` marker has expired with
+  no run holding it is planned again by the next round.
 
 - A unit that was put back and has not started again now waits for the dependencies it has. A
   `Needs:` line added to such a unit, for example after the pipeline requeued it, holds it until

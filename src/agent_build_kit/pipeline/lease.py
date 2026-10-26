@@ -15,7 +15,7 @@ from typing import Any
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import file_lock
-from agent_build_kit.pipeline.locks import proc_identity
+from agent_build_kit.pipeline.locks import holder_alive, proc_identity
 
 
 def lease_dir(state_dir: Path) -> Path:
@@ -65,7 +65,7 @@ class Leases:
 
     @staticmethod
     def _alive(record: dict[str, Any]) -> bool:
-        return proc_identity(int(record["pid"])) == record["started"]
+        return holder_alive(int(record["pid"]), record["started"])
 
     def _read(self, path: Path) -> str | None:
         """The holder named in `path`, unless the process that took it is gone."""

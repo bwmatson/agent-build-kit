@@ -298,7 +298,9 @@ class StoredUnit(Unit):
 
     branch: str = ""
     pr: int | None = None
-    # Set by admission, cleared when the build takes the branch lock or the marker is reclaimed.
+    # Set by admission. Today only `reclaim_stranded` clears it (once it has expired and no run
+    # holds the unit); until then an expired marker counts for nothing. Clearing it when the
+    # build takes the branch lock comes with admission being called from the tick.
     starting: Starting | None = None
     # The merge commit and the tick number that first saw the unit merged; None before it
     # merged, and for a unit merged before they were kept.

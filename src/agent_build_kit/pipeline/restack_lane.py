@@ -27,6 +27,7 @@ from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.events import Claim, hold_for_conflict, read_base_tip
 from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.lease import Leases, lease_dir
+from agent_build_kit.pipeline.locks import process_alive
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.unit_store import (
     Cause,
@@ -46,7 +47,7 @@ from agent_build_kit.pipeline.units import (
     waiting_on,
 )
 from agent_build_kit.pipeline.wiring import branch_commits, is_ancestor
-from agent_build_kit.pipeline.workspaces import BranchBusy, branch_held, process_alive
+from agent_build_kit.pipeline.workspaces import BranchBusy, branch_held
 
 # A move, or a run's work, returns what remains to run in the same worker once the unit's
 # branch claim is released: the unit's own run, which takes the branch lock itself.
