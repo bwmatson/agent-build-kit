@@ -70,7 +70,11 @@ class GithubTracker(TrackerSection):
 _SECTIONS: TypeAdapter[AzureDevOpsTracker | GithubTracker] = TypeAdapter(
     Annotated[AzureDevOpsTracker | GithubTracker, Field(discriminator="kind")]
 )
-_KINDS = ("azure_devops", "github")
+_KINDS = tuple(
+    kind
+    for model in (AzureDevOpsTracker, GithubTracker)
+    for kind in get_args(model.model_fields["kind"].annotation)
+)
 
 
 def section_for(repo: str) -> TrackerSection | None:

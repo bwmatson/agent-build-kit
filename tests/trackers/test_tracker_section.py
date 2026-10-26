@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import argparse
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -10,15 +10,10 @@ import pytest
 
 from agent_build_kit import config as config_module
 from agent_build_kit import trackers
-from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.config import RepoConfig
-from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.events import Review
-from agent_build_kit.pipeline.usage_guard import Decision
-from agent_build_kit.trackers.config import TrackerConfigError, section_for
-from tests.conftest import make_installation
-from tests.graph_driver import fresh
-from tests.runner_fakes import make_runner
+from agent_build_kit.trackers.config import TrackerConfigError, TrackerSection, section_for
+from agent_build_kit.trackers.local import LocalTracker
+from tests.tick_driver import make_setup
 
 AZURE = {
     "kind": "azure_devops",
@@ -167,52 +162,69 @@ def test_the_tracker_comes_from_its_own_section_whatever_the_forge_is() -> None:
         assert forge_value not in dumped
 
 
+class Recording(LocalTracker):
+    """A stand-in that notes the name of every public member used on it."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls: list[str] = []
+
+    def __getattribute__(self, name: str) -> Any:
+        member = super().__getattribute__(name)
+        if not name.startswith("_") and name != "calls" and callable(member):
+            super().__getattribute__("calls").append(name)
+        return member
+
+
 @pytest.fixture
-def quiet_tick(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Installation:
-    """A tick over the fixture units with every outside call faked."""
-    inst = make_installation(
-        tmp_path,
-        planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
-        project_limits={"max_concurrent_stacks": 1},
-    )
-    recorder = fresh(tmp_path)
-    monkeypatch.setattr(
-        cli, "build_runner", lambda u, **kw: make_runner(recorder.store, recorder, tmp_path)
-    )
-    monkeypatch.setattr(cli, "fetch_all", lambda inst: None)
-    monkeypatch.setattr(cli, "poll_all", lambda inst, **kwargs: None)
-    monkeypatch.setattr(cli, "plan_all", lambda inst, **kwargs: None)
-    monkeypatch.setattr(cli, "has_identity", lambda inst, repo: True)
-    monkeypatch.setattr(cli, "verify_ready", lambda inst, units, **kwargs: lambda change: True)
-    monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: [])
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
-    monkeypatch.setattr(cli, "may_start_unit", lambda r: Decision(may_start=True, reason="plenty"))
-    monkeypatch.setattr(
-        cli, "build_fetch_review", lambda **_: lambda repo, pr: Review(lines=["rename the marker"])
-    )
-    monkeypatch.setattr(cli, "build_restack", lambda **kw: lambda **a: None)
-    monkeypatch.setattr(cli, "build_retarget", lambda: lambda unit, base: None)
-    return inst
+def standins() -> Iterator[tuple[list[str], list[Recording]]]:
+    """A recording stand-in registered for both kinds: the kinds asked for, and the stand-ins."""
+    asked: list[str] = []
+    made: list[Recording] = []
+
+    def factory(section: TrackerSection) -> Recording:
+        asked.append(section.kind)
+        made.append(Recording())
+        return made[-1]
+
+    for kind in ("azure_devops", "github"):
+        trackers.register(kind, factory)
+    yield asked, made
+    for kind in ("azure_devops", "github"):
+        trackers.unregister(kind)
+
+
+def test_a_registered_factory_answers_for_its_kind(
+    standins: tuple[list[str], list[Recording]],
+) -> None:
+    asked, made = standins
+    configure(app=GITHUB)
+
+    tracker = trackers.for_repo("app")
+
+    assert tracker is made[0]
+    assert asked == ["github"]
+
+
+def test_a_valid_section_whose_kind_has_no_factory_names_the_repo_and_kind() -> None:
+    configure(app=GITHUB)
+
+    with pytest.raises(TrackerConfigError) as raised:
+        trackers.for_repo("app")
+
+    assert "app" in str(raised.value) and "github" in str(raised.value)
 
 
 def test_a_tick_with_no_section_makes_no_tracker_call_and_writes_no_file(
-    quiet_tick: Installation, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    standins: tuple[list[str], list[Recording]], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    asked: list[str] = []
-    real = trackers.for_repo
-
-    def recording(name: str) -> object:
-        asked.append(name)
-        return real(name)
-
-    monkeypatch.setattr(trackers, "for_repo", recording)
+    asked, made = standins
+    setup = make_setup(tmp_path, monkeypatch)
     names = list(config_module.active().repos)
 
-    ran = cli.cmd_tick(argparse.Namespace(dry_run=False, only=None), quiet_tick)
+    assert setup.tick() == 0
 
-    assert ran == 0
     assert [trackers.enabled(name) for name in names] == [False] * len(names)
-    # Nothing in a tick asks for a tracker yet; a later change that wires one in must ask
-    # only about a repo whose section is on, so this changes with it.
     assert asked == []
+    assert [call for tracker in made for call in tracker.calls] == []
     assert [p for p in tmp_path.rglob("*") if "tracker" in p.name.lower()] == []
