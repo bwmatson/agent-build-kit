@@ -44,8 +44,8 @@ proof of concept, and each can become its own OpenSpec change.
 ## The mechanism
 
 The kit builds its own sandbox layer. It takes **Claude Code's pattern** (writable paths, denied paths, a network allowlist by
-domain, a protected-path rule, a switch for what happens when the sandbox cannot start) and not its mechanism, which is `bubblewrap`
-and `socat` (operating-system packages that need `sudo apt`, and an AppArmor setting on newer Ubuntu).
+domain, a protected-path rule, a switch for what happens when the sandbox cannot start) and not its mechanism, which leans on
+operating-system tooling that has to be installed on every machine. The kit's mechanism needs no install.
 
 - **Files: Landlock, called from Python.** Landlock is a Linux kernel feature that lets a process restrict itself, and everything it
   later spawns, to a list of paths with read, write and execute rights, and to a list of TCP ports. It is three system calls through
@@ -105,7 +105,7 @@ the backend cannot start), so a backend that drifts fails the same test as the o
 with the reason; a CI job on macOS runs them.
 
 A runtime never names a backend. `claude_code.spawn()` and ACP's agent spawn call `sandboxes.detect().command(policy, argv)`, so adding a
-backend (or replacing Landlock with `bubblewrap` for a case it cannot meet) touches `sandboxes/` only.
+backend (a backend for another platform, say) touches `sandboxes/` only.
 
 ## What the kit needs from its wrapper
 
@@ -189,8 +189,8 @@ settings. An agent that does its own file access, outside the client's methods, 
 
 macOS needs a different backend, and **no package is needed for it**: Seatbelt is built into macOS and its command-line front end,
 `sandbox-exec`, ships with it. The kit generates a Seatbelt profile (SBPL, a small Lisp-like language) from the same policy and runs
-`sandbox-exec -f <profile> -- <agent command>` in the launcher's place. Anthropic's own sandbox runtime does the same on macOS and uses
-`bubblewrap` on Linux, so the approach has a precedent (the agent vendor's open-source sandbox runtime,
+`sandbox-exec -f <profile> -- <agent command>` in the launcher's place. Anthropic's own sandbox runtime does the same on macOS, so the
+approach has a precedent (the agent vendor's open-source sandbox runtime,
 [Anthropic's write-up](https://anthropic.com/engineering/claude-code-sandboxing)).
 
 How the policy maps, from published descriptions of the profile language (not tried here):
@@ -240,7 +240,7 @@ Landlock's limits, found in the proof of concept:
 - **Path-name Unix sockets are reachable** on this ABI (the user's D-Bus socket connected). A Docker socket or an SSH agent would be
   reachable too. This machine has no Docker socket and no SSH agent. The launcher should also drop `SSH_AUTH_SOCK` and the D-Bus address from the agent's
   environment (not built; a step in the plan below).
-  Governing them needs a newer ABI, or `bubblewrap`, which can hide a path.
+  Governing them needs a newer ABI; until then the gap is documented and the socket variables are dropped.
 - **UDP and DNS are not restricted.** A process can resolve names; it still cannot connect except to the proxy.
 - **A rule only adds access.** A path inside a granted folder cannot be carved out (Claude Code's sandbox protects `.git/hooks` this
   way). The kit grants the `.git` parts one at a time instead, which worked.
@@ -374,6 +374,8 @@ sandbox is required on every platform the kit supports.
 
 ## Specs
 
+How the sandbox and the ACP runtime work together (delegation-minimal confinement, per-command policies) is in [acp-runtimes.md](acp-runtimes.md).
+
 The recommended steps are written as seven changes in the planning repo, all priority 3: `sandbox-backends` (the base layer, the policy, the Linux
 backend, the proxy, doctor and init), `sandbox-profile-paths`, `sandbox-claude-code` (with the config guard demoted to a warning),
 `sandbox-acp`, `sandbox-e2e-policy`, `sandbox-macos-backend` (specced before the Mac proof of concept was run) and
@@ -382,9 +384,9 @@ capability folders under `openspec/specs/`.
 
 ## Alternatives considered
 
-- **`bubblewrap` and `socat`** (Claude Code's own choice). A fine mechanism, and the right fallback for hiding paths or governing sockets,
-  but each machine needs `sudo apt` installs and, on newer Ubuntu, an AppArmor profile. The proof of concept found no requirement in the
-  list that Landlock fails, so it is not needed now.
+- **Operating-system sandbox tooling** (what Claude Code's own sandbox uses). A fine mechanism, but each machine needs `sudo apt`
+  installs and, on newer Ubuntu, an AppArmor profile. The proof of concept found no requirement in the list that Landlock fails, so it
+  is not used.
 - **Claude Code's built-in sandbox** through `--settings`. It covers Bash and its children only, is configured in Claude Code's own
   terms that ACP ignores, and fails open by default. The kit turns it off for builders so there is one enforcement point.
 - **Containers per builder.** The strongest isolation and the heaviest: git credentials, each account's login, caches and the Azure
@@ -398,7 +400,7 @@ capability folders under `openspec/specs/`.
 
 | Divergence | Reason |
 |---|---|
-| The mechanism is Landlock plus an internal proxy, not `bubblewrap` plus `socat` | no operating-system install |
+| The mechanism is Landlock plus an internal proxy, not operating-system sandbox tooling | no operating-system install |
 | Claude Code's sandbox is off for kit builders | one enforcement point and one set of failures; two layers would double the paths to allow |
 | The kit wraps the agent process for every runtime, where Claude Code's sandbox wraps Bash commands only | ACP has no equivalent, a per-command wrap breaks Claude Code's shell state, and the same lists must hold for both |
 | The `.git` parts are granted one by one | a Landlock rule cannot carve an exception out of a granted folder |
@@ -421,8 +423,8 @@ the cheap parts first and changes behaviour last.
 3. **The proxy.** The allowlist proxy, the proxy environment, the Landlock TCP rule, refusals that name the host; tests with a local
    upstream. Include the connector hosts Claude Code probes (refused, not fatal).
 4. **Doctor and init.** `abk doctor` and `abk init` report whether a sandbox backend works (a probe, not a file check): Landlock present,
-   its ABI and the TCP rule on Linux, `sandbox-exec` on macOS. The README's requirements line says Linux, WSL2 or macOS. No install helper
-   is needed, because nothing is installed.
+   its ABI and the TCP rule on Linux, `sandbox-exec` on macOS, and name the fix when one fails. The README's requirements line says
+   Linux, WSL2 or macOS. Nothing is installed, so there is no install helper.
 5. **Claude Code through the launcher**, for one repo (the kit's own): the `claude -p` process starts under it, with a probe test that a
    `claude -p` step cannot write the planning repo's config.
 6. **The config guard becomes a warning** when the step was confined (`sandbox_coverage` is `process` or `files`); a person's edit no
@@ -442,8 +444,7 @@ the cheap parts first and changes behaviour last.
 ## Decisions made
 
 - The policy lives in `abk.yaml`, with machine-specific paths and hosts in `abk.local.yaml`.
-- No operating-system install and no Node dependency where Python or the kernel can do the job; the install helper is built only if an
-  OS package is later needed.
+- No operating-system install and no Node dependency: Python and the kernel do the job, so there is no install helper.
 - When a repo requires a sandbox level the runtime does not meet, the unit **runs and warns**.
 - A step that needs a running service is an e2e test by rule.
 - ACP is written to the best standard possible without a local agent and reported as unverified against one.

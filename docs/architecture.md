@@ -13,6 +13,8 @@ change (tasks.md) ─► plan ─► units ─► build ─► PR ─► review 
                                                      verify ─► archive
 ```
 
+How a tick is meant to start and run units (a short dispatcher and detached workers) is in [worker-design.md](designs/worker-design.md).
+
 The build agent never merges. The pipeline merges a unit review classified `auto` and policy
 allowed; a person merges what was not auto-landed.
 
