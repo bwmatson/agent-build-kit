@@ -34,16 +34,27 @@ def _no_directory(plan: SplitPlan) -> list[str]:
     return [f"{line}, moved by repo: {', '.join(ids)}" if ids else line]
 
 
+# Per reason: the clause on a dropped-edge line and the label in the count.
+_WHY = {
+    copy.EdgeReason.REPO: ("another repo", "another repo"),
+    copy.EdgeReason.PROJECT: ("another project", "another project"),
+    copy.EdgeReason.KEPT_CHANGE: ("a change kept in the source", "kept change"),
+}
+
+
 def _dropped(edges: tuple[copy.DroppedEdge, ...]) -> list[str]:
     if not edges:
         return []
+    counts = {reason: sum(e.reason == reason for e in edges) for reason in _WHY}
+    occurred = [f"{_WHY[r][1]}: {n}" for r, n in counts.items() if n]
+    total = f"  dropped edges: {len(edges)}"
     return [
         *(
             f"  unit {edge.unit}: dropped {edge.field} {edge.target} "
-            "(merged unit of another repo, stays in the source)"
+            f"(merged unit of {_WHY[edge.reason][0]}, stays in the source)"
             for edge in edges
         ),
-        f"  dropped edges: {len(edges)}",
+        f"{total} ({', '.join(occurred)})" if len(occurred) > 1 else total,
     ]
 
 

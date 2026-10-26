@@ -107,7 +107,8 @@ def test_a_project_target_names_another_project(tmp_path, capsys):
     )
     before = (snapshot_tree(source), snapshot_tree(destination))
 
-    code = split(source, "--repo", "app", "--project", "web", "--to", str(destination))
+    argv = ("--repo", "app", "--project", "web", "--allow-mixed", "source")
+    code = split(source, *argv, "--to", str(destination))
 
     out = capsys.readouterr().out
     assert code == 0, out
