@@ -25,6 +25,10 @@ class LocalTracker:
         self._comments: dict[str, list[str]] = {}
         self._relations: list[Relation] = []
 
+    def as_identity(self, who: str) -> LocalTracker:
+        """A view of the same items acting as another identity: the competing writer."""
+        raise NotImplementedError
+
     def capabilities(self) -> Capabilities:
         return self._capabilities
 

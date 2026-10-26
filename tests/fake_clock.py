@@ -33,6 +33,18 @@ class FakeClock:
             return 1000.0 + self._elapsed
 
 
+class Waits:
+    """The sleeper: records each wait and moves the fake clock by it."""
+
+    def __init__(self, clock: FakeClock) -> None:
+        self.clock = clock
+        self.slept: list[float] = []
+
+    def __call__(self, seconds: float) -> None:
+        self.slept.append(seconds)
+        self.clock.advance(seconds)
+
+
 def install(monkeypatch: pytest.MonkeyPatch, start: datetime = START) -> FakeClock:
     clock = FakeClock(start)
     monkeypatch.setattr(spans, "clock", clock)
