@@ -74,6 +74,7 @@ from agent_build_kit.init.scaffold import (
     rules_version,
 )
 from agent_build_kit.installation import Installation, _resolve, load_config
+from agent_build_kit.machine_files import CONFIG_LOCAL_FILES
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.notify.windows import (
     BURNTTOAST_VERSION,
@@ -922,7 +923,7 @@ def _local_files(inst: Installation, toplevel: Path) -> list[Check]:
     """The local scrub list, the configuration overlay and the redaction copies: never committed."""
     root = inst.root
     checks = []
-    for local in ("scrub.local", OVERLAY_FILENAME):
+    for local in CONFIG_LOCAL_FILES:
         if not (root / local).exists():
             continue
         if is_tracked(root, local):

@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent_build_kit.init.scaffold import template
+from agent_build_kit.pipeline.planning_sync import write_pipeline_marker
 from tests.factories import commit_files, git
 
 
@@ -29,4 +30,5 @@ def add_worktree(repo: Path, tmp_path: Path) -> Path:
     worktree = worktree_of(tmp_path)
     worktree.parent.mkdir(parents=True)
     git(repo, "worktree", "add", "-q", "--detach", str(worktree), "HEAD")
+    write_pipeline_marker(repo, worktree)
     return worktree

@@ -10,6 +10,7 @@ from agent_build_kit import config_migrate_write
 from agent_build_kit.machine_files import MACHINE_FILES
 from tests.cli.in_repo_doctor import checks_of, in_repo, named
 from tests.factories import git
+from tests.machine_files_support import CONTENT
 
 SOURCE = Path(agent_build_kit.__file__).parent
 MAY_NAME_THE_SCRUB_LIST = {"machine_files.py", "config.py", "scrub_terms.py"}
@@ -24,7 +25,7 @@ def test_the_doctor_flags_a_tracked_file_of_each_config_local_name(tmp_path: Pat
     config = in_repo(tmp_path / "app", publish="branch")
     assert CONFIG_LOCAL == ["abk.local.yaml", "scrub.local"]
     for name in CONFIG_LOCAL:
-        (config.parent / name).write_text("x\n")
+        (config.parent / name).write_text(CONTENT[name])
         git(config.parent, "add", "-f", name)
     git(config.parent, "commit", "-qm", "track the local files")
 
