@@ -261,6 +261,11 @@ SPLIT_LINE = re.compile(r"^Split:\s*(?P<value>.*?)\s*$", re.I)
 TASK_LINE = re.compile(r"^\s*-\s+\[[ xX]\]\s+\d+\.\d+\s+\S")
 
 
+TASK_PARTS = re.compile(
+    r"^\s*-\s+\[(?P<box>[ xX])\]\s+(?P<group>\d+)\.(?P<number>\d+)\s+(?P<text>\S.*?)\s*$"
+)
+
+
 class Task(Frozen):
     """One checkbox task of a change's `tasks.md`, with the key that names it."""
 
@@ -276,8 +281,32 @@ class Task(Frozen):
 
 
 def read_tasks(tasks: Path, change: str) -> list[Task]:
-    """Every checkbox task of `tasks`, in file order, keyed under `change`."""
-    raise NotImplementedError
+    """Every checkbox task of `tasks`, in file order, keyed under `change`.
+
+    A task's text runs over the indented lines under it and ends at a blank line, a heading or
+    the next task. The tasks are the lines `TASK_LINE` accepts, so the per-group counts agree
+    with the group parser's."""
+    found: list[Task] = []
+    open_task = False
+    for index, line in enumerate(tasks.read_text().splitlines(), start=1):
+        if parsed := TASK_PARTS.match(line):
+            group, number = int(parsed["group"]), int(parsed["number"])
+            found.append(
+                Task(
+                    key=f"{change}:{group}.{number}",
+                    group=group,
+                    number=number,
+                    text=parsed["text"],
+                    done=parsed["box"] != " ",
+                    line=index,
+                )
+            )
+            open_task = True
+        elif open_task and line[:1].isspace() and line.strip():
+            found[-1] = found[-1].model_copy(update={"text": f"{found[-1].text}\n{line.strip()}"})
+        else:
+            open_task = False
+    return found
 
 
 class ProjectSource(StrEnum):
