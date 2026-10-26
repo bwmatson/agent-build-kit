@@ -32,6 +32,7 @@ from agent_build_kit.pipeline.planning_repo import (
     common_dir,
     is_worktree_of,
     main_working_tree,
+    repo_sharing,
     repository_name,
 )
 from agent_build_kit.pipeline.planning_sync import is_pipeline_worktree
@@ -68,6 +69,16 @@ class Installation:
         self._common = common_dir(self.root) if self.in_pipeline_worktree else None
         # Every pipeline worktree is called the same, so it is named for its repository.
         name = repository_name(self.root).name if self.in_pipeline_worktree else self.root.name
+        configured_home = settings_module.settings.planning_home or config.planning.home
+        if configured_home is not None:
+            self._configured_home: Path | None = Path(configured_home).expanduser()
+            if self._inside_root(self._configured_home):
+                raise ConfigError(
+                    f"planning.home ({self._configured_home}) must be outside the "
+                    f"planning repo ({self.root})"
+                )
+        else:
+            self._configured_home = None
         worktree_root = settings_module.settings.worktree_root or config.planning.worktree_root
         if worktree_root is None:
             worktree_root = data_home() / name / "worktrees"
@@ -80,25 +91,43 @@ class Installation:
 
     # --- paths ----------------------------------------------------------------
 
+    def _inside_root(self, path: Path) -> bool:
+        resolved = path.resolve()
+        return resolved == self.root or resolved.is_relative_to(self.root)
+
     def _under_root(self, path: str) -> Path:
         candidate = Path(path).expanduser()
         return candidate if candidate.is_absolute() else self.root / candidate
 
     @cached_property
     def in_repo(self) -> bool:
-        raise NotImplementedError
+        """Whether the planning root's repository holds a listed repo."""
+        return repo_sharing(self.checkouts, self.root) is not None
 
     @property
     def planning_home(self) -> Path:
-        raise NotImplementedError
+        """Where an in-repo installation keeps its state and its pipeline worktree."""
+        # The repository's name, so the working copy and the pipeline worktree agree.
+        return self._configured_home or data_home() / repository_name(self.root).name / "planning"
 
     @property
     def worktree_path(self) -> Path:
-        raise NotImplementedError
+        return self.planning_home / "worktree"
 
     @property
     def state_dir(self) -> Path:
-        return self._under_root(self.config.planning.state_dir)
+        configured = settings_module.settings.state_dir or self.config.planning.state_dir
+        if configured is not None:
+            return self._under_root(str(configured))
+        return self.planning_home / "state" if self.in_repo else self.root / "runs"
+
+    def _page(self, configured: str | None, name: str) -> Path:
+        if configured is not None:
+            return self._under_root(configured)
+        state = self.state_dir
+        if state.is_relative_to(self.root):
+            return self.root / "docs" / name
+        return state / "pages" / name
 
     @property
     def specs_dir(self) -> Path:
@@ -114,11 +143,11 @@ class Installation:
 
     @property
     def graph_page(self) -> Path:
-        return self._under_root(self.config.planning.graph_page)
+        return self._page(self.config.planning.graph_page, "unit_graph.md")
 
     @property
     def usage_page(self) -> Path:
-        return self._under_root(self.config.planning.usage_page)
+        return self._page(self.config.planning.usage_page, "unit_cost.md")
 
     @property
     def planning_paths(self) -> tuple[str, ...]:
@@ -245,7 +274,7 @@ class Installation:
     def activate(self) -> None:
         """Make this the workspace the leaf modules see (config.active())."""
         settings_module.reload(settings_module.readable(self.env_file))
-        config_module.activate(self.config, self.root, self.checkout_of)
+        config_module.activate(self.config, self.root, self.checkout_of, lambda: self.state_dir)
         redaction.activate(redaction.gather(self))
 
 

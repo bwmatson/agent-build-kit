@@ -36,7 +36,7 @@ from typing import Literal
 
 from agent_build_kit import config, runtimes
 from agent_build_kit.init.scaffold import render_systemd
-from agent_build_kit.installation import Installation, data_home
+from agent_build_kit.installation import Installation
 from agent_build_kit.machine_files import Carried, carry
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.planning_repo import (
@@ -543,6 +543,47 @@ def _bring_to_tip(inst: Installation, worktree: Path) -> tuple[str, ...]:
     return ()
 
 
+def _migrate_worktree(
+    inst: Installation, home: Path, target: Path, run: Run, dest: Path | None, dry_run: bool
+) -> tuple[str, ...]:
+    """Move the pipeline worktree that is the planning home itself to `target`, inside it; the
+    note that says so. Refuses, changing nothing, when a unit is active or `target` is taken."""
+    if target.exists():
+        raise PlanningWorktreeRefused(
+            f"{target} exists and is not a worktree of {inst.root}; "
+            "move it away or remove it, then install again"
+        )
+    names = unit_names(home)
+    active = [
+        n
+        for n in names
+        if run(["systemctl", "--user", "is-active", n], check=False).returncode == 0
+    ]
+    if active:
+        raise PlanningWorktreeRefused(
+            f"{', '.join(active)} is active, and moving {home} would break the tick running in "
+            f"it; run `systemctl --user stop {' '.join(active)}`, then install again"
+        )
+    if dry_run:
+        return (f"would move {home} to {target}",)
+    moving = home.with_name(f"{home.name}.moving")
+    git(inst.root, "worktree", "move", str(home), str(moving))
+    try:
+        home.mkdir()
+        git(inst.root, "worktree", "move", str(moving), str(target))
+    except (subprocess.CalledProcessError, OSError) as failure:
+        if home.is_dir() and not any(home.iterdir()):
+            home.rmdir()
+        git(inst.root, "worktree", "move", str(moving), str(home), check=False)
+        raise PlanningWorktreeRefused(
+            f"could not move {home} to {target}, so it was put back: {failure}"
+        ) from failure
+    # Units that pointed at the old place name a directory that still exists (it is the home),
+    # which the install would take for another installation's; the install writes them again.
+    _stop_and_delete(installed_units(home, dest), run)
+    return (f"moved planning worktree {home} to {target}",)
+
+
 def _carry_machine_files(
     inst: Installation, worktree: Path, *, dry_run: bool
 ) -> tuple[tuple[Carried, ...], tuple[str, ...]]:
@@ -561,12 +602,11 @@ def install_in_repo(
     enable: bool = True,
     dry_run: bool = False,
     tool_dirs: Sequence[str] = (),
-    data_dir: Path | None = None,
 ) -> InRepoInstall:
     """`install` for any installation: from a working copy or the pipeline worktree it makes or
-    reuses the pipeline worktree and the marker and points the units at it; a separate planning
-    repo installs as `install` does. `data_dir` is where worktrees live (under the home by
-    default)."""
+    reuses the pipeline worktree (`<planning home>/worktree`) and the marker and points the units
+    at it, moving a worktree left in the old place, the planning home itself; a separate planning
+    repo installs as `install` does."""
     mode = planning_mode(inst)
     if mode == PlanningMode.SEPARATE:
         change = install(
@@ -577,26 +617,34 @@ def install_in_repo(
     common = common_dir(inst.root)
     assert common is not None
     created = False
+    notes: tuple[str, ...] = ()
+    moved = False
     if mode == PlanningMode.PIPELINE_WORKTREE:
         worktree = inst.root
     else:
         named = read_pipeline_marker(inst.root)
-        if named is not None and named.is_dir():
+        home = inst.planning_home
+        if is_worktree_of(home, common) and (
+            named is None or not named.is_dir() or named.resolve() == home.resolve()
+        ):
+            worktree = inst.worktree_path
+            notes += _migrate_worktree(inst, home, worktree, run or subprocess.run, dest, dry_run)
+            moved = True
+        elif named is not None and named.is_dir():
             worktree = named
         else:
-            base = data_dir or data_home()
-            worktree = base / common.parent.name / "planning"
+            worktree = inst.worktree_path
         if worktree.exists() and not is_worktree_of(worktree, common):
             raise PlanningWorktreeRefused(
                 f"{worktree} exists and is not a worktree of {common.parent}; "
                 "move it away or remove it, then install again"
             )
-        created = not worktree.exists()
+        created = not moved and not worktree.exists()
         if created and not dry_run:
             _make_worktree(inst, worktree)
         if not dry_run:
             write_pipeline_marker(inst.root, worktree)
-    notes = () if dry_run else _bring_to_tip(inst, worktree)
+    notes += () if dry_run else _bring_to_tip(inst, worktree)
     carried, carry_notes = _carry_machine_files(inst, worktree, dry_run=dry_run)
     notes += carry_notes
     if not dry_run and not (worktree / "abk.yaml").is_file():

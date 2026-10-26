@@ -11,6 +11,7 @@ import pytest
 from agent_build_kit.config import ConfigError
 from agent_build_kit.installation import Installation, load_installation
 from agent_build_kit.settings import settings
+from tests.config_migrate_machine_support import TILDE
 from tests.factories import init_repo
 from tests.planning_worktree_support import in_repo, installation_at
 
@@ -118,7 +119,9 @@ def test_a_state_dir_with_a_tilde_moves_only_the_state(
     home = tmp_path / "someone"
     monkeypatch.setenv("HOME", str(home))
 
-    inst = installation_at(setup.working_copy, setup.working_copy, planning=dict(state_dir="~/s"))
+    inst = installation_at(
+        setup.working_copy, setup.working_copy, planning=dict(state_dir=f"{TILDE}s")
+    )
 
     assert inst.state_dir == home / "s"
     assert inst.planning_home == data / "app" / "planning"

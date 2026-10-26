@@ -73,6 +73,7 @@ from agent_build_kit.config import (
     WindowLimits,
     active,
     active_root,
+    active_state_dir,
 )
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock, try_file_lock
@@ -562,10 +563,7 @@ def current_cache_interval(calls_file: Path) -> CacheInterval:
 
 
 def _cache_file() -> Path:
-    root = active_root()
-    state = (
-        root / active().planning.state_dir if root else Path.home() / ".cache" / "agent-build-kit"
-    )
+    state = active_state_dir() or Path.home() / ".cache" / "agent-build-kit"
     return _of_account(state / "usage-cache.json")
 
 

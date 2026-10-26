@@ -538,7 +538,7 @@ def _state_ignores(inst: Installation) -> list[Check]:
         return []
     ignore = inst.root / ".gitignore"
     text = ignore.read_text() if ignore.is_file() else ""
-    missing = missing_state_ignores(text, inst.config.planning.state_dir)
+    missing = missing_state_ignores(text, inst.config.planning.state_dir or "runs")
     if not missing:
         return [_ok("state ignores", str(ignore))]
     return [

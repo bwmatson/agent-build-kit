@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
 
-from agent_build_kit.config import active, active_root
+from agent_build_kit.config import active_state_dir
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.shell import git
@@ -87,11 +87,10 @@ def current() -> TickRecord | None:
     of the active workspace; None when there is neither."""
     if _running is not None:
         return _running
-    root = active_root()
-    if root is None:
+    state_dir = active_state_dir()
+    if state_dir is None:
         return None
-    state_dir = Path(active().planning.state_dir).expanduser()
-    return read_record(root / state_dir / TICK_FILE)
+    return read_record(state_dir / TICK_FILE)
 
 
 def kit_checkout() -> Path | None:

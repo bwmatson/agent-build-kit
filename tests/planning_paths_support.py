@@ -62,7 +62,7 @@ def in_repo_planning(tmp_path: Path) -> tuple[Installation, InRepo]:
     inst = make_installation(
         setup.worktree,
         repos={"app": {"path": str(setup.working_copy), "slug": "example/app"}},
-        planning={"worktree_root": str(base / "trees")},
+        planning={"state_dir": "runs", "worktree_root": str(base / "trees")},
         openspec={"command": [recording_openspec(base)]},
     )
     return inst, setup
