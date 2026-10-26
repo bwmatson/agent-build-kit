@@ -16,15 +16,20 @@ INTEGRATION = ROOT / "tests" / "integration"
 # Built from parts so this file does not name what it looks for.
 OLD_STEMS = ("test_" + "acp_build_unit", "test_graph_" + "acp_unit")
 NEW_STEMS = ("test_build_unit", "test_graph_unit")
-# The changelog keeps the history of released names.
+# The changelog keeps the history of released names; the planning store describes past states.
 EXEMPT = frozenset(["CHANGELOG.md"])
+PLANNING_STORE = ("openspec/", "runs/")
 
 
 def tracked_files() -> list[Path]:
     out = subprocess.run(
         ["git", "ls-files", "-z"], cwd=ROOT, check=True, capture_output=True, text=True
     ).stdout
-    return [ROOT / name for name in out.split("\0") if name and name not in EXEMPT]
+    return [
+        ROOT / name
+        for name in out.split("\0")
+        if name and name not in EXEMPT and not name.startswith(PLANNING_STORE)
+    ]
 
 
 @pytest.mark.parametrize("stem", OLD_STEMS)
