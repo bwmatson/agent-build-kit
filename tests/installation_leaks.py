@@ -24,7 +24,7 @@ import yaml
 from agent_build_kit.config import OVERLAY_FILENAME
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.scrub_terms import TOOL_DIRS
-from tests.tracked_files import guarded_files
+from tests.tracked_files import guarded_files, planning_dirs
 
 SCANNED = ("src", "tests", "docs", "web", "openspec")
 # The root files read when present; `abk.yaml` and the tracked unit store are planning
@@ -73,6 +73,8 @@ FIXTURE_AZURE_ORGS = ("acme", "example", "o", "org")
 _TOOL_DIR_NAMES = "|".join(re.escape(d.removeprefix(".")) for d in sorted(TOOL_DIRS))
 HOME_PRODUCT_DIR = re.compile(rf'Path\.home\(\)\s*/\s*"\.(?!(?:{_TOOL_DIR_NAMES})\b)')
 HOME_PATH = re.compile(rf"(?<![\w/])~/(?!\.(?:{_TOOL_DIR_NAMES})\b)|/home/[a-z]")
+# The part of `HOME_PATH` that names a user: a tilde-relative path names none.
+ABSOLUTE_HOME_PATH = re.compile(r"/home/[a-z]")
 GITHUB_SLUG = re.compile(r"github\.com[:/](?P<owner>[A-Za-z0-9-]+)/[A-Za-z0-9._-]+")
 AZURE_ORG = re.compile(r"dev\.azure\.com[:/](?:v3/)?(?!v3/)(?P<org>[A-Za-z0-9._-]+)")
 NOREPLY = re.compile(r"\d+\+[A-Za-z0-9-]+@users\.noreply\.github\.com")
@@ -122,6 +124,21 @@ def foreign_slug_owners(text: str) -> list[str]:
         match["owner"]
         for match in GITHUB_SLUG.finditer(text)
         if match["owner"] not in FIXTURE_OWNERS and match["owner"].lower() not in UPSTREAM_OWNERS
+    ]
+
+
+def home_path_leaks(root: Path) -> list[str]:
+    """Each line holding a home path, as `path:line: clipped line`. In the specification folder a
+    tilde-relative path is not one (it names no user) and an absolute path still is."""
+    specs = Path(planning_dirs(root).specs_dir)
+    return [
+        hit
+        for path in files(root)
+        for hit in file_hits(
+            root,
+            path,
+            ABSOLUTE_HOME_PATH if specs in path.relative_to(root).parents else HOME_PATH,
+        )
     ]
 
 

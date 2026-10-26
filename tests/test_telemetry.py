@@ -16,6 +16,7 @@ import textwrap
 import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -224,11 +225,12 @@ NO_OP_SCRIPT = textwrap.dedent(
 )
 
 
-def test_off_by_default_init_is_false_and_no_otel_module_is_imported() -> None:
+def test_off_by_default_init_is_false_and_no_otel_module_is_imported(tmp_path: Path) -> None:
     env = {"PATH": "/usr/bin:/bin", "HOME": "/nonexistent"}
     done = subprocess.run(
         [sys.executable, "-c", NO_OP_SCRIPT],
         env=env,
+        cwd=tmp_path,
         capture_output=True,
         text=True,
         timeout=60,

@@ -15,12 +15,12 @@ from tests.installation_leaks import (
     DATED_ANECDOTE,
     ENV_ALLOWED,
     ENV_LITERAL,
-    HOME_PATH,
     HOME_PRODUCT_DIR,
     NOREPLY,
     foreign_azure_orgs,
     foreign_slug_owners,
     hits,
+    home_path_leaks,
     overlay_leaks,
     repo_path_leaks,
 )
@@ -37,7 +37,7 @@ def test_no_home_directory_product_paths() -> None:
 
 
 def test_no_home_paths_in_text() -> None:
-    assert _hits(HOME_PATH) == []
+    assert home_path_leaks(ROOT) == []
 
 
 def test_every_github_slug_belongs_to_a_fixture_owner() -> None:

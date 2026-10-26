@@ -27,6 +27,7 @@ import pytest
 
 from agent_build_kit import claude_account, forges
 from agent_build_kit import config as config_module
+from agent_build_kit import installation as installation_module
 from agent_build_kit.cli import doctor
 from agent_build_kit.cli import pipeline as pipeline_cli
 from agent_build_kit.config import RepoConfig, WorkspaceConfig
@@ -36,6 +37,7 @@ from agent_build_kit.forges.transport import clear_credentials
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.runtimes import claude_code
+from tests.checkout_env import without_checkout_env
 from tests.forges.github_server import FakeGitHub
 from tests.forges.mock_host import MockHost, ok, recorded
 from tests.usage_host import Host
@@ -63,6 +65,19 @@ def new_session_id() -> Callable[[], str]:
 def build_session(new_session_id: Callable[[], str]) -> str:
     """The id of the session a unit's build recorded."""
     return new_session_id()
+
+
+@pytest.fixture(autouse=True)
+def no_checkout_env_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A developer's ignored `.env` is not part of the suite: the lookup treats the checkout's
+    as absent, and any other root is looked up as before. A machine's `ABK_CONFIG` would send a
+    test to the planning repo that variable names, and so to its `.env`: it is not set."""
+    monkeypatch.delenv(config_module.CONFIG_ENV, raising=False)
+    monkeypatch.setattr(
+        installation_module,
+        "env_file_for",
+        without_checkout_env(installation_module.env_file_for),
+    )
 
 
 @pytest.fixture(autouse=True)
