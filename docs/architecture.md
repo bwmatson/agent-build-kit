@@ -773,6 +773,9 @@ own cause or none. `cause_since` of a stored unit is the time of the entry that 
 carried entry does not restart a backoff while a second parking does. The one place a cause is
 not carried is a label hold, a known gap. `upsert` keeps a unit's runtime fields, its saved
 requeue and its parked splits among them, so a gated or parked unit stays parked across a replan.
+A `running` unit with a thread that holds no branch lock and no lease is gated by `gate_resumable`
+before a round resumes it while a merge edge is unmet; it keeps its thread and resumes once the
+edge is met.
 A pass lets a unit it already
 built back in only when it was sent back for rework or its base changed (resuming restacks
 it, so what held it is gone), or when it was parked because the code host, the network or the

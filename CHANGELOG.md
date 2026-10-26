@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A unit that was put back and has not started again now waits for the dependencies it has. A
+  `Needs:` line added to such a unit, for example after the pipeline requeued it, holds it until
+  the group has merged instead of letting the next round start it. `abk replan` prints
+  `gated: <unit> waits for <dependency>`, and `abk status` and `abk explain` show the wait.
+
 - `abk planning split` now moves the units of a moving repo's archive entries with them, and a
   unit whose change has no directory by its repo, saying so in the plan. A dependency on a
   merged unit of another repo, of another project or of a mixed change kept in the source is
