@@ -256,6 +256,14 @@ class BriefEntry(Frozen):
     reason: str
 
 
+class Starting(Frozen):
+    """The marker admission leaves on a unit it has admitted and whose worker has not yet taken
+    the branch lock: the worker's id and when the marker expires."""
+
+    worker: str
+    until: datetime
+
+
 class Description(Frozen):
     """What the reviewer says an approved branch does: a summary and its core changes, the
     places a person should read first and the places that are safe to skip."""
@@ -290,6 +298,8 @@ class StoredUnit(Unit):
 
     branch: str = ""
     pr: int | None = None
+    # Set by admission, cleared when the build takes the branch lock or the marker is reclaimed.
+    starting: Starting | None = None
     # The merge commit and the tick number that first saw the unit merged; None before it
     # merged, and for a unit merged before they were kept.
     merge_sha: str | None = None
