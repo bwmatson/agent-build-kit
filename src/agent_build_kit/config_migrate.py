@@ -144,7 +144,8 @@ def migrate(
     """Rename a root `limits` to `global_limits`, move the three scheduling settings found under
     it (or under `global_limits`) to a `project_limits` block straight after it, move
     `max_unit_lines` to `review.ceilings.full`, rename each old test-kind setting key to its new
-    name, rename `limits` under each runtime and account to `usage_limits`, and move a flat `models:` block under `runtimes.<runtime>.models`, the runtime in force
+    name, rename `limits` under each runtime and account to `usage_limits`, and move a flat
+    `models:` block under `runtimes.<runtime>.models`, the runtime in force
     (`config.runtime_for`). Told to by `machine`, it then moves the machine settings to the local
     file's text."""
     moved = _move_limits(_move_ceiling(text))
