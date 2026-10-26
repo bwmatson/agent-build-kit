@@ -103,7 +103,7 @@ def test_the_claude_code_limits_load_as_before_beside_a_gate() -> None:
         }
     )
 
-    limits = loaded.runtimes["claude_code"].limits
+    limits = loaded.runtimes["claude_code"].usage_limits
     assert limits.session.usage_pause_pct == 60
     assert limits.weekly.usage_pause_pct == 50
     assert provider_of(loaded).name == "modal"
