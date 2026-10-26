@@ -2149,7 +2149,10 @@ def run_round(
         )
         return []
     in_flight = set(building)
-    if gate_resumable(inst, store, spared=in_flight):
+    # A unit the restack lane holds or waits for is the lane's to move, not gated here.
+    if gate_resumable(
+        inst, store, spared=in_flight | ({*lane.running, *lane.waiting} if lane else set())
+    ):
         units = store.all()
     if readmit:
         readmit.admit(units, in_flight)
@@ -2495,57 +2498,63 @@ def reconcile_running(
             log(f"{unit.id}: its run is gone — failed")
 
 
+def _gate_on_merge_edges(
+    store: UnitStore,
+    unit: StoredUnit,
+    units: list[StoredUnit],
+    repos: Mapping[str, config.RepoConfig],
+) -> list[Unit]:
+    """Park `unit` as `planned` and `gated` with the wait while a merge edge (a dependency in
+    another repository, or one marked `merged`) of it is unmet (only those; a same-repo parent on
+    a review edge is waited for by `waiting_on` alone). Returns the parents it waits for, none
+    when it is not parked."""
+    waits = [
+        parent
+        for parent in waiting_on(unit, units)
+        if edge_kind(unit, parent, repos).kind is EdgeKind.MERGE
+    ]
+    if waits:
+        why = dependency_wait(waits, merging=merge_parents(unit, waits, units, repos))
+        store.set_state(unit.id, PLANNED, note=why, cause=Cause.GATED)
+        log(f"{unit.id}: {why}")
+    return waits
+
+
 def gate_sent_back(store: UnitStore) -> None:
-    """Park a unit a poll sent back for rework while a merge edge (a dependency in another
-    repository, or one marked `merged`) is unmet (only those; a same-repo parent on a review
-    edge is waited for by `waiting_on` alone): it is `gated`, so the readmission rule leaves it
-    for the pass that finds the gate clear, instead of starting it again."""
+    """Park a unit a poll sent back for rework while a merge edge is unmet: it is `gated`, so the
+    readmission rule leaves it for the pass that finds the gate clear, instead of starting it
+    again."""
     units = store.all()
     repos = config.active().repos
     for unit in units:
         # The cause is standing, so a replan between the send-back and here keeps it.
-        if unit.state != PLANNED or unit.cause not in READMITTED_CAUSES:
-            continue
-        waits = [
-            parent
-            for parent in waiting_on(unit, units)
-            if edge_kind(unit, parent, repos).kind is EdgeKind.MERGE
-        ]
-        if waits:
-            why = dependency_wait(waits, merging=merge_parents(unit, waits, units, repos))
-            store.set_state(unit.id, PLANNED, note=why, cause=Cause.GATED)
-            log(f"{unit.id}: {why}")
+        if unit.state == PLANNED and unit.cause in READMITTED_CAUSES:
+            _gate_on_merge_edges(store, unit, units, repos)
 
 
 def gate_resumable(
     inst: Installation, store: UnitStore, *, spared: Collection[str] = ()
 ) -> dict[str, str]:
     """Gate a `running` unit with a thread that no process holds (no branch lock, no lease, not
-    in `spared`) while a merge edge of it is unmet: it is `planned` and `gated` with the wait,
-    its thread kept, so it resumes once the edge is met. Returns, for each unit gated, the
-    groups it waits for."""
+    in `spared`, not owed a restack) while a merge edge of it is unmet: it is `planned` and
+    `gated` with the wait, its thread kept, so it resumes once the edge is met. Returns, for each
+    unit gated, the groups it waits for."""
     units = store.all()
     repos = config.active().repos
     leases = Leases(lease_dir(inst.state_dir))
+    owed = owed_units(inst, units)
     gated: dict[str, str] = {}
     for unit in units:
         if (
             unit.state != RUNNING
             or unit.id in spared
+            or unit.id in owed
             or leases.holder(unit.id) is not None
             or branch_is_held(inst, unit.branch or branch_name(unit))
             or not has_thread(inst, unit.id)
         ):
             continue
-        waits = [
-            parent
-            for parent in waiting_on(unit, units)
-            if edge_kind(unit, parent, repos).kind is EdgeKind.MERGE
-        ]
-        if waits:
-            why = dependency_wait(waits, merging=merge_parents(unit, waits, units, repos))
-            store.set_state(unit.id, PLANNED, note=why, cause=Cause.GATED)
-            log(f"{unit.id}: {why}")
+        if waits := _gate_on_merge_edges(store, unit, units, repos):
             gated[unit.id] = group_names(waits)
     return gated
 

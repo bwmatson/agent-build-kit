@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.cli.explain_cmd import cmd_explain
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.lease import Leases, lease_dir
+from agent_build_kit.pipeline.loaded_code import TickRecord, write_record
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED, RUNNING, ready_units
 from agent_build_kit.pipeline.workspaces import branch_lock
@@ -92,6 +94,29 @@ def test_the_gated_unit_resumes_in_the_round_after_its_parent_has_merged(
     cli.gate_resumable(inst, store)
 
     assert store.get(CHILD).state == PLANNED
+    assert CHILD in ready(store)
+
+
+def test_a_merge_the_running_tick_does_not_have_still_holds_the_unit_until_the_next_tick(
+    inst: Installation, store: UnitStore
+) -> None:
+    def tick(number: int) -> None:
+        write_record(
+            inst.state_dir,
+            TickRecord(number=number, started_at=datetime.now(UTC), kit_repo="app"),
+        )
+
+    running_child(store)
+    store.set_state(PARENT, MERGED, pr=3)
+    store.set_merge_record(PARENT, merge_sha="abc", merged_tick=3)
+    tick(3)
+
+    cli.gate_resumable(inst, store)
+
+    assert (store.get(CHILD).state, store.get(CHILD).cause) == (PLANNED, Cause.GATED)
+    assert CHILD not in ready(store)
+
+    tick(4)
     assert CHILD in ready(store)
 
 
