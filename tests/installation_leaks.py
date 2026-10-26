@@ -24,7 +24,7 @@ import yaml
 from agent_build_kit.config import OVERLAY_FILENAME
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.scrub_terms import TOOL_DIRS
-from tests.tracked_files import guarded_files, planning_dirs
+from tests.tracked_files import PlanningDirs, guarded_files, planning_dirs
 
 SCANNED = ("src", "tests", "docs", "web", "openspec")
 # The root files read when present; `abk.yaml` and the tracked unit store are planning
@@ -88,8 +88,10 @@ ENV_ALLOWED = {"settings.py", "usage_guard.py", "config.py"}
 SHAPES = (HOME_PRODUCT_DIR, HOME_PATH, NOREPLY, ANECDOTE)
 
 
-def files(root: Path) -> list[Path]:
-    found = guarded_files(root, under=SCANNED, names=ROOT_FILES, suffixes=TEXT, specs=True)
+def files(root: Path, dirs: PlanningDirs | None = None) -> list[Path]:
+    found = guarded_files(
+        root, under=SCANNED, names=ROOT_FILES, suffixes=TEXT, specs=True, dirs=dirs
+    )
     return [path for path in found if path.name not in SELF and path.name != "package-lock.json"]
 
 
@@ -128,17 +130,22 @@ def foreign_slug_owners(text: str) -> list[str]:
     ]
 
 
-def home_rule(root: Path, path: Path) -> re.Pattern:
+def home_rule(root: Path, path: Path, dirs: PlanningDirs | None = None) -> re.Pattern:
     """The home-path rule for one file: only an absolute path in the specification folder (a
     tilde-relative path names no user), the full rule everywhere else."""
-    specs = Path(planning_dirs(root).specs_dir)
+    specs = Path((dirs or planning_dirs(root)).specs_dir)
     return ABSOLUTE_HOME_PATH if specs in path.relative_to(root).parents else HOME_PATH
 
 
 def home_path_leaks(root: Path) -> list[str]:
     """Each line holding a home path, as `path:line: clipped line`. In the specification folder a
     tilde-relative path is not one (it names no user) and an absolute path still is."""
-    return [hit for path in files(root) for hit in file_hits(root, path, home_rule(root, path))]
+    dirs = planning_dirs(root)
+    return [
+        hit
+        for path in files(root, dirs)
+        for hit in file_hits(root, path, home_rule(root, path, dirs))
+    ]
 
 
 def leaky_line(line: str, home: re.Pattern = HOME_PATH) -> bool:
@@ -149,8 +156,8 @@ def leaky_line(line: str, home: re.Pattern = HOME_PATH) -> bool:
     )
 
 
-def file_leaks(root: Path, path: Path) -> list[str]:
-    home = home_rule(root, path)
+def file_leaks(root: Path, path: Path, dirs: PlanningDirs | None = None) -> list[str]:
+    home = home_rule(root, path, dirs)
     return file_hits(root, path, lambda line: leaky_line(line, home))
 
 
@@ -158,7 +165,8 @@ def leaks(root: Path) -> list[str]:
     """Each hit under `root` as `path:line: clipped line`: home paths, non-fixture slugs,
     anecdotes and product directories in the scanned text, planning content included, with the
     home-path rule of `home_rule`."""
-    return [hit for path in files(root) for hit in file_leaks(root, path)]
+    dirs = planning_dirs(root)
+    return [hit for path in files(root, dirs) for hit in file_leaks(root, path, dirs)]
 
 
 def overlay_leaks(root: Path) -> list[str]:
