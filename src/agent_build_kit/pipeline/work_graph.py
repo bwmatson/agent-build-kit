@@ -261,6 +261,25 @@ SPLIT_LINE = re.compile(r"^Split:\s*(?P<value>.*?)\s*$", re.I)
 TASK_LINE = re.compile(r"^\s*-\s+\[[ xX]\]\s+\d+\.\d+\s+\S")
 
 
+class Task(Frozen):
+    """One checkbox task of a change's `tasks.md`, with the key that names it."""
+
+    # `<change>:<group>.<task>`, e.g. `feature:3.2`.
+    key: str
+    group: int
+    number: int
+    # The task's text after its number, continuation lines included, joined by newlines.
+    text: str
+    done: bool
+    # The 1-based line of the task in the file.
+    line: int
+
+
+def read_tasks(tasks: Path, change: str) -> list[Task]:
+    """Every checkbox task of `tasks`, in file order, keyed under `change`."""
+    raise NotImplementedError
+
+
 class ProjectSource(StrEnum):
     """How a group's project was decided: written in the heading, resolved from the paths the
     group names, or the root because nothing placed it elsewhere."""
