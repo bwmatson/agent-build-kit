@@ -53,7 +53,7 @@ def test_architecture_says_when_to_write_merged() -> None:
 
 
 def test_the_unit_graph_document_names_the_edge_kinds_in_its_row_and_legend() -> None:
-    text = squashed(DOCS / "unit-graph.md")
+    text = squashed(DOCS / "designs/unit-graph.md")
     assert "needs, merge" in text
     assert re.search(r"merge_needs", text)
     assert not re.search(r"merged.{0,80}deprecated", text, re.I)

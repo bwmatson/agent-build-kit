@@ -1,5 +1,5 @@
 """A run killed mid-node is resumed at that node by the next tick, and the
-thread is what resumes it (docs/unit-graph.md, Durability)."""
+thread is what resumes it (docs/designs/unit-graph.md, Durability)."""
 
 from __future__ import annotations
 

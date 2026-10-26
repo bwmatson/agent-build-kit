@@ -12,7 +12,7 @@ from agent_build_kit import skills
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGE = Path(skills.SKILLS_DIR).parent
 DOCUMENTS = {
-    "docs/unit-graph.md": ROOT / "docs" / "unit-graph.md",
+    "docs/designs/unit-graph.md": ROOT / "docs" / "designs/unit-graph.md",
     "abk-authoring skill": PACKAGE / "skills" / "abk-authoring" / "SKILL.md",
 }
 

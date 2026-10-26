@@ -13,10 +13,10 @@ ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / "src" / "agent_build_kit" / "skills"
 DECLARING = (
     ROOT / "docs" / "cli.md",
-    ROOT / "docs" / "unit-graph.md",
+    ROOT / "docs" / "designs/unit-graph.md",
     SKILLS / "abk-authoring" / "SKILL.md",
 )
-DECLARING_IDS = ["cli.md", "unit-graph.md", "abk-authoring-skill"]
+DECLARING_IDS = ["cli.md", "designs/unit-graph.md", "abk-authoring-skill"]
 
 
 def text(path: Path) -> str:

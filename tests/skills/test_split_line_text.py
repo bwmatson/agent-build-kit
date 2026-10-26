@@ -54,6 +54,6 @@ def test_the_configuration_document_says_a_repos_splits_are_what_a_split_line_ma
 
 
 def test_the_unit_graph_document_has_the_legend_line_for_a_unit_waiting_on_a_held_split() -> None:
-    text = flat((DOCS / "unit-graph.md").read_text(encoding="utf-8"))
+    text = flat((DOCS / "designs/unit-graph.md").read_text(encoding="utf-8"))
 
     assert "held e2e-test split" in text

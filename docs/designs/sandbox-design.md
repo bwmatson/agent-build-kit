@@ -1,6 +1,6 @@
 # Sandboxing agent steps: design, proof of concept and recommended steps
 
-The [command policy](agent-runtimes.md#policy-enforcement-without-a-hook-contract) decides what a builder may run by reading the
+The [command policy](../agent-runtimes.md#policy-enforcement-without-a-hook-contract) decides what a builder may run by reading the
 command. A command can be written a thousand ways (an interpreter one-liner, a copy tool, a redirect), so that list cannot be
 finished, and `pipeline/config_guard.py` exists as the backstop that notices after the fact when a configuration file changed. This
 document moves the line to what an agent step's processes can write and reach, enforced by the kernel and shared by every runtime. The
@@ -65,7 +65,7 @@ and Claude Code's sandbox are sources of ideas, not dependencies.
 
 ## Structure: a base layer and a backend per platform
 
-The shape is the one the kit already uses for code hosts ([code-forges.md](code-forges.md)) and runtimes ([agent-runtimes.md](agent-runtimes.md)):
+The shape is the one the kit already uses for code hosts ([code-forges.md](../code-forges.md)) and runtimes ([agent-runtimes.md](../agent-runtimes.md)):
 a base layer that holds the protocol and everything shared, a registry, and one implementation per platform. A new `sandboxes/` package:
 
 ```

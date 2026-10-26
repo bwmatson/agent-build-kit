@@ -140,7 +140,7 @@ module ends with `_: AgentRuntime = RUNTIME`, so the type checker in
 | `name` | attr | the key an installation names in `abk.yaml` |
 | `implemented` | attr | False while an adapter is declared but unfinished |
 | `policy_coverage` | attr | `all_calls`, `agent_flagged` or `none` — how much of what an agent does abk can interpose on |
-| `sandbox_coverage` | attr | `process`, `files` or `none` — how much of the agent's processes the kernel confines (see `sandbox-design.md`) |
+| `sandbox_coverage` | attr | `process`, `files` or `none` — how much of the agent's processes the kernel confines (see `designs/sandbox-design.md`) |
 | `supports_usage_tracking` | attr | whether `get_usage_status` can ever answer |
 | `supports_streaming` | attr | whether `AgentRequest.on_event` is ever called |
 | `supports_session_resume` | attr | whether `AgentRequest.resume_session` continues an earlier session; `on_session` is told each session's id as soon as it is known. A runtime without it is never sent a session to resume, and a session it cannot continue raises `SessionUnavailable`. The `acp` runtime supports it where the agent advertises both `session/resume` and `session/list`; see ACP sessions below |
@@ -518,7 +518,7 @@ must be documented per runtime, never assumed equivalent.
 as its own configuration makes it. `abk doctor` says so plainly.
 
 These read a call. What a command can then *do* is a separate layer, proposed in
-[sandbox-design.md](sandbox-design.md): the kernel confines the files and network of an agent step, so
+[sandbox-design.md](designs/sandbox-design.md): the kernel confines the files and network of an agent step, so
 the rules above no longer have to name every way of writing a file.
 
 ## Recommended policy
@@ -1299,4 +1299,4 @@ A location guard (where an agent may write) stands down when a runtime's step is
 the fallback otherwise; a guard about meaning stays in both modes. Both built-in runtimes are
 confined at `process` coverage, and `abk policy check` and `abk status` list each guard per
 runtime as active, skipped (confined) or kept (meaning). The table is in
-[sandbox-design.md](sandbox-design.md).
+[sandbox-design.md](designs/sandbox-design.md).

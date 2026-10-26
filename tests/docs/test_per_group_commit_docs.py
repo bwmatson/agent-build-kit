@@ -37,7 +37,7 @@ def test_the_setting_is_named_with_its_default_and_what_it_does(path: Path) -> N
 
 
 def test_the_unit_graph_names_both_new_steps() -> None:
-    text = squashed(DOCS / "unit-graph.md")
+    text = squashed(DOCS / "designs/unit-graph.md")
     assert "stub_checks" in text
     assert "fix_stub_checks" in text
 

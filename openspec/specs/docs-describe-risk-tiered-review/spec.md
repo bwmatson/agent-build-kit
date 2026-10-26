@@ -8,7 +8,7 @@ TBD - created by archiving change review-by-tier-is-always-on. Update Purpose af
 ### Requirement: No document says a human merges every pull request
 
 The README, `AGENTS.md`, `docs/architecture.md`, `docs/configuration.md`, `docs/cli.md`, `docs/code-forges.md`,
-`docs/unit-graph.md`, the three skills as shipped and their mirror in the repository's own `.claude/skills`, the footer of a pull
+`docs/designs/unit-graph.md`, the three skills as shipped and their mirror in the repository's own `.claude/skills`, the footer of a pull
 request body and the message of the command policy SHALL NOT state that a human, or a person, merges every pull request or that the
 pipeline never merges. Where they say who merges they SHALL say that a person merges every pull request that was not auto-landed and
 that the build agent never merges. The shipped skills and their mirror SHALL hold the same text.
@@ -58,7 +58,7 @@ differ.
 The documents SHALL describe the review reply as carrying a classification beside `needs_human` and `escalate`, which a reviewer
 uses to hand a problem it cannot resolve to a person before a pull request is opened, review by tier as always on,
 and `review.ceilings` as the only ceilings, and SHALL NOT mention `review.enabled` or `max_unit_lines` except in the changelog and in
-the message that names the migration. `docs/agent-efficient-coding-philosophy.md` and `docs/risk-tiered-review-design.md` SHALL each
+the message that names the migration. `docs/designs/agent-efficient-coding-philosophy.md` and `docs/designs/risk-tiered-review-design.md` SHALL each
 carry a note that its design is implemented. The changelog SHALL have one entry for each user-visible change of this work.
 
 #### Scenario: The status note

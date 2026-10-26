@@ -1,6 +1,6 @@
 """The classic runner's scenarios for adapt, e2e-test, satisfied, escalations,
 holds, spent rounds and moved bases, run through the graph engine with the same
-injected fakes (docs/unit-graph.md, Testing): each reaches the same outcome,
+injected fakes (docs/designs/unit-graph.md, Testing): each reaches the same outcome,
 state and pull request as `UnitRunner.run`.
 
 Scenarios that end in a wait for the usage window, an event or a person belong

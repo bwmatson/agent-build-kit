@@ -10,7 +10,7 @@ import pytest
 ROOT = Path(__file__).parents[2]
 SKILLS = ROOT / "src" / "agent_build_kit" / "skills"
 DOCUMENTS = {
-    "docs/unit-graph.md": ROOT / "docs" / "unit-graph.md",
+    "docs/designs/unit-graph.md": ROOT / "docs" / "designs/unit-graph.md",
     "abk-pipeline": SKILLS / "abk-pipeline" / "SKILL.md",
     "abk-authoring": SKILLS / "abk-authoring" / "SKILL.md",
 }
@@ -36,7 +36,7 @@ def test_the_document_says_the_acceptance_wait_is_computed_at_run_time(name: str
     assert "every earlier unit" in text
 
 
-@pytest.mark.parametrize("name", ["docs/unit-graph.md", "abk-authoring"])
+@pytest.mark.parametrize("name", ["docs/designs/unit-graph.md", "abk-authoring"])
 def test_the_document_says_a_needs_the_chain_implies_draws_no_edge(name: str) -> None:
     text = words(DOCUMENTS[name])
 

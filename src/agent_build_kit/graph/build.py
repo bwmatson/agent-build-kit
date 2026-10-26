@@ -1,4 +1,4 @@
-"""The compiled graph: every node named in docs/unit-graph.md."""
+"""The compiled graph: every node named in docs/designs/unit-graph.md."""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def compile_graph(
 def compile_build_path(
     saver: BaseCheckpointSaver, work: Mapping[Node, NodeWork]
 ) -> CompiledStateGraph:
-    """The build path: the nodes in `work`, joined by the edges of docs/unit-graph.md.
+    """The build path: the nodes in `work`, joined by the edges of docs/designs/unit-graph.md.
 
     A router's return value is checked against the nodes it may name when the
     graph compiles, so a misspelled edge fails here and not in the middle of a run.

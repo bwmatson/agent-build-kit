@@ -11,7 +11,7 @@ from agent_build_kit.pipeline.unit_store import EVENT_CAUSES, STANDING_CAUSES, C
 from tests.prompt_text import flat
 
 DOCS = Path(__file__).resolve().parents[2] / "docs"
-NAMES = ["architecture.md", "unit-graph.md"]
+NAMES = ["architecture.md", "designs/unit-graph.md"]
 
 
 def text_of(name: str) -> str:

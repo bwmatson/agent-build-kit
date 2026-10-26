@@ -1,5 +1,5 @@
 """The classic runner's build-path scenarios, run through the graph engine
-with the same injected fakes (docs/unit-graph.md, Testing): each reaches the
+with the same injected fakes (docs/designs/unit-graph.md, Testing): each reaches the
 same outcome, state, pull request and commits as `UnitRunner.run`."""
 
 from __future__ import annotations

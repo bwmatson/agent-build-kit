@@ -44,13 +44,13 @@ def test_the_push_gate_paragraph_says_a_restack_keeps_the_pair_and_the_squash_dr
 
 
 def test_the_unit_graph_implement_row_says_a_built_group_is_recorded() -> None:
-    text = (DOCS / "unit-graph.md").read_text(encoding="utf-8")
+    text = (DOCS / "designs/unit-graph.md").read_text(encoding="utf-8")
     row = next(line for line in text.splitlines() if line.startswith("| `implement` |"))
     assert says_empty_marked_pair_after_passing_tests(squashed(row))
 
 
 def test_the_unit_graph_stub_checks_row_says_a_test_only_group_already_built_is_recorded() -> None:
-    text = (DOCS / "unit-graph.md").read_text(encoding="utf-8")
+    text = (DOCS / "designs/unit-graph.md").read_text(encoding="utf-8")
     row = next(line for line in text.splitlines() if line.startswith("| `stub_checks` |"))
     squashed_row = squashed(row)
     assert re.search(

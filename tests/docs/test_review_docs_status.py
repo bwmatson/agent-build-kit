@@ -7,7 +7,10 @@ from pathlib import Path
 from tests.repo_docs import repo_markdown
 
 ROOT = Path(__file__).resolve().parents[2]
-HISTORY = ("docs/agent-efficient-coding-philosophy.md", "docs/risk-tiered-review-design.md")
+HISTORY = (
+    "docs/designs/agent-efficient-coding-philosophy.md",
+    "docs/designs/risk-tiered-review-design.md",
+)
 RUNBOOK = "docs/runbooks/migrate-to-risk-tiered-review.md"
 REMOVED = re.compile(r"review\.enabled|max_unit_lines")
 STATUS = re.compile(r"status\W{0,4}implemented", re.I)

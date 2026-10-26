@@ -15,7 +15,7 @@ def requirements() -> str:
 
 def limits() -> str:
     """The design document's section on what the sandbox does not cover."""
-    text = (ROOT / "docs" / "sandbox-design.md").read_text(encoding="utf-8")
+    text = (ROOT / "docs" / "designs/sandbox-design.md").read_text(encoding="utf-8")
     start = text.index("## What it covers, and what it does not")
     return text[start:].split("\n## ")[0]
 
@@ -53,7 +53,7 @@ def test_the_design_records_that_a_network_rule_can_be_silently_ineffective() ->
 
 
 def test_the_design_no_longer_says_the_macos_backend_is_not_built() -> None:
-    text = squashed((ROOT / "docs" / "sandbox-design.md").read_text(encoding="utf-8"))
+    text = squashed((ROOT / "docs" / "designs/sandbox-design.md").read_text(encoding="utf-8"))
 
     assert "before it is built" not in text
 

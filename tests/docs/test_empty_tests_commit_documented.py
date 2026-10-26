@@ -22,7 +22,7 @@ def push_gate_paragraph() -> str:
 
 
 def unit_graph_row(name: str) -> str:
-    text = (DOCS / "unit-graph.md").read_text(encoding="utf-8")
+    text = (DOCS / "designs/unit-graph.md").read_text(encoding="utf-8")
     row = next(line for line in text.splitlines() if line.startswith(f"| `{name}` |"))
     return squashed(row)
 

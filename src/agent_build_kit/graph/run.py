@@ -20,7 +20,7 @@ async def run_thread(
     """Run or resume `thread_id` (`input=None` resumes), each step written to disk first.
 
     Always `durability="sync"`: the host can lose power at any moment, so a
-    step is not done until its checkpoint is on disk (docs/unit-graph.md,
+    step is not done until its checkpoint is on disk (docs/designs/unit-graph.md,
     Durability).
     """
     return await graph.ainvoke(

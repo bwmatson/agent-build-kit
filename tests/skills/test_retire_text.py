@@ -61,7 +61,7 @@ def test_the_command_reference_names_the_command_its_flags_and_the_state() -> No
 
 
 def test_the_unit_graph_document_lists_retired_among_the_states_with_the_command() -> None:
-    found = [b for b in document("unit-graph.md") if "abk retire" in b]
+    found = [b for b in document("designs/unit-graph.md") if "abk retire" in b]
 
     assert any("retired" in block for block in found)
 

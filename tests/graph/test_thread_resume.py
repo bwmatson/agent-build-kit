@@ -1,5 +1,5 @@
 """A unit's thread survives its process: interrupted, or killed mid-node, it
-resumes in another process at the same node (docs/unit-graph.md, Durability).
+resumes in another process at the same node (docs/designs/unit-graph.md, Durability).
 
 Each process is a real interpreter run against the same SQLite file, so what
 is tested is what is on disk, not what one process still remembers.

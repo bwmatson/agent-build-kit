@@ -1,5 +1,5 @@
 """A completed agent node leaves its role's session in the unit's state, whether or not
-anything reuses it (docs/unit-graph.md, Session capture and resume)."""
+anything reuses it (docs/designs/unit-graph.md, Session capture and resume)."""
 
 from __future__ import annotations
 

@@ -1,5 +1,5 @@
 """A node killed while its agent was editing resumes over what the agent left, and a
-dirty tree that is not the node's own parks the unit (docs/unit-graph.md, Durability).
+dirty tree that is not the node's own parks the unit (docs/designs/unit-graph.md, Durability).
 
 The worktree, the commit and the branch count are the real ones over a real git
 repository; the agent is a runtime behind the seam that writes files and dies once.

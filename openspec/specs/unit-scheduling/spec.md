@@ -4741,7 +4741,7 @@ head contains it; and `waiting for the kit checkout to include <change> group <n
 ### Requirement: The graph draws a merge dependency differently
 
 The unit graph SHALL draw a dependency in a unit's `merge_needs` as a thick edge labelled `needs, merge`, and a plain `Needs:` dependency as the thick
-edge labelled `needs`, as now. The legend and `docs/unit-graph.md` SHALL say so.
+edge labelled `needs`, as now. The legend and `docs/designs/unit-graph.md` SHALL say so.
 
 #### Scenario: Two kinds of edge
 

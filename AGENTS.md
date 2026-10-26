@@ -94,8 +94,8 @@ an ad hoc session:
 ## Direction of travel: risk-tiered review
 
 abk is moving from "every unit is reviewed by a person" to "every unit is verified, and a person reviews what verification
-can't vouch for". The reasoning is in `docs/agent-efficient-coding-philosophy.md` and the plan, phase by phase, is in
-`docs/risk-tiered-review-design.md`. Work in flight should move toward it and not assume the old shape stays:
+can't vouch for". The reasoning is in `docs/designs/agent-efficient-coding-philosophy.md` and the plan, phase by phase, is in
+`docs/designs/risk-tiered-review-design.md`. Work in flight should move toward it and not assume the old shape stays:
 
 - **Test kinds.** There are three kinds of test, narrowest to widest: `unit-test` (one module's behaviour), `integration-test`
   (behaviour across modules or files in the ordinary suite with no live stack; a label that behaves as `unit-test`, and not the

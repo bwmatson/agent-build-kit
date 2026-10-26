@@ -1,6 +1,6 @@
 """An agent node records its session id as soon as the runtime reports it, and a
 node killed mid-agent resumes that session on the next tick, or falls back to a
-new one (docs/unit-graph.md, Session capture and resume).
+new one (docs/designs/unit-graph.md, Session capture and resume).
 
 The agent is a runtime behind the `AgentRuntime` seam, reached through the real
 `build_run`: what the nodes pass it and what it reports are what is

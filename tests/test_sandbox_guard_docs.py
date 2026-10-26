@@ -33,7 +33,7 @@ def test_the_document_has_a_guards_by_class_passage_naming_the_classes(path: str
 
 
 def test_the_design_document_names_the_table_in_code_the_listing_reads() -> None:
-    text = squashed((ROOT / "docs" / "sandbox-design.md").read_text(encoding="utf-8"))
+    text = squashed((ROOT / "docs" / "designs/sandbox-design.md").read_text(encoding="utf-8"))
     section = text[text.index("Guards the sandbox makes duplicate") :]
 
     assert "runtimes/guards.py" in section

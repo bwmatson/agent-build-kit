@@ -1,5 +1,5 @@
 """A node's progress reaches the unit's run log, and each node is a span
-carrying the unit id (docs/unit-graph.md, Observability)."""
+carrying the unit id (docs/designs/unit-graph.md, Observability)."""
 
 from __future__ import annotations
 

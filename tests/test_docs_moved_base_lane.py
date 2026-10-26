@@ -12,7 +12,7 @@ DOCS = ROOT / "docs"
 SKILL = ROOT / "src" / "agent_build_kit" / "skills" / "abk-pipeline" / "SKILL.md"
 DOCUMENTS = (
     DOCS / "architecture.md",
-    DOCS / "unit-graph.md",
+    DOCS / "designs/unit-graph.md",
     DOCS / "configuration.md",
     DOCS / "cli.md",
     SKILL,

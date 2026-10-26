@@ -1,6 +1,6 @@
 """A dirty worktree under a stale lease that is marked as holding changes is a chat's, not a
 failure's: the unit is parked with the cause `attached`, and nothing is committed or continued
-over it, whether or not a killed node's start is still recorded (docs/unit-graph.md).
+over it, whether or not a killed node's start is still recorded (docs/designs/unit-graph.md).
 
 The worktree, the commit and the branch count are the real ones over a real git repository,
 as in `test_resume_over_leftovers.py`; the lease is the real one, left by a process that exited.

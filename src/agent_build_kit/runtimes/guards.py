@@ -3,7 +3,7 @@ because they are about meaning: the one table `abk policy check` and `abk status
 
 A guard that only says where an agent may write stands down when the kernel confines the step and
 is the fallback otherwise; a guard about meaning, or about a location the sandbox cannot express,
-stays in both modes (`docs/sandbox-design.md`)."""
+stays in both modes (`docs/designs/sandbox-design.md`)."""
 
 from __future__ import annotations
 

@@ -1,5 +1,5 @@
 """A unit held by the hold label waits in `held`; the label coming off resumes
-its thread with a `release` event and it waits for review again (docs/unit-graph.md,
+its thread with a `release` event and it waits for review again (docs/designs/unit-graph.md,
 Events become resume commands)."""
 
 from __future__ import annotations

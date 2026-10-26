@@ -1,6 +1,6 @@
 """A usage refusal before an agent step interrupts the thread with the guard's
 resume time, and a later tick on which the guard allows resumes it there
-(docs/unit-graph.md, Usage pauses)."""
+(docs/designs/unit-graph.md, Usage pauses)."""
 
 from __future__ import annotations
 

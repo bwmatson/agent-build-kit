@@ -39,6 +39,6 @@ def test_configuration_says_which_file_holds_the_sandbox_lists() -> None:
 
 
 def test_the_design_document_points_at_the_specs() -> None:
-    text = (ROOT / "docs" / "sandbox-design.md").read_text(encoding="utf-8")
+    text = (ROOT / "docs" / "designs/sandbox-design.md").read_text(encoding="utf-8")
 
     assert "specs/sandbox-backends" in text

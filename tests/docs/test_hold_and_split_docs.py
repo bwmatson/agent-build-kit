@@ -26,7 +26,7 @@ def test_the_configuration_document_and_config_skill_name_the_two_settings() -> 
 
 
 def test_the_architecture_and_graph_documents_name_the_causes_and_the_ref() -> None:
-    for path in (DOCS / "architecture.md", DOCS / "unit-graph.md"):
+    for path in (DOCS / "architecture.md", DOCS / "designs/unit-graph.md"):
         text = read(path)
         assert "too_big_for_tier" in text, path
         assert re.search(r"closed.{0,120}superseded|superseded.{0,120}closed", text), path

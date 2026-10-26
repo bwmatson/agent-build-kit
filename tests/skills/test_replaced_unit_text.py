@@ -24,7 +24,7 @@ def test_the_pipeline_skill_names_the_field_and_the_words_the_pipeline_prints() 
     assert "replaced:" in text
 
 
-@pytest.mark.parametrize("name", ["unit-graph.md", "architecture.md"])
+@pytest.mark.parametrize("name", ["designs/unit-graph.md", "architecture.md"])
 def test_a_document_names_the_field_beside_the_dependency_rules(name: str) -> None:
     blocks = re.split(r"\n\s*\n", (DOCS / name).read_text(encoding="utf-8"))
 

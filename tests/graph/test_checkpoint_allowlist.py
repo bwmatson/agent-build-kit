@@ -1,4 +1,4 @@
-"""A checkpoint loads only known types (docs/unit-graph.md, Durability).
+"""A checkpoint loads only known types (docs/designs/unit-graph.md, Durability).
 
 The state's types are found by walking `UnitRun`'s annotations, so a type added
 to the state and left off the allowlist fails here, not on a resume in

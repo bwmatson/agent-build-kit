@@ -12,7 +12,7 @@ from agent_build_kit import skills
 from tests.prompt_text import flat
 
 DOCS = Path(__file__).resolve().parents[2] / "docs"
-DOCUMENTS = ["configuration.md", "architecture.md", "cli.md", "unit-graph.md"]
+DOCUMENTS = ["configuration.md", "architecture.md", "cli.md", "designs/unit-graph.md"]
 
 
 def document(name: str) -> str:

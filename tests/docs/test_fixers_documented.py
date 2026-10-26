@@ -24,10 +24,10 @@ def squashed(path: Path) -> str:
 
 def node_row(name: str) -> str:
     """The unit-graph table row of one node, squashed."""
-    for line in (DOCS / "unit-graph.md").read_text(encoding="utf-8").splitlines():
+    for line in (DOCS / "designs/unit-graph.md").read_text(encoding="utf-8").splitlines():
         if line.startswith(f"| `{name}` |"):
             return squashed_text(line)
-    raise AssertionError(f"docs/unit-graph.md has no table row for {name}")
+    raise AssertionError(f"docs/designs/unit-graph.md has no table row for {name}")
 
 
 def unreleased_section() -> str:
@@ -74,7 +74,7 @@ def test_the_fix_rows_keep_the_changed_nothing_stop(name: str) -> None:
 def test_the_unit_graph_stub_check_edge_that_commits_names_the_fixers() -> None:
     edges = [
         line
-        for line in (DOCS / "unit-graph.md").read_text(encoding="utf-8").splitlines()
+        for line in (DOCS / "designs/unit-graph.md").read_text(encoding="utf-8").splitlines()
         if "stub_checks -->" in line and "commits the tests" in line
     ]
     assert edges

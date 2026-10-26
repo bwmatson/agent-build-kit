@@ -1,7 +1,7 @@
 """A chat's commit reaches a unit's thread as the `adopted` event: it enters at the checks from
 a unit in review, held or failed, never reuses the previous approval, gives the checks their own
 fix budget, clears the recorded node start, and its review is round zero of the review loop
-(docs/unit-graph.md, Events become resume commands)."""
+(docs/designs/unit-graph.md, Events become resume commands)."""
 
 from __future__ import annotations
 

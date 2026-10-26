@@ -1,6 +1,6 @@
 """A resumed session is told which of the change's spec files changed since its agent last
 ran, and shown what was added; a fresh session reads the spec as it is and is told nothing
-(docs/unit-graph.md, Session capture and resume).
+(docs/designs/unit-graph.md, Session capture and resume).
 
 The agent is a runtime behind the `AgentRuntime` seam, as in the session tests; the spec files
 are real files under the planning repo, edited between two steps of the unit's thread.

@@ -11,7 +11,7 @@ from agent_build_kit import skills
 from tests.prompt_text import flat
 
 ROOT = Path(__file__).resolve().parents[2]
-DOCUMENTS = ["unit-graph.md", "architecture.md"]
+DOCUMENTS = ["designs/unit-graph.md", "architecture.md"]
 
 
 def document(name: str) -> str:
@@ -53,7 +53,7 @@ def test_the_documents_name_the_states_that_build_nothing_beside_the_upstream_ca
 def test_the_unit_graph_document_says_link_needs_drops_the_edge_and_how_a_bounce_is_counted() -> (
     None
 ):
-    text = document("unit-graph.md")
+    text = document("designs/unit-graph.md")
 
     assert "link_needs" in text
     assert "dropped dependency" in text

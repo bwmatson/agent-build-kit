@@ -1,6 +1,6 @@
 """The build path's nodes: `wiring.build_runner`'s callables, one step each.
 
-A node killed partway runs again from its start (docs/unit-graph.md,
+A node killed partway runs again from its start (docs/designs/unit-graph.md,
 Durability), so each one first looks at what the world already holds — the
 branch's tip, the pushed commit, the pull request — and does nothing twice.
 """

@@ -33,7 +33,7 @@ def test_the_architecture_doc_names_the_labels_and_the_reuse() -> None:
 
 
 def test_the_unit_graph_doc_says_how_an_id_is_formed_and_when_it_is_fixed() -> None:
-    text = text_of("unit-graph.md")
+    text = text_of("designs/unit-graph.md")
 
     assert "<change>/<lowest group>" in text
     assert re.search(r"(never changes|never changed|fixed)[^.]*(start|first plan)", text)

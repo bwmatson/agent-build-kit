@@ -507,7 +507,7 @@ unit's thread with a command:
 | A review asking for changes, a new comment, `agent-rework`, newly failing checks, a merge conflict (one that stands is moved again per base tip, and holds the unit when its attempts are spent or changed nothing) | `rework{reason, kind, feedback, source}` | `await_review` → `rework`; a merge conflict for a unit owed a moved-base run is routed to `prepare` with the conflict's feedback kept, and the rework runs only for what the move and the port leave |
 | The parent merged, or the base was rewritten | `base_moved{new_base}` | `await_review` → `prepare` (a running unit sees it at its next node); the restack lane then runs the moved-base run from `prepare` for a unit left parked there |
 | `agent-hold` | `hold` | → `held` |
-| A commit adopted from a chat (see Chat in [architecture.md](architecture.md)) | `adopted` | `await_review` or `held` → `checks`; the review that follows is round zero and takes no place in the round limit |
+| A commit adopted from a chat (see Chat in [architecture.md](../architecture.md)) | `adopted` | `await_review` or `held` → `checks`; the review that follows is round zero and takes no place in the round limit |
 | `agent-hold` removed | `release` | `held` → `await_review`, for a hold the label made |
 | Merged | `merged` | → end; `units.json` records the merge, and a child waiting in review (stored `in_review`, within the rebase cap) is sent `base_moved{new_base}` and its PR is retargeted at once, instead of being restacked by the handler; every other child, with a thread or without, is handed to the restack lane to be restacked, or held for depth, or left alone |
 | Closed unmerged | `closed` | → end |
@@ -593,7 +593,7 @@ at `prepare`, and any other event is `NotWaiting`, and the handler acts on the s
   rework's feedback included; a park anywhere else, and `abk requeue --restart`,
   begin again at `prepare`. A requeue while the tree is still dirty leaves the unit
   parked. The dirty-tree rule reads the unit's chat lease first (see Chat in
-  [architecture.md](architecture.md)): a lease whose server has gone while the lease is marked as
+  [architecture.md](../architecture.md)): a lease whose server has gone while the lease is marked as
   holding changes means the files are a chat's, not a killed run's, so the unit is held
   with the cause `attached` and nothing is committed or continued, whatever
   `running_node` says; a lease held by a live process leaves the unit alone; a lease marked

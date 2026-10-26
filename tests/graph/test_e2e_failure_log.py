@@ -1,5 +1,5 @@
 """A failing e2e-test leaves the tail of its output in the unit's run log, with
-the node's prefix, besides the words "e2e-test failed" (docs/unit-graph.md)."""
+the node's prefix, besides the words "e2e-test failed" (docs/designs/unit-graph.md)."""
 
 from __future__ import annotations
 

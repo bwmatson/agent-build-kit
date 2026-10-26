@@ -691,7 +691,7 @@ The reviewer's `needs_human` and `escalate` stay. The `review.enabled`
 build-out flag is removed, so review by tier is simply always on; the deprecated
 `global_limits.max_unit_lines` is removed; the README, `AGENTS.md`,
 `docs/architecture.md`, `docs/configuration.md`, `docs/cli.md`, `docs/code-forges.md`,
-`docs/unit-graph.md` and the three skills stop saying a human merges every PR;
+`docs/designs/unit-graph.md` and the three skills stop saying a human merges every PR;
 the PR footer and the message in `command_policy.py` change wording; one
 changelog bullet per change. Docs that describe a phase's behaviour are updated
 in that phase, and this one sweeps what is left.

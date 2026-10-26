@@ -1,5 +1,5 @@
 """A resumed Claude Code call whose context no longer fits is a session that cannot be
-continued, so the node falls back to a new one (docs/unit-graph.md, Session capture and
+continued, so the node falls back to a new one (docs/designs/unit-graph.md, Session capture and
 resume)."""
 
 from __future__ import annotations

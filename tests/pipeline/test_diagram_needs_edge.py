@@ -37,7 +37,7 @@ def test_the_legend_explains_the_needs_edge() -> None:
 
 
 def test_the_unit_graph_doc_describes_the_needs_edge() -> None:
-    doc = (Path(__file__).parents[2] / "docs" / "unit-graph.md").read_text()
+    doc = (Path(__file__).parents[2] / "docs" / "designs/unit-graph.md").read_text()
 
     assert "==>|needs|" in doc
     assert "merge_before" not in doc

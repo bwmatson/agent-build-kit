@@ -1,5 +1,5 @@
 """A unit and the usage window, and how many rounds it may spend fixing failing
-checks, run through the graph engine (docs/unit-graph.md, Usage pauses).
+checks, run through the graph engine (docs/designs/unit-graph.md, Usage pauses).
 
 A usage pause is an interrupt at an agent node's boundary: the unit stays
 `running` and its thread keeps what the loop had so far.

@@ -293,7 +293,7 @@ dependency may be `in_review` (the unit stacks on its branch), a cross-repo one
 must be `merged` (stacks cannot span repos). A unit that has never started and has two
 or more unrelated open same-repo parents (neither built on the other) waits for all but
 one of them: it builds on the deepest and waits for the rest (see "Open parents" in
-`docs/unit-graph.md`). A `satisfied` dependency is
+`docs/designs/unit-graph.md`). A `satisfied` dependency is
 looked through to what it was built on: same-repo, the dependent waits on and
 stacks on that predecessor; cross-repo, it counts once that predecessor has
 merged. `global_limits.stack_depth_build_cap` holds
@@ -408,7 +408,7 @@ fixes its base ref before it reads `running` — and nothing deletes it later,
 since the merge event is consumed: such a branch is left behind and can be
 deleted by hand.
 
-The unit's graph (`graph/`, see [unit-graph.md](unit-graph.md)) is the
+The unit's graph (`graph/`, see [unit-graph.md](designs/unit-graph.md)) is the
 sequence; `wiring.py` binds each step to git, gh and `claude`. A value a node returns
 for the checkpoint is plain data or a type on the checkpoint's allowed list: the held node
 stores the state's text, never the enum, so a checkpoint holds no class path that a later
@@ -1141,7 +1141,7 @@ and it enforces the command rules through client capabilities and permission
 answers instead of the hook. The details are in
 [agent-runtimes.md](agent-runtimes.md). A proposed layer under all of them, a
 kernel-enforced sandbox for agent steps, is in
-[sandbox-design.md](sandbox-design.md).
+[sandbox-design.md](designs/sandbox-design.md).
 
 **The policy hook** (`hooks/policy.py`, `pipeline/command_policy.py`). Every
 agent run passes `--settings` registering a `PreToolUse` hook for `Bash`,
@@ -1175,7 +1175,7 @@ stands down when the step is confined, because the sandbox refuses the write; it
 when a step is not confined. A guard about meaning (the merge, push, force-push, commit and
 `--no-verify` rules, `planning_paths`, the redirect rule) stays in both modes. `abk policy check`
 and `abk status` list which is which from `runtimes/guards.py`; the table is in
-[sandbox-design.md](sandbox-design.md).
+[sandbox-design.md](designs/sandbox-design.md).
 
 **The config guard** (`config_guard.py`). `abk.yaml` and `abk.local.yaml` are read before an agent
 step and after it. When the step was not confined a difference fails the unit with

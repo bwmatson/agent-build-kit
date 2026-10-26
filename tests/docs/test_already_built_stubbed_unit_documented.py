@@ -37,7 +37,7 @@ def test_the_architecture_document_says_a_stubbed_unit_with_no_commit_is_satisfi
 
 
 def test_the_unit_graph_implement_row_says_a_stubbed_unit_with_nothing_new_is_satisfied() -> None:
-    text = (DOCS / "unit-graph.md").read_text(encoding="utf-8")
+    text = (DOCS / "designs/unit-graph.md").read_text(encoding="utf-8")
     row = next(line for line in text.splitlines() if line.startswith("| `implement` |"))
     row = squashed(row)
     assert re.search(r"stubbed.{0,300}unit-test.{0,100}satisfied", row, re.I)

@@ -97,8 +97,8 @@ def test_a_file_named_for_an_old_spelling_fails(tmp_path: Path) -> None:
         "src/agent_build_kit/compat_names.py",
         "tests/test_compat_names.py",
         "tests/config/test_test_kind_settings_aliases.py",
-        "docs/agent-efficient-coding-philosophy.md",
-        "docs/risk-tiered-review-design.md",
+        "docs/designs/agent-efficient-coding-philosophy.md",
+        "docs/designs/risk-tiered-review-design.md",
         "CHANGELOG.md",
     ],
 )

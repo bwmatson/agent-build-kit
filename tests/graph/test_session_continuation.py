@@ -1,6 +1,6 @@
 """A build node continues its role's session with a prompt of what is new, on the model the
 session began on, and falls back to a new session with the full prompt
-(docs/unit-graph.md, Session capture and resume).
+(docs/designs/unit-graph.md, Session capture and resume).
 
 The agent is a runtime behind the `AgentRuntime` seam, reached through the real
 `build_run` and `build_run_review`: what a request carries is what is tested.

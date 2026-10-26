@@ -2,7 +2,7 @@
 
 Follow each section **when the change named in its trigger is built and merged**; nothing in it is read by the pipeline. Tick the boxes as you go. Note beside a section when it is done so the next person knows where the migration stands.
 
-The work is twelve changes, all priority 1, in the kit. The design is `docs/risk-tiered-review-design.md` there and the reasoning is `docs/agent-efficient-coding-philosophy.md`. This runbook holds only the steps a person does. Everything the pipeline does itself is in the changes.
+The work is twelve changes, all priority 1, in the kit. The design is `docs/designs/risk-tiered-review-design.md` there and the reasoning is `docs/designs/agent-efficient-coding-philosophy.md`. This runbook holds only the steps a person does. Everything the pipeline does itself is in the changes.
 
 | Order | Change | What a person does after it merges |
 |---|---|---|

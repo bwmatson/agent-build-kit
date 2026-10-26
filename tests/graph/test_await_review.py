@@ -1,5 +1,5 @@
 """A unit in review or held waits in an interrupt of its thread, and the poller's
-events and `abk requeue` resume it as commands (docs/unit-graph.md, Events become
+events and `abk requeue` resume it as commands (docs/designs/unit-graph.md, Events become
 resume commands). A delivery runs only the wait's own work and leaves the thread
 at the node the event routes to; the tick runs that node."""
 

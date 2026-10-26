@@ -86,7 +86,7 @@ def test_the_cli_document_names_the_product_path_warning_and_its_limits() -> Non
 
 
 def test_the_unit_graph_shows_the_guard_at_the_top_of_checks() -> None:
-    text = (DOCS / "unit-graph.md").read_text(encoding="utf-8")
+    text = (DOCS / "designs/unit-graph.md").read_text(encoding="utf-8")
     assert re.search(r"^\s*checks -->\|[^|]*guard[^|]*\| failed$", text, re.M)
 
 

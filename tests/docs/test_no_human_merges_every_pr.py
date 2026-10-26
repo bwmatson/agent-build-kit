@@ -12,8 +12,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SKILLS = ROOT / "src" / "agent_build_kit" / "skills"
 EXEMPT = {
     ROOT / "CHANGELOG.md",
-    ROOT / "docs" / "agent-efficient-coding-philosophy.md",
-    ROOT / "docs" / "risk-tiered-review-design.md",
+    ROOT / "docs" / "designs/agent-efficient-coding-philosophy.md",
+    ROOT / "docs" / "designs/risk-tiered-review-design.md",
 }
 
 

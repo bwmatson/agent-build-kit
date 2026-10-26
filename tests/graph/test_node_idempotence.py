@@ -1,4 +1,4 @@
-"""A node re-run after a kill does nothing it already did (docs/unit-graph.md,
+"""A node re-run after a kill does nothing it already did (docs/designs/unit-graph.md,
 Durability): the thread resumes at the node the process died in, and the node
 checks git, the remote and the forge before it acts.
 

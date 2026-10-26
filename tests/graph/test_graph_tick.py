@@ -1,6 +1,6 @@
 """The tick starts and resumes unit threads, and the
 poller's events and `abk requeue` resume them, through the entry points a
-person or the timer calls (docs/unit-graph.md, Events become resume commands)."""
+person or the timer calls (docs/designs/unit-graph.md, Events become resume commands)."""
 
 from __future__ import annotations
 

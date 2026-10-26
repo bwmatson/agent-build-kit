@@ -23,7 +23,7 @@ def test_the_authoring_skill_says_when_to_use_zero_and_no_longer_that_it_bypasse
     assert "bypasses no limit" not in text
 
 
-@pytest.mark.parametrize("name", ["architecture.md", "unit-graph.md"])
+@pytest.mark.parametrize("name", ["architecture.md", "designs/unit-graph.md"])
 def test_the_documents_give_the_scale_as_zero_to_five(name: str) -> None:
     text = flat((DOCS / name).read_text(encoding="utf-8"))
 
