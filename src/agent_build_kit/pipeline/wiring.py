@@ -3793,6 +3793,18 @@ def reset_to(tree: Path, onto: str, keep: str) -> None:
     git(tree, "reset", "--hard", "-q", onto)
 
 
+def build_move_empty_branch(
+    *, turn: Turn = nullcontext
+) -> Callable[[Path, str], tuple[str, str] | None]:
+    """Fast-forward a branch with no commits of its own onto `ref`, in the repo's turn.
+
+    Gives the old and the new tip, or None when the branch is already at `ref` or holds commits
+    of its own. Uncommitted changes of the unit's own are carried; a move that would overwrite
+    one is refused and moves nothing.
+    """
+    raise NotImplementedError
+
+
 def is_ancestor(tree: Path, base: str, of: str = "HEAD") -> bool:
     """Whether `of` holds `base`: the one read of 'this branch already has its base'."""
     return not git(tree, "merge-base", "--is-ancestor", base, of, check=False).returncode
