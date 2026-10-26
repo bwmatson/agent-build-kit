@@ -164,7 +164,7 @@ def test_the_destination_holding_the_copied_change_and_no_m_treats_the_line_as_i
 
     (moved,) = units
     assert problems == []
-    assert declared == {}
+    assert [need for found in declared.values() for need in found] == []
     assert heard == [("g", 1), ("g", 2)]
     assert awaiting_planning(destination, moved, units) == []
     assert cycle == ()
