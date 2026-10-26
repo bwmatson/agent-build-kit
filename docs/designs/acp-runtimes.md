@@ -145,7 +145,7 @@ subscription login need a read for automated use (an [open question](#open-quest
 
 ## Proof of concept
 
-Run on 2026-10-22 on the development machine (WSL2, Python 3.14, `claude-agent-sdk` 0.2.172, `agent-client-protocol` 0.12.1), in a scratch
+Run on the development machine (WSL2, Python 3.14, `claude-agent-sdk` 0.2.172, `agent-client-protocol` 0.12.1), in a scratch
 virtualenv with a short Haiku prompt per scenario on a second subscription account. Nothing in the kit changed. Several results are single runs.
 
 | Question | Result |
@@ -395,8 +395,8 @@ A recommendation, not a commitment, ordered after the sandbox chain.
 
 ## References
 
-- Agent Client Protocol: https://agentclientprotocol.com/ and the Python SDK, https://github.com/agentclientprotocol/python-sdk (PyPI `agent-client-protocol`)
-- Claude Agent SDK for Python: https://code.claude.com/docs/en/agent-sdk/python and https://github.com/anthropics/claude-agent-sdk-python
+- Agent Client Protocol: https://agentclientprotocol.com/ and the Python SDK (PyPI `agent-client-protocol`)
+- Claude Agent SDK for Python: https://code.claude.com/docs/en/agent-sdk/python (PyPI `claude-agent-sdk`)
 - Reference implementations (not dependencies): `agentclientprotocol/claude-agent-acp` (Node, read for design only), `yazelin/claude-code-acp-py` (PyPI `claude-code-acp`), `VoixKz/hermes-acp-sdk` (PyPI `hermes-acp-sdk`)
 - Hermes ACP: https://hermes-agent.nousresearch.com/docs/user-guide/features/acp
 - In this repository: [agent-runtimes.md](../agent-runtimes.md), [sandbox-design.md](sandbox-design.md), [toolchain-profiles.md](../toolchain-profiles.md)

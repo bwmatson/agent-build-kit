@@ -36,9 +36,9 @@ Each [migration step](#migration) can become its own OpenSpec change.
   (`(max_concurrent_stacks + emergency_extra) x live projects`). **Refreshed every round:** the unit store, planned hashes, PR snapshots, pause markers and leases.
 - **Locks and shared state that already work across processes:** `runs/units.json` (flock plus atomic writes), the branch lock `runs/locks/<branch>.lock` (a pid file, `O_EXCL`),
   `repo-<repo>.lock` (git operations), `e2e.lock`, `environment.lock`, `planned.lock`, leases, pause markers and usage caches. Not safe for two writers: `prs-<repo>.json` (no lock).
-- **Evidence** (journal since 2026-09-30, 78,855 lines; the usage ledger's `abk.tick.duration`): idle ticks have a median of 0.5 minutes, **built ticks a median of 26.9, p90 114 and a maximum of 465 minutes (7.7 hours)**.
-  A day without long ticks holds 240 ticks; days with multi-hour ticks hold 58 to 104 (2026-10-21: a 7.2 hour tick, 14.6 hours inside ticks; 2026-10-23: a 7.7 hour tick). One tick observed in this work was past
-  two hours with two units building and a 5.7 GB `claude` child.
+- **Evidence** (one installation's journal over about a month of ticks, and its usage ledger's `abk.tick.duration`): idle ticks have a median of 0.5 minutes,
+  **built ticks a median of 26.9, p90 114 and a maximum of 465 minutes (7.7 hours)**. A day without long ticks holds 240 ticks; days with multi-hour ticks hold 58 to 104. A tick observed
+  past two hours with two units building was holding a multi-gigabyte `claude` child.
 - **What waits for the next tick:**
   - A dependent on a **merge edge** (a cross-repo parent, a `Needs: ... merged` line, a failed unit waiting on a fix) starts only when `loaded.number > unit.merged_tick` (`pipeline/units.py` ~928-953): the tick number is fixed
     per process, so a merge seen during a tick is "loaded" only by a process that started after it. The reason is real (merged kit code only takes effect in a process that imported it), and it is why a unit waiting on a kit merge showed
