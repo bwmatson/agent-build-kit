@@ -15,22 +15,12 @@ from typing import Any
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.locks import proc_identity
 
 
 def lease_dir(state_dir: Path) -> Path:
     """The directory of its own, under the state directory."""
     return state_dir / "leases"
-
-
-def _started(pid: int) -> str | None:
-    """When the process began, in the kernel's ticks, or None if there is no such process.
-    The pair (pid, start) names one process for good; a pid alone can be reused."""
-    try:
-        stat = Path(f"/proc/{pid}/stat").read_text()
-    except OSError:
-        return None
-    # The command name, in parentheses, may itself hold spaces and parentheses.
-    return stat[stat.rindex(")") + 2 :].split()[19]
 
 
 class Attachment(Frozen):
@@ -75,7 +65,7 @@ class Leases:
 
     @staticmethod
     def _alive(record: dict[str, Any]) -> bool:
-        return _started(int(record["pid"])) == record["started"]
+        return proc_identity(int(record["pid"])) == record["started"]
 
     def _read(self, path: Path) -> str | None:
         """The holder named in `path`, unless the process that took it is gone."""
@@ -125,7 +115,7 @@ class Leases:
             record = {
                 "holder": holder,
                 "pid": pid,
-                "started": _started(pid),
+                "started": proc_identity(pid),
                 "checkouts": list(checkouts or old.get("checkouts", ())),
                 "changed": old.get("changed", 0),
                 "session": session or old.get("session", ""),
@@ -154,7 +144,7 @@ class Leases:
             if record and self._alive(record) and record["holder"] == old:
                 pid = os.getpid()
                 self._write(
-                    unit_id, {**record, "holder": new, "pid": pid, "started": _started(pid)}
+                    unit_id, {**record, "holder": new, "pid": pid, "started": proc_identity(pid)}
                 )
 
     def holder(self, unit_id: str) -> str | None:
