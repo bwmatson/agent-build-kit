@@ -111,7 +111,9 @@ def apply_restrictions(lists: Mapping[str, list[str]], libc: ctypes.CDLL | None 
         rules = [(path, folder_rights) for path in lists.get("write", [])]
         rules += [(path, _READ_RIGHTS & handled) for path in lists.get("read", [])]
         # Read and never run; these paths are not also under `read`, which would add execute.
-        rules += [(path, _READ_RIGHTS & handled & ~_EXECUTE) for path in lists.get("no_execute", [])]
+        rules += [
+            (path, _READ_RIGHTS & handled & ~_EXECUTE) for path in lists.get("no_execute", [])
+        ]
         rules.append((_DEVICE_FOLDER, file_rights & ~_EXECUTE))
         for path, rights in rules:
             _add_rule(libc, ruleset, path, rights, file_rights)
