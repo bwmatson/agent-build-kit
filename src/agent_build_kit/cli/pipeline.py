@@ -2762,6 +2762,11 @@ def _proceed_unsplit(
     store.set_state(unit.id, HELD, note=said, cause=Cause.RELEASED)
     log(f"{unit.id}: {said}")
     if requeue(inst, unit.id, "resume", say=lambda text, error=False: log(text), because=said):
+        left = store.get(unit.id)
+        if not (left.state == HELD and left.cause is Cause.RELEASED):
+            # The delivery ran and raised: `requeue` recorded the failure, which a person sees,
+            # and the waiver stays so that their requeue is not held for size again.
+            return
         store.set_size_waived(unit.id, False)
         store.set_unsplit_reason(unit.id, "")
         store.set_state(

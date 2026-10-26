@@ -10,7 +10,7 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.planner import GroupTooLarge
 from agent_build_kit.pipeline.unit_store import Cause, HeldBy
-from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, Member
+from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW, PLANNED, Member
 from tests.cli.replan_driver import Replan, enable_review
 from tests.split_step_support import DEPENDENT, HELD_ID, correct, reply, scene
 
@@ -106,6 +106,27 @@ def test_a_requeue_that_did_not_take_effect_leaves_it_to_be_sent_on_by_the_next_
     assert unit.state == PLANNED
     assert unit.size_waived
     assert "one group" in unit.unsplit_reason
+
+
+def test_a_delivery_that_raised_leaves_the_unit_failed_with_its_waiver(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = unsplittable_scene("one group", tmp_path, monkeypatch)
+
+    def raised(_inst: object, unit_id: str, *_: object, **__: object) -> int:
+        run.store.set_state(unit_id, FAILED, note="the delivery raised", cause=Cause.FAILED)
+        return 1
+
+    monkeypatch.setattr(cli, "requeue", raised)
+
+    cli.split_held_units(run.inst, run.store)
+    after_first = run.store.get(HELD_ID)
+    cli.split_held_units(run.inst, run.store)
+
+    assert after_first.state == FAILED
+    assert after_first.size_waived
+    assert "one group" in after_first.unsplit_reason
+    assert run.store.get(HELD_ID) == after_first
 
 
 @pytest.mark.parametrize("kind", REASONS)
