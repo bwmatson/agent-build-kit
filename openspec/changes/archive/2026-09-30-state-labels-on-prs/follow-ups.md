@@ -1,0 +1,5 @@
+## From `state-labels-on-prs/1`
+
+- EVERY_STATE in tests/pipeline/test_vocabulary.py is still a list of string literals, while STATES is now keyed by the units.py and unit_store constants. Renaming a constant's value would change both STATES and UNLABELLED together, and the test would not notice. Consider deriving the stored states in the test from the constants as well.
+- Docs and SKILL.md lines that were rewrapped in round 2 run past the paragraph width (architecture.md labels paragraph, abk-pipeline SKILL.md labels section, StateLabels.follow docstring). Re-wrap them.
+- docs/architecture.md:351 — The rewrapped lines in the labels paragraph run past the paragraph's wrap width: 'a person removes it and adds it back. That is said once per store and once per poll ("this host'. The same happens in abk-pipeline SKILL.md at 'can be given again). The other family…' and '…a **change label** for each change it carries. State names…'. The docstring in `StateLabels.follow` (labels.py:82-83) has the same problem.

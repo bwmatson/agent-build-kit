@@ -250,3 +250,25 @@ In CI the integration job fetches the pinned OpenSpec CLI once, with a bounded r
 
 Bump `__version__` in `src/agent_build_kit/__init__.py`, add a `CHANGELOG.md`
 entry, tag `vX.Y.Z`. Installations pin by editable path or by tag.
+
+<!-- abk:planning v1 -->
+## Planning
+
+This repository is also its own planning repo: the specs, the pipeline state and the
+configuration live here beside the code, and the pipeline builds changes into it.
+
+- `abk.yaml` — the configuration: the repos, how each one builds, tests and deploys.
+- `openspec/` — the OpenSpec project. `openspec/changes/<change>/` holds
+  each change in flight; `openspec/specs/` the specs that have shipped.
+- `runs/` — the pipeline's state (`units.json`) and run logs. Read it; don't edit
+  it by hand.
+- `docs/unit_graph.md` — the unit graph, regenerated on every state change.
+
+The specs and the state are written in this repository by the pipeline and by `abk`, so
+expect commits that touch only these paths.
+
+Write a change under `openspec/changes/` in your working copy and commit it. A
+session does not edit the code to apply a change: the pipeline builds it. Ticks and tracks run
+in the pipeline worktree that `abk install-timers` makes; from the working copy the command is
+`abk --config <worktree>/abk.yaml tick`, and `abk status` prints it.
+<!-- /abk:planning -->

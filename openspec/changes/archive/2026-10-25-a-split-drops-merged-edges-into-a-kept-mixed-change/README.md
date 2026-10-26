@@ -1,0 +1,3 @@
+# a-split-drops-merged-edges-into-a-kept-mixed-change
+
+`abk planning split` drops a moved unit's dependency on a merged unit that stays only when that unit belongs to another repo. A moved unit can as well depend on a merged unit of the moving repo that stays because its change is mixed and the person kept it in the source (`--allow-mixed source`); the dry run then refuses with `neither moved nor in the destination`. This change lets the same rule cover a merged, loaded target that stays for a reason that is not a mistake (another repo, another project, a kept mixed change), says why in the printed note, and treats a moved `Needs:` line on a group of such a change as a note, not an error. Priority 0: the same real cutover is blocked by it.

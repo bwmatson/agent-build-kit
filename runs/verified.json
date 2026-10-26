@@ -1,0 +1,2226 @@
+{
+  "commit-gate-rework": {
+    "change": "commit-gate-rework",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "commit-gate-rework/1"
+    ],
+    "at": "2026-09-29T19:16:20+00:00"
+  },
+  "agent-runtime-seam": {
+    "change": "agent-runtime-seam",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "agent-runtime-seam/1",
+      "agent-runtime-seam/2",
+      "agent-runtime-seam/3",
+      "agent-runtime-seam/4"
+    ],
+    "at": "2026-09-29T21:31:00+00:00"
+  },
+  "unit-size-ceiling": {
+    "change": "unit-size-ceiling",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "unit-size-ceiling/1"
+    ],
+    "at": "2026-09-29T21:31:01+00:00"
+  },
+  "continuous-unit-scheduling": {
+    "change": "continuous-unit-scheduling",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "continuous-unit-scheduling/1"
+    ],
+    "at": "2026-09-29T21:50:45+00:00"
+  },
+  "window-stops-are-pauses": {
+    "change": "window-stops-are-pauses",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "window-stops-are-pauses/1"
+    ],
+    "at": "2026-09-30T04:17:45+00:00"
+  },
+  "scope-to-this-unit": {
+    "change": "scope-to-this-unit",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "scope-to-this-unit/1"
+    ],
+    "at": "2026-09-30T14:47:06+00:00"
+  },
+  "adapt-asks-for-what-changed": {
+    "change": "adapt-asks-for-what-changed",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "adapt-asks-for-what-changed/1"
+    ],
+    "at": "2026-09-30T15:22:30+00:00"
+  },
+  "converging-review": {
+    "change": "converging-review",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "converging-review/1"
+    ],
+    "at": "2026-09-30T15:22:31+00:00"
+  },
+  "reuse-conflict-resolutions": {
+    "change": "reuse-conflict-resolutions",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "reuse-conflict-resolutions/1"
+    ],
+    "at": "2026-09-30T15:22:32+00:00"
+  },
+  "adapt-counts-the-units-own-tests": {
+    "change": "adapt-counts-the-units-own-tests",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "adapt-counts-the-units-own-tests/1"
+    ],
+    "at": "2026-09-30T18:15:31+00:00"
+  },
+  "per-unit-run-logs": {
+    "change": "per-unit-run-logs",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "per-unit-run-logs/1"
+    ],
+    "at": "2026-09-30T18:15:32+00:00"
+  },
+  "review-method-and-evidence": {
+    "change": "review-method-and-evidence",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "review-method-and-evidence/1"
+    ],
+    "at": "2026-09-30T19:02:19+00:00"
+  },
+  "test-the-habitat-and-the-parsers": {
+    "change": "test-the-habitat-and-the-parsers",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "test-the-habitat-and-the-parsers/1"
+    ],
+    "at": "2026-09-30T19:02:20+00:00"
+  },
+  "github-native-stacks": {
+    "change": "github-native-stacks",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "github-native-stacks/1"
+    ],
+    "at": "2026-09-30T20:22:47+00:00"
+  },
+  "split-stack-depth-caps": {
+    "change": "split-stack-depth-caps",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "split-stack-depth-caps/1"
+    ],
+    "at": "2026-09-30T20:22:48+00:00"
+  },
+  "tracks-leave-the-planning-repo-on-its-branch": {
+    "change": "tracks-leave-the-planning-repo-on-its-branch",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "tracks-leave-the-planning-repo-on-its-branch/1"
+    ],
+    "at": "2026-09-30T20:22:48+00:00"
+  },
+  "conflicts-trigger-rework": {
+    "change": "conflicts-trigger-rework",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "conflicts-trigger-rework/1"
+    ],
+    "at": "2026-09-30T20:50:02+00:00"
+  },
+  "open-pr-ceiling": {
+    "change": "open-pr-ceiling",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "open-pr-ceiling/1"
+    ],
+    "at": "2026-09-30T21:30:14+00:00"
+  },
+  "fresh-base-before-push": {
+    "change": "fresh-base-before-push",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "fresh-base-before-push/1"
+    ],
+    "at": "2026-09-30T23:02:04+00:00"
+  },
+  "limit-units-in-progress": {
+    "change": "limit-units-in-progress",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "limit-units-in-progress/1"
+    ],
+    "at": "2026-09-30T23:40:29+00:00"
+  },
+  "join-small-sequential-units": {
+    "change": "join-small-sequential-units",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "join-small-sequential-units/1",
+      "join-small-sequential-units/2"
+    ],
+    "at": "2026-10-01T00:25:29+00:00"
+  },
+  "state-labels-on-prs": {
+    "change": "state-labels-on-prs",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "state-labels-on-prs/1"
+    ],
+    "at": "2026-10-01T02:50:32+00:00"
+  },
+  "needs-merged": {
+    "change": "needs-merged",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "needs-merged/1"
+    ],
+    "at": "2026-10-01T17:35:01+00:00"
+  },
+  "test-suite-speed": {
+    "change": "test-suite-speed",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "test-suite-speed/1"
+    ],
+    "at": "2026-10-05T14:49:32+00:00"
+  },
+  "comments-seen-when-worked": {
+    "change": "comments-seen-when-worked",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "comments-seen-when-worked/1"
+    ],
+    "at": "2026-10-05T16:54:16+00:00"
+  },
+  "reconcile-host-moved-branch": {
+    "change": "reconcile-host-moved-branch",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "reconcile-host-moved-branch/1"
+    ],
+    "at": "2026-10-05T16:54:17+00:00"
+  },
+  "cancelled-checks-are-not-failures": {
+    "change": "cancelled-checks-are-not-failures",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "cancelled-checks-are-not-failures/1"
+    ],
+    "at": "2026-10-05T21:11:21+00:00"
+  },
+  "acp-tests-follow-the-graph-log": {
+    "change": "acp-tests-follow-the-graph-log",
+    "passed": false,
+    "detail": "live tests failed \u2014 agent-build-kit: uv run --no-project --isolated --with pytest pytest -m local_stack and not dev_stack tests/integration/test_acp_build_unit.py\nImportError while loading conftest '~/agent-build-kit/tests/conftest.py'.\ntests/conftest.py:21: in <module>\n    from agent_build_kit import config as config_module\nE   ModuleNotFoundError: No module named 'agent_build_kit'\n",
+    "deployed": [],
+    "units": [
+      "acp-tests-follow-the-graph-log/1"
+    ],
+    "at": "2026-10-05T22:53:47+00:00"
+  },
+  "python-tool-versions-in-the-lock": {
+    "change": "python-tool-versions-in-the-lock",
+    "passed": false,
+    "detail": "live tests failed \u2014 agent-build-kit: uv run --no-project --isolated --with pytest pytest -m local_stack and not dev_stack tests/integration/test_worktree_gate.py\nImportError while loading conftest '~/agent-build-kit/tests/conftest.py'.\ntests/conftest.py:21: in <module>\n    from agent_build_kit import config as config_module\nE   ModuleNotFoundError: No module named 'agent_build_kit'\n",
+    "deployed": [],
+    "units": [
+      "python-tool-versions-in-the-lock/1"
+    ],
+    "at": "2026-10-06T00:23:26+00:00"
+  },
+  "unit-graph": {
+    "change": "unit-graph",
+    "passed": false,
+    "detail": "live tests failed \u2014 agent-build-kit: uv run --no-project --isolated --with pytest pytest -m local_stack and not dev_stack tests/integration/test_graph_acp_unit.py\nImportError while loading conftest '~/agent-build-kit/tests/conftest.py'.\ntests/conftest.py:21: in <module>\n    from agent_build_kit import config as config_module\nE   ModuleNotFoundError: No module named 'agent_build_kit'\n",
+    "deployed": [],
+    "units": [
+      "unit-graph/1",
+      "unit-graph/2",
+      "unit-graph/3",
+      "unit-graph/4",
+      "unit-graph/5",
+      "unit-graph/6"
+    ],
+    "at": "2026-10-06T00:29:11+00:00"
+  },
+  "independent-groups": {
+    "change": "independent-groups",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "independent-groups/1"
+    ],
+    "at": "2026-10-06T00:52:28+00:00"
+  },
+  "abk-pipeline-dashboard": {
+    "change": "abk-pipeline-dashboard",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "abk-pipeline-dashboard/1"
+    ],
+    "at": "2026-10-06T02:06:44+00:00"
+  },
+  "release-on-hold-label-removed": {
+    "change": "release-on-hold-label-removed",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "release-on-hold-label-removed/1"
+    ],
+    "at": "2026-10-06T02:08:55+00:00"
+  },
+  "agent-usage-capture": {
+    "change": "agent-usage-capture",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "agent-usage-capture/1"
+    ],
+    "at": "2026-10-06T04:09:36+00:00"
+  },
+  "gateway-usage-attribution": {
+    "change": "gateway-usage-attribution",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "gateway-usage-attribution/1"
+    ],
+    "at": "2026-10-06T04:09:36+00:00"
+  },
+  "abk-telemetry": {
+    "change": "abk-telemetry",
+    "passed": false,
+    "detail": "live tests failed \u2014 agent-build-kit: uv run --no-project --isolated --with pytest pytest -m local_stack and not dev_stack tests/integration/test_telemetry_stack.py\nImportError while loading conftest '~/agent-build-kit/tests/conftest.py'.\ntests/conftest.py:21: in <module>\n    from agent_build_kit import config as config_module\nE   ModuleNotFoundError: No module named 'agent_build_kit'\n",
+    "deployed": [],
+    "units": [
+      "abk-telemetry/2",
+      "abk-telemetry/3"
+    ],
+    "at": "2026-10-06T13:12:43+00:00"
+  },
+  "unit-time-accounting": {
+    "change": "unit-time-accounting",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "unit-time-accounting/1"
+    ],
+    "at": "2026-10-06T14:23:14+00:00"
+  },
+  "usage-telemetry-rollup": {
+    "change": "usage-telemetry-rollup",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "usage-telemetry-rollup/1"
+    ],
+    "at": "2026-10-06T15:19:10+00:00"
+  },
+  "azure-devops-rest": {
+    "change": "azure-devops-rest",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "azure-devops-rest/1"
+    ],
+    "at": "2026-10-06T17:51:44+00:00"
+  },
+  "changelog-by-the-builder": {
+    "change": "changelog-by-the-builder",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "changelog-by-the-builder/1"
+    ],
+    "at": "2026-10-06T17:51:44+00:00"
+  },
+  "forge-http-transport": {
+    "change": "forge-http-transport",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "forge-http-transport/1"
+    ],
+    "at": "2026-10-06T17:51:45+00:00"
+  },
+  "usage-report": {
+    "change": "usage-report",
+    "passed": false,
+    "detail": "live tests failed \u2014 agent-build-kit: uv run --no-project --isolated --with pytest pytest -m local_stack and not dev_stack tests/integration/test_acp_build_unit.py\nImportError while loading conftest '~/agent-build-kit/tests/conftest.py'.\ntests/conftest.py:21: in <module>\n    from agent_build_kit import config as config_module\nE   ModuleNotFoundError: No module named 'agent_build_kit'\n",
+    "deployed": [],
+    "units": [
+      "usage-report/1",
+      "usage-report/2"
+    ],
+    "at": "2026-10-06T17:51:47+00:00"
+  },
+  "github-typed-client": {
+    "change": "github-typed-client",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "github-typed-client/1"
+    ],
+    "at": "2026-10-06T18:58:13+00:00"
+  },
+  "external-text-contract-tests": {
+    "change": "external-text-contract-tests",
+    "passed": false,
+    "detail": "live tests failed \u2014 agent-build-kit: uv run --no-project --isolated --with pytest pytest -m local_stack and not dev_stack tests/integration/test_red_command_wrapper.py\nInstalled 5 packages in 8ms\nImportError while loading conftest '~/agent-build-kit/tests/conftest.py'.\ntests/conftest.py:22: in <module>\n    from agent_build_kit import config as config_module\nE   ModuleNotFoundError: No module named 'agent_build_kit'\n",
+    "deployed": [],
+    "units": [
+      "changelog-by-the-builder/1",
+      "external-text-contract-tests/1"
+    ],
+    "at": "2026-10-07T19:02:32+00:00"
+  },
+  "status-not-wording": {
+    "change": "status-not-wording",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "status-not-wording/1",
+      "status-not-wording/2"
+    ],
+    "at": "2026-10-07T20:41:51+00:00"
+  },
+  "changelog-setting-and-check": {
+    "change": "changelog-setting-and-check",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "changelog-setting-and-check/1"
+    ],
+    "at": "2026-10-07T22:23:14+00:00"
+  },
+  "archive-failure-is-contained": {
+    "change": "archive-failure-is-contained",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "archive-failure-is-contained/1"
+    ],
+    "at": "2026-10-07T22:59:59+00:00"
+  },
+  "abk-grafana-anonymous-push": {
+    "change": "abk-grafana-anonymous-push",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "abk-grafana-anonymous-push/1"
+    ],
+    "at": "2026-10-08T01:49:16+00:00"
+  },
+  "remove-cutover-compatibility": {
+    "change": "remove-cutover-compatibility",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "remove-cutover-compatibility/1"
+    ],
+    "at": "2026-10-08T01:49:17+00:00"
+  },
+  "archive-keeps-breakdown": {
+    "change": "archive-keeps-breakdown",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "archive-keeps-breakdown/1"
+    ],
+    "at": "2026-10-08T03:16:19+00:00"
+  },
+  "command-output-to-files": {
+    "change": "command-output-to-files",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "command-output-to-files/1"
+    ],
+    "at": "2026-10-08T12:50:19+00:00"
+  },
+  "one-round-per-refresh": {
+    "change": "one-round-per-refresh",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "one-round-per-refresh/1"
+    ],
+    "at": "2026-10-08T15:50:36+00:00"
+  },
+  "unit-size-defaults-and-estimates": {
+    "change": "unit-size-defaults-and-estimates",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "unit-size-defaults-and-estimates/1"
+    ],
+    "at": "2026-10-08T15:50:37+00:00"
+  },
+  "resume-over-leftovers": {
+    "change": "resume-over-leftovers",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "resume-over-leftovers/1"
+    ],
+    "at": "2026-10-08T16:34:44+00:00"
+  },
+  "needs-gate-started-units": {
+    "change": "needs-gate-started-units",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "needs-gate-started-units/1"
+    ],
+    "at": "2026-10-08T19:26:25+00:00"
+  },
+  "forge-retry-layer": {
+    "change": "forge-retry-layer",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "forge-retry-layer/1"
+    ],
+    "at": "2026-10-08T21:25:22+00:00"
+  },
+  "forge-landed-checks": {
+    "change": "forge-landed-checks",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "forge-landed-checks/1"
+    ],
+    "at": "2026-10-08T23:12:48+00:00"
+  },
+  "session-reuse": {
+    "change": "session-reuse",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "session-reuse/1",
+      "session-reuse/2",
+      "session-reuse/3",
+      "session-reuse/4"
+    ],
+    "at": "2026-10-08T23:12:51+00:00"
+  },
+  "replies-kept-until-posted": {
+    "change": "replies-kept-until-posted",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "replies-kept-until-posted/1"
+    ],
+    "at": "2026-10-09T00:04:06+00:00"
+  },
+  "park-on-host-outage": {
+    "change": "park-on-host-outage",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "park-on-host-outage/1"
+    ],
+    "at": "2026-10-09T04:34:31+00:00"
+  },
+  "acp-runs-without-a-model": {
+    "change": "acp-runs-without-a-model",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "acp-runs-without-a-model/1"
+    ],
+    "at": "2026-10-09T13:45:46+00:00"
+  },
+  "process-tests-fake-the-github-api": {
+    "change": "process-tests-fake-the-github-api",
+    "passed": false,
+    "detail": "live tests failed \u2014 agent-build-kit: uv run --no-project --isolated --with pytest pytest -m local_stack and not dev_stack tests/integration/test_acp_build_unit.py tests/integration/test_graph_acp_unit.py tests/integration/test_telemetry_stack.py\nImportError while loading conftest '~/agent-build-kit/tests/conftest.py'.\ntests/conftest.py:22: in <module>\n    from agent_build_kit import config as config_module\nE   ModuleNotFoundError: No module named 'agent_build_kit'\n",
+    "deployed": [],
+    "units": [
+      "process-tests-fake-the-github-api/1",
+      "process-tests-fake-the-github-api/2"
+    ],
+    "at": "2026-10-09T15:21:50+00:00"
+  },
+  "init-writes-changelog-conventions": {
+    "change": "init-writes-changelog-conventions",
+    "passed": false,
+    "detail": "live tests failed \u2014 agent-build-kit: uv run --no-project --isolated --with pytest pytest -m local_stack and not dev_stack tests/integration/test_init_conventions_workspace.py\nImportError while loading conftest '~/agent-build-kit/tests/conftest.py'.\ntests/conftest.py:22: in <module>\n    from agent_build_kit import config as config_module\nE   ModuleNotFoundError: No module named 'agent_build_kit'\n",
+    "deployed": [],
+    "units": [
+      "init-writes-changelog-conventions/1",
+      "init-writes-changelog-conventions/2"
+    ],
+    "at": "2026-10-09T16:42:00+00:00"
+  },
+  "unit-size-off-the-graph": {
+    "change": "unit-size-off-the-graph",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "unit-size-off-the-graph/1"
+    ],
+    "at": "2026-10-09T18:48:09+00:00"
+  },
+  "checking-status": {
+    "change": "checking-status",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "checking-status/1",
+      "checking-status/2"
+    ],
+    "at": "2026-10-09T21:37:13+00:00"
+  },
+  "unit-priority": {
+    "change": "unit-priority",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "unit-priority/1",
+      "unit-priority/2"
+    ],
+    "at": "2026-10-10T01:27:34+00:00"
+  },
+  "ui-review": {
+    "change": "ui-review",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "ui-review/1",
+      "ui-review/2",
+      "ui-review/3",
+      "ui-review/4"
+    ],
+    "at": "2026-10-10T03:01:50+00:00"
+  },
+  "pipeline-environment": {
+    "change": "pipeline-environment",
+    "passed": false,
+    "detail": "live tests failed \u2014 agent-build-kit: uv run --no-project --isolated --with pytest pytest -m local_stack and not dev_stack tests/integration/test_init_end_to_end.py\nImportError while loading conftest '~/agent-build-kit/tests/conftest.py'.\ntests/conftest.py:22: in <module>\n    from agent_build_kit import config as config_module\nE   ModuleNotFoundError: No module named 'agent_build_kit'\n",
+    "deployed": [],
+    "units": [
+      "pipeline-environment/1",
+      "pipeline-environment/2",
+      "pipeline-environment/3"
+    ],
+    "at": "2026-10-10T05:15:35+00:00"
+  },
+  "tier2-tests-have-their-own-time-limit": {
+    "change": "tier2-tests-have-their-own-time-limit",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "tier2-tests-have-their-own-time-limit/1"
+    ],
+    "at": "2026-10-10T05:15:36+00:00"
+  },
+  "replan-command": {
+    "change": "replan-command",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "replan-command/1"
+    ],
+    "at": "2026-10-10T13:52:43+00:00"
+  },
+  "usage-api-observability": {
+    "change": "usage-api-observability",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "usage-api-observability/1",
+      "usage-api-observability/2"
+    ],
+    "at": "2026-10-10T13:52:44+00:00"
+  },
+  "environment-sync-leaves-no-leftovers": {
+    "change": "environment-sync-leaves-no-leftovers",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "environment-sync-leaves-no-leftovers/1"
+    ],
+    "at": "2026-10-10T13:58:14+00:00"
+  },
+  "start-order-by-stack-age": {
+    "change": "start-order-by-stack-age",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "start-order-by-stack-age/1"
+    ],
+    "at": "2026-10-10T14:43:09+00:00"
+  },
+  "usage-read-on-decision": {
+    "change": "usage-read-on-decision",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "usage-read-on-decision/1"
+    ],
+    "at": "2026-10-10T14:48:27+00:00"
+  },
+  "blocked-units-free-their-slot": {
+    "change": "blocked-units-free-their-slot",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "blocked-units-free-their-slot/1"
+    ],
+    "at": "2026-10-10T16:18:50+00:00"
+  },
+  "scratch-app-ignores-its-lock": {
+    "change": "scratch-app-ignores-its-lock",
+    "passed": false,
+    "detail": "live tests failed \u2014 agent-build-kit: uv run --no-project --isolated --with pytest pytest -m local_stack and not dev_stack tests/integration/test_scratch_app_tier1.py\nImportError while loading conftest '~/agent-build-kit/tests/conftest.py'.\ntests/conftest.py:23: in <module>\n    from agent_build_kit import config as config_module\nE   ModuleNotFoundError: No module named 'agent_build_kit'\n",
+    "deployed": [],
+    "units": [
+      "scratch-app-ignores-its-lock/1"
+    ],
+    "at": "2026-10-10T16:55:29+00:00"
+  },
+  "fix-flaky-tests-cli-test-tick-committed-marker-py-test-a-tick-1a4c429b": {
+    "change": "fix-flaky-tests-cli-test-tick-committed-marker-py-test-a-tick-1a4c429b",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "fix-flaky-tests-cli-test-tick-committed-marker-py-test-a-tick-1a4c429b/1"
+    ],
+    "at": "2026-10-10T17:06:28+00:00"
+  },
+  "no-origin-branch-is-not-a-push": {
+    "change": "no-origin-branch-is-not-a-push",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "no-origin-branch-is-not-a-push/1"
+    ],
+    "at": "2026-10-10T17:50:52+00:00"
+  },
+  "fix-flaky-tests-cli-test-tick-scheduling-py-test-a-rate-limit-f8a057a3": {
+    "change": "fix-flaky-tests-cli-test-tick-scheduling-py-test-a-rate-limit-f8a057a3",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "fix-flaky-tests-cli-test-tick-scheduling-py-test-a-rate-limit-f8a057a3/1"
+    ],
+    "at": "2026-10-10T18:17:46+00:00"
+  },
+  "fix-flaky-tests-runtimes-test-acp-outcome-py-test-an-agent-th-a5668955": {
+    "change": "fix-flaky-tests-runtimes-test-acp-outcome-py-test-an-agent-th-a5668955",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "fix-flaky-tests-runtimes-test-acp-outcome-py-test-an-agent-th-a5668955/1"
+    ],
+    "at": "2026-10-10T19:36:23+00:00"
+  },
+  "dependents-follow-their-parent": {
+    "change": "dependents-follow-their-parent",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "dependents-follow-their-parent/1",
+      "dependents-follow-their-parent/2",
+      "dependents-follow-their-parent/3"
+    ],
+    "at": "2026-10-10T20:27:35+00:00"
+  },
+  "fix-flaky-tests-replay-test-replay-proxy-edges-py-test-an-ups-8fa56e03": {
+    "change": "fix-flaky-tests-replay-test-replay-proxy-edges-py-test-an-ups-8fa56e03",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "fix-flaky-tests-replay-test-replay-proxy-edges-py-test-an-ups-8fa56e03/1"
+    ],
+    "at": "2026-10-10T20:27:36+00:00"
+  },
+  "notifications": {
+    "change": "notifications",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "notifications/1",
+      "notifications/2"
+    ],
+    "at": "2026-10-11T00:34:59+00:00"
+  },
+  "usage-cost-and-context-are-recorded": {
+    "change": "usage-cost-and-context-are-recorded",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "usage-cost-and-context-are-recorded/1",
+      "usage-cost-and-context-are-recorded/2",
+      "usage-cost-and-context-are-recorded/3"
+    ],
+    "at": "2026-10-11T00:35:00+00:00"
+  },
+  "usage-pause-deadline": {
+    "change": "usage-pause-deadline",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "usage-pause-deadline/1",
+      "usage-pause-deadline/2",
+      "usage-pause-deadline/3",
+      "usage-pause-deadline/4"
+    ],
+    "at": "2026-10-11T00:35:02+00:00"
+  },
+  "finished-pull-requests-lose-their-state-label": {
+    "change": "finished-pull-requests-lose-their-state-label",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "finished-pull-requests-lose-their-state-label/1",
+      "finished-pull-requests-lose-their-state-label/2"
+    ],
+    "at": "2026-10-11T03:41:42+00:00"
+  },
+  "acceptance-agent-gets-its-own-state-store": {
+    "change": "acceptance-agent-gets-its-own-state-store",
+    "passed": false,
+    "detail": "live tests failed \u2014 agent-build-kit: uv run --no-project --isolated --with pytest pytest -m local_stack and not dev_stack tests/integration/test_acp_build_unit.py tests/integration/test_graph_acp_unit.py\nImportError while loading conftest '~/agent-build-kit/tests/conftest.py'.\ntests/conftest.py:23: in <module>\n    from agent_build_kit import config as config_module\nE   ModuleNotFoundError: No module named 'agent_build_kit'\n",
+    "deployed": [],
+    "units": [
+      "acceptance-agent-gets-its-own-state-store/1"
+    ],
+    "at": "2026-10-11T05:50:59+00:00"
+  },
+  "environment-is-language-independent": {
+    "change": "environment-is-language-independent",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "environment-is-language-independent/1",
+      "environment-is-language-independent/2",
+      "environment-is-language-independent/3"
+    ],
+    "at": "2026-10-11T05:51:01+00:00"
+  },
+  "github-fakes-one-route-table": {
+    "change": "github-fakes-one-route-table",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "github-fakes-one-route-table/1",
+      "github-fakes-one-route-table/2"
+    ],
+    "at": "2026-10-11T05:51:02+00:00"
+  },
+  "pr-description-says-why": {
+    "change": "pr-description-says-why",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "pr-description-says-why/1",
+      "pr-description-says-why/2"
+    ],
+    "at": "2026-10-11T05:51:03+00:00"
+  },
+  "profile-declares-the-files-its-commands-create": {
+    "change": "profile-declares-the-files-its-commands-create",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "profile-declares-the-files-its-commands-create/1"
+    ],
+    "at": "2026-10-11T13:29:11+00:00"
+  },
+  "flaky-tests": {
+    "change": "flaky-tests",
+    "passed": false,
+    "detail": "live tests failed \u2014 agent-build-kit: uv run --no-project --isolated --with pytest pytest -m local_stack and not dev_stack tests/integration/test_flake_fix_change_validates.py\nImportError while loading conftest '~/agent-build-kit/tests/conftest.py'.\ntests/conftest.py:23: in <module>\n    from agent_build_kit import config as config_module\nE   ModuleNotFoundError: No module named 'agent_build_kit'\n",
+    "deployed": [],
+    "units": [
+      "flaky-tests/1",
+      "flaky-tests/2",
+      "flaky-tests/3"
+    ],
+    "at": "2026-10-11T14:50:45+00:00"
+  },
+  "unit-timeline-is-recorded": {
+    "change": "unit-timeline-is-recorded",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "unit-timeline-is-recorded/1",
+      "unit-timeline-is-recorded/2",
+      "unit-timeline-is-recorded/3"
+    ],
+    "at": "2026-10-11T17:27:24+00:00"
+  },
+  "fix-flaky-tests-cli-test-tick-scheduling-py-test-a-rate-limit-8bcfc978": {
+    "change": "fix-flaky-tests-cli-test-tick-scheduling-py-test-a-rate-limit-8bcfc978",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "fix-flaky-tests-cli-test-tick-scheduling-py-test-a-rate-limit-8bcfc978/1"
+    ],
+    "at": "2026-10-11T18:41:25+00:00"
+  },
+  "edits-to-started-groups-need-no-plan": {
+    "change": "edits-to-started-groups-need-no-plan",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "edits-to-started-groups-need-no-plan/1",
+      "edits-to-started-groups-need-no-plan/2"
+    ],
+    "at": "2026-10-12T01:07:30+00:00"
+  },
+  "secrets-never-reach-stored-or-posted-output": {
+    "change": "secrets-never-reach-stored-or-posted-output",
+    "passed": false,
+    "detail": "live tests failed \u2014 agent-build-kit: uv run --no-project --isolated --with pytest pytest -m local_stack and not dev_stack tests/integration/test_acp_build_unit.py tests/integration/test_graph_acp_unit.py\nImportError while loading conftest '~/agent-build-kit/tests/conftest.py'.\ntests/conftest.py:26: in <module>\n    from agent_build_kit import config as config_module\nE   ModuleNotFoundError: No module named 'agent_build_kit'\n",
+    "deployed": [],
+    "units": [
+      "secrets-never-reach-stored-or-posted-output/1",
+      "secrets-never-reach-stored-or-posted-output/2",
+      "secrets-never-reach-stored-or-posted-output/3",
+      "secrets-never-reach-stored-or-posted-output/4"
+    ],
+    "at": "2026-10-12T02:03:51+00:00"
+  },
+  "acp-policy-covers-global-option-spellings": {
+    "change": "acp-policy-covers-global-option-spellings",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "acp-policy-covers-global-option-spellings/1",
+      "acp-policy-covers-global-option-spellings/2"
+    ],
+    "at": "2026-10-12T03:43:33+00:00"
+  },
+  "acceptance-server-runs-in-the-scratch-environment": {
+    "change": "acceptance-server-runs-in-the-scratch-environment",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "acceptance-server-runs-in-the-scratch-environment/1",
+      "acceptance-server-runs-in-the-scratch-environment/2",
+      "acceptance-server-runs-in-the-scratch-environment/3",
+      "acceptance-server-runs-in-the-scratch-environment/4"
+    ],
+    "at": "2026-10-12T04:12:43+00:00"
+  },
+  "tier2-lock-wait-is-configurable": {
+    "change": "tier2-lock-wait-is-configurable",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "tier2-lock-wait-is-configurable/1"
+    ],
+    "at": "2026-10-12T05:09:46+00:00"
+  },
+  "a-refused-usage-read-with-headroom-does-not-pause": {
+    "change": "a-refused-usage-read-with-headroom-does-not-pause",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "a-refused-usage-read-with-headroom-does-not-pause/1",
+      "a-refused-usage-read-with-headroom-does-not-pause/2"
+    ],
+    "at": "2026-10-12T12:55:25+00:00"
+  },
+  "tier2-failures-in-untouched-tests-are-fixed-once": {
+    "change": "tier2-failures-in-untouched-tests-are-fixed-once",
+    "passed": false,
+    "detail": "live tests failed \u2014 agent-build-kit: uv run --no-project --isolated --with pytest pytest -m local_stack and not dev_stack tests/integration/test_untouched_failure_change_validates.py\nImportError while loading conftest '~/agent-build-kit/tests/conftest.py'.\ntests/conftest.py:26: in <module>\n    from agent_build_kit import config as config_module\nE   ModuleNotFoundError: No module named 'agent_build_kit'\n",
+    "deployed": [],
+    "units": [
+      "tier2-failures-in-untouched-tests-are-fixed-once/1",
+      "tier2-failures-in-untouched-tests-are-fixed-once/2",
+      "tier2-failures-in-untouched-tests-are-fixed-once/3"
+    ],
+    "at": "2026-10-12T12:55:29+00:00"
+  },
+  "tier2-lock-wait-holds-the-unit": {
+    "change": "tier2-lock-wait-holds-the-unit",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "tier2-lock-wait-holds-the-unit/1",
+      "tier2-lock-wait-holds-the-unit/2"
+    ],
+    "at": "2026-10-12T13:33:29+00:00"
+  },
+  "planned-dependencies-never-close-a-cycle": {
+    "change": "planned-dependencies-never-close-a-cycle",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "planned-dependencies-never-close-a-cycle/1",
+      "planned-dependencies-never-close-a-cycle/2"
+    ],
+    "at": "2026-10-12T15:07:17+00:00"
+  },
+  "tier2-time-is-recorded-per-test": {
+    "change": "tier2-time-is-recorded-per-test",
+    "passed": false,
+    "detail": "live tests failed \u2014 agent-build-kit: uv run --no-project --isolated --with pytest pytest -m local_stack and not dev_stack tests/integration/test_acp_build_unit.py tests/integration/test_graph_acp_unit.py\nImportError while loading conftest '~/agent-build-kit/tests/conftest.py'.\ntests/conftest.py:26: in <module>\n    from agent_build_kit import config as config_module\nE   ModuleNotFoundError: No module named 'agent_build_kit'\n",
+    "deployed": [],
+    "units": [
+      "tier2-time-is-recorded-per-test/1",
+      "tier2-time-is-recorded-per-test/2"
+    ],
+    "at": "2026-10-12T19:23:49+00:00"
+  },
+  "usage-reads-prefer-a-fresh-claude-cache": {
+    "change": "usage-reads-prefer-a-fresh-claude-cache",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "usage-reads-prefer-a-fresh-claude-cache/1"
+    ],
+    "at": "2026-10-12T19:23:50+00:00"
+  },
+  "estimates-are-calibrated": {
+    "change": "estimates-are-calibrated",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "estimates-are-calibrated/1",
+      "estimates-are-calibrated/2"
+    ],
+    "at": "2026-10-12T20:03:30+00:00"
+  },
+  "affected-tests-in-fix-rounds": {
+    "change": "affected-tests-in-fix-rounds",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "affected-tests-in-fix-rounds/1",
+      "affected-tests-in-fix-rounds/2"
+    ],
+    "at": "2026-10-12T20:25:55+00:00"
+  },
+  "failed-units-waiting-on-a-prerequisite-free-their-slot": {
+    "change": "failed-units-waiting-on-a-prerequisite-free-their-slot",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "failed-units-waiting-on-a-prerequisite-free-their-slot/1"
+    ],
+    "at": "2026-10-12T22:09:07+00:00"
+  },
+  "needs-start-on-the-parents-branch": {
+    "change": "needs-start-on-the-parents-branch",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "needs-start-on-the-parents-branch/1",
+      "needs-start-on-the-parents-branch/2",
+      "needs-start-on-the-parents-branch/3"
+    ],
+    "at": "2026-10-13T02:11:33+00:00"
+  },
+  "an-internet-outage-is-not-a-failure": {
+    "change": "an-internet-outage-is-not-a-failure",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "an-internet-outage-is-not-a-failure/1",
+      "an-internet-outage-is-not-a-failure/2",
+      "an-internet-outage-is-not-a-failure/3"
+    ],
+    "at": "2026-10-13T02:17:05+00:00"
+  },
+  "a-unit-waits-for-all-but-one-open-parent": {
+    "change": "a-unit-waits-for-all-but-one-open-parent",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "a-unit-waits-for-all-but-one-open-parent/1"
+    ],
+    "at": "2026-10-13T03:21:41+00:00"
+  },
+  "usage-allowances-are-calibrated": {
+    "change": "usage-allowances-are-calibrated",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "usage-allowances-are-calibrated/1",
+      "usage-allowances-are-calibrated/2"
+    ],
+    "at": "2026-10-13T12:34:41+00:00"
+  },
+  "the-recommended-policy-ships-with-the-kit": {
+    "change": "the-recommended-policy-ships-with-the-kit",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "the-recommended-policy-ships-with-the-kit/1",
+      "the-recommended-policy-ships-with-the-kit/2",
+      "the-recommended-policy-ships-with-the-kit/3",
+      "the-recommended-policy-ships-with-the-kit/4",
+      "the-recommended-policy-ships-with-the-kit/5"
+    ],
+    "at": "2026-10-13T16:10:40+00:00"
+  },
+  "a-conflict-is-resolved-in-one-session-without-holding-the-repo-lock": {
+    "change": "a-conflict-is-resolved-in-one-session-without-holding-the-repo-lock",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "a-conflict-is-resolved-in-one-session-without-holding-the-repo-lock/1",
+      "a-conflict-is-resolved-in-one-session-without-holding-the-repo-lock/2",
+      "a-conflict-is-resolved-in-one-session-without-holding-the-repo-lock/3"
+    ],
+    "at": "2026-10-13T16:55:03+00:00"
+  },
+  "every-agent-call-is-recorded": {
+    "change": "every-agent-call-is-recorded",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "every-agent-call-is-recorded/1",
+      "every-agent-call-is-recorded/2"
+    ],
+    "at": "2026-10-13T18:58:45+00:00"
+  },
+  "a-moved-base-is-checked-by-what-it-can-affect": {
+    "change": "a-moved-base-is-checked-by-what-it-can-affect",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "a-moved-base-is-checked-by-what-it-can-affect/1",
+      "a-moved-base-is-checked-by-what-it-can-affect/2",
+      "a-moved-base-is-checked-by-what-it-can-affect/3"
+    ],
+    "at": "2026-10-13T23:04:29+00:00"
+  },
+  "a-restack-takes-no-slot-and-runs-when-seen": {
+    "change": "a-restack-takes-no-slot-and-runs-when-seen",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "a-restack-takes-no-slot-and-runs-when-seen/1",
+      "a-restack-takes-no-slot-and-runs-when-seen/2"
+    ],
+    "at": "2026-10-14T02:49:41+00:00"
+  },
+  "a-pr-that-stays-conflicting-is-moved-again": {
+    "change": "a-pr-that-stays-conflicting-is-moved-again",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "a-pr-that-stays-conflicting-is-moved-again/1",
+      "a-pr-that-stays-conflicting-is-moved-again/2",
+      "a-pr-that-stays-conflicting-is-moved-again/3"
+    ],
+    "at": "2026-10-14T04:52:28+00:00"
+  },
+  "dry-cleanup": {
+    "change": "dry-cleanup",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "dry-cleanup/1",
+      "dry-cleanup/2",
+      "dry-cleanup/3",
+      "dry-cleanup/4"
+    ],
+    "at": "2026-10-14T12:52:46+00:00"
+  },
+  "model-defaults": {
+    "change": "model-defaults",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "model-defaults/1"
+    ],
+    "at": "2026-10-14T14:36:33+00:00"
+  },
+  "fix-flaky-tests-runtimes-test-policy-agent-harness-py-test-an-ebfce51e": {
+    "change": "fix-flaky-tests-runtimes-test-policy-agent-harness-py-test-an-ebfce51e",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [],
+    "at": "2026-10-14T14:49:57+00:00"
+  },
+  "checkpoint-plain-values": {
+    "change": "checkpoint-plain-values",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "checkpoint-plain-values/1"
+    ],
+    "at": "2026-10-14T15:06:03+00:00"
+  },
+  "flaky-cleanup": {
+    "change": "flaky-cleanup",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "flaky-cleanup/1",
+      "flaky-cleanup/2"
+    ],
+    "at": "2026-10-14T15:12:38+00:00"
+  },
+  "bare-abk-tags-says-what-to-pass": {
+    "change": "bare-abk-tags-says-what-to-pass",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "bare-abk-tags-says-what-to-pass/1"
+    ],
+    "at": "2026-10-14T16:51:22+00:00"
+  },
+  "tests-run-without-warnings": {
+    "change": "tests-run-without-warnings",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "tests-run-without-warnings/1"
+    ],
+    "at": "2026-10-14T17:42:49+00:00"
+  },
+  "remove-cost-backfill-command": {
+    "change": "remove-cost-backfill-command",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "remove-cost-backfill-command/1"
+    ],
+    "at": "2026-10-14T18:26:27+00:00"
+  },
+  "tier2-waits-on-open-base-failure-fixes": {
+    "change": "tier2-waits-on-open-base-failure-fixes",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "tier2-waits-on-open-base-failure-fixes/1"
+    ],
+    "at": "2026-10-14T20:01:08+00:00"
+  },
+  "claude-code-account-per-installation": {
+    "change": "claude-code-account-per-installation",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "claude-code-account-per-installation/1",
+      "claude-code-account-per-installation/2",
+      "claude-code-account-per-installation/3",
+      "claude-code-account-per-installation/4"
+    ],
+    "at": "2026-10-15T01:35:44+00:00"
+  },
+  "fit-to-budget": {
+    "change": "fit-to-budget",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "fit-to-budget/1",
+      "fit-to-budget/2",
+      "fit-to-budget/3",
+      "fit-to-budget/4"
+    ],
+    "at": "2026-10-15T03:53:39+00:00"
+  },
+  "a-planning-repo-can-be-split": {
+    "change": "a-planning-repo-can-be-split",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "a-planning-repo-can-be-split/1",
+      "a-planning-repo-can-be-split/2",
+      "a-planning-repo-can-be-split/3",
+      "a-planning-repo-can-be-split/4"
+    ],
+    "at": "2026-10-15T04:06:08+00:00"
+  },
+  "planning-content-follows-the-public-rule": {
+    "change": "planning-content-follows-the-public-rule",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "planning-content-follows-the-public-rule/1",
+      "planning-content-follows-the-public-rule/2",
+      "planning-content-follows-the-public-rule/3",
+      "planning-content-follows-the-public-rule/4",
+      "planning-content-follows-the-public-rule/5",
+      "planning-content-follows-the-public-rule/6"
+    ],
+    "at": "2026-10-15T23:41:05+00:00"
+  },
+  "ci-fetches-openspec-once": {
+    "change": "ci-fetches-openspec-once",
+    "passed": false,
+    "detail": "live tests failed \u2014 agent-build-kit: uv run --no-project --isolated --with pytest pytest -m local_stack and not dev_stack tests/integration/conftest.py tests/integration/test_flake_fix_change_validates.py tests/integration/test_init_end_to_end.py tests/integration/test_scheduled_tier2_change_validates.py tests/integration/test_untouched_failure_change_validates.py\nInstalled 5 packages in 6ms\nImportError while loading conftest '~/agent-build-kit/tests/conftest.py'.\ntests/conftest.py:26: in <module>\n    from agent_build_kit import claude_account, forges\nE   ModuleNotFoundError: No module named 'agent_build_kit'\n",
+    "deployed": [],
+    "units": [
+      "ci-fetches-openspec-once/1",
+      "ci-fetches-openspec-once/2"
+    ],
+    "at": "2026-10-16T02:32:38+00:00"
+  },
+  "test-kind-names-are-accepted-both-ways": {
+    "change": "test-kind-names-are-accepted-both-ways",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "test-kind-names-are-accepted-both-ways/1",
+      "test-kind-names-are-accepted-both-ways/2"
+    ],
+    "at": "2026-10-16T02:32:39+00:00"
+  },
+  "ci-runs-without-warnings": {
+    "change": "ci-runs-without-warnings",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "ci-runs-without-warnings/1",
+      "ci-runs-without-warnings/2"
+    ],
+    "at": "2026-10-16T02:38:35+00:00"
+  },
+  "tier2-splits-replace-runtime-tags": {
+    "change": "tier2-splits-replace-runtime-tags",
+    "passed": false,
+    "detail": "live tests failed \u2014 agent-build-kit: uv run --no-project --isolated --with pytest pytest -m local_stack and not dev_stack tests/integration/test_scheduled_tier2_change_validates.py\nImportError while loading conftest '~/agent-build-kit/tests/conftest.py'.\ntests/conftest.py:26: in <module>\n    from agent_build_kit import claude_account, forges\nE   ModuleNotFoundError: No module named 'agent_build_kit'\n",
+    "deployed": [],
+    "units": [
+      "tier2-splits-replace-runtime-tags/1",
+      "tier2-splits-replace-runtime-tags/10",
+      "tier2-splits-replace-runtime-tags/11",
+      "tier2-splits-replace-runtime-tags/2",
+      "tier2-splits-replace-runtime-tags/3",
+      "tier2-splits-replace-runtime-tags/4",
+      "tier2-splits-replace-runtime-tags/5",
+      "tier2-splits-replace-runtime-tags/6",
+      "tier2-splits-replace-runtime-tags/7",
+      "tier2-splits-replace-runtime-tags/8",
+      "tier2-splits-replace-runtime-tags/9"
+    ],
+    "at": "2026-10-16T14:12:25+00:00"
+  },
+  "tier2-runs-on-a-schedule": {
+    "change": "tier2-runs-on-a-schedule",
+    "passed": false,
+    "detail": "live tests failed \u2014 agent-build-kit: uv run --no-project --isolated --with pytest pytest -m local_stack and not dev_stack tests/integration/test_scheduled_tier2_change_validates.py\nImportError while loading conftest '~/agent-build-kit/tests/conftest.py'.\ntests/conftest.py:26: in <module>\n    from agent_build_kit import claude_account, forges\nE   ModuleNotFoundError: No module named 'agent_build_kit'\n",
+    "deployed": [],
+    "units": [
+      "tier2-runs-on-a-schedule/1",
+      "tier2-runs-on-a-schedule/2",
+      "tier2-runs-on-a-schedule/3",
+      "tier2-runs-on-a-schedule/4"
+    ],
+    "at": "2026-10-16T17:02:57+00:00"
+  },
+  "fix-flaky-tests-cli-test-tick-scheduling-py-test-stopping-sti-0c3acecf": {
+    "change": "fix-flaky-tests-cli-test-tick-scheduling-py-test-stopping-sti-0c3acecf",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "fix-flaky-tests-cli-test-tick-scheduling-py-test-stopping-sti-0c3acecf/1"
+    ],
+    "at": "2026-10-16T19:56:25+00:00"
+  },
+  "fix-flaky-tests-runtimes-test-policy-agent-harness-py-test-a-d595a2f4": {
+    "change": "fix-flaky-tests-runtimes-test-policy-agent-harness-py-test-a-d595a2f4",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "fix-flaky-tests-runtimes-test-policy-agent-harness-py-test-a-d595a2f4/1"
+    ],
+    "at": "2026-10-16T21:24:01+00:00"
+  },
+  "prompts-reach-the-agent-without-the-argument-size-limit": {
+    "change": "prompts-reach-the-agent-without-the-argument-size-limit",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "prompts-reach-the-agent-without-the-argument-size-limit/1",
+      "prompts-reach-the-agent-without-the-argument-size-limit/2"
+    ],
+    "at": "2026-10-17T01:18:02+00:00"
+  },
+  "ready-units-start-by-priority-and-handoff-breaks-ties": {
+    "change": "ready-units-start-by-priority-and-handoff-breaks-ties",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "ready-units-start-by-priority-and-handoff-breaks-ties/1"
+    ],
+    "at": "2026-10-17T02:48:54+00:00"
+  },
+  "a-dropped-unit-parked-on-a-split-takes-no-place": {
+    "change": "a-dropped-unit-parked-on-a-split-takes-no-place",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "a-dropped-unit-parked-on-a-split-takes-no-place/1"
+    ],
+    "at": "2026-10-17T20:57:01+00:00"
+  },
+  "a-failed-live-test-says-what-its-scratch-tick-did": {
+    "change": "a-failed-live-test-says-what-its-scratch-tick-did",
+    "passed": false,
+    "detail": "TypeError: _run_for_verify() got an unexpected keyword argument 'capture_output'",
+    "deployed": [],
+    "units": [
+      "a-failed-live-test-says-what-its-scratch-tick-did/1",
+      "a-failed-live-test-says-what-its-scratch-tick-did/3"
+    ],
+    "at": ""
+  },
+  "limits-split-into-global-and-project": {
+    "change": "limits-split-into-global-and-project",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "limits-split-into-global-and-project/1",
+      "limits-split-into-global-and-project/10",
+      "limits-split-into-global-and-project/11",
+      "limits-split-into-global-and-project/12",
+      "limits-split-into-global-and-project/13",
+      "limits-split-into-global-and-project/2",
+      "limits-split-into-global-and-project/3",
+      "limits-split-into-global-and-project/4",
+      "limits-split-into-global-and-project/5",
+      "limits-split-into-global-and-project/6",
+      "limits-split-into-global-and-project/7",
+      "limits-split-into-global-and-project/8",
+      "limits-split-into-global-and-project/9"
+    ],
+    "at": "2026-10-17T22:08:43+00:00"
+  },
+  "priority-0-units-may-use-an-extra-allowance": {
+    "change": "priority-0-units-may-use-an-extra-allowance",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "priority-0-units-may-use-an-extra-allowance/2",
+      "priority-0-units-may-use-an-extra-allowance/3"
+    ],
+    "at": "2026-10-17T23:13:08+00:00"
+  },
+  "a-standing-cause-survives-replans-and-no-cause-changes": {
+    "change": "a-standing-cause-survives-replans-and-no-cause-changes",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "a-standing-cause-survives-replans-and-no-cause-changes/2",
+      "a-standing-cause-survives-replans-and-no-cause-changes/4"
+    ],
+    "at": "2026-10-18T12:35:19+00:00"
+  },
+  "fix-flaky-tests-pipeline-test-moved-base-run-stored-py-test-a-e0297380": {
+    "change": "fix-flaky-tests-pipeline-test-moved-base-run-stored-py-test-a-e0297380",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "fix-flaky-tests-pipeline-test-moved-base-run-stored-py-test-a-e0297380/1"
+    ],
+    "at": "2026-10-18T12:35:20+00:00"
+  },
+  "plans-do-not-make-urgent-units-wait-on-less-urgent-ones": {
+    "change": "plans-do-not-make-urgent-units-wait-on-less-urgent-ones",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "plans-do-not-make-urgent-units-wait-on-less-urgent-ones/1",
+      "plans-do-not-make-urgent-units-wait-on-less-urgent-ones/4",
+      "plans-do-not-make-urgent-units-wait-on-less-urgent-ones/5"
+    ],
+    "at": "2026-10-18T12:35:22+00:00"
+  },
+  "the-whole-moved-base-flow-runs-in-the-restack-lane": {
+    "change": "the-whole-moved-base-flow-runs-in-the-restack-lane",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "the-whole-moved-base-flow-runs-in-the-restack-lane/1",
+      "the-whole-moved-base-flow-runs-in-the-restack-lane/2",
+      "the-whole-moved-base-flow-runs-in-the-restack-lane/3",
+      "the-whole-moved-base-flow-runs-in-the-restack-lane/4",
+      "the-whole-moved-base-flow-runs-in-the-restack-lane/5",
+      "the-whole-moved-base-flow-runs-in-the-restack-lane/6",
+      "the-whole-moved-base-flow-runs-in-the-restack-lane/7",
+      "the-whole-moved-base-flow-runs-in-the-restack-lane/8"
+    ],
+    "at": "2026-10-18T13:37:44+00:00"
+  },
+  "an-e2e-scratch-tick-follows-the-installations-usage-limits": {
+    "change": "an-e2e-scratch-tick-follows-the-installations-usage-limits",
+    "passed": false,
+    "detail": "TypeError: _run_for_verify() got an unexpected keyword argument 'capture_output'",
+    "deployed": [],
+    "units": [
+      "an-e2e-scratch-tick-follows-the-installations-usage-limits/1",
+      "an-e2e-scratch-tick-follows-the-installations-usage-limits/2"
+    ],
+    "at": ""
+  },
+  "test-kinds-are-unit-test-and-e2e-test": {
+    "change": "test-kinds-are-unit-test-and-e2e-test",
+    "passed": false,
+    "detail": "TypeError: _run_for_verify() got an unexpected keyword argument 'capture_output'",
+    "deployed": [],
+    "units": [
+      "test-kinds-are-unit-test-and-e2e-test/1",
+      "test-kinds-are-unit-test-and-e2e-test/10",
+      "test-kinds-are-unit-test-and-e2e-test/12",
+      "test-kinds-are-unit-test-and-e2e-test/15",
+      "test-kinds-are-unit-test-and-e2e-test/18",
+      "test-kinds-are-unit-test-and-e2e-test/2",
+      "test-kinds-are-unit-test-and-e2e-test/21",
+      "test-kinds-are-unit-test-and-e2e-test/23",
+      "test-kinds-are-unit-test-and-e2e-test/3",
+      "test-kinds-are-unit-test-and-e2e-test/4",
+      "test-kinds-are-unit-test-and-e2e-test/5",
+      "test-kinds-are-unit-test-and-e2e-test/6",
+      "test-kinds-are-unit-test-and-e2e-test/8"
+    ],
+    "at": ""
+  },
+  "a-runtimes-provider-has-usage-windows": {
+    "change": "a-runtimes-provider-has-usage-windows",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "a-runtimes-provider-has-usage-windows/1",
+      "a-runtimes-provider-has-usage-windows/2",
+      "a-runtimes-provider-has-usage-windows/3",
+      "a-runtimes-provider-has-usage-windows/4",
+      "a-runtimes-provider-has-usage-windows/5"
+    ],
+    "at": "2026-10-18T18:21:28+00:00"
+  },
+  "build-prompts-name-the-profiles-test-and-lint-commands": {
+    "change": "build-prompts-name-the-profiles-test-and-lint-commands",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "build-prompts-name-the-profiles-test-and-lint-commands/1"
+    ],
+    "at": "2026-10-18T18:29:25+00:00"
+  },
+  "unit-ids-come-from-the-groups": {
+    "change": "unit-ids-come-from-the-groups",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "unit-ids-come-from-the-groups/2"
+    ],
+    "at": "2026-10-18T19:42:24+00:00"
+  },
+  "a-dropped-parent-does-not-hold-its-child": {
+    "change": "a-dropped-parent-does-not-hold-its-child",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "a-dropped-parent-does-not-hold-its-child/3"
+    ],
+    "at": "2026-10-18T20:32:05+00:00"
+  },
+  "tier2-tests-are-tagged-by-runtime": {
+    "change": "tier2-tests-are-tagged-by-runtime",
+    "passed": false,
+    "detail": "TypeError: _run_for_verify() got an unexpected keyword argument 'capture_output'",
+    "deployed": [],
+    "units": [
+      "tier2-tests-are-tagged-by-runtime/1",
+      "tier2-tests-are-tagged-by-runtime/11",
+      "tier2-tests-are-tagged-by-runtime/12",
+      "tier2-tests-are-tagged-by-runtime/13",
+      "tier2-tests-are-tagged-by-runtime/14",
+      "tier2-tests-are-tagged-by-runtime/15",
+      "tier2-tests-are-tagged-by-runtime/16",
+      "tier2-tests-are-tagged-by-runtime/18",
+      "tier2-tests-are-tagged-by-runtime/19",
+      "tier2-tests-are-tagged-by-runtime/2",
+      "tier2-tests-are-tagged-by-runtime/20",
+      "tier2-tests-are-tagged-by-runtime/3",
+      "tier2-tests-are-tagged-by-runtime/4",
+      "tier2-tests-are-tagged-by-runtime/6",
+      "tier2-tests-are-tagged-by-runtime/7",
+      "tier2-tests-are-tagged-by-runtime/9"
+    ],
+    "at": ""
+  },
+  "a-replaced-unit-points-to-its-successor": {
+    "change": "a-replaced-unit-points-to-its-successor",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "a-replaced-unit-points-to-its-successor/3"
+    ],
+    "at": "2026-10-18T21:16:37+00:00"
+  },
+  "a-started-unit-keeps-its-groups": {
+    "change": "a-started-unit-keeps-its-groups",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "a-started-unit-keeps-its-groups/1",
+      "a-started-unit-keeps-its-groups/2",
+      "a-started-unit-keeps-its-groups/4"
+    ],
+    "at": "2026-10-19T03:01:31+00:00"
+  },
+  "init-asks-which-runtime": {
+    "change": "init-asks-which-runtime",
+    "passed": false,
+    "detail": "TypeError: _run_for_verify() got an unexpected keyword argument 'capture_output'",
+    "deployed": [],
+    "units": [
+      "init-asks-which-runtime/1",
+      "init-asks-which-runtime/2",
+      "init-asks-which-runtime/3",
+      "init-asks-which-runtime/4",
+      "init-asks-which-runtime/5"
+    ],
+    "at": ""
+  },
+  "a-unit-in-a-held-split-is-not-started": {
+    "change": "a-unit-in-a-held-split-is-not-started",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "a-unit-in-a-held-split-is-not-started/1",
+      "a-unit-in-a-held-split-is-not-started/2",
+      "a-unit-in-a-held-split-is-not-started/4"
+    ],
+    "at": "2026-10-19T03:07:49+00:00"
+  },
+  "a-failed-unit-resumes-when-its-wait-ends": {
+    "change": "a-failed-unit-resumes-when-its-wait-ends",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "a-failed-unit-resumes-when-its-wait-ends/1",
+      "a-failed-unit-resumes-when-its-wait-ends/2"
+    ],
+    "at": "2026-10-19T12:53:06+00:00"
+  },
+  "integration-test-kind-is-a-label": {
+    "change": "integration-test-kind-is-a-label",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "integration-test-kind-is-a-label/1",
+      "integration-test-kind-is-a-label/4"
+    ],
+    "at": "2026-10-19T12:59:55+00:00"
+  },
+  "direct-dependencies-only": {
+    "change": "direct-dependencies-only",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "direct-dependencies-only/1",
+      "direct-dependencies-only/2",
+      "direct-dependencies-only/3",
+      "direct-dependencies-only/4",
+      "direct-dependencies-only/7"
+    ],
+    "at": "2026-10-19T15:54:56+00:00"
+  },
+  "e2e-selection-names-only-collected-files": {
+    "change": "e2e-selection-names-only-collected-files",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "e2e-selection-names-only-collected-files/1"
+    ],
+    "at": "2026-10-19T19:16:47+00:00"
+  },
+  "a-parked-unit-follows-its-groups-split": {
+    "change": "a-parked-unit-follows-its-groups-split",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "a-parked-unit-follows-its-groups-split/1"
+    ],
+    "at": "2026-10-19T20:20:36+00:00"
+  },
+  "live-test-tags-cover-every-e2e-test": {
+    "change": "live-test-tags-cover-every-e2e-test",
+    "passed": false,
+    "detail": "TypeError: _run_for_verify() got an unexpected keyword argument 'capture_output'",
+    "deployed": [],
+    "units": [
+      "live-test-tags-cover-every-e2e-test/1",
+      "live-test-tags-cover-every-e2e-test/6"
+    ],
+    "at": ""
+  },
+  "serial-chat-tests-run-in-parallel": {
+    "change": "serial-chat-tests-run-in-parallel",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "serial-chat-tests-run-in-parallel/1"
+    ],
+    "at": "2026-10-20T16:39:56+00:00"
+  },
+  "tier2-replays-unchanged-calls": {
+    "change": "tier2-replays-unchanged-calls",
+    "passed": false,
+    "detail": "TypeError: _run_for_verify() got an unexpected keyword argument 'capture_output'",
+    "deployed": [],
+    "units": [
+      "tier2-replays-unchanged-calls/1",
+      "tier2-replays-unchanged-calls/2",
+      "tier2-replays-unchanged-calls/3"
+    ],
+    "at": ""
+  },
+  "local-forge": {
+    "change": "local-forge",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "local-forge/1",
+      "local-forge/2",
+      "local-forge/3"
+    ],
+    "at": "2026-10-21T03:37:51+00:00"
+  },
+  "review-policy-and-verdict-recorded-in-shadow": {
+    "change": "review-policy-and-verdict-recorded-in-shadow",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "review-policy-and-verdict-recorded-in-shadow/2",
+      "review-policy-and-verdict-recorded-in-shadow/3",
+      "review-policy-and-verdict-recorded-in-shadow/4",
+      "review-policy-and-verdict-recorded-in-shadow/6",
+      "review-policy-and-verdict-recorded-in-shadow/8"
+    ],
+    "at": "2026-10-21T12:36:11+00:00"
+  },
+  "a-unit-parked-on-a-split-can-be-requeued": {
+    "change": "a-unit-parked-on-a-split-can-be-requeued",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "a-unit-parked-on-a-split-can-be-requeued/1"
+    ],
+    "at": "2026-10-21T15:02:00+00:00"
+  },
+  "e2e-tests-before-merge-are-optional": {
+    "change": "e2e-tests-before-merge-are-optional",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "e2e-tests-before-merge-are-optional/1",
+      "e2e-tests-before-merge-are-optional/3",
+      "e2e-tests-before-merge-are-optional/5"
+    ],
+    "at": "2026-10-21T17:08:56+00:00"
+  },
+  "units-are-sized-by-review-tier": {
+    "change": "units-are-sized-by-review-tier",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "units-are-sized-by-review-tier/10",
+      "units-are-sized-by-review-tier/11",
+      "units-are-sized-by-review-tier/2",
+      "units-are-sized-by-review-tier/4",
+      "units-are-sized-by-review-tier/6",
+      "units-are-sized-by-review-tier/8"
+    ],
+    "at": "2026-10-21T20:14:42+00:00"
+  },
+  "planning-in-the-working-copy": {
+    "change": "planning-in-the-working-copy",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "planning-in-the-working-copy/1",
+      "planning-in-the-working-copy/10",
+      "planning-in-the-working-copy/11",
+      "planning-in-the-working-copy/12",
+      "planning-in-the-working-copy/13",
+      "planning-in-the-working-copy/14",
+      "planning-in-the-working-copy/15",
+      "planning-in-the-working-copy/16",
+      "planning-in-the-working-copy/2",
+      "planning-in-the-working-copy/3",
+      "planning-in-the-working-copy/4",
+      "planning-in-the-working-copy/5",
+      "planning-in-the-working-copy/6",
+      "planning-in-the-working-copy/7",
+      "planning-in-the-working-copy/8",
+      "planning-in-the-working-copy/9"
+    ],
+    "at": "2026-10-21T21:17:06+00:00"
+  },
+  "a-test-only-group-commits-no-pair": {
+    "change": "a-test-only-group-commits-no-pair",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "a-test-only-group-commits-no-pair/1",
+      "a-test-only-group-commits-no-pair/4"
+    ],
+    "at": "2026-10-21T22:12:39+00:00"
+  },
+  "a-group-already-built-is-satisfied-in-a-stubbed-build": {
+    "change": "a-group-already-built-is-satisfied-in-a-stubbed-build",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "a-group-already-built-is-satisfied-in-a-stubbed-build/1"
+    ],
+    "at": "2026-10-21T23:12:36+00:00"
+  },
+  "ci-installs-openspec-from-a-lockfile": {
+    "change": "ci-installs-openspec-from-a-lockfile",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [],
+    "at": "2026-10-22T03:27:20+00:00"
+  },
+  "fix-flaky-tests-cli-test-tick-scheduling-projects-py-test-one-f3069be7": {
+    "change": "fix-flaky-tests-cli-test-tick-scheduling-projects-py-test-one-f3069be7",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "fix-flaky-tests-cli-test-tick-scheduling-projects-py-test-one-f3069be7/1"
+    ],
+    "at": "2026-10-22T08:14:35+00:00"
+  },
+  "a-group-built-by-an-earlier-group-is-recorded": {
+    "change": "a-group-built-by-an-earlier-group-is-recorded",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "a-group-built-by-an-earlier-group-is-recorded/1",
+      "a-group-built-by-an-earlier-group-is-recorded/2",
+      "a-group-built-by-an-earlier-group-is-recorded/3"
+    ],
+    "at": "2026-10-22T12:25:35+00:00"
+  },
+  "needs-can-wait-for-a-merge": {
+    "change": "needs-can-wait-for-a-merge",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "needs-can-wait-for-a-merge/1",
+      "needs-can-wait-for-a-merge/3"
+    ],
+    "at": "2026-10-22T12:25:37+00:00"
+  },
+  "ci-gives-npm-a-longer-timeout": {
+    "change": "ci-gives-npm-a-longer-timeout",
+    "passed": false,
+    "detail": "TypeError: _run_for_verify() got an unexpected keyword argument 'capture_output'",
+    "deployed": [],
+    "units": [
+      "ci-gives-npm-a-longer-timeout/1"
+    ],
+    "at": ""
+  },
+  "open-changes-are-migrated-to-review-tiers": {
+    "change": "open-changes-are-migrated-to-review-tiers",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "open-changes-are-migrated-to-review-tiers/10",
+      "open-changes-are-migrated-to-review-tiers/11",
+      "open-changes-are-migrated-to-review-tiers/2",
+      "open-changes-are-migrated-to-review-tiers/4",
+      "open-changes-are-migrated-to-review-tiers/6",
+      "open-changes-are-migrated-to-review-tiers/8"
+    ],
+    "at": "2026-10-22T14:18:55+00:00"
+  },
+  "fix-flaky-tests-runtimes-test-policy-agent-harness-py-test-a-41a62277": {
+    "change": "fix-flaky-tests-runtimes-test-policy-agent-harness-py-test-a-41a62277",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "fix-flaky-tests-runtimes-test-policy-agent-harness-py-test-a-41a62277/1"
+    ],
+    "at": "2026-10-22T16:22:45+00:00"
+  },
+  "builds-fix-before-they-commit-and-share-one-check-loop": {
+    "change": "builds-fix-before-they-commit-and-share-one-check-loop",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "builds-fix-before-they-commit-and-share-one-check-loop/1",
+      "builds-fix-before-they-commit-and-share-one-check-loop/2",
+      "builds-fix-before-they-commit-and-share-one-check-loop/3",
+      "builds-fix-before-they-commit-and-share-one-check-loop/4"
+    ],
+    "at": "2026-10-22T22:16:40+00:00"
+  },
+  "reviewers-are-told-where-to-look": {
+    "change": "reviewers-are-told-where-to-look",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "reviewers-are-told-where-to-look/2",
+      "reviewers-are-told-where-to-look/4",
+      "reviewers-are-told-where-to-look/6"
+    ],
+    "at": "2026-10-22T22:34:42+00:00"
+  },
+  "a-group-with-no-new-tests-gets-an-empty-tests-commit": {
+    "change": "a-group-with-no-new-tests-gets-an-empty-tests-commit",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "a-group-with-no-new-tests-gets-an-empty-tests-commit/1"
+    ],
+    "at": "2026-10-23T02:40:58+00:00"
+  },
+  "units-are-triaged-by-review-tier": {
+    "change": "units-are-triaged-by-review-tier",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "units-are-triaged-by-review-tier/11",
+      "units-are-triaged-by-review-tier/2",
+      "units-are-triaged-by-review-tier/5",
+      "units-are-triaged-by-review-tier/6",
+      "units-are-triaged-by-review-tier/9"
+    ],
+    "at": "2026-10-23T04:24:03+00:00"
+  },
+  "usage-is-estimated-from-recorded-cost": {
+    "change": "usage-is-estimated-from-recorded-cost",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "usage-is-estimated-from-recorded-cost/1",
+      "usage-is-estimated-from-recorded-cost/4-s1",
+      "usage-is-estimated-from-recorded-cost/4-s2",
+      "usage-is-estimated-from-recorded-cost/4-s3"
+    ],
+    "at": "2026-10-23T14:08:37+00:00"
+  },
+  "e2e-groups-hold-tests-and-stand-alone": {
+    "change": "e2e-groups-hold-tests-and-stand-alone",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "e2e-groups-hold-tests-and-stand-alone/1",
+      "e2e-groups-hold-tests-and-stand-alone/3",
+      "e2e-groups-hold-tests-and-stand-alone/5-s1",
+      "e2e-groups-hold-tests-and-stand-alone/5-s2"
+    ],
+    "at": "2026-10-23T21:08:04+00:00"
+  },
+  "config-migrate-moves-machine-settings-to-the-local-file": {
+    "change": "config-migrate-moves-machine-settings-to-the-local-file",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "config-migrate-moves-machine-settings-to-the-local-file/1",
+      "config-migrate-moves-machine-settings-to-the-local-file/2",
+      "config-migrate-moves-machine-settings-to-the-local-file/6",
+      "config-migrate-moves-machine-settings-to-the-local-file/7"
+    ],
+    "at": "2026-10-24T05:11:01+00:00"
+  },
+  "low-risk-units-land-without-a-person": {
+    "change": "low-risk-units-land-without-a-person",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "low-risk-units-land-without-a-person/11",
+      "low-risk-units-land-without-a-person/13",
+      "low-risk-units-land-without-a-person/15",
+      "low-risk-units-land-without-a-person/17",
+      "low-risk-units-land-without-a-person/2",
+      "low-risk-units-land-without-a-person/3",
+      "low-risk-units-land-without-a-person/4",
+      "low-risk-units-land-without-a-person/5",
+      "low-risk-units-land-without-a-person/6",
+      "low-risk-units-land-without-a-person/7",
+      "low-risk-units-land-without-a-person/8"
+    ],
+    "at": "2026-10-24T13:06:23+00:00"
+  },
+  "a-unit-start-forecasts-its-usage-by-tier": {
+    "change": "a-unit-start-forecasts-its-usage-by-tier",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "a-unit-start-forecasts-its-usage-by-tier/1",
+      "a-unit-start-forecasts-its-usage-by-tier/3-s1",
+      "a-unit-start-forecasts-its-usage-by-tier/3-s2",
+      "a-unit-start-forecasts-its-usage-by-tier/5",
+      "a-unit-start-forecasts-its-usage-by-tier/7"
+    ],
+    "at": "2026-10-24T14:06:40+00:00"
+  },
+  "a-unit-over-its-tier-is-held-and-split": {
+    "change": "a-unit-over-its-tier-is-held-and-split",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "a-unit-over-its-tier-is-held-and-split/10",
+      "a-unit-over-its-tier-is-held-and-split/13",
+      "a-unit-over-its-tier-is-held-and-split/14",
+      "a-unit-over-its-tier-is-held-and-split/2",
+      "a-unit-over-its-tier-is-held-and-split/4",
+      "a-unit-over-its-tier-is-held-and-split/6",
+      "a-unit-over-its-tier-is-held-and-split/8"
+    ],
+    "at": "2026-10-24T18:56:38+00:00"
+  },
+  "tests-are-stubbed-checked-and-committed-per-group": {
+    "change": "tests-are-stubbed-checked-and-committed-per-group",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "tests-are-stubbed-checked-and-committed-per-group/10",
+      "tests-are-stubbed-checked-and-committed-per-group/11",
+      "tests-are-stubbed-checked-and-committed-per-group/12",
+      "tests-are-stubbed-checked-and-committed-per-group/3",
+      "tests-are-stubbed-checked-and-committed-per-group/5",
+      "tests-are-stubbed-checked-and-committed-per-group/7"
+    ],
+    "at": "2026-10-24T18:56:42+00:00"
+  },
+  "review-by-tier-is-always-on": {
+    "change": "review-by-tier-is-always-on",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "review-by-tier-is-always-on/2",
+      "review-by-tier-is-always-on/4",
+      "review-by-tier-is-always-on/5"
+    ],
+    "at": "2026-10-25T02:48:16+00:00"
+  },
+  "a-split-moves-the-units-of-archived-changes": {
+    "change": "a-split-moves-the-units-of-archived-changes",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "a-split-moves-the-units-of-archived-changes/1",
+      "a-split-moves-the-units-of-archived-changes/3"
+    ],
+    "at": "2026-10-25T23:26:55+00:00"
+  },
+  "a-split-drops-merged-edges-into-a-kept-mixed-change": {
+    "change": "a-split-drops-merged-edges-into-a-kept-mixed-change",
+    "passed": true,
+    "detail": "",
+    "deployed": [],
+    "units": [
+      "a-split-drops-merged-edges-into-a-kept-mixed-change/1",
+      "a-split-drops-merged-edges-into-a-kept-mixed-change/2"
+    ],
+    "at": "2026-10-26T02:03:33+00:00"
+  }
+}

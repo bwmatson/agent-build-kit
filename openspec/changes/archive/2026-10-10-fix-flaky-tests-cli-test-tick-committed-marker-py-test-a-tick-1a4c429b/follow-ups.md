@@ -1,0 +1,5 @@
+## From `fix-flaky-tests-cli-test-tick-committed-marker-py-test-a-tick-1a4c429b/1`
+
+- In tests/cli/test_tick_committed_marker.py, the `usage_reads` fixture calls through to the real usage reader and judge after recording. It should record and then refuse, so a regression is reported by the `usage_reads == []` assertion rather than by a real host usage read.
+- Root cause, for the planning repo: the delivery's real runner gets its usage decision from `wiring._guard_decision`, which defaults to `wiring.decide_start`. Any tick test that builds the real runner but patches only `cli.current_usage`/`cli.may_start_unit` reaches the real guard. Consider a conftest-level default stub for `wiring.decide_start` (as `pipeline_cli.current_usage` already has, around tests/conftest.py:206) so the next such test cannot inherit this flake.
+- tests/cli/test_tick_committed_marker.py:70 — The `usage_reads` recorders log the reach and then call the real `current_usage`/`may_start_unit`. If the delivery ever reaches the guard again, the test makes a real live/cached usage read before its assertion runs. That is exactly the host dependence the docstring says no tick test may have.

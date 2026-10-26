@@ -1,0 +1,5 @@
+## From `forge-http-transport/1`
+
+- src/agent_build_kit/cli/doctor.py:94 — `_github_account` re-raises every TransportError with "(credential from <source>)" appended. AuthError, NotFound and the 4xx TransportError already say "with the credential for <owner> from <source>", so a doctor FAIL from those names the source twice. Add the suffix only to the RateLimited and HostError messages, or move the identity into those messages in transport.py and drop the suffix in doctor. This is already recorded in the change's follow-ups.md.
+- tests/cli/test_doctor.py — no test covers a 200 `GET /user` answer whose JSON has no `login`. Add one that asserts `checks['forge app'].status == 'FAIL'` and that the detail names the credential source, rather than a crash. This is already recorded in follow-ups.md.
+- `GitHub.check_access` and `tracks/runner.py` still look up a token with `gh auth token --user` directly. They should resolve it through `credential_for`/`credential_source` so they honour GH_TOKEN the way doctor now does, and docs/code-forges.md should be updated to match. This is deferred to the next forge unit in follow-ups.md.

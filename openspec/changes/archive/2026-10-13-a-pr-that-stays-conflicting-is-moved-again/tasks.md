@@ -1,0 +1,35 @@
+# Tasks
+
+Acceptance: none — the whole change is polling decisions, stored counters and a stack move run against a fake forge, a fake clock, a real temporary git repository and a fake resolver; no consumer drives anything it builds, and tier-1 tests prove each scenario.
+
+Priority: 2
+
+## 1. [agent-build-kit] [tier1] The poller offers a conflict that persists after the unit's own push, and says how fresh its answer is
+
+Done when the snapshot records the time of the poll that read each definite mergeable answer and when the conflict began, an undetermined answer keeps both, a poll that reads a definite conflicting answer after the unit's own push offers a conflict event without a transition (and offers it again next poll while it is not taken), an answer read before the push or an undetermined one offers nothing, and the transition and first-sight dispatches send the conflict rework as before. Estimate: about 280 changed lines.
+
+- [x] 1.1 Test: in `tests/pipeline/test_pr_poller_mergeable_at.py`, the snapshot records the time of the poll that read a definite answer; an undetermined answer keeps the last definite value and its time; a snapshot recorded before this field has no time and is never read as fresh; a definite `true` clears the conflict's start and a definite `false` after it starts a new one.
+- [x] 1.2 Test: in `tests/pipeline/test_pr_poller_persistent_conflict.py`, a poll finding `false` read after the unit's push dispatches a conflict event with no transition (the recorded answer already `false`); one read before the push, an undetermined one after it, and a PR whose unit is not in review dispatch nothing; the transition and first-sight dispatches still send the conflict rework with the same reason and kind; a poll that finds the event not taken records it again next poll.
+- [x] 1.3 Add `mergeable_at` and `conflict_since` to the snapshot and carry them through an undetermined answer in `pipeline/pr_poller.py`.
+- [x] 1.4 Add the conflict dispatch to `_dispatch_changes`/`poll` for a fresh definite conflicting answer that is not a transition, offered to a conflict event hook that nothing yet binds (so it is not taken and is offered again), with the transition and first-sight dispatches unchanged.
+
+## 2. [agent-build-kit] [tier1] A conflicting unit's first attempt is the stack move, any other is the conflict rework, and no head and base tip is attempted twice
+
+Done when a conflict event starts an attempt recorded against the pushed head and base tip, the same head and base tip is never attempted twice, a new base tip starts the count at zero, a trunk-based unit's first attempt is the stack move and any other is the conflict rework, the transition and first-sight paths go through the same record, and a usage pause and a busy branch defer an attempt without counting it. Estimate: about 340 changed lines.
+
+- [x] 2.1 Test: in `tests/pipeline/test_events_conflict.py`, over a fake store and a fake base tip: the same pushed head and base tip is not attempted twice; a new base tip starts the count at zero; a new pushed head at the same tip is the next attempt; a definite `true` read after an attempt starts the next episode at zero; the transition and first-sight dispatches record their attempt the same way.
+- [x] 2.2 Test: in `tests/pipeline/test_events_conflict_restack.py`, a trunk-based unit's first attempt calls the stack move with its recorded base as the old base and the trunk tip as the new one; a clean move of an approved head is pushed and stays in review; a resolved move or a changed diff leaves it planned for review as the merge handler does; a move that cannot be settled, a second attempt at the same tip, a stacked unit and a unit with a thread that cannot take the event go to the conflict rework; a held branch lock leaves the event for the next poll and records no attempt.
+- [x] 2.3 Test: in `tests/pipeline/test_events_conflict_usage.py`, under a pause in force a clean move proceeds and a move that needs the resolver is deferred without counting as an attempt, and the next poll after the pause tries it again; the rework path under a pause requeues the unit and the pass's own guard decides, as for any rework.
+- [x] 2.4 Add `conflict_tip`, `conflict_head`, `conflict_attempts` and `conflict_at` to `StoredUnit` with a store method that records an attempt and one that clears the count, and route the transition and first-sight dispatches through the same attempt record.
+- [x] 2.5 Add `on_conflict` to `pipeline/events.py` beside `on_rework`: the decision of the tests above, the stack move for a trunk-based first attempt through the existing `restack` callable, the conflict rework otherwise, and the claim, pause and `BranchBusy` handling; bind it in `build_stack_moves` in `cli/pipeline.py`.
+
+## 3. [agent-build-kit] [tier1] A conflict that survives its attempts holds the unit with a reason, and `abk status` says what a conflicting unit waits for
+
+Done when the `max_review_rounds`-th attempt that leaves the conflict standing and an attempt that changed nothing each hold the unit with a reason, no third dispatch follows a no-change attempt, `abk status` and the documents say what a conflicting unit waits for, and an entry with no conflict data prints as before. Estimate: about 300 changed lines.
+
+- [x] 3.1 Test: in `tests/pipeline/test_events_conflict_bound.py`, over a fake store and a fake base tip: the `max_review_rounds`-th attempt that leaves the conflict standing holds the unit with `held_by` the review loop and a note naming the base and the count; an attempt that left the head unchanged and a conflict read after it holds the unit at once.
+- [x] 3.2 Test: in `tests/pipeline/test_conflict_no_change.py`, a conflict rework whose run ends with the head unchanged and whose conflict the host still reports (read after the run) is not marked resolved, holds the unit with the reason "changed nothing", and no third dispatch follows; with `mergeable` recorded `false` since before the rework the outcome is the same.
+- [x] 3.3 Test: in `tests/cli/test_status_conflicting.py`, a unit in review with a conflicting answer prints `conflicts with <base> since <time>; moved N times` and what it waits for (the next poll, a busy branch, a usage pause, nothing more to try with the hold's reason); a unit never moved prints `moved 0 times`; an undetermined or mergeable one prints the line it printed before; the `cannot be merged` mark of an entry with no conflict data is unchanged.
+- [x] 3.4 Add the bound and the hold with its reason to `on_conflict` in `pipeline/events.py`, and the check after a conflict rework that the head changed and the conflict is gone.
+- [x] 3.5 Print the status line from `cmd_status` in `cli/pipeline.py`, reading the snapshot and the unit, beside the existing `cannot be merged` mark.
+- [x] 3.6 Update `docs/architecture.md` (the poller's events and the review state), `docs/unit-graph.md` (the conflict row), `docs/cli.md` (the status line), the `abk-pipeline` skill's paragraph on why a unit stays in review, and add one bullet under `## Unreleased` in `CHANGELOG.md` as `AGENTS.md`'s Changelog section says.

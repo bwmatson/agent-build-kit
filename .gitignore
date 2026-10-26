@@ -10,3 +10,16 @@ dist/
 
 # The built web UI (npm run build in web/).
 src/agent_build_kit/serve/static/
+# abk:planning v1
+runs/*.lock
+runs/locks/
+runs/unit-logs/
+runs/usage-ledger.jsonl
+runs/decisions.jsonl
+runs/usage-calls.jsonl
+*.pre-redact
+# /abk:planning
+
+# This installation's machine facts and private words.
+abk.local.yaml
+scrub.local

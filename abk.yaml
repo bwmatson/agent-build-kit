@@ -1,0 +1,102 @@
+# This repository is also its own planning repo: the repos the pipeline works on, how each builds,
+# tests and deploys. Read by `abk` (agent-build-kit); `abk config --show` prints it with defaults
+# filled, `abk doctor` reports what is missing or stale. Facts about one machine or one
+# installation's stack are in the ignored `.env` and `abk.local.yaml`, never here.
+version: 1
+
+planning:
+  state_dir: runs
+  specs_dir: openspec
+  graph_page: docs/unit_graph.md
+  self_pull: true
+
+git:
+  push_host: ""
+  branch_prefix: spec/
+
+runtimes:
+  claude_code:
+    command: [claude]
+
+global_limits:
+  e2e_schedule: "off"                # no scheduled e2e run until the acp split can run; set to weekly after
+  stack_depth_build_cap: 2
+  min_unit_lines: 600
+  max_review_rounds: 3
+  max_plan_attempts: 3
+  generated_files: [uv.lock]         # lock files are left out of a unit's size
+
+review:
+  ceilings:
+    full: 750
+    light: 2400
+    auto: 6000
+  classes:                           # first match wins; a unit is in a class only if every file it touches matches
+    tests: ["tests/**", "**/tests/**", "**/test_*.py"]
+    docs: ["**/*.md", "docs/**"]
+
+builders:
+  stubbed_tdd_commits: true          # on by default; false is the rollback
+
+environment:                         # the pipeline's own environment: synced and checked before ticks
+  sync: [uv, sync]
+  check: [sh, -c, "uv lock --check && uv sync --check && uv run --no-sync python -c 'import agent_build_kit'"]
+  inputs:
+    dependencies: [pyproject.toml]
+    lock: [uv.lock]
+
+tracks:
+  model: sonnet
+  propose_max_issues: 3
+  raw_output_dir: .last-runs
+
+repos:
+  agent-build-kit:
+    path: .
+    slug: bwmatson/agent-build-kit
+    default_branch: main
+    profile: python-uv
+    description: The framework this repository's pipeline runs on.
+    languages: [python, javascript, typescript]
+    consumes: []
+    projects:
+      - path: .
+        languages: [python]
+      - path: web
+        languages: [javascript, typescript]
+        profile: node-npm
+    review:
+      protected_paths:
+        - src/agent_build_kit/pipeline/landing*.py
+        - src/agent_build_kit/pipeline/command_policy.py
+        - src/agent_build_kit/pipeline/config_guard.py
+        - src/agent_build_kit/runtimes/*policy*.py
+    environment:                     # kept current in each unit's worktree
+      sync: [uv, sync]
+      check: [uv, run, --no-sync, python, -c, "pass"]
+      inputs:
+        dependencies: [pyproject.toml]
+        lock: [uv.lock]
+    tests:
+      e2e_splits:                    # the live tests are split by the runtime they drive
+        claude_code:
+          marker: runtime_claude_code
+        acp:
+          marker: runtime_acp
+          hold: true
+    dev_stack: null
+    deploy:
+      rules:
+        - prefix: web/
+          run: []
+
+verify:
+  stack_versions_command: [docker, ps, --format, "{{.Names}}\t{{.Image}}"]
+  env:                               # what the live-stack tests get; each value is in the ignored .env
+    ABK_ACCEPTANCE_ACP_COMMAND: {from: env-file, file: .env, key: ABK_ACCEPTANCE_ACP_COMMAND}
+    ABK_ACCEPTANCE_TRACES_ENDPOINT: {from: env-file, file: .env, key: ABK_ACCEPTANCE_TRACES_ENDPOINT}
+    ABK_ACCEPTANCE_METRICS_ENDPOINT: {from: env-file, file: .env, key: ABK_ACCEPTANCE_METRICS_ENDPOINT}
+    ABK_ACCEPTANCE_TRACES_URL: {from: env-file, file: .env, key: ABK_ACCEPTANCE_TRACES_URL}
+    ABK_ACCEPTANCE_METRICS_URL: {from: env-file, file: .env, key: ABK_ACCEPTANCE_METRICS_URL}
+    ABK_ACCEPTANCE_AGENT_HOME_VAR: {from: env-file, file: .env, key: ABK_ACCEPTANCE_AGENT_HOME_VAR}
+    ABK_ACCEPTANCE_AGENT_HOME_FILES: {from: env-file, file: .env, key: ABK_ACCEPTANCE_AGENT_HOME_FILES}

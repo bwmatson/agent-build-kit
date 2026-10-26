@@ -1,0 +1,35 @@
+# Tasks
+
+Acceptance: none — every behaviour here is a row written to the ledger, a grouping of rows in the report or a guard over the source, and tier-1 tests with fixture results and fixture ledgers prove each one.
+
+Priority: 2
+
+## 1. [agent-build-kit] [tier1] The recording helper, the restack node and the guard
+
+Done when a call outside the unit graph can be recorded by one helper that the unit steps use too, the conflict resolver writes one `restack` row per call with the unit being moved, the reader keeps each such row as its own call, a blank unit is never counted as a unit, and a guard test fails on a call that records nothing with every not-yet-converted site on its allowlist. This is the group that provides the `restack` node.
+
+- [x] 1.1 Test: `tests/pipeline/test_call_record.py` records a result with tokens and cost for a call with no unit and gets one row with node `plan`, blank unit, change and repo as given, role `generic`, the reported figures, source `reported` and outcome `ok`; a failed result gives outcome `failed` with its figures; a result with no usage gives absent figures, source `none`, and never zero.
+- [x] 1.2 Test: the same `AgentResult`s from a unit's `implement`, `review` and `fix_checks` steps recorded through the helper give rows equal to the ones the unit node wrote before it, including a resumed call's derived cost, a gateway source's exact figures and a session cost that fell; a row from the helper passes through `append_record` with `unit` and `node` as written and a secret in `outcome` withheld.
+- [x] 1.3 Test: `tests/pipeline/test_usage_ledger.py` reads two `restack` rows of one unit, one in a session the other started, as two records whose spend sums; reads two `plan` rows and three `chat` rows of one session with no unit as five records; still replaces a re-run `implement` row and adds a resumed one; and reads a ledger written before this change unchanged.
+- [x] 1.4 Test: `tests/pipeline/test_usage_estimate.py` counts a unit with a row since a reading and not the blank unit, and the calibration's units in a gap skip a blank unit the same way.
+- [x] 1.5 Test: `tests/pipeline/test_restack_conflicts.py` runs a conflicting restack with a fake runtime and finds one `restack` row naming the unit being moved with the resolver's model, tokens, cost and duration; a second conflict for the unit gives a second row; a clean restack gives none; a resolver refused for the usage limit has written its `failed` row before the refusal is raised and the branch is put back as today.
+- [x] 1.6 Test: `tests/test_agent_call_guard.py` over fixture trees finds an `AgentRequest(` with neither callback and reports its file and line; fails a request that sets only `on_record`; passes one built through the helper or setting `on_result`; passes an allowlisted site; fails a stale entry whose site records or is gone; leaves `subprocess.run` and `asyncio.run` alone; finds `claude` run through `subprocess` with `-p` outside the login refresh; and fails a node name outside `OverheadNode`.
+- [x] 1.7 Test: `tests/test_agent_call_guard.py` over the real `src/` passes with the allowlist holding exactly planner, track phases, init research, init proposal, the policy probe, the login refresh, chat and the attach flow, each with a reason that names the later group, and fails if a site not on it records nothing.
+- [x] 1.8 Implement `OverheadNode` in `pipeline/vocabulary.py`, `pipeline/call_record.py` (`call_recorder`, `recorded`, the cost derivation moved out of `graph/nodes.py`), the unit node's recorder calling it, the reader's rule for a node outside the unit graph's call nodes, and the blank-unit skip in the estimate and the calibration.
+- [x] 1.9 Pass the unit being moved to the resolver from `move_branch_onto`, record the resolver's call under node `restack` through the helper in `claude_resolver`, and add `tests/agent_call_sites.py`, `tests/test_agent_call_guard.py` and its allowlist.
+- [x] 1.10 Update `docs/architecture.md` (the ledger's nodes and what a blank unit means), the `abk-pipeline` skill, and add a changelog entry that says the conflict resolver's cost is now in the ledger under `restack`.
+
+## 2. [agent-build-kit] [tier1] Record the remaining calls and show the overhead
+
+Done when the planner, the track runs, init's research and proposal, the policy probe, the login refresh and chat each write their rows, `abk report` and the usage page show a `pipeline overhead` line per node, and the guard's allowlist is empty.
+
+- [x] 2.1 Test: `tests/pipeline/test_planner_runtime.py` finds one `plan` row per `plan_round` with the change planned and no unit; `tests/tracks/` finds one `track_<phase>` row per phase, with the project as repo and `track_propose` carrying the change it writes, and a failed phase's row with outcome `failed`.
+- [x] 2.2 Test: `tests/init/test_research.py` finds one `init_research` row and `tests/init/test_propose.py` one `init_propose` row per attempt, two when the proposal is repaired.
+- [x] 2.3 Test: `tests/runtimes/test_acp_probe.py` finds one `policy_probe` row after the probe, written although the probe drives the agent directly; `tests/runtimes/` finds one `login_refresh` row with source `none`, no tokens or cost, a duration and an outcome from the exit status.
+- [x] 2.4 Test: `tests/serve/` finds one `chat` row per turn of a session attached to a unit, with its unit, change and repository; a second turn's row holds the turn's own incremental cost; a session with no unit has a blank unit; the attach flow's fix turn writes `chat_commit`; the transcript and the streamed events are as before.
+- [x] 2.5 Test: `tests/pipeline/test_usage_report.py` over a fixture ledger with `plan`, `track_health` and `implement` rows shows a `pipeline overhead` section with one line per node in the report by unit, sums every grouping to the same total, shows a `restack` row on its unit and on its node and not in the overhead, and leaves the waits report's causes summing to the wall time; `tests/serve/` shows the same line on the usage page.
+- [x] 2.6 Test: archiving a change whose ledger holds rows with no change leaves those rows as they are and the report's totals unchanged.
+- [x] 2.7 Test: a call made at each site of the audit writes exactly one row with its node name, over the Claude and the ACP runtime; `tests/test_agent_call_guard.py` passes over the real `src/` with an empty allowlist.
+- [x] 2.8 Implement the recording at the planner, the track runs, init's research and proposal, the policy probe (after `_drive`), the login refresh and chat, each through the helper with the fields in the design's table, and remove the allowlist's entries.
+- [x] 2.9 Implement the `pipeline overhead` section in `usage_report.py` and the usage page.
+- [x] 2.10 Update `docs/architecture.md` (the node table and the report), `docs/cli.md` (`abk report`), the `abk-pipeline` skill, and add a changelog entry that says planning, track runs, init, the policy probe and chat now show in the report and the usage page as pipeline overhead.

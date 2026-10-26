@@ -1,0 +1,4 @@
+## From `resume-over-leftovers/1`
+
+- A requeue on a tree that is still dirty now parks again inside the held node (the `self.tree()` read the head fix added to `on_event`), not at the resumed node. The behaviour is safe: the parked node is kept and nothing is touched. Add a test that pins it: requeue without cleaning, then assert the unit is held with `DIRTY_WORKTREE`, the file is untouched, and a later clean plus requeue runs the parked node.
+- src/agent_build_kit/graph/nodes.py:1384 — Reading the head through `self.tree()` in `on_event` moved where a requeue on a still-dirty tree parks. It used to park at the resumed node. It now parks inside the held node: `worktree()` raises `DirtyWorktree`, `_wrapped` catches it and keeps `parked_node` because `state.held` is still set. No test covers a requeue without a clean.

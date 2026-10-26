@@ -1,0 +1,5 @@
+## From `environment-sync-leaves-no-leftovers/1`
+
+- tests/runner_fakes.py and the other commit fakes now accept `base=` but never record it, so no test fails if a graph node in `graph/nodes.py` (lines 968, 1085, 1115, 1210, 1366, 1414) stops passing `base=self.ref(state)`. The commit step would then fall back to the trunk base, which is the stacked-unit bug from round 1. The fake could record the `base` it receives, and one node test could assert that the value equals the unit's `local_ref(state.base)`.
+- `attach.adopt` now passes the unit's base from `base_of(...)`. The new adopt test only covers an untracked lock, and that rule does not depend on the base. A second adopt test could cover a tracked lock that was rewritten with no manifest change, and assert that the lock is restored and left out of the adopted commit. That test would pin the base that adopt resolves.
+- docs/architecture.md still says `abk attach release --commit MESSAGE` 'commits every change'. A short qualifier there, such as 'every change except the environment's lock files, as above', would keep it in line with the new lock paragraph.

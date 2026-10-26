@@ -1,0 +1,4 @@
+## From `fix-flaky-tests-replay-test-replay-proxy-edges-py-test-an-ups-8fa56e03/1`
+
+- The unreachable-port helpers in tests/test_telemetry.py (closed_port), tests/fake_gateway.py (unreachable_url) and tests/integration/test_telemetry_stack.py (closed_endpoint) close the socket before the URL is used, which is the same race fixed here. They should hold the port bound for as long as the URL is in use, ideally through one shared helper like tests/replay/support.py:refused_url.
+- tests/test_telemetry.py:127 — The same close-then-reuse race this unit fixes is still in three other places. Each binds an ephemeral port, closes the socket and hands out the URL, so another test running in parallel can take the port before it is used: the `closed_port` fixture in tests/test_telemetry.py:125-130, `unreachable_url()` in tests/fake_gateway.py:177-182, and `closed_endpoint()` in tests/integration/test_telemetry_stack.py:96-101.

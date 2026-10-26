@@ -1,0 +1,3 @@
+## From `ci-fetches-openspec-once/1`
+
+- The planning repo's design.md for ci-fetches-openspec-once still has an UNVERIFIED note at line 99 about the time limit. The builder could not edit it (BLOCKED). The code now does exactly what that note prescribes: `probe` passes the runner `subprocess.run` with `timeout=PROBE_TIMEOUT` (45 s, under `DEFAULT_TEST_TIME_LIMIT` of 60), and a stall fails with MESSAGE and status 'timeout'. So the design is not wrong, only unconfirmed. A person can replace the note with that statement. The same goes for recording that the `abk check` tests run `require(openspec.validate(inst.root))` before `cmd_check`, and that the init test runs `require(openspec.run(['init', '--help']))` before `abk init`.

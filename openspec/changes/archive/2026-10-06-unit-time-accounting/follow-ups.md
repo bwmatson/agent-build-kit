@@ -1,0 +1,10 @@
+## From `unit-time-accounting/1`
+
+- Restack-time tier 1 spans (node `restack`, set in events.build_restack) have no test and are not documented in the Spans section of docs/architecture.md.
+- The tier 1 run-log line now says `passed` for a tolerated non-zero exit (it used to require exit 0). Add a changelog note, and pin it together with the span's `ok` outcome in the follow-up test already listed in follow-ups.md.
+- Add a direct read_ledger test showing that span lines and non-object JSON lines are skipped. Today only the graph-level implement-session assertion covers it, indirectly.
+- Add a test that a usage pause refused across two ticks is recorded once, measured from the first interrupt.
+- src/agent_build_kit/pipeline/events.py:1439 — build_restack now sets spans.current_unit to (child.id, child.change, "restack", 0) around its tier 1 run, so the command spans it writes carry the child unit and node "restack". No test covers this, and docs/architecture.md's Spans table does not list "restack" as a node value a command span can carry.
+- src/agent_build_kit/pipeline/wiring.py:660 — The existing run-log line for a tier 1 command now says "passed" when the toolchain tolerates the exit code. Before, it said "passed" only for return code 0. This user-visible change is not in the changelog, and no test pins either the log line or the span outcome for a tolerated non-zero exit (follow-ups.md already records the span half).
+- src/agent_build_kit/pipeline/usage_ledger.py:160 — read_ledger skipping non-agent lines is tested only indirectly, through the implement-session assertion in tests/graph/test_usage_ledger_records.py. No test in tests/pipeline/test_usage_ledger.py writes a `kind: span` line, or a non-object JSON line such as `[1]` (the new AttributeError branch), and asserts that read_ledger returns only the agent records.
+- tests/graph/test_span_records.py:87 — The usage-pause test covers one refusal followed by an allowed resume. Nothing covers a resume the guard refuses again, where gate re-interrupts with `self.paused_since.at` and should keep the original start rather than restart the clock.

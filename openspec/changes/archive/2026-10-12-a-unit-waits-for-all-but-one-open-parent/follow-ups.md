@@ -1,0 +1,4 @@
+## From `a-unit-waits-for-all-but-one-open-parent/1`
+
+- For the PR, so a person can correct the spec: (a) the spec's scenario 'a sibling is closed → the unit is ready' is not met. A closed same-repo parent still holds its dependent through `waiting_on`, as any closed dependency always has. (b) The spec's second warning shape, an `Independent:` group followed by a later group of its repo, never produces two open parents under how `plan_units` chains groups (units.py `depends_on = (tail,)`).
+- src/agent_build_kit/pipeline/work_graph.py:594 — The warning for the shape "an `Independent:` group followed by a later group of its repo" is still a false positive. `plan_units` gives the group after an independent one a single parent, but `_group_parents` gives it two. The builder left this alone on purpose until the spec is settled.

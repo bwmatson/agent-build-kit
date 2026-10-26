@@ -1,0 +1,7 @@
+## From `gateway-usage-attribution/1`
+
+- A person with access to the gateway in use should record one real /spend/logs row and use it to replace the modelled row in tests/fake_gateway.py. While there, they should confirm the batching behaviour and the shape of the cache breakdown (round 1, 1.1).
+- tests/graph/test_gateway_usage.py fixture: set gateway_quiet_seconds below gateway_settle_seconds, so the happy path returns through the quiet window and not the 'may be incomplete' bound. Then assert the successful-run test logs no gateway line.
+- Stop gateway_quiet_seconds from being >= gateway_settle_seconds, either by validating, clamping, or documenting it. Otherwise every run waits the full bound and falsely says its totals may be incomplete.
+- tests/graph/test_gateway_usage.py:81 — The graph fixture lowers gateway_settle_seconds to 0.1 but leaves gateway_quiet_seconds at its default of 10. Every successful graph-level run therefore reaches the settle bound before the quiet window ends, goes down the 'still arriving … may be incomplete' path, and logs a false warning. No graph test checks the log in the success case, so nobody sees it.
+- src/agent_build_kit/pipeline/gateway_usage.py:120 — Nothing stops quiet_seconds from being set at or above settle_seconds. An installation that sets ABK_GATEWAY_SETTLE_SECONDS below 10 and leaves the quiet window at its default makes every run wait the full bound and say its totals 'may be incomplete', even when the rows were stable from the first read.

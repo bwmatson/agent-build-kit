@@ -1,0 +1,22 @@
+# Tasks
+
+Acceptance: none — a scheduler rule and a warning over a unit graph and a tasks file; tier-1 tests prove each case and nothing a consumer drives changes.
+
+Priority: 2
+
+## 1. [agent-build-kit] [tier1] A unit waits for all but one unrelated open parent
+
+Done when a never-started unit with two or more unrelated open same-repo parents waits for all but one of them, with a chain, a diamond, a satisfied parent and a cross-repo parent behaving as stated, the base is the descendant of a chain and the deepest of siblings, a started unit is untouched, the status and the graph say why it waits, and `abk tags` and `abk check` warn about the shapes that produce it. Estimate: about 420 changed lines.
+
+- [x] 1.1 Test: two sibling parents in review (neither depends on the other) leave a never-started child not ready, `waiting_on` names the one that is not the base (the shallower parent; for equal depth the earlier in plan order), and `ready_units` does not start it; with a third sibling in review it names two.
+- [x] 1.2 Test: when one sibling merges (and again when it is closed, or satisfied and landed) the child is ready and `base_of` is the branch of the other; when a sibling is sent back for rework the child waits for it as any dependency, with no extra entry.
+- [x] 1.3 Test: a chain (parent B depends on parent A, the child depends on A and B) leaves the child ready with base B, whichever order `depends_on` lists A and B in; a chain through a unit between them, and a chain through a satisfied unit, behave the same.
+- [x] 1.4 Test: a diamond (the child depends on two siblings S1 and S2 of one root R, all three in review) behaves as the sibling case, with R never named; with R merged it is the same.
+- [x] 1.5 Test: a satisfied parent is looked through (the child depends on a satisfied unit built on in-review P and on in-review Q, unrelated: it waits as for two siblings; with the satisfied unit built on Q, one open parent, ready); a cross-repo parent in review still waits for a merge and is never named as a second open parent, and a unit with one same-repo open parent and a cross-repo one waits only as today.
+- [x] 1.6 Test: a started unit (a recorded branch, or a pull request, or planned again for rework) with two unrelated open parents has the `waiting_on` it had before, is not blocked, does not change `in_progress` or `uncounted`, and keeps its `base_of`; a second parent added to a started unit by a replan changes nothing for it.
+- [x] 1.7 Test: a unit that waits for a second open parent is `blocked`, is listed by the status as `waiting for <parent> to merge (second open parent)` and by the ready-queue reason, and drawn as blocked in the graph; once the wait ends it is ready with no stored state changed; nothing is written to the store by waiting.
+- [x] 1.8 Test: `abk tags <change>`, `abk tags --all` and `abk check` print one warning per group, naming the group and the shape, for an `[acceptance]` or `[narrow]` group after an `Independent:` group in the same repo, for an `Independent:` group followed by a later group of its repo, and for a `Needs:` to another change's same-repo group beside a same-repo predecessor; each exits as before (zero when clean); a plain chain, groups in different repos, and an independent group in another repo are silent; the plan the planner returns and the planner prompt are unchanged.
+- [x] 1.9 Add `open_parents`, `unrelated_open_parents` and a reachability walk (with a `seen` set) to `pipeline/units.py`, choose the base in `base_of` as the maximal parent (greatest `depth_of`, then later in plan order) and have `waiting_on` add the other unrelated parents for a unit that has not started.
+- [x] 1.10 Show the wait: add "waiting for <parent> to merge (second open parent)" to the status, the ready-queue reason and the graph label at the places that format a wait on a unit today, leaving the other reasons as they are.
+- [x] 1.11 Add the group-graph check to `abk tags` and `abk check` as warnings printed like the other tag warnings and not counted as problems; build the group edges from the heading order, `Independent:`, the flags and `Needs:` lines, same repo only.
+- [x] 1.12 Update `docs/unit-graph.md` ("Open parents"), the scheduling paragraph of `docs/architecture.md`, the `abk tags` entry of `docs/cli.md`, the `abk-pipeline` and `abk-authoring` skills, and add one bullet under `## Unreleased` as `AGENTS.md`'s Changelog section says.

@@ -1,0 +1,3 @@
+## From `fix-flaky-tests-pipeline-test-moved-base-run-stored-py-test-a-e0297380/1`
+
+- The idle-branch probe in pipeline/events.py (`_remove_branch_if_idle`, through the injected `claim`/`build_claim`) still checks by taking the lock. That leaves a narrower version of the same window: a build starting at that moment can be turned away. The builder declined to change it here because the fix means threading the lock root through that function and its callers and rewriting the fakes that raise `BranchBusy`. A unit skipped there is only delayed to the next pass. Write it up as its own change in the planning repo.
