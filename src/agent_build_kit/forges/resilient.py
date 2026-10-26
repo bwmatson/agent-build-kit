@@ -90,6 +90,9 @@ class ResilientForge:
         # For a create: its transient failure, while the declared read is asked
         # whether it landed.
         unconfirmed: TransportError | None = None
+        if spec.kind == "claim":
+            # A claim says whether the caller won; repeating it could report a win it did not make.
+            return getattr(self._inner, name)(*args, **kwargs)
         while True:
             try:
                 if unconfirmed is None:
@@ -174,7 +177,9 @@ class ResilientForge:
         return False
 
 
-def _operation(name: str) -> Callable[..., Any]:
+def delegating(name: str) -> Callable[..., Any]:
+    """A method that runs the inner operation `name` through the retry rules."""
+
     def call(self: ResilientForge, *args: Any, **kwargs: Any) -> Any:
         return self._invoke(name, args, kwargs)
 
@@ -183,4 +188,4 @@ def _operation(name: str) -> Callable[..., Any]:
 
 
 for _name in OPERATIONS:
-    setattr(ResilientForge, _name, _operation(_name))
+    setattr(ResilientForge, _name, delegating(_name))
