@@ -76,7 +76,7 @@ def test_a_status_the_reader_does_not_know_keeps_its_groups_blocked(tmp_path: Pa
         "  - scope: [2]\n"
         "    holder: Sam Example\n"
         "    link: https://boards.example/items/42\n"
-        "    since: 2026-10-26T09:30:00Z\n"
+        f"    since: {SINCE.isoformat()}\n"
         "    status: handed_over\n"
     )
 
