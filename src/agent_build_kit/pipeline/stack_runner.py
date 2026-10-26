@@ -1663,6 +1663,9 @@ class UnitRunner(BaseModel):
     # For the adapt step: put the branch on a new base keeping the old work
     # under a ref, and list the tests the worktree has.
     reset_to: Callable[[Path, str, str], None] = lambda tree, onto, keep: _no_reset()
+    # Fast-forwards a branch with no commits of its own onto a ref, giving the old and the new
+    # tip, or None when there is nothing to move. See `wiring.build_move_empty_branch`.
+    move_empty_branch: Callable[[Path, str], tuple[str, str] | None] = lambda tree, ref: None
     tests_in: Callable[[Path], set[str]] = lambda tree: set()
     # Tests whose content differs between the given ref — the adapt step's
     # old-work ref — and the tree, including one gone from a file it was in,

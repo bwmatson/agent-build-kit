@@ -83,7 +83,12 @@ from agent_build_kit.pipeline.outside_commits import outside_commits_note
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
 from agent_build_kit.pipeline.pr_replies import parse_answer
 from agent_build_kit.pipeline.product_defect import DefectRefused, read_product_defect
-from agent_build_kit.pipeline.restack import RESOLVER_TOOLS, BranchMoved, HostMoved
+from agent_build_kit.pipeline.restack import (
+    RESOLVER_TOOLS,
+    BranchMoved,
+    EmptyBranchBlocked,
+    HostMoved,
+)
 from agent_build_kit.pipeline.review_classes import class_of
 from agent_build_kit.pipeline.review_paths import is_protected
 from agent_build_kit.pipeline.run_log import RunLog
@@ -986,6 +991,16 @@ class BuildPath:
         if self.run_log and not self.runner.log_reaches_run_log:
             self.run_log.emit(line)
 
+    def append_feedback(self, why: str) -> None:
+        """Add `why` to the unit's saved feedback, keeping who it is from and its source."""
+        stored = self.runner.store.get(self.unit.id)
+        self.runner.store.set_feedback(
+            self.unit.id,
+            f"{stored.feedback}\n\n{why}".strip(),
+            from_person=stored.feedback_from_person,
+            source=stored.feedback_source,
+        )
+
     def stop(self, reason: str) -> Update:
         self.say(f"stopping: {reason}")
         return {"stopped": reason}
@@ -1083,6 +1098,22 @@ class BuildPath:
             self.say(f"scheduled run on {base}: straight to e2e-test")
             return {**FRESH, **remembered, "start": start, "e2e": True, "scheduled": True}
         existing = r.branch_commits(tree, ref)
+        if not existing:
+            # A branch with no commit of its own keeps the base its worktree was made on,
+            # however often it is requeued: put it on the current one before anything runs.
+            r.fetch_quietly(unit)
+            try:
+                moved = r.move_empty_branch(tree, ref)
+            except EmptyBranchBlocked as error:
+                files = ", ".join(error.files) or str(error)
+                why = (
+                    f"the worktree is on an old base and cannot be moved onto {base}: "
+                    f"uncommitted changes would be overwritten in {files}"
+                )
+                self.append_feedback(why)
+                return {**FRESH, **remembered, **self.stop(why)}
+            if moved:
+                self.say(f"moved the empty branch from {moved[0][:12]} to {moved[1][:12]} ({base})")
         if not existing and (parent := saved.split_from) and self.stubbed():
             self.reuse_superseded(parent, tree, ref)
             existing = r.branch_commits(tree, ref)
@@ -1119,13 +1150,7 @@ class BuildPath:
                 }
             except Exception as error:  # noqa: BLE001
                 why = f"restack onto {base} conflicted: {error}"
-                stored = r.store.get(unit.id)
-                r.store.set_feedback(
-                    unit.id,
-                    f"{stored.feedback}\n\n{why}".strip(),
-                    from_person=stored.feedback_from_person,
-                    source=stored.feedback_source,
-                )
+                self.append_feedback(why)
                 return {**FRESH, **remembered, **self.stop(why)}
             if restacked is not None:
                 if not restacked.conflict and saved.sent_back_for_conflict:
@@ -1315,13 +1340,7 @@ class BuildPath:
             outstanding = [n for n in required if any(f"`{n}`" in p for p in problems)]
             if outstanding:
                 why += "\n\noutstanding: " + ", ".join(f"`{n}`" for n in outstanding)
-            stored = r.store.get(unit.id)
-            r.store.set_feedback(
-                unit.id,
-                f"{stored.feedback}\n\n{why}".strip(),
-                from_person=stored.feedback_from_person,
-                source=stored.feedback_source,
-            )
+            self.append_feedback(why)
             return self.stop(why)
         r.store.set_predecessor_note(unit.id, self.port_note(restacked, required, decisions))
         counts = {k: sum(d.decision == k for d in decisions) for k in ("keep", "adapt", "retire")}

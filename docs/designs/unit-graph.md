@@ -351,6 +351,11 @@ restack in `prepare` settles a conflict with the resolver's two steps (node
 `restack`, in the build session). `verify_base` makes no agent call: a conflict
 it finds goes back to `prepare`, which settles it in the same run.
 
+A branch with no commits of its own has nothing to restack, so `prepare` fast-forwards it onto the
+current base before anything else runs and logs `moved the empty branch from <old> to <new> (<base>)`.
+The unit's own staged or unstaged changes are carried along. A move that would overwrite one of
+them stops the unit, with feedback that names the files and says the worktree is on an old base.
+
 The edges are the transitions the routers in `graph/` choose; their docstrings
 are the reference for each condition. The nodes:
 

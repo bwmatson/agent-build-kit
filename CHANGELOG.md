@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A unit that has made no commit now starts from the current base when it is resumed, reworked,
+  restarted or requeued at the end of a wait, instead of keeping the base its worktree was made
+  on. The run log says `moved the empty branch from <old> to <new> (<base>)`. Uncommitted changes
+  of the unit's own are kept; if the move would overwrite one, the unit stops with feedback naming
+  the files.
+
 - A unit that was put back and has not started again now waits for the dependencies it has. A
   `Needs:` line added to such a unit, for example after the pipeline requeued it, holds it until
   the group has merged instead of letting the next round start it. `abk replan` prints

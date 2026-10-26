@@ -294,6 +294,17 @@ def _abort(repo: Path, message: str, tried: str = "") -> RestackConflict:
     return RestackConflict(message, tried=tried)
 
 
+class EmptyBranchBlocked(RuntimeError):
+    """Moving a branch with no commits onto its base would overwrite uncommitted files.
+
+    Nothing was moved; `files` are the ones in the way.
+    """
+
+    def __init__(self, files: tuple[str, ...], detail: str) -> None:
+        super().__init__(detail)
+        self.files = files
+
+
 class BranchMoved(RuntimeError):
     """The branch was moved by another writer while its conflict was resolved.
 

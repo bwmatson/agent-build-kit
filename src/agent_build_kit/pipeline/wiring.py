@@ -125,6 +125,7 @@ from agent_build_kit.pipeline.product_defect import (
     wait_on_product_defect,
 )
 from agent_build_kit.pipeline.restack import (
+    EmptyBranchBlocked,
     HostMoved,
     Moved,
     Resolver,
@@ -3793,6 +3794,34 @@ def reset_to(tree: Path, onto: str, keep: str) -> None:
     git(tree, "reset", "--hard", "-q", onto)
 
 
+def build_move_empty_branch(
+    *, turn: Turn = nullcontext
+) -> Callable[[Path, str], tuple[str, str] | None]:
+    """Fast-forward a branch with no commits of its own onto `ref`, in the repo's turn.
+
+    Gives the old and the new tip, or None when the branch is already at `ref` or holds commits
+    of its own. Uncommitted changes of the unit's own are carried; a move that would overwrite
+    one is refused and moves nothing.
+    """
+
+    def move(tree: Path, ref: str) -> tuple[str, str] | None:
+        with turn():
+            old = git_out(tree, "rev-parse", "HEAD")
+            new = tip(tree, ref)
+            if not new or new == old or not is_ancestor(tree, old, new):
+                return None
+            moved = git(tree, "merge", "--ff-only", "-q", new, check=False)
+            if moved.returncode:
+                text = (moved.stderr or moved.stdout).strip()
+                files = tuple(
+                    line.strip() for line in text.splitlines() if line.startswith(("\t", " "))
+                )
+                raise EmptyBranchBlocked(files, text or f"git merge exited {moved.returncode}")
+        return old, new
+
+    return move
+
+
 def is_ancestor(tree: Path, base: str, of: str = "HEAD") -> bool:
     """Whether `of` holds `base`: the one read of 'this branch already has its base'."""
     return not git(tree, "merge-base", "--is-ancestor", base, of, check=False).returncode
@@ -4141,6 +4170,7 @@ def build_runner(
         base_tip=tip,
         branch_diff=branch_diff,
         restack_onto=build_restack_onto(store, repo=repo, turn=unit_repo_turn),
+        move_empty_branch=build_move_empty_branch(turn=unit_repo_turn),
         run_unit_test=build_unit_test(
             profile=profile,
             root_extras=repo.tests.root_extras,
