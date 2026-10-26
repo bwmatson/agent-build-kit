@@ -33,7 +33,7 @@ def test_a_unit_held_for_its_size_is_the_only_work_and_the_tick_splits_it(
 def test_a_unit_that_cannot_be_split_is_held_for_a_person_while_the_guard_refuses(
     tmp_path, monkeypatch
 ) -> None:
-    run = scene(tmp_path, monkeypatch, used=2)
+    run = scene(tmp_path, monkeypatch, used=2, unsplittable="hold")
     run.runtime.answer = reply(*correct())
     run.runtime.supports_usage_tracking = True
     isolate(monkeypatch)

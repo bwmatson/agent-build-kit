@@ -1251,6 +1251,10 @@ class UnitStore:
         """The split rounds the unit's lineage has used."""
         self._update(unit_id, split_rounds_used=used)
 
+    def set_unsplit_reason(self, unit_id: str, reason: str) -> None:
+        """Why a unit over its ceiling was sent on without a split."""
+        self._update(unit_id, unsplit_reason=reason)
+
     def set_size_waived(self, unit_id: str, waived: bool = True) -> None:
         """Record that a person let a unit held for its size go on; its size is not held again."""
         self._update(unit_id, size_waived=waived)

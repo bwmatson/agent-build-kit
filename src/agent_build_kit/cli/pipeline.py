@@ -2742,6 +2742,21 @@ def _hold_for_a_person(store: UnitStore, unit: StoredUnit, note: str) -> None:
     log(f"{unit.id}: {note}; held for a person")
 
 
+def _proceed_unsplit(inst: Installation, store: UnitStore, unit: StoredUnit, note: str) -> None:
+    """Send a unit over its ceiling that will not be split on, with its size waived as a
+    person's requeue waives it; with `review.unsplittable` at `hold` a person decides first."""
+    if config.active().review.unsplittable == "hold":
+        _hold_for_a_person(store, unit, note)
+        return
+    reason = note.removeprefix("too big for its tier, and ")
+    said = f"over its tier's ceiling and not split: {reason}"
+    store.set_size_waived(unit.id)
+    store.set_unsplit_reason(unit.id, reason)
+    store.set_state(unit.id, HELD, note=said, cause=Cause.RELEASED)
+    log(f"{unit.id}: {said}")
+    requeue(inst, unit.id, "resume", say=lambda text, error=False: log(text), because=said)
+
+
 def _cannot_split(unit: StoredUnit, units: Sequence[StoredUnit]) -> str:
     """Why a unit held for its size cannot be split, or an empty string when it can."""
     if len(unit.groups) <= 1:
@@ -2804,11 +2819,11 @@ def _split_one(
             if rounds == 0
             else f"split {unit.split_rounds_used} of {rounds} rounds used"
         )
-        _hold_for_a_person(store, unit, f"too big for its tier, and {used}")
+        _proceed_unsplit(inst, store, unit, f"too big for its tier, and {used}")
         return
     units = store.all()
     if why := _cannot_split(unit, units):
-        _hold_for_a_person(store, unit, why)
+        _proceed_unsplit(inst, store, unit, why)
         return
     if not may_plan:
         return
@@ -2851,7 +2866,7 @@ def _plan_and_supersede(
         store.set_split_rounds_used(unit.id, unit.split_rounds_used + 1)
         store.supersede(unit.id, plan.units)
     except GroupTooLarge as error:
-        _hold_for_a_person(store, unit, str(error))
+        _proceed_unsplit(inst, store, unit, str(error))
         return
     except Exception as error:  # noqa: BLE001
         if _plan_wait(inst, error, {}) is not None:

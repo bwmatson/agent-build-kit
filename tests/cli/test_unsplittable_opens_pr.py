@@ -62,7 +62,7 @@ def test_an_unsplittable_unit_is_sent_on_with_the_size_rule_waived(
 
     unit = run.store.get(HELD_ID)
     assert unit.state == PLANNED
-    assert unit.held_by is None
+    assert unit.held_by == HeldBy.NONE
     assert unit.size_waived
     assert REASONS[kind] in unit.unsplit_reason
     released = [e for e in unit.history if e.get("cause") == Cause.RELEASED]

@@ -1525,7 +1525,7 @@ class ReviewConfig(Frozen):
     # Whether a pull request body opens with the "Start here" section, and the review asks for it.
     brief: bool = True
     # What happens to a unit over its ceiling that cannot be split: `open_pr` or `hold`.
-    unsplittable: Literal["unimplemented"] = "unimplemented"
+    unsplittable: Literal["open_pr", "hold"] = "open_pr"
 
     @model_validator(mode="before")
     @classmethod
