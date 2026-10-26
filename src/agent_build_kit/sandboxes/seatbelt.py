@@ -51,6 +51,7 @@ def profile_text(policy: SandboxPolicy) -> str:
     lines += _rule("file-write*", writes)
     # What may be written may be read.
     lines += _rule("file-read*", entries)
+    lines += [f'(deny process-exec (subpath "{path}"))' for path in policy.no_execute]
     open_ports = [policy.proxy_port] if policy.proxy_port is not None else []
     for port in (*open_ports, *policy.ports):
         lines.append(f'(allow network-outbound (remote ip "localhost:{port}"))')

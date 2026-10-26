@@ -128,7 +128,7 @@ def test_another_repository_under_the_same_parent_stays_unreadable(linked: Scene
     assert not reads(policy, other / ".git" / "config")
     assert not reads(policy, other / "b.txt")
     assert not reads(policy, linked.main / "a.txt"), "the main checkout's files are not its own"
-    assert not reads(policy, common(linked) / "hooks")
+    assert reads(policy, common(linked) / "hooks"), "its own git directory is read as a whole"
 
 
 def test_a_step_in_the_main_checkout_reads_its_own_configuration(scene: Scene) -> None:
@@ -152,8 +152,7 @@ def test_the_entries_are_built_in_so_the_policy_display_shows_where_they_came_fr
     )
 
     wanted = {
-        (common(linked) / "config").resolve(),
-        (common(linked) / "info").resolve(),
+        common(linked).resolve(),
         entry(linked).resolve(),
         (linked.worktree / ".git").resolve(),
     }

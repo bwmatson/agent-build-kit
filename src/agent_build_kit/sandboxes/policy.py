@@ -123,6 +123,7 @@ def build_policy(
         hosts=_unique(listed("hosts")),
         ports=_unique(int(port) for port in listed("ports")),
         required=installation.config.repos[repo].sandbox.required,
+        no_execute=_git_directory(worktree),
     )
 
 
@@ -233,8 +234,9 @@ def git_parts(worktree: Path) -> list[Path]:
 
 def git_reads(worktree: Path) -> list[Path]:
     """The paths `git` opens to run in `worktree`, read and never written: the repository's
-    `config` and `info`, a linked worktree's own entry and `.git` file, and the person's git
-    configuration files; only those that exist."""
+    common git directory as a directory (so a file git replaces by rename stays covered), a
+    linked worktree's own entry and `.git` file, and the person's git configuration files; only
+    those that exist."""
     found = _git_dirs(worktree)
     if found is None:
         return []
@@ -242,13 +244,18 @@ def git_reads(worktree: Path) -> list[Path]:
     # Only the files git opens there: the folder also holds the credential store.
     personal = Settings().config_folder() / "git"
     paths = [
-        common / "config",
-        common / "info",
+        common,
         *([own, worktree / ".git"] if own else []),
         Path.home() / PERSONAL_GIT_CONFIG,
         *(personal / name for name in PERSONAL_GIT_FILES),
     ]
     return [path.resolve() for path in paths if path.exists()]
+
+
+def _git_directory(worktree: Path) -> tuple[Path, ...]:
+    """The common git directory of `worktree`, which a step reads and never runs anything in."""
+    found = _git_dirs(worktree)
+    return (found[0].resolve(),) if found else ()
 
 
 def _git_dirs(worktree: Path) -> tuple[Path, Path | None] | None:

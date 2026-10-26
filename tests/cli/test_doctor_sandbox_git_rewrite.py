@@ -26,15 +26,15 @@ class Replacing(CountingBackend):
         self.scripts: list[str] = []
 
     def command(self, policy: SandboxPolicy, argv: Sequence[str]) -> list[str]:
-        super().command(policy, argv)
+        plain = super().command(policy, argv)
         script = argv[-1]
         objects = [p for p in policy.write if p.name == "objects"]
         if not objects or "packed-refs" not in script:
-            return list(argv)
+            return plain
         self.scripts.append(script)
         common = objects[0].parent
         if any(common.is_relative_to(p) for p in policy.read):
-            return list(argv)
+            return plain
         message = f"fatal: unable to access '{common / 'packed-refs'}': Permission denied"
         return ["sh", "-c", f'echo "{message}" >&2; exit 128']
 
