@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.sandboxes.policy import git_parts
+from agent_build_kit.sandboxes.policy import git_directory, git_parts
 from tests.factories import commit, git, init_repo
 from tests.sandboxes.git_dir_enforcing import Enforcing, replace_as_git_does
 from tests.sandboxes.policy_support import Scene
@@ -87,6 +87,18 @@ def test_a_hook_is_readable_and_not_executable_and_the_write_list_is_unchanged(
     assert step.can_read(hook)
     assert not step.can_execute(hook)
     assert policy.write == (linked.worktree.resolve(), *git_parts(linked.worktree))
+
+
+def test_only_a_linked_worktree_holds_the_git_directory_back_from_running(
+    linked: Scene,
+) -> None:
+    assert git_directory(linked.worktree) == ((linked.main / ".git").resolve(),)
+    assert linked.policy().no_execute == git_directory(linked.worktree)
+
+    linked.worktree = linked.main
+
+    assert git_directory(linked.main) == ()
+    assert linked.policy().no_execute == ()
 
 
 def test_a_sibling_repository_stays_unreadable(linked: Scene) -> None:

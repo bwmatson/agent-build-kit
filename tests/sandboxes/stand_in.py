@@ -11,10 +11,14 @@ from agent_build_kit.sandboxes import Availability, Coverage, SandboxPolicy
 
 
 class StandInBackend:
-    def __init__(self, name: str, platform: str = "", *, ok: bool = True) -> None:
+    def __init__(
+        self, name: str, platform: str = "", *, ok: bool = True, runs_as_given: bool = False
+    ) -> None:
         self.name = name
         self.platform = platform
         self.ok = ok
+        # Return the argv unprefixed, so a command run through it still runs.
+        self.runs_as_given = runs_as_given
         self.asked: list[tuple[SandboxPolicy, list[str]]] = []
 
     def availability(self) -> Availability:
@@ -24,4 +28,4 @@ class StandInBackend:
 
     def command(self, policy: SandboxPolicy, argv: Sequence[str]) -> list[str]:
         self.asked.append((policy, list(argv)))
-        return ["stand-in", *argv]
+        return list(argv) if self.runs_as_given else ["stand-in", *argv]

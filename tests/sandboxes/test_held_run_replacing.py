@@ -3,25 +3,12 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
 
-from agent_build_kit.sandboxes import Availability, Coverage, SandboxPolicy, held
-
-
-class Plain:
-    """A backend that confines nothing."""
-
-    name = "plain"
-    platform = ""
-
-    def availability(self) -> Availability:
-        return Availability(ok=True, coverage=Coverage.NONE)
-
-    def command(self, policy: SandboxPolicy, argv: Sequence[str]) -> list[str]:
-        return list(argv)
+from agent_build_kit.sandboxes import Coverage, SandboxPolicy, held
+from tests.sandboxes.stand_in import StandInBackend
 
 
 def test_a_replacement_that_fails_stops_the_waiting_step(tmp_path: Path) -> None:
@@ -33,7 +20,9 @@ def test_a_replacement_that_fails_stops_the_waiting_step(tmp_path: Path) -> None
         raise OSError("packed-refs is absent")
 
     with pytest.raises(OSError, match="absent"):
-        held.run_replacing(Plain(), given, script, ready=ready, replace=replace)
+        held.run_replacing(
+            StandInBackend("plain", runs_as_given=True), given, script, ready=ready, replace=replace
+        )
 
     with pytest.raises(ProcessLookupError):
         os.kill(int(pid.read_text()), 0)
