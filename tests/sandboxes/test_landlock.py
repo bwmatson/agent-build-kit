@@ -15,11 +15,12 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit import sandboxes
-from agent_build_kit.sandboxes import Coverage, SandboxPolicy, landlock, launcher
+from agent_build_kit.sandboxes import Coverage, SandboxPolicy, held, landlock, launcher
 from tests.sandboxes.landlock_support import (
     Scene,
     launcher_args,
     policy_for,
+    readable_folders,
     require_working,
     run_confined,
 )
@@ -237,3 +238,57 @@ def test_the_launcher_removes_its_policy_file_once_read(scene: Scene, tmp_path: 
     launcher.main(args, restrict=refusing(errno.ENOSYS), execvp=Exec())
 
     assert not Path(args[0]).exists()
+
+
+def test_a_no_execute_path_is_listed_apart_from_the_read_paths(tmp_path: Path) -> None:
+    kept, unrun = tmp_path / "kept", tmp_path / "unrun"
+    given = policy_for([], read=[kept, unrun]).model_copy(update={"no_execute": (unrun,)})
+
+    args = started(given, tmp_path / "ran")
+    text = Path(args[0]).read_text().splitlines()
+    Path(args[0]).unlink()
+
+    assert f"no_execute={unrun}" in text
+    assert f"read={unrun}" not in text
+    assert f"read={kept}" in text
+
+
+def test_a_no_execute_folder_is_read_and_not_run_and_stays_so_when_a_file_is_replaced(
+    tmp_path: Path,
+) -> None:
+    require_working(landlock.BACKEND)
+    folder, granted = tmp_path / "git", tmp_path / "granted"
+    folder.mkdir()
+    granted.mkdir()
+    hook, packed = folder / "hook.sh", folder / "packed"
+    hook.write_text("#!/bin/sh\necho ran\n")
+    hook.chmod(0o755)
+    packed.write_text("one\n")
+    # The temp folder is left out of the system reads: it would grant the run beneath it.
+    system = tuple(p for p in readable_folders() if p != Path(tempfile.gettempdir()).resolve())
+    ready, replaced = granted / "ready", granted / "replaced"
+    script = (
+        f"cat {packed} && ! {hook} && : > {ready} && "
+        f"until [ -e {replaced} ]; do sleep 0.02; done && cat {packed}"
+    )
+
+    def replace() -> None:
+        lock = packed.with_name("packed.lock")
+        lock.write_text("two\n")
+        lock.replace(packed)
+        replaced.touch()
+
+    held_back = SandboxPolicy(
+        write=(granted,),
+        read=(*system, folder),
+        hosts=(),
+        required=Coverage.FILES,
+        no_execute=(folder,),
+    )
+    done = held.run_replacing(landlock.BACKEND, held_back, script, ready=ready, replace=replace)
+
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.split() == ["one", "two"]
+    open_to_run = held_back.model_copy(update={"no_execute": ()})
+    control = run_confined(landlock.BACKEND, open_to_run, ["sh", "-c", str(hook)])
+    assert control.stdout.strip() == "ran", "the control: a plain read grant runs it"

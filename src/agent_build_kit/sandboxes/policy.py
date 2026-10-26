@@ -123,7 +123,7 @@ def build_policy(
         hosts=_unique(listed("hosts")),
         ports=_unique(int(port) for port in listed("ports")),
         required=installation.config.repos[repo].sandbox.required,
-        no_execute=_git_directory(worktree),
+        no_execute=git_directory(worktree),
     )
 
 
@@ -252,10 +252,16 @@ def git_reads(worktree: Path) -> list[Path]:
     return [path.resolve() for path in paths if path.exists()]
 
 
-def _git_directory(worktree: Path) -> tuple[Path, ...]:
-    """The common git directory of `worktree`, which a step reads and never runs anything in."""
+def git_directory(worktree: Path) -> tuple[Path, ...]:
+    """The common git directory of `worktree`: the policy's `no_execute` list, since a step reads
+    it and never runs anything in it. Every caller that builds a policy for a step that runs
+    `git` takes it from here. Empty when `worktree` is no git checkout, and when the directory
+    lies inside `worktree` (the main checkout): the worktree is writable, which includes running
+    what is in it, so there the directory is not held back."""
     found = _git_dirs(worktree)
-    return (found[0].resolve(),) if found else ()
+    if found is None or found[0].resolve().is_relative_to(worktree.resolve()):
+        return ()
+    return (found[0].resolve(),)
 
 
 def _git_dirs(worktree: Path) -> tuple[Path, Path | None] | None:

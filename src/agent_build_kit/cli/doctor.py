@@ -108,7 +108,13 @@ from agent_build_kit.runtimes import claude_code, policy_check, providers
 from agent_build_kit.runtimes.base import AgentRuntime, Run, Which, account_report_of
 from agent_build_kit.sandboxes import held
 from agent_build_kit.sandboxes.base import system_folders
-from agent_build_kit.sandboxes.policy import builtin_reads, git_parts, git_reads, policy_entries
+from agent_build_kit.sandboxes.policy import (
+    builtin_reads,
+    git_directory,
+    git_parts,
+    git_reads,
+    policy_entries,
+)
 from agent_build_kit.settings import settings
 
 Status = Literal["ok", "info", "warn", "FAIL"]
@@ -1841,6 +1847,7 @@ def _git_read_failure(backend: sandboxes.SandboxBackend, coverage: sandboxes.Cov
             read=(*(Path(f).resolve() for f in system_folders()), *git_reads(tree)),
             hosts=(),
             required=coverage,
+            no_execute=git_directory(tree),
         )
         ready, replaced = tree / "packed-refs.ready", tree / "packed-refs.replaced"
         script = (
@@ -1888,6 +1895,7 @@ def _abk_exec_failure(
             ),
             hosts=(),
             required=coverage,
+            no_execute=git_directory(scratch),
         )
         pointed = shlex.quote(str(inst.root / config.CONFIG_FILENAME))
         script = (

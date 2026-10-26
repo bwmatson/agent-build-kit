@@ -24,6 +24,7 @@ class Replacing(CountingBackend):
     def __init__(self) -> None:
         super().__init__()
         self.scripts: list[str] = []
+        self.policies: list[SandboxPolicy] = []
 
     def command(self, policy: SandboxPolicy, argv: Sequence[str]) -> list[str]:
         plain = super().command(policy, argv)
@@ -32,6 +33,7 @@ class Replacing(CountingBackend):
         if not objects or "packed-refs" not in script:
             return plain
         self.scripts.append(script)
+        self.policies.append(policy)
         common = objects[0].parent
         if any(common.is_relative_to(p) for p in policy.read):
             return plain
@@ -64,6 +66,20 @@ def test_the_probe_replaces_packed_refs_then_runs_git_log_again(
     after = replacing.scripts[0].split("packed-refs", 1)[1]
     assert "git log -1" in after
     assert [c.status for c in found] == ["ok"]
+
+
+def test_the_probe_holds_the_git_directory_back_from_running_as_a_real_step_does(
+    workspace: Path,  # noqa: F811 — fixture
+    replacing: Replacing,
+) -> None:
+    switch_on(workspace / "abk.yaml")
+
+    sandbox_checks(workspace / "abk.yaml")
+
+    policy = replacing.policies[0]
+    common = next(p.parent for p in policy.write if p.name == "objects")
+    assert policy.no_execute == (common,)
+    assert common in policy.read
 
 
 def test_a_policy_of_single_files_fails_the_probe_naming_the_file(

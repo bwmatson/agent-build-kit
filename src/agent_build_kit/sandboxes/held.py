@@ -61,20 +61,16 @@ def run_replacing(
         text=True,
     )
     deadline = time.monotonic() + TIMEOUT
-    replaced = False
-    while step.poll() is None and not replaced:
-        if ready.exists():
-            replace()
-            replaced = True
-        elif time.monotonic() > deadline:
-            step.kill()
-            step.communicate()
-            raise subprocess.TimeoutExpired(script, TIMEOUT)
-        else:
-            time.sleep(0.02)
     try:
+        while step.poll() is None and not ready.exists():
+            if time.monotonic() > deadline:
+                raise subprocess.TimeoutExpired(script, TIMEOUT)
+            time.sleep(0.02)
+        if step.poll() is None:
+            replace()
         out, err = step.communicate(timeout=max(deadline - time.monotonic(), 1))
-    except subprocess.TimeoutExpired:
+    except BaseException:
+        # Whatever went wrong, no step is left waiting for a file that will not come.
         step.kill()
         step.communicate()
         raise

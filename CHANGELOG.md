@@ -61,9 +61,9 @@
   the group has merged instead of letting the next round start it. `abk replan` prints
   `gated: <unit> waits for <dependency>`, and `abk status` and `abk explain` show the wait.
 - A confined step keeps reading the repository's git directory when `git` replaces files in it
-  (`packed-refs`, `HEAD`, a ref). The sandbox now grants the git directory as a folder, read-only
-  and not executable, instead of single files, which stopped working once git renamed a new
-  file over them. `abk doctor`'s git probe replaces `packed-refs` the way `git pack-refs` does
+  (`packed-refs`, `HEAD`, a ref). The sandbox now grants the git directory as a folder instead of
+  single files, which stopped working once git renamed a new file over them; for a linked
+  worktree it is read-only and not executable. `abk doctor`'s git probe replaces `packed-refs` the way `git pack-refs` does
   and reads again, naming the path when that fails.
 
 - `abk planning split` now moves the units of a moving repo's archive entries with them, and a
