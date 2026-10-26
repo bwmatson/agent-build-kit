@@ -61,7 +61,7 @@ For each setting of the table, in the order of the file:
    (it came in by a merge key or an alias) is refused, naming the key.
 2. Refuse, naming the key and `abk.yaml`, when the key's line or any ancestor key's line carries an anchor or alias (`_MARKED`), when an ancestor or the key's own value is
    flow-style and spans lines, when an ancestor mapping uses a merge key (`_opened`), or when the file has several documents. A flow-style value that is written on the key's own line
-   (`command: [/opt/x/bin, -p]`) is a single line and is moved as written; a flow-style *ancestor* (`repos: {app: {path: ~/app}}`) is refused.
+   (`command: [/opt/x/bin, -p]`) is a single line and is moved as written; a flow-style *ancestor* (`repos: {app: {path: <home>/app}}`) is refused.
 3. The region moved is the comment lines directly above the key, back to the parent's line or a blank line (`_region`, `:68-74`), through the last line of the key's node
    (`node_end`, `yaml_lines.py:43-60`). Comment lines after the node and blank lines are not part of it. The lines are re-indented to the depth they have in the local file
    (the same step as the tracked file's own: the difference between the key's column and its parent's, else 2) and carry their own line ending.

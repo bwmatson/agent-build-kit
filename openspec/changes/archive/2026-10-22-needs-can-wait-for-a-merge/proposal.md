@@ -9,7 +9,7 @@ Observed on 2026-10-21, three times: a fix to the kit's own code merged, and the
   dependent resumed when the fix was only in review, on code that did not yet contain the fix.
 - **A merge seen mid-tick is not code the tick has.** `cmd_tick` (`cli/pipeline.py:1143-1190`) is one process: the poll in `run_round` marks the
   parent `merged`, and the same process then releases or requeues the dependent. The kit checkout is fast-forwarded after the merge (the
-  `~/agent-build-kit` reflog shows `pull: Fast-forward` right after each merge), but Python modules were imported at the start of the tick, which can be
+  `<home>/agent-build-kit` reflog shows `pull: Fast-forward` right after each merge), but Python modules were imported at the start of the tick, which can be
   hours before, so the tick keeps running the old code until it exits. Pulling main at the start of each tick helps the next tick only.
 - **The way to ask for "after the merge" does not exist.** `NEEDS_LINE` (`src/agent_build_kit/pipeline/work_graph.py:146-150`) parses a word `merged`
   after the group number into `Need.merged` (`work_graph.py:751-757`), and `merged_needs_warnings` (`work_graph.py:792-801`, printed by `abk tags` and

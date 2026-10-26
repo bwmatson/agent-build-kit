@@ -9,7 +9,7 @@ then starts on one parent's branch and the other parent's changes are absent fro
 requests conflict or duplicate work when they merge. A unit cannot run on two branches, and nothing in `ready_units` or `waiting_on` looks
 for the case.
 
-No unit in the stored graph is affected today (checked 2026-10-12: no planned unit has two open same-repo parents), so this is a latent
+No unit in the stored graph is affected today (checked <date>: no planned unit has two open same-repo parents), so this is a latent
 hazard. The shapes that produce it are ordinary: an `[acceptance]` or `[narrow]` group, which depends on every unit of its change; an
 `Independent:` group followed by a later group; and `Needs:` edges to units of other changes. Each makes a unit with several parents that no
 one parent's branch holds in full.

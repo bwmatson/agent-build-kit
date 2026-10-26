@@ -1,6 +1,6 @@
 # Design
 
-Code references are to `~/agent-build-kit` at commit `fdb1034`, read only. Anything not read there is marked UNVERIFIED.
+Code references are to `<home>/agent-build-kit` at commit `fdb1034`, read only. Anything not read there is marked UNVERIFIED.
 
 ## Where the full suite runs today after a move
 
