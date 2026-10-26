@@ -84,6 +84,18 @@ class Installation:
         candidate = Path(path).expanduser()
         return candidate if candidate.is_absolute() else self.root / candidate
 
+    @cached_property
+    def in_repo(self) -> bool:
+        raise NotImplementedError
+
+    @property
+    def planning_home(self) -> Path:
+        raise NotImplementedError
+
+    @property
+    def worktree_path(self) -> Path:
+        raise NotImplementedError
+
     @property
     def state_dir(self) -> Path:
         return self._under_root(self.config.planning.state_dir)

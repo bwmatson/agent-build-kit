@@ -128,6 +128,9 @@ class PlanningPublish(StrEnum):
 
 
 class PlanningConfig(Frozen):
+    # The folder an in-repo installation keeps its state and pipeline worktree under, outside the
+    # repository. None = <data home>/<repository name>/planning.
+    home: str | None = None
     # Relative to the planning root unless absolute.
     state_dir: str = "runs"
     specs_dir: str = "openspec"
