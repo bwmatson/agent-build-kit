@@ -159,6 +159,20 @@ def test_a_unit_with_a_lease_is_not_gated(inst: Installation, store: UnitStore) 
     assert store.get(CHILD).state == RUNNING
 
 
+def test_a_unit_owed_a_restack_is_left_to_the_lane(
+    inst: Installation, store: UnitStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    running_child(store)
+    # What is owed is the lane's rule (test_restack_lane_resume.py); here it names CHILD.
+    monkeypatch.setattr(cli, "owed_units", lambda _inst, _units: {CHILD})
+
+    gated = cli.gate_resumable(inst, store)
+
+    assert gated == {}
+    assert store.get(CHILD).state == RUNNING
+    assert store.get(CHILD).cause is not Cause.GATED
+
+
 def test_a_unit_a_run_is_in_flight_on_is_not_gated(inst: Installation, store: UnitStore) -> None:
     running_child(store)
 

@@ -2149,7 +2149,8 @@ def run_round(
         )
         return []
     in_flight = set(building)
-    # A unit the restack lane holds or waits for is the lane's to move, not gated here.
+    # A unit the restack lane holds or waits for is the lane's to move, not gated here: it is
+    # `spared` like a unit in flight (tests/cli/test_resume_gating.py pins what `spared` does).
     if gate_resumable(
         inst, store, spared=in_flight | ({*lane.running, *lane.waiting} if lane else set())
     ):
