@@ -14,6 +14,7 @@
   on. The run log says `moved the empty branch from <old> to <new> (<base>)`. Uncommitted changes
   of the unit's own are kept; if the move would overwrite one, the unit stops with feedback naming
   the files.
+
 - `abk install-timers` now links `.env`, `abk.local.yaml` and `scrub.local` from the working copy
   into the pipeline worktree (they stay untracked), so the timed ticks load this machine's
   configuration. It prints a `linked`, `unchanged` or `repointed` line for each, skips a file the
