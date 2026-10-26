@@ -1225,6 +1225,10 @@ class RepoConfig(Frozen):
     forge: str = "github"
     # Where the repo lives, for a forge that does not use `slug`.
     azure_devops: AzureDevOpsConfig = AzureDevOpsConfig()
+    # The work tracker this repo's items live in (trackers/), independent of the forge.
+    # Absent or `kind: none` leaves the capability off. Validated per repo when asked for,
+    # so a bad section stops only this repo's tracker work.
+    tracker: dict[str, Any] | None = None
     # The toolchain profile (profiles/): how to lint, test and read results.
     profile: str = "python-uv"
     # The infrastructure profile (infra/): what the repo runs on, apart from

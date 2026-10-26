@@ -42,6 +42,11 @@
   on. The run log says `moved the empty branch from <old> to <new> (<base>)`. Uncommitted changes
   of the unit's own are kept; if the move would overwrite one, the unit stops with feedback naming
   the files.
+- A repo's `abk.yaml` entry can now carry a `tracker` section naming the work tracker its items
+  live in (Azure DevOps or GitHub), separate from its code host. With no section, or `kind: none`,
+  nothing changes. A section that is incomplete, has no `kind`, or holds a token instead of an
+  environment variable name is reported as one error naming the repo, kind and key, and stops
+  only that repo's tracker work.
 
 - `abk install-timers` now links `.env`, `abk.local.yaml` and `scrub.local` from the working copy
   into the pipeline worktree (they stay untracked), so the timed ticks load this machine's
