@@ -36,6 +36,7 @@ def test_a_workspace_with_no_review_section_loads_with_the_defaults() -> None:
         "ceiling_buffer": 0.2,
         "split_rounds": 2,
         "brief": True,
+        "unsplittable": "open_pr",
     }
     assert loaded.repos["app"].review.model_dump() == {
         "protected_paths": [],
@@ -71,6 +72,7 @@ def test_each_key_loads_when_set() -> None:
         "ceiling_buffer": 0.2,
         "split_rounds": 2,
         "brief": True,
+        "unsplittable": "open_pr",
     }
     assert list(dumped["classes"]) == ["docs", "tests"], "the order is kept"
     assert loaded.repos["app"].review.model_dump() == {
