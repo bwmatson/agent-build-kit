@@ -1,0 +1,3 @@
+# install-timers-carries-the-machine-files-into-the-pipeline-worktree
+
+When a repository is its own planning repo, `abk install-timers` runs the pipeline from a worktree of the default branch. The three files that make an installation this machine's (`abk.local.yaml`, `.env`, `scrub.local`) are ignored by git, so the worktree never has them and every tick and track runs on defaults. This change makes `install-timers` link them from the working copy into the worktree (never tracked, never overwriting a file that is there), makes `abk doctor` fail when one that exists in the working copy is missing or different in the worktree, and warns on a machine that has none. Priority 1: a live installation is mis-configured until it lands.
