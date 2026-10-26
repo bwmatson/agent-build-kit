@@ -139,6 +139,12 @@ def terms_for(installation: Installation, *, target: Path | None = None) -> list
 
 
 REPLACEMENT = "<redacted>"
+ISSUE_REFERENCE = re.compile(r"(?<![\w/.])[a-z][a-z0-9-]{2,}#\d{1,4}\b")
+REFERENCE_TOKEN = "<ref>"
+
+
+def scrub_references(text: str) -> str:
+    raise NotImplementedError
 
 
 def scrub_text(text: str, terms: list[str], *, replacement: str = REPLACEMENT) -> str:

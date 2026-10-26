@@ -23,7 +23,7 @@ import yaml
 
 from agent_build_kit.config import OVERLAY_FILENAME
 from agent_build_kit.pipeline.shell import git
-from agent_build_kit.scrub_terms import TOOL_DIRS
+from agent_build_kit.scrub_terms import ISSUE_REFERENCE, TOOL_DIRS
 from tests.tracked_files import PlanningDirs, guarded_files, planning_dirs
 
 SCANNED = ("src", "tests", "docs", "web", "openspec")
@@ -79,7 +79,7 @@ ABSOLUTE_HOME_PATH = re.compile(r"/home/[a-z]")
 GITHUB_SLUG = re.compile(r"github\.com[:/](?P<owner>[A-Za-z0-9-]+)/[A-Za-z0-9._-]+")
 AZURE_ORG = re.compile(r"dev\.azure\.com[:/](?:v3/)?(?!v3/)(?P<org>[A-Za-z0-9._-]+)")
 NOREPLY = re.compile(r"\d+\+[A-Za-z0-9-]+@users\.noreply\.github\.com")
-ANECDOTE = re.compile(r"(?<![\w/.])[a-z][a-z0-9-]{2,}#\d{1,4}\b")
+ANECDOTE = ISSUE_REFERENCE
 DATED_ANECDOTE = re.compile(
     r"\b(decided|confirmed|checked|verified|observed|happened|since)\b[^\n]{0,30}\b20\d\d-\d\d-\d\d"
 )
