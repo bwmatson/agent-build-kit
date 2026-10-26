@@ -135,6 +135,10 @@ class PlanningConfig(Frozen):
     # installation, `runs` otherwise.
     state_dir: str | None = None
     specs_dir: str = "openspec"
+    # Where the tracks keep their run logs, `tracked-issues.md` and `rejected-changes/`, relative
+    # to the planning root. None = the state directory when it is inside the root, else
+    # `docs/reports`.
+    reports_dir: str | None = None
     # None = `<state>/pages/...` when the state is outside the root, `docs/...` otherwise.
     graph_page: str | None = None
     usage_page: str | None = None

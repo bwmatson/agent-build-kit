@@ -121,6 +121,10 @@ class Installation:
             return self._under_root(str(configured))
         return self.planning_home / "state" if self.in_repo else self.root / "runs"
 
+    @property
+    def reports_dir(self) -> Path:
+        raise NotImplementedError
+
     def _page(self, configured: str | None, name: str) -> Path:
         if configured is not None:
             return self._under_root(configured)
