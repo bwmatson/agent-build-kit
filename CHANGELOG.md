@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- The repo-wide test guards read tracked files through one helper, `tests/tracked_files.py`,
+  which leaves planning content out, so a specification may name what it forbids; the leak
+  scan still reads it, but a tilde-relative path there is no longer a home path. `abk scrub-store` and
+  `abk planning split --scrub` now replace issue and pull-request references with `<ref>`
+  beside home paths. The suite ignores the checkout's `.env`, so a local `.env` no longer
+  fails the telemetry tests.
+
 - A unit that has made no commit now starts from the current base when it is resumed, reworked,
   restarted or requeued at the end of a wait, instead of keeping the base its worktree was made
   on. The run log says `moved the empty branch from <old> to <new> (<base>)`. Uncommitted changes

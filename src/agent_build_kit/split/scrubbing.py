@@ -8,7 +8,13 @@ from pathlib import Path
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.unit_store import Description, StoredUnit, with_text
-from agent_build_kit.scrub_terms import REPLACEMENT, scrub_text, terms_for
+from agent_build_kit.scrub_terms import (
+    REFERENCE_TOKEN,
+    REPLACEMENT,
+    scrub_references,
+    scrub_text,
+    terms_for,
+)
 from agent_build_kit.split.select import SplitPlan, moved_files, moved_records
 
 __all__ = [
@@ -33,7 +39,7 @@ class ScrubCounts(Frozen):
 def scrubber(source: Installation, repo: str) -> Callable[[str], str]:
     """The text pass for what moves out of `repo`: the source's terms, the repo itself not one."""
     terms = terms_for(source, target=source.checkouts[repo])
-    return lambda text: scrub_text(text, terms)
+    return lambda text: scrub_references(scrub_text(text, terms))
 
 
 def read_text(path: Path) -> str | None:
@@ -62,14 +68,16 @@ def scrub_counts(source: Installation, plan: SplitPlan) -> ScrubCounts:
         text = read_text(path)
         if text is not None and (scrubbed := scrub(text)) != text:
             files += 1
-            substitutions += scrubbed.count(REPLACEMENT) - text.count(REPLACEMENT)
+            substitutions += _placeholders(scrubbed) - _placeholders(text)
     records = 0
     for unit in moved_records(source, plan):
         if (changed := scrub_record(unit, scrub)) != unit:
             records += 1
-            substitutions += _placeholders(changed) - _placeholders(unit)
+            substitutions += _placeholders(changed.model_dump_json()) - _placeholders(
+                unit.model_dump_json()
+            )
     return ScrubCounts(files=files, records=records, substitutions=substitutions)
 
 
-def _placeholders(unit: StoredUnit) -> int:
-    return unit.model_dump_json().count(REPLACEMENT)
+def _placeholders(text: str) -> int:
+    return text.count(REPLACEMENT) + text.count(REFERENCE_TOKEN)

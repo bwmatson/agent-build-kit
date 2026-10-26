@@ -23,7 +23,7 @@ import yaml
 
 from agent_build_kit.config import OVERLAY_FILENAME
 from agent_build_kit.pipeline.shell import git
-from agent_build_kit.scrub_terms import TOOL_DIRS
+from agent_build_kit.scrub_terms import ISSUE_REFERENCE, REPLACEMENT, TOOL_DIRS
 from tests.tracked_files import PlanningDirs, guarded_files, planning_dirs
 
 SCANNED = ("src", "tests", "docs", "web", "openspec")
@@ -53,6 +53,10 @@ SELF = {
     "test_leak_scan_planning_content.py",
     "test_leak_scan_tilde_in_specs.py",
     "test_installation_leaks_overlay.py",
+    "test_scrub_references.py",
+    "test_scrub_store_references.py",
+    "test_split_scrub_references.py",
+    "test_repo_wide_guards_documented.py",
 }
 # Fixture owners, and the placeholder words a regex's own documentation uses.
 FIXTURE_OWNERS = ("example", "acme", "octo", "owner", "o")
@@ -79,7 +83,13 @@ ABSOLUTE_HOME_PATH = re.compile(r"/home/[a-z]")
 GITHUB_SLUG = re.compile(r"github\.com[:/](?P<owner>[A-Za-z0-9-]+)/[A-Za-z0-9._-]+")
 AZURE_ORG = re.compile(r"dev\.azure\.com[:/](?:v3/)?(?!v3/)(?P<org>[A-Za-z0-9._-]+)")
 NOREPLY = re.compile(r"\d+\+[A-Za-z0-9-]+@users\.noreply\.github\.com")
-ANECDOTE = re.compile(r"(?<![\w/.])[a-z][a-z0-9-]{2,}#\d{1,4}\b")
+# The shared reference pattern, less a fixture owner's own: `example/app#15` is a fixture.
+ANECDOTE = re.compile(
+    "".join(
+        f"(?<!{re.escape(owner)}/)" for owner in (*FIXTURE_OWNERS, REPLACEMENT) if len(owner) > 1
+    )
+    + ISSUE_REFERENCE.pattern
+)
 DATED_ANECDOTE = re.compile(
     r"\b(decided|confirmed|checked|verified|observed|happened|since)\b[^\n]{0,30}\b20\d\d-\d\d-\d\d"
 )
