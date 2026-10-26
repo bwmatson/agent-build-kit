@@ -128,33 +128,37 @@ def foreign_slug_owners(text: str) -> list[str]:
     ]
 
 
+def home_rule(root: Path, path: Path) -> re.Pattern:
+    """The home-path rule for one file: only an absolute path in the specification folder (a
+    tilde-relative path names no user), the full rule everywhere else."""
+    specs = Path(planning_dirs(root).specs_dir)
+    return ABSOLUTE_HOME_PATH if specs in path.relative_to(root).parents else HOME_PATH
+
+
 def home_path_leaks(root: Path) -> list[str]:
     """Each line holding a home path, as `path:line: clipped line`. In the specification folder a
     tilde-relative path is not one (it names no user) and an absolute path still is."""
-    specs = Path(planning_dirs(root).specs_dir)
-    return [
-        hit
-        for path in files(root)
-        for hit in file_hits(
-            root,
-            path,
-            ABSOLUTE_HOME_PATH if specs in path.relative_to(root).parents else HOME_PATH,
-        )
-    ]
+    return [hit for path in files(root) for hit in file_hits(root, path, home_rule(root, path))]
 
 
-def leaky_line(line: str) -> bool:
+def leaky_line(line: str, home: re.Pattern = HOME_PATH) -> bool:
     return bool(
-        any(shape.search(line) for shape in SHAPES)
+        any((home if shape is HOME_PATH else shape).search(line) for shape in SHAPES)
         or foreign_slug_owners(line)
         or foreign_azure_orgs(line)
     )
 
 
+def file_leaks(root: Path, path: Path) -> list[str]:
+    home = home_rule(root, path)
+    return file_hits(root, path, lambda line: leaky_line(line, home))
+
+
 def leaks(root: Path) -> list[str]:
     """Each hit under `root` as `path:line: clipped line`: home paths, non-fixture slugs,
-    anecdotes and product directories in the scanned text, planning content included."""
-    return hits(root, leaky_line)
+    anecdotes and product directories in the scanned text, planning content included, with the
+    home-path rule of `home_rule`."""
+    return [hit for path in files(root) for hit in file_leaks(root, path)]
 
 
 def overlay_leaks(root: Path) -> list[str]:
