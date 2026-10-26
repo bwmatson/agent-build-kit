@@ -36,7 +36,7 @@ def installations(tmp_path, *, needs="m group 4"):
     write_change(source, "lib-change", ["lib"])
     tasks = write_change(source, "g", ["app", "app"]) / "tasks.md"
     tasks.write_text(
-        "# Tasks\n\n"
+        "# Tasks\n\nAcceptance: none — fixture\n\n"
         f"## 1. [app] [unit-test] Group 1\n\nNeeds: {needs}\n\n- [ ] 1.1 Test: it\n\n"
         "## 2. [app] [unit-test] Group 2\n\nNeeds: m group 3\n\n- [ ] 2.1 Test: it\n"
     )

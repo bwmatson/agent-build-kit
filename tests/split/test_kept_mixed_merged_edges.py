@@ -43,7 +43,7 @@ def installations(tmp_path, **projects):
 
 
 def kept(uid="m/4", **overrides):
-    return new_unit(uid, repo="app", state="merged", **overrides)
+    return new_unit(uid, **{"repo": "app", "state": "merged", **overrides})
 
 
 def dependent(*targets, **overrides):

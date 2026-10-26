@@ -108,39 +108,69 @@ _EDGE_FIELDS = ("depends_on", "needs", "merge_needs")
 _REPORTED_FIELDS = ("depends_on", "needs")
 
 
+def _kept_changes(plan: SplitPlan) -> set[str]:
+    """The mixed changes the source keeps, active ones and archive entries by change name."""
+    return {
+        *(item.name for item in plan.changes_mixed if item.name not in plan.changes_moved),
+        *(
+            archive_change_name(item.name)
+            for item in plan.archive_mixed
+            if item.name not in plan.archive_moved
+        ),
+    }
+
+
+def _stays_because(parent: StoredUnit, plan: SplitPlan, kept: set[str]) -> EdgeReason | None:
+    """Why a unit that does not move stays, when that is a reason an edge may be dropped for:
+    its repo, its project, or a mixed change kept in the source; None for any other."""
+    if parent.repo != plan.repo:
+        return EdgeReason.REPO
+    if parent.id in plan.units_blocking:
+        return None
+    if plan.project is not None and parent.project != plan.project:
+        return EdgeReason.PROJECT
+    if parent.id in plan.units_staying and any(m.change in kept for m in parent.members()):
+        return EdgeReason.KEPT_CHANGE
+    return None
+
+
 def _satisfied_history(
     source: Installation, destination: Installation, plan: SplitPlan
-) -> tuple[dict[str, frozenset[str]], set[str]]:
-    """For each moved unit, the dependency ids its record drops: a merged unit of another repo,
-    whose merge the tick has loaded, that neither moves nor is in the destination. Also the
-    ids of merged foreign units whose merge is not yet loaded."""
+) -> tuple[dict[str, dict[str, EdgeReason]], set[str]]:
+    """For each moved unit, the dependency ids its record drops, each with the reason its
+    target stays: a merged unit that stays for its repo, project or a kept mixed change, whose
+    merge the tick has loaded, that neither moves nor is in the destination. Also the ids of
+    such units whose merge is not yet loaded."""
     everything = UnitStore(source.state_dir / "units.json").all()
     by_id = {unit.id: unit for unit in everything}
     held = UnitStore(destination.state_dir / "units.json").all()
     here = {*plan.units_moved, *(u.id for u in held)}
+    kept = _kept_changes(plan)
     loaded: LoadedCode | None = loaded_code.current()
-    dropped: dict[str, frozenset[str]] = {}
+    dropped: dict[str, dict[str, EdgeReason]] = {}
     unloaded: set[str] = set()
     for unit in moved_records(source, plan):
         targets = {t for field in _EDGE_FIELDS for t in getattr(unit, field)}
-        found = set()
+        found: dict[str, EdgeReason] = {}
         for target in targets - here:
             parent = by_id.get(target)
-            if parent is None or parent.repo == plan.repo or parent.state != MERGED:
+            if parent is None or parent.state != MERGED:
+                continue
+            if (reason := _stays_because(parent, plan, kept)) is None:
                 continue
             if loaded is None or merge_loaded(parent, everything, loaded):
-                found.add(target)
+                found[target] = reason
             else:
                 unloaded.add(target)
-        dropped[unit.id] = frozenset(found)
+        dropped[unit.id] = found
     return dropped, unloaded
 
 
 def _edges_in(
-    source: Installation, plan: SplitPlan, dropped: dict[str, frozenset[str]]
+    source: Installation, plan: SplitPlan, dropped: dict[str, dict[str, EdgeReason]]
 ) -> tuple[DroppedEdge, ...]:
     return tuple(
-        DroppedEdge(unit=unit.id, field=field, target=target)
+        DroppedEdge(unit=unit.id, field=field, target=target, reason=dropped[unit.id][target])
         for unit in moved_records(source, plan)
         for field in _REPORTED_FIELDS
         for target in getattr(unit, field)
@@ -151,7 +181,7 @@ def _edges_in(
 def _records_without(
     source: Installation,
     plan: SplitPlan,
-    dropped: dict[str, frozenset[str]],
+    dropped: dict[str, dict[str, EdgeReason]],
     scrub: bool,
 ) -> list[StoredUnit]:
     scrub_text = _passes(source, plan, scrub)
@@ -267,7 +297,7 @@ def preflight(
                     continue
                 if target in unloaded and field != "superseded_by":
                     errors.append(
-                        f"unit {unit.id} {field} names {target}, a merged unit of another repo "
+                        f"unit {unit.id} {field} names {target}, a merged unit that stays "
                         "whose merge the tick has not loaded: run a tick and try again"
                     )
                 else:
@@ -277,18 +307,39 @@ def preflight(
             for member in unit.joined
             if member.change not in known_changes
         ]
+    notes: list[str] = []
+    covering = UnitStore(source.state_dir / "units.json").all()
+    loaded: LoadedCode | None = loaded_code.current()
     for name in plan.changes_moved:
         for group, needs in group_needs(source.changes_dir / name / "tasks.md").items():
-            errors += [
-                _dangling(
-                    f"change {name} group {group} `Needs: {need.change} group {need.group}`",
-                    need.change,
-                )
-                for need in needs
-                if need.change not in moved_changes
-                and (source.changes_dir / need.change / "tasks.md").is_file()
-                and not (destination.changes_dir / need.change / "tasks.md").is_file()
-            ]
+            for need in needs:
+                if (
+                    need.change in moved_changes
+                    or not (source.changes_dir / need.change / "tasks.md").is_file()
+                    or (destination.changes_dir / need.change / "tasks.md").is_file()
+                ):
+                    continue
+                what = f"change {name} group {group} `Needs: {need.change} group {need.group}`"
+                builders = [
+                    unit
+                    for unit in covering
+                    if any(
+                        m.change == need.change and need.group in m.groups for m in unit.members()
+                    )
+                ]
+                if builders and all(unit.state == MERGED for unit in builders):
+                    if loaded is None or all(merge_loaded(u, covering, loaded) for u in builders):
+                        notes.append(
+                            f"{what} names {need.change}, which stays: its group is merged "
+                            "history and the line is kept, inert in the destination"
+                        )
+                    else:
+                        errors.append(
+                            f"{what} names {need.change}, whose merged group's merge the tick "
+                            "has not loaded: run a tick and try again"
+                        )
+                else:
+                    errors.append(_dangling(what, need.change))
 
     everything = UnitStore(source.state_dir / "units.json").all()
     merged_moved = {
@@ -315,7 +366,7 @@ def preflight(
     ]
     return Preflight(
         errors=tuple(errors + (edges if remove else [])),
-        warnings=tuple(harmless if remove else harmless + edges),
+        warnings=tuple([*notes, *(harmless if remove else harmless + edges)]),
         dropped=_edges_in(source, plan, dropped),
     )
 
