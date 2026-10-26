@@ -1030,9 +1030,13 @@ of moved changes move with their records, and so do the units of a moving repo's
 unit in `running`, `in_review` or `held`, one that spans a staying change, one whose change
 name is ambiguous (some of its directories move and some stay), and a dependency that would
 dangle are refused. A unit with no change directory moves by its repo (and project): the
-plan names it. A dependency on a merged unit of another repo that stays is dropped from the
-moved record, as the unit is already satisfied history, with a printed line for each
-dropped edge as a note. The plan prints the unit counts by origin: active, archived, no
+plan names it. A dependency on a merged unit of another repo, of another project, or of a
+mixed change kept in the source that stays is dropped from the moved record, as the unit is
+already satisfied history, with a printed line for each dropped edge as a note giving the
+reason (`merged unit of another repo`, `merged unit of another project` or `merged unit of a
+change kept in the source`) and a count by reason. A `Needs:` line on a merged group of a
+staying change is a note too: the line is copied unchanged, does nothing in the destination,
+and may be deleted there. The plan prints the unit counts by origin: active, archived, no
 change directory, and left in the source.
 
 `--to` must already be an installation (`abk init DIR`). Files are copied without

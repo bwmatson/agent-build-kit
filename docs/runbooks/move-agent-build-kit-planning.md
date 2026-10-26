@@ -46,6 +46,8 @@ the kit repo, but the steps are the same for any managed repo that becomes its o
 - [ ] List the changes that belong to the moving repo and decide for each whether it moves, stays or is finished first.
   A change that spans the moving repo and another repo is finished and archived first, or one side keeps it
   (`abk planning split --allow-mixed <side>`). A unit whose repo is missing from `abk.yaml` makes `Installation.repo()` fail.
+  A mixed change kept in the source keeps its moving-repo units there too, so a moved unit depending on a merged
+  one of them has the edge dropped with a note, and the repo's entry stays until the mixed change is finished.
 - [ ] Decide who owns each main spec: those about the moving repo move, the rest stay in the old planning repo.
 - [ ] Archived changes that belong to other repos stay. The moving repo's archive entries move with their units.
 
@@ -70,7 +72,8 @@ the kit repo, but the steps are the same for any managed repo that becomes its o
   counts of active changes, archive entries, main specs and unit records, and compare them with what you expect. Check the mixed list is empty
   after step 2.
   Compare the unit counts by origin (active, archived, no change directory, left in the source). A printed
-  dropped dependency or no change directory unit is expected to differ from the source and is to be read.
+  dropped dependency or no change directory unit is expected to differ from the source and is to be read. The dropped-edge notes name the reason the
+  target stays, and a `Needs:` note names a group that is merged history: read it, the line is copied unchanged.
 - [ ] Run it for real. Check the reported uncommitted files it read were expected.
 - [ ] Copy by hand what the tool does not move: `docs/research` notes, the planning `.claude` skills worth keeping,
   `flakes.jsonl`, `usage-allowances.json`, the usage ledger (history only; it may quote old paths).

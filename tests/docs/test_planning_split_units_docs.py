@@ -1,33 +1,8 @@
 """The reference and the move runbook say which units `abk planning split` moves."""
 
 import re
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-CLI = ROOT / "docs" / "cli.md"
-CHANGELOG = ROOT / "CHANGELOG.md"
-RUNBOOK = ROOT / "docs" / "runbooks" / "move-agent-build-kit-planning.md"
-
-
-def squash(text: str) -> str:
-    return " ".join(text.split())
-
-
-def entry() -> str:
-    """The `abk planning split` entry of the command reference, up to the next heading."""
-    text = CLI.read_text()
-    start = text.index("### `abk planning split")
-    following = re.search(r"^#{1,3} ", text[start + 4 :], re.M)
-    end = start + 4 + following.start() if following else len(text)
-    return squash(text[start:end])
-
-
-def runbook_step(number: int) -> str:
-    """One numbered `## N.` section of the runbook."""
-    text = RUNBOOK.read_text()
-    match = re.search(rf"^## {number}\. .*?(?=^## \d+\. |\Z)", text, re.M | re.S)
-    assert match, f"step {number} not found"
-    return squash(match.group(0))
+from tests.doc_text import ROOT, entry, runbook_step, squashed
 
 
 def test_the_reference_says_units_of_archive_entries_move():
@@ -77,9 +52,11 @@ def test_the_runbook_cutover_expects_the_dropped_edges():
 
 
 def test_the_changelog_has_one_unreleased_bullet_for_the_moved_units():
-    unreleased = CHANGELOG.read_text().split("## Unreleased", 1)[1].split("\n## ", 1)[0]
+    unreleased = (
+        (ROOT / "CHANGELOG.md").read_text().split("## Unreleased", 1)[1].split("\n## ", 1)[0]
+    )
     bullets = [
-        squash(b)
+        squashed(b)
         for b in re.split(r"\n\s*\n", unreleased)
         if "abk planning split" in b and "units of" in b
     ]

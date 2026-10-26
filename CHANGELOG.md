@@ -4,8 +4,10 @@
 
 - `abk planning split` now moves the units of a moving repo's archive entries with them, and a
   unit whose change has no directory by its repo, saying so in the plan. A dependency on a
-  merged unit of another repo is carried as satisfied history, with a printed note for each
-  dropped edge. The plan prints the unit counts by origin (active, archived, no change
+  merged unit of another repo, of another project or of a mixed change kept in the source is
+  carried as satisfied history, with a printed note for each dropped edge that says why the
+  target stays; a `Needs:` line on such a merged group is a note too, and is copied unchanged.
+  The plan prints the unit counts by origin (active, archived, no change
   directory, left in the source).
 
 - A confined step can now run the pipeline's own `abk` (`abk install-config` and the other
