@@ -1,0 +1,27 @@
+# Tasks
+
+Acceptance: none — init and the doctor write and read a link and print lines; tests over real git repositories run both in process, and no consumer drives a surface beyond what those tests drive.
+
+Priority: 2
+
+## 1. [agent-build-kit] [unit-test] abk init makes the state home and the planning view, with the guard
+
+Done when `abk init` in the in-repo mode creates the state directory, the ignored `.planning` link and its `info/exclude` line, idempotently and repairing a dangling link; refuses a real file or directory of that name; refuses under `--yes` a state directory inside the repository unless `--allow-state-in-repo`; and `abk install-timers` only names `abk init` when the link is wrong. Estimate: about 240 changed lines.
+
+- [ ] 1.1 Test: in `tests/pipeline/test_planning_view.py`, over `working_copy_of` from `tests/planning_worktree_support.py` and a state directory under `tmp_path`, `ensure_view` creates the state directory and an absolute `.planning` link to it, `git status --porcelain` is empty, `info/exclude` holds `/.planning` once after two calls, the second call reports `unchanged`, a dangling link and a link to a missing path are repointed, `dry_run=True` returns `would create` and writes nothing.
+- [ ] 1.2 Test: in the same file, a regular file, a directory with a file and a link to another existing path each raise `PlanningViewRefused` naming `.planning`, and the state directory and `info/exclude` are untouched; `view_problem` returns `None` for a right link and `missing`, `dangling`, `points to <path>` and a file-or-directory text for the others.
+- [ ] 1.3 Test: in the same file, `state_inside_repo` returns the resolved path for a directory under the repository root, under the git directory, a not-yet-existing directory under the root, and a symbolic link outside the repository that leads into it; and `None` for a directory outside and for one reached through a link that leads outside.
+- [ ] 1.4 Test: in `tests/cli/test_init_planning_view.py`, with the helpers of `tests/cli/project_init_support.py` and `tests/cli/init_quiet.py`, `main(["init", ..., "--yes"])` of an in-repo planning root prints the link's line and leaves `.planning` in place; of a separate planning repo creates no `.planning`; with `planning.state_dir` set inside the repository exits 1 naming `--allow-state-in-repo` and writes nothing, and with the flag warns and proceeds; interactively the same case asks and a `n` exits 1; a real `.planning` directory exits 1 naming it.
+- [ ] 1.5 Test: in `tests/cli/test_install_timers_in_repo.py`, with a wrong `.planning` link `install-timers` still exits 0, creates no link and prints a note naming `abk init`; with a right link it prints no note.
+- [ ] 1.6 Add `src/agent_build_kit/pipeline/planning_view.py` with `PlanningViewRefused`, `ensure_view`, `view_problem` and `state_inside_repo` as in design.md; the exclude line goes through `append_missing_lines` and the path git reports for `info/exclude`, as `scratch.ensure_scratch` does.
+- [ ] 1.7 In `cli/init.py` add `--allow-state-in-repo` to the `init` parser and, in `cmd_init` after `write_planning_repo` when `in_repo`, the guard (ask, or refuse under `--yes`) and the view step; the guard runs before `write_planning_repo` so a refusal writes nothing. In `cmd_install_timers` print the note from `view_problem`.
+
+## 2. [agent-build-kit] [unit-test] The doctor reports the planning view, and the docs say how to see the state
+
+Done when `abk doctor` reports a right, missing, dangling or wrong-target `.planning` link in the in-repo roles and nothing in a separate planning repo, warns on a state directory inside the repository, and `docs/init.md`, `docs/configuration.md` and the changelog describe the link, the editor settings and `abk serve`. Estimate: about 170 changed lines.
+
+- [ ] 2.1 Test: in `tests/cli/test_doctor_planning_view.py`, over `in_repo`, `with_pipeline_worktree`, `checks_of` and `named` from `tests/cli/in_repo_doctor.py`, the `planning view` check is `ok` for a right link and `WARN` with `abk init` in its fix for a missing, dangling and wrong-target link, in the working copy and from the pipeline worktree; and `separate(...)` has no such check.
+- [ ] 2.2 Test: in the same file, a `planning.state_dir` under the repository root, `ABK_STATE_DIR` under `.git` and a link that leads into the repository give a `WARN` named `state location` naming the resolved path; a directory outside the repository and a separate planning repo give none.
+- [ ] 2.3 Add the two checks to `cli/doctor.py` next to `_state_ignores` and register them in the checks list beside it; both return `[]` when `in_repo_name(inst)` is `None`, and read the link from `main_working_tree(inst.root)` when run from the pipeline worktree.
+- [ ] 2.4 Docs: in `docs/init.md` (step 6 and the in-repo paragraph) describe the link, its exclude line, the refusal and `--allow-state-in-repo`; in the planning section of `docs/configuration.md` (after the roles paragraph) say that `.planning` makes the state browsable in the already-open folder, suggest `files.watcherExclude` and `search.exclude` entries for `**/.planning/transcripts/**` and `**/.planning/**/*.sqlite*`, name `abk serve` as the web view, and warn against a state directory inside the repository. Use `<repo>` and neutral paths.
+- [ ] 2.5 Add a `CHANGELOG.md` entry under Unreleased: `abk init` makes the `.planning` link and `abk doctor` checks it; the guard and `--allow-state-in-repo`.
