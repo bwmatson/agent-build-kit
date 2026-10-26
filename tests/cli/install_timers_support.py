@@ -6,8 +6,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent_build_kit.init.scaffold import template
-from agent_build_kit.pipeline.planning_sync import write_pipeline_marker
 from tests.factories import commit_files, git
+from tests.planning_worktree_support import add_pipeline_worktree
 
 
 def worktree_of(tmp_path: Path) -> Path:
@@ -29,6 +29,4 @@ def add_worktree(repo: Path, tmp_path: Path) -> Path:
     """The pipeline worktree at the place the install would make it, added by hand."""
     worktree = worktree_of(tmp_path)
     worktree.parent.mkdir(parents=True)
-    git(repo, "worktree", "add", "-q", "--detach", str(worktree), "HEAD")
-    write_pipeline_marker(repo, worktree)
-    return worktree
+    return add_pipeline_worktree(repo, worktree)

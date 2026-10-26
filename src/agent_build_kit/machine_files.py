@@ -35,16 +35,21 @@ class MachineFileRefused(PlanningWorktreeRefused):
 
 
 def _classify(name: str, source: Path, worktree: Path) -> str:
-    """What carrying `name` does, or raises `MachineFileRefused` when it must not."""
+    """What carrying `name` does, or raises `MachineFileRefused` when it must not. The repairs a
+    refusal names are made in the working copy and published: the worktree is moved to the
+    default branch's tip, and an edit made in it stops that."""
     path = worktree / name
+    working_copy = source.parent
     if is_tracked(worktree, name):
         raise MachineFileRefused(
-            f"{path} is tracked by git, which would commit a machine file; "
-            f"`git rm --cached {name}` in {worktree}, then install again"
+            f"{path} is tracked by git, which would commit a machine file; run "
+            f"`git rm --cached {name}` in {working_copy}, commit and push it to the default "
+            "branch, then install again"
         )
     if not is_ignored(worktree, name):
         raise MachineFileRefused(
-            f"{path} is not ignored by git; add `{name}` to .gitignore, then install again"
+            f"{path} is not ignored by git; add `{name}` to .gitignore in {working_copy}, "
+            "commit and push it to the default branch, then install again"
         )
     if path.is_symlink():
         if not path.exists():
@@ -53,29 +58,30 @@ def _classify(name: str, source: Path, worktree: Path) -> str:
             return UNCHANGED
         raise MachineFileRefused(f"{path} is a link to {path.resolve()}, not to {source}")
     if path.exists():
-        if path.read_bytes() == source.read_bytes():
+        if path.is_file() and path.read_bytes() == source.read_bytes():
             return UNCHANGED
         raise MachineFileRefused(
-            f"{path} is a different file from {source}; move it away, then install again"
+            f"{path} is not a copy of {source}; move it away, then install again"
         )
     return LINKED
 
 
 def carry(source: Path, worktree: Path, *, dry_run: bool) -> tuple[Carried, ...]:
-    """Link each machine file `source` has into `worktree`; refuse before changing anything."""
-    plan = [
-        (name, _classify(name, source / name, worktree))
-        for name in MACHINE_FILES
-        if (source / name).exists()
-    ]
+    """Link each machine file `source` has into `worktree`; refuse before changing anything. A
+    dry run over a worktree that is not made yet says `would link` for each file, with no git
+    check to make."""
+    present = [name for name in MACHINE_FILES if (source / name).exists()]
+    if dry_run and not worktree.is_dir():
+        return tuple(Carried(name=name, result=WOULD_LINK) for name in present)
+    plan = [(name, _classify(name, source / name, worktree)) for name in present]
     carried = []
     for name, result in plan:
         if result in (LINKED, REPOINTED):
-            if not dry_run:
+            if dry_run:
+                result = WOULD_LINK
+            else:
                 path = worktree / name
                 path.unlink(missing_ok=True)
                 path.symlink_to((source / name).absolute())
-            if dry_run:
-                result = WOULD_LINK
         carried.append(Carried(name=name, result=result))
     return tuple(carried)

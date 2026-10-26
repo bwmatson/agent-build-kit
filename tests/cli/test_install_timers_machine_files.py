@@ -12,9 +12,7 @@ from tests.cli.install_timers_support import (
     publish_planning,
     worktree_of,
 )
-from tests.machine_files_support import CONTENT, give
-
-ALL = (".env", "abk.local.yaml", "scrub.local")
+from tests.machine_files_support import ALL, CONTENT, give
 
 
 def lines_of(capsys: pytest.CaptureFixture[str]) -> list[str]:
@@ -110,3 +108,18 @@ def test_a_working_copy_with_no_machine_file_exits_0_and_prints_no_link_line(
 
     out = capsys.readouterr().out
     assert not any(word in line for line in out.splitlines() for word in ("linked", "would link"))
+
+
+def test_a_dry_run_with_no_worktree_yet_says_would_link_for_each_file(
+    working_copy: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    publish_planning(working_copy)
+    give(working_copy, *ALL)
+
+    assert main(["install-timers", "--dry-run"]) == 0
+
+    lines = lines_of(capsys)
+    for name in ALL:
+        expected = f"would link {worktree_of(tmp_path) / name}"
+        assert expected in lines
+    assert not worktree_of(tmp_path).exists()

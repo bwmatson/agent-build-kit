@@ -555,8 +555,6 @@ def _carry_machine_files(
             )
     else:
         source = inst.root
-    if not worktree.is_dir():
-        return (), ()
     return carry(source, worktree, dry_run=dry_run), ()
 
 
