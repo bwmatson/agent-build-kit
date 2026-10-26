@@ -3,25 +3,7 @@ change and the `Needs:` note."""
 
 import re
 
-from tests.doc_text import ROOT, squashed, unreleased_bullets
-
-CLI = ROOT / "docs" / "cli.md"
-RUNBOOK = ROOT / "docs" / "runbooks" / "move-agent-build-kit-planning.md"
-
-
-def entry() -> str:
-    """The `abk planning split` entry of the command reference, up to the next heading."""
-    text = CLI.read_text()
-    start = text.index("### `abk planning split")
-    following = re.search(r"^#{1,3} ", text[start + 4 :], re.M)
-    return squashed(text[start : start + 4 + following.start() if following else None])
-
-
-def runbook_step(number: int) -> str:
-    text = RUNBOOK.read_text()
-    match = re.search(rf"^## {number}\. .*?(?=^## \d+\. |\Z)", text, re.M | re.S)
-    assert match, f"step {number} not found"
-    return squashed(match.group(0))
+from tests.doc_text import entry, runbook_step, unreleased_bullets
 
 
 def test_the_reference_names_the_three_reasons_for_a_dropped_edge():

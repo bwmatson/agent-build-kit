@@ -1,5 +1,7 @@
 """`abk planning split` prints why each dropped edge's target stays, and the count by reason."""
 
+import re
+
 from tests.factories import new_unit
 from tests.planning_split_support import load, split
 from tests.split_remove_support import trees
@@ -84,7 +86,7 @@ def test_the_needs_note_is_a_warning_line_and_the_exit_is_zero(tmp_path, capsys)
     out = capsys.readouterr().out
     assert code == 0, out
     (line,) = [x for x in out.splitlines() if x.startswith("warning:") and "group 1" in x]
-    assert all(word in line for word in ("g", "m"))
+    assert re.search(r"\bg\b", line) and re.search(r"\bm\b", line)
     assert not [x for x in out.splitlines() if x.startswith("refused:")]
 
 
