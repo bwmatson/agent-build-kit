@@ -85,7 +85,10 @@ the kit repo, but the steps are the same for any managed repo that becomes its o
 - [ ] `abk --config <pipeline worktree>/abk.yaml status`: the same units and the same worktrees as before; nothing replans
   (planned hashes contain no path, so nothing should).
   The comparison of units expects the dropped dependencies the dry run printed.
-- [ ] `abk install-timers` (units `abk-<destination>-*`; it creates the pipeline worktree).
+- [ ] First create `abk.local.yaml`, `.env` and `scrub.local` in the destination's working copy. These machine files stay
+  untracked, so nothing copies them: `abk install-timers` carries them into the pipeline worktree as links, and
+  `abk doctor` in the worktree then has no `machine files` failure.
+- [ ] `abk install-timers` (units `abk-<destination>-*`; it creates the pipeline worktree and links the machine files).
 - [ ] In the old planning repo: `abk planning split --remove` (or by hand) to remove what moved; remove the moving repo's
   entry from `abk.yaml` and from any `consumes`; keep its editable path dependency on the moving repo if its own
   ticks run the kit's code from there. Re-enable its timers.

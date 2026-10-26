@@ -204,7 +204,8 @@ there; when the marker already names a worktree it reuses it, printing
 (fill each `deploy.rules[].run`, `description`, `relationships`; replace any
 `todo-owner/` slug), set a repo-local git identity in each checkout, log `gh`
 in for every owner, copy `.env.example` to `.env`, run `abk doctor`, install
-the timers with `abk install-timers`. The output and the planning context say where an
+the timers with `abk install-timers`, which also links `.env`, `abk.local.yaml` and `scrub.local`
+from the working copy into the pipeline worktree (they stay untracked). The output and the planning context say where an
 installation's own facts go: single values and secrets about its stack (an agent command,
 local ports, a home variable) in the ignored `.env`, read by `from: env-file` entries, and
 structured, user-specific configuration in the ignored `abk.local.yaml`, merged over
