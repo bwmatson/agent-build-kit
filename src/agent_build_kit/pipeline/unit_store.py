@@ -391,6 +391,8 @@ class StoredUnit(Unit):
     split_request: StoredSplitRequest | None = None
     split_rounds_used: int = 0
     size_waived: bool = False
+    # Why a unit over its ceiling was sent on unsplit.
+    unsplit_reason: str = ""
     split_from: str = ""
     # The close of a satisfied unit's pull request, kept until it is done.
     close_pending: ClosePending | None = None

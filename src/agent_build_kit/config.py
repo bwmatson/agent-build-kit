@@ -1524,6 +1524,8 @@ class ReviewConfig(Frozen):
     split_rounds: int = Field(default=2, ge=0, le=2)
     # Whether a pull request body opens with the "Start here" section, and the review asks for it.
     brief: bool = True
+    # What happens to a unit over its ceiling that cannot be split: `open_pr` or `hold`.
+    unsplittable: Literal["unimplemented"] = "unimplemented"
 
     @model_validator(mode="before")
     @classmethod
