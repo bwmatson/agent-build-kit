@@ -63,12 +63,14 @@ def guarded_files(
     names: Collection[str] = (),
     suffixes: Collection[str] | None = None,
     specs: bool = False,
+    dirs: PlanningDirs | None = None,
 ) -> list[Path]:
     """The tracked files below each folder of `under` (the whole tree when empty), plus the root
     files of `names` that exist, filtered by `suffixes` when given. The specification folder is
     left out unless `specs`; the state folder is always left out (name a file of it in `names`).
-    Hidden, vendored and built folders below a folder of `under` are skipped. Sorted."""
-    dirs = planning_dirs(root)
+    Hidden, vendored and built folders below a folder of `under` are skipped. Sorted. A caller that
+    already read the planning folders passes them as `dirs`."""
+    dirs = dirs or planning_dirs(root)
     left_out = [Path(dirs.state_dir)] + ([] if specs else [Path(dirs.specs_dir)])
     found: set[Path] = set()
     for relative in tracked(root):
