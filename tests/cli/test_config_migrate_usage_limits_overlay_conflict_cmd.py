@@ -20,13 +20,7 @@ BASE = (
     "      session:\n"
     "        usage_pause_pct: 70\n"
 )
-OVERLAY = (
-    "runtimes:\n"
-    "  claude_code:\n"
-    "    limits:\n"
-    "      weekly:\n"
-    "        usage_pause_pct: 80\n"
-)
+OVERLAY = "runtimes:\n  claude_code:\n    limits:\n      weekly:\n        usage_pause_pct: 80\n"
 
 
 def test_the_overlay_keeps_one_spelling_and_the_conflict_names_the_key_it_wrote(

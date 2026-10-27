@@ -63,9 +63,7 @@ def opened(
         raise refuse(as_key, f"{name} uses a merge key, which cannot be edited by lines")
 
 
-def rename_on_line(
-    lines: list[str], key: yaml.ScalarNode, old: str, new: str, as_key: str
-) -> None:
+def rename_on_line(lines: list[str], key: yaml.ScalarNode, old: str, new: str, as_key: str) -> None:
     """Rename the key `old` to `new` on its own line, in place; refuse, naming `as_key`, a key
     with an anchor or an alias on its line, or one that is quoted or written across lines."""
     line, col = key.start_mark.line, key.start_mark.column
