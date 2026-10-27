@@ -449,10 +449,14 @@ repos:                          # ordered: deploy order is derived from
                                 # github: owner, repo, labels (a label for each of
                                 # feature, story, task; all required), host and
                                 # project_number optional.
-      token_env: TRACKER_TOKEN  # optional; with `state_map` (kit state -> tracker state)
-      state_map: {}             # and `marker_prefix` (default abk). An invalid section
-      marker_prefix: abk        # is one error naming the repo, kind and key; it stops
-                                # only that repo's tracker work.
+      token_env: TRACKER_TOKEN  # optional: the NAME of the environment variable holding the
+                                # credential, never the credential; set it to the variable
+                                # your tracker's own tooling already uses (for example
+                                # AZURE_DEVOPS_EXT_PAT or GITHUB_TOKEN).
+      state_map: {}             # optional: kit state -> tracker state.
+      marker_prefix: abk        # optional, default abk. An invalid section is one error
+                                # naming the repo, kind and key; it stops only that
+                                # repo's tracker work.
     profile: python-uv          # toolchain profile: python-uv, or node-npm. The repo-wide
                                 # default; a project below may set its own.
     infra: none                 # infrastructure profile: docker or none
