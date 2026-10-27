@@ -69,7 +69,7 @@ def test_a_phase_commits_the_reports_and_not_the_state_and_pushes_them(
     assert phase(inst, doing(inst, leaves_markdown_in_the_state)) == 0
 
     committed = git(setup.worktree, "show", "--name-only", "--format=", "HEAD").splitlines()
-    assert sorted(committed) == [f"{REPORTS}/tracked-issues.md", log_name(inst)]
+    assert sorted(committed) == sorted([f"{REPORTS}/tracked-issues.md", log_name(inst)])
     assert log_name(inst).startswith(f"{REPORTS}/")
     assert origin_main(setup) == git(setup.worktree, "rev-parse", "HEAD")
     assert (inst.state_dir / "notes.md").is_file()
