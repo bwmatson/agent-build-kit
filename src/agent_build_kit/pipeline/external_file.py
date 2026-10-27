@@ -121,13 +121,13 @@ def add_hold(change_dir: Path, hold: Hold) -> None:
         _write(path, [*holds, hold])
 
 
-def _holding(change_dir: Path) -> dict[int, Hold]:
+def _holding(change_dir: Path, *, recorded: bool = False) -> dict[int, Hold]:
     """Each group the kit must leave alone, with the hold that has it: those of every hold
-    neither done nor released."""
+    neither done nor released, and with `recorded` those done by hand too."""
     existing = _group_numbers(change_dir)
     holding: dict[int, Hold] = {}
     for hold in read_holds(change_dir):
-        if hold.status not in (DONE, RELEASED):
+        if hold.status != RELEASED and (recorded or hold.status != DONE):
             holding.update({number: hold for number in _covered(hold, existing)})
     return holding
 
@@ -137,20 +137,35 @@ def blocked_groups(change_dir: Path) -> frozenset[int]:
     return frozenset(_holding(change_dir))
 
 
+def done_groups(change_dir: Path) -> frozenset[int]:
+    """The groups whose hand merge has been recorded."""
+    existing = _group_numbers(change_dir)
+    return frozenset(
+        number
+        for hold in read_holds(change_dir)
+        if hold.status == DONE
+        for number in _covered(hold, existing)
+    )
+
+
 def held_units(changes_dir: Path, units: Sequence[Unit]) -> dict[str, Hold]:
-    """The planned units whose groups are all held, each with the hold that has its first group."""
+    """The planned units whose groups are all held, or done by hand while another group of the
+    unit is still held, each with the first hold still held."""
     holding: dict[str, dict[int, Hold]] = {}
     found: dict[str, Hold] = {}
     for unit in units:
         if unit.state != PLANNED:
             continue
         holds = [
-            holding.setdefault(member.change, _holding(changes_dir / member.change)).get(number)
+            holding.setdefault(
+                member.change, _holding(changes_dir / member.change, recorded=True)
+            ).get(number)
             for member in unit.members()
             for number in member.groups
         ]
-        if holds and (first := holds[0]) is not None and all(holds):
-            found[unit.id] = first
+        live = [found_hold for found_hold in holds if found_hold and found_hold.status != DONE]
+        if holds and all(holds) and live:
+            found[unit.id] = live[0]
     return found
 
 
@@ -187,4 +202,40 @@ def check_not_started(change_dir: Path, hold: Hold, units: Sequence[StoredUnit])
 def release_hold(change_dir: Path, group: int) -> None:
     """Give back the work of the hold that has `group`; raises `HoldRefused` when none holds it
     or the hold is done."""
-    raise NotImplementedError
+    path = external_path(change_dir)
+    with file_lock(_lock(path)):
+        existing = _group_numbers(change_dir)
+        holds = read_holds(change_dir)
+        for index, hold in enumerate(holds):
+            if hold.status == RELEASED or group not in _covered(hold, existing):
+                continue
+            if hold.status == DONE:
+                raise HoldRefused(f"group {group} of change {change_dir.name} is done, not held")
+            released = hold.model_copy(update={"status": RELEASED})
+            _write(path, [*holds[:index], released, *holds[index + 1 :]])
+            return
+    raise HoldRefused(f"group {group} of change {change_dir.name} is not held")
+
+
+def record_done(change_dir: Path, groups: Sequence[int], *, merged_by: str, at: datetime) -> None:
+    """Mark `groups` done in the hold that has them, splitting off the groups still held;
+    raises `HoldRefused` for a group no hold has."""
+    path = external_path(change_dir)
+    with file_lock(_lock(path)):
+        existing = _group_numbers(change_dir)
+        out: list[Hold] = []
+        todo = set(groups)
+        for hold in read_holds(change_dir):
+            mine = _covered(hold, existing) & todo
+            if hold.status != HELD or not mine:
+                out.append(hold)
+                continue
+            todo -= mine
+            rest = _covered(hold, existing) - mine
+            done = {"scope": tuple(sorted(mine)), "status": DONE, "merged_by": merged_by}
+            out.append(hold.model_copy(update={**done, "done_at": at}))
+            if rest:
+                out.append(hold.model_copy(update={"scope": tuple(sorted(rest))}))
+        if todo:
+            raise HoldRefused(f"group {min(todo)} of change {change_dir.name} is not held")
+        _write(path, out)
