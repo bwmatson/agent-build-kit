@@ -4,6 +4,7 @@ through git and used where it is (spec: unit-worktrees)."""
 from __future__ import annotations
 
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ from agent_build_kit.pipeline.workspaces import (
     prepare_worktree,
     remove_worktree,
     unit_tree,
+    worktree_entries,
     worktree_key,
     worktree_path,
 )
@@ -207,3 +209,45 @@ def test_a_detached_checkout_with_none_is_created_under_the_key(repo: Path, root
 
     assert got == root / "lib" / "_dev_stack_base"
     assert got.is_dir()
+
+
+def git_version() -> tuple[int, ...]:
+    return tuple(int(part) for part in git(Path("."), "--version").split()[2].split(".")[:2])
+
+
+@pytest.mark.skipif(git_version() < (2, 48), reason="git before 2.48 has no --relative-paths")
+def test_a_worktree_added_with_relative_paths_is_found_and_used(repo: Path, root: Path) -> None:
+    path = root / "worktree" / "spec_x_1"
+    path.parent.mkdir(parents=True)
+    git(repo, "worktree", "add", "-q", "--relative-paths", "-b", BRANCH, str(path), "main")
+    before = listing(repo)
+
+    assert unit_tree(repo, BRANCH, root) == path
+    assert prepare_worktree(repo, BRANCH, name="lib", base="main", root=root) == path
+    assert listing(repo) == before
+
+
+def test_a_checkout_with_a_separate_git_directory_is_listed_at_the_checkout(
+    tmp_path: Path,
+) -> None:
+    work = tmp_path / "work"
+    work.mkdir()
+    git(work, "init", "-q", "-b", "main", "--separate-git-dir", str(tmp_path / "gitdir"))
+
+    assert [entry.path for entry in worktree_entries(work)] == [work]
+
+
+def test_a_worktree_stopped_in_a_rebase_still_has_the_branch(repo: Path, root: Path) -> None:
+    path = add_at(repo, root / "worktree" / "spec_x_1")
+    (path / "README.md").write_text("branch\n")
+    git(path, "commit", "-qam", "branch")
+    (repo / "README.md").write_text("main\n")
+    git(repo, "commit", "-qam", "main")
+    stopped = subprocess.run(["git", "rebase", "main"], cwd=path, capture_output=True, text=True)
+    assert stopped.returncode != 0, "the rebase stopped on a conflict, head detached"
+    before = listing(repo)
+
+    assert unit_tree(repo, BRANCH, root) == path
+    got = prepare_worktree(repo, BRANCH, name="lib", base="main", root=root, allow_dirty=True)
+    assert got == path
+    assert listing(repo) == before

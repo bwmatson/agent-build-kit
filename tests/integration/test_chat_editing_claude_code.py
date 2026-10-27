@@ -152,7 +152,10 @@ class Scratch(Frozen):
         unit = UnitStore(self.installation.state_dir / "units.json").get(UNIT_ID)
         assert unit.branch
         return worktree_path(
-            self.installation.checkouts[unit.repo], unit.branch, self.installation.worktree_root
+            self.installation.checkouts[unit.repo],
+            unit.branch,
+            self.installation.worktree_root,
+            name=self.installation.checkouts[unit.repo].name,
         )
 
 

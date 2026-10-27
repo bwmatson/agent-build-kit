@@ -200,14 +200,20 @@ def _unit_worktrees(inst: Installation) -> list[Check]:
     """The unit worktrees under the worktree root that sit in a folder other than their repo's
     key, and the registered ones whose directory is gone. Reads git, writes nothing."""
     name = "unit worktrees"
+    # By repository, not checkout: two checkouts that are worktrees of one repository list the
+    # same entries.
     keys: dict[Path, set[str]] = {}
+    checkouts: dict[Path, Path] = {}
     for repo in inst.repos:
         path = inst.checkouts[repo]
-        if (path / ".git").exists():
-            keys.setdefault(path, set()).add(worktree_key(repo))
+        common = common_dir(path)
+        if common is not None:
+            checkouts.setdefault(common, path)
+            keys.setdefault(common, set()).add(worktree_key(repo))
     root = inst.worktree_root.resolve()
     found = []
-    for checkout, folders in keys.items():
+    for common, folders in keys.items():
+        checkout = checkouts[common]
         for entry in worktree_entries(checkout):
             if not entry.path.resolve().is_relative_to(root):
                 continue

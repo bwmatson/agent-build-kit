@@ -435,6 +435,7 @@ from agent_build_kit.pipeline.workspaces import (
     BranchBusy,
     branch_held,
     branch_lock,
+    checked_out_elsewhere,
     keep_superseded_tip,
     lock_holder_gone,
     unit_tree,
@@ -5577,6 +5578,16 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
                 RUNNING,
                 note=f"restack onto {new_base} left for its run, not a conflict: "
                 "its worktree has the branch checked out",
+                cause=Cause.RESTACK_CONFLICT,
+            )
+            return None
+        elsewhere = checked_out_elsewhere(repo, branch, inst.worktree_root)
+        if elsewhere is not None:
+            store.set_state(
+                unit.id,
+                RUNNING,
+                note=f"restack onto {new_base} left for its run, not a conflict: "
+                f"{branch} is checked out in {elsewhere}, outside {inst.worktree_root}",
                 cause=Cause.RESTACK_CONFLICT,
             )
             return None

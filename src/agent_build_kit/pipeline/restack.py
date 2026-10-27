@@ -48,8 +48,10 @@ from agent_build_kit.pipeline.planning_repo import current_branch
 from agent_build_kit.pipeline.scratch import output_convention, run_folder
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.workspaces import (
+    detached_trees,
     prepare_detached,
     worktree_entries,
+    worktree_key,
     worktree_path,
 )
 from agent_build_kit.runtimes import AgentRequest, AgentResult
@@ -632,14 +634,17 @@ def checked_out_at(
     """A worktree on no branch, at `ref` (the branch's head by default), for a branch
     with no worktree of its own. Made and removed inside the turn; one left by a
     restack that stopped is cleared there first."""
-    path = temporary_tree(repo, branch, root=root, name=name)
+    leaf = temporary_tree(repo, branch, root=root, name=name).name
     with turn():
-        if path.exists():
-            git(path, "rebase", "--abort", check=False)
-            git(repo, "worktree", "remove", "--force", str(path), check=False)
+        # One left by a restack that stopped, under this folder or the one an earlier release
+        # used, goes first.
+        for left in (*detached_trees(repo, leaf, root), root / worktree_key(name) / leaf):
+            if left.exists():
+                git(left, "rebase", "--abort", check=False)
+                git(repo, "worktree", "remove", "--force", str(left), check=False)
         git(repo, "worktree", "prune", check=False)
-        prepare_detached(
-            repo, path.name, name=name, ref=ref or _branch_head(repo, branch), root=root
+        path = prepare_detached(
+            repo, leaf, name=name, ref=ref or _branch_head(repo, branch), root=root
         )
     try:
         yield path
@@ -830,7 +835,7 @@ def resolved_move(
     repo_config: RepoConfig | None = None,
     turn: Turn = nullcontext,
     temporary_root: Path | None = None,
-    temporary_name: str = "",
+    temporary_name: str | None = None,
 ) -> Moved:
     """`move_branch_onto` with the resolver wired up and both sides' intent.
 
@@ -862,6 +867,8 @@ def resolved_move(
         ),
     )
     if temporary_root is not None:
+        if temporary_name is None:
+            raise ValueError("temporary_root needs temporary_name, the repo's name in abk.yaml")
         # No worktree of the unit's own: its branch is moved in a temporary one.
         return move_in_temporary_worktree(
             repo, branch, root=temporary_root, name=temporary_name, turn=turn, move=move, **moving

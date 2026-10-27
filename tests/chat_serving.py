@@ -75,7 +75,7 @@ def unit_worktree(installation: Installation, unit_id: str) -> Path:
     unit = UnitStore(installation.state_dir / "units.json").get(unit_id)
     assert unit.branch
     repo = installation.checkouts[unit.repo]
-    path = worktree_path(repo, unit.branch, installation.worktree_root)
+    path = worktree_path(repo, unit.branch, installation.worktree_root, name=repo.name)
     return registered_tree(repo, unit.branch, path)
 
 

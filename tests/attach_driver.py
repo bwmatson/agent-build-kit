@@ -47,7 +47,7 @@ def unit_worktree(installation: Installation, unit: StoredUnit) -> Path:
     `installation` lists for the unit."""
     assert unit.branch
     repo = installation.checkouts[unit.repo]
-    path = worktree_path(repo, unit.branch, installation.worktree_root)
+    path = worktree_path(repo, unit.branch, installation.worktree_root, name=repo.name)
     path.parent.mkdir(parents=True, exist_ok=True)
     git(repo, "worktree", "add", "-q", "-b", unit.branch, str(path))
     return path

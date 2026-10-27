@@ -4,7 +4,7 @@ Follow it only after group 1 and group 2 of unit-worktrees-are-keyed-by-the-repo
 
 Nothing in it is read by the pipeline. Tick the boxes as you go.
 
-For the person who changes `planning.worktree_root`. Unit worktrees live at `<root>/<repo name in abk.yaml>/<sanitised branch>`. Changing the root leaves the old worktrees registered with git and in use, because the pipeline finds a unit's worktree through `git worktree list`; so move them first.
+For the person who changes `planning.worktree_root`. Unit worktrees live at `<root>/<repo name in abk.yaml>/<sanitised branch>`. Changing the root leaves the old worktrees registered with git, and a unit whose worktree is outside the root is refused, so move them first.
 
 ## 1. Stop the timers
 - [ ] `abk install-timers --remove`, or `systemctl --user disable --now` of the tick and track timers.
@@ -27,4 +27,4 @@ For the person who changes `planning.worktree_root`. Unit worktrees live at `<ro
 - [ ] Restart the timers.
 
 ## Rollback
-Stop the timers, restore the old `worktree_root`, and `git worktree move` the worktrees back. Any left where they are keep being used, because they are found through git.
+Stop the timers, restore the old `worktree_root`, and `git worktree move` the worktrees back. Any left under the new root are outside the restored root, and their units are refused until they are moved back.

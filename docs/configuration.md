@@ -112,8 +112,9 @@ planning:
                                 # A worktree already registered for a unit's
                                 # branch under the root is used where it is; one
                                 # outside the root is refused. Changing the root
-                                # leaves old worktrees registered and in use, so
-                                # move them first: see
+                                # leaves the old worktrees registered with git, and
+                                # a unit whose worktree is outside the root is
+                                # refused, so move them first: see
                                 # docs/runbooks/move-the-unit-worktree-root.md.
                                 # Wait for no running unit and no running track
                                 # first: an unconfined step or a track fails with

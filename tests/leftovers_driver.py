@@ -142,7 +142,7 @@ class Habitat:
 
     @property
     def tree(self) -> Path:
-        return worktree_path(self.repo, branch_name(unit()), self.trees)
+        return worktree_path(self.repo, branch_name(unit()), self.trees, name=self.repo.name)
 
     def commits_on_branch(self) -> list[str]:
         """The subjects of the branch's commits beyond `main`, oldest first."""

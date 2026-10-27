@@ -168,50 +168,65 @@ def worktree_key(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "_", name)
 
 
-def _common_dir(repo: Path) -> Path | None:
-    """The git directory that holds the worktree list of `repo`, read from the files git keeps
-    so that asking runs no process."""
+def _git_dirs(repo: Path) -> tuple[Path, Path | None] | None:
+    """The common git directory of `repo`, and the path of the main working tree when that is
+    known, read from the files git keeps. This is the process-free sibling of
+    `planning_repo.common_dir`: the sessions page probes a unit's worktree on every listing, and
+    listing runs nothing."""
     dot = repo / ".git"
     if dot.is_dir():
-        return dot
+        return dot, repo
     if not dot.is_file():
         return None
     text = dot.read_text().strip()
     if not text.startswith("gitdir:"):
         return None
-    own = (repo / text.removeprefix("gitdir:").strip()).resolve()
+    own = Path(os.path.normpath(repo / text.removeprefix("gitdir:").strip()))
     shared = own / "commondir"
-    return (own / shared.read_text().strip()).resolve() if shared.is_file() else own
+    if not shared.is_file():
+        return own, repo  # a separate git directory: `repo` is the main working tree
+    common = Path(os.path.normpath(own / shared.read_text().strip()))
+    return common, common.parent if common.name == ".git" else None
 
 
-def _head_branch(head: Path) -> str | None:
+def _head(admin: Path) -> str | None:
+    """The branch the worktree whose git directory is `admin` has checked out, or is rebasing
+    when a stopped rebase left its head detached: git treats that branch as checked out."""
     try:
-        text = head.read_text().strip()
+        text = (admin / "HEAD").read_text().strip()
     except OSError:
         return None
-    return text.removeprefix("ref: refs/heads/") if text.startswith("ref: refs/heads/") else None
+    if text.startswith("ref: refs/heads/"):
+        return text.removeprefix("ref: refs/heads/")
+    for state in ("rebase-merge", "rebase-apply"):
+        try:
+            rebasing = (admin / state / "head-name").read_text().strip()
+        except OSError:
+            continue
+        if rebasing.startswith("refs/heads/"):
+            return rebasing.removeprefix("refs/heads/")
+    return None
 
 
 def worktree_entries(repo: Path) -> tuple[WorktreeEntry, ...]:
     """Every worktree git lists for `repo`, its own checkout first: what
-    `git worktree list --porcelain` says, read from the repository's files."""
-    common = _common_dir(repo)
-    if common is None:
+    `git worktree list --porcelain` says, read from the repository's files so that asking runs
+    no process. A worktree stopped in a rebase of a branch counts as on that branch."""
+    dirs = _git_dirs(repo)
+    if dirs is None:
         return ()
-    found = [
-        WorktreeEntry(path=common.parent, branch=_head_branch(common / "HEAD"), prunable=False)
-    ]
+    common, main = dirs
+    found = []
+    if main is not None:
+        found.append(WorktreeEntry(path=main, branch=_head(common), prunable=False))
     for admin in sorted((common / "worktrees").glob("*")):
         try:
-            gitdir = Path((admin / "gitdir").read_text().strip())
+            recorded = Path((admin / "gitdir").read_text().strip())
         except OSError:
             continue
-        path = gitdir.parent
-        found.append(
-            WorktreeEntry(
-                path=path, branch=_head_branch(admin / "HEAD"), prunable=not path.exists()
-            )
-        )
+        # A worktree made with `--relative-paths` records the path relative to `admin`.
+        path = Path(os.path.normpath(admin / recorded)).parent
+        found.append(WorktreeEntry(path=path, branch=_head(admin), prunable=not path.exists()))
     return tuple(found)
 
 
@@ -231,11 +246,32 @@ def unit_tree(repo: Path, branch: str, root: Path) -> Path | None:
     return entry.path
 
 
-def worktree_path(repo: Path, branch: str, root: Path, *, name: str | None = None) -> Path:
-    """Where a new worktree for `branch` goes: under the folder the repo's `name` gives, or
-    its checkout's folder name when no name is given."""
-    folder = worktree_key(name) if name is not None else repo.name
-    return root / folder / re.sub(r"[^A-Za-z0-9]", "_", branch)
+def checked_out_elsewhere(repo: Path, branch: str, root: Path) -> Path | None:
+    """Where `branch` is checked out when that is not under `root` (the repository's own
+    checkout, say), which the pipeline leaves alone; None when it is not, or is under `root`."""
+    entry = _entry_on(repo, branch)
+    if entry is None or entry.prunable or _under(entry.path, root):
+        return None
+    return entry.path
+
+
+def detached_trees(repo: Path, leaf: str, root: Path) -> tuple[Path, ...]:
+    """The registered worktrees on no branch whose folder is named `leaf`, two levels under
+    `root` whatever the folder between."""
+    return tuple(
+        entry.path
+        for entry in worktree_entries(repo)
+        if entry.branch is None
+        and not entry.prunable
+        and entry.path.name == leaf
+        and entry.path.resolve().parent.parent == root.resolve()
+    )
+
+
+def worktree_path(repo: Path, branch: str, root: Path, *, name: str) -> Path:
+    """Where a new worktree for `branch` goes: under the folder the repo's `name` in
+    `abk.yaml` gives, whatever the checkout's folder is called."""
+    return root / worktree_key(name) / re.sub(r"[^A-Za-z0-9]", "_", branch)
 
 
 def _uncommitted(
@@ -298,7 +334,7 @@ def prepare_worktree(
     *,
     base: str,
     root: Path,
-    name: str | None = None,
+    name: str,
     allow_dirty: bool = False,
     locks: Sequence[str] = (),
     artifacts: Sequence[str] = (),
@@ -358,9 +394,7 @@ def _elsewhere(branch: str, path: Path, root: Path) -> WorktreeElsewhere:
     )
 
 
-def prepare_detached(
-    repo: Path, leaf: str, *, ref: str, root: Path, name: str | None = None
-) -> Path:
+def prepare_detached(repo: Path, leaf: str, *, ref: str, root: Path, name: str) -> Path:
     """A checkout of `ref` on no branch, created or moved to where `ref` is now.
 
     For running something *from* main rather than building on it: a
@@ -368,19 +402,9 @@ def prepare_detached(
     from the platform's main, not from the user's own checkout and whatever
     is on it. Nothing is ever committed here, so moving it discards nothing.
     """
-    path = root / worktree_key(name if name is not None else repo.name) / leaf
+    path = root / worktree_key(name) / leaf
     if not path.exists():
-        path = next(
-            (
-                entry.path
-                for entry in worktree_entries(repo)
-                if entry.branch is None
-                and not entry.prunable
-                and entry.path.name == leaf
-                and entry.path.parent.parent == root.resolve()
-            ),
-            path,
-        )
+        path = next(iter(detached_trees(repo, leaf, root)), path)
     if path.exists():
         git_out(path, "checkout", "-q", "--detach", ref)
         return path

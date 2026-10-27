@@ -35,7 +35,7 @@ def repo(tmp_path: Path) -> Path:
 def dirty_paths(repo: Path, trees: Path, *, locks: tuple[str, ...]) -> list[str] | None:
     """The paths that hold the unit's worktree whose lock inputs are `locks`, None when none do."""
     try:
-        prepare_worktree(repo, BRANCH, base="main", root=trees, locks=locks)
+        prepare_worktree(repo, BRANCH, base="main", root=trees, locks=locks, name=repo.name)
     except DirtyWorktree as dirty:
         assert all(name in str(dirty) for name in dirty.paths)
         return sorted(dirty.paths)
@@ -45,17 +45,23 @@ def dirty_paths(repo: Path, trees: Path, *, locks: tuple[str, ...]) -> list[str]
 def test_a_rewritten_tracked_lock_does_not_hold_a_worktree_and_is_not_discarded(
     repo: Path, tmp_path: Path
 ) -> None:
-    tree = prepare_worktree(repo, BRANCH, base="main", root=tmp_path / "trees", locks=(LOCK,))
+    tree = prepare_worktree(
+        repo, BRANCH, base="main", root=tmp_path / "trees", locks=(LOCK,), name=repo.name
+    )
     (tree / LOCK).write_text("rewritten\n")
 
-    again = prepare_worktree(repo, BRANCH, base="main", root=tmp_path / "trees", locks=(LOCK,))
+    again = prepare_worktree(
+        repo, BRANCH, base="main", root=tmp_path / "trees", locks=(LOCK,), name=repo.name
+    )
 
     assert again == tree
     assert (tree / LOCK).read_text() == "rewritten\n"
 
 
 def test_an_untracked_lock_does_not_hold_a_worktree(repo: Path, tmp_path: Path) -> None:
-    tree = prepare_worktree(repo, BRANCH, base="main", root=tmp_path / "trees", locks=(OTHER_LOCK,))
+    tree = prepare_worktree(
+        repo, BRANCH, base="main", root=tmp_path / "trees", locks=(OTHER_LOCK,), name=repo.name
+    )
     (tree / OTHER_LOCK).write_text("new\n")
 
     assert dirty_paths(repo, tmp_path / "trees", locks=(OTHER_LOCK,)) is None
@@ -65,13 +71,17 @@ def test_an_untracked_lock_does_not_hold_a_worktree(repo: Path, tmp_path: Path) 
 def test_another_file_still_holds_a_worktree_and_is_the_only_path_named(
     repo: Path, tmp_path: Path
 ) -> None:
-    tree = prepare_worktree(repo, BRANCH, base="main", root=tmp_path / "trees", locks=(LOCK,))
+    tree = prepare_worktree(
+        repo, BRANCH, base="main", root=tmp_path / "trees", locks=(LOCK,), name=repo.name
+    )
     (tree / LOCK).write_text("rewritten\n")
     (tree / "stray.txt").write_text("mine\n")
 
     assert dirty_paths(repo, tmp_path / "trees", locks=(LOCK,)) == ["stray.txt"]
     with pytest.raises(DirtyWorktree) as dirty:
-        prepare_worktree(repo, BRANCH, base="main", root=tmp_path / "trees", locks=(LOCK,))
+        prepare_worktree(
+            repo, BRANCH, base="main", root=tmp_path / "trees", locks=(LOCK,), name=repo.name
+        )
     assert LOCK not in str(dirty.value), "the message does not list it either"
 
 
@@ -128,7 +138,9 @@ def test_a_lock_input_written_with_a_dot_prefix_names_the_same_file(
 
 def committing(repo: Path, tmp_path: Path, *, tracked_lock: bool = True) -> Path:
     """A worktree of `repo` on the unit's branch, and the commit step over its configuration."""
-    tree = prepare_worktree(repo, BRANCH, base="main", root=tmp_path / "trees", locks=(LOCK,))
+    tree = prepare_worktree(
+        repo, BRANCH, base="main", root=tmp_path / "trees", locks=(LOCK,), name=repo.name
+    )
     if not tracked_lock:
         git(tree, "rm", "-q", "--cached", LOCK)
         git(tree, "commit", "-qm", "the lock is not tracked here")
@@ -196,7 +208,12 @@ def test_a_stacked_unit_is_judged_against_its_own_base_not_the_trunk(
     git(repo, "commit", "-qm", "the parent bumps widget")
     git(repo, "checkout", "-q", "main")
     tree = prepare_worktree(
-        repo, BRANCH, base="spec/add-marker/0", root=tmp_path / "trees", locks=(LOCK,)
+        repo,
+        BRANCH,
+        base="spec/add-marker/0",
+        root=tmp_path / "trees",
+        locks=(LOCK,),
+        name=repo.name,
     )
     (tree / "marker.py").write_text("MARKER = 1\n")
     (tree / LOCK).write_text("reformatted by a newer tool\n")
@@ -232,7 +249,9 @@ def test_a_dependency_change_in_an_earlier_commit_still_carries_the_lock(
 def test_a_restack_succeeds_over_a_tracked_lock_the_unit_did_not_change(
     repo: Path, tmp_path: Path
 ) -> None:
-    tree = prepare_worktree(repo, BRANCH, base="main", root=tmp_path / "trees", locks=(LOCK,))
+    tree = prepare_worktree(
+        repo, BRANCH, base="main", root=tmp_path / "trees", locks=(LOCK,), name=repo.name
+    )
     (tree / "marker.py").write_text("MARKER = 1\n")
     git(tree, "add", "-A")
     git(tree, "commit", "-qm", "the unit's work")

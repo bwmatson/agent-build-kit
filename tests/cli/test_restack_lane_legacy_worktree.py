@@ -37,3 +37,25 @@ def test_a_worktree_under_an_earlier_folder_is_the_units_own_and_the_move_is_lef
     left = scene.store.get(MOVED)
     assert left.cause == Cause.RESTACK_CONFLICT
     assert "its worktree has the branch checked out" in left.note
+
+
+def test_a_branch_checked_out_in_the_working_copy_is_left_for_its_run_and_no_tree_is_made(
+    scene: Scene,
+) -> None:
+    branch = f"spec/{MOVED}"
+    checkout = scene.inst.checkouts["app"]
+    git(checkout, "checkout", "-q", branch)
+    scene.store.set_state(MOVED, RUNNING, branch=branch, cause=Cause.BASE_CHANGED)
+    head = git(checkout, "rev-parse", "HEAD")
+
+    with cli.build_restack_lane(scene.inst, scene.store) as lanes:
+        lanes.hand_over(scene.store.get(MOVED))
+        lanes.drain()
+
+    left = scene.store.get(MOVED)
+    assert left.cause == Cause.RESTACK_CONFLICT
+    assert str(checkout) in left.note
+    assert scene.moves == [], "no move was made, so no resolver was asked"
+    assert "restack-" not in git(checkout, "worktree", "list", "--porcelain")
+    assert git(checkout, "branch", "--show-current") == branch
+    assert git(checkout, "rev-parse", "HEAD") == head

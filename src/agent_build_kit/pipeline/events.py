@@ -100,7 +100,12 @@ from agent_build_kit.pipeline.units import (
     trunk_of,
 )
 from agent_build_kit.pipeline.wiring import build_unit_test, moving_onto, own_work_starts_after
-from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock, unit_tree
+from agent_build_kit.pipeline.workspaces import (
+    BranchBusy,
+    branch_lock,
+    checked_out_elsewhere,
+    unit_tree,
+)
 from agent_build_kit.pipeline.workspaces import remove_worktree as drop_worktree
 from agent_build_kit.runtimes.base import (
     AgentInterrupted,
@@ -2009,6 +2014,18 @@ def build_restack(
         # Both sides are planned work, so the resolver is told what each was
         # for rather than left to infer it from the diff — see `resolved_move`,
         # which a resuming unit's own restack shares.
+        # Checked out where the pipeline does not work, the repository's own checkout say:
+        # nothing is moved, and the resolver is not asked, until it is switched away.
+        elsewhere = checked_out_elsewhere(repo, branch, root)
+        if worktree is None and elsewhere is not None:
+            store.set_state(
+                child.id,
+                PLANNED,
+                note=f"restack onto {new_base} deferred: {branch} is checked out in "
+                f"{elsewhere}; the runner retries it",
+                cause=Cause.RESTACK_DEFERRED,
+            )
+            return RestackOutcome.DEFERRED
         # No worktree of its own: the branch is moved in a temporary one, so the
         # repository's checkout is never switched.
         where: dict[str, Any] = (

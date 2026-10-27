@@ -91,7 +91,9 @@ def make_world(tmp_path: Path, *, slots: int = 50, seconds: int = 30) -> World:
     store = UnitStore(inst.state_dir / "units.json")
     store.upsert([stored_unit(UNIT, change="feature")])
     repo = inst.checkouts["app"]
-    tree = registered_tree(repo, BRANCH, worktree_path(repo, BRANCH, inst.worktree_root))
+    tree = registered_tree(
+        repo, BRANCH, worktree_path(repo, BRANCH, inst.worktree_root, name=repo.name)
+    )
     return World(inst, store, tree)
 
 

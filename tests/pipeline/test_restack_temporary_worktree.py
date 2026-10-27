@@ -149,6 +149,46 @@ def test_a_temporary_worktree_left_by_a_stopped_restack_is_cleared_under_the_tur
     assert not left.exists()
 
 
+def test_a_temporary_worktree_left_under_an_earlier_folder_is_cleared_and_the_move_succeeds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = Rig(tmp_path, monkeypatch)
+    left = rig.installation.worktree_root / "worktree" / rig.temporary_tree().name
+    left.parent.mkdir(parents=True)
+    sh(rig.repo, "worktree", "add", "-q", "--detach", str(left), BRANCH)
+    stopped = subprocess.run(
+        ["git", "rebase", "--onto", "main", OLD_BASE], cwd=left, capture_output=True, text=True
+    )
+    assert stopped.returncode != 0 and rebase_in_progress(left), "the leftover is mid-rebase"
+    old_head = sh(rig.repo, "rev-parse", BRANCH)
+
+    run_bounded(rig.restack)
+
+    assert sh(rig.repo, "rev-parse", BRANCH) != old_head
+    sh(rig.repo, "merge-base", "--is-ancestor", "main", BRANCH)
+    assert not left.exists()
+    assert "restack-" not in sh(rig.repo, "worktree", "list", "--porcelain")
+
+
+def test_a_temporary_root_without_the_repos_name_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = Rig(tmp_path, monkeypatch)
+
+    with pytest.raises(ValueError, match="temporary_name"):
+        restack.resolved_move(
+            rig.repo,
+            BRANCH,
+            new_base="main",
+            old_base=OLD_BASE,
+            moving_unit="c/2",
+            moving_intent="moving",
+            onto_unit="c/1",
+            onto_intent="onto",
+            temporary_root=rig.installation.worktree_root,
+        )
+
+
 def test_the_checks_of_a_branch_with_no_worktree_run_on_a_checkout_at_the_moved_head(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
