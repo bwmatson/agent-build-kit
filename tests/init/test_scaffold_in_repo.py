@@ -13,17 +13,17 @@ from tests.factories import fake_openspec, init_repo
 from tests.init.test_code_repo_conventions import snapshot
 from tests.init.test_scaffold import detection
 
-STATE_LINES = {
-    "runs/*.lock",
-    "runs/locks/",
-    "runs/unit-logs/",
-    "runs/usage-ledger.jsonl",
-    "runs/decisions.jsonl",
-    "runs/usage-calls.jsonl",
-    "*.pre-redact",
-}
+# The lines the marked block must hold in an in-repo installation, whose state is outside the
+# repository: what stays in the repository, and none of the `runs/` lines.
+BLOCK_LINES = {".env", "abk.local.yaml", "scrub.local", "*.pre-redact"}
 IGNORE_BLOCK = re.compile(r"# abk:planning v\w+\n(?P<lines>.*?)# /abk:planning\n", re.S)
 ORIENTATION = re.compile(r"<!-- abk:planning v\w+ -->\r?\n.*?<!-- /abk:planning -->\r?\n", re.S)
+
+
+@pytest.fixture(autouse=True)
+def data_home(data: Path) -> Path:
+    """The data home a laid-out installation resolves its state in, kept off the real one."""
+    return data
 
 
 def in_repo_config(repo: Path) -> WorkspaceConfig:
@@ -80,7 +80,8 @@ def test_the_gitignore_gains_one_block_of_exactly_the_missing_lines(tmp_path: Pa
     text = (repo / ".gitignore").read_text()
     blocks = list(IGNORE_BLOCK.finditer(text))
     assert len(blocks) == 1
-    assert set(blocks[0]["lines"].split()) == STATE_LINES - {"runs/unit-logs/"}
+    assert BLOCK_LINES <= set(blocks[0]["lines"].split())
+    assert not [line for line in blocks[0]["lines"].split() if line.startswith("runs/")]
     assert IGNORE_BLOCK.sub("", text) == original
     assert text.count("runs/unit-logs/") == 1
     lay_out(repo)
@@ -94,7 +95,7 @@ def test_a_gitignore_that_is_missing_is_created_with_the_block(tmp_path: Path) -
 
     blocks = list(IGNORE_BLOCK.finditer((repo / ".gitignore").read_text()))
     assert len(blocks) == 1
-    assert set(blocks[0]["lines"].split()) == STATE_LINES
+    assert BLOCK_LINES <= set(blocks[0]["lines"].split())
 
 
 def test_an_older_ignore_block_is_refreshed_in_place(tmp_path: Path) -> None:
@@ -107,7 +108,8 @@ def test_an_older_ignore_block_is_refreshed_in_place(tmp_path: Path) -> None:
     text = (repo / ".gitignore").read_text()
     assert text.startswith(before) and text.endswith(after)
     block = IGNORE_BLOCK.search(text)
-    assert block and set(block["lines"].split()) == STATE_LINES
+    assert block and BLOCK_LINES <= set(block["lines"].split())
+    assert "runs/unit-logs/" not in block["lines"]
     assert len(IGNORE_BLOCK.findall(text)) == 1
 
 
@@ -153,7 +155,7 @@ def test_the_orientation_says_where_the_specs_state_and_graph_live(tmp_path: Pat
 
     block = ORIENTATION.search((repo / "AGENTS.md").read_text())
     assert block
-    for word in ("abk.yaml", "openspec", "runs", "unit_graph"):
+    for word in ("abk.yaml", "openspec", "unit_graph"):
         assert word in block[0]
 
 
