@@ -195,7 +195,15 @@ is, and the reason is printed. When the planning directory is one of the repos
 (`abk init . --repo .`), init is in-repo: the repo is written at `.`, existing files
 are left byte for byte, the state-directory ignore lines are added to `.gitignore`
 and a planning orientation to `AGENTS.md` (else `CLAUDE.md`) as marker blocks
-refreshed in place on a rerun, and nothing is committed. `abk install-timers` then creates the pipeline worktree
+refreshed in place on a rerun, and nothing is committed. Init also makes the state directory
+and an absolute symbolic link `.planning` to it in the planning root, with its line in the
+repository's local `info/exclude` so it is never tracked. Running init again leaves a right link
+as it is (`unchanged`) and repoints a dangling one; it refuses, naming `.planning` and changing
+nothing, to replace a real file or directory or a link to another existing path. A separate
+planning repo gets no link. When the state directory resolves inside the repository (or its git
+directory), init warns that it dirties the pipeline worktree and stops its fast-forward sync: it
+asks `continue? [y/N]`, and under `--yes` exits 1 naming `--allow-state-in-repo` unless that flag
+is given. `abk install-timers` then creates the pipeline worktree
 (a detached worktree outside the repository, recorded in the marker
 `abk-pipeline-worktree` in the common git directory) and renders the units to run
 there; when the marker already names a worktree it reuses it, printing

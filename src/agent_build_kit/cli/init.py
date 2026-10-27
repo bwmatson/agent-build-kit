@@ -72,6 +72,13 @@ from agent_build_kit.init.scaffold import (
 )
 from agent_build_kit.installation import Installation, changes_dir_under, load_config
 from agent_build_kit.notify.windows import INSTALL_COMMAND
+from agent_build_kit.pipeline.planning_repo import common_dir, toplevel
+from agent_build_kit.pipeline.planning_view import (
+    PlanningViewRefused,
+    ensure_view,
+    state_inside_repo,
+    working_copy_view,
+)
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.work_graph import project_tags
 from agent_build_kit.runtimes import AgentRuntime, PolicyReport, policy_apply, policy_check
@@ -627,6 +634,68 @@ def _sandbox_lines(config: WorkspaceConfig) -> None:
         print(f"sandbox fix: {found.fix}")
 
 
+def _view_state(planning: Path, config: WorkspaceConfig, keeps: bool) -> Path | None:
+    """The state directory to link `.planning` to, resolved as `Installation.state_dir` does from
+    the configuration init writes or keeps; None for a separate planning repo, which keeps its
+    `runs/`."""
+    if holding_repo(planning, config) is None:
+        return None
+    effective = config
+    if keeps:
+        try:
+            effective = load_config(planning / CONFIG_FILENAME)
+        except config_module.ConfigError:
+            pass
+    return Installation(effective, planning).state_dir
+
+
+def _inside_warning(planning: Path, state: Path) -> str | None:
+    """Why `state` must not be inside the repository, when it resolves inside it."""
+    top, git_dir = toplevel(planning), common_dir(planning)
+    inside = state_inside_repo(state, top, git_dir) if top and git_dir else None
+    if inside is None:
+        return None
+    return (
+        f"state directory {inside} is inside the repository: state inside the repository "
+        "dirties the pipeline worktree and stops its fast-forward sync"
+    )
+
+
+def _view_guard(planning: Path, state: Path, args: argparse.Namespace) -> int | None:
+    """Exit code 1 when init must stop before writing: a `.planning` it may not replace, or a
+    state directory inside the repository that was not allowed; None to go on."""
+    try:
+        ensure_view(planning, state, dry_run=True)
+    except PlanningViewRefused as refusal:
+        print(f"abk init: {refusal}", file=sys.stderr)
+        return 1
+    warning = _inside_warning(planning, state)
+    if warning is None:
+        return None
+    if args.allow_state_in_repo:
+        print(f"warning: {warning}")
+        return None
+    if args.yes:
+        print(f"abk init: {warning}; --allow-state-in-repo goes on anyway", file=sys.stderr)
+        return 1
+    print(f"warning: {warning}")
+    if yes(ask("continue? [y/N] ")):
+        return None
+    print("nothing written")
+    return 1
+
+
+def _view_preview(planning: Path, state: Path) -> None:
+    """What a real init would do about `.planning`, for `--dry-run`."""
+    try:
+        print(f"planning view: .planning {ensure_view(planning, state, dry_run=True)} -> {state}")
+    except PlanningViewRefused as refusal:
+        print(f"planning view: a real init would stop: {refusal}")
+    warning = _inside_warning(planning, state)
+    if warning is not None:
+        print(f"warning: {warning}; a real init under --yes needs --allow-state-in-repo")
+
+
 def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
     planning = Path(args.planning_dir).expanduser().resolve()
     if args.policy_fix:
@@ -653,19 +722,24 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
     names = list(config.repos)
     # An abk.yaml already there is kept and only filled, never given the empty section.
     keeps = (planning / CONFIG_FILENAME).is_file() and not args.force
+    kept = (_read_yaml(planning / CONFIG_FILENAME) or {}) if keeps else {}
+    view_state = _view_state(planning, config, keeps)
+    if view_state is not None and not args.dry_run:
+        refusal = _view_guard(planning, view_state, args)
+        if refusal is not None:
+            return refusal
     if config.environment is not None and not config.environment.sync:
         if not keeps:
             print(
                 "environment: nothing recognised in the planning repo; set `environment.sync` "
                 "and `environment.check` in abk.yaml by hand"
             )
-        elif "environment" not in (_read_yaml(planning / CONFIG_FILENAME) or {}):
+        elif "environment" not in kept:
             print(
                 "environment: nothing recognised in the planning repo; add an `environment` "
                 "section with `sync` and `check` to abk.yaml by hand"
             )
     try:
-        kept = (_read_yaml(planning / CONFIG_FILENAME) or {}) if keeps else {}
         chosen = _choose_runtime(config, args, keeps=keeps, kept=kept)
         if keeps and not chosen and (args.agent_command or args.set_values or args.runtime_config):
             print(
@@ -691,6 +765,8 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
             return 1
 
     if args.dry_run:
+        if view_state is not None:
+            _view_preview(planning, view_state)
         if keeps:
             if chosen:
                 print("# abk.yaml is kept; it would record:\n")
@@ -731,6 +807,8 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
     if not written:
         print("planning repo: nothing to write")
     in_repo = holding_repo(planning, config) is not None
+    if in_repo and view_state is not None:
+        print(f"planning view: .planning {ensure_view(planning, view_state)} -> {view_state}")
     if (planning / "abk.yaml") not in written:
         print("kept abk.yaml (use --force to overwrite)")
         for what in fill_missing_environment(planning / CONFIG_FILENAME, config):
@@ -931,6 +1009,9 @@ def cmd_install_timers(args: argparse.Namespace, inst: Installation | None) -> i
         print(f"note: {note}")
     for item in installed.carried:
         print(f"{item.result} {where / item.name}")
+    view = working_copy_view(inst)
+    if view is not None and view.problem is not None:
+        print(f"note: .planning link: {view.problem}; run abk init")
     if tools:
         print(f"units' PATH also carries: {', '.join(tools)}")
     for tool in timers.needed_tools(inst):
@@ -989,6 +1070,11 @@ def register(sub: argparse._SubParsersAction) -> None:
         help="override what a repo consumes (repeatable)",
     )
     init.add_argument("--yes", action="store_true", help="no prompts")
+    init.add_argument(
+        "--allow-state-in-repo",
+        action="store_true",
+        help="go on when the state directory is inside the repository",
+    )
     init.add_argument("--skip-research", action="store_true")
     init.add_argument("--skip-propose", action="store_true")
     init.add_argument("--force", action="store_true", help="overwrite abk.yaml and config.yaml")

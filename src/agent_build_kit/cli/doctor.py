@@ -90,13 +90,20 @@ from agent_build_kit.pipeline.gate_holds import gate_standing, split_gates
 from agent_build_kit.pipeline.install_record import STAGING
 from agent_build_kit.pipeline.original_copy import COPY_PATTERN
 from agent_build_kit.pipeline.pending import describe, pending_projects
-from agent_build_kit.pipeline.planning_repo import common_dir, is_worktree_of
+from agent_build_kit.pipeline.planning_repo import (
+    common_dir,
+    is_worktree_of,
+)
 from agent_build_kit.pipeline.planning_sync import (
     in_repo_name,
     live_notice,
     live_pipeline_worktree,
     read_pipeline_marker,
     working_copy,
+)
+from agent_build_kit.pipeline.planning_view import (
+    installation_state_inside_repo,
+    working_copy_view,
 )
 from agent_build_kit.pipeline.shell import git, git_out, is_ignored, is_tracked, tracked_toplevel
 from agent_build_kit.pipeline.usage_guard import gate_result
@@ -570,6 +577,31 @@ def _legacy_state(inst: Installation) -> list[Check]:
             f"git tracks {len(tracked)} file(s) under runs/; the state of this installation has "
             f"not been moved out of the repository (it is read from {inst.state_dir})",
             "follow docs/runbooks/move-state-out-of-the-repo.md",
+        )
+    ]
+
+
+def _planning_view(inst: Installation) -> list[Check]:
+    """In an in-repo installation: the working copy's `.planning` link must lead to the state."""
+    view = working_copy_view(inst)
+    if view is None:
+        return []
+    if view.problem is None:
+        return [_ok("planning view", f"{view.link} -> {inst.state_dir}")]
+    return [_warn("planning view", f"{view.link} is {view.problem}", "abk init (makes the link)")]
+
+
+def _state_location(inst: Installation) -> list[Check]:
+    """In an in-repo installation: the state directory must not be inside the repository."""
+    inside = installation_state_inside_repo(inst)
+    if inside is None:
+        return []
+    return [
+        _warn(
+            "state location",
+            f"the state directory resolves to {inside}, inside the repository: it dirties the "
+            "pipeline worktree and stops its fast-forward sync",
+            "set planning.state_dir / ABK_STATE_DIR outside the repository, or drop the setting",
         )
     ]
 
@@ -1995,6 +2027,8 @@ def run_doctor(
     checks += _machine_files(inst)
     checks += _state_ignores(inst)
     checks += _legacy_state(inst)
+    checks += _planning_view(inst)
+    checks += _state_location(inst)
     checks += _timers(inst, run, units, which)
     checks += _toolchain(inst, run, which)
     checks += _agent_commands(inst)

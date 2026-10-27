@@ -685,6 +685,21 @@ and refuses a different file already there. A new machine
 creates them in its working copy first. `abk doctor` fails when one the working copy has is
 missing, dangling or different in the worktree, and warns when the working copy has none.
 
+In the working copy, the `.planning` link `abk init` makes shows the state in the folder the
+editor already has open; `abk doctor` checks the link and warns on a state directory inside the
+repository. The state holds `transcripts/` and sqlite files that change constantly, so you may
+keep the editor from watching and searching them, in your own `settings.json`:
+
+```json
+{
+  "files.watcherExclude": {"**/.planning/transcripts/**": true, "**/.planning/**/*.sqlite*": true},
+  "search.exclude": {"**/.planning/transcripts/**": true, "**/.planning/**/*.sqlite*": true}
+}
+```
+
+`abk serve` is the web view of the same state. Keep the state directory outside `<repo>`: inside
+it, the state dirties the pipeline worktree and stops its fast-forward sync.
+
 ### Env providers
 
 `verify.env` maps a variable name to a provider, discriminated by `from`.
