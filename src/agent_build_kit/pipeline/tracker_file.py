@@ -144,4 +144,11 @@ class StoryMapping(Frozen):
 
 def story_mapping(unit: Unit, features: Mapping[str, str]) -> StoryMapping:
     """The mapping for a unit's Story, from each change's Feature id."""
-    raise NotImplementedError
+    return StoryMapping(
+        parent=features[unit.change],
+        related=tuple(
+            features[member.change]
+            for member in unit.members()
+            if member.change != unit.change and member.change in features
+        ),
+    )
