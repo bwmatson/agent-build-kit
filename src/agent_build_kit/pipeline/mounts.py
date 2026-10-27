@@ -14,6 +14,7 @@ class Mount(Frozen):
     local: bool
 
 
-def mount_of(path: Path) -> Mount:
-    """The mount holding `path`."""
+def mount_of(path: Path, table: str | None = None) -> Mount:
+    """The mount holding `path`, read from `table` (the text of `mountinfo`) or, when none is
+    given, from this machine's."""
     raise NotImplementedError
