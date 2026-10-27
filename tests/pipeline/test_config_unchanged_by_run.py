@@ -89,6 +89,20 @@ def test_an_unconfined_build_run_that_deletes_or_creates_a_file_reports_it_and_g
     assert "abk.local.yaml changed during the run (was created)" in out
 
 
+def test_an_unconfined_build_run_that_deletes_a_file_reports_it_and_goes_on(
+    tmp_path: Path, planning: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def delete(request: AgentRequest) -> None:
+        (planning / "abk.local.yaml").unlink()
+
+    agent = StandInRuntime(answer="built it", act=delete)
+
+    assert build(planning, tmp_path / "tree", agent) == "built it"
+
+    out = capsys.readouterr().out
+    assert "abk.local.yaml changed during the run (was deleted)" in out
+
+
 def test_a_person_editing_during_an_unconfined_run_is_a_warning_and_not_a_failure(
     tmp_path: Path, planning: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

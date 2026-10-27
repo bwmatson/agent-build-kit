@@ -761,7 +761,7 @@ def claude_phase(
     before = record_planning(inst)
     try:
         with config_unchanged(
-            inst.root, Coverage.NONE, warn=log
+            inst.root, Coverage.NONE, state_dir=inst.state_dir, warn=log
         ):  # a track run is not confined yet
             result = agent.run(request)
     except (

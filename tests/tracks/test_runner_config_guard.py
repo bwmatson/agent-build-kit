@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import pytest
 
+from agent_build_kit.pipeline.config_guard import warning_lines
+from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.sandboxes import Coverage
 from agent_build_kit.tracks import runner
 from tests.pipeline.test_config_unchanged_by_run import MAY_HAVE_WRITTEN, writes, writes_then_stops
@@ -38,6 +40,27 @@ def test_a_track_run_that_rewrites_abk_yaml_warns_with_the_diff_and_goes_on(
     assert "abk.yaml changed during the run" in out
     assert "+review: {enabled: true}" in out
     assert MAY_HAVE_WRITTEN in out
+
+
+def test_a_track_run_that_rewrites_abk_yaml_leaves_the_warning_for_status(
+    inst,  # noqa: F811 — fixture
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = inst.root / "abk.yaml"
+    runs: list[int] = []
+
+    def rewrite(request: AgentRequest) -> None:
+        # Every project's phase changes the file, so none of them ends clean and clears the warning.
+        runs.append(len(runs))
+        config.write_text(f"review: {{enabled: true}}\n# run {len(runs)}\n")
+
+    agent = StandInRuntime(act=rewrite)
+
+    assert track(inst, monkeypatch, agent) == 0
+
+    kept = "\n".join(warning_lines(inst.state_dir))
+    assert "abk.yaml changed during the run" in kept
+    assert MAY_HAVE_WRITTEN in kept
 
 
 def test_a_track_run_goes_on_after_a_change_whatever_coverage_its_runtime_reports(
