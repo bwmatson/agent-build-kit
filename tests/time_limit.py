@@ -58,6 +58,11 @@ def e2e_limit(config: pytest.Config) -> float:
     return DEFAULT_E2E_TEST_TIME_LIMIT
 
 
+def limit_for(item: pytest.Item) -> float:
+    """The seconds a test's setup, call or teardown may run: marker, e2e or default."""
+    raise NotImplementedError
+
+
 def _under_limit(item: pytest.Item, phase: str):
     """Run the rest of a hook, setup, call or teardown, under the limit."""
     e2e = item.get_closest_marker("local_stack") is not None
