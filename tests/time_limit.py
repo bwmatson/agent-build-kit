@@ -60,23 +60,21 @@ def e2e_limit(config: pytest.Config) -> float:
 
 def limit_for(item: pytest.Item) -> float:
     """The seconds a test's setup, call or teardown may run: marker, e2e or default."""
-    raise NotImplementedError
+    if item.get_closest_marker("local_stack") is not None:
+        return e2e_limit(item.config)
+    own = item.get_closest_marker("time_limit")
+    if own is None:
+        return item.config.getoption("--test-time-limit")
+    value = own.kwargs.get("seconds", own.args[0] if own.args else None)
+    if value is None:
+        pytest.fail("the time_limit marker needs a number of seconds", pytrace=False)
+    return float(value)
 
 
 def _under_limit(item: pytest.Item, phase: str):
     """Run the rest of a hook, setup, call or teardown, under the limit."""
-    e2e = item.get_closest_marker("local_stack") is not None
-    own = item.get_closest_marker("time_limit")
-    if e2e:
-        limit = e2e_limit(item.config)
-    elif own is not None:
-        value = own.kwargs.get("seconds", own.args[0] if own.args else None)
-        if value is None:
-            pytest.fail("the time_limit marker needs a number of seconds", pytrace=False)
-        limit = float(value)
-    else:
-        limit = item.config.getoption("--test-time-limit")
-    kind = "e2e-test " if e2e else ""
+    limit = limit_for(item)
+    kind = "e2e-test " if item.get_closest_marker("local_stack") is not None else ""
     if limit <= 0 or threading.current_thread() is not threading.main_thread():
         return (yield)
     running = True
