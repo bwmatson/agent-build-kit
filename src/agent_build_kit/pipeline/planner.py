@@ -288,6 +288,7 @@ def parse_plan(
                     groups=groups or [],
                     built=built or set(),
                     calibrations=calibrations,
+                    external=external,
                     floor=lambda group, repo: _group_floor(group, repo, tasks)[0],
                 )
             except JoinRefused as error:
@@ -1396,6 +1397,7 @@ def _prompt_and_parts(
     split: SplitRequest | None = None,
     held: StoredUnit | None = None,
     pins: Sequence[Pin] = (),
+    external: Collection[int] = (),
 ) -> tuple[str, dict[str, int]]:
     """The prompt, and the size in bytes of the parts a person can cut."""
     _check_split_pair(split, held)
@@ -1407,6 +1409,12 @@ def _prompt_and_parts(
         )
         or "(none)"
     )
+    if external:
+        numbers = ", ".join(str(number) for number in sorted(external))
+        changes_text += (
+            f"\n\nGroups {numbers} of {first} are held by someone outside the kit: put them in "
+            "units of their own or with only other held groups, and join nothing else to them."
+        )
     lines = [_in_flight_line(item) for item in in_flight]
     if omitted:
         lines.append(omitted_line(omitted))
@@ -1522,6 +1530,7 @@ def plan_round(
         split,
         held,
         pins,
+        external,
     )
     if split is not None and held is not None and groups is not None:
         # Only the held unit's groups are planned; every other one is as built.

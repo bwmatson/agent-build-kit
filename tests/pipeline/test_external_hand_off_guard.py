@@ -58,3 +58,21 @@ def test_a_planned_unit_with_no_work_is_accepted_and_a_started_one_beside_it_is_
 
     with pytest.raises(HoldRefused, match=r"feature/2"):
         check_not_started(folder, hold((2,)), [untouched, started])
+
+
+def test_a_retired_or_superseded_unit_does_not_stop_a_hold_on_its_groups(tmp_path: Path) -> None:
+    folder = change_with(tmp_path)
+    retired = stored_unit(
+        "feature/1", change="feature", state="retired", branch="spec/feature/1", pr=4
+    )
+    unplanned = stored_unit("feature/2", change="feature", state="unplanned")
+    replaced = stored_unit(
+        "feature/3",
+        change="feature",
+        state="closed",
+        branch="spec/feature/3",
+        pr=5,
+        superseded_by=("feature/3-s1",),
+    )
+
+    check_not_started(folder, hold("all"), [retired, unplanned, replaced])

@@ -2886,6 +2886,7 @@ def _plan_and_supersede(
             known={u.id for u in units},
             split=request,
             held=unit,
+            external=blocked_groups(inst.changes_dir / unit.change),
         )
         if not _keep_branch(inst, unit):
             return
@@ -4839,6 +4840,7 @@ def plan_all(
                 external=blocked_groups(inst.changes_dir / change),
                 context=JoinContext(
                     stored=tuple(units),
+                    external_units=frozenset(held_units(inst.changes_dir, units)),
                     catalog=catalog,
                     needs={
                         group: tuple((need.change, need.group) for need in found)

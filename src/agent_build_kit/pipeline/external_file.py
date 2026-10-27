@@ -17,7 +17,7 @@ from pydantic import Field
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
-from agent_build_kit.pipeline.units import PLANNED, Unit
+from agent_build_kit.pipeline.units import BUILDS_NOTHING, PLANNED, Unit, is_superseded
 from agent_build_kit.pipeline.work_graph import GROUP_NUMBER
 
 if TYPE_CHECKING:
@@ -163,6 +163,10 @@ def check_not_started(change_dir: Path, hold: Hold, units: Sequence[StoredUnit])
     """Raise `HoldRefused` when a unit that has started carries a group `hold` covers."""
     covered = _covered(hold, _group_numbers(change_dir))
     for unit in units:
+        # A retired or unplanned unit builds nothing, and a replaced one is carried by its
+        # successors: neither holds its groups.
+        if unit.state in BUILDS_NOTHING or is_superseded(unit):
+            continue
         mine = {
             n
             for member in unit.members()

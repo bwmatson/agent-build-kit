@@ -9,7 +9,7 @@ state, so a second join sees the first: three units in a line become one.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 
 from agent_build_kit.config import active, review_ceiling
 from agent_build_kit.model import Frozen, TestTier
@@ -40,6 +40,14 @@ class JoinRefused(ValueError):
     """A join breaks one of the rules."""
 
 
+def _held_text(side: str, onto: str, onto_held: bool) -> str:
+    held, free = (onto, side) if onto_held else (side, onto)
+    return (
+        f"{held} is held by someone outside the kit and {free} is not, and a unit carries "
+        "held groups or none"
+    )
+
+
 class JoinContext(Frozen):
     """What joins are checked against, besides the plan itself."""
 
@@ -49,6 +57,8 @@ class JoinContext(Frozen):
     catalog: dict[str, tuple[TaskGroup, ...]]
     # The `Needs:` lines of the change being planned, by group.
     needs: dict[int, tuple[tuple[str, int], ...]] = {}
+    # The stored units whose groups are all held by someone outside the kit (`held_units`).
+    external_units: frozenset[str] = frozenset()
 
 
 def check_joins(
@@ -61,8 +71,12 @@ def check_joins(
     built: set[int],
     floor: Callable[[TaskGroup, str], str],
     calibrations: Mapping[Kind, Calibration] | None = None,
+    external: Collection[int] = (),
 ) -> None:
     """Raise `JoinRefused` for the first join that breaks a rule.
+
+    A join is also refused when its two sides differ in being held by someone outside the kit:
+    `external` is the held groups of `change`, `context.external_units` the held stored units.
 
     A join is held to the ceiling of the higher review tier of its two sides (a unit with none
     counting as `full`, a group at its `floor(group, repo)`). A join is also refused when its
@@ -106,6 +120,7 @@ def check_joins(
         if not isinstance(onto, StoredUnit) or not onto.unstarted:
             raise refuse("it has started, and only a unit that has not is joined to")
         onto_tier = onto.review_tier or "full"
+        onto_held = onto.id in context.external_units
 
         if join.unit:
             taken = state.get(join.unit)
@@ -115,6 +130,8 @@ def check_joins(
                 raise refuse("a unit is not joined to itself")
             if not taken.unstarted:
                 raise refuse(f"{taken.id} has started, and only a unit that has not is joined")
+            if (taken.id in context.external_units) != onto_held:
+                raise refuse(_held_text(taken.id, onto.id, onto_held))
             if taken.repo != onto.repo or _needs_stack(taken.tier) != _needs_stack(onto.tier):
                 raise refuse(f"{taken.id} is in another repo or tier")
             if taken.project != onto.project:
@@ -152,6 +169,8 @@ def check_joins(
                     raise refuse(f"group {number} is not in {change}'s tasks.md")
                 if number in built or number in claimed:
                     raise refuse(f"group {number} is already built or claimed by a unit")
+                if (number in external) != onto_held:
+                    raise refuse(_held_text(f"group {number}", onto.id, onto_held))
                 if group.repo != onto.repo or _needs_stack(group.tier) != _needs_stack(onto.tier):
                     raise refuse(f"group {number} is tagged [{group.repo}] [{group.tier}]")
                 if group.project != onto.project:
