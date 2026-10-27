@@ -8,6 +8,7 @@
   the state directory can sit on a network drive. An existing checkpointer database is copied
   once; `abk doctor` warns about the old files left behind and fails a local directory on a
   network filesystem.
+
 - The kit's own time-limit tests hold their child pytest code in files that the linters
   check, not in strings, and a test fails a new module that builds a child's source as a
   string.
