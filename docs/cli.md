@@ -580,6 +580,10 @@ is released, as one command. A dirty tree given neither is refused (exit 1, noth
 as is any call while a step holds the unit's branch. A commit a hook rejects prints the
 hook's output, exits 1 and keeps the changes and the lease; the command does not run the
 unit's agent to fix what a hook rejects (the web UI's commit does), only the reformat retry.
+`MESSAGE` is the commit's body; the subject is the pipeline's, built from the unit's group
+progress (`test: <title>`, `feat: <title>`, or `fix: <last title> (adopted)` once every group
+has its commits) so the counter takes the commit as the one the build expected next. The
+command prints the subject it used, and calls no model.
 A commit with nothing to commit exits 1 and keeps the lease. A commit already made and held
 by a live server is left for that server to deliver. A clean tree is simply released.
 A unit the tick held as `attached` stays held; `abk requeue` returns it.

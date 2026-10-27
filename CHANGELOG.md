@@ -42,6 +42,10 @@
   and retry a rename a share briefly refuses. Leases, branch locks and the e2e-test record
   now name their host, and a record from another host is treated as held and never taken
   over.
+- `abk attach release --commit MESSAGE` now builds the commit's subject itself from the unit's
+  group progress (`test:`, `feat:` or `fix: ... (adopted)` with the group's title) and keeps
+  `MESSAGE` as the body, so the commit counts toward the group's pair and the unit no longer
+  stops for a missing one. The command prints the subject it used. No model is called.
 
 - `abk external hand-off`, `list`, `done` and `release` hand a change, or some of its groups,
   to someone who builds it by hand. The kit never starts held work, units that need it wait

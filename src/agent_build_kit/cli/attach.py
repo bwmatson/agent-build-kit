@@ -9,6 +9,7 @@ from typing import Any
 from agent_build_kit.cli.pipeline import branch_is_held
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import attach
+from agent_build_kit.pipeline.shell import git_out
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import HELD, RUNNING
 from agent_build_kit.pipeline.wiring import CommitRejected
@@ -70,7 +71,8 @@ def cmd_attach_release(args: argparse.Namespace, inst: Installation) -> int:
             print(output.strip() or str(error))
             return 1
         delivery = "delivered" if done.delivered else "not delivered yet"
-        print(f"{unit.id}: committed {done.commit[:9]}; released; {delivery}")
+        subject = git_out(attach.worktree_of(inst, unit) or inst.root, "log", "-1", "--format=%s")
+        print(f"{unit.id}: committed {done.commit[:9]}; subject: {subject}; released; {delivery}")
     elif leases.attachment(unit.id) is None:
         print(f"{unit.id} is not attached")
     else:

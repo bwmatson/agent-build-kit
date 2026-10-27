@@ -142,7 +142,8 @@ def test_one_request_commits_releases_and_hands_the_unit_to_its_checks(
     assert waiting_at(inst) == (Node.CHECKS,), "the adopted event entered at the checks"
     assert adoptions(inst) == 1
     message = git(tree, "log", "-1", "--format=%B")
-    assert message.splitlines()[0] == "Add a note"
+    assert message.splitlines()[0] == "feat: Middle"
+    assert "Add a note" in message
     assert f"Unit: {UNIT}" in message
     assert f"Adopted-From: {build_session}" in message
 
