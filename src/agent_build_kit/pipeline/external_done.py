@@ -12,6 +12,7 @@ from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.task_progress import mark_groups
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import MERGED, PLANNED
+from agent_build_kit.pipeline.wiring import is_ancestor
 
 NOTE = "recorded by hand"
 
@@ -37,7 +38,7 @@ def _merge_commit(inst: Installation, repo: str, pr: int | None, commit: str | N
     remote = f"origin/{trunk}"
     known = git(checkout, "rev-parse", "-q", "--verify", remote, check=False).returncode == 0
     tip = remote if known else trunk
-    if git(checkout, "merge-base", "--is-ancestor", commit, tip, check=False).returncode != 0:
+    if not is_ancestor(checkout, commit, tip):
         raise HandMergeRefused(f"commit {commit} is not on the default branch ({trunk})")
     return git(checkout, "rev-parse", commit).stdout.strip()
 
@@ -62,7 +63,14 @@ def record_hand_merge(
     ]
     if not units:
         raise HandMergeRefused(f"no planned unit carries groups {sorted(wanted)} of {change}")
-    sha = _merge_commit(inst, units[0].repo, pr, commit)
+    repos = sorted({unit.repo for unit in units})
+    if len(repos) > 1:
+        numbers = ", ".join(str(group) for group in sorted(wanted))
+        raise HandMergeRefused(
+            f"groups {numbers} of {change} are in more than one repo ({', '.join(repos)}): "
+            "record each repo's merge separately"
+        )
+    sha = _merge_commit(inst, repos[0], pr, commit)
     change_dir = inst.changes_dir / change
     try:
         record_done(

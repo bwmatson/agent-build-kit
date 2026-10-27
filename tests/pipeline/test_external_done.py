@@ -9,10 +9,18 @@ import pytest
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.archive import is_ready_to_archive
 from agent_build_kit.pipeline.external_done import HandMergeRefused, record_hand_merge
-from agent_build_kit.pipeline.external_file import DONE, add_hold, read_holds
+from agent_build_kit.pipeline.external_file import (
+    DONE,
+    HoldRefused,
+    add_hold,
+    blocked_groups,
+    done_groups,
+    read_holds,
+    record_done,
+)
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.units import MERGED, PLANNED
-from tests.external_support import hold, waits_of, world_of
+from tests.external_support import SINCE, change_with, hold, tasks_with, waits_of, world_of
 from tests.factories import init_repo, stored_unit
 from tests.forges.stand_in import StandInForge
 
@@ -154,3 +162,35 @@ def test_a_change_whose_units_are_all_merged_by_hand_is_ready_to_archive(
     record_hand_merge(inst, store, "feature", (1,), pr=MERGED_PR)
 
     assert is_ready_to_archive("feature", store.all())
+
+
+def test_groups_in_more_than_one_repo_are_refused_before_anything_is_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst, store, folder = world_of(
+        tmp_path,
+        stored_unit("feature/1", change="feature", groups=(2,), repo="app"),
+        stored_unit("feature/2", change="feature", groups=(3,), repo="platform"),
+    )
+    add_hold(folder, hold((2, 3)))
+    forge_for(inst, monkeypatch)
+
+    with pytest.raises(HandMergeRefused, match=r"more than one repo \(app, platform\)"):
+        record_hand_merge(inst, store, "feature", (2, 3), pr=MERGED_PR)
+
+    assert [unit.state for unit in store.all()] == [PLANNED, PLANNED]
+    assert checked(folder) == []
+    assert [h.status for h in read_holds(folder)] == ["held"]
+
+
+def test_what_is_left_of_an_all_hold_still_covers_groups_added_later(tmp_path: Path) -> None:
+    folder = change_with(tmp_path, 2)
+    add_hold(folder, hold("all"))
+
+    record_done(folder, (1,), merged_by="5", at=SINCE)
+    (folder / "tasks.md").write_text(tasks_with(3))
+
+    assert blocked_groups(folder) == {2, 3}
+    assert done_groups(folder) == {1}
+    with pytest.raises(HoldRefused):
+        record_done(folder, (1,), merged_by="5", at=SINCE)
