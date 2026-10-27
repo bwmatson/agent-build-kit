@@ -445,6 +445,7 @@ from agent_build_kit.replay.review import waiting as replay_waiting
 from agent_build_kit.runtimes import AgentRateLimited, NetworkUnavailable, ServiceUnavailable
 from agent_build_kit.runtimes.guards import guard_lines
 from agent_build_kit.serve.review import ReviewStore
+from agent_build_kit.trackers.report import standing
 
 if TYPE_CHECKING:
     from agent_build_kit.graph.unit import Position
@@ -854,6 +855,10 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
 
     for line in stale_plan_lines(inst):
         log(line)
+
+    for name in inst.repos:
+        if found := standing(name, ask=False):
+            log(found.text if found.state == "invalid" else f"tracker {name}: {found.text}")
 
     gates = recorded_gates(
         inst.state_dir / VERDICTS,

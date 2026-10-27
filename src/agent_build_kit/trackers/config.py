@@ -38,6 +38,11 @@ class TrackerSection(Frozen):
             raise ValueError("must be the name of an environment variable, never a credential")
         return value
 
+    @property
+    def target(self) -> str:
+        """Where the tracker is, for a person reading a report."""
+        return self.kind
+
 
 class AzureDevOpsTracker(TrackerSection):
     kind: Literal["azure_devops"]
@@ -48,6 +53,10 @@ class AzureDevOpsTracker(TrackerSection):
     iteration_path: str = Field(min_length=1)
     story_type: str = Field(min_length=1)
 
+    @property
+    def target(self) -> str:
+        return f"{self.kind} {self.organization}/{self.project}"
+
 
 class GithubTracker(TrackerSection):
     kind: Literal["github"]
@@ -57,6 +66,10 @@ class GithubTracker(TrackerSection):
     labels: dict[ItemKind, str]
     host: str | None = None
     project_number: int | None = None
+
+    @property
+    def target(self) -> str:
+        return f"{self.kind} {self.owner}/{self.repo}"
 
     @field_validator("labels")
     @classmethod

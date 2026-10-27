@@ -23,8 +23,7 @@ class LocalTracker:
         who: str = "sync",
         levels: Sequence[ItemKind] | None = None,
     ) -> None:
-        if levels is not None:
-            raise NotImplementedError
+        self._levels = tuple(levels) if levels is not None else None
         self._capabilities = capabilities or Capabilities()
         self._who = who
         self._items: dict[str, Item] = {}
@@ -34,7 +33,7 @@ class LocalTracker:
 
     def as_identity(self, who: str) -> LocalTracker:
         """A view of the same items acting as another identity: the competing writer."""
-        view = LocalTracker(self._capabilities, who)
+        view = LocalTracker(self._capabilities, who, self._levels)
         view._items = self._items
         view._log = self._log
         view._comments = self._comments
@@ -43,7 +42,7 @@ class LocalTracker:
 
     def add_epic(self, title: str) -> Item:
         """A manual epic: the read-only parent of the first level, made by a person."""
-        raise NotImplementedError
+        return self._add("feature", title, "", None, ())
 
     def capabilities(self) -> Capabilities:
         return self._capabilities
@@ -60,6 +59,13 @@ class LocalTracker:
         *,
         markers: Sequence[str] = (),
         fields: Mapping[str, str] | None = None,
+    ) -> Item:
+        if self._levels is not None and kind not in self._levels:
+            raise ValueError(f"kind {kind!r} is not one of the levels in use: {list(self._levels)}")
+        return self._add(kind, title, body, parent, markers)
+
+    def _add(
+        self, kind: ItemKind, title: str, body: str, parent: str | None, markers: Sequence[str]
     ) -> Item:
         item_id = str(len(self._items) + 1)
         item = Item(

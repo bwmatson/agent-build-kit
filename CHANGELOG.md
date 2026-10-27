@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `abk doctor` and `abk status` report a repo's work tracker when it has a `tracker`
+  section: the target and who the credential acts as (a refused credential is one warning
+  naming the cause, and an invalid section shows its error), and say nothing about a repo
+  without one.
+
 - The files tied to this machine's processes (the checkpointer database, the branch, repo and
   change locks, the leases, the e2e-test lock and the environment lock) now live in a local
   directory, `planning.local_dir` or `ABK_LOCAL_DIR`, by default `<planning home>/local`, so
