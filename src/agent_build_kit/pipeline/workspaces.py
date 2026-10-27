@@ -30,6 +30,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
+from agent_build_kit.model import Frozen
 from agent_build_kit.path_patterns import matches_any
 from agent_build_kit.pipeline import host
 from agent_build_kit.pipeline.scratch import ensure_scratch
@@ -46,6 +47,22 @@ class DirtyWorktree(RuntimeError):
     def __init__(self, message: str, paths: tuple[str, ...] = ()) -> None:
         super().__init__(message)
         self.paths = paths
+
+
+class WorktreeElsewhere(RuntimeError):
+    """The unit's branch is checked out outside the worktree root, which is left alone."""
+
+
+class WorktreeOccupied(RuntimeError):
+    """The path a unit's worktree would take holds something that is not an empty directory."""
+
+
+class WorktreeEntry(Frozen):
+    """One worktree of a repository, as `git worktree list --porcelain` gives it."""
+
+    path: Path
+    branch: str | None
+    prunable: bool
 
 
 def _lock_path(branch: str, root: Path) -> Path:
@@ -146,8 +163,172 @@ def branch_held(branch: str, *, root: Path) -> bool:
     return lock_holder_gone(branch, root=root) is False
 
 
-def worktree_path(repo: Path, branch: str, root: Path) -> Path:
-    return root / repo.name / re.sub(r"[^A-Za-z0-9]", "_", branch)
+def worktree_key(name: str) -> str:
+    """The folder under the worktree root that holds the repo `name`'s worktrees."""
+    return re.sub(r"[^A-Za-z0-9._-]", "_", name)
+
+
+def _git_dirs(repo: Path) -> tuple[Path, Path | None] | None:
+    """The common git directory of `repo`, and the path of the main working tree when that is
+    known, read from the files git keeps. This is the process-free sibling of
+    `planning_repo.common_dir`: the sessions page probes a unit's worktree on every listing, and
+    listing runs nothing."""
+    dot = repo / ".git"
+    if dot.is_dir():
+        return dot, repo
+    if not dot.is_file():
+        return None
+    text = dot.read_text().strip()
+    if not text.startswith("gitdir:"):
+        return None
+    own = Path(os.path.normpath(repo / text.removeprefix("gitdir:").strip()))
+    shared = own / "commondir"
+    if not shared.is_file():
+        return own, repo  # a separate git directory: `repo` is the main working tree
+    common = Path(os.path.normpath(own / shared.read_text().strip()))
+    return common, common.parent if common.name == ".git" else None
+
+
+def _head(admin: Path) -> str | None:
+    """The branch the worktree whose git directory is `admin` has checked out, or is rebasing
+    when a stopped rebase left its head detached: git treats that branch as checked out."""
+    try:
+        text = (admin / "HEAD").read_text().strip()
+    except OSError:
+        return None
+    if text.startswith("ref: refs/heads/"):
+        return text.removeprefix("ref: refs/heads/")
+    return _rebasing_in(admin)
+
+
+def _rebasing(path: Path) -> str | None:
+    """The branch the worktree at `path` is rebasing, if a stopped rebase left it detached."""
+    dot = path / ".git"
+    try:
+        if dot.is_file():
+            target = dot.read_text().strip().removeprefix("gitdir:").strip()
+            return _rebasing_in(Path(os.path.normpath(path / target)))
+    except OSError:
+        return None
+    return _rebasing_in(dot)
+
+
+def _rebasing_in(admin: Path) -> str | None:
+    for state in ("rebase-merge", "rebase-apply"):
+        try:
+            rebasing = (admin / state / "head-name").read_text().strip()
+        except OSError:
+            continue
+        if rebasing.startswith("refs/heads/"):
+            return rebasing.removeprefix("refs/heads/")
+    return None
+
+
+def _files_untrusted(common: Path, found: Sequence[WorktreeEntry]) -> bool:
+    """Whether the heads read from git's files cannot be believed: a repository whose refs live
+    in a reftable keeps a fixed stub in every `HEAD` file."""
+    if any(entry.branch == ".invalid" for entry in found):
+        return True
+    try:
+        return "refstorage" in (common / "config").read_text().lower()
+    except OSError:
+        return False
+
+
+def _porcelain_entries(repo: Path) -> tuple[WorktreeEntry, ...]:
+    """The worktrees `git worktree list --porcelain` reports for `repo`."""
+    entries = []
+    for block in git_out(repo, "worktree", "list", "--porcelain").split("\n\n"):
+        fields = dict(line.partition(" ")[::2] for line in block.splitlines() if line.strip())
+        if "worktree" not in fields:
+            continue
+        path = Path(fields["worktree"])
+        branch = fields.get("branch", "")
+        entries.append(
+            WorktreeEntry(
+                path=path,
+                branch=branch.removeprefix("refs/heads/")
+                if branch.startswith("refs/heads/")
+                # Git calls a worktree stopped in a rebase detached; it counts as on the branch.
+                else _rebasing(path)
+                if "detached" in fields
+                else None,
+                prunable="prunable" in fields,
+            )
+        )
+    return tuple(entries)
+
+
+def worktree_entries(repo: Path) -> tuple[WorktreeEntry, ...]:
+    """Every worktree git lists for `repo`, its own checkout first: what
+    `git worktree list --porcelain` says, read from the repository's files so that asking runs
+    no process (the sessions page lists on every request). A worktree stopped in a rebase of a
+    branch counts as on that branch. Where the files cannot be believed (refs kept in a
+    reftable) git is asked."""
+    dirs = _git_dirs(repo)
+    if dirs is None:
+        return ()
+    common, main = dirs
+    if main is None:
+        # The main working tree is not known from the files (a separate git directory, or a
+        # bare one), so git is asked rather than leaving it out.
+        return _porcelain_entries(repo)
+    found = [WorktreeEntry(path=main, branch=_head(common), prunable=False)]
+    for admin in sorted((common / "worktrees").glob("*")):
+        try:
+            recorded = Path((admin / "gitdir").read_text().strip())
+        except OSError:
+            continue
+        # A worktree made with `--relative-paths` records the path relative to `admin`.
+        path = Path(os.path.normpath(admin / recorded)).parent
+        found.append(WorktreeEntry(path=path, branch=_head(admin), prunable=not path.exists()))
+    if _files_untrusted(common, found):
+        return _porcelain_entries(repo)
+    return tuple(found)
+
+
+def _under(path: Path, root: Path) -> bool:
+    return path.resolve().is_relative_to(root.resolve())
+
+
+def _entry_on(repo: Path, branch: str) -> WorktreeEntry | None:
+    return next((entry for entry in worktree_entries(repo) if entry.branch == branch), None)
+
+
+def unit_tree(repo: Path, branch: str, root: Path) -> Path | None:
+    """The unit's existing worktree under `root`, or None; never raises."""
+    entry = _entry_on(repo, branch)
+    if entry is None or entry.prunable or not entry.path.is_dir() or not _under(entry.path, root):
+        return None
+    return entry.path
+
+
+def checked_out_elsewhere(repo: Path, branch: str, root: Path) -> Path | None:
+    """Where `branch` is checked out when that is not under `root` (the repository's own
+    checkout, say), which the pipeline leaves alone; None when it is not, or is under `root`."""
+    entry = _entry_on(repo, branch)
+    if entry is None or entry.prunable or _under(entry.path, root):
+        return None
+    return entry.path
+
+
+def detached_trees(repo: Path, leaf: str, root: Path) -> tuple[Path, ...]:
+    """The registered worktrees on no branch whose folder is named `leaf`, two levels under
+    `root` whatever the folder between."""
+    return tuple(
+        entry.path
+        for entry in worktree_entries(repo)
+        if entry.branch is None
+        and not entry.prunable
+        and entry.path.name == leaf
+        and entry.path.resolve().parent.parent == root.resolve()
+    )
+
+
+def worktree_path(repo: Path, branch: str, root: Path, *, name: str) -> Path:
+    """Where a new worktree for `branch` goes: under the folder the repo's `name` in
+    `abk.yaml` gives, whatever the checkout's folder is called."""
+    return root / worktree_key(name) / re.sub(r"[^A-Za-z0-9]", "_", branch)
 
 
 def _uncommitted(
@@ -210,6 +391,7 @@ def prepare_worktree(
     *,
     base: str,
     root: Path,
+    name: str,
     allow_dirty: bool = False,
     locks: Sequence[str] = (),
     artifacts: Sequence[str] = (),
@@ -227,9 +409,15 @@ def prepare_worktree(
     Either way it carries the ignored scratch folder agent runs put long
     command output in (`pipeline/scratch.py`).
     """
-    path = worktree_path(repo, branch, root)
+    entry = _entry_on(repo, branch)
+    if entry is not None and entry.prunable:
+        git_out(repo, "worktree", "prune")
+        entry = None
+    if entry is not None and not _under(entry.path, root):
+        raise _elsewhere(branch, entry.path, root)
 
-    if path.exists():
+    if entry is not None:
+        path = entry.path
         ensure_scratch(path)
         entries = _uncommitted(path, locks, artifacts)
         if entries and not allow_dirty:
@@ -241,6 +429,9 @@ def prepare_worktree(
             )
         return path
 
+    path = worktree_path(repo, branch, root, name=name)
+    if path.exists() and (not path.is_dir() or any(path.iterdir())):
+        raise WorktreeOccupied(f"{path} is where {branch} would go, and it holds something else")
     path.parent.mkdir(parents=True, exist_ok=True)
 
     branches = git_out(repo, "branch", "--list", branch)
@@ -253,15 +444,27 @@ def prepare_worktree(
     return path
 
 
-def prepare_detached(repo: Path, name: str, *, ref: str, root: Path) -> Path:
+def _elsewhere(branch: str, path: Path, root: Path) -> WorktreeElsewhere:
+    return WorktreeElsewhere(
+        f"{branch} is checked out at {path}, which is not under {root}; leave that checkout or "
+        "switch it away, the pipeline does not use or remove it"
+    )
+
+
+def prepare_detached(repo: Path, leaf: str, *, ref: str, root: Path, name: str) -> Path:
     """A checkout of `ref` on no branch, created or moved to where `ref` is now.
 
     For running something *from* main rather than building on it: a
     consumer's dev stack attaches to its platform's, which e2e-test brings up
     from the platform's main, not from the user's own checkout and whatever
     is on it. Nothing is ever committed here, so moving it discards nothing.
+
+    A detached tree named `leaf` under any folder of the root is reused, whatever its key, so
+    two repos that share one repository share the tree whichever made it first.
     """
-    path = root / repo.name / name
+    path = root / worktree_key(name) / leaf
+    if not path.exists():
+        path = next(iter(detached_trees(repo, leaf, root)), path)
     if path.exists():
         git_out(path, "checkout", "-q", "--detach", ref)
         return path
@@ -299,9 +502,13 @@ def remove_worktree(repo: Path, branch: str, *, root: Path) -> None:
     `--force` is deliberately not used: if the tree is dirty, git refuses and
     the work stays for a human to look at.
     """
-    path = worktree_path(repo, branch, root)
-    if not path.exists():
+    entry = _entry_on(repo, branch)
+    if entry is None:
+        return
+    if not _under(entry.path, root):
+        raise _elsewhere(branch, entry.path, root)
+    if not entry.path.exists():
         return
 
-    git(repo, "worktree", "remove", str(path), check=False)
+    git(repo, "worktree", "remove", str(entry.path), check=False)
     git_out(repo, "worktree", "prune")

@@ -60,7 +60,9 @@ def walk_unit_through_review(scratch: Scratch, api: httpx.Client, runtime: str) 
     assert thread_next(scratch.state) == (Node.AWAIT_REVIEW,), built.output
     if runtime == "acp":
         # Chatting and rework resume the build's session: the agent must list it, or say why not.
-        cwd = worktree_path(scratch.app, BRANCH, scratch.installation.worktree_root)
+        cwd = worktree_path(
+            scratch.app, BRANCH, scratch.installation.worktree_root, name=scratch.app.name
+        )
         assert_unit_session_listed(scratch.state, UNIT_ID, scratch.command, cwd)
     # The server resolves the ticks' installation: it reports the agent that built the unit.
     recorded = api.get(f"{UNIT_URL}/agent").json()["session"]

@@ -126,7 +126,9 @@ class ScheduledRun:
         )
         self.root = tmp_path / "trees"
         self.repo, self.base = default_branch(self.inst.checkouts["app"], dev_stack=dev_stack)
-        self.tree = worktree_path(self.repo, branch_name(self.subject), self.root)
+        self.tree = worktree_path(
+            self.repo, branch_name(self.subject), self.root, name=self.repo.name
+        )
         self.ran = make_ran(self.tree)
         self.log: list[str] = []
         self.gate = session(
@@ -155,7 +157,9 @@ class ScheduledRun:
         )
 
     def worktree(self, unit: Unit, base: str, allow_dirty: bool = False) -> Path:
-        return prepare_worktree(self.repo, branch_name(unit), base=base, root=self.root)
+        return prepare_worktree(
+            self.repo, branch_name(unit), base=base, root=self.root, name=self.repo.name
+        )
 
     def advance(self, name: str, text: str = "fixed\n") -> str:
         """A commit on the default branch, as a merged fix is; returns the new tip."""

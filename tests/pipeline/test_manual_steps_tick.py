@@ -30,6 +30,7 @@ from tests.graph_driver import fresh, tick
 from tests.parked_split_support import stub_round
 from tests.redaction_fakes import SECRET, known
 from tests.split_changed_support import deliver_to_graph
+from tests.unit_tree_support import registered_tree
 
 NOW = datetime(2026, 10, 11, tzinfo=UTC)
 UNIT = "feature/1"
@@ -89,8 +90,10 @@ def make_world(tmp_path: Path, *, slots: int = 50, seconds: int = 30) -> World:
     )
     store = UnitStore(inst.state_dir / "units.json")
     store.upsert([stored_unit(UNIT, change="feature")])
-    tree = worktree_path(inst.checkouts["app"], BRANCH, inst.worktree_root)
-    tree.mkdir(parents=True)
+    repo = inst.checkouts["app"]
+    tree = registered_tree(
+        repo, BRANCH, worktree_path(repo, BRANCH, inst.worktree_root, name=repo.name)
+    )
     return World(inst, store, tree)
 
 

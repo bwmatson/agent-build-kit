@@ -22,6 +22,7 @@ from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.wiring import build_unit_test
 from tests.conftest import make_installation
 from tests.moved_base_fakes import moved
+from tests.unit_tree_support import registered_tree
 
 
 def workspace(tmp_path: Path, *, app_changelog: str | None) -> Installation:
@@ -79,7 +80,11 @@ def test_a_restacked_branch_in_its_worktree_is_checked_as_its_repo(
 ) -> None:
     installation = workspace(tmp_path, app_changelog="CHANGELOG.md")
     given, ran = restack_wiring(tmp_path, monkeypatch, installation)
-    worktree = installation.worktree_root / "app" / "spec_feature_1"
+    worktree = registered_tree(
+        installation.checkouts["app"],
+        "spec/feature/1",
+        installation.worktree_root / "app" / "spec_feature_1",
+    )
 
     given["unit_test"](cwd=worktree, base="origin/main")
 

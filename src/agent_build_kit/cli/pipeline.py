@@ -189,6 +189,7 @@ from agent_build_kit.pipeline.planning_repo import (
     current_branch,
     default_branch_of,
     is_repo,
+    repo_sharing,
     restore_default_branch,
 )
 from agent_build_kit.pipeline.planning_sync import (
@@ -212,6 +213,7 @@ from agent_build_kit.pipeline.product_defect import product_defect_record
 from agent_build_kit.pipeline.restack import (
     ConflictSession,
     Moved,
+    TemporaryTree,
     checked_out_at,
     push_with_lease,
     resolved_move,
@@ -440,9 +442,11 @@ from agent_build_kit.pipeline.workspaces import (
     BranchBusy,
     branch_held,
     branch_lock,
+    checked_out_elsewhere,
     keep_superseded_tip,
     lock_holder_gone,
-    worktree_path,
+    unit_tree,
+    worktree_key,
 )
 from agent_build_kit.profiles.base import ProfileUnsupported
 from agent_build_kit.redaction import redact_text
@@ -1265,11 +1269,12 @@ def _worktrees_of(inst: Installation, units: list[StoredUnit]) -> Callable[[str]
     checkouts = inst.checkouts
 
     def of(change: str) -> list[Path]:
-        return [
-            worktree_path(checkouts[unit.repo], unit.branch, inst.worktree_root)
+        trees = (
+            unit_tree(checkouts[unit.repo], unit.branch, inst.worktree_root)
             for unit in units
             if unit.change == change and unit.branch and unit.repo in checkouts
-        ]
+        )
+        return [tree for tree in trees if tree is not None]
 
     return of
 
@@ -5621,12 +5626,22 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
         # branch checked out, where the branch cannot be moved, so the move is left for its
         # run. Without one the branch is moved in a temporary worktree, and a move that
         # cannot be made is left for its run too.
-        if worktree_path(repo, branch, inst.worktree_root).exists():
+        if unit_tree(repo, branch, inst.worktree_root) is not None:
             store.set_state(
                 unit.id,
                 RUNNING,
                 note=f"restack onto {new_base} left for its run, not a conflict: "
                 "its worktree has the branch checked out",
+                cause=Cause.RESTACK_CONFLICT,
+            )
+            return None
+        elsewhere = checked_out_elsewhere(repo, branch, inst.worktree_root)
+        if elsewhere is not None:
+            store.set_state(
+                unit.id,
+                RUNNING,
+                note=f"restack onto {new_base} left for its run, not a conflict: "
+                f"{branch} is checked out in {elsewhere}, outside {inst.worktree_root}",
                 cause=Cause.RESTACK_CONFLICT,
             )
             return None
@@ -5642,7 +5657,7 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
                 moving_intent=unit.title,
                 onto_unit=parent.id,
                 onto_intent=parent.title,
-                temporary_root=inst.worktree_root,
+                temporary=TemporaryTree(root=inst.worktree_root, name=unit.repo),
             )
         except AgentRateLimited as error:
             # Refused for usage, not a conflict: still owed, and moved when the guard allows.
@@ -5726,21 +5741,35 @@ def build_stack_moves(
     def checkout(path: Path, branch: str, **kwargs):
         """A checkout of the branch at a given head, made and removed in the repo's turn."""
         return checked_out_at(
-            path, branch, turn=partial(repo_turn, installation, names[path]), **kwargs
+            path,
+            branch,
+            name=names[path],
+            turn=partial(repo_turn, installation, names[path]),
+            **kwargs,
         )
 
     def unit_test_of(*, cwd: Path, base: str, moved_from: str | None = None) -> tuple[bool, str]:
         """Unit-test as the repo whose checkout, or worktree of it, `cwd` is builds it."""
-        for name, path in checkouts.items():
-            if cwd == path or cwd.parent == installation.worktree_root / path.name:
-                repo = installation.repo(name)
-                return build_unit_test(
-                    profile=profiles.get(repo.profile),
-                    root_extras=repo.tests.root_extras,
-                    projects=repo.projects,
-                    repo=repo,
-                    log=log,
-                )(cwd=cwd, base=base, moved_from=moved_from)
+        name = next((each for each, path in checkouts.items() if path == cwd), None)
+        if name is None:
+            # Two repos can share one repository: the folder a worktree is in says whose it is.
+            name = next(
+                (
+                    each
+                    for each, path in checkouts.items()
+                    if worktree_key(each) == cwd.parent.name and repo_sharing({each: path}, cwd)
+                ),
+                None,
+            ) or repo_sharing(checkouts, cwd)
+        if name is not None:
+            repo = installation.repo(name)
+            return build_unit_test(
+                profile=profiles.get(repo.profile),
+                root_extras=repo.tests.root_extras,
+                projects=repo.projects,
+                repo=repo,
+                log=log,
+            )(cwd=cwd, base=base, moved_from=moved_from)
         raise ValueError(f"{cwd} is not a checkout of any repo or a worktree of one")
 
     return {

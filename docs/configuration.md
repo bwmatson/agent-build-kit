@@ -106,9 +106,19 @@ planning:
                                 # from the usage ledger, rewritten on every store
                                 # write; a failed write is reported, never fatal.
   worktree_root: null           # where per-unit worktrees are checked out:
-                                # <root>/<repo dir name>/<branch>. Never inside
-                                # the planning repo (refused at load). null =
-                                # ~/.local/share/<planning dir name>/worktrees.
+                                # <root>/<repo name in abk.yaml>/<branch>. Never
+                                # inside the planning repo (refused at load).
+                                # null = <data home>/<repository name>/worktrees.
+                                # A worktree already registered for a unit's
+                                # branch under the root is used where it is; one
+                                # outside the root is refused. Changing the root
+                                # leaves the old worktrees registered with git, and
+                                # a unit whose worktree is outside the root is
+                                # refused, so move them first: see
+                                # docs/runbooks/move-the-unit-worktree-root.md.
+                                # Wait for no running unit and no running track
+                                # first: an unconfined step or a track fails with
+                                # `ConfigChanged` when abk.local.yaml changes.
   self_pull: true               # the tracks pull a separate planning repo, and a
                                 # tick or track syncs a pipeline worktree, before
                                 # running.

@@ -27,7 +27,7 @@ def test_a_parked_unit_with_a_worktree_is_left_for_its_run_with_no_agent_call(
 ) -> None:
     inst = repo_behind(tmp_path, monkeypatch)
     repo = inst.checkouts["app"]
-    tree = worktree_path(repo, BRANCH, inst.worktree_root)
+    tree = worktree_path(repo, BRANCH, inst.worktree_root, name=repo.name)
     tree.parent.mkdir(parents=True, exist_ok=True)
     git(repo, "worktree", "add", "-q", str(tree), BRANCH)
     head = git(repo, "rev-parse", BRANCH)

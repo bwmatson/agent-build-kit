@@ -2489,7 +2489,9 @@ def build_worktree(
                 f"{unit.id} targets {unit.repo}, which has no checkout configured "
                 f"(known: {', '.join(sorted(repos)) or 'none'})"
             )
-        options: dict[str, Any] = {"allow_dirty": True} if allow_dirty else {}
+        options: dict[str, Any] = {"name": unit.repo}
+        if allow_dirty:
+            options["allow_dirty"] = True
         if locks := lock_paths(repo, repos[unit.repo]):
             options["locks"] = locks
         if artifacts := artifact_patterns(repo, repos[unit.repo]):
@@ -4011,7 +4013,11 @@ def dev_stack_underneath(
         return None
     ref = local_ref(installation.repo(base).default_branch, repo=base)
     return lambda: prepare(
-        installation.checkouts[base], "_dev_stack_base", ref=ref, root=installation.worktree_root
+        installation.checkouts[base],
+        "_dev_stack_base",
+        name=base,
+        ref=ref,
+        root=installation.worktree_root,
     )
 
 

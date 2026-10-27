@@ -39,7 +39,9 @@ def repo(tmp_path: Path) -> Path:
 
 
 def test_a_unit_gets_its_own_checkout(repo: Path, tmp_path: Path) -> None:
-    tree = prepare_worktree(repo, "spec/change/1", base="main", root=tmp_path / "trees")
+    tree = prepare_worktree(
+        repo, "spec/change/1", base="main", root=tmp_path / "trees", name=repo.name
+    )
 
     assert tree.exists()
     assert tree != repo
@@ -53,7 +55,9 @@ def test_the_branch_is_created_on_its_base(repo: Path, tmp_path: Path) -> None:
     git(repo, "commit", "-qm", "parent work")
     git(repo, "checkout", "-q", "main")
 
-    tree = prepare_worktree(repo, "spec/change/2", base="spec/change/1", root=tmp_path / "trees")
+    tree = prepare_worktree(
+        repo, "spec/change/2", base="spec/change/1", root=tmp_path / "trees", name=repo.name
+    )
 
     assert (tree / "parent.txt").exists(), "a stacked unit starts from its parent's work"
 
@@ -61,12 +65,16 @@ def test_the_branch_is_created_on_its_base(repo: Path, tmp_path: Path) -> None:
 def test_an_existing_branch_is_reused_with_its_commits(repo: Path, tmp_path: Path) -> None:
     """Deterministic branch names exist so a re-run continues where the last
     one stopped. Recreating the branch would orphan that work."""
-    first = prepare_worktree(repo, "spec/change/1", base="main", root=tmp_path / "trees")
+    first = prepare_worktree(
+        repo, "spec/change/1", base="main", root=tmp_path / "trees", name=repo.name
+    )
     (first / "progress.txt").write_text("half done\n")
     git(first, "add", "-A")
     git(first, "commit", "-qm", "test: half done")
 
-    again = prepare_worktree(repo, "spec/change/1", base="main", root=tmp_path / "trees")
+    again = prepare_worktree(
+        repo, "spec/change/1", base="main", root=tmp_path / "trees", name=repo.name
+    )
 
     assert (again / "progress.txt").exists()
 
@@ -74,23 +82,31 @@ def test_an_existing_branch_is_reused_with_its_commits(repo: Path, tmp_path: Pat
 def test_a_dirty_worktree_is_reported_not_cleaned(repo: Path, tmp_path: Path) -> None:
     """Uncommitted work may be the only copy of something. Reusing it blindly
     would risk committing it into the wrong unit; wiping it would lose it."""
-    tree = prepare_worktree(repo, "spec/change/1", base="main", root=tmp_path / "trees")
+    tree = prepare_worktree(
+        repo, "spec/change/1", base="main", root=tmp_path / "trees", name=repo.name
+    )
     (tree / "scratch.txt").write_text("unsaved\n")
 
     with pytest.raises(DirtyWorktree):
-        prepare_worktree(repo, "spec/change/1", base="main", root=tmp_path / "trees")
+        prepare_worktree(
+            repo, "spec/change/1", base="main", root=tmp_path / "trees", name=repo.name
+        )
 
     assert (tree / "scratch.txt").exists(), "the file is still there to rescue"
 
 
 def test_a_dirty_worktrees_paths_are_exact(repo: Path, tmp_path: Path) -> None:
-    tree = prepare_worktree(repo, "spec/change/1", base="main", root=tmp_path / "trees")
+    tree = prepare_worktree(
+        repo, "spec/change/1", base="main", root=tmp_path / "trees", name=repo.name
+    )
     (tree / "a b.txt").write_text("x\n")
     (tree / "dir").mkdir()
     (tree / "dir" / "é.txt").write_text("y\n")
 
     with pytest.raises(DirtyWorktree) as dirty:
-        prepare_worktree(repo, "spec/change/1", base="main", root=tmp_path / "trees")
+        prepare_worktree(
+            repo, "spec/change/1", base="main", root=tmp_path / "trees", name=repo.name
+        )
 
     assert sorted(dirty.value.paths) == ["a b.txt", "dir/é.txt"]
 
@@ -155,7 +171,7 @@ def test_locks_live_outside_the_worktrees(repo: Path, tmp_path: Path) -> None:
     trees = tmp_path / "trees"
 
     with branch_lock("spec/change/1", root=locks):
-        tree = prepare_worktree(repo, "spec/change/1", base="main", root=trees)
+        tree = prepare_worktree(repo, "spec/change/1", base="main", root=trees, name=repo.name)
 
         assert locks not in tree.parents
         assert not list(tree.glob("**/*.lock"))
@@ -168,7 +184,9 @@ def _head(tree: Path) -> str:
 def test_a_detached_checkout_sits_at_its_ref_on_no_branch(repo: Path, tmp_path: Path) -> None:
     # app's dev stack attaches to platform's, which e2e-test brings up from
     # main — not from whatever the user's own checkout has on it.
-    tree = prepare_detached(repo, "_dev_stack_base", ref="main", root=tmp_path / "trees")
+    tree = prepare_detached(
+        repo, "_dev_stack_base", ref="main", root=tmp_path / "trees", name=repo.name
+    )
 
     assert tree == tmp_path / "trees" / repo.name / "_dev_stack_base"
     assert _head(tree) == _head(repo)
@@ -177,12 +195,16 @@ def test_a_detached_checkout_sits_at_its_ref_on_no_branch(repo: Path, tmp_path: 
 
 
 def test_a_detached_checkout_moves_when_its_ref_does(repo: Path, tmp_path: Path) -> None:
-    tree = prepare_detached(repo, "_dev_stack_base", ref="main", root=tmp_path / "trees")
+    tree = prepare_detached(
+        repo, "_dev_stack_base", ref="main", root=tmp_path / "trees", name=repo.name
+    )
     (repo / "later.txt").write_text("merged since\n")
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "later")
 
-    again = prepare_detached(repo, "_dev_stack_base", ref="main", root=tmp_path / "trees")
+    again = prepare_detached(
+        repo, "_dev_stack_base", ref="main", root=tmp_path / "trees", name=repo.name
+    )
 
     assert again == tree
     assert _head(tree) == _head(repo)

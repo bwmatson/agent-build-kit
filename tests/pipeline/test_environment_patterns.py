@@ -232,7 +232,9 @@ def kept_lock(repo: Path, tmp_path: Path, *, artifacts: tuple[str, ...] = (), ed
     env = FakeEnvironment(
         tmp_path / "control", inputs=("**/manifest.json",), locks=(LOCK,), artifacts=artifacts
     )
-    tree = prepare_worktree(repo, BRANCH, base="main", root=tmp_path / "trees", locks=(LOCK,))
+    tree = prepare_worktree(
+        repo, BRANCH, base="main", root=tmp_path / "trees", locks=(LOCK,), name=repo.name
+    )
     edits(tree)
     write(tree, LOCK, "rewritten by the sync\n")
 

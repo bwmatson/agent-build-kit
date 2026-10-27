@@ -419,7 +419,10 @@ release could move. The steps:
 1. **Usage guard first**, before the worktree exists, so a refusal never
    leaves a half-built unit.
 2. **Worktree.** `spec/<change>/<n>` (the prefix is `git.branch_prefix`)
-   is checked out under the worktree root, created on its base — the newest
+   is checked out under the worktree root, in a folder named for the repo's
+   name in `abk.yaml`; a worktree git already lists for the branch under the
+   root is used where it is, and one checked out elsewhere is refused. It is
+   created on its base — the newest
    `in_review` same-repo dependency's branch, else `origin/main`. A dirty
    worktree is refused, never cleaned. A resuming unit whose base moved is
    restacked first; a conflict the resolver's two steps (the conflicting hunks,

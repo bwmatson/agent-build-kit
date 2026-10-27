@@ -109,6 +109,7 @@ from agent_build_kit.pipeline.planning_view import (
 )
 from agent_build_kit.pipeline.shell import git, git_out, is_ignored, is_tracked, tracked_toplevel
 from agent_build_kit.pipeline.usage_guard import gate_result
+from agent_build_kit.pipeline.workspaces import worktree_entries, worktree_key
 from agent_build_kit.profiles.base import ProfileUnsupported
 from agent_build_kit.redaction import MIN_LENGTH
 from agent_build_kit.redaction import active as active_redactor
@@ -193,6 +194,49 @@ def _repos(inst: Installation, run: Run) -> list[Check]:
         scope = "repo-local" if identity("email", local=True) else "this machine's global"
         checks.append(_ok(f"repo {name}", f"{path}, commits as {email} ({scope})"))
     return checks
+
+
+def _unit_worktrees(inst: Installation) -> list[Check]:
+    """The unit worktrees under the worktree root that sit in a folder other than their repo's
+    key, and the registered ones whose directory is gone. Reads git, writes nothing."""
+    name = "unit worktrees"
+    # By repository, not checkout: two checkouts that are worktrees of one repository list the
+    # same entries.
+    keys: dict[Path, set[str]] = {}
+    checkouts: dict[Path, Path] = {}
+    for repo in inst.repos:
+        path = inst.checkouts[repo]
+        common = common_dir(path)
+        if common is not None:
+            checkouts.setdefault(common, path)
+            keys.setdefault(common, set()).add(worktree_key(repo))
+    root = inst.worktree_root.resolve()
+    found = []
+    for common, names in keys.items():
+        folders = {root / key for key in names}
+        checkout = checkouts[common]
+        for entry in worktree_entries(checkout):
+            if not entry.path.resolve().is_relative_to(root):
+                continue
+            if entry.prunable:
+                found.append(
+                    _warn(
+                        name,
+                        f"{entry.path} is registered for {checkout} but its directory is gone",
+                        f"run `git worktree prune` in {checkout}",
+                    )
+                )
+            elif entry.path.resolve().parent not in folders:
+                found.append(
+                    _info(
+                        name,
+                        f"{entry.path} is under a folder other than {' or '.join(sorted(names))}"
+                        " and is adopted where it is",
+                        f"in {checkout}, `git worktree move {entry.path} <new path>` "
+                        "when its unit is idle",
+                    )
+                )
+    return found or [_ok(name, f"every unit worktree is under {root}/<repo>/")]
 
 
 def _pending_projects(inst: Installation) -> list[Check]:
@@ -2143,6 +2187,7 @@ def run_doctor(
 
     checks += _live_installation(inst)
     checks += _repos(inst, run)
+    checks += _unit_worktrees(inst)
     checks += _e2e_holds(inst)
     checks += _e2e_dimensions(inst)
     checks += _gate_usage(inst, run, which)

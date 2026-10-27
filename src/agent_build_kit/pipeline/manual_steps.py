@@ -21,7 +21,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.unit_store import KEEP, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import PLANNED, ManualStep
-from agent_build_kit.pipeline.workspaces import worktree_path
+from agent_build_kit.pipeline.workspaces import unit_tree
 from agent_build_kit.redaction import redact_text
 
 # Where a builder writes the check script of a step it raises, in its worktree.
@@ -102,8 +102,7 @@ def _directory(installation: Installation, unit: StoredUnit) -> Path:
     checkout = installation.checkouts[unit.repo]
     if not unit.branch:
         return checkout
-    tree = worktree_path(checkout, unit.branch, installation.worktree_root)
-    return tree if tree.is_dir() else checkout
+    return unit_tree(checkout, unit.branch, installation.worktree_root) or checkout
 
 
 def _check(installation: Installation, unit: StoredUnit, step: ManualStep) -> tuple[Outcome, str]:

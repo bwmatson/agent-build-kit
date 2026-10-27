@@ -244,4 +244,6 @@ class Rig:
         return head
 
     def temporary_tree(self) -> Path:
-        return restack.temporary_tree(self.repo, self.branch, root=self.installation.worktree_root)
+        return restack.temporary_tree(
+            self.repo, self.branch, root=self.installation.worktree_root, name="app"
+        )

@@ -47,7 +47,7 @@ def repo(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def tree(repo: Path, tmp_path: Path) -> Path:
-    return prepare_worktree(repo, BRANCH, base="main", root=tmp_path / "trees")
+    return prepare_worktree(repo, BRANCH, base="main", root=tmp_path / "trees", name=repo.name)
 
 
 def scratch(tree: Path) -> Path:
@@ -74,8 +74,10 @@ def test_a_new_worktree_has_the_scratch_folder_and_excludes_it(tree: Path) -> No
 def test_the_exclude_line_is_added_once_however_often_the_worktree_is_prepared(
     repo: Path, tree: Path, tmp_path: Path
 ) -> None:
-    prepare_worktree(repo, BRANCH, base="main", root=tmp_path / "trees")
-    other = prepare_worktree(repo, "spec/change/2", base="main", root=tmp_path / "trees")
+    prepare_worktree(repo, BRANCH, base="main", root=tmp_path / "trees", name=repo.name)
+    other = prepare_worktree(
+        repo, "spec/change/2", base="main", root=tmp_path / "trees", name=repo.name
+    )
 
     assert scratch(other).is_dir()
     assert exclude_lines(tree) == [".abk/"]
@@ -90,7 +92,7 @@ def test_git_sees_nothing_in_the_scratch_folder(tree: Path, repo: Path, tmp_path
     git(tree, "add", "-A")
     assert git(tree, "diff", "--cached", "--name-only") == ""
     # Still a clean worktree, so a re-run reuses it rather than refusing it.
-    prepare_worktree(repo, BRANCH, base="main", root=tmp_path / "trees")
+    prepare_worktree(repo, BRANCH, base="main", root=tmp_path / "trees", name=repo.name)
 
 
 def test_the_leftover_commit_stages_nothing_from_the_scratch_folder(tree: Path) -> None:

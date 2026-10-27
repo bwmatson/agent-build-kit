@@ -149,6 +149,27 @@ def test_a_temporary_worktree_left_by_a_stopped_restack_is_cleared_under_the_tur
     assert not left.exists()
 
 
+def test_a_temporary_worktree_left_under_an_earlier_folder_is_cleared_and_the_move_succeeds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = Rig(tmp_path, monkeypatch)
+    left = rig.installation.worktree_root / "worktree" / rig.temporary_tree().name
+    left.parent.mkdir(parents=True)
+    sh(rig.repo, "worktree", "add", "-q", "--detach", str(left), BRANCH)
+    stopped = subprocess.run(
+        ["git", "rebase", "--onto", "main", OLD_BASE], cwd=left, capture_output=True, text=True
+    )
+    assert stopped.returncode != 0 and rebase_in_progress(left), "the leftover is mid-rebase"
+    old_head = sh(rig.repo, "rev-parse", BRANCH)
+
+    run_bounded(rig.restack)
+
+    assert sh(rig.repo, "rev-parse", BRANCH) != old_head
+    sh(rig.repo, "merge-base", "--is-ancestor", "main", BRANCH)
+    assert not left.exists()
+    assert "restack-" not in sh(rig.repo, "worktree", "list", "--porcelain")
+
+
 def test_the_checks_of_a_branch_with_no_worktree_run_on_a_checkout_at_the_moved_head(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -204,3 +225,14 @@ def test_a_branch_moved_between_making_the_tree_and_the_rebase_is_not_overwritte
     assert len(made) == 2, "started again for the moved branch"
     assert sh(rig.repo, "show", f"{BRANCH}:other.py") == "other.py", "the other writer's commit"
     sh(rig.repo, "merge-base", "--is-ancestor", "main", BRANCH)
+
+
+def test_the_temporary_tree_is_named_for_the_repo_not_its_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = Rig(tmp_path, monkeypatch)
+    root = rig.installation.worktree_root
+
+    tree = restack.temporary_tree(rig.repo, BRANCH, root=root, name="lib")
+
+    assert tree == root / "lib" / "restack-spec_c_2"

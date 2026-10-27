@@ -60,6 +60,7 @@ from agent_build_kit.pipeline.restack import (
     BranchMoved,
     Moved,
     RestackConflict,
+    TemporaryTree,
     adopt_host_head,
     blast_radius_note,
     push_with_lease,
@@ -100,7 +101,12 @@ from agent_build_kit.pipeline.units import (
     trunk_of,
 )
 from agent_build_kit.pipeline.wiring import build_unit_test, moving_onto, own_work_starts_after
-from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock, worktree_path
+from agent_build_kit.pipeline.workspaces import (
+    BranchBusy,
+    branch_lock,
+    checked_out_elsewhere,
+    unit_tree,
+)
 from agent_build_kit.pipeline.workspaces import remove_worktree as drop_worktree
 from agent_build_kit.runtimes.base import (
     AgentInterrupted,
@@ -1928,8 +1934,8 @@ def build_restack(
         # run where the branch is checked out, rather than on whatever the
         # main clone happens to have in its working tree. `root` is
         # `spec_worktree_root` — outside the planning repo, see settings.
-        worktree = worktree_path(repo, branch, root)
-        cwd = worktree if worktree.exists() else repo
+        worktree = unit_tree(repo, branch, root)
+        cwd = worktree if worktree is not None else repo
 
         # A satisfied parent added no commits, so a branch that already holds
         # its new base needs no move: it was cut from the parent's predecessor,
@@ -2009,12 +2015,19 @@ def build_restack(
         # Both sides are planned work, so the resolver is told what each was
         # for rather than left to infer it from the diff — see `resolved_move`,
         # which a resuming unit's own restack shares.
+        # Checked out where the pipeline does not work, the repository's own checkout say:
+        # nothing is moved, and the resolver is not asked, until it is switched away.
+        elsewhere = checked_out_elsewhere(repo, branch, root)
         # No worktree of its own: the branch is moved in a temporary one, so the
         # repository's checkout is never switched.
-        where: dict[str, Any] = {} if worktree.exists() else {"temporary_root": root}
+        where: dict[str, Any] = (
+            {} if worktree is not None else {"temporary": TemporaryTree(root=root, name=child.repo)}
+        )
         if resolve:
             where["resolve"] = resolve
         try:
+            if worktree is None and elsewhere is not None:
+                raise BranchCheckedOut(branch, path=str(elsewhere))
             moved = retried_once(
                 lambda: move(
                     repo,
@@ -2128,7 +2141,7 @@ def build_restack(
             # the repository's own checkout is not on the branch.
             checks_in = (
                 checkout(repo, branch, root=root, ref=head_of(repo, branch))
-                if checkout and not worktree.exists()
+                if checkout and worktree is None
                 else nullcontext(cwd)
             )
             with checks_in as checks_cwd:

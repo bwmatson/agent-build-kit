@@ -27,7 +27,7 @@ from agent_build_kit.pipeline.workspaces import (
     branch_lock,
     changed_paths,
     remove_worktree,
-    worktree_path,
+    unit_tree,
 )
 
 
@@ -105,9 +105,9 @@ def retire(
         return 1
 
     repo = inst.checkouts[unit.repo]
-    tree = worktree_path(repo, unit.branch, inst.worktree_root) if unit.branch else None
+    tree = unit_tree(repo, unit.branch, inst.worktree_root) if unit.branch else None
     if delete_branch and unit.branch:
-        if tree is not None and tree.exists() and (dirty := changed_paths(tree)):
+        if tree is not None and (dirty := changed_paths(tree)):
             say(f"{tree} has uncommitted changes ({', '.join(dirty)}); commit or remove them first")
             return 1
         since, unpushed = _unpushed(repo, unit, units)

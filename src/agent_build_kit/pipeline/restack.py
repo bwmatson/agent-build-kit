@@ -47,7 +47,13 @@ from agent_build_kit.pipeline.own_tests import defined_tests_in_range, tests_in
 from agent_build_kit.pipeline.planning_repo import current_branch
 from agent_build_kit.pipeline.scratch import output_convention, run_folder
 from agent_build_kit.pipeline.vocabulary import OverheadNode
-from agent_build_kit.pipeline.workspaces import prepare_detached, worktree_path
+from agent_build_kit.pipeline.workspaces import (
+    detached_trees,
+    prepare_detached,
+    worktree_entries,
+    worktree_key,
+    worktree_path,
+)
 from agent_build_kit.runtimes import AgentRequest, AgentResult
 from agent_build_kit.runtimes.base import (
     AgentInterrupted,
@@ -104,6 +110,14 @@ class RestackConflict(RuntimeError):
     def __init__(self, message: str, *, tried: str = "") -> None:
         super().__init__(message)
         self.tried = tried
+
+
+class TemporaryTree(Frozen):
+    """Where a branch with no worktree of its own is moved: under `root`, in the folder the
+    repo's `name` in `abk.yaml` gives."""
+
+    root: Path
+    name: str
 
 
 class Moved(Frozen):
@@ -346,12 +360,9 @@ def _branch_head(repo: Path, branch: str) -> str:
 
 def _checked_out_in(repo: Path, branch: str) -> str | None:
     """The worktree that has `branch` checked out, if any."""
-    listing = git(repo, "worktree", "list", "--porcelain", check=False).stdout
-    for block in listing.split("\n\n"):
-        lines = block.splitlines()
-        if f"branch refs/heads/{branch}" in lines:
-            return next((line.removeprefix("worktree ") for line in lines), None)
-    return None
+    return next(
+        (str(entry.path) for entry in worktree_entries(repo) if entry.branch == branch), None
+    )
 
 
 def _land_detached(repo: Path, branch: str, *, started: str) -> Moved:
@@ -611,27 +622,38 @@ def move_branch_onto(
         return Moved(sha=git(repo, "rev-parse", branch).stdout.strip(), resolved=resolved)
 
 
-def temporary_tree(repo: Path, branch: str, *, root: Path) -> Path:
+def temporary_tree(repo: Path, branch: str, *, root: Path, name: str) -> Path:
     """Where a branch with no worktree of its own is moved: beside where its own would
     be, under another name, so the test for a unit's own worktree never mistakes it."""
-    own = worktree_path(repo, branch, root)
+    own = worktree_path(repo, branch, root, name=name)
     return own.parent / f"restack-{own.name}"
 
 
 @contextmanager
 def checked_out_at(
-    repo: Path, branch: str, *, root: Path, ref: str | None = None, turn: Turn = nullcontext
+    repo: Path,
+    branch: str,
+    *,
+    root: Path,
+    name: str,
+    ref: str | None = None,
+    turn: Turn = nullcontext,
 ) -> Iterator[Path]:
     """A worktree on no branch, at `ref` (the branch's head by default), for a branch
     with no worktree of its own. Made and removed inside the turn; one left by a
     restack that stopped is cleared there first."""
-    path = temporary_tree(repo, branch, root=root)
+    leaf = temporary_tree(repo, branch, root=root, name=name).name
     with turn():
-        if path.exists():
-            git(path, "rebase", "--abort", check=False)
-            git(repo, "worktree", "remove", "--force", str(path), check=False)
+        # One left by a restack that stopped, under this folder or the one an earlier release
+        # used, goes first.
+        for left in (*detached_trees(repo, leaf, root), root / worktree_key(name) / leaf):
+            if left.exists():
+                git(left, "rebase", "--abort", check=False)
+                git(repo, "worktree", "remove", "--force", str(left), check=False)
         git(repo, "worktree", "prune", check=False)
-        prepare_detached(repo, path.name, ref=ref or _branch_head(repo, branch), root=root)
+        path = prepare_detached(
+            repo, leaf, name=name, ref=ref or _branch_head(repo, branch), root=root
+        )
     try:
         yield path
     finally:
@@ -645,13 +667,14 @@ def move_in_temporary_worktree(
     branch: str,
     *,
     root: Path,
+    name: str,
     turn: Turn = nullcontext,
     move: Callable[..., Moved] | None = None,
     **kwargs,
 ) -> Moved:
     """Move `branch` in a temporary worktree on no branch, so the checkout of `repo`
     is never switched and a branch checked out elsewhere does not make git refuse."""
-    with checked_out_at(repo, branch, root=root, turn=turn) as path:
+    with checked_out_at(repo, branch, root=root, name=name, turn=turn) as path:
         return (move or move_branch_onto)(path, branch, turn=turn, detached=True, **kwargs)
 
 
@@ -819,7 +842,7 @@ def resolved_move(
     resolve: Resolver | None = None,
     repo_config: RepoConfig | None = None,
     turn: Turn = nullcontext,
-    temporary_root: Path | None = None,
+    temporary: TemporaryTree | None = None,
 ) -> Moved:
     """`move_branch_onto` with the resolver wired up and both sides' intent.
 
@@ -850,10 +873,10 @@ def resolved_move(
             repo=repo_config,
         ),
     )
-    if temporary_root is not None:
+    if temporary is not None:
         # No worktree of the unit's own: its branch is moved in a temporary one.
         return move_in_temporary_worktree(
-            repo, branch, root=temporary_root, turn=turn, move=move, **moving
+            repo, branch, root=temporary.root, name=temporary.name, turn=turn, move=move, **moving
         )
     return move(repo, branch, turn=turn, **moving)
 

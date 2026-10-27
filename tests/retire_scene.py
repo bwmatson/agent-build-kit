@@ -98,14 +98,16 @@ class Scene(Replan):
     def worktree(self, uid: str) -> Path:
         """The unit's branch checked out where the pipeline keeps it, created when missing."""
         branch = f"spec/{uid}"
-        path = worktree_path(self.repo, branch, self.inst.worktree_root)
+        path = worktree_path(self.repo, branch, self.inst.worktree_root, name=self.repo.name)
         if not path.exists():
             path.parent.mkdir(parents=True, exist_ok=True)
             git(self.repo, "worktree", "add", "-q", str(path), branch)
         return path
 
     def has_worktree(self, uid: str) -> bool:
-        return worktree_path(self.repo, f"spec/{uid}", self.inst.worktree_root).exists()
+        return worktree_path(
+            self.repo, f"spec/{uid}", self.inst.worktree_root, name=self.repo.name
+        ).exists()
 
     def push(self, uid: str) -> str:
         """Push the unit's branch to `origin` and record the commit as the last pushed."""
