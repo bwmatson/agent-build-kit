@@ -29,13 +29,16 @@ from collections.abc import Callable
 from pathlib import Path
 
 from agent_build_kit import openspec
-from agent_build_kit.config import active_local_dir
 from agent_build_kit.installation import changes_dir_under
-from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import change_lock
 from agent_build_kit.pipeline.run_log import remove_change_logs
 from agent_build_kit.pipeline.scratch import remove_leftovers
-from agent_build_kit.pipeline.task_progress import TASKS_FILE, reconcile
+from agent_build_kit.pipeline.task_progress import (
+    TASKS_FILE,
+    Tracked,
+    progress_dir,
+    reconcile,
+)
 from agent_build_kit.pipeline.transcript import remove_change_transcripts
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import SATISFIED, UnitState, is_superseded, satisfied_landed
@@ -108,16 +111,8 @@ def _merged_at(change: str, units: list[StoredUnit]) -> str:
 FOLLOW_UPS_FILE = "follow-ups.md"
 
 
-class _Located(Frozen):
-    """Where one change's files are, for the progress helpers."""
-
-    state_dir: Path
-    changes_dir: Path
-    local_dir: Path
-
-
 def _write_final_files(
-    located: _Located, change: str, folder: Path, directory: Path
+    located: Tracked, change: str, folder: Path, directory: Path
 ) -> dict[Path, str | None]:
     """Reconciles the tracking copy and writes its files over the repository's; what each
     repository file held before (None: it did not exist), to put back if the archive fails."""
@@ -159,7 +154,7 @@ def archive_ready_changes(
     e2e_outputs: Path | None = None,
     usage_ledger: Path | None = None,
     worktrees: Callable[[str], list[Path]] = lambda change: [],
-    progress: Callable[[str], Path] | None = None,
+    tracked: Tracked | None = None,
     publish: Callable[[str], None] | None = None,
 ) -> list[str]:
     """Archive every change whose units have all merged, oldest merge first —
@@ -188,15 +183,10 @@ def archive_ready_changes(
         if not directory.is_dir():
             logger.warning("not archiving %s: withdrawn, no change directory", change)
             continue
-        folder = progress(change) if progress is not None else None
+        folder = progress_dir(tracked, change) if tracked is not None else None
         before: dict[Path, str | None] = {}
-        if folder is not None:
-            located = _Located(
-                state_dir=folder.parent.parent,
-                changes_dir=changes_dir_under(planning_repo, specs_dir),
-                local_dir=active_local_dir() or folder.parent.parent,
-            )
-            before = _write_final_files(located, change, folder, directory)
+        if tracked is not None and folder is not None:
+            before = _write_final_files(tracked, change, folder, directory)
             for name in (TASKS_FILE, FOLLOW_UPS_FILE):
                 (directory / f"{name}.lock").unlink(missing_ok=True)
         try:

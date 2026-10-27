@@ -250,7 +250,6 @@ from agent_build_kit.pipeline.stack_runner import (
     UnitRunner,
     group_steps_of,
 )
-from agent_build_kit.pipeline.task_progress import progress_dir
 from agent_build_kit.pipeline.transcript import remove_change_transcripts, transcript_dir
 from agent_build_kit.pipeline.ui_review import (
     ui_listing,
@@ -1281,9 +1280,17 @@ def _archive_publisher(inst: Installation) -> Callable[[str], None]:
     specs = inst.changes_dir.parent.relative_to(inst.root).as_posix()
 
     def publish(change: str) -> None:
-        paths = [f"{specs}/changes/{change}", f"{specs}/changes/archive", f"{specs}/specs"]
-        if git(inst.root, "add", "-A", "--", *paths, check=False).returncode != 0:
-            return  # not a repository: nothing to commit
+        paths = [f"{specs}/changes/{change}"]
+        paths += [
+            path
+            for path in (f"{specs}/changes/archive", f"{specs}/specs")
+            if (inst.root / path).exists()
+            or git(inst.root, "ls-files", "--", path, check=False).stdout.strip()
+        ]
+        staged = git(inst.root, "add", "-A", "--", *paths, check=False)
+        if staged.returncode != 0:
+            log(f"staging the archive of {change} failed:\n{staged.stderr}")
+            return
         if git(inst.root, "diff", "--cached", "--quiet", "--", *paths, check=False).returncode == 0:
             return
         message = f"archive: {change}"
@@ -1333,7 +1340,7 @@ def cmd_verify(args: argparse.Namespace, inst: Installation) -> int:
         transcripts=transcript_dir(inst.state_dir),
         usage_ledger=inst.state_dir / LEDGER_NAME,
         worktrees=_worktrees_of(inst, units),
-        progress=lambda change: progress_dir(inst, change),
+        tracked=inst,
         publish=_archive_publisher(inst),
     )
     for change in archived:
@@ -2163,7 +2170,7 @@ def run_round(
             transcripts=transcript_dir(inst.state_dir),
             usage_ledger=inst.state_dir / LEDGER_NAME,
             worktrees=_worktrees_of(inst, units),
-            progress=lambda change: progress_dir(inst, change),
+            tracked=inst,
             publish=_archive_publisher(inst),
         ):
             log(f"archived {change}")

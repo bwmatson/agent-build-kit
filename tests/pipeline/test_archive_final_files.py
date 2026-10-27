@@ -59,7 +59,7 @@ def archive(inst: Installation, runner: FakeRunner, publish: Publishing) -> list
         [stored_unit(f"{CHANGE}/1", state="merged")],
         planning_repo=inst.root,
         run=runner,
-        progress=lambda change: progress_dir(inst, change),
+        tracked=inst,
         publish=publish,
     )
 

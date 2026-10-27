@@ -92,7 +92,10 @@ next tick sync again.
   the reason or what it waits on changes, and a `none` line when the wait ends.
 - `runs/verified.json` — the outcome of each change's verification.
 - `openspec/changes/<change>/` — the change a unit belongs to. Its `tasks.md` is ticked as units
-  pass review, but in a copy: Ticks and follow-ups live in `<state dir>/changes/<change>/`, not in the repository, until the change is archived; the locks on a change's files are under `locks/changes/` in the local directory; the archive writes the final files over the repository's and commits them. An archived change reaches the default branch.
+  pass review in a copy at `<state dir>/changes/<change>/` until the change is archived; the locks
+  on a change's files are under `locks/changes/` in the local directory; the archive writes the
+  final files over the repository's, commits them, and the archived change reaches the default
+  branch.
 
 ## Test kinds
 
