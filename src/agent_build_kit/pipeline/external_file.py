@@ -182,3 +182,9 @@ def check_not_started(change_dir: Path, hold: Hold, units: Sequence[StoredUnit])
             f"{min(covered & mine)} of change {change_dir.name}: let it finish, or retire it "
             "first, which returns its groups to the plan"
         )
+
+
+def release_hold(change_dir: Path, group: int) -> None:
+    """Give back the work of the hold that has `group`; raises `HoldRefused` when none holds it
+    or the hold is done."""
+    raise NotImplementedError
