@@ -20,6 +20,7 @@ TRACKED = {
     "docs/unit_cost.md": "cost\n",
     "openspec/changes/feature/tasks.md": "- [ ] 1.1 Do it\n",
     "openspec/changes/feature/proposal.md": "why\n",
+    "openspec/specs/marker/spec.md": "spec\n",
 }
 
 
@@ -93,8 +94,9 @@ def touch_planning_paths(tree: Path) -> None:
     (tree / "runs" / "units.json").write_text('["state"]\n')
     (tree / "docs" / "unit_graph.md").write_text("graph, changed\n")
     (tree / "docs" / "unit_cost.md").write_text("cost, changed\n")
-    (tree / "openspec" / "changes" / "feature" / "tasks.md").write_text("- [x] 1.1 Do it\n")
-    git(tree, "mv", "openspec/changes/feature/proposal.md", "openspec/changes/archived.md")
+    (tree / "openspec" / "specs" / "marker" / "spec.md").write_text("spec, synced\n")
+    (tree / "openspec" / "changes" / "archive").mkdir()
+    git(tree, "mv", "openspec/changes/feature", "openspec/changes/archive/2026-01-01-feature")
 
 
 def test_modified_planning_paths_do_not_hold_up_verification(tmp_path: Path) -> None:
@@ -118,7 +120,7 @@ def test_a_modified_source_file_refuses_naming_only_that_file(tmp_path: Path) ->
 
     assert not result.passed
     assert "src/main.py" in result.detail
-    for exempt in ("units.json", "unit_graph.md", "unit_cost.md", "tasks.md", "archived.md"):
+    for exempt in ("units.json", "unit_graph.md", "unit_cost.md", "spec.md", "2026-01-01-feature"):
         assert exempt not in result.detail
     assert not host.deploys()
 

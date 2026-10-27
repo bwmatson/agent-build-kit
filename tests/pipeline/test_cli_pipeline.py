@@ -1353,6 +1353,8 @@ def test_verify_reruns_one_change_by_hand(tmp_path: Path, monkeypatch, capsys) -
         e2e_outputs=None,
         usage_ledger=None,
         worktrees=lambda change: [],
+        tracked=None,
+        publish=None,
     ):
         archiving.append(may_archive("c") and not may_archive("other"))
         return ["c"]

@@ -186,11 +186,17 @@ from agent_build_kit.pipeline.planner import (
     unit_priority,
 )
 from agent_build_kit.pipeline.planning_repo import (
+    current_branch,
     default_branch_of,
     is_repo,
     restore_default_branch,
 )
-from agent_build_kit.pipeline.planning_sync import PlanningMode, planning_mode, sync_or_stop
+from agent_build_kit.pipeline.planning_sync import (
+    PlanningMode,
+    in_repo_default_branch,
+    planning_mode,
+    sync_or_stop,
+)
 from agent_build_kit.pipeline.pr_poller import (
     HOLD_LABEL,
     Poller,
@@ -446,6 +452,7 @@ from agent_build_kit.runtimes import AgentRateLimited, NetworkUnavailable, Servi
 from agent_build_kit.runtimes.guards import guard_lines
 from agent_build_kit.serve.review import ReviewStore
 from agent_build_kit.trackers.report import standing
+from agent_build_kit.tracks.runner import RUN_ID, publish_commit
 
 if TYPE_CHECKING:
     from agent_build_kit.graph.unit import Position
@@ -1267,6 +1274,47 @@ def _worktrees_of(inst: Installation, units: list[StoredUnit]) -> Callable[[str]
     return of
 
 
+def _archive_publisher(inst: Installation) -> Callable[[str], None]:
+    """The hook that commits an archived change and publishes the commit: only the change's
+    directories and the main specs, never the configuration, the state or any code."""
+    specs = inst.changes_dir.parent.relative_to(inst.root).as_posix()
+
+    def publish(change: str) -> None:
+        paths = [f"{specs}/changes/{change}"]
+        paths += [
+            path
+            for path in (f"{specs}/changes/archive", f"{specs}/specs")
+            if (inst.root / path).exists()
+            or git(inst.root, "ls-files", "--", path, check=False).stdout.strip()
+        ]
+        staged = git(inst.root, "add", "-A", "--", *paths, check=False)
+        if staged.returncode != 0:
+            log(f"staging the archive of {change} failed:\n{staged.stderr}")
+            return
+        if git(inst.root, "diff", "--cached", "--quiet", "--", *paths, check=False).returncode == 0:
+            return
+        message = f"archive: {change}"
+        earlier = git(inst.root, "rev-parse", "HEAD").stdout.strip()
+        committed = git(inst.root, "commit", "-q", "-m", message, "--", *paths, check=False)
+        if committed.returncode != 0:
+            log(f"committing the archive of {change} failed:\n{committed.stderr}")
+            return
+        if planning_mode(inst) == PlanningMode.PIPELINE_WORKTREE:
+            branch = in_repo_default_branch(inst)
+        else:
+            branch = current_branch(inst.root)
+        publish_commit(
+            inst,
+            branch,
+            f"archive-{change}-{RUN_ID}",
+            message,
+            earlier,
+            f"abk archived the change `{change}` once all of its units merged.",
+        )
+
+    return publish
+
+
 def cmd_verify(args: argparse.Namespace, inst: Installation) -> int:
     """Verify one change by hand — after fixing what made it fail — and
     archive it if it passes: the tick sees no work once everything merged."""
@@ -1292,6 +1340,8 @@ def cmd_verify(args: argparse.Namespace, inst: Installation) -> int:
         transcripts=transcript_dir(inst.state_dir),
         usage_ledger=inst.state_dir / LEDGER_NAME,
         worktrees=_worktrees_of(inst, units),
+        tracked=inst,
+        publish=_archive_publisher(inst),
     )
     for change in archived:
         print(f"archived {change}")
@@ -2120,6 +2170,8 @@ def run_round(
             transcripts=transcript_dir(inst.state_dir),
             usage_ledger=inst.state_dir / LEDGER_NAME,
             worktrees=_worktrees_of(inst, units),
+            tracked=inst,
+            publish=_archive_publisher(inst),
         ):
             log(f"archived {change}")
 

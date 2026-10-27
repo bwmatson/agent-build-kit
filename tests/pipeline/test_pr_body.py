@@ -195,7 +195,7 @@ def test_the_satisfied_reason_says_its_tasks_are_ticked() -> None:
 
     reason = satisfied_reason(satisfied, graph=[satisfied])
 
-    assert "ticked" in reason.lower()
+    assert "recorded as done" in reason.lower()
 
 
 def test_the_satisfied_reason_names_where_the_graph_can_say() -> None:

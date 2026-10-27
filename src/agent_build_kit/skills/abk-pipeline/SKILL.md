@@ -91,8 +91,11 @@ next tick sync again.
   slot, usage_pause, lease, backoff, waiting_review, needs_person, ready), one line each time
   the reason or what it waits on changes, and a `none` line when the wait ends.
 - `runs/verified.json` — the outcome of each change's verification.
-- `openspec/changes/<change>/` — the change a unit belongs to; its `tasks.md`
-  is ticked as units pass review.
+- `openspec/changes/<change>/` — the change a unit belongs to. Its `tasks.md` is ticked as units
+  pass review in a copy at `<state dir>/changes/<change>/` until the change is archived; the locks
+  on a change's files are under `locks/changes/` in the local directory; the archive writes the
+  final files over the repository's, commits them, and the archived change reaches the default
+  branch.
 
 ## Test kinds
 

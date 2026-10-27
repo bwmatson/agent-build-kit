@@ -610,5 +610,5 @@ def satisfied_reason(unit: StoredUnit, *, graph: Sequence[StoredUnit]) -> str:
     return (
         f"Task group(s) {covered} were already implemented "
         f"elsewhere{where}. There is nothing here for this pull request to add, so it is "
-        "closing — its tasks are ticked in tasks.md all the same."
+        "closing — its tasks are recorded as done all the same."
     )

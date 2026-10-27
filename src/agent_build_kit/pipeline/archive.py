@@ -23,14 +23,22 @@ failure is logged and the change skipped; the next tick tries it again.
 from __future__ import annotations
 
 import logging
+import shutil
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
 from agent_build_kit import openspec
 from agent_build_kit.installation import changes_dir_under
+from agent_build_kit.pipeline.file_lock import change_lock
 from agent_build_kit.pipeline.run_log import remove_change_logs
 from agent_build_kit.pipeline.scratch import remove_leftovers
+from agent_build_kit.pipeline.task_progress import (
+    TASKS_FILE,
+    Tracked,
+    progress_dir,
+    reconcile,
+)
 from agent_build_kit.pipeline.transcript import remove_change_transcripts
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import SATISFIED, UnitState, is_superseded, satisfied_landed
@@ -100,6 +108,33 @@ def _merged_at(change: str, units: list[StoredUnit]) -> str:
     return max(stamps) if stamps else ""
 
 
+FOLLOW_UPS_FILE = "follow-ups.md"
+
+
+def _write_final_files(
+    located: Tracked, change: str, folder: Path, directory: Path
+) -> dict[Path, str | None]:
+    """Reconciles the tracking copy and writes its files over the repository's; what each
+    repository file held before (None: it did not exist), to put back if the archive fails."""
+    reconcile(located, change)
+    before: dict[Path, str | None] = {}
+    with change_lock(located, change, TASKS_FILE):
+        for name in (TASKS_FILE, FOLLOW_UPS_FILE):
+            source, target = folder / name, directory / name
+            if source.is_file():
+                before[target] = target.read_text() if target.exists() else None
+                target.write_text(source.read_text())
+    return before
+
+
+def _restore(before: dict[Path, str | None]) -> None:
+    for target, text in before.items():
+        if text is None:
+            target.unlink(missing_ok=True)
+        else:
+            target.write_text(text)
+
+
 def _already_archived(change: str, planning_repo: Path, specs_dir: str = "openspec") -> bool:
     archive = changes_dir_under(planning_repo, specs_dir) / "archive"
     if not archive.exists():
@@ -119,6 +154,8 @@ def archive_ready_changes(
     e2e_outputs: Path | None = None,
     usage_ledger: Path | None = None,
     worktrees: Callable[[str], list[Path]] = lambda change: [],
+    tracked: Tracked | None = None,
+    publish: Callable[[str], None] | None = None,
 ) -> list[str]:
     """Archive every change whose units have all merged, oldest merge first —
     and that `may_archive` lets through: the tick passes whether the change
@@ -146,14 +183,25 @@ def archive_ready_changes(
         if not directory.is_dir():
             logger.warning("not archiving %s: withdrawn, no change directory", change)
             continue
+        folder = progress_dir(tracked, change) if tracked is not None else None
+        before: dict[Path, str | None] = {}
+        if tracked is not None and folder is not None:
+            before = _write_final_files(tracked, change, folder, directory)
+            for name in (TASKS_FILE, FOLLOW_UPS_FILE):
+                (directory / f"{name}.lock").unlink(missing_ok=True)
         try:
             # A conflict is not auto-resolved: it is logged and the
             # change retried next tick.
             openspec.archive(change, cwd=planning_repo, run=run)
         except RuntimeError as exc:
+            _restore(before)
             logger.warning("archiving %s failed, skipping it: %s", change, str(exc))
             continue
         archived.append(change)
+        if publish is not None:
+            publish(change)
+        if folder is not None:
+            shutil.rmtree(folder, ignore_errors=True)
         if usage_ledger is not None:
             try:
                 roll_up_change(usage_ledger, change, units)
