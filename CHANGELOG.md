@@ -10,6 +10,7 @@
   merged by the pipeline as any other. Its pull request, `abk status` and `abk explain` say it
   is over its ceiling and why it was not split. `review.unsplittable: hold` keeps the old
   behaviour.
+
 - An installation whose planning repo is also one of its code repos now keeps its pipeline
   state in a planning home outside the repository, `<data home>/<repository name>/planning`,
   and its pipeline worktree at `<planning home>/worktree`. The same state is read from the
