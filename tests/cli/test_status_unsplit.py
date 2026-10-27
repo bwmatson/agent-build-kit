@@ -10,6 +10,7 @@ import pytest
 
 from agent_build_kit.cli.explain_cmd import cmd_explain
 from agent_build_kit.pipeline.unit_store import StoredSplitRequest, UnitStore
+from agent_build_kit.pipeline.units import MERGED
 from tests.conftest import make_installation, status_lines
 from tests.factories import stored_unit
 
@@ -29,7 +30,7 @@ def test_status_names_the_unit_as_over_its_ceiling_and_not_split_with_the_reason
         record_unsplit(store)
         store.upsert([stored_unit("plain/1", change="plain"), stored_unit("done/1", change="done")])
         store.set_unsplit_reason("done/1", REASON)
-        store.set_state("done/1", "merged")
+        store.set_state("done/1", MERGED)
 
     lines = status_lines(tmp_path, monkeypatch, capsys, record=record)
 
