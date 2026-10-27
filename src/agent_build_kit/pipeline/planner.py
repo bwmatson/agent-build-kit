@@ -150,9 +150,14 @@ def parse_graph(
     built: set[int] | None = None,
     known: set[str] | None = None,
     tasks: str = "",
+    external: Collection[int] = (),
 ) -> list[Unit]:
     """Read and verify a proposed graph, or raise `PlannerError`."""
-    return list(parse_plan(output, groups=groups, built=built, known=known, tasks=tasks).units)
+    return list(
+        parse_plan(
+            output, groups=groups, built=built, known=known, tasks=tasks, external=external
+        ).units
+    )
 
 
 def parse_plan(
@@ -169,8 +174,12 @@ def parse_plan(
     split: SplitRequest | None = None,
     held: StoredUnit | None = None,
     pins: Sequence[Pin] = (),
+    external: Collection[int] = (),
 ) -> Plan:
     """Read and verify a proposed graph and its joins, or raise `PlannerError`.
+
+    `external` is the numbers of the change's groups held by someone outside the kit
+    (`external_file.blocked_groups`): a unit carries held groups or none.
 
     `pins` are those of the change's superseded units whose pieces have not started: a plan
     that regroups a pinned driver, or puts it at another tier, is refused.

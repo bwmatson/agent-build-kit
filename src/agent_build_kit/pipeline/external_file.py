@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
 import yaml
 from pydantic import Field
@@ -18,6 +18,9 @@ from pydantic import Field
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.work_graph import GROUP_NUMBER
+
+if TYPE_CHECKING:
+    from agent_build_kit.pipeline.unit_store import StoredUnit
 
 FILE_NAME = "external.yaml"
 HELD = "held"
@@ -125,3 +128,8 @@ def blocked_groups(change_dir: Path) -> frozenset[int]:
         if hold.status not in (DONE, RELEASED):
             blocked |= _covered(hold, existing)
     return blocked
+
+
+def check_not_started(change_dir: Path, hold: Hold, units: Sequence[StoredUnit]) -> None:
+    """Raise `HoldRefused` when a unit that has started carries a group `hold` covers."""
+    raise NotImplementedError
