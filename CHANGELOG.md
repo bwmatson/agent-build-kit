@@ -7,7 +7,9 @@
   group the planner finds too large) now has its size rule waived and goes on to review and
   a pull request, with the reason recorded on the unit, instead of waiting for a person.
   The waived size no longer holds the unit at review, so a unit that earns `auto` can be
-  merged by the pipeline as any other. `review.unsplittable: hold` keeps the old behaviour.
+  merged by the pipeline as any other. Its pull request, `abk status` and `abk explain` say it
+  is over its ceiling and why it was not split. `review.unsplittable: hold` keeps the old
+  behaviour.
 
 - The repo-wide test guards read tracked files through one helper, `tests/tracked_files.py`,
   which leaves planning content out, so a specification may name what it forbids; the leak

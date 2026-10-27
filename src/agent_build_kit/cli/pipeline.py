@@ -1016,7 +1016,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             since = _conflicting(inst, unit, conflicting).get(unit.pr)
             if since is not None:
                 log(f"  held: {unit.id} ({where}) #{unit.pr} — {unit.note}; a person is needed")
-        if unit.unsplit_reason:
+        if unit.unsplit_reason and unit.state not in (MERGED, CLOSED, *BUILDS_NOTHING):
             log(f"  {unit.id} ({where}) is over its ceiling and not split: {unit.unsplit_reason}")
         if unit.state == HELD and unit.cause is Cause.DIRTY_WORKTREE:
             log(f"  parked: {unit.id} ({where}) — {unit.note}")
@@ -2835,7 +2835,7 @@ def _split_one(
     rounds = config.active().review.split_rounds
     if unit.split_rounds_used >= rounds:
         used = (
-            "`split_rounds` is 0, so it is not split"
+            "`split_rounds` is 0"
             if rounds == 0
             else f"split {unit.split_rounds_used} of {rounds} rounds used"
         )

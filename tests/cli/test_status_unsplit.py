@@ -27,7 +27,9 @@ def test_status_names_the_unit_as_over_its_ceiling_and_not_split_with_the_reason
 ) -> None:
     def record(store: UnitStore) -> None:
         record_unsplit(store)
-        store.upsert([stored_unit("plain/1", change="plain")])
+        store.upsert([stored_unit("plain/1", change="plain"), stored_unit("done/1", change="done")])
+        store.set_unsplit_reason("done/1", REASON)
+        store.set_state("done/1", "merged")
 
     lines = status_lines(tmp_path, monkeypatch, capsys, record=record)
 
@@ -35,6 +37,7 @@ def test_status_names_the_unit_as_over_its_ceiling_and_not_split_with_the_reason
     assert "over its ceiling" in named
     assert REASON in named
     assert not any("plain/1" in line and "not split" in line for line in lines)
+    assert not any("done/1" in line and "not split" in line for line in lines), "merged: not shown"
 
 
 def test_explain_names_the_unit_as_over_its_ceiling_and_not_split_with_the_reason(

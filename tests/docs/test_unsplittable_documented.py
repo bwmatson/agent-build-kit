@@ -4,15 +4,10 @@ the setting that chooses it and how to keep the old behaviour (spec: unsplittabl
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+from tests.doc_text import ROOT, squashed
+
 SKILL = ROOT / "src" / "agent_build_kit" / "skills" / "abk-pipeline" / "SKILL.md"
-
-
-def squashed(text: str) -> str:
-    """The text on one line with the code ticks dropped, so a wrapped sentence matches."""
-    return " ".join(text.replace("`", "").split())
 
 
 def section_after(text: str, marker: str, length: int) -> str:
