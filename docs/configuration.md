@@ -740,6 +740,7 @@ the default:
 |---|---|---|
 | `planning.home` | `ABK_PLANNING_HOME` | `<data home>/<repository name>/planning` (must be outside the repository) |
 | `planning.state_dir` | `ABK_STATE_DIR` | `<planning home>/state` (`runs/` for a separate planning repo) |
+| `planning.local_dir` | `ABK_LOCAL_DIR` | `<planning home>/local` (the state directory for a separate planning repo); absolute or `~`; holds the checkpointer database, locks and leases, and must be on a local disk |
 | `planning.reports_dir` | — | the state directory when inside the repository, else `docs/reports` (always inside it: the tracks' run logs and `tracked-issues.md` are committed there) |
 
 The generated pages default under `<planning home>/state/pages/`. Keep a backup of the state

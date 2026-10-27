@@ -17,9 +17,9 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import file_lock
 
 
-def lease_dir(state_dir: Path) -> Path:
-    """The directory of its own, under the state directory."""
-    return state_dir / "leases"
+def lease_dir(local_dir: Path) -> Path:
+    """The directory of its own, under the local directory."""
+    return local_dir / "leases"
 
 
 def _started(pid: int) -> str | None:

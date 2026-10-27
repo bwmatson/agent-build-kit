@@ -88,6 +88,11 @@ class Installation:
                 f"planning.worktree_root ({self.worktree_root}) must be outside the "
                 f"planning repo ({self.root})"
             )
+        configured_local = settings_module.settings.local_dir or config.planning.local_dir
+        if configured_local is not None and not Path(configured_local).expanduser().is_absolute():
+            raise ConfigError(
+                f"planning.local_dir ({configured_local}) must be an absolute path or start with ~"
+            )
         configured_reports = config.planning.reports_dir
         if configured_reports is not None and not self._inside_root(
             self._under_root(configured_reports)
@@ -131,20 +136,24 @@ class Installation:
 
     @property
     def local_dir(self) -> Path:
-        """Where the files tied to this machine's processes live."""
-        raise NotImplementedError
+        """Where the files tied to this machine's processes live: `planning.local_dir`, else
+        `<planning home>/local` in an in-repo installation, else the state directory."""
+        configured = settings_module.settings.local_dir or self.config.planning.local_dir
+        if configured is not None:
+            return Path(configured).expanduser()
+        return self.planning_home / "local" if self.in_repo else self.state_dir
 
     @property
     def locks_dir(self) -> Path:
-        raise NotImplementedError
+        return self.local_dir / "locks"
 
     @property
     def leases_dir(self) -> Path:
-        raise NotImplementedError
+        return self.local_dir / "leases"
 
     @property
     def environment_lock(self) -> Path:
-        raise NotImplementedError
+        return self.local_dir / "environment.lock"
 
     @property
     def reports_dir(self) -> Path:
@@ -174,7 +183,7 @@ class Installation:
 
     @property
     def e2e_lock(self) -> Path:
-        return self.state_dir / E2E_LOCK_FILE
+        return self.local_dir / E2E_LOCK_FILE
 
     @property
     def graph_page(self) -> Path:

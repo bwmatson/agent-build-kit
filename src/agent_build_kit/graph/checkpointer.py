@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -9,6 +10,8 @@ from pathlib import Path
 import aiosqlite
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+from agent_build_kit.pipeline.file_lock import atomic_write_bytes
 
 # The (module, name) of every type the state holds, the only ones a
 # checkpoint may deserialise.
@@ -29,9 +32,9 @@ ALLOWED_MSGPACK_MODULES: tuple[tuple[str, str], ...] = (
 )
 
 
-def unit_graphs_path(state_dir: Path) -> Path:
-    """`<state_dir>/unit-graphs.sqlite`."""
-    return state_dir / "unit-graphs.sqlite"
+def unit_graphs_path(local_dir: Path) -> Path:
+    """`<local_dir>/unit-graphs.sqlite`."""
+    return local_dir / "unit-graphs.sqlite"
 
 
 @asynccontextmanager
@@ -41,7 +44,23 @@ async def open_checkpointer(
     """The saver over `path`, in WAL, deserialising only the allowlisted types. A database in
     `state_dir` is copied to `path` once, when `path` holds none."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    old = unit_graphs_path(state_dir) if state_dir is not None else None
+    if old is not None and old != path and old.exists() and not path.exists():
+        _carry(old, path)
     async with aiosqlite.connect(path) as conn:
         await conn.execute("PRAGMA journal_mode=WAL")
         serde = JsonPlusSerializer(allowed_msgpack_modules=list(ALLOWED_MSGPACK_MODULES))
         yield AsyncSqliteSaver(conn, serde=serde)
+
+
+def _carry(old: Path, new: Path) -> None:
+    """Copy the database at `old` to `new` through SQLite's backup interface, which gives a
+    consistent copy with the WAL applied and leaves `old` as it was."""
+    source = sqlite3.connect(f"file:{old}?mode=ro", uri=True)
+    copy = sqlite3.connect(":memory:")
+    try:
+        source.backup(copy)
+        atomic_write_bytes(new, copy.serialize())
+    finally:
+        copy.close()
+        source.close()

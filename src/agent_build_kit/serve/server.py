@@ -123,7 +123,7 @@ async def _read_only_checkpointer(path: Path) -> AsyncIterator[AsyncSqliteSaver]
 
 def _unit_run(installation: Installation, unit_id: str) -> UnitRun | None:
     """The unit's run state as its thread last saved it, None when it has none to read."""
-    path = unit_graphs_path(installation.state_dir)
+    path = unit_graphs_path(installation.local_dir)
     if not path.exists():
         return None
 
@@ -217,7 +217,7 @@ def _run_files(installation: Installation, change: str, number: str) -> list[Pat
 
 def _recorded_session(installation: Installation, unit_id: str) -> AgentSession | None:
     """The unit's latest recorded agent session, from its checkpoint thread."""
-    path = unit_graphs_path(installation.state_dir)
+    path = unit_graphs_path(installation.local_dir)
     if not path.exists():
         return None
 

@@ -592,7 +592,9 @@ def retry_replies(inst: Installation, store: UnitStore, *, reply: Callable[..., 
     from agent_build_kit.graph.unit import set_pending_replies
 
     async def write(unit_id: str, replies: tuple[str, ...]) -> None:
-        async with open_checkpointer(unit_graphs_path(inst.state_dir)) as saver:
+        async with open_checkpointer(
+            unit_graphs_path(inst.local_dir), state_dir=inst.state_dir
+        ) as saver:
             await set_pending_replies(saver, unit_id, replies)
 
     for unit in store.all():
@@ -602,7 +604,7 @@ def retry_replies(inst: Installation, store: UnitStore, *, reply: Callable[..., 
         if owed is None or not owed.pending_replies:
             continue
         try:
-            with branch_lock(unit.branch, root=inst.state_dir / "locks"):
+            with branch_lock(unit.branch, root=inst.locks_dir):
                 # Read again under the lock: a build may have posted them since.
                 owed = thread_of(inst, unit.id).state
                 if owed is None or not owed.pending_replies:
@@ -1000,7 +1002,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
                 f"estimated {unit.estimated_lines}, landed {unit.actual_lines}"
             )
 
-    for held in Leases(lease_dir(inst.state_dir)).attachments():
+    for held in Leases(lease_dir(inst.local_dir)).attachments():
         owner = next((u for u in units if u.id == held.unit_id), None)
         where = f" ({unit_label(owner)})" if owner else ""
         files = f"{held.changed} file{'' if held.changed == 1 else 's'}"
@@ -1731,7 +1733,7 @@ def _startable(
 
     A unit could start when it is planned or running and not left out by `--only`, a lease or a
     backoff; one in `spared` is never left out."""
-    leases = Leases(lease_dir(inst.state_dir))
+    leases = Leases(lease_dir(inst.local_dir))
     now = spans.clock.now()
     startable: list[StoredUnit] = []
     left_out = False
@@ -2499,7 +2501,7 @@ def reconcile_running(
     for unit in store.all():
         if unit.state != RUNNING or unit.id in in_flight or has_thread(inst, unit.id):
             continue
-        gone = lock_holder_gone(unit.branch or branch_name(unit), root=inst.state_dir / "locks")
+        gone = lock_holder_gone(unit.branch or branch_name(unit), root=inst.locks_dir)
         if gone is None:
             log(f"{unit.id}: running, but no lock names a run for it")
         elif gone:
@@ -2555,7 +2557,7 @@ def gate_resumable(
     unit gated, the groups it waits for."""
     units = store.all()
     repos = config.active().repos
-    leases = Leases(lease_dir(inst.state_dir))
+    leases = Leases(lease_dir(inst.local_dir))
     owed = owed_units(inst, units)
     gated: dict[str, str] = {}
     for unit in units:
@@ -2578,7 +2580,7 @@ def deliver_committed(inst: Installation, store: UnitStore) -> None:
     the adopted event once for that commit, then the lease that recorded it is removed."""
     from agent_build_kit.pipeline import attach
 
-    for held in Leases(lease_dir(inst.state_dir)).attachments():
+    for held in Leases(lease_dir(inst.local_dir)).attachments():
         if not (held.stale and held.committed):
             continue
         if (unit := next((u for u in store.all() if u.id == held.unit_id), None)) is None:
@@ -2865,7 +2867,7 @@ def _split_one(
     if errors:
         log(f"not splitting {unit.id}: the tags of {unit.change} are broken")
         return
-    lock = branch_lock(unit.branch, root=inst.state_dir / "locks") if unit.branch else nullcontext()
+    lock = branch_lock(unit.branch, root=inst.locks_dir) if unit.branch else nullcontext()
     try:
         with lock:
             _plan_and_supersede(inst, store, unit, _request_of(stored), task_groups, units, rounds)
@@ -3170,7 +3172,7 @@ def resumable_units(
     They are `running`, but hold no slot until the round starts them; a thread
     waiting for review or a person is not here, and holds none. `spared` names
     the units a run is in flight on. A unit whose lease is held waits for its release."""
-    leases = Leases(lease_dir(inst.state_dir))
+    leases = Leases(lease_dir(inst.local_dir))
     # A unit owed a restack is moved by the lane first; a worker would only wait for it.
     owed = owed_units(inst, units) if owed is None else owed
     return [
@@ -3252,7 +3254,7 @@ def _evaluate_round(
     view: list[Unit] = []
     excluded: set[str] = set()
     now = spans.clock.now()
-    leases = Leases(lease_dir(inst.state_dir))
+    leases = Leases(lease_dir(inst.local_dir))
     owed = owed_units(inst, units) if owed is None else owed
     gates = split_gates(inst.config, inst.state_dir, units)
     external = held_units(inst.changes_dir, units)
@@ -3689,7 +3691,7 @@ def _is_looping(inst: Installation, unit: StoredUnit) -> bool:
 
 def _ready_queue_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
     """The ready queue in the order the scheduler starts it, with why each unit is where it is."""
-    attached = {held.unit_id for held in Leases(lease_dir(inst.state_dir)).attachments()}
+    attached = {held.unit_id for held in Leases(lease_dir(inst.local_dir)).attachments()}
     ready, view, excluded, _for_the_lane, _emergency = _evaluate_round(
         inst,
         units,
@@ -4184,7 +4186,7 @@ def park_dependents(inst: Installation, store: UnitStore) -> None:
     follow_predecessors(
         store,
         head=partial(branch_head, inst),
-        claim=build_claim(inst.state_dir / "locks"),
+        claim=build_claim(inst.locks_dir),
         deliver=deliver,
         log=log,
     )
@@ -4221,7 +4223,7 @@ def branch_is_held(inst: Installation, branch: str) -> bool:
     Read from the lock's pid and never taken, so asking never turns away a run starting on
     the branch; `workspaces.branch_held` does the reading.
     """
-    return branch_held(branch, root=inst.state_dir / "locks")
+    return branch_held(branch, root=inst.locks_dir)
 
 
 def thread_of(inst: Installation, unit_id: str) -> Position:
@@ -4231,7 +4233,9 @@ def thread_of(inst: Installation, unit_id: str) -> Position:
     from agent_build_kit.graph.unit import thread_position
 
     async def look() -> Position:
-        async with open_checkpointer(unit_graphs_path(inst.state_dir)) as saver:
+        async with open_checkpointer(
+            unit_graphs_path(inst.local_dir), state_dir=inst.state_dir
+        ) as saver:
             return await thread_position(saver, unit_id)
 
     return asyncio.run(look())
@@ -4249,7 +4253,7 @@ def _create_thread_store(inst: Installation) -> None:
     from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
 
     async def create() -> None:
-        async with open_checkpointer(unit_graphs_path(inst.state_dir)):
+        async with open_checkpointer(unit_graphs_path(inst.local_dir), state_dir=inst.state_dir):
             pass
 
     asyncio.run(create())
@@ -5132,7 +5136,7 @@ def _write_join(
         branches = [branch_name(store.get(uid)) for uid in ids]
         with ExitStack() as held:
             for branch in branches:
-                held.enter_context(branch_lock(branch, root=inst.state_dir / "locks"))
+                held.enter_context(branch_lock(branch, root=inst.locks_dir))
             kinds = [g.tier for g in task_groups if g.number in join.groups]
             estimates = store.join(join, group_kinds=kinds)
     except (BranchBusy, KeyError):
@@ -5390,7 +5394,7 @@ def repo_turn(installation: Installation, repo: str) -> AbstractContextManager[N
     """The turn a repo's `.git` is taken by. Adding a worktree, pushing, moving
     or removing a branch all take git's own locks there, which fail rather
     than wait."""
-    return file_lock(installation.state_dir / "locks" / f"repo-{repo}.lock")
+    return file_lock(installation.locks_dir / f"repo-{repo}.lock")
 
 
 class StackMoves(TypedDict):
@@ -5485,7 +5489,7 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
                 # The guard refused the move's agent: the lane moves it again when it allows.
                 refusals.discard(unit_id)
                 return
-            if Leases(lease_dir(inst.state_dir)).holder(unit_id) is not None:
+            if Leases(lease_dir(inst.local_dir)).holder(unit_id) is not None:
                 raise BranchBusy(f"a tab holds the lease of {unit_id}")
             if branch_is_held(inst, store.get(unit_id).branch or branch_name(store.get(unit_id))):
                 raise BranchBusy(f"the branch of {unit_id} is held by another run")
@@ -5695,7 +5699,7 @@ def build_stack_moves(
         ),
         "remove_worktree": named(build_remove_worktree(checkouts, root=installation.worktree_root)),
         "delete_branch": named(build_delete_branch(checkouts)),
-        "claim": build_claim(installation.state_dir / "locks"),
+        "claim": build_claim(installation.locks_dir),
         "retarget": build_retarget(),
         "rebase_cap": installation.stack_depth_rebase_cap,
         "lane": lane,
@@ -6058,7 +6062,7 @@ def _build_unit(
     try:
         try:
             with ExitStack() as held:
-                held.enter_context(branch_lock(branch, root=inst.state_dir / "locks"))
+                held.enter_context(branch_lock(branch, root=inst.locks_dir))
                 # Re-read under the lock. `ready` comes from the pass's latest
                 # evaluation, and ticks overlap to build in parallel: by the time
                 # this one reaches a unit, another may have built it and opened its
@@ -6085,7 +6089,7 @@ def _build_unit(
                 # A tab may have taken the lease since the pass picked this unit. The
                 # server writes the lease and then reads the branch lock; this takes the
                 # lock and then reads the lease, so one of the two always sees the other.
-                if Leases(lease_dir(inst.state_dir)).holder(unit.id) is not None:
+                if Leases(lease_dir(inst.local_dir)).holder(unit.id) is not None:
                     end("skipped, a tab holds its lease", UnitOutcome.SKIPPED)
                     return True
                 if moved_base_run:
@@ -6337,7 +6341,9 @@ async def _on_thread(
     from agent_build_kit.graph.unit import resume_unit, run_unit
 
     common = dict(base=base, graph=graph, run_log=run_log, tracer=telemetry.tracer())
-    async with open_checkpointer(unit_graphs_path(inst.state_dir)) as saver:
+    async with open_checkpointer(
+        unit_graphs_path(inst.local_dir), state_dir=inst.state_dir
+    ) as saver:
         if event is None:
             # Under the lock `build_unit` holds; a delivery takes its own.
             return await run_unit(runner, unit, saver=saver, lane=lane, **common)
@@ -6347,7 +6353,7 @@ async def _on_thread(
             saver=saver,
             event=event,
             feedback=feedback,
-            locks=inst.state_dir / "locks",
+            locks=inst.locks_dir,
             **common,
         )
 
@@ -6391,7 +6397,9 @@ def advance_thread_through_prepare(
     make_runner, base, graph = _thread_runner(inst, unit, store, _unit_log(unit))
 
     async def advance() -> UnitRun | None:
-        async with open_checkpointer(unit_graphs_path(inst.state_dir)) as saver:
+        async with open_checkpointer(
+            unit_graphs_path(inst.local_dir), state_dir=inst.state_dir
+        ) as saver:
             return await advance_through_prepare(
                 make_runner, unit, base=base, graph=graph, saver=saver, tracer=telemetry.tracer()
             )
@@ -7013,11 +7021,12 @@ def plan_apart(
         if (holds := held_path(inst.state_dir)).is_file():
             shutil.copy2(holds, scratch / holds.name)
         # A branch a live process holds is a unit that has started: a join onto it is dropped.
-        if (inst.state_dir / "locks").is_dir():
-            shutil.copytree(inst.state_dir / "locks", scratch / "locks")
+        if (inst.locks_dir).is_dir():
+            shutil.copytree(inst.locks_dir, scratch / "locks")
         planning = inst.config.planning.model_copy(
             update={
                 "state_dir": str(scratch),
+                "local_dir": str(scratch),
                 "graph_page": str(scratch / "graph.html"),
                 "usage_page": str(scratch / "usage.html"),
             }
@@ -7811,7 +7820,7 @@ def _waits_in(
 ) -> dict[str, Wait]:
     """The reasons of `wait_reasons` from an evaluation a pass has already made: a unit
     in `skipped` is running or started, and one in `startable` is ready."""
-    leases = Leases(lease_dir(inst.state_dir))
+    leases = Leases(lease_dir(inst.local_dir))
     now = spans.clock.now()
     waits: dict[str, Wait] = {}
     gates = split_gates(inst.config, inst.state_dir, units)

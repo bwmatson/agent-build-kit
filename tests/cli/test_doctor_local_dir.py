@@ -46,7 +46,7 @@ def test_a_local_directory_on_a_share_fails_naming_the_type_and_the_settings(
 
     [found] = named(checks_of(config, mount_of=mount_of_type(fstype)), LOCAL_DIR)
 
-    assert found.status == "fail"
+    assert found.status == "FAIL"
     assert fstype in found.detail
     assert str(local) in found.detail
     assert "planning.local_dir" in found.fix

@@ -53,7 +53,9 @@ def _delete_thread(inst: Installation, unit_id: str) -> None:
     from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
 
     async def drop() -> None:
-        async with open_checkpointer(unit_graphs_path(inst.state_dir)) as saver:
+        async with open_checkpointer(
+            unit_graphs_path(inst.local_dir), state_dir=inst.state_dir
+        ) as saver:
             await saver.adelete_thread(unit_id)
 
     asyncio.run(drop())
@@ -91,7 +93,7 @@ def retire(
     if assessment.refusal:
         say(assessment.refusal)
         return 1
-    if holder := Leases(lease_dir(inst.state_dir)).holder(unit_id):
+    if holder := Leases(lease_dir(inst.local_dir)).holder(unit_id):
         say(f"{unit_id} has a live lease held by {holder}; stop it first")
         return 1
     unowned = [fate for fate in assessment.groups if not fate.carried_by]
@@ -122,7 +124,7 @@ def retire(
     with ExitStack() as held:
         if unit.branch:
             try:
-                held.enter_context(branch_lock(unit.branch, root=inst.state_dir / "locks"))
+                held.enter_context(branch_lock(unit.branch, root=inst.locks_dir))
             except BranchBusy as error:
                 say(f"{unit_id}: {error}; stop it first")
                 return 1

@@ -164,7 +164,7 @@ class Chat:
         self.agent_environment = agent_environment
         self._units = units
         self._recorded = recorded_session
-        self.leases = Leases(lease_dir(installation.state_dir))
+        self.leases = Leases(lease_dir(installation.local_dir))
         self.transcripts = transcript_dir(installation.state_dir)
         self._lock = threading.Lock()
         self._busy: set[str] = set()  # sessions a turn of this server is running on
@@ -210,7 +210,7 @@ class Chat:
     def forget_start(self, unit: StoredUnit) -> None:
         """Clear the start a killed node left in the unit's thread: the files it left are
         taken over with the chat's."""
-        path = unit_graphs_path(self.installation.state_dir)
+        path = unit_graphs_path(self.installation.local_dir)
         if not path.exists():
             return
 

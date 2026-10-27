@@ -48,7 +48,7 @@ def worktree_of(inst: Installation, unit: StoredUnit) -> Path | None:
 
 
 def leases_of(inst: Installation) -> Leases:
-    return Leases(lease_dir(inst.state_dir))
+    return Leases(lease_dir(inst.local_dir))
 
 
 def changes_of(inst: Installation, unit: StoredUnit) -> tuple[str, ...]:
