@@ -125,6 +125,7 @@ from agent_build_kit.sandboxes.policy import (
     policy_entries,
 )
 from agent_build_kit.settings import settings
+from agent_build_kit.trackers.report import standing
 
 Status = Literal["ok", "info", "warn", "FAIL"]
 
@@ -992,6 +993,41 @@ def _ssh_keys(inst: Installation) -> list[Check]:
                     f"ssh key {name}", f"{key} does not exist", "fix `deploy.ssh_key` in abk.yaml"
                 )
             )
+    return checks
+
+
+def _trackers(inst: Installation) -> list[Check]:
+    """Each repo that names a tracker: its target and who the credential acts as. A repo with
+    no section adds nothing."""
+    checks = []
+    for name in inst.repos:
+        found = standing(name, ask=True)
+        title = f"tracker {name}"
+        if found is None:
+            continue
+        match found.state:
+            case "ok":
+                checks.append(_ok(title, found.text))
+            case "refused":
+                credential = (
+                    f"check the token in {found.token_env}"
+                    if found.token_env
+                    else "no token_env is set, so the forge's credential for that host is in use: "
+                    "check that login or token"
+                )
+                detail = f"the host did not accept the identity check: {found.text}"
+                checks.append(_warn(title, detail, credential))
+            case "unsupported":
+                checks.append(
+                    _warn(
+                        title,
+                        found.text,
+                        f"the installed kit does not implement tracker kind {found.kind!r}: "
+                        f"upgrade the kit, or set `kind: none` in repos.{name}.tracker",
+                    )
+                )
+            case "invalid":
+                checks.append(_fail(title, found.text, f"fix repos.{name}.tracker in abk.yaml"))
     return checks
 
 
@@ -2134,6 +2170,7 @@ def run_doctor(
         checks += _labelled_accounts(inst, run)
     checks += _notifications(inst, run, which)
     checks += _ssh_keys(inst)
+    checks += _trackers(inst)
     checks += _verify_env(inst, run)
     checks += _public_content(inst)
     checks += _machine_keys(inst)
