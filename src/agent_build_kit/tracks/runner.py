@@ -120,6 +120,7 @@ PLACEHOLDERS = frozenset(
         "__WORKSPACE_REPOS__",
         "__PLANNING_DIR__",
         "__STATE_DIR__",
+        "__REPORTS_DIR__",
         "__PROMPTS_DIR__",
         "__MAX_ISSUES__",
         "__PROPOSED_CHANGE__",
@@ -303,8 +304,13 @@ def raw_output_dir(inst: Installation) -> Path:
     return inst.root / inst.config.tracks.raw_output_dir
 
 
+def relative_to_root(inst: Installation, path: Path) -> str:
+    """`path` as a POSIX path relative to the planning root, which it must be inside."""
+    return path.relative_to(inst.root).as_posix()
+
+
 def run_log(inst: Installation, project: Project, track: str) -> Path:
-    return inst.state_dir / f"{RUN_ID}-{project.name}-{track}.md"
+    return inst.reports_dir / f"{RUN_ID}-{project.name}-{track}.md"
 
 
 # --- prompts ---------------------------------------------------------------------
@@ -323,7 +329,7 @@ def resolve_focus(inst: Installation, project: Project, focus: str | None) -> st
     if not focus:
         return default
 
-    state_dir = inst.state_dir
+    state_dir = inst.reports_dir
     if focus in TRACKS:
         matches = sorted(state_dir.glob(f"*-{project.name}-{focus}.md"))
         if not matches:
@@ -382,7 +388,8 @@ def placeholders(
         "__PROJECT_CONSUMES__": ", ".join(project.consumes) or "nothing",
         "__WORKSPACE_REPOS__": workspace_repos(inst),
         "__PLANNING_DIR__": str(inst.root),
-        "__STATE_DIR__": str(inst.state_dir),
+        "__STATE_DIR__": str(inst.reports_dir),
+        "__REPORTS_DIR__": str(inst.reports_dir),
         "__PROMPTS_DIR__": str(prompts_dir(inst)),
         "__MAX_ISSUES__": str(inst.config.tracks.propose_max_issues),
         "__PROPOSED_CHANGE__": proposed_change(project),
@@ -422,7 +429,7 @@ class PlanningHead(Frozen):
 
 def _dirty_notes(inst: Installation) -> dict[str, str]:
     """The state Markdown that is modified or untracked now, with its content hash."""
-    notes = f":(glob){inst.state_dir.relative_to(inst.root).as_posix()}/**/*.md"
+    notes = f":(glob){relative_to_root(inst, inst.reports_dir)}/**/*.md"
     listed = _git(["ls-files", "-m", "-o", "--exclude-standard", "--", notes], inst.root)
     hashes = {path: _git(["hash-object", "--", path], inst.root) for path in listed.stdout.split()}
     return {path: out.stdout.strip() for path, out in hashes.items() if out.returncode == 0}
@@ -447,7 +454,7 @@ def record_planning(inst: Installation) -> PlanningHead | None:
     if mode == PlanningMode.WORKING_COPY:
         log(
             f"the planning root is a working copy — this phase's run logs under "
-            f"{inst.state_dir} are not committed or pushed, they are left for you"
+            f"{inst.reports_dir} are not committed or pushed, they are left for you"
         )
         return None
     _keep_raw_output_untracked(inst)
@@ -537,7 +544,7 @@ def _vet_proposed_change(inst: Installation, project: Project) -> list[str]:
             log(f"[{project.name}] {change} is outside the planning repo; not committing it")
             return []
 
-    kept = inst.state_dir / "rejected-changes" / change
+    kept = inst.reports_dir / "rejected-changes" / change
     kept.parent.mkdir(parents=True, exist_ok=True)
     if kept.exists():
         shutil.rmtree(kept)
@@ -547,7 +554,7 @@ def _vet_proposed_change(inst: Installation, project: Project) -> list[str]:
         f"# Rejected change: {change}\n\n"
         f"The propose phase for `{project.name}` wrote this change, and it did not "
         f"validate, so it was not committed and not offered to the pipeline. Its files "
-        f"are kept in `{kept.relative_to(inst.root).as_posix()}`.\n\n"
+        f"are kept in `{relative_to_root(inst, kept)}`.\n\n"
         + "\n".join(f"- {error}" for error in errors)
         + "\n"
     )
@@ -573,7 +580,7 @@ def commit_bookkeeping(
     an earlier one, awaiting its pull request): those left as they were are not
     this phase's. A rejected push is retried once after a fast-forward; a second
     rejection is reported and the commit stays."""
-    notes = f":(glob){inst.state_dir.relative_to(inst.root).as_posix()}/**/*.md"
+    notes = f":(glob){relative_to_root(inst, inst.reports_dir)}/**/*.md"
     now = _dirty_notes(inst) if already else {}
     untouched = [f":(exclude){path}" for path, hashed in already.items() if now.get(path) == hashed]
     paths = [notes, *changes, *untouched]
@@ -724,7 +731,7 @@ def claude_phase(
             denied_tools=denied_tools_value(tracks.disallowed_tools),
             permission_mode="edit",
             planning_repo=inst.root,
-            planning_state_dir=inst.state_dir,
+            planning_state_dir=inst.reports_dir,
             planning_change_dir=change_dir,
             # No track runs in a worktree: discovery reads the checkout, and propose writes a
             # change in the planning repo.
@@ -952,7 +959,7 @@ def run_track(
             break
     log(
         f"{phase} run complete for {[p.name for p in projects]} — check "
-        f"{inst.state_dir}/{RUN_ID}-<project>-*.md were written and pushed."
+        f"{inst.reports_dir}/{RUN_ID}-<project>-*.md were written and pushed."
         + (f" Nonzero exit for: {failed}" if failed else "")
     )
     return 1 if failed else 0

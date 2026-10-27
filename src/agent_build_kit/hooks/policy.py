@@ -185,7 +185,15 @@ def _check_file_write(
         and path.is_relative_to(planning_state_dir.resolve())
     ):
         return None
-    if path.is_relative_to(Path(tempfile.gettempdir()).resolve()) and _checkout_of(path) is None:
+    scratch = Path(tempfile.gettempdir()).resolve()
+    # Scratch is the temp directory's own; a folder beside the run's checkout (where a
+    # state directory may sit) is not.
+    beside = worktree.parent if worktree.parent != scratch else None
+    if (
+        path.is_relative_to(scratch)
+        and (beside is None or not path.is_relative_to(beside))
+        and _checkout_of(path) is None
+    ):
         return None
     return _deny(
         f"{target} is outside this unit's worktree ({worktree}). Change only files in the "
@@ -304,7 +312,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--specs", type=Path, default=None)
     parser.add_argument("--branch-prefix", default=None)
     parser.add_argument("--planning-repo", type=Path, default=None)
-    parser.add_argument("--planning-state-dir", type=Path, default=None)
+    # `--planning-state-dir` is the flag's earlier name.
+    parser.add_argument(
+        "--planning-reports-dir",
+        "--planning-state-dir",
+        dest="planning_state_dir",
+        type=Path,
+        default=None,
+    )
     parser.add_argument("--planning-change-dir", type=Path, default=None)
     parser.add_argument("--planning-paths", default="")
     parser.add_argument("--fenced-file", type=Path, action="append", default=[])
@@ -400,7 +415,7 @@ def hook_settings(
     if planning_repo is not None:
         command += f" --planning-repo {shlex.quote(str(planning_repo))}"
     if planning_state_dir is not None:
-        command += f" --planning-state-dir {shlex.quote(str(planning_state_dir))}"
+        command += f" --planning-reports-dir {shlex.quote(str(planning_state_dir))}"
     if planning_change_dir is not None:
         command += f" --planning-change-dir {shlex.quote(str(planning_change_dir))}"
     if planning_paths:

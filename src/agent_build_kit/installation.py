@@ -123,7 +123,18 @@ class Installation:
 
     @property
     def reports_dir(self) -> Path:
-        raise NotImplementedError
+        """Where the tracks keep their run logs and tracker: always inside the planning root."""
+        configured = self.config.planning.reports_dir
+        if configured is not None:
+            path = self._under_root(configured)
+            if not self._inside_root(path):
+                raise ConfigError(
+                    f"planning.reports_dir {configured} is outside the planning repository "
+                    f"{self.root}; the reports are committed there"
+                )
+            return path
+        state = self.state_dir
+        return state if self._inside_root(state) else self.root / "docs" / "reports"
 
     def _page(self, configured: str | None, name: str) -> Path:
         if configured is not None:

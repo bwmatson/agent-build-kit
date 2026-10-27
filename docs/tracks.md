@@ -100,13 +100,18 @@ tracks are confined the choice is made again; see [sandbox-design.md](designs/sa
 
 ## Run logs and the tracker
 
-Every phase writes a run log at `<state_dir>/<run id>-<repo>-<track>.md`
-(`runs/20260101-064700-app-health.md`, say), where the run id is the process
+Every phase writes a run log at `<reports_dir>/<run id>-<repo>-<track>.md`
+(`docs/reports/20260101-064700-app-health.md`, say), where the run id is the process
 start time. The path is injected into the prompt, not left for the agent to
 invent: health's status readback depends on it being predictable.
 
+`<reports_dir>` is `planning.reports_dir`, relative to the planning root and never outside it.
+Unset, it is the state directory when that is inside the repository, else `docs/reports`, so
+the reports stay committed when the state lives outside the repository. Prompts name it
+`__REPORTS_DIR__`; the earlier `__STATE_DIR__` is still filled, with the same path.
+
 The prompts share a shape. Each phase first refreshes
-`<state_dir>/tracked-issues.md` — the workspace-wide list of findings with a
+`<reports_dir>/tracked-issues.md` — the workspace-wide list of findings with a
 change in flight ("Pending resolution") or declined ("Rejected"). An entry
 names a change, and is checked against where that change has got to: archived
 under `changes/archive/` means it merged, still under `changes/` means it is
@@ -166,7 +171,7 @@ The runner — not the agent — then settles the planning repo:
    edits, pushed to the default branch. Not a pull request: the review the
    change gets is the pipeline's, on every unit it becomes.
 3. **Or set aside.** An invalid change is moved to
-   `<state_dir>/rejected-changes/<change>/` — out of `changes/`, which the tick
+   `<reports_dir>/rejected-changes/<change>/` — out of `changes/`, which the tick
    reads, but not thrown away — and a note,
    `<run id>-<repo>-propose-rejected.md`, listing what failed is committed in
    its place, so the tracker does not claim a change is in flight that never
@@ -191,7 +196,7 @@ error:
 | `__PROJECT__`, `__PROJECT_DIR__`, `__PROJECT_REPO__`, `__PROJECT_REPO_URL__` | the repo's `abk.yaml` key, checkout path, identity, web URL |
 | `__PROJECT_DESCRIPTION__`, `__PROJECT_CONSUMES__` | the repo's `description` and `consumes` |
 | `__WORKSPACE_REPOS__` | a bullet list of every repo with its description |
-| `__PLANNING_DIR__`, `__STATE_DIR__`, `__PROMPTS_DIR__` | the planning root, the state directory, the prompts directory in use |
+| `__PLANNING_DIR__`, `__REPORTS_DIR__`, `__PROMPTS_DIR__` | the planning root, the reports directory, the prompts directory in use |
 | `__MAX_ISSUES__` | `tracks.propose_max_issues` |
 | `__PROPOSED_CHANGE__` | the change name this run writes (`propose` only) |
 | `__FOCUS_HINT__` | the sentence `--focus` resolves to (`propose` only) |

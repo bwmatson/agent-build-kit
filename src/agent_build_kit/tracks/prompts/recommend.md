@@ -33,7 +33,7 @@ repo's internals are not.
 
 ## 1. Refresh the tracked-issues list
 
-Read `__STATE_DIR__/tracked-issues.md` before anything else (create it
+Read `__REPORTS_DIR__/tracked-issues.md` before anything else (create it
 with empty "Pending resolution" and "Rejected" sections if it doesn't
 exist yet), same as `health.md`/`improve.md` do — for each "Pending
 resolution" entry (every project's), check where its change has got to: a
@@ -46,7 +46,7 @@ instead: `gh pr view <url> --json state -q .state`, `MERGED` → remove, `CLOSED
 
 ## 2. Check whether last run's open candidates have already been resolved
 
-Read the immediately-prior `__STATE_DIR__/*-__PROJECT__-recommend.md` run
+Read the immediately-prior `__REPORTS_DIR__/*-__PROJECT__-recommend.md` run
 (if any — skip this step on the first-ever run for this project) for
 candidates still marked `[not-yet-actioned]` under "Actionable
 candidates" (recommendations in the main body aren't tracked this way —
@@ -78,7 +78,7 @@ Use the `Agent` tool to run these 5 playbooks from
 - `cost-performance-opportunities`
 
 Tell each subagent which project this is (`__PROJECT__`, at
-`__PROJECT_DIR__`) and where the run logs live (`__STATE_DIR__`). Each
+`__PROJECT_DIR__`) and where the run logs live (`__REPORTS_DIR__`). Each
 one's own playbook explains what "good evidence" looks like for that
 category — the common thread across all four is: concrete evidence over
 general opinions, and be honest when something is a real recommendation

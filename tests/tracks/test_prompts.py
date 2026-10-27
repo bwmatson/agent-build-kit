@@ -49,7 +49,7 @@ def test_top_level_prompts_use_only_documented_placeholders(path: Path) -> None:
     used = set(PLACEHOLDER.findall(path.read_text()))
 
     assert used <= runner.PLACEHOLDERS, used - runner.PLACEHOLDERS
-    assert {"__PROJECT__", "__RUN_LOG__", "__STATE_DIR__", "__PLANNING_DIR__"} <= used
+    assert {"__PROJECT__", "__RUN_LOG__", "__REPORTS_DIR__", "__PLANNING_DIR__"} <= used
 
 
 @pytest.mark.parametrize("path", TOP_LEVEL, ids=lambda p: p.stem)
