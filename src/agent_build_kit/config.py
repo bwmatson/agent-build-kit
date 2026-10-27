@@ -538,38 +538,32 @@ def alias_usage_limits(data: dict[str, Any]) -> dict[str, Any]:
     return renamed
 
 
-def _usage_limits_places(runtimes: dict[str, Any]) -> Iterator[tuple[str, dict[str, Any]]]:
-    """Each runtime and account mapping in a raw `runtimes` block, with its dotted key path."""
-    for name, entry in runtimes.items():
+def _usage_limits_paths(document: dict[str, Any]) -> Iterator[tuple[str, ...]]:
+    """The key path of each mapping in a raw document that may hold usage windows: every runtime
+    and every account of a runtime. The one place that says where the key may be."""
+    runtimes = document.get("runtimes")
+    for name, entry in (runtimes if isinstance(runtimes, dict) else {}).items():
         if not isinstance(entry, dict):
             continue
-        yield f"runtimes.{name}", entry
+        yield ("runtimes", name)
         accounts = entry.get("accounts")
         for label, account in (accounts if isinstance(accounts, dict) else {}).items():
             if isinstance(account, dict):
-                yield f"runtimes.{name}.accounts.{label}", account
+                yield ("runtimes", name, "accounts", label)
+
+
+def _updated_at(node: dict[str, Any], path: tuple[str, ...]) -> dict[str, Any]:
+    """A copy of `node` with the mapping at `path` passed through `alias_usage_limits`."""
+    if not path:
+        return alias_usage_limits(node)
+    return {**node, path[0]: _updated_at(node[path[0]], path[1:])}
 
 
 def _alias_runtimes_usage_limits(document: dict[str, Any]) -> dict[str, Any]:
     """`document` with `limits` renamed to `usage_limits` under each runtime and account."""
-    runtimes = document.get("runtimes")
-    if not isinstance(runtimes, dict):
-        return document
-    renamed: dict[str, Any] = {}
-    for name, entry in runtimes.items():
-        if isinstance(entry, dict):
-            entry = alias_usage_limits(entry)
-            accounts = entry.get("accounts")
-            if isinstance(accounts, dict):
-                entry = {
-                    **entry,
-                    "accounts": {
-                        label: alias_usage_limits(each) if isinstance(each, dict) else each
-                        for label, each in accounts.items()
-                    },
-                }
-        renamed[name] = entry
-    return {**document, "runtimes": renamed}
+    for path in _usage_limits_paths(document):
+        document = _updated_at(document, path)
+    return document
 
 
 class AccountConfig(Frozen):
@@ -1479,7 +1473,7 @@ def deprecation_notice(key: str) -> str:
             "`abk config --migrate` renames it"
         )
     if key.startswith("runtimes.") and key.endswith(f".{DEPRECATED_USAGE_LIMITS}"):
-        return f"{key} is renamed {USAGE_LIMITS}; abk config --migrate renames it"
+        return f"`{key}` is renamed `{USAGE_LIMITS}`; `abk config --migrate` renames it"
     return (
         f"`{key}` is deprecated for `global_limits`; "
         "`abk config --migrate` moves it to the new names"
@@ -2212,9 +2206,11 @@ def deprecations_of(*documents: dict[str, Any] | None) -> list[str]:
     if any(DEPRECATED_ROOT_KEY in raw for raw in raws):
         found.append(DEPRECATED_ROOT_KEY)
     for raw in raws:
-        runtimes = raw.get("runtimes")
-        for place, mapping in _usage_limits_places(runtimes if isinstance(runtimes, dict) else {}):
-            key = f"{place}.{DEPRECATED_USAGE_LIMITS}"
+        for path in _usage_limits_paths(raw):
+            mapping = raw
+            for step in path:
+                mapping = mapping[step]
+            key = ".".join((*path, DEPRECATED_USAGE_LIMITS))
             if DEPRECATED_USAGE_LIMITS in mapping and key not in found:
                 found.append(key)
     builders = [raw.get("builders") for raw in raws]

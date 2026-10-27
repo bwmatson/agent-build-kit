@@ -93,7 +93,7 @@ def test_the_default_accounts_thresholds_are_the_runtime_limits_and_an_unresolve
     host.answers = [payload(weekly=60.0), payload(weekly=60.0), payload(weekly=60.0)]
     unresolved = claude_account.resolve_in(
         WorkspaceConfig.model_validate(
-            {"runtimes": {"claude_code": {"limits": pause_at(40), "accounts": {"kit": {}}}}}
+            {"runtimes": {"claude_code": {"usage_limits": pause_at(40), "accounts": {"kit": {}}}}}
         ),
         "kit",
     )

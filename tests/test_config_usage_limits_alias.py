@@ -11,10 +11,12 @@ from agent_build_kit import claude_account, config
 from agent_build_kit.config import AccountConfig, RuntimeConfig
 from agent_build_kit.pipeline import usage_guard
 
-NOTICE = "runtimes.claude_code.limits is renamed usage_limits; abk config --migrate renames it"
+NOTICE = (
+    "`runtimes.claude_code.limits` is renamed `usage_limits`; `abk config --migrate` renames it"
+)
 ACCOUNT_NOTICE = (
-    "runtimes.claude_code.accounts.kit.limits is renamed usage_limits; "
-    "abk config --migrate renames it"
+    "`runtimes.claude_code.accounts.kit.limits` is renamed `usage_limits`; "
+    "`abk config --migrate` renames it"
 )
 PAUSE = {"session": {"usage_pause_pct": 62}}
 

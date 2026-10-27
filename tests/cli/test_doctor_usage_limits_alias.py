@@ -24,6 +24,6 @@ def test_the_old_key_is_a_warning_with_the_rename_notice_and_no_failure(tmp_path
 
     warned = [c for c in checks if c.status == "warn" and "usage_limits" in c.detail]
     assert len(warned) == 1
-    assert "runtimes.claude_code.limits is renamed usage_limits" in warned[0].detail
+    assert "`runtimes.claude_code.limits` is renamed `usage_limits`" in warned[0].detail
     assert "abk config --migrate" in warned[0].detail
     assert [c for c in checks if c.name == "config"][0].status == "ok"

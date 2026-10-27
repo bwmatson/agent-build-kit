@@ -31,7 +31,9 @@ def installation(tmp_path: Path) -> Installation:
     return make_installation(
         tmp_path / "planning",
         planning={"state_dir": "."},
-        runtimes={"claude_code": {"limits": limits, "accounts": {"kit": {"config_dir": ACCOUNT}}}},
+        runtimes={
+            "claude_code": {"usage_limits": limits, "accounts": {"kit": {"config_dir": ACCOUNT}}}
+        },
     )
 
 

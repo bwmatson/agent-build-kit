@@ -244,7 +244,8 @@ class Host:
 def configure(**limits: object) -> None:
     """The Claude limits an installation sets, over the defaults."""
     config_module.activate(
-        WorkspaceConfig.model_validate({"runtimes": {"claude_code": {"limits": limits}}}), None
+        WorkspaceConfig.model_validate({"runtimes": {"claude_code": {"usage_limits": limits}}}),
+        None,
     )
 
 

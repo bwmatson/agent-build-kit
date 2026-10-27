@@ -18,9 +18,9 @@ WINDOWS = ("session", "weekly")
 def write(root: Path, name: str, limits: dict[str, Any], *, account: bool = False) -> None:
     """Write `root/name` with `limits` under the runtime, or under an account's own block."""
     if account:
-        runtime: dict[str, Any] = {"accounts": {"main": {"limits": limits}}}
+        runtime: dict[str, Any] = {"accounts": {"main": {"usage_limits": limits}}}
     else:
-        runtime = {"limits": limits}
+        runtime = {"usage_limits": limits}
     document = {"version": 1, "runtimes": {"claude_code": runtime}}
     (root / name).write_text(yaml.safe_dump(document))
 

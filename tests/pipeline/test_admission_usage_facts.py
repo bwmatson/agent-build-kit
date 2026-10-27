@@ -36,7 +36,7 @@ def workspace(
         tmp_path / "planning",
         planning={"state_dir": ".", "worktree_root": str(tmp_path / "trees")},
         repos={"app": {"path": str(tmp_path / "app"), "slug": "example/app"}},
-        runtimes={"claude_code": {"limits": {"session": session, "weekly": weekly}}},
+        runtimes={"claude_code": {"usage_limits": {"session": session, "weekly": weekly}}},
     )
     inst.state_dir.mkdir(parents=True, exist_ok=True)
     host.keep_in(inst.state_dir)

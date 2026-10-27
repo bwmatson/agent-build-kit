@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from typing import Any, Literal
 
+from agent_build_kit.config import DEPRECATED_USAGE_LIMITS, USAGE_LIMITS
 from agent_build_kit.model import Frozen
 from agent_build_kit.scrub_terms import ROOT_HOME, TILDE_HOME
 
@@ -87,7 +88,7 @@ def _classify(
         if last in ("command", "policy_fix"):
             found = _absolute_program(value)
             return ("starts with an absolute program path", "machine") if found else None
-        if last in ("limits", "usage_limits"):
+        if last in (DEPRECATED_USAGE_LIMITS, USAGE_LIMITS):
             return ("a plan's thresholds differ per person", "default") if value else None
     in_tests = (len(path) == 2 and head == "tests") or (
         len(path) == 4 and head == "repos" and path[2] == "tests"
