@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- The files tied to this machine's processes (the checkpointer database, the branch, repo and
+  change locks, the leases, the e2e-test lock and the environment lock) now live in a local
+  directory, `planning.local_dir` or `ABK_LOCAL_DIR`, by default `<planning home>/local`, so
+  the state directory can sit on a network drive. An existing checkpointer database is copied
+  once; `abk doctor` warns about the old files left behind and fails a local directory on a
+  network filesystem.
+
 - `abk external hand-off`, `list`, `done` and `release` hand a change, or some of its groups,
   to someone who builds it by hand. The kit never starts held work, units that need it wait
   for its merge, and `done` checks a merged pull request or a commit on the default branch

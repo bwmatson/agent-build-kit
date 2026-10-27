@@ -61,7 +61,7 @@ def _classify(
         return ("is the scheduling this machine runs at", "machine") if value else None
     if path == ("planning", "worktree_root"):
         return ("is a directory of this machine", "machine") if value is not None else None
-    if path == ("planning", "home"):
+    if path in (("planning", "home"), ("planning", "local_dir")):
         return ("is a directory of this machine", "machine") if value is not None else None
     if path == ("planning", "state_dir") and value is not None:
         text = str(value)

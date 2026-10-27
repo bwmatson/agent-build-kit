@@ -283,7 +283,11 @@ def test_a_failure_on_one_card_does_not_stop_the_others(clock: FakeClock, tmp_pa
 def inst(tmp_path: Path) -> Installation:
     return make_installation(
         tmp_path,
-        planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
+        planning={
+            "state_dir": ".",
+            "local_dir": str(tmp_path),
+            "worktree_root": str(tmp_path.parent / "trees"),
+        },
         notifications={
             "provider": "command",
             "delay_minutes": 0,
@@ -333,7 +337,12 @@ def test_a_round_with_no_notifications_section_runs_nothing_and_writes_nothing(
     tmp_path: Path, host: list[list[str]]
 ) -> None:
     inst = make_installation(
-        tmp_path, planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")}
+        tmp_path,
+        planning={
+            "state_dir": ".",
+            "local_dir": str(tmp_path),
+            "worktree_root": str(tmp_path.parent / "trees"),
+        },
     )
     store = UnitStore(tmp_path / "units.json")
     store.upsert([in_review()])

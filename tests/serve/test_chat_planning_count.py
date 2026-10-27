@@ -34,7 +34,7 @@ def held_by_a_free_session(inst: Installation) -> tuple[Chat, Leases]:
     git(inst.root, "add", "-A")  # the store is tracked: recording the unit is not a change
     git(inst.root, "commit", "-qm", "units")
     (unit_worktree(inst, UNIT) / "scratch.txt").write_text("mine\n")
-    leases = Leases(lease_dir(inst.state_dir))
+    leases = Leases(lease_dir(inst.local_dir))
     assert leases.take(UNIT.id, "tab:t1", checkouts=("worktree",), session="free", head="abc")
     return Chat(inst, units=lambda: [UNIT], recorded_session=lambda unit_id: None), leases
 

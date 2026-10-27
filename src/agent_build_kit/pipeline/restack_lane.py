@@ -145,7 +145,7 @@ def clear_answered_feedback(store: UnitStore, unit: StoredUnit, head: str) -> No
 
 def moved_base_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
     """The ids of the units owed a moved-base run, read from the repositories' branches."""
-    leases = Leases(lease_dir(inst.state_dir))
+    leases = Leases(lease_dir(inst.local_dir))
     heads: dict[str, str] = {}
 
     def head_of(unit: StoredUnit) -> str:
@@ -170,7 +170,7 @@ def moved_base_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
             units,
             has_commits=has_commits,
             head=head_of,
-            held=lambda unit: branch_held(_branch_of(unit), root=inst.state_dir / "locks"),
+            held=lambda unit: branch_held(_branch_of(unit), root=inst.locks_dir),
             leased=lambda unit: leases.holder(unit.id) is not None,
         )
     }
@@ -266,7 +266,7 @@ def lane_runs_owed(inst: Installation, units: list[StoredUnit]) -> set[str]:
 def owed_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
     """The ids of the units owed a restack, read from the repositories' branches, of those
     whose run the lane was making when it was interrupted, and of those owed a moved-base run."""
-    leases = Leases(lease_dir(inst.state_dir))
+    leases = Leases(lease_dir(inst.local_dir))
     checkouts = inst.checkouts
 
     def holds_base(unit: StoredUnit) -> bool:
@@ -278,7 +278,7 @@ def owed_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
         return is_ancestor(repo, base, branch)
 
     def held(unit: StoredUnit) -> bool:
-        return branch_held(_branch_of(unit), root=inst.state_dir / "locks")
+        return branch_held(_branch_of(unit), root=inst.locks_dir)
 
     def leased(unit: StoredUnit) -> bool:
         return leases.holder(unit.id) is not None

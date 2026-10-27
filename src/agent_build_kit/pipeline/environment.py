@@ -346,7 +346,7 @@ def ensure(inst: Installation, *, say: Callable[[str], None]) -> bool:
     environment = inst.config.environment
     if environment is None:
         return True
-    with file_lock(inst.state_dir / "environment.lock"):
+    with file_lock(inst.environment_lock):
         previous = read_state(inst.state_dir) or EnvironmentState()
         if pending(environment, inst.root):
             say("environment pending: its inputs do not exist yet, nothing to sync or check")

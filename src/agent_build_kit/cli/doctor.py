@@ -75,7 +75,7 @@ from agent_build_kit.init.scaffold import (
 )
 from agent_build_kit.installation import Installation, _resolve, load_config
 from agent_build_kit.machine_files import CONFIG_LOCAL_FILES, MACHINE_FILES, holds, present
-from agent_build_kit.model import Frozen, TestTier
+from agent_build_kit.model import E2E_LOCK_FILE, Frozen, TestTier
 from agent_build_kit.notify.windows import (
     BURNTTOAST_VERSION,
     INSTALL_COMMAND,
@@ -88,6 +88,7 @@ from agent_build_kit.pipeline.e2e_holds import HELD_FILE, current_holds, hold_te
 from agent_build_kit.pipeline.environment import matched_inputs
 from agent_build_kit.pipeline.gate_holds import gate_standing, split_gates
 from agent_build_kit.pipeline.install_record import STAGING
+from agent_build_kit.pipeline.mounts import Mount
 from agent_build_kit.pipeline.original_copy import COPY_PATTERN
 from agent_build_kit.pipeline.pending import describe, pending_projects
 from agent_build_kit.pipeline.planning_repo import (
@@ -508,6 +509,44 @@ def _pipeline_worktree(inst: Installation) -> list[Check]:
             "abk install-timers",
         )
     ]
+
+
+# What the state directory held before the machine-local files moved to the local directory.
+_LOCAL_LEFTOVERS = ("locks", "leases", E2E_LOCK_FILE, "environment.lock", "unit-graphs.sqlite")
+
+
+def _assumed_local(path: Path) -> Mount:
+    return Mount(fstype="unknown", source="", options="", local=True)
+
+
+def _local_dir(inst: Installation, mount_of: Callable[[Path], Mount]) -> list[Check]:
+    """The local directory is on a local filesystem, and no machine-local file is left behind
+    in the state directory."""
+    local = inst.local_dir
+    mount = mount_of(local)
+    if not mount.local:
+        return [
+            _fail(
+                "local dir",
+                f"{local} is on {mount.fstype}, which is not a local filesystem: the checkpointer "
+                "database and the host locks are unsafe there",
+                "set planning.local_dir or ABK_LOCAL_DIR to a directory on a local disk",
+            )
+        ]
+    checks = [_ok("local dir", f"{local} ({mount.fstype})")]
+    if local.resolve() == inst.state_dir.resolve():
+        return checks
+    for name in _LOCAL_LEFTOVERS:
+        old = inst.state_dir / name
+        if old.exists():
+            checks.append(
+                _warn(
+                    "local dir",
+                    f"{old} is left in the state directory and no longer used",
+                    f"delete {old}",
+                )
+            )
+    return checks
 
 
 def _machine_files(inst: Installation) -> list[Check]:
@@ -1984,6 +2023,7 @@ def run_doctor(
     which: Which | None = None,
     units: Path | None = None,
     transport: httpx.BaseTransport | None = None,
+    mount_of: Callable[[Path], Mount] | None = None,
 ) -> list[Check]:
     run = run or subprocess.run
     which = which or shutil.which
@@ -2042,6 +2082,7 @@ def run_doctor(
     checks += _verify_env(inst, run)
     checks += _public_content(inst)
     checks += _machine_keys(inst)
+    checks += _local_dir(inst, mount_of or _assumed_local)
     checks += _weak_secrets()
     checks += _environment(inst, run)
     checks.append(_rules_drift(inst))

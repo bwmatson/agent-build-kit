@@ -85,7 +85,8 @@ The recorder, as a file ruff and pyrefly accept (it ran clean in the experiment)
 
 ```python
 REAL_TIMER = threading.Timer
-FIRE_FIRST = os.environ.get("CHILD_FIRE_FIRST_TIMER") == "1"
+FIRE_FIRST_VARIABLE = "CHILD_FIRE_FIRST_TIMER"
+FIRE_FIRST = os.environ.get(FIRE_FIRST_VARIABLE) == "1"
 
 @pytest.fixture(autouse=True)
 def armed(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[float]]:

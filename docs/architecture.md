@@ -343,7 +343,7 @@ units with an open pull request, then to those resuming a build, then to new
 ones. The first two go in planned order; new ones go by effective priority, then handoff
 units before the others of equal priority, then by effective age (the earliest planned position among the unit and every unit waiting on it, in
 any repo), then by planned position. Ready units build in parallel threads, each
-under a branch lock (`runs/locks/`) that fails fast: two runs on one branch is
+under a branch lock (`locks/` in the local directory) that fails fast: two runs on one branch is
 a scheduling bug, not a queue.
 
 A pass keeps scheduling until it runs out of ready work. Each build that
@@ -638,7 +638,7 @@ release could move. The steps:
    stack of its own, that repo's stack from a detached worktree at its
    `origin/<default_branch>` (the local trunk for a repo with no `origin`), never the user's own checkout. Without a dev
    stack the profile's e2e-test commands run against the live stack. Either way
-   under the one `runs/e2e.lock` queue (the file names its holder, and `abk status` shows the
+   under the one `e2e.lock` queue (in the local directory) (the file names its holder, and `abk status` shows the
    holder and its age), and the result is recorded with the
    commit, the command, counts and the stack-versions command's output
    (`verify.stack_versions_command`, else the repo's `infra:` profile's; see
@@ -881,7 +881,7 @@ branch lock. Its handler then changes nothing: the event is **deferred**, and
 the poller keeps the change to report again on a later poll — in practice the
 one after that build finishes. The handlers' own writes to a repo's `.git`
 (deleting a branch, removing a worktree, a restack's rebase and push) take the
-repo's turn (`runs/locks/repo-<repo>.lock`), as a build's worktree add and push
+repo's turn (`locks/repo-<repo>.lock` in the local directory), as a build's worktree add and push
 do, since git's own locks there fail rather than wait. A restack takes the turn per phase: for the rebase up to its stop, and again for
 its continuation or abort, the branch update and the rerere cache write; never
 while the conflict resolver edits files, so other units' worktree adds and pushes
@@ -1706,7 +1706,7 @@ outside the repository and not committed; for a separate planning repo it is `ru
 | `decisions.jsonl` | the decision log: `{at, unit, reason, waits_on, tick}`, appended only when a waiting unit's reason (`WaitReason`) or what it waits on changes, with a `none` record when the wait ends. Read from its tail when the pipeline starts; trimmed to `retention.decision_log_mb`, newest lines kept. Gitignored. | why a unit waited, and for how long. |
 | `usage-cache.json.lock` | the lock one process holds while it refreshes the reading. | never needed. |
 | `usage-cache.json` | the live usage reading (kept `usage_cache_minutes` to `usage_cache_max_minutes`) and any rate-limit cool-down. | one endpoint call. |
-| `e2e.lock`, `locks/` | the e2e-test queue lock; branch, repo and store locks. | nothing; kernel-released. |
+| `e2e.lock`, `locks/`, `leases/`, `environment.lock`, `unit-graphs.sqlite` (local directory, `planning.local_dir`) | the e2e-test queue lock; branch, repo and change locks; chat leases; the environment sync lock; the checkpointer database. They are tied to this machine's processes, so none is in the state directory. | nothing; kernel-released. |
 | `unit-logs/<change>-<nn>-<YYYYMMDD-HHMMSS>-<step>.log` | one file per unit run: a header (unit, change, step, model, base, start), that unit's lines, then the outcome. `<nn>` is the unit's number padded to two digits, so a change's units sort in order and a unit's runs sort by time. The last three runs of a unit are kept; a log older than `retention.unit_log_days` is removed once the unit has a summary in the usage ledger (a unit without one keeps it); archiving a change removes its files. The file name and `started:` are UTC; each entry starts with the tick's own local-time `[HH:MM:SS]`, the same stamp it prints (the closing `outcome:` line has none: the line above it, the run's last, does). Agent replies and tool-call commands are written whole, line breaks kept; each further line of an entry starts with four spaces (`run_log.CONTINUATION`) and has no stamp, so every line that starts at the margin is a new entry. The journal keeps its one clipped line per step. The unit's `run_log` names its latest. Gitignored. | a unit's transcript; the tick's own output is unchanged. |
 | `e2e-output/<change>-<nn>-<YYYYMMDD-HHMMSS>-e2e.log` | the whole output of each command of a unit's e2e-test run, passing ones too, appended after each command so a run that dies keeps what it had, and redacted as a whole before it is written (a failing redaction leaves the withheld notice). The result's `output_file` and its `Full output:` line name it, the unit's run log carries the same line and `abk status` shows it for a failed unit whose last result was an e2e-test failure. The last three files of a unit are kept (`run_log.RUNS_KEPT`); archiving a change removes its files. Local only. | the posted result keeps only the last 4000 characters of the output. |
 | `transcripts/<change>-<nn>-<YYYYMMDD-HHMMSS>-<node>-<round>.jsonl` | one file per agent run of a unit (implement, rework, review, checks fixes) or chat turn, named like a run log plus the node and review round that made the call (round 0 outside a round). One JSON event per line, appended as the agent streams, the same shape for Claude Code and ACP: `kind` (`text`, `reasoning`, `tool_call`, `tool_result`, `plan`, `usage`, `permission`, `stop`), `at`, `unit`, `node`, `round`, `session`, `source` (`build` or `chat`), `text`, `tool`, `call` (a tool call's id, repeated by its result), `input`, `usage` and `truncated`. A tool result longer than `global_limits.transcript_result_chars` is cut there, ends with `… [cut: the result was N characters long]`, and carries the original length in `truncated`. A text or reasoning event is a whole message or thought, not a streamed fragment, and a user-side event of the Claude stream contributes only tool results. The calls of one run (a unit thread's pass, or one chat turn) share the run's stamp, and the last `global_limits.transcript_runs_kept` such runs of a unit are kept, whole; archiving a change removes its files. Local only, never committed or sent anywhere. | the agent tab's replay of a unit; the run log is unchanged. |

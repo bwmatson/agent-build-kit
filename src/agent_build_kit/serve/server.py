@@ -27,7 +27,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from pydantic import Field, model_validator
 
 from agent_build_kit.cli.pipeline import parked_units
-from agent_build_kit.graph.checkpointer import ALLOWED_MSGPACK_MODULES, unit_graphs_path
+from agent_build_kit.graph.checkpointer import ALLOWED_MSGPACK_MODULES, carried_unit_graphs
 from agent_build_kit.graph.state import AgentSession, SessionRole, UnitRun
 from agent_build_kit.graph.unit import thread_position
 from agent_build_kit.installation import Installation
@@ -123,7 +123,7 @@ async def _read_only_checkpointer(path: Path) -> AsyncIterator[AsyncSqliteSaver]
 
 def _unit_run(installation: Installation, unit_id: str) -> UnitRun | None:
     """The unit's run state as its thread last saved it, None when it has none to read."""
-    path = unit_graphs_path(installation.state_dir)
+    path = carried_unit_graphs(installation)
     if not path.exists():
         return None
 
@@ -217,7 +217,7 @@ def _run_files(installation: Installation, change: str, number: str) -> list[Pat
 
 def _recorded_session(installation: Installation, unit_id: str) -> AgentSession | None:
     """The unit's latest recorded agent session, from its checkpoint thread."""
-    path = unit_graphs_path(installation.state_dir)
+    path = carried_unit_graphs(installation)
     if not path.exists():
         return None
 

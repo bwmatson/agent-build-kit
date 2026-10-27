@@ -47,6 +47,11 @@ planning:
                               # in-repo default: <planning home>/state, outside the repo
                               # (planning.home / ABK_PLANNING_HOME move it; the tracks'
                               # reports go to planning.reports_dir, in the repo)
+  local_dir: null             # absolute or ~-led (a relative path is refused); holds the
+                              # checkpointer database, locks and leases, which belong to this
+                              # machine's processes and must be on a local disk; default
+                              # <planning home>/local in-repo, the state directory for a
+                              # separate planning repo; ABK_LOCAL_DIR overrides it
   specs_dir: openspec
   graph_page: docs/unit_graph.md
   usage_page: docs/unit_cost.md   # cost summary from the usage ledger (`abk report`)

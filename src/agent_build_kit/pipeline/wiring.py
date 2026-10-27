@@ -4069,10 +4069,10 @@ def build_runner(
     # git's own locks there, which fail rather than wait — so those steps take
     # turns per repo. The resolver's edits do not: they, and everything else,
     # happen inside the unit's own worktree and need no turn-taking.
-    unit_repo_turn = partial(file_lock, root / "locks" / f"repo-{unit.repo}.lock")
+    unit_repo_turn = partial(file_lock, installation.locks_dir / f"repo-{unit.repo}.lock")
 
     def repo_turn_of(name: str) -> AbstractContextManager[object]:
-        return file_lock(root / "locks" / f"repo-{name}.lock")
+        return file_lock(installation.locks_dir / f"repo-{name}.lock")
 
     worktree = build_worktree(installation.checkouts, root=installation.worktree_root, repo=repo)
     push = build_push(store)
@@ -4111,7 +4111,7 @@ def build_runner(
     return UnitRunner(
         account=account,
         store=store,
-        leases=Leases(lease_dir(root)),
+        leases=Leases(lease_dir(installation.local_dir)),
         planning_repo=planning_repo,
         repo_config=repo,
         worktree=worktree_in_turn,

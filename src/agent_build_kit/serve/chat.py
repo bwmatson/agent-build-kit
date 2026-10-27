@@ -24,7 +24,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from agent_build_kit import runtimes
-from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
+from agent_build_kit.graph.checkpointer import carried_unit_graphs, open_unit_graphs
 from agent_build_kit.graph.state import AgentSession
 from agent_build_kit.graph.unit import clear_running_node
 from agent_build_kit.installation import Installation
@@ -164,7 +164,7 @@ class Chat:
         self.agent_environment = agent_environment
         self._units = units
         self._recorded = recorded_session
-        self.leases = Leases(lease_dir(installation.state_dir))
+        self.leases = Leases(lease_dir(installation.local_dir))
         self.transcripts = transcript_dir(installation.state_dir)
         self._lock = threading.Lock()
         self._busy: set[str] = set()  # sessions a turn of this server is running on
@@ -210,12 +210,12 @@ class Chat:
     def forget_start(self, unit: StoredUnit) -> None:
         """Clear the start a killed node left in the unit's thread: the files it left are
         taken over with the chat's."""
-        path = unit_graphs_path(self.installation.state_dir)
+        path = carried_unit_graphs(self.installation)
         if not path.exists():
             return
 
         async def clear() -> None:
-            async with open_checkpointer(path) as saver:
+            async with open_unit_graphs(self.installation) as saver:
                 await clear_running_node(saver, unit.id)
 
         asyncio.run(clear())
