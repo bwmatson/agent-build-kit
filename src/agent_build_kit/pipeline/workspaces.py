@@ -31,6 +31,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit.path_patterns import matches_any
+from agent_build_kit.pipeline import host
 from agent_build_kit.pipeline.scratch import ensure_scratch
 from agent_build_kit.pipeline.shell import git, git_out, porcelain
 
@@ -77,6 +78,8 @@ def lock_holder_gone(branch: str, *, root: Path) -> bool | None:
     pid = parsed.get("pid") if isinstance(parsed, dict) else None
     if not isinstance(pid, int):
         return None
+    if not host.is_here(parsed.get("host")):
+        return False
     return not process_alive(pid)
 
 
@@ -99,9 +102,10 @@ def branch_lock(branch: str, *, root: Path):
             holder = {}
 
         pid = holder.get("pid")
-        if isinstance(pid, int) and process_alive(pid):
+        if isinstance(pid, int) and (not host.is_here(holder.get("host")) or process_alive(pid)):
             raise BranchBusy(
-                f"{branch} is held by pid {pid} since {holder.get('at', 'an unknown time')}"
+                f"{branch} is held by pid {pid} on {holder.get('host') or host.this_host()} "
+                f"since {holder.get('at', 'an unknown time')} ({path})"
             )
 
         path.unlink(missing_ok=True)
@@ -113,7 +117,15 @@ def branch_lock(branch: str, *, root: Path):
         raise BranchBusy(f"{branch} was claimed by another run") from error
 
     with os.fdopen(handle, "w") as file:
-        json.dump({"pid": os.getpid(), "branch": branch, "at": datetime.now(UTC).isoformat()}, file)
+        json.dump(
+            {
+                "pid": os.getpid(),
+                "host": host.this_host(),
+                "branch": branch,
+                "at": datetime.now(UTC).isoformat(),
+            },
+            file,
+        )
 
     try:
         yield

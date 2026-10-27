@@ -18,6 +18,12 @@
   check, not in strings, and a test fails a new module that builds a child's source as a
   string.
 
+- A held file lock now gives up after `ABK_LOCK_WAIT_SECONDS` (default 120) with an error
+  naming the file, instead of waiting for ever. Atomic writes sync to disk before the rename
+  and retry a rename a share briefly refuses. Leases, branch locks and the e2e-test record
+  now name their host, and a record from another host is treated as held and never taken
+  over.
+
 - `abk external hand-off`, `list`, `done` and `release` hand a change, or some of its groups,
   to someone who builds it by hand. The kit never starts held work, units that need it wait
   for its merge, and `done` checks a merged pull request or a commit on the default branch

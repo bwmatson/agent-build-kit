@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     state_dir: Path | None = None
     local_dir: Path | None = None
 
+    # How long `file_lock` waits for a held lock before it raises `LockTimeout`.
+    lock_wait_seconds: float = 120.0
+
     # Where the user manager reads units from (timers.py). systemd honours
     # XDG_CONFIG_HOME, so installing the units has to read it the same way, or
     # they land where nothing looks for them. `~/.config` when unset.

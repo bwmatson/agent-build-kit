@@ -15,12 +15,18 @@ waits: whatever holds it is done in seconds.
 
 from __future__ import annotations
 
+import errno
 import fcntl
 import os
+import re
+import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import IO, TYPE_CHECKING, Any, Protocol
+
+from agent_build_kit.pipeline import host
+from agent_build_kit.settings import settings
 
 if TYPE_CHECKING:
 
@@ -31,11 +37,58 @@ if TYPE_CHECKING:
         def local_dir(self) -> Path: ...
 
 
+POLL_SECONDS = 0.05
+_FIRST_POLL_SECONDS = 0.001
+_RENAME_RETRIES = 5
+_RENAME_FIRST_DELAY = 0.1
+
+
+class LockTimeout(TimeoutError):
+    """A lock stayed held for the whole wait."""
+
+
+def wait_for_flock(
+    handle: IO[str],
+    timeout: float | None,
+    on_busy: Callable[[float], None] | None = None,
+    clock: Any = None,
+) -> None:
+    """Take the exclusive `flock` on `handle`, polling for up to `timeout` seconds (None waits
+    for ever), often at first so a lock held for a moment is not waited on for a whole
+    interval. `on_busy` is told how long has been waited at each miss; `TimeoutError` is
+    raised when the deadline passes, for the caller to word. `clock` is anything with
+    `monotonic` and `sleep` (the `time` module when None)."""
+    clock = clock or time
+    began = clock.monotonic()
+    pause = _FIRST_POLL_SECONDS
+    while True:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except BlockingIOError:
+            now = clock.monotonic()
+            if timeout is not None and now - began >= timeout:
+                raise TimeoutError from None
+            if on_busy is not None:
+                on_busy(now - began)
+            clock.sleep(pause)
+            pause = min(pause * 2, POLL_SECONDS)
+
+
 @contextmanager
-def file_lock(path: Path) -> Iterator[None]:
+def file_lock(path: Path, timeout: float | None = None) -> Iterator[None]:
+    """Hold the lock on `path`, polling for up to `timeout` seconds (the `lock_wait_seconds`
+    setting when None) and raising `LockTimeout` when it stays held."""
+    wait = settings.lock_wait_seconds if timeout is None else timeout
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a") as handle:
-        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            wait_for_flock(handle, wait)
+        except TimeoutError:
+            raise LockTimeout(
+                f"{path} stayed locked for {wait:g}s; another process holds it "
+                f"(ABK_LOCK_WAIT_SECONDS sets the wait)"
+            ) from None
         try:
             yield
         finally:
@@ -88,15 +141,47 @@ def atomic_write_bytes(path: Path, data: bytes) -> None:
     _replace_through_partial(path, lambda partial: partial.write_bytes(data))
 
 
+def _rename_refused(error: OSError) -> bool:
+    return isinstance(error, PermissionError) or error.errno == errno.EBUSY
+
+
 def _replace_through_partial(path: Path, write: Callable[[Path], object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    partial = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    name = re.sub(r"[^A-Za-z0-9._-]", "_", host.this_host())
+    partial = path.with_name(f"{path.name}.{name}.{os.getpid()}.tmp")
     try:
         write(partial)
-        os.replace(partial, path)
+        _sync(partial)
+        delay = _RENAME_FIRST_DELAY
+        for attempt in range(_RENAME_RETRIES + 1):
+            try:
+                os.replace(partial, path)
+                break
+            except OSError as error:
+                if not _rename_refused(error) or attempt == _RENAME_RETRIES:
+                    raise
+                time.sleep(delay)
+                delay *= 2
+        _sync_directory(path.parent)
     except BaseException:
         partial.unlink(missing_ok=True)
         raise
+
+
+def _sync(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _sync_directory(directory: Path) -> None:
+    """Several remote filesystems refuse a directory fsync; the file itself is already synced."""
+    try:
+        _sync(directory)
+    except OSError:
+        pass
 
 
 def with_missing_lines(text: str, lines: Sequence[str]) -> str:

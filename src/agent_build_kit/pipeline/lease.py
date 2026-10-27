@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline import host
 from agent_build_kit.pipeline.file_lock import file_lock
 
 
@@ -46,6 +47,7 @@ class Attachment(Frozen):
     runtime: str = ""
     head: str = ""
     committed: str = ""
+    host: str = ""
     stale: bool = False
 
 
@@ -74,7 +76,15 @@ class Leases:
         return record if isinstance(record, dict) else None
 
     @staticmethod
+    def _mine(record: dict[str, Any]) -> bool:
+        """Whether this host wrote the record: only those may be changed or removed here."""
+        return host.is_here(record.get("host"))
+
+    @staticmethod
     def _alive(record: dict[str, Any]) -> bool:
+        """A record of another host is live: this host's process table says nothing of it."""
+        if not Leases._mine(record):
+            return True
         return _started(int(record["pid"])) == record["started"]
 
     def _read(self, path: Path) -> str | None:
@@ -101,6 +111,7 @@ class Leases:
             runtime=record.get("runtime", ""),
             head=record.get("head", ""),
             committed=committed,
+            host=str(record.get("host", "")),
             stale=not alive,
         )
 
@@ -119,13 +130,14 @@ class Leases:
         keeps them when it is taken."""
         with self._guard():
             old = self._load(self._path(unit_id)) or {}
-            if old and self._alive(old) and old["holder"] != holder:
+            if old and (not self._mine(old) or (self._alive(old) and old["holder"] != holder)):
                 return False
             pid = os.getpid()
             record = {
                 "holder": holder,
                 "pid": pid,
                 "started": _started(pid),
+                "host": host.this_host(),
                 "checkouts": list(checkouts or old.get("checkouts", ())),
                 "changed": old.get("changed", 0),
                 "session": session or old.get("session", ""),
@@ -139,7 +151,8 @@ class Leases:
     def release(self, unit_id: str, holder: str) -> None:
         """Give the lease up. A holder that does not hold it changes nothing."""
         with self._guard():
-            if self._read(self._path(unit_id)) == holder:
+            record = self._load(self._path(unit_id))
+            if record and self._mine(record) and self._read(self._path(unit_id)) == holder:
                 self._path(unit_id).unlink(missing_ok=True)
 
     def drop(self, unit_id: str) -> None:
@@ -151,10 +164,17 @@ class Leases:
         """Move a lease `old` holds to `new`, keeping what it records."""
         with self._guard():
             record = self._load(self._path(unit_id))
-            if record and self._alive(record) and record["holder"] == old:
+            if record and self._mine(record) and self._alive(record) and record["holder"] == old:
                 pid = os.getpid()
                 self._write(
-                    unit_id, {**record, "holder": new, "pid": pid, "started": _started(pid)}
+                    unit_id,
+                    {
+                        **record,
+                        "holder": new,
+                        "pid": pid,
+                        "started": _started(pid),
+                        "host": host.this_host(),
+                    },
                 )
 
     def holder(self, unit_id: str) -> str | None:
@@ -167,6 +187,7 @@ class Leases:
                 record = self._load(path)
                 if (
                     record
+                    and self._mine(record)
                     and self._alive(record)
                     and record["holder"] == holder
                     and not record.get("changed")
@@ -177,7 +198,12 @@ class Leases:
     def _update(self, unit_id: str, holder: str, *, alive: bool = True, **fields: Any) -> None:
         with self._guard():
             record = self._load(self._path(unit_id))
-            if record and (self._alive(record) or not alive) and record["holder"] == holder:
+            if (
+                record
+                and self._mine(record)
+                and (self._alive(record) or not alive)
+                and record["holder"] == holder
+            ):
                 self._write(unit_id, {**record, **fields})
 
     def mark_changes(
@@ -197,6 +223,7 @@ class Leases:
             record = self._load(self._path(unit_id))
             if (
                 record
+                and self._mine(record)
                 and self._alive(record)
                 and record["holder"] == holder
                 and not record.get("session")
@@ -213,7 +240,7 @@ class Leases:
         no commit."""
         with self._guard():
             record = self._load(self._path(unit_id))
-            if record is None:
+            if record is None or not self._mine(record):
                 return
             left = [c for c in record.get("checkouts", ()) if c != checkout]
             if changed is not None:

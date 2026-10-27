@@ -12,6 +12,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -52,9 +53,12 @@ class SleepingTime:
         self.due.append((seconds, action))
 
 
-def install_clock(monkeypatch: pytest.MonkeyPatch, start: datetime = START) -> SleepingTime:
+def install_clock(
+    monkeypatch: pytest.MonkeyPatch, start: datetime = START, module: ModuleType = e2e
+) -> SleepingTime:
+    """The clock the waiting loop of `module` (the e2e-test lock's by default) reads."""
     sleeping = SleepingTime(install(monkeypatch, start))
-    monkeypatch.setattr(e2e, "time", sleeping)
+    monkeypatch.setattr(module, "time", sleeping)
     return sleeping
 
 

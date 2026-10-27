@@ -38,7 +38,8 @@ from agent_build_kit.compat_names import old_spelling
 from agent_build_kit.config import REST_SPLIT, E2eDimensionValue, E2eSplit, WorkspaceConfig, active
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.model import E2E_LOCK_FILE, Frozen, TestTier
-from agent_build_kit.pipeline import spans
+from agent_build_kit.pipeline import host, spans
+from agent_build_kit.pipeline.file_lock import wait_for_flock
 from agent_build_kit.pipeline.workspaces import process_alive
 
 # Shown on the PR beside the Actions checks.
@@ -290,6 +291,7 @@ class LockRecord(Frozen):
     unit: str
     pid: int
     since: str
+    host: str = ""
 
 
 def read_lock_record(text: str) -> LockRecord | None:
@@ -336,11 +338,19 @@ def lock_status_line(path: Path) -> str | None:
     if record is None:
         return "e2e-test: held, holder unknown" if held else None
     if not held:
+        if not host.is_here(record.host):
+            return f"e2e-test: free (record left from {record.unit} on host {record.host})"
         return f"e2e-test: free (stale record from {record.unit}, process {record.pid} is gone)"
     line = f"e2e-test: held by {record.unit} for {_age(_held_for(record))} (since {record.since})"
-    if not process_alive(record.pid):
+    if not host.is_here(record.host):
+        line += _foreign(record)
+    elif not process_alive(record.pid):
         line += f"; process {record.pid} is gone but the lock is still held"
     return line
+
+
+def _foreign(record: LockRecord) -> str:
+    return f"; held on host {record.host}, whose process {record.pid} cannot be checked from here"
 
 
 def _waiting_message(record: LockRecord | None, waited: float) -> str:
@@ -350,7 +360,9 @@ def _waiting_message(record: LockRecord | None, waited: float) -> str:
         f"e2e-test is busy: waiting for {record.unit} "
         f"(held for {_age(_held_for(record))}), waited {_age(waited)}"
     )
-    if not process_alive(record.pid):
+    if not host.is_here(record.host):
+        message += _foreign(record)
+    elif not process_alive(record.pid):
         message += f"; process {record.pid} of {record.unit} is gone but the lock is still held"
     return message
 
@@ -405,38 +417,44 @@ def hold_lock(
     that is gone.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    began = time.monotonic()
-    deadline = None if timeout is None else began + timeout
-    next_say = began
+    next_say = 0.0
+
+    def say(waited: float) -> None:
+        nonlocal next_say
+        if on_wait is not None and waited >= next_say:
+            handle.seek(0)
+            on_wait(_waiting_message(read_lock_record(handle.read()), waited))
+            next_say = waited + LOCK_LOG_INTERVAL_SECONDS
 
     with path.open("a+") as handle:
-        while True:
-            try:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError:
-                now = time.monotonic()
-                if deadline is not None and now >= deadline:
-                    named = f" ({setting})" if setting else ""
-                    raise TimeoutError(
-                        f"e2e-test is busy: waited {timeout:.0f}s for {path}{named}"
-                    ) from None
-                if on_wait is not None and now >= next_say:
-                    handle.seek(0)
-                    on_wait(_waiting_message(read_lock_record(handle.read()), now - began))
-                    next_say = now + LOCK_LOG_INTERVAL_SECONDS
-                time.sleep(0.05)
+        try:
+            wait_for_flock(handle, timeout, say, clock=time)
+        except TimeoutError:
+            named = f" ({setting})" if setting else ""
+            raise TimeoutError(
+                f"e2e-test is busy: waited {timeout:.0f}s for {path}{named}"
+            ) from None
 
         try:
             handle.seek(0)
             left = read_lock_record(handle.read())
-            if left is not None and on_stale is not None and not process_alive(left.pid):
+            if (
+                left is not None
+                and on_stale is not None
+                and host.is_here(left.host)
+                and not process_alive(left.pid)
+            ):
                 on_stale(
                     f"e2e-test lock record from {left.unit} (process {left.pid}) is stale, ignored"
                 )
             handle.seek(0)
             handle.truncate()
-            record = LockRecord(unit=holder, pid=os.getpid(), since=spans.clock.now().isoformat())
+            record = LockRecord(
+                unit=holder,
+                pid=os.getpid(),
+                since=spans.clock.now().isoformat(),
+                host=host.this_host(),
+            )
             handle.write(record.model_dump_json() + "\n")
             handle.flush()
             yield

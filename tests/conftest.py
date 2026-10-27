@@ -17,6 +17,7 @@ build their own `Installation` and activate it.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import uuid
@@ -141,6 +142,14 @@ def no_real_unit_directory(
     monkeypatch.setattr(settings, "claude_home", None)
     for name in claude_account.NAMES:
         monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def no_disk_waits(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Atomic writes sync to disk, which on a slow disk takes long enough to shift the timing
+    tests of concurrent builds. No test needs the data on the platter; one that checks the sync
+    replaces `os.fsync` itself."""
+    monkeypatch.setattr(os, "fsync", lambda fd: None)
 
 
 @pytest.fixture(autouse=True)
