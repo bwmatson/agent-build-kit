@@ -12,7 +12,10 @@ from agent_build_kit.sandboxes.base import (
 )
 
 CAUSE = "no sandbox backend works on this machine"
-FIX = "use Linux (kernel 5.13 or later with Landlock) or macOS, or set `required: none` on the repo"
+FIX = (
+    "use Linux (kernel 5.13 or later with Landlock) or macOS to confine steps, "
+    "or set `sandbox.enabled: false`"
+)
 
 
 class Unavailable:

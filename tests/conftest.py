@@ -345,7 +345,7 @@ def workspace_config(root: Path, **overrides) -> WorkspaceConfig:
     # a test about per-tier sizing names `review` itself.
     overrides.setdefault("review", {"ceilings": {"auto": 750, "light": 750, "full": 750}})
     # The sandbox is on unless a config says it is off, and most tests are not about it; a test
-    # of the shipped default is in tests/config/test_sandbox_default.py.
+    # of the shipped default is in tests/config/test_sandbox_config.py.
     overrides.setdefault("sandbox", {"enabled": False})
     return WorkspaceConfig.model_validate(
         {"repos": {k: v.model_dump(mode="json") for k, v in repos.items()}, **overrides}

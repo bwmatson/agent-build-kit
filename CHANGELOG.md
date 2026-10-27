@@ -236,6 +236,13 @@
   because the repo's `required` is `none` and no backend worked) and for a track run, the
   message adds that an agent may have written the file and a person should read the diff.
 
+- The sandbox is now on unless `sandbox.enabled: false`, and `abk init` writes no `sandbox:`
+  block. A machine where no backend matches the platform runs steps unconfined and says so in
+  the tick log, in `abk doctor` (info) and in `abk status` (`sandbox_coverage: none`). A backend
+  that matches the platform but fails its probe stops the step with the cause and the fix, and
+  `abk doctor` fails it the same way. Set `sandbox.enabled: false` before updating to keep the
+  old behaviour.
+
 - The sandbox policy now depends on the step's test kind. A unit-test or integration step is
   never granted a loopback port, a service port or a container socket. An `[e2e-test]` step also
   gets `repos.<name>.tests.e2e_sandbox` (`read`, `write`, `hosts` and `ports`) from `abk.yaml`,
