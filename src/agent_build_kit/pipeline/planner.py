@@ -150,9 +150,14 @@ def parse_graph(
     built: set[int] | None = None,
     known: set[str] | None = None,
     tasks: str = "",
+    external: Collection[int] = (),
 ) -> list[Unit]:
     """Read and verify a proposed graph, or raise `PlannerError`."""
-    return list(parse_plan(output, groups=groups, built=built, known=known, tasks=tasks).units)
+    return list(
+        parse_plan(
+            output, groups=groups, built=built, known=known, tasks=tasks, external=external
+        ).units
+    )
 
 
 def parse_plan(
@@ -169,8 +174,12 @@ def parse_plan(
     split: SplitRequest | None = None,
     held: StoredUnit | None = None,
     pins: Sequence[Pin] = (),
+    external: Collection[int] = (),
 ) -> Plan:
     """Read and verify a proposed graph and its joins, or raise `PlannerError`.
+
+    `external` is the numbers of the change's groups held by someone outside the kit
+    (`external_file.blocked_groups`): a unit carries held groups or none.
 
     `pins` are those of the change's superseded units whose pieces have not started: a plan
     that regroups a pinned driver, or puts it at another tier, is refused.
@@ -260,6 +269,7 @@ def parse_plan(
             _check_groups(units, groups, built or set(), carried)
             check_flagged_groups(units, groups)
             _check_full_separation(units, groups, tasks)
+        _check_external(units, external)
         _check_ceiling(units, groups, calibrations, unnamed)
         if split is not None and held is not None:
             _check_split_shape(units, held)
@@ -278,6 +288,7 @@ def parse_plan(
                     groups=groups or [],
                     built=built or set(),
                     calibrations=calibrations,
+                    external=external,
                     floor=lambda group, repo: _group_floor(group, repo, tasks)[0],
                 )
             except JoinRefused as error:
@@ -719,6 +730,20 @@ def _check_e2e_alone(units: list[Unit], groups: list[TaskGroup]) -> None:
             raise PlannerError(
                 f"unit {unit.id} combines [{TestTier.E2E_TEST}] {named}{beside} — an [e2e-test] "
                 "group always has a unit of its own"
+            )
+
+
+def _check_external(units: list[Unit], external: Collection[int]) -> None:
+    """A unit carries groups held by someone outside the kit, or none of them."""
+    for unit in units:
+        held = sorted(n for n in unit.groups if n in external)
+        free = sorted(n for n in unit.groups if n not in external)
+        if held and free:
+            named = ", ".join(f"group {n}" for n in held)
+            beside = ", ".join(f"group {n}" for n in free)
+            raise PlannerError(
+                f"unit {unit.id} combines {named}, held by someone outside the kit, with "
+                f"{beside} — a held group always has a unit of its own, or only held groups"
             )
 
 
@@ -1372,6 +1397,7 @@ def _prompt_and_parts(
     split: SplitRequest | None = None,
     held: StoredUnit | None = None,
     pins: Sequence[Pin] = (),
+    external: Collection[int] = (),
 ) -> tuple[str, dict[str, int]]:
     """The prompt, and the size in bytes of the parts a person can cut."""
     _check_split_pair(split, held)
@@ -1383,6 +1409,12 @@ def _prompt_and_parts(
         )
         or "(none)"
     )
+    if external:
+        numbers = ", ".join(str(number) for number in sorted(external))
+        changes_text += (
+            f"\n\nGroups {numbers} of {first} are held by someone outside the kit: put them in "
+            "units of their own or with only other held groups, and join nothing else to them."
+        )
     lines = [_in_flight_line(item) for item in in_flight]
     if omitted:
         lines.append(omitted_line(omitted))
@@ -1479,6 +1511,7 @@ def plan_round(
     split: SplitRequest | None = None,
     held: StoredUnit | None = None,
     pins: Sequence[Pin] = (),
+    external: Collection[int] = (),
 ) -> Plan:
     """Ask for a graph and return it, or raise `PlannerError`.
 
@@ -1497,6 +1530,7 @@ def plan_round(
         split,
         held,
         pins,
+        external,
     )
     if split is not None and held is not None and groups is not None:
         # Only the held unit's groups are planned; every other one is as built.
@@ -1519,4 +1553,5 @@ def plan_round(
         split=split,
         held=held,
         pins=pins,
+        external=external,
     )

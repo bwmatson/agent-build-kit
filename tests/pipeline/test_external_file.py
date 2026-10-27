@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import subprocess
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -18,7 +17,6 @@ from agent_build_kit.pipeline.external_file import (
     DONE,
     FILE_NAME,
     RELEASED,
-    Hold,
     HoldRefused,
     add_hold,
     blocked_groups,
@@ -28,33 +26,9 @@ from agent_build_kit.pipeline.external_file import (
 )
 from agent_build_kit.split.select import moved_files, plan_split
 from tests.conftest import make_installation
+from tests.external_support import SINCE, change_with, hold, tasks_with
 from tests.factories import stored_unit
 from tests.split_sources import source_installation, write_change
-
-SINCE = datetime(2026, 10, 26, 9, 30, tzinfo=UTC)
-GROUP = "## {n}. [app] [unit-test] Group {n}\n\n- [ ] {n}.1 Test: it\n"
-
-
-def tasks_with(groups: int) -> str:
-    return "# Tasks\n\n" + "\n".join(GROUP.format(n=n) for n in range(1, groups + 1))
-
-
-def change_with(tmp_path: Path, groups: int = 3) -> Path:
-    folder = tmp_path / "openspec" / "changes" / "feature"
-    folder.mkdir(parents=True)
-    (folder / "proposal.md").write_text("# feature\n")
-    (folder / "tasks.md").write_text(tasks_with(groups))
-    return folder
-
-
-def hold(scope: object = (2, 3), **fields: object) -> Hold:
-    base: dict[str, object] = {
-        "scope": scope,
-        "holder": "Sam Example",
-        "link": "https://boards.example/items/42",
-        "since": SINCE,
-    }
-    return Hold.model_validate({**base, **fields})
 
 
 def test_a_hold_round_trips_with_every_field(tmp_path: Path) -> None:

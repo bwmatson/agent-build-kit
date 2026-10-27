@@ -49,6 +49,7 @@ class WaitReason(StrEnum):
     WAITING_REVIEW = "waiting_review"
     NEEDS_PERSON = "needs_person"
     MANUAL = "manual"
+    EXTERNAL = "external"
     READY = "ready"
 
 

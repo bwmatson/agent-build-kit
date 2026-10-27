@@ -133,6 +133,12 @@ from agent_build_kit.pipeline.events import (
     build_retarget,
     conflict_phrase,
 )
+from agent_build_kit.pipeline.external_file import Hold as ExternalHold
+from agent_build_kit.pipeline.external_file import (
+    blocked_groups,
+    external_reason,
+    held_units,
+)
 from agent_build_kit.pipeline.file_lock import atomic_write_bytes, atomic_write_text, file_lock
 from agent_build_kit.pipeline.flakes import flake_record
 from agent_build_kit.pipeline.gate_holds import evaluate_gates, gate_status_lines
@@ -2880,6 +2886,7 @@ def _plan_and_supersede(
             known={u.id for u in units},
             split=request,
             held=unit,
+            external=blocked_groups(inst.changes_dir / unit.change),
         )
         if not _keep_branch(inst, unit):
             return
@@ -3243,6 +3250,7 @@ def _evaluate_round(
     leases = Leases(lease_dir(inst.state_dir))
     owed = owed_units(inst, units) if owed is None else owed
     gates = split_gates(inst.config, inst.state_dir, units)
+    external = held_units(inst.changes_dir, units)
     for unit in units:
         if unit.id in building:
             unit = unit.model_copy(update={"state": RUNNING})
@@ -3261,6 +3269,8 @@ def _evaluate_round(
             or backoff_remaining(unit, now) is not None
             # Its e2e-test split is held, and nothing exists yet that a hold could disturb.
             or unit.id in gates
+            # Handed to someone outside the kit, whatever its priority.
+            or unit.id in external
         ):
             unit = unit.model_copy(update={"state": HELD})
             excluded.add(unit.id)
@@ -4827,8 +4837,10 @@ def plan_all(
                 # them is not a dependency on nothing.
                 known={u.id for u in units},
                 pins=_pins_of(units, change),
+                external=blocked_groups(inst.changes_dir / change),
                 context=JoinContext(
                     stored=tuple(units),
+                    external_units=frozenset(held_units(inst.changes_dir, units)),
                     catalog=catalog,
                     needs={
                         group: tuple((need.change, need.group) for need in found)
@@ -7785,6 +7797,7 @@ def _waits_in(
     now = spans.clock.now()
     waits: dict[str, Wait] = {}
     gates = split_gates(inst.config, inst.state_dir, units)
+    external = held_units(inst.changes_dir, units)
     # By the stored state: the view shows what a pass leaves out as held.
     for unit in units:
         # What `--only` leaves out is not waiting for anything this pass decides.
@@ -7812,6 +7825,7 @@ def _waits_in(
                 now,
                 startable,
                 gates,
+                external,
                 usage_paused=usage_paused,
                 refusal=(refused or {}).get(unit.id),
             )
@@ -7826,6 +7840,7 @@ def _planned_wait(
     now: datetime,
     startable: set[str],
     gates: Mapping[str, Hold],
+    external: Mapping[str, ExternalHold],
     *,
     usage_paused: bool,
     refusal: str | None = None,
@@ -7834,8 +7849,18 @@ def _planned_wait(
         return Wait(reason=WaitReason.LEASE)
     if backoff_remaining(unit, now) is not None:
         return Wait(reason=WaitReason.BACKOFF)
+    if (hold := external.get(unit.id)) is not None:
+        return Wait(reason=WaitReason.EXTERNAL, detail=external_reason(hold))
     if parents := shown_waits(unit, view):
-        return Wait(reason=WaitReason.BLOCKED, waits_on=tuple(parent.id for parent in parents))
+        return Wait(
+            reason=WaitReason.BLOCKED,
+            waits_on=tuple(parent.id for parent in parents),
+            detail="; ".join(
+                f"{parent.id} is {external_reason(external[parent.id])}"
+                for parent in parents
+                if parent.id in external
+            ),
+        )
     if steps := unmet_steps(unit):
         return Wait(reason=WaitReason.MANUAL, detail=manual_status_line(steps[0]))
     if parked_for_manual_step(unit):

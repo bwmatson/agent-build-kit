@@ -10,14 +10,18 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
 import yaml
 from pydantic import Field
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
+from agent_build_kit.pipeline.units import BUILDS_NOTHING, PLANNED, Unit, is_superseded
 from agent_build_kit.pipeline.work_graph import GROUP_NUMBER
+
+if TYPE_CHECKING:
+    from agent_build_kit.pipeline.unit_store import StoredUnit
 
 FILE_NAME = "external.yaml"
 HELD = "held"
@@ -117,11 +121,64 @@ def add_hold(change_dir: Path, hold: Hold) -> None:
         _write(path, [*holds, hold])
 
 
-def blocked_groups(change_dir: Path) -> frozenset[int]:
-    """The groups the kit must leave alone: those of every hold neither done nor released."""
+def _holding(change_dir: Path) -> dict[int, Hold]:
+    """Each group the kit must leave alone, with the hold that has it: those of every hold
+    neither done nor released."""
     existing = _group_numbers(change_dir)
-    blocked: frozenset[int] = frozenset()
+    holding: dict[int, Hold] = {}
     for hold in read_holds(change_dir):
         if hold.status not in (DONE, RELEASED):
-            blocked |= _covered(hold, existing)
-    return blocked
+            holding.update({number: hold for number in _covered(hold, existing)})
+    return holding
+
+
+def blocked_groups(change_dir: Path) -> frozenset[int]:
+    """The groups the kit must leave alone: those of every hold neither done nor released."""
+    return frozenset(_holding(change_dir))
+
+
+def held_units(changes_dir: Path, units: Sequence[Unit]) -> dict[str, Hold]:
+    """The planned units whose groups are all held, each with the hold that has its first group."""
+    holding: dict[str, dict[int, Hold]] = {}
+    found: dict[str, Hold] = {}
+    for unit in units:
+        if unit.state != PLANNED:
+            continue
+        holds = [
+            holding.setdefault(member.change, _holding(changes_dir / member.change)).get(number)
+            for member in unit.members()
+            for number in member.groups
+        ]
+        if holds and (first := holds[0]) is not None and all(holds):
+            found[unit.id] = first
+    return found
+
+
+def external_reason(hold: Hold) -> str:
+    """What a unit held by `hold` reads in words."""
+    return f"held externally by {hold.holder}: {hold.link}"
+
+
+def check_not_started(change_dir: Path, hold: Hold, units: Sequence[StoredUnit]) -> None:
+    """Raise `HoldRefused` when a unit that has started carries a group `hold` covers."""
+    covered = _covered(hold, _group_numbers(change_dir))
+    for unit in units:
+        # A retired or unplanned unit builds nothing, and a replaced one is carried by its
+        # successors: neither holds its groups.
+        if unit.state in BUILDS_NOTHING or is_superseded(unit):
+            continue
+        mine = {
+            n
+            for member in unit.members()
+            if member.change == change_dir.name
+            for n in member.groups
+        }
+        if not covered & mine:
+            continue
+        if unit.state == PLANNED and not (unit.pr or unit.branch or unit.pushed or unit.approved):
+            continue
+        raise HoldRefused(
+            f"unit {unit.id} ({unit.state.value}) has already started group "
+            f"{min(covered & mine)} of change {change_dir.name}: let it finish, or retire it "
+            "first, which returns its groups to the plan"
+        )
