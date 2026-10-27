@@ -56,24 +56,20 @@ class TaskConflict(ValueError):
     """A task's line no longer matches the hash recorded for it; the message names its key."""
 
 
-def text_hash(text: str) -> str:
+def first_line_hash(text: str) -> str:
     """A short hash of the first line of a task's text, the form `tracker.yaml` records."""
     first = text.strip().split("\n", 1)[0].strip()
     return hashlib.sha256(first.encode()).hexdigest()[:12]
-
-
-_hash_of = text_hash
 
 
 def mark_task(tasks: Path, key: str, *, done: bool, text_hash: str) -> None:
     """Set the one box of task `key` (`<change>:<group>.<task>`) to done or not done.
 
     Raises `TaskConflict` and writes nothing when the line's first-line hash is not `text_hash`."""
-    recorded = text_hash
     change = key.rsplit(":", 1)[0]
     with tasks_lock(tasks):
         found = next((task for task in read_tasks(tasks, change) if task.key == key), None)
-        if found is None or _hash_of(found.text) != recorded:
+        if found is None or first_line_hash(found.text) != text_hash:
             raise TaskConflict(f"task {key} no longer matches the text recorded for it")
         lines = tasks.read_text().splitlines(keepends=True)
         mark = "x" if done else " "

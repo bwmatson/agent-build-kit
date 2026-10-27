@@ -14,7 +14,7 @@ import yaml
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import atomic_write_text
-from agent_build_kit.pipeline.task_progress import tasks_lock, text_hash
+from agent_build_kit.pipeline.task_progress import first_line_hash, tasks_lock
 from agent_build_kit.pipeline.work_graph import Task
 
 FILE_NAME = "tracker.yaml"
@@ -85,20 +85,22 @@ def read_for_target(change_dir: Path, kind: str, target: str) -> TrackerFile | N
 
 class Reconciled(Frozen):
     """A tracker file matched against the tasks now in the file: the mapping with pure moves
-    applied, the moves made (old key to new), the keys left to create or remove, and the
+    applied, the moves made (old key to new), the keys left to create or remove, the entries a
+    move displaced from the key it landed on (their items are for the caller to remove), and the
     conflicts a person must settle."""
 
     tracker: TrackerFile
     moved: dict[str, str] = {}
     created: tuple[str, ...] = ()
     removed: tuple[str, ...] = ()
+    displaced: tuple[TaskEntry, ...] = ()
     conflicts: tuple[str, ...] = ()
 
 
 def reconcile_moves(tracker: TrackerFile, tasks: list[Task]) -> Reconciled:
     """Match recorded keys that are gone, or whose line now reads differently, to keys whose line
     has the same first-line hash. A key edited in place with no match elsewhere stays as it is."""
-    present = {task.key: text_hash(task.text) for task in tasks}
+    present = {task.key: first_line_hash(task.text) for task in tasks}
     absent = [key for key in tracker.tasks if key not in present]
     stale = [
         key
@@ -118,6 +120,7 @@ def reconcile_moves(tracker: TrackerFile, tasks: list[Task]) -> Reconciled:
     if conflicts:
         return Reconciled(tracker=tracker, conflicts=tuple(conflicts))
     kept = {key: entry for key, entry in tracker.tasks.items() if key not in moved}
+    displaced = tuple(kept[new] for new in moved.values() if new in kept)
     for old, new in moved.items():
         kept[new] = tracker.tasks[old]
     return Reconciled(
@@ -125,4 +128,5 @@ def reconcile_moves(tracker: TrackerFile, tasks: list[Task]) -> Reconciled:
         moved=moved,
         created=tuple(key for key in present if key not in kept),
         removed=tuple(key for key in absent if key not in moved),
+        displaced=displaced,
     )
