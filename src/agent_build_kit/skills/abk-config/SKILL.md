@@ -252,7 +252,10 @@ repos:                        # ordered; a task group's [repo] tag is a key here
                               # iteration_path, story_type: all required) or github (owner,
                               # repo, labels: a label for each of feature, story and task;
                               # host and project_number optional) or none
-      token_env: TRACKER_TOKEN  # the NAME of an environment variable, never a credential
+      # token_env: MY_TRACKER_TOKEN  # optional override: the NAME of an environment variable,
+                              # never a credential. Left out, the forge's credential is used:
+                              # AZURE_DEVOPS_EXT_PAT (or ABK_ADO_PAT), then `az login`; or
+                              # GH_TOKEN (or ABK_GH_TOKEN), then `gh auth token --user <owner>`
       state_map: {}           # the kit's state names to the tracker's
       marker_prefix: abk      # what marks an item the kit created
     projects: []              # [{path, profile, languages}]: a project whose directory is

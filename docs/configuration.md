@@ -449,10 +449,13 @@ repos:                          # ordered: deploy order is derived from
                                 # github: owner, repo, labels (a label for each of
                                 # feature, story, task; all required), host and
                                 # project_number optional.
-      token_env: TRACKER_TOKEN  # optional: the NAME of the environment variable holding the
-                                # credential, never the credential; set it to the variable
-                                # your tracker's own tooling already uses (for example
-                                # AZURE_DEVOPS_EXT_PAT or GITHUB_TOKEN).
+      # token_env: MY_TRACKER_TOKEN
+                                # optional override, the NAME of an environment variable,
+                                # never the credential. Left out, the tracker uses the
+                                # credential the forge uses for that host: azure_devops
+                                # reads AZURE_DEVOPS_EXT_PAT (or ABK_ADO_PAT), then `az
+                                # login`; github reads GH_TOKEN (or ABK_GH_TOKEN), then
+                                # `gh auth token --user <owner>`.
       state_map: {}             # optional: kit state -> tracker state.
       marker_prefix: abk        # optional, default abk. An invalid section is one error
                                 # naming the repo, kind and key; it stops only that

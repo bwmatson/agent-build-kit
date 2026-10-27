@@ -41,5 +41,8 @@ def for_repo(name: str) -> Tracker | None:
 
 
 def enabled(name: str) -> bool:
-    """Whether the repo's configuration names a tracker."""
+    """Whether the repo's configuration names a tracker.
+
+    Raises TrackerConfigError for a present but invalid section, as `for_repo` does.
+    """
     return section_for(name) is not None
