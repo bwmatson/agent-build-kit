@@ -12,6 +12,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.path_discovery import checkout_root
 from agent_build_kit.pipeline.shell import git
 
 
@@ -64,11 +65,7 @@ def repository_name(root: Path) -> RepositoryName:
 def toplevel(path: Path) -> Path | None:
     """The top of the repository `path` is in, or of its nearest existing parent when `path` is
     not made yet; None when there is no repository."""
-    here = path.resolve()
-    while not here.is_dir() and here != here.parent:
-        here = here.parent
-    top = git(here, "rev-parse", "--show-toplevel", check=False)
-    return Path(top.stdout.strip()).resolve() if top.returncode == 0 else None
+    return checkout_root(path.resolve())
 
 
 def is_worktree_of(path: Path, common: Path) -> bool:

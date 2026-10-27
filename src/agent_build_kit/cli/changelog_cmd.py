@@ -9,23 +9,17 @@ from pathlib import Path
 from agent_build_kit.changelog_form import changelog_problems
 from agent_build_kit.config import RepoConfig
 from agent_build_kit.installation import Installation
+from agent_build_kit.path_discovery import checkout_root
 from agent_build_kit.pipeline.shell import git
 
 
 def _top_and_common(cwd: Path) -> tuple[Path, Path] | None:
     """The checkout `cwd` is in and the repository behind it, the same for a worktree."""
-    answered = git(
-        cwd,
-        "rev-parse",
-        "--show-toplevel",
-        "--path-format=absolute",
-        "--git-common-dir",
-        check=False,
-    )
-    lines = answered.stdout.splitlines()
-    if answered.returncode or len(lines) != 2:
+    top = checkout_root(cwd)
+    common = git(cwd, "rev-parse", "--path-format=absolute", "--git-common-dir", check=False)
+    if top is None or common.returncode or not common.stdout.strip():
         return None
-    return Path(lines[0]), Path(lines[1]).parent
+    return top, Path(common.stdout.strip()).parent
 
 
 def _repo_here(inst: Installation, cwd: Path) -> tuple[RepoConfig, Path] | None:

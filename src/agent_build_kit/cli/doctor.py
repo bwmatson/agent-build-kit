@@ -81,6 +81,7 @@ from agent_build_kit.notify.windows import (
     INSTALL_COMMAND,
     MODULE_CHECK_COMMAND,
 )
+from agent_build_kit.path_discovery import checkout_root
 from agent_build_kit.path_patterns import matches, normalize
 from agent_build_kit.pipeline import agent_commands, lock_probe, mounts
 from agent_build_kit.pipeline.e2e import dimension_lines
@@ -1252,10 +1253,9 @@ def _local_files(inst: Installation, toplevel: Path) -> list[Check]:
 def _public_content(inst: Installation) -> list[Check]:
     """Facts that must not reach a public repository, found without a network
     call: the committed abk.yaml's own text, and files that must stay ignored."""
-    top = git(inst.root, "rev-parse", "--show-toplevel", check=False)
-    if top.returncode:
+    toplevel = checkout_root(inst.root)
+    if toplevel is None:
         return [_ok(PUBLIC_CONTENT, "not a git repository")]
-    toplevel = Path(top.stdout.strip()).resolve()
     checks = []
     tracked = is_tracked(inst.root, "abk.yaml")
     if tracked:

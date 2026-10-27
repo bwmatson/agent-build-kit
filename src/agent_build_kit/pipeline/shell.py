@@ -17,6 +17,7 @@ from pathlib import Path
 
 from agent_build_kit.config import active
 from agent_build_kit.forges.constants import GH_TOKEN_SOURCE
+from agent_build_kit.path_discovery import checkout_root
 from agent_build_kit.settings import settings
 
 
@@ -47,10 +48,10 @@ def is_tracked(root: Path, name: str) -> bool:
 def tracked_toplevel(directory: Path, name: str) -> Path | None:
     """The top level of the git repository holding `directory` when git tracks `name` in it,
     None when `directory` is outside a repository or git does not track `name`."""
-    top = git(directory, "rev-parse", "--show-toplevel", check=False)
-    if top.returncode or not is_tracked(directory, name):
+    top = checkout_root(directory)
+    if top is None or not is_tracked(directory, name):
         return None
-    return Path(top.stdout.strip())
+    return top
 
 
 def is_ignored(root: Path, name: str) -> bool:
