@@ -208,10 +208,43 @@ def _head(admin: Path) -> str | None:
     return None
 
 
+def _files_untrusted(common: Path, found: Sequence[WorktreeEntry]) -> bool:
+    """Whether the heads read from git's files cannot be believed: a repository whose refs live
+    in a reftable keeps a fixed stub in every `HEAD` file."""
+    if any(entry.branch == ".invalid" for entry in found):
+        return True
+    try:
+        return "refstorage" in (common / "config").read_text().lower()
+    except OSError:
+        return False
+
+
+def _porcelain_entries(repo: Path) -> tuple[WorktreeEntry, ...]:
+    """The worktrees `git worktree list --porcelain` reports for `repo`."""
+    entries = []
+    for block in git_out(repo, "worktree", "list", "--porcelain").split("\n\n"):
+        fields = dict(line.partition(" ")[::2] for line in block.splitlines() if line.strip())
+        if "worktree" not in fields:
+            continue
+        branch = fields.get("branch", "")
+        entries.append(
+            WorktreeEntry(
+                path=Path(fields["worktree"]),
+                branch=branch.removeprefix("refs/heads/")
+                if branch.startswith("refs/heads/")
+                else None,
+                prunable="prunable" in fields,
+            )
+        )
+    return tuple(entries)
+
+
 def worktree_entries(repo: Path) -> tuple[WorktreeEntry, ...]:
     """Every worktree git lists for `repo`, its own checkout first: what
     `git worktree list --porcelain` says, read from the repository's files so that asking runs
-    no process. A worktree stopped in a rebase of a branch counts as on that branch."""
+    no process (the sessions page lists on every request). A worktree stopped in a rebase of a
+    branch counts as on that branch. Where the files cannot be believed (refs kept in a
+    reftable) git is asked."""
     dirs = _git_dirs(repo)
     if dirs is None:
         return ()
@@ -227,6 +260,8 @@ def worktree_entries(repo: Path) -> tuple[WorktreeEntry, ...]:
         # A worktree made with `--relative-paths` records the path relative to `admin`.
         path = Path(os.path.normpath(admin / recorded)).parent
         found.append(WorktreeEntry(path=path, branch=_head(admin), prunable=not path.exists()))
+    if _files_untrusted(common, found):
+        return _porcelain_entries(repo)
     return tuple(found)
 
 

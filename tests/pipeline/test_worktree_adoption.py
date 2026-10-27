@@ -251,3 +251,43 @@ def test_a_worktree_stopped_in_a_rebase_still_has_the_branch(repo: Path, root: P
     got = prepare_worktree(repo, BRANCH, name="lib", base="main", root=root, allow_dirty=True)
     assert got == path
     assert listing(repo) == before
+
+
+def test_a_repository_with_refs_in_a_reftable_is_read_through_git(
+    tmp_path: Path, root: Path
+) -> None:
+    work = tmp_path / "reftable"
+    work.mkdir()
+    made = subprocess.run(
+        ["git", "init", "-q", "-b", "main", "--ref-format=reftable"],
+        cwd=work,
+        capture_output=True,
+        text=True,
+    )
+    if made.returncode != 0:
+        pytest.skip("this git has no reftable ref format")
+    git(work, "config", "user.email", "t@t.t")
+    git(work, "config", "user.name", "t")
+    (work / "README.md").write_text("base\n")
+    git(work, "add", "-A")
+    git(work, "commit", "-qm", "base")
+    path = add_at(work, root / "worktree" / "spec_x_1")
+
+    assert unit_tree(work, BRANCH, root) == path
+    assert prepare_worktree(work, BRANCH, name="lib", base="main", root=root) == path
+    blocks = [block.splitlines() for block in listing(work).strip().split("\n\n")]
+    expected = [
+        (
+            Path(block[0].removeprefix("worktree ")),
+            next(
+                (
+                    line.removeprefix("branch refs/heads/")
+                    for line in block
+                    if " refs/heads/" in line
+                ),
+                None,
+            ),
+        )
+        for block in blocks
+    ]
+    assert [(entry.path, entry.branch) for entry in worktree_entries(work)] == expected

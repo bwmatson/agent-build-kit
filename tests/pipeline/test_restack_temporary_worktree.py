@@ -170,25 +170,6 @@ def test_a_temporary_worktree_left_under_an_earlier_folder_is_cleared_and_the_mo
     assert "restack-" not in sh(rig.repo, "worktree", "list", "--porcelain")
 
 
-def test_a_temporary_root_without_the_repos_name_is_refused(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    rig = Rig(tmp_path, monkeypatch)
-
-    with pytest.raises(ValueError, match="temporary_name"):
-        restack.resolved_move(
-            rig.repo,
-            BRANCH,
-            new_base="main",
-            old_base=OLD_BASE,
-            moving_unit="c/2",
-            moving_intent="moving",
-            onto_unit="c/1",
-            onto_intent="onto",
-            temporary_root=rig.installation.worktree_root,
-        )
-
-
 def test_the_checks_of_a_branch_with_no_worktree_run_on_a_checkout_at_the_moved_head(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -212,7 +212,8 @@ def _unit_worktrees(inst: Installation) -> list[Check]:
             keys.setdefault(common, set()).add(worktree_key(repo))
     root = inst.worktree_root.resolve()
     found = []
-    for common, folders in keys.items():
+    for common, names in keys.items():
+        folders = {root / key for key in names}
         checkout = checkouts[common]
         for entry in worktree_entries(checkout):
             if not entry.path.resolve().is_relative_to(root):
@@ -225,11 +226,11 @@ def _unit_worktrees(inst: Installation) -> list[Check]:
                         f"run `git worktree prune` in {checkout}",
                     )
                 )
-            elif entry.path.resolve().parent.name not in folders:
+            elif entry.path.resolve().parent not in folders:
                 found.append(
                     _info(
                         name,
-                        f"{entry.path} is under a folder other than {' or '.join(sorted(folders))}"
+                        f"{entry.path} is under a folder other than {' or '.join(sorted(names))}"
                         " and is adopted where it is",
                         f"in {checkout}, `git worktree move {entry.path} <new path>` "
                         "when its unit is idle",

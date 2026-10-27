@@ -164,3 +164,12 @@ def test_a_restack_checks_run_as_the_repo_whose_worktree_they_run_in(
 
     assert ok
     assert built == [f"example/{repo}"]
+    # A worktree under a folder an earlier release used, and the checkout itself, are the repo's.
+    hooks["unit_test"](cwd=world.trees[repo], base="main")
+    hooks["unit_test"](cwd=world.inst.checkouts[repo], base="main")
+    assert built == [f"example/{repo}"] * 3
+    # A directory that is no repository's is nobody's: no repo's tests run in it.
+    elsewhere = tree.parent.parent / "elsewhere"
+    elsewhere.mkdir()
+    with pytest.raises(ValueError):
+        hooks["unit_test"](cwd=elsewhere, base="main")

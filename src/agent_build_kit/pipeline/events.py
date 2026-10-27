@@ -60,6 +60,7 @@ from agent_build_kit.pipeline.restack import (
     BranchMoved,
     Moved,
     RestackConflict,
+    TemporaryTree,
     adopt_host_head,
     blast_radius_note,
     push_with_lease,
@@ -2029,7 +2030,7 @@ def build_restack(
         # No worktree of its own: the branch is moved in a temporary one, so the
         # repository's checkout is never switched.
         where: dict[str, Any] = (
-            {} if worktree is not None else {"temporary_root": root, "temporary_name": child.repo}
+            {} if worktree is not None else {"temporary": TemporaryTree(root=root, name=child.repo)}
         )
         if resolve:
             where["resolve"] = resolve

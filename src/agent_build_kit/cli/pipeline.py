@@ -207,6 +207,7 @@ from agent_build_kit.pipeline.product_defect import product_defect_record
 from agent_build_kit.pipeline.restack import (
     ConflictSession,
     Moved,
+    TemporaryTree,
     checked_out_at,
     push_with_lease,
     resolved_move,
@@ -439,6 +440,7 @@ from agent_build_kit.pipeline.workspaces import (
     keep_superseded_tip,
     lock_holder_gone,
     unit_tree,
+    worktree_key,
 )
 from agent_build_kit.profiles.base import ProfileUnsupported
 from agent_build_kit.redaction import redact_text
@@ -5603,8 +5605,7 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
                 moving_intent=unit.title,
                 onto_unit=parent.id,
                 onto_intent=parent.title,
-                temporary_root=inst.worktree_root,
-                temporary_name=unit.repo,
+                temporary=TemporaryTree(root=inst.worktree_root, name=unit.repo),
             )
         except AgentRateLimited as error:
             # Refused for usage, not a conflict: still owed, and moved when the guard allows.
@@ -5699,7 +5700,15 @@ def build_stack_moves(
         """Unit-test as the repo whose checkout, or worktree of it, `cwd` is builds it."""
         name = next((each for each, path in checkouts.items() if path == cwd), None)
         if name is None:
-            name = repo_sharing(checkouts, cwd)
+            # Two repos can share one repository: the folder a worktree is in says whose it is.
+            name = next(
+                (
+                    each
+                    for each, path in checkouts.items()
+                    if worktree_key(each) == cwd.parent.name and repo_sharing({each: path}, cwd)
+                ),
+                None,
+            ) or repo_sharing(checkouts, cwd)
         if name is not None:
             repo = installation.repo(name)
             return build_unit_test(

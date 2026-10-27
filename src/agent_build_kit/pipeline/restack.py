@@ -112,6 +112,14 @@ class RestackConflict(RuntimeError):
         self.tried = tried
 
 
+class TemporaryTree(Frozen):
+    """Where a branch with no worktree of its own is moved: under `root`, in the folder the
+    repo's `name` in `abk.yaml` gives."""
+
+    root: Path
+    name: str
+
+
 class Moved(Frozen):
     """Where a branch ended up, and whether getting there took a resolver.
 
@@ -834,8 +842,7 @@ def resolved_move(
     resolve: Resolver | None = None,
     repo_config: RepoConfig | None = None,
     turn: Turn = nullcontext,
-    temporary_root: Path | None = None,
-    temporary_name: str | None = None,
+    temporary: TemporaryTree | None = None,
 ) -> Moved:
     """`move_branch_onto` with the resolver wired up and both sides' intent.
 
@@ -866,12 +873,10 @@ def resolved_move(
             repo=repo_config,
         ),
     )
-    if temporary_root is not None:
-        if temporary_name is None:
-            raise ValueError("temporary_root needs temporary_name, the repo's name in abk.yaml")
+    if temporary is not None:
         # No worktree of the unit's own: its branch is moved in a temporary one.
         return move_in_temporary_worktree(
-            repo, branch, root=temporary_root, name=temporary_name, turn=turn, move=move, **moving
+            repo, branch, root=temporary.root, name=temporary.name, turn=turn, move=move, **moving
         )
     return move(repo, branch, turn=turn, **moving)
 
