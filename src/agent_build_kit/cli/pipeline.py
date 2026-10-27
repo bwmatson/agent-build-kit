@@ -303,6 +303,7 @@ from agent_build_kit.pipeline.units import (
     dependency_wait,
     depth_of,
     direct_dependencies,
+    earlier_units,
     edge_kind,
     effective_priority,
     emergency_start,
@@ -942,6 +943,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         *_failed_waiting_lines(units),
         *_wait_ended_lines(inst, units),
         *_second_parent_lines(units),
+        *_earlier_wait_lines(units),
         *_replaced_lines(units),
     ]:
         log(line)
@@ -3610,6 +3612,19 @@ def _second_parent_lines(units: list[StoredUnit]) -> list[str]:
         for unit in units
         if (wait := second_parent_wait(unit, units))
     ]
+
+
+def _earlier_wait_lines(units: list[StoredUnit]) -> list[str]:
+    """One line for each unit that has never started and waits on an earlier unit of its change
+    (an acceptance or narrow unit), with what it waits on."""
+    lines = []
+    for unit in units:
+        if not unit.unstarted:
+            continue
+        earlier = {other.id for other in earlier_units(unit, units)}
+        if waits := [parent.id for parent in shown_waits(unit, units) if parent.id in earlier]:
+            lines.append(f"  {unit.id} ({unit_label(unit)}) waits on {', '.join(waits)}")
+    return lines
 
 
 def _replaced_lines(units: list[StoredUnit]) -> list[str]:

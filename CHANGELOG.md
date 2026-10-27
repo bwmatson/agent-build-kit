@@ -8,6 +8,9 @@
   before recording it. `abk status` shows the holds, and `docs/hand-off.md` describes the
   order and how to create the board items by hand.
 
+- An acceptance or narrow unit no longer waits on, or is held by, the closed original of a
+  split; it follows the pieces the split made, so it starts once they are done.
+
 - A unit over its tier's size ceiling that cannot be split (it holds one group, carries
   groups of another change, has a started dependent, has used its split rounds, or has a
   group the planner finds too large) now has its size rule waived and goes on to review and

@@ -960,7 +960,7 @@ methods.
 
 An acceptance or narrow unit waits for every earlier unit of its change, computed at run time and
 not from stored edges; that adds waits only, and its base, depth and open parents stay what its
-stored dependencies give. Any other unit follows the chain: a unit sent back restacks its child, and
+stored dependencies give. A split's pieces are followed and its closed original is not. Any other unit follows the chain: a unit sent back restacks its child, and
 a unit in review follows its predecessor, with no wait on a grandparent. A `Needs:` the chain
 implies is recorded in `needs` but draws no edge. A plain chain keeps two gaps: a deferred restack
 leaves the units behind it where they are, and a thread that declines a move leaves its unit in review.
