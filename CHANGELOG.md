@@ -6,6 +6,7 @@
   section: the target and who the credential acts as (a refused credential is one warning
   naming the cause, and an invalid section shows its error), and say nothing about a repo
   without one.
+
 - Task progress and follow-ups are tracked in `<state dir>/changes/<change>/`, not in the
   repository, so a tick never modifies a tracked file of the pipeline worktree, and the locks
   on a change's files are under `locks/changes/` in the local directory (`planning.local_dir`,
