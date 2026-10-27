@@ -325,7 +325,9 @@ class Installation:
     def activate(self) -> None:
         """Make this the workspace the leaf modules see (config.active())."""
         settings_module.reload(settings_module.readable(self.env_file))
-        config_module.activate(self.config, self.root, self.checkout_of, lambda: self.state_dir)
+        config_module.activate(
+            self.config, self.root, self.checkout_of, lambda: self.state_dir, lambda: self.local_dir
+        )
         redaction.activate(redaction.gather(self))
 
 

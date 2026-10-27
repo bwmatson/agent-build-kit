@@ -25,6 +25,7 @@ from agent_build_kit.pipeline.unit_store import UnitStore
 from tests.factories import unit
 from tests.graph_driver import run_on_graph
 from tests.pipeline.test_stack_runner import Recorder, make_runner
+from tests.progress_support import copy_file, meta_planning
 
 
 def _flat(text: str) -> str:
@@ -505,10 +506,9 @@ def test_an_optional_finding_with_an_extra_key_or_a_line_range_stays_readable() 
 def test_optional_findings_on_an_approval_are_recorded_with_the_deferred_points(
     tmp_path: Path,
 ) -> None:
+    inst = meta_planning(tmp_path)
     optional = _finding(required=False, summary="tidy the wording", consequence="")
     _run(tmp_path, [_reply(optional, approved=True)])
 
-    recorded = (
-        tmp_path / "meta" / "openspec" / "changes" / "add-marker" / "follow-ups.md"
-    ).read_text()
+    recorded = copy_file(inst, "add-marker", "follow-ups.md").read_text()
     assert "src/pkg/units.py:182 — tidy the wording" in recorded

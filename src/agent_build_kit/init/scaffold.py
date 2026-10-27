@@ -673,13 +673,16 @@ _ORIENT_START = re.compile(r"<!-- abk:planning v\w+ -->")
 _ORIENT_END = re.compile(re.escape(_ORIENT_CLOSE))
 
 
+LOCK_PATTERN = "*.md.lock"
+
+
 def _state_ignores(state_dir: str) -> list[str]:
     """The template's lines about the state directory and the redaction originals."""
     lines = [line.strip() for line in template("gitignore").splitlines()]
     return [
         f"{state_dir}/{line.removeprefix('runs/')}" if line.startswith("runs/") else line
         for line in lines
-        if line.startswith("runs/") or line == COPY_PATTERN
+        if line.startswith("runs/") or line in (COPY_PATTERN, LOCK_PATTERN)
     ]
 
 
@@ -707,7 +710,7 @@ def _local_ignores(text: str, state_dir: str) -> list[str]:
         return []
     present = {line.strip() for line in text.splitlines()}
     template_lines = [line.strip() for line in template("gitignore").splitlines()]
-    kept = [line for line in template_lines if line in (".env", ".last-runs/")]
+    kept = [line for line in template_lines if line in (".env", ".last-runs/", LOCK_PATTERN)]
     return [line for line in (*kept, *LOCAL_IGNORES) if line not in present]
 
 

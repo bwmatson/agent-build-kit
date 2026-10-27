@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.pipeline import file_lock as file_lock_module
 from tests.cli.replan_driver import Replan, answer, planned, tagged_md, tick, ticking_replan
 from tests.cli.tags_fix_support import (
     OLD_UNIT_TEST_TAG,
@@ -63,10 +64,9 @@ def test_tags_fix_holds_the_tasks_file_lock_while_it_writes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run = ticking_replan(tmp_path, monkeypatch, {"feature": MIXED})
-    tasks = run.inst.changes_dir / "feature" / "tasks.md"
     held: list[Path] = []
     written_under: list[tuple[Path, ...]] = []
-    real_lock, real_write = cli.file_lock, cli.atomic_write_bytes
+    real_lock, real_write = file_lock_module.file_lock, cli.atomic_write_bytes
 
     @contextmanager
     def recording_lock(path: Path) -> Iterator[None]:
@@ -79,13 +79,14 @@ def test_tags_fix_holds_the_tasks_file_lock_while_it_writes(
         written_under.append(tuple(held))
         real_write(path, data)
 
-    monkeypatch.setattr(cli, "file_lock", recording_lock)
+    monkeypatch.setattr(file_lock_module, "file_lock", recording_lock)
     monkeypatch.setattr(cli, "atomic_write_bytes", recording_write)
 
     code, out = run_tags(capsys, "--fix", "feature")
 
     assert code == 0, out
-    assert written_under == [(tasks.with_name("tasks.md.lock"),)]
+    lock = run.inst.local_dir / "locks" / "changes" / "feature" / "tasks.md.lock"
+    assert written_under == [(lock,)]
 
 
 def test_tags_fix_keeps_a_plan_recorded_from_a_mixed_text_current(

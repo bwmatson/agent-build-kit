@@ -18,6 +18,8 @@ from agent_build_kit.pipeline.units import Member, UnitState, branch_name
 from agent_build_kit.pipeline.verify import Verification, VerifyRecord, verify_change
 from tests.conftest import make_installation
 from tests.factories import stored_unit, unit
+from tests.progress_support import copy_file, meta_planning
+from tests.runner_fakes import Recorder, make_runner
 
 CARRIED = Member(change="sample-change", groups=(7, 8))
 
@@ -96,6 +98,24 @@ def _ticked(tasks: Path) -> set[int]:
         for line in tasks.read_text().splitlines()
         if line.startswith("- [x]")
     }
+
+
+def test_the_carried_groups_of_every_member_change_are_ticked_in_their_copies(
+    tmp_path: Path,
+) -> None:
+    inst = meta_planning(tmp_path)
+    mine = _tasks(tmp_path, "add-marker", (1, 2, 3))
+    theirs = _tasks(tmp_path, "sample-change", (6, 7, 8, 9))
+    store = UnitStore(tmp_path / "units.json")
+    joined = carrying(groups=(2,))
+    store.upsert([joined])
+    runner = make_runner(store, Recorder(store), tmp_path)
+
+    runner.mark_tasks(joined, done=True)
+
+    assert _ticked(copy_file(inst, "add-marker")) == {2}
+    assert _ticked(copy_file(inst, "sample-change")) == {7, 8}
+    assert _ticked(mine) == set() and _ticked(theirs) == set()
 
 
 # --- 1.4 archive readiness -------------------------------------------------

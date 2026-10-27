@@ -16,7 +16,6 @@ import pytest
 
 from agent_build_kit import config as config_module
 from agent_build_kit.graph.state import EventKind, ResumeEvent, SessionRole
-from agent_build_kit.pipeline.task_progress import mark_groups
 from agent_build_kit.runtimes import AgentRequest, AgentResult
 from tests.graph.test_session_continuation import (
     CHANGE_PATH,
@@ -28,6 +27,8 @@ from tests.graph.test_session_continuation import (
     reuse,
 )
 from tests.graph_driver import fresh, position, tick
+from tests.progress_support import meta_planning
+from tests.progress_support import tick as tick_groups
 from tests.runner_fakes import Recorder, rejecting
 
 TASKS = """\
@@ -43,6 +44,7 @@ TASKS = """\
 ADDED = "- [ ] 1.3 Test: the marker survives a restart"
 ELSEWHERE = "- [ ] 2.2 Test: a task of the other group"
 CUT = 6000
+CHANGE = "add-marker"
 
 
 def change_dir(tmp_path: Path) -> Path:
@@ -148,8 +150,8 @@ def test_only_the_units_own_groups_of_tasks_are_compared(tmp_path: Path) -> None
 
 
 def test_ticking_the_units_own_boxes_is_not_an_edit_of_the_spec(tmp_path: Path) -> None:
-    tasks = change_dir(tmp_path) / "tasks.md"
-    prompt = resumed_fix(tmp_path, lambda: mark_groups(tasks, [1], done=True))
+    inst = meta_planning(tmp_path)
+    prompt = resumed_fix(tmp_path, lambda: tick_groups(inst, CHANGE, [1], done=True))
 
     assert "tasks.md" not in prompt
     assert "1.1" not in prompt
@@ -157,9 +159,10 @@ def test_ticking_the_units_own_boxes_is_not_an_edit_of_the_spec(tmp_path: Path) 
 
 def test_an_edit_made_alongside_the_ticks_is_still_shown(tmp_path: Path) -> None:
     tasks = change_dir(tmp_path) / "tasks.md"
+    inst = meta_planning(tmp_path)
 
     def edit() -> None:
-        mark_groups(tasks, [1], done=True)
+        tick_groups(inst, CHANGE, [1], done=True)
         tasks.write_text(tasks.read_text().replace("1.2 Register", "1.2 Persist"))
 
     prompt = resumed_fix(tmp_path, edit)

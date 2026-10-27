@@ -11,14 +11,22 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from agent_build_kit.pipeline.verdict_record import VERDICTS
 from tests.factories import activate_with
 from tests.graph.test_build_path import build, fresh
 from tests.graph.test_remaining_paths import capturing
+from tests.progress_support import copy_file, meta_planning
 
 REASON = "Reviewers cannot tell from the pull request why the work exists."
 GOAL = "Done when a loopback server answers the read endpoints."
-FOLLOW_UPS = Path("openspec") / "changes" / "add-marker" / "follow-ups.md"
+
+
+@pytest.fixture(autouse=True)
+def tracking_copy(tmp_path: Path) -> None:
+    """The planning repo at `<tmp>/meta` with its state directory at `<tmp>/state`."""
+    meta_planning(tmp_path)
 
 
 def write_change(planning: Path) -> None:
@@ -83,7 +91,7 @@ def test_a_point_given_twice_is_recorded_whole_and_listed_once_in_the_descriptio
 
     build(tmp_path, recorder, open_pr=capturing(recorder, bodies))
 
-    recorded = (tmp_path / "meta" / FOLLOW_UPS).read_text()
+    recorded = copy_file(meta_planning(tmp_path), "add-marker", "follow-ups.md").read_text()
     for point in (located, bare, other):
         assert f"- {point}" in recorded, "the file keeps every point"
     body = bodies[0]["body"]

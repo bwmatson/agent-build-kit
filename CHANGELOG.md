@@ -22,6 +22,19 @@
 - An acceptance or narrow unit no longer waits on, or is held by, the closed original of a
   split; it follows the pieces the split made, so it starts once they are done.
 
+- A change's task progress and follow-ups are now tracked in a copy under the state
+  directory, `<state dir>/changes/<change>/`, instead of in the repository, so a tick no
+  longer modifies a tracked file of the pipeline worktree. The copy is made from the
+  repository `tasks.md` and follows a person's later edits by task number. The
+  follow-ups note, the pull request body and the review page read the copy, and the
+  repository `openspec/changes/<change>/tasks.md` keeps its boxes as written. Agents may
+  not write the copy. A separate planning repo's ignore block gains `runs/changes/`.
+  The locks on a change's files now live outside the repository, under the local
+  directory (`<planning home>/local/locks/changes/<change>/`, or the state directory's
+  `locks/` in a separate planning repo), so no `*.md.lock` file appears in a change's
+  directory. `abk doctor` reports old ones and `abk doctor --fix` deletes the untracked
+  ones nothing holds; the ignore block gains `*.md.lock`.
+
 - A unit over its tier's size ceiling that cannot be split (it holds one group, carries
   groups of another change, has a started dependent, has used its split rounds, or has a
   group the planner finds too large) now has its size rule waived and goes on to review and

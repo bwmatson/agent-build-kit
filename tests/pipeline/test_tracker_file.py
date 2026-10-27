@@ -82,7 +82,6 @@ def test_the_file_is_written_whole_under_the_lock_with_no_leftover(tmp_path: Pat
     assert read_tracker(folder) == tracker(target="other-board")
     assert sorted(p.name for p in folder.iterdir() if p.name != "proposal.md") == [
         "tasks.md",
-        "tasks.md.lock",
         FILE_NAME,
     ]
 

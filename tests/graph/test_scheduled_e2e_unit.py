@@ -15,6 +15,7 @@ from agent_build_kit.pipeline.units import SATISFIED
 from tests.e2e_schedule_fakes import TODAY
 from tests.e2e_scope_fakes import WHOLE, Ran
 from tests.factories import git
+from tests.progress_support import copy_file
 from tests.runner_fakes import Killed
 from tests.scheduled_e2e_fakes import (
     CHANGE,
@@ -68,8 +69,9 @@ def test_a_pass_ends_the_unit_satisfied_with_the_counts_and_the_commit_and_ticks
     assert stored.note == "scheduled e2e-test passed for rest: 2 passed, 1 skipped on abc1234"
     assert stored.pr is None and "pr" not in run.recorder.events
     assert stored.feedback == ""
-    tasks = (run.inst.changes_dir / CHANGE / "tasks.md").read_text()
+    tasks = copy_file(run.inst, CHANGE).read_text()
     assert "- [x] 1.1" in tasks and "- [ ]" not in tasks
+    assert "- [x]" not in (run.inst.changes_dir / CHANGE / "tasks.md").read_text()
 
 
 def test_the_run_starts_from_the_default_branch_tip_as_of_the_start(tmp_path: Path) -> None:
