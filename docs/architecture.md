@@ -798,8 +798,12 @@ size (`HeldBy.SIZE`), with the request (tiers, drivers, lines, ceiling) kept on 
 by size raises no card; a tick step asks the planner to split it into pieces with ids `<unit>-s<k>`.
 `UnitStore.supersede` then writes the pieces and closes the old unit with the cause `superseded`
 (`closed` with a `superseded_by` field) in one write, after keeping the old branch under
-`refs/spec-driven/superseded/<unit id>`. Where a split cannot happen the unit is held again for a
-person.
+`refs/spec-driven/superseded/<unit id>`. Where a split cannot happen (one group, groups of another change, a started
+dependent, the split rounds used, or a group too large) the size rule is waived for the unit,
+`unsplit_reason` records why, and it is sent on through the delivery `abk requeue` uses to review,
+push and a pull request, whose description says it is over its ceiling and not split; no planner
+call is needed, so it proceeds even while planning is refused. `review.unsplittable: hold` keeps
+the old behaviour: the unit is held again for a person.
 
 **Builders are told to reuse before they write.** One packaged, language-neutral part
 (`reuse_guidance.reuse_guidance`, `templates/reuse-guidance.md`) is appended to the full

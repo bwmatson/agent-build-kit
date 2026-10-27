@@ -113,7 +113,11 @@ A unit over its tier's buffered ceiling is `held` with the cause `too_big_for_ti
 and a `superseded_by` list naming its pieces (`<unit>-s1`, `<unit>-s2`, ...): it occupies no slot,
 nothing waits on it (dependents are re-pointed to the last piece), and archiving counts it as
 finished without merging. Its branch is kept under `refs/spec-driven/superseded/<unit id>`. When no
-split can happen it is held again with `HeldBy.REVIEW` for a person.
+split can happen (one group, groups of another change, a started dependent, the split rounds used,
+or a group too large) the unit is not held for a person: its size rule is waived (`size_waived`),
+the reason is kept as `unsplit_reason`, and it goes on to review, push and a pull request, which
+says it is over its ceiling. `review.unsplittable: hold` holds it for a person with
+`HeldBy.REVIEW` instead.
 
 A unit can also be `retired`, a state beside `merged` and `closed`: it is finished, builds nothing,
 holds no place under `max_units_in_progress`, nothing waits on it, and no plan revives or reshapes it

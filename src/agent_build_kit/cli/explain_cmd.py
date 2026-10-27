@@ -94,6 +94,8 @@ def cmd_explain(args: argparse.Namespace, inst: Installation) -> int:
         and (stamp := history_stamp(entry)) is not None
         and stamp <= at
     ]
+    if unit is not None and unit.unsplit_reason:
+        print(f"{args.unit} is over its ceiling and not split: {unit.unsplit_reason}")
     paused = events[-1] if events and events[-1][1]["event"] == "usage_pause" else None
     if paused and (record is None or record.kind == "usage" or paused[0] >= record.at):
         stamp, entry = paused

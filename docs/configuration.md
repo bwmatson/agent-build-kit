@@ -862,6 +862,7 @@ review:
   ceilings: {auto: 5000, light: 2000, full: 750}   # estimated changed lines a unit may carry, by expected tier
   ceiling_buffer: 0.2      # a unit is held for its size only past its ceiling times one plus this
   split_rounds: 2          # plans a unit's lineage may spend splitting it; 0 sends every such unit to a person
+  unsplittable: open_pr    # a unit over its ceiling that cannot be split: open_pr waives the size rule and opens its pull request; hold waits for a person
   brief: true              # a pull request body opens with "Start here"; false keeps the older layout
 repos:
   app:
@@ -894,6 +895,11 @@ unit to a person. The configuration fails to load when the buffered `auto` ceili
 or of any repo would reach the reviewer's reading limit of 10,000 lines, since a unit that large
 cannot be read by the reviewer at all. `abk doctor` prints the buffered ceilings and warns above 80%
 of that limit, and when `split_rounds` is 0 with review enabled. The planner never reads the buffer.
+
+`review.unsplittable` (`open_pr`, the default, or `hold`) says what happens to a unit over its
+ceiling that cannot be split. With `open_pr` the size rule is waived for it and it goes on to a pull
+request that says it is over its ceiling; set `unsplittable: hold` to keep the old behaviour, where
+it is held for a person who runs `abk requeue`.
 
 `auto_land.allow_deferred_e2e` (default false; accepted only under
 `review.auto_land`) decides what a deferred e2e-test result is worth. The verdict reads a unit's e2e state as `passed`, `deferred`, `failed` or

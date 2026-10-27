@@ -162,9 +162,11 @@ instance).
   earlier one left open or unanswered, means the round is not an approval.
 - A size hold: a unit held by size (cause `too_big_for_tier`) is over its tier's buffered ceiling and
   waits for the pipeline to split it; no action needed, and the old unit ends `closed` as superseded
-  by its pieces. A unit held for a person for its size (the note says why: no split rounds left, one
-  group over the ceiling, groups of another change, a started unit stacked on it) needs a decision;
-  `abk requeue` of it records `size_waived`, so the size step is skipped for it and it is not held
+  by its pieces. A unit that cannot be split (no split rounds left, one
+  group over the ceiling, groups of another change, a started unit stacked on it, a group too large)
+  has its size waived (`size_waived`) and the reason kept, and goes on to review and a pull request
+  that says it is over its ceiling and not split; no action needed. With `review.unsplittable: hold`
+  it is held for a person instead, and `abk requeue` of it records `size_waived`, so it is not held
   again by the same rule.
 - A toolchain hold: nothing a retry fixes. Either build the unit by hand on
   its branch, or change the plan.
