@@ -166,6 +166,31 @@ def test_paths_travel_by_dash_d_and_never_sit_in_the_profile(tmp_path: Path) -> 
     assert {name for name in PARAM.findall(text)} <= set(params)
 
 
+def test_a_no_execute_path_travels_by_dash_d_and_its_deny_comes_last(tmp_path: Path) -> None:
+    odd = tmp_path / 'a "quoted" git'
+    odd.mkdir()
+    given = SandboxPolicy(
+        write=(),
+        read=(odd,),
+        hosts=(),
+        required=Coverage.PROCESS,
+        proxy_port=8123,
+        ports=(9000,),
+        no_execute=(odd,),
+    )
+
+    profile, params, _ = split_command(BACKEND.command(given, ["true"]))
+    text = profile.read_text()
+    rules = forms(text)[2:]
+
+    assert str(odd) in params.values()
+    assert str(odd) not in text
+    assert {name for name in PARAM.findall(text)} <= set(params)
+    denies = [at for at, rule in enumerate(rules) if rule.startswith("(deny process-exec")]
+    assert len(denies) == 1
+    assert not [rule for rule in rules[denies[0] :] if rule.startswith("(allow")]
+
+
 def test_the_command_runs_the_argv_after_the_double_dash(tmp_path: Path) -> None:
     command = BACKEND.command(policy(tmp_path), ["git", "status", "--short"])
 

@@ -36,6 +36,7 @@ def _entries(policy: SandboxPolicy) -> list[tuple[str, str, Path]]:
     """The (parameter name, `subpath` or `literal`, path) of each folder or file in the policy."""
     found = [(f"WRITE_{at}", path) for at, path in enumerate(policy.write)]
     found += [(f"READ_{at}", path) for at, path in enumerate(policy.read)]
+    found += [(f"NOEXEC_{at}", path) for at, path in enumerate(policy.no_execute)]
     return [(name, "literal" if path.is_file() else "subpath", path) for name, path in found]
 
 
@@ -47,13 +48,16 @@ def profile_text(policy: SandboxPolicy) -> str:
     """The Seatbelt profile for `policy`; paths are `(param "NAME")` references, never literals."""
     entries = _entries(policy)
     writes = [entry for entry in entries if entry[0].startswith("WRITE_")]
+    unrun = [entry for entry in entries if entry[0].startswith("NOEXEC_")]
     lines = ["(version 1)", "(deny default)", *_BASE_RULES]
     lines += _rule("file-write*", writes)
     # What may be written may be read.
-    lines += _rule("file-read*", entries)
+    lines += _rule("file-read*", [entry for entry in entries if entry not in unrun])
     open_ports = [policy.proxy_port] if policy.proxy_port is not None else []
     for port in (*open_ports, *policy.ports):
         lines.append(f'(allow network-outbound (remote ip "localhost:{port}"))')
+    # Last, so no allow after it can lift it: read and never run.
+    lines += [f'(deny process-exec (subpath (param "{name}")))' for name, _, _ in unrun]
     return "\n".join(lines) + "\n"
 
 

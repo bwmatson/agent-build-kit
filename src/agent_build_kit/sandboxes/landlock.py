@@ -22,7 +22,8 @@ def abi_version() -> int:
 def _policy_text(policy: SandboxPolicy) -> str:
     lines = [f"required={policy.required.value}"]
     lines += [f"write={path}" for path in policy.write]
-    lines += [f"read={path}" for path in policy.read]
+    lines += [f"read={path}" for path in policy.read if path not in policy.no_execute]
+    lines += [f"no_execute={path}" for path in policy.no_execute]
     lines += [f"host={host}" for host in policy.hosts]
     if policy.proxy_port is not None:
         lines.append(f"proxy_port={policy.proxy_port}")

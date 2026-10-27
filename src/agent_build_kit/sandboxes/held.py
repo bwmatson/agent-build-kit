@@ -5,7 +5,8 @@ from __future__ import annotations
 
 import subprocess
 import tempfile
-from collections.abc import Iterator, Sequence
+import time
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -41,6 +42,39 @@ def run(
         timeout=TIMEOUT,
         check=False,
     )
+
+
+def run_replacing(
+    backend: SandboxBackend,
+    policy: SandboxPolicy,
+    script: str,
+    *,
+    ready: Path,
+    replace: Callable[[], None],
+) -> subprocess.CompletedProcess[str]:
+    """Run `script` as `run` does and, when it creates `ready` (the step is waiting), call
+    `replace` from outside the step; the script goes on once it has. Raises `TimeoutExpired`."""
+    step = subprocess.Popen(
+        backend.command(policy, ["sh", "-c", script]),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    deadline = time.monotonic() + TIMEOUT
+    try:
+        while step.poll() is None and not ready.exists():
+            if time.monotonic() > deadline:
+                raise subprocess.TimeoutExpired(script, TIMEOUT)
+            time.sleep(0.02)
+        if step.poll() is None:
+            replace()
+        out, err = step.communicate(timeout=max(deadline - time.monotonic(), 1))
+    except BaseException:
+        # Whatever went wrong, no step is left waiting for a file that will not come.
+        step.kill()
+        step.communicate()
+        raise
+    return subprocess.CompletedProcess(step.args, step.returncode, out, err)
 
 
 def failed(cause: str, fix: str) -> Availability:

@@ -19,7 +19,7 @@ Restrict = Callable[[Mapping[str, list[str]]], None]
 EXIT_NOT_APPLIED = 97
 
 # The policy file's list keys; `required` is a single value beside them.
-LIST_KEYS = ("write", "read", "host", "proxy_port", "port")
+LIST_KEYS = ("write", "read", "no_execute", "host", "proxy_port", "port")
 
 _SYS_CREATE_RULESET = 444
 _SYS_ADD_RULE = 445
@@ -110,6 +110,10 @@ def apply_restrictions(lists: Mapping[str, list[str]], libc: ctypes.CDLL | None 
             _call(libc, _SYS_ADD_RULE, ruleset, _RULE_NET_PORT, ctypes.byref(allowed), 0)
         rules = [(path, folder_rights) for path in lists.get("write", [])]
         rules += [(path, _READ_RIGHTS & handled) for path in lists.get("read", [])]
+        # Read and never run; these paths are not also under `read`, which would add execute.
+        rules += [
+            (path, _READ_RIGHTS & handled & ~_EXECUTE) for path in lists.get("no_execute", [])
+        ]
         rules.append((_DEVICE_FOLDER, file_rights & ~_EXECUTE))
         for path, rights in rules:
             _add_rule(libc, ruleset, path, rights, file_rights)

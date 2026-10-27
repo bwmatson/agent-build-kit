@@ -108,7 +108,13 @@ from agent_build_kit.runtimes import claude_code, policy_check, providers
 from agent_build_kit.runtimes.base import AgentRuntime, Run, Which, account_report_of
 from agent_build_kit.sandboxes import held
 from agent_build_kit.sandboxes.base import system_folders
-from agent_build_kit.sandboxes.policy import builtin_reads, git_parts, git_reads, policy_entries
+from agent_build_kit.sandboxes.policy import (
+    builtin_reads,
+    git_directory,
+    git_parts,
+    git_reads,
+    policy_entries,
+)
 from agent_build_kit.settings import settings
 
 Status = Literal["ok", "info", "warn", "FAIL"]
@@ -1799,12 +1805,16 @@ def _confined_failure(
     what: str,
     *,
     started: Callable[[subprocess.CompletedProcess[str]], bool] = lambda done: False,
+    run: Callable[
+        [sandboxes.SandboxBackend, sandboxes.SandboxPolicy, str],
+        subprocess.CompletedProcess[str],
+    ] = held.run,
 ) -> str:
     """Why `script` does not succeed in a confined step under `policy` (`what` says what it
     does), naming what the step printed; empty when it succeeds. A non-zero exit counts as
     success when `started` says the command ran as far as it was meant to."""
     try:
-        done = held.run(backend, policy, script)
+        done = run(backend, policy, script)
     except subprocess.TimeoutExpired:
         return f"a confined step trying to {what} did not finish in {held.TIMEOUT} seconds"
     except OSError as error:
@@ -1816,7 +1826,9 @@ def _confined_failure(
 
 def _git_read_failure(backend: sandboxes.SandboxBackend, coverage: sandboxes.Coverage) -> str:
     """Why a confined step cannot run `git status` and `git log -1` in a worktree, naming what
-    git could not read; empty when it can. Run in a scratch linked worktree."""
+    git could not read; empty when it can. Run in a scratch linked worktree, where `packed-refs`
+    is replaced by write-and-rename, as `git pack-refs` does, while the step waits, and `git log
+    -1` runs again."""
     with tempfile.TemporaryDirectory(prefix="abk-probe-git-") as folder:
         main, tree = (Path(folder).resolve() / name for name in ("main", "wt"))
         # Independent of the person's own configuration: no signing, no hooks.
@@ -1826,6 +1838,7 @@ def _git_read_failure(backend: sandboxes.SandboxBackend, coverage: sandboxes.Cov
             git(main.parent, "init", "-q", "-b", "main", str(main))
             git(main, *quiet, *identity, "commit", "-q", "--allow-empty", "-m", "probe")
             git(main, "worktree", "add", "-q", str(tree), "-b", "probe")
+            git(main, "pack-refs", "--all")
         except (subprocess.CalledProcessError, OSError) as error:
             detail = getattr(error, "stderr", None) or error
             return f"could not make a scratch worktree for the git probe: {str(detail).strip()}"
@@ -1834,9 +1847,28 @@ def _git_read_failure(backend: sandboxes.SandboxBackend, coverage: sandboxes.Cov
             read=(*(Path(f).resolve() for f in system_folders()), *git_reads(tree)),
             hosts=(),
             required=coverage,
+            no_execute=git_directory(tree),
         )
-        script = f"cd {shlex.quote(str(tree))} && git status && git log -1"
-        return _confined_failure(backend, policy, script, "run git")
+        ready, replaced = tree / "packed-refs.ready", tree / "packed-refs.replaced"
+        script = (
+            f"cd {shlex.quote(str(tree))} && git status && git log -1 && : > {ready.name} && "
+            f"until [ -e {replaced.name} ]; do sleep 0.02; done && git log -1"
+        )
+
+        def replace() -> None:
+            packed = main / ".git" / "packed-refs"
+            lock = packed.with_name("packed-refs.lock")
+            lock.write_text(packed.read_text())
+            lock.replace(packed)
+            replaced.touch()
+
+        return _confined_failure(
+            backend,
+            policy,
+            script,
+            "run git",
+            run=lambda b, p, s: held.run_replacing(b, p, s, ready=ready, replace=replace),
+        )
 
 
 def _abk_exec_failure(
@@ -1863,6 +1895,7 @@ def _abk_exec_failure(
             ),
             hosts=(),
             required=coverage,
+            no_execute=git_directory(scratch),
         )
         pointed = shlex.quote(str(inst.root / config.CONFIG_FILENAME))
         script = (
