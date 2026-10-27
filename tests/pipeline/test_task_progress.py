@@ -15,12 +15,13 @@ from tests.progress_support import (
 CHANGE = "add-marker"
 
 
-def test_a_unit_s_groups_are_ticked_in_the_copy_and_nothing_else(tmp_path: Path) -> None:
+def test_a_unit_s_groups_are_ticked_and_nothing_else(tmp_path: Path) -> None:
     inst = planning(tmp_path)
     write_repository(inst, CHANGE, TASKS)
 
     tick(inst, CHANGE, (2,), done=True)
 
+    assert repository_file(inst, CHANGE).read_text() == TASKS, "ticks go to the copy only"
     text = copy_file(inst, CHANGE).read_text()
     assert "- [x] 2.1 Test: two" in text
     assert "- [x] 2.10 Do two" in text
@@ -39,13 +40,14 @@ def test_the_repository_file_is_left_byte_for_byte(tmp_path: Path) -> None:
     assert repository_file(inst, CHANGE).read_bytes() == before
 
 
-def test_a_failed_unit_s_groups_are_unticked_in_the_copy(tmp_path: Path) -> None:
+def test_a_failed_unit_s_groups_are_unticked(tmp_path: Path) -> None:
     inst = planning(tmp_path)
     write_repository(inst, CHANGE, TASKS)
 
     tick(inst, CHANGE, (1,), done=False)
 
     assert "- [ ] 1.1 Test: one" in copy_file(inst, CHANGE).read_text()
+    assert repository_file(inst, CHANGE).read_text() == TASKS, "the repository file is untouched"
 
 
 def test_the_text_of_a_task_is_never_changed(tmp_path: Path) -> None:
