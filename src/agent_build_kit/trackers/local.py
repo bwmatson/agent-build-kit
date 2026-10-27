@@ -17,7 +17,14 @@ from agent_build_kit.trackers.base import (
 
 
 class LocalTracker:
-    def __init__(self, capabilities: Capabilities | None = None, who: str = "sync") -> None:
+    def __init__(
+        self,
+        capabilities: Capabilities | None = None,
+        who: str = "sync",
+        levels: Sequence[ItemKind] | None = None,
+    ) -> None:
+        if levels is not None:
+            raise NotImplementedError
         self._capabilities = capabilities or Capabilities()
         self._who = who
         self._items: dict[str, Item] = {}
@@ -33,6 +40,10 @@ class LocalTracker:
         view._comments = self._comments
         view._relations = self._relations
         return view
+
+    def add_epic(self, title: str) -> Item:
+        """A manual epic: the read-only parent of the first level, made by a person."""
+        raise NotImplementedError
 
     def capabilities(self) -> Capabilities:
         return self._capabilities
