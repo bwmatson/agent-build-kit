@@ -42,6 +42,7 @@
   and retry a rename a share briefly refuses. Leases, branch locks and the e2e-test record
   now name their host, and a record from another host is treated as held and never taken
   over.
+
 - `abk attach release --commit MESSAGE` now builds the commit's subject itself from the unit's
   group progress (`test:`, `feat:` or `fix: ... (adopted)` with the group's title) and keeps
   `MESSAGE` as the body, so the commit counts toward the group's pair and the unit no longer
