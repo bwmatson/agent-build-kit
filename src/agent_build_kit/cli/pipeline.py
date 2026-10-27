@@ -440,6 +440,7 @@ from agent_build_kit.pipeline.work_graph import (
     tasks_path,
     unrelated_parent_warnings,
     validate_tasks,
+    validate_tasks_text,
 )
 from agent_build_kit.pipeline.workspaces import (
     BranchBusy,
@@ -473,6 +474,44 @@ def log(message: str, *, at: str | None = None) -> None:
     print(f"[{at or stamp()}] {redact_text(message, where='printed output')}", flush=True)
 
 
+def project_source_notes(inst: Installation, units: Sequence[StoredUnit]) -> dict[str, str]:
+    """For each unit whose project a group's resolution or `[repo/<root>]` set, by unit id, the
+    note saying so (`project_source_note`): the source of the unit's first group. Empty when no
+    repo declares a project, since nothing is then resolved."""
+    if not any(declared_projects(inst.repos).values()):
+        return {}
+    catalog = _task_catalog(inst)
+    notes: dict[str, str] = {}
+    for unit in units:
+        member = next((m for m in unit.members() if m.groups), None)
+        if member is None:
+            continue
+        group = next(
+            (g for g in catalog.get(member.change, ()) if g.number == member.groups[0]), None
+        )
+        if group and group.project == unit.project and (note := project_source_note(group)):
+            notes[unit.id] = note
+    return notes
+
+
+def project_notes(inst: Installation, units: Sequence[StoredUnit]) -> dict[tuple[str, str], str]:
+    """The note for each (repo, project) the units in `units` were placed in by resolution, for
+    the graph to title the project's subgraph with."""
+    by_id = {u.id: u for u in units}
+    return {
+        (by_id[uid].repo, by_id[uid].project): note.strip()
+        for uid, note in project_source_notes(inst, units).items()
+    }
+
+
+def project_source_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[str]:
+    """One line for each unit still to build or in progress whose project was resolved, or whose
+    group opted into the root, so the status says where its place came from."""
+    live = (*NEEDS_TICKS, FAILED, HELD)
+    notes = project_source_notes(inst, [u for u in units if u.state in live])
+    return [f"  {u.id} ({unit_label(u)}){notes[u.id]}" for u in units if u.id in notes]
+
+
 def store_for(inst: Installation) -> UnitStore:
     def refresh_graph(units: list[StoredUnit]) -> None:
         # A view, so it must never take the store write down with it.
@@ -485,6 +524,7 @@ def store_for(inst: Installation) -> UnitStore:
                 gated=gated_units(inst, units),
                 restacking=restacking_bases(inst),
                 projects=declared_projects(inst.repos),
+                project_notes=project_notes(inst, units),
             )
         except Exception as error:  # noqa: BLE001
             log(f"graph not refreshed — {type(error).__name__}: {error}")
@@ -874,6 +914,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         if found := standing(name, ask=False):
             log(found.text if found.state == "invalid" else f"tracker {name}: {found.text}")
 
+    for line in project_source_lines(inst, store_for(inst).all()):
+        print(line)
+
     gates = recorded_gates(
         inst.state_dir / VERDICTS,
         config.active().review,
@@ -1145,6 +1188,7 @@ def cmd_graph(args: argparse.Namespace, inst: Installation) -> int:
         paused=parked_units(inst, units),
         restacking=restacking_bases(inst),
         projects=declared_projects(inst.repos),
+        project_notes=project_notes(inst, units),
     )
     print(f"{inst.graph_page}: {len(units)} unit(s)")
     return 0
@@ -4641,7 +4685,8 @@ def _without_planner(
 ) -> tuple[Literal["refused", "tag_problems", "all_taken"], str | list[str]] | None:
     """Why a plan for `change` is made without the planner, or None when it would be called:
     `refused` with the reason (broken task groups, or groups gone from `tasks.md`),
-    `tag_problems` with a line each when every group is taken and a tag disagrees, or
+    `tag_problems` with a line each when every group is taken and a tag disagrees, or, whatever
+    is taken, when a started unit is stored in a project its repo no longer declares, or
     `all_taken` with `ALL_TAKEN`. The one place `plan_all` and `abk replan --report` decide."""
     if errors:
         return "refused", _task_group_problems(len(errors))
@@ -4938,7 +4983,15 @@ def plan_all(
                 _set_priorities(store, _carrying_unstarted(store, change), _task_catalog(inst))
                 record_plans(
                     inst,
-                    {change: {"hash": digest, "sizing": sizing, "attempts": 0, "ok": True}},
+                    {
+                        change: {
+                            "hash": digest,
+                            "sizing": sizing,
+                            "attempts": 0,
+                            "ok": True,
+                            RESOLVED_FIELD: _resolution_field(task_groups),
+                        }
+                    },
                 )
                 log(f"{change}: {why}")
                 results[change] = PlanResult(status="planned", recorded_only=True)
@@ -5166,6 +5219,7 @@ def plan_all(
                     "sizing": sizing,
                     "attempts": attempts_kept,
                     "ok": True,
+                    RESOLVED_FIELD: _resolution_field(task_groups),
                 }
             },
         )
@@ -5406,20 +5460,30 @@ def sizing_digest() -> str:
 
 
 MOVED = "project_moved"
+# The field of a plan record that keeps the projects its groups resolved to, by group number.
+RESOLVED_FIELD = "resolved"
+
+
+def _resolution_field(groups: Sequence[TaskGroup]) -> dict[str, str]:
+    """What a plan record keeps of the projects `groups` resolved to."""
+    return {str(number): project for number, project in resolved_projects(groups).items()}
 
 
 def marked_for_moved_projects(inst: Installation, records: dict[str, dict]) -> dict[str, dict]:
     """`records` with `MOVED` set on the plan of each change whose text is the one planned but
-    whose groups now resolve to other projects (a declared project was added), so it reads stale."""
+    whose groups now resolve to other projects (a declared project was added or removed), so it
+    reads stale. A record that keeps no resolution was made when nothing resolved."""
     marked = dict(records)
     for path in inst.tasks_files():
         change = path.parent.name
         record = records.get(change)
-        if not record or not (resolved := _resolved_in(path, inst)):
+        if not record:
             continue
+        resolved = _resolved_in(path, inst)
+        before = {int(n): p for n, p in record.get(RESOLVED_FIELD, {}).items()}
         recorded = record.get("hash")
         text = path.read_text()
-        if recorded == text_digest(text, recorded, {}) != text_digest(text, recorded, resolved):
+        if before != resolved and recorded == text_digest(text, recorded, before):
             marked[change] = {**record, MOVED: True}
     return marked
 
@@ -6038,6 +6102,7 @@ def _refresh_graph_page(inst: Installation, store: UnitStore) -> None:
             paused=parked_units(inst, units),
             restacking=restacking_bases(inst),
             projects=declared_projects(inst.repos),
+            project_notes=project_notes(inst, units),
         )
     except Exception as error:  # noqa: BLE001
         log(f"graph not refreshed — {type(error).__name__}: {error}")
@@ -6695,12 +6760,17 @@ def _needs_cycle_problems(inst: Installation) -> dict[str, str]:
 
 def _validated(inst: Installation, path: Path) -> tuple[list[TaskGroup], list[ValidationError]]:
     """A tasks file's groups and errors against the installation's repos and their projects."""
-    return validate_tasks(
-        path,
-        repos=tuple(inst.repos),
-        projects=declared_projects(inst.repos),
-        splits=declared_split_names(inst.repos, inst.config),
-    )
+    return validate_tasks(path, **_validation_scope(inst))
+
+
+def _validation_scope(inst: Installation) -> dict[str, Any]:
+    """The repos, projects and e2e-test splits the installation declares, as `validate_tasks`
+    and `validate_tasks_text` take them."""
+    return {
+        "repos": tuple(inst.repos),
+        "projects": declared_projects(inst.repos),
+        "splits": declared_split_names(inst.repos, inst.config),
+    }
 
 
 def _tag_warnings(inst: Installation, path: Path) -> list[str]:
@@ -6778,11 +6848,7 @@ def _fix_change_tags(
         if not count:
             print(f"{change}: unchanged")
             return True
-        with tempfile.TemporaryDirectory() as scratch:
-            probe = Path(scratch) / change / "tasks.md"
-            probe.parent.mkdir()
-            probe.write_bytes(fixed.encode())
-            after, after_errors = _validated(inst, probe)
+        after, after_errors = validate_tasks_text(fixed, change, **_validation_scope(inst))
         if (before, []) != (after, after_errors):
             return refuse("the rewritten tags do not parse to the same groups; nothing written")
         if not os.access(path, os.W_OK):

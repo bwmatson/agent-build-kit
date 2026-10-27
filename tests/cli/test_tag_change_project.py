@@ -83,6 +83,21 @@ def test_a_started_unit_in_a_project_the_repo_no_longer_declares_is_refused_nami
     assert "abk requeue --restart feature/1" in out
 
 
+def test_an_undeclared_stored_project_is_refused_while_groups_are_still_unplanned(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = run_with_unit_then_groups_moved_to_web(tmp_path, monkeypatch, (1,), project="mobile")
+
+    results = cli.plan_all(run.inst, store=run.store)
+
+    out = capsys.readouterr().out
+    assert results["feature"].status == "refused"
+    assert run.calls == 0
+    assert "feature/1" in out
+    assert "mobile" in out
+    assert "no longer declared" in out
+
+
 @pytest.mark.parametrize(
     ("fields", "field"),
     [({"repo": "platform"}, "repo"), ({"tier": "integration-test"}, "tier")],

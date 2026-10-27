@@ -18,8 +18,8 @@
   every path it names, and stays in the root otherwise; `[repo/<root>]` opts out. A replan no
   longer refuses a started unit just because its group's project moved: the unit keeps its
   stored project and the log says so, unless the repo no longer declares that project.
-  `abk tags` and the planner prompt mark a project as resolved (or an explicit root), and a
-  plan made before a project was declared is reported stale.
+  `abk tags`, `abk status`, `abk graph` and the planner prompt mark a project as resolved (or an
+  explicit root), and a plan made before a project was declared or removed is reported stale.
 
 - The files tied to this machine's processes (the checkpointer database, the branch, repo and
   change locks, the leases, the e2e-test lock and the environment lock) now live in a local

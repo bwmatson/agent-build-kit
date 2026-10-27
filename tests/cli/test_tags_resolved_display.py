@@ -1,5 +1,5 @@
 """`abk tags`, `abk status` and `abk graph` show the project a group resolved to, and say it was
-resolved (spec: project-resolution)."""
+resolved (spec: project-resolution); the planner prompt does in its own test file."""
 
 from __future__ import annotations
 
@@ -78,3 +78,42 @@ def test_status_reports_a_plan_stale_once_a_declared_project_moves_a_group(
 
     lines = [line for line in capsys.readouterr().out.splitlines() if "stale" in line]
     assert any("feature" in line for line in lines)
+
+
+def test_status_marks_a_unit_planned_from_a_resolved_group_and_not_one_written_for_the_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    run = run_with(
+        tmp_path,
+        monkeypatch,
+        ("[app] [unit-test] Resolved", "web/src/a.ts"),
+        ("[app/web] [unit-test] Written", "web/src/b.ts"),
+    )
+    run.store.import_units(
+        [
+            new_unit("feature/1", groups=(1,), project="web"),
+            new_unit("feature/2", groups=(2,), project="web"),
+        ]
+    )
+
+    capsys.readouterr()
+    assert cli.cmd_status(argparse.Namespace(), run.inst) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert any("feature/1" in line and "(resolved)" in line for line in lines)
+    assert not any("feature/2" in line and "resolved" in line for line in lines)
+
+
+def test_the_graph_titles_the_subgraph_of_a_resolved_project_and_holds_the_unit_in_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = run_with(tmp_path, monkeypatch, ("[app] [unit-test] Add it", "web/src/a.ts"))
+    run.store.import_units([new_unit("feature/1", groups=(1,), project="web")])
+
+    assert cli.cmd_graph(argparse.Namespace(), run.inst) == 0
+
+    page = run.inst.graph_page.read_text()
+    title = 'subgraph app__project__web["web (resolved)"]'
+    assert title in page
+    assert "feature/1" in page[page.index(title) : page.index("        end", page.index(title))]

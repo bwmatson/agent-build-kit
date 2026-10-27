@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+import tempfile
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from enum import StrEnum
 from pathlib import Path
@@ -485,6 +486,23 @@ def _split_problem(number: int, repo: str, tier: str, value: str, declared: tupl
         f'group {number} is in split "{value}" but repo "{repo}" declares {named} and '
         f"`{declared[-1]}`"
     )
+
+
+def validate_tasks_text(
+    text: str,
+    change: str,
+    *,
+    repos: tuple[str, ...] | None = None,
+    projects: Mapping[str, tuple[str, ...]] | None = None,
+    splits: Mapping[str, tuple[str, ...]] | None = None,
+) -> tuple[list[TaskGroup], list[ValidationError]]:
+    """`validate_tasks` of `text` as the tasks of the change `change`, which it is written to
+    under a scratch directory of that name, where the parse reads the name of its own change."""
+    with tempfile.TemporaryDirectory() as scratch:
+        probe = Path(scratch) / change / "tasks.md"
+        probe.parent.mkdir()
+        probe.write_bytes(text.encode())
+        return validate_tasks(probe, repos=repos, projects=projects, splits=splits)
 
 
 def validate_tasks(

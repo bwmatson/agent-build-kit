@@ -3,11 +3,13 @@ an unstarted unit there while a started one stays (spec: project-resolution)."""
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.pipeline.work_graph import specification_text
 from tests.cli.replan_driver import Replan, answer, listing, planned
 from tests.factories import new_unit
 from tests.project_workspace import repos_declaring, tasks_editing
@@ -41,6 +43,29 @@ def test_the_listing_reports_the_plan_stale_once_a_group_resolves_elsewhere(
     run = planned_before_web_was_declared(tmp_path, monkeypatch)
 
     assert "stale" in listing(run, capsys)["feature"]
+
+
+def test_a_plan_with_one_group_already_resolved_is_stale_once_another_project_takes_a_second(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    text = tasks_editing(IN_WEB, ("[app] [unit-test] Add api", "api/src/b.ts"))
+    run = Replan(
+        tmp_path,
+        monkeypatch,
+        repos=repos_declaring(tmp_path, "app", ("web", "api")),
+        feature=text,
+    )
+    run.store.import_units([new_unit("feature/1", groups=(1,), project="web")])
+    before = hashlib.sha256(specification_text(text, resolved={1: "web"}).encode()).hexdigest()
+    run.record("feature", hash=before, resolved={"1": "web"})
+    run.runtime.answer = answer(planned("feature/1", (1,)), planned("feature/2", (2,)))
+
+    assert "stale" in listing(run, capsys)["feature"]
+
+    cli.plan_all(run.inst, store=run.store)
+
+    assert run.records["feature"]["resolved"] == {"1": "web", "2": "api"}
+    assert "stale" not in listing(run, capsys)["feature"]
 
 
 def test_an_unstarted_unit_is_replanned_into_the_project_the_group_now_resolves_to(
