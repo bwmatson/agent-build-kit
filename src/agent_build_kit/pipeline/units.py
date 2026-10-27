@@ -828,7 +828,8 @@ def unit_number(unit: Unit) -> int:
 
 def earlier_units(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
     """The units an acceptance or narrow `unit` follows beyond its stored dependencies: every
-    unit of its own change numbered before it that the plan has not dropped. Computed from the
+    unit of its own change numbered before it that the plan has not dropped and a split has not
+    replaced (the pieces are followed instead). Computed from the
     change's units each time, so it needs no stored edge; a unit with no flag follows only the
     chain and has none."""
     if getattr(unit, "flag", "") not in ("acceptance", "narrow"):
@@ -840,6 +841,7 @@ def earlier_units(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
         if other.change == unit.change
         and other.id != unit.id
         and other.state not in BUILDS_NOTHING
+        and not is_superseded(other)
         and unit_number(other) < number
     ]
 
