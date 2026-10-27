@@ -162,7 +162,8 @@ docs/              architecture, configuration, cli, toolchain-profiles, agent-r
   basenames must be unique.
 - **A child pytest's code is a file.** A test that needs a child pytest keeps the child's code in files
   under `tests/child_modules/<scenario>/`, runs it with `tests/child_pytest.py` `run_scenario`, passes
-  values by option or environment variable, and never builds a source from a string.
+  values by option or environment variable, and never builds a source from a string. `tests/child_sources.py` fails a new module that does, and
+  its allow-list of the existing ones only shrinks.
 - **A new live test is tagged by what it starts.** A live test that starts an agent carries exactly one
   runtime tag (`runtime_acp` or `runtime_claude_code`), the one of the runtime it starts; the drift
   test decides what starts one from `AGENT_SIGNALS` in `tests/live_tag_drift.py` and compares the
