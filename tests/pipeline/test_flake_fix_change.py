@@ -19,7 +19,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import flakes
+from agent_build_kit.pipeline import task_progress
 from agent_build_kit.pipeline.flakes import (
     Flake,
     flake_change_name,
@@ -345,7 +345,7 @@ def test_the_needs_line_is_added_under_the_lock_that_ticking_boxes_takes(
     unit = change_with_unit(installation, "feature", "feature/1")
     tasks = installation.changes_dir / "feature" / "tasks.md"
     held: list[Path] = []
-    real = flakes.file_lock
+    real = task_progress.file_lock
 
     @contextmanager
     def spy(path: Path) -> Iterator[None]:
@@ -353,7 +353,7 @@ def test_the_needs_line_is_added_under_the_lock_that_ticking_boxes_takes(
             held.append(path)
             yield
 
-    monkeypatch.setattr(flakes, "file_lock", spy)
+    monkeypatch.setattr(task_progress, "file_lock", spy)
 
     wait_on_fix(installation, flaked(), unit)
 
