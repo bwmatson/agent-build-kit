@@ -119,6 +119,8 @@ def archive_ready_changes(
     e2e_outputs: Path | None = None,
     usage_ledger: Path | None = None,
     worktrees: Callable[[str], list[Path]] = lambda change: [],
+    progress: Callable[[str], Path] | None = None,
+    publish: Callable[[str], None] | None = None,
 ) -> list[str]:
     """Archive every change whose units have all merged, oldest merge first —
     and that `may_archive` lets through: the tick passes whether the change

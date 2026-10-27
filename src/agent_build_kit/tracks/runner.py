@@ -632,6 +632,15 @@ def commit_bookkeeping(
         )
 
 
+def publish_commit(
+    inst: Installation, branch: str, label: str, message: str, earlier: str, body: str
+) -> None:
+    """Publishes the commit just made at HEAD: the push of `commit_bookkeeping` from the commit
+    to the retried push, and `planning.publish: branch`'s `planning/<label>` branch and pull request
+    to `branch` titled `message` with `body`, then HEAD back at `earlier`."""
+    raise NotImplementedError
+
+
 def _publish_branch(
     inst: Installation, base: str, project: Project, name: str, message: str, earlier: str
 ) -> None:
