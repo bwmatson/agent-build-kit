@@ -101,6 +101,7 @@
   instead of sharing a folder. `abk doctor` notes worktrees under another folder and warns
   about registered ones whose directory is gone, and a runbook describes moving the root.
   network filesystem.
+
 - The kit finds the nearest file above a folder, the nearest existing folder of a path and the
   git checkout a path is in through one shared module, and every lookup of a checkout root now
   uses it, so they all answer the same way.
