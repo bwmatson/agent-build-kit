@@ -64,7 +64,7 @@ def mount_of(path: Path, table: str | None = None) -> Mount:
         point = Path(_unescape(before[4]))
         if target != point and point not in target.parents:
             continue
-        if best is not None and len(point.parts) <= best[0]:
+        if best is not None and len(point.parts) < best[0]:
             continue
         fstype = after[0]
         options = ",".join([before[5], *after[2:3]])

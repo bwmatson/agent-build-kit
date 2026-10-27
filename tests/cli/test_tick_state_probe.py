@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,24 +12,12 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import lock_probe, mounts
 from agent_build_kit.pipeline.lock_probe import CACHE_NAME, ProbeResult
-from agent_build_kit.pipeline.mounts import Mount
 from tests.conftest import make_installation
+from tests.lock_probe_fakes import Probes, count_probes, mount
 from tests.tick_pass import isolate, tick
 
 DAY = 24 * 3600.0
 FAR_FUTURE = 10.0**12
-
-
-class Probes:
-    """Counts the probes a tick starts, and answers as a test chooses."""
-
-    def __init__(self) -> None:
-        self.count = 0
-        self.result = ProbeResult(passed=True, detail="ok")
-
-    def __call__(self, directory: Path, *args, **kwargs) -> ProbeResult:
-        self.count += 1
-        return self.result
 
 
 class Syncs:
@@ -44,9 +33,7 @@ class Syncs:
 
 @pytest.fixture
 def probes(monkeypatch: pytest.MonkeyPatch) -> Probes:
-    found = Probes()
-    monkeypatch.setattr(lock_probe, "probe_locking", found)
-    return found
+    return count_probes(monkeypatch)
 
 
 @pytest.fixture
@@ -67,8 +54,8 @@ def inst(tmp_path: Path) -> Installation:
 
 def on(monkeypatch: pytest.MonkeyPatch, fstype: str, *, options: str = "rw") -> None:
     """Every path on a filesystem of this type."""
-    mount = Mount(fstype=fstype, source="files:/export", options=options, local=fstype == "ext4")
-    monkeypatch.setattr(mounts, "mount_of", lambda path, table=None: mount)
+    found = mount(fstype, options=options)
+    monkeypatch.setattr(mounts, "mount_of", lambda path, table=None: found)
 
 
 def cache(inst: Installation) -> Path:
@@ -145,4 +132,16 @@ def test_a_failed_probe_prints_the_detail_exits_1_and_touches_nothing(
     assert "two processes both held the lock on nfs4" in capsys.readouterr().out
     assert listing(inst.state_dir) == before
     assert syncs.count == 0
+    assert not cache(inst).exists()
+
+
+def test_status_runs_no_probe_and_writes_no_cache(
+    inst: Installation, probes: Probes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    on(monkeypatch, "nfs4")
+    isolate(monkeypatch)
+
+    cli.cmd_status(argparse.Namespace(refresh=False), inst)
+
+    assert probes.count == 0
     assert not cache(inst).exists()

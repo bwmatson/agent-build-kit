@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.pipeline import mounts
 from agent_build_kit.pipeline.mounts import mount_of
 
 TABLE = "\n".join(
@@ -69,3 +70,30 @@ def test_an_unreadable_table_gives_unknown_which_is_not_local_and_says_so(table:
     assert mount.fstype == "unknown"
     assert not mount.local
     assert "mountinfo" in mount.source
+
+
+def test_a_later_mount_on_the_same_point_covers_the_earlier_one() -> None:
+    table = "\n".join(
+        [
+            "30 1 0:30 / /mnt/share rw - autofs systemd-1 rw",
+            "31 30 0:31 / /mnt/share rw - nfs4 files:/export rw",
+        ]
+    )
+
+    mount = mount_of(Path("/mnt/share/state"), table)
+
+    assert mount.fstype == "nfs4"
+    assert not mount.local
+
+
+def test_a_missing_table_gives_unknown_naming_the_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    missing = tmp_path / "mountinfo"
+    monkeypatch.setattr(mounts, "MOUNTINFO", missing)
+
+    mount = mount_of(Path("/mnt/x"))
+
+    assert mount.fstype == "unknown"
+    assert not mount.local
+    assert str(missing) in mount.source

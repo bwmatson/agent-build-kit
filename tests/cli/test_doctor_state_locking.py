@@ -6,38 +6,26 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline import lock_probe
+from agent_build_kit.installation import load_installation
+from agent_build_kit.pipeline import mounts
 from agent_build_kit.pipeline.lock_probe import ProbeResult
 from agent_build_kit.pipeline.mounts import Mount
 from tests.cli.in_repo_doctor import checks_of, in_repo, named
 from tests.cli.public_content_repo import said
+from tests.lock_probe_fakes import Probes, count_probes, mount
 
 MOUNT = "state mount"
 LOCKING = "state locking"
 
 
-class Probes:
-    """Counts the probes the doctor runs, and answers as a test chooses."""
-
-    def __init__(self) -> None:
-        self.count = 0
-        self.result = ProbeResult(passed=True, detail="ok")
-
-    def __call__(self, directory: Path, *args, **kwargs) -> ProbeResult:
-        self.count += 1
-        return self.result
-
-
 @pytest.fixture
 def probes(monkeypatch: pytest.MonkeyPatch) -> Probes:
-    found = Probes()
-    monkeypatch.setattr(lock_probe, "probe_locking", found)
-    return found
+    return count_probes(monkeypatch)
 
 
 def lookup(fstype: str, *, source: str = "files:/export", options: str = "rw"):
-    mount = Mount(fstype=fstype, source=source, options=options, local=fstype == "ext4")
-    return lambda path, table=None: mount
+    found = mount(fstype, source=source, options=options)
+    return lambda path, table=None: found
 
 
 def test_a_share_that_passes_is_named_and_its_locking_is_ok(tmp_path: Path, probes: Probes) -> None:
@@ -88,3 +76,25 @@ def test_a_hard_nfs_mount_warns_naming_the_option(tmp_path: Path, probes: Probes
 
     [warning] = [c for c in named(checks, MOUNT) if c.status == "warn"]
     assert "hard" in said(warning)
+
+
+def test_the_real_mount_lookup_is_used_when_none_is_given(
+    tmp_path: Path, probes: Probes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    looked_up: list[Path] = []
+    found = mount("nfs4")
+
+    def fake(path: Path, table: str | None = None) -> Mount:
+        looked_up.append(path)
+        return found
+
+    monkeypatch.setattr(mounts, "mount_of", fake)
+    config = in_repo(tmp_path / "app")
+
+    checks = checks_of(config)
+
+    [line] = [c for c in named(checks, MOUNT) if c.status == "info"]
+    assert "nfs4" in line.detail
+    inst = load_installation(config)
+    assert inst.state_dir in looked_up
+    assert inst.local_dir in looked_up

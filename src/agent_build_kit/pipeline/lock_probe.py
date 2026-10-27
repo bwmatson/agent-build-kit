@@ -43,14 +43,12 @@ with open(sys.argv[1], "a") as handle:
         print("error:%d" % (error.errno or 0))
 """
 
-_FIXES = {
-    "cifs": "mount the share with `nobrl`, or put planning.state_dir on a local disk",
-    "smb3": "mount the share with `nobrl`, or put planning.state_dir on a local disk",
-    "nfs": "mount with lock support (lockd and statd running, no `nolock`) or `local_lock=all`, "
-    "or put planning.state_dir on a local disk",
-    "nfs4": "mount with lock support (lockd and statd running, no `nolock`) or `local_lock=all`, "
-    "or put planning.state_dir on a local disk",
-}
+_SMB_FIX = "mount the share with `nobrl`, or put planning.state_dir on a local disk"
+_NFS_FIX = (
+    "mount with lock support (lockd and statd running, no `nolock`) or `local_lock=all`, "
+    "or put planning.state_dir on a local disk"
+)
+_FIXES = {"cifs": _SMB_FIX, "smb3": _SMB_FIX, "nfs": _NFS_FIX, "nfs4": _NFS_FIX}
 _NO_LOCKS = (
     "this filesystem does not provide locks: use a network filesystem that does, or keep "
     "planning.state_dir on a local disk and sync it another way"
@@ -83,11 +81,18 @@ def probe_locking(
     """Hold a lock in `directory` and ask a second process for it; `mount` is looked up when
     not given."""
     mount = mount or mounts.mount_of(directory)
-    directory.mkdir(parents=True, exist_ok=True)
     path = directory / f".abk-lock-probe-{host.this_host()}-{os.getpid()}"
     try:
+        directory.mkdir(parents=True, exist_ok=True)
         with path.open("a") as handle:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as error:
+                number = error.errno or 0
+                name = errno.errorcode.get(number, "unknown")
+                return _failed(
+                    mount, f"this process could not take the lock: error {number} ({name})"
+                )
             try:
                 answer = _ask(path, spawn)
             except subprocess.TimeoutExpired:

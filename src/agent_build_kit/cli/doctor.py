@@ -82,7 +82,7 @@ from agent_build_kit.notify.windows import (
     MODULE_CHECK_COMMAND,
 )
 from agent_build_kit.path_patterns import matches, normalize
-from agent_build_kit.pipeline import agent_commands, lock_probe
+from agent_build_kit.pipeline import agent_commands, lock_probe, mounts
 from agent_build_kit.pipeline.e2e import dimension_lines
 from agent_build_kit.pipeline.e2e_holds import HELD_FILE, current_holds, hold_text
 from agent_build_kit.pipeline.environment import matched_inputs
@@ -559,10 +559,6 @@ def _pipeline_worktree(inst: Installation) -> list[Check]:
 
 # What the state directory held before the machine-local files moved to the local directory.
 _LOCAL_LEFTOVERS = ("locks", "leases", E2E_LOCK_FILE, "environment.lock", "unit-graphs.sqlite")
-
-
-def _assumed_local(path: Path) -> Mount:
-    return Mount(fstype="unknown", source="", options="", local=True)
 
 
 def _local_dir(inst: Installation, mount_of: Callable[[Path], Mount]) -> list[Check]:
@@ -2190,6 +2186,7 @@ def run_doctor(
 ) -> list[Check]:
     run = run or subprocess.run
     which = which or shutil.which
+    mount_of = mount_of or mounts.mount_of
     try:
         path = config.locate(config_path, cwd=cwd)
         loaded: WorkspaceConfig = load_config(path)
@@ -2230,7 +2227,7 @@ def run_doctor(
     checks += _pipeline_worktree(inst)
     checks += _machine_files(inst)
     checks += _state_ignores(inst)
-    checks += _state_locking(inst, mount_of or _assumed_local)
+    checks += _state_locking(inst, mount_of)
     checks += _legacy_state(inst)
     checks += _planning_view(inst)
     checks += _state_location(inst)
@@ -2249,7 +2246,7 @@ def run_doctor(
     checks += _verify_env(inst, run)
     checks += _public_content(inst)
     checks += _machine_keys(inst)
-    checks += _local_dir(inst, mount_of or _assumed_local)
+    checks += _local_dir(inst, mount_of)
     checks += _weak_secrets()
     checks += _environment(inst, run)
     checks.append(_rules_drift(inst))
