@@ -43,7 +43,10 @@ Defaults are shown; a key at its default can be left out.
 version: 1
 
 planning:
-  state_dir: runs             # relative to the planning root unless absolute
+  state_dir: runs             # relative to the planning root unless absolute or ~-led;
+                              # in-repo default: <planning home>/state, outside the repo
+                              # (planning.home / ABK_PLANNING_HOME move it; the tracks'
+                              # reports go to planning.reports_dir, in the repo)
   specs_dir: openspec
   graph_page: docs/unit_graph.md
   usage_page: docs/unit_cost.md   # cost summary from the usage ledger (`abk report`)

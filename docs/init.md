@@ -103,8 +103,8 @@ changes nothing else:
 | `openspec/` | `openspec init --tools claude --no-animation` when absent |
 | `abk.yaml` | the draft, defaults left out. Overwritten only with `--force` |
 | `openspec/config.yaml` | `schema: spec-driven`, a `context:` describing the repos and cross-repo conventions, and the framework's per-artifact `rules:` for the authoring model (tagged headings, GIVEN/WHEN/THEN scenarios, `[contract]`/`[narrow]`/`[acceptance]`, tests before implementation) headed `# abk-rules: v1`. Overwritten with `--force`, or when it is still the stock file `openspec init` wrote (only a `schema` key) |
-| `runs/.gitkeep`, `runs/units.json` | the state directory and an empty unit store |
-| `.gitignore` | `.env`, `abk.local.yaml`, `scrub.local`, `*.pre-redact`, `.last-runs/`, `runs/*.lock`, `runs/locks/`, local tooling (lines an existing file lacks are appended once) |
+| `runs/.gitkeep`, `runs/units.json` | the state directory and an empty unit store (a separate planning repo only; an in-repo installation keeps its state in `<planning home>/state`, outside the repository, and nothing is written there) |
+| `.gitignore` | `.env`, `abk.local.yaml`, `scrub.local`, `*.pre-redact`, `.last-runs/`, local tooling, and for a state inside the repository `runs/*.lock`, `runs/locks/` (lines an existing file lacks are appended once) |
 | `.env.example` | every machine-level variable, commented out |
 | `CLAUDE.md` | what lives where in a planning repo, and the three skills |
 | `.claude/skills/*/SKILL.md` | the three skills, version-stamped |

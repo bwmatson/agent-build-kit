@@ -534,11 +534,11 @@ def _machine_files(inst: Installation) -> list[Check]:
 
 def _state_ignores(inst: Installation) -> list[Check]:
     """In an in-repo installation: the root's `.gitignore` must ignore the state files."""
-    if in_repo_name(inst) is None:
+    if in_repo_name(inst) is None or not inst.state_dir.is_relative_to(inst.root):
         return []
     ignore = inst.root / ".gitignore"
     text = ignore.read_text() if ignore.is_file() else ""
-    missing = missing_state_ignores(text, inst.config.planning.state_dir or "runs")
+    missing = missing_state_ignores(text, inst.shown(inst.state_dir))
     if not missing:
         return [_ok("state ignores", str(ignore))]
     return [
@@ -546,6 +546,24 @@ def _state_ignores(inst: Installation) -> list[Check]:
             "state ignores",
             f"{ignore} lacks: {', '.join(missing)}",
             "abk init (adds the lines in a marked block)",
+        )
+    ]
+
+
+def _legacy_state(inst: Installation) -> list[Check]:
+    """In an in-repo installation whose state is outside the root: files git still tracks under
+    the legacy `runs/` mean the state has not been moved."""
+    if in_repo_name(inst) is None or inst.state_dir.is_relative_to(inst.root):
+        return []
+    tracked = [name for name in git_out(inst.root, "ls-files", "runs").splitlines() if name]
+    if not tracked:
+        return []
+    return [
+        _warn(
+            "legacy state",
+            f"git tracks {len(tracked)} file(s) under runs/; the state of this installation has "
+            f"not been moved out of the repository (it is read from {inst.state_dir})",
+            "follow docs/runbooks/move-state-out-of-the-repo.md",
         )
     ]
 
@@ -1943,6 +1961,7 @@ def run_doctor(
     checks += _pipeline_worktree(inst)
     checks += _machine_files(inst)
     checks += _state_ignores(inst)
+    checks += _legacy_state(inst)
     checks += _timers(inst, run, units, which)
     checks += _toolchain(inst, run, which)
     checks += _agent_commands(inst)

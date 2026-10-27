@@ -24,6 +24,11 @@
   they stay committed whatever the state directory is. Prompts name it `__REPORTS_DIR__`
   (`__STATE_DIR__` is still filled, with the same path), and the policy hook's
   `--planning-state-dir` flag is now `--planning-reports-dir`, the old name still read.
+  `abk init` writes no state files or state ignore lines for such an installation, `abk
+  doctor` warns about state git still tracks under `runs/`, and `abk planning split` refuses
+  a source and destination that share a state directory. The runbook
+  `docs/runbooks/move-state-out-of-the-repo.md` moves an existing installation, with a
+  rollback.
 
 - The repo-wide test guards read tracked files through one helper, `tests/tracked_files.py`,
   which leaves planning content out, so a specification may name what it forbids; the leak

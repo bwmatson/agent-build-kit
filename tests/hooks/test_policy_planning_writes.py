@@ -25,7 +25,7 @@ def test_a_path_restore_in_the_planning_repo_is_allowed() -> None:
         assert verdict.allowed, command
 
 
-def test_a_track_run_may_write_under_the_planning_state_directory(tmp_path: Path) -> None:
+def test_a_track_run_may_write_under_the_planning_reports_directory(tmp_path: Path) -> None:
     code, planning, third = (tmp_path / name for name in ("code", "planning", "third"))
     for checkout in (code, planning, third):
         checkout.mkdir()

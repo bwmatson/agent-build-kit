@@ -172,8 +172,14 @@ class Installation:
         """The specs directory, the state directory, the graph page, the usage page and the
         configuration file, relative to the root (a path outside it stays absolute)."""
         paths = (self.specs_dir, self.state_dir, self.graph_page, self.usage_page)
-        named = [p.relative_to(self.root) if p.is_relative_to(self.root) else p for p in paths]
-        return (*(str(p) for p in named), config_module.CONFIG_FILENAME)
+        return (*(self.shown(p) for p in paths), config_module.CONFIG_FILENAME)
+
+    def shown(self, path: Path) -> str:
+        """A path as planning paths are named: relative to the root (POSIX form) when it is under
+        it, else as given."""
+        return (
+            path.relative_to(self.root).as_posix() if path.is_relative_to(self.root) else str(path)
+        )
 
     @property
     def env_file(self) -> Path:

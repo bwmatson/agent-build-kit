@@ -16,6 +16,12 @@ from tests.init.test_code_repo_conventions import snapshot
 FLAGS = ["--yes", "--skip-research", "--skip-propose"]
 
 
+@pytest.fixture(autouse=True)
+def data_home(data: Path) -> Path:
+    """The data home a laid-out installation resolves its state in, kept off the real one."""
+    return data
+
+
 def head(repo: Path) -> str:
     return git(repo, "rev-parse", "HEAD").strip()
 
@@ -84,7 +90,8 @@ def test_a_planning_directory_inside_the_repo_is_in_repo_too(
     assert head(repo) == before
     config = yaml.safe_load((repo / "sub" / "abk.yaml").read_text())
     assert [entry["path"] for entry in config["repos"].values()] == [".."]
-    assert "runs/unit-logs/" in (repo / "sub" / ".gitignore").read_text()
+    assert "runs/unit-logs/" not in (repo / "sub" / ".gitignore").read_text()
+    assert "abk.local.yaml" in (repo / "sub" / ".gitignore").read_text()
     assert "sub/abk.yaml" in (repo / "AGENTS.md").read_text()
 
 

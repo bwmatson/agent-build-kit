@@ -489,6 +489,12 @@ def load_destination(directory: Path, source: Installation) -> Installation:
             f"{rules} is missing or carries no `# abk-rules:` stamp; "
             f"`abk init {directory}` writes it"
         )
+    if destination.state_dir.resolve() == source.state_dir.resolve():
+        raise SplitUsageError(
+            f"the source and the destination share the state directory {destination.state_dir}; "
+            f"set planning.home in the destination's abk.local.yaml (and unset ABK_STATE_DIR and "
+            f"ABK_PLANNING_HOME, or a planning.state_dir, wherever the shared one comes from)"
+        )
     if not destination.state_dir.is_dir():
         raise SplitUsageError(
             f"the state directory {destination.state_dir} does not exist; "
