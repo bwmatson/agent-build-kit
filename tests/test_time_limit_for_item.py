@@ -1,7 +1,8 @@
 """The limit a test is held to is decided without running it or waiting on the clock.
 
-A marked test's limit was only observable by spinning past it in a child pytest, which
-flaked under load; `limit_for` gives the same answer from the item alone.
+`limit_for` gives a test's limit from the item alone. The child-pytest tests in
+`test_marked_time_limit.py` no longer spin on the wall clock: they read the limit the hook
+arms from a recording timer, so they cannot flake under load.
 """
 
 from __future__ import annotations

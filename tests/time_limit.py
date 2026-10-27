@@ -87,8 +87,8 @@ def _under_limit(item: pytest.Item, phase: str):
     main = threading.get_ident()
     timer = threading.Timer(limit, signal.pthread_kill, (main, signal.SIGUSR2))
     timer.daemon = True
-    timer.start()
     try:
+        timer.start()
         return (yield)
     except TimedOut:
         what = "test" if phase == "call" else f"test {phase}"
