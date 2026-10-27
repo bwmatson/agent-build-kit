@@ -64,6 +64,13 @@ def process_alive(pid: int) -> bool:
     return True
 
 
+def holder_alive(pid: int, record_host: str | None) -> bool:
+    """Whether the holder a record names is alive: one of another host always is, this host's
+    process table saying nothing of it; a record of this host (or with no host) is judged by
+    its pid."""
+    return not host.is_here(record_host) or process_alive(pid)
+
+
 def lock_holder_gone(branch: str, *, root: Path) -> bool | None:
     """Whether the process named in this branch's lock is gone: `True` only when
     a pid was read and that process is not alive, `False` for a live one, `None`
@@ -78,9 +85,7 @@ def lock_holder_gone(branch: str, *, root: Path) -> bool | None:
     pid = parsed.get("pid") if isinstance(parsed, dict) else None
     if not isinstance(pid, int):
         return None
-    if not host.is_here(parsed.get("host")):
-        return False
-    return not process_alive(pid)
+    return not holder_alive(pid, parsed.get("host"))
 
 
 @contextmanager
@@ -102,7 +107,7 @@ def branch_lock(branch: str, *, root: Path):
             holder = {}
 
         pid = holder.get("pid")
-        if isinstance(pid, int) and (not host.is_here(holder.get("host")) or process_alive(pid)):
+        if isinstance(pid, int) and holder_alive(pid, holder.get("host")):
             raise BranchBusy(
                 f"{branch} is held by pid {pid} on {holder.get('host') or host.this_host()} "
                 f"since {holder.get('at', 'an unknown time')} ({path})"

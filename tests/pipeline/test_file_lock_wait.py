@@ -34,13 +34,27 @@ def test_a_held_lock_times_out_naming_the_path_and_the_setting(
 
         message = str(raised.value)
         assert str(path) in message
-        assert "1" in message
+        assert "for 1s" in message
         assert "ABK_LOCK_WAIT_SECONDS" in message
         assert clock.elapsed() >= 1.0
         # The holder still holds it.
         with path.open("a") as probe:
             with pytest.raises(BlockingIOError):
                 fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def test_the_message_shows_the_seconds_of_the_setting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clock: SleepingTime
+) -> None:
+    path = tmp_path / "a.lock"
+    monkeypatch.setattr(settings, "lock_wait_seconds", 1.5)
+    with path.open("a") as holder:
+        fcntl.flock(holder, fcntl.LOCK_EX)
+
+        with pytest.raises(LockTimeout) as raised, file_lock(path):
+            pass
+
+    assert "for 1.5s" in str(raised.value)
 
 
 def test_a_lock_released_during_the_wait_is_taken(tmp_path: Path, clock: SleepingTime) -> None:
@@ -57,6 +71,7 @@ def test_a_lock_released_during_the_wait_is_taken(tmp_path: Path, clock: Sleepin
         taken = True
 
     assert taken
+    assert clock.elapsed() >= 0.2
 
 
 def test_the_timeout_argument_overrides_the_setting(

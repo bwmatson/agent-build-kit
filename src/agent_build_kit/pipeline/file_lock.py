@@ -23,7 +23,7 @@ import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Any, Protocol
+from typing import IO, TYPE_CHECKING, Protocol
 
 from agent_build_kit.pipeline import host
 from agent_build_kit.settings import settings
@@ -43,6 +43,14 @@ _RENAME_RETRIES = 5
 _RENAME_FIRST_DELAY = 0.1
 
 
+class Clock(Protocol):
+    """What the wait reads: the time and a way to let it pass."""
+
+    def monotonic(self) -> float: ...
+
+    def sleep(self, seconds: float, /) -> None: ...
+
+
 class LockTimeout(TimeoutError):
     """A lock stayed held for the whole wait."""
 
@@ -51,7 +59,7 @@ def wait_for_flock(
     handle: IO[str],
     timeout: float | None,
     on_busy: Callable[[float], None] | None = None,
-    clock: Any = None,
+    clock: Clock | None = None,
 ) -> None:
     """Take the exclusive `flock` on `handle`, polling for up to `timeout` seconds (None waits
     for ever), often at first so a lock held for a moment is not waited on for a whole

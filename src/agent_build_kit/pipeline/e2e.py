@@ -40,7 +40,7 @@ from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.model import E2E_LOCK_FILE, Frozen, TestTier
 from agent_build_kit.pipeline import host, spans
 from agent_build_kit.pipeline.file_lock import wait_for_flock
-from agent_build_kit.pipeline.workspaces import process_alive
+from agent_build_kit.pipeline.workspaces import holder_alive, process_alive
 
 # Shown on the PR beside the Actions checks.
 STATUS_CONTEXT = "local/e2e-test"
@@ -438,12 +438,7 @@ def hold_lock(
         try:
             handle.seek(0)
             left = read_lock_record(handle.read())
-            if (
-                left is not None
-                and on_stale is not None
-                and host.is_here(left.host)
-                and not process_alive(left.pid)
-            ):
+            if left is not None and on_stale is not None and not holder_alive(left.pid, left.host):
                 on_stale(
                     f"e2e-test lock record from {left.unit} (process {left.pid}) is stale, ignored"
                 )

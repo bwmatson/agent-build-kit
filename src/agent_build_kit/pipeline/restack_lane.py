@@ -46,7 +46,7 @@ from agent_build_kit.pipeline.units import (
     waiting_on,
 )
 from agent_build_kit.pipeline.wiring import branch_commits, is_ancestor
-from agent_build_kit.pipeline.workspaces import BranchBusy, branch_held, process_alive
+from agent_build_kit.pipeline.workspaces import BranchBusy, branch_held, holder_alive
 
 # A move, or a run's work, returns what remains to run in the same worker once the unit's
 # branch claim is released: the unit's own run, which takes the branch lock itself.
@@ -307,7 +307,7 @@ def lane_record(state_dir: Path) -> list[dict[str, str]]:
             pid, units = record["pid"], record["units"]
         except (OSError, ValueError, KeyError, TypeError):
             continue
-        if isinstance(pid, int) and (not host.is_here(record.get("host")) or process_alive(pid)):
+        if isinstance(pid, int) and holder_alive(pid, record.get("host")):
             held.extend(entry for entry in units if isinstance(entry, dict))
     return held
 
