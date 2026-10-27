@@ -119,7 +119,7 @@ def test_the_conventions_for_hand_made_board_items_are_given() -> None:
     text = HAND_OFF.lower()
 
     assert "<!-- abk:" in HAND_OFF
-    for word in ("feature", "story", "task", "unassigned", "abk-handoff", "--item"):
+    for word in ("feature", "story", "task", "unassigned", "handoff", "--item"):
         assert word in text, word
     assert "copy" in text
     assert "group" in text
