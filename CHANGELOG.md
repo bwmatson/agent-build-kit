@@ -68,6 +68,14 @@
   git would not ignore. `abk doctor` fails when a file the working copy has is missing in the
   worktree, and warns when the working copy has none.
 
+- `abk init` in a repository that is its own planning repo now makes the state directory and an
+  ignored `.planning` link to it, so the state shows in the folder the editor has open. It is safe
+  to run again, repairs a dangling link and refuses to replace a real file or directory of that
+  name. A state directory inside the repository is refused under `--yes` (it dirties the pipeline
+  worktree and stops its fast-forward sync) unless `--allow-state-in-repo` is given, and is asked
+  about otherwise. `abk install-timers` prints a note naming `abk init` when the link is wrong,
+  and `abk doctor` reports the link and warns on a state directory inside the repository.
+
 - A unit that was put back and has not started again now waits for the dependencies it has. A
   `Needs:` line added to such a unit, for example after the pipeline requeued it, holds it until
   the group has merged instead of letting the next round start it. `abk replan` prints
