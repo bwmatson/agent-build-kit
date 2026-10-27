@@ -249,3 +249,78 @@ def record_done(change_dir: Path, groups: Sequence[int], *, merged_by: str, at: 
         if todo:
             raise HoldRefused(f"group {min(todo)} of change {change_dir.name} is not held")
         _write(path, out)
+
+
+class HoldRow(Frozen):
+    """One hold as `abk external list` and `abk status` show it."""
+
+    change: str
+    groups: tuple[int, ...] | Literal["all"]
+    holder: str
+    link: str
+    status: str
+    items: dict[str, str | list[str]]
+    note: str
+    since: datetime
+    age: str
+    units: tuple[str, ...]
+    waiting: tuple[str, ...]
+
+
+def age_text(since: datetime, now: datetime) -> str:
+    seconds = max(0, int((now - since).total_seconds()))
+    for size, suffix in ((86400, "d"), (3600, "h")):
+        if seconds >= size:
+            return f"{seconds // size}{suffix}"
+    return f"{seconds // 60}m"
+
+
+def hold_rows(changes_dir: Path, units: Sequence[StoredUnit], now: datetime) -> list[HoldRow]:
+    """Every hold of every change, with the held units it keeps from starting and the units
+    that wait on them."""
+    held = held_units(changes_dir, units)
+    rows: list[HoldRow] = []
+    folders = sorted(changes_dir.iterdir()) if changes_dir.is_dir() else []
+    for folder in (path for path in folders if path.is_dir()):
+        for hold in read_holds(folder):
+            mine = (
+                {uid for uid, found in held.items() if found == hold}
+                if hold.status == HELD
+                else set()
+            )
+            waiting = tuple(
+                unit.id for unit in units if mine & set(unit.depends_on) and unit.id not in mine
+            )
+            rows.append(
+                HoldRow(
+                    change=folder.name,
+                    groups=hold.scope,
+                    holder=hold.holder,
+                    link=hold.link,
+                    status=hold.status,
+                    items=hold.items,
+                    note=hold.note,
+                    since=hold.since,
+                    age=age_text(hold.since, now),
+                    units=tuple(sorted(mine)),
+                    waiting=waiting,
+                )
+            )
+    return rows
+
+
+def hold_text(row: HoldRow) -> str:
+    """A hold on one line."""
+    groups = row.groups if row.groups == "all" else ",".join(str(n) for n in row.groups)
+    text = f"{row.change} groups {groups}: {row.status} by {row.holder} ({row.link}), {row.age}"
+    if row.units:
+        text += f"; units {', '.join(row.units)}"
+    if row.waiting:
+        text += f"; waiting: {', '.join(row.waiting)}"
+    return text
+
+
+def hold_status_lines(changes_dir: Path, units: Sequence[StoredUnit], now: datetime) -> list[str]:
+    """The `abk status` section for holds still held; none when nothing is."""
+    rows = [row for row in hold_rows(changes_dir, units, now) if row.status == HELD]
+    return ["external holds:", *(f"  {hold_text(row)}" for row in rows)] if rows else []
