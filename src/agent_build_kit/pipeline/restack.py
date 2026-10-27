@@ -611,7 +611,7 @@ def move_branch_onto(
         return Moved(sha=git(repo, "rev-parse", branch).stdout.strip(), resolved=resolved)
 
 
-def temporary_tree(repo: Path, branch: str, *, root: Path) -> Path:
+def temporary_tree(repo: Path, branch: str, *, root: Path, name: str | None = None) -> Path:
     """Where a branch with no worktree of its own is moved: beside where its own would
     be, under another name, so the test for a unit's own worktree never mistakes it."""
     own = worktree_path(repo, branch, root)

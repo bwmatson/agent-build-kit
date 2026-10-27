@@ -30,6 +30,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
+from agent_build_kit.model import Frozen
 from agent_build_kit.path_patterns import matches_any
 from agent_build_kit.pipeline import host
 from agent_build_kit.pipeline.scratch import ensure_scratch
@@ -46,6 +47,22 @@ class DirtyWorktree(RuntimeError):
     def __init__(self, message: str, paths: tuple[str, ...] = ()) -> None:
         super().__init__(message)
         self.paths = paths
+
+
+class WorktreeElsewhere(RuntimeError):
+    """The unit's branch is checked out outside the worktree root, which is left alone."""
+
+
+class WorktreeOccupied(RuntimeError):
+    """The path a unit's worktree would take holds something that is not an empty directory."""
+
+
+class WorktreeEntry(Frozen):
+    """One worktree of a repository, as `git worktree list --porcelain` gives it."""
+
+    path: Path
+    branch: str | None
+    prunable: bool
 
 
 def _lock_path(branch: str, root: Path) -> Path:
@@ -146,7 +163,22 @@ def branch_held(branch: str, *, root: Path) -> bool:
     return lock_holder_gone(branch, root=root) is False
 
 
-def worktree_path(repo: Path, branch: str, root: Path) -> Path:
+def worktree_key(name: str) -> str:
+    """The folder under the worktree root that holds the repo `name`'s worktrees."""
+    raise NotImplementedError
+
+
+def worktree_entries(repo: Path) -> tuple[WorktreeEntry, ...]:
+    """Every worktree git lists for `repo`, its own checkout first."""
+    raise NotImplementedError
+
+
+def unit_tree(repo: Path, branch: str, root: Path) -> Path | None:
+    """The unit's existing worktree under `root`, or None; never raises."""
+    raise NotImplementedError
+
+
+def worktree_path(repo: Path, branch: str, root: Path, *, name: str | None = None) -> Path:
     return root / repo.name / re.sub(r"[^A-Za-z0-9]", "_", branch)
 
 
@@ -210,6 +242,7 @@ def prepare_worktree(
     *,
     base: str,
     root: Path,
+    name: str | None = None,
     allow_dirty: bool = False,
     locks: Sequence[str] = (),
     artifacts: Sequence[str] = (),
@@ -253,7 +286,9 @@ def prepare_worktree(
     return path
 
 
-def prepare_detached(repo: Path, name: str, *, ref: str, root: Path) -> Path:
+def prepare_detached(
+    repo: Path, leaf: str, *, ref: str, root: Path, name: str | None = None
+) -> Path:
     """A checkout of `ref` on no branch, created or moved to where `ref` is now.
 
     For running something *from* main rather than building on it: a
@@ -261,7 +296,7 @@ def prepare_detached(repo: Path, name: str, *, ref: str, root: Path) -> Path:
     from the platform's main, not from the user's own checkout and whatever
     is on it. Nothing is ever committed here, so moving it discards nothing.
     """
-    path = root / repo.name / name
+    path = root / repo.name / leaf
     if path.exists():
         git_out(path, "checkout", "-q", "--detach", ref)
         return path

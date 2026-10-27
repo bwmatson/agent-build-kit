@@ -204,3 +204,14 @@ def test_a_branch_moved_between_making_the_tree_and_the_rebase_is_not_overwritte
     assert len(made) == 2, "started again for the moved branch"
     assert sh(rig.repo, "show", f"{BRANCH}:other.py") == "other.py", "the other writer's commit"
     sh(rig.repo, "merge-base", "--is-ancestor", "main", BRANCH)
+
+
+def test_the_temporary_tree_is_named_for_the_repo_not_its_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = Rig(tmp_path, monkeypatch)
+    root = rig.installation.worktree_root
+
+    tree = restack.temporary_tree(rig.repo, BRANCH, root=root, name="lib")
+
+    assert tree == root / "lib" / "restack-spec_c_2"
