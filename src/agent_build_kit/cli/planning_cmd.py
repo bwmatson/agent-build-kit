@@ -142,6 +142,8 @@ def cmd_planning_split(args: argparse.Namespace, source: Installation) -> int:
     else:
         print(f"uncommitted files read: {len(plan.uncommitted)}")
         print("\n".join(f"  {line}" for line in plan.uncommitted))
+    if not source.state_dir.is_relative_to(source.root):
+        print(f"state: {source.state_dir} is outside the repository and not under git")
     if args.scrub:
         counts = scrubbing.scrub_counts(source, plan)
         print(

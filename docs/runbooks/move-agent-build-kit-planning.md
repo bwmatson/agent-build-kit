@@ -10,7 +10,8 @@ the kit repo, but the steps are the same for any managed repo that becomes its o
 
 **Decisions to make first**
 - Visibility. If the moving repo is public, its specs and stored text are scrubbed of consumer names and home paths on the way in.
-- State stays inside the repo and `runs/units.json` stays tracked.
+- State: the kit repo becomes an in-repo installation, so its state moves to the planning home
+  outside the repository and is not committed (see `move-state-out-of-the-repo.md`).
 - The systemd commands always run on the default branch, pulled to the latest before every run, in a
   pipeline-owned worktree of the same repo. Your working copy is never touched. Specs you write
   reach the pipeline once they are on the default branch.

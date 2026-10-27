@@ -1682,11 +1682,14 @@ redacted and bounded already; the result itself carries the `cause hints:` line.
 
 ## State on disk
 
-The planning repo's state directory (`planning.state_dir`, default `runs/`):
+The state directory (`planning.state_dir`). For an installation whose planning repo is also one of
+its code repos the default is `<planning home>/state`, with the planning home at
+`<data home>/<repository name>/planning` (`planning.home` or `ABK_PLANNING_HOME` moves it),
+outside the repository and not committed; for a separate planning repo it is `runs/` under the root:
 
 | File | What | Loss means |
 |---|---|---|
-| `units.json` | every unit: state, branch, PR, pushed and approved SHAs, feedback, history. In-run progress (review rounds, deferred follow-ups, pending replies) is in the unit's thread, not here; only `approved` and `predecessor_note` stay, because the push gate and the restack write them with no run in progress. A store whose unit still carries a value in `review_rounds`, `deferred`, `pending_replies`, `person_comments`, `resume_from` or `classic_run` is refused when read, naming the unit and the field; the empty `resume_from` and `classic_run` the last release wrote on every unit are dropped on read. A key no field of this release names is dropped on read when empty (a newer release's field carries nothing, and the next write omits it) and refused when it holds a value, naming the unit, the field and the value and saying a newer release wrote it: the value is information this release cannot keep. The truth; the graph page is a view of it. | rebuilt work. Commit it. |
+| `units.json` | every unit: state, branch, PR, pushed and approved SHAs, feedback, history. In-run progress (review rounds, deferred follow-ups, pending replies) is in the unit's thread, not here; only `approved` and `predecessor_note` stay, because the push gate and the restack write them with no run in progress. A store whose unit still carries a value in `review_rounds`, `deferred`, `pending_replies`, `person_comments`, `resume_from` or `classic_run` is refused when read, naming the unit and the field; the empty `resume_from` and `classic_run` the last release wrote on every unit are dropped on read. A key no field of this release names is dropped on read when empty (a newer release's field carries nothing, and the next write omits it) and refused when it holds a value, naming the unit, the field and the value and saying a newer release wrote it: the value is information this release cannot keep. The truth; the graph page is a view of it. | rebuilt work. Back it up; an outside state is not in git. |
 | `notifications.json` | the cards shown or held back: when each was first seen, last shown and the reminder due, so a restart repeats none. | cards shown again or held again by their delay. |
 | `verified.json` | the last verification of each change and the units it covered. | a change verified again. |
 | `planned.json` | hash and attempt count per change's specification. | one planning model call per change. |
@@ -1707,14 +1710,17 @@ The planning repo's state directory (`planning.state_dir`, default `runs/`):
 | `unit-logs/<change>-<nn>-<YYYYMMDD-HHMMSS>-<step>.log` | one file per unit run: a header (unit, change, step, model, base, start), that unit's lines, then the outcome. `<nn>` is the unit's number padded to two digits, so a change's units sort in order and a unit's runs sort by time. The last three runs of a unit are kept; a log older than `retention.unit_log_days` is removed once the unit has a summary in the usage ledger (a unit without one keeps it); archiving a change removes its files. The file name and `started:` are UTC; each entry starts with the tick's own local-time `[HH:MM:SS]`, the same stamp it prints (the closing `outcome:` line has none: the line above it, the run's last, does). Agent replies and tool-call commands are written whole, line breaks kept; each further line of an entry starts with four spaces (`run_log.CONTINUATION`) and has no stamp, so every line that starts at the margin is a new entry. The journal keeps its one clipped line per step. The unit's `run_log` names its latest. Gitignored. | a unit's transcript; the tick's own output is unchanged. |
 | `e2e-output/<change>-<nn>-<YYYYMMDD-HHMMSS>-e2e.log` | the whole output of each command of a unit's e2e-test run, passing ones too, appended after each command so a run that dies keeps what it had, and redacted as a whole before it is written (a failing redaction leaves the withheld notice). The result's `output_file` and its `Full output:` line name it, the unit's run log carries the same line and `abk status` shows it for a failed unit whose last result was an e2e-test failure. The last three files of a unit are kept (`run_log.RUNS_KEPT`); archiving a change removes its files. Local only. | the posted result keeps only the last 4000 characters of the output. |
 | `transcripts/<change>-<nn>-<YYYYMMDD-HHMMSS>-<node>-<round>.jsonl` | one file per agent run of a unit (implement, rework, review, checks fixes) or chat turn, named like a run log plus the node and review round that made the call (round 0 outside a round). One JSON event per line, appended as the agent streams, the same shape for Claude Code and ACP: `kind` (`text`, `reasoning`, `tool_call`, `tool_result`, `plan`, `usage`, `permission`, `stop`), `at`, `unit`, `node`, `round`, `session`, `source` (`build` or `chat`), `text`, `tool`, `call` (a tool call's id, repeated by its result), `input`, `usage` and `truncated`. A tool result longer than `global_limits.transcript_result_chars` is cut there, ends with `… [cut: the result was N characters long]`, and carries the original length in `truncated`. A text or reasoning event is a whole message or thought, not a streamed fragment, and a user-side event of the Claude stream contributes only tool results. The calls of one run (a unit thread's pass, or one chat turn) share the run's stamp, and the last `global_limits.transcript_runs_kept` such runs of a unit are kept, whole; archiving a change removes its files. Local only, never committed or sent anywhere. | the agent tab's replay of a unit; the run log is unchanged. |
-| `<run id>-<repo>-<track>.md`, `tracked-issues.md` | the tracks' run logs and issue tracker. | history the tracks read. |
+The tracks' run logs (`<run id>-<repo>-<track>.md`) and `tracked-issues.md` are not state: they
+live in `planning.reports_dir` (the state directory when it is inside the repository, else
+`docs/reports`), and the pipeline commits them by path after each phase.
 
-The tick commits nothing. The template `.gitignore` excludes only the locks,
-`.env`, `.last-runs/` (the tracks' raw output), `unit-logs/` (the unit run
-logs) and the usage ledger; `units.json`, the tracks' run logs
-and the graph page (`planning.graph_page`, rewritten on every store write) are
-meant to be committed by the operator, and the pipeline commits the tracks' run
-logs and `tracked-issues.md` by path after each phase. Unit worktrees live under the worktree
+The tick commits nothing. With the state outside the repository nothing in it is committed, and
+the template `.gitignore` excludes only `.env`, `.last-runs/` (the tracks' raw output),
+`abk.local.yaml`, `scrub.local` and the redaction originals; a state inside the repository also
+needs its locks, `unit-logs/` and the usage ledger ignored, while `units.json` and the graph page
+(`planning.graph_page`, by default under `<planning home>/state/pages/` for an outside state)
+are written by the pipeline. Back up the state folder; two hosts sharing it are unsupported.
+Unit worktrees live under the worktree
 root — `~/.local/share/<planning dir>/worktrees` unless configured — and the
 planning repo's `.env` holds machine-local settings.
 

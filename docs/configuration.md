@@ -88,12 +88,14 @@ Every field, with its default. A key at its default can be left out;
 version: 1
 
 planning:
-  state_dir: runs               # pipeline state, run logs, each e2e-test run's full
-                                # output (e2e-output/) and the usage ledger
-                                # (usage-ledger.jsonl and decisions.jsonl, both
-                                # gitignored; add a line for each if you move
-                                # state_dir; docs/architecture.md).
-                                # Relative to the planning root unless absolute.
+  state_dir: runs               # pipeline state, each e2e-test run's full output
+                                # (e2e-output/) and the usage ledger. Default for
+                                # an in-repo installation: <planning home>/state,
+                                # outside the repository; `runs` otherwise.
+                                # Relative to the planning root unless absolute
+                                # or ~-led. Also planning.home and
+                                # planning.reports_dir (see "Where the state
+                                # lives"; docs/architecture.md).
   specs_dir: openspec           # the OpenSpec store; changes are read from
                                 # <specs_dir>/changes/*/tasks.md.
   graph_page: docs/unit_graph.md
@@ -688,6 +690,24 @@ verify:
       argv: [pass, show, app/session]
                                 # exit fails the verification
 ```
+
+### Where the state lives
+
+When the planning repo is also one of the code repos, the state is not committed. It lives in
+the planning home, `<data home>/<repository name>/planning`, as `<planning home>/state`, and the
+pipeline worktree is `<planning home>/worktree`; the working copy and the worktree read the same
+state. Each setting is read from the environment, then `abk.local.yaml`, then `abk.yaml`, then
+the default:
+
+| Setting | Environment | Default |
+|---|---|---|
+| `planning.home` | `ABK_PLANNING_HOME` | `<data home>/<repository name>/planning` (must be outside the repository) |
+| `planning.state_dir` | `ABK_STATE_DIR` | `<planning home>/state` (`runs/` for a separate planning repo) |
+| `planning.reports_dir` | — | the state directory when inside the repository, else `docs/reports` (always inside it: the tracks' run logs and `tracked-issues.md` are committed there) |
+
+The generated pages default under `<planning home>/state/pages/`. Keep a backup of the state
+folder; two hosts sharing it are unsupported. `docs/runbooks/move-state-out-of-the-repo.md` moves
+an existing installation.
 
 ### Where an installation's facts live
 

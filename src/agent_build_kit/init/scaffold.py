@@ -50,6 +50,7 @@ from agent_build_kit.config import (
 from agent_build_kit.init.detect import RepoDetection
 from agent_build_kit.init.environment import detect_environment, lock_patterns, unrecognised
 from agent_build_kit.init.runtime_choice import merge_values
+from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.changelog_convention import packaged_convention
 from agent_build_kit.pipeline.file_lock import append_missing_lines
@@ -691,17 +692,39 @@ def _read_text(path: Path) -> str:
         raise ScaffoldError(f"{path} is not valid UTF-8; add the abk block to it by hand") from None
 
 
+def state_setting(inst: Installation) -> str:
+    """The state directory as `missing_state_ignores` takes it: relative to the root when it is
+    inside, else the absolute path."""
+    state = inst.state_dir
+    return (
+        state.relative_to(inst.root).as_posix() if state.is_relative_to(inst.root) else str(state)
+    )
+
+
 def missing_state_ignores(text: str, state_dir: str) -> list[str]:
-    """The state-directory lines the template ignores that `text` lacks."""
+    """The state-directory lines the template ignores that `text` lacks; none for a state
+    outside the repository, which has nothing to ignore."""
+    if Path(state_dir).expanduser().is_absolute():
+        return []
     present = {line.strip() for line in text.splitlines()}
     return [line for line in _state_ignores(state_dir) if line not in present]
+
+
+def _local_ignores(text: str, state_dir: str) -> list[str]:
+    """For a state outside the repository, the lines the block still carries that `text` lacks."""
+    if not Path(state_dir).expanduser().is_absolute():
+        return []
+    present = {line.strip() for line in text.splitlines()}
+    template_lines = [line.strip() for line in template("gitignore").splitlines()]
+    kept = [line for line in template_lines if line in (".env", ".last-runs/")]
+    return [line for line in (*kept, *LOCAL_IGNORES) if line not in present]
 
 
 def _ignore_block(text: str, state_dir: str) -> str:
     """The `.gitignore` text with the state lines it lacks in one marker block."""
     span = find_block(text, _IGNORE_START, _IGNORE_END)
     outside = text if span is None else text[: span[0]] + text[span[1] :]
-    missing = missing_state_ignores(outside, state_dir)
+    missing = [*missing_state_ignores(outside, state_dir), *_local_ignores(outside, state_dir)]
     if not missing:
         return text
     eol = _eol(text)
@@ -709,13 +732,20 @@ def _ignore_block(text: str, state_dir: str) -> str:
     return splice_block(text, _IGNORE_START, _IGNORE_END, block, eol=eol, blank=False)
 
 
-def _orientation(config: WorkspaceConfig, prefix: str) -> str:
-    planning = config.planning
+def _shown(inst: Installation, path: Path, prefix: str) -> str:
+    """A path as the orientation names it: under the planning directory with `prefix`, or the
+    absolute path when it is elsewhere."""
+    if path.is_relative_to(inst.root):
+        return f"{prefix}{path.relative_to(inst.root).as_posix()}"
+    return str(path)
+
+
+def _orientation(inst: Installation, prefix: str) -> str:
     body = template("planning-orientation.md").format(
         prefix=prefix,
-        specs_dir=planning.specs_dir,
-        state_dir=planning.state_dir or "runs",
-        graph_page=planning.graph_page or "docs/unit_graph.md",
+        specs_dir=inst.config.planning.specs_dir,
+        state_dir=_shown(inst, inst.state_dir, prefix),
+        graph_page=_shown(inst, inst.graph_page, prefix),
     )
     return f"{_ORIENT_OPEN}\n{body}{_ORIENT_CLOSE}\n"
 
@@ -738,9 +768,10 @@ def _in_repo_blocks(planning: Path, top: Path, config: WorkspaceConfig) -> list[
         text = _read_text(guidance) if guidance.exists() else ""
         eol = _eol(text)
         prefix = "" if planning == top else f"{planning.relative_to(top).as_posix()}/"
-        block = _orientation(config, prefix).replace("\n", eol)
+        inst = Installation(config, planning)
+        block = _orientation(inst, prefix).replace("\n", eol)
         return [
-            (ignore, _ignore_block(ignore_text, config.planning.state_dir or "runs")),
+            (ignore, _ignore_block(ignore_text, state_setting(inst))),
             (guidance, splice_block(text, _ORIENT_START, _ORIENT_END, block, eol=eol)),
         ]
     except MarkersError:
@@ -788,9 +819,10 @@ def write_planning_repo(
         written=written,
     )
 
-    state = planning / (config.planning.state_dir or "runs")
-    _write(state / ".gitkeep", "", overwrite=False, written=written)
-    _write(state / "units.json", '{"units": []}\n', overwrite=False, written=written)
+    state = Installation(config, planning).state_dir
+    if state.is_relative_to(planning):
+        _write(state / ".gitkeep", "", overwrite=False, written=written)
+        _write(state / "units.json", '{"units": []}\n', overwrite=False, written=written)
     _write(planning / ".env.example", template("env.example"), overwrite=False, written=written)
     if top:
         # The repo's own files: only a marker block is added to each, nothing else changes.

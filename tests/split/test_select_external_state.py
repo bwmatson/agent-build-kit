@@ -60,4 +60,5 @@ def test_the_plan_says_the_outside_state_is_not_under_git(tmp_path, capsys):
 
     out = capsys.readouterr().out
     assert code == 0, out
-    assert "state" in out and "not under git" in out
+    state = str(tmp_path / "source-state")
+    assert [line for line in out.splitlines() if state in line and "not under git" in line]

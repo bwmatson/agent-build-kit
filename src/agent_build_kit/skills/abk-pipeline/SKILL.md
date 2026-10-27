@@ -74,7 +74,9 @@ next tick sync again.
   and the calls made outside any unit: `plan`, `track_<phase>`, `init_research`,
   `init_propose`, `login_refresh`, `chat`, `chat_commit`. A row with a blank
   `unit` belongs to no unit: it is spend, shown as pipeline overhead, and never counted as a unit.
-- `runs/units.json` — every unit the planner has produced, with its state,
+- `units.json`, in the state directory (`<planning home>/state` for an in-repo installation:
+  outside the repository, not committed; `abk status` prints it; the other `runs/` paths below
+  are in it too) — every unit the planner has produced, with its state,
   branch, PR number, review rounds and history. The file is the truth; the
   graph page is a view of it. Read it; only edit it as described under
   `failed` below. A unit's `run_log` names its latest run's file under
