@@ -19,7 +19,7 @@ from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.ui_ids import THREAD_PREFIX
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import local_ref
-from agent_build_kit.pipeline.workspaces import changed_paths, worktree_path
+from agent_build_kit.pipeline.workspaces import changed_paths, unit_tree
 
 Decision = Literal["request_changes", "approve"]
 
@@ -118,8 +118,7 @@ def unit_worktree(installation: Installation, unit: StoredUnit) -> Path | None:
     """The unit's worktree, or None while it has none."""
     if not unit.branch or unit.repo not in installation.checkouts:
         return None
-    path = worktree_path(installation.checkouts[unit.repo], unit.branch, installation.worktree_root)
-    return path if path.is_dir() else None
+    return unit_tree(installation.checkouts[unit.repo], unit.branch, installation.worktree_root)
 
 
 def working_changes(tree: Path | None, artifacts: Sequence[str] = ()) -> WorkingChanges:

@@ -164,7 +164,7 @@ def test_the_dev_stack_comes_up_from_the_local_trunk_without_a_remote(tmp_path: 
     )
     prepared: list[str] = []
 
-    def prepare(repo: Path, name: str, *, ref: str, root: Path) -> Path:
+    def prepare(repo: Path, leaf: str, *, name: str, ref: str, root: Path) -> Path:
         prepared.append(ref)
         return root / name
 

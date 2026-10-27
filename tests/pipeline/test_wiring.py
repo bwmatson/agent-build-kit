@@ -1375,9 +1375,9 @@ def test_an_app_unit_s_e2e_runs_on_platform_s_dev_stack(tmp_path: Path) -> None:
     )
     prepared: list[tuple] = []
 
-    def prepare(repo, name, *, ref, root):
-        prepared.append((repo, name, ref))
-        return root / name
+    def prepare(repo, leaf, *, name, ref, root):
+        prepared.append((repo, leaf, ref))
+        return root / leaf
 
     under = dev_stack_underneath(unit(repo="app"), inst, prepare=prepare)
     assert under is not None

@@ -165,21 +165,77 @@ def branch_held(branch: str, *, root: Path) -> bool:
 
 def worktree_key(name: str) -> str:
     """The folder under the worktree root that holds the repo `name`'s worktrees."""
-    raise NotImplementedError
+    return re.sub(r"[^A-Za-z0-9._-]", "_", name)
+
+
+def _common_dir(repo: Path) -> Path | None:
+    """The git directory that holds the worktree list of `repo`, read from the files git keeps
+    so that asking runs no process."""
+    dot = repo / ".git"
+    if dot.is_dir():
+        return dot
+    if not dot.is_file():
+        return None
+    text = dot.read_text().strip()
+    if not text.startswith("gitdir:"):
+        return None
+    own = (repo / text.removeprefix("gitdir:").strip()).resolve()
+    shared = own / "commondir"
+    return (own / shared.read_text().strip()).resolve() if shared.is_file() else own
+
+
+def _head_branch(head: Path) -> str | None:
+    try:
+        text = head.read_text().strip()
+    except OSError:
+        return None
+    return text.removeprefix("ref: refs/heads/") if text.startswith("ref: refs/heads/") else None
 
 
 def worktree_entries(repo: Path) -> tuple[WorktreeEntry, ...]:
-    """Every worktree git lists for `repo`, its own checkout first."""
-    raise NotImplementedError
+    """Every worktree git lists for `repo`, its own checkout first: what
+    `git worktree list --porcelain` says, read from the repository's files."""
+    common = _common_dir(repo)
+    if common is None:
+        return ()
+    found = [
+        WorktreeEntry(path=common.parent, branch=_head_branch(common / "HEAD"), prunable=False)
+    ]
+    for admin in sorted((common / "worktrees").glob("*")):
+        try:
+            gitdir = Path((admin / "gitdir").read_text().strip())
+        except OSError:
+            continue
+        path = gitdir.parent
+        found.append(
+            WorktreeEntry(
+                path=path, branch=_head_branch(admin / "HEAD"), prunable=not path.exists()
+            )
+        )
+    return tuple(found)
+
+
+def _under(path: Path, root: Path) -> bool:
+    return path.resolve().is_relative_to(root.resolve())
+
+
+def _entry_on(repo: Path, branch: str) -> WorktreeEntry | None:
+    return next((entry for entry in worktree_entries(repo) if entry.branch == branch), None)
 
 
 def unit_tree(repo: Path, branch: str, root: Path) -> Path | None:
     """The unit's existing worktree under `root`, or None; never raises."""
-    raise NotImplementedError
+    entry = _entry_on(repo, branch)
+    if entry is None or entry.prunable or not entry.path.is_dir() or not _under(entry.path, root):
+        return None
+    return entry.path
 
 
 def worktree_path(repo: Path, branch: str, root: Path, *, name: str | None = None) -> Path:
-    return root / repo.name / re.sub(r"[^A-Za-z0-9]", "_", branch)
+    """Where a new worktree for `branch` goes: under the folder the repo's `name` gives, or
+    its checkout's folder name when no name is given."""
+    folder = worktree_key(name) if name is not None else repo.name
+    return root / folder / re.sub(r"[^A-Za-z0-9]", "_", branch)
 
 
 def _uncommitted(
@@ -260,9 +316,15 @@ def prepare_worktree(
     Either way it carries the ignored scratch folder agent runs put long
     command output in (`pipeline/scratch.py`).
     """
-    path = worktree_path(repo, branch, root)
+    entry = _entry_on(repo, branch)
+    if entry is not None and entry.prunable:
+        git_out(repo, "worktree", "prune")
+        entry = None
+    if entry is not None and not _under(entry.path, root):
+        raise _elsewhere(branch, entry.path, root)
 
-    if path.exists():
+    if entry is not None:
+        path = entry.path
         ensure_scratch(path)
         entries = _uncommitted(path, locks, artifacts)
         if entries and not allow_dirty:
@@ -274,6 +336,9 @@ def prepare_worktree(
             )
         return path
 
+    path = worktree_path(repo, branch, root, name=name)
+    if path.exists() and (not path.is_dir() or any(path.iterdir())):
+        raise WorktreeOccupied(f"{path} is where {branch} would go, and it holds something else")
     path.parent.mkdir(parents=True, exist_ok=True)
 
     branches = git_out(repo, "branch", "--list", branch)
@@ -286,6 +351,13 @@ def prepare_worktree(
     return path
 
 
+def _elsewhere(branch: str, path: Path, root: Path) -> WorktreeElsewhere:
+    return WorktreeElsewhere(
+        f"{branch} is checked out at {path}, which is not under {root}; leave that checkout or "
+        "switch it away, the pipeline does not use or remove it"
+    )
+
+
 def prepare_detached(
     repo: Path, leaf: str, *, ref: str, root: Path, name: str | None = None
 ) -> Path:
@@ -296,7 +368,19 @@ def prepare_detached(
     from the platform's main, not from the user's own checkout and whatever
     is on it. Nothing is ever committed here, so moving it discards nothing.
     """
-    path = root / repo.name / leaf
+    path = root / worktree_key(name if name is not None else repo.name) / leaf
+    if not path.exists():
+        path = next(
+            (
+                entry.path
+                for entry in worktree_entries(repo)
+                if entry.branch is None
+                and not entry.prunable
+                and entry.path.name == leaf
+                and entry.path.parent.parent == root.resolve()
+            ),
+            path,
+        )
     if path.exists():
         git_out(path, "checkout", "-q", "--detach", ref)
         return path
@@ -334,9 +418,13 @@ def remove_worktree(repo: Path, branch: str, *, root: Path) -> None:
     `--force` is deliberately not used: if the tree is dirty, git refuses and
     the work stays for a human to look at.
     """
-    path = worktree_path(repo, branch, root)
-    if not path.exists():
+    entry = _entry_on(repo, branch)
+    if entry is None:
+        return
+    if not _under(entry.path, root):
+        raise _elsewhere(branch, entry.path, root)
+    if not entry.path.exists():
         return
 
-    git(repo, "worktree", "remove", str(path), check=False)
+    git(repo, "worktree", "remove", str(entry.path), check=False)
     git_out(repo, "worktree", "prune")

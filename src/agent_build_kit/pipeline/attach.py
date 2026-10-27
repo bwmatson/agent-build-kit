@@ -20,7 +20,7 @@ from agent_build_kit.pipeline.workspaces import (
     BranchBusy,
     changed_paths,
     discard_changes,
-    worktree_path,
+    unit_tree,
 )
 
 PLANNING = "planning"
@@ -43,8 +43,7 @@ def worktree_of(inst: Installation, unit: StoredUnit) -> Path | None:
     """The unit's worktree, when it exists."""
     if not unit.branch or unit.repo not in inst.checkouts:
         return None
-    path = worktree_path(inst.checkouts[unit.repo], unit.branch, inst.worktree_root)
-    return path if path.is_dir() else None
+    return unit_tree(inst.checkouts[unit.repo], unit.branch, inst.worktree_root)
 
 
 def leases_of(inst: Installation) -> Leases:

@@ -64,6 +64,7 @@ from agent_build_kit.serve.server import create_app
 from tests.factories import unit
 from tests.runtimes.acp_agent import EARLIER_TURN
 from tests.runtimes.claude_cli import FakeClaude, Invocation
+from tests.unit_tree_support import registered_tree
 from tests.waiting import wait_for
 
 WAIT = 15
@@ -73,9 +74,9 @@ def unit_worktree(installation: Installation, unit_id: str) -> Path:
     """The unit's worktree, created: a session for the unit starts in it."""
     unit = UnitStore(installation.state_dir / "units.json").get(unit_id)
     assert unit.branch
-    path = worktree_path(installation.checkouts[unit.repo], unit.branch, installation.worktree_root)
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    repo = installation.checkouts[unit.repo]
+    path = worktree_path(repo, unit.branch, installation.worktree_root)
+    return registered_tree(repo, unit.branch, path)
 
 
 def record_session(
