@@ -4989,7 +4989,7 @@ def plan_all(
                             "sizing": sizing,
                             "attempts": 0,
                             "ok": True,
-                            RESOLVED_FIELD: _resolution_field(task_groups),
+                            **_resolution_record(task_groups),
                         }
                     },
                 )
@@ -5219,7 +5219,7 @@ def plan_all(
                     "sizing": sizing,
                     "attempts": attempts_kept,
                     "ok": True,
-                    RESOLVED_FIELD: _resolution_field(task_groups),
+                    **_resolution_record(task_groups),
                 }
             },
         )
@@ -5464,9 +5464,11 @@ MOVED = "project_moved"
 RESOLVED_FIELD = "resolved"
 
 
-def _resolution_field(groups: Sequence[TaskGroup]) -> dict[str, str]:
-    """What a plan record keeps of the projects `groups` resolved to."""
-    return {str(number): project for number, project in resolved_projects(groups).items()}
+def _resolution_record(groups: Sequence[TaskGroup]) -> dict[str, dict[str, str]]:
+    """The field a plan record keeps of the projects `groups` resolved to: none when nothing
+    resolved, which a record with no field already says."""
+    resolved = {str(number): project for number, project in resolved_projects(groups).items()}
+    return {RESOLVED_FIELD: resolved} if resolved else {}
 
 
 def marked_for_moved_projects(inst: Installation, records: dict[str, dict]) -> dict[str, dict]:
