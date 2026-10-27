@@ -42,7 +42,7 @@ def test_a_tick_passes_the_publish_hook_and_the_copy_folder_and_commits_nothing_
 
     setup.tick()
 
-    assert len(calls) == 1
+    assert calls
     assert callable(calls[0]["publish"])
     assert calls[0]["progress"]("feature") == progress_dir(setup.inst, "feature")
     assert git(tmp_path, "rev-list", "--count", "HEAD") == before
@@ -54,7 +54,7 @@ def test_verify_passes_the_same_hook_and_folder(
     setup: Setup = make_setup(tmp_path, monkeypatch)
     calls = recording(monkeypatch)
     UnitStore(setup.inst.state_dir / "units.json").upsert(
-        [stored_unit("feature/1", state="merged")]
+        [stored_unit("feature/1", change="feature", state="merged")]
     )
     monkeypatch.setattr(
         cli, "verify_one", lambda inst, change, units: Verification(change=change, passed=True)

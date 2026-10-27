@@ -599,12 +599,26 @@ def commit_bookkeeping(
     if committed.returncode != 0:
         log(f"[{project.name}] committing the {name} bookkeeping failed:\n{committed.stderr}")
         return
+    label = f"{RUN_ID}-{project.name}-{name}"
+    body = f"The {name} phase's bookkeeping for {project.name}, published by abk."
+    publish_commit(inst, branch, label, message, earlier, body)
+
+
+def publish_commit(
+    inst: Installation, branch: str, label: str, message: str, earlier: str, body: str
+) -> None:
+    """Publishes the commit just made at HEAD of the planning root. A rejected push is retried
+    once after a fast-forward; a second rejection is reported and the commit stays.
+
+    `planning.publish: branch` in a pipeline worktree pushes it to `planning/<label>` and opens a
+    pull request to `branch` titled `message` with `body`, then puts HEAD back at `earlier` with
+    the files left in the worktree, so the next sync is a fast-forward."""
     if _git(["remote", "get-url", "origin"], inst.root).returncode != 0:
         return
     # A pipeline worktree has no branch of its own to push or pull.
     detached = planning_mode(inst) == PlanningMode.PIPELINE_WORKTREE
     if detached and inst.config.planning.publish == PlanningPublish.BRANCH:
-        _publish_branch(inst, branch, project, name, message, earlier)
+        _publish_branch(inst, branch, label, message, earlier, body)
         return
     refspec = f"HEAD:refs/heads/{branch}" if detached else branch
     push = _git(["push", "origin", refspec], inst.root)
@@ -623,57 +637,34 @@ def commit_bookkeeping(
         else:
             pulled = _git(["pull", "--rebase", "--autostash", "origin", branch], inst.root)
         if pulled.returncode != 0:
-            log(f"[{project.name}] pulling before the retry failed:\n{pulled.stderr}")
+            log(f"[{label}] pulling before the retry failed:\n{pulled.stderr}")
         push = _git(["push", "origin", refspec], inst.root)
     if push.returncode != 0:
         log(
-            f"[{project.name}] push of the {name} bookkeeping was rejected twice — the commit "
-            f"is kept in {inst.root}:\n{push.stderr}"
+            f"[{label}] push was rejected twice — the commit is kept in {inst.root}:\n{push.stderr}"
         )
-
-
-def publish_commit(
-    inst: Installation, branch: str, label: str, message: str, earlier: str, body: str
-) -> None:
-    """Publishes the commit just made at HEAD: the push of `commit_bookkeeping` from the commit
-    to the retried push, and `planning.publish: branch`'s `planning/<label>` branch and pull request
-    to `branch` titled `message` with `body`, then HEAD back at `earlier`."""
-    raise NotImplementedError
 
 
 def _publish_branch(
-    inst: Installation, base: str, project: Project, name: str, message: str, earlier: str
+    inst: Installation, base: str, label: str, message: str, earlier: str, body: str
 ) -> None:
-    """`planning.publish: branch`: pushes the phase's commit to
-    `planning/<run id>-<project>-<phase>` and opens a pull request to `base`, then puts HEAD back
-    at `earlier` with the files left in the worktree, so the next sync is a fast-forward. A
-    refused push keeps the commit."""
-    head = f"planning/{RUN_ID}-{project.name}-{name}"
+    head = f"planning/{label}"
     push = _git(["push", "origin", f"HEAD:refs/heads/{head}"], inst.root)
     if push.returncode != 0:
-        log(
-            f"[{project.name}] push of the {name} bookkeeping to {head} was rejected:\n"
-            f"{push.stderr}"
-        )
+        log(f"[{label}] push to {head} was rejected:\n{push.stderr}")
         return
     _git(["reset", "-q", earlier], inst.root)
     repo_name = in_repo_name(inst)
     if repo_name is None:
-        log(f"[{project.name}] pushed {head} with no pull request: the planning repo is not a repo")
+        log(f"[{label}] pushed {head} with no pull request: the planning repo is not a repo")
         return
     try:
         forge, repo = inst.forge_of(repo_name)
-        number = forge.create_pr(
-            repo,
-            head=head,
-            base=base,
-            title=message,
-            body=f"The {name} phase's bookkeeping for {project.name}, published by abk.",
-        )
+        number = forge.create_pr(repo, head=head, base=base, title=message, body=body)
     except RuntimeError as error:
-        log(f"[{project.name}] opening a pull request for {head} failed: {error}")
+        log(f"[{label}] opening a pull request for {head} failed: {error}")
         return
-    log(f"[{project.name}] published the {name} bookkeeping as pull request {number} from {head}")
+    log(f"[{label}] published as pull request {number} from {head}")
 
 
 def _print_dry_run(

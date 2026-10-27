@@ -6,6 +6,13 @@
   section: the target and who the credential acts as (a refused credential is one warning
   naming the cause, and an invalid section shows its error), and say nothing about a repo
   without one.
+- Task progress and follow-ups are tracked in `<state dir>/changes/<change>/`, not in the
+  repository, so a tick never modifies a tracked file of the pipeline worktree, and the locks
+  on a change's files are under `locks/changes/` in the local directory (`planning.local_dir`,
+  else `<planning home>/local`, else the state directory's `locks/`). The archive writes the
+  final files over the repository's, archives the change, and commits the archived directory and
+  the main specs, pushing to the default branch or opening a pull request as `planning.publish`
+  says. You lose the in-repo ticks until the change is archived.
 
 - The files tied to this machine's processes (the checkpointer database, the branch, repo and
   change locks, the leases, the e2e-test lock and the environment lock) now live in a local

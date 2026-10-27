@@ -86,7 +86,7 @@ def test_a_conflict_aborts_the_rebase_keeps_the_commit_and_logs_once_with_the_pa
     assert origin_ref(setup, "main") == theirs
     assert git(setup.worktree, "rev-parse", "HEAD") == ours, "the commit is kept, not mid-rebase"
     assert git(setup.worktree, "status", "--porcelain") == ""
-    rejected = [line for line in capsys.readouterr().out.splitlines() if "rejected" in line]
+    rejected = [line for line in capsys.readouterr().out.splitlines() if "rejected twice" in line]
     assert len(rejected) == 1
     assert str(inst.root) in rejected[0]
 

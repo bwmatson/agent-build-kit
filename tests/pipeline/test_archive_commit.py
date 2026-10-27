@@ -94,7 +94,9 @@ def merged_change(inst: Installation) -> None:
     """A merged change with a ticked copy and a follow-up, and dirt the archive must not commit."""
     write_copy(inst, CHANGE, TICKED)
     copy_file(inst, CHANGE, "follow-ups.md").write_text(FOLLOW_UPS)
-    UnitStore(inst.state_dir / "units.json").upsert([stored_unit(f"{CHANGE}/1", state="merged")])
+    UnitStore(inst.state_dir / "units.json").upsert(
+        [stored_unit(f"{CHANGE}/1", change=CHANGE, state="merged")]
+    )
     (inst.root / "abk.yaml").write_text("repos: {changed: true}\n")
     (inst.root / "src" / "main.py").write_text("print('dirty')\n")
 
