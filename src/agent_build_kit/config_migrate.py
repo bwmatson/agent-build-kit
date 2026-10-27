@@ -23,7 +23,7 @@ from agent_build_kit.config import (
     DEPRECATED_USAGE_LIMITS,
     USAGE_LIMITS,
     WorkspaceConfig,
-    alias_usage_limits,
+    alias_runtimes_usage_limits,
     old_setting_blocks,
     read_new_settings,
 )
@@ -36,6 +36,7 @@ from agent_build_kit.config_migrate_lines import (
     pair,
     refuse,
     region,
+    rename_on_line,
     shifted,
 )
 from agent_build_kit.config_migrate_machine import (
@@ -479,15 +480,8 @@ def _rename_test_kind_keys(text: str) -> str:
         for key, _ in block.value:
             if not (isinstance(key, yaml.ScalarNode) and key.value in keys):
                 continue
-            line, col = key.start_mark.line, key.start_mark.column
-            if MARKED.search(strip_comment(lines[line])):
-                raise refuse(key.value, "it has an anchor or an alias, which cannot be edited")
-            if lines[line][col : col + len(key.value)] != key.value:
-                raise refuse(
-                    key.value, "it is quoted or written across lines, so it is not renamed"
-                )
             new = new_spelling(Place.SETTING, key.value)
-            lines[line] = lines[line][:col] + new + lines[line][col + len(key.value) :]
+            rename_on_line(lines, key, key.value, new, key.value)
     result = "".join(lines)
     try:
         written = yaml.safe_load(result)
@@ -521,19 +515,7 @@ def _rename_builders_key(text: str) -> str:
         )
     lines = split_lines(text)
     opened(lines, held[0], held[1], DEPRECATED_BUILDERS_KEY, "builders")
-    key = found[0]
-    line, col = key.start_mark.line, key.start_mark.column
-    if MARKED.search(strip_comment(lines[line])):
-        raise refuse(
-            DEPRECATED_BUILDERS_KEY, "it has an anchor or an alias, which cannot be edited"
-        )
-    if lines[line][col : col + len(DEPRECATED_BUILDERS_KEY)] != DEPRECATED_BUILDERS_KEY:
-        raise refuse(
-            DEPRECATED_BUILDERS_KEY, "it is quoted or written across lines, so it is not renamed"
-        )
-    lines[line] = (
-        lines[line][:col] + BUILDERS_KEY + lines[line][col + len(DEPRECATED_BUILDERS_KEY) :]
-    )
+    rename_on_line(lines, found[0], DEPRECATED_BUILDERS_KEY, BUILDERS_KEY, DEPRECATED_BUILDERS_KEY)
     result = "".join(lines)
     old = yaml.safe_load(text)
     builders = {
@@ -571,23 +553,6 @@ def _usage_limits_holders(
     return holders
 
 
-def _aliased_runtime(runtime: Any) -> Any:
-    """A runtime mapping with `limits` renamed in it and in each of its accounts."""
-    if not isinstance(runtime, dict):
-        return runtime
-    runtime = alias_usage_limits(runtime)
-    accounts = runtime.get("accounts")
-    if isinstance(accounts, dict):
-        runtime = {
-            **runtime,
-            "accounts": {
-                label: alias_usage_limits(account) if isinstance(account, dict) else account
-                for label, account in accounts.items()
-            },
-        }
-    return runtime
-
-
 def _loaded_holds_old(document: Any, where: str) -> bool:
     """Whether the mapping at the dotted path `where` of the loaded `document` sets `limits`."""
     node = document
@@ -623,28 +588,16 @@ def _rename_usage_limits(text: str) -> str:
                 old, f"`{DEPRECATED_USAGE_LIMITS}` and `{USAGE_LIMITS}` are both set; keep one"
             )
         opened(lines, holder_key, holder, where, "the block")
-        key = found[0]
-        line, col = key.start_mark.line, key.start_mark.column
-        if MARKED.search(strip_comment(lines[line])):
-            raise refuse(old, "it has an anchor or an alias, which cannot be edited")
-        if lines[line][col : col + len(DEPRECATED_USAGE_LIMITS)] != DEPRECATED_USAGE_LIMITS:
-            raise refuse(old, "it is quoted or written across lines, so it is not renamed")
-        lines[line] = (
-            lines[line][:col] + USAGE_LIMITS + lines[line][col + len(DEPRECATED_USAGE_LIMITS) :]
-        )
+        rename_on_line(lines, found[0], DEPRECATED_USAGE_LIMITS, USAGE_LIMITS, old)
         renamed = True
     if not renamed:
         return text
     result = joined(lines, text)
-    expected = {
-        **before,
-        RUNTIMES: {name: _aliased_runtime(entry) for name, entry in before[RUNTIMES].items()},
-    }
     try:
         written = yaml.safe_load(result)
     except yaml.YAMLError as error:
         raise refuse("abk.yaml", f"the edited text would not parse ({error})") from error
-    if written != expected:
+    if written != alias_runtimes_usage_limits(before):
         raise refuse(
             "abk.yaml", "the edited text would differ from the file in more than the rename"
         )
