@@ -10,7 +10,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 
 FILE_NAME = "tracker.yaml"
 SCHEMA_VERSION = 1
@@ -47,20 +50,33 @@ class TrackerFile(Frozen):
 
 def tracker_path(change_dir: Path) -> Path:
     """Where `change_dir` keeps its tracker file."""
-    raise NotImplementedError
+    return change_dir / FILE_NAME
 
 
 def read_tracker(change_dir: Path) -> TrackerFile | None:
-    """The change's tracker file, none when it has none. Creates nothing."""
-    raise NotImplementedError
+    """The change's tracker file, none when it has none. Creates nothing. The file is replaced
+    whole, so a read needs no lock."""
+    path = tracker_path(change_dir)
+    if not path.is_file():
+        return None
+    return TrackerFile.model_validate(yaml.safe_load(path.read_text()) or {})
 
 
 def write_tracker(change_dir: Path, tracker: TrackerFile) -> None:
     """Replace the file whole, under the file's lock."""
-    raise NotImplementedError
+    path = tracker_path(change_dir)
+    text = yaml.safe_dump(tracker.model_dump(mode="json"), sort_keys=False)
+    with file_lock(path.with_name(f"{path.name}.lock")):
+        atomic_write_text(path, text)
 
 
 def read_for_target(change_dir: Path, kind: str, target: str) -> TrackerFile | None:
     """`read_tracker`, but raises `TargetMismatch` when the file records another kind or target,
     so the old ids are not used."""
-    raise NotImplementedError
+    found = read_tracker(change_dir)
+    if found is not None and (found.kind, found.target) != (kind, target):
+        raise TargetMismatch(
+            f"change {change_dir.name} records {found.kind} {found.target}, "
+            f"but the configuration names {kind} {target}"
+        )
+    return found
