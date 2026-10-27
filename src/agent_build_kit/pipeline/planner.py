@@ -269,6 +269,7 @@ def parse_plan(
             _check_groups(units, groups, built or set(), carried)
             check_flagged_groups(units, groups)
             _check_full_separation(units, groups, tasks)
+        _check_external(units, external)
         _check_ceiling(units, groups, calibrations, unnamed)
         if split is not None and held is not None:
             _check_split_shape(units, held)
@@ -728,6 +729,20 @@ def _check_e2e_alone(units: list[Unit], groups: list[TaskGroup]) -> None:
             raise PlannerError(
                 f"unit {unit.id} combines [{TestTier.E2E_TEST}] {named}{beside} — an [e2e-test] "
                 "group always has a unit of its own"
+            )
+
+
+def _check_external(units: list[Unit], external: Collection[int]) -> None:
+    """A unit carries groups held by someone outside the kit, or none of them."""
+    for unit in units:
+        held = sorted(n for n in unit.groups if n in external)
+        free = sorted(n for n in unit.groups if n not in external)
+        if held and free:
+            named = ", ".join(f"group {n}" for n in held)
+            beside = ", ".join(f"group {n}" for n in free)
+            raise PlannerError(
+                f"unit {unit.id} combines {named}, held by someone outside the kit, with "
+                f"{beside} — a held group always has a unit of its own, or only held groups"
             )
 
 
@@ -1488,6 +1503,7 @@ def plan_round(
     split: SplitRequest | None = None,
     held: StoredUnit | None = None,
     pins: Sequence[Pin] = (),
+    external: Collection[int] = (),
 ) -> Plan:
     """Ask for a graph and return it, or raise `PlannerError`.
 
@@ -1528,4 +1544,5 @@ def plan_round(
         split=split,
         held=held,
         pins=pins,
+        external=external,
     )

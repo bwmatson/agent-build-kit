@@ -15,6 +15,7 @@ from agent_build_kit.pipeline.admission_record import (
     config_fingerprint,
     read_admissions,
 )
+from agent_build_kit.pipeline.external_file import external_reason, held_units
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import PLANNED, history_stamp
 
@@ -94,6 +95,9 @@ def cmd_explain(args: argparse.Namespace, inst: Installation) -> int:
         and (stamp := history_stamp(entry)) is not None
         and stamp <= at
     ]
+    if unit is not None and (hold := held_units(inst.changes_dir, [unit]).get(unit.id)):
+        print(f"{args.unit} is {external_reason(hold)}")
+        return 0
     if unit is not None and unit.unsplit_reason:
         print(f"{args.unit} is over its ceiling and not split: {unit.unsplit_reason}")
     paused = events[-1] if events and events[-1][1]["event"] == "usage_pause" else None
