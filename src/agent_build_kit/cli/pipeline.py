@@ -138,6 +138,7 @@ from agent_build_kit.pipeline.external_file import (
     blocked_groups,
     external_reason,
     held_units,
+    hold_status_lines,
 )
 from agent_build_kit.pipeline.file_lock import atomic_write_bytes, atomic_write_text, file_lock
 from agent_build_kit.pipeline.flakes import flake_record
@@ -833,6 +834,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     if line := lock_status_line(inst.e2e_lock):
         log(line)
     for line in held_status_lines(inst):
+        log(line)
+    for line in hold_status_lines(inst.changes_dir, store_for(inst).all(), spans.clock.now()):
         log(line)
     for line in gate_status_lines(
         inst, now=spans.clock.now(), refresh=getattr(args, "refresh", False)

@@ -134,6 +134,19 @@ def add_hold(change_dir: Path, hold: Hold) -> None:
         _write(path, [*holds, hold])
 
 
+def already_held(change_dir: Path, hold: Hold) -> bool:
+    """Whether the holds of `hold`'s holder that are still held already cover everything `hold`
+    asks for, so recording it again would change nothing. `all` is covered only by an `all`."""
+    mine = [
+        (other, groups)
+        for other, groups in _coverage(change_dir, read_holds(change_dir))
+        if other.status == HELD and other.holder == hold.holder
+    ]
+    if hold.scope == "all":
+        return any(other.scope == "all" for other, _ in mine)
+    return set(hold.scope) <= set().union(*(groups for _, groups in mine))
+
+
 def _holding(change_dir: Path, *, recorded: bool = False) -> dict[int, Hold]:
     """Each group the kit must leave alone, with the hold that has it: those of every hold
     neither done nor released, and with `recorded` those done by hand too."""
@@ -210,21 +223,38 @@ def check_not_started(change_dir: Path, hold: Hold, units: Sequence[StoredUnit])
         )
 
 
-def release_hold(change_dir: Path, group: int) -> None:
-    """Give back the work of the hold that has `group`; raises `HoldRefused` when none holds it
-    or the hold is done."""
+def release_holds(change_dir: Path, groups: Sequence[int]) -> tuple[int, ...]:
+    """Give back the work of every hold that has one of `groups`, in one step under the lock, and
+    return every group those holds covered. Raises `HoldRefused`, writing nothing, when a group
+    is held by none or its hold is done."""
     path = external_path(change_dir)
     with file_lock(_lock(path)):
         holds = read_holds(change_dir)
-        for index, (hold, groups) in enumerate(_coverage(change_dir, holds)):
-            if hold.status == RELEASED or group not in groups:
+        out = list(holds)
+        freed: set[int] = set()
+        for group in groups:
+            if group in freed:
                 continue
-            if hold.status == DONE:
-                raise HoldRefused(f"group {group} of change {change_dir.name} is done, not held")
-            released = hold.model_copy(update={"status": RELEASED})
-            _write(path, [*holds[:index], released, *holds[index + 1 :]])
-            return
-    raise HoldRefused(f"group {group} of change {change_dir.name} is not held")
+            for index, (hold, covered) in enumerate(_coverage(change_dir, holds)):
+                if hold.status == RELEASED or group not in covered:
+                    continue
+                if hold.status == DONE:
+                    raise HoldRefused(
+                        f"group {group} of change {change_dir.name} is done, not held"
+                    )
+                out[index] = hold.model_copy(update={"status": RELEASED})
+                freed |= covered
+                break
+            else:
+                raise HoldRefused(f"group {group} of change {change_dir.name} is not held")
+        _write(path, out)
+        return tuple(sorted(freed))
+
+
+def release_hold(change_dir: Path, group: int) -> None:
+    """Give back the work of the hold that has `group`; raises `HoldRefused` when none holds it
+    or the hold is done."""
+    release_holds(change_dir, (group,))
 
 
 def record_done(change_dir: Path, groups: Sequence[int], *, merged_by: str, at: datetime) -> None:
@@ -249,3 +279,78 @@ def record_done(change_dir: Path, groups: Sequence[int], *, merged_by: str, at: 
         if todo:
             raise HoldRefused(f"group {min(todo)} of change {change_dir.name} is not held")
         _write(path, out)
+
+
+class HoldRow(Frozen):
+    """One hold as `abk external list` and `abk status` show it."""
+
+    change: str
+    groups: tuple[int, ...] | Literal["all"]
+    holder: str
+    link: str
+    status: str
+    items: dict[str, str | list[str]]
+    note: str
+    since: datetime
+    age: str
+    units: tuple[str, ...]
+    waiting: tuple[str, ...]
+
+
+def age_text(since: datetime, now: datetime) -> str:
+    seconds = max(0, int((now - since).total_seconds()))
+    for size, suffix in ((86400, "d"), (3600, "h")):
+        if seconds >= size:
+            return f"{seconds // size}{suffix}"
+    return f"{seconds // 60}m"
+
+
+def hold_rows(changes_dir: Path, units: Sequence[StoredUnit], now: datetime) -> list[HoldRow]:
+    """Every hold of every change, with the held units it keeps from starting and the units
+    that wait on them."""
+    held = held_units(changes_dir, units)
+    rows: list[HoldRow] = []
+    folders = sorted(changes_dir.iterdir()) if changes_dir.is_dir() else []
+    for folder in (path for path in folders if path.is_dir()):
+        for hold in read_holds(folder):
+            mine = (
+                {uid for uid, found in held.items() if found == hold}
+                if hold.status == HELD
+                else set()
+            )
+            waiting = tuple(
+                unit.id for unit in units if mine & set(unit.depends_on) and unit.id not in mine
+            )
+            rows.append(
+                HoldRow(
+                    change=folder.name,
+                    groups=hold.scope,
+                    holder=hold.holder,
+                    link=hold.link,
+                    status=hold.status,
+                    items=hold.items,
+                    note=hold.note,
+                    since=hold.since,
+                    age=age_text(hold.since, now),
+                    units=tuple(sorted(mine)),
+                    waiting=waiting,
+                )
+            )
+    return rows
+
+
+def hold_text(row: HoldRow) -> str:
+    """A hold on one line."""
+    groups = row.groups if row.groups == "all" else ",".join(str(n) for n in row.groups)
+    text = f"{row.change} groups {groups}: {row.status} by {row.holder} ({row.link}), {row.age}"
+    if row.units:
+        text += f"; units {', '.join(row.units)}"
+    if row.waiting:
+        text += f"; waiting: {', '.join(row.waiting)}"
+    return text
+
+
+def hold_status_lines(changes_dir: Path, units: Sequence[StoredUnit], now: datetime) -> list[str]:
+    """The `abk status` section for holds still held; none when nothing is."""
+    rows = [row for row in hold_rows(changes_dir, units, now) if row.status == HELD]
+    return ["external holds:", *(f"  {hold_text(row)}" for row in rows)] if rows else []

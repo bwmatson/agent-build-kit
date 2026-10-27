@@ -50,6 +50,7 @@ COMMAND_MODULES = (
     "agent_build_kit.cli.e2e_cmd",
     "agent_build_kit.cli.install_config",
     "agent_build_kit.cli.manual_cmd",
+    "agent_build_kit.cli.external_cmd",
     "agent_build_kit.cli.review_report",
 )
 

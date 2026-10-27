@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `abk external hand-off`, `list`, `done` and `release` hand a change, or some of its groups,
+  to someone who builds it by hand. The kit never starts held work, units that need it wait
+  for its merge, and `done` checks a merged pull request or a commit on the default branch
+  before recording it. `abk status` shows the holds, and `docs/hand-off.md` describes the
+  order and how to create the board items by hand.
+
 - A unit over its tier's size ceiling that cannot be split (it holds one group, carries
   groups of another change, has a started dependent, has used its split rounds, or has a
   group the planner finds too large) now has its size rule waived and goes on to review and
