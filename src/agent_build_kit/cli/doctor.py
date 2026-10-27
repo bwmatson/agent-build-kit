@@ -1009,11 +1009,21 @@ def _trackers(inst: Installation) -> list[Check]:
             case "ok":
                 checks.append(_ok(title, found.text))
             case "refused":
+                credential = (
+                    f"check the token in {found.token_env}"
+                    if found.token_env
+                    else "no token_env is set, so the forge's credential for that host is in use: "
+                    "check that login or token"
+                )
+                detail = f"the host did not accept the identity check: {found.text}"
+                checks.append(_warn(title, detail, credential))
+            case "unsupported":
                 checks.append(
                     _warn(
                         title,
-                        f"the host refused the credential: {found.text}",
-                        f"check the token in the variable named by repos.{name}.tracker.token_env",
+                        found.text,
+                        f"the installed kit does not implement tracker kind {found.kind!r}: "
+                        f"upgrade the kit, or set `kind: none` in repos.{name}.tracker",
                     )
                 )
             case "invalid":

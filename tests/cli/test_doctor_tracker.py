@@ -11,6 +11,7 @@ from tests.cli.test_doctor import Answers
 from tests.cli.tracker_fakes import (
     IDENTITY,
     INCOMPLETE,
+    KIND,
     ORGANIZATION,
     SECTION,
     RefusedTracker,
@@ -47,13 +48,40 @@ def test_a_refused_credential_is_one_warning_naming_the_cause(tmp_path: Path) ->
     assert check.fix
 
 
+def test_the_fix_for_a_refused_credential_names_the_variable_only_when_one_is_set(
+    tmp_path: Path,
+) -> None:
+    without = SECTION.replace("      token_env: TRACKER_PAT\n", "")
+    (tmp_path / "named").mkdir()
+    (tmp_path / "unnamed").mkdir()
+    with served(RefusedTracker()):
+        (named,) = tracker_checks(planned(tmp_path / "named", SECTION))
+        (unnamed,) = tracker_checks(planned(tmp_path / "unnamed", without))
+
+    assert "TRACKER_PAT" in named.fix
+    assert "TRACKER_PAT" not in unnamed.fix
+    assert "forge's credential" in unnamed.fix
+
+
+def test_a_valid_section_with_no_implementation_is_not_blamed_on_the_section(
+    tmp_path: Path,
+) -> None:
+    (check,) = tracker_checks(planned(tmp_path, SECTION))
+
+    assert check.status == "warn"
+    assert KIND in check.detail
+    assert "does not implement" in check.fix
+    assert "fix repos.app.tracker" not in check.fix
+
+
 def test_an_invalid_section_reports_its_error(tmp_path: Path) -> None:
     with served(LocalTracker()):
         (check,) = tracker_checks(planned(tmp_path, INCOMPLETE))
 
-    assert check.status != "ok"
+    assert check.status == "FAIL"
     assert "project" in check.detail
     assert "app" in check.detail
+    assert "repos.app.tracker" in check.fix
 
 
 def test_a_repo_with_no_section_adds_no_line(tmp_path: Path) -> None:

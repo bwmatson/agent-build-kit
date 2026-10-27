@@ -32,13 +32,20 @@ class Watched:
         self._epic_id = epic_id
         self._epic_writes = epic_writes
 
+    @staticmethod
+    def _items_named(name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> list[Any]:
+        """The items a write is aimed at: its subject, and a link's target. Not a revision."""
+        subject = args[0] if args else kwargs.get("item_id")
+        target = args[2] if len(args) > 2 else kwargs.get("target_id")
+        return [subject, target] if name == "link" else [subject]
+
     def __getattr__(self, name: str) -> Any:
         attribute = getattr(self._inner, name)
         if name not in WRITES:
             return attribute
 
         def call(*args: Any, **kwargs: Any) -> Any:
-            if self._epic_id is not None and self._epic_id in [*args, *kwargs.values()]:
+            if self._epic_id in self._items_named(name, args, kwargs):
                 self._epic_writes.append(name)
             return attribute(*args, **kwargs)
 
@@ -132,6 +139,7 @@ def assign_someone_else(shape: Shape) -> None:
 
 
 def comment(shape: Shape) -> None:
+    """Only that the call is accepted: the protocol has no way to read a comment back."""
     if not shape.tracker.capabilities().comment:
         pytest.skip("the tracker cannot hold comments")
     shape.tracker.comment(shape.top().id, "a note")
@@ -162,7 +170,7 @@ def changes_since_a_cursor_made_by_another_identity(shape: Shape) -> None:
     assert "body" in changes[0].fields
 
 
-def find_by_marker_after_a_lost_create(shape: Shape) -> None:
+def find_by_marker_is_stable(shape: Shape) -> None:
     parent = shape.epic.id if shape.epic else None
     shape.tracker.create(shape.kinds[0], "Lost", parent=parent, markers=("abk:lost",))
 
@@ -195,7 +203,7 @@ SCENARIOS: dict[str, Callable[[Shape], None]] = {
         comment,
         link,
         changes_since_a_cursor_made_by_another_identity,
-        find_by_marker_after_a_lost_create,
+        find_by_marker_is_stable,
         the_epic_only_receives_reads,
     )
 }
