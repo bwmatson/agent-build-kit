@@ -82,6 +82,8 @@ def find_live_modules(tests_root: Path) -> list[Path]:
     for path in sorted(tests_root.rglob("*.py")):
         try:
             tree = parsed(path.read_text())
+        except FileNotFoundError:
+            continue  # listed, then removed by something else before it was read
         except SyntaxError:
             broken.append(path)
             continue
