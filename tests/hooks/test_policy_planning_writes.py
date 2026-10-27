@@ -33,7 +33,9 @@ def test_a_track_run_may_write_under_the_planning_state_directory(tmp_path: Path
     state = planning / "runs"
 
     def answer(target: Path) -> dict | None:
-        return decide(write_to(target, cwd=code), planning_repo=planning, planning_state_dir=state)
+        return decide(
+            write_to(target, cwd=code), planning_repo=planning, planning_reports_dir=state
+        )
 
     assert answer(state / "x.md") is None
     assert answer(state / "tracked-issues.md") is None
@@ -77,7 +79,7 @@ def test_a_propose_run_may_write_its_change_and_its_run_log(tmp_path: Path) -> N
         return decide(
             write_to(target, cwd=planning),
             planning_repo=planning,
-            planning_state_dir=state,
+            planning_reports_dir=state,
             planning_change_dir=change,
         )
 
@@ -97,7 +99,7 @@ def test_a_propose_run_may_not_write_the_rest_of_the_planning_repo(tmp_path: Pat
         return decide(
             write_to(target, cwd=planning),
             planning_repo=planning,
-            planning_state_dir=state,
+            planning_reports_dir=state,
             planning_change_dir=change,
         )
 
@@ -123,7 +125,7 @@ def test_a_path_out_of_the_change_does_not_stay_in_it(tmp_path: Path) -> None:
     denied = decide(
         write_to(sneaky, cwd=planning),
         planning_repo=planning,
-        planning_state_dir=planning / "runs",
+        planning_reports_dir=planning / "runs",
         planning_change_dir=change,
     )
 
@@ -138,7 +140,7 @@ def test_a_checkout_nested_inside_the_planning_repo_is_still_its_own(tmp_path: P
     allowed = decide(
         write_to(code / "src" / "thing.py", cwd=code),
         planning_repo=planning,
-        planning_state_dir=planning / "runs",
+        planning_reports_dir=planning / "runs",
     )
 
     assert allowed is None
@@ -153,7 +155,7 @@ def test_a_discovery_run_is_not_granted_a_change(tmp_path: Path) -> None:
     denied = decide(
         write_to(change / "tasks.md", cwd=code),
         planning_repo=planning,
-        planning_state_dir=planning / "runs",
+        planning_reports_dir=planning / "runs",
     )
 
     assert denied is not None
@@ -174,7 +176,7 @@ def test_the_hook_is_told_which_change_it_may_write() -> None:
     settings = hook_settings(
         None,
         planning_repo=Path("/srv/planning"),
-        planning_state_dir=Path("/srv/planning/runs"),
+        planning_reports_dir=Path("/srv/planning/runs"),
         planning_change_dir=Path("/srv/planning/openspec/changes/app-track-1"),
     )
 

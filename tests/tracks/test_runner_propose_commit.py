@@ -248,7 +248,7 @@ def test_a_propose_run_is_granted_its_change_and_nothing_wider(inst: Installatio
     name = runner.proposed_change(project(inst))
     assert request.planning_change_dir == inst.changes_dir / name
     assert request.planning_repo == inst.root
-    assert request.planning_state_dir == inst.state_dir
+    assert request.planning_reports_dir == inst.reports_dir
 
 
 def test_a_discovery_run_is_granted_no_change(inst: Installation) -> None:

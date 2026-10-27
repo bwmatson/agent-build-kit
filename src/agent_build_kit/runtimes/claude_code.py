@@ -301,7 +301,7 @@ def build_argv(request: AgentRequest) -> list[str]:
     sandboxed = request.policy is not None and request.policy.sandbox is not None
     planning = {
         "planning_repo": request.planning_repo,
-        "planning_state_dir": request.planning_state_dir,
+        "planning_reports_dir": request.planning_reports_dir,
         "planning_change_dir": request.planning_change_dir,
         "protected_branches": integration_branches(),
     }

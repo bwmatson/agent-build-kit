@@ -107,7 +107,7 @@ def _checkout_of(path: Path) -> Path | None:
 def _check_file_write(
     payload: dict,
     specs: Path | None,
-    planning_state_dir: Path | None = None,
+    planning_reports_dir: Path | None = None,
     planning_repo: Path | None = None,
     planning_change_dir: Path | None = None,
     planning_paths: tuple[str, ...] = (),
@@ -144,7 +144,7 @@ def _check_file_write(
     # "Belongs to its own git" and not merely "is beneath it": a code checkout
     # nested inside the planning repo is a checkout of its own.
     if planning_repo is not None and _checkout_of(path) == planning_repo.resolve():
-        if _may_write_planning(path, planning_state_dir, planning_change_dir):
+        if _may_write_planning(path, planning_reports_dir, planning_change_dir):
             return None
         return _deny(
             f"{target} is in the planning repo, where this run may write only its run log "
@@ -180,9 +180,9 @@ def _check_file_write(
     # runner commits. The rest of the planning repo, including the tick's live
     # JSON state in the same directory, stays out of reach.
     if (
-        planning_state_dir is not None
+        planning_reports_dir is not None
         and path.suffix == ".md"
-        and path.is_relative_to(planning_state_dir.resolve())
+        and path.is_relative_to(planning_reports_dir.resolve())
     ):
         return None
     scratch = Path(tempfile.gettempdir()).resolve()
@@ -204,7 +204,7 @@ def _check_file_write(
 
 
 def _may_write_planning(
-    path: Path, planning_state_dir: Path | None, planning_change_dir: Path | None
+    path: Path, planning_reports_dir: Path | None, planning_change_dir: Path | None
 ) -> bool:
     """Whether a planning-repo path is one this run was granted.
 
@@ -213,8 +213,8 @@ def _may_write_planning(
     now — and, for a propose run, anything under the one change it was asked to
     write.
     """
-    if planning_state_dir is not None:
-        if path.suffix == ".md" and path.is_relative_to(planning_state_dir.resolve()):
+    if planning_reports_dir is not None:
+        if path.suffix == ".md" and path.is_relative_to(planning_reports_dir.resolve()):
             return True
     return planning_change_dir is not None and path.is_relative_to(planning_change_dir.resolve())
 
@@ -224,7 +224,7 @@ def decide(
     *,
     specs: Path | None = None,
     planning_repo: Path | None = None,
-    planning_state_dir: Path | None = None,
+    planning_reports_dir: Path | None = None,
     planning_change_dir: Path | None = None,
     planning_paths: tuple[str, ...] = (),
     fenced_files: tuple[Path, ...] = (),
@@ -242,7 +242,7 @@ def decide(
             return _check_file_write(
                 payload,
                 specs,
-                planning_state_dir,
+                planning_reports_dir,
                 planning_repo,
                 planning_change_dir,
                 planning_paths,
@@ -316,7 +316,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--planning-reports-dir",
         "--planning-state-dir",
-        dest="planning_state_dir",
+        dest="planning_reports_dir",
         type=Path,
         default=None,
     )
@@ -351,7 +351,7 @@ def main(argv: list[str] | None = None) -> int:
         payload,
         specs=args.specs,
         planning_repo=args.planning_repo,
-        planning_state_dir=args.planning_state_dir,
+        planning_reports_dir=args.planning_reports_dir,
         planning_change_dir=args.planning_change_dir,
         planning_paths=tuple(p for p in args.planning_paths.split(",") if p),
         fenced_files=tuple(args.fenced_file),
@@ -371,7 +371,7 @@ def hook_settings(
     *,
     branch_prefix: str = "spec/",
     planning_repo: Path | None = None,
-    planning_state_dir: Path | None = None,
+    planning_reports_dir: Path | None = None,
     planning_change_dir: Path | None = None,
     planning_paths: tuple[str, ...] = (),
     fenced_files: tuple[Path, ...] = (),
@@ -391,7 +391,7 @@ def hook_settings(
     `specs` is the directory a build agent may read but not write; None for a
     run whose job is to write there (a proposal into the planning repo).
     `planning_repo` is set for a track run: its branches are the pipeline's.
-    `planning_state_dir` is where in it that run may write its run log.
+    `planning_reports_dir` is where in it that run may write its run log.
     `planning_change_dir` is the one change a propose run may write there.
     `planning_paths` are paths, relative to the unit's worktree, that a unit of the planning
     repo's own repository may not write: the pipeline owns them.
@@ -414,8 +414,8 @@ def hook_settings(
         command += f" --specs {shlex.quote(str(specs))}"
     if planning_repo is not None:
         command += f" --planning-repo {shlex.quote(str(planning_repo))}"
-    if planning_state_dir is not None:
-        command += f" --planning-reports-dir {shlex.quote(str(planning_state_dir))}"
+    if planning_reports_dir is not None:
+        command += f" --planning-reports-dir {shlex.quote(str(planning_reports_dir))}"
     if planning_change_dir is not None:
         command += f" --planning-change-dir {shlex.quote(str(planning_change_dir))}"
     if planning_paths:

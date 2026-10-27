@@ -83,10 +83,18 @@ class Installation:
         if worktree_root is None:
             worktree_root = data_home() / name / "worktrees"
         self.worktree_root = Path(worktree_root).expanduser().resolve()
-        if self.worktree_root == self.root or self.worktree_root.is_relative_to(self.root):
+        if self._inside_root(self.worktree_root):
             raise ConfigError(
                 f"planning.worktree_root ({self.worktree_root}) must be outside the "
                 f"planning repo ({self.root})"
+            )
+        configured_reports = config.planning.reports_dir
+        if configured_reports is not None and not self._inside_root(
+            self._under_root(configured_reports)
+        ):
+            raise ConfigError(
+                f"planning.reports_dir {configured_reports} is outside the planning repository "
+                f"{self.root}; the reports are committed there"
             )
 
     # --- paths ----------------------------------------------------------------
@@ -123,24 +131,19 @@ class Installation:
 
     @property
     def reports_dir(self) -> Path:
-        """Where the tracks keep their run logs and tracker: always inside the planning root."""
+        """Where the tracks keep their run logs and tracker: always literally under the root."""
         configured = self.config.planning.reports_dir
-        if configured is not None:
-            path = self._under_root(configured)
-            if not self._inside_root(path):
-                raise ConfigError(
-                    f"planning.reports_dir {configured} is outside the planning repository "
-                    f"{self.root}; the reports are committed there"
-                )
-            return path
-        state = self.state_dir
-        return state if self._inside_root(state) else self.root / "docs" / "reports"
+        path = self._under_root(configured) if configured is not None else self.state_dir
+        if configured is None and not self._inside_root(path):
+            return self.root / "docs" / "reports"
+        # Through a link to the root the path is resolved, so it reads as under `self.root`.
+        return self.root / path.resolve().relative_to(self.root)
 
     def _page(self, configured: str | None, name: str) -> Path:
         if configured is not None:
             return self._under_root(configured)
         state = self.state_dir
-        if state.is_relative_to(self.root):
+        if self._inside_root(state):
             return self.root / "docs" / name
         return state / "pages" / name
 

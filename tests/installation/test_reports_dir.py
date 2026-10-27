@@ -10,6 +10,7 @@ import pytest
 
 from agent_build_kit.config import ConfigError
 from agent_build_kit.settings import settings
+from agent_build_kit.tracks import runner
 from tests.planning_worktree_support import in_repo, installation_at
 
 
@@ -56,9 +57,31 @@ def test_a_reports_directory_outside_the_root_is_refused_naming_the_setting(
     setup = in_repo(tmp_path)
 
     with pytest.raises(ConfigError, match=r"planning\.reports_dir"):
-        inst = installation_at(
+        installation_at(
             setup.working_copy,
             setup.working_copy,
             planning=dict(reports_dir=str(tmp_path / "elsewhere")),
         )
-        _ = inst.reports_dir
+
+
+def test_a_state_directory_reached_through_a_link_to_the_root_is_under_the_root(
+    tmp_path: Path, data: Path
+) -> None:
+    setup = in_repo(tmp_path)
+    link = tmp_path / "link"
+    link.symlink_to(setup.working_copy, target_is_directory=True)
+
+    inst = installation_at(
+        setup.working_copy, setup.working_copy, planning=dict(state_dir=str(link / "runs"))
+    )
+
+    assert inst.reports_dir == inst.root / "runs"
+    assert runner.relative_to_root(inst, inst.reports_dir) == "runs"
+
+
+def test_a_path_outside_the_root_is_refused_naming_the_setting(tmp_path: Path, data: Path) -> None:
+    setup = in_repo(tmp_path)
+    inst = installation_at(setup.working_copy, setup.working_copy)
+
+    with pytest.raises(ConfigError, match=r"planning\.reports_dir"):
+        runner.relative_to_root(inst, tmp_path / "elsewhere")

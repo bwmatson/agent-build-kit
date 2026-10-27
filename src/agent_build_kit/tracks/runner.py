@@ -35,7 +35,7 @@ already done.
   biases which run-log entries it reads first (a track name, or a run id).
 
 Every phase's run log has a filename built from this process's RUN_ID and
-the repo name (`<state_dir>/<RUN_ID>-<repo>-<track>.md`), injected into the
+the repo name (`<reports_dir>/<RUN_ID>-<repo>-<track>.md`), injected into the
 prompt as a placeholder rather than left for the agent to invent — health's
 status readback depends on it being predictable.
 
@@ -54,7 +54,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit import forges, runtimes
-from agent_build_kit.config import PlanningPublish
+from agent_build_kit.config import ConfigError, PlanningPublish
 from agent_build_kit.forges.transport import TransportError
 from agent_build_kit.init.propose import validation_errors
 from agent_build_kit.installation import Installation
@@ -305,8 +305,14 @@ def raw_output_dir(inst: Installation) -> Path:
 
 
 def relative_to_root(inst: Installation, path: Path) -> str:
-    """`path` as a POSIX path relative to the planning root, which it must be inside."""
-    return path.relative_to(inst.root).as_posix()
+    """`path` as a POSIX path relative to the planning root; outside it is a setting to fix."""
+    try:
+        return path.relative_to(inst.root).as_posix()
+    except ValueError:
+        raise ConfigError(
+            f"{path} is outside the planning repository {inst.root}; "
+            "check planning.reports_dir (and planning.state_dir)"
+        ) from None
 
 
 def run_log(inst: Installation, project: Project, track: str) -> Path:
@@ -731,7 +737,7 @@ def claude_phase(
             denied_tools=denied_tools_value(tracks.disallowed_tools),
             permission_mode="edit",
             planning_repo=inst.root,
-            planning_state_dir=inst.reports_dir,
+            planning_reports_dir=inst.reports_dir,
             planning_change_dir=change_dir,
             # No track runs in a worktree: discovery reads the checkout, and propose writes a
             # change in the planning repo.

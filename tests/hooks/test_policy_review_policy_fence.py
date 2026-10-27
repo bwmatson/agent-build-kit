@@ -95,7 +95,7 @@ def test_a_track_run_is_refused_a_write_to_abk_yaml_by_the_named_routes(planning
         answer = decide(
             payload,
             planning_repo=planning,
-            planning_state_dir=state,
+            planning_reports_dir=state,
             planning_change_dir=change,
         )
         assert_denied(answer, route)
@@ -111,13 +111,13 @@ def test_a_write_inside_the_changes_own_folder_is_still_allowed(planning: Path) 
     ]
 
     assert_denied(
-        decide(fenced_edit, planning_repo=planning, planning_state_dir=state), "the fence is on"
+        decide(fenced_edit, planning_repo=planning, planning_reports_dir=state), "the fence is on"
     )
     for payload in allowed:
         answer = decide(
             payload,
             planning_repo=planning,
-            planning_state_dir=state,
+            planning_reports_dir=state,
             planning_change_dir=change,
         )
         assert answer is None, payload

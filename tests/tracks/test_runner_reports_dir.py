@@ -110,7 +110,7 @@ def test_the_agent_is_granted_the_reports_directory(tmp_path: Path, data: Path) 
     runner.health(inst, project(inst), runtime=runtime)
 
     request: AgentRequest = runtime.request
-    assert request.planning_state_dir == inst.root / REPORTS
+    assert request.planning_reports_dir == inst.root / REPORTS
 
 
 def test_the_prompt_tokens_for_the_state_directory_are_the_reports_directory(
