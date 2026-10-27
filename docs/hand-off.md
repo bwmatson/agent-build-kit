@@ -56,7 +56,7 @@ Create them so the tracker sync can adopt them later:
 - A Feature per change, whose body starts with the marker line `<!-- abk:<prefix>:<change> -->`.
 - A Story per unit or group set, and a Task per task in `tasks.md`.
 - All unassigned, except the person who takes them.
-- The tag `abk-handoff` on each.
+- The tag `handoff` on each.
 - Copy the text of the spec into the bodies.
 - Record the ids in the hold with `--item`; the ids are what the sync adopts, and the markers
   are the fallback.
