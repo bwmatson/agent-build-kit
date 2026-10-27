@@ -45,7 +45,7 @@ def test_tracked_legacy_state_warns_once_and_the_move_clears_it(tmp_path: Path, 
     legacy = about_runbook(found)
     assert [c.status for c in legacy] == ["warn"]
     text = f"{legacy[0].detail} {legacy[0].fix}"
-    assert "2" in text
+    assert "2 file(s)" in legacy[0].detail
     assert re.search(r"not (been )?moved", text)
     assert not [c for c in found if c.name == "state ignores" and c.status == "warn"]
 

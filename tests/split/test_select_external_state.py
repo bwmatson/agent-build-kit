@@ -4,10 +4,11 @@ planning-state-external-checks)."""
 
 from pathlib import Path
 
-from agent_build_kit.split.select import SplitUsageError, load_destination
+from agent_build_kit.split.select import SplitUsageError, load_destination, uncommitted
+from tests.factories import git, init_repo
 from tests.planning_split_support import load, split
 from tests.split_remove_support import populate, trees, unit_ids
-from tests.split_sources import snapshot_tree
+from tests.split_sources import snapshot_tree, write_change
 
 
 def give_state(root: Path, state: Path) -> None:
@@ -35,7 +36,7 @@ def test_a_shared_state_directory_is_refused_and_separate_ones_each_keep_their_r
     else:
         raise AssertionError("a shared state directory was accepted")
     code = split(source, "--repo", "app", "--to", str(destination), "--apply", "--remove")
-    assert code != 0
+    assert code == 2  # a usage problem, like every other refusal of the command
     assert str(shared) in capsys.readouterr().err
     assert (snapshot_tree(source), snapshot_tree(destination), snapshot_tree(shared)) == before
 
@@ -62,3 +63,26 @@ def test_the_plan_says_the_outside_state_is_not_under_git(tmp_path, capsys):
     assert code == 0, out
     state = str(tmp_path / "source-state")
     assert [line for line in out.splitlines() if state in line and "not under git" in line]
+
+
+def test_only_the_specs_are_reported_uncommitted_when_the_state_is_outside(tmp_path, capsys):
+    source, destination = trees(tmp_path)
+    outside = tmp_path / "source-state"
+    give_state(source, outside)
+    give_state(destination, tmp_path / "destination-state")
+    change = write_change(load(source), "feature", ["lib"])
+    init_repo(source)
+    git(source, "add", "-A")
+    git(source, "commit", "-q", "-m", "start")
+    (change / "proposal.md").write_text("# changed\n")
+    (outside / "note.txt").write_text("loose\n")
+    relative = change.relative_to(source)
+
+    assert uncommitted(load(source)) == (f"M {relative}/proposal.md",)
+
+    code = split(source, "--repo", "app", "--to", str(destination))
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert f"M {relative}/proposal.md" in out
+    assert "note.txt" not in out and "?? " not in out
+    assert [line for line in out.splitlines() if str(outside) in line and "not under git" in line]

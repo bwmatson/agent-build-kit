@@ -72,7 +72,6 @@ from agent_build_kit.init.scaffold import (
     merge_attribute,
     missing_state_ignores,
     rules_version,
-    state_setting,
 )
 from agent_build_kit.installation import Installation, _resolve, load_config
 from agent_build_kit.machine_files import CONFIG_LOCAL_FILES, MACHINE_FILES, holds, present
@@ -535,11 +534,11 @@ def _machine_files(inst: Installation) -> list[Check]:
 
 def _state_ignores(inst: Installation) -> list[Check]:
     """In an in-repo installation: the root's `.gitignore` must ignore the state files."""
-    if in_repo_name(inst) is None:
+    if in_repo_name(inst) is None or not inst.state_dir.is_relative_to(inst.root):
         return []
     ignore = inst.root / ".gitignore"
     text = ignore.read_text() if ignore.is_file() else ""
-    missing = missing_state_ignores(text, state_setting(inst))
+    missing = missing_state_ignores(text, inst.shown(inst.state_dir))
     if not missing:
         return [_ok("state ignores", str(ignore))]
     return [

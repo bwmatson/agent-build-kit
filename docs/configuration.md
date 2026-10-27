@@ -98,10 +98,10 @@ planning:
                                 # lives"; docs/architecture.md).
   specs_dir: openspec           # the OpenSpec store; changes are read from
                                 # <specs_dir>/changes/*/tasks.md.
-  graph_page: docs/unit_graph.md
+  graph_page: docs/unit_graph.md  # in-repo installation: <planning home>/state/pages/unit_graph.md
                                 # the mermaid unit graph, rewritten on every
                                 # state change.
-  usage_page: docs/unit_cost.md
+  usage_page: docs/unit_cost.md   # in-repo installation: <planning home>/state/pages/unit_cost.md
                                 # per-change totals and the most expensive units
                                 # from the usage ledger, rewritten on every store
                                 # write; a failed write is reported, never fatal.

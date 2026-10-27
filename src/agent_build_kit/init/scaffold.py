@@ -692,15 +692,6 @@ def _read_text(path: Path) -> str:
         raise ScaffoldError(f"{path} is not valid UTF-8; add the abk block to it by hand") from None
 
 
-def state_setting(inst: Installation) -> str:
-    """The state directory as `missing_state_ignores` takes it: relative to the root when it is
-    inside, else the absolute path."""
-    state = inst.state_dir
-    return (
-        state.relative_to(inst.root).as_posix() if state.is_relative_to(inst.root) else str(state)
-    )
-
-
 def missing_state_ignores(text: str, state_dir: str) -> list[str]:
     """The state-directory lines the template ignores that `text` lacks; none for a state
     outside the repository, which has nothing to ignore."""
@@ -735,9 +726,8 @@ def _ignore_block(text: str, state_dir: str) -> str:
 def _shown(inst: Installation, path: Path, prefix: str) -> str:
     """A path as the orientation names it: under the planning directory with `prefix`, or the
     absolute path when it is elsewhere."""
-    if path.is_relative_to(inst.root):
-        return f"{prefix}{path.relative_to(inst.root).as_posix()}"
-    return str(path)
+    shown = inst.shown(path)
+    return shown if Path(shown).is_absolute() else f"{prefix}{shown}"
 
 
 def _orientation(inst: Installation, prefix: str) -> str:
@@ -771,7 +761,7 @@ def _in_repo_blocks(planning: Path, top: Path, config: WorkspaceConfig) -> list[
         inst = Installation(config, planning)
         block = _orientation(inst, prefix).replace("\n", eol)
         return [
-            (ignore, _ignore_block(ignore_text, state_setting(inst))),
+            (ignore, _ignore_block(ignore_text, inst.shown(inst.state_dir))),
             (guidance, splice_block(text, _ORIENT_START, _ORIENT_END, block, eol=eol)),
         ]
     except MarkersError:
