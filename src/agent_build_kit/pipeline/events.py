@@ -2018,15 +2018,6 @@ def build_restack(
         # Checked out where the pipeline does not work, the repository's own checkout say:
         # nothing is moved, and the resolver is not asked, until it is switched away.
         elsewhere = checked_out_elsewhere(repo, branch, root)
-        if worktree is None and elsewhere is not None:
-            store.set_state(
-                child.id,
-                PLANNED,
-                note=f"restack onto {new_base} deferred: {branch} is checked out in "
-                f"{elsewhere}; the runner retries it",
-                cause=Cause.RESTACK_DEFERRED,
-            )
-            return RestackOutcome.DEFERRED
         # No worktree of its own: the branch is moved in a temporary one, so the
         # repository's checkout is never switched.
         where: dict[str, Any] = (
@@ -2035,6 +2026,8 @@ def build_restack(
         if resolve:
             where["resolve"] = resolve
         try:
+            if worktree is None and elsewhere is not None:
+                raise BranchCheckedOut(branch, path=str(elsewhere))
             moved = retried_once(
                 lambda: move(
                     repo,

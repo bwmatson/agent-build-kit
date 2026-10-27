@@ -198,6 +198,22 @@ def _head(admin: Path) -> str | None:
         return None
     if text.startswith("ref: refs/heads/"):
         return text.removeprefix("ref: refs/heads/")
+    return _rebasing_in(admin)
+
+
+def _rebasing(path: Path) -> str | None:
+    """The branch the worktree at `path` is rebasing, if a stopped rebase left it detached."""
+    dot = path / ".git"
+    try:
+        if dot.is_file():
+            target = dot.read_text().strip().removeprefix("gitdir:").strip()
+            return _rebasing_in(Path(os.path.normpath(path / target)))
+    except OSError:
+        return None
+    return _rebasing_in(dot)
+
+
+def _rebasing_in(admin: Path) -> str | None:
     for state in ("rebase-merge", "rebase-apply"):
         try:
             rebasing = (admin / state / "head-name").read_text().strip()
@@ -226,12 +242,16 @@ def _porcelain_entries(repo: Path) -> tuple[WorktreeEntry, ...]:
         fields = dict(line.partition(" ")[::2] for line in block.splitlines() if line.strip())
         if "worktree" not in fields:
             continue
+        path = Path(fields["worktree"])
         branch = fields.get("branch", "")
         entries.append(
             WorktreeEntry(
-                path=Path(fields["worktree"]),
+                path=path,
                 branch=branch.removeprefix("refs/heads/")
                 if branch.startswith("refs/heads/")
+                # Git calls a worktree stopped in a rebase detached; it counts as on the branch.
+                else _rebasing(path)
+                if "detached" in fields
                 else None,
                 prunable="prunable" in fields,
             )
@@ -249,9 +269,11 @@ def worktree_entries(repo: Path) -> tuple[WorktreeEntry, ...]:
     if dirs is None:
         return ()
     common, main = dirs
-    found = []
-    if main is not None:
-        found.append(WorktreeEntry(path=main, branch=_head(common), prunable=False))
+    if main is None:
+        # The main working tree is not known from the files (a separate git directory, or a
+        # bare one), so git is asked rather than leaving it out.
+        return _porcelain_entries(repo)
+    found = [WorktreeEntry(path=main, branch=_head(common), prunable=False)]
     for admin in sorted((common / "worktrees").glob("*")):
         try:
             recorded = Path((admin / "gitdir").read_text().strip())
@@ -436,6 +458,9 @@ def prepare_detached(repo: Path, leaf: str, *, ref: str, root: Path, name: str) 
     consumer's dev stack attaches to its platform's, which e2e-test brings up
     from the platform's main, not from the user's own checkout and whatever
     is on it. Nothing is ever committed here, so moving it discards nothing.
+
+    A detached tree named `leaf` under any folder of the root is reused, whatever its key, so
+    two repos that share one repository share the tree whichever made it first.
     """
     path = root / worktree_key(name) / leaf
     if not path.exists():
