@@ -19,6 +19,7 @@ from agent_build_kit.config import (
     overlay_path,
     read_overlay,
     runtime_for,
+    usage_limits_notices,
 )
 from agent_build_kit.config_migrate import ConfigMigrateError, migrate
 from agent_build_kit.config_migrate_machine import MachineRequest
@@ -70,6 +71,8 @@ def cmd_migrate(args: argparse.Namespace) -> int:
     except (ConfigMigrateError, OSError, UnicodeDecodeError) as error:
         print(f"abk: {path}: {error}", file=sys.stderr)
         return 2
+    for line in usage_limits_notices(path):
+        print(line, file=sys.stderr)
     for conflict in migrated.conflicts:
         key, stopped = ".".join(conflict.path), ".".join(conflict.local_path)
         print(f"left {key} in abk.yaml: abk.local.yaml already sets {stopped}; keep one of them")
@@ -142,6 +145,8 @@ def cmd_config(args: argparse.Namespace, inst: Installation | None) -> int:
         print(old, file=sys.stderr)
     for notice in models_notices(path):
         print(notice.text, file=sys.stderr)
+    for line in usage_limits_notices(path):
+        print(line, file=sys.stderr)
     local = read_overlay(path)
     if local:
         print(f"{overlay_path(path)} set: {', '.join(local)}", file=sys.stderr)
@@ -164,9 +169,10 @@ def register(sub: argparse._SubParsersAction) -> None:
     mode.add_argument(
         "--migrate",
         action="store_true",
-        help="move the abk.yaml in force to global_limits and project_limits, and a flat models: "
-        "block under runtimes.<name>.models, and, when git tracks it, its machine settings to "
-        "abk.local.yaml, by text",
+        help="move the abk.yaml in force to global_limits and project_limits, rename limits to "
+        "usage_limits under its runtimes and accounts, move a flat models: block under "
+        "runtimes.<name>.models and, when git tracks it, its machine settings to "
+        "abk.local.yaml, by text; abk.local.yaml is not edited, its lines to change are printed",
     )
     parser.add_argument("--yes", action="store_true", help="with --migrate: do not ask")
     parser.add_argument(

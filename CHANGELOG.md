@@ -5,8 +5,10 @@
 - The usage windows are now configured under `usage_limits`, in `runtimes.<runtime>` and in
   each account, so they are no longer confused with `global_limits` and `project_limits`, which
   count units. The old `limits` key there still loads with a deprecation notice that names the
-  new key, and a file that sets both is refused. `abk config --migrate` and `abk doctor` will
-  offer the rename in a later release; the old key is dropped one release after that.
+  new key, and a file that sets both is refused. `abk config --migrate` renames it in
+  `abk.yaml`, keeping comments and key order, and refuses forms it cannot edit by lines; for
+  `abk.local.yaml` it, `abk config` and `abk doctor` print each line to change by hand. The old
+  key is dropped one release after this one.
 
 - The repo-wide test guards read tracked files through one helper, `tests/tracked_files.py`,
   which leaves planning content out, so a specification may name what it forbids; the leak

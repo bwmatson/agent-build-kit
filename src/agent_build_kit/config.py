@@ -502,19 +502,22 @@ USAGE_LIMITS = "usage_limits"
 DEPRECATED_USAGE_LIMITS = "limits"
 
 
+def renamed_key(data: dict[str, Any], old: str, new: str) -> dict[str, Any]:
+    """`data` with the deprecated key `old` renamed to `new`, in place; a mapping that sets both
+    spellings is refused."""
+    if old not in data:
+        return data
+    if new in data:
+        raise ValueError(
+            f"`{old}` and `{new}` are both set; `{old}` is the deprecated name of `{new}`, keep one"
+        )
+    return {(new if key == old else key): value for key, value in data.items()}
+
+
 def alias_usage_limits(data: dict[str, Any]) -> dict[str, Any]:
     """`data` with the deprecated key `limits` renamed to `usage_limits`; a mapping that sets
     both spellings is refused."""
-    if DEPRECATED_USAGE_LIMITS not in data:
-        return data
-    if USAGE_LIMITS in data:
-        raise ValueError(
-            f"`{DEPRECATED_USAGE_LIMITS}` and `{USAGE_LIMITS}` are both set; "
-            f"`{DEPRECATED_USAGE_LIMITS}` is the deprecated name of `{USAGE_LIMITS}`, keep one"
-        )
-    renamed = dict(data)
-    renamed[USAGE_LIMITS] = renamed.pop(DEPRECATED_USAGE_LIMITS)
-    return renamed
+    return renamed_key(data, DEPRECATED_USAGE_LIMITS, USAGE_LIMITS)
 
 
 def _usage_limits_places(runtimes: dict[str, Any]) -> Iterator[tuple[str, dict[str, Any]]]:
@@ -529,26 +532,33 @@ def _usage_limits_places(runtimes: dict[str, Any]) -> Iterator[tuple[str, dict[s
                 yield f"runtimes.{name}.accounts.{label}", account
 
 
-def _alias_runtimes_usage_limits(document: dict[str, Any]) -> dict[str, Any]:
+def alias_runtime_usage_limits(entry: Any) -> Any:
+    """A raw runtime mapping with `limits` renamed to `usage_limits` in it and in each of its
+    accounts; anything else is returned as it is."""
+    if not isinstance(entry, dict):
+        return entry
+    entry = alias_usage_limits(entry)
+    accounts = entry.get("accounts")
+    if isinstance(accounts, dict):
+        entry = {
+            **entry,
+            "accounts": {
+                label: alias_usage_limits(each) if isinstance(each, dict) else each
+                for label, each in accounts.items()
+            },
+        }
+    return entry
+
+
+def alias_runtimes_usage_limits(document: dict[str, Any]) -> dict[str, Any]:
     """`document` with `limits` renamed to `usage_limits` under each runtime and account."""
     runtimes = document.get("runtimes")
     if not isinstance(runtimes, dict):
         return document
-    renamed: dict[str, Any] = {}
-    for name, entry in runtimes.items():
-        if isinstance(entry, dict):
-            entry = alias_usage_limits(entry)
-            accounts = entry.get("accounts")
-            if isinstance(accounts, dict):
-                entry = {
-                    **entry,
-                    "accounts": {
-                        label: alias_usage_limits(each) if isinstance(each, dict) else each
-                        for label, each in accounts.items()
-                    },
-                }
-        renamed[name] = entry
-    return {**document, "runtimes": renamed}
+    return {
+        **document,
+        "runtimes": {name: alias_runtime_usage_limits(entry) for name, entry in runtimes.items()},
+    }
 
 
 class AccountConfig(Frozen):
@@ -1485,29 +1495,15 @@ class BuildersConfig(Frozen):
 def rename_builders_key(data: Any) -> Any:
     """A `builders` mapping with the deprecated `per_group_commits` renamed to
     `stubbed_tdd_commits`; a mapping that sets both is refused."""
-    if not isinstance(data, dict) or DEPRECATED_BUILDERS_KEY not in data:
+    if not isinstance(data, dict):
         return data
-    if BUILDERS_KEY in data:
-        raise ValueError(
-            f"`{DEPRECATED_BUILDERS_KEY}` and `{BUILDERS_KEY}` are both set; "
-            f"`{DEPRECATED_BUILDERS_KEY}` is the deprecated name of `{BUILDERS_KEY}`, keep one"
-        )
-    return {(BUILDERS_KEY if k == DEPRECATED_BUILDERS_KEY else k): v for k, v in data.items()}
+    return renamed_key(data, DEPRECATED_BUILDERS_KEY, BUILDERS_KEY)
 
 
 def _alias_limits(data: dict[str, Any]) -> dict[str, Any]:
     """`data` with the deprecated root key `limits` renamed to `global_limits`; a mapping
     that sets both spellings is refused."""
-    if DEPRECATED_ROOT_KEY not in data:
-        return data
-    if "global_limits" in data:
-        raise ValueError(
-            f"`{DEPRECATED_ROOT_KEY}` and `global_limits` are both set; "
-            f"`{DEPRECATED_ROOT_KEY}` is the deprecated name of `global_limits`, keep one"
-        )
-    renamed = dict(data)
-    renamed["global_limits"] = renamed.pop(DEPRECATED_ROOT_KEY)
-    return renamed
+    return renamed_key(data, DEPRECATED_ROOT_KEY, "global_limits")
 
 
 class AutoLandConfig(Frozen):
@@ -2117,7 +2113,7 @@ def _renamed(document: dict[str, Any] | None, file: Path) -> dict[str, Any] | No
         return None
     try:
         _refuse_moved_settings(document)
-        renamed = read_new_settings(_alias_limits(_alias_runtimes_usage_limits(document)))
+        renamed = read_new_settings(_alias_limits(alias_runtimes_usage_limits(document)))
         if isinstance(renamed.get("builders"), dict):
             renamed = {**renamed, "builders": rename_builders_key(renamed["builders"])}
         return renamed
@@ -2143,10 +2139,11 @@ def load(path: Path) -> WorkspaceConfig:
         if any(document and DEPRECATED_ROOT_KEY in document for document in spelled):
             # Name a setting as the file spells it.
             message = re.sub(r"(?m)^global_limits\b", DEPRECATED_ROOT_KEY, message)
-        if any(
-            key.startswith("runtimes.") for document in spelled for key in deprecations_of(document)
-        ):
-            message = re.sub(rf"\b{USAGE_LIMITS}\b", DEPRECATED_USAGE_LIMITS, message)
+        for key in deprecations_of(*spelled):
+            if key.startswith("runtimes.") and key.endswith(f".{DEPRECATED_USAGE_LIMITS}"):
+                # Name the place as the file spells it, and only the places it spells the old way.
+                place = re.escape(key.removesuffix(f".{DEPRECATED_USAGE_LIMITS}"))
+                message = re.sub(rf"(?<![\w.]){place}\.{USAGE_LIMITS}\b", key, message)
         if any(DEPRECATED_BUILDERS_SETTING in deprecations_of(document) for document in spelled):
             message = re.sub(rf"\b{BUILDERS_KEY}\b", DEPRECATED_BUILDERS_KEY, message)
         for document in spelled:
@@ -2169,7 +2166,8 @@ def load(path: Path) -> WorkspaceConfig:
 
 def deprecations_of(*documents: dict[str, Any] | None) -> list[str]:
     """The deprecated keys the parsed `documents` set: the root `limits` key,
-    `builders.per_group_commits`, and `review.enabled`; each once."""
+    `runtimes.<n>.limits` and `runtimes.<n>.accounts.<l>.limits`, `builders.per_group_commits`,
+    and `review.enabled`; each once."""
     raws = [raw for raw in documents if raw]
     found = []
     if any(
@@ -2242,6 +2240,50 @@ def models_notices(path: Path) -> list[ModelsNotice]:
         if both:
             notice += f"; {', '.join(both)} set in both, the runtime's value is used"
         notices.append(ModelsNotice(text=notice, fix=fix))
+    return notices
+
+
+def usage_limits_notices(path: Path) -> list[str]:
+    """One notice, with the file and line, for each `limits` key under a runtime or account in
+    the overlay of the file at `path`. `abk config --migrate` never edits the overlay, so each
+    line is to be changed by hand."""
+    local = overlay_path(path)
+    try:
+        documents = list(yaml.compose_all(local.read_text()))
+    except (OSError, yaml.YAMLError):
+        return []
+    root = documents[0] if documents else None
+    if not isinstance(root, yaml.MappingNode):
+        return []
+
+    def child(node: yaml.Node, name: str) -> yaml.Node | None:
+        if not isinstance(node, yaml.MappingNode):
+            return None
+        return next(
+            (v for k, v in node.value if isinstance(k, yaml.ScalarNode) and k.value == name), None
+        )
+
+    def keys(node: yaml.Node | None) -> list[tuple[str, yaml.Node]]:
+        if not isinstance(node, yaml.MappingNode):
+            return []
+        return [(k.value, v) for k, v in node.value if isinstance(k, yaml.ScalarNode)]
+
+    notices = []
+    for name, runtime in keys(child(root, "runtimes")):
+        places = [(f"runtimes.{name}", runtime)]
+        places += [
+            (f"runtimes.{name}.accounts.{label}", account)
+            for label, account in keys(child(runtime, "accounts"))
+        ]
+        for place, node in places:
+            if not isinstance(node, yaml.MappingNode):
+                continue
+            for key, _ in node.value:
+                if isinstance(key, yaml.ScalarNode) and key.value == DEPRECATED_USAGE_LIMITS:
+                    notices.append(
+                        f"{local}:{key.start_mark.line + 1}: rename `{DEPRECATED_USAGE_LIMITS}` "
+                        f"to `{USAGE_LIMITS}` ({place}.{DEPRECATED_USAGE_LIMITS})"
+                    )
     return notices
 
 

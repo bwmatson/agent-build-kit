@@ -9,7 +9,12 @@ from typing import Any
 
 import yaml
 
-from agent_build_kit.config import merge_local
+from agent_build_kit.config import (
+    DEPRECATED_USAGE_LIMITS,
+    USAGE_LIMITS,
+    alias_runtimes_usage_limits,
+    merge_local,
+)
 from agent_build_kit.config_migrate_lines import (
     MARKED,
     ConfigMigrateError,
@@ -99,6 +104,32 @@ def _local_mapping(local_text: str | None, dotted: str) -> dict[str, Any]:
     if not isinstance(loaded, dict):
         raise refuse(dotted, f"{LOCAL} is not a mapping of settings")
     return loaded
+
+
+def _aliased(local: dict[str, Any], dotted: str) -> dict[str, Any]:
+    """The local settings with the old `limits` key read as `usage_limits`, as the loader reads
+    them, so a setting moved there is not set twice."""
+    try:
+        return alias_runtimes_usage_limits(local)
+    except ValueError as error:
+        raise refuse(dotted, f"{LOCAL}: {error}") from error
+
+
+def _written(local: dict[str, Any], path: SettingPath) -> SettingPath:
+    """`path` with `usage_limits` spelled `limits` where the local file spells it so."""
+    current: Any = local
+    spelled = []
+    for name in path:
+        if (
+            isinstance(current, dict)
+            and name == USAGE_LIMITS
+            and name not in current
+            and DEPRECATED_USAGE_LIMITS in current
+        ):
+            name = DEPRECATED_USAGE_LIMITS
+        spelled.append(name)
+        current = current.get(name) if isinstance(current, dict) else None
+    return tuple(spelled)
 
 
 def _conflict(local: dict[str, Any], path: SettingPath) -> SettingPath | None:
@@ -240,15 +271,17 @@ def move_machine_settings(text: str, request: MachineRequest) -> MachineMove:
     ]
     if not settings:
         return unchanged
-    local = _local_mapping(request.local_text, _dotted(settings[0].path))
+    dotted = _dotted(settings[0].path)
+    local = _local_mapping(request.local_text, dotted)
+    aliased = _aliased(local, dotted)
     conflicts: list[Conflict] = []
     movable: list[MachineSetting] = []
     for setting in settings:
-        stopped = _conflict(local, setting.path)
+        stopped = _conflict(aliased, setting.path)
         if stopped is None:
             movable.append(setting)
         else:
-            conflicts.append(Conflict(path=setting.path, local_path=stopped))
+            conflicts.append(Conflict(path=setting.path, local_path=_written(local, stopped)))
     if not movable:
         return unchanged.model_copy(update={"conflicts": tuple(conflicts)})
     new_text, carried = _lift(text, root, movable)

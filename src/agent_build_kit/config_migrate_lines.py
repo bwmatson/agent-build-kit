@@ -18,6 +18,7 @@ __all__ = [
     "pair",
     "refuse",
     "region",
+    "rename_on_line",
     "shifted",
 ]
 
@@ -60,6 +61,17 @@ def opened(
         raise refuse(as_key, f"{name} is flow-style, which cannot be edited by lines")
     if isinstance(value, yaml.MappingNode) and any(k.tag == MERGE_TAG for k, _ in value.value):
         raise refuse(as_key, f"{name} uses a merge key, which cannot be edited by lines")
+
+
+def rename_on_line(lines: list[str], key: yaml.ScalarNode, old: str, new: str, as_key: str) -> None:
+    """Rename the key `old` to `new` on its own line, in place; refuse, naming `as_key`, a key
+    with an anchor or an alias on its line, or one that is quoted or written across lines."""
+    line, col = key.start_mark.line, key.start_mark.column
+    if MARKED.search(strip_comment(lines[line])):
+        raise refuse(as_key, "it has an anchor or an alias, which cannot be edited")
+    if lines[line][col : col + len(old)] != old:
+        raise refuse(as_key, "it is quoted or written across lines, so it is not renamed")
+    lines[line] = lines[line][:col] + new + lines[line][col + len(old) :]
 
 
 def joined(lines: list[str], text: str) -> str:
