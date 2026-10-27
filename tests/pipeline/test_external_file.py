@@ -214,3 +214,39 @@ def test_the_split_tools_list_includes_the_file(tmp_path: Path) -> None:
     listed = moved_files(source, plan_split(source, "app"))
 
     assert folder / FILE_NAME in listed
+
+
+def test_a_hold_that_covers_no_group_is_refused(tmp_path: Path) -> None:
+    folder = change_with(tmp_path)
+
+    with pytest.raises(ValueError, match="at least 1"):
+        add_hold(folder, hold(()))
+
+    assert read_holds(folder) == ()
+
+
+def test_a_field_a_later_release_added_does_not_unblock_the_group(tmp_path: Path) -> None:
+    folder = change_with(tmp_path)
+    external_path(folder).write_text(
+        "holds:\n"
+        "  - scope: [2]\n"
+        "    holder: Sam Example\n"
+        "    link: https://boards.example/items/42\n"
+        f"    since: {SINCE.isoformat()}\n"
+        "    tracker_state: adopted\n"
+    )
+
+    assert blocked_groups(folder) == {2}
+
+
+def test_a_hold_is_written_whole_with_no_leftover_file(tmp_path: Path) -> None:
+    folder = change_with(tmp_path)
+
+    add_hold(folder, hold((1,)))
+    add_hold(folder, hold((2,), holder="Alex Example"))
+
+    assert [h.holder for h in read_holds(folder)] == ["Sam Example", "Alex Example"]
+    assert sorted(p.name for p in folder.iterdir() if p.name.startswith(FILE_NAME)) == [
+        FILE_NAME,
+        f"{FILE_NAME}.lock",
+    ]
