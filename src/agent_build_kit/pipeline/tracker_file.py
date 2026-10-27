@@ -14,7 +14,7 @@ import yaml
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import atomic_write_text
-from agent_build_kit.pipeline.task_progress import tasks_lock
+from agent_build_kit.pipeline.task_progress import tasks_lock, text_hash
 from agent_build_kit.pipeline.work_graph import Task
 
 FILE_NAME = "tracker.yaml"
@@ -96,5 +96,33 @@ class Reconciled(Frozen):
 
 
 def reconcile_moves(tracker: TrackerFile, tasks: list[Task]) -> Reconciled:
-    """Match recorded keys that are gone to unrecorded keys with the same first-line hash."""
-    raise NotImplementedError
+    """Match recorded keys that are gone, or whose line now reads differently, to keys whose line
+    has the same first-line hash. A key edited in place with no match elsewhere stays as it is."""
+    present = {task.key: text_hash(task.text) for task in tasks}
+    absent = [key for key in tracker.tasks if key not in present]
+    stale = [
+        key
+        for key, entry in tracker.tasks.items()
+        if present.get(key, entry.text_hash) != entry.text_hash
+    ]
+    candidates = [key for key in present if key not in tracker.tasks] + stale
+    moved: dict[str, str] = {}
+    conflicts: list[str] = []
+    for key in [*absent, *stale]:
+        wanted = tracker.tasks[key].text_hash
+        matches = [new for new in candidates if present[new] == wanted and new != key]
+        if len(matches) == 1 and matches[0] not in moved.values():
+            moved[key] = matches[0]
+        elif matches:
+            conflicts.append(f"{key} matches {', '.join(matches)}; a person must settle it")
+    if conflicts:
+        return Reconciled(tracker=tracker, conflicts=tuple(conflicts))
+    kept = {key: entry for key, entry in tracker.tasks.items() if key not in moved}
+    for old, new in moved.items():
+        kept[new] = tracker.tasks[old]
+    return Reconciled(
+        tracker=tracker.model_copy(update={"tasks": kept}),
+        moved=moved,
+        created=tuple(key for key in present if key not in kept),
+        removed=tuple(key for key in absent if key not in moved),
+    )
