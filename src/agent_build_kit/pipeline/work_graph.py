@@ -258,7 +258,59 @@ SPLIT_LINE = re.compile(r"^Split:\s*(?P<value>.*?)\s*$", re.I)
 
 # "- [ ] 1.1 Do the thing" / "- [x] 1.1 Done". Checked and unchecked both count:
 # this asks whether a group has tasks at all, not how far along it is.
-TASK_LINE = re.compile(r"^\s*-\s+\[[ xX]\]\s+\d+\.\d+\s+\S")
+TASK_LINE = re.compile(
+    r"^\s*-\s+\[(?P<box>[ xX])\]\s+(?P<group>\d+)\.(?P<number>\d+)\s+(?P<text>\S.*?)\s*$"
+)
+
+
+class Task(Frozen):
+    """One checkbox task of a change's `tasks.md`, with the key that names it."""
+
+    # `<change>:<group>.<task>`, e.g. `feature:3.2`.
+    key: str
+    group: int
+    number: int
+    # The task's text after its number, continuation lines included, joined by newlines.
+    text: str
+    done: bool
+    # The 1-based line of the task in the file.
+    line: int
+
+
+def read_tasks(tasks: Path, change: str) -> list[Task]:
+    """Every checkbox task of `tasks`, in file order, keyed under `change`.
+
+    A task's text runs over the indented lines under it and ends at a blank line, a heading or
+    the next task. The tasks are the lines `TASK_LINE` accepts, and like the group parser it puts
+    each one in the group whose heading it sits under, whatever number its own prefix carries,
+    and leaves out a task above the first heading or under a heading that is not a readable
+    group, so the per-group counts agree with the group parser's."""
+    found: list[Task] = []
+    open_task = False
+    group: int | None = None
+    for index, line in enumerate(tasks.read_text().splitlines(), start=1):
+        if ANY_GROUP_HEADING.match(line):
+            heading = GROUP_HEADING.match(line)
+            group = int(heading["number"]) if heading else None
+            open_task = False
+        elif (parsed := TASK_LINE.match(line)) and group is not None:
+            number = int(parsed["number"])
+            found.append(
+                Task(
+                    key=f"{change}:{group}.{number}",
+                    group=group,
+                    number=number,
+                    text=parsed["text"],
+                    done=parsed["box"] != " ",
+                    line=index,
+                )
+            )
+            open_task = True
+        elif open_task and line[:1].isspace() and line.strip():
+            found[-1] = found[-1].model_copy(update={"text": f"{found[-1].text}\n{line.strip()}"})
+        else:
+            open_task = False
+    return found
 
 
 class ProjectSource(StrEnum):
