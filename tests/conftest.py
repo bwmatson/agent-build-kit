@@ -42,6 +42,9 @@ from tests.forges.github_server import FakeGitHub
 from tests.forges.mock_host import MockHost, ok, recorded
 from tests.usage_host import Host
 
+# The child pytest sources are files for `tests/child_pytest.py`, not tests of this repository.
+collect_ignore_glob = ["child_modules/*"]
+
 pytest_plugins = [
     "pytester",
     "tests.account_settings",

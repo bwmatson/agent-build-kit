@@ -1431,6 +1431,10 @@ approved.
   whose uses are gone fails the guard until it is removed.
 - **A wait helper.** `tests/waiting.py` `wait_for(condition, what=, timeout=)` is the one way
   to wait for a condition; it names what it waited for on timeout.
+- **A child pytest is files.** The time-limit tests keep the child's code in files under
+  `tests/child_modules/<scenario>/` and run it with `tests/child_pytest.py` `run_scenario`, so
+  the linters check it. The marked-limit scenarios read the interval the hook armed and fire the
+  first timer at once; no file of them imports `time` or calls a sleep or a clock.
 - **A step to call.** The output cap's pass is `scratch.cap_files`, idempotent (a cut file is
   within the limit and is not rewritten), and `scratch.watch_folder` yields an event set after
   each pass, so a test calls the step or waits on the signal and never polls a file.

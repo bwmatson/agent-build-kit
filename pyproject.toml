@@ -86,6 +86,8 @@ testpaths = ["tests"]
 # So `from tests.factories import ...` resolves without tests/ being a package
 # (test directories carry no __init__.py; basenames stay unique instead).
 pythonpath = ["."]
+# Where `Pytester.copy_example` reads a child pytest's files from.
+pytester_example_dir = "tests/child_modules"
 # A list held in a tuple field fails the test that serialises it; other warnings are only reported.
 filterwarnings = ["error:Pydantic serializer warnings:UserWarning"]
 markers = [

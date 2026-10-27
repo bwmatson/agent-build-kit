@@ -9,6 +9,10 @@
   once; `abk doctor` warns about the old files left behind and fails a local directory on a
   network filesystem.
 
+- The kit's own time-limit tests hold their child pytest code in files that the linters
+  check, not in strings, and a test fails a new module that builds a child's source as a
+  string.
+
 - `abk external hand-off`, `list`, `done` and `release` hand a change, or some of its groups,
   to someone who builds it by hand. The kit never starts held work, units that need it wait
   for its merge, and `done` checks a merged pull request or a commit on the default branch
