@@ -3,7 +3,7 @@
 
 `tracker.yaml` in a change's folder records the tracker kind and a target label, the Feature's
 item and a map from task key to item. It is not part of the plan hash and is written only by the
-pipeline, under a lock and whole.
+pipeline, whole and under the change's tasks lock, the one the checkbox writes take.
 """
 
 from __future__ import annotations
@@ -13,7 +13,8 @@ from pathlib import Path
 import yaml
 
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
+from agent_build_kit.pipeline.file_lock import atomic_write_text
+from agent_build_kit.pipeline.task_progress import tasks_lock
 
 FILE_NAME = "tracker.yaml"
 SCHEMA_VERSION = 1
@@ -63,11 +64,10 @@ def read_tracker(change_dir: Path) -> TrackerFile | None:
 
 
 def write_tracker(change_dir: Path, tracker: TrackerFile) -> None:
-    """Replace the file whole, under the file's lock."""
-    path = tracker_path(change_dir)
+    """Replace the file whole, under the change's tasks lock, the one the checkbox writes take."""
     text = yaml.safe_dump(tracker.model_dump(mode="json"), sort_keys=False)
-    with file_lock(path.with_name(f"{path.name}.lock")):
-        atomic_write_text(path, text)
+    with tasks_lock(change_dir / "tasks.md"):
+        atomic_write_text(tracker_path(change_dir), text)
 
 
 def read_for_target(change_dir: Path, kind: str, target: str) -> TrackerFile | None:

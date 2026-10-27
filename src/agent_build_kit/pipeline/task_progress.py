@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from contextlib import AbstractContextManager
 from pathlib import Path
 
 from agent_build_kit.pipeline.file_lock import file_lock
@@ -23,6 +24,12 @@ _ANY_BOX = re.compile(r"^(\s*- )\[[ xX]\]( \d+\.\d+ )", re.M)
 def without_boxes(text: str) -> str:
     """`text` with every task box set to one form, so ticking is not a change to the text."""
     return _ANY_BOX.sub(r"\g<1>[ ]\g<2>", text)
+
+
+def tasks_lock(tasks: Path) -> AbstractContextManager[None]:
+    """The lock every write to a change's `tasks.md` and its tracker file takes: units of one
+    change share the file."""
+    return file_lock(tasks.with_name(f"{tasks.name}.lock"))
 
 
 def mark_groups(tasks: Path, groups: Iterable[int], *, done: bool) -> None:
@@ -36,7 +43,7 @@ def mark_groups(tasks: Path, groups: Iterable[int], *, done: bool) -> None:
         return
     box = re.compile(rf"^(\s*- )\[[ xX]\]( (?:{numbers})\.\d+ )", re.M)
     mark = "x" if done else " "
-    with file_lock(tasks.with_name(f"{tasks.name}.lock")):
+    with tasks_lock(tasks):
         text = tasks.read_text()
         updated = box.sub(rf"\g<1>[{mark}]\g<2>", text)
         if updated != text:

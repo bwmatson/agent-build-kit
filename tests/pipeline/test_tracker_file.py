@@ -60,10 +60,6 @@ def change_with(tmp_path: Path) -> Path:
     return folder
 
 
-def names_with_prefix(folder: Path) -> list[str]:
-    return sorted(p.name for p in folder.iterdir() if p.name.startswith(FILE_NAME))
-
-
 def test_the_file_round_trips_with_every_field(tmp_path: Path) -> None:
     folder = change_with(tmp_path)
     written = tracker()
@@ -84,7 +80,11 @@ def test_the_file_is_written_whole_under_the_lock_with_no_leftover(tmp_path: Pat
     write_tracker(folder, tracker(target="other-board"))
 
     assert read_tracker(folder) == tracker(target="other-board")
-    assert names_with_prefix(folder) == [FILE_NAME, FILE_NAME + ".lock"]
+    assert sorted(p.name for p in folder.iterdir() if p.name != "proposal.md") == [
+        "tasks.md",
+        "tasks.md.lock",
+        FILE_NAME,
+    ]
 
 
 def test_writing_the_file_leaves_the_plan_digest_and_tasks_alone(tmp_path: Path) -> None:
