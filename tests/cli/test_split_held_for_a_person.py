@@ -30,7 +30,7 @@ def assert_held_for_a_person(run: Replan, *words: str) -> None:
 def test_a_unit_of_one_group_is_held_for_a_person_without_a_planner_call_or_a_round(
     tmp_path, monkeypatch
 ) -> None:
-    run = scene(tmp_path, monkeypatch, groups=(1,), drivers=())
+    run = scene(tmp_path, monkeypatch, groups=(1,), drivers=(), unsplittable="hold")
     run.runtime.answer = reply(*correct())
 
     cli.split_held_units(run.inst, run.store)
@@ -43,7 +43,7 @@ def test_a_unit_of_one_group_is_held_for_a_person_without_a_planner_call_or_a_ro
 def test_a_driver_group_alone_over_the_earned_ceiling_is_held_for_a_person_at_once(
     tmp_path, monkeypatch
 ) -> None:
-    run = scene(tmp_path, monkeypatch)
+    run = scene(tmp_path, monkeypatch, unsplittable="hold")
     run.runtime.answer = reply(
         piece(FIRST, [1, 2], "auto", 300, after=("base/1",)),
         piece(SECOND, [3], "full", 900, after=(FIRST,)),
@@ -58,7 +58,9 @@ def test_a_driver_group_alone_over_the_earned_ceiling_is_held_for_a_person_at_on
 def test_a_unit_that_carries_groups_of_another_change_is_held_for_a_person_with_no_round(
     tmp_path, monkeypatch
 ) -> None:
-    run = scene(tmp_path, monkeypatch, joined=(Member(change="other", groups=(1,)),))
+    run = scene(
+        tmp_path, monkeypatch, joined=(Member(change="other", groups=(1,)),), unsplittable="hold"
+    )
     run.runtime.answer = reply(*correct())
 
     cli.split_held_units(run.inst, run.store)
@@ -71,7 +73,7 @@ def test_a_unit_that_carries_groups_of_another_change_is_held_for_a_person_with_
 def test_a_unit_with_a_started_dependent_is_held_for_a_person_naming_it_with_no_round(
     tmp_path, monkeypatch
 ) -> None:
-    run = scene(tmp_path, monkeypatch)
+    run = scene(tmp_path, monkeypatch, unsplittable="hold")
     run.store.set_state(DEPENDENT, IN_REVIEW, branch=f"spec/{DEPENDENT}", pr=18)
     run.runtime.answer = reply(*correct())
 

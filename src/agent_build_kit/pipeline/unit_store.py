@@ -391,6 +391,8 @@ class StoredUnit(Unit):
     split_request: StoredSplitRequest | None = None
     split_rounds_used: int = 0
     size_waived: bool = False
+    # Why a unit over its ceiling was sent on unsplit.
+    unsplit_reason: str = ""
     split_from: str = ""
     # The close of a satisfied unit's pull request, kept until it is done.
     close_pending: ClosePending | None = None
@@ -794,6 +796,7 @@ class UnitStore:
                 split_request=existing.split_request if existing else None,
                 split_rounds_used=existing.split_rounds_used if existing else 0,
                 size_waived=existing.size_waived if existing else False,
+                unsplit_reason=existing.unsplit_reason if existing else "",
                 split_from=existing.split_from if existing else "",
                 step=existing.step if existing else "",
                 guidance=existing.guidance if existing else "",
@@ -1248,6 +1251,10 @@ class UnitStore:
     def set_split_rounds_used(self, unit_id: str, used: int) -> None:
         """The split rounds the unit's lineage has used."""
         self._update(unit_id, split_rounds_used=used)
+
+    def set_unsplit_reason(self, unit_id: str, reason: str) -> None:
+        """Why a unit over its ceiling was sent on without a split."""
+        self._update(unit_id, unsplit_reason=reason)
 
     def set_size_waived(self, unit_id: str, waived: bool = True) -> None:
         """Record that a person let a unit held for its size go on; its size is not held again."""

@@ -30,12 +30,13 @@ def scene(
     drivers: tuple[int, ...] = (3,),
     joined: tuple[Member, ...] = (),
     dependent: bool = True,
+    unsplittable: str = "open_pr",
 ) -> Replan:
     """Per-tier sizing on with `rounds` split rounds, and the held unit having used `used`, with
     `groups`, the `drivers` its request names and the groups of other changes it `joined`; the unit
-    `feature/6` waits on it unless `dependent` is false."""
+    `feature/6` waits on it unless `dependent` is false; `unsplittable` is `review.unsplittable`."""
     run = Replan(tmp_path, monkeypatch, feature=tasks_md(6))
-    enable_review(run, split_rounds=rounds)
+    enable_review(run, split_rounds=rounds, unsplittable=unsplittable)
     run.store.import_units(
         [
             stored_unit("base/1", change="base", groups=(1,), state=MERGED),

@@ -67,7 +67,7 @@ def test_an_outage_uses_no_round_and_leaves_the_unit_held_by_size(
 def test_a_lineage_with_its_rounds_used_is_held_for_a_person_without_a_planner_call(
     tmp_path, monkeypatch
 ) -> None:
-    run = scene(tmp_path, monkeypatch, used=2)
+    run = scene(tmp_path, monkeypatch, used=2, unsplittable="hold")
     run.runtime.answer = reply(*correct())
 
     cli.split_held_units(run.inst, run.store)
@@ -81,7 +81,7 @@ def test_a_lineage_with_its_rounds_used_is_held_for_a_person_without_a_planner_c
 def test_zero_rounds_makes_no_planner_call_and_holds_the_unit_for_a_person(
     tmp_path, monkeypatch
 ) -> None:
-    run = scene(tmp_path, monkeypatch, rounds=0)
+    run = scene(tmp_path, monkeypatch, rounds=0, unsplittable="hold")
     run.runtime.answer = reply(*correct())
 
     cli.split_held_units(run.inst, run.store)

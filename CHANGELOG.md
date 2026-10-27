@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A unit over its tier's size ceiling that cannot be split (it holds one group, carries
+  groups of another change, has a started dependent, has used its split rounds, or has a
+  group the planner finds too large) now has its size rule waived and goes on to review and
+  a pull request, with the reason recorded on the unit, instead of waiting for a person.
+  The waived size no longer holds the unit at review, so a unit that earns `auto` can be
+  merged by the pipeline as any other. `review.unsplittable: hold` keeps the old behaviour.
+
 - The repo-wide test guards read tracked files through one helper, `tests/tracked_files.py`,
   which leaves planning content out, so a specification may name what it forbids; the leak
   scan still reads it, but a tilde-relative path there is no longer a home path. `abk scrub-store` and
