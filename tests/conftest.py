@@ -80,6 +80,14 @@ def no_checkout_env_file(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+@pytest.fixture
+def data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The data home (`installation.data_home`) pointed at a temporary directory."""
+    data = tmp_path / "data"
+    monkeypatch.setattr(installation_module, "data_home", lambda: data)
+    return data
+
+
 @pytest.fixture(autouse=True)
 def no_real_loginctl(monkeypatch: pytest.MonkeyPatch) -> None:
     """`loginctl` is the developer's machine, not the suite's.

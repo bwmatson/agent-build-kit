@@ -67,7 +67,9 @@ def installation(setup: InRepo, planning: dict | None = None, **extra_repos) -> 
         },
         **extra_repos,
     }
-    return make_installation(setup.worktree, repos=repos, planning=planning or {})
+    return make_installation(
+        setup.worktree, repos=repos, planning={"state_dir": "runs", **(planning or {})}
+    )
 
 
 def verify(

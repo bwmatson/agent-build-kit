@@ -45,7 +45,9 @@ def installed(base: Path, *, marker: bool = True) -> Live:
     named by the marker unless `marker` is False. The working copy's `runs/` lists a unit of
     its own, which is not the pipeline's."""
     _, working_copy = working_copy_of(base)
-    (working_copy / "abk.yaml").write_text(dump(installation_at(working_copy, working_copy).config))
+    (working_copy / "abk.yaml").write_text(
+        dump(installation_at(working_copy, working_copy, planning=dict(state_dir="runs")).config)
+    )
     store = working_copy / "runs" / "units.json"
     store.unlink()
     UnitStore(store).upsert([stored_unit("pipeline-unit/1")])

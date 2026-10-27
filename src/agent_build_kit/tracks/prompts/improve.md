@@ -9,7 +9,7 @@ actually broken" findings (a separate, daily phase). **Do not edit any
 file in `__PROJECT__`, do not create a branch, do not open a PR, and do not
 write a change.** Turning what you find into a change is `propose.md`'s job,
 run afterward with its own budget. This phase does
-update `__STATE_DIR__/tracked-issues.md` in the planning repo — that's
+update `__REPORTS_DIR__/tracked-issues.md` in the planning repo — that's
 bookkeeping, not the code under test.
 
 ## Scope: one project per run
@@ -31,7 +31,7 @@ own code is not — note it in one line as "belongs to <repo>" and move on.
 
 ## 1. Refresh the tracked-issues list
 
-Read `__STATE_DIR__/tracked-issues.md` before anything else (create it
+Read `__REPORTS_DIR__/tracked-issues.md` before anything else (create it
 with empty "Pending resolution" and "Rejected" sections if it doesn't
 exist yet). For each entry under "Pending resolution" (every project's),
 check where its change has got to. An entry names a change in the planning
@@ -53,7 +53,7 @@ The pipeline commits these edits with everything else you write in the planning 
 
 ## 2. Check whether last run's open candidates have already been resolved
 
-Read the immediately-prior `__STATE_DIR__/*-__PROJECT__-improve.md` run
+Read the immediately-prior `__REPORTS_DIR__/*-__PROJECT__-improve.md` run
 (if any — skip this step on the first-ever run for this project) for
 candidates still marked `[not-yet-actioned]`. For each, a quick check
 (re-read the specific file/lines it named, or `git log` on them since
@@ -82,7 +82,7 @@ change hour to hour, hence weekly rather than daily:
 - `convention-adherence`
 
 Tell each subagent which project this is (`__PROJECT__`, at
-`__PROJECT_DIR__`) and where the run logs live (`__STATE_DIR__`). Each
+`__PROJECT_DIR__`) and where the run logs live (`__REPORTS_DIR__`). Each
 should report back concrete findings (not vague observations) —
 file/service, what's wrong, and a rough sense of fix size — or plainly
 state it found nothing.

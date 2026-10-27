@@ -11,8 +11,10 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit import timers
 from agent_build_kit.cli import main
-from tests.cli.install_timers_support import worktree_of
+from tests.cli.install_timers_support import Systemctl, add_legacy_worktree, worktree_of
+from tests.loginctl_fake import SubprocessModule
 
 
 def test_the_output_names_the_worktree_it_made(
@@ -81,3 +83,36 @@ def test_remove_says_so_when_the_marked_worktree_is_gone(
     out = capsys.readouterr().out
     assert "git worktree prune" in out
     assert f"git worktree remove {worktree}" not in out
+
+
+def test_a_worktree_in_the_old_place_is_moved_and_the_output_says_so(
+    working_copy: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    legacy = add_legacy_worktree(working_copy, tmp_path)
+    monkeypatch.setattr(timers, "subprocess", SubprocessModule(Systemctl()))
+
+    assert main(["install-timers"]) == 0
+
+    out = capsys.readouterr().out
+    assert f"moved planning worktree {legacy} to {worktree_of(tmp_path)}" in out
+    assert worktree_of(tmp_path).is_dir()
+
+
+def test_an_active_unit_stops_the_move_and_is_named(
+    working_copy: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    legacy = add_legacy_worktree(working_copy, tmp_path)
+    monkeypatch.setattr(timers, "subprocess", SubprocessModule(Systemctl("abk-app-tick.service")))
+
+    assert main(["install-timers"]) == 1
+
+    captured = capsys.readouterr()
+    assert "abk-app-tick.service" in captured.out + captured.err
+    assert not worktree_of(tmp_path).exists()
+    assert (legacy / ".git").is_file()

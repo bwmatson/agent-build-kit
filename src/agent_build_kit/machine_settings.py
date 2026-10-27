@@ -61,6 +61,13 @@ def _classify(
         return ("is the scheduling this machine runs at", "machine") if value else None
     if path == ("planning", "worktree_root"):
         return ("is a directory of this machine", "machine") if value is not None else None
+    if path == ("planning", "home"):
+        return ("is a directory of this machine", "machine") if value is not None else None
+    if path == ("planning", "state_dir") and value is not None:
+        text = str(value)
+        if text.startswith("~") or Path(text).is_absolute() or _outside(text, toplevel, root):
+            return "is a directory of this machine", "machine"
+        return None
     if head == "repos" and len(path) == 3 and last == "account":
         return (
             ("names the account this machine builds on", "machine") if value is not None else None

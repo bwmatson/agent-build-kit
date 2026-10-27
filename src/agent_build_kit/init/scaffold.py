@@ -714,8 +714,8 @@ def _orientation(config: WorkspaceConfig, prefix: str) -> str:
     body = template("planning-orientation.md").format(
         prefix=prefix,
         specs_dir=planning.specs_dir,
-        state_dir=planning.state_dir,
-        graph_page=planning.graph_page,
+        state_dir=planning.state_dir or "runs",
+        graph_page=planning.graph_page or "docs/unit_graph.md",
     )
     return f"{_ORIENT_OPEN}\n{body}{_ORIENT_CLOSE}\n"
 
@@ -740,7 +740,7 @@ def _in_repo_blocks(planning: Path, top: Path, config: WorkspaceConfig) -> list[
         prefix = "" if planning == top else f"{planning.relative_to(top).as_posix()}/"
         block = _orientation(config, prefix).replace("\n", eol)
         return [
-            (ignore, _ignore_block(ignore_text, config.planning.state_dir)),
+            (ignore, _ignore_block(ignore_text, config.planning.state_dir or "runs")),
             (guidance, splice_block(text, _ORIENT_START, _ORIENT_END, block, eol=eol)),
         ]
     except MarkersError:
@@ -788,7 +788,7 @@ def write_planning_repo(
         written=written,
     )
 
-    state = planning / config.planning.state_dir
+    state = planning / (config.planning.state_dir or "runs")
     _write(state / ".gitkeep", "", overwrite=False, written=written)
     _write(state / "units.json", '{"units": []}\n', overwrite=False, written=written)
     _write(planning / ".env.example", template("env.example"), overwrite=False, written=written)

@@ -10,7 +10,7 @@ is something actually wrong right now in *this* project — not a thorough
 audit. That's `improve.md`'s job, run weekly with its own budget. **Do not
 edit any file in `__PROJECT__`, do not create a branch, do not open a
 PR.** This phase only reports (it does update
-`__STATE_DIR__/tracked-issues.md` in the planning repo — that's
+`__REPORTS_DIR__/tracked-issues.md` in the planning repo — that's
 bookkeeping, not the code under test).
 
 ## Scope: one project per run
@@ -35,7 +35,7 @@ on; that repo's own health run owns it.
 
 ## 1. Refresh the tracked-issues list
 
-Read `__STATE_DIR__/tracked-issues.md` before anything else (create it
+Read `__REPORTS_DIR__/tracked-issues.md` before anything else (create it
 with empty "Pending resolution" and "Rejected" sections if it doesn't
 exist yet). For each entry under "Pending resolution" — every project's,
 not just this one's; it's cheap and keeps the shared file accurate —
@@ -58,7 +58,7 @@ The pipeline commits these edits with everything else you write in the planning 
 
 ## 2. Check whether last run's open candidates have already been resolved
 
-Read the immediately-prior `__STATE_DIR__/*-__PROJECT__-health.md` run (if
+Read the immediately-prior `__REPORTS_DIR__/*-__PROJECT__-health.md` run (if
 any — skip this step on the first-ever run for this project) for
 candidates still marked `[not-yet-actioned]`. For each, a quick check
 (re-read the specific file/lines it named, or `git log` on them since
@@ -89,7 +89,7 @@ leaked credential is a problem, not a "could be better":
 - `secrets-scan`
 
 Tell each subagent which project this is (`__PROJECT__`, at
-`__PROJECT_DIR__`), where the run logs live (`__STATE_DIR__`), and that
+`__PROJECT_DIR__`), where the run logs live (`__REPORTS_DIR__`), and that
 it's the **daily** pass: narrow any lookback window to roughly the last
 24h (not the 7d/48h a category's own playbook may default to) and keep
 it to a quick check of the obvious signals, not an open-ended

@@ -47,8 +47,8 @@ def planning(
     if repos is None:
         repos = {"app": RepoConfig(path=Path("."), slug="example/app", changelog=None)}
     data = WorkspaceConfig(repos=repos).model_dump(by_alias=True, mode="json")
-    chosen = {"state_dir": state_dir, "publish": publish}
-    extra = {"planning": {k: v for k, v in chosen.items() if v}} if state_dir or publish else {}
+    chosen = {"state_dir": state_dir or "runs", "publish": publish}
+    extra = {"planning": {k: v for k, v in chosen.items() if v}}
     config = WorkspaceConfig.model_validate({**data, **extra, "verify": {"env": verify_env or {}}})
     (root / "abk.yaml").write_text(dump(config))
     (root / ".gitignore").write_text(ignore)

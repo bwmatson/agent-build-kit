@@ -241,9 +241,9 @@ def test_the_copies_an_agent_run_leaves_are_removed_when_the_unit_ends(
     tmp_path: Path, kind: EventKind
 ) -> None:
     write_spec(tmp_path)
-    root = config_module.active_root()
-    assert root is not None
-    kept = root / config_module.active().planning.state_dir / "spec-snapshots" / "add-marker" / "1"
+    state = config_module.active_state_dir()
+    assert state is not None
+    kept = state / "spec-snapshots" / "add-marker" / "1"
     recorder = fresh(tmp_path)
 
     tick(tmp_path, recorder, **agents(Sessions()))

@@ -23,7 +23,9 @@ from tests.tracks.test_runner_planning_repo import doing, log_name, phase
 def pipeline(tmp_path: Path) -> tuple[InRepo, Installation]:
     setup = in_repo(tmp_path)
     git(setup.working_copy, "checkout", "-q", "-b", "feature")
-    return setup, installation_at(setup.worktree, setup.working_copy)
+    return setup, installation_at(
+        setup.worktree, setup.working_copy, planning=dict(state_dir="runs")
+    )
 
 
 def origin_main(setup: InRepo) -> str:
@@ -172,7 +174,7 @@ def test_a_rebase_that_conflicts_is_aborted_and_reported_with_the_commit_kept(
 def test_a_phase_in_a_working_copy_commits_and_pushes_nothing(tmp_path: Path) -> None:
     setup = in_repo(tmp_path)
     git(setup.working_copy, "checkout", "-q", "-b", "feature")
-    inst = installation_at(setup.working_copy, setup.working_copy)
+    inst = installation_at(setup.working_copy, setup.working_copy, planning=dict(state_dir="runs"))
     head = git(setup.working_copy, "rev-parse", "HEAD")
     pushed = origin_main(setup)
 

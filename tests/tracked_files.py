@@ -26,8 +26,9 @@ class PlanningDirs(Frozen):
 
 
 def planning_dirs(root: Path) -> PlanningDirs:
-    """The specification and state folders of `root`'s `abk.yaml`, the defaults of
-    `PlanningConfig` where the file, the section or the key is absent."""
+    """The specification and state folders of `root`'s `abk.yaml`; the default specification
+    folder of `PlanningConfig` and the legacy `runs` state folder where the file, the section or
+    the key is absent."""
     defaults = PlanningConfig()
     try:
         loaded = yaml.safe_load((root / "abk.yaml").read_text())
@@ -37,7 +38,7 @@ def planning_dirs(root: Path) -> PlanningDirs:
     section = section if isinstance(section, dict) else {}
     return PlanningDirs(
         specs_dir=str(section.get("specs_dir") or defaults.specs_dir),
-        state_dir=str(section.get("state_dir") or defaults.state_dir),
+        state_dir=str(section.get("state_dir") or "runs"),
     )
 
 

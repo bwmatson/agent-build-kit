@@ -94,7 +94,7 @@ def test_under_claude_code_a_phase_sends_the_command_it_sent_before(inst: Instal
                     # The shared installation is the active one, and `app` integrates on trunk.
                     protected_branches=("trunk",),
                     planning_repo=inst.root,
-                    planning_state_dir=inst.state_dir,
+                    planning_reports_dir=inst.reports_dir,
                     # A propose run is granted the one change it writes, and only that.
                     planning_change_dir=inst.changes_dir / runner.proposed_change(app),
                 ),

@@ -11,6 +11,20 @@
   is over its ceiling and why it was not split. `review.unsplittable: hold` keeps the old
   behaviour.
 
+- An installation whose planning repo is also one of its code repos now keeps its pipeline
+  state in a planning home outside the repository, `<data home>/<repository name>/planning`,
+  and its pipeline worktree at `<planning home>/worktree`. The same state is read from the
+  working copy and from the worktree. `ABK_PLANNING_HOME` and `ABK_STATE_DIR` (or
+  `planning.home` and `planning.state_dir` in `abk.local.yaml`) move them; the generated pages
+  default beside the state; `abk doctor` and `abk config --migrate` treat both keys as machine
+  settings. `abk install-timers` moves a worktree left in the old place, and refuses while a
+  unit is active. A relative `planning.state_dir` keeps the old behaviour. The tracks keep
+  their run logs, `tracked-issues.md` and `rejected-changes/` in `planning.reports_dir`
+  (default: the state directory when it is inside the repository, else `docs/reports`), so
+  they stay committed whatever the state directory is. Prompts name it `__REPORTS_DIR__`
+  (`__STATE_DIR__` is still filled, with the same path), and the policy hook's
+  `--planning-state-dir` flag is now `--planning-reports-dir`, the old name still read.
+
 - The repo-wide test guards read tracked files through one helper, `tests/tracked_files.py`,
   which leaves planning content out, so a specification may name what it forbids; the leak
   scan still reads it, but a tilde-relative path there is no longer a home path. `abk scrub-store` and

@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     # Overrides abk.yaml's `planning.worktree_root` on this machine.
     worktree_root: Path | None = None
 
+    # Override abk.yaml's `planning.home` and `planning.state_dir` on this machine.
+    planning_home: Path | None = None
+    state_dir: Path | None = None
+
     # Where the user manager reads units from (timers.py). systemd honours
     # XDG_CONFIG_HOME, so installing the units has to read it the same way, or
     # they land where nothing looks for them. `~/.config` when unset.

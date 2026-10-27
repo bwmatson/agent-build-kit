@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit import installation as installation_module
 from agent_build_kit.installation import Installation, load_config, load_installation
 from agent_build_kit.pipeline.planning_repo import repository_name
 from agent_build_kit.pipeline.planning_sync import PlanningMode, planning_mode
@@ -15,13 +14,6 @@ from agent_build_kit.settings import settings
 from tests.conftest import make_installation
 from tests.factories import commit_files, git, init_repo
 from tests.planning_worktree_support import in_repo, installation_at
-
-
-@pytest.fixture
-def data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    data = tmp_path / "data"
-    monkeypatch.setattr(installation_module, "data_home", lambda: data)
-    return data
 
 
 def with_repos(root: Path, repos: dict[str, Path]):

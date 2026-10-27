@@ -34,7 +34,7 @@ class Machine:
         bare, self.working_copy = working_copy_of(base, origin=origin)
         self.data = base / "data"
         self.dest = base / "units"
-        self.worktree = self.data / "app" / "planning"
+        self.worktree = self.data / "app" / "planning" / "worktree"
         self.setup = InRepo(origin=bare, working_copy=self.working_copy, worktree=self.worktree)
         self.calls: list[list[str]] = []
 
@@ -44,9 +44,7 @@ class Machine:
 
     def install(self, root: Path | None = None, **options) -> timers.InRepoInstall:
         inst = installation_at(root or self.working_copy, self.working_copy)
-        return timers.install_in_repo(
-            inst, dest=self.dest, run=self.run, data_dir=self.data, **options
-        )
+        return timers.install_in_repo(inst, dest=self.dest, run=self.run, **options)
 
     def remove(self, **options) -> timers.InRepoRemoval:
         inst = installation_at(self.working_copy, self.working_copy)
@@ -61,7 +59,7 @@ class Machine:
 
 
 @pytest.fixture
-def machine(tmp_path: Path) -> Machine:
+def machine(tmp_path: Path, data: Path) -> Machine:
     return Machine(tmp_path)
 
 
@@ -209,7 +207,9 @@ def test_remove_takes_the_units_and_the_marker_and_leaves_the_worktree(machine: 
     }
 
 
-def test_a_repository_with_no_origin_uses_the_local_default_branch(tmp_path: Path) -> None:
+def test_a_repository_with_no_origin_uses_the_local_default_branch(
+    tmp_path: Path, data: Path
+) -> None:
     machine = Machine(tmp_path, origin=False)
     commit_files(machine.working_copy, "local only", {"LOCAL.md": "local\n"})
     tip = git(machine.working_copy, "rev-parse", "main")
@@ -220,19 +220,19 @@ def test_a_repository_with_no_origin_uses_the_local_default_branch(tmp_path: Pat
     assert common_dir(machine.worktree) == common_dir(machine.working_copy)
 
 
-def test_a_separate_planning_repo_installs_byte_for_byte_as_before(tmp_path: Path) -> None:
+def test_a_separate_planning_repo_installs_byte_for_byte_as_before(
+    tmp_path: Path, data: Path
+) -> None:
     code = init_repo(tmp_path / "code")
     commit_files(code, "start", {"a.txt": "a\n"})
     root = tmp_path / "planning-repo"
     inst = installation_at(root, code)
-    data = tmp_path / "data"
     dest = tmp_path / "units"
 
     result = timers.install_in_repo(
         inst,
         dest=dest,
         run=lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, "", ""),
-        data_dir=data,
     )
 
     assert result.worktree is None

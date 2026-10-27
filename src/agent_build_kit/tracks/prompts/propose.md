@@ -32,7 +32,7 @@ say so in your log entry — a human sequences those.
 
 ## 0. Refresh the tracked-issues list
 
-Read `__STATE_DIR__/tracked-issues.md` before anything else (create it
+Read `__REPORTS_DIR__/tracked-issues.md` before anything else (create it
 with empty "Pending resolution" and "Rejected" sections if it doesn't
 exist yet) — same refresh `health.md`/`improve.md`/`recommend.md`
 already do, but don't skip it here even though one of them may have just
@@ -59,7 +59,7 @@ The pipeline commits these edits with everything else you write in the planning 
 
 Focus for this run: __FOCUS_HINT__
 
-Read the recent entries for this project under `__STATE_DIR__/` —
+Read the recent entries for this project under `__REPORTS_DIR__/` —
 `*-__PROJECT__-health.md`, `*-__PROJECT__-improve.md`, and
 `*-__PROJECT__-recommend.md` all carry an "Actionable candidates" section
 in the same shape — most recent first (weighted toward the focus above,
@@ -175,7 +175,7 @@ nobody present.
 
 ## 3. Track it
 
-Add an entry under `__STATE_DIR__/tracked-issues.md`'s "Pending resolution"
+Add an entry under `__REPORTS_DIR__/tracked-issues.md`'s "Pending resolution"
 section for each issue the change covers (short id, project: `__PROJECT__`,
 one-line summary, which run first found it, the change name
 `__PROPOSED_CHANGE__`, and this run's id as "opened by"). This is what lets
@@ -184,7 +184,7 @@ and not propose it again while the change is still in flight — skipping it
 breaks that.
 
 Also go back and edit the source run-log entry's own list item — the one
-exception to `__STATE_DIR__` being append-only for anything other than
+exception to `__REPORTS_DIR__` being append-only for anything other than
 `tracked-issues.md`, and deliberately narrow: change only that one candidate's
 `[not-yet-actioned]` marker to `[proposed — __PROPOSED_CHANGE__]`, leaving the
 rest of the line untouched. This is what makes the original entry

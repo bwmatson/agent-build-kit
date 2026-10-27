@@ -77,6 +77,9 @@ def _config_paths(installation: Installation) -> Iterable[Path]:
             yield provider.file
     if config.planning.worktree_root is not None:
         yield config.planning.worktree_root
+    for configured in (config.planning.home, config.planning.state_dir):
+        if configured is not None:
+            yield Path(configured)
 
 
 def terms_for(installation: Installation, *, target: Path | None = None) -> list[str]:

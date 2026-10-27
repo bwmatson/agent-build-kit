@@ -39,7 +39,9 @@ def host() -> Iterator[Host]:
 def pipeline(tmp_path: Path, publish: str) -> tuple[InRepo, Installation]:
     setup = in_repo(tmp_path)
     git(setup.working_copy, "checkout", "-q", "-b", "feature")
-    inst = installation_at(setup.worktree, setup.working_copy, planning=dict(publish=publish))
+    inst = installation_at(
+        setup.worktree, setup.working_copy, planning=dict(publish=publish, state_dir="runs")
+    )
     return setup, inst
 
 
@@ -122,7 +124,9 @@ def test_a_later_phase_publishes_only_its_own_files(tmp_path: Path, host: Host) 
 
 def test_the_setting_has_no_effect_in_a_working_copy(tmp_path: Path, host: Host) -> None:
     setup = in_repo(tmp_path)
-    inst = installation_at(setup.working_copy, setup.working_copy, planning=dict(publish="branch"))
+    inst = installation_at(
+        setup.working_copy, setup.working_copy, planning=dict(publish="branch", state_dir="runs")
+    )
     before = origin_ref(setup, "main")
 
     assert phase(inst, doing(inst)) == 0

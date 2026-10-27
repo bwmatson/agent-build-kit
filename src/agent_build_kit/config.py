@@ -128,11 +128,20 @@ class PlanningPublish(StrEnum):
 
 
 class PlanningConfig(Frozen):
-    # Relative to the planning root unless absolute.
-    state_dir: str = "runs"
+    # The folder an in-repo installation keeps its state and pipeline worktree under, outside the
+    # repository. None = <data home>/<repository name>/planning.
+    home: str | None = None
+    # Relative to the planning root unless absolute. None = `<home>/state` in an in-repo
+    # installation, `runs` otherwise.
+    state_dir: str | None = None
     specs_dir: str = "openspec"
-    graph_page: str = "docs/unit_graph.md"
-    usage_page: str = "docs/unit_cost.md"
+    # Where the tracks keep their run logs, `tracked-issues.md` and `rejected-changes/`, relative
+    # to the planning root. None = the state directory when it is inside the root, else
+    # `docs/reports`.
+    reports_dir: str | None = None
+    # None = `<state>/pages/...` when the state is outside the root, `docs/...` otherwise.
+    graph_page: str | None = None
+    usage_page: str | None = None
     # Where per-unit worktrees are checked out. Never inside the planning root:
     # an agent reached a sibling unit's worktree through `--add-dir` when they
     # were, and a type checker resolved a code repo's imports against the
@@ -2276,6 +2285,7 @@ def dump(config: WorkspaceConfig) -> str:
 
 _active: WorkspaceConfig = WorkspaceConfig()
 _active_root: Path | None = None
+_active_state_dir: Callable[[], Path] | None = None
 
 
 def _expanded(path: Path) -> Path:
@@ -2289,10 +2299,22 @@ def activate(
     config: WorkspaceConfig,
     root: Path | None = None,
     checkout: Callable[[Path], Path] = _expanded,
+    state_dir: Callable[[], Path] | None = None,
 ) -> None:
-    """`checkout` turns a repo's configured path into its checkout (the installation's rule)."""
-    global _active, _active_root, _active_checkout
+    """`checkout` turns a repo's configured path into its checkout (the installation's rule);
+    `state_dir` gives the installation's state directory."""
+    global _active, _active_root, _active_checkout, _active_state_dir
     _active, _active_root, _active_checkout = config, root, checkout
+    _active_state_dir = state_dir
+
+
+def active_state_dir() -> Path | None:
+    """The state directory of the active workspace; None when none is loaded."""
+    if _active_state_dir is not None:
+        return _active_state_dir()
+    if _active_root is None:
+        return None
+    return _active_root / Path(_active.planning.state_dir or "runs").expanduser()
 
 
 def active_checkout(configured: Path) -> Path:
