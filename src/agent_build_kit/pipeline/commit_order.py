@@ -195,6 +195,14 @@ def group_progress(
     return GroupProgress(done=len(titles), tests_made=False)
 
 
+def adopted_subject(unit_title: str, steps: Sequence[GroupStep], subjects: list[str]) -> str:
+    """The subject of the commit a person's adopted changes become, so the counter takes it for the
+    commit the build expected next: `test:` or `feat:` with the title of the group `subjects`
+    (oldest first) has reached, `fix: <last title> (adopted)` once every group has its commits.
+    `steps` is empty for a unit that is not built in stubbed groups, which takes `unit_title`."""
+    raise NotImplementedError
+
+
 def superseded_pairs(
     repo: Path, ref: str, base: str, titles: Sequence[str], test_only: Sequence[bool]
 ) -> list[list[str]] | None:
