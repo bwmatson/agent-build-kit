@@ -49,6 +49,12 @@
   environment variable name is reported as one error naming the repo, kind and key, and stops
   only that repo's tracker work.
 
+- Groundwork for mirroring a change's tasks on a tracker, not yet used by a tick: the pipeline
+  can write a single task's box by key, refusing and naming the key when the task's line no
+  longer matches the text recorded for it. A task that was only renumbered will be recognised by
+  its first line and keep its tracker item; a first line that matches two tasks is reported as a
+  conflict instead of guessed, and an item displaced by a move is reported for removal.
+
 - `abk install-timers` now links `.env`, `abk.local.yaml` and `scrub.local` from the working copy
   into the pipeline worktree (they stay untracked), so the timed ticks load this machine's
   configuration. It prints a `linked`, `unchanged` or `repointed` line for each, skips a file the
