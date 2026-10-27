@@ -36,7 +36,7 @@ holds:
   - scope: [2, 3]
     holder: Sam Example
     link: https://boards.example/items/42
-    since: 2026-10-26T09:30:00Z
+    since: "<ISO 8601 UTC timestamp>"
     items:
       feature: "40"
       story: "41"
