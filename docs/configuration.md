@@ -438,6 +438,28 @@ repos:                          # ordered: deploy order is derived from
       org: ""                   # percent-encoded: `%20` handed to
       project: ""               # `az repos --project` names a project that
       repo: ""                  # does not exist.
+    tracker:                    # the work tracker (trackers/), independent of the forge.
+                                # Absent, or `kind: none`, leaves the capability off:
+                                # no call, no file, no doctor or status line. A section
+                                # with no `kind` is an error, not off. Names only;
+                                # a credential is the NAME of an environment variable in
+                                # `token_env`, and a token-shaped value is refused.
+      kind: azure_devops        # azure_devops: organization, project, team, area_path,
+                                # iteration_path, story_type (all required).
+                                # github: owner, repo, labels (a label for each of
+                                # feature, story, task; all required), host and
+                                # project_number optional.
+      # token_env: MY_TRACKER_TOKEN
+                                # optional override, the NAME of an environment variable,
+                                # never the credential. Left out, the tracker uses the
+                                # credential the forge uses for that host: azure_devops
+                                # reads AZURE_DEVOPS_EXT_PAT (or ABK_ADO_PAT), then `az
+                                # login`; github reads GH_TOKEN (or ABK_GH_TOKEN), then
+                                # `gh auth token --user <owner>`.
+      state_map: {}             # optional: kit state -> tracker state.
+      marker_prefix: abk        # optional, default abk. An invalid section is one error
+                                # naming the repo, kind and key; it stops only that
+                                # repo's tracker work.
     profile: python-uv          # toolchain profile: python-uv, or node-npm. The repo-wide
                                 # default; a project below may set its own.
     infra: none                 # infrastructure profile: docker or none

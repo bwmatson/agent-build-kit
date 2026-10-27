@@ -245,6 +245,19 @@ repos:                        # ordered; a task group's [repo] tag is a key here
                               # records the container listing beside an e2e-test
                               # result (init writes it when a compose file or
                               # Dockerfile is in the root)
+    tracker:                  # the work tracker, independent of the forge. Off only when the
+                              # section is absent or `kind: none`; a section without `kind`
+                              # is an error, and so is any missing or invalid field
+      kind: azure_devops      # azure_devops (organization, project, team, area_path,
+                              # iteration_path, story_type: all required) or github (owner,
+                              # repo, labels: a label for each of feature, story and task;
+                              # host and project_number optional) or none
+      # token_env: MY_TRACKER_TOKEN  # optional override: the NAME of an environment variable,
+                              # never a credential. Left out, the forge's credential is used:
+                              # AZURE_DEVOPS_EXT_PAT (or ABK_ADO_PAT), then `az login`; or
+                              # GH_TOKEN (or ABK_GH_TOKEN), then `gh auth token --user <owner>`
+      state_map: {}           # the kit's state names to the tracker's
+      marker_prefix: abk      # what marks an item the kit created
     projects: []              # [{path, profile, languages}]: a project whose directory is
                               # absent from the checkout is pending: unit-test, e2e-test and
                               # doctor skip it and say so, until a unit creates it

@@ -18,7 +18,7 @@ clears the host's Grafana URL (failing test first, then the `delenv`). `abk chec
 
 The other six failures are guards flagging planning content (`openspec/specs/`, archived and
 open changes, `runs/units.json`): home paths (26 hits), PR-number anecdotes (2), dated
-anecdotes (3), a removed-key mention, "a person merges every PR" wording, and old live-test
+anecdotes (3), a removed-key mention, old merge-rule wording, and old live-test
 module names (39). Fixing them means choosing between scrubbing historical planning content
 and exempting `openspec/`/`runs/` from the guards, which conflicts with AGENTS.md saying the
 guard reads planning content on purpose. That is a design decision, so no group was written.
