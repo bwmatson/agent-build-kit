@@ -15,6 +15,7 @@ from agent_build_kit.pipeline.planning_repo import (
     default_branch_of,
     git_dir,
     is_repo,
+    main_working_tree,
     repo_sharing,
     restore_default_branch,
 )
@@ -114,6 +115,14 @@ def planning_mode(inst: Installation) -> PlanningMode:
     if live is not None and live.resolve() == inst.root.resolve():
         return PlanningMode.PIPELINE_WORKTREE
     return PlanningMode.WORKING_COPY
+
+
+def working_copy(inst: Installation) -> Path | None:
+    """The working copy the machine files are carried from: the root itself, or from the pipeline
+    worktree the repository's main working tree (None when git names none)."""
+    if planning_mode(inst) == PlanningMode.PIPELINE_WORKTREE:
+        return main_working_tree(inst.root)
+    return inst.root
 
 
 def live_notice(inst: Installation, command: str, *, explicit: bool) -> str | None:

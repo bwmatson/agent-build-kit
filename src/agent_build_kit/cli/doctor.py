@@ -74,7 +74,7 @@ from agent_build_kit.init.scaffold import (
     rules_version,
 )
 from agent_build_kit.installation import Installation, _resolve, load_config
-from agent_build_kit.machine_files import CONFIG_LOCAL_FILES
+from agent_build_kit.machine_files import CONFIG_LOCAL_FILES, MACHINE_FILES, holds, present
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.notify.windows import (
     BURNTTOAST_VERSION,
@@ -94,7 +94,9 @@ from agent_build_kit.pipeline.planning_repo import common_dir, is_worktree_of
 from agent_build_kit.pipeline.planning_sync import (
     in_repo_name,
     live_notice,
+    live_pipeline_worktree,
     read_pipeline_marker,
+    working_copy,
 )
 from agent_build_kit.pipeline.shell import git, git_out, is_ignored, is_tracked, tracked_toplevel
 from agent_build_kit.pipeline.usage_guard import gate_result
@@ -493,6 +495,41 @@ def _pipeline_worktree(inst: Installation) -> list[Check]:
             "abk install-timers",
         )
     ]
+
+
+def _machine_files(inst: Installation) -> list[Check]:
+    """In a live pipeline worktree: each machine file the working copy has must be carried."""
+    if in_repo_name(inst) is None:
+        return []
+    live = live_pipeline_worktree(inst)
+    if live is None:
+        return []
+    source = working_copy(inst)
+    if source is None:
+        return []
+    names = present(source)
+    title = "machine files"
+    if not names:
+        return [
+            _warn(
+                title,
+                f"{source} holds none of {', '.join(MACHINE_FILES)}, so ticks run on defaults",
+                "create abk.local.yaml (paths, worktree root, limits), .env (copy .env.example) "
+                "and scrub.local in the working copy, then `abk install-timers`",
+            )
+        ]
+    bad = []
+    for name in names:
+        path = live / name
+        if path.is_symlink() and not path.exists():
+            bad.append(f"{name} (dangling link)")
+        elif not path.exists():
+            bad.append(f"{name} (missing)")
+        elif not holds(path, source / name):
+            bad.append(f"{name} (differs)")
+    if bad:
+        return [_fail(title, f"not carried into {live}: {', '.join(bad)}", "abk install-timers")]
+    return [_ok(title, f"{', '.join(names)} carried into {live}")]
 
 
 def _state_ignores(inst: Installation) -> list[Check]:
@@ -1904,6 +1941,7 @@ def run_doctor(
     checks += _merge_guards(inst, run)
     checks += _planning_publish(inst, run)
     checks += _pipeline_worktree(inst)
+    checks += _machine_files(inst)
     checks += _state_ignores(inst)
     checks += _timers(inst, run, units, which)
     checks += _toolchain(inst, run, which)

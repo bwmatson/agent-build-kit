@@ -28,7 +28,8 @@
   into the pipeline worktree (they stay untracked), so the timed ticks load this machine's
   configuration. It prints a `linked`, `unchanged` or `repointed` line for each, skips a file the
   working copy lacks, and refuses, before changing anything, a different file already there or one
-  git would not ignore.
+  git would not ignore. `abk doctor` fails when a file the working copy has is missing in the
+  worktree, and warns when the working copy has none.
 
 - A unit that was put back and has not started again now waits for the dependencies it has. A
   `Needs:` line added to such a unit, for example after the pipeline requeued it, holds it until

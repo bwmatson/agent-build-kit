@@ -34,6 +34,21 @@ class MachineFileRefused(PlanningWorktreeRefused):
     """A machine file that cannot be carried; the message names it."""
 
 
+def present(source: Path) -> tuple[str, ...]:
+    """The machine files `source` has."""
+    return tuple(name for name in MACHINE_FILES if (source / name).exists())
+
+
+def holds(path: Path, source_file: Path) -> bool:
+    """Whether `path` exists and is `source_file` itself (a link to it) or a regular file with
+    the same bytes."""
+    if not path.exists():
+        return False
+    if path.resolve() == source_file.resolve():
+        return True
+    return path.is_file() and path.read_bytes() == source_file.read_bytes()
+
+
 def _classify(name: str, source: Path, worktree: Path) -> str:
     """What carrying `name` does, or raises `MachineFileRefused` when it must not. The repairs a
     refusal names are made in the working copy and published: the worktree is moved to the
@@ -58,7 +73,7 @@ def _classify(name: str, source: Path, worktree: Path) -> str:
             return UNCHANGED
         raise MachineFileRefused(f"{path} is a link to {path.resolve()}, not to {source}")
     if path.exists():
-        if path.is_file() and path.read_bytes() == source.read_bytes():
+        if holds(path, source):
             return UNCHANGED
         raise MachineFileRefused(
             f"{path} is not a copy of {source}; move it away, then install again"
@@ -70,10 +85,10 @@ def carry(source: Path, worktree: Path, *, dry_run: bool) -> tuple[Carried, ...]
     """Link each machine file `source` has into `worktree`; refuse before changing anything. A
     dry run over a worktree that is not made yet says `would link` for each file, with no git
     check to make."""
-    present = [name for name in MACHINE_FILES if (source / name).exists()]
+    names = present(source)
     if dry_run and not worktree.is_dir():
-        return tuple(Carried(name=name, result=WOULD_LINK) for name in present)
-    plan = [(name, _classify(name, source / name, worktree)) for name in present]
+        return tuple(Carried(name=name, result=WOULD_LINK) for name in names)
+    plan = [(name, _classify(name, source / name, worktree)) for name in names]
     carried = []
     for name, result in plan:
         if result in (LINKED, REPOINTED):
