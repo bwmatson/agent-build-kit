@@ -5,9 +5,7 @@
 version: 1
 
 planning:
-  state_dir: runs
   specs_dir: openspec
-  graph_page: docs/unit_graph.md
   self_pull: true
 
 git:
