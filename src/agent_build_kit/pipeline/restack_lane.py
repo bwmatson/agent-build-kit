@@ -23,7 +23,7 @@ from typing import Any
 
 from agent_build_kit.config import active
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import spans
+from agent_build_kit.pipeline import host, spans
 from agent_build_kit.pipeline.events import Claim, hold_for_conflict, read_base_tip
 from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.lease import Leases, lease_dir
@@ -46,7 +46,7 @@ from agent_build_kit.pipeline.units import (
     waiting_on,
 )
 from agent_build_kit.pipeline.wiring import branch_commits, is_ancestor
-from agent_build_kit.pipeline.workspaces import BranchBusy, branch_held, process_alive
+from agent_build_kit.pipeline.workspaces import BranchBusy, branch_held, holder_alive
 
 # A move, or a run's work, returns what remains to run in the same worker once the unit's
 # branch claim is released: the unit's own run, which takes the branch lock itself.
@@ -307,7 +307,7 @@ def lane_record(state_dir: Path) -> list[dict[str, str]]:
             pid, units = record["pid"], record["units"]
         except (OSError, ValueError, KeyError, TypeError):
             continue
-        if isinstance(pid, int) and process_alive(pid):
+        if isinstance(pid, int) and holder_alive(pid, record.get("host")):
             held.extend(entry for entry in units if isinstance(entry, dict))
     return held
 
@@ -495,7 +495,10 @@ class RestackLane:
                 }
                 for status, entry in held
             ]
-            atomic_write_text(self._record, json.dumps({"pid": os.getpid(), "units": units}))
+            atomic_write_text(
+                self._record,
+                json.dumps({"pid": os.getpid(), "host": host.this_host(), "units": units}),
+            )
         except Exception as error:  # noqa: BLE001
             self._log(f"restack record not written — {type(error).__name__}: {error}")
 

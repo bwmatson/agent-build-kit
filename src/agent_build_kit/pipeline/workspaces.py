@@ -31,6 +31,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit.path_patterns import matches_any
+from agent_build_kit.pipeline import host
 from agent_build_kit.pipeline.scratch import ensure_scratch
 from agent_build_kit.pipeline.shell import git, git_out, porcelain
 
@@ -63,6 +64,13 @@ def process_alive(pid: int) -> bool:
     return True
 
 
+def holder_alive(pid: int, record_host: str | None) -> bool:
+    """Whether the holder a record names is alive: one of another host always is, this host's
+    process table saying nothing of it; a record of this host (or with no host) is judged by
+    its pid."""
+    return not host.is_here(record_host) or process_alive(pid)
+
+
 def lock_holder_gone(branch: str, *, root: Path) -> bool | None:
     """Whether the process named in this branch's lock is gone: `True` only when
     a pid was read and that process is not alive, `False` for a live one, `None`
@@ -77,7 +85,7 @@ def lock_holder_gone(branch: str, *, root: Path) -> bool | None:
     pid = parsed.get("pid") if isinstance(parsed, dict) else None
     if not isinstance(pid, int):
         return None
-    return not process_alive(pid)
+    return not holder_alive(pid, parsed.get("host"))
 
 
 @contextmanager
@@ -99,9 +107,10 @@ def branch_lock(branch: str, *, root: Path):
             holder = {}
 
         pid = holder.get("pid")
-        if isinstance(pid, int) and process_alive(pid):
+        if isinstance(pid, int) and holder_alive(pid, holder.get("host")):
             raise BranchBusy(
-                f"{branch} is held by pid {pid} since {holder.get('at', 'an unknown time')}"
+                f"{branch} is held by pid {pid} on {holder.get('host') or host.this_host()} "
+                f"since {holder.get('at', 'an unknown time')} ({path})"
             )
 
         path.unlink(missing_ok=True)
@@ -113,7 +122,15 @@ def branch_lock(branch: str, *, root: Path):
         raise BranchBusy(f"{branch} was claimed by another run") from error
 
     with os.fdopen(handle, "w") as file:
-        json.dump({"pid": os.getpid(), "branch": branch, "at": datetime.now(UTC).isoformat()}, file)
+        json.dump(
+            {
+                "pid": os.getpid(),
+                "host": host.this_host(),
+                "branch": branch,
+                "at": datetime.now(UTC).isoformat(),
+            },
+            file,
+        )
 
     try:
         yield
