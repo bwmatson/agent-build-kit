@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.config import RepoConfig
-from agent_build_kit.settings import settings
 from tests.cli.in_repo_doctor import checks_of, in_repo, named, with_pipeline_worktree
 from tests.cli.public_content_repo import planning
 from tests.factories import git, init_repo
@@ -21,7 +20,7 @@ CHECK = "unit worktrees"
 def root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """The unit worktree root, set the way `ABK_WORKTREE_ROOT` sets it."""
     units = tmp_path / "units"
-    monkeypatch.setattr(settings, "worktree_root", units)
+    monkeypatch.setenv("ABK_WORKTREE_ROOT", str(units))
     return units
 
 

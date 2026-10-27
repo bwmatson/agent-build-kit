@@ -18,7 +18,8 @@
   planning root is a pipeline worktree. A unit's existing worktree is found through git and
   used where it is; one whose branch is checked out outside the worktree root is refused
   with the branch and path, and two branches that share a sanitised name are refused
-  instead of sharing a folder.
+  instead of sharing a folder. `abk doctor` notes worktrees under another folder and warns
+  about registered ones whose directory is gone, and a runbook describes moving the root.
 
 - The kit's own time-limit tests hold their child pytest code in files that the linters
   check, not in strings, and a test fails a new module that builds a child's source as a
