@@ -14,7 +14,7 @@ from agent_build_kit.runtimes.guards import guard_lines
 from agent_build_kit.sandboxes import Coverage
 from tests.cli.guard_listing_support import ACTIVE, KEPT, SKIPPED, state_of
 from tests.cli.policy_step_fakes import configured
-from tests.cli.sandbox_cli_support import CountingBackend, switch_off, switch_on
+from tests.cli.sandbox_cli_support import NAME, CountingBackend, switch_off, switch_on
 from tests.cli.sandbox_cli_support import stand_in as stand_in  # noqa: F401 — fixture
 from tests.cli.test_init import app, stubs  # noqa: F401 — fixtures
 from tests.conftest import make_installation
@@ -112,7 +112,9 @@ def test_the_listing_is_the_one_the_table_gives(
     runtime = SelectableRuntime("claude_code", sandbox_coverage=Coverage.PROCESS)
     lines = check(tmp_path, app, monkeypatch, capsys, runtime, sandbox=True)
 
-    installation = make_installation(tmp_path / "other", sandbox=SandboxConfig(enabled=True))
+    installation = make_installation(
+        tmp_path / "other", sandbox=SandboxConfig(enabled=True, backend=NAME)
+    )
     expected = guard_lines(runtimes.get("claude_code"), installation)
     assert expected
     for line in expected:
