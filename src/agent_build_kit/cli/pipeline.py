@@ -588,13 +588,11 @@ def retry_replies(inst: Installation, store: UnitStore, *, reply: Callable[..., 
     thread only those the host again did not take. A unit whose branch is being worked on is
     left for the next pass."""
     # Late: the graph package imports the pipeline.
-    from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
+    from agent_build_kit.graph.checkpointer import open_unit_graphs
     from agent_build_kit.graph.unit import set_pending_replies
 
     async def write(unit_id: str, replies: tuple[str, ...]) -> None:
-        async with open_checkpointer(
-            unit_graphs_path(inst.local_dir), state_dir=inst.state_dir
-        ) as saver:
+        async with open_unit_graphs(inst) as saver:
             await set_pending_replies(saver, unit_id, replies)
 
     for unit in store.all():
@@ -4229,13 +4227,11 @@ def branch_is_held(inst: Installation, branch: str) -> bool:
 def thread_of(inst: Installation, unit_id: str) -> Position:
     """Where the unit's thread stands; its `state` is None when it has none."""
     # Late: the graph package imports the pipeline.
-    from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
+    from agent_build_kit.graph.checkpointer import open_unit_graphs
     from agent_build_kit.graph.unit import thread_position
 
     async def look() -> Position:
-        async with open_checkpointer(
-            unit_graphs_path(inst.local_dir), state_dir=inst.state_dir
-        ) as saver:
+        async with open_unit_graphs(inst) as saver:
             return await thread_position(saver, unit_id)
 
     return asyncio.run(look())
@@ -4250,10 +4246,10 @@ def _create_thread_store(inst: Installation) -> None:
     """Create the thread database before units start in parallel: its first open
     switches it to WAL, which two connections racing to do fail on with a lock."""
     # Late: the graph package imports the pipeline.
-    from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
+    from agent_build_kit.graph.checkpointer import open_unit_graphs
 
     async def create() -> None:
-        async with open_checkpointer(unit_graphs_path(inst.local_dir), state_dir=inst.state_dir):
+        async with open_unit_graphs(inst):
             pass
 
     asyncio.run(create())
@@ -6337,13 +6333,11 @@ async def _on_thread(
 ) -> RunOutcome:
     """Start or resume the unit's thread to its next wait, or deliver `event` to it."""
     # Late: the graph package imports the pipeline.
-    from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
+    from agent_build_kit.graph.checkpointer import open_unit_graphs
     from agent_build_kit.graph.unit import resume_unit, run_unit
 
     common = dict(base=base, graph=graph, run_log=run_log, tracer=telemetry.tracer())
-    async with open_checkpointer(
-        unit_graphs_path(inst.local_dir), state_dir=inst.state_dir
-    ) as saver:
+    async with open_unit_graphs(inst) as saver:
         if event is None:
             # Under the lock `build_unit` holds; a delivery takes its own.
             return await run_unit(runner, unit, saver=saver, lane=lane, **common)
@@ -6391,15 +6385,13 @@ def advance_thread_through_prepare(
     that `prepare` makes, leaving the thread for a build slot; the state it ends in. None when
     the thread is not parked at `prepare`. The caller holds the unit's branch."""
     # Late: the graph package imports the pipeline.
-    from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
+    from agent_build_kit.graph.checkpointer import open_unit_graphs
     from agent_build_kit.graph.unit import advance_through_prepare
 
     make_runner, base, graph = _thread_runner(inst, unit, store, _unit_log(unit))
 
     async def advance() -> UnitRun | None:
-        async with open_checkpointer(
-            unit_graphs_path(inst.local_dir), state_dir=inst.state_dir
-        ) as saver:
+        async with open_unit_graphs(inst) as saver:
             return await advance_through_prepare(
                 make_runner, unit, base=base, graph=graph, saver=saver, tracer=telemetry.tracer()
             )

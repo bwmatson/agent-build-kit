@@ -28,6 +28,7 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.model import E2E_LOCK_FILE
+from agent_build_kit.pipeline.lease import lease_dir
 from agent_build_kit.pipeline.planning_repo import (
     common_dir,
     is_worktree_of,
@@ -149,7 +150,7 @@ class Installation:
 
     @property
     def leases_dir(self) -> Path:
-        return self.local_dir / "leases"
+        return lease_dir(self.local_dir)
 
     @property
     def environment_lock(self) -> Path:
