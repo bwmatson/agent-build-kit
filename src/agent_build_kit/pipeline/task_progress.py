@@ -48,3 +48,19 @@ def mark_groups(tasks: Path, groups: Iterable[int], *, done: bool) -> None:
         updated = box.sub(rf"\g<1>[{mark}]\g<2>", text)
         if updated != text:
             tasks.write_text(updated)
+
+
+class TaskConflict(ValueError):
+    """A task's line no longer matches the hash recorded for it; the message names its key."""
+
+
+def text_hash(text: str) -> str:
+    """A short hash of the first line of a task's text, the form `tracker.yaml` records."""
+    raise NotImplementedError
+
+
+def mark_task(tasks: Path, key: str, *, done: bool, text_hash: str) -> None:
+    """Set the one box of task `key` (`<change>:<group>.<task>`) to done or not done.
+
+    Raises `TaskConflict` and writes nothing when the line's first-line hash is not `text_hash`."""
+    raise NotImplementedError
