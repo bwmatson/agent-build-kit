@@ -253,9 +253,9 @@ def test_a_worktree_stopped_in_a_rebase_still_has_the_branch(repo: Path, root: P
     assert listing(repo) == before
 
 
-def test_a_repository_with_refs_in_a_reftable_is_read_through_git(
-    tmp_path: Path, root: Path
-) -> None:
+def reftable_repo(tmp_path: Path) -> Path:
+    """A repository whose refs live in a reftable, with one commit on `main`; skips where git
+    has no such format."""
     work = tmp_path / "reftable"
     work.mkdir()
     made = subprocess.run(
@@ -271,12 +271,13 @@ def test_a_repository_with_refs_in_a_reftable_is_read_through_git(
     (work / "README.md").write_text("base\n")
     git(work, "add", "-A")
     git(work, "commit", "-qm", "base")
-    path = add_at(work, root / "worktree" / "spec_x_1")
+    return work
 
-    assert unit_tree(work, BRANCH, root) == path
-    assert prepare_worktree(work, BRANCH, name="lib", base="main", root=root) == path
-    blocks = [block.splitlines() for block in listing(work).strip().split("\n\n")]
-    expected = [
+
+def listed(repo: Path) -> list[tuple[Path, str | None]]:
+    """The (path, branch) pairs `git worktree list --porcelain` reports."""
+    blocks = [block.splitlines() for block in listing(repo).strip().split("\n\n")]
+    return [
         (
             Path(block[0].removeprefix("worktree ")),
             next(
@@ -290,4 +291,45 @@ def test_a_repository_with_refs_in_a_reftable_is_read_through_git(
         )
         for block in blocks
     ]
-    assert [(entry.path, entry.branch) for entry in worktree_entries(work)] == expected
+
+
+def test_a_repository_with_refs_in_a_reftable_is_read_through_git(
+    tmp_path: Path, root: Path
+) -> None:
+    work = reftable_repo(tmp_path)
+    path = add_at(work, root / "worktree" / "spec_x_1")
+
+    assert unit_tree(work, BRANCH, root) == path
+    assert prepare_worktree(work, BRANCH, name="lib", base="main", root=root) == path
+    assert [(entry.path, entry.branch) for entry in worktree_entries(work)] == listed(work)
+
+
+def test_a_worktree_stopped_in_a_rebase_in_a_reftable_repository_still_has_the_branch(
+    tmp_path: Path, root: Path
+) -> None:
+    work = reftable_repo(tmp_path)
+    path = add_at(work, root / "worktree" / "spec_x_1")
+    (path / "README.md").write_text("branch\n")
+    git(path, "commit", "-qam", "branch")
+    (work / "README.md").write_text("main\n")
+    git(work, "commit", "-qam", "main")
+    stopped = subprocess.run(["git", "rebase", "main"], cwd=path, capture_output=True, text=True)
+    assert stopped.returncode != 0, "the rebase stopped on a conflict, head detached"
+    before = listing(work)
+
+    assert unit_tree(work, BRANCH, root) == path
+    got = prepare_worktree(work, BRANCH, name="lib", base="main", root=root, allow_dirty=True)
+    assert got == path
+    assert listing(work) == before
+
+
+def test_a_worktree_of_a_bare_repository_is_listed_with_the_bare_entry(
+    repo: Path, root: Path, tmp_path: Path
+) -> None:
+    bare = tmp_path / "bare.git"
+    git(tmp_path, "clone", "-q", "--bare", str(repo), str(bare))
+    path = add_at(bare, root / "worktree" / "spec_x_1")
+
+    assert [(entry.path, entry.branch) for entry in worktree_entries(path)] == listed(bare)
+    assert (bare, None) in listed(bare)
+    assert unit_tree(path, BRANCH, root) == path
