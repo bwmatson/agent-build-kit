@@ -182,6 +182,7 @@
   merged by the pipeline as any other. Its pull request, `abk status` and `abk explain` say it
   is over its ceiling and why it was not split. `review.unsplittable: hold` keeps the old
   behaviour.
+
 - The usage windows are now configured under `usage_limits`, in `runtimes.<runtime>` and in
   each account, so they are no longer confused with `global_limits` and `project_limits`, which
   count units. The old `limits` key there still loads with a deprecation notice that names the
