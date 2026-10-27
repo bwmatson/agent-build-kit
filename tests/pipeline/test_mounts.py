@@ -35,7 +35,7 @@ def test_a_mount_names_its_type_source_and_options() -> None:
 
 
 def test_a_path_outside_every_other_mount_is_on_the_root() -> None:
-    mount = mount_of(Path("/home/me/state"), TABLE)
+    mount = mount_of(Path("/srv/state"), TABLE)
 
     assert (mount.fstype, mount.source) == ("ext4", "/dev/sda1")
 
