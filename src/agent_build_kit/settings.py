@@ -65,6 +65,7 @@ class Settings(BaseSettings):
     # Override abk.yaml's `planning.home` and `planning.state_dir` on this machine.
     planning_home: Path | None = None
     state_dir: Path | None = None
+    local_dir: Path | None = None
 
     # Where the user manager reads units from (timers.py). systemd honours
     # XDG_CONFIG_HOME, so installing the units has to read it the same way, or

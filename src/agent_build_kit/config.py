@@ -134,6 +134,9 @@ class PlanningConfig(Frozen):
     # Relative to the planning root unless absolute. None = `<home>/state` in an in-repo
     # installation, `runs` otherwise.
     state_dir: str | None = None
+    # Absolute or `~`. The machine-local files (checkpointer, locks, leases). None =
+    # `<home>/local` in an in-repo installation, the state directory otherwise.
+    local_dir: str | None = None
     specs_dir: str = "openspec"
     # Where the tracks keep their run logs, `tracked-issues.md` and `rejected-changes/`, relative
     # to the planning root. None = the state directory when it is inside the root, else

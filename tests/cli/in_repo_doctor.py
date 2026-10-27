@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from agent_build_kit import forges
 from agent_build_kit.cli.doctor import Check, run_doctor
 from agent_build_kit.config import RepoConfig
 from agent_build_kit.init.scaffold import template
+from agent_build_kit.pipeline.mounts import Mount
 from agent_build_kit.pipeline.planning_sync import write_pipeline_marker
 from tests.cli.public_content_repo import planning
 from tests.cli.test_doctor import Answers
@@ -59,8 +61,8 @@ def with_pipeline_worktree(config: Path) -> Path:
     return worktree
 
 
-def checks_of(config: Path) -> list[Check]:
-    return run_doctor(config, run=Answers(), which=which_all)
+def checks_of(config: Path, *, mount_of: Callable[[Path], Mount] | None = None) -> list[Check]:
+    return run_doctor(config, run=Answers(), which=which_all, mount_of=mount_of)
 
 
 def named(checks: list[Check], word: str) -> list[Check]:

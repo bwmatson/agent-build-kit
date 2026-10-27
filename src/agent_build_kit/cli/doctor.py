@@ -88,6 +88,7 @@ from agent_build_kit.pipeline.e2e_holds import HELD_FILE, current_holds, hold_te
 from agent_build_kit.pipeline.environment import matched_inputs
 from agent_build_kit.pipeline.gate_holds import gate_standing, split_gates
 from agent_build_kit.pipeline.install_record import STAGING
+from agent_build_kit.pipeline.mounts import Mount
 from agent_build_kit.pipeline.original_copy import COPY_PATTERN
 from agent_build_kit.pipeline.pending import describe, pending_projects
 from agent_build_kit.pipeline.planning_repo import (
@@ -1984,6 +1985,7 @@ def run_doctor(
     which: Which | None = None,
     units: Path | None = None,
     transport: httpx.BaseTransport | None = None,
+    mount_of: Callable[[Path], Mount] | None = None,
 ) -> list[Check]:
     run = run or subprocess.run
     which = which or shutil.which

@@ -130,6 +130,23 @@ class Installation:
         return self.planning_home / "state" if self.in_repo else self.root / "runs"
 
     @property
+    def local_dir(self) -> Path:
+        """Where the files tied to this machine's processes live."""
+        raise NotImplementedError
+
+    @property
+    def locks_dir(self) -> Path:
+        raise NotImplementedError
+
+    @property
+    def leases_dir(self) -> Path:
+        raise NotImplementedError
+
+    @property
+    def environment_lock(self) -> Path:
+        raise NotImplementedError
+
+    @property
     def reports_dir(self) -> Path:
         """Where the tracks keep their run logs and tracker: always literally under the root."""
         configured = self.config.planning.reports_dir

@@ -35,8 +35,11 @@ def unit_graphs_path(state_dir: Path) -> Path:
 
 
 @asynccontextmanager
-async def open_checkpointer(path: Path) -> AsyncIterator[AsyncSqliteSaver]:
-    """The saver over `path`, in WAL, deserialising only the allowlisted types."""
+async def open_checkpointer(
+    path: Path, *, state_dir: Path | None = None
+) -> AsyncIterator[AsyncSqliteSaver]:
+    """The saver over `path`, in WAL, deserialising only the allowlisted types. A database in
+    `state_dir` is copied to `path` once, when `path` holds none."""
     path.parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(path) as conn:
         await conn.execute("PRAGMA journal_mode=WAL")
