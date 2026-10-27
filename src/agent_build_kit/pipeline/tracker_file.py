@@ -8,6 +8,7 @@ pipeline, whole and under the change's tasks lock, the one the checkbox writes t
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 
 import yaml
@@ -15,6 +16,7 @@ import yaml
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.task_progress import first_line_hash, tasks_lock
+from agent_build_kit.pipeline.units import Unit
 from agent_build_kit.pipeline.work_graph import Task
 
 FILE_NAME = "tracker.yaml"
@@ -130,3 +132,16 @@ def reconcile_moves(tracker: TrackerFile, tasks: list[Task]) -> Reconciled:
         removed=tuple(key for key in absent if key not in moved),
         displaced=displaced,
     )
+
+
+class StoryMapping(Frozen):
+    """Where a unit's Story sits: the Feature of the unit's own change as its parent, and the
+    Features of the other changes whose groups the unit carries as related."""
+
+    parent: str
+    related: tuple[str, ...] = ()
+
+
+def story_mapping(unit: Unit, features: Mapping[str, str]) -> StoryMapping:
+    """The mapping for a unit's Story, from each change's Feature id."""
+    raise NotImplementedError

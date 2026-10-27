@@ -302,6 +302,10 @@ class StoredUnit(Unit):
     # `unit_size.calibration`); None for a record from before they were kept, or with
     # calibration off.
     flag: str = ""
+    # The unit's tracker Story, none with no tracker, and whether it was left behind by a
+    # supersession that carried different groups.
+    story: str | None = None
+    story_superseded: bool = False
     calibrated_lines: Annotated[int, Field(strict=True, gt=0)] | None = None
     # The SHA this runner last published for `branch`. The next push leases
     # against exactly this, so it has to outlive the process that pushed it.
