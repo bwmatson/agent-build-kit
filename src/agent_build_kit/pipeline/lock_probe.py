@@ -83,16 +83,19 @@ def probe_locking(
     mount = mount or mounts.mount_of(directory)
     path = directory / f".abk-lock-probe-{host.this_host()}-{os.getpid()}"
     try:
-        directory.mkdir(parents=True, exist_ok=True)
-        with path.open("a") as handle:
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            handle = path.open("a")
             try:
                 fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except OSError as error:
-                number = error.errno or 0
-                name = errno.errorcode.get(number, "unknown")
-                return _failed(
-                    mount, f"this process could not take the lock: error {number} ({name})"
-                )
+            except OSError:
+                handle.close()
+                raise
+        except OSError as error:
+            number = error.errno or 0
+            name = errno.errorcode.get(number, "unknown")
+            return _failed(mount, f"this process could not take the lock: error {number} ({name})")
+        with handle:
             try:
                 answer = _ask(path, spawn)
             except subprocess.TimeoutExpired:

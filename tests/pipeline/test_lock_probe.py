@@ -157,3 +157,31 @@ def test_a_lock_this_process_cannot_take_fails_with_the_mount_fix_and_leaves_no_
     assert "nfs4" in result.detail
     assert "local_lock=all" in result.fix
     assert list(tmp_path.iterdir()) == []
+
+
+def test_a_probe_file_that_cannot_be_opened_fails_with_the_mount_fix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse(self, *args, **kwargs):
+        raise OSError(errno.EACCES, "Permission denied")
+
+    monkeypatch.setattr(Path, "open", refuse)
+
+    result = probe_locking(tmp_path, answering("blocked"), mount("cifs"))
+
+    assert not result.passed
+    assert "EACCES" in result.detail
+    assert "cifs" in result.detail
+    assert "nobrl" in result.fix
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_directory_that_cannot_be_created_fails_with_the_mount_fix(tmp_path: Path) -> None:
+    blocker = tmp_path / "file"
+    blocker.write_text("")
+
+    result = probe_locking(blocker / "state", answering("blocked"), mount("cifs"))
+
+    assert not result.passed
+    assert "cifs" in result.detail
+    assert "nobrl" in result.fix
