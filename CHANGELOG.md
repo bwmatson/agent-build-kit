@@ -13,6 +13,7 @@
   the state directory can sit on a network drive. An existing checkpointer database is copied
   once; `abk doctor` warns about the old files left behind and fails a local directory on a
   network filesystem.
+
 - Unit worktrees are now kept in a folder named for the repo's name in `abk.yaml`, not for
   its checkout's folder, so the folder no longer changes when the checkout moves or the
   planning root is a pipeline worktree. A unit's existing worktree is found through git and
