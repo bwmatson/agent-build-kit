@@ -24,7 +24,7 @@ from agent_build_kit.forges.transport import (
     RateLimited,
     TransportError,
 )
-from tests.fake_clock import FakeClock
+from tests.fake_clock import FakeClock, Waits
 
 REPO = RepoId(forge="github", account="example", name="app")
 ATTEMPTS = 4
@@ -51,18 +51,6 @@ class FakeForge:
 
     def made(self, name: str) -> int:
         return sum(1 for call in self.calls if call[0] == name)
-
-
-class Waits:
-    """The sleeper: records each wait and moves the fake clock by it."""
-
-    def __init__(self, clock: FakeClock) -> None:
-        self.clock = clock
-        self.slept: list[float] = []
-
-    def __call__(self, seconds: float) -> None:
-        self.slept.append(seconds)
-        self.clock.advance(seconds)
 
 
 class Counted:

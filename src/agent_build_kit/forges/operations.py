@@ -5,7 +5,8 @@ A `read` and an `idempotent_write` are repeated on a transient failure. A
 An `advisory` call is retried and then contained: it logs, counts and returns
 its neutral value instead of raising. A write whose callers promise "never
 raises" (`contained`) is repeated like any other and, once given up, behaves the
-same way: its `neutral` value comes back.
+same way: its `neutral` value comes back. A `claim` is called once and its error
+goes to the caller: repeating it could report a win it did not make.
 """
 
 from __future__ import annotations

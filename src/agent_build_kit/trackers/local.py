@@ -25,6 +25,15 @@ class LocalTracker:
         self._comments: dict[str, list[str]] = {}
         self._relations: list[Relation] = []
 
+    def as_identity(self, who: str) -> LocalTracker:
+        """A view of the same items acting as another identity: the competing writer."""
+        view = LocalTracker(self._capabilities, who)
+        view._items = self._items
+        view._log = self._log
+        view._comments = self._comments
+        view._relations = self._relations
+        return view
+
     def capabilities(self) -> Capabilities:
         return self._capabilities
 
@@ -75,11 +84,10 @@ class LocalTracker:
         return self._change(item_id, assignees=(who,))
 
     def claim(self, item_id: str) -> bool:
-        assignees = self._items[item_id].assignees
-        if not assignees:
+        if not self._items[item_id].assignees:
             self._change(item_id, assignees=(self._who,))
-            return True
-        return assignees == (self._who,)
+        # Without a revision check the write may have been overwritten: report what is there.
+        return self._items[item_id].assignees == (self._who,)
 
     def link(self, item_id: str, relation: str, target_id: str) -> Relation:
         link = Relation(kind=relation, source_id=item_id, target_id=target_id)
