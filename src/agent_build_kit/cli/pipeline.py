@@ -140,7 +140,12 @@ from agent_build_kit.pipeline.external_file import (
     held_units,
     hold_status_lines,
 )
-from agent_build_kit.pipeline.file_lock import atomic_write_bytes, atomic_write_text, file_lock
+from agent_build_kit.pipeline.file_lock import (
+    atomic_write_bytes,
+    atomic_write_text,
+    change_lock,
+    file_lock,
+)
 from agent_build_kit.pipeline.flakes import flake_record
 from agent_build_kit.pipeline.gate_holds import evaluate_gates, gate_status_lines
 from agent_build_kit.pipeline.joins import JoinContext
@@ -6574,9 +6579,9 @@ def _fix_change_tags(
 
     if not path.is_file():
         return refuse(f"no tasks.md at {path}")
-    # Read and replaced under the lock a tick holds to tick the boxes, so neither loses the
-    # other's write.
-    with file_lock(path.with_name(f"{path.name}.lock")):
+    # Read and replaced under the lock every writer of the repository file takes, so neither
+    # loses the other's write.
+    with change_lock(inst, change, "tasks.md"):
         try:
             text = path.read_bytes().decode()
         except UnicodeDecodeError:

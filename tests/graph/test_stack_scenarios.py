@@ -17,6 +17,7 @@ from agent_build_kit.pipeline.units import IN_REVIEW, branch_name
 from tests.factories import activate_with, stored_unit, unit
 from tests.graph.test_build_path import build, restacked
 from tests.graph.test_remaining_paths import fresh, tasks_file
+from tests.progress_support import copy_file, meta_planning
 from tests.runner_fakes import Recorder, approving, rejecting
 
 LATER = [
@@ -163,7 +164,9 @@ def test_tasks_are_ticked_when_the_unit_is_through_the_loop_not_before(tmp_path:
 
     assert seen_at_review and "- [ ]" in seen_at_review[0], "not yet ticked while under review"
     assert "- [x]" not in seen_at_review[0]
-    assert tasks.read_text().count("- [x]") == 2
+    copy = copy_file(meta_planning(tmp_path), "add-marker")
+    assert copy.read_text().count("- [x]") == 2
+    assert "- [x]" not in tasks.read_text()
 
 
 def test_a_failed_unit_leaves_its_tasks_unticked(tmp_path: Path) -> None:
@@ -174,7 +177,7 @@ def test_a_failed_unit_leaves_its_tasks_unticked(tmp_path: Path) -> None:
     outcome = build(tmp_path, recorder)
 
     assert outcome.status == "failed"
-    assert "- [x]" not in tasks.read_text()
+    assert "- [x]" not in copy_file(meta_planning(tmp_path), "add-marker").read_text()
 
 
 # --- where the work is built and what the tiers touch ---------------------------

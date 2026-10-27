@@ -18,8 +18,7 @@ from agent_build_kit.config import active, active_root
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline.failure_record import FailureRecord, Recorded, Storm, TestCount
-from agent_build_kit.pipeline.file_lock import file_lock
-from agent_build_kit.pipeline.task_progress import tasks_lock
+from agent_build_kit.pipeline.file_lock import change_lock, file_lock
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import Unit
 from agent_build_kit.pipeline.work_graph import GROUP_HEADING, group_needs
@@ -190,8 +189,8 @@ def add_needs(inst: Installation, change: str, group: int, fix: str, reason: str
     tasks = inst.changes_dir / change / "tasks.md"
     if not tasks.is_file():
         return
-    # The lock `task_progress.mark_groups` takes: units of one change share this file.
-    with tasks_lock(tasks):
+    # Every writer of the repository file takes this lock: units of one change share it.
+    with change_lock(inst, change, "tasks.md"):
         if any(n.change == fix for n in group_needs(tasks).get(group, [])):
             return
         lines = tasks.read_text().splitlines()

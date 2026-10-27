@@ -37,13 +37,13 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from agent_build_kit.budget import Section, cut_head, fit
 from agent_build_kit.claude_account import Account
-from agent_build_kit.config import RepoConfig, active
+from agent_build_kit.config import RepoConfig, active, active_local_dir, active_state_dir
 from agent_build_kit.installation import changes_dir_under
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.determinism_guidance import determinism_guidance
 from agent_build_kit.pipeline.e2e import E2eResult, E2eVerdict, latest_full_output
 from agent_build_kit.pipeline.e2e_holds import Holds
-from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.file_lock import change_lock
 from agent_build_kit.pipeline.flakes import OnFlake
 from agent_build_kit.pipeline.install_record import ALWAYS_INSTALLABLE, STAGING
 from agent_build_kit.pipeline.lease import Leases
@@ -51,7 +51,7 @@ from agent_build_kit.pipeline.pr_replies import last_json, parse_answer
 from agent_build_kit.pipeline.product_defect import ProductDefect
 from agent_build_kit.pipeline.reuse_guidance import reuse_guidance
 from agent_build_kit.pipeline.scratch import output_convention
-from agent_build_kit.pipeline.task_progress import mark_groups
+from agent_build_kit.pipeline.task_progress import mark_groups, progress_dir
 from agent_build_kit.pipeline.unit_store import (
     Cause,
     Description,
@@ -75,6 +75,31 @@ from agent_build_kit.pipeline.work_graph import validate_tasks
 def change_dir_of(planning_repo: Path | str, change: str) -> Path:
     """Where `change` lives in the planning repo, under its configured specs directory."""
     return changes_dir_under(Path(planning_repo), active().planning.specs_dir) / change
+
+
+class _Tracking(Frozen):
+    """Where the active workspace keeps a planning repo's changes and the tracking copies."""
+
+    state_dir: Path
+    changes_dir: Path
+    local_dir: Path
+
+
+def tracking_of(planning_repo: Path | str) -> _Tracking:
+    """The folders `task_progress` works in, for a caller that holds a planning repo but no
+    installation."""
+    root = Path(planning_repo)
+    return _Tracking(
+        state_dir=active_state_dir() or root / "runs",
+        local_dir=active_local_dir() or root / "runs",
+        changes_dir=changes_dir_under(root, active().planning.specs_dir),
+    )
+
+
+def follow_ups_path(planning_repo: Path | str, change: str) -> Path:
+    """The change's follow-ups: the tracking copy, else the repository file a person wrote."""
+    copy = progress_dir(tracking_of(planning_repo), change) / FOLLOW_UPS_FILE
+    return copy if copy.exists() else change_dir_of(planning_repo, change) / FOLLOW_UPS_FILE
 
 
 # Where a change's deferred follow-ups accumulate: approved alongside, not
@@ -102,7 +127,7 @@ def _follow_ups_block_end(content: str, start: int, marker: str) -> int:
 
 def unit_follow_ups(planning_repo: Path | str, change: str, unit_id: str) -> tuple[str, ...]:
     """The points unit `unit_id` of `change` last deferred, from the change's follow-ups file."""
-    path = change_dir_of(planning_repo, change) / FOLLOW_UPS_FILE
+    path = follow_ups_path(planning_repo, change)
     if not path.exists():
         return ()
     content = path.read_text()
@@ -1852,13 +1877,16 @@ class UnitRunner(BaseModel):
         return group_steps_of(self.planning_repo, unit)
 
     def mark_tasks(self, unit: Unit, *, done: bool) -> None:
-        """Tick or untick each change's groups in that change's own tasks file."""
+        """Tick or untick each change's groups in that change's own tracking copy."""
         for member in unit.members():
-            tasks = Path(self.change_dir(member.change)) / "tasks.md"
-            mark_groups(tasks, member.groups, done=done)
-
-    def _follow_ups_path(self, unit: Unit) -> Path:
-        return Path(self.change_dir(unit.change)) / FOLLOW_UPS_FILE
+            # A display matter: nothing reads a tick, so a copy that cannot be written is
+            # reported and the run goes on.
+            try:
+                mark_groups(
+                    tracking_of(self.planning_repo), member.change, member.groups, done=done
+                )
+            except OSError as error:
+                self.log(f"could not record progress of {member.change}: {error}")
 
     def follow_ups_note(self, unit: Unit) -> str:
         """What earlier units of this change deferred, for a fresh build to see.
@@ -1866,9 +1894,7 @@ class UnitRunner(BaseModel):
         Read directly, like `tasks.md`: the planning repo is a real checkout
         the pipeline already reads and writes without an injected callable.
         """
-        paths = [
-            Path(self.change_dir(member.change)) / FOLLOW_UPS_FILE for member in unit.members()
-        ]
+        paths = [follow_ups_path(self.planning_repo, member.change) for member in unit.members()]
         texts = [path.read_text().strip() for path in paths if path.exists()]
         content = "\n\n".join(text for text in texts if text)
         return FOLLOW_UPS_NOTE.format(items=content) if content else ""
@@ -1886,10 +1912,13 @@ class UnitRunner(BaseModel):
     def record_follow_ups(self, unit: Unit, items: Sequence[str]) -> None:
         if not items:
             return
-        path = self._follow_ups_path(unit)
+        folder = progress_dir(tracking_of(self.planning_repo), unit.change)
+        path = folder / FOLLOW_UPS_FILE
         path.parent.mkdir(parents=True, exist_ok=True)
-        with file_lock(path.with_name(f"{path.name}.lock")):
-            existing = path.read_text() if path.exists() else ""
+        with change_lock(tracking_of(self.planning_repo), unit.change, FOLLOW_UPS_FILE):
+            # The first record starts from a file a person may have written in the repository.
+            seed = follow_ups_path(self.planning_repo, unit.change)
+            existing = seed.read_text() if seed.exists() else ""
             marker = _follow_ups_marker(unit.id)
             block = marker + "\n".join(f"- {i}" for i in items) + "\n\n"
             start = existing.find(marker)

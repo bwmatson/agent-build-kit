@@ -123,4 +123,6 @@ def test_the_write_is_atomic_so_a_failure_part_way_leaves_the_original(
     assert code == 1
     assert "feature" in out
     assert path.read_bytes() == OLD
-    assert sorted(p.name for p in path.parent.iterdir()) == ["tasks.md", "tasks.md.lock"]
+    assert sorted(p.name for p in path.parent.iterdir()) == ["tasks.md"], (
+        "no lock file is left beside the change"
+    )

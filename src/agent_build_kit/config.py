@@ -2293,6 +2293,7 @@ def dump(config: WorkspaceConfig) -> str:
 _active: WorkspaceConfig = WorkspaceConfig()
 _active_root: Path | None = None
 _active_state_dir: Callable[[], Path] | None = None
+_active_local_dir: Callable[[], Path] | None = None
 
 
 def _expanded(path: Path) -> Path:
@@ -2307,12 +2308,14 @@ def activate(
     root: Path | None = None,
     checkout: Callable[[Path], Path] = _expanded,
     state_dir: Callable[[], Path] | None = None,
+    local_dir: Callable[[], Path] | None = None,
 ) -> None:
     """`checkout` turns a repo's configured path into its checkout (the installation's rule);
-    `state_dir` gives the installation's state directory."""
-    global _active, _active_root, _active_checkout, _active_state_dir
+    `state_dir` and `local_dir` give the installation's state and local directories."""
+    global _active, _active_root, _active_checkout, _active_state_dir, _active_local_dir
     _active, _active_root, _active_checkout = config, root, checkout
     _active_state_dir = state_dir
+    _active_local_dir = local_dir
 
 
 def active_state_dir() -> Path | None:
@@ -2322,6 +2325,13 @@ def active_state_dir() -> Path | None:
     if _active_root is None:
         return None
     return _active_root / Path(_active.planning.state_dir or "runs").expanduser()
+
+
+def active_local_dir() -> Path | None:
+    """The local directory of the active workspace; None when none is loaded."""
+    if _active_local_dir is not None:
+        return _active_local_dir()
+    return active_state_dir()
 
 
 def active_checkout(configured: Path) -> Path:

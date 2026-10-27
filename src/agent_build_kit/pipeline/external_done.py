@@ -78,7 +78,7 @@ def record_hand_merge(
         )
     except HoldRefused as error:
         raise HandMergeRefused(str(error)) from error
-    mark_groups(change_dir / "tasks.md", groups, done=True)
+    mark_groups(inst, change, groups, done=True)
     for unit in units:
         if all(set(m.groups) <= done_groups(inst.changes_dir / m.change) for m in unit.members()):
             store.set_merge_record(unit.id, sha, None)

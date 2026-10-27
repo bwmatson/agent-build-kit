@@ -86,6 +86,7 @@ from agent_build_kit.pipeline import agent_commands
 from agent_build_kit.pipeline.e2e import dimension_lines
 from agent_build_kit.pipeline.e2e_holds import HELD_FILE, current_holds, hold_text
 from agent_build_kit.pipeline.environment import matched_inputs
+from agent_build_kit.pipeline.file_lock import try_file_lock
 from agent_build_kit.pipeline.gate_holds import gate_standing, split_gates
 from agent_build_kit.pipeline.install_record import STAGING
 from agent_build_kit.pipeline.mounts import Mount
@@ -600,6 +601,58 @@ def _state_ignores(inst: Installation) -> list[Check]:
             "abk init (adds the lines in a marked block)",
         )
     ]
+
+
+CHANGE_LOCKS = "change locks"
+
+
+def _change_locks(inst: Installation, fix: bool) -> list[Check]:
+    """Lock files an earlier release left beside a change's files. With `fix`, the untracked
+    ones nobody holds are deleted; a held one is reported as in use and a tracked one is named
+    for `git rm`."""
+    stray = sorted(inst.changes_dir.rglob("*.md.lock")) if inst.changes_dir.is_dir() else []
+    shown = {path: str(path.relative_to(inst.root)) for path in stray}
+    kept: list[Path] = []
+    in_use: list[Path] = []
+    tracked: list[Path] = []
+    for path in stray:
+        if is_tracked(inst.root, shown[path]):
+            tracked.append(path)
+        elif not fix:
+            kept.append(path)
+        else:
+            with try_file_lock(path) as taken:
+                if taken:
+                    path.unlink()
+                else:
+                    in_use.append(path)
+    checks = []
+    if kept:
+        checks.append(
+            _warn(
+                CHANGE_LOCKS,
+                f"{len(kept)} stray lock file(s) under {inst.changes_dir}",
+                "abk doctor --fix",
+            )
+        )
+    if in_use:
+        checks.append(
+            _warn(
+                CHANGE_LOCKS,
+                f"in use, kept: {', '.join(shown[p] for p in in_use)}",
+                "run `abk doctor --fix` again when nothing is running",
+            )
+        )
+    if tracked:
+        names = " ".join(shown[p] for p in tracked)
+        checks.append(
+            _warn(
+                CHANGE_LOCKS,
+                f"git tracks {len(tracked)} lock file(s): {names}",
+                f"git rm {names}",
+            )
+        )
+    return checks
 
 
 def _legacy_state(inst: Installation) -> list[Check]:
@@ -2024,6 +2077,7 @@ def run_doctor(
     units: Path | None = None,
     transport: httpx.BaseTransport | None = None,
     mount_of: Callable[[Path], Mount] | None = None,
+    fix: bool = False,
 ) -> list[Check]:
     run = run or subprocess.run
     which = which or shutil.which
@@ -2069,6 +2123,7 @@ def run_doctor(
     checks += _legacy_state(inst)
     checks += _planning_view(inst)
     checks += _state_location(inst)
+    checks += _change_locks(inst, fix)
     checks += _timers(inst, run, units, which)
     checks += _toolchain(inst, run, which)
     checks += _agent_commands(inst)
@@ -2095,7 +2150,7 @@ def run_doctor(
 
 
 def cmd_doctor(args: argparse.Namespace, _inst: Installation | None) -> int:
-    checks = run_doctor(args.config)
+    checks = run_doctor(args.config, fix=args.fix)
     for check in checks:
         print(f"{check.status:<5} {check.name}: {check.detail}")
         if check.fix:
@@ -2109,4 +2164,7 @@ def cmd_doctor(args: argparse.Namespace, _inst: Installation | None) -> int:
 
 def register(sub: argparse._SubParsersAction) -> None:
     parser = sub.add_parser("doctor", help="check this installation is runnable")
+    parser.add_argument(
+        "--fix", action="store_true", help="delete the stray lock files a change's directory holds"
+    )
     parser.set_defaults(func=cmd_doctor, needs_installation=False)

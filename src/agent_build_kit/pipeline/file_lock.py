@@ -18,8 +18,17 @@ from __future__ import annotations
 import fcntl
 import os
 from collections.abc import Callable, Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+
+    class Located(Protocol):
+        """Where locks are kept: an `Installation` is one."""
+
+        @property
+        def local_dir(self) -> Path: ...
 
 
 @contextmanager
@@ -31,6 +40,21 @@ def file_lock(path: Path) -> Iterator[None]:
             yield
         finally:
             fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def change_lock(inst: Located, change: str, name: str) -> AbstractContextManager[None]:
+    """The lock on one of a change's files, kept at `<local dir>/locks/changes/<change>/<name>.lock`
+    outside the repository.
+
+    The local directory is `planning.local_dir` when set, else `<planning home>/local`, else the
+    state directory of a separate planning repo.
+    """
+    return file_lock(change_lock_path(inst.local_dir, change, name))
+
+
+def change_lock_path(local_dir: Path, change: str, name: str) -> Path:
+    """Where the lock `name` on `change` is kept under `local_dir`."""
+    return local_dir / "locks" / "changes" / change / f"{name}.lock"
 
 
 @contextmanager

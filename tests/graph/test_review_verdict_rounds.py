@@ -22,11 +22,17 @@ from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED
 from tests.factories import unit
 from tests.graph.test_build_path import build, fresh
 from tests.graph_driver import position, run_on_graph, tick
+from tests.progress_support import copy_file, meta_planning
 from tests.prompt_text import flat
 from tests.runner_fakes import Killed, Recorder, approving, make_runner
 
-FOLLOW_UPS = Path("openspec") / "changes" / "add-marker" / "follow-ups.md"
 LOCK = "Name the lock after what it guards"
+
+
+@pytest.fixture(autouse=True)
+def tracking_copy(tmp_path: Path) -> None:
+    """The planning repo at `<tmp>/meta` with its state directory at `<tmp>/state`."""
+    meta_planning(tmp_path)
 
 
 def verdict(**fields: object) -> str:
@@ -50,7 +56,7 @@ def capturing(recorder: Recorder, bodies: list[str]) -> Callable[..., int]:
 
 
 def recorded(tmp_path: Path) -> str:
-    path = tmp_path / "meta" / FOLLOW_UPS
+    path = copy_file(meta_planning(tmp_path), "add-marker", "follow-ups.md")
     return path.read_text() if path.exists() else ""
 
 

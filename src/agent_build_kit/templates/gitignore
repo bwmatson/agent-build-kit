@@ -8,6 +8,10 @@
 # tracks' run logs beside it are committed; the locks are not.
 runs/*.lock
 runs/locks/
+# The pipeline's tracking copy of each change's tasks and follow-ups.
+runs/changes/
+# A lock made beside a change's files by a tool that is not this pipeline.
+*.md.lock
 # A file per unit run, named for the unit; the unit's record names the latest.
 runs/unit-logs/
 # One line per agent call: the usage ledger (in the state directory; move this line

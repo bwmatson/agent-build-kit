@@ -181,11 +181,7 @@ def _check_file_write(
     # A track run's own bookkeeping: the Markdown run logs and tracker the
     # runner commits. The rest of the planning repo, including the tick's live
     # JSON state in the same directory, stays out of reach.
-    if (
-        planning_reports_dir is not None
-        and path.suffix == ".md"
-        and path.is_relative_to(planning_reports_dir.resolve())
-    ):
+    if planning_reports_dir is not None and _in_run_logs(path, planning_reports_dir):
         return None
     scratch = Path(tempfile.gettempdir()).resolve()
     # Scratch is the temp directory's own; a folder beside the run's checkout (where a
@@ -205,6 +201,17 @@ def _check_file_write(
     )
 
 
+def _in_run_logs(path: Path, reports_dir: Path) -> bool:
+    """Whether `path` is Markdown a track may write under its state directory: a run log or
+    tracker, not the pipeline's tracking copy of a change under `changes/`."""
+    root = reports_dir.resolve()
+    return (
+        path.suffix == ".md"
+        and path.is_relative_to(root)
+        and not path.is_relative_to(root / "changes")
+    )
+
+
 def _may_write_planning(
     path: Path, planning_reports_dir: Path | None, planning_change_dir: Path | None
 ) -> bool:
@@ -215,9 +222,8 @@ def _may_write_planning(
     now — and, for a propose run, anything under the one change it was asked to
     write.
     """
-    if planning_reports_dir is not None:
-        if path.suffix == ".md" and path.is_relative_to(planning_reports_dir.resolve()):
-            return True
+    if planning_reports_dir is not None and _in_run_logs(path, planning_reports_dir):
+        return True
     if path.name in (EXTERNAL_FILE, TRACKER_FILE):
         # A change's holds and tracker mapping are the pipeline's to write, never an agent's.
         return False

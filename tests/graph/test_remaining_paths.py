@@ -35,6 +35,7 @@ from agent_build_kit.pipeline.units import (
 from tests.factories import unit
 from tests.graph.test_build_path import build, limited, once, restacked
 from tests.graph_driver import position
+from tests.progress_support import copy_file, meta_planning
 from tests.runner_fakes import Recorder, make_runner, rejecting
 
 
@@ -45,6 +46,7 @@ def fresh(tmp_path: Path, *, tier: str = "unit-test", **options: Any) -> Recorde
 
 
 def tasks_file(tmp_path: Path) -> Path:
+    meta_planning(tmp_path)
     tasks = tmp_path / "meta" / "openspec" / "changes" / "add-marker" / "tasks.md"
     tasks.parent.mkdir(parents=True)
     tasks.write_text("## 1. [app] [unit-test] G\n- [ ] 1.1 Test: a\n- [ ] 1.2 Do a\n")
@@ -209,7 +211,9 @@ def test_a_unit_with_nothing_of_its_own_and_passing_checks_is_satisfied(tmp_path
     assert "pr" not in recorder.events and "push" not in recorder.events
     assert "close" not in recorder.events, "there was never a pull request to close"
     assert recorder.store.get(unit().id).state == SATISFIED
-    assert tasks.read_text().count("- [x]") == 2, "its groups are ticked all the same"
+    copy = copy_file(meta_planning(tmp_path), "add-marker")
+    assert copy.read_text().count("- [x]") == 2, "its groups are ticked all the same"
+    assert "- [x]" not in tasks.read_text(), "in the copy, not in the repository file"
     dependent = unit(uid="add-marker/2", depends_on=(unit().id,))
     assert waiting_on(dependent, [recorder.store.get(unit().id)]) == []
 
@@ -435,6 +439,8 @@ def test_spent_rounds_push_the_branch_report_the_points_and_hold_the_unit(
     assert "the lock is still not released" in bodies[-1]["body"]
     assert "Stacked on" not in bodies[-1]["stacked_body"]
     assert "the lock is still not released" in bodies[-1]["stacked_body"]
+    copy = copy_file(meta_planning(tmp_path), "add-marker")
+    assert not copy.exists() or "- [x]" not in copy.read_text()
     assert "- [x]" not in tasks.read_text()
 
 

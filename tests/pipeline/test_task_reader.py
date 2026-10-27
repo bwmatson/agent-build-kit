@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.pipeline.task_progress import mark_groups
 from agent_build_kit.pipeline.work_graph import read_tasks, validate_tasks
+from tests.progress_support import copy_file, planning, tick, write_repository
 
 OPT_OUT = "Acceptance: none — a fixture about the reader\n"
 
@@ -149,12 +149,16 @@ def test_a_task_above_the_first_heading_is_left_out(tmp_path: Path) -> None:
 
 
 def test_reading_and_ticking_leave_the_plan_digest_unchanged(tmp_path: Path) -> None:
-    path = write(tmp_path, WITH_FLAGS)
+    inst = planning(tmp_path)
+    path = write_repository(inst, "feature", write(tmp_path, WITH_FLAGS).read_text())
     before = cli.plan_digest(path)
+    text = path.read_text()
 
     read_tasks(path, "feature")
-    mark_groups(path, (2,), done=True)
-    ticked = read_tasks(path, "feature")
+    tick(inst, "feature", (2,), done=True)
+    ticked = read_tasks(copy_file(inst, "feature"), "feature")
 
     assert [t.done for t in ticked if t.group == 2] == [True, True, True]
     assert cli.plan_digest(path) == before
+    assert path.read_text() == text, "the repository file is not ticked"
+    assert cli.plan_digest(copy_file(inst, "feature")) == before

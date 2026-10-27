@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.config import active_state_dir
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.archive import is_ready_to_archive
 from agent_build_kit.pipeline.external_done import HandMergeRefused, record_hand_merge
@@ -38,8 +39,11 @@ def forge_for(inst: Installation, monkeypatch: pytest.MonkeyPatch) -> StandInFor
 
 
 def checked(folder: Path) -> list[str]:
-    """The numbers of the tasks ticked in the change's `tasks.md`."""
-    lines = (folder / "tasks.md").read_text().splitlines()
+    """The numbers of the tasks ticked in the change's tracking copy of `tasks.md`."""
+    state = active_state_dir()
+    assert state is not None
+    copy = state / "changes" / folder.name / "tasks.md"
+    lines = copy.read_text().splitlines() if copy.exists() else []
     return [line.split()[2] for line in lines if line.startswith("- [x]")]
 
 

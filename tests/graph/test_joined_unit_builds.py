@@ -16,6 +16,7 @@ from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import Member
 from tests.factories import stored_unit
 from tests.graph_driver import run_on_graph
+from tests.progress_support import copy_file, meta_planning
 from tests.runner_fakes import Recorder, make_runner
 
 CARRIED = Member(change="sample-change", groups=(7, 8))
@@ -50,6 +51,10 @@ def tasks(tmp_path: Path, change: str, groups: tuple[int, ...]) -> Path:
         )
     )
     return path
+
+
+def copy_of(tmp_path: Path, change: str) -> Path:
+    return copy_file(meta_planning(tmp_path), change)
 
 
 def ticked(path: Path) -> set[int]:
@@ -117,17 +122,20 @@ def test_the_scope_note_treats_carried_groups_as_this_units_own(tmp_path: Path) 
 
 
 def test_each_changes_groups_are_ticked_in_its_own_tasks_file(tmp_path: Path) -> None:
+    meta_planning(tmp_path)
     mine = tasks(tmp_path, "add-marker", (1, 2, 3))
     theirs = tasks(tmp_path, "sample-change", (6, 7, 8, 9))
 
     _, outcome = build_joined(tmp_path, carrying(groups=(2,)))
 
     assert outcome.status == "open"
-    assert ticked(mine) == {2}
-    assert ticked(theirs) == {7, 8}
+    assert ticked(copy_of(tmp_path, "add-marker")) == {2}
+    assert ticked(copy_of(tmp_path, "sample-change")) == {7, 8}
+    assert ticked(mine) == set() and ticked(theirs) == set(), "the repository files are not ticked"
 
 
 def test_a_satisfied_joined_unit_ticks_every_change_it_carries(tmp_path: Path) -> None:
+    meta_planning(tmp_path)
     mine = tasks(tmp_path, "add-marker", (2,))
     theirs = tasks(tmp_path, "sample-change", (7, 8))
     store = UnitStore(tmp_path / "units.json")
@@ -138,11 +146,13 @@ def test_a_satisfied_joined_unit_ticks_every_change_it_carries(tmp_path: Path) -
     outcome = run_on_graph(runner, store.get("add-marker/1"))
 
     assert outcome.status == "satisfied"
-    assert ticked(mine) == {2}
-    assert ticked(theirs) == {7, 8}
+    assert ticked(copy_of(tmp_path, "add-marker")) == {2}
+    assert ticked(copy_of(tmp_path, "sample-change")) == {7, 8}
+    assert ticked(mine) == set() and ticked(theirs) == set(), "the repository files are not ticked"
 
 
 def test_a_failed_joined_unit_unticks_every_change_it_carries(tmp_path: Path) -> None:
+    meta_planning(tmp_path)
     mine = tasks(tmp_path, "add-marker", (2,))
     theirs = tasks(tmp_path, "sample-change", (7, 8))
     for path in (mine, theirs):
@@ -151,5 +161,5 @@ def test_a_failed_joined_unit_unticks_every_change_it_carries(tmp_path: Path) ->
     _, outcome = build_joined(tmp_path, carrying(groups=(2,)), unit_test_ok=False)
 
     assert outcome.status == "failed"
-    assert ticked(mine) == set()
-    assert ticked(theirs) == set()
+    assert ticked(copy_of(tmp_path, "add-marker")) == set()
+    assert ticked(copy_of(tmp_path, "sample-change")) == set()
