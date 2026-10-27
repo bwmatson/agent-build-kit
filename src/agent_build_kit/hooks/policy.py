@@ -219,7 +219,7 @@ def _may_write_planning(
         if path.suffix == ".md" and path.is_relative_to(planning_reports_dir.resolve()):
             return True
     if path.name in (EXTERNAL_FILE, TRACKER_FILE):
-        # The holds and the tracker mapping of a change are the pipeline's to write, never an agent's.
+        # A change's holds and tracker mapping are the pipeline's to write, never an agent's.
         return False
     return planning_change_dir is not None and path.is_relative_to(planning_change_dir.resolve())
 
