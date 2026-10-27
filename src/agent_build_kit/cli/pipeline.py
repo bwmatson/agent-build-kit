@@ -432,6 +432,7 @@ from agent_build_kit.pipeline.work_graph import (
     inverted_group_warnings,
     manual_runbook_warnings,
     old_test_kind_warnings,
+    project_source_note,
     redundant_separate_warnings,
     resolved_projects,
     retag_headings,
@@ -4650,9 +4651,13 @@ def _without_planner(
     # reads tasks.md at its next step, so an edit of the text needs no plan. Only the
     # tags it copied at plan time can disagree with the file.
     if task_groups and _taken_groups(store, change) >= {g.number for g in task_groups}:
-        if problems := _tag_problems(store, change, task_groups, _task_catalog(inst)):
+        if problems := _tag_problems(
+            store, change, task_groups, _task_catalog(inst), declared_projects(inst.repos)
+        ):
             return "tag_problems", problems
         return "all_taken", ALL_TAKEN
+    if problems := _undeclared_project_lines(store, change, declared_projects(inst.repos)):
+        return "tag_problems", problems
     return None
 
 
@@ -4689,13 +4694,16 @@ def _tag_problems(
     change: str,
     groups: Sequence[TaskGroup],
     catalog: Mapping[str, Sequence[TaskGroup]],
+    declared: Mapping[str, Sequence[str]],
 ) -> list[str]:
-    """Where a started unit's stored repo, project, tier or flag differs from the tags of a group
-    of `change` it carries, its own or joined. The stored tier is compared with the widest kind
+    """Where a started unit's stored repo, tier or flag differs from the tags of a group of
+    `change` it carries, its own or joined, or its stored project is no longer declared by its
+    repo. A project that differs while the stored one is declared is reconciled, not refused (see
+    `_kept_project_lines`). The stored tier is compared with the widest kind
     among all the groups the unit carries, of every change in `catalog`. Each line names the
     unit, the group and the way out; none when they agree."""
     by_number = {g.number: g for g in groups}
-    lines: list[str] = []
+    lines = _undeclared_project_lines(store, change, declared)
     for u in store.all():
         if u.state not in _STARTED:
             continue
@@ -4723,7 +4731,6 @@ def _tag_problems(
                     here = True
                     checks += [
                         (f"its group {number}", "repo", u.repo, group.repo),
-                        (f"its group {number}", "project", u.project, group.project),
                     ]
         # With a group missing (its change archived, or the group removed) the widest kind
         # cannot be known, so the stored tier is not compared.
@@ -4745,6 +4752,47 @@ def _tag_problems(
                     f"{which} is now {now or 'none'!r} — {way_out}"
                 )
     return lines
+
+
+def _undeclared_project_lines(
+    store: UnitStore, change: str, declared: Mapping[str, Sequence[str]]
+) -> list[str]:
+    """A refusal for each started unit of `change` stored in a project its repo no longer
+    declares (the root always counts as declared), with the way out."""
+    lines: list[str] = []
+    for u in store.all():
+        if u.state not in _STARTED or not any(m.change == change for m in u.members()):
+            continue
+        if u.project == "." or u.project in declared.get(u.repo, ()):
+            continue
+        way_out = "declare the project again"
+        if u.state in (FAILED, HELD):
+            way_out += f", or `abk requeue --restart {u.id}` rebuilds it from the new tags"
+        lines.append(
+            f"{u.id} is {u.state.value} in project {u.project!r}, which is no longer "
+            f"declared by {u.repo} — {way_out}"
+        )
+    return lines
+
+
+def _kept_project_lines(store: UnitStore, change: str, groups: Sequence[TaskGroup]) -> list[str]:
+    """A notice for each started unit that stays in its stored project while the heading or the
+    resolution of a group of `change` it carries names another."""
+    by_number = {g.number: g for g in groups}
+    notices: dict[str, str] = {}
+    for u in store.all():
+        if u.state not in _STARTED:
+            continue
+        for member in u.members():
+            if member.change != change:
+                continue
+            for number in member.groups:
+                group = by_number.get(number)
+                if group and group.repo == u.repo and group.project != u.project:
+                    notices.setdefault(
+                        u.id, f"kept {u.id} in {u.project}; the heading says {group.project}"
+                    )
+    return list(notices.values())
 
 
 REASON_LIMIT = 300
@@ -4872,6 +4920,9 @@ def plan_all(
         # A group a started unit carries must still be in tasks.md: renumbered or
         # deleted, the unit's branch and the groups no longer agree, so no plan is made.
         decided = _without_planner(inst, store, change, task_groups, errors)
+        if decided is None or decided[0] == "all_taken":
+            for line in _kept_project_lines(store, change, task_groups):
+                log(line)
         if decided is not None:
             kind, why = decided
             if kind == "refused":
@@ -5354,10 +5405,32 @@ def sizing_digest() -> str:
     return f"{digest(ceilings)}.{digest(rest)}"
 
 
+MOVED = "project_moved"
+
+
+def marked_for_moved_projects(inst: Installation, records: dict[str, dict]) -> dict[str, dict]:
+    """`records` with `MOVED` set on the plan of each change whose text is the one planned but
+    whose groups now resolve to other projects (a declared project was added), so it reads stale."""
+    marked = dict(records)
+    for path in inst.tasks_files():
+        change = path.parent.name
+        record = records.get(change)
+        if not record or not (resolved := _resolved_in(path, inst)):
+            continue
+        recorded = record.get("hash")
+        text = path.read_text()
+        if recorded == text_digest(text, recorded, {}) != text_digest(text, recorded, resolved):
+            marked[change] = {**record, MOVED: True}
+    return marked
+
+
 def plan_is_stale(record: Mapping[str, Any], current: str | None = None) -> bool:
     """Whether a recorded plan was made under a policy other than the current one (`current`, or
-    `sizing_digest()` when it is not given). A record with no `sizing` reads as the empty digest."""
-    return record.get("sizing", "") != (sizing_digest() if current is None else current)
+    `sizing_digest()` when it is not given), or marked `MOVED`. A record with no `sizing` reads as
+    the empty digest."""
+    return bool(record.get(MOVED)) or record.get("sizing", "") != (
+        sizing_digest() if current is None else current
+    )
 
 
 def plan_stale_reason(record: Mapping[str, Any], current: str | None = None) -> str:
@@ -5365,6 +5438,8 @@ def plan_stale_reason(record: Mapping[str, Any], current: str | None = None) -> 
     ceilings changed, the rest of the `review` section changed, or both did."""
     now = sizing_digest() if current is None else current
     was = record.get("sizing", "")
+    if record.get(MOVED) and was == now:
+        return "a group now resolves to another project"
     if not was:
         return "planned before the review policy"
     if not now:
@@ -5389,7 +5464,7 @@ def _plan_stands(record: Mapping[str, Any], has_units: bool) -> bool:
 def stale_plan_lines(inst: Installation) -> list[str]:
     """One line for each change whose standing plan was made under another policy, naming the
     change and why, and saying how to plan it again."""
-    records = planned_hashes(inst)
+    records = marked_for_moved_projects(inst, planned_hashes(inst))
     current = sizing_digest()
     standing = {unit.change for unit in store_for(inst).all()}
     return [
@@ -6784,7 +6859,10 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
                 urgency = f" (priority {group.priority})"
             else:
                 urgency = ""
-            print(f"  {group.number}. [{group.tag}] [{group.tier}] {group.title}{urgency}")
+            print(
+                f"  {group.number}. [{group.tag}] [{group.tier}] {group.title}{urgency}"
+                f"{project_source_note(group)}"
+            )
     return 1 if failed else 0
 
 
@@ -6875,7 +6953,7 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
         if inst.changes_dir.is_dir()
         else []
     )
-    records = planned_hashes(inst)
+    records = marked_for_moved_projects(inst, planned_hashes(inst))
     max_attempts = inst.max_plan_attempts
     standing = {unit.change for unit in store.all()}
 
@@ -7253,7 +7331,7 @@ def _print_replan_report(inst: Installation, store: UnitStore, changes: list[str
     """What `abk replan` would do for `changes`, with no model call and no write: each
     change's plan state, its started and unstarted units with their groups, and whether
     the planner would be called."""
-    records = planned_hashes(inst)
+    records = marked_for_moved_projects(inst, planned_hashes(inst))
     units = store.all()
     calls = 0
     for change in changes:

@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import json
 import re
+import tempfile
 from collections.abc import Callable, Collection, Mapping, Sequence
+from pathlib import Path
 
 from agent_build_kit import runtimes
 from agent_build_kit.compat_names import Place, new_spelling, old_spelling
@@ -73,7 +75,9 @@ from agent_build_kit.pipeline.work_graph import (
     TaskGroup,
     group_sections,
     known_repos,
+    project_source_note,
     split_repo_tag,
+    validate_tasks,
 )
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.base import AgentRuntime, PromptTooLarge, check_prompt_size
@@ -1244,11 +1248,20 @@ def _join_raw(
     return f" For a calibrated kind that is the largest raw estimate it may carry ({figures})."
 
 
+def _groups_of(tasks: str) -> list[TaskGroup]:
+    """The groups `tasks` parses to, with their projects resolved under the active workspace."""
+    with tempfile.TemporaryDirectory() as folder:
+        path = Path(folder) / "tasks.md"
+        path.write_text(tasks)
+        return validate_tasks(path)[0]
+
+
 def _mark_built(
     change: str, tasks: str, in_flight: list[dict], groups: Sequence[TaskGroup] | None = None
 ) -> str:
     """`tasks` with `(priority N)` (and `(split <name>)` outside `rest`) on the heading of each
     of `groups` and `(built by <unit id>)` on that of each group a started unit builds."""
+    by_number = {group.number: group for group in _groups_of(tasks)}
     priorities = {group.number: group.priority for group in groups or ()}
     splits = {group.number: group.split for group in groups or ()}
     built = {
@@ -1267,7 +1280,11 @@ def _mark_built(
             line += f" (priority {priorities[int(found['number'])]})"
         if found and splits.get(int(found["number"]), REST_SPLIT) != REST_SPLIT:
             line += f" (split {splits[int(found['number'])]})"
-        if heading := GROUP_HEADING.match(line):
+        if found and (group := by_number.get(int(found["number"]))):
+            if group.project != ".":
+                line += f" (project {group.project})"
+            line += project_source_note(group)
+        elif heading := GROUP_HEADING.match(line):
             _, project = split_repo_tag(heading["repo"], known_repos())
             if project:
                 line += f" (project {project})"

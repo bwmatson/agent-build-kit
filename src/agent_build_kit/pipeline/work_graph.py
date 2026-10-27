@@ -388,6 +388,16 @@ def resolved_project(group: TaskGroup, projects: Sequence[str]) -> tuple[str, Pr
     return ".", ProjectSource.ROOT
 
 
+def project_source_note(group: TaskGroup) -> str:
+    """What a display adds after a group's tag when the project was not simply written in the
+    heading: ` (resolved)`, or ` (explicit root)` for `[repo/<root>]`; nothing otherwise."""
+    if group.source == ProjectSource.RESOLVED:
+        return " (resolved)"
+    if group.source == ProjectSource.EXPLICIT and group.project == ".":
+        return " (explicit root)"
+    return ""
+
+
 def _resolved(group: TaskGroup, projects: Sequence[str]) -> TaskGroup:
     project, source = resolved_project(group, projects)
     return group.model_copy(update={"project": project, "source": source})
