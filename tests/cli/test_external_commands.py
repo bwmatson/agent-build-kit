@@ -94,6 +94,57 @@ def test_repeating_a_hand_off_by_the_same_holder_changes_nothing_and_says_so(
     assert (world.folder / "external.yaml").read_text() == before
 
 
+@pytest.mark.parametrize("repeat", [("3", "2"), ("2",), ("2", "2", "3")])
+def test_a_repeat_in_another_order_or_of_part_of_what_is_held_changes_nothing(
+    world: World, capsys: pytest.CaptureFixture[str], repeat: tuple[str, ...]
+) -> None:
+    world.hand_off(capsys, "--groups", "2", "3")
+    before = (world.folder / "external.yaml").read_text()
+
+    out, _err = world.hand_off(capsys, "--groups", *repeat, "--json")
+
+    assert json.loads(out)["already_held"] is True
+    assert (world.folder / "external.yaml").read_text() == before
+
+
+def test_a_hand_off_of_part_of_an_all_hold_by_the_same_holder_changes_nothing(
+    world: World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    world.hand_off(capsys, "--all")
+
+    out, _err = world.hand_off(capsys, "--groups", "2", "--json")
+
+    assert json.loads(out)["already_held"] is True
+    assert len(read_holds(world.folder)) == 1
+
+
+def test_a_hand_off_to_a_change_that_does_not_exist_is_refused_and_creates_nothing(
+    world: World, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    _out, err = world.run(
+        capsys,
+        "hand-off",
+        "featur",
+        "--all",
+        "--holder",
+        "Sam Example",
+        "--link",
+        LINK,
+        code=1,
+    )
+
+    assert "featur" in err
+    assert not (world.inst.changes_dir / "featur").exists()
+
+
+def test_a_refusal_under_json_prints_the_reason_on_stdout(
+    world: World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    out, _err = world.run(capsys, "release", "feature", "--groups", "1", "--json", code=1)
+
+    assert "not held" in json.loads(out)["refused"]
+
+
 def test_a_hand_off_another_holder_already_has_is_refused(
     world: World, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -150,7 +201,7 @@ def test_list_shows_each_hold_with_its_facts_and_the_units_waiting_on_it(
 
     out, _err = world.run(capsys, "list")
 
-    for expected in ("feature", "1", "Sam Example", LINK, HELD, "feature/2"):
+    for expected in ("feature groups 1:", "Sam Example", LINK, HELD, "feature/2"):
         assert expected in out, out
     assert "feature/1" in out
 
@@ -192,6 +243,37 @@ def test_every_command_has_a_json_form(world: World, capsys: pytest.CaptureFixtu
     assert repeated["already_held"] is True
     assert json.loads(released)["groups"] == [1]
     assert store.get("feature/1").state == PLANNED
+
+
+def test_releasing_every_group_of_one_hold_succeeds_in_one_step(
+    world: World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    world.hand_off(capsys, "--groups", "2", "3")
+
+    world.run(capsys, "release", "feature", "--groups", "2", "3")
+
+    assert [h.status for h in read_holds(world.folder)] == [RELEASED]
+
+
+def test_releasing_one_group_names_every_group_its_hold_covered(
+    world: World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    world.hand_off(capsys, "--groups", "2", "3")
+
+    out, _err = world.run(capsys, "release", "feature", "--groups", "2", "--json")
+
+    assert json.loads(out)["groups"] == [2, 3]
+
+
+def test_a_release_naming_a_group_nobody_held_is_refused_and_writes_nothing(
+    world: World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    world.hand_off(capsys, "--groups", "2")
+
+    _out, err = world.run(capsys, "release", "feature", "--groups", "2", "1", code=1)
+
+    assert "group 1" in err
+    assert [h.status for h in read_holds(world.folder)] == [HELD]
 
 
 def test_release_gives_the_work_back_and_a_done_hold_cannot_be_released(

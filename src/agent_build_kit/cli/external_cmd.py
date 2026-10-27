@@ -11,21 +11,21 @@ import json
 import sys
 from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from agent_build_kit.cli.pipeline import store_for
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.external_done import HandMergeRefused, record_hand_merge
 from agent_build_kit.pipeline.external_file import (
-    HELD,
     Hold,
     HoldRefused,
     add_hold,
+    already_held,
     check_not_started,
     hold_rows,
     hold_text,
-    read_holds,
-    release_hold,
+    release_holds,
 )
 
 
@@ -48,18 +48,28 @@ def _emit(args: argparse.Namespace, payload: dict[str, Any], text: str) -> None:
     print(json.dumps(payload) if args.json else text)
 
 
-def _refusing(name: str, run: Callable[[], int]) -> int:
+def _change_folder(inst: Installation, change: str) -> Path:
+    """The folder of an existing change (`openspec new change` makes it before a hold)."""
+    folder = inst.changes_dir / change
+    if not folder.is_dir():
+        raise HoldRefused(f"change {change} does not exist")
+    return folder
+
+
+def _refusing(args: argparse.Namespace, name: str, run: Callable[[], int]) -> int:
     try:
         return run()
     except (HoldRefused, HandMergeRefused) as error:
         print(f"abk external {name}: refused: {error}", file=sys.stderr)
+        if args.json:
+            print(json.dumps({"refused": str(error)}))
         return 1
 
 
 def cmd_hand_off(args: argparse.Namespace, inst: Installation) -> int:
     def run() -> int:
-        change_dir = inst.changes_dir / args.change
-        scope = tuple(args.groups) if args.groups else "all"
+        change_dir = _change_folder(inst, args.change)
+        scope = tuple(sorted(set(args.groups))) if args.groups else "all"
         hold = Hold(
             scope=scope,
             holder=args.holder,
@@ -68,12 +78,8 @@ def cmd_hand_off(args: argparse.Namespace, inst: Installation) -> int:
             items=_items(args.item),
             note=args.note,
         )
-        groups = list(args.groups) if args.groups else "all"
-        same = [
-            held
-            for held in read_holds(change_dir)
-            if held.status == HELD and held.holder == args.holder and held.scope == scope
-        ]
+        groups = list(scope) if args.groups else "all"
+        same = already_held(change_dir, hold)
         if not same:
             check_not_started(change_dir, hold, store_for(inst).all())
             add_hold(change_dir, hold)
@@ -82,9 +88,9 @@ def cmd_hand_off(args: argparse.Namespace, inst: Installation) -> int:
             "groups": groups,
             "holder": args.holder,
             "link": args.link,
-            "already_held": bool(same),
+            "already_held": same,
         }
-        shown = ", ".join(map(str, args.groups)) if args.groups else "all"
+        shown = ", ".join(map(str, scope)) if args.groups else "all"
         text = (
             f"{args.change} groups {shown} already held by {args.holder}: nothing changed"
             if same
@@ -93,7 +99,7 @@ def cmd_hand_off(args: argparse.Namespace, inst: Installation) -> int:
         _emit(args, payload, text)
         return 0
 
-    return _refusing("hand-off", run)
+    return _refusing(args, "hand-off", run)
 
 
 def cmd_list(args: argparse.Namespace, inst: Installation) -> int:
@@ -119,23 +125,21 @@ def cmd_done(args: argparse.Namespace, inst: Installation) -> int:
         _emit(args, payload, f"{args.change} groups {shown} recorded as merged by {merged_by}")
         return 0
 
-    return _refusing("done", run)
+    return _refusing(args, "done", run)
 
 
 def cmd_release(args: argparse.Namespace, inst: Installation) -> int:
     def run() -> int:
-        change_dir = inst.changes_dir / args.change
-        for group in args.groups:
-            release_hold(change_dir, group)
-        shown = ", ".join(map(str, args.groups))
+        freed = release_holds(_change_folder(inst, args.change), args.groups)
+        shown = ", ".join(map(str, freed))
         _emit(
             args,
-            {"change": args.change, "groups": list(args.groups)},
+            {"change": args.change, "groups": list(freed)},
             f"{args.change} groups {shown} released to the kit",
         )
         return 0
 
-    return _refusing("release", run)
+    return _refusing(args, "release", run)
 
 
 def register(sub: argparse._SubParsersAction) -> None:

@@ -134,6 +134,19 @@ def add_hold(change_dir: Path, hold: Hold) -> None:
         _write(path, [*holds, hold])
 
 
+def already_held(change_dir: Path, hold: Hold) -> bool:
+    """Whether the holds of `hold`'s holder that are still held already cover everything `hold`
+    asks for, so recording it again would change nothing. `all` is covered only by an `all`."""
+    mine = [
+        (other, groups)
+        for other, groups in _coverage(change_dir, read_holds(change_dir))
+        if other.status == HELD and other.holder == hold.holder
+    ]
+    if hold.scope == "all":
+        return any(other.scope == "all" for other, _ in mine)
+    return set(hold.scope) <= set().union(*(groups for _, groups in mine))
+
+
 def _holding(change_dir: Path, *, recorded: bool = False) -> dict[int, Hold]:
     """Each group the kit must leave alone, with the hold that has it: those of every hold
     neither done nor released, and with `recorded` those done by hand too."""
@@ -210,21 +223,38 @@ def check_not_started(change_dir: Path, hold: Hold, units: Sequence[StoredUnit])
         )
 
 
-def release_hold(change_dir: Path, group: int) -> None:
-    """Give back the work of the hold that has `group`; raises `HoldRefused` when none holds it
-    or the hold is done."""
+def release_holds(change_dir: Path, groups: Sequence[int]) -> tuple[int, ...]:
+    """Give back the work of every hold that has one of `groups`, in one step under the lock, and
+    return every group those holds covered. Raises `HoldRefused`, writing nothing, when a group
+    is held by none or its hold is done."""
     path = external_path(change_dir)
     with file_lock(_lock(path)):
         holds = read_holds(change_dir)
-        for index, (hold, groups) in enumerate(_coverage(change_dir, holds)):
-            if hold.status == RELEASED or group not in groups:
+        out = list(holds)
+        freed: set[int] = set()
+        for group in groups:
+            if group in freed:
                 continue
-            if hold.status == DONE:
-                raise HoldRefused(f"group {group} of change {change_dir.name} is done, not held")
-            released = hold.model_copy(update={"status": RELEASED})
-            _write(path, [*holds[:index], released, *holds[index + 1 :]])
-            return
-    raise HoldRefused(f"group {group} of change {change_dir.name} is not held")
+            for index, (hold, covered) in enumerate(_coverage(change_dir, holds)):
+                if hold.status == RELEASED or group not in covered:
+                    continue
+                if hold.status == DONE:
+                    raise HoldRefused(
+                        f"group {group} of change {change_dir.name} is done, not held"
+                    )
+                out[index] = hold.model_copy(update={"status": RELEASED})
+                freed |= covered
+                break
+            else:
+                raise HoldRefused(f"group {group} of change {change_dir.name} is not held")
+        _write(path, out)
+        return tuple(sorted(freed))
+
+
+def release_hold(change_dir: Path, group: int) -> None:
+    """Give back the work of the hold that has `group`; raises `HoldRefused` when none holds it
+    or the hold is done."""
+    release_holds(change_dir, (group,))
 
 
 def record_done(change_dir: Path, groups: Sequence[int], *, merged_by: str, at: datetime) -> None:

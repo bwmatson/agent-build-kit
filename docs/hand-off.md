@@ -12,7 +12,8 @@ item a person has taken. It is the permanent path for a repo with no tracker.
 1. Record the hold first, before any spec is written, so the planner honours it from its first
    plan: `abk external hand-off <change> --all --holder "Sam Example" --link <board item URL>`.
    Use `--groups 2 3` to hold named groups, `--item story=88` to record board item ids and
-   `--note` for why. A change folder with no `tasks.md` yet is accepted.
+   `--note` for why. The change folder must exist (`openspec new change` makes it); one with no
+   `tasks.md` yet is accepted, and a name that matches no folder is refused.
 2. Write the spec: `tasks.md`, the proposal and the design. A group added later is covered by an
    `--all` hold.
 3. Create the board items by hand (below), and the person builds the work and gets it merged.
@@ -25,7 +26,8 @@ item a person has taken. It is the permanent path for a repo with no tracker.
 
 `abk external list` shows every hold with its change, groups, holder, link, status, age and the
 units waiting on it, and `abk status` has an external holds section. Every command takes `--json`
-and is safe to repeat: handing off what the same holder already holds changes nothing. Work the
+and is safe to repeat: handing off what the same holder already holds, in any order or in part,
+changes nothing. A refusal under `--json` also prints `{"refused": "<reason>"}` on stdout. Work the
 kit has already started is refused: let it finish, or `abk retire` it first, which returns its
 groups to the plan.
 
