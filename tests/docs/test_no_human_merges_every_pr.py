@@ -12,6 +12,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SKILLS = ROOT / "src" / "agent_build_kit" / "skills"
 EXEMPT = {
     ROOT / "CHANGELOG.md",
+    # The tracks' reports quote the very wording they found elsewhere and propose removing.
+    ROOT / "docs" / "reports",
     ROOT / "docs" / "designs/agent-efficient-coding-philosophy.md",
     ROOT / "docs" / "designs/risk-tiered-review-design.md",
 }

@@ -44,6 +44,7 @@ from agent_build_kit.pipeline.command_policy import (
 )
 from agent_build_kit.pipeline.external_file import FILE_NAME as EXTERNAL_FILE
 from agent_build_kit.pipeline.scratch import carries_scratch
+from agent_build_kit.pipeline.tracker_file import FILE_NAME as TRACKER_FILE
 
 
 def _deny(reason: str) -> dict:
@@ -217,8 +218,8 @@ def _may_write_planning(
     if planning_reports_dir is not None:
         if path.suffix == ".md" and path.is_relative_to(planning_reports_dir.resolve()):
             return True
-    if path.name == EXTERNAL_FILE:
-        # The holds on a change are the pipeline's to write, never an agent's.
+    if path.name in (EXTERNAL_FILE, TRACKER_FILE):
+        # A change's holds and tracker mapping are the pipeline's to write, never an agent's.
         return False
     return planning_change_dir is not None and path.is_relative_to(planning_change_dir.resolve())
 
