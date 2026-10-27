@@ -6,6 +6,8 @@ Priority: 2
 
 ## 1. [agent-build-kit] [unit-test] abk init makes the state home and the planning view, with the guard
 
+Needs: pipeline-state-lives-outside-the-repo group 1 merged — the guard that refuses a state directory inside the repository reads the default state directory that change introduces; on `main` today `planning.state_dir` still defaults to `runs`, inside the repository, so the guard would flag every install
+
 Done when `abk init` in the in-repo mode creates the state directory, the ignored `.planning` link and its `info/exclude` line, idempotently and repairing a dangling link; refuses a real file or directory of that name; refuses under `--yes` a state directory inside the repository unless `--allow-state-in-repo`; and `abk install-timers` only names `abk init` when the link is wrong. Estimate: about 240 changed lines.
 
 - [ ] 1.1 Test: in `tests/pipeline/test_planning_view.py`, over `working_copy_of` from `tests/planning_worktree_support.py` and a state directory under `tmp_path`, `ensure_view` creates the state directory and an absolute `.planning` link to it, `git status --porcelain` is empty, `info/exclude` holds `/.planning` once after two calls, the second call reports `unchanged`, a dangling link and a link to a missing path are repointed, `dry_run=True` returns `would create` and writes nothing.
