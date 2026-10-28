@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -60,6 +60,35 @@ def append_e2e_output(directory: Path, unit: Unit, started: datetime, text: str)
     except (OSError, ValueError):
         pass
     return path
+
+
+# The most of a failing run's output a bundle keeps, in bytes.
+FAILURE_OUTPUT_CAP = 5_000_000
+
+
+def failure_bundles_dir(state_dir: Path) -> Path:
+    """The directory of the bundles of failing unit-test runs, under the state directory."""
+    raise NotImplementedError
+
+
+def write_failure_bundle(
+    directory: Path,
+    unit_id: str,
+    change: str,
+    started: datetime,
+    *,
+    output: str,
+    context: dict[str, object],
+    machine: dict[str, object],
+    worktree: dict[str, object],
+    pointed: Collection[Path] = (),
+    cap: int = FAILURE_OUTPUT_CAP,
+) -> Path:
+    """Save a failing unit-test run as `<directory>/<unit prefix><stamp>/` and return it:
+    `output.txt` (redacted, cut at `cap` bytes with a note), `context.json`, `machine.json` and
+    `worktree.json` (redacted). The unit's bundles beyond `RUNS_KEPT` go, except those in
+    `pointed`."""
+    raise NotImplementedError
 
 
 def _unit_prefix(unit: Unit) -> str:

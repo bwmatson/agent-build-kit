@@ -1269,6 +1269,10 @@ def build_unit_test(
     projects: list[ProjectConfig] | None = None,
     log: Callable[[str], None] | None = None,
     repo: RepoConfig | None = None,
+    failures_dir: Path | None = None,
+    now: Callable[[], datetime] | None = None,
+    machine: Callable[[], dict[str, object]] | None = None,
+    tick: int = 0,
 ) -> Callable[..., tuple[bool, str]]:
     """Lint the unit's own diff, then test the members it reaches.
 
