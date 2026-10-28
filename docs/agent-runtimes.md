@@ -338,6 +338,7 @@ runtimes:
       rework: sonnet
       review: opus
       rework_review: opus
+      regression: opus
 ```
 
 A `runtimes:` entry appears only for a runtime that needs a fact abk cannot

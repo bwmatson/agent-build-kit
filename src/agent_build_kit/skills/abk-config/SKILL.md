@@ -84,6 +84,7 @@ runtimes:                     # only for a runtime needing a fact abk cannot
       review: opus
       rework_review: opus     # both reviews are made by a different model from
                               # the author; if the author is opus, set this to another
+      regression: opus        # works out why a test fails and writes the fix change
     limits:                   # with the same settings
       session:                # the 5-hour window
         usage_pause_pct: 70            # % at which no unit starts
@@ -168,6 +169,7 @@ global_limits:
   max_flakes_per_run: 5       # more flaky tests than this in one run are one recorded storm, no fix change each
   checks_register_seconds: 120  # secs after a push a PR with no checks yet reads `checking`
   wait_end_requeue: auto      # auto (default), resume, rework or off: how a failed unit that waited on another unit is requeued once when its wait ends; off leaves it to a person
+  max_regression_runs_per_hour: 10  # most regression-agent runs the pipeline starts in an hour (>= 1)
   bounce_limit: 3             # a unit put back from running this many times in a row with one cause is named looping (>= 2)
   bounce_span_seconds: 120    # a run shorter than this counts as a bounce (>= 1)
   label_sweep_per_tick: 20    # finished units' PRs a round takes a stale state label off (>= 1)

@@ -67,7 +67,7 @@ def test_another_runtime_s_regression_model_is_not_sent_to_the_active_one(
         "runtimes:\n  other:\n    models:\n      regression: other-regressor\n",
     )
 
-    assert config.models().regression != "other-regressor"
+    assert config.models().regression == runtimes.get("claude_code").default_models.regression
 
 
 def test_the_machine_setting_wins_over_the_file(
@@ -108,7 +108,7 @@ def test_global_limits_take_a_cap_on_regression_runs_per_hour(tmp_path: Path) ->
     left_out = activate(tmp_path, "version: 1\n")
 
     assert named.global_limits.max_regression_runs_per_hour == 3
-    assert left_out.global_limits.max_regression_runs_per_hour >= 1
+    assert left_out.global_limits.max_regression_runs_per_hour == 10
 
 
 def test_a_cap_of_zero_is_refused(tmp_path: Path) -> None:
