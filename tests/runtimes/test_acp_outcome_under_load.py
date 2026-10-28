@@ -33,4 +33,7 @@ def test_the_stderr_holder_test_passes_when_the_run_seems_to_take_long(
     )
 
     assert run.code == 0, run.output
+    # The two reads of `_run_bounded`: without them the skew proves nothing.
+    skewed = int(run.output.split("skewed reads: ")[1].split()[0])
+    assert skewed >= 2, run.output
     assert "PASSED" in run.output, run.output
