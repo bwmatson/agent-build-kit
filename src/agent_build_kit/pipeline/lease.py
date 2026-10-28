@@ -15,23 +15,12 @@ from typing import Any
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import host
-from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.file_lock import file_lock, proc_identity, same_process
 
 
 def lease_dir(local_dir: Path) -> Path:
     """The directory of its own, under the local directory."""
     return local_dir / "leases"
-
-
-def _started(pid: int) -> str | None:
-    """When the process began, in the kernel's ticks, or None if there is no such process.
-    The pair (pid, start) names one process for good; a pid alone can be reused."""
-    try:
-        stat = Path(f"/proc/{pid}/stat").read_text()
-    except OSError:
-        return None
-    # The command name, in parentheses, may itself hold spaces and parentheses.
-    return stat[stat.rindex(")") + 2 :].split()[19]
 
 
 class Attachment(Frozen):
@@ -85,7 +74,7 @@ class Leases:
         """A record of another host is live: this host's process table says nothing of it."""
         if not Leases._mine(record):
             return True
-        return _started(int(record["pid"])) == record["started"]
+        return same_process(int(record["pid"]), record["started"])
 
     def _read(self, path: Path) -> str | None:
         """The holder named in `path`, unless the process that took it is gone."""
@@ -136,7 +125,7 @@ class Leases:
             record = {
                 "holder": holder,
                 "pid": pid,
-                "started": _started(pid),
+                "started": proc_identity(pid),
                 "host": host.this_host(),
                 "checkouts": list(checkouts or old.get("checkouts", ())),
                 "changed": old.get("changed", 0),
@@ -172,7 +161,7 @@ class Leases:
                         **record,
                         "holder": new,
                         "pid": pid,
-                        "started": _started(pid),
+                        "started": proc_identity(pid),
                         "host": host.this_host(),
                     },
                 )

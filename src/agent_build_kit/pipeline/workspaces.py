@@ -33,6 +33,7 @@ from pathlib import Path
 from agent_build_kit.model import Frozen
 from agent_build_kit.path_patterns import matches_any
 from agent_build_kit.pipeline import host
+from agent_build_kit.pipeline.file_lock import file_lock, proc_identity, same_process
 from agent_build_kit.pipeline.scratch import ensure_scratch
 from agent_build_kit.pipeline.shell import git, git_out, porcelain
 
@@ -69,40 +70,48 @@ def _lock_path(branch: str, root: Path) -> Path:
     return root / f"{re.sub(r'[^A-Za-z0-9]', '_', branch)}.lock"
 
 
-def process_alive(pid: int) -> bool:
-    """Whether a process with this id exists: another user's counts as alive. Branch locks
-    and the e2e-test lock both judge a recorded holder by it."""
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True  # Someone else's process, but alive.
-    return True
-
-
-def holder_alive(pid: int, record_host: str | None) -> bool:
+def holder_alive(pid: int, record_host: str | None, started: str | None = None) -> bool:
     """Whether the holder a record names is alive: one of another host always is, this host's
     process table saying nothing of it; a record of this host (or with no host) is judged by
-    its pid."""
-    return not host.is_here(record_host) or process_alive(pid)
+    its pid and, when it recorded one, the process's start time, since a pid alone can be
+    reused by an unrelated process."""
+    return not host.is_here(record_host) or same_process(pid, started)
+
+
+def _read_holder(path: Path) -> dict:
+    """What the lock file records of its holder: `pid`, `host` and, from a lock written since
+    the start time was recorded, `started`. A lock from before that held a pid alone, as a bare
+    number or as JSON; one that cannot be read names nobody."""
+    try:
+        text = path.read_text()
+    except OSError:
+        return {}
+    if text.strip().isdecimal():
+        return {"pid": int(text)}
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _holder_alive(holder: dict) -> bool:
+    """Whether the process a lock names still holds it; a lock naming no pid holds nothing."""
+    pid = holder.get("pid")
+    return isinstance(pid, int) and holder_alive(pid, holder.get("host"), holder.get("started"))
 
 
 def lock_holder_gone(branch: str, *, root: Path) -> bool | None:
     """Whether the process named in this branch's lock is gone: `True` only when
-    a pid was read and that process is not alive, `False` for a live one, `None`
-    when there is no lock, or one that names no pid. A lock is created before
-    its pid is written, so an unreadable one may belong to a holder taking it.
+    a pid was read and that process is not alive (or the pid now belongs to a
+    process with a different start time), `False` for a live one, `None` when there is no
+    lock, or one that names no pid. A lock is created before its pid is written,
+    so an unreadable one may belong to a holder taking it.
     Unlike `branch_lock`, it leaves the file where it is."""
-    path = _lock_path(branch, root)
-    try:
-        parsed = json.loads(path.read_text())
-    except (OSError, ValueError):
+    holder = _read_holder(_lock_path(branch, root))
+    if not isinstance(holder.get("pid"), int):
         return None
-    pid = parsed.get("pid") if isinstance(parsed, dict) else None
-    if not isinstance(pid, int):
-        return None
-    return not holder_alive(pid, parsed.get("host"))
+    return not _holder_alive(holder)
 
 
 @contextmanager
@@ -111,43 +120,38 @@ def branch_lock(branch: str, *, root: Path):
     root.mkdir(parents=True, exist_ok=True)
     path = _lock_path(branch, root)
 
-    if path.exists():
-        # A crashed run must not wedge its branch forever, so the pid is what
-        # separates a stale lock from a live one. Parsing is kept apart from
-        # reporting on purpose: a missing field while building the message
-        # must not be mistaken for an unreadable lock.
-        holder: dict = {}
+    # Judging a stale lock, removing it and creating the new one is a single step: two runs
+    # that both found it stale must not each remove the other's fresh lock.
+    with file_lock(root / ".claim"):
+        if path.exists():
+            # A crashed run must not wedge its branch forever, so the pid and its start
+            # time are what separate a stale lock from a live one.
+            holder = _read_holder(path)
+            if _holder_alive(holder):
+                raise BranchBusy(
+                    f"{branch} is held by pid {holder['pid']} on "
+                    f"{holder.get('host') or host.this_host()} "
+                    f"since {holder.get('at', 'an unknown time')} ({path})"
+                )
+
+            path.unlink(missing_ok=True)
+
         try:
-            parsed = json.loads(path.read_text())
-            holder = parsed if isinstance(parsed, dict) else {}
-        except (OSError, ValueError):
-            holder = {}
+            # O_EXCL so a run that does not take the claim can't also win.
+            handle = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError as error:
+            raise BranchBusy(f"{branch} was claimed by another run") from error
 
-        pid = holder.get("pid")
-        if isinstance(pid, int) and holder_alive(pid, holder.get("host")):
-            raise BranchBusy(
-                f"{branch} is held by pid {pid} on {holder.get('host') or host.this_host()} "
-                f"since {holder.get('at', 'an unknown time')} ({path})"
-            )
-
-        path.unlink(missing_ok=True)
-
-    try:
-        # O_EXCL so two processes racing here can't both win.
-        handle = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError as error:
-        raise BranchBusy(f"{branch} was claimed by another run") from error
-
-    with os.fdopen(handle, "w") as file:
-        json.dump(
-            {
-                "pid": os.getpid(),
-                "host": host.this_host(),
-                "branch": branch,
-                "at": datetime.now(UTC).isoformat(),
-            },
-            file,
-        )
+        pid = os.getpid()
+        record = {
+            "pid": pid,
+            "started": proc_identity(pid),
+            "host": host.this_host(),
+            "branch": branch,
+            "at": datetime.now(UTC).isoformat(),
+        }
+        with os.fdopen(handle, "w") as file:
+            json.dump(record, file)
 
     try:
         yield

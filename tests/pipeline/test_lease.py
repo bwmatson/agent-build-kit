@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 from agent_build_kit.pipeline.lease import Leases, lease_dir
+from tests.branch_lock_fakes import dead_pid
 
 
 def leases(tmp_path: Path) -> Leases:
@@ -95,3 +98,17 @@ def test_a_lease_written_by_a_process_that_has_exited_holds_nothing(tmp_path: Pa
 
     assert held.holder("feature/2") is None
     assert held.take("feature/2", "tab:b") is True
+
+
+def test_a_lease_that_recorded_no_start_time_is_judged_by_its_pid_alone(tmp_path: Path) -> None:
+    directory = lease_dir(tmp_path)
+    held = Leases(directory)
+    assert held.take("feature/3", "tab:a")
+    (path,) = directory.glob("*.lease")
+    record = json.loads(path.read_text())
+
+    path.write_text(json.dumps({**record, "pid": os.getpid(), "started": None}))
+    assert held.holder("feature/3") == "tab:a"
+
+    path.write_text(json.dumps({**record, "pid": dead_pid(), "started": None}))
+    assert held.holder("feature/3") is None

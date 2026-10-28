@@ -11,6 +11,9 @@ separate lock holder, so two threads contend exactly as two processes do, and
 the kernel releases it if the holder dies. Unlike `workspaces.branch_lock`,
 which refuses when busy because the holder may be building for an hour, this
 waits: whatever holds it is done in seconds.
+
+It also names a lock holder's process (`proc_identity`), which leases and branch locks record
+and compare; `same_process` judges a recorded holder, by pid alone when it recorded no start.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ import errno
 import fcntl
 import os
 import re
+import subprocess
 import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import AbstractContextManager, contextmanager
@@ -81,6 +85,58 @@ def wait_for_flock(
                 on_busy(now - began)
             clock.sleep(pause)
             pause = min(pause * 2, POLL_SECONDS)
+
+
+def proc_identity(pid: int) -> str | None:
+    """When the process began, or None if there is no such process. The pair (pid, identity)
+    names one process for good; a pid alone can be reused. Leases and branch locks both record
+    it: the kernel's ticks from `/proc` where there is one, else `ps`'s start time."""
+    if not Path("/proc/self/stat").exists():
+        return ps_start_time(pid)
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return None
+    # The command name, in parentheses, may itself hold spaces and parentheses.
+    return stat[stat.rindex(")") + 2 :].split()[19]
+
+
+def process_alive(pid: int) -> bool:
+    """Whether a process with this id exists: another user's counts as alive. Branch locks
+    and the e2e-test lock both judge a recorded holder by it."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # Someone else's process, but alive.
+    return True
+
+
+def same_process(pid: int, started: str | None) -> bool:
+    """Whether the process a record names still runs. A pid that is alive with another start
+    time was reused by a different process; a record with no start time (written before it was
+    recorded) is judged by the pid alone."""
+    if started is None:
+        return process_alive(pid)
+    return proc_identity(pid) == started
+
+
+def ps_start_time(pid: int) -> str | None:
+    """The start time `ps` reports for the process, or None if there is none. It runs under a
+    fixed time zone and locale, so every process names the same process by the same string
+    whatever its own environment."""
+    try:
+        out = subprocess.run(
+            ["ps", "-o", "lstart=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={"TZ": "UTC", "LC_ALL": "C", "PATH": "/usr/bin:/bin"},
+        ).stdout.strip()
+    except OSError:
+        return None
+    return out or None
 
 
 @contextmanager
