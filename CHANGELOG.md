@@ -100,11 +100,10 @@
   with the branch and path, and two branches that share a sanitised name are refused
   instead of sharing a folder. `abk doctor` notes worktrees under another folder and warns
   about registered ones whose directory is gone, and a runbook describes moving the root.
-  network filesystem.
 
-- The kit finds the nearest file above a folder, the nearest existing folder of a path and the
-  git checkout a path is in through one shared module, and every lookup of a checkout root now
-  uses it, so they all answer the same way.
+- Every lookup of the git checkout a path is in now goes through one shared module, which also
+  offers the nearest existing folder of a path and a search for the nearest file above a
+  folder, so the lookups answer the same way.
 
 - The kit's own time-limit tests hold their child pytest code in files that the linters
   check, not in strings, and a test fails a new module that builds a child's source as a
