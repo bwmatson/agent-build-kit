@@ -23,7 +23,23 @@ def resolve_manual_parent(
 
     Raises ManualParentError naming the id, the kind found and the kind expected for an item of
     another kind, and for an item or title that is missing or out of scope."""
-    raise NotImplementedError
+    if reference.isdigit():
+        try:
+            item = tracker.get(reference)
+        except KeyError:
+            raise ManualParentError(f"no board item has the id {reference}") from None
+    else:
+        found = find_by_title(reference)
+        if found is None:
+            raise ManualParentError("no board item has the title the `Epic:` line names")
+        item = found
+    if item.kind != expected:
+        raise ManualParentError(
+            f"item {item.id} is a {item.kind}, and the manual parent must be a {expected}"
+        )
+    if not in_scope(item):
+        raise ManualParentError(f"item {item.id} is outside the board this repo syncs")
+    return item
 
 
 def create_change_item(
@@ -36,4 +52,4 @@ def create_change_item(
     markers: Sequence[str] = (),
 ) -> Item:
     """The change's top item, created under `parent` when there is one and at the top when not."""
-    raise NotImplementedError
+    return tracker.create(kind, title, body, parent.id if parent else None, markers=markers)

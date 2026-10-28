@@ -223,7 +223,7 @@ def specification_text(
     kept = [
         line
         for line in stripped.splitlines()
-        if line.strip() and not NEEDS_LINE.match(line.strip())
+        if line.strip() and not NEEDS_LINE.match(line.strip()) and not EPIC_LINE.match(line.strip())
     ]
     return "\n".join([*kept, *(f"resolved: group {n} in {p}" for n, p in (resolved or {}).items())])
 
@@ -278,7 +278,11 @@ EPIC_LINE = re.compile(r"^Epic:\s*(?P<value>.*?)\s*$", re.I)
 
 def epic_reference(path: Path) -> str | None:
     """The id or exact title a change's `Epic:` header line names, none when it has no line."""
-    raise NotImplementedError
+    for line in path.read_text().splitlines():
+        found = EPIC_LINE.match(line.strip())
+        if found and found["value"]:
+            return found["value"]
+    return None
 
 
 # `Split: <name>` in an e2e-test group: the e2e-test split it runs in (`rest` when absent).
@@ -607,6 +611,7 @@ def validate_tasks(
     split_of: dict[int, str] = {}
     split_refused: set[int] = set()
     root_lines: set[int] = set()
+    epic_seen = False
 
     own_merged_lines = {need.line for _, need in merged_needs(path) if names_own_change(need, path)}
     for index, text in enumerate(lines, start=1):
@@ -617,6 +622,22 @@ def validate_tasks(
 
         heading = ANY_GROUP_HEADING.match(text)
         if heading is None:
+            if found := EPIC_LINE.match(text.strip()):
+                if not found["value"]:
+                    errors.append(
+                        ValidationError(
+                            line=index,
+                            message="`Epic:` has no value — name a board item by id or exact title",
+                        )
+                    )
+                elif epic_seen:
+                    errors.append(
+                        ValidationError(
+                            line=index,
+                            message="a second `Epic:` line — a change has one manual parent",
+                        )
+                    )
+                epic_seen = epic_seen or bool(found["value"])
             if found := PRIORITY_LINE.match(text.strip()):
                 if not PRIORITY_VALUE.fullmatch(found["value"]):
                     errors.append(

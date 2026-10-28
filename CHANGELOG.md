@@ -266,6 +266,11 @@
   taken over instead of blocking the branch. Locks written before this, holding only a pid,
   are still honoured while that process lives. Two runs finding the same stale lock can no
   longer both take it.
+- A change's `tasks.md` may carry one `Epic: <board item id or exact title>` header line
+  naming an existing board item, made by a person, that the change's top item is placed
+  under. The kit only reads that item and never writes to it. A line with no value, or a
+  second line, is reported by `abk tags` naming the line, and the line does not trigger a
+  replan.
 
 - Starting a unit now counts the free places, checks them and marks the unit under one lock,
   so two ticks that overlap over the last free place can no longer both start a unit. The
