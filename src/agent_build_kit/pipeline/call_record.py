@@ -135,6 +135,7 @@ def call_recorder(
             tier=tier,
             role=role,
             model=model,
+            reported_model=result.reported_model,
             runtime=runtime,
             session_id=result.session_id,
             resumed=resumed,

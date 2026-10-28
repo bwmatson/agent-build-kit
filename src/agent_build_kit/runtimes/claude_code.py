@@ -466,6 +466,7 @@ class ClaudeCodeRuntime:
                 turns=ended.num_turns if ended is not None else None,
                 **_spent(ended),
                 context=_context(result.stdout, ended, request.model),
+                reported_model=request_fills(result.stdout)[2],
             )
             strength = (
                 network_failure(said)
@@ -493,6 +494,7 @@ class ClaudeCodeRuntime:
             stop_reason=stop_reason,
             turns=ended.num_turns if ended is not None else None,
             context=_context(result.stdout, ended, request.model),
+            reported_model=request_fills(result.stdout)[2],
             **_spent(ended),
         )
 
