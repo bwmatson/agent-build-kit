@@ -175,6 +175,7 @@ runtimes:                       # one entry per runtime that needs a fact abk
       rework_review: opus       # every review of a rework. Both reviews default
                                 # to a different model from the author's; if the
                                 # author is set to opus, set this to another
+      regression: opus          # works out why a test fails and writes the fix change
     context_windows: {}         # model id or alias -> window in tokens, for when the
                                 # result does not name it (read by this runtime only;
                                 # an acp agent says its own window); recorded as an
@@ -335,6 +336,8 @@ global_limits:
   wait_end_requeue: auto        # how a failed unit is requeued once when its wait ends:
                                 # auto (default; the mode follows its record), resume,
                                 # rework, or off (only a person requeues it)
+  max_regression_runs_per_hour: 10  # most regression-agent runs the pipeline starts in
+                                # an hour; at least 1
   label_sweep_per_tick: 20      # finished units' pull requests whose stale state
                                 # label a round takes off (each tick and each
                                 # refresh of a pass), at least 1
@@ -1131,7 +1134,7 @@ loaded (`abk init` writes `.env.example` to copy).
 | `ABK_OPENSPEC_VERSION` | the `@fission-ai/openspec` version run through `npx`; a pin, so an upgrade is a deliberate change | `1.13.1` |
 | `ABK_USAGE_GUARD` | `on` or `off`; `off` makes the process take no usage reading and never pause for usage. For scratch installations of live tests; it is not an `abk.yaml` key and is never read from the file. Any other value is refused | `on` |
 | `ABK_RUNTIME` | overrides `runtime` on this machine, so a runtime can be tried on one invocation without moving every repo in the workspace | unset: the file's |
-| `ABK_IMPLEMENT_MODEL`, `ABK_REWORK_MODEL`, `ABK_REVIEW_MODEL`, `ABK_REWORK_REVIEW_MODEL` | per-machine overrides of the active runtime's `runtimes.<name>.models.*` | unset: the file's |
+| `ABK_IMPLEMENT_MODEL`, `ABK_REWORK_MODEL`, `ABK_REVIEW_MODEL`, `ABK_REWORK_REVIEW_MODEL`, `ABK_REGRESSION_MODEL` | per-machine overrides of the active runtime's `runtimes.<name>.models.*` | unset: the file's |
 | `ABK_GATEWAY_URL`, `ABK_GATEWAY_MASTER_KEY` | the model gateway and the master key that may mint keys on it. Set both and each agent call gets a key of its own, its usage is read from the gateway's records and the key is revoked afterwards; set neither for no gateway; one alone is said once and mints nothing | unset |
 | `ABK_OTEL_ENABLED` | the one switch for telemetry (traces and metrics, see `telemetry.py`); nothing OpenTelemetry is imported while it is false. Needs the `telemetry` extra (`pip install agent-build-kit[telemetry]`); without it one line says so and the run carries on | `false` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | the OTLP/HTTP collector base URL; `/v1/traces` and `/v1/metrics` are appended | unset |

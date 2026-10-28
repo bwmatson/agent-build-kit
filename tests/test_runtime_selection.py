@@ -116,6 +116,7 @@ OWN_DEFAULTS = ModelsConfig(
     rework="own-reworker",
     review="own-reviewer",
     rework_review="own-second-look",
+    regression="own-regressor",
 )
 
 

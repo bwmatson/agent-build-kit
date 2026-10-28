@@ -199,6 +199,9 @@ class ModelsConfig(Frozen):
     # reviewing both is already a different model; an author set to opus wants
     # this set to something else.
     rework_review: str = "opus"
+    # The regression agent works out why a test fails and writes the fix change; it reasons
+    # across history, so it gets the strongest model.
+    regression: str = "opus"
 
 
 class RuntimeModelsConfig(Frozen):
@@ -209,6 +212,7 @@ class RuntimeModelsConfig(Frozen):
     rework: str | None = None
     review: str | None = None
     rework_review: str | None = None
+    regression: str | None = None
 
 
 # Points a unit is assumed to spend of each window before the history says otherwise.
@@ -653,6 +657,8 @@ class WaitEndRequeue(StrEnum):
 class LimitsConfig(TestKindSettings):
     # How a failed unit that waited on another unit is requeued once, when its wait ends.
     wait_end_requeue: WaitEndRequeue = WaitEndRequeue.AUTO
+    # Most regression-agent runs the pipeline starts in an hour.
+    max_regression_runs_per_hour: Annotated[int, Field(ge=1)] = 10
     # Longest chain of in-review PRs from main to a branch that a unit may
     # start building on.
     stack_depth_build_cap: int = 3
@@ -2369,4 +2375,5 @@ def models() -> ModelsConfig:
         rework=pick("rework", settings.rework_model),
         review=pick("review", settings.review_model),
         rework_review=pick("rework_review", settings.rework_review_model),
+        regression=pick("regression", settings.regression_model),
     )

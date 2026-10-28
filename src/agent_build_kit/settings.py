@@ -99,6 +99,7 @@ class Settings(BaseSettings):
     rework_model: str | None = None
     review_model: str | None = None
     rework_review_model: str | None = None
+    regression_model: str | None = None
 
     # The gateway in front of the model, and the master key that may mint keys
     # on it (pipeline/gateway_usage.py). Neither set: no key is minted.

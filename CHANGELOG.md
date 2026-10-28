@@ -8,6 +8,11 @@
   are still honoured while that process lives. Two runs finding the same stale lock can no
   longer both take it.
 
+- A new `regression` model role names the model that writes the fix for a failing test. It
+  is set like the other roles (`models.regression`, `runtimes.<name>.models.regression` or
+  `ABK_REGRESSION_MODEL`) and defaults to Opus under Claude Code. `global_limits` takes
+  `max_regression_runs_per_hour` (default 10) to bound how often it runs.
+
 - `abk doctor` and `abk status` report a repo's work tracker when it has a `tracker`
   section: the target and who the credential acts as (a refused credential is one warning
   naming the cause, and an invalid section shows its error), and say nothing about a repo
