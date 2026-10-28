@@ -17,7 +17,8 @@ proof of concept, and each can become its own OpenSpec change.
 - An agent step's processes can write only the unit's worktree, the parts of the repository's `.git` a commit needs, the temp
   folder, the agent's own state folder and a short list of tool caches, and can reach only a list of hosts, whatever the command is.
 - The planning repo's configuration (`abk.yaml`, `abk.local.yaml`) cannot be written by any agent route, so a person may edit it while
-  a run is in progress and a unit no longer fails with `ConfigChanged` for it.
+  a run is in progress at any time; a difference during a step is only a warning with its diff. The sandbox is on by default
+  (`sandbox.enabled: false` turns it off); a machine with no backend runs unconfined and says so.
 - One policy, written once, applied by every runtime the kit can launch, on Linux, WSL2 and macOS.
 - A sandbox that cannot start does not quietly run unsandboxed: the kit says so, and a repo can require it.
 - Few installs: nothing that needs `sudo apt`, and no Node dependency, where the kernel or Python can do the job.

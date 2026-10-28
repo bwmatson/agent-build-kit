@@ -117,8 +117,8 @@ planning:
                                 # refused, so move them first: see
                                 # docs/runbooks/move-the-unit-worktree-root.md.
                                 # Wait for no running unit and no running track
-                                # first: an unconfined step or a track fails with
-                                # `ConfigChanged` when abk.local.yaml changes.
+                                # first: an edit of abk.local.yaml during a step
+                                # is only a warning with its diff.
   self_pull: true               # the tracks pull a separate planning repo, and a
                                 # tick or track syncs a pipeline worktree, before
                                 # running.
@@ -932,7 +932,10 @@ so the doctor warns about `hard` and the advice is `soft` with a `timeo`.
 
 The kernel confines what an agent step can write and reach. Keys:
 
-- `sandbox.enabled` (default `false`): turn the sandbox on.
+- `sandbox.enabled` (default `true`): the sandbox is on by default; set `sandbox.enabled: false` to
+  turn it off. On a machine with no backend for the platform the step runs unconfined, the tick
+  logs one line saying why and `abk status` shows coverage `none`; a backend that exists but fails
+  its probe stops the step with the cause and the fix. `abk init` writes no `sandbox:` block.
 - `sandbox.backend` (default `auto`): `auto` picks the first backend whose probe passes on this
   machine; or name one (`landlock` today; `seatbelt` arrives with the macOS backend and is refused at
   load until then).
@@ -943,10 +946,9 @@ The kernel confines what an agent step can write and reach. Keys:
   agent's own model host is not added for it: list it under `sandbox.hosts`.
 
 The config guard reads `abk.yaml` and `abk.local.yaml` before an agent step and again after it. A
-step that was not confined fails with `ConfigChanged` when either differs. During a confined run a
-person may edit them: the step's coverage is `process` or `files`, so a difference is logged as a
-warning with its diff, shown by `abk status`, and the unit continues. A track run is not confined
-yet, so it still fails.
+person may edit them at any time: a difference during a step is a warning, logged with its diff and
+shown by `abk status`, and the unit continues. For a step that was not confined the warning adds
+that an agent may have written the file, so read the diff.
 
 The guards by class: the config guard and the text fence on these two files are location guards, so
 they stand down for a confined step and apply to one that is not; the guards about meaning (no

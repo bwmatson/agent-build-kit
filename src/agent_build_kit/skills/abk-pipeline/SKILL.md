@@ -42,6 +42,13 @@ what the pipeline is doing, watch the pass, not a single unit.
 | `abk archive <change>` | `openspec archive <change> --yes`. |
 | `abk openspec -- <args>` | Any other OpenSpec command, in the planning repo. |
 
+## The sandbox and the two configuration files
+
+The sandbox is on by default; `sandbox.enabled: false` turns it off, and a machine with no backend
+runs the step unconfined and says so. A person may edit `abk.yaml` and `abk.local.yaml` at any
+time: a difference during a step is a warning with its diff, shown by `abk status`, and the unit
+continues.
+
 ## When the planning repo is also a code repo
 
 A repo can be both: `abk.yaml` lists it at `.`, and the specs, the state and the
