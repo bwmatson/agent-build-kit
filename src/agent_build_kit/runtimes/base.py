@@ -214,6 +214,7 @@ class AgentResult(Frozen):
     session_id: str | None = None
     usage_source: UsageSource = "none"
     context: Context | None = None  # the context window's use over the call, when it says
+    reported_model: str | None = None  # the model the runtime says ran, when it says
 
     @property
     def succeeded(self) -> bool:
