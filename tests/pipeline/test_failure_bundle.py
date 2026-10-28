@@ -170,16 +170,20 @@ def test_the_bundles_of_another_unit_are_left_alone(tmp_path: Path) -> None:
 # --- a failing unit-test run ------------------------------------------------------
 
 
+def _one_run(
+    self: PythonUvProfile, repo: Path, changed: list[str], *, root_extras: list[str]
+) -> list[list[str]]:
+    return [RUN]
+
+
 class _Profile(PythonUvProfile):
     """The python-uv profile running one lint command and one test command."""
 
     def lint_command(self, base: str) -> list[str]:
         return ["lint"]
 
-    def test_commands(
-        self, repo: Path, changed: list[str], *, root_extras: list[str]
-    ) -> list[list[str]]:
-        return [RUN]
+    # Assigned, not defined: a `def test_*` here would be taken for a test by a selection by name.
+    test_commands = _one_run
 
 
 class _Machine:
