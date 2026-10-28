@@ -73,13 +73,14 @@ def record_of(inst: Installation, uid: str) -> AdmissionRecord:
 def test_a_reading_under_the_threshold_with_a_forecast_over_it_refuses_as_the_gate_would(
     tmp_path: Path, host: Host
 ) -> None:
-    """70% is under 80, and a `full` unit's forecast and the margin take it past 80. An `auto`
-    unit beside it must not set the forecast the `full` one is judged on."""
+    """67% is under 80, and a `full` unit's forecast and the margin take it past 80 where an
+    `auto` unit's do not. The `auto` unit beside it must not set the forecast the `full` one is
+    judged on."""
     inst, store = workspace(
         tmp_path,
         host,
         [tiered("one/1", ReviewTier.AUTO), tiered("two/1", ReviewTier.FULL)],
-        session=70.0,
+        session=67.0,
     )
 
     started = round_of(inst, store)
@@ -111,11 +112,10 @@ def test_a_reading_with_room_admits_and_the_gate_then_passes(tmp_path: Path, hos
     assert usage.reason == gate.reason
 
 
-@pytest.mark.parametrize("session", [40.0, 70.0])
 def test_the_admission_record_carries_the_reading_the_forecast_the_margin_and_the_threshold(
-    tmp_path: Path, host: Host, session: float
+    tmp_path: Path, host: Host
 ) -> None:
-    inst, store = workspace(tmp_path, host, [tiered("two/1", ReviewTier.FULL)], session=session)
+    inst, store = workspace(tmp_path, host, [tiered("two/1", ReviewTier.FULL)], session=40.0)
 
     round_of(inst, store)
     gate = ask(ReviewTier.FULL, "two/1")

@@ -8,6 +8,10 @@
   a dependent that waits for its merge, not one that waits only for its review. A merged pull
   request is never sent back to rework in place, and requeueing a settling or merged unit is
   refused with a message pointing at `abk settle` and the late-fix route.
+- Starting a unit now asks the usage guard the question the gate before its first agent
+  step asks, with the unit's own review tier, size and forecast, so a unit admitted is one
+  the gate lets through. Its admission record carries the forecast and the margin beside
+  the reading and the threshold.
 
 - A branch lock now records its holder's process start time beside the pid, so a lock left
   by a process whose pid was later reused by an unrelated one is recognised as stale and

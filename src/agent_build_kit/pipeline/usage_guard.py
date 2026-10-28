@@ -1471,7 +1471,8 @@ def _forecasted(decision: Decision, reading: UsageReading | None, ask: Ask | Non
     ]
     refused = [e for e in estimates if not e.ample]
     if not refused:
-        return decision
+        nearest = min(estimates, key=lambda e: e.threshold - e.estimate - e.forecast)
+        return decision.model_copy(update={"forecast": nearest.forecast, "margin": nearest.margin})
     window = next(each for each in reading.windows if each.name == refused[0].name)
     return Decision(
         may_start=False,
@@ -1480,6 +1481,8 @@ def _forecasted(decision: Decision, reading: UsageReading | None, ask: Ask | Non
         resets_at=reading.resets_at,
         threshold=refused[0].threshold,
         ramp=_ramp_of(refused[0].name, limits),
+        forecast=refused[0].forecast,
+        margin=refused[0].margin,
         **_reading_facts(reading),
     )
 
