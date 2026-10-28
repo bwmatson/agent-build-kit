@@ -9,7 +9,7 @@ import pytest
 from agent_build_kit.forges.base import RepoId
 from agent_build_kit.pipeline.pr_poller import HOLD_LABEL
 from agent_build_kit.pipeline.unit_store import Cause
-from agent_build_kit.pipeline.units import MERGED
+from agent_build_kit.pipeline.units import SETTLING
 from tests.forges.stand_in import StandInForge
 from tests.landing_support import PR, UNIT, landing, make_landable
 
@@ -55,7 +55,7 @@ def test_a_comment_the_host_refuses_is_logged_and_leaves_the_record_and_the_labe
     landed.land()
 
     unit = landed.store.get(UNIT)
-    assert (unit.state, unit.cause) == (MERGED, Cause.AUTO_LANDED)
+    assert (unit.state, unit.cause) == (SETTLING, Cause.AUTO_LANDED)
     assert not landed.intent()
     assert any("comments are closed" in line for line in landed.logged)
     assert LABEL in landed.forge.on_pr[PR]
@@ -69,7 +69,7 @@ def test_a_label_the_host_refuses_is_logged_and_leaves_the_record_and_the_commen
     landed.land()
 
     unit = landed.store.get(UNIT)
-    assert (unit.state, unit.cause) == (MERGED, Cause.AUTO_LANDED)
+    assert (unit.state, unit.cause) == (SETTLING, Cause.AUTO_LANDED)
     assert not landed.intent()
     assert any("403" in line for line in landed.logged)
     assert len(landed.forge.comments) == 1

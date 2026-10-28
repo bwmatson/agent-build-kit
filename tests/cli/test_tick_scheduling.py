@@ -35,6 +35,7 @@ from agent_build_kit.pipeline.units import (
     MERGED,
     PLANNED,
     RUNNING,
+    SETTLING,
     UnitState,
     local_ref,
     ready_units,
@@ -731,7 +732,7 @@ def test_a_poll_hands_each_event_to_the_unit_in_the_repo_it_polled(
 
     REAL_POLL_ALL(inst, store=store)
 
-    assert store.get("add-marker/1").state == MERGED
+    assert store.get("add-marker/1").state == SETTLING
     assert store.get("feature/1").state == IN_REVIEW
 
 
@@ -838,7 +839,7 @@ def test_a_parent_merging_while_its_child_builds_moves_the_child_before_its_pr(
 
     assert tick(inst) == 0
 
-    assert store.get("chain/1").state == MERGED
+    assert store.get("chain/1").state == SETTLING
     assert restacked_by_merge == [], "the merge rebased the tree a build was using"
     assert ("chain/2", "spec/chain/1") not in opened, "its PR was opened on the merged branch"
     # Held once, when its base moved, then started again in the same pass: the

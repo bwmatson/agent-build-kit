@@ -305,6 +305,7 @@ from agent_build_kit.pipeline.units import (
     REVIEWED,
     RUNNING,
     SATISFIED,
+    SETTLING,
     EdgeKind,
     Join,
     Priority,
@@ -6000,8 +6001,8 @@ def _dispatch(
 def _merge_record(inst: Installation, unit: StoredUnit) -> tuple[str | None, int | None]:
     """The merge commit of a unit just seen merged and the number of the tick that saw it;
     None for what cannot be read (a forge that answers nothing, no tick record yet)."""
-    sha = None
-    if unit.pr is not None:
+    sha = unit.merge_sha
+    if sha is None and unit.pr is not None:
         try:
             forge, repo_id = inst.forge_of(unit.repo)
             sha = forge.merge_commit(repo_id, unit.pr)
@@ -7589,6 +7590,12 @@ def requeue_refusal(unit: StoredUnit) -> str | None:
                 "requeueing it would orphan the pull request"
             )
         return None
+    if unit.state in (SETTLING, MERGED):
+        return (
+            f"{unit.id} is {unit.state}; only a failed or held unit can be requeued, and a "
+            "merged pull request is never reworked in place. End the wait with `abk settle`, "
+            "or let a failed check start a late fix on a new branch from the default branch"
+        )
     return (
         f"{unit.id} is {unit.state}; only a failed or held unit can be requeued "
         "(a running one would be built twice, an in-review one has a PR to orphan)"

@@ -17,7 +17,7 @@ import pytest
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.restack_lane import RestackLane
 from agent_build_kit.pipeline.unit_store import Cause, HeldBy, StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED, PLANNED, RUNNING
+from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, RUNNING, SETTLING
 from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.factories import stored_unit as unit
 from tests.restack_lane_fakes import WAIT, Restacks, lane_over
@@ -125,7 +125,7 @@ def test_a_child_whose_resolver_is_blocked_does_not_hold_up_the_poll(
     answer = run_bounded(lambda: merge(store, locks, restack, lane), seconds=WAIT)
 
     assert answer is True
-    assert store.get("c/1").state == MERGED
+    assert store.get("c/1").state == SETTLING
     assert restack.begun["spec/c/2"].wait(WAIT)
     assert not restack.release.is_set()
     restack.release.set()

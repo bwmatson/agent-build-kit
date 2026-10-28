@@ -56,6 +56,7 @@ def test_the_unit_states_are_the_fixed_set() -> None:
         "running",
         "in_review",
         "merged",
+        "settling",
         "closed",
         "failed",
         "held",

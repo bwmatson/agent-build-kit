@@ -26,7 +26,7 @@ from agent_build_kit.pipeline.landing_intent import LANDING
 from agent_build_kit.pipeline.pr_poller import Poller, state_path
 from agent_build_kit.pipeline.ui_review import ui_listing, unit_of
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, MERGED
+from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, SETTLING
 from agent_build_kit.pipeline.verdict import ReviewTier
 from agent_build_kit.pipeline.verdict_record import VERDICTS
 from agent_build_kit.pipeline.verify import Verification
@@ -140,7 +140,7 @@ def test_a_unit_with_green_checks_lands_with_a_squash_request_at_its_approved_he
     assert call.body["merge_method"] == "squash"
     assert call.body["sha"] == HEAD
     landed = pipeline.unit("c/1")
-    assert (landed.state, landed.cause) == (MERGED, Cause.AUTO_LANDED), "\n".join(pipeline.logged)
+    assert (landed.state, landed.cause) == (SETTLING, Cause.AUTO_LANDED), "\n".join(pipeline.logged)
     assert pipeline.host.calls("POST", f"{BASE}/issues/1/comments"), "the landing is said on the PR"
 
 
@@ -155,7 +155,9 @@ def test_the_poller_s_later_merged_event_changes_nothing(
 
     pipeline.poller.poll()
 
-    assert pipeline.unit("c/1").history == history
+    # The poll adds only the settling: the merge is not recorded again.
+    assert pipeline.unit("c/1").history[: len(history)] == history
+    assert pipeline.unit("c/1").state == MERGED
     assert pipeline.restacked == restacked
     assert len(pipeline.host.calls("PUT", merge_path(1))) == 1
 
@@ -179,6 +181,7 @@ def test_verify_and_archive_treat_the_change_as_merged_once_its_units_landed(
     pipeline.land()
     pipeline.poller.poll()
     pipeline.land()
+    pipeline.poller.poll()
     verified: list[str] = []
 
     def verify(change: str, units: list[StoredUnit]) -> Verification:

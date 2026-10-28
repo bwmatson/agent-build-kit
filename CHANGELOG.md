@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A unit whose pull request is merged now settles before it counts as merged: it waits, with
+  no time limit, until every check of the pull request has completed, and the poller keeps
+  reading the merged pull request meanwhile. A settling unit counts as in progress and holds
+  a dependent that waits for its merge, not one that waits only for its review. A merged pull
+  request is never sent back to rework in place, and requeueing a settling or merged unit is
+  refused with a message pointing at `abk settle` and the late-fix route.
+
 - A branch lock now records its holder's process start time beside the pid, so a lock left
   by a process whose pid was later reused by an unrelated one is recognised as stale and
   taken over instead of blocking the branch. Locks written before this, holding only a pid,

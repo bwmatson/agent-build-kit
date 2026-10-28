@@ -27,6 +27,7 @@ from agent_build_kit.pipeline.units import (
     PLANNED,
     RUNNING,
     SATISFIED,
+    SETTLING,
     UnitState,
 )
 from agent_build_kit.pipeline.usage_guard import Interrupted, RateLimited
@@ -57,7 +58,7 @@ class Recorder:
 def test_a_merged_pr_marks_its_unit_merged(store: UnitStore) -> None:
     events.on_merged(1, repo="app", store=store, restack=Recorder())
 
-    assert store.get("add-marker/1").state == MERGED
+    assert store.get("add-marker/1").state == SETTLING
 
 
 def test_merging_the_bottom_restacks_what_was_on_top(store: UnitStore) -> None:
@@ -158,7 +159,7 @@ def test_a_failing_restack_does_not_stop_the_others(tmp_path: Path) -> None:
     events.on_merged(1, repo="app", store=store, restack=restack)
 
     assert moved == ["spec/c/3"]
-    assert store.get("c/1").state == MERGED, "the merge itself still stands"
+    assert store.get("c/1").state == SETTLING, "the merge itself still stands"
 
 
 def test_a_closed_pr_marks_its_unit_closed(store: UnitStore) -> None:
@@ -580,7 +581,7 @@ def test_the_poller_s_events_reach_the_handlers(tmp_path: Path) -> None:
 
     dispatch("merged", 1, repo="app")
 
-    assert store.get("c/1").state == MERGED
+    assert store.get("c/1").state == SETTLING
 
 
 def test_an_unknown_event_is_logged_rather_than_ignored(tmp_path: Path) -> None:
@@ -713,7 +714,7 @@ def test_a_worktree_that_will_not_go_does_not_fail_the_merge(store: UnitStore) -
 
     events.on_merged(1, repo="app", store=store, restack=Recorder(), remove_worktree=refuse)
 
-    assert store.get("add-marker/1").state == MERGED
+    assert store.get("add-marker/1").state == SETTLING
 
 
 def test_a_child_s_worktree_survives_the_parent_merge(tmp_path: Path) -> None:
@@ -789,7 +790,7 @@ def test_a_kept_worktree_keeps_its_branch(store: UnitStore) -> None:
     )
 
     assert deleted == []
-    assert store.get("add-marker/1").state == MERGED
+    assert store.get("add-marker/1").state == SETTLING
 
 
 def test_a_closed_unmerged_unit_keeps_its_branch(store: UnitStore) -> None:
@@ -1248,7 +1249,7 @@ def test_a_merge_does_not_restack_a_child_that_is_being_built(
 
     assert handled
     assert recorder.restacked == []
-    assert store.get("add-marker/1").state == MERGED
+    assert store.get("add-marker/1").state == SETTLING
     assert store.get("add-marker/2").state == RUNNING
     assert retargeted == [("add-marker/2", "main")]
 
@@ -1480,7 +1481,7 @@ def test_a_merge_reaches_the_unit_in_the_repo_it_was_reported_for(
         log=lambda m: None,
     )
 
-    assert shared_number.get("add-marker/1").state == MERGED
+    assert shared_number.get("add-marker/1").state == SETTLING
     assert shared_number.history("feature/1") == before
     assert removed == [("app", "spec/add-marker/1")]
 

@@ -16,7 +16,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import events, landing_intent
 from agent_build_kit.pipeline.landing_intent import IntentNotWritten
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
-from agent_build_kit.pipeline.units import MERGED
+from agent_build_kit.pipeline.units import SETTLING
 from tests.factories import deep_store
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -84,7 +84,7 @@ def test_a_merged_event_for_a_pull_request_with_an_intent_is_recorded_auto_lande
 
     merged(store, 1, landing=path)
 
-    assert store.get("c/1").state == MERGED
+    assert store.get("c/1").state == SETTLING
     assert store.get("c/1").cause == Cause.AUTO_LANDED
 
 

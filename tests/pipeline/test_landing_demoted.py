@@ -31,7 +31,7 @@ def test_an_auto_unit_approved_before_its_class_was_demoted_is_declined_until_a_
     landed.land()
 
     assert len(landed.forge.merged) == 1, landed.logged
-    assert landed.store.get(UNIT).state == "merged"
+    assert landed.store.get(UNIT).state == "settling"
 
 
 def test_an_unreadable_demotion_file_declines_the_unit_naming_the_file(

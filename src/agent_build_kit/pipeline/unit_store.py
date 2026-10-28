@@ -1392,6 +1392,9 @@ class UnitStore:
     ) -> None:
         self._update(unit_id, merge_sha=merge_sha, merged_tick=merged_tick)
 
+    def set_pulls(self, unit_id: str, pulls: Sequence[Pull]) -> None:
+        self._update(unit_id, pulls=tuple(pulls))
+
     def set_close_pending(self, unit_id: str, pending: ClosePending | None) -> None:
         """The close a satisfied unit still owes its pull request, or None once done."""
         self._update(unit_id, close_pending=pending)
