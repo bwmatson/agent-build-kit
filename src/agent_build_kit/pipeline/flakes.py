@@ -27,6 +27,8 @@ from agent_build_kit.pipeline.work_graph import GROUP_HEADING, group_needs
 NAME_LIMIT = 70
 # What the name of the change that fixes a flaky test starts with.
 FLAKY_PREFIX = "fix-flaky"
+# What the name of every new change that fixes a failing test starts with, whatever its kind.
+FIX_PREFIX = "fix-test"
 # Where a module imported by a test may sit in the code repo, relative to its root.
 SOURCE_ROOTS = ("", "src")
 # How many of a storm's tests its row names.
@@ -63,6 +65,14 @@ class FlakeFound(Exception):
         super().__init__(", ".join(flake.test for flake in flakes))
         self.flakes = flakes
         self.scoped = scoped
+
+
+class FailedOnBase(Exception):
+    """Raised by unit-test when a failed test the unit did not write fails alone and on the
+    unit's own base too, or fails alone by its time limit: the failure is not the unit's, and
+    the regression agent writes the change that fixes it."""
+
+    failures: tuple[Flake, ...]
 
 
 @runtime_checkable
@@ -152,7 +162,7 @@ def _archived(inst: Installation, name: str) -> bool:
     return any((inst.changes_dir / "archive").glob(f"*-{name}"))
 
 
-def open_fix_change(inst: Installation, test: str, prefix: str) -> tuple[str | None, str]:
+def open_fix_change(inst: Installation, test: str, prefix: str = "") -> tuple[str | None, str]:
     """The open change named for `test` under `prefix`, or None and the last archived
     attempt (or "")."""
     earlier = ""
@@ -165,7 +175,7 @@ def open_fix_change(inst: Installation, test: str, prefix: str) -> tuple[str | N
     raise AssertionError("unreachable")
 
 
-def next_fix_name(inst: Installation, test: str, prefix: str) -> str:
+def next_fix_name(inst: Installation, test: str, prefix: str = "") -> str:
     """The name the next change for `test` under `prefix` gets: the first neither open
     nor archived."""
     for name in _candidates(test, prefix):
