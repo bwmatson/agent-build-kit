@@ -42,27 +42,27 @@ def archive(inst: Installation, name: str) -> None:
     (inst.changes_dir / name).rename(folder / f"2026-03-02-{name}")
 
 
-def test_the_change_is_named_from_the_id_with_the_fix_failing_prefix(
+def test_the_change_is_named_from_the_id_with_the_fix_test_prefix(
     installation: Installation,
 ) -> None:
     unit = change_with_unit(installation, "feature", "feature/1")
 
     name, _ = ensured(installation, unit)
 
-    assert name == fix_change_name(TEST, "fix-failing")
-    assert re.fullmatch(r"fix-failing-[a-z0-9-]+", name)
+    assert name == fix_change_name(TEST, "fix-test")
+    assert re.fullmatch(r"fix-test-[a-z0-9-]+", name)
     assert "test-one" in name
-    assert fix_change_name(TEST, "fix-failing") != flake_change_name(TEST)
+    assert fix_change_name(TEST, "fix-test") == flake_change_name(TEST)
 
 
 def test_a_long_id_is_capped_with_a_hash_of_the_whole() -> None:
     long = "tests/far/test_" + "very_long_name_" * 10 + "x.py::test_one"
     other = long[:-1] + "y"
 
-    first = fix_change_name(long, "fix-failing")
-    second = fix_change_name(other, "fix-failing")
+    first = fix_change_name(long, "fix-test")
+    second = fix_change_name(other, "fix-test")
 
-    assert first.startswith("fix-failing-") and len(first) <= 70
+    assert first.startswith("fix-test-") and len(first) <= 70
     assert first != second, "the hash tells the cut ones apart"
     assert re.search(r"-[0-9a-f]{8}$", first)
 
@@ -116,17 +116,17 @@ def test_the_spec_states_the_test_passes_on_the_base(installation: Installation)
     assert TEST in delta and "SHALL" in delta and "#### Scenario:" in delta
 
 
-def test_it_is_a_different_change_from_the_flake_fix_of_the_same_test(
+def test_an_open_flake_fix_of_the_same_test_is_the_change_found(
     installation: Installation,
 ) -> None:
     code_repo(installation)
     unit = change_with_unit(installation, "feature", "feature/1")
     flake_fix = str(wait_on_fix(installation, flaked(TEST), unit))
 
-    name, _ = ensured(installation, unit)
+    name, said = ensured(installation, unit)
 
-    assert name != flake_fix
-    assert {flake_fix, name} <= changes(installation)
+    assert name == flake_fix
+    assert said == [f"exists: {name}"]
 
 
 # --- the preview --------------------------------------------------------------------
@@ -135,7 +135,7 @@ def test_it_is_a_different_change_from_the_flake_fix_of_the_same_test(
 def test_the_ensure_step_says_would_write_before_it_writes(installation: Installation) -> None:
     unit = change_with_unit(installation, "feature", "feature/1")
     seen: list[tuple[str, bool]] = []
-    name = fix_change_name(TEST, "fix-failing")
+    name = fix_change_name(TEST, "fix-test")
 
     def say(line: str) -> None:
         seen.append((line, (installation.changes_dir / name).exists()))
@@ -162,7 +162,7 @@ def test_an_open_change_is_reported_as_existing_and_nothing_is_written(
 
 def test_the_preview_reads_the_directory_and_writes_nothing(installation: Installation) -> None:
     unit = change_with_unit(installation, "feature", "feature/1")
-    name = fix_change_name(TEST, "fix-failing")
+    name = fix_change_name(TEST, "fix-test")
 
     assert preview(installation, TEST) == Write(name=name)
     assert changes(installation) == {"feature"}

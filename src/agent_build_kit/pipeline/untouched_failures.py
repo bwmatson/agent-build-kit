@@ -21,11 +21,16 @@ from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.e2e import E2eVerdict
 from agent_build_kit.pipeline.failure_record import FailureRecord, Recorded, TestCount
 from agent_build_kit.pipeline.file_lock import file_lock
-from agent_build_kit.pipeline.flakes import add_needs_to_unit, next_fix_name, open_fix_change
+from agent_build_kit.pipeline.flakes import (
+    FIX_PREFIX,
+    add_needs_to_unit,
+    next_fix_name,
+    open_fix_change,
+)
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.work_graph import group_needs
 
-PREFIX = "fix-failing"
+PREFIX = FIX_PREFIX
 CAPABILITY = "failing-tests"
 
 
@@ -92,7 +97,7 @@ def preview_fix(inst: Installation, test: str, prefix: str) -> Exists | Write:
 
 def preview(inst: Installation, test: str) -> Exists | Write:
     """What the ensure step would do for `test`; reads the changes directory only."""
-    return preview_fix(inst, test, PREFIX)
+    return preview_fix(inst, test, "")
 
 
 def ensure_fix_change(
@@ -148,7 +153,7 @@ def ensure_fix(
     return ensure_fix_change(
         inst,
         entry.test,
-        PREFIX,
+        "",
         lock=inst.state_dir / "preexisting.lock",
         write=lambda found: _write_change(inst, found, entry, unit),
         say=say,

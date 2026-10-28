@@ -56,6 +56,12 @@
   message you typed as the body, so the commit counts toward the group's pair and the unit no
   longer stops for a missing one. The command prints the subject it used, and the web UI's
   response carries it. No model is called.
+- Every change that fixes a failing test is now named `fix-test-<test>`, whatever kind of
+  failure it was, and one lookup by test finds an open fix of any older name. A unit whose
+  test already has an open fix waits on it before anything is rerun, also after a requeue.
+  A failing test the unit did not write is run on the unit's own base: it stays the unit's
+  failure when it passes there, and waits for a fix when it fails there too or fails only by
+  its time limit.
 
 - `abk external hand-off`, `list`, `done` and `release` hand a change, or some of its groups,
   to someone who builds it by hand. The kit never starts held work, units that need it wait

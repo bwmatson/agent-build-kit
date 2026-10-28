@@ -11,6 +11,7 @@ import asyncio
 import time
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager, nullcontext
+from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -75,7 +76,13 @@ from agent_build_kit.pipeline.events import (
     restore_depth_hold,
     takeover_note,
 )
-from agent_build_kit.pipeline.flakes import FlakeFound, waiting_note
+from agent_build_kit.pipeline.flakes import (
+    FailedOnBase,
+    Flake,
+    FlakeFound,
+    covered_tests,
+    waiting_note,
+)
 from agent_build_kit.pipeline.gateway_usage import attribution
 from agent_build_kit.pipeline.manual_steps import unmet_steps
 from agent_build_kit.pipeline.metric_records import emit_metric
@@ -1790,6 +1797,12 @@ class BuildPath:
                 if (parked := self.wait_for_fix(found)) is not None:
                     raise CheckParked({**parked, "checks_ok": False}) from found
                 ok, output = False, found.flakes[0].output
+            except FailedOnBase as failed:
+                if (parked := self.wait_for_fix(failed)) is not None:
+                    raise CheckParked({**parked, "checks_ok": False}) from failed
+                ok, output = False, failed.failures[0].output
+            if not ok and (parked := self.wait_for_open_fix(output)) is not None:
+                raise CheckParked({**parked, "checks_ok": False})
             if not ok and (broken := self.environment_problem()) is not None:
                 raise CheckParked({**self.blocked(broken), "checks_ok": False})
             self.say("checks passed" if ok else "checks failed")
@@ -1917,16 +1930,32 @@ class BuildPath:
             return {"failed_output": stored.feedback}
         return {}
 
-    def wait_for_fix(self, found: FlakeFound) -> Update | None:
-        """Unit-test failed only on tests that passed alone: the unit is not failed for them.
-        It waits, gated, for the change that fixes them, and runs unit-test again once that
-        has merged. None when there is nothing to wait on, because the unit builds that
-        fix: the flake is then a unit-test failure the unit's agent is told of."""
+    def wait_for_fix(self, found: FlakeFound | FailedOnBase) -> Update | None:
+        """Unit-test failed only on tests that passed alone, or on tests that are not the
+        unit's: the unit is not failed for them. It waits, gated, for the change that fixes
+        them, and runs unit-test again once that has merged. None when there is nothing to
+        wait on, because the unit builds that fix: the failure is then a unit-test failure
+        the unit's agent is told of."""
         r, unit = self.runner, self.unit
-        fixes = [r.on_flake(unit, flake) for flake in found.flakes]
+        flakes = found.flakes if isinstance(found, FlakeFound) else found.failures
+        fixes = [r.on_flake(unit, flake) for flake in flakes]
         if not any(fixes):
             return None
-        return self.park_for_fix(waiting_note([flake.test for flake in found.flakes]))
+        return self.park_for_fix(waiting_note([flake.test for flake in flakes]))
+
+    def wait_for_open_fix(self, output: str) -> Update | None:
+        """A failed unit-test run whose failed tests include one that an open change already
+        fixes: the unit waits on that change before anything runs again. None when no failed
+        test has one."""
+        config = active().repos.get(self.unit.repo)
+        failed = getattr(profiles.get(config.profile), "failed_tests", None) if config else None
+        tests = covered_tests(failed(output)) if failed is not None else []
+        if not tests:
+            return None
+        at = datetime.now(UTC)
+        return self.wait_for_fix(
+            FailedOnBase(tuple(Flake(test=t, command="", output=output, at=at) for t in tests))
+        )
 
     def park_for_fix(self, note: str) -> Update:
         """Hold the unit, gated, until the change that fixes what failed has merged, and
@@ -2397,7 +2426,13 @@ class BuildPath:
                 return parked
             else:
                 ok, output = False, found.flakes[0].output
+        except FailedOnBase as failed:
+            if (parked := self.wait_for_fix(failed)) is not None:
+                return parked
+            ok, output = False, failed.failures[0].output
         self.say(f"unit-test {'passed' if ok else 'failed'}")
+        if not ok and (parked := self.wait_for_open_fix(output)) is not None:
+            return parked
         if not ok:
             if (broken := self.failed_unit_test(output)) is not None:
                 return broken

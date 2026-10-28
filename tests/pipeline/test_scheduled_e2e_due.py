@@ -218,7 +218,7 @@ def test_off_still_reads_the_record_of_pre_existing_failures_and_writes_their_fi
     assert round_of(inst, store) == ([], [])
     fix = ensure_fix(inst, entry, store.get("app-work/1"), say=lambda line: None)
 
-    assert fix.startswith("fix-failing-")
+    assert fix.startswith("fix-test-")
     assert [e.test for e in preexisting_record(inst).entries()] == [entry.test]
     assert scheduled_changes(inst) == []
 

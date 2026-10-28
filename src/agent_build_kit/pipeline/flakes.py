@@ -25,8 +25,9 @@ from agent_build_kit.pipeline.work_graph import GROUP_HEADING, group_needs
 
 # The longest a change's name gets before it is cut and given a hash of the whole.
 NAME_LIMIT = 70
-# What the name of the change that fixes a flaky test starts with.
+# What the names of changes that fixed a flaky or a failing test started with, still found.
 FLAKY_PREFIX = "fix-flaky"
+FAILING_PREFIX = "fix-failing"
 # What the name of every new change that fixes a failing test starts with, whatever its kind.
 FIX_PREFIX = "fix-test"
 # Where a module imported by a test may sit in the code repo, relative to its root.
@@ -72,7 +73,9 @@ class FailedOnBase(Exception):
     unit's own base too, or fails alone by its time limit: the failure is not the unit's, and
     the regression agent writes the change that fixes it."""
 
-    failures: tuple[Flake, ...]
+    def __init__(self, failures: tuple[Flake, ...]) -> None:
+        super().__init__(", ".join(failure.test for failure in failures))
+        self.failures = failures
 
 
 @runtime_checkable
@@ -113,7 +116,7 @@ def record_storm(unit: str, tests: list[str], command: str, failures: list[str])
 
 def flake_change_name(test: str) -> str:
     """The name of the change that fixes the flaky `test`."""
-    return fix_change_name(test, FLAKY_PREFIX)
+    return fix_change_name(test, FIX_PREFIX)
 
 
 def fix_change_name(test: str, prefix: str) -> str:
@@ -135,9 +138,9 @@ def wait_on_fix(
     Returns the change's name, or None for a unit of that change itself, which waits on
     nothing."""
     with file_lock(inst.state_dir / "flakes.lock"):
-        name, earlier = open_fix_change(inst, flake.test, FLAKY_PREFIX)
+        name, earlier = open_fix_change(inst, flake.test)
         if name is None:
-            name = next_fix_name(inst, flake.test, FLAKY_PREFIX)
+            name = next_fix_name(inst, flake.test)
             _write_change(inst, name, flake, unit, earlier=earlier)
         if unit.change == name:
             return None
@@ -150,11 +153,14 @@ def wait_on_fix(
 
 
 def _candidates(test: str, prefix: str):
-    base = fix_change_name(test, prefix)
-    yield base
+    """Each attempt's names for `test`: one per prefix looked under, the one new changes take
+    first. Without `prefix` the test-fix prefixes are all looked under."""
+    prefixes = (prefix,) if prefix else (FIX_PREFIX, FLAKY_PREFIX, FAILING_PREFIX)
+    bases = [fix_change_name(test, p) for p in prefixes]
+    yield bases
     attempt = 2
     while True:
-        yield f"{base}-{attempt}"
+        yield [f"{base}-{attempt}" for base in bases]
         attempt += 1
 
 
@@ -163,25 +169,37 @@ def _archived(inst: Installation, name: str) -> bool:
 
 
 def open_fix_change(inst: Installation, test: str, prefix: str = "") -> tuple[str | None, str]:
-    """The open change named for `test` under `prefix`, or None and the last archived
-    attempt (or "")."""
+    """The open change that fixes `test` under `prefix` (any test-fix prefix when empty), or
+    None and the last archived attempt (or "")."""
     earlier = ""
-    for name in _candidates(test, prefix):
-        if (inst.changes_dir / name).is_dir():
-            return name, earlier
-        if not _archived(inst, name):
+    for names in _candidates(test, prefix):
+        for name in names:
+            if (inst.changes_dir / name).is_dir():
+                return name, earlier
+        archived = [name for name in names if _archived(inst, name)]
+        if not archived:
             return None, earlier
-        earlier = name
+        earlier = archived[0]
     raise AssertionError("unreachable")
 
 
 def next_fix_name(inst: Installation, test: str, prefix: str = "") -> str:
-    """The name the next change for `test` under `prefix` gets: the first neither open
-    nor archived."""
-    for name in _candidates(test, prefix):
-        if not (inst.changes_dir / name).exists() and not _archived(inst, name):
-            return name
+    """The name the next change for `test` gets: the first attempt with no change open or
+    archived under any prefix looked under, named with `prefix` or `FIX_PREFIX`."""
+    for names in _candidates(test, prefix):
+        if not any((inst.changes_dir / n).exists() or _archived(inst, n) for n in names):
+            return names[0]
     raise AssertionError("unreachable")
+
+
+def covered_tests(tests: list[str]) -> list[str]:
+    """The `tests` that an open fix change covers, of any prefix. Empty when no workspace is
+    loaded."""
+    root = active_root()
+    if root is None:
+        return []
+    inst = Installation(active(), root)
+    return [test for test in tests if open_fix_change(inst, test)[0] is not None]
 
 
 # --- the Needs: line -------------------------------------------------------------

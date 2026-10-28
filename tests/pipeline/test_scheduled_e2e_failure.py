@@ -27,7 +27,7 @@ GATE_CLEARED = ResumeEvent(
 
 
 def fixes(run: ScheduledRun) -> list[str]:
-    return sorted(c for c in changes(run.inst) if c.startswith("fix-failing"))
+    return sorted(c for c in changes(run.inst) if c.startswith("fix-test"))
 
 
 def failing(*tests: str, fixed_by: str = ""):
@@ -80,7 +80,7 @@ def test_a_failing_run_is_recorded_fixed_once_per_test_and_the_unit_waits_on_the
     assert outcome.status == RunStatus.HELD
     assert [e.test for e in preexisting_record(run.inst).entries()] == [ONE, TWO]
     written = fixes(run)
-    assert len(written) == 2, "one fix-failing change per test"
+    assert len(written) == 2, "one fix-test change per test"
     assert sorted(waits_on(run.inst, CHANGE)) == written, "a Needs: line on the unit's group"
     stored = run.stored
     assert (stored.state, stored.cause) == (PLANNED, Cause.GATED)

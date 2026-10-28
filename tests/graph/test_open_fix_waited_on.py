@@ -75,12 +75,9 @@ def test_a_unit_that_failed_before_the_fix_existed_gets_its_line_on_a_requeue(
     tick(tmp_path, recorder, on_flake=build_on_flake(recorder.store, installation, log=print))
     fix = open_fix(installation, "fix-test")
 
-    outcome = tick(
-        tmp_path,
-        recorder,
-        event=REQUEUE,
-        on_flake=build_on_flake(recorder.store, installation, log=print),
-    )
+    on_flake = build_on_flake(recorder.store, installation, log=print)
+    tick(tmp_path, recorder, event=REQUEUE, on_flake=on_flake)
+    outcome = tick(tmp_path, recorder, on_flake=on_flake)
 
     assert outcome.status == RunStatus.HELD
     stored = recorder.store.get("add-marker/1")

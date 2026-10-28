@@ -70,8 +70,8 @@ def test_a_dry_run_previews_each_recorded_failure_and_writes_nothing(
     record = preexisting_record(inst)
     record.append(failing(TEST))
     record.append(failing(ARCHIVED))
-    open_name = fix_change_name(TEST, "fix-failing")
-    archived_name = fix_change_name(ARCHIVED, "fix-failing")
+    open_name = fix_change_name(TEST, "fix-test")
+    archived_name = fix_change_name(ARCHIVED, "fix-test")
     open_change(inst, open_name)
     archived_change(inst, archived_name)
     runs: list[object] = []

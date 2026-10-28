@@ -1469,8 +1469,9 @@ approved.
   declared split; an older entry's `runtime` is read as the split, `base` as `rest`) and the
   fix change), through the
   same `FailureRecord` the flake record uses. `untouched_failures.ensure_fix` makes sure,
-  under `preexisting.lock`, that one open `fix-failing-<slug>` change exists for the test id
-  (name capped with a hash, so a flake of the same test is a different change), and writes
+  under `preexisting.lock`, that one open `fix-test-<slug>` change exists for the test id
+  (name capped with a hash; a flake of the same test is the same change, and an open
+  `fix-flaky-` or `fix-failing-` one is found by the same lookup), and writes
   it without a model: a proposal, a design stub, one `[e2e-test]` group with its tests first,
   `Priority: 1` and an acceptance opt-out, and a spec. A successor (`-2` and on, its spec
   MODIFIED, the proposal naming the earlier attempt) is written only once the earlier change
@@ -1549,7 +1550,7 @@ approved.
   idle installation still reaches the round. The change's unit goes from `prepare` straight
   to the whole-suite e2e-test step on the default branch: no tests, implement, checks, review,
   push or pull request, and no agent call. A pass ends it satisfied with a note and the change
-  archives; a failure is recorded as pre-existing, fixed by `fix-failing-*` changes and
+  archives; a failure is recorded as pre-existing, fixed by `fix-test-*` changes and
   waited on as for any unit. It is counted by `max_units_in_progress`, waits for the e2e-test
   lock and starts only when the usage guard admits a unit. The `scheduled-e2e-` prefix is
   reserved. `abk tick --dry-run` prints `would write:` or `exists:` and writes nothing.
