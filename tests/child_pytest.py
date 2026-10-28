@@ -33,3 +33,9 @@ def run_scenario(
         "-p", "tests.time_limit", "-p", "no:cacheprovider", "-q", module, *args
     )
     return ChildRun(code=int(result.ret), output=result.stdout.str() + result.stderr.str())
+
+
+def collect_listing(*targets: str) -> ChildRun:
+    """The `--collect-only -q` listing of a child pytest run on `targets` (paths below the
+    repository root), so a test of what is collected reads a few files, never the whole suite."""
+    raise NotImplementedError
