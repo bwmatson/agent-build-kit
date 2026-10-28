@@ -52,6 +52,19 @@ class AzureDevOpsTracker(TrackerSection):
     area_path: str = Field(min_length=1)
     iteration_path: str = Field(min_length=1)
     story_type: str = Field(min_length=1)
+    # The levels in use, top down, and the work item type of each level (and of the epic).
+    levels: tuple[str, ...] = ("change", "group")
+    types: dict[str, str] = {}
+
+    @property
+    def level_types(self) -> dict[str, str]:
+        """The work item type of each level in use; `types` wins over `story_type`, which
+        stays the type of the group level when `types` does not name one."""
+        return {
+            level: kind
+            for level, kind in {"group": self.story_type, **self.types}.items()
+            if level in self.levels or level == "epic"
+        }
 
     @property
     def target(self) -> str:

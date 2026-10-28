@@ -256,7 +256,10 @@ repos:                        # ordered; a task group's [repo] tag is a key here
                               # section is absent or `kind: none`; a section without `kind`
                               # is an error, and so is any missing or invalid field
       kind: azure_devops      # azure_devops (organization, project, team, area_path,
-                              # iteration_path, story_type: all required) or github (owner,
+                              # iteration_path, story_type: all required; optional `levels`
+                              # (levels in use, default change, group) and `types` (the work
+                              # item type of each of epic, change, group, task; story_type is
+                              # the group's when `types` has none)) or github (owner,
                               # repo, labels: a label for each of feature, story and task;
                               # host and project_number optional) or none
       # token_env: MY_TRACKER_TOKEN  # optional override: the NAME of an environment variable,

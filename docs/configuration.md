@@ -458,7 +458,12 @@ repos:                          # ordered: deploy order is derived from
                                 # a credential is the NAME of an environment variable in
                                 # `token_env`, and a token-shaped value is refused.
       kind: azure_devops        # azure_devops: organization, project, team, area_path,
-                                # iteration_path, story_type (all required).
+                                # iteration_path, story_type (all required), and
+                                # optional `levels` (the levels in use, top down; default
+                                # change, group) and `types` (the work item type of each
+                                # of epic, change, group, task; a `group` here wins over
+                                # story_type, which is the group's type when `types` names
+                                # none).
                                 # github: owner, repo, labels (a label for each of
                                 # feature, story, task; all required), host and
                                 # project_number optional.

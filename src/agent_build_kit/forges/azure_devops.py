@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import logging
 import re
-import threading
 from collections.abc import Collection, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
@@ -65,15 +64,14 @@ from agent_build_kit.forges.base import (
     redacted_text,
 )
 from agent_build_kit.forges.transport import (
-    AZURE_CLI_SOURCE,
+    AZURE_API_VERSION,
+    AZURE_FORGE,
+    AZURE_HOST,
     TRANSIENT,
-    AuthError,
+    AzureRest,
     NotFound,
     Response,
-    Transport,
     TransportError,
-    credential_for,
-    forget_credential,
     unexpected,
     validated,
 )
@@ -83,10 +81,7 @@ if TYPE_CHECKING:
     from agent_build_kit.config import RepoConfig
     from agent_build_kit.settings import Settings
 
-_HOST = "https://dev.azure.com"
-# The REST version every call is made against, and the one policy evaluations
-# are only served under.
-_API = "7.1"
+# The REST version policy evaluations are only served under.
 _API_EVALUATIONS = "7.1-preview.1"
 # The most the list endpoints give a page of.
 _PAGE = 100
@@ -176,7 +171,7 @@ _MERGE_REFUSALS = (400, 405, 409, 412)
 
 
 class AzureDevOpsForge:
-    name: str = "azure_devops"
+    name: str = AZURE_FORGE
     implemented: bool = True
     client: str | None = "az"
     # Azure DevOps keeps the source branch unless the PR asked for it to go,
@@ -210,13 +205,12 @@ class AzureDevOpsForge:
     status_limit: int = 950
 
     def api_url(self, machine: Settings) -> str | None:
-        return _HOST
+        return AZURE_HOST
 
     def __init__(self, http: httpx.BaseTransport | None = None) -> None:
         # The transport every REST call goes through; None is the network.
         self.http = http
-        self._transports: dict[str, Transport] = {}
-        self._lock = threading.Lock()
+        self.rest = AzureRest(http)
 
     # --- identity -------------------------------------------------------------------
 
@@ -258,45 +252,28 @@ class AzureDevOpsForge:
 
     # --- the wire -------------------------------------------------------------------
 
-    def _transport(self, account: str, run: Run | None) -> Transport:
-        """The connection for one organisation, rebuilt when its credential is
-        read again: `_call` drops an `az` token the host rejected, since it
-        expires, so the next read runs `az` for a fresh one."""
-        credentials = credential_for(self.name, account, run=run)
-        with self._lock:
-            held = self._transports.get(account)
-            if held is None or held.credentials is not credentials:
-                held = Transport(_HOST, credentials, transport=self.http)
-                self._transports[account] = held
-            return held
-
     def _call(
         self,
         repo: RepoId,
         method: str,
         path: str,
         *,
-        version: str = _API,
+        version: str = AZURE_API_VERSION,
         params: dict[str, str] | None = None,
         json: Any = None,
         run: Run | None = None,
     ) -> Response:
-        """One REST call, `path` being under the project's `_apis/`.
-
-        A token from the `az` session that the host rejects has most likely
-        expired, so it is dropped and the call made once more with a fresh one.
-        A PAT stays cached: a rejected PAT is rejected again.
-        """
-        url = f"/{quote(repo.account)}/{quote(repo.project)}/_apis/{path}"
-        query = {"api-version": version, **(params or {})}
-        transport = self._transport(repo.account, run)
-        try:
-            return transport.request(method, url, json=json, params=query)
-        except AuthError:
-            if transport.credentials.source != AZURE_CLI_SOURCE:
-                raise
-        forget_credential(self.name, repo.account)
-        return self._transport(repo.account, run).request(method, url, json=json, params=query)
+        """One REST call, `path` being under the project's `_apis/`."""
+        return self.rest.call(
+            repo.account,
+            repo.project,
+            method,
+            path,
+            version=version,
+            params=params,
+            json=json,
+            run=run,
+        )
 
     def _git(self, repo: RepoId, method: str, tail: str = "", **kwargs: Any) -> Response:
         """One REST call on the repository itself."""
@@ -1057,7 +1034,9 @@ def _build_url(repo: RepoId, build: int | None) -> str:
     """The web link to a build, or "" where an evaluation names none."""
     if not build:
         return ""
-    return f"{_HOST}/{quote(repo.account)}/{quote(repo.project)}/_build/results?buildId={build}"
+    return (
+        f"{AZURE_HOST}/{quote(repo.account)}/{quote(repo.project)}/_build/results?buildId={build}"
+    )
 
 
 def _latest_statuses(statuses: list[StatusDoc]) -> list[StatusDoc]:

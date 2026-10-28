@@ -25,7 +25,8 @@ def tracker_checks(config: Path) -> list[Check]:
     return [
         check
         for check in run_doctor(config, run=Answers(), which=which_all)
-        if "tracker" in check.name.lower() or "tracker" in check.detail.lower()
+        # By name: another check's detail may hold a path (the checkout's own) that says "tracker".
+        if check.name.lower().startswith("tracker")
     ]
 
 

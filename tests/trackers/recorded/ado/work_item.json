@@ -1,0 +1,44 @@
+{
+  "fixture": {
+    "source": "reference",
+    "page": "https://learn.microsoft.com/en-us/rest/api/azure/devops/wit/work-items/get-work-item?view=azure-devops-rest-7.1",
+    "date": "2026-10-28"
+  },
+  "body": {
+    "id": 299,
+    "rev": 2,
+    "fields": {
+      "System.AreaPath": "Some Project\\Team A",
+      "System.TeamProject": "Some Project",
+      "System.IterationPath": "Some Project\\Sprint 1",
+      "System.WorkItemType": "Issue",
+      "System.State": "To Do",
+      "System.Reason": "Added to backlog",
+      "System.CreatedDate": "2026-10-20T09:12:31.257Z",
+      "System.CreatedBy": {
+        "displayName": "Sync Account",
+        "id": "aaaaaaaa-0000-0000-0000-000000000001",
+        "uniqueName": "sync@example.com"
+      },
+      "System.ChangedDate": "2026-10-20T09:14:02.903Z",
+      "System.ChangedBy": {
+        "displayName": "Sync Account",
+        "id": "aaaaaaaa-0000-0000-0000-000000000001",
+        "uniqueName": "sync@example.com"
+      },
+      "System.CommentCount": 0,
+      "System.Title": "A work item",
+      "System.Description": "<div>Body text</div>",
+      "System.Tags": ""
+    },
+    "relations": [],
+    "_links": {
+      "self": {"href": "https://dev.azure.com/example/Some%20Project/_apis/wit/workItems/299"},
+      "workItemUpdates": {
+        "href": "https://dev.azure.com/example/Some%20Project/_apis/wit/workItems/299/updates"
+      },
+      "html": {"href": "https://dev.azure.com/example/Some%20Project/_workitems/edit/299"}
+    },
+    "url": "https://dev.azure.com/example/Some%20Project/_apis/wit/workItems/299"
+  }
+}
