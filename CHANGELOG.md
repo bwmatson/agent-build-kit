@@ -7,6 +7,10 @@
   taken over instead of blocking the branch. Locks written before this, holding only a pid,
   are still honoured while that process lives. Two runs finding the same stale lock can no
   longer both take it.
+- A new `regression` model role names the model that writes the fix for a failing test. It
+  is set like the other roles (`models.regression`, `runtimes.<name>.models.regression` or
+  `ABK_REGRESSION_MODEL`) and defaults to Opus under Claude Code. `global_limits` takes
+  `max_regression_runs_per_hour` (default 10) to bound how often it runs.
 
 - `abk doctor` and `abk status` report a repo's work tracker when it has a `tracker`
   section: the target and who the credential acts as (a refused credential is one warning
@@ -62,10 +66,6 @@
   message you typed as the body, so the commit counts toward the group's pair and the unit no
   longer stops for a missing one. The command prints the subject it used, and the web UI's
   response carries it. No model is called.
-- A new `regression` model role names the model that writes the fix for a failing test. It
-  is set like the other roles (`models.regression`, `runtimes.<name>.models.regression` or
-  `ABK_REGRESSION_MODEL`) and defaults to Opus under Claude Code. `global_limits` takes
-  `max_regression_runs_per_hour` (default 10) to bound how often it runs.
 
 - Every change that fixes a failing test is now named `fix-test-<test>`, whatever kind of
   failure it was, and one lookup by test finds an open fix of any older name. A unit whose
