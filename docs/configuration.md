@@ -117,8 +117,8 @@ planning:
                                 # refused, so move them first: see
                                 # docs/runbooks/move-the-unit-worktree-root.md.
                                 # Wait for no running unit and no running track
-                                # first: an edit of abk.local.yaml during a step
-                                # is only a warning with its diff.
+                                # first: a running unit's worktree must not be
+                                # moved.
   self_pull: true               # the tracks pull a separate planning repo, and a
                                 # tick or track syncs a pipeline worktree, before
                                 # running.
@@ -935,7 +935,7 @@ The kernel confines what an agent step can write and reach. Keys:
 - `sandbox.enabled` (default `true`): the sandbox is on by default; set `sandbox.enabled: false` to
   turn it off. On a machine with no backend for the platform the step runs unconfined, the tick
   logs one line saying why and `abk status` shows coverage `none`; a backend that exists but fails
-  its probe stops the step with the cause and the fix. `abk init` writes no `sandbox:` block.
+  its probe stops the step with the cause and the fix, unless the repo sets `sandbox.required: none`. `abk init` writes no `sandbox:` block.
 - `sandbox.backend` (default `auto`): `auto` picks the first backend whose probe passes on this
   machine; or name one (`landlock` today; `seatbelt` arrives with the macOS backend and is refused at
   load until then).
