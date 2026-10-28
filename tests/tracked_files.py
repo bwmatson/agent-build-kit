@@ -79,7 +79,8 @@ def guarded_files(
     """The tracked files below each folder of `under` (the whole tree when empty), plus the root
     files of `names` that exist, filtered by `suffixes` when given. The specification folder is
     left out unless `specs`; the state folder is always left out (name a file of it in `names`).
-    Hidden, vendored and built folders below a folder of `under` are skipped. Sorted. A caller that
+    Hidden, vendored and built folders below a folder of `under` are skipped, as is a tracked
+    file already gone from the disk (another test or a checkout removed it). Sorted. A caller that
     already read the planning folders passes them as `dirs`."""
     dirs = dirs or planning_dirs(root)
     left_out = [Path(dirs.state_dir)] + ([] if specs else [Path(dirs.specs_dir)])
@@ -88,7 +89,11 @@ def guarded_files(
         if any(folder in (relative, *relative.parents) for folder in left_out):
             continue
         for top in [Path(name) for name in under] or [Path()]:
-            if top in relative.parents and not skipped(relative, top):
+            if (
+                top in relative.parents
+                and not skipped(relative, top)
+                and (root / relative).exists()
+            ):
                 found.add(root / relative)
                 break
     found.update(root / name for name in names if (root / name).is_file())

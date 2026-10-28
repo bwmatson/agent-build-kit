@@ -37,7 +37,9 @@ EXEMPT_PREFIXES = ("test_config_migrate_test_kind_keys",)
 
 
 def exempt(path: Path) -> bool:
-    return path.name in EXEMPT_NAMES or path.name.startswith(EXEMPT_PREFIXES)
+    """A named file, or a track report: those record what the tracks saw, unit ids included."""
+    report = path.parent.name == "reports" and path.parent.parent.name == "docs"
+    return report or path.name in EXEMPT_NAMES or path.name.startswith(EXEMPT_PREFIXES)
 
 
 def candidates(root: Path) -> list[Path]:
