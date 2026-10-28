@@ -41,6 +41,8 @@ class UsageFacts(Frozen):
     ramp: float | None = None
     estimate: bool = False
     estimate_starts: int = 0
+    forecast: float | None = None
+    margin: int | None = None
 
 
 class AdmissionRecord(Frozen):

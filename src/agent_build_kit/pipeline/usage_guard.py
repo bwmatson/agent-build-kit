@@ -249,6 +249,9 @@ class Decision(Frozen):
     ramp: float | None = None
     estimate: bool = False
     estimate_starts: int = 0
+    # The points the ask is forecast to need and the margin kept under the threshold, as decided.
+    forecast: float | None = None
+    margin: int | None = None
 
     @property
     def resume_after_seconds(self) -> float:
