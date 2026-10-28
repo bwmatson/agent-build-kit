@@ -12,7 +12,7 @@ from agent_build_kit.init.scaffold import draft_config, write_planning_repo
 from tests.factories import fake_openspec, recognised_planning
 from tests.init.test_scaffold import detection
 
-ROLES = ("implement", "rework", "review", "rework_review")
+ROLES = ("implement", "rework", "review", "rework_review", "regression")
 
 
 def written_file(tmp_path: Path) -> Path:
@@ -37,4 +37,10 @@ def test_the_written_file_holds_the_roles_under_the_runtime(tmp_path: Path) -> N
 def test_the_written_file_loads_with_the_runtimes_own_default_names(tmp_path: Path) -> None:
     own = load(written_file(tmp_path)).runtimes["claude_code"].models
 
-    assert [getattr(own, role) for role in ROLES] == ["sonnet", "sonnet", "opus", "opus"]
+    assert [getattr(own, role) for role in ROLES] == [
+        "sonnet",
+        "sonnet",
+        "opus",
+        "opus",
+        "opus",
+    ]
