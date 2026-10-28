@@ -271,6 +271,16 @@ CHECK_LINE = re.compile(r"^Check:\s*(?P<command>.*?)\s*$", re.I)
 PRIORITY_LINE = re.compile(r"^Priority:\s*(?P<value>.*?)\s*$", re.I)
 PRIORITY_VALUE = re.compile(r"[0-5]")
 
+# "Epic: 259" or "Epic: <exact title>" above the first group: the existing board item, made by a
+# person, that the change's top item is placed under.
+EPIC_LINE = re.compile(r"^Epic:\s*(?P<value>.*?)\s*$", re.I)
+
+
+def epic_reference(path: Path) -> str | None:
+    """The id or exact title a change's `Epic:` header line names, none when it has no line."""
+    raise NotImplementedError
+
+
 # `Split: <name>` in an e2e-test group: the e2e-test split it runs in (`rest` when absent).
 SPLIT_LINE = re.compile(r"^Split:\s*(?P<value>.*?)\s*$", re.I)
 
