@@ -195,6 +195,7 @@
   backend runs unconfined and says so), and that `abk.yaml` and `abk.local.yaml` may be edited
   at any time: a change during a step is a warning with its diff, so there is no need to stop
   the timer first.
+
 - A repo's `tracker` section now says how its board is shaped: `levels` (any ordered subset of
   `change`, `group` and `task`), an optional manual `epic` level, `pr_links` (which levels get
   a merged unit's pull request, default the lowest), and the connection, types and states in a
