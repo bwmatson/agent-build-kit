@@ -1,7 +1,10 @@
 """Azure DevOps work items as a tracker, over the forge's transport.
 
 A create is one JSON Patch to `wit/workitems/$<type>`; the kit's marker is a hidden comment
-on the description's last line, which `find_by_marker` searches for with the query language.
+on the description's last line and also a tag. `find_by_marker` searches the tags, a string
+field the query language matches by substring and sees at once (a description is long text,
+which it matches only by word, from an index that lags a write), then reads the marker back
+from the description of what it found.
 Hierarchy is the reverse link on the child, and the forward link on the parent lists children.
 """
 
@@ -14,7 +17,7 @@ from urllib.parse import quote
 
 import httpx
 
-from agent_build_kit.forges.transport import AzureRest, validated
+from agent_build_kit.forges.transport import AzureRest, Response, validated
 from agent_build_kit.trackers.azure_work_item_models import (
     WiqlDoc,
     WorkItemDoc,
@@ -31,13 +34,17 @@ PATCH = "application/json-patch+json"
 _LEVELS: dict[ItemKind, str] = {"feature": "change", "story": "group", "task": "task"}
 
 
+class UnknownWorkItemType(ValueError):
+    """A work item of a type no level of the configuration uses."""
+
+
 class AzureDevOpsWorkItems:
     def __init__(self, section: AzureDevOpsTracker, *, http: httpx.BaseTransport | None = None):
         self._section = section
         self._rest = AzureRest(http)
-        self._kinds = {
-            section.types[level]: kind for kind, level in _LEVELS.items() if level in section.types
-        }
+        types = section.level_types
+        self._types = {kind: types[level] for kind, level in _LEVELS.items() if level in types}
+        self._kinds = {type_: kind for kind, type_ in self._types.items()}
 
     def create(
         self,
@@ -50,18 +57,19 @@ class AzureDevOpsWorkItems:
         fields: Mapping[str, str] | None = None,
     ) -> Item:
         section = self._section
-        level = _LEVELS[kind]
-        if level not in section.types:
+        if kind not in self._types:
             raise ValueError(f"kind {kind!r} has no work item type in the configuration")
+        # HTML collapses a newline, so a line break is written as one and read back as one.
+        text = html.escape(body, quote=False).replace("\n", "<br>")
         description = "\n".join(
-            ([html.escape(body, quote=False)] if body else [])
-            + [f"<!-- {section.marker_prefix}:{marker} -->" for marker in markers]
+            ([text] if body else []) + [self._comment(marker) for marker in markers]
         )
         values = {
             "System.Title": title,
             "System.Description": description,
             "System.AreaPath": section.area_path,
             "System.IterationPath": section.iteration_path,
+            **({"System.Tags": "; ".join(self._tag(m) for m in markers)} if markers else {}),
             **(fields or {}),
         }
         patch: list[dict[str, object]] = [
@@ -76,13 +84,15 @@ class AzureDevOpsWorkItems:
                     "value": {"rel": PARENT_LINK, "url": self._url_of(parent)},
                 }
             )
-        path = f"wit/workitems/${quote(section.types[level])}"
+        path = f"wit/workitems/${quote(self._types[kind])}"
         return self._item(self._call("POST", path, json=patch, content_type=PATCH))
 
     def get(self, item_id: str) -> Item:
         return self._item(self._call("GET", f"wit/workitems/{item_id}", {"$expand": "relations"}))
 
     def children(self, item_id: str) -> Sequence[Item]:
+        """The children of an item that are of a configured level; a person's Bug, or any
+        other type no level uses, is left out."""
         response = self._call("GET", f"wit/workitems/{item_id}", {"$expand": "relations"})
         parent = validated(WorkItemDoc, response.data, "workitems", response.text)
         ids = [r.url.rsplit("/", 1)[-1] for r in parent.relations if r.rel == CHILD_LINK]
@@ -90,19 +100,22 @@ class AzureDevOpsWorkItems:
             return ()
         listed = self._call("GET", "wit/workitems", {"ids": ",".join(ids), "$expand": "relations"})
         found = validated(WorkItemsDoc, listed.data, "workitems", listed.text)
-        return tuple(self._to_item(doc) for doc in found.value)
+        return tuple(self._to_item(doc) for doc in found.value if doc.fields.type in self._kinds)
 
     def find_by_marker(self, marker: str) -> Item | None:
-        text = f"<!-- {self._section.marker_prefix}:{marker} -->".replace("'", "''")
+        tag = self._tag(marker).replace("'", "''")
         query = (
             "SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = @project "
-            f"AND [System.Description] Contains '{text}'"
+            f"AND [System.Tags] Contains '{tag}'"
         )
         response = self._call("POST", "wit/wiql", json={"query": query})
         found = validated(WiqlDoc, response.data, "wiql", response.text)
-        if not found.work_items:
-            return None
-        return self.get(str(found.work_items[0].id))
+        # `Contains` is a substring match: `change` is also in `change:group`.
+        for candidate in found.work_items:
+            item = self.get(str(candidate.id))
+            if marker in item.markers:
+                return item
+        return None
 
     # --- the wire -------------------------------------------------------------------
 
@@ -114,7 +127,7 @@ class AzureDevOpsWorkItems:
         *,
         json: object = None,
         content_type: str | None = None,
-    ):
+    ) -> Response:
         section = self._section
         return self._rest.call(
             section.organization,
@@ -128,15 +141,24 @@ class AzureDevOpsWorkItems:
 
     def _url_of(self, item_id: str) -> str:
         section = self._section
-        return (
-            f"{AzureRest.host}/{quote(section.organization)}/{quote(section.project)}"
-            f"/_apis/wit/workitems/{item_id}"
-        )
+        return self._rest.url(section.organization, section.project, f"wit/workitems/{item_id}")
 
-    def _item(self, response) -> Item:
+    def _comment(self, marker: str) -> str:
+        return f"<!-- {self._section.marker_prefix}:{marker} -->"
+
+    def _tag(self, marker: str) -> str:
+        return f"{self._section.marker_prefix}:{marker}"
+
+    def _item(self, response: Response) -> Item:
         return self._to_item(validated(WorkItemDoc, response.data, "workitems", response.text))
 
     def _to_item(self, doc: WorkItemDoc) -> Item:
+        kind = self._kinds.get(doc.fields.type)
+        if kind is None:
+            raise UnknownWorkItemType(
+                f"work item {doc.id} is a {doc.fields.type!r}, which no level of the "
+                f"configuration uses (levels: {', '.join(self._section.levels)})"
+            )
         prefix = re.escape(self._section.marker_prefix)
         marker = re.compile(rf"<!-- {prefix}:(.*?) -->")
         description = doc.fields.description
@@ -145,9 +167,9 @@ class AzureDevOpsWorkItems:
         )
         return Item(
             id=str(doc.id),
-            kind=self._kinds[doc.fields.type],
+            kind=kind,
             title=doc.fields.title,
-            body=html.unescape(marker.sub("", description).rstrip("\n")),
+            body=html.unescape(marker.sub("", description).rstrip("\n").replace("<br>", "\n")),
             state=doc.fields.state,
             assignees=(doc.fields.assigned_to.unique_name,) if doc.fields.assigned_to else (),
             parent_id=parent,

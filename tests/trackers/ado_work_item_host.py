@@ -19,14 +19,19 @@ from urllib.parse import unquote
 import httpx
 
 from agent_build_kit.model import Frozen
-from tests.forges.azure_rest_host import Seen, answer
+from tests.forges.azure_rest_host import Seen, answer, refusal
 from tests.trackers.ado_recorded import load
 
 REVERSE = "System.LinkTypes.Hierarchy-Reverse"
 FORWARD = "System.LinkTypes.Hierarchy-Forward"
 BASE = "https://dev.azure.com/example/Some%20Project"
 _ROUTE = re.compile(r"^/(?P<org>[^/]+)/(?P<project>[^/]+)/_apis/(?P<rest>.*)$")
-_QUOTED = re.compile(r"'((?:[^']|'')*)'")
+_CONDITION = re.compile(
+    r"\[([\w.]+)\]\s+(Not Contains Words|Contains Words|Contains|=)\s+'((?:[^']|'')*)'",
+    re.IGNORECASE,
+)
+# The fields whose text is HTML, which the query language matches only by word.
+LONG_TEXT_FIELDS = ("System.Description",)
 
 
 class CreateRequest(Frozen):
@@ -137,11 +142,20 @@ class WorkItemHost(httpx.MockTransport):
         return answer(made)
 
     def _query(self, query: str) -> httpx.Response:
-        wanted = _QUOTED.findall(query)[-1].replace("''", "'")
+        """A query on one string field by substring; the service refuses `Contains` on a
+        long-text field such as the description, where only `Contains Words` is valid."""
+        condition = _CONDITION.findall(query)[-1]
+        field, operator, wanted = condition[0], condition[1], condition[2].replace("''", "'")
+        if field in LONG_TEXT_FIELDS and operator.lower() == "contains":
+            return refusal(
+                400,
+                f"VS403474: The operator Contains cannot be used with the field {field}.",
+                "WorkItemQueryClauseInvalidException",
+            )
         found = [
             {"id": number, "url": self._url(str(number))}
             for number, doc in self.items.items()
-            if wanted in doc["fields"].get("System.Description", "")
+            if wanted in doc["fields"].get(field, "")
         ]
         reply = deepcopy(load("wiql_result").body)
         reply["workItems"] = found

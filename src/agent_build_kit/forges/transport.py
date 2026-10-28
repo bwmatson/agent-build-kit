@@ -166,6 +166,12 @@ def forget_credential(forge: str, owner: str) -> None:
         _cache.pop((forge, owner), None)
 
 
+# What Azure DevOps is called, where it is, and the REST version every call is made against
+# (policy evaluations alone are served under a preview one): the code host and the work item
+# tracker both read these.
+AZURE_FORGE = "azure_devops"
+AZURE_HOST = "https://dev.azure.com"
+AZURE_API_VERSION = "7.1"
 # Azure DevOps' own application id, the resource its `az` access token is for.
 AZURE_DEVOPS_RESOURCE = "499b84ac-1321-427f-aa17-267ca6975798"
 AZURE_PAT_SOURCE = "AZURE_DEVOPS_EXT_PAT"
@@ -194,7 +200,7 @@ def _resolve_azure(owner: str, run: Run | None) -> Credentials:
 
 
 def _resolve(forge: str, owner: str, run: Run | None) -> Credentials:
-    if forge == "azure_devops":
+    if forge == AZURE_FORGE:
         return _resolve_azure(owner, run)
     if forge != "github":
         raise AuthError(f"no credential source for a {forge} repo of {owner}")
@@ -351,15 +357,25 @@ class AzureRest:
     cached, as a rejected PAT is rejected again.
     """
 
-    host = "https://dev.azure.com"
-    version = "7.1"
-    forge = "azure_devops"
+    host = AZURE_HOST
+    version = AZURE_API_VERSION
+    forge = AZURE_FORGE
 
     def __init__(self, http: httpx.BaseTransport | None = None) -> None:
         # The transport every call goes through; None is the network.
         self.http = http
         self._transports: dict[str, Transport] = {}
         self._lock = threading.Lock()
+
+    @staticmethod
+    def path(account: str, project: str, path: str) -> str:
+        """Where `path`, under the project's `_apis/`, is on the host."""
+        return f"/{quote(account)}/{quote(project)}/_apis/{path}"
+
+    @classmethod
+    def url(cls, account: str, project: str, path: str) -> str:
+        """The absolute URL of `path`, under the project's `_apis/`."""
+        return f"{cls.host}{cls.path(account, project, path)}"
 
     def _transport(self, account: str, run: Run | None) -> Transport:
         """The connection for one organisation, rebuilt when its credential is read again."""
@@ -385,7 +401,7 @@ class AzureRest:
         run: Run | None = None,
     ) -> Response:
         """One REST call, `path` being under the project's `_apis/`."""
-        url = f"/{quote(account)}/{quote(project)}/_apis/{path}"
+        url = self.path(account, project, path)
         query = {"api-version": version or self.version, **(params or {})}
         transport = self._transport(account, run)
         try:

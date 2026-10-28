@@ -57,6 +57,16 @@ class AzureDevOpsTracker(TrackerSection):
     types: dict[str, str] = {}
 
     @property
+    def level_types(self) -> dict[str, str]:
+        """The work item type of each level in use; `types` wins over `story_type`, which
+        stays the type of the group level when `types` does not name one."""
+        return {
+            level: kind
+            for level, kind in {"group": self.story_type, **self.types}.items()
+            if level in self.levels or level == "epic"
+        }
+
+    @property
     def target(self) -> str:
         return f"{self.kind} {self.organization}/{self.project}"
 

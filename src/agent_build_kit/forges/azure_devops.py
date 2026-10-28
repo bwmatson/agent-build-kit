@@ -64,6 +64,9 @@ from agent_build_kit.forges.base import (
     redacted_text,
 )
 from agent_build_kit.forges.transport import (
+    AZURE_API_VERSION,
+    AZURE_FORGE,
+    AZURE_HOST,
     TRANSIENT,
     AzureRest,
     NotFound,
@@ -78,10 +81,7 @@ if TYPE_CHECKING:
     from agent_build_kit.config import RepoConfig
     from agent_build_kit.settings import Settings
 
-_HOST = "https://dev.azure.com"
-# The REST version every call is made against, and the one policy evaluations
-# are only served under.
-_API = "7.1"
+# The REST version policy evaluations are only served under.
 _API_EVALUATIONS = "7.1-preview.1"
 # The most the list endpoints give a page of.
 _PAGE = 100
@@ -171,7 +171,7 @@ _MERGE_REFUSALS = (400, 405, 409, 412)
 
 
 class AzureDevOpsForge:
-    name: str = "azure_devops"
+    name: str = AZURE_FORGE
     implemented: bool = True
     client: str | None = "az"
     # Azure DevOps keeps the source branch unless the PR asked for it to go,
@@ -205,7 +205,7 @@ class AzureDevOpsForge:
     status_limit: int = 950
 
     def api_url(self, machine: Settings) -> str | None:
-        return _HOST
+        return AZURE_HOST
 
     def __init__(self, http: httpx.BaseTransport | None = None) -> None:
         # The transport every REST call goes through; None is the network.
@@ -258,7 +258,7 @@ class AzureDevOpsForge:
         method: str,
         path: str,
         *,
-        version: str = _API,
+        version: str = AZURE_API_VERSION,
         params: dict[str, str] | None = None,
         json: Any = None,
         run: Run | None = None,
@@ -1034,7 +1034,9 @@ def _build_url(repo: RepoId, build: int | None) -> str:
     """The web link to a build, or "" where an evaluation names none."""
     if not build:
         return ""
-    return f"{_HOST}/{quote(repo.account)}/{quote(repo.project)}/_build/results?buildId={build}"
+    return (
+        f"{AZURE_HOST}/{quote(repo.account)}/{quote(repo.project)}/_build/results?buildId={build}"
+    )
 
 
 def _latest_statuses(statuses: list[StatusDoc]) -> list[StatusDoc]:
