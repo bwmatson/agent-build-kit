@@ -1,0 +1,32 @@
+{
+  "fixture": {
+    "source": "reference",
+    "page": "https://learn.microsoft.com/en-us/rest/api/azure/devops/wit/wiql/query-by-wiql?view=azure-devops-rest-7.1",
+    "date": "2026-10-28"
+  },
+  "body": {
+    "queryType": "flat",
+    "queryResultType": "workItem",
+    "asOf": "2026-10-20T09:30:00.000Z",
+    "columns": [
+      {
+        "referenceName": "System.Id",
+        "name": "ID",
+        "url": "https://dev.azure.com/example/_apis/wit/fields/System.Id"
+      }
+    ],
+    "sortColumns": [
+      {
+        "field": {
+          "referenceName": "System.ChangedDate",
+          "name": "Changed Date",
+          "url": "https://dev.azure.com/example/_apis/wit/fields/System.ChangedDate"
+        },
+        "descending": false
+      }
+    ],
+    "workItems": [
+      {"id": 299, "url": "https://dev.azure.com/example/Some%20Project/_apis/wit/workItems/299"}
+    ]
+  }
+}

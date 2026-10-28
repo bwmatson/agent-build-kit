@@ -9,6 +9,7 @@ import subprocess
 import threading
 import time
 from typing import Any, Literal
+from urllib.parse import quote
 
 import httpx
 from pydantic import BaseModel, ValidationError
@@ -275,11 +276,13 @@ class Transport:
         json: Any = None,
         params: dict[str, str] | None = None,
         expect: Literal["json", "text"] = "json",
+        content_type: str | None = None,
     ) -> Response:
         """One call, made once: a failure of any kind is raised as it happens."""
         method = method.upper()
+        headers = {"Content-Type": content_type} if content_type else None
         try:
-            reply = self._client.request(method, path, json=json, params=params)
+            reply = self._client.request(method, path, json=json, params=params, headers=headers)
         except httpx.TransportError as error:
             raise HostError(f"{method} {path}: {error!r}") from error
         if _is_rate_limit(reply):
@@ -337,3 +340,62 @@ class Transport:
                 f"{method} {path}: unreadable JSON {who}: {page_excerpt(reply.text)}"
             ) from error
         return Response(status=status, headers=headers, data=data, text=reply.text)
+
+
+class AzureRest:
+    """Calls on Azure DevOps' project REST API, one connection per organisation.
+
+    Shared by the code host and the work item tracker, so both are authenticated by the same
+    cached credential. A token from the `az` session that the host rejects has most likely
+    expired, so it is dropped and the call made once more with a fresh one; a PAT stays
+    cached, as a rejected PAT is rejected again.
+    """
+
+    host = "https://dev.azure.com"
+    version = "7.1"
+    forge = "azure_devops"
+
+    def __init__(self, http: httpx.BaseTransport | None = None) -> None:
+        # The transport every call goes through; None is the network.
+        self.http = http
+        self._transports: dict[str, Transport] = {}
+        self._lock = threading.Lock()
+
+    def _transport(self, account: str, run: Run | None) -> Transport:
+        """The connection for one organisation, rebuilt when its credential is read again."""
+        credentials = credential_for(self.forge, account, run=run)
+        with self._lock:
+            held = self._transports.get(account)
+            if held is None or held.credentials is not credentials:
+                held = Transport(self.host, credentials, transport=self.http)
+                self._transports[account] = held
+            return held
+
+    def call(
+        self,
+        account: str,
+        project: str,
+        method: str,
+        path: str,
+        *,
+        version: str | None = None,
+        params: dict[str, str] | None = None,
+        json: Any = None,
+        content_type: str | None = None,
+        run: Run | None = None,
+    ) -> Response:
+        """One REST call, `path` being under the project's `_apis/`."""
+        url = f"/{quote(account)}/{quote(project)}/_apis/{path}"
+        query = {"api-version": version or self.version, **(params or {})}
+        transport = self._transport(account, run)
+        try:
+            return transport.request(
+                method, url, json=json, params=query, content_type=content_type
+            )
+        except AuthError:
+            if transport.credentials.source != AZURE_CLI_SOURCE:
+                raise
+        forget_credential(self.forge, account)
+        return self._transport(account, run).request(
+            method, url, json=json, params=query, content_type=content_type
+        )

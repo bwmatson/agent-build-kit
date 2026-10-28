@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import logging
 import re
-import threading
 from collections.abc import Collection, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
@@ -65,15 +64,11 @@ from agent_build_kit.forges.base import (
     redacted_text,
 )
 from agent_build_kit.forges.transport import (
-    AZURE_CLI_SOURCE,
     TRANSIENT,
-    AuthError,
+    AzureRest,
     NotFound,
     Response,
-    Transport,
     TransportError,
-    credential_for,
-    forget_credential,
     unexpected,
     validated,
 )
@@ -215,8 +210,7 @@ class AzureDevOpsForge:
     def __init__(self, http: httpx.BaseTransport | None = None) -> None:
         # The transport every REST call goes through; None is the network.
         self.http = http
-        self._transports: dict[str, Transport] = {}
-        self._lock = threading.Lock()
+        self.rest = AzureRest(http)
 
     # --- identity -------------------------------------------------------------------
 
@@ -258,18 +252,6 @@ class AzureDevOpsForge:
 
     # --- the wire -------------------------------------------------------------------
 
-    def _transport(self, account: str, run: Run | None) -> Transport:
-        """The connection for one organisation, rebuilt when its credential is
-        read again: `_call` drops an `az` token the host rejected, since it
-        expires, so the next read runs `az` for a fresh one."""
-        credentials = credential_for(self.name, account, run=run)
-        with self._lock:
-            held = self._transports.get(account)
-            if held is None or held.credentials is not credentials:
-                held = Transport(_HOST, credentials, transport=self.http)
-                self._transports[account] = held
-            return held
-
     def _call(
         self,
         repo: RepoId,
@@ -281,22 +263,17 @@ class AzureDevOpsForge:
         json: Any = None,
         run: Run | None = None,
     ) -> Response:
-        """One REST call, `path` being under the project's `_apis/`.
-
-        A token from the `az` session that the host rejects has most likely
-        expired, so it is dropped and the call made once more with a fresh one.
-        A PAT stays cached: a rejected PAT is rejected again.
-        """
-        url = f"/{quote(repo.account)}/{quote(repo.project)}/_apis/{path}"
-        query = {"api-version": version, **(params or {})}
-        transport = self._transport(repo.account, run)
-        try:
-            return transport.request(method, url, json=json, params=query)
-        except AuthError:
-            if transport.credentials.source != AZURE_CLI_SOURCE:
-                raise
-        forget_credential(self.name, repo.account)
-        return self._transport(repo.account, run).request(method, url, json=json, params=query)
+        """One REST call, `path` being under the project's `_apis/`."""
+        return self.rest.call(
+            repo.account,
+            repo.project,
+            method,
+            path,
+            version=version,
+            params=params,
+            json=json,
+            run=run,
+        )
 
     def _git(self, repo: RepoId, method: str, tail: str = "", **kwargs: Any) -> Response:
         """One REST call on the repository itself."""

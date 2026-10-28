@@ -1,0 +1,24 @@
+{
+  "fixture": {
+    "source": "reference",
+    "page": "https://learn.microsoft.com/en-us/rest/api/azure/devops/core/projects/get?view=azure-devops-rest-7.1",
+    "date": "2026-10-28"
+  },
+  "body": {
+    "authenticatedUser": {
+      "id": "aaaaaaaa-0000-0000-0000-000000000001",
+      "descriptor": "aad.c3luYw",
+      "providerDisplayName": "Sync Account",
+      "isActive": true,
+      "properties": {"Account": {"$type": "System.String", "$value": "sync@example.com"}}
+    },
+    "authorizedUser": {
+      "id": "aaaaaaaa-0000-0000-0000-000000000001",
+      "providerDisplayName": "Sync Account",
+      "isActive": true
+    },
+    "instanceId": "bbbbbbbb-0000-0000-0000-000000000002",
+    "deploymentType": "hosted",
+    "deploymentId": "cccccccc-0000-0000-0000-000000000003"
+  }
+}
