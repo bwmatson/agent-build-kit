@@ -12,9 +12,8 @@ from __future__ import annotations
 import json
 import os
 import shlex
-import subprocess
-from collections.abc import Collection, Iterator
-from datetime import UTC, datetime, timedelta
+from collections.abc import Collection
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import cast
 
@@ -31,14 +30,8 @@ from agent_build_kit.pipeline.run_log import (
 )
 from agent_build_kit.pipeline.wiring import build_unit_test
 from agent_build_kit.profiles.base import ToolchainProfile
-from agent_build_kit.profiles.python_uv import PythonUvProfile
+from tests.failure_bundle_fakes import START, VERSIONS, BundleMachine, BundleProfile
 from tests.redaction_fakes import NAME, SECRET, known
-
-RECORDED = Path(__file__).resolve().parents[1] / "fixtures" / "external" / "pytest"
-START = datetime(2026, 10, 11, 12, 0, 0, tzinfo=UTC)
-# What `pytest --version --version` printed, as recorded: the profile queries it because a `-q`
-# run prints no header.
-VERSIONS = (RECORDED / "version_verbose.txt").read_text()
 
 
 def _bundle(
@@ -171,72 +164,16 @@ def test_the_bundles_of_another_unit_are_left_alone(tmp_path: Path) -> None:
 # --- a failing unit-test run ------------------------------------------------------
 
 
-class _Profile(PythonUvProfile):
-    """The python-uv profile with one lint command; its test commands are its own."""
-
-    def lint_command(self, base: str) -> list[str]:
-        return ["lint"]
-
-
 def _tests_of(scratch: Path) -> list[list[str]]:
-    return _Profile().test_commands(scratch, ["tests/test_one.py"], root_extras=[])
+    return BundleProfile().test_commands(scratch, ["tests/test_one.py"], root_extras=[])
 
 
-class _Machine:
-    """Git, lint, the version query and the test run as the processes answer; the run itself,
-    when it is made, removes one file under `tests/` and adds another, as something else on the
-    host might. A test run prints what a `-q` run prints: no header."""
-
-    def __init__(self, root: Path, *, reruns: list[int], passing: bool = False) -> None:
-        self.root = root
-        self.reruns = list(reruns)
-        self.passing = passing
-        self.status_calls = 0
-        self.commands: list[list[str]] = []
-
-    def __call__(self, command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
-        self.commands.append(command)
-        if command == ["lint"]:
-            return subprocess.CompletedProcess(command, 0, "", "")
-        if command[:2] == ["git", "status"]:
-            self.status_calls += 1
-            return subprocess.CompletedProcess(
-                command, 0, f" M src/file{self.status_calls}.py\n", ""
-            )
-        if command[:2] == ["git", "rev-parse"]:
-            sha = "b" * 7 if command[-1] == "main" else "a" * 7
-            return subprocess.CompletedProcess(command, 0, sha + "\n", "")
-        if command[-2:] == ["--version", "--version"]:
-            return subprocess.CompletedProcess(command, 0, VERSIONS, "")
-        if any("::" in argument for argument in command):
-            return subprocess.CompletedProcess(command, self.reruns.pop(0), "1 passed\n", "")
-        if self.passing:
-            return subprocess.CompletedProcess(command, 0, "5 passed in 0.03s\n", "")
-        (self.root / "tests" / "test_gone.py").unlink(missing_ok=True)
-        (self.root / "tests" / "test_new.py").write_text("")
-        failure = (RECORDED / "console_failures.txt").read_text().split("\n", 1)[1]
-        return subprocess.CompletedProcess(command, 1, failure, "")
-
-
-@pytest.fixture
-def scratch(tmp_path: Path) -> Iterator[Path]:
-    (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "app"\nversion = "0"\ndependencies = ["pytest-xdist"]\n'
-    )
-    (tmp_path / "tests").mkdir()
-    (tmp_path / "tests" / "test_gone.py").write_text("")
-    (tmp_path / "tests" / "test_kept.py").write_text("")
-    token = spans.current_unit.set(("add-marker/1", "add-marker", "n1", 1))
-    yield tmp_path
-    spans.current_unit.reset(token)
-
-
-def _run(scratch: Path, machine: _Machine, directory: Path) -> tuple[bool, str] | None:
+def _run(scratch: Path, machine: BundleMachine, directory: Path) -> tuple[bool, str] | None:
     """The unit-test run; None when it found a flake."""
     loads = iter(range(1, 100))
     clock = iter(START + timedelta(seconds=10 * n) for n in range(100))
     unit_test = build_unit_test(
-        profile=cast(ToolchainProfile, _Profile()),
+        profile=cast(ToolchainProfile, BundleProfile()),
         run=machine,
         changed=lambda *a: ["tests/test_one.py"],
         failures_dir=directory,
@@ -260,7 +197,7 @@ def test_a_failing_run_saves_its_whole_output(
     scratch: Path, tmp_path: Path, reruns: list[int]
 ) -> None:
     directory = tmp_path / "bundles"
-    _run(scratch, _Machine(scratch, reruns=reruns), directory)
+    _run(scratch, BundleMachine(scratch, reruns=reruns), directory)
 
     bundle = _only(directory)
 
@@ -273,7 +210,7 @@ def test_the_context_names_the_command_the_times_the_shas_and_the_versions(
     scratch: Path, tmp_path: Path
 ) -> None:
     directory = tmp_path / "bundles"
-    _run(scratch, _Machine(scratch, reruns=[1, 1]), directory)
+    _run(scratch, BundleMachine(scratch, reruns=[1, 1]), directory)
 
     context = json.loads((_only(directory) / "context.json").read_text())
 
@@ -300,7 +237,7 @@ def test_the_bundle_records_the_tick_the_decision_log_records(
 ) -> None:
     """One identity per process: the id the decision log and the admission records carry."""
     directory = tmp_path / "bundles"
-    _run(scratch, _Machine(scratch, reruns=[1, 1]), directory)
+    _run(scratch, BundleMachine(scratch, reruns=[1, 1]), directory)
 
     context = json.loads((_only(directory) / "context.json").read_text())
 
@@ -313,7 +250,7 @@ def test_the_machine_is_sampled_at_the_start_and_again_at_the_end(
     scratch: Path, tmp_path: Path
 ) -> None:
     directory = tmp_path / "bundles"
-    _run(scratch, _Machine(scratch, reruns=[1, 1]), directory)
+    _run(scratch, BundleMachine(scratch, reruns=[1, 1]), directory)
 
     machine = json.loads((_only(directory) / "machine.json").read_text())
 
@@ -325,7 +262,7 @@ def test_the_worktree_is_described_before_and_after_and_names_a_file_that_vanish
     scratch: Path, tmp_path: Path
 ) -> None:
     directory = tmp_path / "bundles"
-    machine = _Machine(scratch, reruns=[1, 1])
+    machine = BundleMachine(scratch, reruns=[1, 1])
     _run(scratch, machine, directory)
 
     worktree = json.loads((_only(directory) / "worktree.json").read_text())
@@ -341,8 +278,8 @@ def test_the_worktree_is_described_before_and_after_and_names_a_file_that_vanish
 def test_a_failing_selected_run_saves_a_bundle_too(scratch: Path, tmp_path: Path) -> None:
     directory = tmp_path / "bundles"
     unit_test = build_unit_test(
-        profile=cast(ToolchainProfile, _Profile()),
-        run=_Machine(scratch, reruns=[1, 1]),
+        profile=cast(ToolchainProfile, BundleProfile()),
+        run=BundleMachine(scratch, reruns=[1, 1]),
         changed=lambda *a: ["tests/test_one.py"],
         repo=RepoConfig(
             path=scratch,
@@ -371,8 +308,8 @@ def test_a_failing_repeat_of_the_units_own_tests_saves_a_bundle_too(
     directory = tmp_path / "bundles"
 
     passed, _ = build_unit_test(
-        profile=cast(ToolchainProfile, _Profile()),
-        run=_Machine(scratch, reruns=[1], passing=True),
+        profile=cast(ToolchainProfile, BundleProfile()),
+        run=BundleMachine(scratch, reruns=[1], passing=True),
         changed=lambda *a: ["tests/test_new.py"],
         failures_dir=directory,
     )(cwd=scratch, base="main")
@@ -384,8 +321,8 @@ def test_a_failing_repeat_of_the_units_own_tests_saves_a_bundle_too(
 
 def test_a_passing_run_saves_no_bundle(scratch: Path, tmp_path: Path) -> None:
     directory = tmp_path / "bundles"
-    _run(scratch, _Machine(scratch, reruns=[1, 1]), directory)
-    passing = _run(scratch, _Machine(scratch, reruns=[], passing=True), directory)
+    _run(scratch, BundleMachine(scratch, reruns=[1, 1]), directory)
+    passing = _run(scratch, BundleMachine(scratch, reruns=[], passing=True), directory)
 
     assert passing == (True, "")
     _only(directory)

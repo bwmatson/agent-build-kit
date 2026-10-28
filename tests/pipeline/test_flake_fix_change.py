@@ -38,14 +38,22 @@ TASKS = (
 )
 
 
-def flaked(test: str = TEST, unit: str = "feature/1", **fields: str) -> Flake:
+def flaked(
+    test: str = TEST,
+    unit: str = "feature/1",
+    *,
+    output: str = OUTPUT,
+    change: str = "",
+    directory: str = "",
+) -> Flake:
     return Flake(
         test=test,
         unit=unit,
         command="uv run pytest -n auto -q",
-        output=fields.pop("output", OUTPUT),
+        output=output,
         at=datetime(2026, 3, 1, 9, 30, tzinfo=UTC),
-        **fields,
+        change=change,
+        directory=directory,
     )
 
 

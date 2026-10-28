@@ -39,6 +39,7 @@ from agent_build_kit.config import REST_SPLIT, E2eDimensionValue, E2eSplit, Work
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.model import E2E_LOCK_FILE, Frozen, TestTier
 from agent_build_kit.pipeline import host, spans
+from agent_build_kit.pipeline.failure_record import Evidenced
 from agent_build_kit.pipeline.file_lock import process_alive, wait_for_flock
 from agent_build_kit.pipeline.workspaces import holder_alive
 
@@ -235,7 +236,7 @@ class E2eClassification(Frozen):
     untouched: list[TestFailure] = Field(default_factory=list)
 
 
-class E2eVerdict(Frozen):
+class E2eVerdict(Evidenced):
     """What a failed run's tests are once the untouched ones have been run on the base:
     the unit's own, broken by the unit's change, or failing on the base too."""
 

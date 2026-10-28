@@ -10,14 +10,22 @@ from agent_build_kit.pipeline.flakes import Flake, FlakeCount, flake_record
 FIRST = datetime(2026, 3, 1, 9, 30, tzinfo=UTC)
 
 
-def flake(test: str = "tests/test_a.py::test_x", *, minutes: int = 0, **fields: str) -> Flake:
+def flake(
+    test: str = "tests/test_a.py::test_x",
+    *,
+    minutes: int = 0,
+    unit: str = "feature/1",
+    command: str = "uv run pytest -n auto -q",
+    output: str = "FAILED tests/test_a.py::test_x - assert 0 == 1\n",
+    change: str = "",
+) -> Flake:
     return Flake(
         test=test,
-        unit=fields.pop("unit", "feature/1"),
-        command=fields.pop("command", "uv run pytest -n auto -q"),
-        output=fields.pop("output", "FAILED tests/test_a.py::test_x - assert 0 == 1\n"),
+        unit=unit,
+        command=command,
+        output=output,
         at=FIRST + timedelta(minutes=minutes),
-        **fields,
+        change=change,
     )
 
 

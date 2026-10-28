@@ -11,8 +11,20 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
+from pydantic import Field
+
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import file_lock
+
+
+class Evidenced(Frozen):
+    """What a record keeps of the run it came from, beside its clipped fields: the bundle of
+    evidence, when the run started, and the conditions it ran under (`load_before`,
+    `load_after`, `rerun_exits`, `rerun_seconds`). A row written without them reads as empty."""
+
+    evidence: str = ""
+    ran_at: datetime | None = None
+    conditions: dict[str, object] = Field(default_factory=dict)
 
 
 class Recorded(Frozen):
@@ -32,7 +44,7 @@ class TestCount(Frozen):
     change: str
 
 
-class Storm(Frozen):
+class Storm(Evidenced):
     """A run whose first pass failed more tests than the limit, all of which passed alone:
     one row in the record, not one entry per test."""
 

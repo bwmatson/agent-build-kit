@@ -17,7 +17,13 @@ from typing import Protocol, runtime_checkable
 from agent_build_kit.config import active, active_root
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import TestTier
-from agent_build_kit.pipeline.failure_record import FailureRecord, Recorded, Storm, TestCount
+from agent_build_kit.pipeline.failure_record import (
+    Evidenced,
+    FailureRecord,
+    Recorded,
+    Storm,
+    TestCount,
+)
 from agent_build_kit.pipeline.file_lock import change_lock, file_lock
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import Unit
@@ -37,7 +43,7 @@ STORM_TESTS = 10
 CAPABILITY = "test-determinism"
 
 
-class Flake(Recorded):
+class Flake(Recorded, Evidenced):
     """One test that failed under load and passed alone."""
 
     command: str
