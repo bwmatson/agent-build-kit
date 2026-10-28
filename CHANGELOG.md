@@ -86,6 +86,7 @@
   A failing test the unit did not write is run on the unit's own base: it stays the unit's
   failure when it passes there, and waits for a fix when it fails there too or fails only by
   its time limit.
+
 - A failing unit-test run now saves a bundle under `runs/test-failures/` holding its whole
   redacted output, the command, times, commits and tool versions, the machine's load and
   memory at the start and end, and the worktree's state before and after (naming test files
