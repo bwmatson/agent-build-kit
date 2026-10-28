@@ -240,6 +240,7 @@ from agent_build_kit.pipeline.review_rates import recorded_gates
 from agent_build_kit.pipeline.run_log import (
     RunLog,
     e2e_output_dir,
+    failure_bundles_dir,
     remove_change_logs,
     remove_old_logs,
     run_log_dir,
@@ -5992,6 +5993,7 @@ def build_stack_moves(
                 projects=repo.projects,
                 repo=repo,
                 log=log,
+                failures_dir=failure_bundles_dir(installation.state_dir),
             )(cwd=cwd, base=base, moved_from=moved_from)
         raise ValueError(f"{cwd} is not a checkout of any repo or a worktree of one")
 

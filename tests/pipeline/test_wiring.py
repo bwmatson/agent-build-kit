@@ -43,7 +43,9 @@ from agent_build_kit.pipeline.wiring import (
     tip,
 )
 from agent_build_kit.profiles.base import ProfileUnsupported
-from agent_build_kit.profiles.python_uv import PythonUvProfile
+from agent_build_kit.profiles.python_uv import UNIT_REPORT_FLAGS, PythonUvProfile
+
+REPORT = UNIT_REPORT_FLAGS
 from tests.conftest import make_installation
 from tests.factories import git, init_repo, unit
 from tests.forges.stand_in import StandInForge, lookup
@@ -504,7 +506,9 @@ def test_tests_run_per_workspace_member_the_unit_touched(tmp_path: Path) -> None
     build_unit_test(run=run, changed=lambda *a: ["shared/tests/test_x.py"])(cwd=repo, base="main")
 
     tested = [c for c, _ in calls if "pytest" in c]
-    assert tested == [["uv", "run", "--package", "shared", "--isolated", "pytest", "shared", "-q"]]
+    assert tested == [
+        ["uv", "run", "--package", "shared", "--isolated", "pytest", "shared", "-q", *REPORT]
+    ]
 
 
 def test_a_root_change_tests_every_member(tmp_path: Path) -> None:
@@ -537,7 +541,9 @@ def test_a_plain_repo_still_runs_pytest_at_the_root(tmp_path: Path) -> None:
 
     build_unit_test(run=run, changed=lambda *a: ["tests/test_x.py"])(cwd=repo, base="main")
 
-    assert [c for c, _ in calls if "pytest" in c] == [["uv", "run", "pytest", "-q"]]
+    assert [c for c, _ in calls if "pytest" in c] == [
+        ["uv", "run", "pytest", "-q", *REPORT]
+    ]
 
 
 def test_whole_repo_mode_lints_and_tests_everything_regardless_of_the_diff(
@@ -691,7 +697,7 @@ def test_a_member_is_named_by_its_package_not_its_directory(tmp_path: Path) -> N
 
     tested = next(c for c in calls if "pytest" in c)
     assert tested[tested.index("--package") + 1] == "app-shared", "the package"
-    assert tested[-2] == "shared", "but the directory is still what pytest collects"
+    assert tested[tested.index("pytest") + 1] == "shared", "the directory is what pytest collects"
 
 
 def test_a_member_with_no_declared_name_falls_back_to_its_directory(tmp_path: Path) -> None:
@@ -1235,6 +1241,7 @@ def test_unit_test_runs_the_repo_root_tests_ci_runs(tmp_path: Path) -> None:
         "pytest",
         "tests",
         "-q",
+        *REPORT,
     ] in commands
 
 

@@ -237,6 +237,17 @@ class RepeatsTests(Protocol):
 
 
 @runtime_checkable
+class ReportsRunFacts(Protocol):
+    """The optional hook a profile adds to say what a test run's own command and output tell of
+    the conditions it ran under, for the evidence kept of a failing run."""
+
+    def run_facts(self, command: list[str], output: str) -> dict[str, object]:
+        """`{"workers": the worker count or None, "versions": {name: version}}` read from the
+        command and the header the runner printed; a key it cannot fill is left out."""
+        ...
+
+
+@runtime_checkable
 class AppliesE2eSelection(Protocol):
     """The optional hooks a profile adds to apply an e2e-test selection: the kinds of selector
     it can apply, the text its test runner takes for a selection, and a listing of the tests

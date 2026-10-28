@@ -61,7 +61,7 @@ from agent_build_kit.forges import FileChange, Forge, RegistersStacks, RepoId, S
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.path_patterns import matches_any
-from agent_build_kit.pipeline import spans
+from agent_build_kit.pipeline import failure_evidence, spans
 from agent_build_kit.pipeline.changelog_convention import review_changelog_paragraph
 from agent_build_kit.pipeline.check_failures import failed_in
 from agent_build_kit.pipeline.check_runner import worktree_at
@@ -147,7 +147,12 @@ from agent_build_kit.pipeline.restack import (
     retried_once,
 )
 from agent_build_kit.pipeline.review_paths import is_protected
-from agent_build_kit.pipeline.run_log import append_e2e_output, e2e_output_dir
+from agent_build_kit.pipeline.run_log import (
+    append_e2e_output,
+    e2e_output_dir,
+    failure_bundles_dir,
+    write_failure_bundle,
+)
 from agent_build_kit.pipeline.scratch import run_folder, selection_seed
 from agent_build_kit.pipeline.shell import changed_files, git, git_out, has_origin, porcelain
 from agent_build_kit.pipeline.stack_runner import FixResult, Restacked, UnitRunner, Worktree
@@ -190,6 +195,7 @@ from agent_build_kit.profiles.base import (
     ProjectChecks,
     RecordsSelectionData,
     RepeatsTests,
+    ReportsRunFacts,
     SelectsAffectedTests,
     ToolchainProfile,
     is_doc_path,
@@ -1310,6 +1316,7 @@ def build_unit_test(
     run = run or _run_limited
     changed = changed or changed_files
     profile = profile or profiles.get("python-uv")
+    clock = now or (lambda: datetime.now(UTC))
     affected = (
         repo.checks.affected if repo is not None and repo.checks.affected.mode != "off" else None
     )
@@ -1565,6 +1572,7 @@ def build_unit_test(
                     else planned
                 )
                 started = spans.clock.monotonic()
+                before = begin_evidence(where, toolchain) if is_test else None
                 result = ran(command, where, toolchain)
                 if command is not planned and _tooling_lost(toolchain, command, result):
                     _say(
@@ -1577,6 +1585,8 @@ def build_unit_test(
                 if is_test:
                     figures.append((spans.clock.monotonic() - started, _counted(toolchain, result)))
                 if not toolchain.tolerates_exit(command, result.returncode):
+                    if before is not None:
+                        save_bundle(before, command, result, where, toolchain, base)
                     if isolate(command, result, where, toolchain, log=log, base=base):
                         continue
                     return False, _failure(command, result, where)
@@ -1585,6 +1595,64 @@ def build_unit_test(
         if not passed or whole_repo:
             return passed, output
         return repeat(cwd, base, ran_tests)
+
+    def begin_evidence(
+        where: Path, toolchain: ToolchainProfile
+    ) -> tuple[datetime, dict[str, object], dict[str, object]] | None:
+        """The start of a test run's evidence: the time, the machine and the worktree. None when
+        no bundles are kept."""
+        if failures_dir is None:
+            return None
+        return (
+            clock(),
+            (machine or failure_evidence.machine_sample)(),
+            failure_evidence.worktree_state(run, where, toolchain),
+        )
+
+    def save_bundle(
+        before: tuple[datetime, dict[str, object], dict[str, object]],
+        command: list[str],
+        result: subprocess.CompletedProcess,
+        where: Path,
+        toolchain: ToolchainProfile,
+        base: str,
+    ) -> None:
+        """Save the failing test run `before` began as a bundle, with its end sampled now."""
+        assert failures_dir is not None
+        started, machine_before, tree_before = before
+        ended = clock()
+        output = f"{result.stdout}\n{result.stderr}".strip()
+        unit, change, _, _ = spans.current_unit.get()
+        facts = (
+            toolchain.run_facts(command, output) if isinstance(toolchain, ReportsRunFacts) else {}
+        )
+        context: dict[str, object] = {
+            "command": shlex.join(command),
+            "started": started.isoformat(),
+            "ended": ended.isoformat(),
+            "seconds": (ended - started).total_seconds(),
+            "unit": unit,
+            "tick": tick,
+            "pid": os.getpid(),
+            "cpus": os.cpu_count(),
+            **failure_evidence.shas(run, where, base),
+            **facts,
+        }
+        write_failure_bundle(
+            failures_dir,
+            unit,
+            change,
+            started,
+            output=output,
+            context=context,
+            machine={
+                "start": machine_before,
+                "end": (machine or failure_evidence.machine_sample)(),
+            },
+            worktree=failure_evidence.worktree_changes(
+                tree_before, failure_evidence.worktree_state(run, where, toolchain)
+            ),
+        )
 
     def root_checks(
         cwd: Path, ran_tests: list[tuple[Path, ToolchainProfile, list[list[str]]]] | None = None
@@ -4256,6 +4324,7 @@ def build_runner(
             projects=repo.projects,
             log=log,
             repo=repo,
+            failures_dir=failure_bundles_dir(installation.state_dir),
         ),
         on_flake=build_on_flake(store, installation, log=log),
         run_e2e=e2e.run,

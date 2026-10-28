@@ -40,7 +40,7 @@ def test_the_scratch_app_tells_the_agent_the_profiles_test_and_lint_commands(
     lint = PROFILE.lint_command_all_files()
     assert shlex.join(test) in text
     assert shlex.join(lint) in text
-    assert shlex.join(test) == "uv run pytest -q"
+    assert shlex.join(test) == "uv run pytest -q --durations=15 --durations-min=3.0 -rfE"
     assert shlex.join(lint) == "uv run pre-commit run --all-files"
 
 

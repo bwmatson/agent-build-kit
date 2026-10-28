@@ -57,9 +57,14 @@ WORKERS = ["-n", "auto", "--maxprocesses=8"]
 SUMMARY_FLAGS = ["-vv", "-rfE", "--tb=short"]
 # Every phase of every test that took a second or more, slowest first, in one section.
 DURATION_FLAGS = ["--durations=0", "--durations-min=1.0"]
+# What a unit-test run adds, so its output holds the slowest tests and a short summary of what
+# failed.
+UNIT_REPORT_FLAGS = ["--durations=15", "--durations-min=3.0", "-rfE"]
 DURATIONS_RULE = re.compile(r"^=+ slowest (?:\d+ )?durations =+\s*$")
 DURATION_ENTRY = re.compile(r"^(\d+(?:\.\d+)?)s +(setup|call|teardown) +(\S.*)$")
 SUMMARY_MARK = "short test summary info"
+# `pytest-8.3.3` as the run's header prints it.
+_NAME_VERSION = re.compile(r"^(?P<name>[A-Za-z][\w.-]*?)-(?P<version>\d[\w.]*)$")
 SUMMARY_ENTRY = re.compile(r"^(?:FAILED|ERROR) (.+?)(?: - (.*))?$")
 # The lock-freshness and environment-freshness commands a path-source draft's check starts with.
 DRIFT_CHECKS = "uv lock --check && uv sync --check"
@@ -191,7 +196,7 @@ def package_name(member: Path) -> str:
 # What an e2e-test run adds to report on itself, not wanted in a listing of what it selects.
 # Verbosity is set absolutely for a listing, so these relative flags must not stack on it.
 _VERBOSITY_FLAGS = frozenset(["-q", "-qq", "-v", "-vv"])
-_REPORT_FLAGS = frozenset([*SUMMARY_FLAGS, *DURATION_FLAGS, *_VERBOSITY_FLAGS])
+_REPORT_FLAGS = frozenset([*SUMMARY_FLAGS, *DURATION_FLAGS, *UNIT_REPORT_FLAGS, *_VERBOSITY_FLAGS])
 # A line of `pytest --markers`: `@pytest.mark.<name>(<args>): <description>`.
 _MARKER_LINE = re.compile(r"@pytest\.mark\.(?P<name>\w+)")
 # Pytest's exit status when the selection holds no test.
@@ -338,6 +343,29 @@ class PythonUvProfile:
         parts = path.split("/")
         return "tests" in parts[:-1] or bool(_TEST_FILE.match(parts[-1]))
 
+    def run_facts(self, command: list[str], output: str) -> dict[str, object]:
+        facts: dict[str, object] = {}
+        program = _pytest_program(command)
+        words = command[program + 1 :] if program is not None else []
+        if "-n" in words[:-1] and words[words.index("-n") + 1].isdigit():
+            facts["workers"] = int(words[words.index("-n") + 1])
+        versions: dict[str, str] = {}
+        for line in output.splitlines():
+            if line.startswith("platform "):
+                for item in line.partition(" -- ")[2].split(", "):
+                    name, _, version = item.strip().partition(" ")
+                    if version:
+                        versions[name] = version
+                    elif match := _NAME_VERSION.match(name):
+                        versions[match["name"]] = match["version"]
+            elif line.startswith("plugins: "):
+                for item in line[len("plugins: ") :].split(", "):
+                    if match := _NAME_VERSION.match(item.strip()):
+                        versions[match["name"]] = match["version"]
+        if versions:
+            facts["versions"] = versions
+        return facts
+
     def collects_path(self, path: str) -> bool:
         return bool(_COLLECTED_FILE.match(path.split("/")[-1]))
 
@@ -456,10 +484,17 @@ class PythonUvProfile:
         runs: a parallel pass, then the tests marked `serial` on their own."""
         command = [*head, "pytest", *target]
         if not parallel:
-            return [[*command, "-q"]]
+            return [[*command, "-q", *UNIT_REPORT_FLAGS]]
         return [
-            [*command, *WORKERS, "-m", _marker_selection(repo, "not serial"), "-q"],
-            [*command, "-m", _marker_selection(repo, "serial"), "-q"],
+            [
+                *command,
+                *WORKERS,
+                "-m",
+                _marker_selection(repo, "not serial"),
+                "-q",
+                *UNIT_REPORT_FLAGS,
+            ],
+            [*command, "-m", _marker_selection(repo, "serial"), "-q", *UNIT_REPORT_FLAGS],
         ]
 
     def tolerates_exit(self, command: list[str], returncode: int) -> bool:
